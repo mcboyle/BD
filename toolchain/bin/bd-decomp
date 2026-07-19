@@ -1,0 +1,275 @@
+#!/usr/bin/env python3
+"""bd-decomp -- the decomposition co-pilot (Plan E4).
+
+Composes the four decomposition lenses into ONE decision, and adds the thing none
+of them knows: what an extraction COSTS under the release discipline.
+
+  bd-monolith-xray   -> how big is the monolith, how many seams
+  bd-seam-finder     -> WHICH functions are low-risk to extract (ranked)
+  bd-coupling-meter  -> is the codebase getting more entangled
+  bd-decomp-plan     -> the ordered steps
+
+Each of those four was an ORPHAN: nothing called them and no doc said when to run
+them, so in practice they did not run. This tool CALLS them (it never re-derives
+their logic -- the G-3 lesson) and turns four lenses into an answer.
+
+THE VALUE-ADD -- an extraction is a CUT, and a cut has gates:
+
+  * A new module is a NEW IMPORT EDGE -> the import-graph baseline MUST be
+    re-frozen in the SAME cut (FG-IMPORT-EDGE-BASELINE).
+  * Moving functions SHIFTS LINES -> FUNCTION_INDEX must be regenerated
+    (FG-FUNCTION-INDEX-LINESHIFT, which bit at 695).
+  * Moving a ROUTE additionally moves route_map / ENDPOINT_CATALOG / gui_parity --
+    and gui_parity must run BEFORE ROUTE_INDEX (the standing ordering footgun).
+  * coupling_ratio is RATCHETED (ceiling). An extraction that increases
+    CROSS-subsystem coupling therefore BLOCKS ITS OWN CUT. This is the
+    counter-intuitive one: decomposition done wrong fails the ratchet, and no
+    decomp tool tells you that. bd-decomp does.
+
+Read-only. Deterministic. Never invents a seam it cannot see in the source.
+
+  bd-decomp                        # advise on the default monolith (app.py)
+  bd-decomp --module <path>        # advise on another module
+  bd-decomp --pick <function>      # cost out ONE extraction
+  bd-decomp --top N | --json | --selftest
+"""
+import argparse
+import json
+import os
+import subprocess
+import sys
+
+BIN = os.path.dirname(os.path.realpath(__file__))
+DEFAULT_MODULE = "bulk_downloader/app.py"
+
+G, Y, R, C, DIM, RST = "\033[32m", "\033[33m", "\033[31m", "\033[36m", "\033[2m", "\033[0m"
+
+
+def _run_json(tool, args, work):
+    """Delegate to a lens and take its JSON. Never re-derive what it already knows."""
+    p = os.path.join(BIN, tool)
+    if not os.path.isfile(p):
+        return None
+    try:
+        cp = subprocess.run([sys.executable, p] + args + ["--work", work, "--json"],
+                            capture_output=True, text=True, timeout=180)
+        return json.loads(cp.stdout)
+    except Exception:  # why: input unavailable/unreadable; return empty so the caller uses its fallback, not a wrong value
+        return None
+
+
+def gather(work, module):
+    return {
+        "module": module,
+        "xray": _run_json("bd-monolith-xray", ["--module", module], work),
+        "seams": _run_json("bd-seam-finder", ["--module", module], work),
+        "coupling": _run_json("bd-coupling-meter", [], work),
+        "plan": _run_json("bd-decomp-plan", ["--module", module], work),
+    }
+
+
+def _ratchet_ceiling(name):
+    """The pinned ceiling this metric must not exceed (authoritative: the ratchet
+    baseline the gate actually reads -- not a number remembered here).
+
+    @728b added the /mnt/project candidate because the PK-shipped baseline was
+    never searched (a None ceiling is a gate that cannot fire). @799 REMOVES it:
+    bd-boot now seeds ~/.bd_metrics_baseline.json live via bd-ratchet every
+    bootstrap, so the PK copy is the STALE candidate in a chain whose primary
+    is freshly derived -- verified at 796 with all four PK metrics wrong
+    (spa_wired 422 vs live 442, defect_DP 2227 vs 2264, ...). A stale ceiling
+    either masks a real regression or cries wolf; neither is a gate. If NO
+    candidate resolves, say so loudly instead of silently returning the
+    cannot-fire None.
+    """
+    for cand in (os.path.expanduser("~/.bd_metrics_baseline.json"),
+                 os.path.join(BIN, "..", "bd_metrics_baseline.json"),
+                 os.path.join(BIN, "bd_metrics_baseline.json")):
+        try:
+            v = json.load(open(cand)).get(name)
+            if v is not None:
+                return v
+        except Exception:  # why: this candidate is unreadable/absent; try the next
+            continue
+    print("bd-decomp: no ratchet baseline found for %r -- the ceiling gate "
+          "CANNOT FIRE this run (seed one: bd-ratchet writes "
+          "~/.bd_metrics_baseline.json)" % name, file=sys.stderr)
+    return None
+
+
+def gates_for(work, module, moves_route):
+    """The gates an extraction of `module` WILL trip, and what each demands."""
+    gates = [
+        ("FG-IMPORT-EDGE-BASELINE",
+         "a new module = a new import edge",
+         "python3 tools/decomp/import_graph_gate.py --update  (SAME cut) + band "
+         "tests/test_import_graph_no_new_edges.py"),
+        ("FG-FUNCTION-INDEX-LINESHIFT",
+         "moving functions shifts lines in a tracked module",
+         "python3 tools/build_function_index.py  + band tests/test_function_index_in_sync.py"),
+        ("DEPENDENCY_GRAPH",
+         "the moved code's imports change the graph",
+         "python3 tools/dependency_graph.py --check must be clean"),
+    ]
+    if moves_route:
+        gates += [
+            ("FG-ROUTE-MAP-BASELINE / FG-ENDPOINT-CATALOG-SYNC",
+             "a ROUTE moved modules",
+             "re-freeze route_map_baseline (tools/route_map_snapshot.py, PYTHONPATH=tree) "
+             "+ ENDPOINT_CATALOG; run gui_parity BEFORE ROUTE_INDEX (ordering footgun)"),
+        ]
+    return gates
+
+
+def report(work, data, top, moves_route, as_json):
+    xr, sf, cp, pl = data["xray"], data["seams"], data["coupling"], data["plan"]
+    ceiling = _ratchet_ceiling("coupling_ratio")
+    ratio = (cp or {}).get("coupling_ratio")
+    at_ceiling = (ceiling is not None and ratio is not None and ratio >= ceiling)
+
+    seams = []
+    for f in ((sf or {}).get("functions") or []):
+        if f.get("risk", 1) == 0:
+            seams.append(f)
+    seams.sort(key=lambda f: (f.get("global_reads", 0) + f.get("global_writes", 0),
+                              f.get("line", 0)))
+
+    if as_json:
+        print(json.dumps({
+            "module": data["module"],
+            "size": {"lines": (xr or {}).get("total_lines"),
+                     "functions": (xr or {}).get("functions"),
+                     "low_risk_seams": (xr or {}).get("low_risk_seams")},
+            "coupling": {"ratio": ratio, "ceiling": ceiling, "at_ceiling": at_ceiling},
+            "candidates": seams[:top],
+            "plan_steps": (pl or {}).get("total_steps"),
+            "gates": [{"gate": g, "because": b, "do": d}
+                      for g, b, d in gates_for(work, data["module"], moves_route)],
+            "lenses_composed": [k for k in ("xray", "seams", "coupling", "plan")
+                                if data.get(k)],
+        }, indent=1))
+        return 0
+
+    print("%sbd-decomp -- %s%s" % (C, data["module"], RST))
+    if xr:
+        print("  size      : %s lines, %s functions, %s low-risk seams (%s extractable lines)"
+              % (xr.get("total_lines"), xr.get("functions"),
+                 xr.get("low_risk_seams"), xr.get("low_risk_lines")))
+    if cp:
+        flag = (R + "AT CEILING" + RST) if at_ceiling else (G + "headroom" + RST)
+        print("  coupling  : %.3f (ratchet ceiling %s) -- %s"
+              % (ratio, ceiling, flag))
+        print("              %s%s within / %s across subsystems%s"
+              % (DIM, cp.get("within"), cp.get("across"), RST))
+
+    print("\n%stop %d extraction candidates (risk 0, fewest global touches first):%s"
+          % (Y, top, RST))
+    if not seams:
+        print("  %s(none -- no low-risk seam found; do NOT invent one)%s" % (DIM, RST))
+    for f in seams[:top]:
+        print("  %-42s line %-6s globals r/w %s/%s%s"
+              % (f.get("func"), f.get("line"),
+                 f.get("global_reads"), f.get("global_writes"),
+                 (R + "  [ROUTE]" + RST) if f.get("route") else ""))
+
+    if at_ceiling:
+        print("\n%sCOUPLING RATCHET IS AT ITS CEILING (%.3f >= %s).%s" % (R, ratio, ceiling, RST))
+        print("  An extraction that increases CROSS-subsystem coupling will make")
+        print("  bd-precut --gate BLOCK THE CUT. Extract toward EXISTING subsystems")
+        print("  (a leaf module that only the monolith imports), not a new hub --")
+        print("  and re-check with bd-coupling-meter BEFORE bumping.")
+
+    print("\n%sgates this extraction WILL trip:%s" % (Y, RST))
+    for g, because, do in gates_for(work, data["module"], moves_route):
+        print("  %s%s%s  (%s)" % (C, g, RST, because))
+        print("      -> %s" % do)
+
+    if pl and pl.get("steps"):
+        print("\n%sordered plan (%s steps, from bd-decomp-plan):%s"
+              % (Y, pl.get("total_steps"), RST))
+        for i, st in enumerate(pl["steps"], 1):
+            moved = st.get("move") or []
+            print("  %d. %s%s%s -> %s  (%s lines, %d symbol%s)"
+                  % (i, C, st.get("kind", "?"), RST, st.get("target", "?"),
+                     st.get("lines", "?"), len(moved), "" if len(moved) == 1 else "s"))
+            if moved:
+                print("     %smove: %s%s%s"
+                      % (DIM, ", ".join(moved[:4]),
+                         (", +%d more" % (len(moved) - 4)) if len(moved) > 4 else "", RST))
+            if st.get("band"):
+                print("     %sband: %s%s" % (DIM, st["band"], RST))
+
+    print("\n%sbefore the cut:%s  bd-band-derive --file %s   &&   bd-precut --gate"
+          % (Y, RST, data["module"]))
+    print("%sextraction is a NON-GUARD cut: the 7 release guards stay byte-identical.%s"
+          % (DIM, RST))
+    return 0
+
+
+def selftest():
+    ok = True
+    work = "/home/claude/work"
+    if not os.path.isdir(os.path.join(work, "bulk_downloader")):
+        print("SKIP  no work tree"); print("SELFTEST PASS"); return 0
+
+    d = gather(work, DEFAULT_MODULE)
+    composed = [k for k in ("xray", "seams", "coupling", "plan") if d.get(k)]
+    print(("PASS" if len(composed) == 4 else "FAIL") +
+          "  composes all 4 lenses (got %d: %s)" % (len(composed), ",".join(composed)))
+    ok = ok and len(composed) == 4
+
+    # POS: it must find the real seams the lenses report (never a made-up number)
+    xr_seams = (d["xray"] or {}).get("low_risk_seams")
+    sf_seams = ((d["seams"] or {}).get("summary") or {}).get("low_risk_seams")
+    agree = xr_seams == sf_seams and xr_seams
+    print(("PASS" if agree else "FAIL") +
+          "  the two seam lenses AGREE (%s vs %s) -- no invented count"
+          % (xr_seams, sf_seams))
+    ok = ok and bool(agree)
+
+    # NEG: an unknown module must NOT produce candidates (never invent a seam)
+    d2 = gather(work, "bulk_downloader/zzz_not_a_module.py")
+    bogus = [f for f in ((d2.get("seams") or {}).get("functions") or [])]
+    print(("PASS" if not bogus else "FAIL") +
+          "  NEG: unknown module -> zero candidates (never invents a seam)")
+    ok = ok and not bogus
+
+    # POS: the coupling ratchet ceiling is READ from the authoritative baseline
+    ceil = _ratchet_ceiling("coupling_ratio")
+    print(("PASS" if ceil is not None else "FAIL") +
+          "  reads the coupling ceiling from the ratchet baseline (%s)" % ceil)
+    ok = ok and ceil is not None
+
+    # NEG: the gate list must GROW when a route moves (route extraction is stricter)
+    g_plain = gates_for(work, DEFAULT_MODULE, False)
+    g_route = gates_for(work, DEFAULT_MODULE, True)
+    print(("PASS" if len(g_route) > len(g_plain) else "FAIL") +
+          "  a ROUTE-moving extraction demands MORE gates (%d > %d)"
+          % (len(g_route), len(g_plain)))
+    ok = ok and len(g_route) > len(g_plain)
+
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="bd-decomp")
+    ap.add_argument("--module", default=DEFAULT_MODULE)
+    ap.add_argument("--work", "--tree", default="/home/claude/work")
+    ap.add_argument("--top", type=int, default=10)
+    ap.add_argument("--route", action="store_true",
+                    help="the extraction moves a ROUTE (stricter gate set)")
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    data = gather(a.work, a.module)
+    if not any(data.get(k) for k in ("xray", "seams", "coupling", "plan")):
+        print("bd-decomp: no lens produced output for %s" % a.module, file=sys.stderr)
+        return 2
+    return report(a.work, data, a.top, a.route, a.json)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

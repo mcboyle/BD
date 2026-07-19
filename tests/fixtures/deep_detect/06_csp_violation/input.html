@@ -1,0 +1,9 @@
+<html><head>
+<meta http-equiv="Content-Security-Policy"
+      content="media-src 'self' https://cdn.allowed.test">
+</head><body>
+<video><source src="https://cdn.allowed.test/good_1080p.mp4"
+        type="video/mp4"></video>
+<video><source src="https://evil.test/bad_1080p.mp4"
+        type="video/mp4"></video>
+</body></html>

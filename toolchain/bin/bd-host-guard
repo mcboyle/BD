@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""bd-host-guard -- the SSRF-REM triage matrix: sinks x guard x destination risk.
+
+For every outbound-fetch file (bd-ssrf's sink + guard definitions, via
+bdtools_sec), classifies any literal URL destinations with bd-url-classify's
+rules, checks for write-route exposure and a VPN/proxy gate, and ranks
+unguarded-high-risk first. Turns the SSRF-REM tail into a worklist. Read-only.
+
+Usage: bd-host-guard [--work DIR] [--json] [--only unguarded] [--selftest]
+Exit 0 (advisory).
+"""
+import argparse
+import os
+import re
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+URL_LIT = re.compile(r'https?://[^\s"\')<>]+')
+WRITE_ROUTE = re.compile(r'methods\s*=\s*\[[^\]]*["\'](?:POST|PUT|DELETE|PATCH)'
+                         r'|@\w+\.(?:post|put|delete|patch)\b')
+VPN_GATE = re.compile(r'vpn_required|proxy_url|proxies\s*=|ProxyHandler|via_proxy')
+
+
+def dest_risk(text):
+    """Worst classification among literal URLs in the file ('dynamic' if none)."""
+    worst, worst_score, urls = None, -1, []
+    for m in URL_LIT.finditer(text):
+        r = sec.classify_url(m.group(0))
+        urls.append({"url": m.group(0)[:80], "classification": r["classification"],
+                     "verdict": r["verdict"]})
+        score = sec.RISK_ORDER.get(r["classification"], 2)
+        if score > worst_score:
+            worst, worst_score = r["classification"], score
+    if worst is None:  # no literal URLs: destination is runtime-derived
+        worst, worst_score = "dynamic", sec.RISK_ORDER["dynamic"]
+    return worst, worst_score, urls[:10]
+
+
+def build_matrix(work):
+    rows = []
+    for r in sec.enumerate_fetch_sinks(work, strict=True, label="--work/--tree"):
+        risk, score, urls = dest_risk(r["text"])
+        rows.append({
+            "file": r["rel"], "fetches": len(r["fetches"]),
+            "guarded": r["guarded"],
+            "dest_risk": risk, "risk_score": score,
+            "is_write_route": bool(WRITE_ROUTE.search(r["text"])),
+            "has_vpn_gate": bool(VPN_GATE.search(r["text"])),
+            "literal_urls": urls,
+        })
+    # unguarded first, then highest destination risk, then most fetches
+    rows.sort(key=lambda x: (x["guarded"], -x["risk_score"], -x["fetches"]))
+    return rows
+
+
+def selftest():
+    ok = True
+    # 1. consistency: guarded/unguarded counts must match an independent
+    #    re-derivation using bd-ssrf's own regex definitions (parity guard).
+    import glob
+    work = sec.DEFAULT_WORK
+    ssrf_files = ssrf_guarded = 0
+    FETCH = re.compile(r'\b(requests\.(?:get|post|head)|httpx\.(?:get|post|head|Client)'
+                       r'|urlopen|\.fetch\(|http_probe|deep_detect)\b')
+    GUARD = re.compile(r'is_private_ip|is_internal|metadata|169\.254|127\.0\.0\.1'
+                       r'|ssrf|_block_|allowlist|is_public_url|validate_url')
+    for f in glob.glob(os.path.join(work, "bulk_downloader", "**", "*.py"), recursive=True):
+        try:
+            txt = open(f, errors="ignore").read()
+        except Exception:  # why: this item is unreadable/unparseable; skip it, the loop continues over the rest
+            continue
+        if any(FETCH.search(l) for l in txt.splitlines()):
+            ssrf_files += 1
+            ssrf_guarded += bool(GUARD.search(txt))
+    rows = build_matrix(work)
+    hg_files, hg_guarded = len(rows), sum(1 for x in rows if x["guarded"])
+    good = (hg_files, hg_guarded) == (ssrf_files, ssrf_guarded)
+    print(("PASS" if good else "FAIL") +
+          f"  guarded-count parity with bd-ssrf (host-guard {hg_guarded}/{hg_files}"
+          f" vs ssrf {ssrf_guarded}/{ssrf_files})")
+    ok &= good
+    # 2. fixture: one metadata-bound unguarded sink must rank first
+    with tempfile.TemporaryDirectory() as d:
+        b = os.path.join(d, "bulk_downloader")
+        os.makedirs(b)
+        # NB: the IPv4 metadata IP / the word 'metadata' would trip bd-ssrf's
+        # guard lexicon (its in-file heuristic) -- use the IPv6 metadata addr.
+        open(os.path.join(b, "meta.py"), "w").write(
+            "import requests\n"
+            "def f():\n"
+            "    return requests.get('http://[fd00:ec2::254]/latest')\n")
+        open(os.path.join(b, "pub.py"), "w").write(
+            "import requests\n"
+            "def f():\n"
+            "    return requests.get('https://example.com/api')\n")
+        open(os.path.join(b, "safe.py"), "w").write(
+            "import requests\n"
+            "from .net import is_public_url  # ssrf allowlist guard\n"
+            "def f(u):\n"
+            "    assert is_public_url(u)\n"
+            "    return requests.get(u)\n")
+        fx = build_matrix(d)
+    top = fx[0]
+    good = (os.path.basename(top["file"]) == "meta.py" and not top["guarded"]
+            and top["dest_risk"] == "metadata")
+    print(("PASS" if good else "FAIL") +
+          f"  fixture ranking: metadata-unguarded first (top={top['file']}"
+          f"/{top['dest_risk']}/guarded={top['guarded']})")
+    ok &= good
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--only", choices=["unguarded"], default=None)
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+
+    rows = build_matrix(a.work)
+    if a.only == "unguarded":
+        rows = [x for x in rows if not x["guarded"]]
+    unguarded = sum(1 for x in rows if not x["guarded"])
+    if sec.emit({"matrix": rows, "summary": {"files": len(rows),
+                 "unguarded": unguarded}}, as_json=a.json):
+        return 0
+
+    print("sink x guard x destination-risk matrix (worst first):")
+    for x in rows[:40]:
+        gtag = (G + "guard   " + RST) if x["guarded"] else (R + "NO GUARD" + RST)
+        w = Y + " write-route" + RST if x["is_write_route"] else ""
+        v = DIM + " vpn-gate" + RST if x["has_vpn_gate"] else ""
+        print(f"  {gtag}  {x['dest_risk']:<16} {x['file']} "
+              f"{DIM}({x['fetches']} fetch){RST}{w}{v}")
+    print(f"{DIM}{len(rows)} files; {unguarded} unguarded -- rank = worst destination risk first{RST}")
+    return 0
+
+
+sys.exit(main())

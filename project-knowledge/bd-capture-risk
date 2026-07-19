@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""bd-capture-risk -- flag risky capture artifacts.
+
+Scans capture artifact files (WACZ zips, .har, capture .json, screenshots dir
+listings) for risk residue: embedded secrets (via scrub-proof), auth headers/
+cookies, private/internal URLs, and challenge/captcha residue (turnstile,
+recaptcha, cf_clearance). Emits a per-artifact risk list so nothing risky is
+shared or promoted to a template unscrubbed. Reuses bd-scrub-proof. Read-only.
+
+Usage: bd-capture-risk ARTIFACT... [--json] [--selftest]
+       bd-capture-risk --dir DIR [--json]
+Exit 1 if any artifact is risky, else 0.
+"""
+import argparse, glob, os, re, sys, zipfile
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+
+import importlib.util, importlib.machinery
+def _load_tool(tool):
+    p=os.path.join(os.path.dirname(os.path.realpath(__file__)),tool)
+    modname=tool.replace("-","_")
+    spec=importlib.util.spec_from_loader(modname,importlib.machinery.SourceFileLoader(modname,p))
+    m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); return m
+
+_sp=_load_tool("bd-scrub-proof")
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+CHALLENGE=re.compile(r'(?i)turnstile|recaptcha|cf_clearance|hcaptcha|__cf_bm|challenge-platform')
+AUTH=re.compile(r'(?i)set-cookie|authorization:|x-csrf-token|bearer ')
+PRIVATE=re.compile(r'\b(?:10\.\d+\.\d+\.\d+|127\.0\.0\.1|192\.168\.\d+\.\d+|localhost:\d+)\b')
+
+def risk(artifact):
+    proof=_sp.prove(artifact)
+    r={"artifact":artifact,"secrets":proof.get("total_secrets",0),"challenge":False,"auth":False,"private_url":False}
+    texts=[]
+    if zipfile.is_zipfile(artifact):
+        with zipfile.ZipFile(artifact) as z:
+            for n in z.namelist()[:200]:
+                if n.endswith(("/",".png",".jpg",".webp",".woff",".woff2")): continue
+                try: texts.append(z.read(n).decode("utf-8","ignore")[:200000])
+                # why: handled failure is non-fatal; proceed with the value left unset
+                except Exception: pass
+    elif os.path.isfile(artifact):
+        texts.append(open(artifact,errors="ignore").read()[:500000])
+    blob="\n".join(texts)
+    r["challenge"]=bool(CHALLENGE.search(blob)); r["auth"]=bool(AUTH.search(blob)); r["private_url"]=bool(PRIVATE.search(blob))
+    r["risky"]=r["secrets"]>0 or r["challenge"] or r["auth"] or r["private_url"]
+    return r
+
+def selftest():
+    ok=True
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        risky=os.path.join(d,"cap.json"); open(risky,"w").write('{"h":"authorization: Bearer abcdef0123456789ABCDEF","c":"turnstile-token"}')
+        clean=os.path.join(d,"ok.json"); open(clean,"w").write('{"title":"a normal page"}')
+        r1=risk(risky); r2=risk(clean)
+    print(("PASS" if r1["risky"] and r1["challenge"] and r1["auth"] else "FAIL")+"  risky capture flagged (secrets/auth/challenge): %s"%{k:r1[k] for k in ("secrets","auth","challenge")})
+    ok=ok and r1["risky"]
+    print(("PASS" if not r2["risky"] else "FAIL")+"  clean capture not flagged")
+    ok=ok and not r2["risky"]
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("artifacts",nargs="*"); ap.add_argument("--dir",default=None)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    files=list(a.artifacts)
+    if a.dir:
+        for ext in ("*.wacz","*.har","*.json"): files+=glob.glob(os.path.join(a.dir,"**",ext),recursive=True)
+    if not files: print(R+"ARTIFACT... or --dir required"+RST); return 1
+    rows=[risk(f) for f in files if os.path.exists(f)]
+    risky=[r for r in rows if r["risky"]]
+    if sec.emit({"artifacts":rows,"summary":{"checked":len(rows),"risky":len(risky)}},as_json=a.json): return 1 if risky else 0
+    print("%d artifact(s) checked; %d risky"%(len(rows),len(risky)))
+    for r in rows:
+        if not r["risky"]: continue
+        tags=[k for k in ("secrets","challenge","auth","private_url") if r[k]]
+        print("  %sRISKY%s %s  %s%s%s"%(R,RST,os.path.basename(r["artifact"]),DIM,",".join(str(t) for t in tags),RST))
+    if not risky: print(G+"no risky capture artifacts"+RST)
+    return 1 if risky else 0
+sys.exit(main())

@@ -1,0 +1,4 @@
+{
+  "description": "Single Wistia embed (wistia_async_<id> div + medias/<id> link). Tests extract_provider_embeds detection and the post-v3.66.17 wistia provider_embeds candidate shape. Resolution is NOT exercised by dd-replay (resolve_providers defaults to False); the resolver itself is unit-tested separately in test_v3_66_17_phase4_wistia_and_cache.py with an injected http_get. Mirrors the 07_vimeo_embed fixture structure.",
+  "base_url": "https://help.example.test/articles/widget-setup"
+}

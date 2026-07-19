@@ -1,0 +1,171 @@
+#!/usr/bin/env python3
+"""bd-node-plugin-check -- validate the Node plugin runtime (Batch B GH-2).
+
+Probes the REAL node runtime (capability, not flag): resolves the node binary
+the app would use (BD_PLUGINS_NODE_BIN > config node_bin > "node"), reads its
+version, then runs the app's own plugin lifecycle contract against a generated
+fixture plugin -- `node <file> --manifest` must print one JSON line with
+api_version/kind/name, and `node <file> <event>` must round-trip a JSON payload
+on stdin->stdout. Confirms the tree's plugin_node.probe_manifest agrees. An
+absent node runtime is a clean skip, never a crash. Read-only (uses a temp
+fixture; touches nothing in the tree).
+
+Usage: bd-node-plugin-check [--work DIR] [--node BIN] [--json] [--selftest]
+Exit 0 if node present + lifecycle round-trips, else 1.
+"""
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+FIXTURE_PLUGIN = r'''
+// bd-node-plugin-check fixture: honors the plugin_node contract.
+const args = process.argv.slice(2);
+if (args[0] === "--manifest") {
+  process.stdout.write(JSON.stringify(
+    {api_version: 1, kind: "event", name: "bd_selftest_fixture", event: "test"}) + "\n");
+  process.exit(0);
+}
+// event mode: read JSON payload on stdin, echo it back with a marker
+let buf = "";
+process.stdin.on("data", d => buf += d);
+process.stdin.on("end", () => {
+  let payload = {};
+  try { payload = JSON.parse(buf || "{}"); } catch (e) {}
+  process.stdout.write(JSON.stringify({ok: true, echo: payload, event: args[0]}) + "\n");
+});
+'''
+
+
+def resolve_node(explicit, work):
+    if explicit:
+        return explicit
+    env = os.environ.get("BD_PLUGINS_NODE_BIN", "").strip()
+    if env:
+        return env
+    return "node"
+
+
+def probe(node_bin, work):
+    out = {"node_bin": node_bin, "path": shutil.which(node_bin),
+           "available": False, "version": None,
+           "manifest_ok": False, "event_ok": False,
+           "tree_probe_agrees": None, "error": None}
+    path = out["path"]
+    if not path:
+        out["error"] = f"node runtime not found ({node_bin!r}) -- clean skip"
+        return out
+    out["available"] = True
+    try:
+        v = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=15)
+        out["version"] = v.stdout.strip() or None
+    except Exception as e:
+        out["error"] = f"version probe failed: {e}"
+        return out
+    with tempfile.TemporaryDirectory() as d:
+        fp = os.path.join(d, "fixture_plugin.js")
+        open(fp, "w").write(FIXTURE_PLUGIN)
+        # 1. manifest contract
+        try:
+            m = subprocess.run([path, fp, "--manifest"], capture_output=True,
+                               text=True, timeout=15)
+            man = json.loads(m.stdout.strip().splitlines()[-1])
+            out["manifest_ok"] = isinstance(man, dict) and "api_version" in man and "name" in man
+        except Exception as e:
+            out["error"] = f"manifest contract failed: {e}"
+        # 2. event round-trip
+        try:
+            payload = {"site_id": "x", "n": 42}
+            e = subprocess.run([path, fp, "fire"], input=json.dumps(payload),
+                               capture_output=True, text=True, timeout=15)
+            res = json.loads(e.stdout.strip().splitlines()[-1])
+            out["event_ok"] = res.get("ok") is True and res.get("echo") == payload
+        except Exception as ex:
+            out["error"] = f"event round-trip failed: {ex}"
+        # 3. does the tree's own probe_manifest agree?
+        out["tree_probe_agrees"] = _tree_probe_agrees(work, fp)
+    return out
+
+
+def _tree_probe_agrees(work, fixture):
+    """Load plugin_node.probe_manifest and confirm it parses the same fixture."""
+    p = os.path.join(work, "bulk_downloader", "plugin_node.py")
+    if not os.path.exists(p):
+        return None
+    try:
+        import importlib.util
+        import types
+        for extra in (work, "/tmp/prestaged_site_packages"):
+            if extra not in sys.path:
+                sys.path.insert(0, extra)
+        pkg = types.ModuleType("bulk_downloader")
+        pkg.__path__ = [os.path.join(work, "bulk_downloader")]
+        sys.modules.setdefault("bulk_downloader", pkg)
+        spec = importlib.util.spec_from_file_location("bulk_downloader.plugin_node", p)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["bulk_downloader.plugin_node"] = mod
+        spec.loader.exec_module(mod)
+        from pathlib import Path
+        man, err = mod.probe_manifest(Path(fixture))
+        return bool(man) and man.get("name") == "bd_selftest_fixture"
+    except Exception:  # why: input unavailable/unreadable; return empty so the caller uses its fallback, not a wrong value
+        return None
+
+
+def selftest():
+    ok = True
+    node = resolve_node(None, sec.DEFAULT_WORK)
+    res = probe(node, sec.DEFAULT_WORK)
+    if not res["available"]:
+        print(f"WARN  node runtime absent -- clean skip ({res['error']})")
+        print("SELFTEST PASS (node absent, skip is correct)")
+        return 0
+    print(("PASS" if res["version"] else "FAIL") + f"  node available (v={res['version']})")
+    ok &= bool(res["version"])
+    print(("PASS" if res["manifest_ok"] else "FAIL") + "  --manifest contract round-trips")
+    ok &= res["manifest_ok"]
+    print(("PASS" if res["event_ok"] else "FAIL") + "  event JSON payload round-trips")
+    ok &= res["event_ok"]
+    agree = res["tree_probe_agrees"]
+    print(("PASS" if agree else "WARN") +
+          f"  tree plugin_node.probe_manifest agrees ({agree})")
+    ok &= (agree is not False)
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
+    ap.add_argument("--node", default=None)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    sec.require_source_tree(a.work)
+    res = probe(resolve_node(a.node, a.work), a.work)
+    good = res["available"] and res["manifest_ok"] and res["event_ok"]
+    if sec.emit(res, as_json=a.json):
+        return 0 if good else 1
+    if not res["available"]:
+        print(f"{Y}node runtime not available{RST}: {res['error']}")
+        return 1
+    print(f"{G}node available{RST}: {res['path']}  {DIM}{res['version']}{RST}")
+    print(f"  --manifest contract: {(G+'ok'+RST) if res['manifest_ok'] else (R+'FAIL'+RST)}")
+    print(f"  event round-trip:    {(G+'ok'+RST) if res['event_ok'] else (R+'FAIL'+RST)}")
+    print(f"  tree probe agrees:   {res['tree_probe_agrees']}")
+    if res["error"]:
+        print(f"  {DIM}{res['error']}{RST}")
+    return 0 if good else 1
+
+
+sys.exit(main())

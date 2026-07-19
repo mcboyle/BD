@@ -1,0 +1,23 @@
+# Bulk Downloader — Build/dev dependencies
+# Install: pip install -r requirements-dev.txt
+# Used for building the Windows .exe AND running the test suite — not needed to run the app
+
+-r requirements.txt
+pyinstaller>=6.0,<7.0
+
+# v3.66.793 (MOD-7 adopt): Nuitka packaging path. Evaluated on the build host
+# against pyinstaller -- Nuitka onefile (trimmed) won on both size and startup
+# (117.6 MB / 3.08s vs pyinstaller onefile 148.3 MB / 4.31s) and compiles the
+# source to C (tamper/IP resistance pyinstaller's bundled .pyc cannot give).
+# Build tool only -- NOT a runtime import. Drives tools/build_nuitka.py from the
+# shared tools/packaging_config.py. Needs a C compiler (gcc) + patchelf for
+# --standalone/--onefile on Linux; zstandard powers onefile payload compression.
+# Pinned 4.x (the evaluated line was 4.1.3). See tools/nuitka_eval.runbook().
+nuitka>=4.0,<5.0
+zstandard>=0.22,<1.0
+
+# Phase 33: test suite. Run via:
+#   pytest tests/                     # all tests
+#   pytest tests/test_validators.py   # specific file
+#   pytest tests/ -v -x               # verbose, stop on first failure
+pytest>=7.0,<9.0

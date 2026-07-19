@@ -1,0 +1,339 @@
+#!/usr/bin/env python3
+"""bd-evidence -- one entry point for release evidence (Plan C-C2).
+
+NINE tools each assembled their own release-confidence/proof/attestation bundle,
+and each RE-DERIVED the same facts: `version` was computed independently by SIX of
+them, `chain_root` by three, `trust_score` by three, `changed_files` by three. That
+is not nine capabilities -- it is one capability, fragmented nine ways, with nine
+chances to disagree.
+
+  bd-proof-ledger        the proof record
+  bd-evidence-chain      the tamper-evident artifact manifest
+  bd-evidence-pack       the packaged validation evidence
+  bd-review-pack         the review bundle
+  bd-release-attestation the attestation
+  bd-trust-score         release confidence 0-100
+  bd-deploy-proof        did the deploy actually land
+  bd-release-note        the notes
+  bd-agent-scorecard     session quality
+
+This tool DELEGATES to all nine (it never re-derives what they already compute --
+the G-3 lesson that bit bd-envscan) and adds the capability that only exists once
+they are composed:
+
+  *** CROSS-VIEW CONSISTENCY ***  If two independent views disagree about the SAME
+  fact -- one says version 3.66.701 and another says 702, or two chain_roots differ
+  -- that is drift, and today NOTHING catches it, because each tool is run alone and
+  believes itself. `bd-evidence verify` compares the views against each other and
+  FAILS on disagreement. A bundle whose own parts contradict each other is not
+  evidence; it is a story.
+
+  bd-evidence               # assemble the full bundle (all nine views)
+  bd-evidence verify        # cross-view consistency -- exit 3 on disagreement
+  bd-evidence <view>        # one view: ledger|chain|pack|review|attest|score|
+                            #           deploy|notes|scorecard
+  bd-evidence --json | --selftest
+"""
+import argparse
+import json
+import os
+import subprocess
+import sys
+
+BIN = os.path.dirname(os.path.realpath(__file__))
+G, Y, R, C, DIM, RST = "\033[32m", "\033[33m", "\033[31m", "\033[36m", "\033[2m", "\033[0m"
+
+# view -> the authoritative tool that produces it. One source per view; no re-derivation.
+VIEWS = {
+    "ledger":    "bd-proof-ledger",
+    "chain":     "bd-evidence-chain",
+    "pack":      "bd-evidence-pack",
+    "review":    "bd-review-pack",
+    "attest":    "bd-release-attestation",
+    "score":     "bd-trust-score",
+    "deploy":    "bd-deploy-proof",
+    "notes":     "bd-release-note",
+    "scorecard": "bd-agent-scorecard",
+}
+
+# Facts that MORE THAN ONE view reports -> exactly the places they can disagree.
+# A key is a SHARED FACT only if declared here. It was a bare tuple, so any key
+# spelled the same was cross-compared -- and THREE views emit "score" meaning three
+# different things (release confidence / session quality / code risk). The suite was
+# not merely at risk of a false DIFFER; it printed a false AGREE -- "[agree] score
+# 100 (score, scorecard)" -- corroborating two unrelated numbers because they
+# coincided. A cross-check whose notion of "the same fact" admits things that are
+# not the same fact confirms nothing.
+#   None  = OPEN: any view reporting this key speaks to the same fact (so a NEW view
+#           that contradicts the others is still caught -- pinning an allowlist of
+#           view names looks tighter but silently excuses any producer not on it, and
+#           a disagreement you refuse to look at is not an agreement).
+#   tuple = CLOSED to those views.
+#   ABSENT= producer-scoped, never cross-compared. "score" lives here by omission.
+SHARED_FACTS = {"version": None, "chain_root": None, "trust_score": None}
+
+# Keys deliberately reused across views with DIFFERENT meanings (same name != same fact).
+# Declared so the completeness check does not mistake a known collision for a gap.
+PRODUCER_SCOPED = {"score"}  # release-confidence / session-quality / code-risk: 3 distinct facts
+
+
+def fact_id(view, key):
+    """Same name != same fact."""
+    if key in SHARED_FACTS:
+        allowed = SHARED_FACTS[key]
+        if allowed is None or view in allowed:
+            return key
+    return "%s.%s" % (view, key)
+
+
+def _view(name, work, extra=None):
+    tool = os.path.join(BIN, VIEWS[name])
+    if not os.path.isfile(tool):
+        return None
+    # I-3: `except Exception: return None` made a timed-out bd-proof-ledger
+    # indistinguishable from a view with nothing to report, and composers read the
+    # hole as agreement. A view that could not be consulted is UNKNOWN, not consensus.
+    try:
+        cp = subprocess.run([sys.executable, tool] + (extra or []) + ["--json"],
+                            capture_output=True, text=True, timeout=240, cwd=work)
+    except subprocess.TimeoutExpired:
+        return {"__error__": "timeout after 240s"}
+    except OSError as exc:
+        return {"__error__": "could not run: %s" % exc}
+    if not (cp.stdout or "").strip():
+        return {"__error__": "no --json output (rc=%d)" % cp.returncode}
+    try:
+        return json.loads(cp.stdout)
+    except ValueError as exc:
+        return {"__error__": "unparseable --json (rc=%d): %s" % (cp.returncode, exc)}
+
+
+def collect(work, only=None):
+    out = {}
+    for name in (VIEWS if only is None else [only]):
+        out[name] = _view(name, work)
+    return out
+
+
+def cross_check(bundle):
+    """The emergent capability: do the independent views AGREE with each other?
+    Returns {fact: {value: [views...]}} for every fact reported by >1 view."""
+    seen = {}
+    for vname, data in bundle.items():
+        if not isinstance(data, dict) or "__error__" in data:
+            continue          # a view that could not be consulted says nothing
+        for fact in SHARED_FACTS:
+            if fact in data and data[fact] is not None:
+                if fact_id(vname, fact) != fact:
+                    continue  # producer-scoped: not a shared fact, not compared
+                seen.setdefault(fact, {}).setdefault(json.dumps(data[fact]), []).append(vname)
+    # keep only facts that MORE THAN ONE view reported
+    return {f: vals for f, vals in seen.items()
+            if sum(len(v) for v in vals.values()) > 1}
+
+
+
+def source_version(work):
+    """The ONE authoritative version: derived from source, never remembered.
+    (STATE.json is a PIN -- it can be stale; __init__.py is the truth.)"""
+    try:
+        import re as _re
+        t = open(os.path.join(work, "bulk_downloader", "__init__.py")).read()
+        m = _re.search(r'__version__\s*=\s*"([^"]+)"', t)
+        return m.group(1) if m else None
+    except Exception:  # why: input unavailable/unreadable; return empty so the caller uses its fallback, not a wrong value
+        return None
+
+
+def truth_check(bundle, work):
+    """AGREEMENT IS NOT TRUTH. Nine views can agree with each other and all be
+    WRONG together -- which is exactly what happens when every one of them reads
+    the same stale STATE.json instead of deriving from source. (Observed: all 7
+    version-reporting views said 3.66.700 while the source said 3.66.702.) So the
+    consensus is additionally checked AGAINST THE SOURCE."""
+    src = source_version(work)
+    claimed = {}
+    for vname, data in bundle.items():
+        if isinstance(data, dict) and data.get("version"):
+            claimed.setdefault(str(data["version"]), []).append(vname)
+    stale = {v: names for v, names in claimed.items() if src and v != src}
+    return {"source_version": src, "claimed": claimed, "stale": stale}
+
+
+def shared_fact_gaps(bundle):
+    """2+-view common keys that are NEITHER a declared SHARED_FACT nor a declared
+    PRODUCER_SCOPED collision -> UNCLASSIFIED. cross_check() only ever iterates SHARED_FACTS,
+    so an unclassified common key is silently never compared: a blind denominator. This does
+    NOT auto-compare it (that would resurrect the 'score' false-agree) -- it FLAGS it for a
+    curator to declare shared or producer-scoped. (GATE-SOUND-REM @756.)"""
+    keyviews = {}
+    for vname, data in bundle.items():
+        if not isinstance(data, dict) or "__error__" in data:
+            continue
+        for k, val in data.items():
+            if val is None or str(k).startswith("__"):
+                continue
+            keyviews.setdefault(k, set()).add(vname)
+    return {k: sorted(vs) for k, vs in keyviews.items()
+            if len(vs) > 1 and k not in SHARED_FACTS and k not in PRODUCER_SCOPED}
+
+
+def verify(bundle, as_json=False, work="/home/claude/work"):
+    facts = cross_check(bundle)
+    disagreements = {f: v for f, v in facts.items() if len(v) > 1}
+    if as_json:
+        print(json.dumps({"facts": facts, "disagreements": disagreements,
+                          "consistent": not disagreements,
+                          "unclassified_shared_facts": shared_fact_gaps(bundle)}, indent=1))
+        return 3 if disagreements else 0
+    print("%sbd-evidence verify -- cross-view consistency%s" % (C, RST))
+    if not facts:
+        print("  %s(no fact is reported by more than one view -- nothing to cross-check)%s"
+              % (DIM, RST))
+    for fact, vals in sorted(facts.items()):
+        if len(vals) == 1:
+            val, views = next(iter(vals.items()))
+            print("  [%sagree%s ] %-12s %-14s %s(%s)%s"
+                  % (G, RST, fact, val[:14], DIM, ", ".join(views), RST))
+        else:
+            print("  [%sDIFFER%s] %-12s" % (R, RST, fact))
+            for val, views in vals.items():
+                print("       %s  <- %s" % (val[:20], ", ".join(views)))
+    t = truth_check(bundle, work)
+    print("\n%struth check (agreement is NOT truth):%s" % (C, RST))
+    print("  source (bulk_downloader/__init__.py) : %s%s%s" % (G, t["source_version"], RST))
+    for val, names in sorted(t["claimed"].items()):
+        bad = bool(t["source_version"]) and val != t["source_version"]
+        print("  views claim %-12s %s%s%s %s(%s)%s"
+              % (val, R if bad else G, "STALE" if bad else "ok", RST,
+                 DIM, ", ".join(names), RST))
+    if disagreements:
+        print("\n%sBLOCKED -- %d fact(s) DISAGREE across independent views.%s"
+              % (R, len(disagreements), RST))
+        print("  A bundle whose own parts contradict each other is not evidence.")
+        return 3
+    if t["stale"]:
+        n = sum(len(v) for v in t["stale"].values())
+        print("\n%sBLOCKED -- %d view(s) agree with EACH OTHER but disagree with the SOURCE.%s"
+              % (R, n, RST))
+        print("  They are consistently WRONG: every one read the same stale STATE.json")
+        print("  instead of deriving from source. An attestation built from this bundle")
+        print("  would certify the wrong release. Re-pin STATE (bd-handoff) first.")
+        return 3
+    print("\n%sOK -- views agree with each other AND with the source.%s" % (G, RST))
+    return 0
+
+
+def selftest():
+    ok = True
+    work = "/home/claude/work"
+    missing = [t for t in VIEWS.values() if not os.path.isfile(os.path.join(BIN, t))]
+    print(("PASS" if not missing else "FAIL") +
+          "  all 9 delegate tools present (missing=%d)" % len(missing))
+    ok = ok and not missing
+
+    b = collect(work)
+    got = [k for k, v in b.items() if v]
+    print(("PASS" if len(got) >= 7 else "FAIL") +
+          "  composes the views (%d/9 produced output)" % len(got))
+    ok = ok and len(got) >= 7
+
+    # POS: the cross-check finds facts that MULTIPLE views report (the whole point)
+    facts = cross_check(b)
+    print(("PASS" if facts else "FAIL") +
+          "  cross-check finds shared facts across views (%d: %s)"
+          % (len(facts), ",".join(sorted(facts))))
+    ok = ok and bool(facts)
+
+    # NEG CONTROL: inject a disagreeing view -> verify MUST block.
+    poisoned = dict(b)
+    poisoned["__injected__"] = {"version": "0.0.0-IMPOSSIBLE"}
+    bad = {f: v for f, v in cross_check(poisoned).items() if len(v) > 1}
+    print(("PASS" if bad else "FAIL") +
+          "  NEG: an injected contradicting view IS detected (would exit 3)")
+    ok = ok and bool(bad)
+
+    # NEG CONTROL 2: a consistent bundle must NOT be flagged
+    clean = {f: v for f, v in cross_check(b).items() if len(v) > 1}
+    print(("PASS" if not clean else "FAIL") +
+          "  NEG: the real bundle is NOT falsely flagged (%d disagreement(s))" % len(clean))
+    ok = ok and not clean
+
+    # POS: truth_check must READ the source version (not a remembered pin)
+    t = truth_check(b, work)
+    print(("PASS" if t["source_version"] else "FAIL") +
+          "  derives the version from SOURCE, not from STATE (%s)" % t["source_version"])
+    ok = ok and bool(t["source_version"])
+
+    # NEG CONTROL: views that AGREE with each other but differ from source MUST be
+    # caught -- the "consistently wrong" case that cross-view agreement cannot see.
+    fake = {"a": {"version": "0.0.0"}, "b": {"version": "0.0.0"}}
+    ft = truth_check(fake, work)
+    print(("PASS" if ft["stale"] else "FAIL") +
+          "  NEG: unanimous-but-WRONG views are caught (agreement != truth)")
+    ok = ok and bool(ft["stale"])
+
+    # POS: an UNCLASSIFIED fact shared by 2+ views is flagged as a denominator gap
+    gap_bundle = {"v1": {"newfact": 1, "version": "9"}, "v2": {"newfact": 2, "version": "9"}}
+    gaps = shared_fact_gaps(gap_bundle)
+    print(("PASS" if "newfact" in gaps and "version" not in gaps else "FAIL") +
+          "  gap-check flags an unclassified 2+-view common key, not a declared one")
+    ok = ok and ("newfact" in gaps and "version" not in gaps)
+
+    # NEG: a known producer-scoped collision (score) is NOT a gap; a single-view key is NOT
+    scoped_bundle = {"a": {"score": 1, "solo": 7}, "b": {"score": 2}}
+    g2 = shared_fact_gaps(scoped_bundle)
+    print(("PASS" if not g2 else "FAIL") +
+          "  gap-check does NOT flag a declared collision (score) or a single-view key")
+    ok = ok and (not g2)
+
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="bd-evidence")
+    ap.add_argument("view", nargs="?", default="",
+                    help="verify | " + " | ".join(VIEWS))
+    ap.add_argument("--work", "--tree", default="/home/claude/work")
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+
+    if a.view == "verify":
+        return verify(collect(a.work), a.json, a.work)
+
+    if a.view and a.view in VIEWS:
+        d = _view(a.view, a.work)
+        if d is None:
+            print("bd-evidence: %s produced no JSON" % VIEWS[a.view], file=sys.stderr)
+            return 2
+        print(json.dumps(d, indent=1))
+        return 0
+
+    if a.view:
+        print("bd-evidence: unknown view %r (known: verify, %s)"
+              % (a.view, ", ".join(VIEWS)), file=sys.stderr)
+        return 2
+
+    bundle = collect(a.work)
+    if a.json:
+        print(json.dumps({"views": bundle,
+                          "cross_check": cross_check(bundle)}, indent=1))
+        return 0
+    print("%sbd-evidence -- release evidence bundle (9 views, one call)%s" % (C, RST))
+    for name, data in bundle.items():
+        tool = VIEWS[name]
+        if not data:
+            print("  %-10s %s(no output from %s)%s" % (name, DIM, tool, RST))
+            continue
+        keys = ", ".join(list(data)[:5])
+        print("  %-10s %sfrom %-24s%s %s" % (name, DIM, tool, RST, keys))
+    print()
+    return verify(bundle, work=a.work)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

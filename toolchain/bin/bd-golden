@@ -1,0 +1,623 @@
+#!/usr/bin/env python3
+"""bd-golden -- approval testing for the TOOLS: prove a fix changed the guard,
+not the findings.
+
+Every tool in the corpus-guard burn-down gets the same edit: refuse an absent
+corpus, keep scanning a real one identically. The second half is the part that
+can silently break, and the only thing standing behind it today is a human
+eyeballing "139 finding(s), 57 high" before and after. That was done BY HAND for
+two tools this session. It does not survive ninety-nine.
+
+bd-golden snapshots each tool's --json output against a real tree, and diffs it
+on every later run. A guard-fix that changes a finding count, drops a rule, or
+reshapes a payload shows up as DRIFT with the key named -- instead of showing up
+in six months as a detector that quietly stopped detecting.
+
+  --record   snapshot current output as the approved baseline
+  --check    re-run and diff against it (this is the gate)
+
+CANONICALIZATION: output is sorted and volatile fields are dropped (timestamps,
+elapsed times, absolute corpus paths) -- otherwise every run "drifts" and the
+gate gets ignored, which is worse than no gate. Everything else is compared,
+INCLUDING counts and denominators. A tool with no golden is UNKNOWN, never OK:
+an approval test that silently approves whatever it has never seen is not a test.
+
+Usage: bd-golden (--record|--check) [--work DIR] [--golden DIR] [--only T,T]
+                 [--timeout S] [--json] [--selftest]
+Exit 0 = no drift (states how many tools compared); 1 = drift (listed);
+2 = CANNOT-EVALUATE (no golden dir, corpus absent, or nothing runnable).
+"""
+import argparse
+import difflib
+import json
+import os
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
+G, Y, R, DIM, RST = "\033[32m", "\033[33m", "\033[31m", "\033[2m", "\033[0m"
+
+DEFAULT_GOLDEN = "/home/claude/baselines/golden"
+DEFAULT_BIN = "/home/claude/bin"
+
+# Fields that legitimately differ run to run. Dropping anything else would be
+# hiding drift, so this list stays short and explicit.
+VOLATILE = ("generated_at", "timestamp", "elapsed", "elapsed_s", "duration",
+            "seconds", "took", "now", "_meta")
+
+
+def canonical(obj, work):
+    """Stable, comparable form. Volatile keys out; corpus path normalized."""
+    if isinstance(obj, dict):
+        return {k: canonical(v, work) for k, v in sorted(obj.items())
+                if k not in VOLATILE}
+    if isinstance(obj, list):
+        return [canonical(x, work) for x in obj]
+    if isinstance(obj, str):
+        return obj.replace(work, "<WORK>").replace(os.path.realpath(work), "<WORK>")
+    return obj
+
+
+# Some tools' default `--work W --json` surface is NOT the snapshot-able one. A tool
+# that RUNS the corpus live (bd-mutation-test executes mutants) is slow + effectively
+# unbounded, so record() times out -> SKIP and the tool is never gated. But such tools
+# expose a DETERMINISTIC catalog via a summary flag; snapshotting THAT proves the tool's
+# structure/denominator did not silently change (the whole point) without the live run.
+# Registry stays short + explicit, each entry justified. (GATE-SOUND-REM @756.)
+_SNAPSHOT_ARGS = {
+    "bd-mutation-test": ["--list", "--json"],  # catalog of mutants+gates; deterministic, fast
+}
+
+
+def never_exec():
+    """The canonical I-7 no-execute set, imported from bd-sweep (the doctrine's
+    owner) rather than copied -- a second copy drifts (I-9).
+
+    Fail CLOSED: if the list cannot be loaded, return a sentinel that blocks
+    everything. A recorder that cannot learn what is unsafe to run must not
+    default to running everything -- that is the same fail-open shape this
+    toolchain keeps finding, and here it would execute bd-fullsuite.
+    """
+    try:
+        import importlib.machinery as _m, importlib.util as _u
+        p = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-sweep")
+        ldr = _m.SourceFileLoader("_bd_sweep_golden", p)
+        mod = _u.module_from_spec(_u.spec_from_loader("_bd_sweep_golden", ldr))
+        ldr.exec_module(mod)
+        ne = frozenset(mod.NEVER_EXEC)
+        if ne:
+            return ne
+    except Exception as exc:
+        sys.stderr.write("bd-golden: cannot load NEVER_EXEC from bd-sweep (%s); "
+                         "refusing to execute ANY tool (fail-closed)\n" % exc)
+        return _BLOCK_ALL
+    sys.stderr.write("bd-golden: NEVER_EXEC loaded but EMPTY; refusing to execute "
+                     "ANY tool (fail-closed)\n")
+    return _BLOCK_ALL
+
+
+class _BlockAll(frozenset):
+    """Sentinel: membership is True for everything, so every tool is refused."""
+    def __contains__(self, item):  # noqa: D105
+        return True
+
+
+_BLOCK_ALL = _BlockAll()
+
+
+def exec_plan(tool):
+    """(allowed, why_not). A NEVER_EXEC mutator is refused UNLESS it declares a
+    safe snapshot invocation in _SNAPSHOT_ARGS -- the override is the
+    justification (a deterministic catalog flag), not an exception to I-7."""
+    name = os.path.basename(tool)
+    if name in _SNAPSHOT_ARGS:
+        return True, None
+    if name in never_exec():
+        return False, ("NEVER_EXEC mutator (I-7): executing it would mutate the "
+                       "tree/session. Give it a deterministic catalog flag in "
+                       "_SNAPSHOT_ARGS to cover it, or leave it uncovered and "
+                       "visible.")
+    return True, None
+
+
+# The corpus flags a gate may declare. --work/--tree was the ORIGINAL hard-coded
+# pair, and everything else fell into the opaque "uncovered" bucket (@797b made
+# the omission visible; @808 closes it). Order is preference, not precedence:
+# a tool declaring several gets the first it actually accepts.
+_CORPUS_FLAGS = ("--work", "--tree", "--root", "--home", "--corpus")
+
+
+def corpus_invocation(tool, work, src=None):
+    """The argv fragment for pointing TOOL at WORK -- DERIVED from the tool's
+    declared interface, not asserted from a two-name allowlist.
+
+    Returns [] for a tool that declares no corpus flag: it is invoked bare
+    rather than handed a flag it would reject (which would have read as a
+    tool failure, i.e. a false drift signal, rather than as 'no corpus').
+    """
+    if src is None:
+        try:
+            bindir = os.path.dirname(os.path.realpath(__file__))
+            src = open(os.path.join(bindir, tool), errors="ignore").read()
+        except OSError:
+            return []
+    _declares, _g, flags, _p = sec.corpus_profile(src)
+    for f in _CORPUS_FLAGS:
+        if f in flags:
+            return [f, work]
+    return []
+
+
+def tool_json(bindir, tool, work, timeout):
+    """Run a tool for its machine-readable output. Returns (data, err)."""
+    override = _SNAPSHOT_ARGS.get(os.path.basename(tool))
+    cmd = ([os.path.join(bindir, tool)] + override) if override is not None \
+          else ([os.path.join(bindir, tool)]
+                + corpus_invocation(os.path.basename(tool), work) + ["--json"])
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None, "timeout after %ss" % timeout
+    except OSError as exc:
+        return None, str(exc)
+    if not (p.stdout or "").strip():
+        return None, "no stdout (rc=%d)" % p.returncode
+    try:
+        return json.loads(p.stdout), None
+    except ValueError as exc:
+        return None, "unparseable --json (rc=%d): %s" % (p.returncode, exc)
+
+
+import re as _re
+
+# A tool DECLARES the --json convention if its arg parser adds a --json flag -- not
+# if the string "--json" merely appears (that also matches a tool that CALLS --json on
+# its siblings, e.g. bd-ratchet, which does not itself accept it). Derived from the
+# tool's real interface, cheaply, without executing it.
+_DECLARES_JSON = _re.compile(r'add_argument\(\s*["\']--json["\']')
+
+
+def declares_json_arg(src):
+    """DERIVED capability, replacing the old import-membership test (is_analysis_tool:
+    'imports bdtools_sec/taint'). That test was self-declared opt-in and structurally
+    EXCLUDED every gate that emits --json without building on the shared libs
+    (bd-precut, bd-footguns, bd-deploy-manifest, bd-band-derive, ...). A drift gate
+    blind to the tools that gate a cut is worse than none. The --json contract is a
+    property of the tool's INTERFACE, so derive it from the interface: does the parser
+    declare a --json argument? This includes the 7 gates the old test missed and
+    correctly still excludes a tool that only forwards --json to siblings.
+    """
+    return bool(_DECLARES_JSON.search(src))
+
+
+def candidates(bindir, work=None, timeout=None):
+    """Tools that take a corpus AND declare --json: the burn-down population.
+
+    Membership is DERIVED from the tool's interface (declares_json_arg), not asserted
+    by import. ``work``/``timeout`` are accepted for backward-compatible call sites but
+    unused -- selection no longer executes each tool (that cost 168s and mis-probed
+    tools with heterogeneous --work/--tree contracts); it reads the declared interface.
+    """
+    out = []
+    for t in sorted(os.listdir(bindir)):
+        if not t.startswith("bd-") or t.endswith(".py"):
+            continue
+        try:
+            src = open(os.path.join(bindir, t), errors="ignore").read()
+        except OSError:
+            continue
+        if not declares_json_arg(src):
+            continue
+        out.append(t)
+    return out
+
+
+def golden_path(golden, tool):
+    return os.path.join(golden, tool + ".json")
+
+
+def uncovered(bindir):
+    """Tools that cannot be snapshot-gated at all: they declare no --json, so
+    there is no machine-readable surface to record.
+
+    @808 moved this boundary. It used to mean "declares --json but not
+    --work/--tree" -- 47 tools whose only sin was a different corpus flag, now
+    covered by deriving the flag they actually declare. What remains genuinely
+    uncoverable is the human-output-only set. The REASON for the bucket is
+    unchanged and is the whole point: a population that omits members silently
+    is a denominator that cannot be audited, so whatever falls outside is
+    named."""
+    out = []
+    for t in sorted(os.listdir(bindir)):
+        if not t.startswith("bd-") or t.endswith(".py"):
+            continue
+        try:
+            src = open(os.path.join(bindir, t), errors="ignore").read()
+        except OSError:
+            continue
+        if declares_json_arg(src):
+            continue        # covered: the widened contract can invoke it
+        out.append(t)
+    return out
+
+
+def record(bindir, tools, work, golden, timeout):
+    """Snapshot -- and PROVE the snapshot is snapshot-able.
+
+    A tool whose output depends on mutable runtime state (data stores, a proof
+    ledger sha, a clock) will differ from its own golden on the next run, and
+    the gate will report DRIFT for a code change that never happened. A check
+    that cannot tell "the code changed" from "the world changed" cries wolf, and
+    a gate that cries wolf gets switched off. So determinism is established at
+    record time: run twice, compare. Unstable tools are marked UNSTABLE and are
+    never gated on -- that is a finding ABOUT the tool, not about the release.
+    """
+    os.makedirs(golden, exist_ok=True)
+    rows = []
+    for t in tools:
+        allowed, why = exec_plan(t)
+        if not allowed:
+            rows.append((t, "SKIP", why))
+            continue
+        data, err = tool_json(bindir, t, work, timeout)
+        if err:
+            rows.append((t, "SKIP", err))
+            continue
+        data2, err2 = tool_json(bindir, t, work, timeout)
+        if err2:
+            rows.append((t, "SKIP", err2))
+            continue
+        c1, c2 = canonical(data, work), canonical(data2, work)
+        if c1 != c2:
+            with open(golden_path(golden, t), "w") as fh:
+                json.dump({"__unstable__": True}, fh, indent=1)
+            rows.append((t, "UNSTABLE",
+                         "differs from ITSELF between two runs -- output depends on "
+                         "mutable state (runtime stores/clock/sha); cannot be gated"))
+            continue
+        with open(golden_path(golden, t), "w") as fh:
+            json.dump(c1, fh, indent=1, sort_keys=True)
+        rows.append((t, "RECORDED", ""))
+    return rows
+
+
+def check(bindir, tools, work, golden, timeout):
+    rows = []
+    for t in tools:
+        gp = golden_path(golden, t)
+        if not os.path.exists(gp):
+            # No golden == never approved. That is UNKNOWN, and unknown is not OK.
+            rows.append((t, "UNKNOWN", "no golden recorded (run --record)"))
+            continue
+        data, err = tool_json(bindir, t, work, timeout)
+        if err:
+            rows.append((t, "UNKNOWN", err))
+            continue
+        want = json.load(open(gp))
+        if isinstance(want, dict) and want.get("__unstable__"):
+            rows.append((t, "UNSTABLE", "nondeterministic at record time; not gated"))
+            continue
+        got = canonical(data, work)
+        if got == want:
+            rows.append((t, "OK", ""))
+            continue
+        a = json.dumps(want, indent=1, sort_keys=True).splitlines()
+        b = json.dumps(got, indent=1, sort_keys=True).splitlines()
+        diff = [ln for ln in difflib.unified_diff(a, b, "golden", "now", lineterm="")
+                if ln.startswith(("+", "-")) and not ln.startswith(("+++", "---"))]
+        keys = []
+        for ln in diff[:40]:
+            k = ln.lstrip("+- ").split(":")[0].strip('"')
+            if k and k not in keys:
+                keys.append(k)
+        rows.append((t, "DRIFT", "%d line(s) differ; keys: %s"
+                     % (len(diff), ", ".join(keys[:6]) or "?")))
+    return rows
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--record", action="store_true")
+    ap.add_argument("--check", action="store_true")
+    ap.add_argument("--bin", default=DEFAULT_BIN)
+    ap.add_argument("--work", default=sec.DEFAULT_WORK)
+    ap.add_argument("--golden", default=DEFAULT_GOLDEN)
+    ap.add_argument("--only", default=None)
+    ap.add_argument("--timeout", type=float, default=90.0)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    if not (a.record or a.check):
+        sys.stderr.write("CANNOT-EVALUATE: pick --record or --check\n")
+        return sec.EXIT_CANNOT_EVALUATE
+
+    # The corpus these snapshots are taken against must be real, or every golden
+    # is a snapshot of nothing and every later check trivially "passes".
+    sec.require_corpus(os.path.join(a.work, "bulk_downloader"), min_files=1,
+                       label="--work", patterns=("*.py",))
+
+    tools = candidates(a.bin, work=a.work)
+    if a.only:
+        want = set(x for x in a.only.split(",") if x)
+        tools = [t for t in tools if t in want]
+    if not tools:
+        sys.stderr.write("CANNOT-EVALUATE --bin %s: reason=%s (0 candidate tools)\n"
+                         % (a.bin, sec.REASON_EMPTY))
+        return sec.EXIT_CANNOT_EVALUATE
+
+    rows = (record if a.record else check)(a.bin, tools, a.work, a.golden, a.timeout)
+    unc = uncovered(a.bin)
+    counts = {}
+    for _t, st, _w in rows:
+        counts[st] = counts.get(st, 0) + 1
+    payload = {"mode": "record" if a.record else "check", "work": a.work,
+               "golden": a.golden, "tools": len(tools), "counts": counts,
+               "uncovered": unc,
+               "rows": [{"tool": t, "status": s, "detail": w} for t, s, w in rows]}
+    if a.json:
+        json.dump(payload, sys.stdout, indent=1, sort_keys=True)
+        sys.stdout.write("\n")
+    else:
+        for t, st, why in rows:
+            if st in ("DRIFT", "UNKNOWN", "SKIP"):
+                col = R if st == "DRIFT" else Y
+                print("  %s%-8s%s %-24s %s" % (col, st, RST, t, why))
+        bad = counts.get("DRIFT", 0) + counts.get("UNKNOWN", 0)
+        col = R if bad else G
+        print("%sGOLDEN %s: %d tool(s) against %s%s"
+              % (DIM, payload["mode"], len(tools), a.work, RST))
+        print("  %sok %d%s | drift %d | unknown %d | unstable %d | recorded %d | skip %d"
+              % (col, counts.get("OK", 0), RST, counts.get("DRIFT", 0),
+                 counts.get("UNKNOWN", 0), counts.get("UNSTABLE", 0),
+                 counts.get("RECORDED", 0), counts.get("SKIP", 0)))
+        if unc:
+            print("  %suncovered %d%s (no --json surface to snapshot; "
+                  "outside this population, listed so the omission "
+                  "is visible): %s" % (Y, len(unc), RST, ", ".join(unc)))
+    if a.record:
+        return sec.EXIT_OK
+    bad = counts.get("DRIFT", 0) + counts.get("UNKNOWN", 0)
+    return sec.EXIT_FINDINGS if bad else sec.EXIT_OK
+
+
+def _st_widen():
+    """@808 step 3: the replay contract was hard-filtered to --work/--tree, so
+    every gate-shaped tool with a DIFFERENT corpus flag (--root/--home/--corpus)
+    or NO corpus at all fell out of the population and into an opaque
+    'uncovered 47' bucket. The flag a tool accepts is a property of its declared
+    interface -- derive it, the way declares_json_arg() already derives the
+    --json contract, instead of hard-coding two flag names.
+    """
+    ok = True
+    rootsrc = ('import argparse\n'
+               'ap = argparse.ArgumentParser()\n'
+               'ap.add_argument("--root")\n'
+               'ap.add_argument("--json", action="store_true")\n')
+    baresrc = ('import argparse\n'
+               'ap = argparse.ArgumentParser()\n'
+               'ap.add_argument("--json", action="store_true")\n')
+
+    # POS: a tool declaring --root is invoked WITH --root, not dropped.
+    plan = corpus_invocation("bd-x", "/tmp/w", src=rootsrc)
+    c1 = plan == ["--root", "/tmp/w"]
+    print(("PASS" if c1 else "FAIL") +
+          "  WIDEN-DERIVES-FLAG: --root tool invoked with its own flag (%s)" % plan)
+    ok = ok and c1
+
+    # POS: a tool with NO corpus flag is invoked BARE, not handed a flag it
+    # rejects -- which would surface as a tool failure (false drift), not as
+    # "this tool takes no corpus".
+    plan2 = corpus_invocation("bd-y", "/tmp/w", src=baresrc)
+    c2 = plan2 == []
+    print(("PASS" if c2 else "FAIL") +
+          "  WIDEN-NO-CORPUS: flagless tool invoked bare (%s)" % plan2)
+    ok = ok and c2
+
+    # NEG: widening must not drag the chaos/proof set into EXECUTION. The
+    # operator ruling (NEVER_EXEC @808) has to hold THROUGH the widened
+    # population, not merely beside it.
+    bindir = os.path.dirname(os.path.realpath(__file__))
+    pop = candidates(bindir)
+    chaos = [t for t in ("bd-db-chaos", "bd-network-chaos", "bd-netns-proof")
+             if os.path.exists(os.path.join(bindir, t))]
+    leaked = [t for t in chaos if t in pop and exec_plan(t)[0]]
+    c3 = not leaked
+    print(("PASS" if c3 else "FAIL") +
+          "  WIDEN-RESPECTS-I7: chaos/proof never executable even when in "
+          "population (leaked=%s)" % (leaked or "none"))
+    ok = ok and c3
+    return ok
+
+
+def _st_neverexec():
+    """I-7 IN bd-golden (@808). bd-golden EXECUTES every population member with
+    `--work <tree> --json` at --record time, and never consulted the canonical
+    NEVER_EXEC list. MEASURED: its 112-tool population contains 3 of them --
+    bd-mutation-test (safe only by accident, via a _SNAPSHOT_ARGS override),
+    bd-deep-capture and bd-fullsuite (NOT protected: --record runs the full test
+    suite / drives real capture). bd-tool-lint learned this at I-7 and imports
+    the list from bd-sweep fail-closed; bd-golden must consume the SAME source
+    rather than keep a second copy that can drift (I-9).
+    """
+    ok = True
+    ne = never_exec()
+    c1 = bool(ne) and "bd-fullsuite" in ne
+    print(("PASS" if c1 else "FAIL") +
+          "  NEVEREXEC-LOADED: canonical list imported from bd-sweep (%d entries)"
+          % len(ne))
+    ok = ok and c1
+
+    # POS: a NEVER_EXEC mutator with no declared-safe override must NOT be
+    # executed -- exec_plan says skip, with a reason.
+    allowed, why = exec_plan("bd-fullsuite")
+    c2 = (not allowed) and "NEVER_EXEC" in (why or "")
+    print(("PASS" if c2 else "FAIL") +
+          "  NEVEREXEC-BLOCKS: bd-fullsuite refused (%s)" % (why or "allowed"))
+    ok = ok and c2
+
+    # A NEVER_EXEC tool WITH a declared-safe snapshot override stays covered --
+    # the override is the justification, not an exception.
+    allowed3, _ = exec_plan("bd-mutation-test")
+    c3 = allowed3
+    print(("PASS" if c3 else "FAIL") +
+          "  NEVEREXEC-OVERRIDE: bd-mutation-test still covered via _SNAPSHOT_ARGS")
+    ok = ok and c3
+
+    # NEG: an ordinary read-only gate is unaffected.
+    allowed4, _ = exec_plan("bd-band-derive")
+    c4 = allowed4
+    print(("PASS" if c4 else "FAIL") +
+          "  NEVEREXEC-NARROW: ordinary tool still executable")
+    ok = ok and c4
+    return ok
+
+
+def selftest():
+    import tempfile
+    ok = True
+    # A stub tool whose --json payload we control, so drift is provable.
+    def stub(n):
+        return ("#!/usr/bin/env python3\nimport argparse, json, sys\n"
+                "sys.path.insert(0, %r)\nimport bdtools_sec as sec  # --selftest\n"
+                "ap = argparse.ArgumentParser()\n"
+                'ap.add_argument("--work", default=".")\n'
+                'ap.add_argument("--json", action="store_true")\n'
+                "a = ap.parse_args()\n"
+                'print(json.dumps({"findings": %d, "generated_at": "NOW"}))\n'
+                % (os.path.dirname(os.path.realpath(__file__)), n))
+
+    with tempfile.TemporaryDirectory() as bd, tempfile.TemporaryDirectory() as gd, \
+            tempfile.TemporaryDirectory() as wd:
+        os.makedirs(os.path.join(wd, "bulk_downloader"))
+        open(os.path.join(wd, "bulk_downloader", "x.py"), "w").write("x = 1\n")
+        p = os.path.join(bd, "bd-stub")
+        open(p, "w").write(stub(139))
+        os.chmod(p, 0o755)
+
+        record(bd, ["bd-stub"], wd, gd, 20)
+        rows = check(bd, ["bd-stub"], wd, gd, 20)
+        clean = rows and rows[0][1] == "OK"
+        print(("PASS" if clean else "FAIL") +
+              "  POS identical output -> OK (%s)" % (rows[0][1] if rows else "-"))
+        ok &= clean
+
+        # NEG: the finding COUNT changes -- exactly the way a guard-fix silently
+        # breaks a detector. Must be caught, and must name the key.
+        open(p, "w").write(stub(7))
+        os.chmod(p, 0o755)
+        rows = check(bd, ["bd-stub"], wd, gd, 20)
+        drift = rows and rows[0][1] == "DRIFT" and "findings" in rows[0][2]
+        print(("PASS" if drift else "FAIL") +
+              "  NEG changed finding count -> DRIFT naming the key (%s)"
+              % (rows[0][2] if rows else "-"))
+        ok &= bool(drift)
+
+        # POS: a volatile field alone must NOT drift, or the gate cries wolf and
+        # gets switched off -- which is how approval tests die.
+        rows2 = check(bd, ["bd-stub"], wd, gd, 20)
+        stable = rows2[0][2] == rows[0][2]
+        print(("PASS" if stable else "FAIL") +
+              "  POS volatile field (generated_at) ignored -- deterministic verdict")
+        ok &= stable
+
+        # NEG: a tool with no golden is UNKNOWN, never OK.
+        p2 = os.path.join(bd, "bd-unseen")
+        open(p2, "w").write(stub(1))
+        os.chmod(p2, 0o755)
+        rows = check(bd, ["bd-unseen"], wd, gd, 20)
+        unk = rows and rows[0][1] == "UNKNOWN"
+        print(("PASS" if unk else "FAIL") +
+              "  NEG never-recorded tool -> UNKNOWN, not OK (%s)"
+              % (rows[0][1] if rows else "-"))
+        ok &= bool(unk)
+
+    # NEG: goldens taken against an absent corpus would be snapshots of nothing.
+    rc = subprocess.call([sys.executable, __file__, "--check", "--work",
+                          "/home/claude/GHOST_NO_TREE"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    good = rc == sec.EXIT_CANNOT_EVALUATE
+    print(("PASS" if good else "FAIL") +
+          "  NEG absent corpus: want CANNOT-EVALUATE(2), got rc=%d" % rc)
+    ok &= good
+
+    # DENOMINATOR PIN (v3.66 gate-sweep): candidates() must select by the DERIVED
+    # --json interface, not by import-membership. A gate-shaped tool -- declares
+    # --json + takes --work, does NOT import bdtools_sec -- MUST be included (the old
+    # is_analysis_tool excluded exactly these: bd-precut, bd-footguns, ...). And a tool
+    # that only FORWARDS --json to siblings (never declares its own) must be excluded.
+    with tempfile.TemporaryDirectory() as bd2:
+        gate = (
+            "#!/usr/bin/env python3\nimport argparse, json\n"
+            "ap = argparse.ArgumentParser()\n"
+            'ap.add_argument("--work", default=".")\n'
+            'ap.add_argument("--json", action="store_true")\n'
+            "a = ap.parse_args()\n"
+            'print(json.dumps({"ratchet_ok": True, "generated_at": "NOW"}))\n')
+        forwarder = (  # calls --json on a sibling but declares no --json of its own
+            "#!/usr/bin/env python3\nimport argparse, subprocess\n"
+            "ap = argparse.ArgumentParser()\n"
+            'ap.add_argument("--work", default=".")\n'
+            "a = ap.parse_args()\n"
+            'subprocess.run(["true", "--json"])\n')
+        for n, body in (("bd-fakegate", gate), ("bd-forwarder", forwarder)):
+            p = os.path.join(bd2, n)
+            open(p, "w").write(body)
+            os.chmod(p, 0o755)
+        cands = candidates(bd2)
+        inc = "bd-fakegate" in cands
+        exc = "bd-forwarder" not in cands
+        print(("PASS" if inc else "FAIL") +
+              "  DENOM gate-shaped tool (declares --json, no bdtools import) INCLUDED")
+        print(("PASS" if exc else "FAIL") +
+              "  DENOM --json-forwarder (no own --json arg) EXCLUDED")
+        ok &= inc and exc
+
+        # DENOMINATOR VISIBILITY: a gate-shaped tool WITHOUT the --work/--tree
+        # contract (bd-precut takes --root; bd-deploy-manifest takes --zip) is
+        # legitimately not replayable here -- but it must be REPORTED as
+        # uncovered, never silently dropped from the population. A denominator
+        # that omits members without saying so is the gate that cannot see.
+        rootgate = (
+            "#!/usr/bin/env python3\nimport argparse, json\n"
+            "ap = argparse.ArgumentParser()\n"
+            'ap.add_argument("--root", default=".")\n'
+            'ap.add_argument("--json", action="store_true")\n'
+            "a = ap.parse_args()\n"
+            'print(json.dumps({"ok": True}))\n')
+        p = os.path.join(bd2, "bd-rootgate")
+        open(p, "w").write(rootgate)
+        os.chmod(p, 0o755)
+        # @808: the boundary MOVED. A gate declaring --json and --root is now
+        # COVERED (invoked with its own flag), so bd-rootgate is no longer the
+        # witness for "omissions stay visible" -- a tool with NO --json at all
+        # is. The control's SUBJECT is unchanged: whatever falls outside the
+        # population must be named, never silently dropped. Rewriting the
+        # witness rather than the assertion is the point.
+        nojson = ("#!/usr/bin/env python3\nimport argparse\n"
+                  "ap = argparse.ArgumentParser()\n"
+                  'ap.add_argument("--work", default=".")\n'
+                  "a = ap.parse_args()\nprint('human readable only')\n")
+        p2 = os.path.join(bd2, "bd-nojson")
+        open(p2, "w").write(nojson)
+        os.chmod(p2, 0o755)
+        unc = uncovered(bd2) if "uncovered" in globals() else []
+        cands2 = candidates(bd2)
+        vis = ("bd-nojson" in unc and "bd-nojson" not in cands2
+               and "bd-rootgate" in cands2)
+        print(("PASS" if vis else "FAIL") +
+              "  DENOM-UNCOVERED contract-less gate reported uncovered, not "
+              "silently dropped (unc=%s)" % sorted(unc))
+        ok &= vis
+
+    ok = _st_neverexec() and ok
+    ok = _st_widen() and ok
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

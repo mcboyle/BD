@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""bd-observability-map -- map logging/metrics/events by subsystem.
+
+Inventories, per subsystem, what observability exists: log statements
+(logger./logging./print), metric emits, and event/telemetry calls. Flags
+subsystems with LOW observability (few/no log points relative to size) -- the
+places you'll be blind when they fail. The "what evidence exists when X breaks"
+map. Read-only.
+
+Usage: bd-observability-map [--work DIR] [--json] [--selftest]
+Exit 0 (informational -- reports/generates; does not render a pass/fail verdict and does not gate).
+"""
+import argparse, os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+SUBSYS=[("capture","capture|dom_"),("runner","runner|download"),("vpn","vpn|netns|egress"),
+        ("plugins","plugin"),("scheduler","schedule|session_keeper"),("recognizer","recogniz|detect")]
+LOG=re.compile(r'\b(?:logger|logging|log)\.(?:info|warning|error|debug|exception)\(|\bprint\(')
+def subsys(mod):
+    for n,pat in SUBSYS:
+        if re.search(pat,mod): return n
+    return "core"
+def scan(work):
+    data={}
+    for _p,rel,txt in sec.iter_py(work, strict=True, label="--work/--tree"):
+        if not rel.startswith("bulk_downloader/") or "/test" in rel: continue
+        mod=os.path.basename(rel)[:-3]; s=subsys(mod)
+        d=data.setdefault(s,{"loc":0,"log_points":0,"modules":0})
+        d["loc"]+=txt.count(chr(10))+1; d["log_points"]+=len(LOG.findall(txt)); d["modules"]+=1
+    for s,d in data.items():
+        d["density"]=round(d["log_points"]/max(1,d["loc"]/1000),2)  # log points per KLOC
+        d["observability"]="LOW" if d["density"]<3 else ("MEDIUM" if d["density"]<10 else "GOOD")
+    return data
+def selftest():
+    ok=True
+    d=scan(sec.DEFAULT_WORK)
+    print(("PASS" if len(d)>0 else "FAIL")+"  observability mapped (%d subsystems)"%len(d))
+    ok=ok and len(d)>0
+    print(("PASS" if all("density" in v for v in d.values()) else "FAIL")+"  each subsystem has a log density")
+    ok=ok and all("density" in v for v in d.values())
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    d=scan(a.work)
+    if sec.emit({"subsystems":d},as_json=a.json): return 0
+    print("observability map (log points per KLOC):")
+    for s,v in sorted(d.items(),key=lambda kv:kv[1]["density"]):
+        col={"LOW":R,"MEDIUM":Y,"GOOD":G}[v["observability"]]
+        print("  %s%-7s%s %-11s %d pts / %d LOC (%.1f/KLOC)"%(col,v["observability"],RST,s,v["log_points"],v["loc"],v["density"]))
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

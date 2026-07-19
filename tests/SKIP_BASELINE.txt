@@ -1,0 +1,14 @@
+# tests/SKIP_BASELINE.txt — PT9 skip-count gate.
+#
+# Pinned skip count. Update only when adding or removing a legitimate
+# skip; mass-skip regressions show up as a mismatch against this number.
+#
+# Update with: python3 tools/check_skip_baseline.py --update
+#
+# Initial value of 0 is a PLACEHOLDER. On first deploy of v3.63.9+,
+# run:
+#     BD_DISABLE_KEEPALIVE=1 python3 run_tests.py --summary
+#     python3 tools/check_skip_baseline.py --update
+# to replace this with the real current count.
+
+0

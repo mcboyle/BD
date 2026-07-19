@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""bd-log-causality -- correlate logs across subsystems into causal chains.
+
+Parses a multi-subsystem log and links lines that share a correlation id
+(job id / request id / site id) into ordered causal chains spanning scheduler ->
+runner -> plugin -> capture -> downloader -> UI. Reports each chain's subsystem
+hops so you can trace one job's journey across the pipeline from a merged log.
+Read-only.
+
+Usage: bd-log-causality LOGFILE [--json]
+       bd-log-causality --selftest
+Exit 0 (informational -- reports/generates; does not render a pass/fail verdict and does not gate).
+"""
+import argparse, os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+CORR=re.compile(r'(?:job|req|request|site|task)[_-]?id[=:]\s*([a-zA-Z0-9_\-]+)')
+SUBSYS=re.compile(r'(?i)\b(scheduler|runner|plugin|capture|downloader|ui|vpn)\b')
+
+def build(text):
+    chains={}
+    for i,line in enumerate(text.splitlines(),1):
+        m=CORR.search(line)
+        if not m: continue
+        cid=m.group(1)
+        sm=SUBSYS.search(line)
+        sub=sm.group(1).lower() if sm else "?"
+        chains.setdefault(cid,[]).append({"line":i,"subsystem":sub,"text":line.strip()[:70]})
+    out=[]
+    for cid,events in chains.items():
+        hops=[]
+        for e in events:
+            if not hops or hops[-1]!=e["subsystem"]: hops.append(e["subsystem"])
+        out.append({"correlation_id":cid,"events":len(events),"hops":hops})
+    out.sort(key=lambda c:-c["events"])
+    return out
+
+def selftest():
+    ok=True
+    log=("scheduler enqueued job_id=abc\n"
+         "runner started job_id=abc\n"
+         "plugin ran hook job_id=abc\n"
+         "capture done job_id=abc\n"
+         "unrelated line\n"
+         "runner job_id=xyz other\n")
+    chains=build(log)
+    byid={c["correlation_id"]:c for c in chains}
+    good="abc" in byid and byid["abc"]["hops"]==["scheduler","runner","plugin","capture"]
+    print(("PASS" if good else "FAIL")+"  correlated chain across subsystems (%s)"%(byid.get("abc",{}).get("hops")))
+    ok=ok and good
+    print(("PASS" if byid["abc"]["events"]==4 else "FAIL")+"  4 events linked by job_id")
+    ok=ok and byid["abc"]["events"]==4
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("logfile",nargs="?")
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    text=open(a.logfile,errors="ignore").read() if a.logfile and os.path.exists(a.logfile) else sys.stdin.read()
+    chains=build(text)
+    if sec.emit({"chains":chains,"summary":{"count":len(chains)}},as_json=a.json): return 0
+    print("%d causal chain(s):"%len(chains))
+    for c in chains[:30]:
+        print("  %s%s%s (%d events): %s"%(G,c["correlation_id"],RST,c["events"]," -> ".join(c["hops"])))
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,67 @@
+{
+ "url": "https://demo-dailymotion.test/watch/asset",
+ "origin": "https://demo-dailymotion.test",
+ "host": "demo-dailymotion.test",
+ "captured_at": "2026-07-10T00:00:00+00:00",
+ "dom_log": [
+  {
+   "type": "full_snapshot",
+   "html": "<html><head><script src=\"https://geo.dailymotion.com/libs/player/xyz.js\"></script></head><body><div class=\"dailymotion-player\" data-video=\"x123\"></div><script>dailymotion.createPlayer(\"player\",{video:\"x123\"});</script></body></html>"
+  }
+ ],
+ "network_log": [
+  {
+   "url": "https://demo-dailymotion.test/watch/asset",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "text/html; charset=utf-8"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.dailymotion.com/x123/master.m3u8",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "application/vnd.apple.mpegurl"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.dailymotion.com/x123/480/seg-1.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.dailymotion.com/x123/720/seg-1.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.dailymotion.com/x123/1080/seg-1.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  }
+ ],
+ "cookies": "<REDACTED>",
+ "dom_log_count": 1,
+ "network_log_count": 5
+}

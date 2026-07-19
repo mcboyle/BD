@@ -1,0 +1,12 @@
+{
+  "json_path": {
+    "first_title": "items[0].title",
+    "media": "items[*].media_url",
+    "ids": "items[*].id"
+  },
+  "expects": {
+    "first_title": "/Mock Item/i",
+    "media_min": 5,
+    "ids_count": 10
+  }
+}

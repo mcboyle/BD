@@ -1,0 +1,360 @@
+"""Health checklist (Phase 122, Block Q).
+
+One-call "is BD healthy?" diagnostic. Each check returns
+{name, status, message, severity} and the whole report rolls up to a
+single overall status (ok / warn / fail).
+
+Used by:
+  • /api/health/checklist — operator dashboard panel
+  • bdctl healthcheck — exit nonzero if anything's failing
+  • External monitoring (Prometheus alerts off /metrics; this is the
+    human-readable companion)
+
+Checks run cheap — each <50ms typically. The expensive integrity
+work lives in /api/bitrot/scan and /api/provenance/verify (manually
+invoked).
+"""
+from __future__ import annotations
+
+import os
+import shutil
+import time
+from pathlib import Path
+from typing import Optional
+
+
+# Severity ranking. fail > warn > ok. Determines overall rollup.
+SEV_OK = 0
+SEV_WARN = 1
+SEV_FAIL = 2
+
+_SEV_LABEL = {SEV_OK: "ok", SEV_WARN: "warn", SEV_FAIL: "fail"}
+
+
+def _check(name: str, fn) -> dict:
+    """Run one check function with timing + error capture."""
+    started = time.time()
+    try:
+        result = fn() or {}
+    except Exception as e:
+        return {
+            "name": name,
+            "status": "fail",
+            "severity": SEV_FAIL,
+            "message": f"check raised: {e}",
+            "duration_ms": round((time.time() - started) * 1000, 1),
+        }
+    sev = result.get("severity", SEV_OK)
+    return {
+        "name": name,
+        "status": _SEV_LABEL.get(sev, "ok"),
+        "severity": sev,
+        "message": result.get("message", ""),
+        "details": result.get("details"),
+        "duration_ms": round((time.time() - started) * 1000, 1),
+    }
+
+
+# ─── Individual checks ────────────────────────────────────────────────
+
+def _check_database() -> dict:
+    """SQLite reachable, WAL mode enabled, integrity ok."""
+    from . import db as _db
+    with _db.db_conn() as cx:
+        row = cx.execute("PRAGMA journal_mode").fetchone()
+        jm = (row[0] if row else "").lower()
+        ic = cx.execute("PRAGMA quick_check").fetchone()
+        ic_result = ic[0] if ic else "?"
+    if jm != "wal":
+        return {"severity": SEV_WARN,
+                "message": f"journal_mode is '{jm}', expected 'wal' "
+                           f"— concurrent writers may see locks",
+                "details": {"journal_mode": jm}}
+    if ic_result != "ok":
+        return {"severity": SEV_FAIL,
+                "message": f"integrity check returned '{ic_result}'"}
+    return {"severity": SEV_OK,
+            "message": f"WAL mode active, integrity {ic_result}"}
+
+
+def _check_disk(s_cfg: Optional[dict]) -> dict:
+    """All configured download_dirs, PLUS the capture-store / install root,
+    exist + have headroom. The capture store often lives on a different
+    path/volume than downloads and a full store is a distinct 'disk full' class
+    the download-dir check misses; it is checked even with no sites (first boot)."""
+    issues = []
+    paths_checked = 0
+    seen = set()
+    dirs = [(sid, (cfg or {}).get("download_dir", ""))
+            for sid, cfg in (s_cfg or {}).items()]
+    # capture-store / install root (bulk_downloader/.. == PROJECT_ROOT)
+    dirs.append(("capture_store",
+                 os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    for sid, d in dirs:
+        if not d or d in seen:
+            continue
+        seen.add(d)
+        if not os.path.isdir(d):
+            issues.append(f"{sid}: dir {d!r} does not exist")
+            continue
+        paths_checked += 1
+        try:
+            free_bytes = shutil.disk_usage(d).free
+            free_gb = free_bytes / (1024**3)
+            if free_gb < 1:
+                issues.append(f"{sid}: only {free_gb:.1f} GB free at {d}")
+            elif free_gb < 10:
+                issues.append(f"{sid}: {free_gb:.1f} GB free at {d} (low)")
+        except OSError as e:
+            issues.append(f"{sid}: cannot stat {d}: {e}")
+    if not issues:
+        return {"severity": SEV_OK,
+                "message": f"{paths_checked} path(s) ok (incl. capture store)"}
+    severity = SEV_FAIL if any("does not exist" in i or "only" in i
+                               for i in issues) else SEV_WARN
+    return {"severity": severity,
+            "message": "; ".join(issues[:3]) +
+                       (f" (+{len(issues) - 3} more)" if len(issues) > 3 else ""),
+            "details": {"issues": issues}}
+
+
+def _check_playwright() -> dict:
+    """Playwright installed + chromium installed."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return {"severity": SEV_FAIL,
+                "message": "playwright not installed: pip install playwright"}
+    # Check chromium binary exists. The cheapest non-invasive probe
+    # is asking for the executable path via the sync API.
+    try:
+        with sync_playwright() as pw:
+            path = pw.chromium.executable_path
+            if not path or not os.path.exists(path):
+                return {"severity": SEV_FAIL,
+                        "message": "chromium not installed: "
+                                   "playwright install chromium"}
+    except Exception as e:
+        return {"severity": SEV_WARN,
+                "message": f"could not probe chromium: {e}"}
+    return {"severity": SEV_OK, "message": "playwright + chromium ready"}
+
+
+def _check_ytdlp() -> dict:
+    """yt-dlp freshness."""
+    try:
+        from . import ytdlp_updater as _yt
+        info = _yt.status_dict() or {}
+        age = info.get("age_days")
+        if age is None:
+            return {"severity": SEV_WARN,
+                    "message": "yt-dlp version unknown"}
+        if age > 30:
+            return {"severity": SEV_WARN,
+                    "message": f"yt-dlp is {age:.0f} days old "
+                               f"— consider updating"}
+        return {"severity": SEV_OK,
+                "message": f"yt-dlp {info.get('version', '?')} ({age:.0f}d old)"}
+    except Exception as e:
+        return {"severity": SEV_WARN,
+                "message": f"yt-dlp status unknown: {type(e).__name__}"}
+
+
+def _ffmpeg_capability(ff: str) -> dict:
+    """Probe an ffmpeg binary beyond mere presence: does it run, and does it
+    support the mpegts muxer + https protocol BD needs for HLS/TS remuxing?
+    Returns ``{"error": str}`` if it won't run, else ``{"missing": [caps]}``.
+    (Presence alone isn't enough -- a build that crashes on invocation or lacks
+    mpegts/https still fails real downloads.)"""
+    import subprocess
+    try:
+        r = subprocess.run([ff, "-hide_banner", "-version"],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+    if r.returncode != 0:
+        return {"error": f"-version exited {r.returncode}"}
+    missing = []
+    try:
+        muxers = subprocess.run([ff, "-hide_banner", "-muxers"],
+                               capture_output=True, text=True, timeout=10).stdout
+        if "mpegts" not in muxers:
+            missing.append("mpegts")
+        protos = subprocess.run([ff, "-hide_banner", "-protocols"],
+                               capture_output=True, text=True, timeout=10).stdout
+        if "https" not in protos:
+            missing.append("https")
+    except (OSError, subprocess.SubprocessError):
+        pass  # -version already passed; capability lists just unavailable
+    return {"missing": missing}
+
+
+def _check_ffmpeg() -> dict:
+    """ffmpeg + ffprobe on PATH, and actually capable of the HLS/TS-over-https
+    remuxing BD does. Presence alone isn't enough: a build that crashes on
+    invocation or lacks the mpegts muxer / https protocol still fails real
+    downloads (the static-ffmpeg HLS+https segfault class)."""
+    from . import ffmpeg_bin          # MOD-4: probe the binary BD WILL RUN --
+    ff = ffmpeg_bin.ffmpeg()          # probing PATH while the runner used a
+    fp = ffmpeg_bin.ffprobe()         # pinned build would report the wrong one
+    if not ff and not fp:
+        return {"severity": SEV_WARN,
+                "message": "ffmpeg/ffprobe not on PATH "
+                           "— enrichment + thumbnails disabled"}
+    if not ff or not fp:
+        return {"severity": SEV_WARN,
+                "message": f"partial: ffmpeg={'ok' if ff else 'missing'}, "
+                           f"ffprobe={'ok' if fp else 'missing'}"}
+    cap = _ffmpeg_capability(ff)
+    if cap.get("error"):
+        return {"severity": SEV_FAIL,
+                "message": f"ffmpeg present but not usable: {cap['error']}"}
+    missing = cap.get("missing") or []
+    if missing:
+        return {"severity": SEV_WARN,
+                "message": f"ffmpeg missing {', '.join(missing)} support "
+                           "— HLS/TS downloads may fail"}
+    return {"severity": SEV_OK,
+            "message": "ffmpeg + ffprobe ready (mpegts + https ok)"}
+
+
+def _check_recent_failures() -> dict:
+    """Last hour failure rate. Operator-visible signal."""
+    try:
+        from . import db as _db
+        with _db.db_conn() as cx:
+            row = cx.execute("""SELECT
+                  SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS done,
+                  SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed
+                FROM history
+                WHERE ts >= datetime('now', '-1 hour')""").fetchone()
+        d = int(row[0] or 0) if row else 0
+        f = int(row[1] or 0) if row else 0
+    except Exception as e:
+        return {"severity": SEV_WARN,
+                "message": f"could not check recent failures: {e}"}
+    if d + f == 0:
+        return {"severity": SEV_OK, "message": "no activity in last hour"}
+    fail_pct = 100 * f / max(1, d + f)
+    if fail_pct >= 50 and f >= 5:
+        return {"severity": SEV_FAIL,
+                "message": f"{fail_pct:.0f}% failure rate "
+                           f"({f} failed / {d} done in last hour)"}
+    if fail_pct >= 25 and f >= 3:
+        return {"severity": SEV_WARN,
+                "message": f"{fail_pct:.0f}% failure rate "
+                           f"({f} failed / {d} done in last hour)"}
+    return {"severity": SEV_OK,
+            "message": f"{d} done, {f} failed last hour"}
+
+
+def _check_circuit_breakers() -> dict:
+    """Any hosts in open state?"""
+    try:
+        from . import circuit_breaker as _cb
+        rep = _cb.report() or {}
+    except Exception:
+        return {"severity": SEV_OK, "message": "circuit module unavailable"}
+    open_hosts = [h for h, s in rep.items() if s.get("state") == "open"]
+    if not open_hosts:
+        return {"severity": SEV_OK,
+                "message": f"{len(rep)} host(s) tracked, none tripped"}
+    return {"severity": SEV_WARN,
+            "message": f"{len(open_hosts)} circuit(s) open: " +
+                       ", ".join(open_hosts[:3]),
+            "details": {"open_hosts": open_hosts}}
+
+
+def _check_account_health(s_cfg: Optional[dict]) -> dict:
+    """Any accounts scoring low?"""
+    try:
+        from . import account_health as _ah
+        rows = _ah.report_all() or []
+    except Exception:
+        return {"severity": SEV_OK, "message": "account health unavailable"}
+    low = [r for r in rows if r.get("score", 100) < 50]
+    if not low:
+        return {"severity": SEV_OK,
+                "message": f"{len(rows)} account(s) tracked, all healthy"}
+    return {"severity": SEV_WARN,
+            "message": f"{len(low)} account(s) below 50: " +
+                       ", ".join(f"{r['site_id']}/{r.get('account_id', '?')}"
+                                 for r in low[:3])}
+
+
+def _check_bitrot() -> dict:
+    """Any open bit-rot issues?"""
+    try:
+        from . import bitrot as _br
+        s = _br.stats()
+    except Exception:
+        return {"severity": SEV_OK, "message": "bitrot module unavailable"}
+    n = s.get("open_issues", 0)
+    if n == 0:
+        return {"severity": SEV_OK, "message": "no integrity issues"}
+    sev = SEV_FAIL if n >= 10 else SEV_WARN
+    return {"severity": sev,
+            "message": f"{n} open integrity issue(s)",
+            "details": s}
+
+
+# ─── Public entry ─────────────────────────────────────────────────────
+
+def _check_supervisor() -> dict:
+    """Bandwidth supervisor state, surfaced in app health (supervisor -> health).
+    App-PROCESS supervision is systemd's job (auto-restart) and /api/health
+    reports uptime; this connects the in-app bandwidth limiter to the health
+    view so 'supervisor' is visible alongside the rest."""
+    try:
+        from . import download_supervisor as _sup
+        enabled = bool(_sup.is_enabled())
+    except Exception as e:
+        return {"severity": SEV_OK,
+                "message": f"bandwidth supervisor unavailable: {e}"}
+    if not enabled:
+        return {"severity": SEV_OK,
+                "message": "bandwidth supervisor idle (no throttle configured)"}
+    try:
+        cfg = (_sup.stats() or {}).get("config", {})
+        gbps = cfg.get("global_bps", 0)
+    except Exception:
+        gbps = 0
+    return {"severity": SEV_OK,
+            "message": f"bandwidth supervisor active (global_bps={gbps})"}
+
+
+def run_checklist(s_cfg: Optional[dict] = None) -> dict:
+    """Run all checks and roll up to an overall status.
+
+    Returns:
+      {
+        overall_status: 'ok' | 'warn' | 'fail',
+        check_count: N,
+        summary: {ok: N, warn: N, fail: N},
+        checks: [{name, status, severity, message, duration_ms}, ...],
+        generated_at: ts
+      }"""
+    results = [
+        _check("database", _check_database),
+        _check("disk", lambda: _check_disk(s_cfg)),
+        _check("playwright", _check_playwright),
+        _check("ytdlp", _check_ytdlp),
+        _check("ffmpeg", _check_ffmpeg),
+        _check("recent_failures", _check_recent_failures),
+        _check("circuit_breakers", _check_circuit_breakers),
+        _check("account_health", lambda: _check_account_health(s_cfg)),
+        _check("bitrot", _check_bitrot),
+        _check("supervisor", _check_supervisor),
+    ]
+    summary = {"ok": 0, "warn": 0, "fail": 0}
+    worst = SEV_OK
+    for r in results:
+        summary[r["status"]] += 1
+        worst = max(worst, r["severity"])
+    return {
+        "overall_status": _SEV_LABEL[worst],
+        "check_count": len(results),
+        "summary": summary,
+        "checks": results,
+        "generated_at": time.time(),
+    }

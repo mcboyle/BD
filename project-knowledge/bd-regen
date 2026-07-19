@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""bd-regen -- check (or regenerate) every derived in-sync doc in one shot.
+
+The pre-cut footgun: build_release runs the in-sync gates only AFTER the ~3-min
+tsc+vitest chain and ABORTS on stale, forcing a full re-cut. Running this FIRST
+(regenerate up front, confirm --check clean) avoids the retry.
+
+Covers: FUNCTION_INDEX, DEPENDENCY_GRAPH, PIN_INDEX, route counts. (Import-graph
+baseline is a SEPARATE freeze -- use bd-imports.)
+
+Usage:
+    bd-regen            # --check all generators, report DRIFT/OK (default)
+    bd-regen --write    # actually regenerate the stale ones
+    bd-regen --work DIR
+Exit 0 if all in sync (or all written), 1 if any drifted (in --check mode).
+"""
+import argparse
+import os
+import subprocess
+import sys
+
+# --- 702: --selftest delegates to the tool's own bd-coretest fault-injection case.
+# These are the RELEASE-GATING MUTATORS: they edit the tree and gate a cut, and they
+# had NO selftest at their own entry point (bd-tool-lint: 10/10 untested). The teeth
+# already existed in bd-coretest -- they were just unreachable from the tool itself.
+# Delegating (not re-asserting) keeps ONE source of truth for what "correct" means.
+def _selftest_via_coretest():
+    import subprocess as _sp, sys as _sys, os as _os
+    _me = _os.path.basename(_os.path.realpath(__file__))
+    _ct = _os.path.join(_os.path.dirname(_os.path.realpath(__file__)), "bd-coretest")
+    if not _os.path.isfile(_ct):
+        print("SELFTEST FAIL -- bd-coretest not found (cannot verify teeth)")
+        return 2
+    _cp = _sp.run([_sys.executable, _ct, "--only", _me], capture_output=True, text=True)
+    for _ln in _cp.stdout.splitlines():
+        if _ln.startswith(_me) or _ln.strip().startswith("["):
+            print(_ln)
+    print("SELFTEST PASS" if _cp.returncode == 0 else "SELFTEST FAIL")
+    return _cp.returncode
+
+
+if "--selftest" in sys.argv:
+    sys.exit(_selftest_via_coretest())
+
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+# (label, script rel-path, check-flag, write-flag)
+GEN = [
+    ("FUNCTION_INDEX",  "tools/build_function_index.py", "--check", None),
+    ("DEPENDENCY_GRAPH", "tools/dependency_graph.py",    "--check", None),
+    ("PIN_INDEX",       "tools/build_pin_index.py",      "--check", None),
+    ("route counts",    "tools/check_route_counts.py",   None,      None),
+]
+
+
+def run(work, path, *args):
+    env = {**os.environ, "PYTHONPATH": f"{work}:/tmp/prestaged_site_packages"}
+    r = subprocess.run(["python3", path, *args], cwd=work, capture_output=True,
+                       text=True, env=env, timeout=150)
+    return r.returncode, (r.stdout + r.stderr)
+
+
+def supports(work, path, flag):
+    if not flag:
+        return False
+    rc, out = run(work, path, "--help")
+    return flag in out
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work","--tree", default="/home/claude/work")
+    ap.add_argument("--write", action="store_true")
+    a = ap.parse_args()
+    drift = 0
+    missing = 0
+    for label, rel, checkflag, writeflag in GEN:
+        path = os.path.join(a.work, rel)
+        if not os.path.exists(path):
+            print(f"  {Y}?? {RST}{label} {DIM}({rel} missing){RST}")
+            missing += 1
+            continue
+        if a.write:
+            # regenerate for real: run with no --check (writes), or --write if it has it
+            wflag = [writeflag] if writeflag and supports(a.work, path, writeflag) else []
+            rc, out = run(a.work, path, *wflag)
+            print(f"  {(G+'wrote'+RST) if rc == 0 else (R+'FAIL '+RST)} {label}")
+            if rc != 0:
+                print(f"        {DIM}{out.strip()[-160:]}{RST}")
+                drift += 1
+            continue
+        # check mode -- MUST stay read-only: only run generators with a real --check
+        if supports(a.work, path, checkflag):
+            rc, out = run(a.work, path, checkflag)
+            if rc == 0:
+                print(f"  {G}OK   {RST}{label}")
+            else:
+                print(f"  {R}DRIFT{RST} {label} {DIM}(regen needed){RST}")
+                drift += 1
+        else:
+            # no --check flag: do NOT run (could write). report + defer to --write.
+            print(f"  {Y}?? {RST}{label} {DIM}(no --check flag; verify via `bd-regen --write` "
+                  f"or the tool's own gate){RST}")
+    if a.write:
+        print(f"{G}RESULT: regenerated ({drift} failed){RST}" if not drift
+              else f"{R}RESULT: {drift} generator(s) failed{RST}")
+        return 1 if drift else 0
+    if drift:
+        print(f"{R}RESULT: {drift} derived doc(s) DRIFTED -- `bd-regen --write` before cut{RST}")
+        return 1
+    print(f"{G}RESULT: all derived docs in sync{RST}")
+    return 0
+
+
+sys.exit(main())

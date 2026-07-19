@@ -1,0 +1,3559 @@
+{
+ "source": "/home/claude/work/bulk_downloader/app.py",
+ "app_py_lines": 20503,
+ "counts": {
+  "top_funcs": 780,
+  "views": 681,
+  "helpers": 99,
+  "globals": 47
+ },
+ "hooks": {
+  "errorhandler": [
+   "_on_attribute_error",
+   "_on_bad_request",
+   "_on_not_found",
+   "_on_method_not_allowed",
+   "_on_request_too_large",
+   "_on_internal_error",
+   "_method_not_allowed_parity"
+  ],
+  "before_request": [
+   "_check_token",
+   "_check_csrf",
+   "_dev_metrics_start"
+  ],
+  "after_request": [
+   "_add_security_headers",
+   "_dev_metrics_record",
+   "_bootstrap_session"
+  ]
+ },
+ "multi_decorator_views": [
+  "serve_mobile_view",
+  "serve_mobile_ops_view",
+  "serve_m2_spa",
+  "serve_spa_root"
+ ],
+ "state_singletons": [
+  "_app_cfg",
+  "runners",
+  "s_cfg",
+  "s_meta"
+ ],
+ "kernel_shared_ge3_domains": {
+  "_validate_path": [
+   "api/captures",
+   "api/file",
+   "api/library"
+  ],
+  "_check_csrf": [
+   "api/a11y",
+   "api/alerts",
+   "api/analyzer",
+   "api/auth_health",
+   "api/backup",
+   "api/batch",
+   "api/bg",
+   "api/bitrot",
+   "api/bulk",
+   "api/circuit",
+   "api/cluster_rate",
+   "api/community_scrapers",
+   "api/cookie_clipboard",
+   "api/cookie_relogin",
+   "api/crash_recovery",
+   "api/daily_budget",
+   "api/dedup",
+   "api/dev",
+   "api/discovery",
+   "api/edge_deploy",
+   "api/eol",
+   "api/fed",
+   "api/fixtures",
+   "api/flaresolverr",
+   "api/i18n",
+   "api/import",
+   "api/jsonapi",
+   "api/knowledge",
+   "api/library",
+   "api/macros",
+   "api/marketplace",
+   "api/multi_conn",
+   "api/notify",
+   "api/pause_all",
+   "api/phoenix",
+   "api/playground",
+   "api/plex_advanced",
+   "api/plugins",
+   "api/provenance",
+   "api/queue",
+   "api/rebalance",
+   "api/resume_all",
+   "api/retention",
+   "api/rights",
+   "api/saved_searches",
+   "api/sched_exports",
+   "api/scheduled_exports",
+   "api/schedules",
+   "api/scrapling",
+   "api/search",
+   "api/selector_drift",
+   "api/shares",
+   "api/sites",
+   "api/start_all",
+   "api/storage_rebalance",
+   "api/stream",
+   "api/subtitles",
+   "api/supervisor",
+   "api/synthetic_tests",
+   "api/tags",
+   "api/template",
+   "api/template_manager",
+   "api/tg",
+   "api/thumbnail_sheets",
+   "api/thumbnails",
+   "api/thumbs",
+   "api/tpdb",
+   "api/vpn",
+   "api/weather",
+   "api/webhooks",
+   "api/ytdlp_archive",
+   "api/ytdlp_update"
+  ],
+  "_save_sites_config": [
+   "api/captures",
+   "api/secrets",
+   "api/sites",
+   "api/template"
+  ],
+  "_m2_avatar_color": [
+   "api/activity",
+   "api/dashboard",
+   "api/queue",
+   "api/sites"
+  ],
+  "_build_meta": [
+   "api/config",
+   "api/sites",
+   "api/template"
+  ],
+  "_do_action_all": [
+   "api/pause_all",
+   "api/resume_all",
+   "api/start_all"
+  ]
+ },
+ "two_domain_helpers": {
+  "_csrf_token_for": [
+   "api/csrf",
+   "api/pair"
+  ],
+  "_session_create": [
+   "api/csrf",
+   "api/pair"
+  ],
+  "_chk": [
+   "api/queue",
+   "api/sites"
+  ],
+  "_oi_dir_writable": [
+   "api/queue",
+   "api/sites"
+  ],
+  "_save_app_config": [
+   "api/captures",
+   "api/global_config"
+  ],
+  "_rate_check": [
+   "api/queue",
+   "api/sites"
+  ],
+  "_create_site": [
+   "api/captures",
+   "api/sites"
+  ],
+  "_load_global_notify_settings": [
+   "api/notify",
+   "api/tg"
+  ],
+  "_save_global_notify_settings": [
+   "api/notify",
+   "api/tg"
+  ]
+ },
+ "per_domain": {
+  "(root)": {
+   "n_views": 1,
+   "views": [
+    "serve_spa_root"
+   ],
+   "line_lo": 3062,
+   "line_hi": 3114,
+   "contiguous": true,
+   "private_travelers": [
+    "_405_with_allow",
+    "_M2_DIST_ROOT",
+    "_SPA_ASSET_EXT_RE",
+    "_SPA_RESERVED_PREFIXES",
+    "_explicit_methods_for_path",
+    "_m2_503_node_missing"
+   ],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 53
+  },
+  "api/a11y": {
+   "n_views": 3,
+   "views": [
+    "api_a11y_plain",
+    "api_a11y_contrast",
+    "api_a11y_audit"
+   ],
+   "line_lo": 7892,
+   "line_hi": 7923,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 28
+  },
+  "api/account_pool": {
+   "n_views": 1,
+   "views": [
+    "api_account_pool_status_all"
+   ],
+   "line_lo": 10557,
+   "line_hi": 10564,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 8
+  },
+  "api/accounts": {
+   "n_views": 1,
+   "views": [
+    "api_accounts_health"
+   ],
+   "line_lo": 4425,
+   "line_hi": 4433,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 9
+  },
+  "api/activity": {
+   "n_views": 3,
+   "views": [
+    "api_activity_v2",
+    "api_activity_v2_export_csv",
+    "api_activity_v2_site_health"
+   ],
+   "line_lo": 10989,
+   "line_hi": 11762,
+   "contiguous": false,
+   "private_travelers": [
+    "_m2_activity_query_fragments"
+   ],
+   "kernel_imports": [
+    "_m2_avatar_color"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 239
+  },
+  "api/ai": {
+   "n_views": 8,
+   "views": [
+    "api_ai_status",
+    "api_ai_health",
+    "api_ai_models",
+    "api_ai_suggest_selectors",
+    "api_ai_classify",
+    "api_ai_normalize_resolution",
+    "api_ai_diff_repair",
+    "api_ai_chat"
+   ],
+   "line_lo": 3997,
+   "line_hi": 4091,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 74
+  },
+  "api/alerts": {
+   "n_views": 5,
+   "views": [
+    "api_alerts_active",
+    "api_alerts_rules",
+    "api_alerts_evaluate",
+    "api_alerts_rule_save",
+    "api_alerts_rule_remove"
+   ],
+   "line_lo": 10018,
+   "line_hi": 10076,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 51
+  },
+  "api/analyzer": {
+   "n_views": 5,
+   "views": [
+    "api_analyzer_captures",
+    "api_analyzer_load",
+    "api_analyzer_tree",
+    "api_analyzer_test",
+    "api_analyzer_pin"
+   ],
+   "line_lo": 7697,
+   "line_hi": 7793,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 89
+  },
+  "api/api_tokens": {
+   "n_views": 3,
+   "views": [
+    "api_api_tokens_create",
+    "api_api_tokens_list",
+    "api_api_tokens_revoke"
+   ],
+   "line_lo": 9073,
+   "line_hi": 9098,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 20
+  },
+  "api/audit": {
+   "n_views": 2,
+   "views": [
+    "api_audit_recent",
+    "api_audit_for_target"
+   ],
+   "line_lo": 1212,
+   "line_hi": 1237,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 23
+  },
+  "api/auth_health": {
+   "n_views": 3,
+   "views": [
+    "api_auth_health_status",
+    "api_auth_health_check_one",
+    "api_auth_health_check_all"
+   ],
+   "line_lo": 7117,
+   "line_hi": 7150,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 30
+  },
+  "api/backup": {
+   "n_views": 7,
+   "views": [
+    "api_backup_verify",
+    "api_backup_smoke",
+    "api_backup_drift",
+    "api_backup_history",
+    "api_backup_create",
+    "api_backup_preview",
+    "api_backup_restore"
+   ],
+   "line_lo": 8819,
+   "line_hi": 17701,
+   "contiguous": false,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 138
+  },
+  "api/batch": {
+   "n_views": 4,
+   "views": [
+    "api_batch_retry",
+    "api_batch_delete",
+    "api_batch_move",
+    "api_batch_dedup"
+   ],
+   "line_lo": 8059,
+   "line_hi": 8115,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 51
+  },
+  "api/bg": {
+   "n_views": 2,
+   "views": [
+    "api_bg_status",
+    "api_bg_enable"
+   ],
+   "line_lo": 7575,
+   "line_hi": 7596,
+   "contiguous": true,
+   "private_travelers": [
+    "api_bg_status"
+   ],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 20
+  },
+  "api/bitrot": {
+   "n_views": 3,
+   "views": [
+    "api_bitrot_scan",
+    "api_bitrot_issues",
+    "api_bitrot_stats"
+   ],
+   "line_lo": 4517,
+   "line_hi": 4550,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 30
+  },
+  "api/budget": {
+   "n_views": 1,
+   "views": [
+    "api_budget"
+   ],
+   "line_lo": 4577,
+   "line_hi": 4588,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 12
+  },
+  "api/bulk": {
+   "n_views": 1,
+   "views": [
+    "api_bulk_enqueue"
+   ],
+   "line_lo": 12027,
+   "line_hi": 12061,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "runners"
+   ],
+   "total_lines": 35
+  },
+  "api/bw_chart": {
+   "n_views": 3,
+   "views": [
+    "api_bw_chart_hourly",
+    "api_bw_chart_site_share",
+    "api_bw_chart_summary"
+   ],
+   "line_lo": 10114,
+   "line_hi": 10149,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 32
+  },
+  "api/capacity": {
+   "n_views": 1,
+   "views": [
+    "api_capacity"
+   ],
+   "line_lo": 4273,
+   "line_hi": 4291,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "runners",
+    "s_cfg"
+   ],
+   "total_lines": 19
+  },
+  "api/captures": {
+   "n_views": 4,
+   "views": [
+    "api_setup_site",
+    "api_captures_validate_download_dir",
+    "api_captures_allowlist_add",
+    "api_captures_suggest_rows"
+   ],
+   "line_lo": 12827,
+   "line_hi": 13001,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_save_sites_config",
+    "_validate_path"
+   ],
+   "state_singletons": [
+    "_app_cfg",
+    "s_cfg"
+   ],
+   "total_lines": 166
+  },
+  "api/changelog": {
+   "n_views": 2,
+   "views": [
+    "api_changelog_all",
+    "api_changelog_site"
+   ],
+   "line_lo": 9997,
+   "line_hi": 10014,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 16
+  },
+  "api/circuit": {
+   "n_views": 2,
+   "views": [
+    "api_circuit_report",
+    "api_circuit_reset"
+   ],
+   "line_lo": 4603,
+   "line_hi": 4619,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 15
+  },
+  "api/cleanup": {
+   "n_views": 1,
+   "views": [
+    "api_cleanup_summary"
+   ],
+   "line_lo": 8167,
+   "line_hi": 8172,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 6
+  },
+  "api/cluster_rate": {
+   "n_views": 3,
+   "views": [
+    "api_cluster_load",
+    "api_cluster_acquire",
+    "api_cluster_release"
+   ],
+   "line_lo": 9234,
+   "line_hi": 9268,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 31
+  },
+  "api/community_scrapers": {
+   "n_views": 5,
+   "views": [
+    "api_community_scrapers_status",
+    "api_community_scrapers_index",
+    "api_community_scrapers_install",
+    "api_community_scrapers_remove",
+    "api_community_scrapers_bulk_install"
+   ],
+   "line_lo": 20027,
+   "line_hi": 20127,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 89
+  },
+  "api/concurrent": {
+   "n_views": 1,
+   "views": [
+    "api_conc"
+   ],
+   "line_lo": 18710,
+   "line_hi": 18714,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "runners",
+    "s_cfg",
+    "s_meta"
+   ],
+   "total_lines": 5
+  },
+  "api/config": {
+   "n_views": 2,
+   "views": [
+    "api_config_export",
+    "api_config_import"
+   ],
+   "line_lo": 17369,
+   "line_hi": 17438,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_build_meta"
+   ],
+   "state_singletons": [
+    "runners",
+    "s_cfg",
+    "s_meta"
+   ],
+   "total_lines": 68
+  },
+  "api/cookie_clipboard": {
+   "n_views": 2,
+   "views": [
+    "api_cookie_clipboard_parse",
+    "api_cookie_clipboard_save"
+   ],
+   "line_lo": 10170,
+   "line_hi": 10217,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 46
+  },
+  "api/cookie_quality": {
+   "n_views": 2,
+   "views": [
+    "api_cookie_quality",
+    "api_cookie_quality_all"
+   ],
+   "line_lo": 8258,
+   "line_hi": 8718,
+   "contiguous": false,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 12
+  },
+  "api/cookie_relogin": {
+   "n_views": 2,
+   "views": [
+    "api_cookie_relogin_check",
+    "api_cookie_relogin_history"
+   ],
+   "line_lo": 8874,
+   "line_hi": 8892,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "runners",
+    "s_cfg"
+   ],
+   "total_lines": 17
+  },
+  "api/cost": {
+   "n_views": 2,
+   "views": [
+    "api_cost_report",
+    "api_cost_sunset"
+   ],
+   "line_lo": 4437,
+   "line_hi": 4468,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 30
+  },
+  "api/crash_recovery": {
+   "n_views": 5,
+   "views": [
+    "api_crash_recovery_scan",
+    "api_crash_recovery_stats",
+    "api_crash_recovery_delete",
+    "api_crash_recovery_ignore",
+    "api_crash_recovery_resume"
+   ],
+   "line_lo": 4735,
+   "line_hi": 4826,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "runners",
+    "s_cfg"
+   ],
+   "total_lines": 84
+  },
+  "api/csrf": {
+   "n_views": 1,
+   "views": [
+    "api_csrf"
+   ],
+   "line_lo": 844,
+   "line_hi": 872,
+   "contiguous": true,
+   "private_travelers": [
+    "_session_valid"
+   ],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 29
+  },
+  "api/daily_budget": {
+   "n_views": 3,
+   "views": [
+    "api_daily_budget_status",
+    "api_daily_budget_reset",
+    "api_daily_budget_history"
+   ],
+   "line_lo": 7155,
+   "line_hi": 7186,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 28
+  },
+  "api/dashboard": {
+   "n_views": 5,
+   "views": [
+    "api_dashboard",
+    "api_dashboard_widgets",
+    "api_dashboard_v2",
+    "api_dashboard_v2_sparkline",
+    "api_dashboard_v2_resolve"
+   ],
+   "line_lo": 10260,
+   "line_hi": 11442,
+   "contiguous": false,
+   "private_travelers": [
+    "_m2_attention_for_site"
+   ],
+   "kernel_imports": [
+    "_m2_avatar_color"
+   ],
+   "state_singletons": [
+    "runners",
+    "s_cfg"
+   ],
+   "total_lines": 320
+  },
+  "api/dedup": {
+   "n_views": 6,
+   "views": [
+    "api_dedup_status",
+    "api_dedup_scan",
+    "api_dedup_scan_cancel",
+    "api_dedup_find",
+    "api_dedup_groups",
+    "api_dedup_remove"
+   ],
+   "line_lo": 19481,
+   "line_hi": 19716,
+   "contiguous": true,
+   "private_travelers": [
+    "_dedup_get_registry",
+    "_dedup_scan_lock",
+    "_dedup_scan_state"
+   ],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 221
+  },
+  "api/deploy": {
+   "n_views": 3,
+   "views": [
+    "api_deploy_compose",
+    "api_deploy_systemd",
+    "api_deploy_k8s"
+   ],
+   "line_lo": 7955,
+   "line_hi": 7980,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 22
+  },
+  "api/dev": {
+   "n_views": 141,
+   "views": [
+    "api_dev_enabled",
+    "api_dev_discover",
+    "api_dev_run",
+    "api_dev_run_status",
+    "api_dev_run_cancel",
+    "api_dev_runs_recent",
+    "api_dev_mem_audit",
+    "api_dev_mem_audit_track",
+    "api_dev_load",
+    "api_dev_routes",
+    "api_dev_threads",
+    "api_dev_db_stats",
+    "api_dev_runner_state",
+    "api_dev_logtail",
+    "api_dev_env",
+    "api_dev_config",
+    "api_dev_proc",
+    "api_dev_invariants",
+    "api_dev_template_audit",
+    "api_dev_deep_detect",
+    "api_dev_leak_scan",
+    "api_dev_config_check",
+    "api_dev_gc",
+    "api_dev_wal_checkpoint",
+    "api_dev_log_level",
+    "api_dev_sse_status",
+    "api_dev_sql",
+    "api_dev_version_check",
+    "api_dev_changelog_lint",
+    "api_dev_bat_lint",
+    "api_dev_sh_lint",
+    "api_dev_zip_manifest",
+    "api_dev_auth_map",
+    "api_dev_csrf_check",
+    "api_dev_integrity",
+    "api_dev_backup_check",
+    "api_dev_log_search",
+    "api_dev_stuck_jobs",
+    "api_dev_rate_limits",
+    "api_dev_keepers",
+    "api_dev_ollama",
+    "api_dev_latency",
+    "api_dev_slow_endpoints",
+    "api_dev_error_rate",
+    "api_dev_exceptions",
+    "api_dev_thread_dump",
+    "api_dev_deadlock_check",
+    "api_dev_dispatch_chain",
+    "api_dev_dispatch_dryrun",
+    "api_dev_config_audit",
+    "api_dev_import_preflight",
+    "api_dev_duplicate_sites",
+    "api_dev_orphan_rows",
+    "api_dev_stale_references",
+    "api_dev_cookie_jar",
+    "api_dev_cookie_age",
+    "api_dev_auth_cookie_test",
+    "api_dev_login_template_dryrun",
+    "api_dev_credential_resolver",
+    "api_dev_extractor_matrix",
+    "api_dev_extractor_fastpath",
+    "api_dev_ffmpeg_preview",
+    "api_dev_resolution_test",
+    "api_dev_manifest_probe",
+    "api_dev_event_tap",
+    "api_dev_event_tap_ui",
+    "api_dev_slow_queries",
+    "api_dev_index_advisor",
+    "api_dev_migration_status",
+    "api_dev_lockfile_scan",
+    "api_dev_tempdir_clean",
+    "api_dev_guard_status",
+    "api_dev_coverage_map",
+    "api_dev_test_run_diff",
+    "api_dev_parametrize_fanout",
+    "api_dev_flaky_tests",
+    "api_dev_dependency_audit",
+    "api_dev_secret_scan",
+    "api_dev_path_allowlist_test",
+    "api_dev_sast_summary",
+    "api_dev_config_reload",
+    "api_dev_cache_clear",
+    "api_dev_fixture_site_start",
+    "api_dev_fixture_site_stop",
+    "api_dev_fixture_site_status",
+    "api_dev_config_snapshot",
+    "api_dev_config_snapshots",
+    "api_dev_config_restore",
+    "api_dev_config_snapshot_diff",
+    "api_dev_runner_console",
+    "api_dev_job_replay",
+    "api_dev_systemd_check",
+    "api_dev_pin_drift",
+    "api_dev_queue_table",
+    "api_dev_fts_index",
+    "api_dev_db_growth",
+    "api_dev_queue_throughput",
+    "api_dev_retry_schedule",
+    "api_dev_worker_profile",
+    "api_dev_account_pool",
+    "api_dev_manual_takeover_log",
+    "api_dev_csrf_token",
+    "api_dev_prompt_preview",
+    "api_dev_ai_fallback",
+    "api_dev_ai_latency",
+    "api_dev_ai_health_history",
+    "api_dev_vision_test",
+    "api_dev_magic_bytes",
+    "api_dev_mp4_metadata",
+    "api_dev_dedup_hashes",
+    "api_dev_partials",
+    "api_dev_filename_template",
+    "api_dev_vpn_config",
+    "api_dev_vpn_rotation",
+    "api_dev_vpn_probe",
+    "api_dev_egress_ip",
+    "api_dev_flaresolverr_health",
+    "api_dev_captcha_relay",
+    "api_dev_stealth_audit",
+    "api_dev_disk_usage",
+    "api_dev_download_scan",
+    "api_dev_dead_css",
+    "api_dev_storage_tier_status",
+    "api_dev_maintenance_mode",
+    "api_dev_maintenance_enable",
+    "api_dev_maintenance_disable",
+    "api_dev_token_estimate",
+    "api_dev_i18n_coverage",
+    "api_dev_model_pull_check",
+    "api_dev_feature_flags",
+    "api_dev_feature_flag_set",
+    "api_dev_feature_flag_delete",
+    "api_dev_window_simulate",
+    "api_dev_golden_files",
+    "api_dev_tls_check",
+    "api_dev_request_replay_list",
+    "api_dev_request_replay",
+    "api_dev_login_flows",
+    "api_dev_login_flow_save",
+    "api_dev_login_flow_delete",
+    "api_dev_test_timing"
+   ],
+   "line_lo": 4844,
+   "line_hi": 6984,
+   "contiguous": true,
+   "private_travelers": [
+    "_dev_mode_guard"
+   ],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "_app_cfg",
+    "runners",
+    "s_cfg"
+   ],
+   "total_lines": 1740
+  },
+  "api/diagnostics": {
+   "n_views": 2,
+   "views": [
+    "api_diagnostics_bundle",
+    "api_diagnostics_download"
+   ],
+   "line_lo": 7927,
+   "line_hi": 7951,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 23
+  },
+  "api/diagnostics_bundle": {
+   "n_views": 2,
+   "views": [
+    "api_diag_bundle_preview",
+    "api_diag_bundle_download"
+   ],
+   "line_lo": 9815,
+   "line_hi": 9842,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 26
+  },
+  "api/discovery": {
+   "n_views": 2,
+   "views": [
+    "api_discovery_run",
+    "api_discovery_history"
+   ],
+   "line_lo": 8985,
+   "line_hi": 9019,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "runners",
+    "s_cfg"
+   ],
+   "total_lines": 33
+  },
+  "api/doctor": {
+   "n_views": 2,
+   "views": [
+    "api_doctor",
+    "api_doctor_diagnose"
+   ],
+   "line_lo": 948,
+   "line_hi": 979,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 29
+  },
+  "api/edge_deploy": {
+   "n_views": 2,
+   "views": [
+    "api_edge_compose",
+    "api_edge_all"
+   ],
+   "line_lo": 9701,
+   "line_hi": 9742,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 40
+  },
+  "api/eol": {
+   "n_views": 2,
+   "views": [
+    "api_eol_report",
+    "api_eol_export"
+   ],
+   "line_lo": 8185,
+   "line_hi": 8208,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 22
+  },
+  "api/events_all": {
+   "n_views": 1,
+   "views": [
+    "api_events_all"
+   ],
+   "line_lo": 12208,
+   "line_hi": 12239,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "runners",
+    "s_meta"
+   ],
+   "total_lines": 32
+  },
+  "api/export": {
+   "n_views": 3,
+   "views": [
+    "api_export_csv",
+    "api_export_json",
+    "api_export_m3u"
+   ],
+   "line_lo": 8119,
+   "line_hi": 8163,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 41
+  },
+  "api/extension": {
+   "n_views": 1,
+   "views": [
+    "api_extension_lookup_url"
+   ],
+   "line_lo": 16623,
+   "line_hi": 16694,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "runners",
+    "s_cfg"
+   ],
+   "total_lines": 72
+  },
+  "api/fed": {
+   "n_views": 6,
+   "views": [
+    "api_fed_announce",
+    "api_fed_peers",
+    "api_fed_claim",
+    "api_fed_sync",
+    "api_fed_status",
+    "api_fed_manual_register"
+   ],
+   "line_lo": 8722,
+   "line_hi": 8815,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 83
+  },
+  "api/file": {
+   "n_views": 1,
+   "views": [
+    "api_file_reveal"
+   ],
+   "line_lo": 1160,
+   "line_hi": 1205,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_validate_path"
+   ],
+   "state_singletons": [],
+   "total_lines": 46
+  },
+  "api/fixtures": {
+   "n_views": 2,
+   "views": [
+    "api_fixtures_list",
+    "api_fixtures_run"
+   ],
+   "line_lo": 9139,
+   "line_hi": 9153,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 13
+  },
+  "api/flaresolverr": {
+   "n_views": 3,
+   "views": [
+    "api_flaresolverr_status",
+    "api_flaresolverr_test",
+    "api_flaresolverr_sessions"
+   ],
+   "line_lo": 19825,
+   "line_hi": 19887,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 57
+  },
+  "api/gamification": {
+   "n_views": 1,
+   "views": [
+    "api_gamification"
+   ],
+   "line_lo": 8176,
+   "line_hi": 8181,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 6
+  },
+  "api/global_config": {
+   "n_views": 3,
+   "views": [
+    "api_global_config_defaults",
+    "api_global_config_origins",
+    "api_global_config"
+   ],
+   "line_lo": 3373,
+   "line_hi": 3940,
+   "contiguous": true,
+   "private_travelers": [
+    "_APP_CFG_DEFAULTS",
+    "_ORIGINS_APPLY_RESTART",
+    "_ORIGINS_SECRET_FIELDS",
+    "_origins_env_locked"
+   ],
+   "kernel_imports": [],
+   "state_singletons": [
+    "_app_cfg"
+   ],
+   "total_lines": 315
+  },
+  "api/health": {
+   "n_views": 3,
+   "views": [
+    "api_health",
+    "api_health_checklist",
+    "api_health_v2"
+   ],
+   "line_lo": 885,
+   "line_hi": 11348,
+   "contiguous": false,
+   "private_travelers": [
+    "_app_boot_time",
+    "api_health_v2",
+    "app_test_mode"
+   ],
+   "kernel_imports": [],
+   "state_singletons": [
+    "runners",
+    "s_cfg"
+   ],
+   "total_lines": 165
+  },
+  "api/history": {
+   "n_views": 3,
+   "views": [
+    "api_prune",
+    "api_vacuum",
+    "api_history"
+   ],
+   "line_lo": 17357,
+   "line_hi": 18549,
+   "contiguous": false,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 29
+  },
+  "api/hourly_stats": {
+   "n_views": 1,
+   "views": [
+    "api_hourly_stats"
+   ],
+   "line_lo": 18553,
+   "line_hi": 18566,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 14
+  },
+  "api/i18n": {
+   "n_views": 4,
+   "views": [
+    "api_i18n_locales",
+    "api_i18n_load",
+    "api_i18n_template",
+    "api_i18n_save"
+   ],
+   "line_lo": 9192,
+   "line_hi": 9230,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 33
+  },
+  "api/import": {
+   "n_views": 5,
+   "views": [
+    "api_import_start",
+    "api_import_status",
+    "api_import_cancel",
+    "api_import_recent",
+    "api_import_stream"
+   ],
+   "line_lo": 6989,
+   "line_hi": 7081,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "runners"
+   ],
+   "total_lines": 85
+  },
+  "api/integrations": {
+   "n_views": 1,
+   "views": [
+    "api_integrations_health"
+   ],
+   "line_lo": 15248,
+   "line_hi": 15279,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "_app_cfg"
+   ],
+   "total_lines": 32
+  },
+  "api/jobs": {
+   "n_views": 1,
+   "views": [
+    "api_jobs_stuck"
+   ],
+   "line_lo": 18172,
+   "line_hi": 18219,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "runners",
+    "s_cfg"
+   ],
+   "total_lines": 48
+  },
+  "api/jsonapi": {
+   "n_views": 1,
+   "views": [
+    "api_jsonapi_probe"
+   ],
+   "line_lo": 14886,
+   "line_hi": 14948,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 63
+  },
+  "api/knowledge": {
+   "n_views": 5,
+   "views": [
+    "api_knowledge_runbook",
+    "api_knowledge_notes_list",
+    "api_knowledge_notes_add",
+    "api_knowledge_notes_remove",
+    "api_knowledge_recipes"
+   ],
+   "line_lo": 7600,
+   "line_hi": 7656,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 49
+  },
+  "api/library": {
+   "n_views": 20,
+   "views": [
+    "api_library_audit",
+    "api_library_regen_nfos",
+    "api_library_orphans_post",
+    "api_library_browse",
+    "api_library_get",
+    "api_library_delete",
+    "api_library_watched",
+    "api_library_rating",
+    "api_library_notes",
+    "api_library_tag_add",
+    "api_library_tag_remove",
+    "api_library_stats",
+    "api_library_tags_list",
+    "api_library_tag_delete",
+    "api_library_missing",
+    "api_library_orphans_v2",
+    "api_library_scan_start",
+    "api_library_scan_status",
+    "api_library_scan_cancel",
+    "api_library_integrity"
+   ],
+   "line_lo": 7453,
+   "line_hi": 18525,
+   "contiguous": false,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf",
+    "_validate_path"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 237
+  },
+  "api/login_templates": {
+   "n_views": 1,
+   "views": [
+    "api_login_templates_list"
+   ],
+   "line_lo": 14861,
+   "line_hi": 14867,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 7
+  },
+  "api/logs": {
+   "n_views": 2,
+   "views": [
+    "api_logs_tail",
+    "api_logs_clear"
+   ],
+   "line_lo": 14185,
+   "line_hi": 14274,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 87
+  },
+  "api/macros": {
+   "n_views": 7,
+   "views": [
+    "api_macros_list",
+    "api_macros_get",
+    "api_macros_save",
+    "api_macros_delete",
+    "api_macros_validate",
+    "api_macros_replay_status",
+    "api_macros_replay"
+   ],
+   "line_lo": 7248,
+   "line_hi": 7359,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 97
+  },
+  "api/marketplace": {
+   "n_views": 3,
+   "views": [
+    "api_marketplace_export",
+    "api_marketplace_import",
+    "api_marketplace_import_preview"
+   ],
+   "line_lo": 7797,
+   "line_hi": 7861,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 61
+  },
+  "api/multi_conn": {
+   "n_views": 2,
+   "views": [
+    "api_multi_conn_status",
+    "api_multi_conn_probe"
+   ],
+   "line_lo": 19902,
+   "line_hi": 19959,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 55
+  },
+  "api/notify": {
+   "n_views": 6,
+   "views": [
+    "api_notify_apprise_settings_get",
+    "api_notify_apprise_settings_post",
+    "api_notify_apprise_validate",
+    "api_notify_presets",
+    "api_notify_apprise_test",
+    "api_notify_apprise_schemes"
+   ],
+   "line_lo": 18958,
+   "line_hi": 19143,
+   "contiguous": true,
+   "private_travelers": [
+    "_NOTIFY_PRESETS",
+    "_apply_global_notify_config"
+   ],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 114
+  },
+  "api/openapi": {
+   "n_views": 1,
+   "views": [
+    "api_openapi_parity"
+   ],
+   "line_lo": 7559,
+   "line_hi": 7565,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 7
+  },
+  "api/openapi.json": {
+   "n_views": 1,
+   "views": [
+    "api_openapi"
+   ],
+   "line_lo": 7549,
+   "line_hi": 7556,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 8
+  },
+  "api/pair": {
+   "n_views": 2,
+   "views": [
+    "api_pair_redeem",
+    "api_pair"
+   ],
+   "line_lo": 1241,
+   "line_hi": 14180,
+   "contiguous": false,
+   "private_travelers": [
+    "PAIRING_TTL",
+    "_lan_ip_guess",
+    "_pairing_lock",
+    "_pairing_tokens"
+   ],
+   "kernel_imports": [],
+   "state_singletons": [
+    "_app_cfg"
+   ],
+   "total_lines": 96
+  },
+  "api/palette": {
+   "n_views": 1,
+   "views": [
+    "api_palette_commands"
+   ],
+   "line_lo": 9102,
+   "line_hi": 9112,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 11
+  },
+  "api/pause_all": {
+   "n_views": 1,
+   "views": [
+    "api_pause_all"
+   ],
+   "line_lo": 17596,
+   "line_hi": 17596,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf",
+    "_do_action_all"
+   ],
+   "state_singletons": [],
+   "total_lines": 1
+  },
+  "api/phoenix": {
+   "n_views": 4,
+   "views": [
+    "api_phoenix_lookup",
+    "api_phoenix_suggest",
+    "api_phoenix_networks",
+    "api_phoenix_brands"
+   ],
+   "line_lo": 20159,
+   "line_hi": 20233,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 66
+  },
+  "api/playground": {
+   "n_views": 2,
+   "views": [
+    "api_playground_test",
+    "api_playground_status"
+   ],
+   "line_lo": 7660,
+   "line_hi": 7686,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 25
+  },
+  "api/plex_advanced": {
+   "n_views": 7,
+   "views": [
+    "api_plex_adv_status",
+    "api_plex_adv_server_info",
+    "api_plex_adv_library_stats",
+    "api_plex_adv_recently_added",
+    "api_plex_adv_on_deck",
+    "api_plex_adv_search",
+    "api_plex_adv_mark"
+   ],
+   "line_lo": 4648,
+   "line_hi": 4730,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 71
+  },
+  "api/plex_deep": {
+   "n_views": 1,
+   "views": [
+    "api_plex_deep_backend_status"
+   ],
+   "line_lo": 4632,
+   "line_hi": 4643,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 12
+  },
+  "api/plugins": {
+   "n_views": 3,
+   "views": [
+    "api_plugins_status",
+    "api_plugins_reload",
+    "api_plugins_events"
+   ],
+   "line_lo": 7863,
+   "line_hi": 7888,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 22
+  },
+  "api/provenance": {
+   "n_views": 3,
+   "views": [
+    "api_provenance_query",
+    "api_provenance_verify",
+    "api_provenance_stats"
+   ],
+   "line_lo": 4472,
+   "line_hi": 4513,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 38
+  },
+  "api/push": {
+   "n_views": 5,
+   "views": [
+    "api_push_info",
+    "api_push_subscribe",
+    "api_push_unsubscribe",
+    "api_push_test",
+    "api_push_list"
+   ],
+   "line_lo": 3329,
+   "line_hi": 3370,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 34
+  },
+  "api/queue": {
+   "n_views": 7,
+   "views": [
+    "api_queue_preflight",
+    "api_queue_v2",
+    "api_queue_v2_cancel",
+    "api_queue_v2_job_log",
+    "api_queue_v2_job_log_diff",
+    "api_queue_v2_bulk_cancel",
+    "api_queue_v2_add_url"
+   ],
+   "line_lo": 3516,
+   "line_hi": 12023,
+   "contiguous": false,
+   "private_travelers": [
+    "_diff_collect_one",
+    "_diff_lines_for",
+    "_m2_site_drain_eta",
+    "_oi_default_download_dir",
+    "_oi_flagged"
+   ],
+   "kernel_imports": [
+    "_check_csrf",
+    "_m2_avatar_color"
+   ],
+   "state_singletons": [
+    "runners",
+    "s_cfg"
+   ],
+   "total_lines": 423
+  },
+  "api/queue_templates": {
+   "n_views": 3,
+   "views": [
+    "api_queue_templates",
+    "api_queue_template_one",
+    "api_queue_template_apply"
+   ],
+   "line_lo": 17162,
+   "line_hi": 17245,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "runners"
+   ],
+   "total_lines": 76
+  },
+  "api/quick_add": {
+   "n_views": 1,
+   "views": [
+    "api_quick_add"
+   ],
+   "line_lo": 15963,
+   "line_hi": 16052,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "_app_cfg",
+    "runners",
+    "s_cfg"
+   ],
+   "total_lines": 90
+  },
+  "api/ramdisk": {
+   "n_views": 1,
+   "views": [
+    "api_ramdisk"
+   ],
+   "line_lo": 4592,
+   "line_hi": 4599,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 8
+  },
+  "api/rate_limit": {
+   "n_views": 1,
+   "views": [
+    "api_rate_limit_status"
+   ],
+   "line_lo": 13841,
+   "line_hi": 13849,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 9
+  },
+  "api/rebalance": {
+   "n_views": 3,
+   "views": [
+    "api_rebalance_inventory",
+    "api_rebalance_plan",
+    "api_rebalance_execute"
+   ],
+   "line_lo": 8212,
+   "line_hi": 8254,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 39
+  },
+  "api/recommendations": {
+   "n_views": 3,
+   "views": [
+    "api_recs_similar",
+    "api_recs_recent",
+    "api_recs_top"
+   ],
+   "line_lo": 4380,
+   "line_hi": 4421,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 38
+  },
+  "api/resume_all": {
+   "n_views": 1,
+   "views": [
+    "api_resume_all"
+   ],
+   "line_lo": 17598,
+   "line_hi": 17598,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf",
+    "_do_action_all"
+   ],
+   "state_singletons": [],
+   "total_lines": 1
+  },
+  "api/retention": {
+   "n_views": 4,
+   "views": [
+    "api_retention_preview",
+    "api_retention_apply",
+    "api_retention_audit",
+    "api_retention_exclude"
+   ],
+   "line_lo": 9617,
+   "line_hi": 9697,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 75
+  },
+  "api/retry_policy": {
+   "n_views": 2,
+   "views": [
+    "api_retry_policy",
+    "api_retry_policy_classify"
+   ],
+   "line_lo": 10469,
+   "line_hi": 10519,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 48
+  },
+  "api/rights": {
+   "n_views": 5,
+   "views": [
+    "api_rights_blocklist",
+    "api_rights_block_url",
+    "api_rights_block_hash",
+    "api_rights_remove",
+    "api_rights_audit"
+   ],
+   "line_lo": 7191,
+   "line_hi": 7244,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 46
+  },
+  "api/route_preview": {
+   "n_views": 1,
+   "views": [
+    "api_route_preview"
+   ],
+   "line_lo": 16733,
+   "line_hi": 16802,
+   "contiguous": true,
+   "private_travelers": [
+    "_score_url_against_sites"
+   ],
+   "kernel_imports": [],
+   "state_singletons": [
+    "runners",
+    "s_cfg"
+   ],
+   "total_lines": 70
+  },
+  "api/route_urls": {
+   "n_views": 1,
+   "views": [
+    "api_route_urls"
+   ],
+   "line_lo": 16837,
+   "line_hi": 16924,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "runners",
+    "s_cfg"
+   ],
+   "total_lines": 88
+  },
+  "api/runners": {
+   "n_views": 2,
+   "views": [
+    "api_runners_pause_all",
+    "api_runners_resume_all"
+   ],
+   "line_lo": 18119,
+   "line_hi": 18161,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "runners"
+   ],
+   "total_lines": 40
+  },
+  "api/runs": {
+   "n_views": 2,
+   "views": [
+    "api_runs",
+    "api_run_timeline"
+   ],
+   "line_lo": 3435,
+   "line_hi": 3458,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 21
+  },
+  "api/saved_searches": {
+   "n_views": 6,
+   "views": [
+    "api_saved_searches_list",
+    "api_saved_searches_add",
+    "api_saved_searches_remove",
+    "api_saved_searches_update",
+    "api_saved_searches_run",
+    "api_saved_searches_digest"
+   ],
+   "line_lo": 4301,
+   "line_hi": 4376,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 66
+  },
+  "api/scene_score": {
+   "n_views": 3,
+   "views": [
+    "api_scene_score_top",
+    "api_scene_score_bottom",
+    "api_scene_score_dist"
+   ],
+   "line_lo": 9441,
+   "line_hi": 9477,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 33
+  },
+  "api/sched_exports": {
+   "n_views": 4,
+   "views": [
+    "api_sched_list",
+    "api_sched_add",
+    "api_sched_remove",
+    "api_sched_run"
+   ],
+   "line_lo": 9272,
+   "line_hi": 9316,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 39
+  },
+  "api/scheduled_exports": {
+   "n_views": 4,
+   "views": [
+    "api_sched_exports_list",
+    "api_sched_exports_add",
+    "api_sched_exports_remove",
+    "api_sched_exports_run_now"
+   ],
+   "line_lo": 9867,
+   "line_hi": 9918,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 46
+  },
+  "api/schedules": {
+   "n_views": 4,
+   "views": [
+    "api_schedules_list",
+    "api_schedules_add",
+    "api_schedules_remove",
+    "api_schedules_run_now"
+   ],
+   "line_lo": 9944,
+   "line_hi": 9993,
+   "contiguous": true,
+   "private_travelers": [
+    "_capture_enqueue"
+   ],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 44
+  },
+  "api/scrape_listing": {
+   "n_views": 1,
+   "views": [
+    "api_scrape_listing"
+   ],
+   "line_lo": 16059,
+   "line_hi": 16133,
+   "contiguous": true,
+   "private_travelers": [
+    "_is_url_public"
+   ],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 75
+  },
+  "api/scrapling": {
+   "n_views": 4,
+   "views": [
+    "api_scrapling_status",
+    "api_scrapling_fingerprint",
+    "api_scrapling_recover",
+    "api_scrapling_turnstile_check"
+   ],
+   "line_lo": 19730,
+   "line_hi": 19811,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 73
+  },
+  "api/search": {
+   "n_views": 4,
+   "views": [
+    "api_search",
+    "api_search_site",
+    "api_search_all",
+    "api_search_sites_available"
+   ],
+   "line_lo": 10226,
+   "line_hi": 20503,
+   "contiguous": false,
+   "private_travelers": [
+    "_serialize_search_result"
+   ],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "runners",
+    "s_cfg"
+   ],
+   "total_lines": 141
+  },
+  "api/secrets": {
+   "n_views": 17,
+   "views": [
+    "api_secrets_status",
+    "api_secrets_usage",
+    "api_secrets_configure",
+    "api_secrets_unlock",
+    "api_secrets_lock",
+    "api_secrets_change_password",
+    "api_secrets_migrate",
+    "api_secrets_import_file",
+    "api_secrets_import_apply",
+    "api_secrets_delete",
+    "api_secrets_extension_pair_issue",
+    "api_secrets_extension_pair",
+    "api_secrets_extension_list_paired",
+    "api_secrets_extension_revoke",
+    "api_secrets_extension_list_for_origin",
+    "api_secrets_extension_fetch_one",
+    "api_secrets_extension_ping"
+   ],
+   "line_lo": 15180,
+   "line_hi": 15821,
+   "contiguous": true,
+   "private_travelers": [
+    "_reject_if_vault_token",
+    "_require_vault_token"
+   ],
+   "kernel_imports": [
+    "_save_sites_config"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 498
+  },
+  "api/selector_drift": {
+   "n_views": 3,
+   "views": [
+    "api_selector_drift_status",
+    "api_selector_drift_status_one",
+    "api_selector_drift_reset"
+   ],
+   "line_lo": 7086,
+   "line_hi": 7112,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 23
+  },
+  "api/selftest": {
+   "n_views": 1,
+   "views": [
+    "api_selftest"
+   ],
+   "line_lo": 17706,
+   "line_hi": 17724,
+   "contiguous": true,
+   "private_travelers": [
+    "_SITES_CFG_PATH"
+   ],
+   "kernel_imports": [],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 19
+  },
+  "api/session_history": {
+   "n_views": 1,
+   "views": [
+    "api_session_history"
+   ],
+   "line_lo": 15879,
+   "line_hi": 15888,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 10
+  },
+  "api/session_status": {
+   "n_views": 1,
+   "views": [
+    "api_session_status"
+   ],
+   "line_lo": 15827,
+   "line_hi": 15875,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 49
+  },
+  "api/shares": {
+   "n_views": 4,
+   "views": [
+    "api_shares_create",
+    "api_shares_list",
+    "api_shares_revoke",
+    "api_shares_access"
+   ],
+   "line_lo": 9023,
+   "line_hi": 9063,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 35
+  },
+  "api/shortcuts": {
+   "n_views": 1,
+   "views": [
+    "api_shortcuts_list"
+   ],
+   "line_lo": 10153,
+   "line_hi": 10166,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 14
+  },
+  "api/sites": {
+   "n_views": 116,
+   "views": [
+    "api_site_readiness",
+    "api_ai_reanalyze",
+    "api_post_reveal_decision",
+    "api_pending_approvals",
+    "api_auto_submit_decision",
+    "api_template_status",
+    "api_template_onboard",
+    "api_template_capture_cancel",
+    "api_candidates_inspect",
+    "api_template_dry_run",
+    "api_profile_seed",
+    "api_profile_status",
+    "api_cookies_export",
+    "api_cookies_import",
+    "api_account_pool_status",
+    "api_account_pool_reset",
+    "api_sites_v2",
+    "api_sites_v2_bulk",
+    "api_add",
+    "api_sites_csv_template",
+    "api_sites_xlsx_template",
+    "api_sites_bulk_csv",
+    "api_sites_validate",
+    "api_sites_export",
+    "api_sites_import",
+    "api_sites_diff",
+    "api_sites_schema",
+    "api_sites_selector_health",
+    "api_clone_site",
+    "api_randomize_fingerprint",
+    "api_update",
+    "api_delete",
+    "api_login",
+    "api_accounts_get",
+    "api_accounts_reset_cooldown",
+    "api_accounts_rotate",
+    "api_captcha_stats",
+    "api_jd_diagnose",
+    "api_ai_detect_login",
+    "api_jellyfin_diagnose",
+    "api_jellyfin_libraries",
+    "api_watch_scan_now",
+    "api_watch_status",
+    "api_plex_diagnose",
+    "api_plex_sections",
+    "api_stash_diagnose",
+    "api_stash_preview_url",
+    "api_qb_diagnose",
+    "api_captcha_test",
+    "api_manual_login",
+    "api_hooks_test",
+    "api_hooks_spillover_check",
+    "api_login_manual_done",
+    "api_login_manual_cancel",
+    "api_login_verify",
+    "api_login_verify_status",
+    "api_take_over_url",
+    "api_take_over_done",
+    "api_take_over_cancel",
+    "api_teach_verify",
+    "api_teach_test_download",
+    "api_teach_commit",
+    "api_teach_cancel",
+    "api_teach_save_template",
+    "api_reset_learned",
+    "api_events",
+    "api_timeline",
+    "api_selector_stats",
+    "api_prune_selectors",
+    "api_learned_apply_repairs",
+    "api_learned_export",
+    "api_learned_import",
+    "api_login_template_apply",
+    "api_template_apply",
+    "api_site_reconnect",
+    "api_site_keep_alive_toggle",
+    "api_load_urls",
+    "api_storage_tier_status",
+    "api_storage_tier_run_now",
+    "api_heuristic_fingerprint",
+    "api_window_status",
+    "api_site_queue_url",
+    "api_load_cookies",
+    "api_reorder",
+    "api_priority",
+    "api_bulk_priority",
+    "api_bulk_delete",
+    "api_bulk_approve",
+    "api_bulk_pause",
+    "api_bulk_resume",
+    "api_bulk_retry",
+    "api_bulk_reorder",
+    "api_queue_search",
+    "api_queue_counts",
+    "api_queue_grouped",
+    "api_queue_export",
+    "api_queue_import",
+    "api_queue_save_template",
+    "api_bulk_url_transform",
+    "api_export",
+    "api_start",
+    "api_pause",
+    "api_resume",
+    "api_stop",
+    "api_clear",
+    "api_retry",
+    "api_retry_one",
+    "api_jobs_mark",
+    "api_jobs_bulk_mark",
+    "api_jobs_bulk_delete",
+    "api_jobs_bulk_priority",
+    "api_jobs_reorder",
+    "api_jobs_detail",
+    "api_sites_preview_filename",
+    "api_export_watchlist",
+    "api_queue"
+   ],
+   "line_lo": 3604,
+   "line_hi": 18647,
+   "contiguous": false,
+   "private_travelers": [
+    "_SITES_BULK_ACTIONS",
+    "_apply_login_template_by_id",
+    "_apply_template_by_id",
+    "_bd_cookie_dir",
+    "_do_action",
+    "_m2_age_human",
+    "_m2_auth_state",
+    "_m2_honeypot_suggestion",
+    "_sanitize_display_name",
+    "_site_primary_url",
+    "_start_session_keepers",
+    "_start_watch_folder_threads",
+    "_store_site_password_in_vault",
+    "_teach_cors_response",
+    "_validate_bulk_urls",
+    "_validate_config_paths",
+    "_vault_guard_for_password",
+    "_watch_stops",
+    "_watch_threads"
+   ],
+   "kernel_imports": [
+    "_build_meta",
+    "_check_csrf",
+    "_m2_avatar_color",
+    "_save_sites_config"
+   ],
+   "state_singletons": [
+    "runners",
+    "s_cfg",
+    "s_meta"
+   ],
+   "total_lines": 3108
+  },
+  "api/sites_list": {
+   "n_views": 1,
+   "views": [
+    "api_sites_list"
+   ],
+   "line_lo": 16698,
+   "line_hi": 16729,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 32
+  },
+  "api/sse_status": {
+   "n_views": 1,
+   "views": [
+    "api_sse_status"
+   ],
+   "line_lo": 10456,
+   "line_hi": 10464,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 9
+  },
+  "api/start_all": {
+   "n_views": 1,
+   "views": [
+    "api_start_all"
+   ],
+   "line_lo": 17600,
+   "line_hi": 17600,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf",
+    "_do_action_all"
+   ],
+   "state_singletons": [],
+   "total_lines": 1
+  },
+  "api/stats": {
+   "n_views": 3,
+   "views": [
+    "api_stats",
+    "api_stats_bandwidth",
+    "api_stats_timeline"
+   ],
+   "line_lo": 18650,
+   "line_hi": 18685,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 32
+  },
+  "api/status": {
+   "n_views": 1,
+   "views": [
+    "api_status"
+   ],
+   "line_lo": 4203,
+   "line_hi": 4232,
+   "contiguous": true,
+   "private_travelers": [
+    "api_status"
+   ],
+   "kernel_imports": [],
+   "state_singletons": [
+    "runners",
+    "s_cfg",
+    "s_meta"
+   ],
+   "total_lines": 30
+  },
+  "api/storage": {
+   "n_views": 1,
+   "views": [
+    "api_storage_validate"
+   ],
+   "line_lo": 15120,
+   "line_hi": 15173,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 54
+  },
+  "api/storage_rebalance": {
+   "n_views": 3,
+   "views": [
+    "api_storage_inventory",
+    "api_storage_plan",
+    "api_storage_execute"
+   ],
+   "line_lo": 9746,
+   "line_hi": 9790,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 41
+  },
+  "api/stream": {
+   "n_views": 3,
+   "views": [
+    "api_stream_token",
+    "api_stream_rotate_secret",
+    "api_stream"
+   ],
+   "line_lo": 8896,
+   "line_hi": 10452,
+   "contiguous": false,
+   "private_travelers": [
+    "_dashboard_snapshot",
+    "_status_snapshot"
+   ],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 94
+  },
+  "api/subtitles": {
+   "n_views": 2,
+   "views": [
+    "api_subtitles_status",
+    "api_subtitles_fetch"
+   ],
+   "line_lo": 4623,
+   "line_hi": 7545,
+   "contiguous": false,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 42
+  },
+  "api/supervisor": {
+   "n_views": 2,
+   "views": [
+    "api_supervisor_status",
+    "api_supervisor_configure"
+   ],
+   "line_lo": 20237,
+   "line_hi": 20265,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 26
+  },
+  "api/synthetic_tests": {
+   "n_views": 2,
+   "views": [
+    "api_synth_list",
+    "api_synth_run_all"
+   ],
+   "line_lo": 9794,
+   "line_hi": 9811,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 16
+  },
+  "api/tags": {
+   "n_views": 9,
+   "views": [
+    "api_tags_all",
+    "api_tags_for",
+    "api_tags_for_many",
+    "api_tags_add",
+    "api_tags_remove",
+    "api_tags_rows",
+    "api_tags_rename",
+    "api_tags_delete",
+    "api_tags_suggest"
+   ],
+   "line_lo": 9320,
+   "line_hi": 9437,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 102
+  },
+  "api/template": {
+   "n_views": 5,
+   "views": [
+    "api_template_extract",
+    "api_template_extract_login",
+    "api_template_refine",
+    "api_template_sandbox",
+    "api_template_test_extract"
+   ],
+   "line_lo": 16252,
+   "line_hi": 16618,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_build_meta",
+    "_check_csrf",
+    "_save_sites_config"
+   ],
+   "state_singletons": [
+    "runners",
+    "s_cfg",
+    "s_meta"
+   ],
+   "total_lines": 343
+  },
+  "api/template_manager": {
+   "n_views": 4,
+   "views": [
+    "api_template_manager_list",
+    "api_template_manager_promote",
+    "api_template_manager_promote_check",
+    "api_template_manager_disable"
+   ],
+   "line_lo": 8519,
+   "line_hi": 8614,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 87
+  },
+  "api/templates": {
+   "n_views": 1,
+   "views": [
+    "api_templates_list"
+   ],
+   "line_lo": 14847,
+   "line_hi": 14857,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 11
+  },
+  "api/tg": {
+   "n_views": 4,
+   "views": [
+    "api_tg_status",
+    "api_tg_settings_get",
+    "api_tg_settings_post",
+    "api_tg_test"
+   ],
+   "line_lo": 19333,
+   "line_hi": 19434,
+   "contiguous": true,
+   "private_travelers": [
+    "_apply_tg_bot_config"
+   ],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 93
+  },
+  "api/thumbnail_sheets": {
+   "n_views": 2,
+   "views": [
+    "api_thumbsheet_contact_by_hid",
+    "api_thumbsheet_single_by_hid"
+   ],
+   "line_lo": 9483,
+   "line_hi": 9524,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 40
+  },
+  "api/thumbnails": {
+   "n_views": 3,
+   "views": [
+    "api_thumbnails_status",
+    "api_thumbnails_regenerate",
+    "api_thumbnails_serve"
+   ],
+   "line_lo": 20269,
+   "line_hi": 20346,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 72
+  },
+  "api/thumbs": {
+   "n_views": 3,
+   "views": [
+    "api_thumb_single",
+    "api_thumb_contact",
+    "api_thumb_sprite"
+   ],
+   "line_lo": 8938,
+   "line_hi": 8981,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 40
+  },
+  "api/tools": {
+   "n_views": 1,
+   "views": [
+    "api_tools"
+   ],
+   "line_lo": 13283,
+   "line_hi": 13316,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 34
+  },
+  "api/tpdb": {
+   "n_views": 2,
+   "views": [
+    "api_tpdb_lookup",
+    "api_tpdb_apply"
+   ],
+   "line_lo": 9528,
+   "line_hi": 9613,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 84
+  },
+  "api/ui_events": {
+   "n_views": 2,
+   "views": [
+    "api_ui_events",
+    "api_ui_events_download"
+   ],
+   "line_lo": 3945,
+   "line_hi": 3992,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "_app_cfg"
+   ],
+   "total_lines": 45
+  },
+  "api/user_templates": {
+   "n_views": 6,
+   "views": [
+    "api_user_templates_list",
+    "api_user_templates_create",
+    "api_user_templates_delete",
+    "api_user_templates_export",
+    "api_user_templates_import",
+    "api_user_templates_import_preview"
+   ],
+   "line_lo": 15000,
+   "line_hi": 15116,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 102
+  },
+  "api/vpn": {
+   "n_views": 4,
+   "views": [
+    "api_vpn_stats",
+    "api_vpn_best",
+    "api_vpn_blacklist",
+    "api_vpn_auto_bl"
+   ],
+   "line_lo": 9157,
+   "line_hi": 9188,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 26
+  },
+  "api/wakeup": {
+   "n_views": 2,
+   "views": [
+    "api_wakeup_should",
+    "api_wakeup_history"
+   ],
+   "line_lo": 9116,
+   "line_hi": 9135,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 18
+  },
+  "api/wayback": {
+   "n_views": 2,
+   "views": [
+    "api_wayback_snapshots",
+    "api_wayback_avail"
+   ],
+   "line_lo": 4554,
+   "line_hi": 4573,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 18
+  },
+  "api/weather": {
+   "n_views": 3,
+   "views": [
+    "api_weather_all",
+    "api_weather_site",
+    "api_weather_probe_now"
+   ],
+   "line_lo": 10080,
+   "line_hi": 10110,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 27
+  },
+  "api/webhooks": {
+   "n_views": 5,
+   "views": [
+    "api_webhooks_list",
+    "api_webhooks_add",
+    "api_webhooks_remove",
+    "api_webhooks_stats",
+    "api_webhooks_drain"
+   ],
+   "line_lo": 7996,
+   "line_hi": 8046,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 43
+  },
+  "api/ytdlp_archive": {
+   "n_views": 2,
+   "views": [
+    "api_ytdlp_archive_stats",
+    "api_ytdlp_archive_derive"
+   ],
+   "line_lo": 19982,
+   "line_hi": 20023,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [
+    "s_cfg"
+   ],
+   "total_lines": 39
+  },
+  "api/ytdlp_status": {
+   "n_views": 1,
+   "views": [
+    "api_ytdlp_status"
+   ],
+   "line_lo": 4241,
+   "line_hi": 4250,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 10
+  },
+  "api/ytdlp_update": {
+   "n_views": 1,
+   "views": [
+    "api_ytdlp_update"
+   ],
+   "line_lo": 4253,
+   "line_hi": 4266,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [
+    "_check_csrf"
+   ],
+   "state_singletons": [],
+   "total_lines": 14
+  },
+  "apple-touch-icon.png": {
+   "n_views": 1,
+   "views": [
+    "pwa_apple_icon"
+   ],
+   "line_lo": 3172,
+   "line_hi": 3202,
+   "contiguous": true,
+   "private_travelers": [
+    "APPLE_TOUCH_ICON_B64",
+    "pwa_icon_svg"
+   ],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 31
+  },
+  "icon.svg": {
+   "n_views": 1,
+   "views": [
+    "pwa_icon_svg"
+   ],
+   "line_lo": 3161,
+   "line_hi": 3169,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 9
+  },
+  "m": {
+   "n_views": 2,
+   "views": [
+    "serve_mobile_view",
+    "serve_mobile_ops_view"
+   ],
+   "line_lo": 988,
+   "line_hi": 1008,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 11
+  },
+  "m2": {
+   "n_views": 1,
+   "views": [
+    "serve_m2_spa"
+   ],
+   "line_lo": 1126,
+   "line_hi": 1146,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 21
+  },
+  "manifest.json": {
+   "n_views": 1,
+   "views": [
+    "pwa_manifest"
+   ],
+   "line_lo": 3145,
+   "line_hi": 3158,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 14
+  },
+  "metrics": {
+   "n_views": 1,
+   "views": [
+    "metrics_endpoint"
+   ],
+   "line_lo": 7984,
+   "line_hi": 7992,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [
+    "runners",
+    "s_cfg"
+   ],
+   "total_lines": 9
+  },
+  "screenshots": {
+   "n_views": 1,
+   "views": [
+    "serve_ss"
+   ],
+   "line_lo": 18688,
+   "line_hi": 18707,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 20
+  },
+  "stream": {
+   "n_views": 1,
+   "views": [
+    "stream_serve"
+   ],
+   "line_lo": 8908,
+   "line_hi": 8934,
+   "contiguous": true,
+   "private_travelers": [],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 27
+  },
+  "sw.js": {
+   "n_views": 1,
+   "views": [
+    "pwa_sw"
+   ],
+   "line_lo": 3322,
+   "line_hi": 3325,
+   "contiguous": true,
+   "private_travelers": [
+    "SW_JS"
+   ],
+   "kernel_imports": [],
+   "state_singletons": [],
+   "total_lines": 4
+  }
+ },
+ "giants": {
+  "api/dev": {
+   "runs": 3,
+   "fixture_site": 3,
+   "mem_audit": 2,
+   "enabled": 1,
+   "discover": 1,
+   "run": 1,
+   "load": 1,
+   "routes": 1,
+   "threads": 1,
+   "db_stats": 1,
+   "runner_state": 1,
+   "logtail": 1,
+   "env": 1,
+   "config": 1,
+   "proc": 1,
+   "invariants": 1,
+   "template_audit": 1,
+   "deep_detect": 1,
+   "leak_scan": 1,
+   "config_check": 1,
+   "gc": 1,
+   "wal_checkpoint": 1,
+   "log_level": 1,
+   "sse_status": 1,
+   "sql": 1,
+   "version_check": 1,
+   "changelog_lint": 1,
+   "bat_lint": 1,
+   "sh_lint": 1,
+   "zip_manifest": 1,
+   "auth_map": 1,
+   "csrf_check": 1,
+   "integrity": 1,
+   "backup_check": 1,
+   "log_search": 1,
+   "stuck_jobs": 1,
+   "rate_limits": 1,
+   "keepers": 1,
+   "ollama": 1,
+   "latency": 1,
+   "slow_endpoints": 1,
+   "error_rate": 1,
+   "exceptions": 1,
+   "thread_dump": 1,
+   "deadlock_check": 1,
+   "dispatch_chain": 1,
+   "dispatch_dryrun": 1,
+   "config_audit": 1,
+   "import_preflight": 1,
+   "duplicate_sites": 1,
+   "orphan_rows": 1,
+   "stale_references": 1,
+   "cookie_jar": 1,
+   "cookie_age": 1,
+   "auth_cookie_test": 1,
+   "login_template_dryrun": 1,
+   "credential_resolver": 1,
+   "extractor_matrix": 1,
+   "extractor_fastpath": 1,
+   "ffmpeg_preview": 1,
+   "resolution_test": 1,
+   "manifest_probe": 1,
+   "event_tap": 1,
+   "event_tap_ui": 1,
+   "slow_queries": 1,
+   "index_advisor": 1,
+   "migration_status": 1,
+   "lockfile_scan": 1,
+   "tempdir_clean": 1,
+   "guard_status": 1,
+   "coverage_map": 1,
+   "test_run_diff": 1,
+   "parametrize_fanout": 1,
+   "flaky_tests": 1,
+   "dependency_audit": 1,
+   "secret_scan": 1,
+   "path_allowlist_test": 1,
+   "sast_summary": 1,
+   "config_reload": 1,
+   "cache_clear": 1,
+   "config_snapshot": 1,
+   "config_snapshots": 1,
+   "config_restore": 1,
+   "config_snapshot_diff": 1,
+   "runner_console": 1,
+   "job_replay": 1,
+   "systemd_check": 1,
+   "pin_drift": 1,
+   "queue_table": 1,
+   "fts_index": 1,
+   "db_growth": 1,
+   "queue_throughput": 1,
+   "retry_schedule": 1,
+   "worker_profile": 1,
+   "account_pool": 1,
+   "manual_takeover_log": 1,
+   "csrf_token": 1,
+   "prompt_preview": 1,
+   "ai_fallback": 1,
+   "ai_latency": 1,
+   "ai_health_history": 1,
+   "vision_test": 1,
+   "magic_bytes": 1,
+   "mp4_metadata": 1,
+   "dedup_hashes": 1,
+   "partials": 1,
+   "filename_template": 1,
+   "vpn_config": 1,
+   "vpn_rotation": 1,
+   "vpn_probe": 1,
+   "egress_ip": 1,
+   "flaresolverr_health": 1,
+   "captcha_relay": 1,
+   "stealth_audit": 1,
+   "disk_usage": 1,
+   "download_scan": 1,
+   "dead_css": 1,
+   "storage_tier_status": 1,
+   "maintenance_mode": 1,
+   "maintenance_enable": 1,
+   "maintenance_disable": 1,
+   "token_estimate": 1,
+   "i18n_coverage": 1,
+   "model_pull_check": 1,
+   "feature_flags": 1,
+   "feature_flag_set": 1,
+   "feature_flag_delete": 1,
+   "window_simulate": 1,
+   "golden_files": 1,
+   "tls_check": 1,
+   "request_replay_list": 1,
+   "request_replay": 1,
+   "login_flows": 1,
+   "login_flow_save": 1,
+   "login_flow_delete": 1,
+   "test_timing": 1
+  },
+  "api/sites": {
+   "<>": 105,
+   "v2": 2,
+   "(bare)": 1,
+   "csv_template": 1,
+   "xlsx_template": 1,
+   "bulk_csv": 1,
+   "validate": 1,
+   "import": 1,
+   "schema": 1,
+   "selector_health": 1,
+   "preview_filename": 1
+  }
+ },
+ "resource_clusters": {
+  "/api/saved_searches": {
+   "handlers": [
+    "api_saved_searches_add",
+    "api_saved_searches_list"
+   ],
+   "domains": [
+    "api/saved_searches"
+   ],
+   "split_risk": false
+  },
+  "/api/saved_searches/<int:search_id>": {
+   "handlers": [
+    "api_saved_searches_remove",
+    "api_saved_searches_update"
+   ],
+   "domains": [
+    "api/saved_searches"
+   ],
+   "split_risk": false
+  },
+  "/api/library/orphans": {
+   "handlers": [
+    "api_library_orphans_post",
+    "api_library_orphans_v2"
+   ],
+   "domains": [
+    "api/library"
+   ],
+   "split_risk": false
+  },
+  "/api/knowledge/notes": {
+   "handlers": [
+    "api_knowledge_notes_add",
+    "api_knowledge_notes_list"
+   ],
+   "domains": [
+    "api/knowledge"
+   ],
+   "split_risk": false
+  },
+  "/api/webhooks": {
+   "handlers": [
+    "api_webhooks_add",
+    "api_webhooks_list"
+   ],
+   "domains": [
+    "api/webhooks"
+   ],
+   "split_risk": false
+  },
+  "/api/shares": {
+   "handlers": [
+    "api_shares_create",
+    "api_shares_list"
+   ],
+   "domains": [
+    "api/shares"
+   ],
+   "split_risk": false
+  },
+  "/api/api_tokens": {
+   "handlers": [
+    "api_api_tokens_create",
+    "api_api_tokens_list"
+   ],
+   "domains": [
+    "api/api_tokens"
+   ],
+   "split_risk": false
+  },
+  "/api/sched_exports": {
+   "handlers": [
+    "api_sched_add",
+    "api_sched_list"
+   ],
+   "domains": [
+    "api/sched_exports"
+   ],
+   "split_risk": false
+  },
+  "/api/schedules": {
+   "handlers": [
+    "api_schedules_add",
+    "api_schedules_list"
+   ],
+   "domains": [
+    "api/schedules"
+   ],
+   "split_risk": false
+  },
+  "/api/alerts/rules": {
+   "handlers": [
+    "api_alerts_rule_save",
+    "api_alerts_rules"
+   ],
+   "domains": [
+    "api/alerts"
+   ],
+   "split_risk": false
+  },
+  "/api/sites/<sid>": {
+   "handlers": [
+    "api_delete",
+    "api_update"
+   ],
+   "domains": [
+    "api/sites"
+   ],
+   "split_risk": false
+  },
+  "/api/user_templates": {
+   "handlers": [
+    "api_user_templates_create",
+    "api_user_templates_list"
+   ],
+   "domains": [
+    "api/user_templates"
+   ],
+   "split_risk": false
+  },
+  "/api/library/<int:lid>": {
+   "handlers": [
+    "api_library_delete",
+    "api_library_get"
+   ],
+   "domains": [
+    "api/library"
+   ],
+   "split_risk": false
+  },
+  "/api/notify/apprise/settings": {
+   "handlers": [
+    "api_notify_apprise_settings_get",
+    "api_notify_apprise_settings_post"
+   ],
+   "domains": [
+    "api/notify"
+   ],
+   "split_risk": false
+  },
+  "/api/tg/settings": {
+   "handlers": [
+    "api_tg_settings_get",
+    "api_tg_settings_post"
+   ],
+   "domains": [
+    "api/tg"
+   ],
+   "split_risk": false
+  }
+ },
+ "resource_clusters_split_risk": [],
+ "helper_transitive_closure": {
+  "_check_token": [
+   "_accepted_tokens",
+   "_bd_token_secondary",
+   "_expected_token",
+   "_session_touch",
+   "_session_valid",
+   "_token_eq"
+  ],
+  "_apply_template_by_id": [
+   "_save_sites_config"
+  ],
+  "_tg_cancel_url": [
+   "_persist_cfg",
+   "_save_sites_config"
+  ],
+  "_do_action_all": [
+   "_rate_check",
+   "_rate_sweep_locked"
+  ],
+  "_apply_detected_selectors": [
+   "_save_sites_config"
+  ],
+  "_saved_search_enqueue_handler": [
+   "_route_urls_internal",
+   "_score_url_against_sites"
+  ],
+  "_method_not_allowed_parity": [
+   "_405_with_allow",
+   "_explicit_methods_for_path"
+  ],
+  "_tg_add_url": [
+   "_route_urls_internal",
+   "_score_url_against_sites"
+  ],
+  "_do_action": [
+   "_rate_check",
+   "_rate_sweep_locked"
+  ],
+  "_apply_global_notify_config": [
+   "_global_notify_settings_path",
+   "_load_global_notify_settings"
+  ],
+  "_validate_config_paths": [
+   "_validate_path"
+  ],
+  "_route_urls_internal": [
+   "_score_url_against_sites"
+  ],
+  "_apply_tg_bot_config": [
+   "_global_notify_settings_path",
+   "_load_global_notify_settings"
+  ],
+  "_watcher_loop": [
+   "_route_urls_internal",
+   "_score_url_against_sites"
+  ],
+  "_m2_attention_for_site": [
+   "_m2_age_human",
+   "_m2_auth_state"
+  ],
+  "_bootstrap_session": [
+   "_session_create",
+   "_session_valid"
+  ],
+  "_load_global_notify_settings": [
+   "_global_notify_settings_path"
+  ],
+  "_create_site": [
+   "_apply_detected_selectors",
+   "_apply_login_template_by_id",
+   "_apply_template_by_id",
+   "_auto_pick_templates",
+   "_build_meta",
+   "_sanitize_display_name",
+   "_save_sites_config",
+   "_validate_config_paths",
+   "_validate_path"
+  ],
+  "_on_bad_request": [
+   "_json_error"
+  ],
+  "_on_method_not_allowed": [
+   "_json_error"
+  ],
+  "_on_not_found": [
+   "_json_error"
+  ],
+  "_on_request_too_large": [
+   "_json_error"
+  ],
+  "_accepted_tokens": [
+   "_bd_token_secondary",
+   "_expected_token"
+  ],
+  "_load_sites_config": [
+   "_build_meta"
+  ],
+  "_load_app_config": [
+   "_save_app_config"
+  ],
+  "_diff_collect_one": [
+   "_diff_parse_target"
+  ],
+  "_tg_retry_site": [
+   "_persist_cfg",
+   "_save_sites_config"
+  ],
+  "_on_internal_error": [
+   "_json_error"
+  ],
+  "_check_csrf": [
+   "_csrf_token_for"
+  ],
+  "_auto_pick_templates": [
+   "_apply_detected_selectors",
+   "_apply_login_template_by_id",
+   "_apply_template_by_id",
+   "_save_sites_config"
+  ],
+  "_persist_cfg": [
+   "_save_sites_config"
+  ],
+  "_save_global_notify_settings": [
+   "_global_notify_settings_path"
+  ],
+  "_on_attribute_error": [
+   "_json_error"
+  ],
+  "_apply_login_template_by_id": [
+   "_save_sites_config"
+  ],
+  "_rate_check": [
+   "_rate_sweep_locked"
+  ]
+ },
+ "shrink_model": {
+  "view_lines": 13427,
+  "helper_lines": 2688,
+  "movable_pct": 78.6
+ }
+}

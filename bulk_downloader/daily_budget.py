@@ -1,0 +1,231 @@
+"""Per-site daily byte budget (Phase 196).
+
+Opt-in cap on how many bytes per day a site can download. When the
+budget is exhausted, the worker pauses the site (`window_paused`-like
+state) until the next local-midnight rollover.
+
+Use cases:
+  • Metered home connection — cap each site to 10GB/day
+  • Politeness — don't hammer a single source
+  • Quota-aware paywalled sites where the operator pays per GB
+
+Storage: a single SQL table tracking `(site_id, ymd, bytes)`. Cheap
+to write: every download chunk fires a single UPSERT-style INCREMENT
+via record_site_bytes(). Read on every worker pickup to check
+"would taking this URL push us over?"
+
+Config: per-site `daily_byte_budget` (integer, bytes). 0/unset = no cap.
+
+Reset: ymd rolls over at the operator's local midnight (uses
+local time.strftime to determine the current ymd). No timezone
+plumbing needed since BD already runs in operator's local TZ.
+"""
+from __future__ import annotations
+
+import time
+from typing import Optional
+
+from . import db as _db
+
+
+_TABLE_READY = False
+
+
+def _ensure_table():
+    # NOTE: always run the idempotent CREATE IF NOT EXISTS rather than
+    # caching a process-global "ready" flag. The old cache went stale across
+    # a db re-init (new DB, flag still True -> table never created -> silent
+    # data loss). The create is cheap and a no-op when the table exists.
+    try:
+        with _db.db_conn() as cx:
+            cx.execute("""
+                CREATE TABLE IF NOT EXISTS daily_site_bytes (
+                    site_id TEXT NOT NULL,
+                    ymd TEXT NOT NULL,
+                    bytes INTEGER NOT NULL DEFAULT 0,
+                    last_update_ts REAL,
+                    PRIMARY KEY (site_id, ymd)
+                )
+            """)
+            cx.execute("""
+                CREATE INDEX IF NOT EXISTS idx_daily_site_bytes_ymd
+                ON daily_site_bytes(ymd)
+            """)
+    except Exception:
+        pass
+
+
+def _today_ymd() -> str:
+    """Current date in operator's local TZ as YYYY-MM-DD."""
+    return time.strftime("%Y-%m-%d", time.localtime())
+
+
+def record_site_bytes(site_id: str, n_bytes: int):
+    """Increment today's counter for this site. Called from the runner's
+    httpx chunk loop alongside record_bandwidth(). Cheap: one UPSERT
+    on a small indexed table.
+
+    Fail-silent: a transient DB lock shouldn't block a download chunk."""
+    if not site_id or n_bytes <= 0:
+        return
+    _ensure_table()
+    try:
+        ymd = _today_ymd()
+        with _db.db_conn() as cx:
+            # SQLite upsert: INSERT OR IGNORE creates the row, then
+            # UPDATE adds the delta. Cheaper than reading first.
+            cx.execute("""
+                INSERT INTO daily_site_bytes (site_id, ymd, bytes, last_update_ts)
+                VALUES (?, ?, 0, ?)
+                ON CONFLICT(site_id, ymd) DO NOTHING
+            """, (site_id, ymd, time.time()))
+            cx.execute("""
+                UPDATE daily_site_bytes
+                SET bytes = bytes + ?, last_update_ts = ?
+                WHERE site_id = ? AND ymd = ?
+            """, (n_bytes, time.time(), site_id, ymd))
+    except Exception:
+        pass  # fail-silent
+
+
+def bytes_today(site_id: str) -> int:
+    """How many bytes has this site downloaded today (operator-local)."""
+    if not site_id:
+        return 0
+    _ensure_table()
+    try:
+        with _db.db_conn() as cx:
+            row = cx.execute("""
+                SELECT bytes FROM daily_site_bytes
+                WHERE site_id = ? AND ymd = ?
+            """, (site_id, _today_ymd())).fetchone()
+        return int(row["bytes"]) if row else 0
+    except Exception:
+        return 0
+
+
+def is_over_budget(site_id: str, *, site_cfg: dict) -> dict:
+    """Check whether this site is over its daily budget. Returns:
+
+        {
+          over: bool,
+          used_bytes: int,
+          budget_bytes: int,
+          remaining_bytes: int,  # may be negative
+          pct_used: float,
+        }
+
+    If the site has no `daily_byte_budget` configured (0 or absent),
+    returns over=False. Fail-open: DB error returns over=False too."""
+    budget = int((site_cfg or {}).get("daily_byte_budget") or 0)
+    used = bytes_today(site_id)
+    if budget <= 0:
+        return {"over": False, "used_bytes": used, "budget_bytes": 0,
+                "remaining_bytes": 0, "pct_used": 0.0}
+    return {
+        "over": used >= budget,
+        "used_bytes": used,
+        "budget_bytes": budget,
+        "remaining_bytes": budget - used,
+        "pct_used": min(100.0, round(used * 100.0 / budget, 1)),
+    }
+
+
+# ── Cut 8: global (cross-site) daily byte budget ──────────────────────
+# Per-site `daily_byte_budget` already exists; this is the global cap key
+# set from POST /api/global_config (mirrors how global_max_concurrent calls
+# runner.set_global_concurrent_cap). 0 = uncapped.
+_GLOBAL_BUDGET = 0
+
+
+def set_global_budget(n: int):
+    """Set the global daily byte budget (bytes). 0/negative = uncapped."""
+    global _GLOBAL_BUDGET
+    try:
+        _GLOBAL_BUDGET = max(0, int(n))
+    except Exception:
+        _GLOBAL_BUDGET = 0
+
+
+def get_global_budget() -> int:
+    return _GLOBAL_BUDGET
+
+
+def bytes_today_all() -> int:
+    """Total bytes downloaded across ALL sites today (operator-local)."""
+    _ensure_table()
+    try:
+        with _db.db_conn() as cx:
+            row = cx.execute(
+                "SELECT COALESCE(SUM(bytes),0) AS t FROM daily_site_bytes "
+                "WHERE ymd = ?", (_today_ymd(),)).fetchone()
+        return int(row["t"]) if row else 0
+    except Exception:
+        return 0
+
+
+def is_over_global_budget(*, global_budget: Optional[int] = None) -> dict:
+    """Whether the combined cross-site usage has hit the global cap. Same
+    shape as is_over_budget. `global_budget` defaults to the module state
+    set via set_global_budget. Fail-open: 0/unset cap or DB error -> over
+    False."""
+    budget = int(_GLOBAL_BUDGET if global_budget is None else global_budget)
+    used = bytes_today_all()
+    if budget <= 0:
+        return {"over": False, "used_bytes": used, "budget_bytes": 0,
+                "remaining_bytes": 0, "pct_used": 0.0}
+    return {
+        "over": used >= budget,
+        "used_bytes": used,
+        "budget_bytes": budget,
+        "remaining_bytes": budget - used,
+        "pct_used": min(100.0, round(used * 100.0 / budget, 1)),
+    }
+
+
+def status_all(s_cfg: dict) -> list:
+    """Snapshot of every site's today usage. Includes sites without
+    a budget configured (budget_bytes=0) so the UI can show "no cap"
+    next to them. Sorted by pct_used desc."""
+    out = []
+    for sid, cfg in (s_cfg or {}).items():
+        out.append({
+            "site_id": sid,
+            "site_name": (cfg or {}).get("name") or sid,
+            **is_over_budget(sid, site_cfg=cfg),
+        })
+    out.sort(key=lambda r: -r.get("pct_used", 0))
+    return out
+
+
+def reset_today(site_id: str) -> bool:
+    """Operator override — zero out today's counter so the site can
+    keep downloading. Useful for testing or in emergencies. Returns
+    True if a row existed and was reset."""
+    _ensure_table()
+    try:
+        with _db.db_conn() as cx:
+            cur = cx.execute("""
+                UPDATE daily_site_bytes
+                SET bytes = 0, last_update_ts = ?
+                WHERE site_id = ? AND ymd = ?
+            """, (time.time(), site_id, _today_ymd()))
+            return cur.rowcount > 0
+    except Exception:
+        return False
+
+
+def history(site_id: str, *, days: int = 30) -> list:
+    """Daily usage history for charting. Most recent first."""
+    _ensure_table()
+    try:
+        with _db.db_conn() as cx:
+            rs = cx.execute("""
+                SELECT ymd, bytes FROM daily_site_bytes
+                WHERE site_id = ?
+                ORDER BY ymd DESC
+                LIMIT ?
+            """, (site_id, int(days))).fetchall()
+        return [{"ymd": r["ymd"], "bytes": r["bytes"]} for r in rs]
+    except Exception:
+        return []

@@ -1,0 +1,289 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ──────────────────────────────────────────────────────────────────
+ * Design tokens — bound to Tailwind via tailwind.config.js.
+ * Values are copied from UI_TOKENS.md (the authoritative source).
+ * Where the mockups and these tokens ever disagree, tokens win.
+ *
+ * Dark-mode pairings (Tier 1 #1): free if defined day-one, half-day
+ * to retrofit. The pairings under .dark are the operator's existing
+ * mobile.html palette (#08090c base) reconciled with the mockup
+ * palette — see UI_TOKENS.md "Not in scope" → "Dark-mode pairing".
+ * U1 wires the toggle plumbing; the actual day/night switch UI is
+ * U2 (chrome) or later.
+ * ────────────────────────────────────────────────────────────────── */
+:root {
+  --bg: #f0f0f5;
+  --surface: #ffffff;
+  --surface-2: #f3f3fa;
+  --ink: #0a0a0f;
+  --ink-2: #3a3a46;
+  --ink-3: #6c6c7c;
+  --hairline: rgba(10, 10, 15, 0.18);
+  --primary: #3a4cff;
+  --primary-soft: #e8edff;
+  --green: #28c76f;
+  --green-soft: #e6f7ee;
+  --amber: #f59e0b;
+  --amber-soft: #fff4e3;
+  /* v3.65.1: amber-dim is the AA-safe ink for text on amber-soft. The
+   * mockup-original --amber (#f59e0b) contrasts at 1.97:1 against
+   * amber-soft in light mode, which fails AA (≥4.5:1). amber-dim
+   * (#92400e, mirrors legacy app.css --adim) lifts it to 6.52:1.
+   * Use text-amber-dim wherever text sits on bg-amber-soft.
+   * See HANDOFF_V7.md "amber-soft + amber text WCAG AA finding". */
+  --amber-dim: #92400e;
+  --red: #ef4444;
+  --red-soft: #fdecec;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 18px;
+}
+
+.dark {
+  --bg: #08090c;
+  --surface: #14161c;
+  --surface-2: #1a1d24;
+  --ink: #f5f5f7;
+  --ink-2: #a0a0aa;
+  --ink-3: #8a8a96;
+  --hairline: rgba(255, 255, 255, 0.08);
+  --primary: #6f7eff;
+  --primary-soft: rgba(58, 76, 255, 0.16);
+  --green: #2ed87a;
+  --green-soft: rgba(40, 199, 111, 0.16);
+  --amber: #fbbf24;
+  --amber-soft: rgba(245, 158, 11, 0.16);
+  /* v3.65.1: dark-mode amber-dim. The composited amber-soft surface
+   * (rgba over surface) renders effectively as #382c19 against the
+   * default surface; --amber (#fbbf24) on that = 8.16:1, already AA.
+   * Keep amber-dim at the same value in dark for visual parity — the
+   * dim/no-dim split is a light-mode contrast remedy, not a dark-mode
+   * one. Tokenized symmetrically so consumers don't have to mode-branch. */
+  --amber-dim: #fbbf24;
+  --red: #f87171;
+  --red-soft: rgba(239, 68, 68, 0.16);
+}
+
+@layer base {
+  html,
+  body {
+    @apply bg-bg text-ink;
+    font-feature-settings: "cv11";
+    letter-spacing: -0.01em;
+  }
+
+  body {
+    font-family: theme("fontFamily.sans");
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Tabular numerics on every count, version, percentage, duration.
+   * Per UI_TOKENS.md, status lines depend on this for stable widths
+   * when values change. Applied as a utility, opt-in by class.
+   */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Hairline border helper — 0.5px is the mockup signature, not 1px.
+   * Tailwind's border-* utilities default to 1px; this overrides.
+   */
+  .hairline {
+    border-width: 0.5px;
+    border-style: solid;
+    border-color: var(--hairline);
+  }
+
+  /* 1a foundation — token-based form-control base.
+   * Element-selector specificity (0,0,1) sits below Tailwind utility
+   * classes (0,1,0), so any input that already sets bg/text via a
+   * utility keeps winning; this only catches controls that were
+   * relying on the user-agent default (white) — the dark-mode
+   * white-textarea leak (Batch ops / Imports / Import & Saved Views).
+   * --surface is white in light (no light-mode change) and the dark
+   * surface in dark (leak fixed). */
+  textarea,
+  select,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]) {
+    background-color: var(--surface);
+    color: var(--ink);
+  }
+  textarea::placeholder,
+  input::placeholder {
+    color: var(--ink-3);
+  }
+
+  /* 1a foundation — visible, dark-tuned focus ring.
+   * --primary is #3a4cff (light) / #6f7eff (dark): both read clearly
+   * on their own background, so the ring is theme-correct for free.
+   * :focus-visible keeps it keyboard-only (no ring on mouse click). */
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────
+ * 1a foundation — shared section-header standard.
+ * Section headers were ~90% `text-sm font-semibold` already, but split
+ * across mb-1/mb-2 and bare/ink-2/muted-foreground. One class codifies
+ * the standard so the rhythm can't drift (KB_JUDGMENT: immunize via
+ * structure, not vigilance). Eyebrow/uppercase outliers stay as-is.
+ * ────────────────────────────────────────────────────────────────── */
+@layer components {
+  .section-head {
+    @apply mb-2 text-sm font-semibold text-ink;
+  }
+
+  /* P6-6 — canonical section eyebrow / kicker. One treatment for the small
+   * uppercase label above a section or card, replacing ~18 ad-hoc copies that
+   * had drifted on size (10px/11px), tracking (wide/wider) and weight. 11px is
+   * the legible plurality. .eyebrow-warn recolors it for attention kickers and
+   * must be applied alongside .eyebrow (source order wins the color). Status
+   * pills (badge.tsx) and the WorkflowSteps bi-state label are deliberately NOT
+   * eyebrows and keep their own treatment. */
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-wider text-ink-3;
+  }
+  .eyebrow-warn {
+    @apply text-amber-dim;
+  }
+
+  /* Slice 2 — settings search: while a query is active, hide any section that
+   * has no currently-visible setting-row (covers both "all rows filtered out"
+   * and "section has no setting-rows" e.g. Import/Export, Environment). Scoped
+   * to .settings-searching so it never affects the normal view. */
+  .settings-searching section[data-section]:not(:has([data-srow]:not([hidden]))) {
+    display: none;
+  }
+
+  /* Cut 9.1 — shared data-table class set. ~14 route tables hand-rolled their
+   * own header/border/padding with no sticky header. One class codifies the
+   * standard (KB_JUDGMENT: immunize via structure, not vigilance): a sticky,
+   * token-colored header that stays put while the page scrolls, hairline row
+   * separators, comfortable cells, and a row hover. Font-size is left to the
+   * table (text-xs / text-sm) so adoption never resizes content. The header
+   * background is --surface so scrolled rows never bleed through it.
+   * border-collapse:separate (not collapse) keeps the sticky header's
+   * border-bottom painted during scroll. Optional density: a table may set
+   * data-density="compact" (from useDensity) to tighten cells. */
+  .bd-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .bd-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    text-align: left;
+    font-weight: 500;
+    white-space: nowrap;
+    color: var(--ink-3);
+    background-color: var(--surface);
+    padding: 0.5rem 0.625rem;
+    border-bottom: 0.5px solid var(--hairline);
+  }
+  .bd-table tbody td {
+    padding: 0.5rem 0.625rem;
+    border-bottom: 0.5px solid var(--hairline);
+    vertical-align: top;
+  }
+  .bd-table tbody tr:hover {
+    background-color: var(--surface-2);
+  }
+  .bd-table[data-density="compact"] thead th,
+  .bd-table[data-density="compact"] tbody td {
+    padding: 0.25rem 0.5rem;
+  }
+  /* Optional wrapper for wide tables on narrow viewports. */
+  .bd-table-wrap {
+    overflow-x: auto;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────
+ * U4 — dashboard grid (react-grid-layout).
+ *
+ * react-grid-layout ships with vanilla CSS imported from the route
+ * (Home.tsx imports its base + react-resizable styles). These
+ * overrides match the BulkDownloader design tokens — the default
+ * styling collides with our palette and uses pointers that look
+ * out of place inside our edit affordance.
+ * ────────────────────────────────────────────────────────────────── */
+
+/* The grid container itself — keep react-grid-layout's positioning
+ * but adjust the placeholder/dragging surfaces. */
+.dashboard-grid .react-grid-item.react-grid-placeholder {
+  background: var(--primary-soft);
+  border: 2px dashed var(--primary);
+  border-radius: 0.375rem; /* rounded-md */
+  opacity: 0.6;
+}
+
+.dashboard-grid .react-grid-item.react-draggable-dragging {
+  z-index: 50;
+  cursor: grabbing;
+}
+
+/* 1b — widget fills its grid cell so an empty/short widget leaves no
+ * inner void (the cell height is fixed by the layout; without this the
+ * card sits at content height and the rest of the cell is dead space). */
+.dashboard-grid .react-grid-item > * {
+  height: 100%;
+}
+
+.dashboard-grid .react-grid-item > .react-resizable-handle {
+  /* Hide the default resize handle visual — we replace it with a
+   * design-token-aware grip in the corner only when in edit mode. */
+  background-image: none;
+}
+
+.dashboard-grid-edit .react-grid-item > .react-resizable-handle::after {
+  /* Show a small chevron in the bottom-right corner of each tile
+   * during edit mode to communicate resize affordance. */
+  content: "";
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--ink-3);
+  border-bottom: 2px solid var(--ink-3);
+  opacity: 0.6;
+}
+
+/* ──────────────────────────────────────────────────────────────────
+ * Cut 9 — a11y / responsive fills.
+ *
+ * (1) Honor the OS "reduce motion" setting. Neutralize animations and
+ *     transitions app-wide (react-grid drag, backdrop blurs, hover
+ *     transitions, scroll). !important so it overrides utility- or
+ *     library-set durations. Standard reduced-motion floor.
+ * (2) Narrow-viewport tables. A wide .bd-table becomes its own
+ *     horizontal scroll container instead of overflowing the screen —
+ *     display:block lets the table scroll while its internal table
+ *     layout is preserved by anonymous table boxes.
+ * ────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .bd-table {
+    display: block;
+    overflow-x: auto;
+  }
+}

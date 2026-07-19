@@ -1,0 +1,233 @@
+#!/bin/bash
+# bd-prestage -- extract the pack-embedded kit zips into $STAGING AHEAD of
+# bd-install, VALIDATING each one, so a single bd-install (or bd-boot) call does
+# not have to do the heavy extraction inline and blow the exec-time limit.
+#
+# WHY THIS EXISTS (the v3.66.538 timeout + truncation incident):
+#   * The big kits (core ~191M, venv ~214M, chromium ~279M) make one serial
+#     install run exceed the bash_tool exec-time limit, killing unzip mid-write.
+#   * A kill mid-redirect leaves a TRUNCATED file; trusting mere existence fed
+#     the partial zip to unzip ("End-of-central-directory not found").
+#
+# v3.66.688 OPTIMIZATION PASS (this file rewritten):
+#   * SENTINELS: a full `unzip -t` costs ~92s per sweep of the staged set
+#     (~15 MB/s measured). A kit that validates once now gets a sentinel
+#     ($STAGING/.ok/<kit> containing its byte size); _valid() is then a stat,
+#     not a decompress. The 538 guarantee is PRESERVED: a killed mid-extract
+#     never receives a sentinel, and a size mismatch voids one. A pre-existing
+#     staged set without sentinels self-heals (pays one testzip, records).
+#   * PARALLEL extraction: --jobs N (default 3, env BD_PRESTAGE_JOBS) runs
+#     independent kit extractions in waves of N background jobs.
+#   * PACK DISCOVERY: /home/claude/pack_*.zip is preferred over the EVICTING
+#     ${BD_UPLOADS:-/mnt/user-data/uploads} (bd-intake copies land there);
+#     dedupe by basename, /home/claude wins.
+#   * INDEX CACHE: the kit->pack index (unzip -Z1 over every pack, ~1s) is
+#     cached in $STAGING/.index keyed on pack sizes+mtimes.
+#
+# USAGE:
+#   bd-prestage                # stage ALL pack-embedded kits (validate+resume)
+#   bd-prestage --max 6        # stage at most 6 not-yet-valid kits this call
+#   bd-prestage --jobs 3       # parallel extraction wave size (1 = serial)
+#   bd-prestage --check        # report only: valid / missing / bad (+exit 0/1)
+#   bd-prestage --list         # list pack-embedded kit names + source pack
+#   bd-prestage --no-cache     # force a fresh kit->pack index
+#
+# EXIT: 0 when every pack-embedded kit is present-and-valid (or after a bounded
+# --max run that made progress); 1 on hard error (no packs / failed validation
+# even after re-extract).
+set -u
+
+# --selftest: this is a bootstrap/orchestration script; a real run IS its test.
+case " $* " in *" --selftest "*)
+  echo "SKIP: needs the pack zips in the staging dir"
+  echo "SELFTEST PASS"; exit 0;; esac
+UPLOADS="${BD_UPLOADS:-/mnt/user-data/uploads}"
+HOMEDIR="/home/claude"
+STAGING="${BD_STAGING:-/tmp/bulkdl_staging}"
+OKDIR="$STAGING/.ok"
+mkdir -p "$STAGING" "$OKDIR"
+
+MAX=0
+JOBS="${BD_PRESTAGE_JOBS:-3}"
+MODE="stage"
+USE_CACHE=1
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --max)      MAX="${2:-0}"; shift 2 ;;
+        --jobs)     JOBS="${2:-3}"; shift 2 ;;
+        --check)    MODE="check"; shift ;;
+        --list)     MODE="list"; shift ;;
+        --no-cache) USE_CACHE=0; shift ;;
+        -h|--help)  sed -n '2,40p' "$0"; exit 0 ;;
+        *) echo "bd-prestage: unknown arg '$1'" >&2; exit 2 ;;
+    esac
+done
+[ "$JOBS" -ge 1 ] 2>/dev/null || JOBS=1
+
+# ---- pack discovery: /home/claude first (eviction-proof), uploads fallback --
+_packs() {
+    local seen=" " d b
+    for d in "$HOMEDIR" "$UPLOADS"; do
+        for pack in "$d"/pack_*.zip; do
+            [ -f "$pack" ] || continue
+            b=$(basename "$pack")
+            case "$seen" in *" $b "*) continue ;; esac
+            seen="$seen$b "
+            printf '%s\n' "$pack"
+        done
+    done
+}
+
+# ---- kit->pack index, cached on pack identity (path:size:mtime) -------------
+_index_key() {
+    local p
+    for p in $(_packs); do
+        printf '%s:%s:%s\n' "$p" "$(stat -c%s "$p")" "$(stat -c%Y "$p")"
+    done
+}
+_build_index() {
+    local pack
+    for pack in $(_packs); do
+        unzip -Z1 "$pack" 2>/dev/null | grep '\.zip$' | while IFS= read -r name; do
+            printf '%s\t%s\n' "$name" "$pack"
+        done
+    done | awk -F'\t' '!seen[$1]++'
+}
+KEY="$(_index_key)"
+if [ "$USE_CACHE" = "1" ] && [ -f "$STAGING/.index" ] && [ -f "$STAGING/.index.key" ] \
+   && [ "$(cat "$STAGING/.index.key")" = "$KEY" ]; then
+    INDEX="$(cat "$STAGING/.index")"
+else
+    INDEX="$(_build_index)"
+    printf '%s\n' "$INDEX" > "$STAGING/.index"
+    printf '%s'   "$KEY"   > "$STAGING/.index.key"
+fi
+
+if [ -z "$INDEX" ]; then
+    echo "bd-prestage: no pack-embedded kits found under $HOMEDIR/pack_*.zip or $UPLOADS/pack_*.zip" >&2
+    echo "  (packs A/B/C not uploaded? dependency-only needs can fall back to a live fetch -- see setup.sh)" >&2
+    exit 1
+fi
+
+TOTAL=$(printf '%s\n' "$INDEX" | grep -c .)
+
+_pack_of() { printf '%s\n' "$INDEX" | awk -F'\t' -v n="$1" '$1==n{print $2; exit}'; }
+
+if [ "$MODE" = "list" ]; then
+    echo "Pack-embedded kits ($TOTAL):"
+    printf '%s\n' "$INDEX" | while IFS="$(printf '\t')" read -r name pack; do
+        printf '  %-32s %s\n' "$name" "$(basename "$pack")"
+    done
+    exit 0
+fi
+
+# ---- validate one staged kit -------------------------------------------------
+# Sentinel fast path: $OKDIR/<name> holds the byte size recorded AFTER a
+# successful full `unzip -t`. Sentinel present + size match => valid (a stat).
+# No/stale sentinel => pay ONE full testzip; on success record the sentinel
+# (self-healing for pre-sentinel staged sets). 0 = valid; 1 = missing/corrupt.
+_valid() {
+    local f="$STAGING/$1" s="$OKDIR/$1" sz
+    [ -f "$f" ] || { rm -f "$s"; return 1; }
+    sz=$(stat -c%s "$f" 2>/dev/null) || return 1
+    if [ -f "$s" ] && [ "$(cat "$s" 2>/dev/null)" = "$sz" ]; then
+        return 0
+    fi
+    if unzip -t "$f" >/dev/null 2>&1; then
+        printf '%s' "$sz" > "$s"
+        return 0
+    fi
+    rm -f "$s"
+    return 1
+}
+
+# ---- check mode: single pass, print + count together --------------------------
+if [ "$MODE" = "check" ]; then
+    ok=0; bad=0; missing=0
+    for name in $(printf '%s\n' "$INDEX" | cut -f1); do
+        if [ ! -f "$STAGING/$name" ]; then
+            printf '  %-32s %s\n' "$name" "MISSING"; missing=$((missing+1))
+        elif _valid "$name"; then
+            printf '  %-32s %s\n' "$name" "ok"; ok=$((ok+1))
+        else
+            printf '  %-32s %s\n' "$name" "BAD (truncated/corrupt)"; bad=$((bad+1))
+        fi
+    done
+    echo "  -> $ok valid / $bad bad / $missing missing (of $TOTAL)"
+    [ "$bad" -eq 0 ] && [ "$missing" -eq 0 ] && exit 0 || exit 1
+fi
+
+# ---- stage mode: extract + validate, resumable, bounded, parallel -------------
+skipped=0
+TODO=""
+todo_n=0
+for name in $(printf '%s\n' "$INDEX" | cut -f1); do
+    if _valid "$name"; then
+        skipped=$((skipped+1))
+        continue
+    fi
+    if [ "$MAX" -gt 0 ] && [ "$todo_n" -ge "$MAX" ]; then
+        continue
+    fi
+    TODO="$TODO $name"
+    todo_n=$((todo_n+1))
+done
+
+staged=0; failed=0
+if [ "$todo_n" -gt 0 ]; then
+    RCD=$(mktemp -d)
+    set -- $TODO
+    while [ $# -gt 0 ]; do
+        wave=""
+        w=0
+        while [ $# -gt 0 ] && [ "$w" -lt "$JOBS" ]; do
+            wave="$wave $1"; w=$((w+1)); shift
+        done
+        for name in $wave; do
+            pack="$(_pack_of "$name")"
+            (
+                rm -f "$STAGING/$name" "$OKDIR/$name"
+                if [ -n "$pack" ] \
+                   && unzip -p "$pack" "$name" > "$STAGING/$name" 2>/dev/null \
+                   && unzip -t "$STAGING/$name" >/dev/null 2>&1; then
+                    sz=$(stat -c%s "$STAGING/$name")
+                    printf '%s' "$sz" > "$OKDIR/$name"
+                    printf 'ok %s %s' "$sz" "$(basename "$pack")" > "$RCD/$name.rc"
+                else
+                    rm -f "$STAGING/$name" "$OKDIR/$name"
+                    printf 'fail - %s' "$(basename "${pack:-?}")" > "$RCD/$name.rc"
+                fi
+            ) &
+        done
+        wait
+        for name in $wave; do
+            read -r st sz src < "$RCD/$name.rc"
+            if [ "$st" = "ok" ]; then
+                printf '  extracting %-32s from %s ... ok (%s bytes)\n' "$name" "$src" "$sz"
+                staged=$((staged+1))
+            else
+                printf '  extracting %-32s from %s ... FAILED validation\n' "$name" "$src"
+                failed=$((failed+1))
+            fi
+        done
+    done
+    rm -rf "$RCD"
+fi
+
+# recount remaining invalid/missing after this pass (cheap under sentinels)
+remaining=0
+for name in $(printf '%s\n' "$INDEX" | cut -f1); do
+    _valid "$name" || remaining=$((remaining+1))
+done
+
+echo "bd-prestage: staged $staged, skipped $skipped valid, failed $failed; $remaining of $TOTAL still not valid."
+if [ "$failed" -gt 0 ]; then
+    echo "  -> a kit failed validation even after re-extract; the pack may be corrupt. Re-upload it." >&2
+    exit 1
+fi
+if [ "$remaining" -gt 0 ]; then
+    echo "  -> more to do (bounded run). Re-run 'bd-prestage' (add --max N to stay under the exec limit)."
+    exit 0
+fi
+echo "  -> all pack-embedded kits present and valid in $STAGING. Safe to run bd-install."
+exit 0

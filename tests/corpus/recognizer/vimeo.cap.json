@@ -1,0 +1,67 @@
+{
+ "url": "https://demo-vimeo.test/watch/asset",
+ "origin": "https://demo-vimeo.test",
+ "host": "demo-vimeo.test",
+ "captured_at": "2026-07-10T00:00:00+00:00",
+ "dom_log": [
+  {
+   "type": "full_snapshot",
+   "html": "<html><head><script src=\"https://player.vimeo.com/api/player.js\"></script></head><body><iframe src=\"https://player.vimeo.com/video/123456?clip_id=123456\" data-config_url=\"https://player.vimeo.com/video/123456/config\"></iframe></body></html>"
+  }
+ ],
+ "network_log": [
+  {
+   "url": "https://demo-vimeo.test/watch/asset",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "text/html; charset=utf-8"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-vimeo.test/asset/master.m3u8",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "application/vnd.apple.mpegurl"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-vimeo.test/asset/480/seg-1.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-vimeo.test/asset/720/seg-1.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-vimeo.test/asset/1080/seg-1.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  }
+ ],
+ "cookies": "<REDACTED>",
+ "dom_log_count": 1,
+ "network_log_count": 5
+}

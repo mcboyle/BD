@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""bd-plugin-containment -- validate plugin isolation boundaries.
+
+Checks that plugin modules do not reach forbidden host surfaces (importing the
+app's own internals like app, runner, vpn_runtime, secrets store; touching the
+filesystem outside a plugin dir; opening sockets) UNLESS the plugin declares the
+capability that grants it (full-access for page/lifecycle). A plugin that
+reaches a host internal without the granting cap -> BD-PLUGIN-ESCAPE. Reuses the
+plugin-audit surface scan. Advisory, read-only.
+
+Usage: bd-plugin-containment [--work DIR] [--json] [--selftest]
+Exit 0 (advisory).
+"""
+import argparse, glob, os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+HOST_INTERNAL=re.compile(r'from\s+\.\.?(app|runner|vpn_runtime|extraction_core|session_capture|secrets)\b|import\s+bulk_downloader\.(app|runner|vpn_runtime|secrets)\b')
+GRANT=re.compile(r'\b(full_access|page_access|lifecycle|set_full_access)\b')
+
+def scan(work):
+    findings=[]
+    pats=[os.path.join(work,"bulk_downloader","plugin_*.py"),
+          os.path.join(work,"plugins","**","*.py")]
+    seen=set()
+    for pat in pats:
+        for f in glob.glob(pat,recursive=True):
+            if f in seen: continue
+            seen.add(f)
+            try: txt=open(f,errors="ignore").read()
+            # why: this item is unreadable/unparseable; skip it, the loop continues over the rest
+            except Exception: continue
+            reaches=HOST_INTERNAL.search(txt)
+            granted=GRANT.search(txt)
+            if reaches and not granted:
+                findings.append({"file":os.path.relpath(f,work),
+                                 "issue":"reaches host internal %r without full-access grant"%reaches.group(0)[:40]})
+    return findings
+
+def selftest():
+    ok=True
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        b=os.path.join(d,"bulk_downloader"); os.makedirs(b)
+        open(os.path.join(b,"plugin_escape.py"),"w").write("from ..app import _app_cfg\n")
+        open(os.path.join(b,"plugin_ok.py"),"w").write("from ..app import x\ndef page_access(): pass\n")
+        open(os.path.join(b,"plugin_clean.py"),"w").write("def extractor(x): return x\n")
+        f=scan(d)
+    files={x["file"].split("/")[-1] for x in f}
+    good="plugin_escape.py" in files and "plugin_ok.py" not in files and "plugin_clean.py" not in files
+    print(("PASS" if good else "FAIL")+"  escape flagged, granted+clean excluded (%s)"%sorted(files))
+    ok=ok and good
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    sec.require_source_tree(a.work)
+    f=scan(a.work)
+    if sec.emit({"findings":f,"summary":{"escapes":len(f)}},as_json=a.json): return 0
+    print("%d plugin containment issue(s):"%len(f))
+    for x in f[:40]: print("  %sBD-PLUGIN-ESCAPE%s %s: %s"%(R,RST,x["file"],x["issue"]))
+    if not f: print(G+"all plugins contained (no ungranted host-internal reach)"+RST)
+    return 0
+sys.exit(main())

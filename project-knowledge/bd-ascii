@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""bd-ascii -- flag non-ASCII / emoji (the CHANGELOG emoji gate, hit x3).
+
+Default target: the CURRENT (top) CHANGELOG entry -- the exact thing the on-stash
+gate rejects post-deploy. Pass files to scan anything.
+Usage: bd-ascii [--work DIR] [file ...]   Exit 1 if any non-ASCII found.
+"""
+import argparse, os, re, sys
+G,R,DIM,RST="\033[32m","\033[31m","\033[2m","\033[0m"
+def scan(path, lines):
+    bad=0
+    for i,ln in lines:
+        nonascii=[(c,hex(ord(c))) for c in ln if ord(c)>127]
+        if nonascii:
+            bad+=1
+            print(f"  {R}L{i}{RST} {path}: {ln.strip()[:70]}")
+            print(f"       {DIM}-> {', '.join(f'{c!r}({h})' for c,h in nonascii[:6])}{RST}")
+    return bad
+def selftest():
+    clean = list(enumerate(["## v3.66.700", "plain ascii"], 1))
+    bad = list(enumerate(["## v3.66.700", "smart quote \u2019"], 1))
+    c = scan("x", clean); b = scan("x", bad)
+    ok = (c == 0 and b >= 1)
+    print(("PASS" if c == 0 else "FAIL") + "  clean ASCII -> 0 (%d)" % c)
+    print(("PASS" if b >= 1 else "FAIL") + "  NEG: non-ASCII flagged (%d)" % b)
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    if "--selftest" in sys.argv: return selftest()
+    ap=argparse.ArgumentParser(); ap.add_argument("--work","--tree",default="/home/claude/work")
+    ap.add_argument("--selftest",action="store_true")
+    ap.add_argument("files",nargs="*"); a=ap.parse_args(); bad=0
+    if a.files:
+        for f in a.files:
+            with open(f,encoding="utf-8",errors="replace") as fh:
+                bad+=scan(f,list(enumerate(fh,1)))
+    else:
+        cl=os.path.join(a.work,"CHANGELOG.md")
+        block=[]; started=False
+        for i,ln in enumerate(open(cl,encoding="utf-8",errors="replace"),1):
+            if re.match(r'##\s*v?3\.66\.',ln):
+                if started: break
+                started=True
+            if started: block.append((i,ln))
+        print(f"{DIM}scanning current CHANGELOG entry ({len(block)} lines){RST}")
+        bad+=scan("CHANGELOG.md(top)",block)
+    print((f"{G}clean (ASCII-only){RST}" if not bad
+           else f"{R}{bad} non-ASCII line(s) -- the on-stash gate will reject this{RST}"))
+    return 1 if bad else 0
+sys.exit(main())

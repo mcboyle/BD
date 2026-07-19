@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""bd-decomp-plan -- plan a safe file decomposition (ordered, invariant-checked).
+
+Consumes bd-seam-finder + bd-monolith-xray to emit an ORDERED decomposition
+plan: start with the lowest-risk pure-helper extractions, then isolated route
+groups, each as a small move with the invariant checks that must hold after
+(guards unchanged, routes stable, tree parses -- via bd-invariant-engine). Each
+step lists the functions to move + the target module + the band to run. The
+thin-core-shell playbook, made concrete for this file. Read-only.
+
+Usage: bd-decomp-plan [--module bulk_downloader/app.py] [--work DIR] [--steps N] [--json] [--selftest]
+Exit 0 plan produced (informational) / 2 CANNOT-EVALUATE (no tree to plan).
+"""
+import argparse, os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+
+import importlib.util, importlib.machinery
+def _load_tool(tool):
+    p=os.path.join(os.path.dirname(os.path.realpath(__file__)),tool)
+    modname=tool.replace("-","_")
+    spec=importlib.util.spec_from_loader(modname,importlib.machinery.SourceFileLoader(modname,p))
+    m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); return m
+
+_sf=_load_tool("bd-seam-finder"); _xr=_load_tool("bd-monolith-xray")
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+INVARIANTS=["GUARD-UNCHANGED","ROUTE-STABLE","TREE-PARSES","VERSION-HONEST"]
+
+def plan(work, module, nsteps):
+    path=os.path.join(work,module)
+    if not os.path.exists(path):
+        return {"error":"module not found: "+module,"total_steps":0,"steps":[]}
+    funcs=_sf.analyze(path)
+    x=_xr.xray(path)
+    steps=[]
+    # step tier 1: pure helpers (LOW), batched
+    low=[f for f in funcs if f["tier"]=="LOW" and not f["route"]]
+    if low:
+        batch=low[:8]
+        steps.append({"order":1,"kind":"extract-helpers",
+                      "move":[f["func"] for f in batch],
+                      "target":module.replace(".py","_helpers.py"),
+                      "lines":sum(f["size"] for f in batch),
+                      "invariants":INVARIANTS,
+                      "band":"tests covering the moved helpers + test_import_graph_no_new_edges"})
+    # subsequent steps: route groups, largest-isolated first
+    for i,g in enumerate(x["route_groups"][:nsteps-1],2):
+        steps.append({"order":i,"kind":"extract-route-group",
+                      "move":g["funcs"],"prefix":g["prefix"],
+                      "target":"blueprints/%s.py"%g["prefix"].strip("/").replace("/","_"),
+                      "lines":g["lines"],"invariants":INVARIANTS,
+                      "band":"tests/test_route_index_in_sync.py + tests/test_route_map_invariant.py"})
+    return {"module":module,"total_steps":len(steps),"steps":steps[:nsteps]}
+
+def selftest():
+    ok=True
+    p=plan(sec.DEFAULT_WORK,"bulk_downloader/app.py",6)
+    print(("PASS" if p["total_steps"]>=1 else "FAIL")+"  plan built (%d steps)"%p["total_steps"])
+    ok=ok and p["total_steps"]>=1
+    first=p["steps"][0]
+    print(("PASS" if first["kind"]=="extract-helpers" and first["move"] else "FAIL")+"  step 1 = low-risk helpers (%d fns)"%len(first["move"]))
+    ok=ok and first["kind"]=="extract-helpers"
+    print(("PASS" if all("GUARD-UNCHANGED" in s["invariants"] for s in p["steps"]) else "FAIL")+"  every step carries invariant checks")
+    ok=ok and all("GUARD-UNCHANGED" in s["invariants"] for s in p["steps"])
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--module",default="bulk_downloader/app.py"); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--steps",type=int,default=6)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    sec.require_source_tree(a.work)
+    p=plan(a.work,a.module,a.steps)
+    if "error" in p:
+        sys.stderr.write("CANNOT-EVALUATE decomp plan: reason=ABSENT (%s)\n"%p["error"])
+        print(R+p["error"]+RST); return 2
+    if sec.emit(p,as_json=a.json): return 0
+    print("decomposition plan for %s (%d steps):"%(p["module"],p["total_steps"]))
+    for s in p["steps"]:
+        print("  %s%d. %s%s -> %s (~%d lines)"%(G,s["order"],s["kind"],RST,s["target"],s["lines"]))
+        print("     move: %s%s%s"%(DIM,", ".join(s["move"][:5]),RST))
+        print("     %sband: %s | invariants: %s%s"%(DIM,s["band"],",".join(s["invariants"]),RST))
+    return 0
+sys.exit(main())

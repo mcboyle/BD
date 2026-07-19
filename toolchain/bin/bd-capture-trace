@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""bd-capture-trace -- summarize the capture pipeline events (static).
+
+Statically inventories the capture pipeline stages present in the capture
+modules (session_capture/dom_capture/dom_recorder/capture_bodies): DOM snapshot
+(snapdom/rrweb), network capture, storage/cookie capture, body capture, and
+artifact writes (WACZ). Reports which stages each module implements + the
+artifact outputs, giving a pipeline map without running a live capture.
+Read-only.
+
+Usage: bd-capture-trace [--work DIR] [--json] [--selftest]
+Exit 0 (informational -- reports/generates; does not render a pass/fail verdict and does not gate).
+"""
+import argparse, os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+STAGES=[("dom_snapshot",re.compile(r'(?i)snapdom|rrweb|outerHTML|document_snapshot|serialize_dom')),
+        ("network",re.compile(r'(?i)on\(["\']response|route\(|request_finished|network|har')),
+        ("storage",re.compile(r'(?i)cookies\(|localStorage|sessionStorage|storage_state')),
+        ("bodies",re.compile(r'(?i)body\(\)|response\.body|capture_bodies|buffer\(\)')),
+        ("artifact_write",re.compile(r'(?i)\.wacz|write_wacz|zipfile|write_text|save_capture'))]
+CAP_MODULES=["session_capture.py","dom_capture.py","dom_recorder.py","capture_bodies.py"]
+
+def trace(work):
+    rows=[]
+    for name in CAP_MODULES:
+        p=os.path.join(work,"bulk_downloader",name)
+        if not os.path.exists(p): continue
+        txt=open(p,errors="ignore").read()
+        stages=[s for s,rx in STAGES if rx.search(txt)]
+        rows.append({"module":name,"stages":stages})
+    coverage={s:sum(1 for r in rows if s in r["stages"]) for s,_ in STAGES}
+    return rows, coverage
+
+def selftest():
+    ok=True
+    rows,cov=trace(sec.DEFAULT_WORK)
+    print(("PASS" if rows else "FAIL")+"  capture modules found (%d)"%len(rows))
+    ok=ok and bool(rows)
+    covered=sum(1 for v in cov.values() if v>0)
+    print(("PASS" if covered>=3 else "WARN")+"  %d/%d pipeline stages present across modules"%(covered,len(cov)))
+    ok=ok and covered>=1
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    sec.require_source_tree(a.work)
+    rows,cov=trace(a.work)
+    if sec.emit({"modules":rows,"stage_coverage":cov},as_json=a.json): return 0
+    print("capture pipeline map:")
+    for r in rows:
+        print("  %s%s%s: %s%s%s"%(G,r["module"],RST,DIM,", ".join(r["stages"]) or "(none matched)",RST))
+    print("stage coverage: "+", ".join("%s=%d"%(k,v) for k,v in cov.items()))
+    return 0
+sys.exit(main())

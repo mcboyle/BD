@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""bd-selfcheck -- verify the TOOLCHAIN itself, statically and safely.
+
+A broken tool silently corrupts work (the bd-bump pin bug shipped because nothing
+verified the tools). This checks every bd-* tool WITHOUT executing it (executing
+them is unsafe -- bd-boot/bd-install have side effects, and not every tool is
+argparse). Checks: valid shebang, executable bit, Python syntax (ast.parse), a
+main/entrypoint, and byte-identity vs the PK bundle.
+
+Usage: bd-selfcheck [--bin /home/claude/bin] [--pk /mnt/project]
+Exit 0 if every tool is structurally sound (drift-vs-PK is a warning, not a fail);
+1 if any tool has a real defect (bad shebang / syntax error / no entrypoint).
+"""
+import argparse, ast, glob, os, sys
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+def selftest():
+    """DELEGATE: wraps bd-tool-lint. Asserts the target file is present in the tool's own
+    bin dir -- if not, FAIL (a wrapper that cannot find what it wraps is broken;
+    a selftest that cannot verify must not report success)."""
+    import os as _o
+    here = _o.path.dirname(_o.path.realpath(__file__))
+    found = _o.path.isfile(_o.path.join(here, "bd-tool-lint"))
+    print(("PASS" if found else "FAIL") + "  delegation target present: bd-tool-lint")
+    print("SELFTEST PASS" if found else "SELFTEST FAIL")
+    return 0 if found else 1
+
+
+def main():
+    import sys as _s
+    if "--selftest" in _s.argv: return selftest()
+    ap=argparse.ArgumentParser(); ap.add_argument("--bin",default="/home/claude/bin")
+    ap.add_argument("--pk",default="/mnt/project"); a=ap.parse_args()
+    tools=sorted(p for p in glob.glob(os.path.join(a.bin,"bd*")) if os.path.isfile(p))
+    noshebang=[]; notexec=[]; parse_err=[]; noentry=[]; drift=[]
+    for t in tools:
+        b=os.path.basename(t); raw=open(t,"rb").read()
+        first=raw.split(b"\n",1)[0]
+        if not first.startswith(b"#!"): noshebang.append(b)
+        if not os.access(t,os.X_OK): notexec.append(b)
+        is_py=b"python" in first
+        if is_py:
+            try:
+                tree=ast.parse(raw)
+                # entrypoint sanity: a main() def, an if __name__, or a sys.exit/argparse
+                src=raw.decode("utf-8","replace")
+                if not any(k in src for k in ("__main__","def main(","sys.exit","ArgumentParser","sys.argv")):
+                    noentry.append(b)
+            except SyntaxError as e:
+                parse_err.append((b,f"L{e.lineno}: {e.msg}"))
+        pk=os.path.join(a.pk,b)
+        if os.path.exists(pk) and open(pk,"rb").read()!=raw: drift.append(b)
+    print(f"toolchain: {len(tools)} tools  {DIM}(static checks only -- no execution){RST}")
+    def emit(name,lst,fmt=lambda x:x):
+        if lst:
+            print(f"  {R}{len(lst)} {name}:{RST}")
+            for x in lst[:15]: print(f"    {R}XX{RST} {fmt(x)}")
+    emit("bad/missing shebang",noshebang)
+    emit("not executable",notexec)
+    emit("SYNTAX error",parse_err,lambda x:f"{x[0]}  {DIM}{x[1]}{RST}")
+    if noentry: print(f"  {Y}{len(noentry)} no obvious entrypoint (review):{RST} {DIM}{', '.join(noentry[:12])}{RST}")
+    if drift: print(f"  {Y}{len(drift)} differ from PK bundle (re-sync or PK is stale):{RST} {DIM}{', '.join(drift[:12])}{RST}")
+    real=len(noshebang)+len(notexec)+len(parse_err)
+    if real: print(f"{R}RESULT: {real} tool(s) with a real defect{RST}"); return 1
+    tail=[]
+    if noentry: tail.append(f"{len(noentry)} entrypoint-review")
+    if drift: tail.append(f"{len(drift)} PK-drift")
+    print(f"{G}RESULT: all {len(tools)} tools structurally sound{RST}"+(f" {DIM}({', '.join(tail)}){RST}" if tail else ""))
+    return 0
+sys.exit(main())

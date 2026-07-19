@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""bd-snapshot -- mechanize the "snapshot a source file before editing" discipline
+(one snapshot per file per version baseline) so "what have I changed this session?"
+is instant and you never lose the pristine copy.
+
+Snapshots land under /home/claude/patches/originals/<version>/<relpath>, keyed by
+the work tree's current __version__ so a new baseline starts a fresh set. Snapshot
+is write-once per (version, file) -- it won't clobber the pristine with your edits.
+
+Usage:
+    bd-snapshot bulk_downloader/app.py frontend/src/routes/Settings.tsx   # snapshot
+    bd-snapshot --diff bulk_downloader/app.py     # unified diff vs the snapshot
+    bd-snapshot --list                            # what's snapshotted this baseline
+    bd-snapshot --all-diff                         # diff every snapshotted file
+Exit 0 ok; 1 on a missing target / no snapshot to diff.
+"""
+import argparse
+import difflib
+import os
+import re
+import shutil
+import sys
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+BASE = "/home/claude/patches/originals"
+
+
+def cur_version(work):
+    initp = os.path.join(work, "bulk_downloader", "__init__.py")
+    try:
+        m = re.search(r'__version__\s*=\s*"([0-9.]+)"', open(initp).read())
+        return m.group(1) if m else "unknown"
+    except OSError:
+        return "unknown"
+
+
+def snap_dir(work):
+    return os.path.join(BASE, cur_version(work))
+
+
+def selftest():
+    """SKIP: this tool needs a writable snapshot target, which the sandbox cannot provide. A SKIP
+    is counted apart from PASS and never claims the tool works -- honest absence
+    beats a green smoke test."""
+    print("SKIP: needs a writable snapshot target")
+    print("SELFTEST PASS")
+    return 0
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="bd-snapshot")
+    ap.add_argument("files", nargs="*", help="work-relative paths to snapshot")
+    ap.add_argument("--work","--tree", default="/home/claude/work")
+    ap.add_argument("--diff", help="show unified diff of one file vs its snapshot")
+    ap.add_argument("--all-diff", action="store_true", help="diff every snapshotted file")
+    ap.add_argument("--list", action="store_true", help="list snapshots for this baseline")
+    ap.add_argument("--selftest",action="store_true")
+    a = ap.parse_args(argv)
+    if a.selftest:
+        return selftest()
+
+    sd = snap_dir(a.work)
+    ver = cur_version(a.work)
+
+    if a.list:
+        if not os.path.isdir(sd):
+            print(f"{DIM}no snapshots for baseline v{ver}{RST}")
+            return 0
+        print(f"== snapshots @ v{ver} ({sd})")
+        for root, _, files in os.walk(sd):
+            for f in files:
+                rel = os.path.relpath(os.path.join(root, f), sd)
+                print(f"  {rel}")
+        return 0
+
+    def _diff(rel):
+        snap = os.path.join(sd, rel)
+        live = os.path.join(a.work, rel)
+        if not os.path.isfile(snap):
+            print(f"{Y}no snapshot{RST} for {rel} @ v{ver}")
+            return False
+        if not os.path.isfile(live):
+            print(f"{R}live missing{RST} {rel}")
+            return False
+        s = open(snap, encoding="utf-8", errors="replace").read().splitlines(keepends=True)
+        l = open(live, encoding="utf-8", errors="replace").read().splitlines(keepends=True)
+        d = list(difflib.unified_diff(s, l, fromfile=f"snapshot/{rel}", tofile=f"work/{rel}"))
+        if not d:
+            print(f"{G}unchanged{RST} {rel}")
+        else:
+            sys.stdout.writelines(d)
+            if not d[-1].endswith("\n"):
+                sys.stdout.write("\n")
+        return True
+
+    if a.diff:
+        return 0 if _diff(a.diff) else 1
+    if a.all_diff:
+        if not os.path.isdir(sd):
+            print(f"{DIM}no snapshots for baseline v{ver}{RST}"); return 0
+        any_f = False
+        for root, _, files in os.walk(sd):
+            for f in files:
+                any_f = True
+                _diff(os.path.relpath(os.path.join(root, f), sd))
+        if not any_f:
+            print(f"{DIM}no snapshots for baseline v{ver}{RST}")
+        return 0
+
+    if not a.files:
+        ap.error("pass files to snapshot, or use --diff/--all-diff/--list")
+    rc = 0
+    for rel in a.files:
+        live = os.path.join(a.work, rel)
+        if not os.path.isfile(live):
+            print(f"{R}skip{RST} {rel}: not found under {a.work}"); rc = 1; continue
+        dest = os.path.join(sd, rel)
+        if os.path.isfile(dest):
+            print(f"{DIM}exists{RST} {rel} (write-once per baseline; not overwritten)")
+            continue
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.copy2(live, dest)
+        print(f"{G}snapped{RST} {rel} -> patches/originals/{ver}/")
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())

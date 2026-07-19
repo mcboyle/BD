@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""bd-api-contract -- snapshot API route contract to detect drift.
+
+Reads ENDPOINT_CATALOG.md to build a contract snapshot {method, path, csrf} for
+every route, and compares it to a saved baseline (--baseline) to detect added/
+removed/changed routes or CSRF-posture changes between versions -- accidental
+API drift. First run --write establishes the baseline. Read-only w.r.t. the tree.
+
+Usage:
+    bd-api-contract --write [--work DIR] [--out FILE]     # snapshot baseline
+    bd-api-contract --baseline FILE [--work DIR] [--json] # diff vs baseline
+    bd-api-contract --selftest
+Exit 1 if drift detected against a baseline, else 0.
+"""
+import argparse, json, os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+
+def snapshot(work):
+    cat=sec.parse_endpoint_catalog(work)
+    rows={}
+    for r in cat:
+        key=(r.get("method","") + " " + r.get("path",""))
+        rows[key]={"csrf":r.get("csrf")}
+    return rows
+
+def diff(base, cur):
+    added=[k for k in cur if k not in base]
+    removed=[k for k in base if k not in cur]
+    changed=[{"route":k,"was":base[k].get("csrf"),"now":cur[k].get("csrf")}
+             for k in cur if k in base and cur[k].get("csrf")!=base[k].get("csrf")]
+    return {"added":sorted(added),"removed":sorted(removed),"csrf_changed":changed}
+
+def selftest():
+    ok=True
+    cur=snapshot(sec.DEFAULT_WORK)
+    print(("PASS" if len(cur)>100 else "FAIL")+"  snapshot built (%d routes)"%len(cur))
+    ok=ok and len(cur)>100
+    # self-diff is empty
+    d=diff(cur,cur)
+    empty=not d["added"] and not d["removed"] and not d["csrf_changed"]
+    print(("PASS" if empty else "FAIL")+"  self-diff empty")
+    ok=ok and empty
+    # synthetic drift
+    base=dict(cur); k=next(iter(base)); base2=dict(base); del base2[k]
+    d2=diff(base2,cur)
+    print(("PASS" if k in d2["added"] else "FAIL")+"  added route detected")
+    ok=ok and k in d2["added"]
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--write",action="store_true"); ap.add_argument("--out",default="/home/claude/api_contract_baseline.json")
+    ap.add_argument("--baseline",default=None)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    sec.require_source_tree(a.work)
+    cur=snapshot(a.work)
+    if a.write:
+        json.dump(cur,open(a.out,"w"),indent=2,sort_keys=True)
+        if sec.emit({"written":a.out,"routes":len(cur)},as_json=a.json): return 0
+        print(G+"baseline written"+RST+": %d routes -> %s"%(len(cur),a.out)); return 0
+    if not a.baseline:
+        summary={"routes":len(cur),"hint":"--write to snapshot, --baseline to diff"}
+        if sec.emit(summary,as_json=a.json): return 0
+        print("%d routes in current contract. Use --write to snapshot or --baseline to diff."%len(cur))
+        return 0
+    base=json.load(open(a.baseline))
+    d=diff(base,cur)
+    drift=d["added"] or d["removed"] or d["csrf_changed"]
+    if sec.emit({**d,"summary":{"added":len(d["added"]),"removed":len(d["removed"]),"csrf_changed":len(d["csrf_changed"])}},as_json=a.json): return 1 if drift else 0
+    for r in d["added"]: print("  %s+ %s%s"%(G,r,RST))
+    for r in d["removed"]: print("  %s- %s%s"%(R,r,RST))
+    for c in d["csrf_changed"]: print("  %s~ %s CSRF %s->%s%s"%(Y,c["route"],c["was"],c["now"],RST))
+    if not drift: print(G+"no API contract drift"+RST)
+    return 1 if drift else 0
+sys.exit(main())

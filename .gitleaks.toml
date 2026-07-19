@@ -1,0 +1,33 @@
+# Gitleaks config for BulkDownloader.
+#
+# PRINCIPLE (see CLAUDE.md §0): an allowlist that hides everything is a gate
+# that cannot see. Each entry below is NARROW and carries its reason. Do not
+# add a blanket skip.
+
+[extend]
+useDefault = true
+
+# 1. Deliberate synthetic canary. BD ships a fake key to prove that secret
+#    redaction actually fires; the whole point is that it looks real.
+[[rules]]
+id = "bd-synthetic-canary"
+description = "placeholder"
+regex = '''sk-EVALSECRET[0-9]+'''
+[rules.allowlist]
+description = "Synthetic canary used by llm_eval + redaction tests. Not a credential."
+regexes = ['''sk-EVALSECRET[0-9]+''']
+
+[allowlist]
+description = "Recorded capture corpora"
+paths = [
+  # Real captures from authenticated member sites, recorded 2026-05-14.
+  # All embedded JWTs EXPIRED 2026-05-14..16 and cannot be replayed.
+  # They are retained because 5 recognizer/extraction tests assert against
+  # them and synthetic substitutes would not exhibit the real page shapes.
+  # NOTE: payloads still carry account identifiers (sub/user_id/partner_id).
+  # This repository must remain PRIVATE.
+  '''tests/fixtures/recon_corpus/.*''',
+  # Recognizer corpus: site captures, already redacted at capture time
+  # (values appear as client=REDACTED). 67 tests depend on these.
+  '''tests/corpus/.*''',
+]

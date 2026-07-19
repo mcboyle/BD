@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+"""bd-flakes -- known flaky/hazard tests you must NOT blindly band or full-run.
+
+Surfaces KNOWN_FLAKES.md plus the hard hazards (full tests/ hangs; test_perf_lab;
+test_v3_66_146_nav_guard >200s). The "what will bite my band?" reference. Read-only.
+Usage: bd-flakes [--pk /mnt/project]
+"""
+import argparse, os, sys
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+HAZARDS=[("NEVER run the full tests/ dir","it hangs (no per-test timeout)"),
+         ("tests/test_perf_lab.py","long/among the hangers -- never band casually"),
+         ("tests/test_v3_66_146_nav_guard.py",">200s timeout (known, not a regression)"),
+         ("don't pkill -9","leaves orphan state; let timeouts expire")]
+def selftest():
+    """IMPORT-OK: known-flakes reader with no independent fault surface. Structural check
+    only -- the module parsed and exposes main(); this is the weakest selftest
+    kind and says so."""
+    ok = "main" in globals() and callable(main)
+    print(("PASS" if ok else "FAIL") + "  module structural check (main present)")
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    import sys as _s
+    if "--selftest" in _s.argv: return selftest()
+    ap=argparse.ArgumentParser(); ap.add_argument("--pk",default="/mnt/project"); a=ap.parse_args()
+    print(f"{R}HARD HAZARDS (test discipline):{RST}")
+    for h,why in HAZARDS: print(f"  {R}!{RST} {h} {DIM}-- {why}{RST}")
+    kf=os.path.join(a.pk,"KNOWN_FLAKES.md")
+    if os.path.exists(kf):
+        print(f"\n{Y}KNOWN_FLAKES.md:{RST}")
+        for ln in open(kf):
+            if ln.strip().startswith(("-","*","#","|")) and ln.strip("#*-| \n"):
+                print(f"  {ln.rstrip()[:100]}")
+    else: print(f"{DIM}(KNOWN_FLAKES.md not found in {a.pk}){RST}")
+    return 0
+sys.exit(main())

@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+"""bd-timeit -- wall-clock a command (find the slow gate).
+
+Wraps any command, prints its runtime + exit code. Use to see which cut gate or
+build step dominates (e.g. `bd-timeit -- bd-regen`, `bd-timeit -- bd-band tests/x.py`).
+Usage: bd-timeit [--label L] -- <command ...>
+Exits with the wrapped command's exit code.
+"""
+import subprocess, sys, time
+G,R,DIM,RST="\033[32m","\033[31m","\033[2m","\033[0m"
+def selftest():
+    """IMPORT-OK: timing wrapper with no independent fault surface. Structural check
+    only -- the module parsed and exposes main(); this is the weakest selftest
+    kind and says so."""
+    ok = "main" in globals() and callable(main)
+    print(("PASS" if ok else "FAIL") + "  module structural check (main present)")
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    import sys as _s
+    if "--selftest" in _s.argv: return selftest()
+    argv=sys.argv[1:]; label=None
+    if argv and argv[0]=="--label": label=argv[1]; argv=argv[2:]
+    if argv and argv[0]=="--": argv=argv[1:]
+    if not argv: print("usage: bd-timeit [--label L] -- <command ...>"); return 2
+    t0=time.time(); r=subprocess.run(argv); dt=time.time()-t0
+    tag=(G if r.returncode==0 else R)+f"{dt:.2f}s"+RST
+    print(f"{DIM}---{RST} {label or argv[0]}: {tag} (exit {r.returncode})")
+    return r.returncode
+sys.exit(main())

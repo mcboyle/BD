@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+"""bd-coupling-meter -- measure cross-subsystem coupling.
+
+Groups modules into subsystems (settings/cockpit/capture/plugins/runtime/vpn/
+scheduler/core) by name and counts import edges WITHIN vs ACROSS subsystems
+using DEPENDENCY_GRAPH.json (or an AST fallback). A high across/within ratio =
+tight coupling that makes decomposition risky. Reports per-subsystem afferent/
+efferent coupling + the worst cross-subsystem edges. Read-only.
+
+Usage: bd-coupling-meter [--work DIR] [--json] [--selftest]
+Exit 0 (informational -- reports/generates; does not render a pass/fail verdict and does not gate).
+"""
+import argparse, ast, glob, json, os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+SUBSYS=[("settings","settings|widgets_config|app_config"),("cockpit","cockpit|app_health|app_kernel"),
+        ("capture","capture|dom_|session_capture|wacz"),("plugins","plugin"),
+        ("runner","runner|download|extract"),("vpn","vpn|netns|egress|proxy"),
+        ("scheduler","schedule|cron|cadence"),("recognizer","recogniz|detect|auto_detect")]
+
+def subsys_of(mod):
+    for name,pat in SUBSYS:
+        if re.search(pat,mod): return name
+    return "core"
+
+def edges_from_ast(work):
+    edges=[]
+    modfiles={}
+    for _p,rel,txt in sec.iter_py(work, strict=True, label="--work/--tree"):
+        if not rel.startswith("bulk_downloader/"): continue
+        mod=rel[len("bulk_downloader/"):].replace("/",".")[:-3]
+        modfiles[mod]=txt
+    known=set(modfiles)
+    for mod,txt in modfiles.items():
+        for m in re.finditer(r'from\s+\.(\w+)\s+import|from\s+\.\.(\w+)\s+import|import\s+bulk_downloader\.(\w+)',txt):
+            tgt=m.group(1) or m.group(2) or m.group(3)
+            if tgt and tgt in known and tgt!=mod:
+                edges.append((mod,tgt))
+    return edges
+
+def edges_from_graph(db):
+    """Delegate to l0_extract's KNOWLEDGE_GRAPH.db (the authoritative code-intel
+    source) instead of re-deriving imports -- the anti-G-3 (tool-model-drift) path.
+    Reads resolved `imports` edges; keeps only internal module->module edges."""
+    import sqlite3
+    con=sqlite3.connect(db); cur=con.cursor()
+    # internal module basenames (strip bulk_downloader/ prefix + .py)
+    known={}
+    for (path,) in cur.execute("SELECT path FROM nodes WHERE kind='module' AND path LIKE 'bulk_downloader/%'"):
+        base=path[len("bulk_downloader/"):]
+        if base.endswith(".py"): base=base[:-3]
+        known[base.split("/")[-1]]=base.replace("/",".")  # leaf -> dotted
+    edges=[]
+    for src,dst in cur.execute("SELECT src,dst FROM edges WHERE kind='imports'"):
+        if not src.startswith("bulk_downloader/"): continue
+        smod=src[len("bulk_downloader/"):]
+        if smod.endswith(".py"): smod=smod[:-3]
+        smod=smod.replace("/",".")
+        # dst may be a bare leaf ("runner"), dotted ("bulk_downloader.runner"), or ".runner"
+        d=dst.split(".")[-1].lstrip(".")
+        if d in known:
+            tmod=known[d]
+            if tmod!=smod:
+                edges.append((smod,tmod))
+    con.close()
+    return edges
+
+def measure(work, db=None):
+    edges=edges_from_graph(db) if db else edges_from_ast(work)
+    source="knowledge_graph" if db else "ast_rederive"
+    within=0; across=0; cross_edges={}
+    for a,b in edges:
+        sa,sb=subsys_of(a),subsys_of(b)
+        if sa==sb: within+=1
+        else:
+            across+=1
+            k=tuple(sorted((sa,sb))); cross_edges[k]=cross_edges.get(k,0)+1
+    worst=sorted(cross_edges.items(),key=lambda kv:(-kv[1],kv[0]))[:10]
+    return {"source":source,"total_edges":len(edges),"within":within,"across":across,
+            "coupling_ratio":round(across/max(1,len(edges)),3),
+            "worst_cross":[{"pair":list(k),"edges":v} for k,v in worst]}
+
+
+def selftest():
+    ok=True
+    m=measure(sec.DEFAULT_WORK)
+    print(("PASS" if m["total_edges"]>0 else "FAIL")+"  edges measured (%d, ratio %.2f)"%(m["total_edges"],m["coupling_ratio"]))
+    ok=ok and m["total_edges"]>0
+    print(("PASS" if 0<=m["coupling_ratio"]<=1 else "FAIL")+"  ratio in [0,1]")
+    ok=ok and 0<=m["coupling_ratio"]<=1
+    print(("PASS" if subsys_of("vpn_runtime")=="vpn" and subsys_of("plugin_node")=="plugins" else "FAIL")+"  subsystem classification")
+    # delegation: if a KNOWLEDGE_GRAPH.db is present, the graph-backed measure must
+    # produce a comparable coupling picture (same worst-pair leader) -- proves the
+    # authoritative-source path works, not just the re-derived one.
+    import os
+    kg=os.environ.get("BD_KG_DB")
+    if kg and os.path.exists(kg):
+        g=measure(sec.DEFAULT_WORK, db=kg)
+        agree = g["total_edges"]>0 and 0<=g["coupling_ratio"]<=1
+        print(("PASS" if agree else "FAIL")+"  graph-delegated measure works (%d edges, ratio %.2f)"%(g["total_edges"],g["coupling_ratio"]))
+        ok=ok and agree
+    else:
+        print("  (skip graph-delegation check: set BD_KG_DB to a KNOWLEDGE_GRAPH.db)")
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--graph",default=None,help="delegate to a KNOWLEDGE_GRAPH.db instead of re-deriving")
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    m=measure(a.work, db=a.graph)
+    if sec.emit(m,as_json=a.json): return 0
+    print("coupling: %d edges, %d within / %d across subsystems (ratio %.2f)"%(m["total_edges"],m["within"],m["across"],m["coupling_ratio"]))
+    print("worst cross-subsystem coupling:")
+    for c in m["worst_cross"]:
+        print("  %s%s <-> %s%s  %d edges"%(Y,c["pair"][0],c["pair"][1],RST,c["edges"]))
+    return 0
+sys.exit(main())

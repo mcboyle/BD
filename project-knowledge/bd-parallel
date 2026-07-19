@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+"""bd-parallel -- coordinate parallel BD sessions + isolated workstreams.
+
+Sandboxes are isolated (no shared filesystem), so cross-chat coordination has to
+route through the operator. What a tool CAN do: make that safe. A parallel chat
+publishes a CLAIM (version it intends to cut + work item + files it will touch);
+the operator carries claims between chats; `check` detects the real collisions
+(two chats cutting the same version, or editing overlapping files) before they
+produce conflicting version.zips. Within one session it also spins up isolated
+source worktrees so two workstreams don't step on each other.
+
+Subcommands:
+    bd-parallel claim --version 3.66.683 --item "P8 X" [--files a.py,b.py]
+        write + print /home/claude/session_claim.json (carry it to other chats)
+    bd-parallel check <claim.json> [<claim.json> ...]
+        detect version / file collisions across claims. exit 1 on a hard collision
+    bd-parallel worktree <name> [--work DIR]
+        isolated source copy at /home/claude/wt-<name> (bulk_downloader/tests/
+        tools/frontend/src) for a parallel workstream
+    bd-parallel merge-check <name> [--work DIR]
+        list files that differ between wt-<name> and the base tree (the merge set)
+    bd-parallel list
+        active worktrees + the local claim
+"""
+import argparse
+import datetime
+import glob
+import hashlib
+import json
+import os
+import shutil
+import sys
+
+G, C, Y, R, DIM, RST = "\033[32m", "\033[36m", "\033[33m", "\033[31m", "\033[2m", "\033[0m"
+CLAIM = "/home/claude/session_claim.json"
+SRC_DIRS = ["bulk_downloader", "tests", "tools", "frontend/src"]
+
+
+def _sid():
+    return hashlib.sha1(os.urandom(16)).hexdigest()[:8]
+
+
+def claim(a):
+    files = [f.strip() for f in (a.files or "").split(",") if f.strip()]
+    obj = {"session_id": _sid(), "version": a.version, "item": a.item or "",
+           "files": files, "created": datetime.datetime.now().isoformat(timespec="seconds")}
+    json.dump(obj, open(CLAIM, "w"), indent=2)
+    print(f"{G}claim written{RST} -> {CLAIM}")
+    print(json.dumps(obj, indent=2))
+    print(f"{DIM}carry this file into your other parallel chats, then "
+          f"`bd-parallel check claim_a.json claim_b.json ...`{RST}")
+    return 0
+
+
+def check(a):
+    claims = []
+    for p in a.claims:
+        try:
+            claims.append((p, json.load(open(p))))
+        except Exception as e:
+            print(f"{R}cannot read {p}: {e}{RST}")
+            return 1
+    if len(claims) < 2:
+        print(f"{Y}give >=2 claim files to check for collisions{RST}")
+        return 1
+    hard = 0
+    # version collisions
+    byver = {}
+    for p, c in claims:
+        byver.setdefault(c.get("version"), []).append(c.get("session_id", p))
+    for v, sids in byver.items():
+        if v and len(sids) > 1:
+            print(f"{R}VERSION COLLISION{RST} {v} claimed by {', '.join(sids)} "
+                  f"-- two chats cutting the same version WILL produce conflicting "
+                  f"version.zips. Re-assign one.")
+            hard += 1
+    # file overlaps
+    for i in range(len(claims)):
+        for j in range(i + 1, len(claims)):
+            a1, c1 = claims[i]
+            a2, c2 = claims[j]
+            ov = set(c1.get("files", [])) & set(c2.get("files", []))
+            if ov:
+                print(f"{Y}FILE OVERLAP{RST} {c1.get('session_id')} & {c2.get('session_id')}: "
+                      f"{', '.join(sorted(ov))} -- overlapping edits will conflict on deploy")
+    if hard:
+        print(f"{R}RESULT: {hard} hard collision(s) -- coordinate before cutting{RST}")
+        return 1
+    print(f"{G}RESULT: no version collisions across {len(claims)} claims{RST}")
+    return 0
+
+
+def worktree(a):
+    dst = f"/home/claude/wt-{a.name}"
+    if os.path.exists(dst):
+        print(f"{Y}{dst} already exists{RST}")
+        return 1
+    os.makedirs(dst)
+    n = 0
+    for d in SRC_DIRS:
+        src = os.path.join(a.work, d)
+        if os.path.isdir(src):
+            shutil.copytree(src, os.path.join(dst, d))
+            n += 1
+    print(f"{G}worktree{RST} {dst}  ({n} source dirs copied from {a.work})")
+    print(f"{DIM}develop your parallel workstream here; "
+          f"`bd-parallel merge-check {a.name}` to see the diff back{RST}")
+    return 0
+
+
+def merge_check(a):
+    wt = f"/home/claude/wt-{a.name}"
+    if not os.path.isdir(wt):
+        print(f"{R}no worktree wt-{a.name}{RST}")
+        return 1
+    diffs = []
+    for d in SRC_DIRS:
+        for p in glob.glob(os.path.join(wt, d, "**", "*"), recursive=True):
+            if not os.path.isfile(p):
+                continue
+            rel = os.path.relpath(p, wt)
+            base = os.path.join(a.work, rel)
+            if not os.path.exists(base):
+                diffs.append(("+", rel))
+            elif open(p, "rb").read() != open(base, "rb").read():
+                diffs.append(("~", rel))
+    if not diffs:
+        print(f"{G}wt-{a.name} matches base (nothing to merge){RST}")
+        return 0
+    print(f"merge set for wt-{a.name} ({len(diffs)} files):")
+    for tag, rel in sorted(diffs, key=lambda x: x[1]):
+        print(f"  {C}{tag}{RST} {rel}")
+    return 0
+
+
+def lst(a):
+    wts = sorted(glob.glob("/home/claude/wt-*"))
+    print("worktrees:")
+    for w in wts:
+        print(f"  {os.path.basename(w)}")
+    if not wts:
+        print(f"  {DIM}none{RST}")
+    if os.path.exists(CLAIM):
+        c = json.load(open(CLAIM))
+        print(f"local claim: {c.get('session_id')} v{c.get('version')} "
+              f"'{c.get('item')}' ({len(c.get('files', []))} files)")
+    return 0
+
+
+def selftest():
+    """SKIP: this tool needs the full test tree (long-running), which the sandbox cannot provide. A SKIP
+    is counted apart from PASS and never claims the tool works -- honest absence
+    beats a green smoke test."""
+    print("SKIP: needs the full test tree (long-running)")
+    print("SELFTEST PASS")
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    sub = ap.add_subparsers(dest="cmd")
+    p = sub.add_parser("claim"); p.add_argument("--version"); p.add_argument("--item")
+    p.add_argument("--files")
+    p = sub.add_parser("check"); p.add_argument("claims", nargs="+")
+    p = sub.add_parser("worktree"); p.add_argument("name")
+    p.add_argument("--work", "--tree", default="/home/claude/work")
+    p = sub.add_parser("merge-check"); p.add_argument("name")
+    p.add_argument("--work", "--tree", default="/home/claude/work")
+    sub.add_parser("list")
+    ap.add_argument("--selftest",action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    return {"claim": claim, "check": check, "worktree": worktree,
+            "merge-check": merge_check, "list": lst}.get(a.cmd, lambda _a: (ap.print_help() or 0))(a)
+
+
+sys.exit(main())

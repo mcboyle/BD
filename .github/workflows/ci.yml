@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Secret scan (fails on anything not baselined)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_BASELINE_PATH: .gitleaks-baseline.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Every .py file must parse
+        run: python -m compileall -q bulk_downloader tools tests
+
+      - name: Lint for undefined names and unused imports
+        run: |
+          pip install pyflakes
+          pyflakes bulk_downloader tools || true   # advisory: a known backlog exists
+
+      - name: CHANGELOG current entry must be ASCII
+        run: |
+          python - <<'PY'
+          import re,sys
+          t=open('CHANGELOG.md',encoding='utf-8').read().splitlines()
+          hdr=[i for i,l in enumerate(t) if l.startswith('## ')]
+          if not hdr: sys.exit("::error::no '## ' version header found in CHANGELOG.md")
+          entry=t[hdr[0]: (hdr[1] if len(hdr)>1 else len(t))]
+          bad=[(hdr[0]+n+1,l) for n,l in enumerate(entry) if any(ord(c)>127 for c in l)]
+          for ln,l in bad: print(f"line {ln}: {l!r}")
+          if bad: sys.exit("::error::non-ASCII in the current CHANGELOG entry (trips a gate on the host)")
+          print(f"ASCII ok across {len(entry)} lines of the current entry")
+          PY
+
+      - name: Version pin coherence
+        run: |
+          python - <<'PY'
+          import re,sys,subprocess
+          v=re.search(r'__version__\s*=\s*"([^"]+)"',open('bulk_downloader/__init__.py').read()).group(1)
+          print("__version__ =",v)
+          # the subject is the FIRST '## ' header, wherever it sits -- not a fixed line window
+          hdr=next((l for l in open('CHANGELOG.md',encoding='utf-8') if l.startswith('## ')),None)
+          if hdr is None: sys.exit("::error::no '## ' version header in CHANGELOG.md")
+          if v not in hdr: sys.exit(f"::error::CHANGELOG top entry does not name {v}: {hdr.strip()!r}")
+          pins=subprocess.run(["grep","-rnE",f'__version__ *== *"{v}"',"tests/"],
+                              capture_output=True,text=True).stdout.strip()
+          if not pins: sys.exit(f"::error::no test pins {v} -- a bump is three edits together (CLAUDE.md 3)")
+          print("pinned by:"); print(pins)
+          print("version pins coherent")
+          PY
+
+      - name: Guard files unchanged
+        run: |
+          python - <<'PY'
+          import hashlib,sys
+          GUARDS={
+            "bulk_downloader/extraction_core.py":"5b6248a5c9e664ab",
+            "bulk_downloader/session_capture.py":"547d70c95cde9377",
+            "bulk_downloader/dom_capture.py":"0559903d0b159162",
+            "bulk_downloader/dom_recorder.py":"1657d0a0e39917ae",
+            "bulk_downloader/capture_bodies.py":"6c7f5c9a87510cca",
+            "tools/capture_session.py":"27be68b965689317",
+            "tools/build_release.py":"f7c220d279fcfbee",
+          }
+          bad=[]
+          for f,want in GUARDS.items():
+              got=hashlib.sha256(open(f,'rb').read()).hexdigest()[:16]
+              print(("ok   " if got==want else "DRIFT"),f,got)
+              if got!=want: bad.append(f)
+          if bad:
+              print("::error::guard drift — an operator must explicitly declare a new SHA (CLAUDE.md §2)")
+              sys.exit(1)
+          PY

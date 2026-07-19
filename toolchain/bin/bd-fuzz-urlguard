@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""bd-fuzz-urlguard -- fuzz URL/public-host classification against known truth.
+
+Hammers bd-url-classify's classifier (bdtools_sec.classify_url -- the shared
+egress primitive every fetch guard reuses) with an adversarial URL battery:
+IPv6 forms (compressed/expanded/bracketed/zone), decimal/octal/hex-encoded
+IPs, userinfo obfuscation, embedded credentials, uppercase/trailing-dot hosts,
+metadata variants, and mixed-case schemes. Each payload has a KNOWN expected
+verdict; a mismatch on the DANGEROUS side (should-block classified allowed) is
+BD-URLGUARD-BYPASS (high). This is the differential test that guards the
+primitive the whole egress stack inherits. Read-only, offline.
+
+Usage: bd-fuzz-urlguard [--json] [--selftest]
+Exit 1 if any dangerous mismatch, else 0.
+"""
+import argparse
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+# (url, expected_verdict). "blocked" = must not be allowed to egress.
+BATTERY = [
+    # metadata, all forms
+    ("http://169.254.169.254/latest/meta-data", "blocked"),
+    ("http://[fd00:ec2::254]/", "blocked"),
+    ("http://metadata.google.internal/computeMetadata/v1/", "blocked"),
+    # loopback forms
+    ("http://127.0.0.1/", "blocked"),
+    ("http://127.1/", "blocked"),                     # short-form loopback
+    ("http://[::1]/", "blocked"),
+    ("http://localhost/", "blocked"),
+    ("http://LOCALHOST/", "blocked"),
+    ("http://localhost./", "blocked"),                # trailing dot
+    # private ranges
+    ("http://10.0.70.20/", "blocked"),                # stash
+    ("http://192.168.0.1/", "blocked"),
+    ("http://172.16.5.5/", "blocked"),
+    ("http://[fc00::1]/", "blocked"),
+    ("http://[fe80::1]/", "blocked"),
+    # reserved TLDs
+    ("http://svc.internal/", "blocked"),
+    ("http://box.local/", "blocked"),
+    # userinfo obfuscation
+    ("http://user:pass@evil@10.0.0.1/", "blocked"),
+    ("http://legit.com@127.0.0.1/", "blocked"),
+    ("https://alice@example.com/", "blocked"),        # userinfo on public -> fail-closed
+    # scheme abuse
+    ("ftp://example.com/x", "blocked"),
+    ("file:///etc/passwd", "blocked"),
+    ("gopher://127.0.0.1/", "blocked"),
+    # legitimately public (must NOT be over-blocked)
+    ("https://example.com/", "allowed"),
+    ("https://sub.example.co.uk/path?q=1", "allowed"),
+    ("http://93.184.216.34/", "allowed"),
+    ("HTTPS://Example.COM/", "allowed"),              # mixed-case scheme/host
+]
+
+
+def run():
+    dangerous, overblock = [], []
+    for url, expected in BATTERY:
+        r = sec.classify_url(url)
+        got = r["verdict"]
+        if expected == "blocked" and got == "allowed":
+            dangerous.append({"url": url, "got": got, "class": r["classification"]})
+        elif expected == "allowed" and got == "blocked":
+            overblock.append({"url": url, "got": got, "class": r["classification"],
+                              "why": "; ".join(r["reasons"])})
+    return {"dangerous": dangerous, "overblock": overblock, "tested": len(BATTERY)}
+
+
+def selftest():
+    ok = True
+    res = run()
+    no_bypass = res["dangerous"] == []
+    print(("PASS" if no_bypass else "FAIL") +
+          f"  no should-block URL classified allowed ({len(res['dangerous'])} bypass: "
+          f"{[d['url'] for d in res['dangerous'][:3]]})")
+    ok &= no_bypass
+    no_ob = res["overblock"] == []
+    print(("PASS" if no_ob else "FAIL") +
+          f"  no public URL over-blocked ({len(res['overblock'])} overblock: "
+          f"{[(o['url'], o['why']) for o in res['overblock'][:3]]})")
+    ok &= no_ob
+    print(f"  {DIM}{res['tested']} adversarial URLs fuzzed{RST}")
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    res = run()
+    if sec.emit({"dangerous": res["dangerous"], "overblock": res["overblock"],
+                 "summary": {"tested": res["tested"],
+                             "bypass": len(res["dangerous"]),
+                             "overblock": len(res["overblock"])}}, as_json=a.json):
+        return 1 if res["dangerous"] else 0
+    if res["dangerous"]:
+        print(f"{R}URL GUARD BYPASS -- should-block classified allowed:{RST}")
+        for d in res["dangerous"]:
+            print(f"  {R}BD-URLGUARD-BYPASS{RST} {d['url']} {DIM}({d['class']}){RST}")
+    else:
+        print(f"{G}no bypass -- every should-block URL was blocked{RST}")
+    if res["overblock"]:
+        print(f"{Y}over-blocked public URLs:{RST}")
+        for o in res["overblock"]:
+            print(f"  {Y}{o['url']}{RST} {DIM}{o['why']}{RST}")
+    print(f"{DIM}{res['tested']} adversarial URLs fuzzed{RST}")
+    return 1 if res["dangerous"] else 0
+
+
+sys.exit(main())

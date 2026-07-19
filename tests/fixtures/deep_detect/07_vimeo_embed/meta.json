@@ -1,0 +1,4 @@
+{
+  "description": "Single Vimeo embed iframe. Tests extract_provider_embeds detection and the post-v3.66.16 provider_embeds candidate shape. Resolution is NOT exercised by dd-replay (resolve_providers defaults to False); the resolver itself is unit-tested separately in test_v3_66_16_phase4_p4_provider_resolve.py with an injected http_get.",
+  "base_url": "https://blog.example.test/posts/2026/featured-talk"
+}

@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""bd-parband -- run targeted test suites CONCURRENTLY (the fast, isolated band).
+
+bd-band runs suites one at a time. bd-parband runs them in parallel, each in its
+OWN subprocess with its OWN BD_HOME (mktemp) + the correct sandbox env + a per-suite
+timeout. The per-process BD_HOME means the state-leak co-band hazards (e.g.
+test_phases_195_199 leaking BD_INSTALL_DIR) can't cross suites — parallel is both
+faster AND safer than sequential co-banding for those.
+
+Refuses the known hangers (perf_lab, nav_guard) and a bare tests/ dir. Writes the
+run to /home/claude/.bd_last_band.json so `bd-retest` can re-run just the failures.
+
+Usage:
+    bd-parband tests/a.py tests/b.py tests/c.py [--jobs 4] [--timeout 300] [--work DIR]
+Exit 0 = every suite Failed:0 ; 1 = any failure/timeout, or a refused hazard.
+"""
+import argparse
+import concurrent.futures as cf
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
+
+G, R, Y, DIM, BOLD, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[1m", "\033[0m"
+HANGERS = ("test_perf_lab", "test_v3_66_146_nav_guard")
+RESULTS = "/home/claude/.bd_last_band.json"
+BDENV = "/home/claude/bdenv.sh"
+
+_BD_ENV_CACHE = None
+
+
+def _bd_env():
+    """The FULL `bd` env, derived by sourcing bdenv.sh -- NOT a hand-kept subset.
+    v3.66.762: bd-parband used to set only PYTHONPATH/BD_HOME/PLAYWRIGHT, omitting
+    the GTK vars (GTK_ROOT/LD_LIBRARY_PATH/GI_TYPELIB_PATH/XDG_DATA_DIRS) that the
+    `bd` wrapper provides. Any suite importing Gtk then false-RED'd with
+    'Namespace Gtk not available'. Sourcing the canonical env source means this
+    can never drift from `bd` again. Falls back to os.environ if bdenv is absent."""
+    global _BD_ENV_CACHE
+    if _BD_ENV_CACHE is not None:
+        return dict(_BD_ENV_CACHE)
+    base = dict(os.environ)
+    if os.path.isfile(BDENV):
+        try:
+            r = subprocess.run(
+                ["bash", "-c", "set -a; . %s >/dev/null 2>&1; env -0" % BDENV],
+                capture_output=True, text=True, timeout=30)
+            if r.returncode == 0 and r.stdout:
+                for chunk in r.stdout.split("\0"):
+                    if "=" in chunk:
+                        k, v = chunk.split("=", 1)
+                        base[k] = v
+        except Exception:  # why: fall back to os.environ; never crash the band.
+            # (Reason moved ONTO the handler: it sat on the `pass` line below,
+            # where the lint's two-line window could not see it -- a justified
+            # handler reading as unjustified.)
+            pass
+    _BD_ENV_CACHE = dict(base)
+    return dict(base)
+
+
+def run_one(work, suite, timeout):
+    env = _bd_env()
+    env.update(BD_HOME=tempfile.mkdtemp(prefix="bdpb_"), BD_DISABLE_KEEPALIVE="1")
+    t0 = time.time()
+    try:
+        r = subprocess.run(["python3", "run_tests.py", suite], cwd=work, env=env,
+                           capture_output=True, text=True, timeout=timeout)
+        out = r.stdout + r.stderr
+        m = re.search(r'Failed:\s*(\d+)', out)
+        failed = int(m.group(1)) if m else (0 if r.returncode == 0 else -1)
+        passed = re.search(r'Passed:\s*(\d+)', out)
+        status = "pass" if (r.returncode == 0 and failed == 0) else "fail"
+        return {"suite": suite, "status": status, "failed": failed,
+                "passed": int(passed.group(1)) if passed else None,
+                "secs": round(time.time() - t0, 1),
+                "tail": "\n".join(l for l in out.splitlines() if l.strip())[-400:]}
+    except subprocess.TimeoutExpired:
+        return {"suite": suite, "status": "timeout", "failed": -1,
+                "secs": round(time.time() - t0, 1), "tail": f"timed out >{timeout}s"}
+
+
+def selftest():
+    """DELEGATE: wraps run_tests.py, which lives in the WORK TREE / PK, not in bin/. The
+    selftest asserts the real target is reachable; if it is not, FAIL -- a
+    wrapper that cannot find what it wraps is broken, and a selftest that cannot
+    verify must not report success."""
+    import os as _o
+    cands = ['/home/claude/work/run_tests.py']
+    hit = next((p for p in cands if _o.path.isfile(p)), None)
+    print(("PASS" if hit else "FAIL") + "  delegation target present: run_tests.py (%s)" % (hit or "NOT FOUND"))
+    ok = bool(hit)
+    # The env a suite runs under MUST carry the GTK stack, or pygobject suites
+    # false-RED with 'Namespace Gtk not available'. Assert the derived env is the
+    # full `bd` env, not the old hand-kept subset. (Skipped only if bdenv is
+    # absent -- and skip says so, it does not report success.)
+    if _o.path.isfile(BDENV):
+        e = _bd_env()
+        need = ("GTK_ROOT", "GI_TYPELIB_PATH", "LD_LIBRARY_PATH", "XDG_DATA_DIRS")
+        have = [k for k in need if e.get(k) and "gtk" in e[k].lower()]
+        gtk_ok = len(have) == len(need)
+        print(("PASS" if gtk_ok else "FAIL") +
+              "  GTK env carried into the suite env (%d/%d: %s)"
+              % (len(have), len(need), ",".join(have) or "none"))
+        ok = ok and gtk_ok
+    else:
+        print("SKIP  bdenv.sh absent -- cannot verify GTK env carry")
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    import sys as _s
+    if "--selftest" in _s.argv: return selftest()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("suites", nargs="+")
+    ap.add_argument("--jobs", type=int, default=4)
+    ap.add_argument("--timeout", type=int, default=300)
+    ap.add_argument("--work", "--tree", default="/home/claude/work")
+    a = ap.parse_args()
+
+    # hazard refusal
+    refused = [s for s in a.suites
+               if any(h in s for h in HANGERS) or s.rstrip("/") in ("tests", "tests/")
+               or not s.endswith(".py")]
+    if refused:
+        print(f"{R}refusing hazardous/invalid target(s):{RST}")
+        for s in refused:
+            why = ("known hanger" if any(h in s for h in HANGERS)
+                   else "bare tests/ dir (hangs)" if "test" not in os.path.basename(s)
+                   else "not a .py file")
+            print(f"  {R}XX{RST} {s} {DIM}({why}){RST}")
+        print(f"{DIM}run hangers alone via bd-band with a big --timeout, or fix the path{RST}")
+        return 1
+
+    print(f"{BOLD}parallel band{RST} {DIM}{len(a.suites)} suites, {a.jobs} jobs, "
+          f"{a.timeout}s each{RST}")
+    t0 = time.time()
+    results = []
+    with cf.ThreadPoolExecutor(max_workers=a.jobs) as ex:
+        futs = {ex.submit(run_one, a.work, s, a.timeout): s for s in a.suites}
+        for fut in cf.as_completed(futs):
+            r = fut.result()
+            results.append(r)
+            tag = {"pass": G + "PASS" + RST, "fail": R + "FAIL" + RST,
+                   "timeout": R + "TIMEOUT" + RST}[r["status"]]
+            extra = f"({r['failed']} failed)" if r["failed"] > 0 else ""
+            print(f"  {tag}  {r['suite']}  {DIM}{r['secs']}s {extra}{RST}")
+
+    wall = round(time.time() - t0, 1)
+    seq = round(sum(r["secs"] for r in results), 1)
+    json.dump({"work": a.work, "timeout": a.timeout, "results": results},
+              open(RESULTS, "w"), indent=2)
+    bad = [r for r in results if r["status"] != "pass"]
+    if bad:
+        print(f"\n{R}{len(bad)}/{len(results)} suite(s) not clean{RST} "
+              f"{DIM}(wall {wall}s vs ~{seq}s sequential){RST}")
+        for r in bad:
+            print(f"  {DIM}{r['suite']} tail:{RST}")
+            for l in r.get("tail", "").splitlines()[-4:]:
+                print(f"    {l[:100]}")
+        print(f"{DIM}re-run just these: bd-retest{RST}")
+        return 1
+    print(f"\n{G}all {len(results)} suites clean{RST} "
+          f"{DIM}(wall {wall}s vs ~{seq}s sequential; results -> {RESULTS}){RST}")
+    return 0
+
+
+sys.exit(main())

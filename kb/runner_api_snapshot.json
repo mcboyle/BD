@@ -1,0 +1,709 @@
+{
+ "schema": 1,
+ "bases": [
+  "TransportMixin",
+  "AuthMixin",
+  "ExtractorsMixin",
+  "QueueMixin",
+  "TelemetryMixin",
+  "SchedulerMixin",
+  "BrowserMixin",
+  "AccountsMixin",
+  "ManualMixin",
+  "IntegrityMixin",
+  "TeachMixin",
+  "ChallengeMixin",
+  "IntegrationsMixin"
+ ],
+ "method_count": 167,
+ "methods": {
+  "__init__": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "_apply_quality_preference": {
+   "owner": "IntegrityMixin",
+   "kind": "instance"
+  },
+  "_apply_stealth_library_to_page": {
+   "owner": "BrowserMixin",
+   "kind": "instance"
+  },
+  "_auto_retry_loop": {
+   "owner": "SchedulerMixin",
+   "kind": "instance"
+  },
+  "_auto_retry_scan": {
+   "owner": "SchedulerMixin",
+   "kind": "instance"
+  },
+  "_build_mirror_urls": {
+   "owner": "TelemetryMixin",
+   "kind": "instance"
+  },
+  "_check_cookies_or_relogin": {
+   "owner": "AuthMixin",
+   "kind": "instance"
+  },
+  "_check_redirect": {
+   "owner": "AuthMixin",
+   "kind": "instance"
+  },
+  "_classify_error": {
+   "owner": "TelemetryMixin",
+   "kind": "instance"
+  },
+  "_clear_rl": {
+   "owner": "SchedulerMixin",
+   "kind": "instance"
+  },
+  "_compute_site_usage": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "_context_options": {
+   "owner": "BrowserMixin",
+   "kind": "instance"
+  },
+  "_cookie_age_hours": {
+   "owner": "AuthMixin",
+   "kind": "instance"
+  },
+  "_current_cap_mbps": {
+   "owner": "TransportMixin",
+   "kind": "instance"
+  },
+  "_dedup_hash_worker": {
+   "owner": "IntegrityMixin",
+   "kind": "instance"
+  },
+  "_dedup_preflight": {
+   "owner": "IntegrityMixin",
+   "kind": "instance"
+  },
+  "_do_direct_http_download": {
+   "owner": "TransportMixin",
+   "kind": "instance"
+  },
+  "_do_download": {
+   "owner": "TransportMixin",
+   "kind": "instance"
+  },
+  "_do_probe_fetch": {
+   "owner": "TransportMixin",
+   "kind": "instance"
+  },
+  "_download_proxy_url": {
+   "owner": "TransportMixin",
+   "kind": "instance"
+  },
+  "_draft_override_template": {
+   "owner": "TeachMixin",
+   "kind": "instance"
+  },
+  "_drain_url_queue": {
+   "owner": "QueueMixin",
+   "kind": "instance"
+  },
+  "_effective_concurrency": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "_embed_metadata_if_mp4": {
+   "owner": "IntegrityMixin",
+   "kind": "instance"
+  },
+  "_extract_host": {
+   "owner": "TelemetryMixin",
+   "kind": "instance"
+  },
+  "_flush_fingerprint_observation": {
+   "owner": "TelemetryMixin",
+   "kind": "instance"
+  },
+  "_fmt_dur": {
+   "owner": "TelemetryMixin",
+   "kind": "instance"
+  },
+  "_get_active_account": {
+   "owner": "AccountsMixin",
+   "kind": "instance"
+  },
+  "_get_jd_client": {
+   "owner": "IntegrationsMixin",
+   "kind": "instance"
+  },
+  "_get_jellyfin_client": {
+   "owner": "IntegrationsMixin",
+   "kind": "instance"
+  },
+  "_get_plex_client": {
+   "owner": "IntegrationsMixin",
+   "kind": "instance"
+  },
+  "_get_qb_client": {
+   "owner": "IntegrationsMixin",
+   "kind": "instance"
+  },
+  "_get_stash_client": {
+   "owner": "IntegrationsMixin",
+   "kind": "instance"
+  },
+  "_handle_auth_required": {
+   "owner": "AuthMixin",
+   "kind": "instance"
+  },
+  "_handle_auto_teach_check": {
+   "owner": "TeachMixin",
+   "kind": "instance"
+  },
+  "_handle_captcha_check": {
+   "owner": "ChallengeMixin",
+   "kind": "instance"
+  },
+  "_handle_failure": {
+   "owner": "TelemetryMixin",
+   "kind": "instance"
+  },
+  "_has_captcha": {
+   "owner": "ChallengeMixin",
+   "kind": "instance"
+  },
+  "_http_download": {
+   "owner": "TransportMixin",
+   "kind": "instance"
+  },
+  "_http_download_parallel": {
+   "owner": "TransportMixin",
+   "kind": "instance"
+  },
+  "_install_event_listeners": {
+   "owner": "TelemetryMixin",
+   "kind": "instance"
+  },
+  "_install_stealth": {
+   "owner": "BrowserMixin",
+   "kind": "instance"
+  },
+  "_integrity_size_ok": {
+   "owner": "TransportMixin",
+   "kind": "static"
+  },
+  "_jellyfin_enrich_after_scan": {
+   "owner": "IntegrationsMixin",
+   "kind": "instance"
+  },
+  "_launch_args": {
+   "owner": "BrowserMixin",
+   "kind": "instance"
+  },
+  "_launch_browser": {
+   "owner": "BrowserMixin",
+   "kind": "instance"
+  },
+  "_learned_summary": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "_load_rl": {
+   "owner": "SchedulerMixin",
+   "kind": "instance"
+  },
+  "_looks_like_media": {
+   "owner": "TransportMixin",
+   "kind": "static"
+  },
+  "_manual_profile_dir": {
+   "owner": "BrowserMixin",
+   "kind": "instance"
+  },
+  "_maybe_drift_recover": {
+   "owner": "SchedulerMixin",
+   "kind": "instance"
+  },
+  "_next_sched_dt": {
+   "owner": "SchedulerMixin",
+   "kind": "instance"
+  },
+  "_observe_throughput": {
+   "owner": "TransportMixin",
+   "kind": "instance"
+  },
+  "_override_suppresses_persist": {
+   "owner": "TeachMixin",
+   "kind": "instance"
+  },
+  "_parse_hm": {
+   "owner": "TelemetryMixin",
+   "kind": "instance"
+  },
+  "_parse_retry_schedule": {
+   "owner": "SchedulerMixin",
+   "kind": "instance"
+  },
+  "_persist_account_state": {
+   "owner": "AccountsMixin",
+   "kind": "instance"
+  },
+  "_persist_deep_detect_selectors": {
+   "owner": "ExtractorsMixin",
+   "kind": "instance"
+  },
+  "_persist_learned_to_draft": {
+   "owner": "TeachMixin",
+   "kind": "instance"
+  },
+  "_persist_pool_state": {
+   "owner": "AccountsMixin",
+   "kind": "instance"
+  },
+  "_pick_fastest_mirror": {
+   "owner": "TelemetryMixin",
+   "kind": "instance"
+  },
+  "_playlist_expand_one": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "_plex_enrich_after_scan": {
+   "owner": "IntegrationsMixin",
+   "kind": "instance"
+  },
+  "_poll_manual_cookies": {
+   "owner": "AuthMixin",
+   "kind": "instance"
+  },
+  "_probe_for_higher_tier": {
+   "owner": "ExtractorsMixin",
+   "kind": "instance"
+  },
+  "_probe_outcome": {
+   "owner": "TransportMixin",
+   "kind": "static"
+  },
+  "_probe_size": {
+   "owner": "TransportMixin",
+   "kind": "instance"
+  },
+  "_process_one": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "_profile_dir": {
+   "owner": "BrowserMixin",
+   "kind": "instance"
+  },
+  "_promote_or_abort": {
+   "owner": "TransportMixin",
+   "kind": "static"
+  },
+  "_pw_save": {
+   "owner": "BrowserMixin",
+   "kind": "instance"
+  },
+  "_read_cookies_for_jd": {
+   "owner": "IntegrationsMixin",
+   "kind": "instance"
+  },
+  "_recommended_chunk_bytes": {
+   "owner": "TransportMixin",
+   "kind": "instance"
+  },
+  "_record_jd_outcome": {
+   "owner": "IntegrationsMixin",
+   "kind": "instance"
+  },
+  "_record_qb_outcome": {
+   "owner": "IntegrationsMixin",
+   "kind": "instance"
+  },
+  "_recover_selector": {
+   "owner": "TeachMixin",
+   "kind": "instance"
+  },
+  "_restore_queue": {
+   "owner": "QueueMixin",
+   "kind": "instance"
+  },
+  "_rotate_account_if_available": {
+   "owner": "AccountsMixin",
+   "kind": "instance"
+  },
+  "_run_pre_scrape_action": {
+   "owner": "ExtractorsMixin",
+   "kind": "instance"
+  },
+  "_save_rl": {
+   "owner": "SchedulerMixin",
+   "kind": "instance"
+  },
+  "_scan_subscriptions": {
+   "owner": "SchedulerMixin",
+   "kind": "instance"
+  },
+  "_sched_loop": {
+   "owner": "SchedulerMixin",
+   "kind": "instance"
+  },
+  "_scrape_listing_urls": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "_screenshot": {
+   "owner": "TelemetryMixin",
+   "kind": "instance"
+  },
+  "_search_site": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "_start_auto_retry": {
+   "owner": "SchedulerMixin",
+   "kind": "instance"
+  },
+  "_stash_dedup_check": {
+   "owner": "IntegrationsMixin",
+   "kind": "instance"
+  },
+  "_stash_enrich_after_scan": {
+   "owner": "IntegrationsMixin",
+   "kind": "instance"
+  },
+  "_stash_scrape_preview": {
+   "owner": "IntegrationsMixin",
+   "kind": "instance"
+  },
+  "_stop_auto_retry": {
+   "owner": "SchedulerMixin",
+   "kind": "instance"
+  },
+  "_teach_base_url": {
+   "owner": "TeachMixin",
+   "kind": "instance"
+  },
+  "_try_aylo_extractor": {
+   "owner": "ExtractorsMixin",
+   "kind": "instance"
+  },
+  "_try_captcha_solve": {
+   "owner": "ChallengeMixin",
+   "kind": "instance"
+  },
+  "_try_deep_detect_fallback": {
+   "owner": "ExtractorsMixin",
+   "kind": "instance"
+  },
+  "_try_dl8_extractor": {
+   "owner": "ExtractorsMixin",
+   "kind": "instance"
+  },
+  "_try_jd_download": {
+   "owner": "IntegrationsMixin",
+   "kind": "instance"
+  },
+  "_try_jsonapi_extractor": {
+   "owner": "ExtractorsMixin",
+   "kind": "instance"
+  },
+  "_try_library_extractor": {
+   "owner": "ExtractorsMixin",
+   "kind": "instance"
+  },
+  "_try_multi_conn_download": {
+   "owner": "TransportMixin",
+   "kind": "instance"
+  },
+  "_try_qb_download": {
+   "owner": "IntegrationsMixin",
+   "kind": "instance"
+  },
+  "_try_turnstile_solve": {
+   "owner": "ChallengeMixin",
+   "kind": "instance"
+  },
+  "_try_turnstile_solve_LEGACY": {
+   "owner": "ChallengeMixin",
+   "kind": "instance"
+  },
+  "_try_vixen_extractor": {
+   "owner": "ExtractorsMixin",
+   "kind": "instance"
+  },
+  "_try_ytdlp_fallback": {
+   "owner": "ExtractorsMixin",
+   "kind": "instance"
+  },
+  "_update_job": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "_verify_hash_or_quarantine": {
+   "owner": "IntegrityMixin",
+   "kind": "instance"
+  },
+  "_verify_integrity_or_quarantine": {
+   "owner": "IntegrityMixin",
+   "kind": "instance"
+  },
+  "_wait_for_lazy_video": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "_wait_rl_autostart": {
+   "owner": "AccountsMixin",
+   "kind": "instance"
+  },
+  "_warm_session": {
+   "owner": "BrowserMixin",
+   "kind": "instance"
+  },
+  "_watch_done": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "_watchdog_loop": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "_worker_loop": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "bulk_approve": {
+   "owner": "QueueMixin",
+   "kind": "instance"
+  },
+  "bulk_delete": {
+   "owner": "QueueMixin",
+   "kind": "instance"
+  },
+  "bulk_pause": {
+   "owner": "QueueMixin",
+   "kind": "instance"
+  },
+  "bulk_priority": {
+   "owner": "QueueMixin",
+   "kind": "instance"
+  },
+  "bulk_reorder": {
+   "owner": "QueueMixin",
+   "kind": "instance"
+  },
+  "bulk_resume": {
+   "owner": "QueueMixin",
+   "kind": "instance"
+  },
+  "bulk_retry": {
+   "owner": "QueueMixin",
+   "kind": "instance"
+  },
+  "bulk_url_transform": {
+   "owner": "QueueMixin",
+   "kind": "instance"
+  },
+  "cancel_manual_download": {
+   "owner": "ManualMixin",
+   "kind": "instance"
+  },
+  "cancel_manual_login_pending": {
+   "owner": "AuthMixin",
+   "kind": "instance"
+  },
+  "clear": {
+   "owner": "QueueMixin",
+   "kind": "instance"
+  },
+  "clear_completed": {
+   "owner": "QueueMixin",
+   "kind": "instance"
+  },
+  "cookie_info": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "end_captcha_solve_session": {
+   "owner": "AuthMixin",
+   "kind": "instance"
+  },
+  "export_urls": {
+   "owner": "QueueMixin",
+   "kind": "instance"
+  },
+  "finish_manual_download": {
+   "owner": "ManualMixin",
+   "kind": "instance"
+  },
+  "finish_manual_login": {
+   "owner": "AuthMixin",
+   "kind": "instance"
+  },
+  "get_events": {
+   "owner": "TelemetryMixin",
+   "kind": "instance"
+  },
+  "get_last_verify_result": {
+   "owner": "AuthMixin",
+   "kind": "instance"
+  },
+  "get_status": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "is_awaiting_manual_download": {
+   "owner": "ManualMixin",
+   "kind": "instance"
+  },
+  "is_awaiting_manual_login": {
+   "owner": "AuthMixin",
+   "kind": "instance"
+  },
+  "is_rate_limited": {
+   "owner": "AccountsMixin",
+   "kind": "instance"
+  },
+  "jd_health": {
+   "owner": "IntegrationsMixin",
+   "kind": "instance"
+  },
+  "load_urls": {
+   "owner": "QueueMixin",
+   "kind": "instance"
+  },
+  "log_event": {
+   "owner": "TelemetryMixin",
+   "kind": "instance"
+  },
+  "login_async": {
+   "owner": "AuthMixin",
+   "kind": "instance"
+  },
+  "maybe_preemptive_relogin": {
+   "owner": "AuthMixin",
+   "kind": "instance"
+  },
+  "pause": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "qb_health": {
+   "owner": "IntegrationsMixin",
+   "kind": "instance"
+  },
+  "reorder_urls": {
+   "owner": "QueueMixin",
+   "kind": "instance"
+  },
+  "resume": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "retry": {
+   "owner": "QueueMixin",
+   "kind": "instance"
+  },
+  "retry_failed": {
+   "owner": "QueueMixin",
+   "kind": "instance"
+  },
+  "rl_remaining": {
+   "owner": "AccountsMixin",
+   "kind": "instance"
+  },
+  "sched_next_str": {
+   "owner": "SchedulerMixin",
+   "kind": "instance"
+  },
+  "set_cookies": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "set_cookies_from_file": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "set_priority": {
+   "owner": "QueueMixin",
+   "kind": "instance"
+  },
+  "start": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "start_captcha_solve_session": {
+   "owner": "AuthMixin",
+   "kind": "instance"
+  },
+  "start_manual_download": {
+   "owner": "ManualMixin",
+   "kind": "instance"
+  },
+  "start_manual_login": {
+   "owner": "AuthMixin",
+   "kind": "instance"
+  },
+  "start_scheduler": {
+   "owner": "SchedulerMixin",
+   "kind": "instance"
+  },
+  "state": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "stop": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "stop_scheduler": {
+   "owner": "SchedulerMixin",
+   "kind": "instance"
+  },
+  "teach_cancel": {
+   "owner": "TeachMixin",
+   "kind": "instance"
+  },
+  "teach_commit": {
+   "owner": "TeachMixin",
+   "kind": "instance"
+  },
+  "teach_test_download": {
+   "owner": "TeachMixin",
+   "kind": "instance"
+  },
+  "teach_verify": {
+   "owner": "TeachMixin",
+   "kind": "instance"
+  },
+  "trigger_rate_limit": {
+   "owner": "AccountsMixin",
+   "kind": "instance"
+  },
+  "update_config": {
+   "owner": "SiteRunner",
+   "kind": "instance"
+  },
+  "verify_login_after_wizard": {
+   "owner": "AuthMixin",
+   "kind": "instance"
+  }
+ },
+ "duplicates": {},
+ "module_funcs": [
+  "get_global_concurrent_cap",
+  "set_global_concurrent_cap"
+ ],
+ "exports": [
+  "DEFAULT_MAX_CONCURRENT",
+  "DEFAULT_MIN_RESOLUTION",
+  "SiteRunner",
+  "_BD_TO_APPRISE_EVENT",
+  "_bw_history",
+  "_check_video_magic_bytes",
+  "_ts",
+  "disk_free_gb",
+  "gate_candidate_url",
+  "get_bandwidth_history",
+  "resolve_url_attribute",
+  "set_global_concurrent_cap"
+ ],
+ "missing_required_exports": []
+}

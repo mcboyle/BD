@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""bd-fe-route-diff -- compare frontend route/nav inventory.
+
+Inventories the SPA's client routes (path:/to= declarations in frontend/src)
+and nav-visible entries, then cross-references the backend API routes
+(ENDPOINT_CATALOG). Reports: FE routes with no matching backend API prefix
+(possible orphan pages), nav-visible vs cockpit-only routes, and backend
+route groups with no FE surface. Read-only.
+
+Usage: bd-fe-route-diff [--work DIR] [--json] [--selftest]
+Exit 0 (informational -- reports/generates; does not render a pass/fail verdict and does not gate).
+"""
+import argparse, glob, os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+FE_ROUTE=re.compile(r'(?:path|to)\s*[:=]\s*["\'](/[a-z0-9-]*)["\']')
+
+def fe_routes(work):
+    routes=set()
+    for f in glob.glob(os.path.join(work,"frontend","src","**","*.tsx"),recursive=True)+\
+             glob.glob(os.path.join(work,"frontend","src","**","*.ts"),recursive=True):
+        if ".test." in f: continue
+        try: txt=open(f,errors="ignore").read()
+        # why: this item is unreadable/unparseable; skip it, the loop continues over the rest
+        except Exception: continue
+        for m in FE_ROUTE.finditer(txt): routes.add(m.group(1))
+    return sorted(routes)
+
+def scan(work):
+    fe=fe_routes(work)
+    api=sec.parse_endpoint_catalog(work)
+    api_prefixes={"/".join(r.get("path","").split("/")[:2]) for r in api}
+    orphans=[r for r in fe if r not in ("/","") and ("/api"+r) not in {a for a in api_prefixes} and r not in api_prefixes]
+    return {"fe_routes":fe,"fe_count":len(fe),"api_route_count":len(api),"orphan_fe":orphans}
+
+def selftest():
+    ok=True
+    r=scan(sec.DEFAULT_WORK)
+    print(("PASS" if r["fe_count"]>0 else "FAIL")+"  FE routes inventoried (%d)"%r["fe_count"])
+    ok=ok and r["fe_count"]>0
+    print(("PASS" if r["api_route_count"]>0 else "FAIL")+"  backend routes cross-referenced (%d)"%r["api_route_count"])
+    ok=ok and r["api_route_count"]>0
+    print(("PASS" if isinstance(r["orphan_fe"],list) else "FAIL")+"  orphan FE routes: %d"%len(r["orphan_fe"]))
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    sec.require_source_tree(a.work)
+    r=scan(a.work)
+    if sec.emit(r,as_json=a.json): return 0
+    print("FE routes: %d, backend routes: %d, orphan FE: %d"%(r["fe_count"],r["api_route_count"],len(r["orphan_fe"])))
+    for o in r["orphan_fe"][:30]: print("  %sorphan-fe%s %s (no matching backend prefix)"%(Y,RST,o))
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

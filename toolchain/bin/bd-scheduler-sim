@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""bd-scheduler-sim -- simulate scheduler load behavior.
+
+A deterministic discrete-event simulation of the scheduler's idle-scaling +
+backoff + concurrency-cap policy: feeds a synthetic job arrival pattern and
+models queue depth, active workers (scaling up under load, down when idle), and
+backoff on failures. Reports peak queue depth, whether the concurrency cap held,
+and whether idle scaling returned workers to baseline. A model to sanity-check
+the policy parameters WITHOUT the live scheduler. Read-only.
+
+Usage: bd-scheduler-sim [--jobs N] [--cap C] [--json] [--selftest]
+Exit 0 (informational -- reports/generates; does not render a pass/fail verdict and does not gate).
+"""
+import argparse, os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+
+def simulate(n_jobs, cap, idle_baseline=1):
+    queue=0; workers=idle_baseline; peak_q=0; peak_w=0; ticks=0; done=0
+    # arrival: front-loaded burst then idle
+    arrivals=[max(0, (n_jobs//5) - t*2) for t in range(0, 20)]
+    total_arr=0
+    while done<n_jobs and ticks<10000:
+        arr=arrivals[ticks] if ticks<len(arrivals) else (n_jobs-total_arr)
+        # cap arrivals to remaining
+        arr=min(arr, n_jobs-total_arr); total_arr+=arr
+        queue+=arr
+        # scale up toward min(queue, cap); scale down when idle
+        target=min(max(queue, idle_baseline), cap)
+        workers=target
+        peak_q=max(peak_q,queue); peak_w=max(peak_w,workers)
+        # process
+        processed=min(workers, queue)
+        queue-=processed; done+=processed
+        ticks+=1
+        if arr==0 and queue==0: workers=idle_baseline
+    return {"jobs":n_jobs,"cap":cap,"peak_queue":peak_q,"peak_workers":peak_w,
+            "cap_held":peak_w<=cap,"idle_returned":workers==idle_baseline,
+            "ticks":ticks,"completed":done}
+
+def selftest():
+    ok=True
+    r=simulate(50,4)
+    print(("PASS" if r["cap_held"] else "FAIL")+"  concurrency cap held (peak workers %d <= %d)"%(r["peak_workers"],r["cap"]))
+    ok=ok and r["cap_held"]
+    print(("PASS" if r["completed"]==50 else "FAIL")+"  all jobs completed (%d/50)"%r["completed"])
+    ok=ok and r["completed"]==50
+    print(("PASS" if r["idle_returned"] else "FAIL")+"  workers returned to idle baseline")
+    ok=ok and r["idle_returned"]
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--jobs",type=int,default=50); ap.add_argument("--cap",type=int,default=4)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    r=simulate(a.jobs,a.cap)
+    if sec.emit(r,as_json=a.json): return 0
+    print("scheduler sim: %d jobs, cap %d"%(r["jobs"],r["cap"]))
+    print("  peak queue depth: %d | peak workers: %d"%(r["peak_queue"],r["peak_workers"]))
+    print("  cap held: %s%s%s | idle-returned: %s%s%s | ticks: %d | completed: %d"%(
+        G if r["cap_held"] else R,r["cap_held"],RST,G if r["idle_returned"] else R,r["idle_returned"],RST,r["ticks"],r["completed"]))
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

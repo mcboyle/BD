@@ -1,0 +1,171 @@
+{
+ "url": "https://demo-shaka.test/watch/asset42",
+ "origin": "https://demo-shaka.test",
+ "host": "demo-shaka.test",
+ "captured_at": "2026-07-10T00:00:00+00:00",
+ "dom_log": [
+  {
+   "type": "full_snapshot",
+   "html": "<!doctype html><html lang=\"en\"><head>\n<meta charset=\"utf-8\"><title>Clear DASH Stream</title>\n<script src=\"https://cdn.demo-shaka.test/shaka-player.compiled.js\"></script>\n<link rel=\"stylesheet\" href=\"https://cdn.demo-shaka.test/controls.css\">\n</head><body>\n<div class=\"shaka-video-container\">\n  <video data-shaka-player autoplay poster=\"/poster.jpg\"></video>\n  <div class=\"shaka-controls-container\"><div class=\"shaka-play-button\"></div></div>\n</div>\n<script>\n  const video = document.querySelector('video[data-shaka-player]');\n  const player = new shaka.Player(video);\n  player.configure({ streaming: { bufferingGoal: 30 } });\n  player.load('https://vod.demo-shaka.test/asset42/manifest.mpd');\n</script>\n</body></html>"
+  }
+ ],
+ "network_log": [
+  {
+   "url": "https://demo-shaka.test/watch/asset42",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "text/html; charset=utf-8"
+    }
+   ]
+  },
+  {
+   "url": "https://cdn.demo-shaka.test/shaka-player.compiled.js",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "text/javascript"
+    }
+   ]
+  },
+  {
+   "url": "https://cdn.demo-shaka.test/controls.css",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "text/css"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-shaka.test/asset42/manifest.mpd",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "application/dash+xml"
+    },
+    {
+     "name": "content-length",
+     "value": "4210"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-shaka.test/asset42/video/480/init.mp4",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp4"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-shaka.test/asset42/video/480/seg-1.m4s",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/iso.segment"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-shaka.test/asset42/video/480/seg-2.m4s",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/iso.segment"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-shaka.test/asset42/video/720/init.mp4",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp4"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-shaka.test/asset42/video/720/seg-1.m4s",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/iso.segment"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-shaka.test/asset42/video/720/seg-2.m4s",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/iso.segment"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-shaka.test/asset42/video/1080/init.mp4",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp4"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-shaka.test/asset42/video/1080/seg-1.m4s",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/iso.segment"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-shaka.test/asset42/video/1080/seg-2.m4s",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/iso.segment"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-shaka.test/asset42/audio/en/init.mp4",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "audio/mp4"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-shaka.test/asset42/audio/en/seg-1.m4s",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "audio/iso.segment"
+    }
+   ]
+  }
+ ],
+ "cookies": "<REDACTED>",
+ "dom_log_count": 1,
+ "network_log_count": 15
+}

@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+"""bd-fetch -- when a pack/dependency is missing from uploads, fetch it LIVE
+instead of hard-failing. The egress-era fallback the memory note describes ("a
+network fetch is a valid fallback for a missing dependency") but which bd-install
+did not actually implement.
+
+It maps a KNOWN capability name to a live install recipe and runs it, so a
+missing pack becomes a warning + a live pull, not a stop. Unknown names get a
+best-effort pip/npm attempt.
+
+Known capabilities:
+  rev / audit      -> delegate to bd-rev (the audit venv: radon/vulture/bandit/
+                      detect-secrets/libcst/semgrep + jscpd)
+  playwright       -> pip install playwright + playwright install chromium
+  yt-dlp           -> pip install yt-dlp
+  ffmpeg           -> report (system pkg; not pip -- prints the apt line)
+  <pip-name>       -> pip install <name>  (fallback for any PyPI dist)
+  npm:<name>       -> npm install -g <name>
+
+Usage:
+  bd-fetch rev                     provision the audit venv live (via bd-rev)
+  bd-fetch playwright              live-install playwright + chromium
+  bd-fetch yt-dlp                  live pip install
+  bd-fetch some-pypi-pkg           best-effort pip install
+  bd-fetch npm:prettier            best-effort npm -g install
+  bd-fetch --check <name>          just report if it's reachable + how (no install)
+Exit 0 on success/what-if; 1 on a failed fetch or no egress. Stdlib only.
+"""
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+
+def run(cmd, timeout=1800, env=None):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=timeout, env=env)
+    except subprocess.TimeoutExpired:
+        class _R:  # noqa
+            returncode, stdout, stderr = 124, "", "timeout"
+        return _R()
+
+
+def have_egress():
+    try:
+        import urllib.request
+        urllib.request.urlopen("https://pypi.org/simple/pip/", timeout=8)
+        return True
+    # why: input unavailable/unreadable; return the safe default (False) rather than a value derived from a failed read
+    except Exception:
+        return False
+
+
+def _bd_rev(argv):
+    tool = shutil.which("bd-rev")
+    if tool:
+        return subprocess.call([tool, *argv])
+    # fall back to a sibling copy
+    here = os.path.dirname(os.path.abspath(__file__))
+    sib = os.path.join(here, "bd-rev")
+    if os.path.exists(sib):
+        return subprocess.call([sys.executable, sib, *argv])
+    print(f"{R}bd-rev not found{RST} -- cannot provision the audit venv.")
+    return 1
+
+
+def fetch(name, check_only):
+    low = name.lower()
+
+    # audit venv -> bd-rev
+    if low in ("rev", "audit", "audit-venv"):
+        if check_only:
+            print(f"  {name}: provisioned via bd-rev (live pip + npm jscpd)")
+            return 0
+        return _bd_rev([])
+
+    # playwright (browser automation) -- a big capability unlock in-sandbox
+    if low in ("playwright", "pw"):
+        if check_only:
+            print(f"  {name}: pip install playwright + `playwright install chromium`")
+            return 0
+        r = run([sys.executable, "-m", "pip", "install", "--quiet",
+                 "--break-system-packages", "playwright"])
+        if r.returncode != 0:
+            print(f"{R}FAIL{RST} pip playwright:\n{(r.stdout+r.stderr)[-500:]}")
+            return 1
+        r2 = run([sys.executable, "-m", "playwright", "install", "chromium"])
+        ok = r2.returncode == 0
+        print(f"  {'installed playwright + chromium' if ok else Y+'playwright installed; chromium install unclear'+RST}")
+        return 0 if ok else 1
+
+    # ffmpeg is a system package, not pip
+    if low == "ffmpeg":
+        have = shutil.which("ffmpeg")
+        print(f"  ffmpeg: {'already on PATH ('+have+')' if have else 'system pkg -- apt-get install -y ffmpeg (not pip)'}")
+        return 0
+
+    # npm:<name>
+    if low.startswith("npm:"):
+        pkg = name.split(":", 1)[1]
+        if check_only:
+            print(f"  {name}: npm install -g {pkg}")
+            return 0
+        npm = shutil.which("npm")
+        if not npm:
+            print(f"{R}npm not found{RST}")
+            return 1
+        prefix = "/tmp/npm_global"
+        os.makedirs(prefix, exist_ok=True)
+        env = dict(os.environ, NPM_CONFIG_PREFIX=prefix)
+        r = run([npm, "install", "-g", pkg], env=env)
+        ok = r.returncode == 0
+        print(f"  {'installed '+pkg+' -> '+prefix+'/bin' if ok else Y+'npm install unclear'+RST}")
+        return 0 if ok else 1
+
+    # fallback: any PyPI dist
+    if check_only:
+        print(f"  {name}: best-effort pip install {name}")
+        return 0
+    r = run([sys.executable, "-m", "pip", "install", "--quiet",
+             "--break-system-packages", name])
+    ok = r.returncode == 0
+    print(f"  {'pip installed '+name if ok else R+'FAIL pip '+name+RST}")
+    if not ok:
+        print(f"    {(r.stdout+r.stderr)[-400:]}")
+    return 0 if ok else 1
+
+
+def selftest():
+    """DELEGATE: wraps bd-rev. Asserts the target file is present in the tool's own
+    bin dir -- if not, FAIL (a wrapper that cannot find what it wraps is broken;
+    a selftest that cannot verify must not report success)."""
+    import os as _o
+    here = _o.path.dirname(_o.path.realpath(__file__))
+    found = _o.path.isfile(_o.path.join(here, "bd-rev"))
+    print(("PASS" if found else "FAIL") + "  delegation target present: bd-rev")
+    print("SELFTEST PASS" if found else "SELFTEST FAIL")
+    return 0 if found else 1
+
+
+def main(argv=None):
+    import sys as _s
+    if "--selftest" in _s.argv: return selftest()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("name", help="capability/pack/dependency to fetch")
+    ap.add_argument("--check", action="store_true",
+                    help="report reachability + recipe only; do not install")
+    a = ap.parse_args(argv)
+
+    print(f"bd-fetch -- {a.name}")
+    print("=" * 50)
+    if not have_egress():
+        print(f"{R}NO EGRESS{RST} -- cannot fetch live. Attach the offline pack "
+              f"for {a.name} instead.")
+        return 1
+    print(f"{DIM}egress OK -- fetching live{RST}")
+    return fetch(a.name, a.check)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+"""bd-kb -- search the PK/KB docs for a term (grouped by doc).
+
+"Which doc said X?" without grepping /mnt/project by hand. Read-only.
+Usage: bd-kb <term> [--dir /mnt/project] [--max N]
+"""
+import argparse, glob, os, re, sys
+G,C,DIM,RST="\033[32m","\033[36m","\033[2m","\033[0m"
+def selftest():
+    """IMPORT-OK: PK grep with no independent fault surface. Structural check
+    only -- the module parsed and exposes main(); this is the weakest selftest
+    kind and says so."""
+    ok = "main" in globals() and callable(main)
+    print(("PASS" if ok else "FAIL") + "  module structural check (main present)")
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    import sys as _s
+    if "--selftest" in _s.argv: return selftest()
+    ap=argparse.ArgumentParser(); ap.add_argument("term"); ap.add_argument("--dir",default="/mnt/project")
+    ap.add_argument("--max",type=int,default=3); a=ap.parse_args()
+    pat=re.compile(re.escape(a.term),re.I); total=0; docs=0
+    for f in sorted(glob.glob(os.path.join(a.dir,"*.md"))):
+        hits=[]
+        try:
+            for i,ln in enumerate(open(f,errors="ignore"),1):
+                if pat.search(ln): hits.append((i,ln.strip()))
+        # why: this item is unreadable/unparseable; skip it, the loop continues over the rest
+        except Exception: continue
+        if hits:
+            docs+=1; total+=len(hits)
+            print(f"{C}{os.path.basename(f)}{RST} {DIM}({len(hits)}){RST}")
+            for i,ln in hits[:a.max]: print(f"  L{i}: {ln[:96]}")
+            if len(hits)>a.max: print(f"  {DIM}... +{len(hits)-a.max} more{RST}")
+    print(f"{DIM}{total} hit(s) across {docs} doc(s) for {a.term!r}{RST}")
+    return 0 if total else 1
+sys.exit(main())

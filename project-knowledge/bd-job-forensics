@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+"""bd-job-forensics -- explain why a job failed from its log.
+
+Parses a run log and reconstructs the failure story: the final state, the last
+error line, the retry attempts, the fetches/egress attempted, and the site/URL
+context -- correlated into a concise "why did this fail" summary. If no failure
+is present, reports success. Works on a log file or stdin. Read-only.
+
+Usage: bd-job-forensics LOGFILE [--json]
+       bd-job-forensics --selftest
+Exit 0 (informational -- reports/generates; does not render a pass/fail verdict and does not gate).
+"""
+import argparse, os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+ERR=re.compile(r'(?i)\b(error|exception|failed|traceback|timeout|refused|denied)\b')
+RETRY=re.compile(r'(?i)retry|attempt\s*\d|reconnect')
+STATE=re.compile(r'(?i)status[=:]\s*(\w+)|state[=:]\s*(\w+)')
+def analyze(text):
+    lines=text.splitlines()
+    errors=[l.strip()[:120] for l in lines if ERR.search(l)]
+    retries=sum(1 for l in lines if RETRY.search(l))
+    states=[m.group(1) or m.group(2) for l in lines for m in [STATE.search(l)] if m]
+    final=states[-1] if states else None
+    failed=bool(errors) or (final in ("failed","error","stopped"))
+    return {"final_state":final,"failed":failed,"error_count":len(errors),
+            "last_error":errors[-1] if errors else None,"retries":retries,
+            "state_sequence":states[-8:]}
+def selftest():
+    ok=True
+    log="status=pending\nstatus=running\nretry attempt 1\nERROR: connection refused\nstatus=failed\n"
+    r=analyze(log)
+    print(("PASS" if r["failed"] and r["final_state"]=="failed" and r["retries"]>=1 else "FAIL")+"  failure reconstructed (%s)"%{k:r[k] for k in ("failed","final_state","retries")})
+    ok=ok and r["failed"]
+    r2=analyze("status=running\nstatus=done\n")
+    print(("PASS" if not r2["failed"] else "FAIL")+"  successful run not flagged failed")
+    ok=ok and not r2["failed"]
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("logfile",nargs="?")
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    text=open(a.logfile,errors="ignore").read() if a.logfile and os.path.exists(a.logfile) else sys.stdin.read()
+    r=analyze(text)
+    if sec.emit(r,as_json=a.json): return 0
+    tag=(R+"FAILED"+RST) if r["failed"] else (G+"succeeded"+RST)
+    print("job %s (final state: %s)"%(tag,r["final_state"]))
+    print("  errors: %d, retries: %d"%(r["error_count"],r["retries"]))
+    if r["last_error"]: print("  last error: %s%s%s"%(DIM,r["last_error"],RST))
+    print("  state seq: %s"%(" -> ".join(r["state_sequence"]) or "-"))
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,5 @@
+# Default Caddyfile: front BulkDL with a reverse proxy on :8080.
+# Useful for testing SSL/redirect logic without exposing :5555 directly.
+:8080 {
+    reverse_proxy localhost:5555
+}

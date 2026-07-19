@@ -1,0 +1,67 @@
+{
+ "url": "https://demo-brightcove.test/watch/asset",
+ "origin": "https://demo-brightcove.test",
+ "host": "demo-brightcove.test",
+ "captured_at": "2026-07-10T00:00:00+00:00",
+ "dom_log": [
+  {
+   "type": "full_snapshot",
+   "html": "<html><head><script src=\"https://players.brightcove.net/1234/default_default/index.min.js\"></script></head><body><video-js data-account=\"1234\" data-player=\"default\" data-video-id=\"5678\" class=\"video-js\" data-embed=\"default\"></video-js><script>bc(document.querySelector(\"video-js\"));var catalog=videojs.catalog.getVideo(\"5678\");</script></body></html>"
+  }
+ ],
+ "network_log": [
+  {
+   "url": "https://demo-brightcove.test/watch/asset",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "text/html; charset=utf-8"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-brightcove.test/asset/master.m3u8",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "application/vnd.apple.mpegurl"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-brightcove.test/asset/480/seg-1.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-brightcove.test/asset/720/seg-1.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-brightcove.test/asset/1080/seg-1.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  }
+ ],
+ "cookies": "<REDACTED>",
+ "dom_log_count": 1,
+ "network_log_count": 5
+}

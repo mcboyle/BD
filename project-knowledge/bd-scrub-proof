@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""bd-scrub-proof -- prove an artifact is safe to share.
+
+Runs the secret scanners over an artifact (log, report, json bundle -- text or
+a zip whose text members are scanned) and produces a PROOF: safe=true iff zero
+secret hits remain. For a zip, each text member is scanned; binary members are
+listed but not scanned (noted). This is the gate bd-share-safe consumes before
+building a share bundle. Reuses bd-log-sanitize's scrubber for the residual
+scan. Read-only.
+
+Usage: bd-scrub-proof ARTIFACT [--json] [--selftest]
+Exit 1 if secrets remain (not provably safe), else 0.
+"""
+import argparse, io, os, re, sys, zipfile
+import importlib.util, importlib.machinery
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+_ls_path=os.path.join(os.path.dirname(os.path.realpath(__file__)),"bd-log-sanitize")
+_spec=importlib.util.spec_from_loader("bd_log_sanitize",importlib.machinery.SourceFileLoader("bd_log_sanitize",_ls_path))
+_ls=importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_ls)
+
+def scan_text(text):
+    _s,counts=_ls.scrub(text)
+    return sum(counts.values()), counts
+
+TEXT_EXT={".log",".txt",".json",".md",".csv",".html",".xml",".yaml",".yml",".ndjson"}
+
+def prove(artifact):
+    if not os.path.exists(artifact):
+        return {"error":"not found"}
+    res={"artifact":artifact,"members":[],"total_secrets":0,"binary_skipped":0}
+    if zipfile.is_zipfile(artifact):
+        with zipfile.ZipFile(artifact) as z:
+            for n in z.namelist():
+                if n.endswith("/"): continue
+                ext=os.path.splitext(n)[1].lower()
+                if ext in TEXT_EXT:
+                    try: text=z.read(n).decode("utf-8","ignore")
+                    # why: not decodable text; COUNTED in binary_skipped so the denominator is reported -- a scrub proof never hides what it could not read
+                    except Exception: res["binary_skipped"]+=1; continue
+                    hits,counts=scan_text(text)
+                    if hits: res["members"].append({"member":n,"secrets":hits,"by_rule":counts})
+                    res["total_secrets"]+=hits
+                else:
+                    res["binary_skipped"]+=1
+    else:
+        text=open(artifact,errors="ignore").read()
+        hits,counts=scan_text(text)
+        if hits: res["members"].append({"member":os.path.basename(artifact),"secrets":hits,"by_rule":counts})
+        res["total_secrets"]+=hits
+    res["safe"]=res["total_secrets"]==0
+    return res
+
+def selftest():
+    ok=True
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        dirty=os.path.join(d,"run.log"); open(dirty,"w").write("Bearer abcdef0123456789ABCDEF host 10.0.70.20")
+        r1=prove(dirty)
+        print(("PASS" if not r1["safe"] and r1["total_secrets"]>=2 else "FAIL")+"  dirty log NOT safe (%d secrets)"%r1["total_secrets"])
+        ok=ok and not r1["safe"]
+        clean=os.path.join(d,"ok.log"); open(clean,"w").write("normal log, nothing sensitive")
+        r2=prove(clean)
+        print(("PASS" if r2["safe"] else "FAIL")+"  clean log safe")
+        ok=ok and r2["safe"]
+        zp=os.path.join(d,"b.zip")
+        with zipfile.ZipFile(zp,"w") as z: z.writestr("a.log","key api_key=supersecret12345"); z.writestr("bin.dat",b"\x00\x01")
+        r3=prove(zp)
+        print(("PASS" if not r3["safe"] and r3["binary_skipped"]==1 else "FAIL")+"  zip scanned (secret in member, binary skipped)")
+        ok=ok and not r3["safe"]
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("artifact",nargs="?")
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    if not a.artifact: print(R+"artifact path required"+RST); return 1
+    r=prove(a.artifact)
+    if "error" in r: print(R+r["error"]+RST); return 1
+    if sec.emit(r,as_json=a.json): return 0 if r["safe"] else 1
+    tag=(G+"SAFE TO SHARE"+RST) if r["safe"] else (R+"NOT SAFE"+RST)
+    print("%s: %s (%d secret hit(s), %d binary member(s) skipped)"%(os.path.basename(a.artifact),tag,r["total_secrets"],r["binary_skipped"]))
+    for m in r["members"][:20]: print("  %s%s%s: %d %s"%(R,m["member"],RST,m["secrets"],m["by_rule"]))
+    return 0 if r["safe"] else 1
+if __name__ == "__main__":
+    sys.exit(main())

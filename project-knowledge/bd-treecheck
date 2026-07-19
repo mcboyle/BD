@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""bd-treecheck -- is the source tree structurally sound? (the generalized
+verify-after-mutation gate).
+
+Parses every .py (ast), loads every .json, and confirms critical files aren't
+empty/truncated. Catches the class of corruption that a mutating tool or a bad
+manual edit can introduce (e.g. a botched pin rewrite -> SyntaxError) across the
+WHOLE tree in one fast pass — before it reaches the slow build_release chain.
+
+Modes:
+    bd-treecheck                 source (bulk_downloader/ + tools/) + all .json
+    bd-treecheck --tests         also parse tests/  (adds ~1k files)
+    bd-treecheck --changed       ONLY files changed vs the pinned zip (fast inner-loop)
+    bd-treecheck --py-only       skip the .json pass (pure syntax gate)
+    bd-treecheck --work DIR
+Exit 0 if everything parses/loads, 1 on the first structural failure.
+"""
+import argparse
+import ast
+import re
+import glob
+import hashlib
+import json
+import os
+import sys
+import zipfile
+
+
+def _bd_pick_newest(paths):
+    """Highest VERSION wins; ties resolve to /home/claude.
+
+    These lists glob BOTH /mnt/user-data/uploads AND /home/claude, then sorted the PATH
+    STRINGS with reverse=True. Lexicographically "/mnt..." > "/home...", so the READ-ONLY
+    UPLOADS COPY ALWAYS WON -- regardless of version. bd-since cheerfully diffed the work
+    tree against a FOUR-RELEASE-STALE zip (722 against a live 726) while looking entirely
+    correct; bd-agent-scorecard scored off that, and bd-evidence BLOCKED on the result.
+
+    The denominator CONTAINED the right file. The ORDERING discarded it. Sort by the thing
+    actually being asked about -- the version -- not by where the file happens to live.
+    """
+    def _k(p):
+        nums = tuple(int(x) for x in re.findall(r"\d+", os.path.basename(p)))
+        return (nums, p.startswith("/home/claude"))
+    return sorted(paths, key=_k, reverse=True)
+
+
+G, R, Y, DIM, BOLD, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[1m", "\033[0m"
+
+CRITICAL = ["bulk_downloader/__init__.py", "bulk_downloader/app.py", "CHANGELOG.md",
+            "requirements.txt"]
+
+
+def changed_files(work):
+    z = _bd_pick_newest(glob.glob("/mnt/user-data/uploads/BulkDownloader_v3_66_*.zip")
+               + glob.glob("/home/claude/BulkDownloader_v3_66_*.zip")
+                        + glob.glob("/home/claude/out/BulkDownloader_v3_66_*.zip"))
+    if not z:
+        return None
+    zf = zipfile.ZipFile(z[0])
+    zsha = {n: hashlib.sha256(zf.read(n)).hexdigest()
+            for n in zf.namelist() if not n.endswith("/")}
+    out = []
+    for base in ("bulk_downloader", "tools", "tests"):
+        for p in glob.glob(os.path.join(work, base, "**", "*"), recursive=True):
+            if not os.path.isfile(p):
+                continue
+            rel = os.path.relpath(p, work)
+            b = open(p, "rb").read()
+            if rel not in zsha or hashlib.sha256(b).hexdigest() != zsha[rel]:
+                out.append(rel)
+    return out
+
+
+
+def selftest():
+    """Delegates to bd-coretest --only bd-treecheck -- the REAL fault-injection case
+    (I-5/C-23). A bespoke smoke selftest would assert "it runs", which is the
+    ~92%-are-smoke problem bd-coretest exists to fix. If the harness is absent
+    we say so and FAIL: a selftest that cannot verify must not report success."""
+    import subprocess as _sp
+    ct = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-coretest")
+    if not os.path.isfile(ct):
+        print("SELFTEST FAIL")
+        sys.stderr.write("CANNOT-EVALUATE selftest: reason=ABSENT "
+                         "(bd-coretest harness not found)\n")
+        return 2
+    cp = _sp.run([sys.executable, ct, "--no-cache", "--only", "bd-treecheck"],
+                 capture_output=True, text=True, timeout=180)
+    sys.stdout.write(cp.stdout)
+    ok = cp.returncode == 0
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work", "--tree", default="/home/claude/work")
+    ap.add_argument("--tests", action="store_true")
+    ap.add_argument("--changed", action="store_true")
+    ap.add_argument("--py-only", action="store_true")
+    ap.add_argument("--selftest", action="store_true",
+                    help="fault-injection selftest (delegates to bd-coretest)")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    w = a.work
+
+    # ---- select the .py set ----
+    if a.changed:
+        ch = changed_files(w)
+        if ch is None:
+            print(f"{Y}no pinned zip to diff against; falling back to full source{RST}")
+            a.changed = False
+    if a.changed:
+        pyfiles = [os.path.join(w, r) for r in ch if r.endswith(".py")]
+        jsonfiles = [os.path.join(w, r) for r in ch if r.endswith(".json")]
+        scope = f"{len(ch)} changed file(s)"
+    else:
+        dirs = ["bulk_downloader", "tools"] + (["tests"] if a.tests else [])
+        pyfiles = []
+        for d in dirs:
+            pyfiles += glob.glob(os.path.join(w, d, "**", "*.py"), recursive=True)
+        jsonfiles = glob.glob(os.path.join(w, "*.json")) + \
+            glob.glob(os.path.join(w, "bulk_downloader", "**", "*.json"), recursive=True)
+        scope = f"{'+'.join(dirs)}" + (" +json" if not a.py_only else "")
+
+    print(f"{BOLD}tree health{RST} {DIM}[{scope}]{RST}")
+    fails = 0
+
+    # ---- parse .py ----
+    py_err = []
+    for p in pyfiles:
+        try:
+            ast.parse(open(p, "rb").read(), filename=p)
+        except SyntaxError as e:
+            py_err.append((os.path.relpath(p, w), f"L{e.lineno}: {e.msg}"))
+    if py_err:
+        print(f"  {R}{len(py_err)} .py SYNTAX ERROR(s):{RST}")
+        for rel, msg in py_err[:15]:
+            print(f"    {R}XX{RST} {rel}  {DIM}{msg}{RST}")
+        fails += len(py_err)
+    else:
+        print(f"  {G}OK{RST} {len(pyfiles)} .py parsed")
+
+    # ---- load .json ----
+    if not a.py_only:
+        js_err = []
+        for p in jsonfiles:
+            try:
+                json.load(open(p))
+            except Exception as e:
+                js_err.append((os.path.relpath(p, w), str(e)[:50]))
+        if js_err:
+            print(f"  {R}{len(js_err)} .json INVALID:{RST}")
+            for rel, msg in js_err[:15]:
+                print(f"    {R}XX{RST} {rel}  {DIM}{msg}{RST}")
+            fails += len(js_err)
+        else:
+            print(f"  {G}OK{RST} {len(jsonfiles)} .json loaded")
+
+    # ---- critical files non-empty ----
+    empt = [c for c in CRITICAL
+            if os.path.exists(os.path.join(w, c)) and os.path.getsize(os.path.join(w, c)) == 0]
+    miss = [c for c in CRITICAL if not os.path.exists(os.path.join(w, c))]
+    if empt or miss:
+        for c in empt:
+            print(f"  {R}XX{RST} critical file EMPTY: {c}")
+        for c in miss:
+            print(f"  {R}XX{RST} critical file MISSING: {c}")
+        fails += len(empt) + len(miss)
+    else:
+        print(f"  {G}OK{RST} {len(CRITICAL)} critical files present + non-empty")
+
+    if fails:
+        print(f"{R}RESULT: {fails} structural failure(s) -- fix before cutting{RST}")
+        return 1
+    print(f"{G}RESULT: tree is structurally sound{RST}")
+    return 0
+
+
+sys.exit(main())

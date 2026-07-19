@@ -1,0 +1,370 @@
+#!/usr/bin/env python3
+"""bd-handoff -- one-command session close.
+
+Mechanically REPINS STATE.json from the BUILT zip -- the fields that silently
+break next session's bd-state if hand-transcribed wrong:
+    * full-zip sha256        (the binding identity; one wrong char => bd-state FAIL)
+    * zip.file_count         (recomputed from the zip)
+    * live/built_version     (asserted against the zip's __version__)
+    * the 7 guard SHAs        (re-derived FROM THE ZIP, first8 + full)
+    * generated_at
+then drops any stale KB_HANDOFF (newest-only), self-checks via bd-state,
+regenerates the bdsuite + audit_state zips (bd-mkbdsuite / bd-mkauditstate;
+--no-bdsuite / --no-audit to skip), and calls bd-pack to LINT + zip the
+next-session version.zip -- so one run produces the whole upload set.
+
+You still author the PROSE (deploy_status, zip.contains, validation, next,
+changes_*, parity counts, footguns) into STATE.json + KB_HANDOFF by hand --
+bd-handoff fixes only the byte-derivable pins so they can't be wrong, then packs.
+
+Usage:
+    bd python3 bd-handoff --version 3.66.331 \
+        --zip /home/claude/out/BulkDownloader_v3_66_331.zip \
+        [--pack-dir /home/claude/work_pack] [--out /mnt/user-data/outputs] [--no-pack]
+Exit 0 = repinned + self-checked + (linted + zipped); 1 = a gate failed.
+"""
+import argparse
+import datetime
+import glob
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import zipfile
+from shutil import which
+
+# --- 702: --selftest delegates to the tool's own bd-coretest fault-injection case.
+# These are the RELEASE-GATING MUTATORS: they edit the tree and gate a cut, and they
+# had NO selftest at their own entry point (bd-tool-lint: 10/10 untested). The teeth
+# already existed in bd-coretest -- they were just unreachable from the tool itself.
+# Delegating (not re-asserting) keeps ONE source of truth for what "correct" means.
+def _selftest_via_coretest():
+    import subprocess as _sp, sys as _sys, os as _os
+    _me = _os.path.basename(_os.path.realpath(__file__))
+    _ct = _os.path.join(_os.path.dirname(_os.path.realpath(__file__)), "bd-coretest")
+    if not _os.path.isfile(_ct):
+        print("SELFTEST FAIL -- bd-coretest not found (cannot verify teeth)")
+        return 2
+    _cp = _sp.run([_sys.executable, _ct, "--only", _me], capture_output=True, text=True, timeout=900)
+    for _ln in _cp.stdout.splitlines():
+        if _ln.startswith(_me) or _ln.strip().startswith("["):
+            print(_ln)
+    print("SELFTEST PASS" if _cp.returncode == 0 else "SELFTEST FAIL")
+    return _cp.returncode
+
+
+if "--selftest" in sys.argv:
+    sys.exit(_selftest_via_coretest())
+
+
+G, R, Y, RST = "\033[32m", "\033[31m", "\033[33m", "\033[0m"
+
+
+def sha256_file(p):
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        for c in iter(lambda: f.read(1 << 20), b""):
+            h.update(c)
+    return h.hexdigest()
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--version", required=True, help="the BUILT version, e.g. 3.66.331")
+    ap.add_argument("--zip", required=True, help="the built source zip in /home/claude/out")
+    ap.add_argument("--pack-dir", default="/home/claude/work_pack")
+    ap.add_argument("--scaffold", action="store_true",
+                    help="create a missing pack dir from a PREVIOUS pack + the built zip. "
+                         "REFUSES unless --scaffold-from names the pack explicitly "
+                         "(the old behaviour seeded from the lexically-last parseable "
+                         "pack across two concatenated globs -- version-blind and silent)")
+    ap.add_argument("--scaffold-from",
+                    help="the exact previous-pack zip --scaffold must seed from")
+    ap.add_argument("--out", default="/mnt/user-data/outputs")
+    ap.add_argument("--keep-changes", type=int, default=10,
+                    help="keep newest N changes_<N> in STATE; archive the rest")
+    ap.add_argument("--no-pack", action="store_true",
+                    help="repin + self-check STATE only; skip bd-pack/zip")
+    ap.add_argument("--no-bdsuite", action="store_true",
+                    help="skip regenerating bdsuite_v3_66_<N>.zip")
+    ap.add_argument("--no-audit", action="store_true",
+                    help="skip regenerating audit_state_v3_66_<N>.zip")
+    ap.add_argument("--kb-dir",
+                    help="static-KB working dir; stage a paste-ready project-files update "
+                         "(via bd-kb-sync) so static can't silently go stale")
+    a = ap.parse_args(argv)
+    ver = a.version
+
+    if not os.path.exists(a.zip):
+        print(f"{R}FAIL{RST} built zip not found: {a.zip}"); return 1
+    # Tier-1 (702): SCAFFOLD. bd-handoff REPINS a STATE.json -- it never AUTHORED
+    # one, so a session whose pack dir did not already exist hit a hard FAIL and the
+    # operator hand-seeded it from the previous pack (the F-12 friction, unfixed
+    # since it was first written up). Now: derive the mechanical fields from the
+    # PREVIOUS pack + the built zip, stub the required docs, and say plainly which
+    # fields still need a human. It scaffolds; it does not invent narrative.
+    if a.scaffold:
+        # v3.66.79x: --scaffold no longer CHOOSES a seed pack. The old loop kept
+        # the lexically-LAST parseable BulkDL_next_session_*.zip across TWO
+        # concatenated globs (home, then uploads) -- version-blind (v3_66_88
+        # sorts after v3_66_796; uploads evicts mid-session, silently changing
+        # the winner) and it never said which pack won. It grabbed a 740 pack in
+        # a sandbox that also held 748 (Backlog P2). Now: without an explicit
+        # --scaffold-from this REFUSES, listing every candidate with its PARSED
+        # numeric version so the operator picks -- picking is authorship, and
+        # this tool does not invent narrative.
+        def _pack_ver(p):
+            m = re.search(r"v(\d+)_(\d+)_(\d+)", os.path.basename(p))
+            return tuple(int(x) for x in m.groups()) if m else None
+        if not a.scaffold_from:
+            cands = sorted(glob.glob("/home/claude/BulkDL_next_session_v*.zip")) + \
+                    sorted(glob.glob("/mnt/user-data/uploads/BulkDL_next_session_v*.zip"))
+            print(f"{R}FAIL{RST} --scaffold requires --scaffold-from <pack.zip> "
+                  "(refusing to guess the seed pack)")
+            if cands:
+                best = max((c for c in cands if _pack_ver(c)),
+                           key=_pack_ver, default=None)
+                print("  candidates found:")
+                for c in cands:
+                    v = _pack_ver(c)
+                    print("    %s%s  v=%s" % (
+                        c, "   <- newest by version" if c == best else "",
+                        ".".join(map(str, v)) if v else "?"))
+            else:
+                print("  no BulkDL_next_session_v*.zip found in /home/claude or uploads")
+            print("  (operational rule: prefer shipping the pack's own STATE and "
+                  "letting bd-handoff repin; scaffold only when no pack dir exists)")
+            return 1
+        if not os.path.isfile(a.scaffold_from):
+            print(f"{R}FAIL{RST} --scaffold-from not found: {a.scaffold_from}"); return 1
+        prev, prev_src = None, a.scaffold_from
+        try:
+            with zipfile.ZipFile(a.scaffold_from) as z:
+                for n in z.namelist():
+                    if n.endswith("STATE.json"):
+                        prev = json.loads(z.read(n))
+        except Exception as e:
+            print(f"{R}FAIL{RST} cannot read STATE.json from "
+                  f"{a.scaffold_from}: {e}"); return 1
+        if prev is None:
+            print(f"{R}FAIL{RST} no STATE.json inside {a.scaffold_from}"); return 1
+        print("  scaffold seed: %s (v=%s) -- EXPLICIT operator choice"
+              % (os.path.basename(prev_src),
+                 ".".join(map(str, _pack_ver(prev_src) or ())) or "?"))
+        os.makedirs(a.pack_dir, exist_ok=True)
+        st_path = os.path.join(a.pack_dir, "STATE.json")
+        if not os.path.exists(st_path):
+            base = dict(prev or {})
+            base["live_version"] = a.version
+            base["built_version"] = a.version
+            base["deploy_status"] = "TODO(author): stash result for %s" % a.version
+            base["next"] = base.get("next") or ["TODO(author): the next queue"]
+            base["changes_%s" % a.version.split(".")[-1]] = "TODO(author): what this cut did"
+            json.dump(base, open(st_path, "w"), indent=1)
+            print(f"  {G}scaffolded{RST} STATE.json from "
+                  f"{os.path.basename(prev_src) if prev else 'an empty template'} "
+                  f"-- TODO(author) fields marked")
+        for doc, stub in (("Backlog.md", "<!-- v%s -- TODO(author) -->\n" % a.version),
+                          ("Roadmap.md", "<!-- v%s -- TODO(author) -->\n" % a.version)):
+            dp = os.path.join(a.pack_dir, doc)
+            if not os.path.exists(dp):
+                open(dp, "w").write(stub)
+                print(f"  {G}scaffolded{RST} {doc} (stub)")
+                print(f"  {R}WARNING{RST} {doc} is a 1-LINE STUB -- restore the "
+                      f"real body from {os.path.basename(prev_src)} before bd-pack, "
+                      "or the shipped pack loses it")
+        kb = os.path.join(a.pack_dir, "KB_HANDOFF_v%s.md" % a.version.replace(".", "_"))
+        if not os.path.exists(kb):
+            open(kb, "w").write("# KB Handoff -- v%s\n\nTODO(author): what this cut did, "
+                                "what bit, what is next.\n" % a.version)
+            print(f"  {G}scaffolded{RST} {os.path.basename(kb)} (stub)")
+
+    sp = os.path.join(a.pack_dir, "STATE.json")
+    if not os.path.exists(sp):
+        print(f"{R}FAIL{RST} no STATE.json in {a.pack_dir} (author it first)"); return 1
+    st = json.load(open(sp))
+
+    # ---- mechanical repins, all pure functions of the zip bytes ----
+    with zipfile.ZipFile(a.zip) as zf:
+        names = zf.namelist()
+        fc = sum(1 for n in names if not n.endswith("/"))
+        init = next((n for n in names if n.endswith("bulk_downloader/__init__.py")), None)
+        zver = None
+        if init:
+            for ln in zf.read(init).decode("utf-8", "replace").splitlines():
+                if "__version__" in ln and "=" in ln:
+                    zver = ln.split("=", 1)[1].strip().strip('"').strip("'"); break
+        if zver != ver:
+            print(f"{R}FAIL{RST} --version {ver} != zip __version__ {zver} (wrong zip?)"); return 1
+        guard_paths = list(st.get("guards", {}).keys())
+        if not guard_paths:
+            print(f"{R}FAIL{RST} STATE.guards is empty -- nothing to re-derive"); return 1
+        g8, gfull, miss = {}, {}, []
+        for gp in guard_paths:
+            if gp not in names:
+                miss.append(gp); continue
+            full = hashlib.sha256(zf.read(gp)).hexdigest()
+            g8[gp], gfull[gp] = full[:8], full
+        if miss:
+            print(f"{R}FAIL{RST} guard paths absent from zip: {miss}"); return 1
+
+    st["live_version"] = ver
+    st["built_version"] = ver
+    z = st.setdefault("zip", {})
+    z["name"] = os.path.basename(a.zip)
+    z["file"] = os.path.basename(a.zip)
+    z["sha256"] = sha256_file(a.zip)
+    z["file_count"] = fc
+    st["guards"] = g8
+    st["guards_full_sha256"] = gfull
+    st["generated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    # ---- consolidate the two close-gates build_session_pack had that this path
+    #      lacked: STATE_schema validation + changes_<N> archival. Reuse its
+    #      functions when reachable (single implementation); skip gracefully if
+    #      not (bd-state + bd-pack still gate the binding facts).
+    import re as _re
+    import importlib.util as _ilu
+    _bsp = None
+    for _c in ("/home/claude/work/tools/build_session_pack.py",
+               os.path.join(os.path.dirname(sp), "tools", "build_session_pack.py")):
+        if os.path.isfile(_c):
+            try:
+                _spec = _ilu.spec_from_file_location("bsp", _c)
+                _bsp = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_bsp)
+                break
+            except Exception:  # why: operation failed; degrade to the default and continue -- correctness unaffected, only completeness
+                _bsp = None
+    # changes_<N> archival: move all but the newest --keep-changes into a sidecar
+    _ch = sorted((k for k in st if _re.match(r"changes_\d+$", k)),
+                 key=lambda k: int(k.split("_")[1]))
+    _prune = _ch[:-a.keep_changes] if a.keep_changes and len(_ch) > a.keep_changes else []
+    if _prune:
+        _arch_path = os.path.join(os.path.dirname(sp), "CHANGES_ARCHIVE.json")
+        _arch = {}
+        if os.path.isfile(_arch_path):
+            try:
+                _arch = json.load(open(_arch_path, encoding="utf-8"))
+            # why: read failed; degrade to the default and continue -- affects completeness, not correctness
+            except Exception:
+                _arch = {}
+        for _k in _prune:
+            _arch[_k] = st.pop(_k)
+        json.dump(_arch, open(_arch_path, "w"), indent=1, ensure_ascii=False)
+        print(f"  {G}archived{RST} {len(_prune)} old changes_<N> -> "
+              f"CHANGES_ARCHIVE.json (kept newest {a.keep_changes})")
+    # schema gate (hard fail only when the schema is present AND a required key is missing)
+    if _bsp is not None:
+        try:
+            _missing = _bsp.schema_gate(st)
+        # why: read failed; degrade to the default and continue -- affects completeness, not correctness
+        except Exception:
+            _missing = []
+        if _missing:
+            print(f"{R}FAIL{RST} STATE missing required schema keys: {_missing}")
+            return 1
+        print(f"  {G}schema OK{RST} STATE conforms to STATE_schema.json")
+
+    json.dump(st, open(sp, "w"), indent=1, ensure_ascii=False)
+    print(f"  {G}repinned{RST} STATE.json: v{ver} | {fc} files | "
+          f"sha {z['sha256'][:12]}... | {len(g8)} guards re-derived from the zip")
+
+    # ---- newest-handoff-only: drop any stale KB_HANDOFF ----
+    mtag = ".".join(ver.split(".")[:2]).replace(".", "_")
+    keep = f"KB_HANDOFF_v{mtag}_{ver.split('.')[2]}.md"
+    for h in glob.glob(os.path.join(a.pack_dir, "KB_HANDOFF_v*_*.md")):
+        if os.path.basename(h) != keep:
+            os.remove(h); print(f"  dropped stale handoff: {os.path.basename(h)}")
+    if not os.path.exists(os.path.join(a.pack_dir, keep)):
+        print(f"  {Y}warn{RST} {keep} not present -- author it or bd-pack will FAIL")
+
+    # ---- self-check the pin against the built zip (reuse bd-state) ----
+    bdstate = which("bd-state")
+    if bdstate:
+        r = subprocess.run([sys.executable, bdstate, "--state", sp, "--zip", a.zip],
+                           capture_output=True, text=True, timeout=900)
+        print("  --- bd-state self-check (STATE vs built zip) ---")
+        for ln in r.stdout.splitlines():
+            print("    " + ln)
+        if r.returncode != 0:
+            print(f"{R}FAIL{RST} bd-state self-check failed -- pin disagrees with the built zip"); return 1
+    else:
+        print(f"  {Y}warn{RST} bd-state not on PATH -- skipped self-check")
+
+    # ---- session-close artifacts: bdsuite + audit_state zips ----
+    # A handoff should ship the toolchain snapshot and the audit ledger alongside
+    # the repinned STATE, so the next session's upload set is complete from one run.
+    for flag, tool, label in ((a.no_bdsuite, "bd-mkbdsuite", "bdsuite"),
+                              (a.no_audit, "bd-mkauditstate", "audit_state")):
+        if flag:
+            continue
+        t = which(tool)
+        if not t:
+            print(f"  {Y}warn{RST} {tool} not on PATH -- {label} zip NOT generated"); continue
+        print(f"  --- {tool} ({label} zip) ---")
+        r = subprocess.run([sys.executable, t, "--version", ver, "--out", a.out],
+                           capture_output=True, text=True, timeout=900)
+        for ln in (r.stdout + r.stderr).splitlines():
+            print("    " + ln)
+        if r.returncode != 0:
+            print(f"  {Y}warn{RST} {label} zip generation returned non-zero (non-fatal)")
+
+    if a.no_pack:
+        print(f"{G}done{RST} (--no-pack: STATE repinned + self-checked; bdsuite + audit_state built; version.zip not built)"); return 0
+
+    # ---- bd-kb-sync: stage the static-KB update so it can't silently go stale ----
+    # Static project knowledge is an always-on cache of durable docs; when they change
+    # mid-session it must be re-pasted. This stages the paste-ready zip + flag into --out
+    # (which bd-pack then carries), and the manifest is reseeded so the pack is the truth.
+    kbsync = which("bd-kb-sync")
+    if a.kb_dir:
+        if not kbsync:
+            print(f"{R}FAIL{RST} --kb-dir given but bd-kb-sync not on PATH"); return 1
+        print("  --- bd-kb-sync (stage static-KB update) ---")
+        r = subprocess.run([sys.executable, kbsync, "stage", a.kb_dir,
+                            "--out", a.out, "--version", f"v{ver}"],
+                           capture_output=True, text=True, timeout=900)
+        for ln in (r.stdout + r.stderr).splitlines():
+            print("    " + ln)
+        if r.returncode not in (0,):
+            print(f"{R}FAIL{RST} bd-kb-sync stage failed"); return 1
+    else:
+        print(f"  {Y}warn{RST} --kb-dir not given -- static-KB sync SKIPPED; "
+              f"static project knowledge may drift. Pass --kb-dir <static_kb_working_dir> "
+              f"to stage a paste-ready update each handoff.")
+
+    # ---- bd-pack: lint (newest-handoff / stale-banner / tracker-drift) + zip ----
+    bdpack = which("bd-pack")
+    if not bdpack:
+        print(f"{R}FAIL{RST} bd-pack not on PATH"); return 1
+    print("  --- bd-pack (lint + zip version.zip) ---")
+    r = subprocess.run([sys.executable, bdpack, "--dir", a.pack_dir, "--out", a.out],
+                       capture_output=True, text=True, timeout=900)
+    for ln in (r.stdout + r.stderr).splitlines():
+        print("    " + ln)
+    if r.returncode != 0:
+        print(f"{R}FAIL{RST} bd-pack failed -- fix the pack; nothing zipped"); return 1
+    # C-C2 (702): the evidence bundle AUTO-ASSEMBLES at close. The nine evidence
+    # views were all ORPHANS (nothing called them). bd-evidence composes them, and
+    # cross-checks them against EACH OTHER and against SOURCE -- a bundle whose
+    # views disagree, or that unanimously reports a STALE version, is not evidence.
+    # Advisory: it reports; it does not fail a handoff that already passed its gates.
+    _ev = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-evidence")
+    if os.path.isfile(_ev):
+        print("  --- bd-evidence (cross-view consistency + truth check) ---")
+        _c = subprocess.run([sys.executable, _ev, "verify"],
+                            capture_output=True, text=True, timeout=900)
+        for _l in [x for x in _c.stdout.splitlines() if x.strip()][-3:]:
+            print("    " + _l)
+        if _c.returncode == 3:
+            print(f"    {Y}evidence is INCONSISTENT -- do not publish this bundle as-is{RST}")
+
+    print(f"{G}RESULT: PASS{RST} -- STATE repinned, self-checked, bdsuite + audit_state + "
+          f"version.zip built.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

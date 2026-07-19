@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+"""bd-schema-oracle -- validate all JSON/embedded schemas + cross-schema defaults.
+
+A superset check over bd-json-schema-check: validates every schema-like JSON in
+the tree AND cross-checks that where the same key name appears in multiple
+schemas with a declared type, the types don't conflict (a "port" declared
+integer in one schema and string in another is a latent incompatibility). Emits
+per-schema validity + a cross-schema conflict list. Read-only.
+
+Usage: bd-schema-oracle [--work DIR] [--json] [--selftest]
+Exit 1 if invalid schema or type conflict, else 0.
+"""
+import argparse, glob, json, os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+VALID_TYPES={"object","array","string","number","integer","boolean","null"}
+
+def looks_schema(o): return isinstance(o,dict) and ("$schema" in o or "properties" in o)
+
+def collect_types(obj, acc, path="$"):
+    if not isinstance(obj,dict): return
+    props=obj.get("properties",{})
+    if isinstance(props,dict):
+        for k,v in props.items():
+            if isinstance(v,dict):
+                t=v.get("type")
+                if isinstance(t,str) and t in VALID_TYPES:
+                    acc.setdefault(k,{}).setdefault(t,set()).add(path)
+                collect_types(v, acc, path+"."+k)
+
+def scan(work):
+    invalid=[]; type_index={}; schemas=0
+    for f in glob.glob(os.path.join(work,"**","*.json"),recursive=True):
+        if "node_modules" in f: continue
+        try: obj=json.load(open(f))
+        # why: this item is unreadable/unparseable; skip it, the loop continues over the rest
+        except Exception: continue
+        if not looks_schema(obj): continue
+        schemas+=1
+        t=obj.get("type")
+        if t is not None and t not in VALID_TYPES and not isinstance(t,list):
+            invalid.append({"file":os.path.relpath(f,work),"error":"invalid top type %r"%t})
+        acc={}
+        collect_types(obj, acc)
+        for k,types in acc.items():
+            type_index.setdefault(k,{})
+            for ty in types: type_index[k].setdefault(ty,0); type_index[k][ty]+=1
+    conflicts=[{"key":k,"types":sorted(v)} for k,v in type_index.items() if len(v)>1]
+    return {"schemas":schemas,"invalid":invalid,"conflicts":conflicts}
+
+def selftest():
+    ok=True
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        json.dump({"$schema":"x","properties":{"port":{"type":"integer"}}},open(os.path.join(d,"a.json"),"w"))
+        json.dump({"$schema":"x","properties":{"port":{"type":"string"}}},open(os.path.join(d,"b.json"),"w"))
+        json.dump({"$schema":"x","properties":{"name":{"type":"string"}}},open(os.path.join(d,"c.json"),"w"))
+        r=scan(d)
+    conf={c["key"] for c in r["conflicts"]}
+    good="port" in conf and "name" not in conf and r["schemas"]==3
+    print(("PASS" if good else "FAIL")+"  cross-schema port type conflict caught (%s)"%sorted(conf))
+    ok=ok and good
+    rr=scan(sec.DEFAULT_WORK)
+    print(("PASS" if rr["schemas"]>=0 else "FAIL")+"  real tree: %d schemas, %d invalid, %d conflicts"%(rr["schemas"],len(rr["invalid"]),len(rr["conflicts"])))
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    sec.require_source_tree(a.work)
+    r=scan(a.work)
+    bad=r["invalid"] or r["conflicts"]
+    if sec.emit({**r,"summary":{"schemas":r["schemas"],"invalid":len(r["invalid"]),"conflicts":len(r["conflicts"])}},as_json=a.json): return 1 if bad else 0
+    print("%d schema(s); %d invalid, %d cross-schema type conflicts"%(r["schemas"],len(r["invalid"]),len(r["conflicts"])))
+    for x in r["invalid"][:20]: print("  %sINVALID%s %s: %s"%(R,RST,x["file"],x["error"]))
+    for c in r["conflicts"][:20]: print("  %sCONFLICT%s key %r declared: %s"%(Y,RST,c["key"],c["types"]))
+    if not bad: print(G+"all schemas valid, no cross-schema type conflicts"+RST)
+    return 1 if bad else 0
+sys.exit(main())

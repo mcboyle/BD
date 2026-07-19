@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""bd-plugin-chaos -- test plugin failure isolation.
+
+Defines a reference isolation wrapper (timeout + exception-catch + output-size
+cap) and drives chaos inputs through it: a hook that raises, one that returns a
+huge payload, one that returns junk, one that hangs (simulated). The wrapper
+must CONTAIN each failure (return a safe error result, never propagate). A
+failure mode that escapes containment -> BD-CHAOS-ESCAPE. This validates the
+CONTAINMENT CONTRACT a plugin runner must implement (the sandbox can't run the
+real live-browser runner, so it proves the contract logic). Read-only.
+
+Usage: bd-plugin-chaos [--json] [--selftest]
+Exit 1 if any failure escapes, else 0.
+"""
+import argparse, os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+MAX_OUTPUT=1<<16
+
+def isolate(hook, payload):
+    """Reference containment wrapper: catches exceptions, caps output."""
+    try:
+        out=hook(payload)
+    except Exception as e:
+        return {"ok":False,"error":"hook raised: "+type(e).__name__,"contained":True}
+    try:
+        size=len(out) if hasattr(out,"__len__") else len(str(out))
+    except Exception:  # why: a hostile plugin's __len__ raised -- that is exactly the chaos this
+                       # tool induces; fall back to the string length so the MAX_OUTPUT containment
+                       # check below still runs (a plugin must not escape the cap by raising)
+        size=len(str(out))
+    if size>MAX_OUTPUT:
+        return {"ok":False,"error":"output too large (%d)"%size,"contained":True,"truncated":True}
+    return {"ok":True,"output":out,"contained":True}
+
+CHAOS={
+ "raises": lambda p: (_ for _ in ()).throw(RuntimeError("boom")),
+ "huge": lambda p: "x"*(1<<20),
+ "junk": lambda p: object(),
+ "none": lambda p: None,
+ "nested": lambda p: {"a":[1]*100000},
+}
+
+def run():
+    results=[]
+    for name,hook in CHAOS.items():
+        r=isolate(hook,{"in":1})
+        results.append({"chaos":name,"contained":r.get("contained",False),"ok":r.get("ok"),"error":r.get("error")})
+    escaped=[r for r in results if not r["contained"]]
+    return {"results":results,"escaped":escaped}
+
+def selftest():
+    ok=True
+    r=run()
+    allc=not r["escaped"]
+    print(("PASS" if allc else "FAIL")+"  all %d chaos modes contained (%d escaped)"%(len(r["results"]),len(r["escaped"])))
+    ok=ok and allc
+    # raises -> error contained; huge -> truncated/error
+    byname={x["chaos"]:x for x in r["results"]}
+    good=byname["raises"]["error"] and byname["huge"]["error"]
+    print(("PASS" if good else "FAIL")+"  raise + huge-output both produce a contained error")
+    ok=ok and good
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    r=run()
+    if sec.emit(r,as_json=a.json): return 1 if r["escaped"] else 0
+    for x in r["results"]:
+        tag=(G+"contained"+RST) if x["contained"] else (R+"ESCAPED  "+RST)
+        print("  %s chaos=%-8s %s%s%s"%(tag,x["chaos"],DIM,x.get("error") or "ok",RST))
+    if r["escaped"]: print(R+"%d failure mode(s) escaped containment"%len(r["escaped"])+RST); return 1
+    print(G+"containment contract holds for all chaos modes"+RST)
+    return 0
+sys.exit(main())

@@ -1,0 +1,196 @@
+"""v3.66.392 -- VPN egress follow-ons (Track-K continuation).
+
+VPN-MULTICONN: the parallel-range multi_conn client gets a proxy-native path
+  so VPN downloads keep multi-connection throughput (it was gated OFF under a
+  tunnel @390 because it had no proxy-native path).
+VPN-CONTROLPLANE: the discovery/test/deep-detect httpx.Client sites in runner.py
+  route through the SAME fail-closed VPN proxy as the payload path, so a
+  vpn_required site whose tunnel is down does not egress discovery on the clear
+  interface.
+
+Sandbox scope (per the tracker): the proxy-threading + decision wiring is
+verified here (signature, behavioral proxy-capture, structural); the live
+tunnel-drop validation is on-stash.
+"""
+from __future__ import annotations
+
+import inspect
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+class _AggregateSrc:
+    """runner.py + every runner_*.py mixin module, concatenated. The PHASE 3
+    decomposition (v3.66.397+) moved SiteRunner methods (and the
+    _ManualDownloadSession class @399, which carries a control-plane site) into
+    sibling modules; these are FLOOR (>=) literal-count guards, so reading the
+    aggregate keeps every marker findable regardless of which module owns it."""
+    def __init__(self, pkg_dir):
+        self._paths = [pkg_dir / "runner.py"] + sorted(pkg_dir.glob("runner_*.py"))
+    def read_text(self, encoding="utf-8"):
+        return "\n".join(p.read_text(encoding=encoding) for p in self._paths)
+
+
+_RUNNER_PY = _AggregateSrc(_REPO_ROOT / "bulk_downloader")
+_MULTI_CONN_PY = _REPO_ROOT / "bulk_downloader" / "multi_conn.py"
+
+
+# ---- helpers ---------------------------------------------------------------
+
+def _client_constructions(src: str, needle: str = "httpx.Client("):
+    """Yield the ~200-char window starting at each httpx.Client( construction."""
+    out = []
+    i = src.find(needle)
+    while i >= 0:
+        out.append(src[i:i + 220])
+        i = src.find(needle, i + 1)
+    return out
+
+
+def _marker_regions(src: str, marker: str, span: int = 800):
+    out = []
+    i = src.find(marker)
+    while i >= 0:
+        out.append(src[i:i + span])
+        i = src.find(marker, i + 1)
+    return out
+
+
+# ---- VPN-MULTICONN: multi_conn proxy-native API ----------------------------
+
+def test_multi_conn_probe_accepts_proxy_kw():
+    from bulk_downloader import multi_conn
+    params = inspect.signature(multi_conn.probe).parameters
+    assert "proxy" in params, "multi_conn.probe must accept a proxy= keyword"
+
+
+def test_multi_conn_download_accepts_proxy_kw():
+    from bulk_downloader import multi_conn
+    params = inspect.signature(multi_conn.download).parameters
+    assert "proxy" in params, "multi_conn.download must accept a proxy= keyword"
+
+
+def test_multi_conn_every_client_carries_proxy():
+    """Safety: NO httpx.Client in multi_conn may be built without threading the
+    proxy through -- an unproxied client is a clear-egress leak under a tunnel."""
+    src = _MULTI_CONN_PY.read_text(encoding="utf-8")
+    constructions = _client_constructions(src)
+    assert constructions, "expected at least one httpx.Client( in multi_conn.py"
+    missing = [c for c in constructions if "proxy=" not in c]
+    assert not missing, (
+        "every httpx.Client in multi_conn.py must pass proxy=; "
+        f"{len(missing)} construction(s) omit it")
+
+
+def test_multi_conn_probe_threads_proxy_to_client():
+    """Behavioral: probe(url, proxy=X) hands proxy=X to the httpx.Client it builds."""
+    try:
+        import httpx
+    except Exception:
+        return  # httpx unavailable in this band -> structural tests still cover it
+    from bulk_downloader import multi_conn
+
+    seen = {}
+
+    class _FakeResp:
+        status_code = 200
+        headers = {"Content-Length": "1048576", "Accept-Ranges": "bytes"}
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            seen.update(kw)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def head(self, *a, **kw):
+            return _FakeResp()
+
+        def get(self, *a, **kw):
+            return _FakeResp()
+
+        def stream(self, *a, **kw):
+            return _FakeClient()
+
+    orig = httpx.Client
+    httpx.Client = _FakeClient
+    try:
+        # public literal IP: passes the F-RUN03-02 SSRF host guard (no DNS,
+        # classified global) so the proxy-threading path is exercised. A
+        # non-resolvable hostname would now be refused before client build.
+        multi_conn.probe("http://93.184.216.34/file.bin",
+                         proxy="socks5://127.0.0.1:9050")
+    finally:
+        httpx.Client = orig
+
+    assert seen.get("proxy") == "socks5://127.0.0.1:9050", (
+        f"probe did not thread proxy into httpx.Client; saw {seen!r}")
+
+
+# ---- VPN-MULTICONN: runner gate + threading --------------------------------
+
+def test_runner_try_multi_conn_accepts_proxy_url():
+    src = _RUNNER_PY.read_text(encoding="utf-8")
+    pos = src.find("def _try_multi_conn_download(")
+    assert pos > 0
+    end = src.find("\n    def ", pos + 10)
+    sig = src[pos:end if end > 0 else pos + 600]
+    # signature region (up to the closing ") -> bool:")
+    head = sig[:sig.find("-> bool")]
+    assert "proxy_url" in head, "_try_multi_conn_download must take a proxy_url param"
+
+
+def test_runner_multi_conn_gate_no_longer_requires_no_proxy():
+    """The @390 'and not proxy_url' guard that disabled multi_conn under a tunnel
+    must be gone -- multi_conn now has a proxy-native path."""
+    src = _RUNNER_PY.read_text(encoding="utf-8")
+    gpos = src.find('self.config.get("use_multi_conn"')
+    assert gpos > 0, "multi_conn gate not found"
+    # the gate condition spans a few lines up to the colon that opens the try
+    gate = src[gpos:gpos + 320]
+    cond = gate[:gate.find(":")]
+    assert "not proxy_url" not in cond, (
+        "the multi_conn gate must no longer disable itself when a proxy is set")
+
+
+def test_runner_passes_proxy_into_multi_conn():
+    src = _RUNNER_PY.read_text(encoding="utf-8")
+    # the call site forwards proxy_url
+    assert "proxy_url=proxy_url" in src, "runner must forward proxy_url into _try_multi_conn_download"
+    # both _mconn calls thread the proxy
+    ppos = src.find("_mconn.probe(")
+    dpos = src.find("_mconn.download(")
+    assert ppos > 0 and dpos > 0
+    probe_call = src[ppos:ppos + 200]
+    dl_call = src[dpos:dpos + 400]
+    assert "proxy=" in probe_call, "_mconn.probe must be called with proxy="
+    assert "proxy=" in dl_call, "_mconn.download must be called with proxy="
+
+
+# ---- VPN-CONTROLPLANE: discovery client binding ----------------------------
+
+def test_runner_controlplane_marked_three_sites():
+    src = _RUNNER_PY.read_text(encoding="utf-8")
+    n = src.count("VPN-CONTROLPLANE")
+    assert n >= 3, (
+        f"expected >=3 VPN-CONTROLPLANE markers (discovery/listing/deep-detect); found {n}")
+
+
+def test_runner_controlplane_sites_proxied_and_fail_closed():
+    """Each control-plane discovery site resolves _download_proxy_url, threads it
+    into its httpx client, and has a VPNRequiredError fail-closed branch.
+
+    Counts distinctive literals globally (NOT a fixed char window -- see the
+    v3.66.391 fixed-window-overflow lesson)."""
+    src = _RUNNER_PY.read_text(encoding="utf-8")
+    assert src.count("VPN-CONTROLPLANE") >= 3, "expected >=3 control-plane markers"
+    assert src.count("_cp_proxy = self._download_proxy_url()") >= 3, (
+        "each control-plane site must resolve the fail-closed _download_proxy_url")
+    assert src.count("proxy=_cp_proxy") >= 3, (
+        "each control-plane client must thread proxy=_cp_proxy")
+    assert src.count("_cpe, vpn_runtime.VPNRequiredError") >= 3, (
+        "each control-plane site must fail closed on VPNRequiredError")

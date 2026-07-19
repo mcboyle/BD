@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""bd-versync -- a version bump is a 3-part edit that must land together:
+bulk_downloader/__init__.py __version__ + the test_settings_center_slice4 pin +
+the top CHANGELOG `## v...` header. A partial bump (or a stray `__version__ ==
+"3.66.N"` left in another test) fails the release. This verifies all three agree
+and greps tests/ for any stray version pin that disagrees.
+
+Usage:
+  bd-versync [--tree DIR]
+Exit 1 on any disagreement, else 0.
+"""
+import argparse, glob, os, re, sys
+
+VER = re.compile(r'3\.66\.(\d+)')
+
+def init_version(tree):
+    try:
+        t = open(os.path.join(tree, "bulk_downloader/__init__.py"), errors="ignore").read()
+        m = re.search(r'__version__\s*=\s*["\']([0-9.]+)["\']', t)
+        return m.group(1) if m else None
+    except Exception:  # why: tree __init__ unreadable; None so the caller reports 'no version', not a stale one
+        return None
+
+def changelog_version(tree):
+    p = os.path.join(tree, "CHANGELOG.md")
+    if not os.path.exists(p):
+        return None
+    for line in open(p, errors="ignore"):
+        if re.match(r"^#{1,3}\s*v?3\.66\.\d+", line.strip()):
+            return VER.search(line).group(0)
+    return None
+
+def stray_pins(tree, canonical):
+    """all tests/ lines that assert a 3.66.N version != canonical (excluding known fixtures)."""
+    # the fixture-looks-like-a-pin allowlist: files that CONSTRUCT synthetic version strings
+    FIXTURE_FILES = ("hygiene_gates", "scan_version_pins", "build_release_f02",
+                     "build_session_pack", "precut_check", "gold_backup", "_fixture")
+    SENTINELS = ("_mktree", "body =", "# untouched", "# still untouched", "3.66.999", "root =")
+    out = []
+    for f in glob.glob(os.path.join(tree, "tests/*.py")):
+        base = os.path.basename(f)
+        if any(fx in base for fx in FIXTURE_FILES):
+            continue
+        try:
+            for i, line in enumerate(open(f, errors="ignore"), 1):
+                if "__version__" not in line and "version" not in line.lower():
+                    continue
+                if any(s in line for s in SENTINELS):
+                    continue
+                for m in VER.finditer(line):
+                    v = m.group(0)
+                    if ("==" in line or "assert" in line or "settings_center_slice4" in f) and v != canonical:
+                        out.append((os.path.relpath(f, tree), i, v, line.strip()[:70]))
+                        break
+        except Exception:  # why: this file is unreadable/binary; skip it, the scan continues over the rest
+            continue
+    return out
+
+
+def selftest():
+    """Delegates to bd-coretest --only bd-versync -- the REAL fault-injection case
+    (I-5/C-23). A bespoke smoke selftest here would assert "it runs", which is
+    the ~92%-are-smoke problem bd-coretest exists to fix. If the harness is
+    absent we say so and FAIL: a selftest that cannot verify must not report
+    success."""
+    import subprocess as _sp
+    ct = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-coretest")
+    if not os.path.isfile(ct):
+        print("SELFTEST FAIL")
+        sys.stderr.write("CANNOT-EVALUATE selftest: reason=ABSENT "
+                         "(bd-coretest harness not found)\n")
+        return 2
+    cp = _sp.run([sys.executable, ct, "--no-cache", "--only", "bd-versync"],
+                 capture_output=True, text=True, timeout=180)
+    sys.stdout.write(cp.stdout)
+    ok = cp.returncode == 0
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--tree","--work", default="/home/claude/work")
+    ap.add_argument("--selftest", action="store_true",
+                   help="fault-injection selftest (delegates to bd-coretest)")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    iv = init_version(a.tree)
+    cv = changelog_version(a.tree)
+    canonical = iv or (cv and cv.replace("3.66.", "3.66."))
+    print(f"__init__.py __version__ : {iv or 'NOT FOUND'}")
+    print(f"CHANGELOG top entry     : {cv or 'NOT FOUND'}")
+    rc = 0
+    if iv and cv and iv not in cv:
+        print(f"  DISAGREE: __init__ {iv} != CHANGELOG {cv}"); rc = 1
+    elif iv and cv:
+        print(f"  __init__ and CHANGELOG agree ({iv})")
+    # slice4 pin
+    s4 = glob.glob(os.path.join(a.tree, "tests/*settings_center_slice4*.py"))
+    if s4:
+        txt = open(s4[0], errors="ignore").read()
+        vs = set(VER.findall(txt))
+        pin_ok = iv and iv.split(".")[-1] in vs
+        print(f"settings_center_slice4  : versions referenced {sorted('3.66.'+v for v in vs)}"
+              + (f"  (pins {iv}: ok)" if pin_ok else f"  (does NOT pin {iv})"))
+        if iv and not pin_ok:
+            rc = 1
+    # stray pins
+    if iv:
+        stray = stray_pins(a.tree, iv)
+        if stray:
+            print(f"\nSTRAY version pins in tests/ that disagree with {iv} ({len(stray)}):")
+            for f, i, v, ctx in stray[:20]:
+                print(f"  {f}:{i}  ({v})  {ctx}")
+            rc = 1
+        else:
+            print(f"\nno stray tests/ version pins disagree with {iv}.")
+    print("\n" + ("VERSION CONSISTENT." if rc == 0 else "=> land the 3-part bump together (bd-cut does this) + clear stray pins."))
+    return rc
+
+if __name__ == "__main__":
+    sys.exit(main())

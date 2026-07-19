@@ -1,0 +1,242 @@
+{
+  "batch": "RUN-01",
+  "version": "3.66.532",
+  "version_note": "Audited source = live tree @3.66.532 (STATE.json live_version + bd-preflight/bd-state both PASS byte-identical; KNOWLEDGE_GRAPH.db module shas for both files match the live tree: runner.py=ac92700bc99521c0, runner_extractors.py=7244a7f4d9379b53). The AUDIT_PLAN kickoff filename hard-codes '_v3_66_531' (plan authored at 531); source has since advanced to 3.66.532. Version derived from STATE.json, not the template literal (same as CAP-01 pipeline verdict P5). NOTE: the shipped KNOWLEDGE_GRAPH.db.sha256 pin (79f2f60...) mismatches the actual db (b90595e0...) - this is pilot finding P2 (pin drifts, ungated); the db itself is valid sqlite with correct counts (1005/7183/55054) and faithful shas.",
+  "subsystem": "RUN",
+  "rubric_legend": "ok = read, no defect | finding = defect emitted | na = category not applicable to this unit | residual = known/documented/accepted limitation",
+  "files": [
+    {
+      "path": "bulk_downloader/runner.py",
+      "sha256": "ac92700bc99521c08b00bf63651cd95c925dd0df257f9b5c62c1ec5b8da08d6a",
+      "lines": 2884,
+      "rubric": {
+        "auth": "na",
+        "injection": "ok",
+        "ssrf": "finding",
+        "secrets": "ok",
+        "error_contract": "ok",
+        "type_none": "finding",
+        "concurrency": "ok",
+        "resource": "ok",
+        "input_validation": "ok",
+        "dead_code": "ok"
+      },
+      "purpose": "SiteRunner kernel: per-site worker controller + the single-URL download pipeline. _process_one (CC=163, radon-confirmed) is a dispatch orchestrator routing a job URL through opt-in short-circuits (library/jsonapi/JD/qB/teach) and the Playwright challenge stack (Turnstile/FlareSolverr/captcha). Also owns the queue worker/watchdog threads, admission + disk/bandwidth throttle, cookie/relogin lifecycle, and the subscription-scanner listing fetch (_scrape_listing_urls).",
+      "public_api": [
+        "start",
+        "stop",
+        "pause",
+        "resume",
+        "update_config",
+        "set_cookies",
+        "set_cookies_from_file",
+        "cookie_info",
+        "get_status",
+        "state",
+        "set_global_concurrent_cap",
+        "get_global_concurrent_cap"
+      ],
+      "invariants": {
+        "I0001": "GUARDED here (resume_site_keepers must never exist - nested-playwright deadlock; test_v3_43_79).",
+        "class_I0003_ssrf_is_global": "VIOLATED here -> F-RUN01-01 (denylist not is_global; guarded sibling lives in provider_resolve_impl/_common.py).",
+        "class_I0004_nan_inf": "VIOLATED here (defense-in-depth) -> F-RUN01-03 (float() config, no isfinite; guarded sibling in site_editor.py).",
+        "class_I0009_sql_ident": "N/A here - the two f-string 'SQL' flags are LOG strings (FP-RUN01-01)."
+      },
+      "data_flow": "job URL -> _process_one -> {qb/jd bridges | library/jsonapi/teach extractors | page.goto (Playwright validates scheme)}; listing_url -> _scrape_listing_urls (denylist SSRF guard, F-RUN01-01) -> discovered <a href> URLs re-enqueued (NOT re-host-checked); site cookies -> ctx.add_cookies (only len() logged, never values).",
+      "risk": {
+        "sloc": 2884,
+        "max_cc": 163,
+        "max_cc_radon_confirmed": true,
+        "prior_defect": 1.0,
+        "risk": 0.4992,
+        "secrets": 17,
+        "sink_weight": 15
+      },
+      "notes": "The ~78 DP-13 'exception swallowed' flags are deliberate worker-resilience fall-throughs (each opt-in short-circuit degrades open so a broken optional backend never wedges the queue); characterized as intentional, not filed. bandit corroborates: 53x B110 (try/except/pass), 0 medium/high. The 5 'path' taint sinks (1342 os.walk; 1574/1621/1652/1685 post-download thumbnail/tpdb/subtitle) join under dl_dir and gate on os.path.isfile; the yt-dlp filename is --restrict-filenames sanitized."
+    },
+    {
+      "path": "bulk_downloader/runner_extractors.py",
+      "sha256": "7244a7f4d9379b539d3cc2af9308e9035ee466f6c16a8eba9435353f30d5373a",
+      "lines": 1827,
+      "rubric": {
+        "auth": "na",
+        "injection": "finding",
+        "ssrf": "residual",
+        "secrets": "ok",
+        "error_contract": "ok",
+        "type_none": "ok",
+        "concurrency": "na",
+        "resource": "ok",
+        "input_validation": "finding",
+        "dead_code": "ok"
+      },
+      "purpose": "ExtractorsMixin: the non-Playwright download fast-paths - yt-dlp subprocess fallback (_build_ytdlp_cmd + _try_ytdlp_fallback), JSON-API (HereSphere/DeoVR) extractor, site extractors (vixen/dl8/aylo/library), deep-detect selector learning. Carries the batch's download sinks (sink_weight=45): the one subprocess + HLS/ffmpeg via hls_downloader.",
+      "public_api": [
+        "_try_ytdlp_fallback",
+        "_try_jsonapi_extractor",
+        "_try_vixen_extractor",
+        "_try_dl8_extractor",
+        "_try_aylo_extractor",
+        "_try_library_extractor",
+        "_probe_for_higher_tier",
+        "_try_deep_detect_fallback",
+        "_run_pre_scrape_action"
+      ],
+      "invariants": {
+        "class_DP-CAP01-cand-1": "CONFIRMED real instance -> F-RUN01-02 (list-form shell=False subprocess is NOT sufficient; the URL argv is option-injectable). Promotes the pilot candidate from candidate to confirmed.",
+        "ssrf_deferral": "comment at :368 defers SSRF to resolve_provider_embed (I0003-guarded) for the provider-embed path only; the direct-download paths (yt-dlp/httpx/hls) trust the URL - see 'residual' below."
+      },
+      "data_flow": "url -> _build_ytdlp_cmd -> argv (NO '--' end-of-options separator) -> subprocess.run(cmd, shell=False) [F-RUN01-02]; url/src.url (src.url from the site JSON API) -> httpx / hls_downloader.download() [byte-write + ffmpeg live in hls_downloader - other batch]; output name -> resolve_filename_template + safe_dest (detect.py) -> os.path.join(dl_dir).",
+      "risk": {
+        "sloc": 1827,
+        "max_cc": 53,
+        "max_cc_radon_confirmed": true,
+        "prior_defect": 0.0,
+        "risk": 0.2123,
+        "secrets": 4,
+        "sink_weight": 45
+      },
+      "notes": "ssrf=residual: the payload download path accepts arbitrary user-supplied video URLs BY DESIGN (this is a bulk downloader) - unlike CAP-01's live_recorder there is no cam-site allowlist to bypass, so this is not an F-CAP01-01-style bypass; the residual SSRF is inherent to the product and mitigated by egress-proxy/VPN routing + operator-only job submission. src.url from the site JSON API reaching hls_downloader is a cross-batch SSRF data-flow (host-check responsibility is hls_downloader's). filename traversal is contained by safe_dest (strength is a REC/detect.py concern). bandit: B603 on subprocess.run(:160) 'check for execution of untrusted input' == exactly F-RUN01-02; 0 medium/high."
+    }
+  ],
+  "findings": [
+    {
+      "id": "F-RUN01-01",
+      "file": "bulk_downloader/runner.py",
+      "line_range": "538-573 (guard 566-568)",
+      "category": "ssrf",
+      "severity": "medium-low",
+      "confidence": "confirmed",
+      "title": "_scrape_listing_urls SSRF guard is a denylist (is_private/loopback/...) without is_global -> accepts CGNAT 100.64.0.0/10",
+      "detail": "The subscription-scanner listing fetch validates the resolved IP with a DENYLIST: `is_private or is_loopback or is_link_local or is_multicast or is_reserved or is_unspecified` (566-568). This is the exact VR-P15/DP-11 class that invariant I0003 fixed in provider_resolve_impl/_common.py by switching to a positive ipaddress.is_global test. On Python 3.12.3 the denylist ACCEPTS 100.64.0.1 (is_private=False, is_reserved=False, is_global=False) - RFC6598 CGNAT / shared address space, routable to a carrier's or a cloud metadata-adjacent internal range. TEST-NET / benchmarking (198.18/15) / 240-4 are caught by is_reserved; CGNAT is the specific residual gap. runner.py is out of compliance with its own established I0003 standard.",
+      "fix": "Replace the denylist with the I0003 standard: reject unless ip_obj.is_global (i.e. `if not ip_obj.is_global: raise`). Keeps the same fail-safe intent while closing CGNAT and any future non-global range.",
+      "repro_test": "tests/test_runner_ssrf_listing_is_global.py::test_listing_guard_rejects_cgnat (TO WRITE in the serial fix-cut; RED on pristine 532 - the denylist accepts 100.64.0.1)",
+      "source": "Denylist read at runner.py:566-568; guarded sibling I0003 at provider_resolve_impl/_common.py; class = DP-11 / VR-P15.",
+      "reachability_note": "Config-driven subscription URL, operator-authenticated; the code's own docstring frames it as defense-in-depth hygiene ('an operator with write access could already shell to the box'). Second-order: listing-discovered <a href> URLs are re-enqueued WITHOUT re-passing even this guard (618 only checks startswith('http')), so a malicious listing page can seed the download path with off-host URLs - but the download path is unconstrained by design anyway (see runner_extractors ssrf=residual).",
+      "witness": "witnesses/run01_witnesses.py::W1 (re-derives the denylist predicate from live source and shows 100.64.0.1 accepted_but_not_global=True on Python 3.12.3; flips GREEN once the guard uses is_global)"
+    },
+    {
+      "id": "F-RUN01-02",
+      "file": "bulk_downloader/runner_extractors.py",
+      "line_range": "83-103 (append 102) -> run 160",
+      "category": "injection",
+      "severity": "high",
+      "confidence": "confirmed-defect / probable-reachability",
+      "title": "_build_ytdlp_cmd appends the URL with no '--' end-of-options separator -> a URL beginning with '-' is argument-injected into yt-dlp (--exec => RCE)",
+      "detail": "_build_ytdlp_cmd builds a list argv and does `cmd.append(url)` (102) with NO preceding `--` end-of-options marker; subprocess.run(cmd, shell=False) at 160. shell=False correctly blocks SHELL injection (an assurance), but yt-dlp's own CLI parser treats any argv element beginning with '-' as an OPTION, not a positional URL. Witnessed end-to-end: the real yt-dlp 2026.03.17 binary, handed the builder's output with url='--version', parsed the slot as the --version option (printed a version, exited 0, no fetch). yt-dlp exposes --exec (run an arbitrary command on the downloaded file) and --config-location (load a config that can itself contain --exec) -> a '-'-leading job URL is arbitrary command execution. This is a CONFIRMED real instance of the pilot's candidate pattern DP-CAP01-cand-1.",
+      "fix": "Insert an end-of-options separator immediately before the URL: `cmd.append('--'); cmd.append(url)` in _build_ytdlp_cmd. One line; makes a '-'-leading value un-parseable as an option regardless of caller.",
+      "repro_test": "tests/test_build_ytdlp_cmd_optsep.py::test_dashdash_before_url (TO WRITE in the serial fix-cut; RED on pristine 532 - no '--' precedes the url argv element)",
+      "source": "Builder at runner_extractors.py:83-103; sink at :160; reached from runner_challenge.py:49 (_try_ytdlp_fallback) with the job URL.",
+      "reachability_note": "Two gates: (1) config['use_ytdlp_fallback'] must be on (opt-in, default False, per-site); (2) the job URL must be able to begin with '-'. Some enqueue paths validate startswith('http') (app.py:1881, :4897) which blocks a '-'-leading URL, but MANY enqueue paths exist (api_bulk_enqueue, poll_sources [external plugin URLs], discover_all, saved_searches, capture_schedules) and several ingest EXTERNAL URLs; airtight non-reachability spans the APP/CORE_BD batches, so reachability is PROBABLE not confirmed (boundary-deferred, mirrors F-CAP01-01). The defect and its one-line fix stand regardless of current reachability.",
+      "witness": "witnesses/run01_witnesses.py::W2 (structural: no bare '--' before the url argv; behavioural: real yt-dlp 2026.03.17 parsed url='--version' as an option. SAFE probe - never --exec. Flips GREEN once '--' is inserted)"
+    },
+    {
+      "id": "F-RUN01-03",
+      "file": "bulk_downloader/runner.py",
+      "line_range": "795, 1058",
+      "category": "type_none",
+      "severity": "low",
+      "confidence": "probable",
+      "title": "float(config disk_threshold_gb / bandwidth_target_mbps) feeds a bounds compare with no math.isfinite guard (NaN evades the gate)",
+      "detail": "threshold=float(config.get('disk_threshold_gb',2.0)) (795) then `free < threshold` (799); target_mbps=float(config.get('bandwidth_target_mbps',0) or 0) (1058) then `target_mbps <= 0` (1059). Neither guards isfinite. A NaN in config makes `free < NaN` vacuously False -> the low_disk gate NEVER fires and the disk fills silently; +inf inverts it. Same class as I0004 (guarded in site_editor.py). Python's json.loads accepts a bare NaN token by default, so a hand-edited config.json can carry it.",
+      "fix": "Guard at the consuming site (defense-in-depth even if a validator exists upstream): `if not math.isfinite(threshold): threshold = <default>` before the compare, for both fields.",
+      "repro_test": "tests/test_runner_disk_threshold_isfinite.py::test_nan_threshold_still_fires_low_disk (TO WRITE in the serial fix-cut; RED on pristine 532)",
+      "source": "float() sites at runner.py:795,1058; guarded sibling I0004 at site_editor.py; class = DP-03 / VR-P08/P12.",
+      "reachability_note": "Operator-config fields; may be validated upstream by the I0004 site_editor/settings-center validator - whether THESE two fields flow through that validator (vs global_config direct load) is owned by the settings/site-editor batch. Filed low/probable pending that batch; the consuming code does not self-guard either way.",
+      "witness": "witnesses/run01_witnesses.py::W10 (both float() sites present with no isfinite; free<NaN evaluated False -> gate never fires)"
+    }
+  ],
+  "false_positive_confirmations": [
+    {
+      "at": "bulk_downloader/runner.py:1052",
+      "scanner_class": "sql_fstring (DP-10 / taint)",
+      "verdict": "FP",
+      "reason": "the interpolated f-string is self.log_event('disk_throttle', f'Disk pressure: {free}GB free < {threshold*2}GB; scaling workers from {cap} to {disk_cap}...') - a LOG call with numeric interpolations; no execute(), no SQL, no user-controlled identifier.",
+      "triage_rule": "an f-string inside self.log_event/print/sys.stderr.write is not a SQL sink even when the enclosing function is DB-adjacent (same rule as CAP-01 FP triage)."
+    },
+    {
+      "at": "bulk_downloader/runner_extractors.py:343",
+      "scanner_class": "sql_fstring (DP-10 / taint)",
+      "verdict": "FP",
+      "reason": "the line is sys.stderr.write(f'  deep-detect: WARNING - resolve_providers=True for site {self.site_id!r}: ...') - a warning LOG; the only interpolation is a site id; no SQL.",
+      "triage_rule": "sys.stderr.write f-string is a log sink, not a SQL sink."
+    },
+    {
+      "at": "bulk_downloader/runner.py:1144",
+      "scanner_class": "DP-06 (getattr on possibly-undefined name)",
+      "verdict": "FP",
+      "reason": "login_session is ASSIGNED on the line above via `login_session = getattr(self, '_manual_login_handle', None)` - getattr always returns (default None), so the name is always bound; there is no NameError path.",
+      "triage_rule": "`x = getattr(obj, 'attr', None)` binds x unconditionally; a following `if x and hasattr(x, ...)` has no undefined-name risk."
+    }
+  ],
+  "new_invariants": [
+    {
+      "id": "I-RUN01-ssrf-is-global",
+      "statement": "Every SSRF host classifier in the runner (currently _scrape_listing_urls) MUST use ipaddress.is_global as the positive allowlist test - not a denylist of is_private/is_loopback/is_link_local/is_multicast/is_reserved/is_unspecified, which omits CGNAT 100.64.0.0/10. This is the runner-side twin of I0003.",
+      "at": "bulk_downloader/runner.py",
+      "status": "UNGUARDED",
+      "guard_test": null,
+      "promote_note": "Promote to GUARDED when the serial fix-cut switches runner.py:566-568 to `not is_global` and adds a RED guard asserting 100.64.0.1 is rejected. Until then enforced only by this audit + witness W1.",
+      "witness": "witnesses/run01_witnesses.py::W1"
+    },
+    {
+      "id": "I-RUN01-ytdlp-argv-sep",
+      "statement": "The yt-dlp fallback command builder MUST place a '--' end-of-options separator immediately before the URL argv element, so a URL beginning with '-' cannot be parsed by yt-dlp as an option (argument injection -> --exec RCE). List-form + shell=False is necessary but NOT sufficient.",
+      "at": "bulk_downloader/runner_extractors.py",
+      "status": "UNGUARDED",
+      "guard_test": null,
+      "promote_note": "Promote to GUARDED when _build_ytdlp_cmd inserts '--' before the url and a RED guard asserts the built argv contains '--' immediately before a '-'-leading url. This is the concrete guard for DP-CAP01-cand-1.",
+      "witness": "witnesses/run01_witnesses.py::W2"
+    }
+  ],
+  "new_patterns": [
+    {
+      "id": "DP-RUN01-cand-1",
+      "rule": "denylist-style SSRF IP classifier: flag any IP-safety gate that ORs is_private/is_loopback/is_link_local/is_multicast/is_reserved/is_unspecified as its ACCEPT/REJECT test WITHOUT a positive ipaddress.is_global check. Denylists silently miss CGNAT 100.64.0.0/10 (and any future non-global range). Strengthens DP-11 from 'no is_global' to 'enumerated-denylist-without-is_global'.",
+      "signature": "ipaddress .is_private/.is_loopback/... OR-chain in a boolean guard with no .is_global in the same predicate",
+      "confirmed_instance": "F-RUN01-01 (runner.py:566-568)"
+    },
+    {
+      "id": "DP-CAP01-cand-1",
+      "rule": "[PROMOTE candidate->confirmed] list-form subprocess (shell=False) is NOT sufficient to clear a URL/path argv element: also require the value to be shape-validated so it cannot be read as an option (argument injection) - concretely, a '--' end-of-options separator before a request-derived URL argv.",
+      "signature": "subprocess argv whose final element is a request-derived URL, with no '--' separator preceding it",
+      "confirmed_instance": "F-RUN01-02 (runner_extractors.py:102/160) - FIRST confirmed real instance of the pilot candidate; promote in DEFECT_PATTERN_CATALOG.md at consolidation."
+    }
+  ],
+  "audited_files": 2,
+  "audited_lines_sloc": 4711,
+  "findings_confirmed": 2,
+  "findings_probable": 1,
+  "findings_triage": 0,
+  "positive_assurances": 8,
+  "guards_verified_byte_identical": 0,
+  "guard_touch": false,
+  "tracker_write": false,
+  "tree_reverified_byte_identical": true,
+  "battery_used": [
+    "KNOWLEDGE_GRAPH.db + RISK_SCORES/TAINT_MAP/SECURITY_SURFACE/DEFECT_FINDINGS/SCAN_FINDINGS.triaged/DEAD_CODE (shipped 532 artifacts, verified faithful vs live source)",
+    "radon 6.0.1 (~/rev offline wheelhouse; CC 163/53 independently confirmed)",
+    "bandit 1.9.4 (~/rev; 57 LOW, 0 med/high, B603==F-RUN01-02)",
+    "vulture 2.16 (~/rev; dead-code = thread-target FPs)",
+    "audit_emit_gate.py",
+    "witnesses/run01_witnesses.py (10 witnesses, all DEMONSTRATED)"
+  ],
+  "findings_confirmed_at_boundary": 1,
+  "assurance_notes": [
+    "yt-dlp subprocess is list-form + shell=False -> no shell-command injection (W6; the residual is arg-injection F-RUN01-02, a different class).",
+    "cookies/bypass-cookies logged as counts (len(...)) only, never values (W7).",
+    "post-download path sinks (thumbnail/tpdb/subtitle) join under dl_dir + gate on os.path.isfile; yt-dlp path sanitized by --restrict-filenames (W8).",
+    "no eval/exec/os.system/shell=True/pickle in either file; whole-file sweep clean (W9). setattr uses the literal '_site_usage_cache' (safe).",
+    "extractor write targets go through resolve_filename_template + safe_dest (detect.py) before os.path.join(dl_dir) - traversal contained (safe_dest strength = REC/detect.py batch).",
+    "page.goto(url) navigation is scheme-validated by Playwright; qb/jd bridges receive the URL via their APIs (other batches).",
+    "the ~78 runner + ~23 extractor DP-13 'swallowed exception' flags are deliberate degrade-open worker resilience (bandit 53x B110), not filed.",
+    "dead_code: the 4 shipped-flagged functions (_worker_loop/_watchdog_loop/_watch_done/_wait_for_lazy_video) are threading.Thread targets / dynamic dispatch (correctly hedged at 0.5), not dead."
+  ],
+  "cross_batch_dependencies": [
+    "hls_downloader.download(src.url, ...) - actual byte-write + ffmpeg subprocess + any host check live there (CORE_BD/transport batch).",
+    "detect.py::safe_dest - filename-traversal sanitizer strength (REC batch).",
+    "provider_resolve_impl/_common.py - I0003 is_global guard for the provider-embed path (REC/provider batch).",
+    "app.py/app_bulk.py/plugins.py/discovery.py/saved_searches.py/capture_schedules.py enqueue paths - URL scheme validation that determines F-RUN01-02 reachability (APP/CORE_BD batches).",
+    "qb_bridge.py / jd_bridge.py - torrent/magnet + JD URL handling."
+  ]
+}

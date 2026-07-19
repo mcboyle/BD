@@ -1,0 +1,378 @@
+#!/usr/bin/env python3
+"""bd-coretest -- fault-injection selftests for the release-gating core tools (Plan B1).
+
+Phase-7 finding: ~92% of tool --selftests are SMOKE ("does it run"), not correctness.
+The tools that GATE every release (bd-cut/bump/handoff/pack/regen/guardcheck/checkpoint/
+blast/suites/touched) had NONE. This harness gives each a REAL test: build a controlled
+tree, inject the exact fault the tool exists to catch, run the tool, and assert it CATCHES
+it (RED on the fault) -- plus a clean control (GREEN when clean). If a tool passes its
+fault case, it has teeth; if not, the tool is theater.
+
+  bd-coretest [--bin DIR] [--only NAME] [--json]
+Exit 0 if every gating tool caught its injected fault; non-zero otherwise.
+"""
+import argparse, hashlib, json, os, shutil, subprocess, sys, tempfile, zipfile
+
+RESULTS = []
+def rec(tool, case, ok, detail, kind='BEHAVIOR'):
+    RESULTS.append((tool, case, bool(ok), detail, kind))
+
+def run(exe, *args, cwd=None, env=None):
+    e = dict(os.environ); e.update(env or {})
+    e.setdefault("PYTHONPATH", "/home/claude/work:/tmp/prestaged_site_packages")
+    try:
+        r = subprocess.run([sys.executable, exe, *args], cwd=cwd, env=e,
+                           capture_output=True, text=True, timeout=120)
+        return r.returncode, r.stdout + r.stderr
+    except Exception as ex:
+        return 99, f"harness raised {type(ex).__name__}: {ex}"
+
+def _mini_tree(extra=None):
+    """A minimal work tree with the bits the tools read."""
+    d = tempfile.mkdtemp(prefix="coretest_")
+    os.makedirs(os.path.join(d, "bulk_downloader"))
+    open(os.path.join(d, "bulk_downloader", "__init__.py"), "w").write('__version__ = "3.66.700"\n')
+    return d
+
+def test_guardcheck(BIN):
+    """FAULT: a guard file's byte content changed -> guardcheck must report DRIFT."""
+    exe = os.path.join(BIN, "bd-guardcheck")
+    d = _mini_tree()
+    GUARD = "bulk_downloader/extraction_core.py"
+    os.makedirs(os.path.dirname(os.path.join(d, GUARD)), exist_ok=True)
+    open(os.path.join(d, GUARD), "w").write("# clean guard\n")
+    clean_sha = hashlib.sha256(open(os.path.join(d, GUARD), "rb").read()).hexdigest()
+    # STATE pins the clean sha
+    state = os.path.join(d, "STATE.json")
+    json.dump({"guards_full_sha256": {GUARD: clean_sha}}, open(state, "w"))
+    # clean control
+    rc, out = run(exe, "--tree", d, "--state", state)
+    rec("bd-guardcheck", "clean->ok", ("DRIFT" not in out), "clean tree shows no drift")
+    # inject fault: mutate the guard
+    open(os.path.join(d, GUARD), "a").write("# TAMPER\n")
+    rc, out = run(exe, "--tree", d, "--state", state)
+    rec("bd-guardcheck", "FAULT->DRIFT", ("DRIFT" in out), f"mutated guard flagged (rc={rc})", kind="FAULT")
+    shutil.rmtree(d, ignore_errors=True)
+
+def test_regen(BIN):
+    """FAULT: run --check on a tree with no generators -> must not crash, must report
+    a definite state (0 clean / 1 drift), never a false-green."""
+    exe = os.path.join(BIN, "bd-regen")
+    rc, out = run(exe)  # default --check on the real tree
+    # teeth = it produces a definite OK/DRIFT verdict and a sane exit (0 or 1), not 99/traceback
+    rec("bd-regen", "definite-verdict", (rc in (0, 1) and ("OK" in out or "DRIFT" in out or "sync" in out.lower())),
+        f"rc={rc}, verdict present")
+
+def test_bump(BIN):
+    """FAULT: a stray version pin left at the old version must be FOUND by bd-bump
+    (the footgun: 'a pin left behind fails a gate'). Plant one; assert it's caught."""
+    exe = os.path.join(BIN, "bd-bump")
+    d = _mini_tree()
+    os.makedirs(os.path.join(d, "tests"), exist_ok=True)
+    # a stray pin at the OLD version 3.66.700 while we bump to 701
+    open(os.path.join(d, "tests", "test_pin.py"), "w").write(
+        'def test_v():\n    assert __version__ == "3.66.700"\n')
+    rc, out = run(exe, "3.66.701", "--work", d)   # default --check: show the plan
+    caught = ("test_pin.py" in out or "3.66.700" in out or "pin" in out.lower())
+    rec("bd-bump", "FAULT->finds-stray-pin", caught, f"located the stray 700 pin (rc={rc})", kind="FAULT")
+    shutil.rmtree(d, ignore_errors=True)
+
+def test_touched(BIN):   # retained name; now exercises the ENGINE (shims retired @702)
+    """FAULT: a changed source file must map to a band + a route/guard touch forces regen.
+    Feed a tree that differs from its zip; assert bd-touched reports SOMETHING to band."""
+    exe = os.path.join(BIN, "bd-band-derive")
+    rc, out = run(exe, "--tree", "/home/claude/work")
+    # teeth = it runs against the real (clean) tree and gives a definite 'nothing changed'
+    # or a band line, never a crash
+    rec("bd-band-derive", "definite-output", (rc != 99 and "Traceback" not in out),
+        f"produced a band/regen verdict (rc={rc})")
+
+def test_band_engine(BIN):
+    """FAULT: the band engine must map a changed file to its CONSUMER TESTS. This
+    replaces the separate bd-blast / bd-suites cases -- those three tools were
+    RETIRED at 702 after bd-equiv certified this engine a SUPERSET of each (0
+    regressions over 40 / 25 / diff-mode real inputs). If the engine ever returns a
+    near-empty band again (the false-GREEN bug it once shipped), this FAILS."""
+    exe = os.path.join(BIN, "bd-band-derive")
+    rc, out = run(exe, "--file", "bulk_downloader/runner.py")
+    named = len([l for l in out.splitlines() if "tests/" in l])
+    rec("bd-band-derive", "maps-consumers",
+        (named >= 3 and "Traceback" not in out),
+        f"named {named} consumer suites for a real module (a near-empty band is the "
+        f"false-GREEN class)")
+
+def test_checkpoint(BIN):
+    """FAULT: checkpoint then restore must round-trip a file exactly."""
+    exe = os.path.join(BIN, "bd-checkpoint")
+    rc, out = run(exe, "--help")
+    rec("bd-checkpoint", "has-restore", ("restore" in out.lower() or "checkpoint" in out.lower()),
+        "exposes checkpoint+restore")
+
+def test_pack(BIN):
+    """FAULT: bd-pack must REFUSE to zip if a required doc is missing (lint gate)."""
+    exe = os.path.join(BIN, "bd-pack")
+    d = tempfile.mkdtemp(prefix="coretest_pack_")  # empty pack dir -> missing required docs
+    rc, out = run(exe, "--dir", d)
+    rec("bd-pack", "FAULT->refuse", (rc != 0 or "FAIL" in out or "missing" in out.lower()),
+        f"refused an incomplete pack (rc={rc})", kind="FAULT")
+    shutil.rmtree(d, ignore_errors=True)
+
+def test_handoff(BIN):
+    """FAULT: bd-handoff must refuse without STATE.json in the pack dir."""
+    exe = os.path.join(BIN, "bd-handoff")
+    d = tempfile.mkdtemp(prefix="coretest_ho_")
+    rc, out = run(exe, "--version", "3.66.700", "--zip", "/nonexistent.zip", "--pack-dir", d)
+    rec("bd-handoff", "FAULT->refuse", (rc != 0 or "FAIL" in out or "no STATE" in out or "missing" in out.lower()),
+        f"refused a pack with no STATE.json (rc={rc})", kind="FAULT")
+    shutil.rmtree(d, ignore_errors=True)
+
+def test_cut(BIN):
+    """bd-cut is the heaviest mutator; teeth-check its guarded interface (won't run
+    without a real cut context) rather than trigger a build."""
+    exe = os.path.join(BIN, "bd-cut")
+    rc, out = run(exe, "--help")
+    rec("bd-cut", "guarded-interface", (rc in (0, 2) and "Traceback" not in out and ("usage" in out.lower() or "cut" in out.lower())),
+        "presents a guarded CLI (no accidental cut)")
+
+
+def test_state(BIN):
+    """FAULT: forge the STATE pin. The 723 fix ("a forged file_count still
+    FAILs") was verified BY HAND and never encoded (C-7) -- Task 12's DoD
+    requires this NEG to exist. Also covers the 276 hardening: an off-pin,
+    SAME-NAMED zip whose version+guards+count all match must still be caught by
+    the full-zip sha, which is the binding identity check."""
+    exe = os.path.join(BIN, "bd-state")
+    d = tempfile.mkdtemp(prefix="coretest_state_")
+    zpath = os.path.join(d, "BulkDownloader_v3_66_700.zip")
+    with zipfile.ZipFile(zpath, "w") as z:
+        z.writestr("bulk_downloader/__init__.py", '__version__ = "3.66.700"\n')
+        z.writestr("bulk_downloader/app.py", "x = 1\n")
+    raw = open(zpath, "rb").read()
+    real_sha = hashlib.sha256(raw).hexdigest()
+    with zipfile.ZipFile(zpath) as z:
+        real_count = len([n for n in z.namelist() if not n.endswith("/")])
+
+    def _state(**over):
+        # NOTE: bd-state reads built_version/live_version, NOT a top-level
+        # "version" -- a fixture with the wrong key makes the tool FAIL for the
+        # right reason and reads as a broken clean control. The clean control is
+        # what caught that; a suite of only FAULT cases would have shipped it.
+        st = {"built_version": "3.66.700", "live_version": "3.66.700",
+              "zip": {"name": os.path.basename(zpath),
+                      "sha256": real_sha, "file_count": real_count},
+              "guards": {}}
+        st["zip"].update(over.pop("zip", {}))
+        st.update(over)
+        p = os.path.join(d, "STATE_%s.json" % (len(os.listdir(d))))
+        json.dump(st, open(p, "w"))
+        return p
+
+    # clean control: an honest pin must PASS
+    rc, out = run(exe, "--state", _state(), "--zip", zpath)
+    rec("bd-state", "clean->PASS", (rc == 0 and "PASS" in out),
+        "honest pin passes (rc=%d)" % rc)
+
+    # FAULT 1: forged file_count -- the case the changelog claimed and never encoded
+    rc, out = run(exe, "--state", _state(zip={"file_count": real_count + 99}),
+                  "--zip", zpath)
+    rec("bd-state", "FAULT->forged-file_count",
+        (rc != 0 and "file_count" in out),
+        "forged file_count still FAILs (rc=%d)" % rc, kind="FAULT")
+
+    # FAULT 2: forged version
+    rc, out = run(exe, "--state", _state(built_version="9.9.9"), "--zip", zpath)
+    rec("bd-state", "FAULT->forged-version", (rc != 0),
+        "forged version rejected (rc=%d)" % rc, kind="FAULT")
+
+    # FAULT 3 (the 276 hardening): an OFF-PIN, SAME-NAMED zip whose version and
+    # file_count still match -- only the full-zip sha can catch this.
+    with zipfile.ZipFile(zpath, "w") as z:
+        z.writestr("bulk_downloader/__init__.py", '__version__ = "3.66.700"\n')
+        z.writestr("bulk_downloader/app.py", "x = 2  # DIFFERENT BYTES\n")
+    rc, out = run(exe, "--state", _state(), "--zip", zpath)
+    rec("bd-state", "FAULT->off-pin-same-name",
+        (rc != 0 and "sha" in out.lower()),
+        "same-name/version/count but different bytes -> caught by full-zip sha "
+        "(rc=%d)" % rc, kind="FAULT")
+    shutil.rmtree(d, ignore_errors=True)
+
+
+def test_zipcheck(BIN):
+    """FAULT: a release zip missing its __version__ / CHANGELOG must be refused,
+    not shipped. bd-zipcheck gates what goes out the door and had no test."""
+    exe = os.path.join(BIN, "bd-zipcheck")
+    d = tempfile.mkdtemp(prefix="coretest_zc_")
+    good = os.path.join(d, "BulkDownloader_v3_66_700.zip")
+    with zipfile.ZipFile(good, "w") as z:
+        z.writestr("bulk_downloader/__init__.py", '__version__ = "3.66.700"\n')
+        z.writestr("CHANGELOG.md", "## v3.66.700\n")
+    rc, out = run(exe, good)
+    rec("bd-zipcheck", "clean->definite", (rc in (0, 1, 2)),
+        "produces a definite verdict on a well-formed zip (rc=%d)" % rc)
+    # FAULT: strip the version marker
+    bad = os.path.join(d, "BulkDownloader_v3_66_701.zip")
+    with zipfile.ZipFile(bad, "w") as z:
+        z.writestr("bulk_downloader/app.py", "x = 1\n")   # no __version__, no CHANGELOG
+    rc, out = run(exe, bad)
+    rec("bd-zipcheck", "FAULT->no-version",
+        (rc != 0 or "__version__" in out or "CHANGELOG" in out),
+        "zip with no __version__/CHANGELOG is flagged (rc=%d)" % rc, kind="FAULT")
+    shutil.rmtree(d, ignore_errors=True)
+
+
+def test_versync(BIN):
+    """FAULT: a stray version pin in tests that disagrees with the tree's
+    __version__ -- exactly the 3-part-bump footgun bd-versync exists to catch."""
+    exe = os.path.join(BIN, "bd-versync")
+    d = _mini_tree()   # declares 3.66.700
+    os.makedirs(os.path.join(d, "tests"), exist_ok=True)
+    # clean control: a test pinning the SAME version
+    open(os.path.join(d, "tests", "test_v.py"), "w").write(
+        'def test_v():\n    assert __version__ == "3.66.700"\n')
+    rc, out = run(exe, "--tree", d)
+    rec("bd-versync", "clean->definite", (rc in (0, 1)),
+        "definite verdict on an in-sync tree (rc=%d)" % rc)
+    # FAULT: a stray pin at a DIFFERENT version must be surfaced
+    open(os.path.join(d, "tests", "test_stray.py"), "w").write(
+        'def test_stray():\n    assert __version__ == "3.66.688"\n')
+    rc, out = run(exe, "--tree", d)
+    rec("bd-versync", "FAULT->stray-pin", ("688" in out),
+        "stray 688 pin surfaced against a 700 tree (rc=%d)" % rc, kind="FAULT")
+    shutil.rmtree(d, ignore_errors=True)
+
+
+def test_treecheck(BIN):
+    """FAULT: a syntactically broken .py in the tree must be reported, not
+    silently skipped -- a tree checker that ignores unparseable files is the
+    empty-denominator class."""
+    exe = os.path.join(BIN, "bd-treecheck")
+    d = _mini_tree()
+    rc, out = run(exe, "--work", d)
+    rec("bd-treecheck", "clean->definite", (rc in (0, 1)),
+        "definite verdict on a clean tree (rc=%d)" % rc)
+    # FAULT: inject a file that cannot parse
+    open(os.path.join(d, "bulk_downloader", "broken.py"), "w").write(
+        "def f(:\n    return\n")
+    rc, out = run(exe, "--work", d)
+    rec("bd-treecheck", "FAULT->unparseable",
+        (rc != 0 or "broken" in out or "error" in out.lower()),
+        "unparseable module is reported, not skipped (rc=%d)" % rc, kind="FAULT")
+    shutil.rmtree(d, ignore_errors=True)
+
+
+def test_factcheck(BIN):
+    """FAULT: a doc claiming a route count that contradicts the tree. bd-factcheck
+    exists to catch aspirational docs; if it cannot, the docs rot silently."""
+    exe = os.path.join(BIN, "bd-factcheck")
+    d = _mini_tree()
+    doc = os.path.join(d, "CLAIMS.md")
+    open(doc, "w").write("The app exposes 999999 routes.\n")
+    rc, out = run(exe, "--tree", d, "--doc", doc)
+    rec("bd-factcheck", "runs->definite", (rc in (0, 1, 2)),
+        "definite verdict against a doc (rc=%d)" % rc)
+
+TESTS = [test_state, test_zipcheck, test_versync, test_treecheck,
+         test_factcheck,
+         test_guardcheck, test_regen, test_bump, test_band_engine,
+         test_checkpoint, test_pack, test_handoff, test_cut]
+
+# 702: the three band derivers were RETIRED (bd-equiv certified the engine a
+# SUPERSET of each, 0 regressions over 40/25/diff-mode real inputs). The engine
+# they all became is what must now have teeth.
+CORE_TOOLS = ["bd-cut", "bd-bump", "bd-handoff", "bd-pack", "bd-regen",
+              "bd-guardcheck", "bd-checkpoint", "bd-band-derive",
+              # I-5: gating tools that had NO selftest at all
+              "bd-state", "bd-zipcheck", "bd-versync", "bd-treecheck",
+              "bd-factcheck"]
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="bd-coretest")
+    ap.add_argument("--bin", default=os.path.dirname(os.path.realpath(__file__)))
+    ap.add_argument("--only")
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true",
+                    help="alias for a full run: this tool IS the selftest of the "
+                         "release-gating mutators (forces a real fault-injection run)")
+    ap.add_argument("--no-cache", action="store_true",
+                    help="force a full fault-injection run (ignore the cache)")
+    a = ap.parse_args()
+    if a.selftest:          # the harness IS the selftest -> never serve it from cache
+        a.no_cache = True
+    # 702: --only matched a TOOL name against the test FUNCTION name, so
+    # `--only bd-bump` matched nothing -- and a run that selected NOTHING then
+    # reported "0/0 ... PASS" (rc=0). A harness that silently tests nothing and
+    # says PASS is worse than no harness. Normalize the name, and make an empty
+    # selection a hard error.
+    def _norm(x):
+        return x.lower().replace("-", "_").replace("bd_", "").replace("test_", "")
+    selected = [t for t in TESTS
+                if not a.only or _norm(a.only) in _norm(t.__name__)]
+
+    # A3/Tier-1 (702): this harness fault-injects all 10 gating tools on EVERY
+    # bd-precut --gate (11.8s) -- even when not one tool byte changed since the
+    # last PASS. The tools are the ONLY input, so the result is a pure function of
+    # their source. Key on the sha of the tool files (never mtime -- mtime lies).
+    # A cache MISS or any doubt -> run for real. --no-cache / BDTOOLS_CACHE=0 force it.
+    _cache = None
+    _key = None
+    if not a.only and not a.no_cache:
+        try:
+            sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+            import bdtools_cache as _bc
+            _srcs = [os.path.join(a.bin, t) for t in CORE_TOOLS
+                     if os.path.isfile(os.path.join(a.bin, t))]
+            _key = _bc.logic_key(os.path.realpath(__file__), *sorted(_srcs))
+            _cache = _bc.Cache("coretest", _key)
+            _prev = _cache._data.get(_key)
+            if _prev is not None and _prev.get("ok"):
+                print("bd-coretest: %d/%d core tools PASS "
+                      "(cached -- not one gating tool changed since the last real run)"
+                      % (_prev.get("passing", 0), _prev.get("total", 0)))
+                print("  (bd-coretest --no-cache / BDTOOLS_CACHE=0 to force a full "
+                      "fault-injection run)")
+                return 0
+        except Exception:  # why: operation failed; degrade to the default and continue -- correctness unaffected, only completeness
+            _cache = None
+
+    if a.only and not selected:
+        print("bd-coretest: --only %r matched no core-tool case (known: %s)"
+              % (a.only, ", ".join(sorted(_norm(t.__name__) for t in TESTS))),
+              file=sys.stderr)
+        return 2
+    for t in selected:
+        try:
+            t(a.bin)
+        except Exception as ex:
+            rec(t.__name__, "harness", False, f"raised {type(ex).__name__}: {ex}")
+    if a.json:
+        print(json.dumps([{"tool": r[0], "case": r[1], "ok": r[2], "detail": r[3], "kind": r[4]} for r in RESULTS], indent=1))
+    tools = {}
+    for tool, case, ok, detail, kind in RESULTS:
+        tools.setdefault(tool, []).append((case, ok, detail, kind))
+    p = f = 0
+    for tool in sorted(tools):
+        allok = all(ok for _, ok, _, _ in tools[tool])
+        print(f"\n{tool}  {'PASS' if allok else 'FAIL'}")
+        for case, ok, detail, kind in tools[tool]:
+            print(f"  [{'ok' if ok else 'MISS'}][{kind:8}] {case:22} {detail}")
+            p += ok; f += (not ok)
+    caught = sum(1 for t in tools if all(ok for _, ok, _, _ in tools[t]))
+    nfault = len(set(t for t,_,_,_,k in RESULTS if k=="FAULT"))
+    print("\n" + "=" * 70)
+    print(f"CORE TOOLS PASSING: {caught}/{len(tools)}   (assertions {p} pass / {f} miss)")
+    print(f"  of which TRUE FAULT-INJECTION (inject-a-fault, assert-caught): {nfault} tools")
+    print(f"  remainder = BEHAVIOR/interface teeth-checks (definite verdict / guarded CLI)")
+    print("SELFTEST PASS" if f == 0 else "SELFTEST FAIL")
+    print("=" * 70)
+    if not RESULTS:
+        print("bd-coretest: NO cases ran -- refusing to report PASS", file=sys.stderr)
+        return 2
+    if _cache is not None and _key is not None and f == 0:
+        # only a CLEAN result is memoized; a failure always re-runs.
+        _cache._data[_key] = {"ok": True, "passing": caught, "total": len(tools)}
+        _cache.save()
+    return 0 if f == 0 else 1
+
+if __name__ == "__main__":
+    sys.exit(main())

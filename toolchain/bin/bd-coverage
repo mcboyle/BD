@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""bd-coverage -- test-coverage gaps from COVERAGE_GAPS.json.
+
+Quick "what's under-tested?" without opening the JSON. Read-only.
+Usage: bd-coverage [--pk /mnt/project] [--work DIR]
+"""
+import argparse, json, os, sys
+G,Y,R,DIM,RST="\033[32m","\033[33m","\033[31m","\033[2m","\033[0m"
+def selftest():
+    import tempfile, os as _o, shutil as _sh, subprocess as _sp, sys as _s
+    exe=_o.path.realpath(__file__)
+    # FAULT: point at a tree with no COVERAGE_GAPS.json -> must NOT report success
+    d=tempfile.mkdtemp(prefix="ct_cov_")
+    r=_sp.run([_s.executable,exe,"--work",d,"--pk",d],capture_output=True,text=True)
+    ok=(r.returncode!=0 or "not found" in r.stdout)
+    print(("PASS" if ok else "FAIL")+"  NEG: absent COVERAGE_GAPS.json -> definite miss, not green (rc=%d)"%r.returncode)
+    _sh.rmtree(d,ignore_errors=True)
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL"); return 0 if ok else 1
+
+
+def main():
+    import sys as _s
+    if "--selftest" in _s.argv: return selftest()
+    ap=argparse.ArgumentParser(); ap.add_argument("--pk",default="/mnt/project"); ap.add_argument("--work","--tree",default="/home/claude/work")
+    a=ap.parse_args()
+    p=None
+    for c in (os.path.join(a.work,"COVERAGE_GAPS.json"),os.path.join(a.pk,"COVERAGE_GAPS.json")):
+        if os.path.exists(c): p=c; break
+    if not p: print("COVERAGE_GAPS.json not found"); return 1
+    try: d=json.load(open(p))
+    except Exception as e: print(f"parse error: {e}"); return 1
+    print(f"{DIM}{os.path.relpath(p)}{RST}")
+    def emit(obj,depth=0):
+        pad="  "*(depth+1)
+        if isinstance(obj,dict):
+            for k,v in list(obj.items())[:30]:
+                if isinstance(v,(dict,list)): print(f"{pad}{Y}{k}{RST}:"); emit(v,depth+1)
+                else: print(f"{pad}{k}: {v}")
+        elif isinstance(obj,list):
+            for it in obj[:30]: print(f"{pad}- {str(it)[:90]}")
+    emit(d)
+    return 0
+sys.exit(main())

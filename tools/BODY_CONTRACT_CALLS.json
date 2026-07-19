@@ -1,0 +1,3588 @@
+[
+ {
+  "file": "src/components/AddSiteWizard.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "password"
+  ],
+  "path": "/api/secrets/unlock",
+  "sample": {
+   "password": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/AddSiteWizard.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "name",
+   "start_url",
+   "login_url",
+   "username",
+   "password",
+   "cookie_file",
+   "download_dir",
+   "filename_template",
+   "user_field",
+   "pass_field",
+   "submit_btn"
+  ],
+  "path": "/api/sites",
+  "sample": {
+   "cookie_file": "x",
+   "download_dir": "x",
+   "filename_template": "x",
+   "login_url": "x",
+   "name": "x",
+   "pass_field": "x",
+   "password": "x",
+   "start_url": "x",
+   "submit_btn": "x",
+   "user_field": "x",
+   "username": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/AddSiteWizard.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "template_id"
+  ],
+  "path": "/api/sites/${}/templates/apply",
+  "sample": {
+   "template_id": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/AddSiteWizard.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "name",
+   "start_url",
+   "login_url",
+   "username",
+   "password",
+   "cookie_file",
+   "download_dir",
+   "filename_template",
+   "user_field",
+   "pass_field",
+   "submit_btn"
+  ],
+  "path": "/api/sites/validate",
+  "sample": {
+   "cookie_file": "x",
+   "download_dir": "x",
+   "filename_template": "x",
+   "login_url": "x",
+   "name": "x",
+   "pass_field": "x",
+   "password": "x",
+   "start_url": "x",
+   "submit_btn": "x",
+   "user_field": "x",
+   "username": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/AddSiteWizard.tsx",
+  "fn": "apiPut",
+  "keys": [
+   "password"
+  ],
+  "path": "/api/sites/${}",
+  "sample": {
+   "password": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/AddUrlDialog.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "site_id",
+   "url"
+  ],
+  "path": "/api/queue/v2/add_url",
+  "sample": {
+   "site_id": "x",
+   "url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/AddUrlDialog.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "url"
+  ],
+  "path": "/api/scrape_listing",
+  "sample": {
+   "url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/AddUrlDialog.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "text"
+  ],
+  "path": "/api/sites/${}/load_urls",
+  "sample": {
+   "text": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/ApiTokensPanel.tsx",
+  "fn": "apiDelete",
+  "keys": [],
+  "path": "/api/api_tokens/${}",
+  "sample": {},
+  "unknownType": false
+ },
+ {
+  "file": "src/components/ApiTokensPanel.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "scope",
+   "label",
+   "ttl_hours"
+  ],
+  "path": "/api/api_tokens",
+  "sample": {
+   "label": "x",
+   "scope": "read",
+   "ttl_hours": 1
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/AttentionBanner.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "site_id",
+   "kind"
+  ],
+  "path": "/api/dashboard/v2/resolve",
+  "sample": {
+   "kind": "x",
+   "site_id": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/CaptureBrowser.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "token"
+  ],
+  "path": "/api/captures/build_draft",
+  "sample": {
+   "token": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/CaptureBrowser.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/captures/scan",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/components/CaptureBrowser.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "token"
+  ],
+  "path": "/api/captures/scrub",
+  "sample": {
+   "token": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/CommandPalette.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/pause_all",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/components/CommandPalette.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/resume_all",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/components/DiscoRunPanel.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/discovery/disco/run",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/components/DriftRepairPanel.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "force"
+  ],
+  "path": "/api/automation/drift_repair/run",
+  "sample": {
+   "force": false
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/DriftRepairPanel.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "enabled"
+  ],
+  "path": "/api/automation/drift_repair/toggle",
+  "sample": {
+   "enabled": false
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/EnvironmentSettings.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "updates"
+  ],
+  "path": "/api/settings/envfile",
+  "sample": {
+   "updates": {}
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/JobErrorModal.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "site_id",
+   "url"
+  ],
+  "path": "/api/queue/v2/cancel",
+  "sample": {
+   "site_id": "x",
+   "url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/JobErrorModal.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "url"
+  ],
+  "path": "/api/sites/${}/retry_one",
+  "sample": {
+   "url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/ProfileCard.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/sites/${}/profile/seed",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/components/QueueOpsDialog.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "site_id",
+   "url"
+  ],
+  "path": "/api/queue/dead_letter/requeue",
+  "sample": {
+   "site_id": "x",
+   "url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/QueueOpsDialog.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "pattern",
+   "replacement",
+   "dry_run"
+  ],
+  "path": "/api/sites/${}/bulk_url_transform",
+  "sample": {
+   "dry_run": false,
+   "pattern": "x",
+   "replacement": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/QueueOpsDialog.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/sites/${}/clear",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/components/SiteTemplateCard.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/sites/${}/session/reuse_onboarding",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/components/SiteTemplateCard.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/sites/${}/template_capture_cancel",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/components/SiteTemplateCard.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/sites/${}/template_capture_finish",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/components/SiteTemplateCard.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "run"
+  ],
+  "path": "/api/sites/${}/template_onboard",
+  "sample": {
+   "run": false
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/SortableQueueGroup.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "ordering"
+  ],
+  "path": "/api/sites/${}/jobs/reorder",
+  "sample": {
+   "ordering": {}
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/StoreRawSettings.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "store",
+   "text"
+  ],
+  "path": "/api/settings/store-raw",
+  "sample": {
+   "store": "vpn",
+   "text": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/StoreRawSettings.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "old_id",
+   "new_id"
+  ],
+  "path": "/api/settings/store-raw/rekey",
+  "sample": {
+   "new_id": "x",
+   "old_id": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/TakeoverViewer.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/cockpit/api/takeover/${}/input",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/components/ui/PlainLanguageHint.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "message"
+  ],
+  "path": "/api/a11y/plain_language",
+  "sample": {
+   "message": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useAiChat.ts",
+  "fn": "apiPost",
+  "keys": [
+   "prompt",
+   "model",
+   "system",
+   "image_b64"
+  ],
+  "path": "/api/ai/chat",
+  "sample": {
+   "image_b64": "x",
+   "model": "x",
+   "prompt": "x",
+   "system": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useAiHelpers.ts",
+  "fn": "apiPost",
+  "keys": [
+   "element_desc"
+  ],
+  "path": "/api/ai/classify",
+  "sample": {
+   "element_desc": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useAiHelpers.ts",
+  "fn": "apiPost",
+  "keys": [
+   "filename"
+  ],
+  "path": "/api/ai/normalize_resolution",
+  "sample": {
+   "filename": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useAiHelpers.ts",
+  "fn": "apiPost",
+  "keys": [
+   "url"
+  ],
+  "path": "/api/sites/${}/ai_reanalyze",
+  "sample": {
+   "url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useAlertRules.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/alerts/evaluate",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useAlertRules.ts",
+  "fn": "apiPost",
+  "keys": [
+   "id",
+   "name",
+   "metric",
+   "op",
+   "threshold",
+   "duration_minutes",
+   "severity",
+   "cooldown_minutes",
+   "enabled",
+   "builtin"
+  ],
+  "path": "/api/alerts/rules",
+  "sample": {
+   "builtin": false,
+   "cooldown_minutes": 1,
+   "duration_minutes": 1,
+   "enabled": false,
+   "id": "x",
+   "metric": "x",
+   "name": "x",
+   "op": "x",
+   "severity": "x",
+   "threshold": 1
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useAlertRules.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/alerts/rules/${}/remove",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useApproval.ts",
+  "fn": "apiPost",
+  "keys": [
+   "key",
+   "decision"
+  ],
+  "path": "/api/sites/${}/auto_submit_decision",
+  "sample": {
+   "decision": "approve",
+   "key": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useApproval.ts",
+  "fn": "apiPost",
+  "keys": [
+   "action_url",
+   "decision"
+  ],
+  "path": "/api/sites/${}/post_reveal_decision",
+  "sample": {
+   "action_url": "x",
+   "decision": "approve"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useBulkEnqueue.ts",
+  "fn": "apiPost",
+  "keys": [
+   "site_id",
+   "urls"
+  ],
+  "path": "/api/bulk/enqueue",
+  "sample": {
+   "site_id": "x",
+   "urls": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useCluster.ts",
+  "fn": "apiPost",
+  "keys": [
+   "image",
+   "port",
+   "install_dir",
+   "downloads_dir",
+   "tz",
+   "with_qbittorrent",
+   "with_flaresolverr",
+   "with_vpn"
+  ],
+  "path": "/api/edge_deploy/all",
+  "sample": {
+   "downloads_dir": "x",
+   "image": "x",
+   "install_dir": "x",
+   "port": 1,
+   "tz": "x",
+   "with_flaresolverr": false,
+   "with_qbittorrent": false,
+   "with_vpn": false
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useCluster.ts",
+  "fn": "apiPost",
+  "keys": [
+   "image",
+   "port",
+   "install_dir",
+   "downloads_dir",
+   "tz",
+   "with_qbittorrent",
+   "with_flaresolverr",
+   "with_vpn"
+  ],
+  "path": "/api/edge_deploy/compose",
+  "sample": {
+   "downloads_dir": "x",
+   "image": "x",
+   "install_dir": "x",
+   "port": 1,
+   "tz": "x",
+   "with_flaresolverr": false,
+   "with_qbittorrent": false,
+   "with_vpn": false
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useCluster.ts",
+  "fn": "apiPost",
+  "keys": [
+   "instance_id",
+   "base_url",
+   "version",
+   "hostname"
+  ],
+  "path": "/api/fed/manual_register",
+  "sample": {
+   "base_url": "x",
+   "hostname": "x",
+   "instance_id": "x",
+   "version": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useCluster.ts",
+  "fn": "apiPost",
+  "keys": [
+   "id",
+   "action"
+  ],
+  "path": "/api/fed/pending_review",
+  "sample": {
+   "action": "approve",
+   "id": 1
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useCluster.ts",
+  "fn": "apiPost",
+  "keys": [
+   "instance_id",
+   "tier"
+  ],
+  "path": "/api/fed/set_trust",
+  "sample": {
+   "instance_id": "x",
+   "tier": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useCluster.ts",
+  "fn": "apiPost",
+  "keys": [
+   "token"
+  ],
+  "path": "/api/pair/redeem",
+  "sample": {
+   "token": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useCookieClipboard.ts",
+  "fn": "apiPost",
+  "keys": [
+   "text"
+  ],
+  "path": "/api/cookie_clipboard/parse",
+  "sample": {
+   "text": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useCookieClipboard.ts",
+  "fn": "apiPost",
+  "keys": [
+   "text"
+  ],
+  "path": "/api/cookie_clipboard/save/${}",
+  "sample": {
+   "text": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useDashboardData.ts",
+  "fn": "apiPost",
+  "keys": [
+   "text"
+  ],
+  "path": "/api/route_urls",
+  "sample": {
+   "text": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useDevTools.ts",
+  "fn": "apiPost",
+  "keys": [
+   "target",
+   "kind"
+  ],
+  "path": "/api/dev/run",
+  "sample": {
+   "kind": "x",
+   "target": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useDevTools.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/synthetic_tests/run_all",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useGovernance.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/retention/apply",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useGovernance.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/rights/remove/${}",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useGovernance.ts",
+  "fn": "apiPost",
+  "keys": [
+   "label",
+   "format",
+   "destination",
+   "cadence_hours",
+   "retention_count"
+  ],
+  "path": "/api/scheduled_exports/add",
+  "sample": {
+   "cadence_hours": 1,
+   "destination": "x",
+   "format": "x",
+   "label": "x",
+   "retention_count": 1
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useGovernance.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/scheduled_exports/remove/${}",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useGovernance.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/scheduled_exports/run_now",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useHistoryData.ts",
+  "fn": "apiDelete",
+  "keys": [],
+  "path": "/api/saved_searches/${}",
+  "sample": {},
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useHistoryData.ts",
+  "fn": "apiPatch",
+  "keys": [],
+  "path": "/api/saved_searches/${}",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useHistoryData.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/history/vacuum",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useHistoryData.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/logs/clear",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useHistoryData.ts",
+  "fn": "apiPost",
+  "keys": [
+   "name",
+   "query",
+   "site_id",
+   "status"
+  ],
+  "path": "/api/saved_searches",
+  "sample": {
+   "name": "x",
+   "query": "x",
+   "site_id": "x",
+   "status": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useHistoryData.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/saved_searches/${}/run",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useHistoryData.ts",
+  "fn": "apiPost",
+  "keys": [
+   "events"
+  ],
+  "path": "/api/ui_events",
+  "sample": {
+   "events": [
+    {
+     "category": "x",
+     "data": {
+      "route": "x"
+     },
+     "event": "x",
+     "ts": 1
+    }
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useIntegrations.ts",
+  "fn": "apiPost",
+  "keys": [
+   "provider",
+   "endpoint",
+   "api_key"
+  ],
+  "path": "/api/ai/models",
+  "sample": {
+   "api_key": "x",
+   "endpoint": "x",
+   "provider": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useIntegrations.ts",
+  "fn": "apiPost",
+  "keys": [
+   "site_root"
+  ],
+  "path": "/api/jsonapi/probe",
+  "sample": {
+   "site_root": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useIntegrations.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/marketplace/export/${}",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useIntegrations.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/subtitles/fetch/${}",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useIntegrations.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/thumbnail_sheets/contact_sheet/${}",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useIntegrations.ts",
+  "fn": "apiPost",
+  "keys": [
+   "metadata"
+  ],
+  "path": "/api/tpdb/apply/${}",
+  "sample": {
+   "metadata": {}
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useIntegrations.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/tpdb/lookup/${}",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useKnowledgeNotes.ts",
+  "fn": "apiDelete",
+  "keys": [],
+  "path": "/api/knowledge/notes/${}",
+  "sample": {},
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useKnowledgeNotes.ts",
+  "fn": "apiPost",
+  "keys": [
+   "site_id",
+   "kind",
+   "pattern",
+   "resolution"
+  ],
+  "path": "/api/knowledge/notes",
+  "sample": {
+   "kind": "failure",
+   "pattern": "x",
+   "resolution": "x",
+   "site_id": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useLibraryOps.ts",
+  "fn": "apiDelete",
+  "keys": [],
+  "path": "/api/library/${}/tags/${}",
+  "sample": {},
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useLibraryOps.ts",
+  "fn": "apiPost",
+  "keys": [
+   "rating"
+  ],
+  "path": "/api/library/${}/rating",
+  "sample": {
+   "rating": 1
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useLibraryOps.ts",
+  "fn": "apiPost",
+  "keys": [
+   "tag"
+  ],
+  "path": "/api/library/${}/tags",
+  "sample": {
+   "tag": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useLibraryOps.ts",
+  "fn": "apiPost",
+  "keys": [
+   "watched"
+  ],
+  "path": "/api/library/${}/watched",
+  "sample": {
+   "watched": false
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useLibraryOps.ts",
+  "fn": "apiPost",
+  "keys": [
+   "download_dir",
+   "site_id"
+  ],
+  "path": "/api/library/audit",
+  "sample": {
+   "download_dir": "x",
+   "site_id": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useLibraryOps.ts",
+  "fn": "apiPost",
+  "keys": [
+   "download_dir",
+   "site_id"
+  ],
+  "path": "/api/library/orphans",
+  "sample": {
+   "download_dir": "x",
+   "site_id": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useLibraryOps.ts",
+  "fn": "apiPost",
+  "keys": [
+   "site_id",
+   "overwrite",
+   "dry_run"
+  ],
+  "path": "/api/library/regen_nfos",
+  "sample": {
+   "dry_run": false,
+   "overwrite": false,
+   "site_id": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useLibraryOps.ts",
+  "fn": "apiPost",
+  "keys": [
+   "paths"
+  ],
+  "path": "/api/storage_rebalance/inventory",
+  "sample": {
+   "paths": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useLibraryOps.ts",
+  "fn": "apiPost",
+  "keys": [
+   "history_ids",
+   "tag"
+  ],
+  "path": "/api/tags/add",
+  "sample": {
+   "history_ids": [
+    1
+   ],
+   "tag": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useLibraryOps.ts",
+  "fn": "apiPost",
+  "keys": [
+   "history_ids"
+  ],
+  "path": "/api/tags/for_many",
+  "sample": {
+   "history_ids": [
+    1
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useLibraryOps.ts",
+  "fn": "apiPost",
+  "keys": [
+   "history_ids",
+   "tag"
+  ],
+  "path": "/api/tags/remove",
+  "sample": {
+   "history_ids": [
+    1
+   ],
+   "tag": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useLibraryOps.ts",
+  "fn": "apiPost",
+  "keys": [
+   "old",
+   "new"
+  ],
+  "path": "/api/tags/rename",
+  "sample": {
+   "new": "x",
+   "old": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useLive.ts",
+  "fn": "apiPost",
+  "keys": [
+   "url"
+  ],
+  "path": "/api/live/parse_url",
+  "sample": {
+   "url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useLive.ts",
+  "fn": "apiPost",
+  "keys": [
+   "recording_id"
+  ],
+  "path": "/api/live/unwatch",
+  "sample": {
+   "recording_id": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useLive.ts",
+  "fn": "apiPost",
+  "keys": [
+   "url",
+   "output_dir",
+   "site_override",
+   "room_override"
+  ],
+  "path": "/api/live/watch",
+  "sample": {
+   "output_dir": "x",
+   "room_override": "x",
+   "site_override": "x",
+   "url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useMacrosOps.ts",
+  "fn": "apiPost",
+  "keys": [
+   "start_url",
+   "headless",
+   "persist_result"
+  ],
+  "path": "/api/macros/replay/${}/${}",
+  "sample": {
+   "headless": false,
+   "persist_result": false,
+   "start_url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useMacrosOps.ts",
+  "fn": "apiPost",
+  "keys": [
+   "site_id",
+   "name",
+   "actions",
+   "description",
+   "tags"
+  ],
+  "path": "/api/macros/save",
+  "sample": {
+   "actions": [
+    {}
+   ],
+   "description": "x",
+   "name": "x",
+   "site_id": "x",
+   "tags": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useNeedsReview.ts",
+  "fn": "apiPost",
+  "keys": [
+   "urls"
+  ],
+  "path": "/api/sites/${}/bulk_approve",
+  "sample": {
+   "urls": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useNeedsReview.ts",
+  "fn": "apiPost",
+  "keys": [
+   "url",
+   "status"
+  ],
+  "path": "/api/sites/${}/jobs/mark",
+  "sample": {
+   "status": "x",
+   "url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useNeedsReview.ts",
+  "fn": "apiPost",
+  "keys": [
+   "url"
+  ],
+  "path": "/api/sites/${}/retry_one",
+  "sample": {
+   "url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useNotificationsData.ts",
+  "fn": "apiPost",
+  "keys": [
+   "notify_apprise_enabled",
+   "notify_apprise_urls"
+  ],
+  "path": "/api/notify/apprise/settings",
+  "sample": {
+   "notify_apprise_enabled": false,
+   "notify_apprise_urls": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useNotificationsData.ts",
+  "fn": "apiPost",
+  "keys": [
+   "title",
+   "body"
+  ],
+  "path": "/api/notify/apprise/test",
+  "sample": {
+   "body": "x",
+   "title": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useNotificationsData.ts",
+  "fn": "apiPost",
+  "keys": [
+   "urls"
+  ],
+  "path": "/api/notify/apprise/validate",
+  "sample": {
+   "urls": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useNotificationsData.ts",
+  "fn": "apiPost",
+  "keys": [
+   "tg_bot_enabled",
+   "tg_bot_token",
+   "tg_bot_token_clear",
+   "tg_bot_allowlist"
+  ],
+  "path": "/api/tg/settings",
+  "sample": {
+   "tg_bot_allowlist": "x",
+   "tg_bot_enabled": false,
+   "tg_bot_token": "x",
+   "tg_bot_token_clear": false
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useNotificationsData.ts",
+  "fn": "apiPost",
+  "keys": [
+   "message"
+  ],
+  "path": "/api/tg/test",
+  "sample": {
+   "message": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useOpsControls.ts",
+  "fn": "apiPost",
+  "keys": [
+   "n"
+  ],
+  "path": "/api/concurrent/${}",
+  "sample": {
+   "n": 1
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useOpsControls.ts",
+  "fn": "apiPost",
+  "keys": [
+   "path"
+  ],
+  "path": "/api/crash_recovery/${}",
+  "sample": {
+   "path": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useOpsControls.ts",
+  "fn": "apiPost",
+  "keys": [
+   "path"
+  ],
+  "path": "/api/file/reveal",
+  "sample": {
+   "path": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useOpsControls.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/runners/pause_all",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useOpsControls.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/runners/resume_all",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useOpsControls.ts",
+  "fn": "apiPost",
+  "keys": [
+   "csv"
+  ],
+  "path": "/api/sites/bulk_csv",
+  "sample": {
+   "csv": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/usePush.ts",
+  "fn": "apiPost",
+  "keys": [
+   "endpoint",
+   "expirationTime",
+   "keys"
+  ],
+  "path": "/api/push/subscribe",
+  "sample": {
+   "endpoint": "x",
+   "expirationTime": 1,
+   "keys": {}
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/usePush.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/push/test",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/usePush.ts",
+  "fn": "apiPost",
+  "keys": [
+   "endpoint"
+  ],
+  "path": "/api/push/unsubscribe",
+  "sample": {
+   "endpoint": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useQueueTemplates.ts",
+  "fn": "apiDelete",
+  "keys": [],
+  "path": "/api/queue_templates/${}",
+  "sample": {},
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useQueueTemplates.ts",
+  "fn": "apiPost",
+  "keys": [
+   "name",
+   "urls",
+   "origin_site_id",
+   "note"
+  ],
+  "path": "/api/queue_templates",
+  "sample": {
+   "name": "x",
+   "note": "x",
+   "origin_site_id": "x",
+   "urls": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useQueueTemplates.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/queue_templates/${}/apply/${}?mode=${}",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useQueueTemplates.ts",
+  "fn": "apiPut",
+  "keys": [
+   "name",
+   "urls",
+   "note"
+  ],
+  "path": "/api/queue_templates/${}",
+  "sample": {
+   "name": "x",
+   "note": "x",
+   "urls": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useSchedules.ts",
+  "fn": "apiPost",
+  "keys": [
+   "site_id",
+   "cadence_hours",
+   "label",
+   "urls"
+  ],
+  "path": "/api/schedules",
+  "sample": {
+   "cadence_hours": 1,
+   "label": "x",
+   "site_id": "x",
+   "urls": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useSchedules.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/schedules/${}/remove",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useSchedules.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/schedules/${}/run_now",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useSemanticSearch.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/semantic/reindex",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useSemanticSearch.ts",
+  "fn": "apiPost",
+  "keys": [
+   "query",
+   "k"
+  ],
+  "path": "/api/semantic/search",
+  "sample": {
+   "k": 1,
+   "query": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useSiteSearch.ts",
+  "fn": "apiPost",
+  "keys": [
+   "query",
+   "max_results_per_site",
+   "sites"
+  ],
+  "path": "/api/search/all",
+  "sample": {
+   "max_results_per_site": 1,
+   "query": "x",
+   "sites": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useSiteSearch.ts",
+  "fn": "apiPost",
+  "keys": [
+   "site_id",
+   "query",
+   "max_results"
+  ],
+  "path": "/api/search/site",
+  "sample": {
+   "max_results": 1,
+   "query": "x",
+   "site_id": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useSyncedSoundPref.ts",
+  "fn": "apiPost",
+  "keys": [
+   "sound_on_complete"
+  ],
+  "path": "/api/global_config",
+  "sample": {
+   "sound_on_complete": false
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useTemplateAuthoring.ts",
+  "fn": "apiPost",
+  "keys": [
+   "html",
+   "page_url",
+   "site_hint_name"
+  ],
+  "path": "/api/template/extract",
+  "sample": {
+   "html": "x",
+   "page_url": "x",
+   "site_hint_name": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useTemplateAuthoring.ts",
+  "fn": "apiPost",
+  "keys": [
+   "html",
+   "template",
+   "candidates"
+  ],
+  "path": "/api/template/refine",
+  "sample": {
+   "candidates": [
+    {}
+   ],
+   "html": "x",
+   "template": {}
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useTemplateAuthoring.ts",
+  "fn": "apiPost",
+  "keys": [
+   "url",
+   "template",
+   "mode",
+   "wait_ms"
+  ],
+  "path": "/api/template/sandbox",
+  "sample": {
+   "mode": "http",
+   "template": {},
+   "url": "x",
+   "wait_ms": 1
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useWebhooks.ts",
+  "fn": "apiDelete",
+  "keys": [],
+  "path": "/api/webhooks/${}",
+  "sample": {},
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useWebhooks.ts",
+  "fn": "apiPost",
+  "keys": [
+   "url",
+   "events",
+   "secret"
+  ],
+  "path": "/api/webhooks",
+  "sample": {
+   "events": [
+    "x"
+   ],
+   "secret": "x",
+   "url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useWebhooks.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/webhooks/drain",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/hooks/useWidgetSelection.ts",
+  "fn": "apiDelete",
+  "keys": [],
+  "path": "/api/widgets/${}",
+  "sample": {},
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useWidgetSelection.ts",
+  "fn": "apiPut",
+  "keys": [
+   "widgets"
+  ],
+  "path": "/api/widgets/${}",
+  "sample": {
+   "widgets": [
+    {
+     "id": "x",
+     "size": "x"
+    }
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/lib/auth.ts",
+  "fn": "apiDelete",
+  "keys": [],
+  "path": "/api/auth/users/${}",
+  "sample": {},
+  "unknownType": false
+ },
+ {
+  "file": "src/lib/auth.ts",
+  "fn": "apiPost",
+  "keys": [
+   "username",
+   "password"
+  ],
+  "path": "/api/auth/login",
+  "sample": {
+   "password": "x",
+   "username": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/lib/auth.ts",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/auth/logout",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/lib/auth.ts",
+  "fn": "apiPost",
+  "keys": [
+   "username",
+   "password",
+   "role"
+  ],
+  "path": "/api/auth/users",
+  "sample": {
+   "password": "x",
+   "role": "x",
+   "username": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/lib/auth.ts",
+  "fn": "apiPost",
+  "keys": [
+   "password"
+  ],
+  "path": "/api/auth/users/${}/password",
+  "sample": {
+   "password": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/lib/auth.ts",
+  "fn": "apiPost",
+  "keys": [
+   "role"
+  ],
+  "path": "/api/auth/users/${}/role",
+  "sample": {
+   "role": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/lib/guidedCapture.ts",
+  "fn": "apiPost",
+  "keys": [
+   "path",
+   "confirm"
+  ],
+  "path": "/api/captures/allowlist_add",
+  "sample": {
+   "confirm": false,
+   "path": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/lib/guidedCapture.ts",
+  "fn": "apiPost",
+  "keys": [
+   "url",
+   "template",
+   "mode"
+  ],
+  "path": "/api/template/sandbox",
+  "sample": {
+   "mode": "http",
+   "template": {},
+   "url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/lib/guidedCapture.ts",
+  "fn": "apiPost",
+  "keys": [
+   "file",
+   "trigger_match_count"
+  ],
+  "path": "/api/template_manager/promote_check",
+  "sample": {
+   "file": "x",
+   "trigger_match_count": 1
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/AiAssist.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/ai/models",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/AiTeach.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "broken_selectors",
+   "working_selectors",
+   "dom_excerpt",
+   "page_url"
+  ],
+  "path": "/api/ai/diff_repair",
+  "sample": {
+   "broken_selectors": [
+    "x"
+   ],
+   "dom_excerpt": "x",
+   "page_url": "x",
+   "working_selectors": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/AiTeach.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "repairs",
+   "removed",
+   "dry_run"
+  ],
+  "path": "/api/sites/${}/learned/apply_repairs",
+  "sample": {
+   "dry_run": false,
+   "removed": [
+    "x"
+   ],
+   "repairs": [
+    {
+     "new_selector": "x",
+     "old_selector": "x",
+     "role": "row_selectors"
+    }
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Backup.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "path"
+  ],
+  "path": "/api/backup/drift",
+  "sample": {
+   "path": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Backup.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "passphrase",
+   "include_db"
+  ],
+  "path": "/api/backup/preview",
+  "sample": {
+   "include_db": false,
+   "passphrase": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Backup.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "path"
+  ],
+  "path": "/api/backup/smoke_restore",
+  "sample": {
+   "path": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Backup.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "path"
+  ],
+  "path": "/api/backup/verify",
+  "sample": {
+   "path": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Backup.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "db_name"
+  ],
+  "path": "/api/replication/restore",
+  "sample": {
+   "db_name": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Backup.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/replication/start",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Backup.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/replication/stop",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/BatchOps.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "site_id",
+   "min_file_size_mb",
+   "limit"
+  ],
+  "path": "/api/batch/dedup_scan",
+  "sample": {
+   "limit": 1,
+   "min_file_size_mb": 1,
+   "site_id": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/BatchOps.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "filter",
+   "dry_run"
+  ],
+  "path": "/api/batch/delete",
+  "sample": {
+   "dry_run": false,
+   "filter": {}
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/BatchOps.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "filter",
+   "target_dir",
+   "dry_run"
+  ],
+  "path": "/api/batch/move",
+  "sample": {
+   "dry_run": false,
+   "filter": {},
+   "target_dir": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/BatchOps.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "filter",
+   "dry_run",
+   "reset_to_status"
+  ],
+  "path": "/api/batch/retry",
+  "sample": {
+   "dry_run": false,
+   "filter": {},
+   "reset_to_status": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/BatchOps.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "threshold"
+  ],
+  "path": "/api/cookie_relogin/check",
+  "sample": {
+   "threshold": 1
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/BatchOps.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/sites/import",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/CaptureWorkflow.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "dom_excerpt",
+   "page_url",
+   "context_hint"
+  ],
+  "path": "/api/ai/suggest_selectors",
+  "sample": {
+   "context_hint": "x",
+   "dom_excerpt": "x",
+   "page_url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/CaptureWorkflow.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "name",
+   "login_url",
+   "username",
+   "password",
+   "download_dir"
+  ],
+  "path": "/api/captures/setup_site",
+  "sample": {
+   "download_dir": "x",
+   "login_url": "x",
+   "name": "x",
+   "password": "x",
+   "username": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/CaptureWorkflow.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "task_id",
+   "action"
+  ],
+  "path": "/api/captures/suggest_rows",
+  "sample": {
+   "action": "x",
+   "task_id": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/CaptureWorkflow.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "site_id",
+   "template",
+   "url",
+   "persist",
+   "probe",
+   "force_download"
+  ],
+  "path": "/api/template/test_extract",
+  "sample": {
+   "force_download": false,
+   "persist": false,
+   "probe": false,
+   "site_id": "x",
+   "template": {},
+   "url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/CaptureWorkflow.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "file",
+   "enable"
+  ],
+  "path": "/api/template_manager/promote",
+  "sample": {
+   "enable": false,
+   "file": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/CaptureWorkflow.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "task_id",
+   "discard"
+  ],
+  "path": "/cockpit/api/captures/finish",
+  "sample": {
+   "discard": false,
+   "task_id": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/CaptureWorkflow.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "task_id"
+  ],
+  "path": "/cockpit/api/captures/goto",
+  "sample": {
+   "task_id": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/CaptureWorkflow.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "task_id"
+  ],
+  "path": "/cockpit/api/captures/normalize",
+  "sample": {
+   "task_id": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/CaptureWorkflow.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "task_id",
+   "action"
+  ],
+  "path": "/cockpit/api/captures/pick",
+  "sample": {
+   "action": "x",
+   "task_id": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/CaptureWorkflow.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "name",
+   "params"
+  ],
+  "path": "/cockpit/api/run-capture",
+  "sample": {
+   "name": "x",
+   "params": {
+    "url": "x"
+   }
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Dedup.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "path",
+   "distance"
+  ],
+  "path": "/api/dedup/find",
+  "sample": {
+   "distance": 1,
+   "path": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Dedup.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "path"
+  ],
+  "path": "/api/dedup/remove",
+  "sample": {
+   "path": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Dedup.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "root"
+  ],
+  "path": "/api/dedup/scan",
+  "sample": {
+   "root": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Dedup.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/dedup/scan/cancel",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/DomAnalyzer.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "capture"
+  ],
+  "path": "/api/analyzer/load",
+  "sample": {
+   "capture": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/DomAnalyzer.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "capture",
+   "selector",
+   "role",
+   "name",
+   "host"
+  ],
+  "path": "/api/analyzer/pin",
+  "sample": {
+   "capture": "x",
+   "host": "x",
+   "name": "x",
+   "role": "x",
+   "selector": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/DomAnalyzer.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "capture",
+   "selectors"
+  ],
+  "path": "/api/analyzer/test",
+  "sample": {
+   "capture": "x",
+   "selectors": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/DomAnalyzer.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "capture",
+   "max_depth",
+   "max_children"
+  ],
+  "path": "/api/analyzer/tree",
+  "sample": {
+   "capture": "x",
+   "max_children": 1,
+   "max_depth": 1
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/DryRunInspector.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "html"
+  ],
+  "path": "/api/sites/${}/candidates/inspect",
+  "sample": {
+   "html": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/DryRunInspector.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "html"
+  ],
+  "path": "/api/sites/${}/template/dry_run",
+  "sample": {
+   "html": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/ImportViews.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "csv"
+  ],
+  "path": "/cockpit/api/import-plan/preview",
+  "sample": {
+   "csv": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/ImportViews.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "id"
+  ],
+  "path": "/cockpit/api/saved-views/delete",
+  "sample": {
+   "id": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/ImportsCenter.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "url"
+  ],
+  "path": "/api/captcha/dismiss",
+  "sample": {
+   "url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/ImportsCenter.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "url"
+  ],
+  "path": "/api/captcha/resolved",
+  "sample": {
+   "url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/ImportsCenter.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "url"
+  ],
+  "path": "/api/captcha/start_solve",
+  "sample": {
+   "url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/ImportsCenter.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/marketplace/import",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/ImportsCenter.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/marketplace/import/preview",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/ImportsCenter.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/user_templates/import/preview?merge=${}",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/ImportsCenter.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/user_templates/import?merge=${}",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Library.tsx",
+  "fn": "apiDelete",
+  "keys": [],
+  "path": "/api/library/${}",
+  "sample": {},
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Library.tsx",
+  "fn": "apiDelete",
+  "keys": [],
+  "path": "/api/library/tags/${}",
+  "sample": {},
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Library.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/library/scan/cancel",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Library.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "roots"
+  ],
+  "path": "/api/library/scan/start",
+  "sample": {
+   "roots": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Library.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/stream/rotate_secret",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Library.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "ttl_seconds"
+  ],
+  "path": "/api/stream/token/${}",
+  "sample": {
+   "ttl_seconds": 1
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Maintenance.tsx",
+  "fn": "apiDelete",
+  "keys": [],
+  "path": "/api/user_templates/${}",
+  "sample": {},
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Maintenance.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/auth_health/check/${}",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Maintenance.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/auth_health/check_all",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Maintenance.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/daily_budget/reset/${}",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Maintenance.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/dedup/scan/cancel",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Maintenance.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "days"
+  ],
+  "path": "/api/history/prune",
+  "sample": {
+   "days": 1
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Maintenance.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "kind",
+   "item_id"
+  ],
+  "path": "/api/interop/acknowledge",
+  "sample": {
+   "item_id": "x",
+   "kind": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Maintenance.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "kind",
+   "item_id",
+   "enabled"
+  ],
+  "path": "/api/interop/enable",
+  "sample": {
+   "enabled": false,
+   "item_id": "x",
+   "kind": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Maintenance.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "kind",
+   "item_id",
+   "source"
+  ],
+  "path": "/api/interop/register",
+  "sample": {
+   "item_id": "x",
+   "kind": "x",
+   "source": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Maintenance.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "disabled",
+   "allow_full_access",
+   "node_bin",
+   "granted_capabilities"
+  ],
+  "path": "/api/plugins/config",
+  "sample": {
+   "allow_full_access": false,
+   "disabled": [
+    "x"
+   ],
+   "granted_capabilities": [
+    "x"
+   ],
+   "node_bin": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Maintenance.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/plugins/reload",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Maintenance.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "file",
+   "ack"
+  ],
+  "path": "/api/plugins/uninstall",
+  "sample": {
+   "ack": false,
+   "file": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Maintenance.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/selector_drift/reset/${}",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/MoreActions.tsx",
+  "fn": "apiDelete",
+  "keys": [],
+  "path": "/api/shares/${}",
+  "sample": {},
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/MoreActions.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/import/cancel/${}",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/MoreActions.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "text"
+  ],
+  "path": "/api/import/start/${}",
+  "sample": {
+   "text": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/MoreActions.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "hash_hex",
+   "reason"
+  ],
+  "path": "/api/rights/block_hash",
+  "sample": {
+   "hash_hex": "x",
+   "reason": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/MoreActions.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "pattern",
+   "reason"
+  ],
+  "path": "/api/rights/block_url",
+  "sample": {
+   "pattern": "x",
+   "reason": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/MoreActions.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "tag"
+  ],
+  "path": "/api/tags/delete",
+  "sample": {
+   "tag": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/PoolsMacros.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/macros/delete/${}/${}",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/PoolsMacros.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/sites/${}/account_pool/reset/${}",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Queue.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/pause_all",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Queue.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "jobs"
+  ],
+  "path": "/api/queue/v2/bulk_cancel",
+  "sample": {
+   "jobs": [
+    {
+     "site_id": "x",
+     "url": "x"
+    }
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Queue.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "site_id",
+   "url"
+  ],
+  "path": "/api/queue/v2/cancel",
+  "sample": {
+   "site_id": "x",
+   "url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Queue.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/resume_all",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Queue.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/sites/${}/${}",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Queue.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "urls"
+  ],
+  "path": "/api/sites/${}/bulk_pause",
+  "sample": {
+   "urls": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Queue.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "urls",
+   "priority"
+  ],
+  "path": "/api/sites/${}/bulk_priority",
+  "sample": {
+   "priority": "x",
+   "urls": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Queue.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "urls"
+  ],
+  "path": "/api/sites/${}/bulk_resume",
+  "sample": {
+   "urls": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Queue.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "urls"
+  ],
+  "path": "/api/sites/${}/bulk_retry",
+  "sample": {
+   "urls": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Queue.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "urls"
+  ],
+  "path": "/api/sites/${}/jobs/bulk_delete",
+  "sample": {
+   "urls": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Queue.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "urls",
+   "status"
+  ],
+  "path": "/api/sites/${}/jobs/bulk_mark",
+  "sample": {
+   "status": "x",
+   "urls": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Queue.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "urls",
+   "priority"
+  ],
+  "path": "/api/sites/${}/jobs/bulk_priority",
+  "sample": {
+   "priority": "x",
+   "urls": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Queue.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "url",
+   "priority"
+  ],
+  "path": "/api/sites/${}/priority",
+  "sample": {
+   "priority": "x",
+   "url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Queue.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/start_all",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Secrets.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "old_password",
+   "new_password"
+  ],
+  "path": "/api/secrets/change_password",
+  "sample": {
+   "new_password": "x",
+   "old_password": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Secrets.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "backend"
+  ],
+  "path": "/api/secrets/configure",
+  "sample": {
+   "backend": "windows_credential"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Secrets.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "key"
+  ],
+  "path": "/api/secrets/delete",
+  "sample": {
+   "key": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Secrets.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/secrets/extension/pair_issue",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Secrets.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "id"
+  ],
+  "path": "/api/secrets/extension/revoke",
+  "sample": {
+   "id": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Secrets.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "records",
+   "site_ids"
+  ],
+  "path": "/api/secrets/import_apply",
+  "sample": {
+   "records": [
+    {
+     "name": "x",
+     "password": "x",
+     "url": "x",
+     "username": "x"
+    }
+   ],
+   "site_ids": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Secrets.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "content"
+  ],
+  "path": "/api/secrets/import_file",
+  "sample": {
+   "content": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Secrets.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/secrets/lock",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Secrets.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/secrets/migrate",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Secrets.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "password"
+  ],
+  "path": "/api/secrets/unlock",
+  "sample": {
+   "password": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Settings.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "global_max_concurrent",
+   "browser_backend",
+   "novnc_url",
+   "honeypot_score_threshold",
+   "honeypot_per_site",
+   "challenge_wait_s",
+   "auth_throttle",
+   "cross_site_selectors",
+   "player_struct_tiebreak",
+   "autonomy_enabled",
+   "auth_throttle_free",
+   "auth_throttle_base",
+   "auth_throttle_max",
+   "redact_emails",
+   "redact_extra_headers",
+   "redact_network_urls",
+   "secrets_audit",
+   "secrets_audit_sink",
+   "secrets_audit_file",
+   "secrets_audit_max_bytes",
+   "held_out_stale_days",
+   "lib_reconcile_missing_days",
+   "fleet_nodes",
+   "youtube_cipher",
+   "hud_overlay",
+   "lint_kb_allow",
+   "auth_token",
+   "bd_token",
+   "ai_api_key",
+   "dev_mode",
+   "test_mode",
+   "cockpit_shell",
+   "cockpit_tasks",
+   "framework_reports",
+   "watch_folder",
+   "watch_interval_sec",
+   "watch_archive",
+   "log_level",
+   "ui_logging_level",
+   "template_auto_detect_mode",
+   "ai_enabled",
+   "ai_provider",
+   "ai_endpoint",
+   "ai_model_vision",
+   "ai_model_text",
+   "path_allowlist",
+   "session_keep_alive_lead_time_min",
+   "session_keep_alive_fetch_interval_min",
+   "session_keep_alive_navigate_interval_min",
+   "session_keeper_use_cloakbrowser",
+   "sound_sync_enabled",
+   "sound_on_complete",
+   "rate_limit_global_concurrent",
+   "rate_limit_global_per_sec",
+   "rate_limit_domain_overrides",
+   "queue_hk_gc_age_days",
+   "queue_hk_abandon",
+   "queue_hk_max_retries",
+   "queue_hk_stale_hours",
+   "capture_bodies",
+   "capture_wait_until",
+   "dom_honeypot_filter",
+   "redact_dom_urls",
+   "capture_raw",
+   "slow_query_log",
+   "slow_query_ms",
+   "hls_input_timeout_us",
+   "hls_max_runtime_s",
+   "hls_progress_poll_s",
+   "live_poll_interval_s",
+   "live_disconnect_tolerance_s",
+   "live_max_active_recordings",
+   "live_launch_timeout_s",
+   "captcha_pending_timeout_s",
+   "oidc_enabled",
+   "oidc_issuer",
+   "oidc_client_id",
+   "oidc_client_secret",
+   "oidc_redirect_uri",
+   "oidc_scopes",
+   "captcha_push_dedupe_s",
+   "captcha_takeover_mode",
+   "captcha_takeover_enabled",
+   "captcha_takeover_max_concurrent",
+   "captcha_takeover_idle_timeout_s",
+   "automation.master_off_switch",
+   "automation.drift_sweep_enabled",
+   "automation.validation_gate_enabled",
+   "automation.auto_flag_enabled",
+   "automation.auto_quarantine_enabled",
+   "automation.auto_repair_enabled",
+   "automation.auto_refresh_enabled",
+   "automation.auto_promote_enabled",
+   "automation.controller_enabled",
+   "automation.disco_enabled",
+   "automation.auto_onboard_enabled",
+   "automation.auto_ci_enabled",
+   "automation.auto_recover_enabled",
+   "automation.auto_queue_enabled",
+   "automation.auto_refresh_on_capture_enabled",
+   "automation.auto_refresh_confirm_enabled",
+   "automation.auto_refresh_max_drift",
+   "automation.scrub_on_capture_enabled",
+   "automation.scrub_on_capture_tool",
+   "automation.daily_digest_enabled",
+   "automation.drift_repair_enabled",
+   "automation.template_canary_enabled",
+   "automation.restore_rehearsal_enabled",
+   "automation.pipeline_enabled",
+   "automation.cycle_max_steps",
+   "automation.cycle_wall_s",
+   "automation.cycle_max_errors"
+  ],
+  "path": "/api/global_config",
+  "sample": {
+   "ai_api_key": "x",
+   "ai_enabled": false,
+   "ai_endpoint": "x",
+   "ai_model_text": "x",
+   "ai_model_vision": "x",
+   "ai_provider": "x",
+   "auth_throttle": false,
+   "auth_throttle_base": "x",
+   "auth_throttle_free": "x",
+   "auth_throttle_max": "x",
+   "auth_token": "x",
+   "automation.auto_ci_enabled": false,
+   "automation.auto_flag_enabled": false,
+   "automation.auto_onboard_enabled": false,
+   "automation.auto_promote_enabled": false,
+   "automation.auto_quarantine_enabled": false,
+   "automation.auto_queue_enabled": false,
+   "automation.auto_recover_enabled": false,
+   "automation.auto_refresh_confirm_enabled": false,
+   "automation.auto_refresh_enabled": false,
+   "automation.auto_refresh_max_drift": 1,
+   "automation.auto_refresh_on_capture_enabled": false,
+   "automation.auto_repair_enabled": false,
+   "automation.controller_enabled": false,
+   "automation.cycle_max_errors": 1,
+   "automation.cycle_max_steps": 1,
+   "automation.cycle_wall_s": 1,
+   "automation.daily_digest_enabled": false,
+   "automation.disco_enabled": false,
+   "automation.drift_repair_enabled": false,
+   "automation.drift_sweep_enabled": false,
+   "automation.master_off_switch": false,
+   "automation.pipeline_enabled": false,
+   "automation.restore_rehearsal_enabled": false,
+   "automation.scrub_on_capture_enabled": false,
+   "automation.scrub_on_capture_tool": "x",
+   "automation.template_canary_enabled": false,
+   "automation.validation_gate_enabled": false,
+   "autonomy_enabled": "x",
+   "bd_token": "x",
+   "browser_backend": "x",
+   "captcha_pending_timeout_s": "x",
+   "captcha_push_dedupe_s": "x",
+   "captcha_takeover_enabled": false,
+   "captcha_takeover_idle_timeout_s": "x",
+   "captcha_takeover_max_concurrent": "x",
+   "captcha_takeover_mode": "x",
+   "capture_bodies": false,
+   "capture_raw": false,
+   "capture_wait_until": "x",
+   "challenge_wait_s": "x",
+   "cockpit_shell": "x",
+   "cockpit_tasks": "x",
+   "cross_site_selectors": false,
+   "dev_mode": "x",
+   "dom_honeypot_filter": "x",
+   "fleet_nodes": "x",
+   "framework_reports": "x",
+   "global_max_concurrent": 1,
+   "held_out_stale_days": "x",
+   "hls_input_timeout_us": "x",
+   "hls_max_runtime_s": "x",
+   "hls_progress_poll_s": "x",
+   "honeypot_per_site": false,
+   "honeypot_score_threshold": "x",
+   "hud_overlay": false,
+   "lib_reconcile_missing_days": "x",
+   "lint_kb_allow": "x",
+   "live_disconnect_tolerance_s": "x",
+   "live_launch_timeout_s": "x",
+   "live_max_active_recordings": "x",
+   "live_poll_interval_s": "x",
+   "log_level": "x",
+   "novnc_url": "x",
+   "oidc_client_id": "x",
+   "oidc_client_secret": "x",
+   "oidc_enabled": false,
+   "oidc_issuer": "x",
+   "oidc_redirect_uri": "x",
+   "oidc_scopes": "x",
+   "path_allowlist": [
+    "x"
+   ],
+   "player_struct_tiebreak": false,
+   "queue_hk_abandon": false,
+   "queue_hk_gc_age_days": 1,
+   "queue_hk_max_retries": 1,
+   "queue_hk_stale_hours": 1,
+   "rate_limit_domain_overrides": {},
+   "rate_limit_global_concurrent": 1,
+   "rate_limit_global_per_sec": 1,
+   "redact_dom_urls": "x",
+   "redact_emails": "x",
+   "redact_extra_headers": "x",
+   "redact_network_urls": "x",
+   "secrets_audit": "x",
+   "secrets_audit_file": "x",
+   "secrets_audit_max_bytes": "x",
+   "secrets_audit_sink": "x",
+   "session_keep_alive_fetch_interval_min": 1,
+   "session_keep_alive_lead_time_min": 1,
+   "session_keep_alive_navigate_interval_min": 1,
+   "session_keeper_use_cloakbrowser": false,
+   "slow_query_log": false,
+   "slow_query_ms": 1,
+   "sound_on_complete": false,
+   "sound_sync_enabled": false,
+   "template_auto_detect_mode": "x",
+   "test_mode": false,
+   "ui_logging_level": "x",
+   "watch_archive": false,
+   "watch_folder": "x",
+   "watch_interval_sec": 1,
+   "youtube_cipher": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Settings.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "enabled",
+   "global_bps",
+   "per_site_bps"
+  ],
+  "path": "/api/supervisor/configure",
+  "sample": {
+   "enabled": false,
+   "global_bps": 1,
+   "per_site_bps": {}
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/SiteActions.tsx",
+  "fn": "apiDelete",
+  "keys": [],
+  "path": "/api/sites/${}/heuristic/fingerprint",
+  "sample": {},
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/SiteActions.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/sites/${}/${}",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/SiteActions.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/sites/${}/storage_tier/run_now",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/SiteDetail.tsx",
+  "fn": "apiDelete",
+  "keys": [],
+  "path": "/api/sites/${}",
+  "sample": {},
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/SitePayloadActions.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "all"
+  ],
+  "path": "/api/sites/${}/accounts/reset_cooldown",
+  "sample": {
+   "all": false
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/SitePayloadActions.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "urls"
+  ],
+  "path": "/api/sites/${}/bulk_delete",
+  "sample": {
+   "urls": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/SitePayloadActions.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "text"
+  ],
+  "path": "/api/sites/${}/cookies/import",
+  "sample": {
+   "text": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/SitePayloadActions.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/sites/${}/learned/import",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/SitePayloadActions.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "login_template"
+  ],
+  "path": "/api/sites/${}/login_template/apply",
+  "sample": {
+   "login_template": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/SitePayloadActions.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "min_attempts",
+   "max_miss_ratio",
+   "dry_run"
+  ],
+  "path": "/api/sites/${}/prune_selectors",
+  "sample": {
+   "dry_run": false,
+   "max_miss_ratio": 1,
+   "min_attempts": 1
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/SitePayloadActions.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "rows",
+   "mode"
+  ],
+  "path": "/api/sites/${}/queue/import",
+  "sample": {
+   "mode": "append",
+   "rows": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/SiteSettings.tsx",
+  "fn": "apiPut",
+  "keys": [],
+  "path": "/api/sites/${}",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Sites.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "action",
+   "site_ids"
+  ],
+  "path": "/api/sites/v2/bulk",
+  "sample": {
+   "action": "x",
+   "site_ids": [
+    "x"
+   ]
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/TemplateManager.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "html"
+  ],
+  "path": "/api/template/extract_login",
+  "sample": {
+   "html": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/TemplateManager.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "file"
+  ],
+  "path": "/api/template_manager/disable",
+  "sample": {
+   "file": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/TemplateManager.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "file",
+   "enable",
+   "accept_api"
+  ],
+  "path": "/api/template_manager/promote",
+  "sample": {
+   "accept_api": false,
+   "enable": false,
+   "file": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Tools.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "tool",
+   "flags"
+  ],
+  "path": "/api/tools/run",
+  "sample": {
+   "flags": {},
+   "tool": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Vpn.tsx",
+  "fn": "apiDelete",
+  "keys": [],
+  "path": "/api/vpn/tunnels/${}",
+  "sample": {},
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Vpn.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/vpn/auto_blacklist",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Vpn.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/vpn/kill_switch/${}/clear",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Vpn.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "reason"
+  ],
+  "path": "/api/vpn/kill_switch/${}/trigger",
+  "sample": {
+   "reason": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Vpn.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/vpn/providers/${}/locations",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Vpn.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/vpn/providers/${}/test_credentials",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Vpn.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "name",
+   "provider",
+   "backend",
+   "location",
+   "config"
+  ],
+  "path": "/api/vpn/tunnels",
+  "sample": {
+   "backend": "x",
+   "config": {},
+   "location": "x",
+   "name": "x",
+   "provider": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Vpn.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/vpn/tunnels/${}/${}",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Vpn.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/vpn/tunnels/${}/leak_test/run",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/routes/Vpn.tsx",
+  "fn": "apiPut",
+  "keys": [
+   "enabled"
+  ],
+  "path": "/api/vpn/kill_switch/auto_recover",
+  "sample": {
+   "enabled": false
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Vpn.tsx",
+  "fn": "apiPut",
+  "keys": [
+   "leak_test_interval_s",
+   "kill_switch_auto_recover",
+   "system_killswitch_default"
+  ],
+  "path": "/api/vpn/settings",
+  "sample": {
+   "kill_switch_auto_recover": false,
+   "leak_test_interval_s": 1,
+   "system_killswitch_default": false
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Vpn.tsx",
+  "fn": "apiPut",
+  "keys": [
+   "name",
+   "location",
+   "config"
+  ],
+  "path": "/api/vpn/tunnels/${}",
+  "sample": {
+   "config": {},
+   "location": "x",
+   "name": "x"
+  },
+  "unknownType": false
+ }
+]

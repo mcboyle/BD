@@ -1,0 +1,151 @@
+{
+ "url": "https://demo-dashjs.test/watch/asset",
+ "origin": "https://demo-dashjs.test",
+ "host": "demo-dashjs.test",
+ "captured_at": "2026-07-10T00:00:00+00:00",
+ "dom_log": [
+  {
+   "type": "full_snapshot",
+   "html": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>dash.js Stream</title><script src=\"https://cdn.demo-dashjs.test/dash.all.min.js\"></script></head><body><video id=\"v\" data-dashjs-player controls></video><script>var p = dashjs.MediaPlayer().create(); p.initialize(document.querySelector(\"#v\"),\"https://vod.demo-dashjs.test/asset/manifest.mpd\",true);</script></body></html>"
+  }
+ ],
+ "network_log": [
+  {
+   "url": "https://demo-dashjs.test/watch/asset",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "text/html; charset=utf-8"
+    }
+   ]
+  },
+  {
+   "url": "https://cdn.demo-dashjs.test/dash.all.min.js",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "text/javascript"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-dashjs.test/asset/manifest.mpd",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "application/dash+xml"
+    },
+    {
+     "name": "content-length",
+     "value": "3900"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-dashjs.test/asset/video/480/init.mp4",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp4"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-dashjs.test/asset/video/480/seg-1.m4s",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/iso.segment"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-dashjs.test/asset/video/480/seg-2.m4s",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/iso.segment"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-dashjs.test/asset/video/720/init.mp4",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp4"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-dashjs.test/asset/video/720/seg-1.m4s",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/iso.segment"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-dashjs.test/asset/video/720/seg-2.m4s",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/iso.segment"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-dashjs.test/asset/video/1080/init.mp4",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp4"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-dashjs.test/asset/video/1080/seg-1.m4s",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/iso.segment"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-dashjs.test/asset/video/1080/seg-2.m4s",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/iso.segment"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-dashjs.test/asset/audio/en/seg-1.m4s",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "audio/mp4"
+    }
+   ]
+  }
+ ],
+ "cookies": "<REDACTED>",
+ "dom_log_count": 1,
+ "network_log_count": 13
+}

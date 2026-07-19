@@ -1,0 +1,15 @@
+{
+  "_comment": "Copy to INSTALL_DIR/plugins/plugins.json to control loading. All fields optional.",
+
+  "_enabled_doc": "If present, ONLY these files load, in THIS order. Omit to load every non-_ *.py in the dir.",
+  "enabled": ["move_to_nas.py", "nfo_sidecar.py", "media_server_refresh.py", "notify_events.py"],
+
+  "_disabled_doc": "Never load these (applies whether or not 'enabled' is set).",
+  "disabled": [],
+
+  "_order_doc": "Load-priority hint used only when 'enabled' is omitted.",
+  "order": [],
+
+  "_allow_full_access_doc": "Master gate for lifecycle/page-access plugins (e.g. vault_cookies.py). Off by default. Read the disclaimer first.",
+  "allow_full_access": false
+}

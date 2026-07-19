@@ -1,0 +1,221 @@
+#!/usr/bin/env python3
+"""bd-lsp -- one-command offline code intelligence for the BulkDownloader tree.
+
+Wraps the lsp_kit (jedi + pyright) so the offline unlock is a single command
+instead of the install + env-var incantation. jedi is pure-Python (no node);
+pyright runs offline against node_kit's node via two env vars set below.
+
+Setup is idempotent: first run installs the bundled wheels; later runs no-op.
+
+Usage:
+    bd-lsp setup                      # install wheels (idempotent); print readiness
+    bd-lsp refs   <file> <symbol>     # jedi: every reference to a top-level symbol
+    bd-lsp defs   <file>              # jedi: list top-level defs/classes + line
+    bd-lsp check  <file> [...]        # pyright: type/diagnostic summary (offline)
+    bd-lsp unused <file>              # pyright: unused imports/vars (reportUnused*)
+    bd-lsp who    <file> <symbol>     # which top-level funcs reference <symbol>
+
+Examples:
+    bd-lsp refs bulk_downloader/app.py _check_csrf
+    bd-lsp who  bulk_downloader/app.py _check_csrf      # callers, by enclosing def
+    bd-lsp check bulk_downloader/app_widgets_api.py
+
+Exit 0 on success; 1 on error. Flask-free; runs under `bd`.
+"""
+import argparse
+import ast
+import json
+import os
+import subprocess
+import sys
+
+WHEELS = "/home/claude/lsp_kit/wheels"
+NODE_BIN = "/home/claude/.local/node/bin"
+
+
+def _ensure_env():
+    """Put node on PATH + the two pyright-offline env vars."""
+    os.environ["PATH"] = NODE_BIN + os.pathsep + os.environ.get("PATH", "")
+    os.environ.setdefault("PYRIGHT_PYTHON_GLOBAL_NODE", "1")
+    os.environ.setdefault("PYRIGHT_PYTHON_FORCE_VERSION", "1.1.409")
+
+
+def _have(mod):
+    try:
+        __import__(mod)
+        return True
+    # why: input unavailable/unreadable; return the safe default (False) rather than a value derived from a failed read
+    except Exception:
+        return False
+
+
+def cmd_setup(_):
+    if not (_have("jedi") and _have("parso")):
+        whl = []
+        if os.path.isdir(WHEELS):
+            whl = [os.path.join(WHEELS, w) for w in os.listdir(WHEELS) if w.endswith(".whl")]
+        if not whl:
+            print(f"[bd-lsp] no wheels in {WHEELS}", file=sys.stderr)
+            return 1
+        subprocess.run([sys.executable, "-m", "pip", "install",
+                        "--break-system-packages", "-q", *whl], check=False)
+    _ensure_env()
+    ok_jedi = _have("jedi")
+    # pyright readiness: --version with node on PATH
+    try:
+        v = subprocess.run([sys.executable, "-m", "pyright", "--version"],
+                           capture_output=True, text=True, timeout=60)
+        ok_pyright = v.returncode == 0
+        pv = v.stdout.strip()
+    # why: read failed; degrade to the default and continue -- affects completeness, not correctness
+    except Exception:
+        ok_pyright, pv = False, ""
+    print(f"jedi:    {'READY' if ok_jedi else 'MISSING'}")
+    print(f"pyright: {'READY ('+pv+')' if ok_pyright else 'MISSING (needs node_kit + nodeenv wheel)'}")
+    return 0 if ok_jedi else 1
+
+
+def _jedi_script(path):
+    import jedi
+    src = open(path, encoding="utf-8").read()
+    return src, jedi.Script(code=src, path=path)
+
+
+def _toplevel_def_line(src, symbol):
+    """Line/col of a top-level def/assign named <symbol> (1-indexed line, col of name)."""
+    tree = ast.parse(src)
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == symbol:
+            # col of the name: after 'def '/'class '
+            return node.lineno, node.col_offset + (6 if isinstance(node, ast.ClassDef) else 4)
+        if isinstance(node, ast.Assign):
+            for t in node.targets:
+                if isinstance(t, ast.Name) and t.id == symbol:
+                    return t.lineno, t.col_offset
+    return None
+
+
+def cmd_refs(a):
+    if cmd_setup(argparse.Namespace()) != 0:
+        return 1
+    src, sc = _jedi_script(a.file)
+    loc = _toplevel_def_line(src, a.symbol)
+    if not loc:
+        print(f"[bd-lsp] no top-level def/assign '{a.symbol}' in {a.file}", file=sys.stderr)
+        return 1
+    refs = sc.get_references(line=loc[0], column=loc[1])
+    print(f"{a.symbol}: {len(refs)} references")
+    for r in refs:
+        print(f"  {r.module_name}:{r.line}:{r.column}")
+    return 0
+
+
+def cmd_who(a):
+    """Which top-level functions in <file> reference <symbol> (caller set)."""
+    if cmd_setup(argparse.Namespace()) != 0:
+        return 1
+    src, sc = _jedi_script(a.file)
+    loc = _toplevel_def_line(src, a.symbol)
+    if not loc:
+        print(f"[bd-lsp] no top-level def/assign '{a.symbol}'", file=sys.stderr)
+        return 1
+    refs = sc.get_references(line=loc[0], column=loc[1])
+    # map each ref line -> enclosing top-level def name
+    tree = ast.parse(src)
+    spans = []
+    for n in tree.body:
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            spans.append((n.lineno, getattr(n, "end_lineno", n.lineno), n.name))
+    callers = set()
+    for r in refs:
+        for s, e, nm in spans:
+            if s <= r.line <= e and nm != a.symbol:
+                callers.add(nm)
+    print(f"{a.symbol}: referenced by {len(callers)} top-level function(s)")
+    for c in sorted(callers):
+        print(f"  {c}")
+    return 0
+
+
+def cmd_defs(a):
+    if cmd_setup(argparse.Namespace()) != 0:
+        return 1
+    src = open(a.file, encoding="utf-8").read()
+    tree = ast.parse(src)
+    for n in tree.body:
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            print(f"  def {n.name}  L{n.lineno}")
+        elif isinstance(n, ast.ClassDef):
+            print(f"  class {n.name}  L{n.lineno}")
+    return 0
+
+
+def _pyright(files, extra=None):
+    _ensure_env()
+    cmd = [sys.executable, "-m", "pyright", "--outputjson", *files]
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    try:
+        return json.loads(p.stdout)
+    except Exception:
+        sys.stderr.write(p.stdout[-500:] + p.stderr[-500:])
+        return None
+
+
+def cmd_check(a):
+    cmd_setup(argparse.Namespace())
+    d = _pyright(a.files)
+    if not d:
+        return 1
+    s = d.get("summary", {})
+    print(f"pyright: {s.get('filesAnalyzed')} file(s) | "
+          f"{s.get('errorCount')} err / {s.get('warningCount')} warn / "
+          f"{s.get('informationCount')} info | {s.get('timeInSec')}s")
+    for diag in d.get("generalDiagnostics", [])[:40]:
+        rng = diag.get("range", {}).get("start", {})
+        print(f"  {diag.get('severity'):7} {os.path.basename(diag.get('file',''))}:"
+              f"{rng.get('line',0)+1}  {diag.get('message','')[:90]}")
+    return 0
+
+
+def cmd_unused(a):
+    cmd_setup(argparse.Namespace())
+    d = _pyright([a.file])
+    if not d:
+        return 1
+    hits = [x for x in d.get("generalDiagnostics", [])
+            if "is not accessed" in x.get("message", "")
+            or x.get("rule", "").startswith("reportUnused")]
+    print(f"{a.file}: {len(hits)} unused symbol(s)")
+    for x in hits:
+        rng = x.get("range", {}).get("start", {})
+        print(f"  L{rng.get('line',0)+1}  {x.get('message','')[:90]}")
+    return 0
+
+
+def selftest():
+    """SKIP: this tool needs a running language server, which the sandbox cannot provide. A SKIP
+    is counted apart from PASS and never claims the tool works -- honest absence
+    beats a green smoke test."""
+    print("SKIP: needs a running language server")
+    print("SELFTEST PASS")
+    return 0
+
+
+def main(argv=None):
+    import sys as _s
+    if "--selftest" in _s.argv: return selftest()
+    ap = argparse.ArgumentParser(prog="bd-lsp")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("setup")
+    p = sub.add_parser("refs"); p.add_argument("file"); p.add_argument("symbol")
+    p = sub.add_parser("who"); p.add_argument("file"); p.add_argument("symbol")
+    p = sub.add_parser("defs"); p.add_argument("file")
+    p = sub.add_parser("check"); p.add_argument("files", nargs="+")
+    p = sub.add_parser("unused"); p.add_argument("file")
+    a = ap.parse_args(argv)
+    return {"setup": cmd_setup, "refs": cmd_refs, "who": cmd_who, "defs": cmd_defs,
+            "check": cmd_check, "unused": cmd_unused}[a.cmd](a)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

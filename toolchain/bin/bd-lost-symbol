@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+"""bd-lost-symbol -- what PUBLIC symbols did a cut silently delete?
+
+A cut that removes a public function or class is almost always intentional. The danger is
+the one that is NOT -- a function dropped in the same edit that added another, which then
+ships absent and nobody notices because nothing imports it by name.
+
+That happened: `tasktracker_gen.audit()` was DROPPED from the work tree while `status()`
+was added. It was a real GATE -- a structural audit that catches what `--check` cannot
+(`--check` only proves the md and xlsx agree with EACH OTHER, so it is green whenever they
+agree, including when they agree on garbage; it passed IN-SYNC while a completed row
+carried the incomplete schema). It shipped missing for an unknown number of releases and
+was only found by hand-diffing a stale project-knowledge copy against the tree.
+
+This makes that a one-liner. Diff two release zips (or a zip vs the work tree) by AST and
+report every public top-level def/class that EXISTED and is now GONE.
+
+    bd-lost-symbol --old <prev.zip> --new <next.zip>
+    bd-lost-symbol --old <prev.zip>            # --new defaults to the work tree
+
+Every removal is REPORTED, not judged: the tool cannot know intent. The rule it enforces
+is only this -- **a cut that removes a public symbol must SAY SO.** Silence is the defect.
+
+Read-only. ASCII. --json. --selftest.
+"""
+import argparse
+import ast
+import json
+import os
+import sys
+import zipfile
+
+G, R, Y, DIM, BOLD, RST = ("\033[32m", "\033[31m", "\033[33m",
+                           "\033[2m", "\033[1m", "\033[0m")
+WORK = "/home/claude/work"
+SCAN_DIRS = ("bulk_downloader/", "tools/")
+
+
+def _public_symbols(src, rel):
+    """Top-level public defs/classes. Private (_-prefixed) are excluded: removing them is
+    an internal refactor, and flagging them would drown the signal."""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return set()
+    out = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if not node.name.startswith("_"):
+                out.add((rel, node.name))
+    return out
+
+
+def _from_zip(zpath):
+    syms = set()
+    with zipfile.ZipFile(zpath) as zf:
+        for n in zf.namelist():
+            if not n.endswith(".py"):
+                continue
+            rel = n
+            if not rel.startswith(SCAN_DIRS):
+                continue
+            try:
+                syms |= _public_symbols(zf.read(n).decode("utf-8", "replace"), rel)
+            except KeyError:
+                continue
+    return syms
+
+
+def _from_tree(root):
+    syms = set()
+    for sub in SCAN_DIRS:
+        base = os.path.join(root, sub)
+        for dp, dn, fns in os.walk(base):
+            dn[:] = [d for d in dn if d != "__pycache__"]
+            for fn in sorted(fns):
+                if not fn.endswith(".py"):
+                    continue
+                p = os.path.join(dp, fn)
+                rel = os.path.relpath(p, root)
+                try:
+                    src = open(p, encoding="utf-8", errors="replace").read()
+                except OSError:
+                    continue
+                syms |= _public_symbols(src, rel)
+    return syms
+
+
+def lost(old_zip, new_zip=None, work=WORK):
+    old = _from_zip(old_zip)
+    new = _from_zip(new_zip) if new_zip else _from_tree(work)
+    gone = sorted(old - new)
+    added = sorted(new - old)
+    # a symbol whose whole FILE disappeared is a file deletion, not a silent symbol drop --
+    # separate them, because they are different decisions with different blast radii.
+    old_files = {f for f, _ in old}
+    new_files = {f for f, _ in new}
+    dropped_files = old_files - new_files
+    file_gone = [(f, n) for f, n in gone if f in dropped_files]
+    sym_gone = [(f, n) for f, n in gone if f not in dropped_files]
+    return {"symbols_removed_from_surviving_files": sym_gone,
+            "symbols_lost_with_their_file": file_gone,
+            "added": added,
+            "counts": {"lost_in_surviving_files": len(sym_gone),
+                       "lost_with_file": len(file_gone),
+                       "added": len(added)}}
+
+
+def selftest():
+    ok = True
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        oldz = os.path.join(td, "old.zip")
+        newz = os.path.join(td, "new.zip")
+        with zipfile.ZipFile(oldz, "w") as z:
+            z.writestr("tools/t.py", "def audit(d):\n    pass\ndef status(d):\n    pass\n"
+                                     "def _helper():\n    pass\n")
+            z.writestr("tools/gone.py", "def whole_file(x):\n    pass\n")
+        with zipfile.ZipFile(newz, "w") as z:
+            # audit() DROPPED while status() survives -- the real regression shape.
+            z.writestr("tools/t.py", "def status(d):\n    pass\ndef brand_new():\n    pass\n")
+
+        d = lost(oldz, newz)
+        got = [n for _f, n in d["symbols_removed_from_surviving_files"]]
+        p1 = got == ["audit"]
+        print(("%sPASS%s" if p1 else "%sFAIL%s") % ((G, RST) if p1 else (R, RST)) +
+              "  POS: a public symbol dropped from a SURVIVING file is flagged (%s)" % got)
+        ok &= p1
+
+        # NEG: a private symbol removal is an internal refactor -- must NOT be flagged.
+        n1 = "_helper" not in got
+        print(("%sPASS%s" if n1 else "%sFAIL%s") % ((G, RST) if n1 else (R, RST)) +
+              "  NEG: a PRIVATE symbol removal is not flagged (internal refactor)")
+        ok &= n1
+
+        # NEG: a symbol lost because its whole FILE was deleted is a different decision --
+        # it must be reported SEPARATELY, not mixed into the silent-drop signal.
+        n2 = ("whole_file" not in got
+              and any(n == "whole_file" for _f, n in d["symbols_lost_with_their_file"]))
+        print(("%sPASS%s" if n2 else "%sFAIL%s") % ((G, RST) if n2 else (R, RST)) +
+              "  NEG: a symbol lost WITH its file is reported separately, not as a "
+              "silent drop")
+        ok &= n2
+
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="bd-lost-symbol")
+    ap.add_argument("--old", help="the previous release zip")
+    ap.add_argument("--new", help="the new release zip (default: the work tree)")
+    ap.add_argument("--work", "--tree", dest="work", default=WORK)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--gate", action="store_true",
+                    help="exit 1 if any public symbol vanished from a surviving file")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    if not a.old:
+        ap.error("--old <previous release zip> is required")
+    if not os.path.isfile(a.old):
+        print("no such zip: %s" % a.old)
+        return 2
+
+    d = lost(a.old, a.new, a.work)
+    if a.json:
+        print(json.dumps(d, indent=2, sort_keys=True))
+        return 1 if (a.gate and d["counts"]["lost_in_surviving_files"]) else 0
+
+    sym = d["symbols_removed_from_surviving_files"]
+    fil = d["symbols_lost_with_their_file"]
+    print("%s== bd-lost-symbol :: %s -> %s ==%s"
+          % (BOLD, os.path.basename(a.old),
+             os.path.basename(a.new) if a.new else "work tree", RST))
+    if sym:
+        print("  %sPUBLIC SYMBOLS REMOVED FROM SURVIVING FILES (%d)%s -- a cut that "
+              "removes a public symbol must SAY SO:" % (R, len(sym), RST))
+        for f, n in sym:
+            print("    %-46s %s()" % (f, n))
+    else:
+        print("  %sno public symbol vanished from a surviving file%s" % (G, RST))
+    if fil:
+        print("  %s%d symbol(s) lost with a DELETED FILE%s %s(a different decision -- "
+              "check bd-deploy-manifest for the stash orphan)%s"
+              % (Y, len(fil), RST, DIM, RST))
+    print("  %s+%d public symbol(s) added%s" % (DIM, d["counts"]["added"], RST))
+    return 1 if (a.gate and sym) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

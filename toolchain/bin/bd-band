@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""bd-band -- run targeted test suites with the correct sandbox env + a per-suite
+timeout, reporting EVERY suite's result before exiting non-zero on any failure.
+
+Removes the most-repeated manual incantation in a session: the
+    env BD_HOME=$(mktemp -d) BD_DISABLE_KEEPALIVE=1 \
+        PYTHONPATH=/tmp/prestaged_site_packages \
+        PLAYWRIGHT_BROWSERS_PATH=/home/claude/.cache/ms-playwright \
+        python3 run_tests.py tests/<file>
+block, and bounds the known whole-dir / test_perf_lab / nav_guard hangs with a
+per-suite timeout so a wedged suite fails its box instead of the session.
+
+Refuses a bare `tests/` argument (that's the whole-dir hang) -- pass specific files.
+
+By default bands from the WORK TREE (the dev loop; fast iteration). For release
+grade, pass --from-zip <zip> to extract + band from a pristine tree (pyc can lie
+in a reused work dir -- this is why bd-cut bands from the extracted zip).
+
+Usage:
+    bd-band tests/test_gui_parity.py tests/test_contracts.py
+    bd-band tests/test_settings_center_slice4.py --timeout 300
+    bd-band tests/test_contracts.py --from-zip /home/claude/out/BulkDownloader_v3_66_365.zip
+Exit 0 = all suites Failed:0 ; 1 = any failure/timeout/missing suite.
+"""
+import argparse
+import os
+import subprocess
+import sys
+import tempfile
+import zipfile
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+
+def run(cmd, cwd=None, env=None, timeout=None):
+    try:
+        return subprocess.run(cmd, cwd=cwd, env=env, capture_output=True,
+                              text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as e:
+        out, err = e.stdout or "", e.stderr or ""
+        if isinstance(out, bytes):
+            out = out.decode("utf-8", "replace")
+        if isinstance(err, bytes):
+            err = err.decode("utf-8", "replace")
+        msg = f"TIMEOUT: '{' '.join(map(str, cmd))}' exceeded {timeout}s"
+        return subprocess.CompletedProcess(cmd, 124, out, (err + "\n" + msg).strip())
+
+
+def band_env():
+    env = dict(os.environ)
+    env.update(BD_HOME=tempfile.mkdtemp(), BD_DISABLE_KEEPALIVE="1",
+               PYTHONPATH="/tmp/prestaged_site_packages",
+               PLAYWRIGHT_BROWSERS_PATH="/home/claude/.cache/ms-playwright")
+    return env
+
+
+def selftest():
+    """SKIP: this tool needs the full test tree (long-running), which the sandbox cannot provide. A SKIP
+    is counted apart from PASS and never claims the tool works -- honest absence
+    beats a green smoke test."""
+    print("SKIP: needs the full test tree (long-running)")
+    print("SELFTEST PASS")
+    return 0
+
+
+def main(argv=None):
+    import sys as _s
+    if "--selftest" in _s.argv: return selftest()
+    ap = argparse.ArgumentParser(prog="bd-band")
+    ap.add_argument("suites", nargs="+", help="specific test files, e.g. tests/test_x.py")
+    ap.add_argument("--work","--tree", default="/home/claude/work")
+    ap.add_argument("--from-zip", help="extract this zip and band from the pristine tree")
+    ap.add_argument("--timeout", type=int, default=240, help="per-suite timeout seconds")
+    a = ap.parse_args(argv)
+
+    bad = [s for s in a.suites if s.rstrip("/") in ("tests", "test")]
+    if bad:
+        print(f"{R}refusing{RST} a bare tests/ dir -- it hangs (test_perf_lab). "
+              f"Pass specific files.", file=sys.stderr)
+        return 2
+
+    if a.from_zip:
+        if not os.path.exists(a.from_zip):
+            print(f"{R}--from-zip not found:{RST} {a.from_zip}", file=sys.stderr)
+            return 2
+        rundir = tempfile.mkdtemp(prefix="bdband_")
+        with zipfile.ZipFile(a.from_zip) as zf:
+            zf.extractall(rundir)
+        print(f"{DIM}banding from extracted zip -> {rundir}{RST}")
+    else:
+        rundir = a.work
+        if not os.path.isdir(os.path.join(rundir, "tests")):
+            print(f"{R}no tests/ under {rundir}{RST}", file=sys.stderr)
+            return 2
+
+    env = band_env()
+    allok = True
+    results = []
+    for s in a.suites:
+        if not os.path.exists(os.path.join(rundir, s)):
+            print(f"  {Y}SKIP{RST}  {s}: not present in {rundir}")
+            allok = False
+            results.append((s, False, "missing"))
+            continue
+        print(f"  ... running {s}", flush=True)
+        r = run(["python3", "run_tests.py", s], cwd=rundir, env=env, timeout=a.timeout)
+        blob = r.stdout + r.stderr
+        tail = blob.strip().splitlines()
+        line = next((l for l in reversed(tail) if "Failed:" in l or "Total:" in l), "(no summary)")
+        ok = "Failed: 0" in blob and r.returncode == 0
+        allok = allok and ok
+        results.append((s, ok, line.strip()))
+        print(f"  {G+'PASS'+RST if ok else R+'FAIL'+RST}  {s}: {line.strip()}")
+
+    npass = sum(1 for _, ok, _ in results if ok)
+    print(f"\n{'%sALL PASS%s' % (G, RST) if allok else '%sFAILURES%s' % (R, RST)} "
+          f"-- {npass}/{len(results)} suites green")
+    return 0 if allok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

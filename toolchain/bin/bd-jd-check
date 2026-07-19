@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""bd-jd-check -- validate JDownloader integration readiness (Batch B JD-3).
+
+Reuses jd_bridge.JDClient.diagnose() (the app's own connectivity probe: TCP
+first, then the /jd/version Remote-API check) so the tool and the runtime agree.
+Reports reachable / api_enabled / version / hint, and statically confirms the
+integration module + cookie bridge are present. In-sandbox JD is normally
+absent -> a clean "not reachable" with the operator hint, never a crash
+(capability, not flag). Read-only.
+
+Usage: bd-jd-check [--work DIR] [--host H] [--port N] [--json] [--selftest]
+Exit 0 always (advisory); reachability is data, not a gate, in-sandbox.
+"""
+import argparse
+import importlib.util
+import os
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+
+def _load_jd(work):
+    """Load the app's jd_bridge from the work tree (prestaged env on PATH)."""
+    p = os.path.join(work, "bulk_downloader", "jd_bridge.py")
+    if not os.path.exists(p):
+        return None, "jd_bridge.py not found"
+    # ensure the tree + prestaged site-packages are importable
+    for extra in (work, "/tmp/prestaged_site_packages"):
+        if extra not in sys.path:
+            sys.path.insert(0, extra)
+    try:
+        spec = importlib.util.spec_from_file_location("bulk_downloader.jd_bridge", p)
+        mod = importlib.util.module_from_spec(spec)
+        # jd_bridge uses relative imports guardedly; load standalone-safe
+        import types
+        pkg = types.ModuleType("bulk_downloader")
+        pkg.__path__ = [os.path.join(work, "bulk_downloader")]
+        sys.modules.setdefault("bulk_downloader", pkg)
+        sys.modules["bulk_downloader.jd_bridge"] = mod
+        spec.loader.exec_module(mod)
+        return mod, None
+    except Exception as e:
+        return None, f"import failed: {e}"
+
+
+def check(work, host, port):
+    out = {"module_present": False, "diagnose": None, "error": None,
+           "host": host, "port": port}
+    mod, err = _load_jd(work)
+    if not mod:
+        out["error"] = err
+        return out
+    out["module_present"] = True
+    try:
+        JDClient = getattr(mod, "JDClient")
+        kwargs = {}
+        if host:
+            kwargs["host"] = host
+        if port:
+            kwargs["port"] = port
+        with JDClient(**kwargs) as c:
+            out["diagnose"] = c.diagnose()
+    except Exception as e:
+        out["error"] = f"diagnose failed: {e}"
+    return out
+
+
+def selftest():
+    ok = True
+    res = check(sec.DEFAULT_WORK, None, None)
+    present = res["module_present"] and res["diagnose"] is not None
+    print(("PASS" if present else "FAIL") +
+          f"  jd_bridge loads + diagnose() returns a status "
+          f"(reachable={(res.get('diagnose') or {}).get('reachable')}, "
+          f"err={res['error']})")
+    ok &= bool(present)
+    # diagnose shape carries the documented keys
+    d = res.get("diagnose") or {}
+    shape = {"reachable", "api_enabled", "version", "hint"} <= set(d)
+    print(("PASS" if shape else "FAIL") + f"  diagnose has documented keys ({sorted(d)[:6]})")
+    ok &= shape
+    # absent JD in-sandbox is a clean not-reachable, not a crash
+    clean = (not d.get("reachable")) and d.get("hint")
+    print(("PASS" if clean else "WARN") +
+          f"  in-sandbox: not-reachable with operator hint (as expected)")
+    ok &= bool(clean) or bool(d.get("reachable"))
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
+    ap.add_argument("--host", default=None)
+    ap.add_argument("--port", type=int, default=None)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    sec.require_source_tree(a.work)
+    res = check(a.work, a.host, a.port)
+    if sec.emit(res, as_json=a.json):
+        return 0
+    if not res["module_present"]:
+        print(f"{R}jd_bridge not loadable{RST}: {res['error']}")
+        return 0
+    d = res.get("diagnose") or {}
+    if res["error"]:
+        print(f"{Y}jd_bridge present but probe errored{RST}: {res['error']}")
+        return 0
+    rc = (G + "reachable" + RST) if d.get("reachable") else (Y + "not reachable" + RST)
+    api = (G + "API enabled" + RST) if d.get("api_enabled") else (DIM + "API off" + RST)
+    print(f"JDownloader @ {res['host']}:{res['port']}: {rc}, {api}"
+          + (f"  {DIM}v{d.get('version')}{RST}" if d.get("version") else ""))
+    if d.get("hint"):
+        print(f"  {DIM}hint: {d['hint']}{RST}")
+    return 0
+
+
+sys.exit(main())

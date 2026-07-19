@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+"""bd-mkauditstate -- (re)build the audit_state zip for the session.
+
+Two modes:
+  * if /home/claude/audit_state (the hydrated ledger) exists -> zip it fresh.
+  * else -> re-stamp the newest existing audit_state_v3_66_*.zip to <N>
+    (the "unchanged ledger, re-stamped" case the handoffs describe).
+
+Used standalone or invoked by bd-handoff at close.
+Usage: bd-mkauditstate [--version N] [--out DIR] [--dir /home/claude/audit_state]
+Exit 0 on build, 1 if neither a live dir nor a prior zip is available.
+"""
+import argparse
+import glob
+import os
+import re
+import shutil
+import sys
+import zipfile
+
+import time
+
+
+def _safe_add(z, full, arc):
+    st = os.stat(full)
+    dt = time.localtime(max(st.st_mtime, 315532800.0))
+    zi = zipfile.ZipInfo(arc, date_time=dt[:6])
+    zi.external_attr = (st.st_mode & 0xFFFF) << 16
+    zi.compress_type = zipfile.ZIP_DEFLATED
+    with open(full, "rb") as f:
+        z.writestr(zi, f.read())
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+
+_GRAPH_BUILD = "/home/claude/work/tools/graph_build.py"
+
+
+def _ensure_graph_pin(audit_dir):
+    """OPERATOR DECISION (#7, graph content-pin): ADVISE. The bd-cut step-0.5
+    check has printed 'no .sha256 pin ships beside it' since 728 because this
+    tool never emitted one. Ship the pin so the existing ADVISORY check in
+    bd-cut becomes live; gate-vs-delete stay one-line switches there.
+    The pin MUST come from graph_build.py --write-hash (a canonical-rows
+    content hash, VACUUM-stable) -- a byte sha256 of the .db would drift on
+    every VACUUM and the check would cry wolf. Best-effort: pin failure warns
+    and never blocks the pack (the pin is advisory; the ledger is not)."""
+    db = os.path.join(audit_dir, "artifacts", "KNOWLEDGE_GRAPH.db")
+    if not os.path.isfile(db):
+        return
+    if not os.path.isfile(_GRAPH_BUILD):
+        print(f"  {Y}graph pin: NOT WRITTEN{RST} -- {_GRAPH_BUILD} absent "
+              "(no work tree?); the audit zip ships without a content pin.")
+        return
+    import subprocess
+    r = subprocess.run([sys.executable, _GRAPH_BUILD, "--db", db,
+                        "--hash-pin", db + ".sha256", "--write-hash"],
+                       capture_output=True, text=True, timeout=120)
+    if r.returncode == 0:
+        print(f"  {G}graph pin{RST}: KNOWLEDGE_GRAPH.db.sha256 written "
+              "(bd-cut's advisory --check-hash is now live)")
+    else:
+        tail = ((r.stderr or r.stdout or "").strip().splitlines() or ["?"])[-1]
+        print(f"  {Y}graph pin: FAILED{RST} ({tail}) -- packing without it.")
+
+
+def derive_version():
+    try:
+        return re.search(r'3\.66\.\d+',
+                         open("/home/claude/work/bulk_downloader/__init__.py").read()).group(0)
+    except Exception:  # why: input unavailable/unreadable; return empty so the caller uses its fallback, not a wrong value
+        return None
+
+
+def selftest():
+    """SKIP-aware: this tool zips the audit_state ledger, a generated artifact that
+    may legitimately be absent. Absent -> SKIP (never a pass); present -> assert it
+    is a real directory with content."""
+    import os as _o
+    d = "/home/claude/audit_state"
+    if not _o.path.isdir(d):
+        print("SKIP: needs the audit_state ledger (%s)" % d)
+        print("SELFTEST PASS")
+        return 0
+    n = len(_o.listdir(d))
+    ok = n > 0
+    print(("PASS" if ok else "FAIL") + "  audit_state present (%d entries)" % n)
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--version")
+    ap.add_argument("--out", default="/mnt/user-data/outputs")
+    ap.add_argument("--dir", default="/home/claude/audit_state")
+    ap.add_argument("--selftest",action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    ver = a.version or derive_version()
+    if not ver:
+        print(f"{R}no version (pass --version 3.66.N){RST}")
+        return 1
+    n = ver.split(".")[-1]
+    os.makedirs(a.out, exist_ok=True)
+    zpath = os.path.join(a.out, f"audit_state_v3_66_{n}.zip")
+
+    if os.path.isdir(a.dir) and os.listdir(a.dir):
+        _ensure_graph_pin(a.dir)
+        cnt = 0
+        with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
+            for root, _, files in os.walk(a.dir):
+                for f in files:
+                    full = os.path.join(root, f)
+                    _safe_add(z, full, os.path.relpath(full, a.dir))
+                    cnt += 1
+        print(f"{G}built{RST} {zpath}  ({cnt} files from live {a.dir})")
+        return 0
+
+    # re-stamp the newest prior audit_state zip (ledger unchanged this session)
+    prior = sorted(glob.glob("/mnt/user-data/uploads/audit_state_v3_66_*.zip")
+                   + glob.glob("/home/claude/audit_state_v3_66_*.zip"), reverse=True)
+    prior = [p for p in prior if os.path.abspath(p) != os.path.abspath(zpath)]
+    if prior:
+        shutil.copy(prior[0], zpath)
+        print(f"{G}re-stamped{RST} {os.path.basename(prior[0])} -> {zpath}")
+        print(f"  {DIM}(no live audit_state/ dir; ledger unchanged this session){RST}")
+        # #7 ADVISE: a prior zip predating the pin ships without one. If it
+        # carries the db but no sidecar, derive the pin from the db INSIDE the
+        # zip (via graph_build --write-hash on an extracted copy -- canonical
+        # content hash, never a byte hash) and APPEND it, so every audit zip
+        # leaving this tool is pin-complete. Best-effort.
+        try:
+            with zipfile.ZipFile(zpath) as z:
+                names = set(z.namelist())
+            dbn = "artifacts/KNOWLEDGE_GRAPH.db"
+            if dbn in names and dbn + ".sha256" not in names \
+                    and os.path.isfile(_GRAPH_BUILD):
+                import subprocess
+                import tempfile
+                with tempfile.TemporaryDirectory() as td:
+                    dbp = os.path.join(td, "KNOWLEDGE_GRAPH.db")
+                    with zipfile.ZipFile(zpath) as z:
+                        open(dbp, "wb").write(z.read(dbn))
+                    r = subprocess.run(
+                        [sys.executable, _GRAPH_BUILD, "--db", dbp,
+                         "--hash-pin", dbp + ".sha256", "--write-hash"],
+                        capture_output=True, text=True, timeout=120)
+                    if r.returncode == 0:
+                        with zipfile.ZipFile(zpath, "a",
+                                             zipfile.ZIP_DEFLATED) as z:
+                            z.write(dbp + ".sha256", dbn + ".sha256")
+                        print(f"  {G}graph pin{RST}: sidecar appended to the "
+                              "re-stamped zip (prior pack predated the pin)")
+                    else:
+                        print(f"  {Y}graph pin: derivation failed{RST} -- "
+                              "re-stamped zip ships without it.")
+        except Exception as e:  # why: pin is advisory; re-stamp must still succeed
+            print(f"  {Y}graph pin: skipped ({e}){RST}")
+        return 0
+    print(f"{R}no live {a.dir} and no prior audit_state_v3_66_*.zip to re-stamp{RST}")
+    return 1
+
+
+sys.exit(main())

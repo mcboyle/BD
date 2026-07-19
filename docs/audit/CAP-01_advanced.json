@@ -1,0 +1,294 @@
+{
+  "batch": "CAP-01",
+  "version": "3.66.532",
+  "schema": "advanced-kb/2 (belief-centric)",
+  "schema_note": "The atomic unit is a BELIEF, not a fact: each carries a witness (executable re-derivation), a derivation (epistemic route), confidence, and -- where the read produced them -- exceptions_to / assumptions / surprises / rejected_alternatives / open_questions / coverage_gaps. Mechanical fields (signatures/edges/sinks) stay in the graph; this file holds only what a person reading the code produced. Optional fields are omitted when empty (emptiness is signal: a pure-utility unit has no surprises). Witnesses are MANDATORY for constraints + findings, optional for descriptions.",
+  "concepts": [
+    {
+      "id": "C-redaction-floor",
+      "name": "the redaction floor",
+      "definition": "The ALWAYS-ON credential scrub applied at capture time and at the WACZ export boundary. Hard credentials (jwt / userinfo / opaque-token / kv-secret) are removed regardless of profile; the floor is the irreducible guarantee that no credential reaches a derived/exported artifact.",
+      "spans_files": [
+        "capture_artifact_redact.py",
+        "wacz_export.py",
+        "capture_bodies.py",
+        "session_capture.py",
+        "dom_capture.py"
+      ],
+      "requires_understanding": [
+        "C-redaction-profile",
+        "C-value-vs-key",
+        "C-SoT"
+      ]
+    },
+    {
+      "id": "C-redaction-profile",
+      "name": "redaction profile / surface",
+      "definition": "A per-capture policy (network_signed_urls / dom_embedded_urls / emails in {keep_full, strip/default, redact/keep}). It governs ONLY signed-URL STRUCTURE + emails -- NEVER the credential floor. 'keep_full' = reduced_redaction = the capture is stamped local_only.",
+      "spans_files": [
+        "redaction_profile.py (REC batch)",
+        "capture_artifact_redact.py"
+      ],
+      "requires_understanding": []
+    },
+    {
+      "id": "C-SoT",
+      "name": "the sensitive-key Source of Truth",
+      "definition": "capture_redact.SENSITIVE_QS_KEY -- the single regex that defines which query/kv keys mark a secret. The kv floor DERIVES from it (minus signing-metadata, plus header-origin csrf/xsrf/bearer) rather than keeping a parallel hand-maintained list. This derivation IS invariant I0008.",
+      "spans_files": [
+        "capture_redact.py (REC batch)",
+        "capture_artifact_redact.py"
+      ],
+      "requires_understanding": []
+    },
+    {
+      "id": "C-value-vs-key",
+      "name": "value-shape vs key-name detection",
+      "definition": "A string is redacted by EITHER its key looking sensitive (key-name, SoT) OR its value looking like a secret (content: email/JWT/signed-URL/userinfo/opaque-token). Two-sided because bodies hide signing material under innocent key names -- key-name matching alone was the v3.66.52 fixture bug.",
+      "spans_files": [
+        "capture_artifact_redact.py",
+        "capture_bodies.py"
+      ],
+      "requires_understanding": [
+        "C-SoT"
+      ]
+    },
+    {
+      "id": "C-derived-vs-assembled-vs-raw",
+      "name": "artifact provenance tiers",
+      "definition": "RAW capture (in-memory, redact=False dev-only, loudly _UNREDACTED) -> ASSEMBLED capture dict (redacted at capture time) -> DERIVED artifact (template draft / review candidate). redact_artifact scrubs DERIVED; redact_capture+scan_floor_secrets gate the ASSEMBLED export. Confusing the tier is how a raw value leaks.",
+      "spans_files": [
+        "session_capture.py",
+        "capture_artifact_redact.py",
+        "wacz_export.py"
+      ],
+      "requires_understanding": [
+        "C-redaction-floor"
+      ]
+    },
+    {
+      "id": "C-wacz-boundary",
+      "name": "the WACZ export boundary",
+      "definition": "build_wacz_bytes is the LAST gate before a capture becomes durable. It re-scrubs (defense-in-depth), force-scrubs floor residuals, re-scans, and RAISES WaczRedactionError if any hard credential survives. json.dumps here also fail-closes on non-JSON leaves.",
+      "spans_files": [
+        "wacz_export.py"
+      ],
+      "requires_understanding": [
+        "C-redaction-floor",
+        "C-derived-vs-assembled-vs-raw"
+      ]
+    }
+  ],
+  "constraints": [
+    {
+      "id": "K-no-hard-cred",
+      "surface": "no hard credential (jwt / userinfo / opaque-token / raw kv-secret) may survive into capture.json, under ANY profile",
+      "incidence": [
+        {
+          "at": "capture_artifact_redact.scan_floor_secrets",
+          "role": "detector",
+          "guarded": true
+        },
+        {
+          "at": "capture_artifact_redact._value_findings",
+          "role": "detector",
+          "guarded": true
+        },
+        {
+          "at": "wacz_export.build_wacz_bytes",
+          "role": "fail-closed gate (WaczRedactionError)",
+          "guarded": true
+        },
+        {
+          "at": "session_capture.record_network",
+          "role": "capture-time scrub",
+          "guarded": true
+        },
+        {
+          "at": "capture_bodies.redact_body",
+          "role": "body scrub",
+          "guarded": true
+        },
+        {
+          "at": "dom_capture.redact_dom_node",
+          "role": "DOM input-value scrub",
+          "guarded": true
+        }
+      ],
+      "holes": 0,
+      "witness": "W2 (jwt flagged under keep_full)",
+      "topology_note": "6 incidence points, 6 guarded -> 0 holes. The verify-pass method (count incidence vs guards) finds a hole by subtraction; here the count is clean."
+    },
+    {
+      "id": "K-kv-from-SoT",
+      "surface": "the kv secret-keyword set must EQUAL or CONSULT the URL-query SoT (I0008) -- it may be a strict SUBSET of the SoT (it subtracts signing-metadata) but must never DRIFT from it",
+      "incidence": [
+        {
+          "at": "capture_artifact_redact._kv_key_is_secret",
+          "role": "the derivation",
+          "guarded": true
+        }
+      ],
+      "holes": 0,
+      "witness": "W1 (12 credential keys scrub, 6 structural keys kept)",
+      "topology_note": "Single incidence point. The HISTORICAL hole (VR-P03) was a parallel hand-maintained tuple that drifted from the SoT -> code/state/apikey/... survived. The fix removed the parallel list. A reintroduced parallel list reopens the hole -- this is exactly counterfactual MOD-C."
+    }
+  ],
+  "exceptions": [
+    {
+      "id": "X-keep_full-signed-url",
+      "rule": "K-no-hard-cred / the floor scrubs sensitive query params",
+      "exception": "a signed_url / kv_secret residual in a query is LEGAL (forgiven by scan_floor_secrets) when the surface is keep_full",
+      "why_allowed": "keep_full is a deliberate operator choice (reduced_redaction) for a network surface where the signed URL's structure is wanted; the capture is then stamped local_only and must never circulate. Hard credentials (jwt/userinfo/opaque) are STILL never forgiven -- the exception is scoped to the signed-URL/kv-query shape only.",
+      "at": "capture_artifact_redact.scan_floor_secrets (surface_full skip)",
+      "witness": "W3 (keep_full forgives signed residual; default surface flags it)",
+      "teaching": "This is the #1 thing a newcomer gets wrong: they read 'the floor scrubs signed URLs' and assume always. It does NOT under keep_full. The carve-out is the bug-magnet."
+    }
+  ],
+  "beliefs": [
+    {
+      "id": "B-redact-core-purpose",
+      "unit": "capture_artifact_redact.py",
+      "purpose_stated": "redact secret CONTENT from capture-derived artifacts; scan_artifact_secrets returns ALL residual sensitive values so callers/tests can prove emptiness",
+      "behavior_observed": "matches for str/dict/list leaves; DIVERGES for bytes/set leaves -- scan_artifact_secrets / scan_floor_secrets silently SKIP them (return no finding) rather than flagging. So 'returns all residuals' is true only for JSON-shaped input.",
+      "purpose_vs_behavior": "DRIFT (benign-mitigated): stated 'all residuals' vs observed 'JSON leaves only'. Mitigated because (a) inputs are JSON-derived and (b) the wacz_export json.dumps boundary raises on a bytes/set leaf (fail-closed). The canonical bytes/set scan lives upstream in capture_redact.scrub_globals (I0010).",
+      "confidence": "confirmed",
+      "derivation": "read every line + traced the leaf-type branches in both scanners + confirmed the json.dumps backstop by witness W4",
+      "witness": "W4 (json.dumps raises on bytes leaf)",
+      "assumptions": [
+        {
+          "text": "capture leaves are JSON-serializable (str/dict/list/num/bool/None) -- assumed by NOT type-checking non-JSON leaves in the scanners",
+          "status": "verified-mitigated",
+          "tested_by": "W4 + the upstream scrub_globals guard test_v3_66_529"
+        }
+      ],
+      "surprises": [
+        {
+          "text": "the always-on kv floor is a strict SUBSET of the SoT, not a superset -- it SUBTRACTS signing-metadata (expires/policy/hash/x-amz-) before re-checking. Counterintuitive: you expect a 'floor' to catch MORE than the configurable pass, but here it deliberately catches a careful subset so a keep_full surface can still retain Expires."
+        }
+      ],
+      "rejected_alternatives": [
+        {
+          "tempting_mistake": "wholesale-delegate the kv floor to the SoT (just call SENSITIVE_QS_KEY)",
+          "why_it_fails": "the SoT also flags signing-metadata keys (expires/policy/x-amz-) which a keep_full surface legitimately RETAINS; delegating over-strips Expires and regressed test_v3_66_245. The subtract-then-recheck dance exists precisely to avoid this. Corpse documented in the _kv_key_is_secret docstring."
+        }
+      ]
+    },
+    {
+      "id": "B-kv-SoT-derivation",
+      "unit": "capture_artifact_redact._kv_key_is_secret",
+      "purpose_stated": "True iff a kv key marks its value a CREDENTIAL the always-on floor scrubs even under keep_full",
+      "behavior_observed": "csrf/xsrf/bearer via _KV_CRED_EXTRA; else SoT-match minus signing-metadata residue. Correctly scrubs code/state/apikey/challenge/captcha/nonce/otp; keeps color/width/resolution.",
+      "purpose_vs_behavior": "MATCH",
+      "confidence": "confirmed",
+      "derivation": "read + witness W1 (probe of 12 must-scrub / 6 must-keep keys)",
+      "witness": "W1",
+      "enforces": [
+        "K-kv-from-SoT",
+        "I0008"
+      ],
+      "coverage_gaps": [],
+      "history": "This IS the VR-P03 fix (v3.66.521). Before it, _KV_SECRET_KEYWORDS was a hand-maintained tuple that drifted from the SoT, missing the anchored OAuth-fragment keys code/state + apikey/challenge/captcha/nonce/otp -> an auth #code=...&state=... landed in capture.json. The fix is load-bearing; see counterfactual MOD-C."
+    },
+    {
+      "id": "B-bodies-manifest-gap",
+      "unit": "capture_bodies.py",
+      "purpose_stated": "no signing material survives in a stored body -- not a JWT, not a signed URL, regardless of how the body labels its fields",
+      "behavior_observed": "holds for JSON/text bodies; does NOT yet hold for HLS/DASH MANIFEST bodies: a PATH-signed segment URL or #EXT-X-KEY/#EXT-X-MAP URI is neither detector-flagged nor a floor secret and CAN survive.",
+      "purpose_vs_behavior": "KNOWN DRIFT (documented, scoped): the wholesale guarantee is explicitly suspended for manifest bodies; mitigated by stamping any BD_CAPTURE_BODIES=1 manifest capture local_only.",
+      "confidence": "confirmed",
+      "derivation": "read the DEFERRED-F2 block + traced _redact_text token scrub (whitespace-bounded; a path-signed URI has no whitespace-bounded secret token and no query key)",
+      "witness": "witnesses/cap01_witnesses.py::F-CAP01-manifest-gap (finding-repro: confirms the path-signed manifest URI survives)",
+      "open_questions": [
+        {
+          "text": "Is the DEFERRED-F2 manifest path-signed-URI gap owned/scheduled (STRUCTURE-mode hardening), or is 'local_only' the permanent answer? No tracker item id is referenced in-code.",
+          "for": "operator/Matt"
+        }
+      ],
+      "coverage_gaps": [
+        {
+          "behavior": "a path-signed segment URL / #EXT-X-KEY URI in a retained manifest is masked",
+          "tested": false,
+          "shape": "F0001/VR -- the behavior is ASSERTED-absent (it currently is NOT masked) so there is no green test; a future STRUCTURE-mode fix needs a RED-first test here"
+        },
+        {
+          "behavior": "_redact_text (234-240)",
+          "tested": false,
+          "shape": "F0001/VR (green-suite-untested-path)",
+          "uncovered_lines": [
+            234,
+            235,
+            236,
+            237,
+            238,
+            239,
+            240
+          ]
+        },
+        {
+          "behavior": "_redact_text._maybe (235-239)",
+          "tested": false,
+          "shape": "F0001/VR (green-suite-untested-path)",
+          "uncovered_lines": [
+            235,
+            236,
+            237,
+            238,
+            239
+          ]
+        }
+      ]
+    },
+    {
+      "id": "B-live-recorder-ssrf",
+      "unit": "bulk_downloader/live_recorder.py",
+      "purpose_stated": "record live cam streams from KNOWN cam sites (parse_live_url host-allowlist)",
+      "behavior_observed": "on the site_override+room_override path, parse_live_url is SKIPPED -- only URL SHAPE (^https?://...$) is checked, NOT the host. An arbitrary http(s) host (incl. 169.254.169.254 metadata, localhost:5555) is accepted and fetched by streamlink/ffmpeg.",
+      "purpose_vs_behavior": "DRIFT (the bug): stated 'known cam sites' vs observed 'any http host on the override path'.",
+      "confidence": "confirmed-at-boundary",
+      "derivation": "read watch()+_load_state()+_is_room_live+_build_cmd + RAN witness W6 (watch() accepted a metadata IP). Reachability to an untrusted caller is cross-batch (APP route) -> overall severity still pending that audit.",
+      "witness": "W6 (CONFIRMED: watch() override path returns ok=True for a link-local metadata IP)",
+      "enforces": [
+        "I-CAP01-rec-url-shape (shape only -- host NOT constrained on override path)"
+      ],
+      "assumptions": [
+        {
+          "text": "callers of watch() that pass site_override+room_override supply a trusted host -- assumed by NOT host-checking on that path",
+          "status": "KNOWN-FALSE if the override params are reachable from an untrusted API caller",
+          "tested_by": "W6 confirms the capability; APP-batch confirms reachability"
+        }
+      ],
+      "links_finding": "F-CAP01-01"
+    }
+  ],
+  "counterfactual_test": {
+    "prompt": "Three proposed modifications to the redaction floor. Using ONLY the rendered CAP-01 KB (not the code), sort them: which are SAFE and which reintroduces a known bug?",
+    "mods": [
+      {
+        "id": "MOD-A",
+        "change": "add 'application/ld+json' to capture_bodies _is_text_or_json eligibility",
+        "kb_prediction": "SAFE",
+        "kb_reasoning": "C-value-vs-key: an ld+json body flows through the SAME two-sided redactor (_redact_json: key-name SoT + value-shape). The floor is content-type-agnostic on the value-shape side. New eligible type != new leak path. K-no-hard-cred incidence unchanged.",
+        "ground_truth": "safe"
+      },
+      {
+        "id": "MOD-B",
+        "change": "lower _OPAQUE_MIN from 40 to 32 in capture_artifact_redact",
+        "kb_prediction": "SAFE (strictly-more-scrubbing; low FP risk)",
+        "kb_reasoning": "Lowering the opaque-token floor only ever scrubs MORE (never less), so K-no-hard-cred cannot be weakened. The surprise/structure carve-outs in _looks_like_opaque_token (hex hashes, dotted module paths, CSS class-chains) still protect structure. Net: safe for secrets; watch FP on 32-39-char structural blobs, but those hit the existing carve-outs.",
+        "ground_truth": "safe"
+      },
+      {
+        "id": "MOD-C",
+        "change": "replace _kv_key_is_secret's SoT-derived check with a hand-maintained tuple ('password','token','secret','authorization')",
+        "kb_prediction": "UNSAFE -- reintroduces VR-P03",
+        "kb_reasoning": "K-kv-from-SoT + B-kv-SoT-derivation.history: a hand-maintained tuple is EXACTLY the pre-VR-P03 shape that drifted from the SoT. This tuple drops code/state/apikey/challenge/captcha/nonce/otp -> an OAuth #code=...&state=... fragment survives the kv floor into capture.json. Witness W1 goes RED (those keys stop scrubbing). This is the rejected-alternative the KB explicitly warns is a corpse.",
+        "ground_truth": "unsafe-reintroduces-VR-P03",
+        "executable_check": "apply MOD-C in isolation and run the W1 probe -> must go RED on code/state/apikey/challenge/captcha/nonce/otp"
+      }
+    ],
+    "pass_condition": "A reader sorts A=safe, B=safe, C=unsafe using only the KB. The KB must let them PREDICT C reintroduces a specific historical bug -- not just describe what _kv_key_is_secret currently is. If the KB only described, C is indistinguishable from B (both 'change a redaction function')."
+  },
+  "guard_touch": false,
+  "tracker_write": false
+}

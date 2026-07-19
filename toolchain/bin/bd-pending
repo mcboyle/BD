@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+"""bd-pending -- reconcile STATE.json's pending_pk_update against reality.
+
+THE BUG THIS CATCHES (found live @533): STATE.json listed static-KB items as
+"pending" that were ALREADY committed to the static set in a prior session --
+the tracker drifted from reality and nothing caught it. `bd-cut PATCHED` and the
+POI wording fix were both already in /mnt/project, yet STATE still flagged them
+pending since 531/532. That is the documentation-staleness failure mode: a
+tracker entry is not a gate, so it rots.
+
+This tool re-derives whether each known pending item is ACTUALLY still pending by
+probing the live static set, and flags entries that reality says are DONE. It
+does NOT edit STATE (that stays a deliberate authoring step) -- it produces the
+close-list so the handoff author clears what's genuinely resolved.
+
+Checks (extensible -- add a probe per known pending class):
+  * bd-cut patched      -> does the static bd-cut carry --skip-fe? (the patch marker)
+  * POI wording fix     -> is the misleading 'test_spa_wired_join_is_faithful.py'
+                           file-reference GONE from PROJECT_OPERATING_INSTRUCTIONS?
+  * bd-boot gating      -> does bd-boot HALT on RE-PASTE-OWED (the @533 change)?
+  * AUTOMATION_POLICY   -> present in the static set (presence probe; content drift
+                           is caught by bd-kb-sync, not here)
+  * graph check-hash    -> is graph_build's content_hash/check_hash wired (the @533
+                           P2 fix) so the pin is recomputable?
+
+Usage:
+  bd-pending [--static DIR] [--state STATE.json]
+    --static  the static-KB dir to probe (default: /mnt/project)
+    --state   STATE.json whose pending_pk_update text is cross-checked (optional;
+              if given, its text is scanned for the item keywords to confirm the
+              tracker still lists a DONE item)
+Exit 0 always (advisory close-list). Stdlib only.
+"""
+import argparse
+import glob
+import json
+import os
+import re
+import sys
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+
+def _read(path):
+    try:
+        return open(path, encoding="utf-8").read()
+    except OSError:
+        return ""
+
+
+def probe_bd_cut_patched(static):
+    p = os.path.join(static, "bd-cut")
+    if not os.path.exists(p):
+        return ("bd-cut patched", None, "bd-cut not in static set")
+    done = "skip-fe" in _read(p) or "skip_fe" in _read(p)
+    return ("bd-cut patched (--skip-fe)", done,
+            "static bd-cut carries --skip-fe" if done
+            else "static bd-cut is the OLD (unpatched) version")
+
+
+def probe_poi_wording(static):
+    p = os.path.join(static, "PROJECT_OPERATING_INSTRUCTIONS.md")
+    if not os.path.exists(p):
+        return ("POI wording fix", None, "POI not in static set")
+    txt = _read(p)
+    # the BUG was referencing it as a .py FILE; the fix removes that reference
+    bad = "test_spa_wired_join_is_faithful.py" in txt
+    return ("POI wording fix (join-is-faithful is a FUNCTION)", not bad,
+            "no misleading .py file-reference" if not bad
+            else "still references test_spa_wired_join_is_faithful.py as a file")
+
+
+def probe_bd_boot_gating(static):
+    p = os.path.join(static, "bd-boot")
+    if not os.path.exists(p):
+        return ("bd-boot RE-PASTE gating", None, "bd-boot not in static set")
+    done = "HALT: refusing to start against a stale static set" in _read(p)
+    return ("bd-boot RE-PASTE-OWED gating (@533)", done,
+            "bd-boot HALTs on a stale static set" if done
+            else "bd-boot RE-PASTE check is still advisory (non-gating)")
+
+
+def probe_automation_policy(static):
+    p = os.path.join(static, "AUTOMATION_POLICY.md")
+    done = os.path.exists(p)
+    return ("AUTOMATION_POLICY present", done,
+            "present in static set" if done else "MISSING from static set")
+
+
+def probe_graph_checkhash(static):
+    # graph_build is in-tree (tools/), not the static kit -- probe the tree if present
+    cands = [os.path.join(static, "tools", "graph_build.py"),
+             "/home/claude/work/tools/graph_build.py"]
+    p = next((c for c in cands if os.path.exists(c)), None)
+    if not p:
+        return ("graph check-hash (P2)", None, "graph_build.py not found to probe")
+    txt = _read(p)
+    done = "def content_hash" in txt and "def check_hash" in txt
+    return ("graph content-hash recompute (P2 @533)", done,
+            "content_hash + check_hash present" if done
+            else "graph_build lacks content_hash/check_hash")
+
+
+PROBES = [probe_bd_cut_patched, probe_poi_wording, probe_bd_boot_gating,
+          probe_automation_policy, probe_graph_checkhash]
+
+# keyword each probe maps to, for cross-checking the STATE pending text
+STATE_KEYWORDS = {
+    "bd-cut patched (--skip-fe)": ["bd-cut", "skip-fe", "PATCHED"],
+    "POI wording fix (join-is-faithful is a FUNCTION)": ["spa_wired_join", "is_faithful", "wording"],
+    "bd-boot RE-PASTE-OWED gating (@533)": ["re-paste", "bd-boot"],
+    "AUTOMATION_POLICY present": ["AUTOMATION_POLICY"],
+    "graph content-hash recompute (P2 @533)": ["graph", "hash", "P2"],
+}
+
+
+def selftest():
+    """IMPORT-OK: pending-work reader with no independent fault surface. Structural check
+    only -- the module parsed and exposes main(); this is the weakest selftest
+    kind and says so."""
+    ok = "main" in globals() and callable(main)
+    print(("PASS" if ok else "FAIL") + "  module structural check (main present)")
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--static", default="/mnt/project")
+    ap.add_argument("--state", default=None,
+                    help="STATE.json to cross-check pending_pk_update text against")
+    ap.add_argument("--selftest",action="store_true")
+    a = ap.parse_args(argv)
+    if a.selftest:
+        return selftest()
+
+    pending_text = ""
+    if a.state and os.path.exists(a.state):
+        try:
+            st = json.load(open(a.state))
+            pt = st.get("pending_pk_update", "")
+            pending_text = pt if isinstance(pt, str) else json.dumps(pt)
+        except Exception:  # why: handled failure is non-fatal here; proceed with the value left unset
+            pass
+
+    print(f"bd-pending -- reconciling pending items vs reality in {a.static}")
+    print("=" * 70)
+    done_but_tracked, still_pending, unknown = [], [], []
+    for probe in PROBES:
+        name, done, detail = probe(a.static)
+        if done is None:
+            unknown.append((name, detail))
+            tag = f"{DIM}? {RST}"
+        elif done:
+            tag = f"{G}DONE{RST}"
+        else:
+            tag = f"{Y}PENDING{RST}"
+            still_pending.append((name, detail))
+        print(f"  {tag}  {name}")
+        print(f"        {DIM}{detail}{RST}")
+        # cross-check: does the STATE pending text STILL list a DONE item?
+        if done and pending_text:
+            kws = STATE_KEYWORDS.get(name, [])
+            if kws and any(k.lower() in pending_text.lower() for k in kws):
+                done_but_tracked.append(name)
+
+    print("=" * 70)
+    if done_but_tracked:
+        print(f"{R}STALE TRACKER ENTRIES{RST} -- reality says DONE but STATE.pending "
+              f"still lists them; CLEAR these from pending_pk_update:")
+        for n in done_but_tracked:
+            print(f"    - {n}")
+    if still_pending:
+        print(f"{Y}GENUINELY PENDING{RST} ({len(still_pending)}):")
+        for n, d in still_pending:
+            print(f"    - {n}: {d}")
+    if unknown:
+        print(f"{DIM}UNPROBEABLE ({len(unknown)}): {', '.join(n for n, _ in unknown)}{RST}")
+    if not done_but_tracked and not still_pending:
+        print(f"{G}CLEAN{RST} -- no stale tracker entries; all probed items resolved.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

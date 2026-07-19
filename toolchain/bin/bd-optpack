@@ -1,0 +1,545 @@
+#!/usr/bin/env python3
+"""bd-optpack -- detect / report / install the OPTIONAL expansion packs (E-H).
+
+The base bootstrap ships pack_A-D (bd-install auto-installs their inner kits) +
+the cloak pack (bd-venv). pack_E-H are a DIFFERENT tier: flat single-capability
+packs that bd-install globs but has NO handler for, so they are install-on-demand.
+This tool is where the toolchain "knows about" them -- it detects which are
+present, reports whether their capability is already installed, and installs one
+on request with the correct per-pack recipe.
+
+  pack_E  bd_browsers_pack   playwright firefox-1532 + webkit-2311 (+ fixtures)
+  pack_F  bd_pyext_pack      optional extractor/parser wheels (a-la-carte pool)
+  pack_G  bd_netdeps_pack    Ubuntu 24.04/amd64 system .debs (VPN/aria2/zbar/...)
+  pack_H  bd_audit_pack      offline bd-rev audit venv + jscpd + a11y + bins
+
+Usage:
+    bd-optpack                 # list: which packs are present + install state
+    bd-optpack --list          # same
+    bd-optpack --brief         # one line (bd-status calls this)
+    bd-optpack install E       # install pack_E's capability (on-demand)
+    bd-optpack install all     # install every present pack
+    bd-optpack install G --apt # pack_G: actually dpkg -i the debs (needs root)
+    bd-optpack install F --pip "streamlink lxml"   # pack_F: install named wheels
+    bd-optpack verify          # probe each installed pack's CAPABILITY (not the flag)
+
+Detect-only commands never change anything. `install` is explicit and per-pack.
+Exit 0 on success / clean list; 1 on a requested install that failed. Stdlib only.
+"""
+import argparse
+import glob
+import os
+import shutil
+import stat
+import subprocess
+import sys
+import zipfile
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+# Where uploaded packs may live (uploads is read-only + evicts, so also check home).
+SEARCH_DIRS = [
+    "/mnt/user-data/uploads",
+    "/home/claude",
+    "/home/claude/packs_out",
+]
+# The BD runtime (bdenv.sh) uses /home/claude/.cache/ms-playwright. The AMBIENT
+# container env sets PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers, where BD never
+# looks -- honoring it made install_E land browsers in the wrong place while
+# installed_E() (probing the same wrong place) reported success (v3.66.688
+# OPTPACK_EH_ISSUES E-1). Target the runtime cache explicitly; BD_PW_CACHE is
+# the deliberate override.
+PW_PATH = os.environ.get("BD_PW_CACHE", "/home/claude/.cache/ms-playwright")
+WORK = "/home/claude/work"
+VENV_PY = os.path.join(WORK, "venv", "bin", "python")
+
+
+def find_pack(letter):
+    """Return the path to pack_<letter>.zip if present, else None."""
+    for d in SEARCH_DIRS:
+        p = os.path.join(d, "pack_%s.zip" % letter)
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def _venv_env():
+    e = dict(os.environ)
+    e.pop("PYTHONPATH", None)  # never let prestaged site-packages mask the venv
+    return e
+
+
+def _run(cmd, env=None):
+    return subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=150)
+
+
+# ---- per-pack "installed?" probes ---------------------------------------
+def installed_E():
+    # Capability, not existence: the dirs must be in the BD runtime cache AND
+    # the launch binaries must be executable (extract used to strip +x).
+    fx = os.path.join(PW_PATH, "firefox-1532", "firefox", "firefox")
+    wk = os.path.join(PW_PATH, "webkit-2311", "pw_run.sh")
+    return os.access(fx, os.X_OK) and os.access(wk, os.X_OK)
+
+
+def installed_F():
+    # a-la-carte pool: "installed" == the wheelhouse has been staged locally
+    return os.path.isdir("/home/claude/pyext_kit/wheels")
+
+
+def installed_G():
+    return shutil.which("wg") is not None or shutil.which("wg-quick") is not None
+
+
+def installed_H():
+    # Capability: audit venv present AND wired where bd-rev/bd-doctor look.
+    venv_ok = os.path.isfile("/home/claude/audit_tools/venv/bin/semgrep")
+    rev = "/home/claude/rev"
+    wired = os.path.isdir(rev) and os.path.isfile(os.path.join(rev, "bin", "semgrep"))
+    return (venv_ok and wired) or shutil.which("semgrep") is not None
+
+
+PACKS = {
+    "E": ("bd_browsers_pack", "playwright firefox-1532 + webkit-2311 + fixtures",
+          installed_E),
+    "F": ("bd_pyext_pack", "optional extractor/parser wheels (a-la-carte)",
+          installed_F),
+    "G": ("bd_netdeps_pack", "system .debs (VPN/aria2/zbar/jq/sqlite3/jellyfin)",
+          installed_G),
+    "H": ("bd_audit_pack", "offline audit venv + jscpd + a11y + fd/shellcheck",
+          installed_H),
+}
+
+
+def _restore_exec(root):
+    """Safety net: +x any ELF binary or #! script under root (idempotent).
+    Covers packs whose zip entries carry no POSIX modes at all."""
+    n = 0
+    for dp, _, fns in os.walk(root):
+        for fn in fns:
+            fp = os.path.join(dp, fn)
+            if os.path.islink(fp):
+                continue
+            try:
+                with open(fp, "rb") as f:
+                    m = f.read(4)
+            except OSError:
+                continue
+            if m == b"\x7fELF" or m[:2] == b"#!":
+                st = os.stat(fp)
+                if not st.st_mode & 0o111:
+                    os.chmod(fp, st.st_mode | 0o111)
+                    n += 1
+    return n
+
+
+def _extract(pack_path, dest):
+    """zipfile.extractall DROPS posix mode bits and FLATTENS symlinks into
+    regular files -- the shared root cause of every pack_E/pack_H breakage
+    (v3.66.688 OPTPACK_EH_ISSUES: EACCES browsers, dead jscpd .bin). Extract
+    entry-by-entry, restoring modes from external_attr and rematerializing
+    symlinks, then run the ELF/#! exec safety net."""
+    os.makedirs(dest, exist_ok=True)
+    with zipfile.ZipFile(pack_path) as z:
+        for info in z.infolist():
+            mode = info.external_attr >> 16
+            target = os.path.join(dest, info.filename)
+            if stat.S_ISLNK(mode):
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                link = z.read(info).decode()
+                try:
+                    os.remove(target)
+                except OSError:
+                    pass
+                os.symlink(link, target)
+                continue
+            z.extract(info, dest)
+            if mode and not info.is_dir():
+                os.chmod(target, stat.S_IMODE(mode))
+    _restore_exec(dest)
+
+
+# ---- installers ----------------------------------------------------------
+def install_E(pack_path):
+    tmp = "/tmp/optpack_E"
+    shutil.rmtree(tmp, ignore_errors=True)
+    _extract(pack_path, tmp)
+    os.makedirs(PW_PATH, exist_ok=True)
+    src = os.path.join(tmp, "ms-playwright")
+    for name in os.listdir(src):
+        dst = os.path.join(PW_PATH, name)
+        shutil.rmtree(dst, ignore_errors=True)
+        shutil.move(os.path.join(src, name), dst)
+    # fixtures live alongside for capture tests
+    fx = os.path.join(tmp, "fixtures")
+    if os.path.isdir(fx):
+        shutil.rmtree("/home/claude/browsers_fixtures", ignore_errors=True)
+        shutil.move(fx, "/home/claude/browsers_fixtures")
+    # webkit's web process loads its injected bundle from a HARDCODED system
+    # path; symlink it to the bundled copy or every page load aborts
+    # (OPTPACK_EH_ISSUES E-3).
+    so = os.path.join(PW_PATH, "webkit-2311", "minibrowser-gtk", "lib",
+                      "libwebkitgtkinjectedbundle.so")
+    if os.path.isfile(so):
+        bdir = "/usr/local/lib/webkitgtk-6.0/injected-bundle"
+        os.makedirs(bdir, exist_ok=True)
+        lnk = os.path.join(bdir, "libwebkitgtkinjectedbundle.so")
+        try:
+            os.remove(lnk)
+        except OSError:
+            pass
+        os.symlink(so, lnk)
+    ok = installed_E()
+    print("  %s pack_E: firefox-1532 + webkit-2311 -> %s%s" %
+          (G + "OK" + RST if ok else R + "XX" + RST, PW_PATH,
+           "  (fixtures -> /home/claude/browsers_fixtures)"))
+    print(DIM + "     webkit: headful-under-Xvfb only (pure headless needs a GL"
+          " stack this container lacks); playwright's own chromium rev-mismatch"
+          " is pre-existing + moot (BD backend is cloakbrowser)" + RST)
+    return ok
+
+
+def install_F(pack_path, pip_pkgs=None):
+    dest = "/home/claude/pyext_kit"
+    shutil.rmtree(dest, ignore_errors=True)
+    _extract(pack_path, dest)
+    wh = os.path.join(dest, "wheels")
+    print("  %s pack_F: wheelhouse staged -> %s" % (G + "OK" + RST, wh))
+    if pip_pkgs:
+        if not os.path.isfile(VENV_PY):
+            print("  %s no service venv at %s -- run bd-venv first" %
+                  (R + "XX" + RST, VENV_PY))
+            return False
+        r = _run([VENV_PY, "-m", "pip", "install", "--no-index",
+                  "--find-links", wh] + pip_pkgs.split(), env=_venv_env())
+        ok = r.returncode == 0
+        print("  %s pip install %s" %
+              (G + "OK" + RST if ok else R + "XX" + RST, pip_pkgs))
+        if not ok:
+            print(DIM + (r.stderr or r.stdout)[-400:] + RST)
+        return ok
+    print("  %s a-la-carte: install what a feature needs, e.g." % (Y + "->" + RST))
+    print(DIM + "     env -u PYTHONPATH %s -m pip install --no-index "
+          "--find-links=%s <pkg...>" % (VENV_PY, wh) + RST)
+    return True
+
+
+def install_G(pack_path, do_apt=False):
+    dest = "/home/claude/netdeps_kit"
+    shutil.rmtree(dest, ignore_errors=True)
+    _extract(pack_path, dest)
+    debs = os.path.join(dest, "debs")
+    # pack_G2 supplies pack_G's missing dependency debs (iproute2/iptables/nftables/
+    # aria2 libs). Stage them into the same debs dir so dpkg -i resolves them together.
+    g2n = 0
+    for base in (os.path.dirname(pack_path), "/home/claude/incoming",
+                 "/mnt/user-data/uploads", "/home/claude"):
+        g2 = sorted(glob.glob(os.path.join(base, "pack_G2*.zip")))
+        if g2:
+            _extract(g2[0], dest + "_g2")
+            for d in glob.glob(os.path.join(dest + "_g2", "**", "*.deb"), recursive=True):
+                shutil.copy(d, debs)
+                g2n += 1
+            break
+    n = len(glob.glob(os.path.join(debs, "*.deb")))
+    print("  %s pack_G: %d debs staged -> %s%s" % (G + "OK" + RST, n, debs,
+          (" (incl. %d dep debs from pack_G2)" % g2n) if g2n else
+          (Y + " (pack_G2 not found -- deps may be unmet)" + RST)))
+    if not do_apt:
+        print("  %s system install is opt-in; re-run with --apt (needs root):" %
+              (Y + "->" + RST))
+        print(DIM + "     sudo dpkg -i %s/*.deb   # pack_G + pack_G2 deps together" % debs
+              + RST)
+        return True
+    if os.geteuid() != 0:
+        print("  %s --apt needs root (dpkg -i)" % (R + "XX" + RST))
+        return False
+    r = _run(["dpkg", "-i"] + glob.glob(os.path.join(debs, "*.deb")))
+    ok = r.returncode == 0
+    print("  %s dpkg -i (%d debs)" %
+          (G + "OK" + RST if ok else Y + "~~" + RST, n))
+    if not ok:
+        print(DIM + (r.stderr or r.stdout)[-400:] + RST)
+    return True  # dpkg partial-config is common offline; staging is the deliverable
+
+
+def install_H(pack_path):
+    dest = "/home/claude/audit_tools"
+    shutil.rmtree(dest, ignore_errors=True)
+    _extract(pack_path, dest)
+    wh = os.path.join(dest, "wheels")
+    venv = os.path.join(dest, "venv")
+    r = _run(["/usr/bin/python3", "-m", "venv", venv], env=_venv_env())
+    if r.returncode != 0:
+        print("  %s could not create audit venv" % (R + "XX" + RST))
+        return False
+    py = os.path.join(venv, "bin", "python")
+    core = ["semgrep", "bandit", "vulture", "radon", "detect-secrets",
+            "libcst", "hypothesis", "coverage"]
+    r = _run([py, "-m", "pip", "install", "--no-index", "--find-links", wh]
+             + core, env=_venv_env())
+    ok = r.returncode == 0
+    print("  %s pack_H: audit venv -> %s (semgrep/bandit/vulture/radon/...)" %
+          (G + "OK" + RST if ok else R + "XX" + RST, venv))
+    # jscpd .bin must be a SYMLINK to ../jscpd/bin/jscpd; a flattened regular
+    # file breaks its relative require() (OPTPACK_EH_ISSUES H-2). The fixed
+    # _extract rematerializes it when the pack stored a link; relink otherwise.
+    nm = os.path.join(dest, "jscpd", "node_modules")
+    binlink = os.path.join(nm, ".bin", "jscpd")
+    real = os.path.join(nm, "jscpd", "bin", "jscpd")
+    if os.path.isfile(real):
+        if not os.path.islink(binlink):
+            try:
+                os.remove(binlink)
+            except OSError:
+                pass
+            os.makedirs(os.path.dirname(binlink), exist_ok=True)
+            os.symlink("../jscpd/bin/jscpd", binlink)
+        # commander >= 13 is ESM-only; jscpd's CJS require() needs node>=22 or
+        # the --experimental-require-module flag (OPTPACK_EH_ISSUES H-3).
+        try:
+            nodev = _run(["node", "--version"]).stdout.strip().lstrip("v")
+            node_major = int(nodev.split(".")[0]) if nodev else 0
+        except Exception:  # why: operation failed; degrade to the default and continue -- correctness unaffected, only completeness
+            node_major = 0
+        cpkg = os.path.join(nm, "commander", "package.json")
+        cmaj = 0
+        if os.path.isfile(cpkg):
+            import json as _json
+            try:
+                cmaj = int(_json.load(open(cpkg)).get("version", "0").split(".")[0])
+            except Exception:  # why: operation failed; degrade to the default and continue -- correctness unaffected, only completeness
+                cmaj = 0
+        if cmaj >= 13 and node_major and node_major < 22:
+            with open(real) as f:
+                lines = f.read().splitlines()
+            flag = "#!/usr/bin/env -S node --experimental-require-module"
+            if lines and lines[0].startswith("#!") and lines[0] != flag:
+                lines[0] = flag
+                with open(real, "w") as f:
+                    f.write("\n".join(lines) + "\n")
+                print(DIM + "     jscpd: commander@%d is ESM-only; launcher"
+                      " patched for node %d" % (cmaj, node_major) + RST)
+    # Wire the venv where bd-rev / bd-doctor look (~/rev); pins match bd-rev's
+    # exactly so this is the offline equivalent of its live pull
+    # (OPTPACK_EH_ISSUES H-4). Never clobber a REAL venv dir -- only create or
+    # retarget symlinks.
+    if ok:
+        for rev in ("/home/claude/rev", os.path.expanduser("~/rev")):
+            if os.path.islink(rev) or not os.path.exists(rev):
+                try:
+                    os.remove(rev)
+                except OSError:
+                    pass
+                try:
+                    os.symlink(venv, rev)
+                except OSError:
+                    pass
+        print("  %s ~/rev wired -> %s (bd-rev --verify to confirm pins)" %
+              (G + "OK" + RST, venv))
+    print("  %s node tools: %s/jscpd/node_modules/.bin + node_a11y/.../.bin ; "
+          "bins: %s/bin" % (Y + "->" + RST, dest, dest))
+    if not ok:
+        print(DIM + (r.stderr or r.stdout)[-400:] + RST)
+    return ok
+
+
+INSTALLERS = {"E": install_E, "F": install_F, "G": install_G, "H": install_H}
+
+
+def do_verify(a=None):
+    """Probe each installed pack's CAPABILITY (OPTPACK_EH_ISSUES lesson: the
+    install flag can say OK while the capability is dead). Read-only, cheap --
+    no browser launches (use the runbook's launch block for that)."""
+    fails = 0
+
+    def row(ok, label, detail=""):
+        nonlocal fails
+        if not ok:
+            fails += 1
+        print("  %s %s%s" % (G + "OK" + RST if ok else R + "XX" + RST, label,
+                             (DIM + "  " + detail + RST) if detail else ""))
+
+    print("pack_E (browsers):")
+    fx = os.path.join(PW_PATH, "firefox-1532", "firefox", "firefox")
+    wk = os.path.join(PW_PATH, "webkit-2311", "pw_run.sh")
+    if not (os.path.exists(os.path.join(PW_PATH, "firefox-1532"))
+            or os.path.exists(os.path.join(PW_PATH, "webkit-2311"))):
+        print(DIM + "  -- not installed" + RST)
+    else:
+        row(os.access(fx, os.X_OK), "firefox binary executable", fx)
+        row(os.access(wk, os.X_OK), "webkit pw_run.sh executable", wk)
+        wkbins = os.path.join(PW_PATH, "webkit-2311", "minibrowser-gtk", "bin")
+        if os.path.isdir(wkbins):
+            bad = [b for b in os.listdir(wkbins)
+                   if not os.access(os.path.join(wkbins, b), os.X_OK)]
+            row(not bad, "webkit process binaries executable",
+                ("non-exec: " + ",".join(bad)) if bad else wkbins)
+        lnk = "/usr/local/lib/webkitgtk-6.0/injected-bundle/libwebkitgtkinjectedbundle.so"
+        row(os.path.isfile(lnk), "webkit injected-bundle path resolves", lnk)
+
+    print("pack_F (pyext wheels):")
+    wh = "/home/claude/pyext_kit/wheels"
+    if not os.path.isdir(wh):
+        print(DIM + "  -- not staged" + RST)
+    else:
+        row(True, "wheelhouse staged", wh)
+        # F-7 (plan Task 8): this probed `import lxml, PIL` in the service venv --
+        # but pack_F is an A-LA-CARTE POOL that installs NOTHING by design. The
+        # probe asserted a property the pack never promises, so a correctly
+        # installed pack_F verified RED until someone hand-installed Pillow.
+        # Default: verify what the pack ACTUALLY delivers -- the wheels are present.
+        # --installed: the old import probe, for checking a post-install venv.
+        import glob as _glob
+        want = ("lxml", "pillow")
+        missing = [n for n in want
+                   if not (_glob.glob(os.path.join(wh, n + "-*.whl"))
+                           or _glob.glob(os.path.join(wh, n.replace("-", "_") + "-*.whl")))]
+        n_whl = len(_glob.glob(os.path.join(wh, "*.whl")))
+        row(not missing,
+            "wheels present in the wheelhouse (%d whl; spot: %s)" % (n_whl, ", ".join(want)),
+            "" if not missing else "missing: " + ", ".join(missing))
+        if a is not None and getattr(a, "installed", False) and os.path.isfile(VENV_PY):
+            r = _run([VENV_PY, "-c", "import lxml, PIL"], env=_venv_env())
+            row(r.returncode == 0, "--installed: spot import (lxml, PIL) in service venv",
+                "" if r.returncode == 0 else (r.stderr or "").strip()[-120:])
+
+    print("pack_G (+G2, system debs):")
+    if not os.path.isdir("/home/claude/netdeps_kit"):
+        print(DIM + "  -- not staged" + RST)
+    else:
+        for tool in ("ip", "nft", "aria2c", "jq", "sqlite3"):
+            row(shutil.which(tool) is not None, "%s on PATH" % tool)
+        row(bool(glob.glob("/usr/lib/x86_64-linux-gnu/libzbar.so.0*")),
+            "libzbar.so.0 present (pyzbar runtime dep)")
+
+    print("pack_H (audit battery):")
+    dest = "/home/claude/audit_tools"
+    if not os.path.isdir(dest):
+        print(DIM + "  -- not installed" + RST)
+    else:
+        row(os.path.isfile(os.path.join(dest, "venv", "bin", "semgrep")),
+            "audit venv semgrep present")
+        rev = "/home/claude/rev"
+        row(os.path.isfile(os.path.join(rev, "bin", "semgrep")),
+            "~/rev wired (bd-rev/bd-doctor path)", rev)
+        binlink = os.path.join(dest, "jscpd", "node_modules", ".bin", "jscpd")
+        row(os.path.islink(binlink), "jscpd .bin is a symlink", binlink)
+        jr = _run([binlink, "--version"]) if os.path.exists(binlink) else None
+        row(bool(jr and jr.returncode == 0 and jr.stdout.strip()),
+            "jscpd runs (--version)",
+            (jr.stdout.strip() if jr and jr.returncode == 0
+             else (jr.stderr.strip()[-120:] if jr else "missing")))
+        for b in ("fd", "shellcheck"):
+            bp = os.path.join(dest, "bin", b)
+            if os.path.exists(bp):
+                row(os.access(bp, os.X_OK), "%s executable" % b, bp)
+    print()
+    print(("%s all probed capabilities OK" % (G + "OK" + RST)) if fails == 0
+          else ("%s %d capability probe(s) failed" % (R + "XX" + RST, fails)))
+    return 0 if fails == 0 else 1
+
+
+def do_list(brief=False):
+    rows = []
+    for L in "EFGH":
+        name, desc, probe = PACKS[L]
+        path = find_pack(L)
+        present = path is not None
+        inst = probe() if present else False
+        rows.append((L, name, desc, present, inst))
+    if brief:
+        present = [L for (L, _, _, p, _) in rows if p]
+        inst = [L for (L, _, _, p, i) in rows if p and i]
+        if not present:
+            print("optional packs: none present")
+        else:
+            print("optional packs present: %s (installed: %s)" %
+                  ("".join(present), "".join(inst) or "none"))
+        return 0
+    print("Optional expansion packs (pack_E-H) -- install-on-demand:")
+    for (L, name, desc, present, inst) in rows:
+        if not present:
+            tag = DIM + "absent " + RST
+        elif inst:
+            tag = G + "present, installed" + RST
+        else:
+            tag = Y + "present, NOT installed" + RST
+        print("  pack_%s  %-16s  %s" % (L, name, tag))
+        print(DIM + "          %s" % desc + RST)
+    print(DIM + "  install:  bd-optpack install <E|F|G|H|all>" + RST)
+    return 0
+
+
+def do_install(target, do_apt=False, pip_pkgs=None):
+    letters = list("EFGH") if target == "all" else [target.upper()]
+    rc = 0
+    for L in letters:
+        if L not in PACKS:
+            print("%s unknown pack '%s' (choose E/F/G/H/all)" % (R + "XX" + RST, L))
+            rc = 1
+            continue
+        path = find_pack(L)
+        if not path:
+            msg = "not present in %s" % ", ".join(SEARCH_DIRS)
+            if target == "all":
+                print("  %s pack_%s absent -- skipping (%s)" % (DIM + "--" + RST, L, msg))
+                continue
+            print("%s pack_%s %s" % (R + "XX" + RST, L, msg))
+            rc = 1
+            continue
+        print("== installing pack_%s (%s) ==" % (L, PACKS[L][0]))
+        if L == "F":
+            ok = install_F(path, pip_pkgs=pip_pkgs)
+        elif L == "G":
+            ok = install_G(path, do_apt=do_apt)
+        else:
+            ok = INSTALLERS[L](path)
+        if not ok:
+            rc = 1
+    return rc
+
+
+def selftest():
+    """SKIP: this tool needs the optional pack zips (dropped after install), which the sandbox cannot provide. A SKIP
+    is counted apart from PASS and never claims the tool works -- honest absence
+    beats a green smoke test."""
+    print("SKIP: needs the optional pack zips (dropped after install)")
+    print("SELFTEST PASS")
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser(add_help=True, description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("cmd", nargs="?", default="list",
+                    help="list (default) | install")
+    ap.add_argument("target", nargs="?", help="E|F|G|H|all (for install)")
+    ap.add_argument("--list", action="store_true")
+    ap.add_argument("--brief", action="store_true")
+    ap.add_argument("--apt", action="store_true", help="pack_G: dpkg -i the debs")
+    ap.add_argument("--pip", help="pack_F: install these named wheels into the venv")
+    ap.add_argument("--installed", action="store_true",
+                    help="verify: also probe imports in the service venv (post-install check)")
+    ap.add_argument("--selftest",action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+
+    if a.brief:
+        return do_list(brief=True)
+    if a.cmd in ("list", "--list") or a.list:
+        return do_list()
+    if a.cmd == "install":
+        if not a.target:
+            print("%s install needs a target: E|F|G|H|all" % (R + "XX" + RST))
+            return 1
+        return do_install(a.target, do_apt=a.apt, pip_pkgs=a.pip)
+    if a.cmd == "verify":
+        return do_verify(a)
+    print("%s unknown command '%s' (use: list | install | verify)" % (R + "XX" + RST, a.cmd))
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

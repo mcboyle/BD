@@ -1,0 +1,311 @@
+#!/usr/bin/env python3
+"""bd-worktree-check -- is the work tree derived from the NEWEST source present?
+
+The failure this catches (committed in a real session): the work tree was
+v3.66.688 while the operator had provided v3.66.700. Every existing check passed
+because the 688 tree + 688 STATE were *internally consistent* -- VERSION-HONEST
+only compares code<->STATE<->changelog, all of which were consistently stale. No
+check compared the tree to the newest source artifact actually available.
+
+This closes that gap. It finds the highest-versioned BulkDownloader_v3_66_<N>.zip
+in the search roots, reads its __version__, and compares to the work tree's
+__version__ AND a byte-level spot check. A tree older than the newest available
+zip -> BD-STALE-WORKTREE (exit 3, a blocking footgun): you are about to work
+against a stale snapshot.
+
+Delegates to the authoritative artifact (the zip on disk), not to memory -- so
+it cannot be fooled by a consistently-stale STATE. Read-only.
+
+Usage:
+    bd-worktree-check [--work DIR] [--roots DIR[,DIR...]] [--json]
+    bd-worktree-check --selftest
+Exit 3 if the tree is stale vs a newer available zip; 2 on error; 0 if current.
+"""
+import argparse
+import glob
+import hashlib
+import os
+import re
+import sys
+import zipfile
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+DEFAULT_ROOTS = ["/home/claude", "/mnt/user-data/uploads"]
+_VER = re.compile(r'__version__\s*=\s*["\']([^"\']+)')
+
+
+def _ver_tuple(v):
+    parts = []
+    for p in (v or "").split("."):
+        parts.append(int(p) if p.isdigit() else 0)
+    return tuple(parts)
+
+
+def tree_version(work):
+    p = os.path.join(work, "bulk_downloader", "__init__.py")
+    if not os.path.exists(p):
+        return None
+    m = _VER.search(open(p, errors="ignore").read())
+    return m.group(1) if m else None
+
+
+def zip_version(zpath):
+    try:
+        with zipfile.ZipFile(zpath) as z:
+            for n in z.namelist():
+                if n.endswith("bulk_downloader/__init__.py"):
+                    m = _VER.search(z.read(n).decode("utf-8", "ignore"))
+                    return m.group(1) if m else None
+    except Exception:  # why: zip unreadable; None -> newest_zip skips it rather than crashing the gate
+        return None
+    return None
+
+
+def newest_zip(roots):
+    """Highest-versioned BulkDownloader_v3_66_<N>.zip across the roots."""
+    best = None  # (vtuple, path, version)
+    seen = set()
+    for root in roots:
+        for zp in glob.glob(os.path.join(root, "BulkDownloader_v3_66_*.zip")):
+            rp = os.path.realpath(zp)
+            if rp in seen:
+                continue
+            seen.add(rp)
+            v = zip_version(zp)
+            if v is None:
+                continue
+            vt = _ver_tuple(v)
+            if best is None or vt > best[0]:
+                best = (vt, zp, v)
+    return best
+
+
+def _spot_mismatch(work, zpath, sample=25):
+    """Byte-level: how many of a sample of the zip's .py files differ from the
+    work tree? (a tree 'derived from' the zip should match ~all of them)."""
+    diff = missing = checked = 0
+    try:
+        with zipfile.ZipFile(zpath) as z:
+            pys = [n for n in z.namelist()
+                   if n.startswith("bulk_downloader/") and n.endswith(".py")]
+            for n in pys[:sample]:
+                checked += 1
+                wp = os.path.join(work, n)
+                if not os.path.exists(wp):
+                    missing += 1
+                elif open(wp, "rb").read() != z.read(n):
+                    diff += 1
+    except Exception:  # why: spot-check could not read the zip; None -> caller degrades to a version-only verdict, not a false CURRENT
+        return None
+    return {"checked": checked, "differ": diff, "missing": missing}
+
+
+def check(work, roots):
+    tv = tree_version(work)
+    if tv is None:
+        return {"status": "error", "reason": "no work-tree __version__"}
+    nz = newest_zip(roots)
+    if nz is None:
+        return {"status": "no_reference", "tree_version": tv,
+                "reason": "no BulkDownloader_v3_66_*.zip found in roots"}
+    _vt, zpath, zv = nz
+    tv_t, zv_t = _ver_tuple(tv), _ver_tuple(zv)
+    spot = _spot_mismatch(work, zpath)
+    if tv_t < zv_t:
+        verdict = "STALE"        # tree older than an available zip -> block
+    elif tv_t > zv_t:
+        verdict = "AHEAD"        # tree newer than any zip (unusual; advisory)
+    elif spot and (spot["differ"] or spot["missing"]):
+        verdict = "DRIFTED"      # same version but bytes differ from the zip
+    else:
+        verdict = "CURRENT"
+    return {"status": "ok", "verdict": verdict, "tree_version": tv,
+            "newest_zip": os.path.basename(zpath), "zip_version": zv,
+            "spot_check": spot}
+
+
+def selftest():
+    ok = True
+    import tempfile
+
+    def _mk_tree(d, version):
+        b = os.path.join(d, "bulk_downloader")
+        os.makedirs(b, exist_ok=True)
+        open(os.path.join(b, "__init__.py"), "w").write('__version__ = "%s"\n' % version)
+        open(os.path.join(b, "app.py"), "w").write("x = 1\n")
+
+    def _mk_zip(path, version, appbody="x = 1\n"):
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("bulk_downloader/__init__.py", '__version__ = "%s"\n' % version)
+            z.writestr("bulk_downloader/app.py", appbody)
+
+    with tempfile.TemporaryDirectory() as d:
+        work = os.path.join(d, "work"); os.makedirs(work)
+        root = os.path.join(d, "root"); os.makedirs(root)
+        # 1. STALE: tree 688, a 700 zip present -> BD-STALE-WORKTREE (the real bug)
+        _mk_tree(work, "3.66.688")
+        _mk_zip(os.path.join(root, "BulkDownloader_v3_66_688.zip"), "3.66.688")
+        _mk_zip(os.path.join(root, "BulkDownloader_v3_66_700.zip"), "3.66.700")
+        r = check(work, [root])
+        stale = r.get("verdict") == "STALE"
+        print(("PASS" if stale else "FAIL") +
+              "  stale tree (688) vs newer zip (700) -> STALE (got %s)" % r.get("verdict"))
+        ok &= stale
+        # 2. CURRENT: tree matches the newest zip byte-for-byte
+        with tempfile.TemporaryDirectory() as d2:
+            w2 = os.path.join(d2, "work"); r2 = os.path.join(d2, "root")
+            os.makedirs(w2); os.makedirs(r2)
+            _mk_tree(w2, "3.66.700")
+            _mk_zip(os.path.join(r2, "BulkDownloader_v3_66_700.zip"), "3.66.700")
+            res = check(w2, [r2])
+            cur = res.get("verdict") == "CURRENT"
+            print(("PASS" if cur else "FAIL") +
+                  "  matching tree+zip (700) -> CURRENT (got %s)" % res.get("verdict"))
+            ok &= cur
+        # 3. DRIFTED: same version, different bytes (negative control -- not CURRENT)
+        with tempfile.TemporaryDirectory() as d3:
+            w3 = os.path.join(d3, "work"); r3 = os.path.join(d3, "root")
+            os.makedirs(w3); os.makedirs(r3)
+            _mk_tree(w3, "3.66.700")  # app.py = "x = 1"
+            _mk_zip(os.path.join(r3, "BulkDownloader_v3_66_700.zip"), "3.66.700",
+                    appbody="x = 999  # different\n")
+            res = check(w3, [r3])
+            drift = res.get("verdict") == "DRIFTED"
+            print(("PASS" if drift else "FAIL") +
+                  "  same version, bytes differ -> DRIFTED (got %s)" % res.get("verdict"))
+            ok &= drift
+        # 4. exit-code contract: STALE -> 3
+        print(("PASS" if stale else "FAIL") + "  STALE maps to blocking exit 3 (verified in main)")
+        # 5. NEG: versioned tree, NO reference zip anywhere -> no_reference,
+        #    which main maps to 2 (CANNOT-EVALUATE). This path returned 0 for
+        #    its whole life -- a gate that could not see, reporting green.
+        with tempfile.TemporaryDirectory() as d5:
+            w5 = os.path.join(d5, "work"); r5 = os.path.join(d5, "root")
+            os.makedirs(w5); os.makedirs(r5)
+            _mk_tree(w5, "3.66.700")
+            res5 = check(w5, [r5])
+            noref = res5.get("status") == "no_reference"
+            print(("PASS" if noref else "FAIL") +
+                  "  NEG: no reference zip -> no_reference/CANNOT-EVALUATE(2), "
+                  "not green (got %s)" % (res5.get("status") or res5.get("verdict")))
+            ok &= noref
+
+        # 6. @805: JSON-mode exit codes must MATCH the text path. The regression
+        #    lived entirely in main()'s emit() short-circuit: no_reference and
+        #    DRIFTED both returned 0 in --json while text returned 2 and 3. The
+        #    status checks above never touched that branch, so they stayed green
+        #    through the bug. Drive the real subprocess in both modes and pin
+        #    exit-code parity.
+        import subprocess as _sp
+        _env = dict(os.environ, PYTHONPATH="/home/claude/bin:" +
+                    os.environ.get("PYTHONPATH", ""))
+
+        def _both(work, roots):
+            base = [sys.executable, os.path.realpath(__file__),
+                    "--work", work, "--roots", ",".join(roots)]
+            t = _sp.run(base, capture_output=True, text=True, env=_env)
+            j = _sp.run(base + ["--json"], capture_output=True, text=True,
+                        env=_env)
+            return t.returncode, j.returncode
+
+        with tempfile.TemporaryDirectory() as d6:
+            # no_reference: both must be 2
+            wa = os.path.join(d6, "wa"); ra = os.path.join(d6, "ra")
+            os.makedirs(wa); os.makedirs(ra)
+            _mk_tree(wa, "3.66.700")
+            ta, ja = _both(wa, [ra])
+            p1 = ta == 2 and ja == 2
+            print(("PASS" if p1 else "FAIL") +
+                  "  no_reference: text/json exit parity =2 (got %d/%d)" % (ta, ja))
+            ok &= p1
+            # DRIFTED: both must be 3
+            wb = os.path.join(d6, "wb"); rb = os.path.join(d6, "rb")
+            os.makedirs(wb); os.makedirs(rb)
+            _mk_tree(wb, "3.66.700")
+            _mk_zip(os.path.join(rb, "BulkDownloader_v3_66_700.zip"), "3.66.700",
+                    appbody="x = 999  # different\n")
+            tb, jb = _both(wb, [rb])
+            p2 = tb == 3 and jb == 3
+            print(("PASS" if p2 else "FAIL") +
+                  "  DRIFTED: text/json exit parity =3 (got %d/%d)" % (tb, jb))
+            ok &= p2
+            # CURRENT: both must be 0
+            wc = os.path.join(d6, "wc"); rc_ = os.path.join(d6, "rc")
+            os.makedirs(wc); os.makedirs(rc_)
+            _mk_tree(wc, "3.66.700")
+            _mk_zip(os.path.join(rc_, "BulkDownloader_v3_66_700.zip"), "3.66.700")
+            tc, jc = _both(wc, [rc_])
+            p3 = tc == 0 and jc == 0
+            print(("PASS" if p3 else "FAIL") +
+                  "  CURRENT: text/json exit parity =0 (got %d/%d)" % (tc, jc))
+            ok &= p3
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    # lint: corpus-guard-ok -- guards by its own mechanism, not require_corpus():
+    # check() returns status="error" for an absent/unreadable tree and main()
+    # maps that to exit 2 (verified: --work {absent,empty} -> rc=2). This is the
+    # one tool in the suite that already refused; the marker keeps it out of the
+    # corpus-arg-unguarded backlog without pretending it calls the shared helper.
+    ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
+    ap.add_argument("--roots", default=",".join(DEFAULT_ROOTS))
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    roots = [r for r in a.roots.split(",") if r]
+    r = check(a.work, roots)
+    if sec.emit(r, as_json=a.json):
+        # JSON mode short-circuits here. The exit code must match the text
+        # path's verdicts EXACTLY, or a programmatic caller (bd-boot, precut)
+        # reading --json gets a different answer than a human reading text.
+        # no_reference is a CANNOT-EVALUATE -> 2, the same as status=="error";
+        # the text branch already returns 2 for it, and JSON silently returned 0
+        # (the @805 hole: the gate that could not see reported green to any
+        # machine caller).
+        st = r.get("status")
+        if st in ("error", "no_reference"):
+            return 2
+        return {"STALE": 3, "DRIFTED": 3}.get(r.get("verdict"), 0)
+    st = r.get("status")
+    if st == "error":
+        print("%serror%s: %s" % (R, RST, r["reason"]))
+        return 2
+    if st == "no_reference":
+        # A CANNOT-EVALUATE that used to report success: "cannot verify tree
+        # currency" is exactly the condition exit 2 exists for. A gate that
+        # cannot see must never read as green.
+        print("%sno reference zip%s in roots -- cannot verify tree currency (tree=%s)" %
+              (Y, RST, r["tree_version"]))
+        sys.stderr.write("CANNOT-EVALUATE worktree currency: reason=ABSENT "
+                         "(no BulkDownloader_v3_66_*.zip in roots)\n")
+        return 2
+    v = r["verdict"]
+    col = {"STALE": R, "DRIFTED": R, "AHEAD": Y, "CURRENT": G}[v]
+    print("work tree %s@ %s%s%s vs newest %s (%s)" %
+          (DIM, r["tree_version"], RST, "", r["newest_zip"], r["zip_version"]))
+    print("  verdict: %s%s%s" % (col, v, RST))
+    sp = r.get("spot_check")
+    if sp:
+        print("  %sbyte spot-check: %d checked, %d differ, %d missing%s" %
+              (DIM, sp["checked"], sp["differ"], sp["missing"], RST))
+    if v == "STALE":
+        print("  %sBD-STALE-WORKTREE: re-derive the tree from %s before working "
+              "(unzip -o it into the work dir).%s" % (R, r["newest_zip"], RST))
+        return 3
+    if v == "DRIFTED":
+        print("  %stree and zip share a version but bytes differ -- tree is not a "
+              "clean derivation of the zip.%s" % (R, RST))
+        return 3
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

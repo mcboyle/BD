@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""bd-smoke -- fast import smoke of the core modules (broken-import gate).
+
+Imports bulk_downloader + the heavy app module (and a few core modules) via the
+SERVICE venv, so a broken import surfaces in ~1s instead of via a slow test band.
+Catches the failures unit tests can miss (an import-time error before any test).
+
+Usage: bd-smoke [--work DIR] [--venv work/venv]
+Exit 0 if all import clean; 1 on the first ImportError/other exception.
+"""
+import argparse, os, subprocess, sys
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+MODS=["bulk_downloader","bulk_downloader.app","bulk_downloader.extraction_core",
+      "bulk_downloader.runner","bulk_downloader.auto_detect"]
+def selftest():
+    """DELEGATE: wraps bd-state. Asserts the target file is present in the tool's own
+    bin dir -- if not, FAIL (a wrapper that cannot find what it wraps is broken;
+    a selftest that cannot verify must not report success)."""
+    import os as _o
+    here = _o.path.dirname(_o.path.realpath(__file__))
+    found = _o.path.isfile(_o.path.join(here, "bd-state"))
+    print(("PASS" if found else "FAIL") + "  delegation target present: bd-state")
+    print("SELFTEST PASS" if found else "SELFTEST FAIL")
+    return 0 if found else 1
+
+
+def main():
+    import sys as _s
+    if "--selftest" in _s.argv: return selftest()
+    ap=argparse.ArgumentParser(); ap.add_argument("--work","--tree",default="/home/claude/work")
+    ap.add_argument("--venv"); a=ap.parse_args()
+    py=a.venv or os.path.join(a.work,"venv","bin","python")
+    if not os.path.exists(py):
+        py="python3"; print(f"{Y}service venv not found -- using system python3 (may miss deps){RST}")
+    fails=[]
+    for mod in MODS:
+        r=subprocess.run([py,"-c",f"import {mod}"],cwd=a.work,
+                         env={**os.environ,"PYTHONPATH":a.work+":/tmp/prestaged_site_packages"},capture_output=True,text=True, timeout=150)
+        if r.returncode==0:
+            print(f"  {G}OK{RST} import {mod}")
+        else:
+            tail=[l for l in (r.stdout+r.stderr).splitlines() if l.strip()][-2:]
+            print(f"  {R}XX{RST} import {mod}")
+            for l in tail: print(f"       {DIM}{l[:100]}{RST}")
+            fails.append(mod)
+    if fails: print(f"{R}RESULT: {len(fails)} module(s) fail to import{RST}"); return 1
+    print(f"{G}RESULT: all {len(MODS)} core modules import clean{RST}"); return 0
+sys.exit(main())

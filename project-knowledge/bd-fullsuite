@@ -1,0 +1,774 @@
+#!/usr/bin/env python3
+"""bd-fullsuite -- run the ENTIRE tests/ suite in-sandbox, correctly.
+
+The full suite is runnable in the sandbox. What is NOT runnable is the full
+suite in ONE process: the tests assume per-file process isolation (on stash,
+capture.sh --workers=180 gives them that). Co-batching files into a shared
+interpreter manufactures failures that look real but are not:
+
+  * a test writes a temp tree and inserts it at sys.path[0] (bd_precut_*),
+    shadowing bulk_downloader for every later file in that process;
+  * a Playwright sync test collides with an asyncio loop an earlier file left
+    running ("Sync API inside the asyncio loop");
+  * files share one BD_HOME, so DB rows bleed ("expected [] on a fresh DB").
+
+So: one file, one process, one BD_HOME. Always. There is no --batch mode on
+purpose.
+
+It also gates the environment BEFORE running, because a mid-run environment
+fault silently corrupts results rather than failing loudly:
+
+  D  DISK   -- a full disk truncates files mid-write. It zeroed PIN_INDEX.json
+              and corrupted ~3700 .pyc caches, which then surface as
+              "EOFError: marshal data too short" IMPORT ERRORs on ~75 tests
+              that are, in fact, fine. Gated up front and polled during.
+  B  BYTECODE -- stale/corrupt __pycache__ purged before the run.
+  S  SHADOW -- stale /tmp/bd_precut_* trees purged (sys.path shadowing).
+  E  ENV    -- GI_TYPELIB_PATH (else tray_app -> "Namespace Gtk not available")
+              and the playwright browser revs (else keepalive tests fail on a
+              missing chrome-headless-shell).
+
+Failures are classified. An environment failure is reported as ENV, never as a
+code defect, and the run exits non-zero only on REAL failures.
+
+Usage:
+    bd-fullsuite [--jobs N] [--timeout S] [--shard i/n] [--only SUBSTR]
+                 [--work DIR] [--json] [--selftest]
+
+Exit 0 = zero REAL failures. 1 = real failure, or a preflight gate refused.
+"""
+import argparse
+import concurrent.futures as cf
+import glob
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+
+G, R, Y, DIM, BOLD, RST = (
+    "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[1m", "\033[0m")
+
+DEFAULT_WORK = "/home/claude/work"
+
+# Third-party prelude a fork worker imports ONCE. NEVER bulk_downloader or any
+# first-party module: tests may assert on import state / import order, and the
+# whole point of forking is that each file still sees first-party code fresh.
+FORK_PRELUDE = ("flask", "werkzeug", "jinja2", "requests", "urllib3",
+                "playwright.sync_api", "bs4", "yaml", "json", "sqlite3", "logging")
+RESULTS = "/home/claude/.bd_fullsuite.json"
+PROGRESS = "/home/claude/.bd_fullsuite.progress.json"
+MIN_FREE_MB = 2048        # refuse to start below this
+ABORT_FREE_MB = 400       # abort mid-run below this (before it corrupts)
+
+# ---- failure classification -------------------------------------------------
+# (label, regex) -- first match wins. ENV_* are environment, not code defects.
+ENV_PATTERNS = [
+    ("ENV_DISK", r"No space left on device"),
+    ("ENV_BYTECODE", r"marshal data too short|bad marshal data|EOFError.*marshal"),
+    ("ENV_GTK", r"Namespace Gtk not available|Namespace Gdk not available"),
+    ("ENV_BROWSER", r"Executable doesn't exist at.*(chrome|chromium|firefox|webkit)"),
+    ("ENV_ISOLATION", r"Sync API inside the asyncio loop"),
+    ("ENV_DISPLAY", r"Missing X server|cannot open display"),
+]
+
+
+def classify(out):
+    for label, rx in ENV_PATTERNS:
+        if re.search(rx, out, re.I):
+            return label
+    return "REAL"
+
+
+def _fork_worker(work, timeout, files):
+    """Single-threaded fork server. Imports the third-party prelude once, then
+    forks per test file: each file runs in its OWN process (copy-on-write
+    snapshot), so per-file isolation is identical to spawn mode -- sys.path
+    pollution, leftover asyncio loops, and BD_HOME writes all die with the
+    child. Emits one JSON line per file on stdout."""
+    sys.path.insert(0, "/tmp/prestaged_site_packages")
+    sys.path.insert(0, work)
+    for m in FORK_PRELUDE:
+        try:
+            __import__(m)
+        except Exception:  # why: handled failure is non-fatal here; proceed with the value left unset
+            pass
+    try:
+        __import__("run_tests")      # module-level deps cached; guarded main()
+    except Exception:  # why: handled failure is non-fatal here; proceed with the value left unset
+        pass
+    # CoW hygiene: without this, the collector's scans write to every object
+    # header, dirtying (= copying) most of the heap in EVERY forked child --
+    # measured as a ~47% wall REGRESSION. freeze() parks the prelude in a
+    # permanent generation the collector never touches.
+    import gc
+    gc.collect()
+    gc.freeze()
+    os.chdir(work)
+    import runpy
+    for f in files:
+        td = tempfile.mkdtemp(prefix="bdfs_")
+        outp = os.path.join(td, "_out")
+        t0 = time.time()
+        pid = os.fork()
+        if pid == 0:                          # ---- child: one test file ----
+            try:
+                os.environ["BD_HOME"] = td
+                os.environ["BD_DISABLE_KEEPALIVE"] = "1"
+                os.environ["PYTHONPATH"] = "/tmp/prestaged_site_packages"
+                os.environ["PLAYWRIGHT_BROWSERS_PATH"] =                     "/home/claude/.cache/ms-playwright"
+                fd = os.open(outp, os.O_WRONLY | os.O_CREAT, 0o600)
+                os.dup2(fd, 1)
+                os.dup2(fd, 2)
+                sys.argv = ["run_tests.py", f]
+                runpy.run_path(os.path.join(work, "run_tests.py"),
+                               run_name="__main__")
+                os._exit(0)
+            except SystemExit as e:
+                os._exit(int(e.code) if isinstance(e.code, int) else 1)
+            except BaseException:
+                import traceback
+                traceback.print_exc()
+                os._exit(97)
+        rc = None                              # ---- parent: wait w/ timeout ----
+        while time.time() - t0 < timeout:
+            wpid, st = os.waitpid(pid, os.WNOHANG)
+            if wpid:
+                rc = os.waitstatus_to_exitcode(st)
+                break
+            time.sleep(0.03)
+        if rc is None:
+            try:
+                os.kill(pid, 9)
+                os.waitpid(pid, 0)
+            except OSError:
+                pass
+            rc = 124
+        try:
+            out = open(outp, errors="replace").read()
+        except OSError:
+            out = ""
+        shutil.rmtree(td, ignore_errors=True)
+        sys.stdout.write(json.dumps(
+            {"file": f, "rc": rc, "secs": round(time.time() - t0, 2),
+             "out": out[-3000:]}) + "\n")
+        sys.stdout.flush()
+
+
+def _parse_worker_line(line):
+    d = json.loads(line)
+    out, rc, f = d["out"], d["rc"], d["file"]
+    def num(k):
+        m = re.search(k + r":\s*(\d+)", out)
+        return int(m.group(1)) if m else 0
+    passed, failed, skipped = num("Passed"), num("Failed"), num("Skipped")
+    if rc == 124:
+        return {"file": f, "status": "timeout", "kind": "TIMEOUT", "passed": passed,
+                "failed": failed, "skipped": skipped, "secs": d["secs"],
+                "tail": "timed out"}
+    kind = "OK"
+    if rc != 0 or failed:
+        kind = classify(out)
+    status = "pass" if (rc == 0 and failed == 0) else (
+        "env" if kind.startswith("ENV") else "fail")
+    tail = "\n".join(l for l in out.splitlines()
+                     if re.search(r"FAIL|Error|assert", l))[-400:]
+    return {"file": f, "status": status, "kind": kind, "passed": passed,
+            "failed": failed, "skipped": skipped, "secs": d["secs"], "tail": tail}
+
+
+def _lpt_bins(files, jobs):
+    """Greedy longest-processing-time bin packing using the duration cache from
+    the previous run (unknown files assume the 90th-pct duration so they lead)."""
+    dur = {}
+    try:
+        prev = json.load(open(RESULTS))
+        for r in prev.get("results", []):
+            dur[r["file"]] = r.get("secs", 0.5)
+    except Exception:  # why: handled failure is non-fatal here; proceed with the value left unset
+        pass
+    known = sorted(dur.values())
+    default = known[int(len(known) * 0.9)] if known else 1.0
+    order = sorted(files, key=lambda f: -dur.get(f, default))
+    bins = [[] for _ in range(jobs)]
+    load = [0.0] * jobs
+    for f in order:
+        i = load.index(min(load))
+        bins[i].append(f)
+        load[i] += dur.get(f, default)
+    return [b for b in bins if b]
+
+
+def magic_probe():
+    import importlib.util as _iu
+    return _iu.MAGIC_NUMBER
+
+
+def scan_pyc(work, _roots=None):
+    """Validate every .pyc: magic header + a real marshal load. Returns (n, corrupt).
+    Truncation (what a full disk does) fails the marshal, which is exactly the
+    "EOFError: marshal data too short" that masquerades as ~75 test failures."""
+    import marshal
+    import importlib.util as _iu
+    magic = _iu.MAGIC_NUMBER
+    n, bad = 0, []
+    roots = _roots if _roots is not None else (
+        os.path.join(work, "bulk_downloader"), os.path.join(work, "tests"),
+        "/tmp/prestaged_site_packages")
+    for root in roots:
+        for dp, _d, fns in os.walk(root):
+            if os.path.basename(dp) != "__pycache__":
+                continue
+            for fn in fns:
+                if not fn.endswith(".pyc"):
+                    continue
+                p = os.path.join(dp, fn)
+                n += 1
+                try:
+                    with open(p, "rb") as fh:
+                        head = fh.read(16)
+                        # A cross-version .pyc (e.g. -314 beside our -312) has a
+                        # different magic and is NOT ours to judge -- skip it, do
+                        # not flag it as corrupt. Only a truncated header on an
+                        # otherwise-present file, or a marshal that fails to load,
+                        # is real damage.
+                        if len(head) < 4:
+                            bad.append(p)
+                            continue
+                        if head[:4] != magic:
+                            continue          # different interpreter's cache
+                        if len(head) < 16:
+                            bad.append(p)
+                            continue
+                        marshal.loads(fh.read())
+                except Exception:  # why: unreadable/corrupt .pyc; record it in `bad` (surfaced to caller), keep scanning
+                    bad.append(p)
+    return n, bad
+
+
+def default_jobs():
+    """On this box nproc==1. Parallelism there is NEGATIVE: measured 40 files at
+    jobs=1 22.5s, jobs=2 21.4s, jobs=8 24.5s, jobs=12 26.0s -- and high --jobs is
+    what induces the timing FLAKE_LOAD noise. Scale to the CPUs we actually have."""
+    try:
+        return max(2, min(8, (os.cpu_count() or 1) + 1))
+    except Exception:  # why: cpu_count unavailable on this platform; 2 is the safe floor --
+                       # affects test PARALLELISM only, never which tests run or their result
+        return 2
+
+
+def free_mb(path="/"):
+    st = os.statvfs(path)
+    return (st.f_bavail * st.f_frsize) // (1024 * 1024)
+
+
+# ---- preflight gates --------------------------------------------------------
+def preflight(work, fix=True):
+    """Return (ok, notes). Purges regenerable caches only; never tracked files."""
+    notes = []
+    ok = True
+
+    fm = free_mb()
+    if fm < MIN_FREE_MB:
+        notes.append(("FAIL", "DISK", "%d MB free, need >=%d "
+                      "(a full disk truncates files mid-run and corrupts results)"
+                      % (fm, MIN_FREE_MB)))
+        ok = False
+    else:
+        notes.append(("PASS", "DISK", "%d MB free" % fm))
+
+    # stale sys.path-shadowing temp trees
+    stale = sorted(glob.glob("/tmp/bd_precut_t_*")) + sorted(glob.glob("/tmp/bd_precut_*"))
+    if stale:
+        if fix:
+            for d in stale:
+                shutil.rmtree(d, ignore_errors=True)
+            notes.append(("PASS", "SHADOW", "purged %d stale bd_precut tree(s)" % len(stale)))
+        else:
+            notes.append(("WARN", "SHADOW", "%d stale bd_precut tree(s)" % len(stale)))
+    else:
+        notes.append(("PASS", "SHADOW", "no stale precut trees"))
+
+    # bytecode hygiene -- VALIDATE, don't blindly purge.
+    # A blind purge forces every one of ~982 processes to recompile: measured at a
+    # 24% wall-clock tax. Validating all ~861 .pyc costs 0.08s and is strictly more
+    # precise: it *detects* the truncation a full disk causes instead of assuming it.
+    n_pyc, bad = scan_pyc(work)
+    if bad and fix:
+        for p_ in bad:
+            try:
+                os.remove(p_)
+            except OSError:
+                pass
+        notes.append(("PASS", "BYTECODE", "%d/%d .pyc corrupt -- purged (disk-full damage?)"
+                      % (len(bad), n_pyc)))
+    elif bad:
+        notes.append(("FAIL", "BYTECODE", "%d/%d .pyc corrupt (--no-fix); would yield "
+                      "phantom IMPORT ERRORs" % (len(bad), n_pyc)))
+        ok = False
+    else:
+        notes.append(("PASS", "BYTECODE", "%d .pyc validated, 0 corrupt (cache reused)" % n_pyc))
+
+    # tracked-file integrity canary: PIN_INDEX.json is the file a full disk zeroed
+    pin = os.path.join(work, "PIN_INDEX.json")
+    if os.path.exists(pin):
+        try:
+            if os.path.getsize(pin) == 0:
+                raise ValueError("zero bytes")
+            json.load(open(pin))
+            notes.append(("PASS", "CANARY", "PIN_INDEX.json intact"))
+        except Exception as e:
+            notes.append(("FAIL", "CANARY", "PIN_INDEX.json corrupt (%s) -- "
+                          "restore from the pinned zip, then re-run bd-preflight" % e))
+            ok = False
+
+    # browser revs
+    pw = "/home/claude/.cache/ms-playwright"
+    shells = glob.glob(os.path.join(pw, "chromium_headless_shell-*"))
+    if shells:
+        notes.append(("PASS", "ENV", "playwright: %d chromium shell rev(s)" % len(shells)))
+    else:
+        notes.append(("WARN", "ENV", "no chromium_headless_shell -- keepalive tests "
+                      "will report ENV_BROWSER (not a defect)"))
+
+    if not os.environ.get("GI_TYPELIB_PATH"):
+        notes.append(("WARN", "ENV", "GI_TYPELIB_PATH unset -- tray_app import will "
+                      "report ENV_GTK; run under 'bd' for a fully clean sheet"))
+    else:
+        notes.append(("PASS", "ENV", "GI_TYPELIB_PATH set"))
+
+    return ok, notes
+
+
+# ---- run one file, isolated -------------------------------------------------
+def run_one(work, f, timeout, retry_bytecode=True):
+    env = dict(os.environ)
+    home = tempfile.mkdtemp(prefix="bdfs_")
+    env.update(BD_HOME=home, BD_DISABLE_KEEPALIVE="1",
+               PYTHONPATH="/tmp/prestaged_site_packages",
+               PLAYWRIGHT_BROWSERS_PATH="/home/claude/.cache/ms-playwright")
+    t0 = time.time()
+    try:
+        r = subprocess.run(["python3", "run_tests.py", f], cwd=work, env=env,
+                           capture_output=True, text=True, timeout=timeout)
+        out = r.stdout + r.stderr
+        rc = r.returncode
+    except subprocess.TimeoutExpired:
+        shutil.rmtree(home, ignore_errors=True)
+        return {"file": f, "status": "timeout", "kind": "TIMEOUT", "passed": 0,
+                "failed": 0, "skipped": 0, "secs": round(time.time() - t0, 1),
+                "tail": "timed out >%ds" % timeout}
+    shutil.rmtree(home, ignore_errors=True)
+
+    def num(k):
+        m = re.search(k + r":\s*(\d+)", out)
+        return int(m.group(1)) if m else 0
+
+    passed, failed, skipped = num("Passed"), num("Failed"), num("Skipped")
+    kind = "OK"
+    if rc != 0 or failed:
+        kind = classify(out)
+        # a corrupt bytecode cache is self-inflicted and recoverable: purge + retry once
+        if kind == "ENV_BYTECODE" and retry_bytecode:
+            for dp, _d, _fn in os.walk(work):
+                if os.path.basename(dp) == "__pycache__":
+                    shutil.rmtree(dp, ignore_errors=True)
+            return run_one(work, f, timeout, retry_bytecode=False)
+
+    status = "pass" if (rc == 0 and failed == 0) else (
+        "env" if kind.startswith("ENV") else "fail")
+    tail = "\n".join(l for l in out.splitlines()
+                     if re.search(r"FAIL|Error|assert", l))[-400:]
+    return {"file": f, "status": status, "kind": kind, "passed": passed,
+            "failed": failed, "skipped": skipped,
+            "secs": round(time.time() - t0, 1), "tail": tail}
+
+
+def collect(work, only, shard):
+    files = sorted(glob.glob(os.path.join(work, "tests", "test_*.py")))
+    files = [os.path.relpath(f, work) for f in files]
+    if only:
+        files = [f for f in files if only in f]
+    if shard:
+        i, n = shard
+        files = [f for k, f in enumerate(files) if k % n == (i - 1)]
+    return files
+
+
+def _run_fork(work, files, jobs, timeout, on_result):
+    """Spawn `jobs` fork-server workers, LPT-balanced; stream JSONL results."""
+    import threading
+    bins = _lpt_bins(files, jobs)
+    me = os.path.realpath(sys.argv[0])
+    procs = []
+    for b in bins:
+        lf = tempfile.NamedTemporaryFile("w", delete=False, suffix=".lst")
+        lf.write("\n".join(b))
+        lf.close()
+        procs.append((subprocess.Popen(
+            [sys.executable, me, "--_worker", work, str(timeout), lf.name],
+            stdout=subprocess.PIPE, text=True, env=os.environ), lf.name))
+
+    def reader(pr):
+        for line in pr.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                on_result(_parse_worker_line(line))
+            except Exception:  # why: handled failure is non-fatal here; proceed with the value left unset
+                pass
+    ts = [threading.Thread(target=reader, args=(pr,), daemon=True)
+          for pr, _ in procs]
+    for t in ts:
+        t.start()
+    for pr, name in procs:
+        pr.wait()
+        try:
+            os.unlink(name)
+        except OSError:
+            pass
+    for t in ts:
+        t.join(timeout=5)
+
+
+def main():
+    # hidden fork-worker entry (must precede argparse)
+    if len(sys.argv) > 1 and sys.argv[1] == "--_worker":
+        work, tmo, listfile = sys.argv[2], float(sys.argv[3]), sys.argv[4]
+        files = [l.strip() for l in open(listfile) if l.strip()]
+        _fork_worker(work, tmo, files)
+        return 0
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work", "--tree", default=DEFAULT_WORK)
+    ap.add_argument("--jobs", type=int, default=0, help="0 = auto from nproc")
+    ap.add_argument("--timeout", type=int, default=300)
+    ap.add_argument("--only", default=None, help="substring filter")
+    ap.add_argument("--shard", default=None, help="i/n, e.g. 1/4")
+    ap.add_argument("--no-fix", action="store_true", help="gate but do not purge caches")
+    ap.add_argument("--fork", action="store_true",
+                    help="fork-server mode: workers pre-import the third-party "
+                         "prelude once, fork per file. Isolation-equivalent "
+                         "(selftest-probed) but MEASURED SLOWER on nproc=1 "
+                         "(CoW refcount tax); may win on multi-core.")
+    ap.add_argument("--bg", action="store_true",
+                    help="detach: run in background, poll with --status")
+    ap.add_argument("--status", action="store_true",
+                    help="print progress of a --bg run and exit")
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+
+    if a.selftest:
+        return selftest()
+
+    if a.status:
+        try:
+            pg = json.load(open(PROGRESS))
+            print(json.dumps(pg))
+            return 0 if pg.get("state") != "running" else 1
+        except Exception:
+            print("no background run found")
+            return 1
+
+    if a.bg:
+        me = os.path.realpath(sys.argv[0])
+        args = [x for x in sys.argv[1:] if x != "--bg"]
+        log = open("/home/claude/.bd_fullsuite.log", "w")
+        pr = subprocess.Popen([sys.executable, me] + args, stdout=log,
+                              stderr=log, start_new_session=True,
+                              env=os.environ)
+        print("detached pid %d -- poll: bd-fullsuite --status ; "
+              "log: /home/claude/.bd_fullsuite.log" % pr.pid)
+        return 0
+
+    if not a.jobs:
+        a.jobs = default_jobs()
+    ncpu = os.cpu_count() or 1
+    if a.jobs > ncpu + 1 and not a.json:
+        print("%swarn%s %s--jobs %d on %d CPU(s): oversubscribed. Slower, and it "
+              "induces FLAKE_LOAD noise (each flake costs a serial re-run).%s"
+              % (Y, RST, DIM, a.jobs, ncpu, RST))
+
+    shard = None
+    if a.shard:
+        i, n = a.shard.split("/")
+        shard = (int(i), int(n))
+
+    ok, notes = preflight(a.work, fix=not a.no_fix)
+    if not a.json:
+        print("%sbd-fullsuite preflight%s" % (BOLD, RST))
+        for st, tag, msg in notes:
+            c = {"PASS": G, "WARN": Y, "FAIL": R}[st]
+            print("  %s%-4s%s %-8s %s%s%s" % (c, st, RST, tag, DIM, msg, RST))
+    if not ok:
+        if not a.json:
+            print("%sREFUSED%s -- fix the gate(s) above; running now would "
+                  "produce false failures." % (R, RST))
+        else:
+            print(json.dumps({"preflight": notes, "refused": True}))
+        return 1
+
+    files = collect(a.work, a.only, shard)
+    if not files:
+        print("no test files matched")
+        return 1
+    if not a.json:
+        print("\n%srunning %d file(s)%s %s(per-file isolation, %d jobs, %ds each)%s"
+              % (BOLD, len(files), RST, DIM, a.jobs, a.timeout, RST))
+
+    t0 = time.time()
+    results = []
+    aborted = False
+    import threading
+    lock = threading.Lock()
+
+    def on_result(r):
+        nonlocal aborted
+        with lock:
+            results.append(r)
+            done = len(results)
+            if free_mb() < ABORT_FREE_MB:
+                aborted = True
+            try:
+                json.dump({"state": "aborted" if aborted else "running",
+                           "done": done, "total": len(files),
+                           "passed": sum(x["passed"] for x in results),
+                           "not_pass": sum(1 for x in results
+                                           if x["status"] != "pass"),
+                           "elapsed_s": round(time.time() - t0, 1)},
+                          open(PROGRESS, "w"))
+            except OSError:
+                pass
+        if not a.json and r["status"] != "pass":
+            c = Y if r["status"] == "env" else R
+            print("  %s%-4s%s %s %s(%s)%s"
+                  % (c, r["status"].upper(), RST, r["file"], DIM, r["kind"], RST))
+        elif not a.json and done % 100 == 0:
+            print("  %s... %d/%d%s" % (DIM, done, len(files), RST))
+
+    if a.fork:
+        _run_fork(a.work, files, a.jobs, a.timeout, on_result)
+    else:
+        # Scheduling order: PLAIN, on purpose. Duration-cache ordering was built
+        # and MEASURED REJECTED on this box (same-session baselines, shard 8:
+        # plain 125.0s < heavy/light interleave 135.5s < longest-first 140.7s).
+        # Longest-first co-schedules heavy browser-launching files, which
+        # contend superlinearly on 1 CPU + one Xvfb. Do not re-add without
+        # re-measuring against a CONTEMPORANEOUS plain baseline.
+        order = list(files)
+        with cf.ThreadPoolExecutor(max_workers=a.jobs) as ex:
+            futs = {ex.submit(run_one, a.work, f, a.timeout): f for f in order}
+            for fut in cf.as_completed(futs):
+                on_result(fut.result())
+                if aborted:
+                    for g in futs:
+                        g.cancel()
+                    break
+
+    # ---- confirmation pass -------------------------------------------------
+    # A failure under parallel load is NOT confirmed. Timing-sensitive tests
+    # fail purely from CPU contention; and fork mode, however well-probed, may
+    # have edge cases. The re-run below is CLASSIC serial spawn -- so a fork-mode
+    # artifact OR a load flake both get caught here, and only a failure that
+    # reproduces alone in a plain spawned interpreter is ever reported REAL.
+    suspects = [r for r in results if r["status"] in ("fail", "timeout")]
+    if suspects and not aborted:
+        if not a.json:
+            print("\n%sconfirming %d failure(s) serially%s %s(parallel load causes "
+                  "timing flakes; unconfirmed != real)%s"
+                  % (BOLD, len(suspects), RST, DIM, RST))
+        for r in suspects:
+            r2 = run_one(a.work, r["file"], max(a.timeout, 300))
+            if r2["status"] == "pass":
+                r.update(status="flake", kind="FLAKE_LOAD", passed=r2["passed"],
+                         failed=0, skipped=r2["skipped"])
+            else:
+                r.update(r2)
+
+    wall = round(time.time() - t0, 1)
+    P = sum(r["passed"] for r in results)
+    F = sum(r["failed"] for r in results if r["status"] == "fail")
+    S = sum(r["skipped"] for r in results)
+    real = [r for r in results if r["status"] == "fail"]
+    envf = [r for r in results if r["status"] == "env"]
+    flakes = [r for r in results if r["status"] == "flake"]
+    tmo = [r for r in results if r["status"] == "timeout"]
+
+    summary = {"work": a.work, "files": len(results), "passed": P, "real_failed": F,
+               "skipped": S, "env_failures": len(envf), "load_flakes": len(flakes),
+               "timeouts": len(tmo), "wall_s": wall, "aborted_low_disk": aborted,
+               "results": results}
+    json.dump(summary, open(RESULTS, "w"), indent=2)
+    try:
+        json.dump({"state": "aborted" if aborted else "done",
+                   "done": len(results), "total": len(files),
+                   "passed": P, "real_failed": F, "env": len(envf),
+                   "load_flakes": len(flakes), "elapsed_s": wall},
+                  open(PROGRESS, "w"))
+    except OSError:
+        pass
+
+    if a.json:
+        print(json.dumps({k: v for k, v in summary.items() if k != "results"}))
+    else:
+        print("\n%s=== %d files | passed %d | REAL failed %d | skipped %d | "
+              "env %d | timeout %d | %ss%s"
+              % (BOLD, len(results), P, F, S, len(envf), len(tmo), wall, RST))
+        if aborted:
+            print("%sABORTED: free disk fell below %d MB mid-run. Results are "
+                  "INCOMPLETE and any failures above are untrustworthy.%s"
+                  % (R, ABORT_FREE_MB, RST))
+        for r in envf:
+            print("  %sENV%s  %s %s(%s -- environment, not a code defect)%s"
+                  % (Y, RST, r["file"], DIM, r["kind"], RST))
+        for r in flakes:
+            print("  %sFLAKE%s %s %s(passed alone; timing-sensitive under "
+                  "--jobs %d -- not a defect)%s"
+                  % (Y, RST, r["file"], DIM, a.jobs, RST))
+        for r in real + tmo:
+            print("  %sFAIL%s %s" % (R, RST, r["file"]))
+            for l in r.get("tail", "").splitlines()[-3:]:
+                print("    %s%s%s" % (DIM, l[:100], RST))
+        if not real and not tmo and not aborted:
+            print("%sGREEN%s %s(%d env, %d load-flake, 0 real; results -> %s)%s"
+                  % (G, RST, DIM, len(envf), len(flakes), RESULTS, RST))
+    return 1 if (real or tmo or aborted) else 0
+
+
+def selftest():
+    ok = True
+
+    def chk(cond, msg):
+        nonlocal ok
+        print(("%sPASS%s  " % (G, RST) if cond else "%sFAIL%s  " % (R, RST)) + msg)
+        ok = ok and bool(cond)
+
+    # classifier: positive controls
+    chk(classify("EOFError: marshal data too short") == "ENV_BYTECODE",
+        "classifies corrupt bytecode as ENV_BYTECODE")
+    chk(classify("tray_app: Namespace Gtk not available") == "ENV_GTK",
+        "classifies missing Gtk typelib as ENV_GTK")
+    chk(classify("Executable doesn't exist at /x/chrome-headless-shell") == "ENV_BROWSER",
+        "classifies missing browser binary as ENV_BROWSER")
+    chk(classify("OSError: No space left on device") == "ENV_DISK",
+        "classifies full disk as ENV_DISK")
+    chk(classify("Playwright Sync API inside the asyncio loop") == "ENV_ISOLATION",
+        "classifies loop collision as ENV_ISOLATION")
+
+    # NEGATIVE controls -- a real defect must NOT be excused as environment
+    chk(classify("AssertionError: prune should report 1 removed, got 7") == "REAL",
+        "NEG: a real assertion failure is REAL, not excused")
+    chk(classify("FAIL test_route_index_in_sync") == "REAL",
+        "NEG: a plain test failure is REAL, not excused")
+    chk(classify("") == "REAL", "NEG: empty output is REAL, not excused")
+
+    # disk gate arithmetic
+    chk(free_mb() > 0, "free_mb() reports a positive figure (%d MB)" % free_mb())
+    chk(MIN_FREE_MB > ABORT_FREE_MB, "start gate is above the mid-run abort floor")
+
+    # collector
+    if os.path.isdir(os.path.join(DEFAULT_WORK, "tests")):
+        allf = collect(DEFAULT_WORK, None, None)
+        chk(len(allf) > 900, "collects the full suite (%d files)" % len(allf))
+        sh = [len(collect(DEFAULT_WORK, None, (i, 4))) for i in (1, 2, 3, 4)]
+        chk(sum(sh) == len(allf), "shards partition exactly (%s = %d)" % (sh, len(allf)))
+        chk(all(f.endswith(".py") for f in allf), "collects only .py files")
+        # no hanger is excluded: perf_lab passes when isolated
+        chk(any("perf_lab" in f for f in allf),
+            "does NOT exclude test_perf_lab (it passes under per-file isolation)")
+
+    chk("FLAKE_LOAD" not in [p[0] for p in ENV_PATTERNS],
+        "NEG: FLAKE_LOAD is earned by serial re-run, never pattern-matched")
+    src = open(os.path.realpath(__file__)).read()
+    chk("confirming" in src and "run_one(a.work, r[\"file\"]" in src,
+        "parallel failures are re-confirmed serially before being called real")
+
+    # bytecode validator -- POSITIVE + NEGATIVE control
+    n_pyc, bad = scan_pyc(DEFAULT_WORK)
+    chk(isinstance(n_pyc, int) and n_pyc >= 0, "scan_pyc runs (%d .pyc, %d corrupt)"
+        % (n_pyc, len(bad)))
+    import tempfile as _tf
+    import importlib.util as _iu
+    d = _tf.mkdtemp()
+    # must live under a root scan_pyc actually walks, else the control is vacuous
+    pc = os.path.join(d, "bulk_downloader", "__pycache__")
+    os.makedirs(pc)
+    good = os.path.join(pc, "x.pyc")
+    with open(good, "wb") as fh:            # a valid, loadable .pyc
+        import marshal as _m
+        fh.write(_iu.MAGIC_NUMBER + b"\0" * 12 + _m.dumps(compile("x=1", "x", "exec")))
+    _n, _b = scan_pyc(d, _roots=[pc])
+    chk(_b == [], "NEG: a VALID .pyc is not flagged corrupt")
+    # a cross-version cache must be SKIPPED, not flagged
+    xver = os.path.join(pc, "y.pyc")
+    with open(xver, "wb") as fh:
+        bad_magic = bytes([magic_probe()[0] ^ 0xFF]) + b"\x00\x03\x0d\x0a" + b"\0" * 12
+        fh.write(bad_magic)
+    _n, _b = scan_pyc(d, _roots=[pc])
+    chk(os.path.basename(xver) not in [os.path.basename(x) for x in _b],
+        "NEG: a cross-version .pyc (foreign magic) is SKIPPED, not flagged")
+    os.remove(xver)
+    with open(good, "r+b") as fh:           # truncate == what a full disk does
+        fh.truncate(12)
+    _n, _b = scan_pyc(d, _roots=[pc])
+    chk(len(_b) == 1, "POS: a TRUNCATED .pyc is detected (the disk-full damage)")
+    shutil.rmtree(d, ignore_errors=True)
+
+    chk(default_jobs() <= (os.cpu_count() or 1) + 1,
+        "default --jobs (%d) does not oversubscribe %d CPU(s)"
+        % (default_jobs(), os.cpu_count() or 1))
+
+    # fork-mode isolation probe: a polluter file then a checker file run
+    # SEQUENTIALLY IN THE SAME WORKER. The checker passing proves each fork
+    # child gets a pristine snapshot -- i.e. all three contamination families
+    # (sys.path shadow, leftover asyncio loop, BD_HOME bleed) die with the child.
+    import tempfile as _tf2
+    import subprocess as _sp
+    d2 = _tf2.mkdtemp()
+    pol = os.path.join(d2, "test_zz_pollute.py")
+    with open(pol, "w") as fh:
+        fh.write(
+            "import sys, os, asyncio\n"
+            "def test_pollute():\n"
+            "    sys.path.insert(0, '/tmp/_bdfs_probe_junk')\n"
+            "    open(os.environ['BD_HOME'] + '/probe_marker', 'w').write('x')\n"
+            "    loop = asyncio.new_event_loop()\n"
+            "    asyncio.set_event_loop(loop)  # left running on purpose\n"
+            "    assert True\n")
+    chkf = os.path.join(d2, "test_zz_probe_clean.py")
+    with open(chkf, "w") as fh:
+        fh.write(
+            "import sys, os\n"
+            "def test_clean_path():\n"
+            "    assert '/tmp/_bdfs_probe_junk' not in sys.path\n"
+            "def test_clean_home():\n"
+            "    assert not os.path.exists(os.environ['BD_HOME'] + '/probe_marker')\n"
+            "def test_first_party_not_preimported():\n"
+            "    assert 'bulk_downloader' not in sys.modules\n")
+    lst = os.path.join(d2, "files.lst")
+    open(lst, "w").write(pol + "\n" + chkf + "\n")
+    me = os.path.realpath(sys.argv[0] if sys.argv else __file__)
+    r = _sp.run([sys.executable, me, "--_worker", DEFAULT_WORK, "60", lst],
+                capture_output=True, text=True, env=dict(
+                    os.environ, PYTHONPATH="/tmp/prestaged_site_packages"))
+    lines = [json.loads(l) for l in r.stdout.splitlines() if l.strip()]
+    got = {os.path.basename(x["file"]): x for x in lines}
+    p_ok = got.get("test_zz_pollute.py", {}).get("rc") == 0
+    c = got.get("test_zz_probe_clean.py", {})
+    c_ok = c.get("rc") == 0 and "Passed: 3" in c.get("out", "")
+    chk(p_ok, "fork probe: polluter file runs (rc=0)")
+    chk(c_ok, "fork probe: NEXT file in SAME worker sees a pristine snapshot "
+        "(no sys.path junk, no BD_HOME bleed, first-party not pre-imported)")
+    shutil.rmtree(d2, ignore_errors=True)
+
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

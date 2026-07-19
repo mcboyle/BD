@@ -1,0 +1,258 @@
+#!/usr/bin/env python3
+"""bd-render-env -- gate (and repair) the RENDER environment before any capture.
+
+Every GUI-capture tool in this repo -- capture_all.py, capture_gui.py,
+render_check.py, gui_audit_kit -- calls a bare `pw.chromium.launch()`. That call
+resolves a browser build by REVISION, and if the revision it wants is absent the
+whole family dies with an unhelpful "playwright install" banner. This tool exists
+because that failure is silent-by-default in the worst way: bd-sbcap reports
+"chromium build resolvable" while headless launch is still broken, because it
+symlinks the CHROMIUM build and never checks the HEADLESS SHELL, which is what
+`launch(headless=True)` actually executes.
+
+Checks (each is a real observed break, not a hypothetical):
+  SHELL   chromium_headless_shell-<rev> exists for the rev playwright wants.
+          (Observed @708: venv playwright 1.61.0 wants rev 1228; the cache had
+          chromium-1228 + chromium_headless_shell-1223. Bare launch() -> dead.)
+  CHROME  the full chromium-<rev> build exists (headed / Xvfb path).
+  PYPATH  the prestaged path is NOT shadowing the venv playwright with a newer
+          one that pins a rev nobody installed.
+  HARNESS the render harness (spa_serve/capture_all/build_montage/render_check)
+          is reachable. It ships ONLY in /mnt/project (read-only), so it must be
+          staged out to a writable dir or bd-render's discovery finds nothing.
+  DIST    frontend/dist exists -- spa_serve serves the BUILT SPA, so a missing
+          dist yields a 200 with an empty shell and screenshots of nothing.
+
+--fix repairs SHELL (symlink to the nearest installed shell) and HARNESS (stage
+from /mnt/project). It never touches the work tree.
+
+WHEN: before any GUI render / capture / OPV-RENDER run, and after any pack
+install that moves browsers.
+
+Read-only unless --fix. ASCII. Deterministic. --json. --selftest.
+Exit 0 = render is possible; 1 = a blocking fault remains.
+"""
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+CANON = "/home/claude/.cache/ms-playwright"
+CACHE = os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or CANON
+WORK = "/home/claude/work"
+VENV_PY = "/home/claude/work/venv/bin/python"
+STAGE = "/home/claude/render_kit"
+PK = "/mnt/project"
+HARNESS = ["spa_serve.py", "capture_all.py", "build_montage.py", "render_check.py",
+           "build_navigator.py", "spa_shot.py"]
+
+
+def _rev_wanted(py=VENV_PY):
+    """Ask the venv playwright which chromium rev it will execute. This is the
+    only honest source: the rev is baked into the installed package, not the cache."""
+    code = (
+        "from playwright.sync_api import sync_playwright\n"
+        "with sync_playwright() as p: print(p.chromium.executable_path)\n"
+    )
+    env = dict(os.environ, PLAYWRIGHT_BROWSERS_PATH=CANON)
+    env.pop("PYTHONPATH", None)  # prestaged ships a NEWER playwright -> wrong rev
+    # v3.66.714: probe the venv, but do not assume it EXISTS. The service venv can be
+    # absent (it vanished mid-session once, and every tool that hardcoded
+    # venv/bin/python then silently probed nothing). Fall back to a prestaged
+    # interpreter and SAY SO -- its playwright is newer and may resolve a different
+    # rev, which is exactly the mismatch this tool exists to catch.
+    cands = [py, "/home/claude/work/venv/bin/python3", "python3"]
+    for i, cand in enumerate(cands):
+        e = dict(env)
+        if i == 2:  # the fallback needs the prestaged path to import playwright at all
+            e["PYTHONPATH"] = "/tmp/prestaged_site_packages"
+        try:
+            out = subprocess.run([cand, "-c", code], capture_output=True, text=True,
+                                 timeout=60, env=e).stdout.strip()
+        except Exception:  # why: this item is unreadable/unparseable; skip it, the loop continues over the rest
+            continue
+        if out:
+            break
+    else:
+        return None, None
+    if not out:
+        return None, None
+    m = re.search(r"chromium(?:_headless_shell)?-(\d+)", out)
+    return (m.group(1) if m else None), (out or None)
+
+
+def _installed(prefix):
+    if not os.path.isdir(CACHE):
+        return []
+    return sorted(d for d in os.listdir(CACHE) if d.startswith(prefix + "-"))
+
+
+def audit(fix=False, rev=None):
+    findings = []
+
+    def add(check, ok, detail, blocking=True, fixed=False):
+        findings.append({"check": check, "ok": bool(ok), "detail": detail,
+                         "blocking": bool(blocking), "fixed": bool(fixed)})
+
+    if rev is None:
+        rev, _exe = _rev_wanted()
+    if not rev:
+        add("PYPATH", False, "could not resolve a chromium rev from the venv playwright")
+        return findings
+    add("PYPATH", True, "venv playwright resolves rev %s" % rev, blocking=False)
+
+    # PATH -- which cache is EFFECTIVE. The sandbox ships an ambient
+    # PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers holding a stale rev (1194).
+    # bdenv.sh overrides it to ~/.cache/ms-playwright. So a tool run under `bd`
+    # works and the SAME tool run bare silently resolves the wrong cache and
+    # dies on a rev nobody installed. Name it, or it is rediscovered every time.
+    global CACHE
+    amb = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if amb and not os.path.isdir(os.path.join(amb, "chromium-%s" % rev)) \
+            and os.path.isdir(os.path.join(CANON, "chromium-%s" % rev)):
+        add("PATH", False,
+            "PLAYWRIGHT_BROWSERS_PATH=%s has no rev %s; the builds are in %s "
+            "-- run under `bd` (bdenv.sh sets it) or export it" % (amb, rev, CANON))
+        CACHE = CANON
+    else:
+        add("PATH", True, "effective cache %s" % CACHE, blocking=False)
+
+    # CHROME
+    chrome_ok = os.path.isdir(os.path.join(CACHE, "chromium-%s" % rev))
+    add("CHROME", chrome_ok, "chromium-%s %s" % (rev, "present" if chrome_ok else "MISSING"))
+
+    # SHELL -- the one that actually breaks headless launch()
+    shell_dir = os.path.join(CACHE, "chromium_headless_shell-%s" % rev)
+    shell_ok = os.path.exists(shell_dir)
+    if not shell_ok and fix:
+        have = _installed("chromium_headless_shell")
+        if have:
+            src = os.path.join(CACHE, have[-1])
+            try:
+                os.symlink(src, shell_dir)
+                shell_ok = True
+                add("SHELL", True, "symlinked chromium_headless_shell-%s -> %s"
+                    % (rev, have[-1]), fixed=True)
+            except OSError as e:
+                add("SHELL", False, "symlink failed: %s" % e)
+        else:
+            add("SHELL", False, "no chromium_headless_shell-* installed at all")
+    else:
+        add("SHELL", shell_ok,
+            "chromium_headless_shell-%s %s" % (rev, "present" if shell_ok else
+                                               "MISSING -- bare launch() will die"))
+
+    # HARNESS
+    missing = [h for h in HARNESS if not os.path.isfile(os.path.join(STAGE, h))]
+    if missing and fix:
+        os.makedirs(STAGE, exist_ok=True)
+        staged = []
+        for h in missing:
+            src = os.path.join(PK, h)
+            if os.path.isfile(src):
+                shutil.copy(src, os.path.join(STAGE, h))
+                staged.append(h)
+        missing = [h for h in HARNESS if not os.path.isfile(os.path.join(STAGE, h))]
+        add("HARNESS", not missing,
+            "staged %d from %s; still missing: %s" % (len(staged), PK, missing or "none"),
+            blocking=False, fixed=bool(staged))
+    else:
+        add("HARNESS", not missing,
+            "%s: missing %s" % (STAGE, missing) if missing else "%s complete" % STAGE,
+            blocking=False)
+
+    # DIST
+    dist = os.path.join(WORK, "frontend", "dist", "index.html")
+    add("DIST", os.path.isfile(dist),
+        "frontend/dist/index.html %s" % ("present" if os.path.isfile(dist)
+                                         else "MISSING -- captures would be empty"))
+    return findings
+
+
+def selftest():
+    ok = True
+
+    # POS: the rev regex pulls the rev out of a real executable_path
+    p = "/home/claude/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome"
+    m = re.search(r"chromium(?:_headless_shell)?-(\d+)", p)
+    got = m and m.group(1) == "1228"
+    print(("%sPASS%s" if got else "%sFAIL%s") % ((G, RST) if got else (R, RST)) +
+          "  POS: rev parsed from chromium path (1228)")
+    ok &= bool(got)
+
+    # POS: the headless-shell path parses to its own rev (the build we forgot)
+    p2 = "/x/chromium_headless_shell-1223/chrome-headless-shell-linux64/x"
+    m2 = re.search(r"chromium(?:_headless_shell)?-(\d+)", p2)
+    got2 = m2 and m2.group(1) == "1223"
+    print(("%sPASS%s" if got2 else "%sFAIL%s") % ((G, RST) if got2 else (R, RST)) +
+          "  POS: rev parsed from headless_shell path (1223)")
+    ok &= bool(got2)
+
+    # NEG: a chromium build present must NOT be mistaken for a shell build.
+    # This is the exact bd-sbcap bug -- it is the whole reason this tool exists.
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        os.makedirs(os.path.join(td, "chromium-1228"))
+        shell = os.path.exists(os.path.join(td, "chromium_headless_shell-1228"))
+        neg = not shell
+        print(("%sPASS%s" if neg else "%sFAIL%s") % ((G, RST) if neg else (R, RST)) +
+              "  NEG: chromium-1228 present does NOT imply the headless shell "
+              "(the bd-sbcap false-OK)")
+        ok &= neg
+
+    # NEG: a missing dist is reported as blocking, not silently tolerated.
+    # rev is INJECTED: probing it spawns a venv subprocess that can time out,
+    # and a selftest that flakes on a timeout proves nothing.
+    f = [x for x in audit(fix=False, rev="1228") if x["check"] == "DIST"]
+    neg2 = bool(f) and f[0]["blocking"]
+    print(("%sPASS%s" if neg2 else "%sFAIL%s") % ((G, RST) if neg2 else (R, RST)) +
+          "  NEG: DIST is a blocking check (empty screenshots are a silent failure)")
+    ok &= neg2
+
+    # determinism
+    a = json.dumps(audit(fix=False, rev="1228"), sort_keys=True)
+    b = json.dumps(audit(fix=False, rev="1228"), sort_keys=True)
+    det = a == b
+    print(("%sPASS%s" if det else "%sFAIL%s") % ((G, RST) if det else (R, RST)) +
+          "  deterministic output")
+    ok &= det
+
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="bd-render-env")
+    ap.add_argument("--fix", action="store_true", help="repair SHELL + HARNESS")
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+
+    if a.selftest:
+        return selftest()
+
+    f = audit(fix=a.fix)
+    if a.json:
+        print(json.dumps({"cache": CACHE, "findings": f}, indent=2, sort_keys=True))
+    else:
+        print("== bd-render-env :: %s ==" % CACHE)
+        for x in f:
+            mark = (G + "OK " + RST) if x["ok"] else (
+                (R + "XX " + RST) if x["blocking"] else (Y + "-- " + RST))
+            fixed = (G + " [fixed]" + RST) if x["fixed"] else ""
+            print("  %s %-8s %s%s" % (mark, x["check"], x["detail"], fixed))
+    bad = [x for x in f if not x["ok"] and x["blocking"]]
+    if bad and not a.json:
+        print("%sRENDER BLOCKED%s -- run 'bd-render-env --fix'" % (R, RST))
+    elif not bad and not a.json:
+        print("%sRENDER READY%s" % (G, RST))
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

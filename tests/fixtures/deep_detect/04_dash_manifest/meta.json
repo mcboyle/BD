@@ -1,0 +1,4 @@
+{
+  "description": "Minimal DASH MPD with two video representations (720p, 1080p), one audio AdaptationSet, one subtitle track. Tests parse_dash_manifest and the contentType-vs-mimeType subtitle precedence (bug 25 from v3.66.11).",
+  "base_url": "https://cdn.example.test/dash/manifest.mpd"
+}

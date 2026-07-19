@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+"""bd-fixture-lint -- validate the vuln/fixed corpus the detector floor rests on.
+
+The suite's headline claim of detector quality is DISCRIMINATION: every
+corpus-gated DP fires on its DP-NN_vuln.py and stays silent on DP-NN_fixed.py
+(7/7 and 0/7). That claim is only as good as the corpus, and NOTHING checks the
+corpus. A corpus is a denominator, and an unchecked denominator is how a gate
+comes to certify something it cannot see:
+
+  - a _vuln.py with no _fixed.py twin  -> the detector is never proven SILENT,
+    only proven LOUD. A rule that fires on everything scores 7/7 too.
+  - a _fixed.py that stops being the fixed TWIN of its vuln (rewritten, or the
+    vuln removed entirely rather than remediated) -> "silent on fixed" becomes
+    trivially true, and the discrimination test quietly stops testing anything.
+  - a fixture that no longer parses -> it is scanned as zero findings, which
+    reads as "detector silent". Vacuous, and green.
+  - an EMPTY corpus dir -> every detector is trivially "silent on fixed" and the
+    only thing that fails is the missing-fixture check. (bd-defect-scan --check
+    used to pass an empty corpus with a shrug; it now refuses.)
+
+Checks (all static, deterministic, read-only):
+  F1 pairing      every DP-NN_vuln.py has a DP-NN_fixed.py, and vice versa
+  F2 parses       both twins parse (a fixture that cannot be read is not a control)
+  F3 nonempty     neither twin is empty/comment-only (nothing to detect)
+  F4 twinned      the pair is a REMEDIATION, not two unrelated files: they share
+                  substantial structure, and the fixed twin is not simply the vuln
+                  with the interesting code deleted
+  F5 gated        every DP the scanner declares CORPUS_GATED has a fixture pair
+
+Usage: bd-fixture-lint [--corpus DIR] [--json] [--selftest]
+Exit 0 = corpus valid (states how many pairs); 1 = defects found;
+2 = CANNOT-EVALUATE (corpus absent/empty/unreadable).
+"""
+import argparse
+import ast
+import difflib
+import json
+import os
+import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
+G, Y, R, DIM, RST = "\033[32m", "\033[33m", "\033[31m", "\033[2m", "\033[0m"
+
+DEFAULT_CORPUS = "/home/claude/verification/corpus"
+FIXTURE_RE = re.compile(r"^(DP-\d+)_(vuln|fixed)\.py$")
+
+# Below this, "fixed" and "vuln" are not the same file with a fix applied --
+# they are two different files, and the pair proves nothing about the detector.
+MIN_TWIN_SIMILARITY = 0.40
+# A remediation adds or changes a guard; it does not delete the whole subject.
+MIN_FIXED_RATIO = 0.40
+
+
+def _meaningful(src):
+    """Lines that are not blank and not pure comment."""
+    return [ln for ln in src.splitlines()
+            if ln.strip() and not ln.strip().startswith("#")]
+
+
+def lint(corpus):
+    files = sec.require_corpus(corpus, min_files=1, label="--corpus",
+                               patterns=("*.py",))
+    pairs, stray = {}, []
+    for fp in files:
+        m = FIXTURE_RE.match(os.path.basename(fp))
+        if not m:
+            stray.append(os.path.basename(fp))
+            continue
+        pairs.setdefault(m.group(1), {})[m.group(2)] = fp
+
+    findings = []
+    for dp in sorted(pairs):
+        got = pairs[dp]
+        # F1 pairing
+        for kind in ("vuln", "fixed"):
+            if kind not in got:
+                findings.append({"dp": dp, "check": "F1-pairing", "severity": "high",
+                                 "message": "missing %s twin -- the detector is never "
+                                            "proven %s" % (kind, "silent" if kind == "fixed"
+                                                           else "loud")})
+        if "vuln" not in got or "fixed" not in got:
+            continue
+        try:
+            vsrc = open(got["vuln"], errors="replace").read()
+            fsrc = open(got["fixed"], errors="replace").read()
+        except OSError as exc:
+            findings.append({"dp": dp, "check": "F2-parses", "severity": "high",
+                             "message": "unreadable: %s" % exc})
+            continue
+        # F2 parses
+        for kind, src in (("vuln", vsrc), ("fixed", fsrc)):
+            try:
+                ast.parse(src)
+            except SyntaxError as exc:
+                findings.append({"dp": dp, "check": "F2-parses", "severity": "high",
+                                 "message": "%s does not parse (line %s) -- it scans as "
+                                            "zero findings, which reads as 'detector "
+                                            "silent'" % (kind, exc.lineno)})
+        # F3 nonempty
+        vlines, flines = _meaningful(vsrc), _meaningful(fsrc)
+        for kind, lines in (("vuln", vlines), ("fixed", flines)):
+            if len(lines) < 2:
+                findings.append({"dp": dp, "check": "F3-nonempty", "severity": "high",
+                                 "message": "%s has %d meaningful line(s) -- nothing to "
+                                            "detect" % (kind, len(lines))})
+        if not vlines or not flines:
+            continue
+        # F4 twinned: a remediation, not a replacement
+        sim = difflib.SequenceMatcher(None, vsrc, fsrc).ratio()
+        if sim < MIN_TWIN_SIMILARITY:
+            findings.append({"dp": dp, "check": "F4-twinned", "severity": "medium",
+                             "message": "vuln/fixed similarity %.2f < %.2f -- these are "
+                                        "two different files, not one file with a fix; "
+                                        "the pair proves nothing about discrimination"
+                                        % (sim, MIN_TWIN_SIMILARITY)})
+        ratio = len(flines) / float(len(vlines))
+        if ratio < MIN_FIXED_RATIO:
+            findings.append({"dp": dp, "check": "F4-twinned", "severity": "medium",
+                             "message": "fixed is %.0f%% the size of vuln -- the subject "
+                                        "looks DELETED rather than remediated; a detector "
+                                        "is trivially silent on code that is not there"
+                                        % (ratio * 100)})
+    for s in stray:
+        findings.append({"dp": "-", "check": "F1-pairing", "severity": "low",
+                         "message": "stray file in corpus (not DP-NN_{vuln,fixed}.py): %s" % s})
+    return pairs, findings, len(files)
+
+
+def gated_dps(bindir):
+    """F5: the DPs the scanner claims to gate on the corpus. Derived from the
+    scanner, never re-declared here -- a second copy would drift."""
+    p = os.path.join(bindir, "bd-defect-scan")
+    if not os.path.isfile(p):
+        return None
+    src = open(p, errors="ignore").read()
+    m = re.search(r"CORPUS_GATED\s*=\s*[\(\[]([^\)\]]*)[\)\]]", src)
+    if not m:
+        return None
+    return sorted(set(re.findall(r"DP-\d+", m.group(1))))
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--corpus", default=DEFAULT_CORPUS)
+    ap.add_argument("--bin", default=os.path.dirname(os.path.realpath(__file__)))
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+
+    pairs, findings, nfiles = lint(a.corpus)
+
+    gated = gated_dps(a.bin)
+    if gated is None:
+        findings.append({"dp": "-", "check": "F5-gated", "severity": "low",
+                         "message": "could not read CORPUS_GATED from bd-defect-scan -- "
+                                    "F5 NOT EVALUATED (this is unknown, not clean)"})
+    else:
+        for dp in gated:
+            if dp not in pairs:
+                findings.append({"dp": dp, "check": "F5-gated", "severity": "high",
+                                 "message": "declared CORPUS_GATED by bd-defect-scan but "
+                                            "has no fixture pair -- the gate cannot test it"})
+
+    complete = sorted(d for d in pairs if "vuln" in pairs[d] and "fixed" in pairs[d])
+    payload = {"corpus": a.corpus, "files_scanned": nfiles,
+               "pairs_complete": len(complete), "dps": complete,
+               "corpus_gated": gated, "findings": findings,
+               "total": len(findings)}
+    if a.json:
+        json.dump(payload, sys.stdout, indent=1, sort_keys=True)
+        sys.stdout.write("\n")
+        return sec.EXIT_FINDINGS if findings else sec.EXIT_OK
+
+    for f in findings:
+        col = R if f["severity"] == "high" else Y
+        print("  %s%-6s%s %-12s %s: %s"
+              % (col, f["severity"].upper(), RST, f["check"], f["dp"], f["message"]))
+    if findings:
+        print("%s%d corpus defect(s) across %d pair(s) | scanned %d files%s"
+              % (R, len(findings), len(complete), nfiles, RST))
+        return sec.EXIT_FINDINGS
+    print("%scorpus valid%s: %d complete vuln/fixed pair(s), %d gated DP(s) all "
+          "fixtured | scanned %d files"
+          % (G, RST, len(complete), len(gated or []), nfiles))
+    return sec.EXIT_OK
+
+
+def selftest():
+    import tempfile
+    ok = True
+    good_v = ("import os\ndef f(base, name):\n"
+              "    p = os.path.join(base, name)\n    return open(p).read()\n")
+    good_f = ("import os\nfrom app.paths import safe_join\ndef f(base, name):\n"
+              "    p = safe_join(base, name)\n    return open(p).read()\n")
+
+    # POS: a well-formed pair is clean.
+    with tempfile.TemporaryDirectory() as d:
+        open(os.path.join(d, "DP-01_vuln.py"), "w").write(good_v)
+        open(os.path.join(d, "DP-01_fixed.py"), "w").write(good_f)
+        _p, f, _n = lint(d)
+    good = not f
+    print(("PASS" if good else "FAIL") + "  POS well-formed pair is clean (%s)" % f)
+    ok &= good
+
+    # NEG: a vuln with no fixed twin -- detector never proven silent.
+    with tempfile.TemporaryDirectory() as d:
+        open(os.path.join(d, "DP-02_vuln.py"), "w").write(good_v)
+        _p, f, _n = lint(d)
+    caught = any(x["check"] == "F1-pairing" for x in f)
+    print(("PASS" if caught else "FAIL") + "  NEG orphan vuln (no fixed twin) caught")
+    ok &= caught
+
+    # NEG: 'fixed' is the vuln with the subject DELETED, not remediated -- the
+    # detector is then trivially silent on code that is not there.
+    with tempfile.TemporaryDirectory() as d:
+        open(os.path.join(d, "DP-03_vuln.py"), "w").write(good_v * 3)
+        open(os.path.join(d, "DP-03_fixed.py"), "w").write("import os\npass\n")
+        _p, f, _n = lint(d)
+    caught = any(x["check"] == "F4-twinned" for x in f)
+    print(("PASS" if caught else "FAIL") + "  NEG fixed-is-deleted-not-fixed caught")
+    ok &= caught
+
+    # NEG: a fixture that does not parse scans as zero findings == 'silent'.
+    with tempfile.TemporaryDirectory() as d:
+        open(os.path.join(d, "DP-04_vuln.py"), "w").write(good_v)
+        open(os.path.join(d, "DP-04_fixed.py"), "w").write(good_f + "def broken(:\n")
+        _p, f, _n = lint(d)
+    caught = any(x["check"] == "F2-parses" for x in f)
+    print(("PASS" if caught else "FAIL") + "  NEG unparseable fixture caught")
+    ok &= caught
+
+    # NEG: the corpus itself must be guarded -- no verdict over an absent corpus.
+    import subprocess
+    rc = subprocess.call([sys.executable, __file__, "--corpus",
+                          "/home/claude/GHOST_NO_SUCH_CORPUS"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    good = rc == sec.EXIT_CANNOT_EVALUATE
+    print(("PASS" if good else "FAIL") +
+          "  NEG absent corpus: want CANNOT-EVALUATE(2), got rc=%d" % rc)
+    ok &= good
+
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

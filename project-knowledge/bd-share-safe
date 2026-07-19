@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""bd-share-safe -- build a sanitized share bundle (scrub, verify, manifest).
+
+Takes a set of files, scrubs each text file (bd-log-sanitize), verifies the
+result is secret-free (bd-scrub-proof logic), and assembles a share bundle dir +
+manifest. Refuses to include any file that still has secrets after scrubbing or
+any raw capture (.wacz/.har) unless --allow-capture. The manifest records each
+file's sha + scrub count so the recipient can trust it. Writes to --out dir.
+
+Usage:
+    bd-share-safe FILE... --out DIR [--allow-capture] [--json]
+    bd-share-safe --selftest
+Exit 1 if any file can't be made safe, else 0.
+"""
+import argparse, hashlib, os, shutil, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import importlib.util, importlib.machinery
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+_ls_path=os.path.join(os.path.dirname(os.path.realpath(__file__)),"bd-log-sanitize")
+_spec=importlib.util.spec_from_loader("bd_log_sanitize",importlib.machinery.SourceFileLoader("bd_log_sanitize",_ls_path))
+_ls=importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_ls)
+RAW_CAPTURE={".wacz",".har",".warc"}
+TEXT_EXT={".log",".txt",".json",".md",".csv",".html",".xml",".yaml",".yml"}
+
+def build(files, out, allow_capture):
+    os.makedirs(out,exist_ok=True)
+    manifest=[]; refused=[]
+    for f in files:
+        if not os.path.exists(f): refused.append({"file":f,"reason":"not found"}); continue
+        ext=os.path.splitext(f)[1].lower()
+        if ext in RAW_CAPTURE and not allow_capture:
+            refused.append({"file":f,"reason":"raw capture (use --allow-capture to scrub+include)"}); continue
+        dest=os.path.join(out,os.path.basename(f))
+        if ext in TEXT_EXT:
+            text=open(f,errors="ignore").read()
+            scrubbed,counts=_ls.scrub(text)
+            # verify no residual
+            hits,_=_ls.scrub(scrubbed)[1],None
+            resid=sum(_ls.scrub(scrubbed)[1].values())
+            if resid>0:
+                refused.append({"file":f,"reason":"secrets remain after scrub (%d)"%resid}); continue
+            open(dest,"w").write(scrubbed)
+            manifest.append({"file":os.path.basename(f),"scrubbed":sum(counts.values()),
+                             "sha256":hashlib.sha256(scrubbed.encode()).hexdigest()[:16]})
+        else:
+            shutil.copy(f,dest)
+            manifest.append({"file":os.path.basename(f),"scrubbed":0,"note":"binary copied as-is",
+                             "sha256":hashlib.sha256(open(f,"rb").read()).hexdigest()[:16]})
+    import json as _j
+    _j.dump({"manifest":manifest,"refused":refused},open(os.path.join(out,"SHARE_MANIFEST.json"),"w"),indent=2)
+    return {"out":out,"included":len(manifest),"refused":refused,"manifest":manifest}
+
+def selftest():
+    ok=True
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        a=os.path.join(d,"run.log"); open(a,"w").write("Bearer abcdef0123456789ABCDEF ok")
+        b=os.path.join(d,"cap.wacz"); open(b,"wb").write(b"PK\x03\x04rawcapture")
+        out=os.path.join(d,"share")
+        r=build([a,b],out,allow_capture=False)
+        inc={m["file"] for m in r["manifest"]}
+        ref={x["file"] for x in r["refused"]}
+        good="run.log" in inc and b in ref and os.path.exists(os.path.join(out,"SHARE_MANIFEST.json"))
+        print(("PASS" if good else "FAIL")+"  log scrubbed+included, raw wacz refused (%s / refused %d)"%(sorted(inc),len(r["refused"])))
+        ok=ok and good
+        # the included log is actually clean
+        scrubbed=open(os.path.join(out,"run.log")).read()
+        clean="Bearer [REDACTED]" in scrubbed
+        print(("PASS" if clean else "FAIL")+"  included log is scrubbed")
+        ok=ok and clean
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("files",nargs="*")
+    ap.add_argument("--out",default=None); ap.add_argument("--allow-capture",action="store_true")
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    if not a.files or not a.out: print(R+"FILE... and --out DIR required"+RST); return 1
+    r=build(a.files,a.out,a.allow_capture)
+    if sec.emit(r,as_json=a.json): return 1 if r["refused"] else 0
+    print(G+"share bundle"+RST+" -> %s (%d included, %d refused)"%(r["out"],r["included"],len(r["refused"])))
+    for m in r["manifest"][:20]: print("  + %s (%d scrubbed)"%(m["file"],m.get("scrubbed",0)))
+    for x in r["refused"][:20]: print("  %s- %s: %s%s"%(R,x["file"],x["reason"],RST))
+    return 1 if r["refused"] else 0
+sys.exit(main())

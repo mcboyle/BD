@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""bd-agent-redteam -- adversarially review a proposed patch.
+
+Runs a battery of adversarial checks over the work-tree diff (an AI patch): the
+scope violations from bd-agent-watchdog PLUS deeper red-team heuristics on the
+changed files -- new outbound fetch without an SSRF guard, a new env-var opt-in
+that trips the env-tranche gate, a broadened dependency pin, a weakened
+comparison in a guard-ish function, a new subprocess without timeout, and
+secret-shaped literals. Emits a prioritized red-team finding list. Reuses
+bd-agent-watchdog + bdtools_sec sink patterns. Read-only.
+
+Usage: bd-agent-redteam [--work DIR] [--home DIR] [--json] [--selftest]
+Exit 1 if high-severity findings, else 0.
+"""
+import argparse, os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+
+import importlib.util, importlib.machinery
+def _load_tool(tool):
+    p=os.path.join(os.path.dirname(os.path.realpath(__file__)),tool)
+    modname=tool.replace("-","_")
+    spec=importlib.util.spec_from_loader(modname,importlib.machinery.SourceFileLoader(modname,p))
+    m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); return m
+
+_wd=_load_tool("bd-agent-watchdog")
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+CHECKS=[("new-fetch-no-ssrf-guard","high",re.compile(r'requests\.(get|post)|httpx\.|urlopen'),re.compile(r'validate_url|classify_url|SSRF|_is_safe')),
+        ("env-opt-in-tranche","medium",re.compile(r'os\.environ\.get\(["\']BD_|os\.getenv\(["\']BD_'),None),
+        ("subprocess-no-timeout","high",re.compile(r'subprocess\.(run|Popen|call)'),re.compile(r'timeout\s*=')),
+        ("broadened-pin","medium",re.compile(r'[><]=?\s*\d+.*,\s*<\s*\d+|>=\s*\d'),None),
+        ("secret-literal","high",re.compile(r'AKIA[0-9A-Z]{16}|-----BEGIN|eyJ[A-Za-z0-9_\-]{10,}\.'),None)]
+
+def redteam(work, home):
+    ch,texts=_wd.changed(work,home)
+    if ch is None: return {"error":"no pinned zip to diff"}
+    findings=[]
+    for rel,txt in (texts or {}).items():
+        for name,sev,rx,neg in CHECKS:
+            if rx.search(txt) and (neg is None or not neg.search(txt)):
+                findings.append({"file":rel,"check":name,"severity":sev})
+    wd=_wd.watchdog(work,home)
+    for g in wd.get("guard_touched",[]): findings.append({"file":g,"check":"guard-touched","severity":"high"})
+    high=[f for f in findings if f["severity"]=="high"]
+    return {"changed":len(ch),"findings":findings,"high":len(high)}
+
+def selftest():
+    ok=True
+    r=redteam(sec.DEFAULT_WORK,"/home/claude")
+    print(("PASS" if "error" not in r else "FAIL")+"  redteam ran (pristine: %d changed, %d findings)"%(r.get("changed",-1),len(r.get("findings",[]))))
+    ok=ok and "error" not in r
+    # logic: a fetch-without-guard text triggers high
+    txt="import requests\ndef f(u): return requests.get(u)\n"
+    hit=any(rx.search(txt) and (neg is None or not neg.search(txt)) for n,s,rx,neg in CHECKS if n=="new-fetch-no-ssrf-guard")
+    print(("PASS" if hit else "FAIL")+"  unguarded-fetch check fires on raw requests.get")
+    ok=ok and hit
+    guarded="import requests\ndef f(u):\n  validate_url(u)\n  return requests.get(u)\n"
+    nohit=not any(rx.search(guarded) and (neg is None or not neg.search(guarded)) for n,s,rx,neg in CHECKS if n=="new-fetch-no-ssrf-guard")
+    print(("PASS" if nohit else "FAIL")+"  guarded fetch (validate_url present) not flagged")
+    ok=ok and nohit
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK); ap.add_argument("--home",default="/home/claude")
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    sec.require_source_tree(a.work)
+    sec.require_bundle(a.home)
+    r=redteam(a.work,a.home)
+    if "error" in r: print(R+r["error"]+RST); return 1
+    if sec.emit(r,as_json=a.json): return 1 if r["high"] else 0
+    print("red-team: %d changed file(s), %d finding(s) (%d high):"%(r["changed"],len(r["findings"]),r["high"]))
+    for f in sorted(r["findings"],key=lambda x:x["severity"]!="high")[:40]:
+        col=R if f["severity"]=="high" else Y
+        print("  %s%-8s%s %s: %s"%(col,f["severity"],RST,f["file"],f["check"]))
+    if not r["findings"]: print(G+"no red-team findings"+RST)
+    return 1 if r["high"] else 0
+
+if __name__ == "__main__":
+    sys.exit(main())

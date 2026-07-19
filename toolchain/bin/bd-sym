@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+"""bd-sym -- every site of a symbol/flag (grep by SYMBOL, not symptom).
+
+The @680 lesson: a first fix touched 1/5 `_DISABLED` sites because it matched the
+symptom. This lists ALL occurrences grouped by file with a count, so you fix all N.
+Usage: bd-sym <symbol> [--work DIR] [--py-only]   Exit 0 if found, 1 if none.
+"""
+import argparse, os, re, subprocess, sys
+G,R,DIM,RST="\033[32m","\033[31m","\033[2m","\033[0m"
+# --- R3 (@808): ONE denominator, two engines -----------------------------------
+# rg searches every file except node_modules / *.min.*; the python fallback used to
+# filter to a re-typed extension tuple, so the two engines answered different
+# questions and nothing said which had run. The exclusions are declared ONCE here
+# and both engines consume them; the fallback now skips BINARY files by sniffing a
+# NUL byte rather than by guessing at an extension allowlist (the guess is what
+# went stale).
+_EXCLUDE_DIRS = ("node_modules", ".git", "__pycache__")
+_BINARY_EXT = (".pyc", ".pyo", ".so", ".mo", ".png", ".jpg", ".jpeg", ".gif",
+               ".ico", ".pdf", ".zip", ".gz", ".whl", ".woff", ".woff2", ".ttf",
+               ".mp4", ".webm", ".db", ".db-wal", ".db-shm")
+
+
+def _find_rg():
+    import shutil
+    return (shutil.which("rg") or next(iter([p for p in
+            ("/tmp/tools_bin/rg", "/tmp/media/tools_bin/rg", "/home/claude/bin/rg")
+            if os.path.exists(p)]), None))
+
+
+def _excluded(path):
+    if any(("/%s/" % d) in path or path.endswith("/%s" % d) for d in _EXCLUDE_DIRS):
+        return True
+    return ".min." in os.path.basename(path)
+
+
+def _scan_rg(rgbin, work, symbol, py_only):
+    rg = [rgbin, "-n", "--no-heading", "-S"]
+    if py_only:
+        rg += ["-tpy"]
+    rg += ["-g", "!node_modules", "-g", "!*.min.*", symbol, work]
+    return subprocess.run(rg, capture_output=True, text=True).stdout
+
+
+def _scan_python(work, symbol, py_only):
+    """Yield 'path:lineno:line' strings. Denominator = every non-binary file under
+    work minus the shared exclusions -- matching rg, rather than an extension guess."""
+    import glob as _g
+    pat = re.compile(re.escape(symbol))
+    for p in _g.glob(os.path.join(work, "**", "*"), recursive=True):
+        if not os.path.isfile(p) or _excluded(p):
+            continue
+        if py_only and not p.endswith(".py"):
+            continue
+        if p.endswith(_BINARY_EXT):
+            continue
+        try:
+            with open(p, "rb") as bh:
+                if b"\0" in bh.read(2048):
+                    continue  # binary by content, not by extension guess
+            for i, ln in enumerate(open(p, encoding="utf-8", errors="ignore"), 1):
+                if pat.search(ln):
+                    yield "%s:%d:%s" % (p, i, ln)
+        except Exception:  # why: unreadable file is not a hit; the scan continues
+            continue
+
+
+def selftest():
+    """R3 (mirror residual @808): bd-sym has TWO engines -- rg and a python
+    fallback -- and they answered DIFFERENT questions. rg searches every file
+    except node_modules/*.min.*; the fallback filtered to a re-typed extension
+    tuple (.py/.ts/.tsx/.jsx/.js/.md/.json/.sh/.txt), so on a host without rg,
+    a symbol living in .html/.css/.yml/.toml/.service reported ZERO hits -- and
+    'no hits' is what this tool is asked for before retiring a symbol. Severity
+    is genuinely low (rg ships in the media kit at /tmp/tools_bin/rg and is the
+    live path here -- MEASURED), but the answer must not depend on which engine
+    ran, and the operator must be told which did.
+    """
+    import tempfile as _tf
+    ok = True
+    with _tf.TemporaryDirectory() as td:
+        for rel, body in (("a.py", "TOKEN_X = 1\n"),
+                          ("page.html", "<div>TOKEN_X</div>\n"),
+                          ("conf.yml", "key: TOKEN_X\n"),
+                          ("unit.service", "Exec=TOKEN_X\n"),
+                          ("node_modules/skip.js", "TOKEN_X\n"),
+                          ("bundle.min.js", "TOKEN_X\n")):
+            p = os.path.join(td, rel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            open(p, "w").write(body)
+
+        hits_py = {os.path.relpath(l.split(":", 1)[0], td)
+                   for l in _scan_python(td, "TOKEN_X", False)}
+        c1 = {"a.py", "page.html", "conf.yml", "unit.service"} <= hits_py
+        print(("PASS" if c1 else "FAIL") +
+              "  FALLBACK-DENOMINATOR: python engine sees non-.py text files "
+              "(found %d: %s)" % (len(hits_py), sorted(hits_py)))
+        ok = ok and c1
+
+        c2 = not ({"node_modules/skip.js", "bundle.min.js"} & hits_py)
+        print(("PASS" if c2 else "FAIL") +
+              "  FALLBACK-EXCLUDES: node_modules and *.min.* still skipped")
+        ok = ok and c2
+
+        rg = _find_rg()
+        if rg:
+            hits_rg = {os.path.relpath(l.split(":", 1)[0], td)
+                       for l in _scan_rg(rg, td, "TOKEN_X", False).splitlines()
+                       if ":" in l}
+            c3 = hits_rg == hits_py
+            print(("PASS" if c3 else "FAIL") +
+                  "  ENGINE-AGREEMENT: rg and python engines return the SAME set "
+                  "(rg=%d py=%d)" % (len(hits_rg), len(hits_py)))
+            ok = ok and c3
+        else:
+            print("SKIP: rg absent -- cross-engine agreement unprovable here "
+                  "(honest absence, not a pass)")
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    import sys as _s
+    if "--selftest" in _s.argv: return selftest()
+    ap=argparse.ArgumentParser(); ap.add_argument("symbol")
+    ap.add_argument("--work","--tree",default="/home/claude/work"); ap.add_argument("--py-only",action="store_true")
+    a=ap.parse_args()
+    rgbin = _find_rg()
+    if rgbin:
+        out = _scan_rg(rgbin, a.work, a.symbol, a.py_only)
+        engine = "rg"
+    else:
+        out = "".join(_scan_python(a.work, a.symbol, a.py_only))
+        engine = "python"
+    byfile={}
+    for line in out.splitlines():
+        parts=line.split(":",2)
+        if len(parts)<3: continue
+        f=os.path.relpath(parts[0],a.work); byfile.setdefault(f,[]).append((parts[1],parts[2]))
+    if not byfile:
+        print(f"no occurrences of {a.symbol!r}"); return 1
+    total=sum(len(v) for v in byfile.values())
+    print(f"{G}{total}{RST} occurrence(s) of {a.symbol!r} in {len(byfile)} file(s):")
+    for f in sorted(byfile):
+        print(f"  {DIM}{f}  ({len(byfile[f])}){RST}")
+        for ln,txt in byfile[f][:6]:
+            print(f"    L{ln}: {txt.strip()[:78]}")
+        if len(byfile[f])>6: print(f"    {DIM}... +{len(byfile[f])-6} more{RST}")
+    print(f"{DIM}[engine: {engine}] fix ALL {total}, not the first found{RST}")
+    return 0
+sys.exit(main())

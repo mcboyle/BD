@@ -1,0 +1,38 @@
+{
+  "_comment": "v3.61 (Phase 13): companion-tool registry. Each entry declares a tool BD knows about so the UI 'Tools' menu can list them and indicate which are present. BD does NOT execute these automatically — the registry is descriptive metadata. 'script' is resolved relative to the tools/ directory.",
+  "schema_version": 1,
+  "tools": [
+    {
+      "id": "rotate_token",
+      "name": "Rotate API token",
+      "description": "Generate a fresh bearer token and write it into app_config.json.",
+      "script": "rotate_token.py",
+      "kind": "maintenance",
+      "shipped": true
+    },
+    {
+      "id": "validate_sites_config",
+      "name": "Validate sites_config.json",
+      "description": "Dry-run validate every site config; usable as a git pre-commit hook.",
+      "script": "validate_sites_config.py",
+      "kind": "maintenance",
+      "shipped": true
+    },
+    {
+      "id": "bd_doctor",
+      "name": "bd-doctor",
+      "description": "Environment, dependency, and cookie diagnostics. Also available as 'bdctl doctor'.",
+      "script": null,
+      "kind": "diagnostic",
+      "shipped": true
+    },
+    {
+      "id": "dast_probe",
+      "name": "Security probe (DAST)",
+      "description": "12-section in-process security probe. Run via tools/dast.sh.",
+      "script": "dast_probe.py",
+      "kind": "security",
+      "shipped": true
+    }
+  ]
+}

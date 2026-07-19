@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""bd-pinscan -- `== N` magnitude pins on parity/count invariants re-break on every
+subsequent tranche (the `equality-pin-whack-a-mole` shape). The fix is a `<= N`
+ceiling. This flags equality assertions on count/parity keywords so you can convert
+them the same cut a tranche moves the ratchet.
+
+Usage:
+  bd-pinscan [--tree DIR]
+Advisory (exit 0).
+"""
+import argparse, glob, os, re, sys
+
+# count/parity concepts where a magnitude == pin is fragile
+KEYWORDS = re.compile(
+    r"legacy_only|operator_facing_unwired|open_count|display_open|route[_ ]?count|"
+    r"blueprint|endpoint_count|edge[s]?\b|import_graph|parity|ratchet|danger|"
+    r"num_routes|len\(routes|len\(.*modules|module_count|schema_keys",
+    re.I)
+# assert ... == <int>   (2+ digit magnitudes; single digits are usually legit)
+EQ = re.compile(r"==\s*(\d{2,6})\b")
+
+def selftest():
+    """IMPORT-OK: pin scan with no independent fault surface. Structural check
+    only -- the module parsed and exposes main(); this is the weakest selftest
+    kind and says so."""
+    ok = "main" in globals() and callable(main)
+    print(("PASS" if ok else "FAIL") + "  module structural check (main present)")
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--tree","--work", default="/home/claude/work")
+    ap.add_argument("--selftest",action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    findings = []
+    for f in glob.glob(os.path.join(a.tree, "tests/*.py")):
+        try:
+            for i, line in enumerate(open(f, errors="ignore"), 1):
+                if "==" not in line:
+                    continue
+                if not (KEYWORDS.search(line) and EQ.search(line)):
+                    continue
+                if "assert" not in line and "==" not in line:
+                    continue
+                findings.append((os.path.relpath(f, a.tree), i, EQ.search(line).group(1), line.strip()[:74]))
+        except Exception:  # why: this item is unreadable/unparseable; skip it, the loop continues over the rest
+            continue
+    if not findings:
+        print("no fragile `== N` magnitude pins on count/parity keywords found."); return 0
+    print(f"FRAGILE MAGNITUDE PINS ({len(findings)}) -- convert to `<= N` ceilings when a tranche moves the ratchet:\n")
+    for f, i, n, ctx in findings[:40]:
+        print(f"  {f}:{i}  (== {n})")
+        print(f"      {ctx}")
+    if len(findings) > 40:
+        print(f"  ... +{len(findings)-40} more")
+    print("\nnot all are wrong -- but each `== N` on a growing count re-breaks next tranche. Prefer `<= N`.")
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""bd-fe-dead-control -- frontend files whose CONTROLS reach no endpoint.
+
+endpoint_reachability answers "can an operator reach this endpoint?" -- it walks from the
+ROUTE outward and asks whether a control calls it. This asks the OTHER direction, which
+nobody has ever measured: does this CONTROL reach anything at all?
+
+The two failures are different and both real:
+
+  * an endpoint with no control  -> a capability the operator cannot use
+    (the VPN system kill switch: Vpn.tsx RENDERED its state and called none of its four
+     endpoints -- a safety control you could watch and not touch)
+  * a control with no endpoint   -> a button that does nothing, or a screen that only
+    DISPLAYS state it cannot change (the same Vpn.tsx, seen from the other side)
+
+The second is the one this finds. A route component that renders interactive controls
+(<button onClick>, <Switch onChange>, a form) but issues no apiPost/apiPut/apiDelete is
+either read-only BY DESIGN (a dashboard) or a dead surface -- and the tool cannot know
+which, so it REPORTS and lets a human decide. What it must not do is stay silent.
+
+Heuristics, stated plainly because they bound the answer:
+  * MUTATING call  = apiPost / apiPut / apiDelete / apiPatch / fetch(..., method: POST...)
+  * READ call      = apiGet / useQuery
+  * CONTROL        = onClick / onChange / onSubmit / <form / <Switch / <Input
+A file with CONTROLS and READS but no MUTATING call is the interesting case: it can show
+you the state and cannot change it.
+
+Read-only. ASCII. --json. --selftest.
+"""
+import argparse
+import json
+import os
+import re
+import sys
+
+G, R, Y, DIM, BOLD, RST = ("\033[32m", "\033[31m", "\033[33m",
+                           "\033[2m", "\033[1m", "\033[0m")
+WORK = "/home/claude/work"
+
+# A mutation is not always a literal apiPost at the call site: most routes go through
+# useMutation({mutationFn: () => login(...)}) where the wrapper (login/createUser/...)
+# does the POST in lib/api. Matching only apiPost flagged Login.tsx and Users.tsx as
+# DEAD -- surfaces that plainly mutate. A tool that cries wolf on real surfaces gets
+# switched off, so useMutation/mutationFn counts as a mutating call.
+MUTATE = re.compile(
+    r"\bapi(?:Post|Put|Delete|Patch)\b"
+    r"|method:\s*[\"\']( ?:POST|PUT|DELETE|PATCH)"
+    r"|\buseMutation\b|\bmutationFn\b|\bmutate\(")
+READ = re.compile(r"\bapiGet\b|\buseQuery\b")
+CONTROL = re.compile(r"\bonClick=|\bonChange=|\bonSubmit=|<form\b|<Switch\b|<Input\b|<SecretField\b")
+# A control that only navigates, or only drives LOCAL React state (a filter, a tab, an
+# expand toggle), legitimately reaches no endpoint. Verified against the live tree: the
+# three surfaces this first flagged (Activity/Home/Budget) are exactly that -- setQuery,
+# setPickerOpen, setEditMode, setSiteId. Read-only BY DESIGN, not dead. Without this the
+# tool reports 3 false positives and gets ignored.
+NAV_ONLY = re.compile(
+    r"\bnavigate\(|useNavigate|<Link\b"
+    r"|\bset[A-Z][A-Za-z0-9_]*\(")   # a local useState setter
+
+
+def scan(work=WORK):
+    root = os.path.join(work, "frontend", "src", "routes")
+    rows = []
+    if not os.path.isdir(root):
+        return rows
+    for dp, _dn, fns in os.walk(root):
+        for fn in sorted(fns):
+            if not fn.endswith(".tsx") or fn.endswith(".test.tsx"):
+                continue
+            p = os.path.join(dp, fn)
+            try:
+                src = open(p, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            rel = os.path.relpath(p, work)
+            n_ctrl = len(CONTROL.findall(src))
+            if not n_ctrl:
+                continue          # nothing interactive -- not a control surface at all
+            rows.append({
+                "file": rel,
+                "controls": n_ctrl,
+                "mutating_calls": len(MUTATE.findall(src)),
+                "read_calls": len(READ.findall(src)),
+                "nav_only_hints": len(NAV_ONLY.findall(src)),
+            })
+    return rows
+
+
+def dead(rows):
+    """Controls present, READS present, but NOTHING mutating: it can show you the state and
+    cannot change it. Excludes nav-only surfaces (a link is a control that legitimately
+    calls no endpoint)."""
+    out = []
+    for r in rows:
+        if r["mutating_calls"]:
+            continue                      # it mutates -- not dead
+        if not r["controls"]:
+            continue
+        # A RATIO of counts is the wrong shape: `controls` counts JSX attributes and
+        # `nav_only_hints` counts call expressions, so they never line up and the
+        # threshold is pure tuning. The honest signal is BINARY -- if EVERY control on
+        # the surface resolves to navigation or a local useState setter, it is read-only
+        # BY DESIGN; a surface is only suspicious if it has a control that does NEITHER
+        # and still posts nothing. Verified against the live tree: Activity/Home/Budget
+        # are filters and toggles (setQuery, setPickerOpen, setEditMode, setSiteId).
+        if r["nav_only_hints"] > 0:
+            continue
+        out.append(r)
+    return sorted(out, key=lambda r: -r["controls"])
+
+
+def selftest():
+    ok = True
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        d = os.path.join(td, "frontend", "src", "routes")
+        os.makedirs(d)
+        # a DEAD surface: renders state + has controls, issues no mutating call
+        open(os.path.join(d, "Dead.tsx"), "w").write(
+            'const q = useQuery(); <Switch onChange={x} /> <button onClick={y}>Go</button>')
+        # a LIVE surface
+        open(os.path.join(d, "Live.tsx"), "w").write(
+            'apiPost("/api/x", {}); <button onClick={z}>Save</button>')
+        # a NAV-only surface: controls that legitimately reach no endpoint
+        open(os.path.join(d, "Nav.tsx"), "w").write(
+            'const n = useNavigate(); <button onClick={() => navigate("/x")}>Go</button>')
+
+        rows = scan(td)
+        names = {os.path.basename(r["file"]) for r in dead(rows)}
+        p1 = "Dead.tsx" in names
+        print(("%sPASS%s" if p1 else "%sFAIL%s") % ((G, RST) if p1 else (R, RST)) +
+              "  POS: a surface with controls + reads but NO mutating call is flagged")
+        ok &= p1
+
+        n1 = "Live.tsx" not in names
+        print(("%sPASS%s" if n1 else "%sFAIL%s") % ((G, RST) if n1 else (R, RST)) +
+              "  NEG: a surface that posts is NOT flagged")
+        ok &= n1
+
+        n2 = "Nav.tsx" not in names
+        print(("%sPASS%s" if n2 else "%sFAIL%s") % ((G, RST) if n2 else (R, RST)) +
+              "  NEG: a NAV-only control legitimately reaches no endpoint")
+        ok &= n2
+
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="bd-fe-dead-control")
+    ap.add_argument("--work", "--tree", dest="work", default=WORK)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--all", action="store_true", help="show every control surface")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+
+    rows = scan(a.work)
+    d = dead(rows)
+    if a.json:
+        print(json.dumps({"surfaces": rows, "read_only_or_dead": d}, indent=2,
+                         sort_keys=True))
+        return 0
+
+    print("%s== bd-fe-dead-control :: %d control surfaces ==%s" % (BOLD, len(rows), RST))
+    if a.all:
+        for r in sorted(rows, key=lambda r: r["file"]):
+            mark = (G + "live" + RST) if r["mutating_calls"] else (Y + "read-only" + RST)
+            print("  %-46s ctrl=%-3d post=%-3d get=%-3d  %s"
+                  % (r["file"], r["controls"], r["mutating_calls"], r["read_calls"], mark))
+        print()
+    if not d:
+        print("  %severy control surface reaches a mutating endpoint%s" % (G, RST))
+        return 0
+    print("  %s%d surface(s) with CONTROLS but NO mutating call%s -- they can SHOW you the "
+          "state and cannot CHANGE it. Read-only by design, or a dead control? A human "
+          "decides; the tool refuses to stay silent:" % (Y, len(d), RST))
+    for r in d:
+        print("    %-46s controls=%-3d reads=%d" % (r["file"], r["controls"], r["read_calls"]))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

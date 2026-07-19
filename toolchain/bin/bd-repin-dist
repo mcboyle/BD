@@ -1,0 +1,269 @@
+#!/usr/bin/env python3
+"""bd-repin-dist -- pin the reproducible frontend dist and rebuild the release zip.
+
+WHY (v3.66.541 footgun, root cause undiagnosed): the sandbox `vite build` stopped
+reproducing the canonical frontend bundle content-hashes that ship in the release
+zip. A BACKEND-ONLY cut's vite step produces a diverged-but-internally-consistent
+dist (e.g. vendor +36 bytes, all chunk hashes rotated), so bd-cut's change surface
+shows +28/-28 frontend churn instead of +1/-0. `verify_release` does NOT catch this
+(it checks zip==tree, not reproducibility) but it would risk an on-stash
+frontend-determinism check. Cache-clear does NOT fix it; it persists across builds.
+
+WHAT: run this AFTER `bd-cut` (bd-cut's bump/band/python-gates stay valid -- the
+python is byte-identical). It restores frontend/dist from the PRIOR release zip
+(the reproducible dist the deploy target rebuilds anyway), then rebuilds the release
+via `build_release` (whose SPA prebuild is OFF by default, so it ships the restored
+dist) and re-verifies. Result: FRONTEND REGRESSION 0, change surface +1/-0.
+
+USAGE (wrap in `bd` for the env):
+    bd python3 bd-repin-dist --prev /home/claude/out/BulkDownloader_v3_66_<PREV>.zip
+        [--work /home/claude/work] [--out /home/claude/out]
+
+The NEW version is read from <work>/bulk_downloader/__init__.py (bd-cut already
+bumped it). Exit 0 = repinned dist + build_release OK + verify_release --zip PASS
+(gated on TRUE $?); non-zero = a gate failed (nothing trusted).
+"""
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+import zipfile
+
+R, G, Y, RST = "\033[31m", "\033[32m", "\033[33m", "\033[0m"
+
+
+def die(msg):
+    print(f"{R}ABORT{RST} {msg}")
+    sys.exit(1)
+
+
+# --- R2 (mirror residual, @808): cleanup denominator DERIVED, not re-typed -------
+# The authority for "this must never ship" is the tree's manifest-exclusion canon
+# (bulk_downloader/dev_suite/release_lint.py). This tool used to re-type a 5-name
+# subset + *.db globs, so every canon addition since -- video_hashes.db (781),
+# .premigration.bak (783), plugins/.plugin_state.json (798) -- was invisible here.
+# Wrong in the SAFE direction (build_release's manifest gate makes leftovers noise,
+# not a dirty zip), which is precisely why it drifted unnoticed for 20+ versions.
+_FALLBACK_NAMES = {"downloader_history.db", "app_config.json", ".fts_optimize_last",
+                   ".integrity_check_last", ".integrity_last_run"}
+_FALLBACK_SUFFIXES = (".db", ".db-wal", ".db-shm")
+
+
+def cleanup_canon(work):
+    """(names, paths, suffixes, source). source='tree' when the sets are read from
+    the work tree's release_lint, 'fallback' when they could not be -- and the
+    caller PRINTS which, because a silent fallback is how the mirror drifted.
+
+    Read by AST, not import: release_lint uses package-relative imports, so
+    loading it standalone fails (measured -- the first cut of this fix fell back
+    silently and the control caught it), and executing app code to learn a
+    constant is a side-effect this tool has no business causing.
+    """
+    try:
+        import ast as _ast
+        p = os.path.join(work, "bulk_downloader", "dev_suite", "release_lint.py")
+        with open(p, "r", encoding="utf-8") as fh:
+            tree = _ast.parse(fh.read())
+        want = {"_MANIFEST_EXCLUDE_NAMES": None, "_MANIFEST_EXCLUDE_PATHS": None,
+                "_MANIFEST_EXCLUDE_SUFFIXES": None}
+        for node in tree.body:
+            if isinstance(node, _ast.Assign) and len(node.targets) == 1 \
+                    and isinstance(node.targets[0], _ast.Name) \
+                    and node.targets[0].id in want:
+                try:
+                    want[node.targets[0].id] = _ast.literal_eval(node.value)
+                except Exception:  # why: a non-literal (computed) canon cannot be
+                    # read statically; leave None -> fallback, announced.
+                    pass
+        names, paths, sufs = (want["_MANIFEST_EXCLUDE_NAMES"],
+                              want["_MANIFEST_EXCLUDE_PATHS"],
+                              want["_MANIFEST_EXCLUDE_SUFFIXES"])
+        if names and sufs:
+            return set(names), set(paths or ()), tuple(sufs), "tree"
+    except Exception:  # why: absent/unparseable tree must not abort the repin --
+        # but it must SAY it is running on the stale literals.
+        pass
+    return set(_FALLBACK_NAMES), set(), tuple(_FALLBACK_SUFFIXES), "fallback"
+
+
+def clean_runtime_artifacts(root, work):
+    """Remove canon-excluded runtime droplets from ROOT (top level + declared
+    relative paths). Deliberately NARROWER than the canon on two suffixes:
+    '.zip' (build OUTPUT -- deleting it would destroy the artifact being built)
+    and '.pyc'/'.pyo'/'.log' (handled by __pycache__/logs removal). Stated, not
+    silent: a cleanup that eats the tree is worse than one that misses a droplet.
+    Returns (removed_count, source)."""
+    names, paths, sufs, source = cleanup_canon(work)
+    risky = {".zip", ".pyc", ".pyo", ".log"}
+    sufs = tuple(s for s in sufs if s not in risky)
+    removed = 0
+    for rel in sorted(paths):
+        try:
+            os.remove(os.path.join(root, rel)); removed += 1
+        except OSError:
+            pass
+    try:
+        entries = os.listdir(root)
+    except OSError:
+        entries = []
+    for name in entries:
+        full = os.path.join(root, name)
+        if not os.path.isfile(full):
+            continue
+        if name in names or name.endswith(sufs):
+            try:
+                os.remove(full); removed += 1
+            except OSError:
+                pass
+    shutil.rmtree(os.path.join(root, "logs"), ignore_errors=True)
+    return removed, source
+
+
+def run(cmd, cwd=None):
+    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+
+
+def selftest():
+    """The BUILD path genuinely needs network (pip) and stays untested -- honest
+    absence. The CLEANUP DENOMINATOR does not, and the old blanket SKIP claimed
+    otherwise while printing SELFTEST PASS: a test that could exist but claims it
+    cannot is the gate that cannot see (the @756 bd-kb-sync shape)."""
+    import tempfile as _tf
+    ok = True
+
+    # R2 (mirror): the cleanup set must be DERIVED from the tree's manifest-exclusion
+    # canon (dev_suite.release_lint), not re-typed here. A re-typed subset is wrong in
+    # the SAFE direction -- build_release's manifest gate turns the leftovers into
+    # noise rather than a dirty zip -- which is exactly why it can drift for versions
+    # unnoticed. Canon adds land at 781 (video_hashes.db), 783 (.premigration.bak),
+    # 798 (plugins/.plugin_state.json); a literal list here saw none of them.
+    names, paths, sufs, source = cleanup_canon("/home/claude/work")
+    c1 = (source == "tree" and "video_hashes.db" in names
+          and "plugins/.plugin_state.json" in paths
+          and ".premigration.bak" in sufs)
+    print(("PASS" if c1 else "FAIL") +
+          "  CLEANUP-DERIVED: exclusion canon read from the tree "
+          "(source=%s, %d names/%d paths/%d suffixes)"
+          % (source, len(names), len(paths), len(sufs)))
+    ok = ok and c1
+
+    # POS: the artifacts the canon names are actually REMOVED from a fixture root.
+    with _tf.TemporaryDirectory() as td:
+        for rel in ("downloader_history.db", "video_hashes.db", "secrets.json",
+                    "app_config.json", "sites_config.json",
+                    "downloader_history.db.premigration.bak",
+                    "plugins/.plugin_state.json"):
+            p = os.path.join(td, rel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            open(p, "w").write("x")
+        keep = os.path.join(td, "bulk_downloader")
+        os.makedirs(keep)
+        open(os.path.join(keep, "__init__.py"), "w").write("__version__='x'")
+        open(os.path.join(td, "KEEPME.zip"), "w").write("build output")
+        clean_runtime_artifacts(td, "/home/claude/work")
+        left = [r for r in ("downloader_history.db", "video_hashes.db", "secrets.json",
+                            "app_config.json", "sites_config.json",
+                            "downloader_history.db.premigration.bak",
+                            "plugins/.plugin_state.json")
+                if os.path.exists(os.path.join(td, r))]
+        c2 = not left
+        print(("PASS" if c2 else "FAIL") +
+              "  CLEANUP-REMOVES: canon-listed artifacts gone (left: %s)" % (left or "none"))
+        ok = ok and c2
+
+        # NEG: source and build output must SURVIVE -- a cleanup that eats the tree
+        # is worse than one that misses a droplet.
+        c3 = (os.path.exists(os.path.join(keep, "__init__.py"))
+              and os.path.exists(os.path.join(td, "KEEPME.zip")))
+        print(("PASS" if c3 else "FAIL") +
+              "  CLEANUP-SPARES: source tree + .zip build output untouched")
+        ok = ok and c3
+
+    print("SKIP: build/verify path needs pip network access (untested here)")
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main(argv=None):
+    import sys as _s
+    if "--selftest" in _s.argv: return selftest()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--prev", required=True,
+                    help="the PRIOR release zip (baseline; source of the reproducible dist)")
+    ap.add_argument("--work","--tree", default="/home/claude/work")
+    ap.add_argument("--out", default="/home/claude/out")
+    a = ap.parse_args(argv)
+
+    if not os.path.isfile(a.prev):
+        die(f"--prev zip not found: {a.prev}")
+    initpy = os.path.join(a.work, "bulk_downloader", "__init__.py")
+    if not os.path.isfile(initpy):
+        die(f"no {initpy} (is --work the tree?)")
+    m = re.search(r'__version__ *= *"([0-9.]+)"', open(initpy).read())
+    if not m:
+        die("could not read __version__ from the work tree")
+    ver = m.group(1)
+    new_zip = os.path.join(a.out, f"BulkDownloader_v3_66_{ver.split('.')[-1]}.zip")
+    print(f"  repin target: v{ver}  baseline: {os.path.basename(a.prev)}")
+
+    # sanity: the prev zip must actually carry a frontend/dist
+    with zipfile.ZipFile(a.prev) as z:
+        if not any(n.startswith("frontend/dist/") for n in z.namelist()):
+            die(f"--prev {a.prev} has no frontend/dist/ to restore from")
+
+    # 1) restore the reproducible dist from the prior release zip
+    dist = os.path.join(a.work, "frontend", "dist")
+    shutil.rmtree(dist, ignore_errors=True)
+    r = run(["unzip", "-o", a.prev, "frontend/dist/*", "-d", a.work])
+    if r.returncode != 0:
+        die("unzip of frontend/dist from --prev failed:\n" + r.stderr[-500:])
+    if not os.path.isdir(dist):
+        die("frontend/dist not present after restore")
+    print(f"  {G}restored{RST} frontend/dist from {os.path.basename(a.prev)}")
+
+    # 2) clean runtime artifacts a test/app boot may have dropped (they trip the
+    #    diff-gate). Denominator DERIVED from the tree's exclusion canon (R2 @808).
+    _removed, _src = clean_runtime_artifacts(a.work, a.work)
+    print(f"  cleaned {_removed} runtime artifact(s) "
+          f"[exclusion canon: {_src}]")
+    if _src != "tree":
+        print(f"  {Y}WARNING{RST} could not read the tree's manifest-exclusion canon "
+              "-- cleaning on STALE built-in literals; canon additions are invisible.")
+
+    # 3) build_release ships the restored dist (SPA prebuild OFF by default)
+    print(f"  building release (--skip-tests --baseline {os.path.basename(a.prev)}) ...")
+    r = run([sys.executable, "tools/build_release.py", "--skip-tests",
+             "--baseline", a.prev, "--out", a.out], cwd=a.work)
+    print(r.stdout[-1400:])
+    if r.returncode != 0:
+        die("build_release failed:\n" + r.stderr[-800:])
+    # confirm the frontend regression is clean
+    fr = re.search(r"FRONTEND REGRESSION COMPARE.*?missing=(\d+) changed=(\d+) added=(\d+)",
+                   r.stdout, re.S)
+    if fr and (fr.group(1), fr.group(2), fr.group(3)) != ("0", "0", "0"):
+        die(f"frontend still regresses vs baseline (missing/changed/added="
+            f"{fr.group(1)}/{fr.group(2)}/{fr.group(3)}) -- dist restore did not take")
+    print(f"  {G}FRONTEND REGRESSION 0{RST} (reproducible dist pinned)")
+
+    if not os.path.isfile(new_zip):
+        die(f"expected zip not written: {new_zip}")
+
+    # 4) verify_release --zip, gate on TRUE $? (never a piped tail)
+    print("  verify_release --zip ...")
+    r = run([sys.executable, "tools/verify_release.py", "--zip", new_zip], cwd=a.work)
+    ok = r.returncode == 0
+    tail = "\n".join(l for l in r.stdout.splitlines()
+                     if re.search(r"RESULT|PASS|FAIL|zip matches|version", l))
+    print(tail)
+    if not ok:
+        die("verify_release --zip FAILED (exit != 0)")
+
+    print(f"\n{G}bd-repin-dist complete{RST} -> {new_zip}")
+    print(f"{Y}present_files it; deploy is a separate human gate.{RST}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

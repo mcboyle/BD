@@ -1,0 +1,61 @@
+{
+  "manifest_version": 3,
+  "name": "Bulk Downloader",
+  "version": "1.3.0",
+  "description": "Send URLs to your Bulk Downloader instance. Optional: autofill saved passwords from the vault on any website. Live status badge shows download/queue/block state for the current tab.",
+  "_comment_permissions": "activeTab + scripting: lets the popup's actions run a content script on the page the user clicked. storage: persists the server URL + URL-queue token + vault token. contextMenus: right-click integration. tabs: read open tabs for the 'send all tabs' batch action. notifications: surface routing decisions from the keyboard shortcut path.",
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "storage",
+    "scripting",
+    "tabs",
+    "notifications"
+  ],
+  "_comment_host_permissions": "<all_urls> is needed for both: (a) cross-origin fetch to the Bulk Downloader server (any host), (b) the autofill content script to detect login forms on websites you visit. Narrow this in your install if you only want the URL-queue features.",
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html",
+  "_comment_content_scripts": "Autofill: injects autofill.js on every page to detect login forms and offer a 'Sign in with BulkDownloader' suggestion when a vault entry matches. Runs at document_idle so the page's own scripts have a chance to mount their forms first. The content script ONLY asks the background script for entry metadata; the actual password never enters content script context.",
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "autofill.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "_comment_commands": "v1.2.0: keyboard shortcuts. Users can rebind via chrome://extensions/shortcuts.",
+  "commands": {
+    "send-current-page": {
+      "suggested_key": {
+        "default": "Alt+Shift+B",
+        "mac": "Alt+Shift+B"
+      },
+      "description": "Send current page URL to Bulk Downloader"
+    },
+    "send-all-tabs": {
+      "suggested_key": {
+        "default": "Alt+Shift+T",
+        "mac": "Alt+Shift+T"
+      },
+      "description": "Send all tabs in current window to Bulk Downloader"
+    }
+  }
+}

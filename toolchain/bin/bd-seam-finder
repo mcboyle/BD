@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+"""bd-seam-finder -- find low-risk extraction seams in a large module.
+
+AST-analyzes a module (default app.py) and ranks its top-level functions by
+extraction risk: a function is LOW-RISK to extract if it's a pure helper (no
+global writes, few cross-refs to module state, self-contained imports) and
+HIGH-RISK if it touches many module globals or is a route with shared state. The
+low-risk seams are where a decomposition should start. Read-only.
+
+Usage: bd-seam-finder [--module bulk_downloader/app.py] [--work DIR] [--json] [--selftest]
+Exit 0 seams reported / 1 module not found (usage guard). Informational.
+"""
+import argparse, ast, os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+
+def analyze(path):
+    src=open(path,errors="ignore").read()
+    tree=ast.parse(src)
+    module_globals=set()
+    for node in tree.body:
+        if isinstance(node,ast.Assign):
+            for t in node.targets:
+                if isinstance(t,ast.Name): module_globals.add(t.id)
+    funcs=[]
+    for node in tree.body:
+        if not isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)): continue
+        is_route=any(isinstance(d,ast.Call) and "route" in ast.dump(d) or
+                     (isinstance(d,ast.Attribute) and d.attr in ("route","get","post")) or
+                     (isinstance(d,ast.Call) and getattr(getattr(d.func,"attr",None),"__eq__",lambda x:False)) for d in node.decorator_list)
+        route=any("route" in ast.dump(d) for d in node.decorator_list)
+        glob_writes=0; glob_reads=0; calls=0
+        for n in ast.walk(node):
+            if isinstance(n,ast.Global): glob_writes+=len(n.names)
+            if isinstance(n,ast.Name) and n.id in module_globals:
+                if isinstance(n.ctx,ast.Store): glob_writes+=1
+                else: glob_reads+=1
+            if isinstance(n,ast.Call): calls+=1
+        size=(getattr(node,"end_lineno",node.lineno)-node.lineno)
+        risk=glob_writes*3 + glob_reads + (5 if route else 0)
+        tier="LOW" if risk<=2 else ("MEDIUM" if risk<=8 else "HIGH")
+        funcs.append({"func":node.name,"line":node.lineno,"size":size,"route":route,
+                      "global_writes":glob_writes,"global_reads":glob_reads,"risk":risk,"tier":tier})
+    funcs.sort(key=lambda f:(f["risk"],-f["size"]))
+    return funcs
+
+def selftest():
+    ok=True
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        p=os.path.join(d,"m.py")
+        open(p,"w").write("GLOBAL_STATE={}\n"
+                          "def pure_helper(x):\n    return x*2\n"
+                          "def dirty():\n    global GLOBAL_STATE\n    GLOBAL_STATE['a']=1\n    return GLOBAL_STATE\n")
+        funcs=analyze(p)
+    byname={f["func"]:f for f in funcs}
+    good=byname["pure_helper"]["tier"]=="LOW" and byname["dirty"]["tier"] in ("MEDIUM","HIGH")
+    print(("PASS" if good else "FAIL")+"  pure helper LOW, global-writer higher (%s)"%{k:v["tier"] for k,v in byname.items()})
+    ok=ok and good
+    real=analyze(os.path.join(sec.DEFAULT_WORK,"bulk_downloader","app.py"))
+    print(("PASS" if len(real)>0 else "FAIL")+"  app.py analyzed (%d functions)"%len(real))
+    ok=ok and len(real)>0
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--module",default="bulk_downloader/app.py"); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    sec.require_source_tree(a.work)
+    path=os.path.join(a.work,a.module)
+    if not os.path.exists(path): print(R+"module not found: "+path+RST); return 1
+    funcs=analyze(path)
+    low=[f for f in funcs if f["tier"]=="LOW"]
+    if sec.emit({"functions":funcs,"summary":{"total":len(funcs),"low_risk_seams":len(low)}},as_json=a.json): return 0
+    print("%s: %d functions, %d LOW-RISK extraction seams:"%(a.module,len(funcs),len(low)))
+    for f in low[:30]:
+        print("  %sLOW%s  %s (L%d, %d lines, gr=%d gw=%d)"%(G,RST,f["func"],f["line"],f["size"],f["global_reads"],f["global_writes"]))
+    return 0
+if __name__ == "__main__":
+    sys.exit(main())

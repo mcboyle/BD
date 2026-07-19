@@ -1,0 +1,62 @@
+"""bulk_downloader.learn -- thin re-export shim over learn_impl/.
+
+Decomposed @v3.66.453 (DECOMP-LEAF cut 5). ADD-only (R1 shim-over-rm). Re-exports the
+COMPLETE surface explicitly (no `import *`) so `from .learn import RECORDER_JS`,
+`from .learn import merge_learned/harvest_recordings/...`, and `import learn as _learn`
+all resolve byte-for-byte."""
+
+from .learn_impl import (  # noqa: F401
+    RECORDER_JS,
+    TEACH_OVERLAY_JS,
+    _CSS_IN_JS_RE,
+    _CSS_SAFE_RE,
+    _DD_MAX_PENDING,
+    _DD_MAX_PROVIDERS,
+    _DD_MAX_TOP_TYPES,
+    _DL_URL_ATTRS,
+    _DL_URL_EXT_RE,
+    _NON_TEXT_INPUT_TYPES,
+    _STABLE_CLASS_KW,
+    _SUBMIT_TEXT_KW,
+    _css_escape_attr_value,
+    _css_escape_ident,
+    _dd_init_block,
+    _dd_now_iso,
+    _dd_prune_dict,
+    _is_submit_shaped,
+    _looks_hashed,
+    _pending_why,
+    _synthesize_download_row_selector,
+    _which_url_attr,
+    classify_download,
+    classify_login,
+    deep_detect_site_memory,
+    harvest_recordings,
+    install_recorder,
+    install_teach_overlay,
+    make_provider_cache_writer,
+    merge_learned,
+    pending_approvals,
+    record_auto_submit_decision,
+    record_deep_detect_outcome,
+    record_pending_approvals,
+    record_post_reveal_decision,
+    synthesize_selectors,
+)
+
+__all__ = [
+    "install_recorder",
+    "install_teach_overlay",
+    "harvest_recordings",
+    "synthesize_selectors",
+    "classify_login",
+    "classify_download",
+    "merge_learned",
+    "record_deep_detect_outcome",
+    "deep_detect_site_memory",
+    "record_post_reveal_decision",
+    "record_auto_submit_decision",
+    "record_pending_approvals",
+    "pending_approvals",
+    "make_provider_cache_writer",
+]

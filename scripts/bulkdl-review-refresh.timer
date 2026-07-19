@@ -1,0 +1,11 @@
+[Unit]
+Description=BulkDownloader: daily review-candidate refresh
+Documentation=file:/home/mboyle/BulkDownloader/tools/bulk_review_captures.py
+
+[Timer]
+OnCalendar=*-*-* 04:30:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

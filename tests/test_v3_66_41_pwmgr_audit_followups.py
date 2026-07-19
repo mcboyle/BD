@@ -1,0 +1,118 @@
+"""Security pinning tests — pwmgr/vault audit follow-ups, v3.66.41.
+
+Source-audit findings in the same defect families as the LIVE bundle:
+  AF1 — non-constant-time auth-token comparison (app.py).
+  AF2 — malformed secrets.json silently wiped (secrets_store).
+  AF3 — _save_tokens swallowed failures → phantom revocation (extension_vault).
+  AF4 — malformed vault_tokens.json silently wiped (extension_vault).
+"""
+import json
+import os
+import tempfile
+from contextlib import contextmanager
+from pathlib import Path
+
+import pytest
+
+from bulk_downloader import extension_vault as ev
+from bulk_downloader import secrets_store as ss
+
+
+# ── AF1: constant-time auth-token comparison ────────────────────────
+class TestAF1ConstantTime:
+    def test_token_eq_matches_and_rejects(self):
+        from bulk_downloader import app as A
+        assert A._token_eq("abc123", "abc123") is True
+        assert A._token_eq("abc123", "abc124") is False
+        assert A._token_eq("", "x") is False
+
+    def test_token_eq_non_ascii_is_false_not_raise(self):
+        from bulk_downloader import app as A
+        # compare_digest rejects non-ASCII str; helper must not raise.
+        assert A._token_eq("p\u00e1ss", "pass") is False
+
+    def test_uses_compare_digest_not_bare_eq(self):
+        # Pin the fix at the source level: the auth gate must not compare
+        # the token with a bare ==.
+        import inspect
+        from bulk_downloader import app as A
+        src = inspect.getsource(A._check_token)
+        assert "_token_eq(" in src
+        assert "== tok" not in src
+
+    def test_gate_rejects_wrong_bearer_accepts_right(self, monkeypatch):
+        from bulk_downloader import app as A
+        monkeypatch.setenv("BD_AUTH_TOKEN", "right-secret")
+        with tempfile.TemporaryDirectory() as td:
+            cwd = os.getcwd(); os.chdir(td)
+            try:
+                Path(td, "screenshots").mkdir(exist_ok=True)
+                c = A.app.test_client()
+                # /api/status is gated (not in the unauth allowlist).
+                bad = c.get("/api/status",
+                            headers={"Authorization": "Bearer wrong-secret"})
+                good = c.get("/api/status",
+                             headers={"Authorization": "Bearer right-secret"})
+                assert bad.status_code == 401
+                assert good.status_code != 401
+            finally:
+                os.chdir(cwd)
+
+
+# ── AF2: malformed secrets.json backed up, never wiped ──────────────
+class TestAF2SecretsBackup:
+    def test_malformed_file_is_backed_up(self, monkeypatch, tmp_path):
+        if not ss._CRYPTO_AVAILABLE:
+            pytest.skip("cryptography not available")
+        f = tmp_path / "secrets.json"
+        f.write_text("{not valid json", encoding="utf-8")
+        monkeypatch.setattr(ss, "SECRETS_FILE", f)
+        b = ss.MasterPasswordBackend()              # triggers _load_or_init
+        backups = list(tmp_path.glob("secrets.json.corrupt-*"))
+        assert backups, "malformed secrets.json must be preserved, not wiped"
+        # Original content survived in the backup.
+        assert backups[0].read_text(encoding="utf-8") == "{not valid json"
+        # Backend came up fresh/empty (no crash, no silent reuse).
+        assert b._data.get("ciphertexts") == {}
+
+
+# ── AF3: revocation must persist or report failure ──────────────────
+class TestAF3RevokePersistence:
+    def _setup(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(ev, "VAULT_TOKENS_FILE", tmp_path / "vault_tokens.json")
+        pt = ev.issue_pairing_token()
+        return ev.redeem_pairing_token(pt, "ext")
+
+    def test_save_tokens_returns_bool(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(ev, "VAULT_TOKENS_FILE", tmp_path / "vault_tokens.json")
+        assert ev._save_tokens({"pairing": {}, "redeemed": {}}) is True
+
+    def test_revoke_reports_failure_when_save_fails(self, monkeypatch, tmp_path):
+        vt = self._setup(monkeypatch, tmp_path)
+        assert vt and ev.validate_vault_token(vt) is not None
+        monkeypatch.setattr(ev, "_save_tokens", lambda data: False)
+        # Revocation can't persist → must report False, not phantom success.
+        assert ev.revoke_vault_token(vt) is False
+
+    def test_revoke_by_prefix_reports_failure_when_save_fails(self, monkeypatch, tmp_path):
+        vt = self._setup(monkeypatch, tmp_path)
+        monkeypatch.setattr(ev, "_save_tokens", lambda data: False)
+        assert ev.revoke_by_prefix(vt[:8]) is False
+
+    def test_revoke_succeeds_normally(self, monkeypatch, tmp_path):
+        vt = self._setup(monkeypatch, tmp_path)
+        assert ev.revoke_vault_token(vt) is True
+        assert ev.validate_vault_token(vt) is None
+
+
+# ── AF4: malformed vault_tokens.json backed up, never wiped ─────────
+class TestAF4VaultTokensBackup:
+    def test_malformed_file_is_backed_up(self, monkeypatch, tmp_path):
+        f = tmp_path / "vault_tokens.json"
+        f.write_text("totally not json", encoding="utf-8")
+        monkeypatch.setattr(ev, "VAULT_TOKENS_FILE", f)
+        data = ev._load_tokens()
+        backups = list(tmp_path.glob("vault_tokens.json.corrupt-*"))
+        assert backups, "malformed vault_tokens.json must be preserved"
+        assert backups[0].read_text(encoding="utf-8") == "totally not json"
+        assert data == {"pairing": {}, "redeemed": {}}

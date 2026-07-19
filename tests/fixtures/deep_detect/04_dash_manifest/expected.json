@@ -1,0 +1,170 @@
+{
+  "best_login": null,
+  "blockers": {},
+  "buckets": {
+    "accepted": [
+      {
+        "bandwidth": 8000000,
+        "ceiling_reasons": [],
+        "codec": null,
+        "confidence": 0.7,
+        "confidence_ceiling": 1.0,
+        "dash_representation_id": "v1080",
+        "found_in": "dash_mpd",
+        "fps": null,
+        "reasons": [
+          "DASH Representation id=v1080 @ 8000000 bps"
+        ],
+        "requires_click": false,
+        "resolution": {
+          "height": 1080,
+          "label": "1080p",
+          "rank": 1080,
+          "width": 1920
+        },
+        "score": 100,
+        "size_bytes": null,
+        "source_type": "dash_manifest",
+        "url": null,
+        "warnings": []
+      },
+      {
+        "bandwidth": 2000000,
+        "ceiling_reasons": [],
+        "codec": null,
+        "confidence": 0.67,
+        "confidence_ceiling": 1.0,
+        "dash_representation_id": "v720",
+        "found_in": "dash_mpd",
+        "fps": null,
+        "reasons": [
+          "DASH Representation id=v720 @ 2000000 bps"
+        ],
+        "requires_click": false,
+        "resolution": {
+          "height": 720,
+          "label": "720p",
+          "rank": 720,
+          "width": 1280
+        },
+        "score": 97,
+        "size_bytes": null,
+        "source_type": "dash_manifest",
+        "url": null,
+        "warnings": []
+      }
+    ],
+    "best": {
+      "bandwidth": 8000000,
+      "ceiling_reasons": [],
+      "codec": null,
+      "confidence": 0.7,
+      "confidence_ceiling": 1.0,
+      "dash_representation_id": "v1080",
+      "found_in": "dash_mpd",
+      "fps": null,
+      "reasons": [
+        "DASH Representation id=v1080 @ 8000000 bps"
+      ],
+      "requires_click": false,
+      "resolution": {
+        "height": 1080,
+        "label": "1080p",
+        "rank": 1080,
+        "width": 1920
+      },
+      "score": 100,
+      "size_bytes": null,
+      "source_type": "dash_manifest",
+      "url": null,
+      "warnings": []
+    },
+    "counts": {
+      "accepted": 2,
+      "rejected": 0,
+      "warnings": 0
+    },
+    "rejected": [],
+    "rejected_raw": [],
+    "warnings": []
+  },
+  "csp": null,
+  "disclaimers": [],
+  "login_candidates": [],
+  "manifests": {
+    "dash": {
+      "audio": [
+        {
+          "bandwidth": 128000,
+          "channels": null,
+          "codecs": "mp4a.40.2",
+          "id": "a_en",
+          "lang": "en",
+          "mime": "audio/mp4",
+          "period": 1
+        }
+      ],
+      "drm_category": "none",
+      "drm_or_encryption_detected": false,
+      "drm_system": null,
+      "kind": "dash_mpd",
+      "low_latency": false,
+      "subtitles": [
+        {
+          "bandwidth": 500,
+          "channels": null,
+          "codecs": null,
+          "id": "s_en",
+          "lang": "en",
+          "mime": "text/vtt",
+          "period": 1
+        }
+      ],
+      "video": [
+        {
+          "bandwidth": 8000000,
+          "channels": null,
+          "codecs": "avc1.640028",
+          "height": 1080,
+          "id": "v1080",
+          "lang": null,
+          "mime": "video/mp4",
+          "period": 1,
+          "resolution": {
+            "height": 1080,
+            "label": "1080p",
+            "rank": 1080,
+            "width": 1920
+          },
+          "width": 1920
+        },
+        {
+          "bandwidth": 2000000,
+          "channels": null,
+          "codecs": "avc1.640028",
+          "height": 720,
+          "id": "v720",
+          "lang": null,
+          "mime": "video/mp4",
+          "period": 1,
+          "resolution": {
+            "height": 720,
+            "label": "720p",
+            "rank": 720,
+            "width": 1280
+          },
+          "width": 1280
+        }
+      ],
+      "warnings": []
+    },
+    "hls": null,
+    "smooth": null
+  },
+  "provider_embeds": [],
+  "provider_resolutions": [],
+  "source_breakdown": {
+    "dash_manifest": 2
+  },
+  "workflow_required": null
+}

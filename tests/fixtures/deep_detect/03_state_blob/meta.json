@@ -1,0 +1,4 @@
+{
+  "description": "Next.js-style hydration data: __NEXT_DATA__ script tag carrying a video source object with hls/mp4/subtitles. Tests the state-blob walker and key-based URL extraction.",
+  "base_url": "https://example.test/watch/abc123"
+}

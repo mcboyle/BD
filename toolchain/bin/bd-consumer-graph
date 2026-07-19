@@ -1,0 +1,376 @@
+#!/usr/bin/env python3
+"""bd-consumer-graph -- reverse index: what NAMES this thing?
+
+WHEN: before deleting anything; when deriving a band (which tests consume this
+module?); when asking which tools are dead. This is the primitive the toolchain kept
+re-deriving by hand -- `grep -rl <module> tests/` on every cut after the 712 stash
+RED -- and the one bd-band-derive is missing (it has stem-glob, curated map, and
+count-coupling; none of them is "tests that import or name the changed module").
+
+    bd-consumer-graph <name>              # who names this? grouped by kind
+    bd-consumer-graph --module X          # BAND view: test files that import/name X
+    bd-consumer-graph --dead-tools        # bin/ tools nothing references (deadness)
+    bd-consumer-graph <name> --json
+
+DEADNESS, honestly framed: this is a STATIC reverse-reference, not a usage record.
+`bd-tool-usage` (proposal #50) would answer "which tools were RUN" -- but no
+invocation log has ever existed and the sandbox fs resets between sessions, so that
+question has NO data and cannot be answered retroactively. This answers the
+constructible neighbour: "which tools are named by no other tool, no doc, no test."
+A tool that nothing references is not PROVEN dead -- an operator may run it by hand --
+so this reports CANDIDATES and says so. It never claims a tool is dead.
+
+Exit: 0 ok | 2 the tool broke | 3 nothing found for the query (an empty answer is a
+FINDING, not a pass -- callers must be able to tell "no consumers" from "did not look").
+"""
+import argparse
+import json
+import os
+import re
+import sys
+
+G, R, Y, C, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[36m", "\033[2m", "\033[0m"
+
+WORK = os.environ.get("BD_WORK", "/home/claude/work")
+BIN = os.environ.get("BD_BIN", "/home/claude/bin")
+PK = "/home/claude/pk"
+
+# kind -> (roots, extensions)
+CORPUS = {
+    "test":   ([("tests",)], (".py",)),
+    "module": ([("bulk_downloader",)], (".py",)),
+    "script": ([("tools",)], (".py",)),
+    "fe":     ([("frontend", "src")], (".ts", ".tsx", ".js", ".jsx")),
+    "doc":    ([()], (".md",)),          # root-level md only (not recursive junk)
+}
+_PRUNE = {"__pycache__", "node_modules", "venv", ".venv", "dist", "build", ".git"}
+
+
+def _walk(root, exts, recursive=True):
+    if not os.path.isdir(root):
+        return
+    if not recursive:
+        for fn in sorted(os.listdir(root)):
+            if fn.endswith(exts) and os.path.isfile(os.path.join(root, fn)):
+                yield os.path.join(root, fn)
+        return
+    for dp, dn, fns in os.walk(root):
+        dn[:] = [d for d in dn if d not in _PRUNE]
+        for fn in sorted(fns):
+            if fn.endswith(exts):
+                yield os.path.join(dp, fn)
+
+
+def _files_by_kind():
+    out = {}
+    for kind, (roots, exts) in CORPUS.items():
+        paths = []
+        for parts in roots:
+            root = os.path.join(WORK, *parts) if parts else WORK
+            paths.extend(_walk(root, exts, recursive=bool(parts)))
+        out[kind] = paths
+    out["tool"] = [os.path.join(BIN, f) for f in sorted(os.listdir(BIN))
+                   if f.startswith("bd") and os.path.isfile(os.path.join(BIN, f))] \
+        if os.path.isdir(BIN) else []
+    out["pkdoc"] = list(_walk(PK, (".md",), recursive=False)) if os.path.isdir(PK) else []
+    return out
+
+
+def _read(p):
+    try:
+        with open(p, "r", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def consumers(name, files=None, word=True):
+    """Every file that NAMES `name`. Word-boundary by default so 'dedup' does not
+    match 'dedupe_key'. The file that DEFINES it is included and marked."""
+    files = files or _files_by_kind()
+    pat = re.compile(r"\b%s\b" % re.escape(name)) if word else re.compile(re.escape(name))
+    hits = {}
+    for kind, paths in files.items():
+        for p in paths:
+            txt = _read(p)
+            if not txt:
+                continue
+            if pat.search(txt):
+                hits.setdefault(kind, []).append(p)
+    return hits
+
+
+def _rel(p):
+    for base in (WORK + "/", BIN + "/", PK + "/"):
+        if p.startswith(base):
+            return p[len(base):]
+    return p
+
+
+def cmd_query(a):
+    name = a.name
+    files = _files_by_kind()
+    hits = consumers(name, files, word=not a.substring)
+    total = sum(len(v) for v in hits.values())
+    if a.json:
+        print(json.dumps({"query": name,
+                          "total": total,
+                          "consumers": {k: [_rel(p) for p in v] for k, v in hits.items()}},
+                         indent=2))
+        return 0 if total else 3
+    if not total:
+        print("%sNO CONSUMERS%s for %r -- nothing in the corpus names it." % (Y, RST, name))
+        print("%s  corpus scanned: %s%s" % (
+            DIM, ", ".join("%s=%d" % (k, len(v)) for k, v in files.items()), RST))
+        print("%s  (an empty answer is a FINDING, not a pass -- exit 3)%s" % (DIM, RST))
+        return 3
+    print("%s%s%s -- %d consumer(s)" % (C, name, RST, total))
+    order = ["test", "module", "script", "fe", "tool", "doc", "pkdoc"]
+    for kind in order:
+        if kind not in hits:
+            continue
+        print("  %s%s%s (%d)" % (G, kind, RST, len(hits[kind])))
+        for p in hits[kind]:
+            print("    %s" % _rel(p))
+    return 0
+
+
+def cmd_module(a):
+    """BAND view -- the signal bd-band-derive is missing (Signal 4)."""
+    mod = a.module
+    stem = os.path.basename(mod)
+    for suf in (".py",):
+        if stem.endswith(suf):
+            stem = stem[: -len(suf)]
+    files = _files_by_kind()
+    hits = consumers(stem, {"test": files["test"]}, word=True)
+    tests = sorted(_rel(p) for p in hits.get("test", []))
+    if a.json:
+        print(json.dumps({"module": stem, "band": tests}, indent=2))
+        return 0 if tests else 3
+    if not tests:
+        print("%sNO TEST CONSUMES %r%s -- band is empty." % (Y, stem, RST))
+        print("%s  That is itself worth knowing: an untested module.%s" % (DIM, RST))
+        return 3
+    print("%sband for module %r%s -- %d test file(s) import or name it:"
+          % (C, stem, RST, len(tests)))
+    for t in tests:
+        print("  " + t)
+    print("\n%sbd-cut --suites %s%s" % (DIM, " ".join(os.path.basename(t)[:-3] for t in tests), RST))
+    return 0
+
+
+def cmd_dead_tools(a):
+    """Tools that NOTHING USES. Candidates for review -- never a claim of death.
+
+    DENOMINATOR BUG, caught and fixed: the first version of this counted ANY file that
+    named a tool as a reference. But bd-tools IS the category map -- it names all 237 --
+    and BD_TOOLCHAIN_WHEN_TO_USE.md names 222. So every tool was "referenced" BY
+    CONSTRUCTION, and the check reported 1 unreferenced out of 241: clean, truthful, and
+    useless. That is the exact shape this project hunts (a denominator that structurally
+    excludes the thing being asked about), committed inside the tool built to find it.
+
+    A CATALOG LISTING IS NOT A USE. So three states, not two:
+      USED        -- some non-catalog file names it (a tool invokes it, a test pins it,
+                     a handoff records running it)
+      LISTED-ONLY -- it appears ONLY in the catalogs. Nothing uses it. THESE are the
+                     real candidates.
+      ORPHAN      -- not even catalogued.
+    """
+    files = _files_by_kind()
+    # USAGE EVIDENCE: handoffs/changelogs record what a session actually RAN. It is the
+    # closest thing to an invocation log that exists (no real one ever has -- the sandbox
+    # fs resets between sessions), so a tool named here was probably genuinely used.
+    evidence = []
+    for p in ("/home/claude/vp/KB_HANDOFF_v3_66_722.md", "/home/claude/vp/Backlog.md",
+              "/home/claude/vp/Roadmap.md", os.path.join(WORK, "CHANGELOG.md")):
+        if os.path.isfile(p):
+            evidence.append(p)
+    files["evidence"] = evidence
+    catalogs = {os.path.abspath(p) for p in (
+        os.path.join(BIN, "bd-tools"),
+        os.path.join(PK, "BD_TOOLCHAIN_REFERENCE.md"),
+        os.path.join(PK, "BD_TOOLCHAIN_WHEN_TO_USE.md"),
+        os.path.join(PK, "README.md"),
+        os.path.join(PK, "BDSUITE_CHANGELOG.md"),
+        os.path.join(PK, "BUNDLE_MANIFEST.md"),
+        os.path.join(PK, "STATIC_KB_MANIFEST.json"),
+        # a doc ABOUT tools ("not a duplicate of X") names them without USING them
+        "/home/claude/ctx/TOOL_PROPOSALS_50.md",
+        os.path.join(PK, "BD_TOOLCHAIN_WHEN_TO_USE.md"),
+    )}
+    tools = sorted(os.path.basename(p) for p in files["tool"])
+    used, listed_only, orphan = [], [], []
+    for t in tools:
+        tpath = os.path.abspath(os.path.join(BIN, t))
+        # A .py module is USED by being IMPORTED, and importers write the MODULE
+        # name with no extension (`import bdtools_sec as sec`, `from bdtools_cli
+        # import G`). Matching only the filename made `\bbdtools_sec\.py\b`
+        # unmatchable against every real consumer, so the shared libraries the
+        # whole suite is built on classified as LISTED-ONLY -- "nothing uses it"
+        # about a module imported by 136 tools (@805, measured).
+        #
+        # That mattered because listed_only IS the retirement candidate pool for
+        # the SUBTRACT-before-adding sweep: a denominator blind to the dominant
+        # form of use was feeding a decision to DELETE. The import forms are
+        # matched explicitly (not a bare stem match) so a module is credited for
+        # being imported, not for being mentioned in prose.
+        pats = [re.compile(r"\b%s\b" % re.escape(t))]
+        if t.endswith(".py"):
+            stem = t[:-3]
+            pats.append(re.compile(
+                r"(?:^|\n)\s*(?:import\s+%s\b|from\s+%s\s+import\b)"
+                % (re.escape(stem), re.escape(stem))))
+        real_use, catalogued = [], False
+        for kind, paths in files.items():
+            for p in paths:
+                ap_ = os.path.abspath(p)
+                if ap_ == tpath:
+                    continue          # a tool naming itself is not a reference
+                _txt = _read(p)
+                if not any(pt.search(_txt) for pt in pats):
+                    continue
+                if ap_ in catalogs:
+                    catalogued = True   # listed, but that is not a USE
+                else:
+                    real_use.append(_rel(p))
+        if real_use:
+            used.append((t, real_use))
+        elif catalogued:
+            listed_only.append(t)
+        else:
+            orphan.append(t)
+
+    if a.json:
+        print(json.dumps({
+            "tools_total": len(tools),
+            "used": len(used),
+            "listed_only": listed_only,
+            "orphan": orphan,
+            "catalogs_excluded": sorted(os.path.basename(c) for c in catalogs),
+            "note": "A CATALOG LISTING IS NOT A USE. listed_only = named ONLY by the "
+                    "catalogs, so nothing actually uses it. Still not proof of death: an "
+                    "operator may run a tool by hand, and no invocation log has ever "
+                    "existed (the sandbox fs resets between sessions), so 'was it ever RUN' "
+                    "has NO data. These are CANDIDATES FOR REVIEW, not a deletion list.",
+        }, indent=2))
+        return 0
+
+    print("%s%d tools%s -- %sused %d%s | %slisted-only %d%s | %sorphan %d%s\n"
+          % (C, len(tools), RST, G, len(used), RST, Y, len(listed_only), RST,
+             R, len(orphan), RST))
+    if orphan:
+        print("%sORPHAN -- not even in a catalog:%s" % (R, RST))
+        for t in orphan:
+            print("  %s" % t)
+        print()
+    if listed_only:
+        print("%sLISTED-ONLY -- catalogued, but NOTHING USES THEM:%s" % (Y, RST))
+        for t in listed_only:
+            print("  %s" % t)
+        print()
+    print("%sCatalogs excluded from 'use' (they name nearly every tool, so counting them\n"
+          "made every tool referenced BY CONSTRUCTION):%s %s"
+          % (DIM, RST, ", ".join(sorted(os.path.basename(c) for c in catalogs))))
+    print("\n%sNOT a usage record.%s Unreferenced != dead -- an operator may invoke a tool by\n"
+          "hand, and no invocation log has ever existed (the sandbox fs resets between\n"
+          "sessions), so \"was it ever RUN\" is a question with NO DATA. Review candidates."
+          % (Y, RST))
+    return 0
+
+
+def _selftest():
+    fails = []
+    import tempfile
+    global WORK, BIN, PK
+    td = tempfile.mkdtemp(prefix="bdcg_")
+    WORK = os.path.join(td, "work")
+    BIN = os.path.join(td, "bin")
+    PK = os.path.join(td, "pk")
+    for d in ("bulk_downloader", "tests", "tools", "frontend/src"):
+        os.makedirs(os.path.join(WORK, d), exist_ok=True)
+    os.makedirs(BIN, exist_ok=True)
+    os.makedirs(PK, exist_ok=True)
+    open(os.path.join(WORK, "bulk_downloader", "widget.py"), "w").write("X=1\n")
+    open(os.path.join(WORK, "bulk_downloader", "user.py"), "w").write("from . import widget\n")
+    open(os.path.join(WORK, "tests", "test_widget_thing.py"), "w").write("import widget\n")
+    open(os.path.join(WORK, "tests", "test_unrelated.py"), "w").write("pass\n")
+    # POS: widget has consumers, and the test file is among them
+    h = consumers("widget")
+    tests = [os.path.basename(p) for p in h.get("test", [])]
+    if "test_widget_thing.py" not in tests:
+        fails.append("consumer test not found for 'widget'")
+    if "test_unrelated.py" in tests:
+        fails.append("unrelated test wrongly reported as consumer")
+    # NEG: a name nothing uses must return EMPTY, and the caller must see exit 3 --
+    # not a silent pass. This is the unknown-as-good guard.
+    h2 = consumers("nonexistent_symbol_xyz")
+    if sum(len(v) for v in h2.values()) != 0:
+        fails.append("phantom consumers found for a nonexistent symbol")
+    # NEG: word boundary -- 'widget' must not match 'widgetry'
+    open(os.path.join(WORK, "bulk_downloader", "decoy.py"), "w").write("widgetry = 1\n")
+    h3 = consumers("widget")
+    if any(os.path.basename(p) == "decoy.py" for p in h3.get("module", [])):
+        fails.append("word-boundary failed: 'widget' matched 'widgetry'")
+    # NEG: a tool that names itself is NOT a reference to itself
+    open(os.path.join(BIN, "bd-lonely"), "w").write("#!/usr/bin/env python3\n# bd-lonely\n")
+    # NEG (THE DENOMINATOR CONTROL): a CATALOG that lists every tool must NOT make them
+    # all count as "used". This is the control that would have caught the real bug --
+    # bd-tools names all 237 tools, so counting it made every tool referenced by
+    # construction and the check reported 1/241 dead: clean, truthful, useless.
+    open(os.path.join(BIN, "bd-tools"), "w").write(
+        "CATEGORY = {'x': ['bd-lonely', 'bd-usedtool']}\n")
+    open(os.path.join(BIN, "bd-usedtool"), "w").write("#!/usr/bin/env python3\n")
+    # a REAL use of bd-usedtool (a script invokes it) -- bd-lonely has none
+    open(os.path.join(WORK, "tools", "runner.py"), "w").write(
+        "subprocess.run(['bd-usedtool'])\n")
+    a = argparse.Namespace(json=True)
+    import io
+    import contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        cmd_dead_tools(a)
+    out = json.loads(buf.getvalue())
+    if "bd-lonely" not in out["listed_only"]:
+        fails.append("catalog-listed-only tool not reported LISTED-ONLY "
+                     "(catalog counted as a use -- the denominator bug)")
+    if "bd-usedtool" in out["listed_only"] or "bd-usedtool" in out["orphan"]:
+        fails.append("genuinely-used tool wrongly reported unused")
+    import shutil
+    shutil.rmtree(td, ignore_errors=True)
+    if fails:
+        for f in fails:
+            print("  - " + f)
+        print("SELFTEST FAIL")
+        return 2
+    print("%s(consumer found, unrelated excluded, empty=finding, word-boundary, "
+          "self-ref not counted)%s" % (DIM, RST))
+    print("SELFTEST PASS")
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="bd-consumer-graph")
+    ap.add_argument("name", nargs="?", help="symbol / module / config key / route / tool")
+    ap.add_argument("--module", help="BAND view: test files that import or name this module")
+    ap.add_argument("--dead-tools", action="store_true",
+                    help="bin/ tools referenced by nothing (candidates, not a claim)")
+    ap.add_argument("--substring", action="store_true",
+                    help="match anywhere (default is word-boundary)")
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return _selftest()
+    if a.dead_tools:
+        return cmd_dead_tools(a)
+    if a.module:
+        return cmd_module(a)
+    if not a.name:
+        ap.print_help()
+        return 0
+    return cmd_query(a)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+"""bd-retest -- re-run ONLY the failed suites from the last band (flake triage).
+
+Reads /home/claude/.bd_last_band.json (written by bd-parband) and re-runs each
+failed/timed-out suite N times. Passes on retry => FLAKE; fails every time => REAL
+failure. Saves re-running the whole band to find out. Runner is inline (no fragile
+cross-tool import).
+
+Usage: bd-retest [--retries 2] [--timeout 300] [--work DIR]
+Exit 0 if every previously-failing suite now passes; 1 on a consistent (real)
+failure or if there's nothing to retest.
+"""
+import argparse, json, os, re, subprocess, sys, tempfile, time
+G,R,Y,DIM,BOLD,RST="\033[32m","\033[31m","\033[33m","\033[2m","\033[1m","\033[0m"
+RESULTS="/home/claude/.bd_last_band.json"
+def run_one(work,suite,timeout):
+    env=dict(os.environ); env.update(BD_HOME=tempfile.mkdtemp(prefix="bdrt_"),
+        BD_DISABLE_KEEPALIVE="1",PYTHONPATH="/tmp/prestaged_site_packages",
+        PLAYWRIGHT_BROWSERS_PATH="/home/claude/.cache/ms-playwright")
+    try:
+        r=subprocess.run(["python3","run_tests.py",suite],cwd=work,env=env,
+                         capture_output=True,text=True,timeout=timeout)
+        out=r.stdout+r.stderr; m=re.search(r'Failed:\s*(\d+)',out)
+        failed=int(m.group(1)) if m else (0 if r.returncode==0 else -1)
+        return "pass" if (r.returncode==0 and failed==0) else "fail"
+    except subprocess.TimeoutExpired: return "timeout"
+def selftest():
+    """DELEGATE: wraps run_tests.py, which lives in the WORK TREE / PK, not in bin/. The
+    selftest asserts the real target is reachable; if it is not, FAIL -- a
+    wrapper that cannot find what it wraps is broken, and a selftest that cannot
+    verify must not report success."""
+    import os as _o
+    cands = ['/home/claude/work/run_tests.py']
+    hit = next((p for p in cands if _o.path.isfile(p)), None)
+    print(("PASS" if hit else "FAIL") + "  delegation target present: run_tests.py (%s)" % (hit or "NOT FOUND"))
+    print("SELFTEST PASS" if hit else "SELFTEST FAIL")
+    return 0 if hit else 1
+
+
+def main():
+    ap=argparse.ArgumentParser(); ap.add_argument("--retries",type=int,default=2)
+    ap.add_argument("--timeout",type=int,default=300); ap.add_argument("--work","--tree")
+    ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest:
+        return selftest()
+    if not os.path.exists(RESULTS):
+        print(f"{Y}no last-band results ({RESULTS}). run bd-parband first.{RST}"); return 1
+    d=json.load(open(RESULTS)); work=a.work or d.get("work","/home/claude/work")
+    failed=[r["suite"] for r in d["results"] if r["status"]!="pass"]
+    if not failed:
+        print(f"{G}last band had no failures -- nothing to retest{RST}"); return 0
+    print(f"{BOLD}retest{RST} {DIM}{len(failed)} previously-failing suite(s), {a.retries} retries each{RST}")
+    real=[]; flake=[]
+    for s in failed:
+        outcomes=[run_one(work,s,a.timeout) for _ in range(a.retries)]
+        if all(o=="pass" for o in outcomes):
+            flake.append(s); print(f"  {Y}FLAKE{RST} {s} {DIM}(passed {a.retries}/{a.retries} on retry){RST}")
+        elif any(o=="pass" for o in outcomes):
+            flake.append(s); print(f"  {Y}FLAKY{RST} {s} {DIM}({'/'.join(outcomes)}){RST}")
+        else:
+            real.append(s); print(f"  {R}REAL{RST}  {s} {DIM}(failed every retry){RST}")
+    if real: print(f"\n{R}{len(real)} REAL failure(s), {len(flake)} flake(s){RST}"); return 1
+    print(f"\n{G}all {len(flake)} were flakes -- clean on retry{RST}"); return 0
+sys.exit(main())

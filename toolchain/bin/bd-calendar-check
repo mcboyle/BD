@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""bd-calendar-check -- validate ICS/calendar output correctness.
+
+Validates an ICS string/file (the F7 calendar export) structurally: required
+VCALENDAR/VEVENT envelope, VERSION + PRODID, each VEVENT has UID + DTSTART, a
+timezone (TZID or UTC 'Z'), well-formed RRULE if present, and matched BEGIN/END.
+A malformed export -> BD-ICS-INVALID. Stdlib-only (no icalendar dep). Read-only.
+
+Usage: bd-calendar-check FILE.ics [--json]
+       bd-calendar-check --selftest
+Exit 1 if invalid, else 0.
+"""
+import argparse, os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+
+def validate(text):
+    errs=[]
+    if "BEGIN:VCALENDAR" not in text or "END:VCALENDAR" not in text:
+        errs.append("missing VCALENDAR envelope")
+    if "VERSION:" not in text: errs.append("missing VERSION")
+    if "PRODID:" not in text: errs.append("missing PRODID")
+    # balanced BEGIN/END
+    begins=re.findall(r'BEGIN:(\w+)',text); ends=re.findall(r'END:(\w+)',text)
+    if sorted(begins)!=sorted(ends): errs.append("unbalanced BEGIN/END blocks")
+    events=re.split(r'BEGIN:VEVENT',text)[1:]
+    for i,ev in enumerate(events):
+        body=ev.split("END:VEVENT")[0]
+        if "UID" not in body: errs.append("VEVENT %d missing UID"%i)
+        if "DTSTART" not in body: errs.append("VEVENT %d missing DTSTART"%i)
+        if "DTSTART" in body and "TZID=" not in body and not re.search(r'DTSTART[^\n]*Z',body):
+            errs.append("VEVENT %d DTSTART has no timezone (TZID or Z)"%i)
+        for rr in re.findall(r'RRULE:(.+)',body):
+            if "FREQ=" not in rr: errs.append("VEVENT %d RRULE missing FREQ"%i)
+    return errs
+
+def selftest():
+    ok=True
+    good="BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//BD//EN\nBEGIN:VEVENT\nUID:1@bd\nDTSTART:20260101T000000Z\nRRULE:FREQ=DAILY\nEND:VEVENT\nEND:VCALENDAR\n"
+    print(("PASS" if validate(good)==[] else "FAIL")+"  valid ICS passes (%s)"%validate(good))
+    ok=ok and validate(good)==[]
+    bad="BEGIN:VCALENDAR\nBEGIN:VEVENT\nDTSTART:20260101T000000\nRRULE:INTERVAL=2\nEND:VEVENT\n"
+    e=validate(bad)
+    print(("PASS" if len(e)>=3 else "FAIL")+"  malformed ICS: missing envelope/UID/tz/FREQ caught (%d)"%len(e))
+    ok=ok and len(e)>=3
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("file",nargs="?")
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    if not a.file or not os.path.exists(a.file): print(R+"FILE.ics required"+RST); return 1
+    errs=validate(open(a.file,errors="ignore").read())
+    if sec.emit({"file":a.file,"errors":errs,"valid":not errs},as_json=a.json): return 1 if errs else 0
+    if not errs: print(G+"valid ICS"+RST); return 0
+    for e in errs: print("  %sBD-ICS-INVALID%s %s"%(R,RST,e))
+    return 1
+
+if __name__ == "__main__":
+    sys.exit(main())

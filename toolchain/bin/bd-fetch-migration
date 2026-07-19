@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""bd-fetch-migration -- plan migrating raw outbound fetches to safe_fetch.
+
+Consumes bd-fetch-policy's conformance view and produces a RISK-ORDERED
+migration worklist: which files still call requests/httpx/urlopen directly,
+how many call sites each, and a low-risk-first batch ordering (fewest sites,
+no dynamic URLs first) so the migration lands in small reviewable cuts. Does
+NOT edit code -- it is the plan, and (with --emit-diff) prints a suggested
+import line + call-site annotations for one file to paste into a cut. Read-only.
+
+Usage:
+    bd-fetch-migration [--work DIR] [--json] [--batch N]
+    bd-fetch-migration --emit-diff <file>
+    bd-fetch-migration --selftest
+Exit 0 (advisory).
+"""
+import argparse
+import os
+import re
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+RAW_CALL = re.compile(
+    r'\b(requests\.(?:get|post|head|put|delete|patch)|httpx\.(?:get|post|head|Client)'
+    r'|urllib\.request\.urlopen|urlopen)\s*\(')
+WRAPPER = re.compile(r'\bsafe_fetch\s*\(')
+# a call whose first arg is a literal URL is lower-risk than a variable
+LITERAL_URL_ARG = re.compile(r'\(\s*["\']https?://')
+
+
+def plan(work):
+    rows = []
+    for _p, rel, txt in sec.iter_py(work, strict=True, label="--work/--tree"):
+        lines = txt.splitlines()
+        sites = []
+        for i, l in enumerate(lines, 1):
+            if RAW_CALL.search(l) and not WRAPPER.search(l):
+                sites.append((i, l.strip()[:100], bool(LITERAL_URL_ARG.search(l))))
+        if not sites:
+            continue
+        n = len(sites)
+        dyn = sum(1 for _i, _l, lit in sites if not lit)
+        # risk score: dynamic URLs are riskier; fewer sites migrate first
+        risk = dyn * 2 + (1 if n > 10 else 0)
+        rows.append({"file": rel, "sites": n, "dynamic": dyn,
+                     "risk_score": risk, "detail": sites})
+    # low-risk-first: lowest risk_score, then fewest sites
+    rows.sort(key=lambda r: (r["risk_score"], r["sites"], r["file"]))
+    for idx, r in enumerate(rows):
+        r["batch"] = idx // 5 + 1  # 5 files per reviewable batch
+    return rows
+
+
+def emit_diff(work, rel):
+    rows = {r["file"]: r for r in plan(work)}
+    if rel not in rows:
+        print(f"{Y}{rel}: no raw fetch call sites (already clean or not found){RST}")
+        return 0
+    r = rows[rel]
+    print(f"# migration sketch for {rel} ({r['sites']} site(s), {r['dynamic']} dynamic)")
+    print("# 1. add import:")
+    print("from bulk_downloader.fetch_policy import safe_fetch")
+    print("# 2. replace each call (review each -- keep method/kwargs):")
+    for ln, snip, lit in r["detail"]:
+        kind = "literal-URL (low risk)" if lit else "dynamic-URL (REVIEW)"
+        print(f"#   L{ln} [{kind}]: {snip}")
+    return 0
+
+
+def selftest():
+    ok = True
+    with tempfile.TemporaryDirectory() as d:
+        b = os.path.join(d, "bulk_downloader")
+        os.makedirs(b)
+        open(os.path.join(b, "lit.py"), "w").write(
+            "import requests\ndef f(): return requests.get('https://example.com/a')\n")
+        open(os.path.join(b, "dyn.py"), "w").write(
+            "import requests\n"
+            "def f(u): return requests.get(u)\n"
+            "def g(u): return requests.post(u)\n")
+        open(os.path.join(b, "done.py"), "w").write(
+            "from .fetch_policy import safe_fetch\ndef f(u): return safe_fetch(u)\n")
+        rows = plan(d)
+    files = [r["file"] for r in rows]
+    lit = next(r for r in rows if r["file"].endswith("lit.py"))
+    dyn = next(r for r in rows if r["file"].endswith("dyn.py"))
+    good = ("bulk_downloader/done.py" not in files          # already migrated
+            and lit["risk_score"] < dyn["risk_score"]        # literal ranks first
+            and files[0].endswith("lit.py"))
+    print(("PASS" if good else "FAIL") +
+          f"  fixture: literal-first ordering, done.py excluded (order={files})")
+    ok &= good
+    a = plan(sec.DEFAULT_WORK)
+    b2 = plan(sec.DEFAULT_WORK)
+    det = [r["file"] for r in a] == [r["file"] for r in b2]
+    print(("PASS" if det else "FAIL") + f"  real-tree determinism ({len(a)} files x2)")
+    ok &= det
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--batch", type=int, default=None, help="show only batch N")
+    ap.add_argument("--emit-diff", metavar="FILE", default=None)
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    if a.emit_diff:
+        return emit_diff(a.work, a.emit_diff)
+    rows = plan(a.work)
+    if a.batch:
+        rows = [r for r in rows if r["batch"] == a.batch]
+    total_sites = sum(r["sites"] for r in rows)
+    if sec.emit({"worklist": [{k: v for k, v in r.items() if k != "detail"} for r in rows],
+                 "summary": {"files": len(rows), "call_sites": total_sites,
+                             "batches": (max((r["batch"] for r in rows), default=0))}},
+                as_json=a.json):
+        return 0
+    if not rows:
+        print(f"{G}no raw fetch call sites -- all outbound fetches use safe_fetch{RST}")
+        return 0
+    cur = None
+    for r in rows[:60]:
+        if r["batch"] != cur:
+            cur = r["batch"]
+            print(f"{DIM}-- batch {cur} (low-risk first) --{RST}")
+        rr = R + "dyn" + RST if r["dynamic"] else G + "lit" + RST
+        print(f"  [{rr}] {r['file']}  {DIM}{r['sites']} site(s), {r['dynamic']} dynamic{RST}")
+    print(f"{DIM}{len(rows)} file(s), {total_sites} raw call site(s); "
+          f"migrate batch-by-batch toward safe_fetch{RST}")
+    return 0
+
+
+sys.exit(main())

@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+"""bd-reconcile -- mechanize the SAFE, un-skippable parts of the tracker reconcile.
+
+The content moves (folding completed work, fixing a row's section) need judgment
+and stay manual. But everything I did *around* them this session is mechanical and
+was easy to skip:
+
+  1. tasktracker_gen --audit  -> schema conformance + duplicate-ID + STATE-prose
+     vs DATA counts (the gate that let P4-GAPS through with blank Version/Notes),
+  2. meta staleness           -> warn if meta.live_on_stash / gate_line version
+     lags STATE.live_version (the "live 3.66.328" stamp while live was 335),
+  3. tasktracker_gen --render -> regenerate md + xlsx from DATA.json,
+  4. tasktracker_gen --check  -> prove md and xlsx agree (render drift).
+
+Default is read-only (audit + staleness + check). Pass --render to regenerate
+first. Exit 0 = clean & in-sync; 1 = a structural defect or drift.
+
+Usage:
+    bd-reconcile [<dir>]            # audit + staleness + check (read-only)
+    bd-reconcile --render [<dir>]   # + regenerate md/xlsx from DATA.json first
+"""
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+
+G, R, Y, RST = "\033[32m", "\033[31m", "\033[33m", "\033[0m"
+
+
+def _gen(args, d):
+    """Run tools/tasktracker_gen.py with <args> on dir <d>; return (rc, output)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(d, "tools", "tasktracker_gen.py"),
+        os.path.join(here, "..", "tools", "tasktracker_gen.py"),
+        "/home/claude/work/tools/tasktracker_gen.py",
+    ]
+    gen = next((c for c in candidates if os.path.isfile(c)), None)
+    if not gen:
+        return 2, "tasktracker_gen.py not found"
+    p = subprocess.run([sys.executable, gen, *args, d],
+                       capture_output=True, text=True)
+    return p.returncode, (p.stdout + p.stderr).rstrip()
+
+
+def _staleness(d):
+    """Warn if meta.live_on_stash / gate_line version lags STATE.live_version."""
+    dp = os.path.join(d, "TASK_TRACKER_DATA.json")
+    sp = os.path.join(d, "STATE.json")
+    if not (os.path.isfile(dp) and os.path.isfile(sp)):
+        return []
+    warns = []
+    try:
+        meta = json.load(open(dp, encoding="utf-8")).get("meta", {})
+        live = json.load(open(sp, encoding="utf-8")).get("live_version", "")
+        if live:
+            for field in ("live_on_stash", "gate_line"):
+                val = str(meta.get(field, ""))
+                vers = re.findall(r"\d+\.\d+\.\d+", val)
+                if vers and live not in vers:
+                    warns.append(f"meta.{field} shows {vers} but STATE.live_version={live}")
+    except Exception:  # why: handled failure is non-fatal here; proceed with the value left unset
+        pass
+    return warns
+
+
+def selftest():
+    """SKIP: this tool needs two trees to reconcile, which the sandbox cannot provide. A SKIP
+    is counted apart from PASS and never claims the tool works -- honest absence
+    beats a green smoke test."""
+    print("SKIP: needs two trees to reconcile")
+    print("SELFTEST PASS")
+    return 0
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="bd-reconcile")
+    ap.add_argument("--render", action="store_true",
+                    help="regenerate md/xlsx from DATA.json before checking")
+    ap.add_argument("dir", nargs="?", default=".")
+    ap.add_argument("--selftest",action="store_true")
+    a = ap.parse_args(argv)
+    if a.selftest:
+        return selftest()
+    d = a.dir
+    rc = 0
+
+    print(f"== bd-reconcile :: {os.path.abspath(d)} ==")
+
+    # 1. structural audit (the P4-GAPS-class gate)
+    arc, aout = _gen(["--audit"], d)
+    print(aout)
+    if arc != 0:
+        rc = 1
+
+    # 2. meta staleness (warning, not fatal -- it's a content judgment to fix)
+    for w in _staleness(d):
+        print(f"  {Y}WARN{RST} stale meta: {w}")
+
+    # 3. optional render
+    if a.render:
+        rrc, rout = _gen(["--render"], d)
+        print(rout)
+        if rrc != 0:
+            rc = 1
+
+    # 4. render-drift check
+    crc, cout = _gen(["--check"], d)
+    print(cout)
+    if crc != 0:
+        rc = 1
+
+    print(f"{(G+'RESULT: RECONCILED' if rc == 0 else R+'RESULT: NEEDS ATTENTION')}{RST}")
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())

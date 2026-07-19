@@ -1,0 +1,67 @@
+{
+ "url": "https://demo-sprout.test/watch/asset",
+ "origin": "https://demo-sprout.test",
+ "host": "demo-sprout.test",
+ "captured_at": "2026-07-10T00:00:00+00:00",
+ "dom_log": [
+  {
+   "type": "full_snapshot",
+   "html": "<html><head></head><body><iframe src=\"https://videos.sproutvideo.com/embed/abc123/def456\"></iframe></body></html>"
+  }
+ ],
+ "network_log": [
+  {
+   "url": "https://demo-sprout.test/watch/asset",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "text/html; charset=utf-8"
+    }
+   ]
+  },
+  {
+   "url": "https://s3.sproutvideo.com/abc123/playlist.m3u8",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "application/vnd.apple.mpegurl"
+    }
+   ]
+  },
+  {
+   "url": "https://s3.sproutvideo.com/abc123/480/seg-1.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  },
+  {
+   "url": "https://s3.sproutvideo.com/abc123/720/seg-1.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  },
+  {
+   "url": "https://s3.sproutvideo.com/abc123/1080/seg-1.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  }
+ ],
+ "cookies": "<REDACTED>",
+ "dom_log_count": 1,
+ "network_log_count": 5
+}

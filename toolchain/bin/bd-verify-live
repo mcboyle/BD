@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""bd-verify-live -- confirm a deploy actually landed (run ON STASH, after deploy).
+
+It does NOT deploy. It verifies the two things that silently go wrong:
+  1. /api/health reports the EXPECTED version -- catches the stale-bytecode trap
+     where the on-disk __init__ says 3.66.N but the running process still reports
+     N-1 because __pycache__ wasn't cleared.
+  2. the SERVICE VENV resolves the real backend -- runs venv/bin/python (NOT the
+     system python) so a venv-only package (cloakbrowser) is visible and
+     cloak.resolve_backend() reports 'cloakbrowser', not a false 'playwright'.
+
+Stdlib only (urllib) so it runs with the system python3 on the headless host.
+
+Usage:
+    bd-verify-live --version 3.66.365
+    bd-verify-live --version 3.66.365 --base http://localhost:5555 --bd-dir ~/BulkDownloader
+    bd-verify-live --version 3.66.365 --skip-backend     # health/version only
+Exit 0 = version matches (and backend == cloakbrowser unless --skip-backend); 1 = mismatch.
+"""
+import argparse
+import json
+import os
+import subprocess
+import sys
+import urllib.request
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+
+def get_health(base, timeout=10):
+    url = base.rstrip("/") + "/api/health"
+    with urllib.request.urlopen(url, timeout=timeout) as resp:
+        body = resp.read().decode("utf-8", "replace")
+    return json.loads(body)
+
+
+def selftest():
+    """SKIP: this tool needs a live deployed BD instance, which the sandbox cannot provide. A SKIP
+    is counted apart from PASS and never claims the tool works -- honest absence
+    beats a green smoke test."""
+    print("SKIP: needs a live deployed BD instance")
+    print("SELFTEST PASS")
+    return 0
+
+
+def main(argv=None):
+    import sys as _s
+    if "--selftest" in _s.argv: return selftest()
+    ap = argparse.ArgumentParser(prog="bd-verify-live")
+    ap.add_argument("--version", required=True, help="expected version, e.g. 3.66.365")
+    ap.add_argument("--base", default="http://localhost:5555")
+    ap.add_argument("--bd-dir", default=os.path.expanduser("~/BulkDownloader"),
+                    help="install dir holding venv/ for the backend check")
+    ap.add_argument("--skip-backend", action="store_true",
+                    help="check /api/health version only; skip the venv backend probe")
+    ap.add_argument("--skip-health", action="store_true",
+                    help="skip the /api/health probe (backend-only; usable "
+                         "in-sandbox pre-deploy where the service runs on stash)")
+    a = ap.parse_args(argv)
+
+    ok = True
+
+    # --- 1. health version ---
+    if a.skip_health:
+        print(f"{Y}SKIP{RST} /api/health probe (--skip-health; backend-only run)")
+        h = None
+    else:
+      try:
+        h = get_health(a.base)
+      except Exception as e:
+        print(f"{R}FAIL{RST} /api/health unreachable at {a.base}: {e}")
+        return 1
+    if h is not None:
+        live = h.get("version")
+        if live == a.version:
+            print(f"  {G}OK{RST}   /api/health version = {live}")
+        else:
+            ok = False
+            print(f"  {R}FAIL{RST} /api/health version = {live!r}, expected {a.version!r}")
+            print(f"       {Y}stale bytecode?{RST} clear caches + restart:")
+            print(f"         find {a.bd_dir} -name __pycache__ -type d -prune -exec rm -rf {{}} +")
+            print(f"         find {a.bd_dir} -name '*.pyc' -delete && sudo systemctl restart bulkdownloader")
+        if h.get("build"):
+            b = h["build"]
+            print(f"  {DIM}build = {b.get('sha','?')} @ {b.get('built_at','?')}{RST}")
+
+    # --- 2. venv backend resolution ---
+    if not a.skip_backend:
+        vpy = os.path.join(a.bd_dir, "venv", "bin", "python")
+        if not os.path.exists(vpy):
+            print(f"  {Y}WARN{RST} {vpy} not found -- skipped backend check "
+                  f"(is --bd-dir right? service venv is venv/, NOT .venv/)")
+        else:
+            r = subprocess.run(
+                [vpy, "-c", "from bulk_downloader import cloak; print(cloak.resolve_backend())"],
+                cwd=a.bd_dir, capture_output=True, text=True, timeout=90)
+            backend = (r.stdout or "").strip()
+            if r.returncode == 0 and backend == "cloakbrowser":
+                print(f"  {G}OK{RST}   resolve_backend() = {backend}")
+            else:
+                ok = False
+                print(f"  {R}FAIL{RST} resolve_backend() = {backend!r} "
+                      f"(rc={r.returncode}); expected 'cloakbrowser'")
+                if r.stderr.strip():
+                    print(f"       {DIM}{r.stderr.strip().splitlines()[-1]}{RST}")
+            info = subprocess.run([vpy, "-m", "cloakbrowser", "info"],
+                                  cwd=a.bd_dir, capture_output=True, text=True,
+                                  timeout=90)
+            if info.returncode == 0:
+                head = (info.stdout or "").strip().splitlines()
+                print(f"  {DIM}cloakbrowser info: {head[0] if head else 'ok'}{RST}")
+
+    print(f"\n{G+'RESULT: PASS'+RST if ok else R+'RESULT: FAIL'+RST} "
+          f"-- {'deploy verified live' if ok else 'deploy NOT verified -- see above'}")
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,310 @@
+{
+  "_note": "B0 characterization golden — readers/normalizers' current derived output on a fixed synthetic capture; guards Phase-B reroutes.",
+  "_schema": "bulk_downloader.capture_model_golden.v1",
+  "build_template_from_wacz.build_template": {
+    "anti_bot_detection": {
+      "challenge_count": 0,
+      "present": false,
+      "vendors": []
+    },
+    "confidence": "medium",
+    "confidence_detail": {
+      "band": "medium",
+      "factors": {
+        "quality_or_download": true,
+        "rendition_ladder": 1,
+        "selector_resolve_rate": 1.0
+      },
+      "score": 0.4
+    },
+    "guardrails": [
+      "Do not bypass Cloudflare, CAPTCHA, Turnstile, DRM, or paywalls.",
+      "Do not save short-lived signed media URLs from captures.",
+      "Do not persist cookies, tokens, Authorization headers, or query strings.",
+      "Use this only with user-authorized sessions and site-provided playback/download flows.",
+      "Ignore captcha/turnstile selectors when generating login templates."
+    ],
+    "match": {
+      "hosts": [
+        "demo.example"
+      ],
+      "url_patterns": [
+        "^https://demo\\.example/"
+      ]
+    },
+    "network_discovery": {
+      "api_patterns": [],
+      "content_type_counts": {},
+      "download_signals": [
+        "resolution-in-name"
+      ],
+      "media_hosts": [
+        "cdn.demo.example"
+      ],
+      "media_patterns": [
+        ".../x{resolution}.mp4"
+      ],
+      "observed_api_hosts": [],
+      "resolutions_seen": [
+        1080
+      ],
+      "status_counts": {
+        "200": 3
+      },
+      "supplemental_media": true,
+      "top_hosts": [
+        {
+          "count": 1,
+          "host": "demo.example"
+        },
+        {
+          "count": 1,
+          "host": "api.demo.example"
+        },
+        {
+          "count": 1,
+          "host": "cdn.demo.example"
+        }
+      ]
+    },
+    "notes": [
+      "This is a template seed, not a final template.",
+      "Review selectors manually and add tests before enabling automatically."
+    ],
+    "provenance": {
+      "renditions.network": "network_manifest",
+      "verdict": "classify(framework,protocol,protection)"
+    },
+    "recognition": {
+      "api_classes": {},
+      "candidates": [],
+      "concerns": [],
+      "config_seam": null,
+      "delivery": "unknown",
+      "flags": {
+        "ad_overlay": false,
+        "drm": false
+      },
+      "ll_hls": false,
+      "media_candidates": [
+        "https://cdn.demo.example/9/file_1080.mp4"
+      ],
+      "noise": {
+        "hosts": [],
+        "rejected": []
+      },
+      "notes": [],
+      "platform_hints": [],
+      "player_family": "unknown",
+      "policy": "normal",
+      "primary_protocol": "progressive",
+      "protection": {
+        "anti_bot": [],
+        "anti_bot_signals": {},
+        "captcha": [],
+        "cookie_names": [],
+        "drm": false,
+        "drm_license_hosts": [],
+        "drm_reasons": [],
+        "gating_cookie_names": [],
+        "header_preconditions": [],
+        "signing": {
+          "hosts": [],
+          "param_names": [],
+          "schemes": []
+        },
+        "token_refresh": []
+      },
+      "protocols": [
+        "progressive"
+      ],
+      "rejected_media": [],
+      "renditions": [
+        {
+          "bitrate": null,
+          "codec": null,
+          "container": "mp4",
+          "protocol": "progressive",
+          "resolution": 1080,
+          "url_shape": "https://cdn.demo.example/9/file_1080.mp4"
+        }
+      ],
+      "resumable": false,
+      "segments": {
+        "fmp4": 0,
+        "ts": 0
+      },
+      "tracks": {
+        "audio": [],
+        "captions": [],
+        "chapters": [],
+        "ssai": [],
+        "storyboard": []
+      },
+      "workflow_hints": []
+    },
+    "resolution_priority": [
+      1080
+    ],
+    "schema_version": "bulk_downloader.template_draft.v2",
+    "selectors": {
+      "download": {
+        "row_selectors": [
+          "[role=\"dialog\"] li[role=\"listitem\"]",
+          "[role=\"dialog\"] a[download]",
+          ".ant-modal li[role=\"listitem\"]",
+          ".ant-modal a[download]"
+        ],
+        "trigger": "button.dl",
+        "trigger_candidate": "button.dl"
+      }
+    },
+    "selectors_resolve": {
+      "checked": 2,
+      "resolved": 2,
+      "unresolved": []
+    },
+    "source": {
+      "captured_at": "2020-01-01T00:00:00Z",
+      "dom_log_count": 2,
+      "full_snapshot_labels": [],
+      "host": "demo.example",
+      "network_log_count": 3,
+      "origin": "",
+      "url_no_query": "https://demo.example/v/9"
+    },
+    "template_status": "draft_requires_review",
+    "verdict": {
+      "downloadable": true,
+      "reasons": [
+        "thin recovery — verify via runtime"
+      ],
+      "recommended_path": "pick_test_promote",
+      "requires_runtime_capture": true,
+      "site_type": "direct_progressive"
+    },
+    "workflow": {
+      "auth": "manual_or_existing_profile",
+      "capture_mode": "user_driven",
+      "derived_steps": [
+        "interact: download link (button.dl) -> req:2 manifest:0 seg:0 direct:1"
+      ],
+      "recommended_steps": [
+        "open page with existing authenticated profile",
+        "wait for player container",
+        "open quality menu if present",
+        "select highest allowed resolution if user requested",
+        "trigger site-provided download action when available",
+        "watch network for approved download-resolution API response or user-clicked document/video response"
+      ],
+      "source": "action_timeline",
+      "trigger_evidence": "operator click whose effect first produced media (action_timeline)",
+      "verify": {
+        "action_count": 1,
+        "checks": [
+          "download captured"
+        ],
+        "gap_count": 0,
+        "tier": "ready",
+        "warnings": []
+      }
+    }
+  },
+  "capture_ingest.normalize_capture": {
+    "capabilities": {
+      "has_headers": false,
+      "has_initiator": true,
+      "has_responses": true
+    },
+    "captured_at": "2020-01-01T00:00:00Z",
+    "goal_url": "https://cdn.demo.example/9/file_1080.mp4",
+    "host": "demo.example",
+    "n_requests": 3,
+    "requests": [
+      {
+        "has_request_headers": false,
+        "has_response_headers": false,
+        "initiator": null,
+        "iso": null,
+        "method": "GET",
+        "redaction_state": "present",
+        "response_status": 200,
+        "seq": 1,
+        "signing_markers": [
+          {
+            "location": "query",
+            "name": "token"
+          }
+        ],
+        "timestamp": 1,
+        "type": "document",
+        "url": "https://demo.example/v/9?token=<scrubbed>"
+      },
+      {
+        "has_request_headers": false,
+        "has_response_headers": false,
+        "initiator": null,
+        "iso": null,
+        "method": "GET",
+        "redaction_state": "present",
+        "response_status": 200,
+        "seq": 2,
+        "signing_markers": [
+          {
+            "location": "query",
+            "name": "sig"
+          }
+        ],
+        "timestamp": 1100,
+        "type": "xhr",
+        "url": "https://api.demo.example/v1/movie/9/download-resolution/1080?sig=<scrubbed>"
+      },
+      {
+        "has_request_headers": false,
+        "has_response_headers": false,
+        "initiator": null,
+        "iso": null,
+        "method": "GET",
+        "redaction_state": "none",
+        "response_status": 200,
+        "seq": 3,
+        "signing_markers": [],
+        "timestamp": 1200,
+        "type": "media",
+        "url": "https://cdn.demo.example/9/file_1080.mp4"
+      }
+    ],
+    "source_name": "synthetic",
+    "title": "t"
+  },
+  "workflow_diagnostic.load_capture": {
+    "capture_health": {
+      "arm_fail_streak": 0,
+      "dom_events_dropped": 0,
+      "dom_full_snapshots": 1,
+      "dom_integrity_ok": null,
+      "dom_log_count": null,
+      "dom_log_len": 2,
+      "network_error_count": 0,
+      "network_log_len": 3,
+      "rrweb_present": true
+    },
+    "captured_at": "2020-01-01T00:00:00Z",
+    "dom_log_len": 2,
+    "host": "demo.example",
+    "network_log_len": 3,
+    "redaction_profile": {
+      "custom_sensitive_headers": [
+        "instance"
+      ],
+      "dom_embedded_urls": "keep_structure",
+      "emails": "redact",
+      "forced_floor_scrub": 0,
+      "network_signed_urls": "keep_structure",
+      "reduced_redaction": false,
+      "schema": "v3.66.171"
+    },
+    "title": "t",
+    "url": "https://demo.example/v/9?token=<scrubbed>"
+  }
+}

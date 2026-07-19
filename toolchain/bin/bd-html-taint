@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""bd-html-taint -- track unsafe HTML into UI rendering sinks (XSS surface).
+
+Static (not full-dataflow) finder for HTML injection sinks across both the
+Python backend and the React/TS frontend:
+  - FE: innerHTML / outerHTML / insertAdjacentHTML / dangerouslySetInnerHTML
+  - PY: Markup(...), render_template_string, autoescape=False, |safe in
+        template strings, .to_html without a sanitizer nearby
+For each sink, checks a +/-4-line window for a sanitizer hint (DOMPurify,
+bleach, escape, sanitize_html, textContent). No hint -> BD-HTML-TAINT (high if
+the injected value looks non-literal, medium if literal). Advisory, read-only.
+
+Usage: bd-html-taint [--work DIR] [--json] [--only high] [--selftest]
+Exit 0 (advisory).
+"""
+import argparse
+import glob
+import os
+import re
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+PY_SINK = re.compile(
+    r'\bMarkup\s*\(|render_template_string\s*\(|autoescape\s*=\s*False'
+    r'|\.to_html\s*\(|\|\s*safe\b')
+FE_SINK = re.compile(
+    r'\.innerHTML\s*=|\.outerHTML\s*=|insertAdjacentHTML\s*\('
+    r'|dangerouslySetInnerHTML')
+SANITIZER = re.compile(
+    r'DOMPurify|\bbleach\b|sanitize_html|sanitizeHtml|escape\(|html\.escape'
+    r'|textContent|innerText|markupsafe\.escape|\bclean\(')
+LITERAL_ASSIGN = re.compile(r'=\s*["\'`][^"\'`]*["\'`]\s*;?\s*$|dangerouslySetInnerHTML=\{\{__html:\s*["\'`]')
+
+
+def scan(work):
+    findings = []
+    py = glob.glob(os.path.join(work, "bulk_downloader", "**", "*.py"), recursive=True)
+    fe = (glob.glob(os.path.join(work, "frontend", "src", "**", "*.tsx"), recursive=True)
+          + glob.glob(os.path.join(work, "frontend", "src", "**", "*.ts"), recursive=True))
+    for f in py + fe:
+        norm = f.replace("\\", "/")
+        if any(s in norm for s in ("node_modules", "__pycache__")):
+            continue
+        is_test = ".test." in norm or "/tests/" in norm or norm.endswith("_test.py")
+        try:
+            lines = open(f, errors="ignore").read().splitlines()
+        except Exception:  # why: this item is unreadable/unparseable; skip it, the loop continues over the rest
+            continue
+        sink_re = PY_SINK if f.endswith(".py") else FE_SINK
+        is_py = f.endswith(".py")
+        for i, line in enumerate(lines, 1):
+            # strip a trailing line comment so mentions in comments don't match
+            code = line
+            cmark = "#" if is_py else "//"
+            ci = code.find(cmark)
+            if ci >= 0 and code[:ci].count('"') % 2 == 0 and code[:ci].count("'") % 2 == 0:
+                code = code[:ci]
+            if not sink_re.search(code):
+                continue
+            win = "\n".join(lines[max(0, i - 5):i + 4])
+            if SANITIZER.search(win):
+                continue
+            literal = bool(LITERAL_ASSIGN.search(code))
+            sev = "low" if is_test else ("medium" if literal else "high")
+            findings.append(sec.finding(
+                "bd-html-taint", "BD-HTML-TAINT", sev,
+                os.path.relpath(f, work), i,
+                ("frontend" if f != f.replace(".ts", "") or f.endswith((".tsx", ".ts"))
+                 else "backend") + " HTML sink with no sanitizer in window",
+                literal=literal, is_test=is_test, snippet=line.strip()[:110]))
+    order = {"high": 0, "medium": 1, "low": 2}
+    findings.sort(key=lambda f: (order[f["severity"]], f["file"], f["line"]))
+    return findings
+
+
+def selftest():
+    ok = True
+    with tempfile.TemporaryDirectory() as d:
+        b = os.path.join(d, "bulk_downloader")
+        os.makedirs(b)
+        fe = os.path.join(d, "frontend", "src")
+        os.makedirs(fe)
+        # PY: unsanitized Markup (high, non-literal), sanitized (clean)
+        open(os.path.join(b, "render.py"), "w").write(
+            "from markupsafe import Markup\n"
+            "def r(user): return Markup(user)\n")
+        open(os.path.join(b, "safe.py"), "w").write(
+            "from markupsafe import Markup, escape\n"
+            "def r(user): return Markup(escape(user))\n")
+        # FE: unsanitized innerHTML (high), textContent (clean)
+        open(os.path.join(fe, "Bad.tsx"), "w").write(
+            "export function B(el, v){ el.innerHTML = v; }\n")
+        open(os.path.join(fe, "Ok.tsx"), "w").write(
+            "export function B(el, v){ el.textContent = v; el.innerHTML = ''; }\n")
+        f = scan(d)
+    flagged = sorted(os.path.basename(x["file"]) for x in f)
+    good = flagged == ["Bad.tsx", "render.py"]
+    print(("PASS" if good else "FAIL") +
+          f"  fixture: only unsanitized sinks flagged (got {flagged})")
+    ok &= good
+    a = scan(sec.DEFAULT_WORK)
+    b2 = scan(sec.DEFAULT_WORK)
+    det = [(x["file"], x["line"]) for x in a] == [(x["file"], x["line"]) for x in b2]
+    print(("PASS" if det else "FAIL") + f"  real-tree determinism ({len(a)} findings x2)")
+    ok &= det
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--only", choices=["high"], default=None)
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    sec.require_source_tree(a.work)
+    findings = scan(a.work)
+    if a.only == "high":
+        findings = [f for f in findings if f["severity"] == "high"]
+    hi = sum(1 for f in findings if f["severity"] == "high")
+    if sec.emit({"findings": findings, "summary": {"total": len(findings), "high": hi}},
+                as_json=a.json):
+        return 0
+    if not findings:
+        print(f"{G}no unsanitized HTML sinks found{RST}")
+        return 0
+    for f in findings[:50]:
+        sev = {"high": R + "HIGH  " + RST, "medium": Y + "MEDIUM" + RST,
+               "low": DIM + "low   " + RST}[f["severity"]]
+        print(f"  {sev} {f['file']}:{f['line']}  {DIM}{f['extra']['snippet']}{RST}")
+    print(f"{DIM}{len(findings)} HTML sink(s), {hi} high (non-literal, no sanitizer){RST}")
+    return 0
+
+
+sys.exit(main())

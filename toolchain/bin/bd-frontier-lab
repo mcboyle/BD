@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""bd-frontier-lab -- sandbox harness for experimental analyses.
+
+Runs an arbitrary read-only bd analysis tool against a COPY-ON-READ view of the
+tree, capturing its output + verifying it did NOT mutate the tree (compares a
+before/after content hash of the source dirs). A safe harness for trying
+experimental/frontier tools without risking app source. Refuses to run a tool
+that isn't a known bd-* read-only tool. Read-only by construction.
+
+Usage: bd-frontier-lab --run "bd-risk-graph --top 5" [--work DIR] [--json]
+       bd-frontier-lab --selftest
+Exit 1 if the tool mutated the tree, else 0.
+"""
+import argparse, hashlib, os, subprocess, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+
+def tree_hash(work):
+    h=hashlib.sha256()
+    files=[]
+    for root,_d,fs in os.walk(os.path.join(work,"bulk_downloader")):
+        for f in fs:
+            if f.endswith(".py"): files.append(os.path.join(root,f))
+    for p in sorted(files):
+        try: h.update(open(p,"rb").read())
+        # why: handled failure is non-fatal; proceed with the value left unset
+        except Exception: pass
+    return h.hexdigest()
+
+def run_lab(cmd, work):
+    parts=cmd.split()
+    tool=parts[0]
+    if not tool.startswith("bd-"):
+        return {"error":"only bd-* tools allowed in the lab"}
+    before=tree_hash(work)
+    exe=os.path.join(os.path.dirname(os.path.realpath(__file__)),tool)
+    if not os.path.exists(exe):
+        return {"error":"unknown tool "+tool}
+    try:
+        r=subprocess.run([sys.executable,exe]+parts[1:],capture_output=True,text=True,timeout=120)
+        out=r.stdout[-2000:]; rc=r.returncode
+    except Exception as e:
+        out=str(e); rc=-1
+    after=tree_hash(work)
+    return {"tool":tool,"exit":rc,"tree_unchanged":before==after,"output_tail":out}
+
+def selftest():
+    ok=True
+    r=run_lab("bd-risk-graph --top 3",sec.DEFAULT_WORK)
+    print(("PASS" if "error" not in r else "FAIL")+"  ran a frontier tool in the lab (exit=%s)"%r.get("exit"))
+    ok=ok and "error" not in r
+    print(("PASS" if r.get("tree_unchanged") else "FAIL")+"  tree unchanged after run (%s)"%r.get("tree_unchanged"))
+    ok=ok and r.get("tree_unchanged")
+    r2=run_lab("rm -rf /",sec.DEFAULT_WORK)
+    print(("PASS" if "error" in r2 else "FAIL")+"  non-bd command refused")
+    ok=ok and "error" in r2
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--run",default=None); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    sec.require_source_tree(a.work)
+    if not a.run: print(R+'--run "bd-tool args" required'+RST); return 1
+    r=run_lab(a.run,a.work)
+    if "error" in r: print(R+r["error"]+RST); return 1
+    if sec.emit(r,as_json=a.json): return 0 if r["tree_unchanged"] else 1
+    tag=(G+"tree unchanged"+RST) if r["tree_unchanged"] else (R+"TREE MUTATED"+RST)
+    print("frontier-lab ran %s (exit %s) -- %s"%(r["tool"],r["exit"],tag))
+    print(DIM+r["output_tail"][-500:]+RST)
+    return 0 if r["tree_unchanged"] else 1
+
+if __name__ == "__main__":
+    sys.exit(main())

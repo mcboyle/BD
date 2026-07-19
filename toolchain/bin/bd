@@ -1,0 +1,15 @@
+#!/bin/bash
+# bd -- run a command with the BulkDL sandbox env loaded.
+# Usage:
+#   bd <command> [args...]      # run a command
+#   bd                          # drop into a subshell with env loaded
+#   bd -c '<shell snippet>'     # run a shell snippet (like bash -c)
+. /home/claude/bdenv.sh
+if [ $# -eq 0 ]; then
+    exec bash -i
+elif [ "$1" = "-c" ]; then
+    shift
+    exec bash -c "$@"
+else
+    exec "$@"
+fi

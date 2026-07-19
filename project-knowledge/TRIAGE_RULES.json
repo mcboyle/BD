@@ -1,0 +1,88 @@
+{
+ "rules": [
+  {
+   "id": "TR-CAP-01-00",
+   "from_batch": "CAP-01",
+   "match": {
+    "file": "bulk_downloader/provenance.py",
+    "line_set": [
+     91
+    ],
+    "class": "sql_fstring"
+   },
+   "verdict": "FP",
+   "reason": "sys.stderr.write error-message f-string inside _ensure_table, attributed to the enclosing cx.execute context",
+   "triage_rule": "f-string in a sys.stderr.write/print/logging call is not a SQL sink even inside a function that also calls cx.execute"
+  },
+  {
+   "id": "TR-CAP-01-01",
+   "from_batch": "CAP-01",
+   "match": {
+    "file": "tools/capture_session.py",
+    "line_set": [
+     270
+    ],
+    "class": "sql_fstring"
+   },
+   "verdict": "FP",
+   "reason": "print() console banner f-string; module contains no SQL at all",
+   "triage_rule": "same as above"
+  },
+  {
+   "id": "TR-CAP-01-02",
+   "from_batch": "CAP-01",
+   "match": {
+    "file": "bulk_downloader/provenance.py",
+    "line_set": [
+     65,
+     66,
+     67,
+     68,
+     69,
+     70,
+     71,
+     72,
+     73,
+     74,
+     75,
+     76,
+     77,
+     78,
+     79,
+     80,
+     81,
+     82,
+     83,
+     84,
+     85,
+     86,
+     87,
+     88,
+     89,
+     90,
+     91,
+     92,
+     93,
+     94,
+     95,
+     96,
+     97,
+     98,
+     99,
+     177,
+     228,
+     251,
+     288
+    ],
+    "class": "sql_sites(12)"
+   },
+   "verdict": "FP-benign",
+   "reason": "static DDL + fully parameterized INSERT/SELECT + the safe dynamic-WHERE pattern (constant fragments, bound ? values)",
+   "triage_rule": "a sql_site whose only interpolation is constant string fragments with all values bound to ? params is parametrized=true (the scanner left parametrized=null)"
+  }
+ ],
+ "_meta": {
+  "generated": "2026-07-14T22:43:30+00:00",
+  "version_context": "v3.66.754"
+ }
+}

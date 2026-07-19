@@ -1,0 +1,359 @@
+{
+  "batch": "CAP-01",
+  "version": "3.66.532",
+  "version_note": "Audited source = live tree @3.66.532 (STATE.json live_version + REVIEW_STATE.generated_against both 3.66.532). The AUDIT_PLAN kickoff template hard-codes '_v3_66_531' because the plan was authored at 531; the source has since advanced to 532. Filename/version derived from STATE.json, not the template literal. See pipeline verdict P5.",
+  "subsystem": "CAP",
+  "rubric_legend": "ok = read, no defect | finding = defect emitted | na = category not applicable to this unit | residual = known/documented/accepted limitation (not a new finding)",
+  "files": [
+    {
+      "path": "bulk_downloader/capture_artifact_redact.py",
+      "sha256": "5ba4208bf2d779683a5101524e02f4789a8e8c317c4c1cdeaf36cd516e0d4853",
+      "lines": 511,
+      "rubric": {
+        "auth": "na",
+        "injection": "na",
+        "ssrf": "na",
+        "secret": "ok",
+        "error_contract": "ok",
+        "type_none": "ok",
+        "concurrency": "na",
+        "resource_lifecycle": "na",
+        "input_validation": "ok",
+        "dead_code": "ok"
+      },
+      "purpose": "Derivation-boundary secret redaction for capture-DERIVED artifacts (template drafts, review candidates, offline summaries) before they become durable. Content-driven (never key-name driven): email/JWT/signed-URL-query/userinfo/kv-secret/opaque-token detectors + a profile-aware capture scrub (redact_capture) and the build-gate proof scanner (scan_floor_secrets) that fails the WACZ export on any floor residual.",
+      "public_api": [
+        "redact_value",
+        "redact_artifact",
+        "scan_artifact_secrets",
+        "llm_residual_suspects",
+        "redact_capture",
+        "scan_floor_secrets"
+      ],
+      "invariants": [
+        "I0008"
+      ],
+      "data_flow": "derived-artifact/assembled-capture dict -> per-string content detectors -> redacted copy (PLACEHOLDER) ; scanner returns [(json_path, kind)] residuals (kinds never values). All detectors ReDoS-bounded ({m,n}); recursion depth-capped (_MAX_WALK_DEPTH=500, deep-DOM guard).",
+      "risk": 0.399,
+      "notes": "I0008 (KV keyword set derived from the SoT SENSITIVE_QS_KEY, minus signing-metadata, plus header-origin csrf/xsrf/bearer) is correctly implemented in _kv_key_is_secret (the VR-P03 fix). NON-JSON-LEAF FAIL-CLOSED: scan_artifact_secrets / scan_floor_secrets silently skip bytes/set leaves; this is acceptable here only because (a) inputs are JSON-derived structures and (b) the WACZ json.dumps boundary (wacz_export:160) raises TypeError on a non-JSON leaf -> export fail-closes, and the canonical bytes/set fail-closed fix lives upstream in capture_redact.scrub_globals (guarded by test_v3_66_529). INVARIANT-GRAPH NOTE: I0010's 'at' field points here but its fix+guard are in capture_redact.py (P6)."
+    },
+    {
+      "path": "bulk_downloader/capture_bodies.py",
+      "sha256": "2d8516468fc1313e83171a6c3a0bfe5e430f4b49e31b7ce4cb9e487f3b8d8969",
+      "lines": 274,
+      "rubric": {
+        "auth": "na",
+        "injection": "na",
+        "ssrf": "na",
+        "secret": "ok",
+        "error_contract": "ok",
+        "type_none": "ok",
+        "concurrency": "na",
+        "resource_lifecycle": "na",
+        "input_validation": "ok",
+        "dead_code": "residual"
+      },
+      "purpose": "Opt-in (BD_CAPTURE_BODIES, default OFF) response-body retention with a capture-TIME body redactor. Only text/*, JSON, and HLS/DASH manifest content types are ever stored; binary/stream bytes stay a length marker. Two-sided redaction (key-name SoT + value-shape jwt/long-token/signed-URL detectors) so a JWT under an innocent key is still masked.",
+      "public_api": [
+        "bodies_enabled",
+        "should_capture_body",
+        "redact_body",
+        "content_type_of"
+      ],
+      "invariants": [],
+      "data_flow": "response body + content-type -> eligibility gate (flag + type) -> JSON path: parse, _redact_json (depth<=8), re-serialize, size-capped ; text path: _redact_text token scrub, char-capped. Ineligible/oversize -> body_marker length marker.",
+      "risk": 0.221,
+      "guard_file": true,
+      "notes": "GUARD (2d851646), byte-identical to STATE pin. KNOWN RESIDUAL (documented in-module, NOT a new finding): DEFERRED-F2 path-signed manifest URI gap -- a PATH-signed segment URL or #EXT-X-KEY/#EXT-X-MAP URI in a retained HLS/DASH manifest is neither detector-flagged nor a floor secret and can survive; mitigation is the 'local-only, never circulate any WACZ built with BD_CAPTURE_BODIES=1 over streaming sites' stamp. Tracked for the STRUCTURE-mode hardening pass."
+    },
+    {
+      "path": "bulk_downloader/provenance.py",
+      "sha256": "f2ff464c1ceae1eb538b87985021153b880af6219282d75ca4a00c8e213059d9",
+      "lines": 285,
+      "rubric": {
+        "auth": "na",
+        "injection": "ok",
+        "ssrf": "na",
+        "secret": "ok",
+        "error_contract": "ok",
+        "type_none": "ok",
+        "concurrency": "ok",
+        "resource_lifecycle": "ok",
+        "input_validation": "ok",
+        "dead_code": "ok"
+      },
+      "purpose": "Append-only, tamper-evident provenance ledger (one immutable row per completed download) with a Merkle-like chain hash. Insert + query + O(n) chain verification; no update/delete API by policy.",
+      "public_api": [
+        "record",
+        "query",
+        "verify_chain",
+        "stats",
+        "compute_sha256"
+      ],
+      "invariants": [],
+      "data_flow": "download metadata -> _row_content_hash (sorted-key JSON) -> _chain_hash(prev||content) -> parameterized INSERT. query() builds a dynamic WHERE by appending only CONSTANT ' AND col = ?' fragments with every value bound as a ? param.",
+      "risk": 0.201,
+      "notes": "INJECTION CLEAR: the 12 'sql_sites' flagged by the graph are the safe parameterized dynamic-WHERE pattern (constant fragments, bound values) -- no user input is ever concatenated into SQL text. :91 'sql_fstring' is a FALSE POSITIVE (a sys.stderr.write error-message f-string inside _ensure_table, attributed to the enclosing cx.execute context). DDL is static IF NOT EXISTS. Fail-open on every DB op is documented/intended (losing audit data < failing a download); verify_chain is the tamper-evident backstop."
+    },
+    {
+      "path": "bulk_downloader/wacz_export.py",
+      "sha256": "5a5729195727cf1f2199497a3fb3a0bb9ee62b952ec19b9a733ba65057e9b42f",
+      "lines": 211,
+      "rubric": {
+        "auth": "na",
+        "injection": "na",
+        "ssrf": "na",
+        "secret": "ok",
+        "error_contract": "ok",
+        "type_none": "ok",
+        "concurrency": "na",
+        "resource_lifecycle": "ok",
+        "input_validation": "ok",
+        "dead_code": "ok"
+      },
+      "purpose": "WACZ 1.1.1-shaped ZIP packager (stdlib zipfile+hashlib, no third-party dep). Runs a defense-in-depth profile-aware export-boundary scrub, stamps the active redaction profile + a value-free capture-health block, and FAILS CLOSED (WaczRedactionError, carrying kinds-not-values) if any floor secret would reach capture.json.",
+      "public_api": [
+        "build_wacz_bytes",
+        "write_wacz",
+        "verify_wacz_bytes",
+        "WaczRedactionError"
+      ],
+      "invariants": [],
+      "data_flow": "capture dict -> redact_capture(copy) -> scan_floor_secrets -> [residual? -> _force_scrub_floor + re-scan -> still residual? RAISE] -> json.dumps -> STORED zip with per-resource sha256 digests + datapackage-digest.",
+      "risk": 0.186,
+      "notes": "FAIL-CLOSED floor: the force-scrub-then-re-scan-then-raise path is the strict floor guarantee. The json.dumps(capture) at :160 is the serialization backstop that fail-closes on a bytes/set leaf (TypeError aborts export) -- this is what backstops the artifact-scanner non-JSON-leaf gap noted on capture_artifact_redact. path_sink :202 = open(out_path,'wb') with a caller-controlled export destination (no web taint)."
+    },
+    {
+      "path": "bulk_downloader/dom_capture.py",
+      "sha256": "0559903d0b15916295c2c7f991b7dd02900e096ea485cd078e3f2bd6dcf04879",
+      "lines": 341,
+      "rubric": {
+        "auth": "na",
+        "injection": "na",
+        "ssrf": "na",
+        "secret": "ok",
+        "error_contract": "na",
+        "type_none": "ok",
+        "concurrency": "na",
+        "resource_lifecycle": "na",
+        "input_validation": "ok",
+        "dead_code": "residual"
+      },
+      "purpose": "SessionCapture + rrweb-style DOM/behavioral event stream with capture-time PII redaction. block/mask CSS classes (bd-*/rr-*), Wave-2 F2 input-value masking (hidden + token-shaped values via capture_artifact_redact._value_findings), storage snapshot/delta value-dropping, frame_path lineage, bounded chunking.",
+      "public_api": [
+        "DomCapture",
+        "redact_dom_node",
+        "should_capture_body",
+        "CaptureChunker"
+      ],
+      "invariants": [],
+      "data_flow": "rrweb event -> _redact_event_data -> redact_dom_node (recurses childNodes; block drops subtree, mask truncates text/value to '*'*min(len,8)) ; storage maps -> every VALUE -> PLACEHOLDER (keys kept as structure), sink-side.",
+      "risk": 0.174,
+      "guard_file": true,
+      "notes": "GUARD (0559903d), byte-identical. KNOWN RESIDUALS (documented, NOT new findings): (1) record_dom_snapshot raster PNG can contain visible PII as pixels (class redaction does not apply to images) -- opt-in, caller-gated, never auto-taken on a logged-in capture; the rrweb event log remains the redacted textual source. (2) mask reveals length up to 8 chars ('*'*min(len,8)) -- deliberate rrweb-style 'something existed' marker, value content gone."
+    },
+    {
+      "path": "bulk_downloader/session_capture.py",
+      "sha256": "547d70c95cde93779e161540df59a4f59f926c4c86865ff9b3a6b61bb74680be",
+      "lines": 665,
+      "rubric": {
+        "auth": "na",
+        "injection": "na",
+        "ssrf": "na",
+        "secret": "ok",
+        "error_contract": "ok",
+        "type_none": "ok",
+        "concurrency": "ok",
+        "resource_lifecycle": "na",
+        "input_validation": "ok",
+        "dead_code": "ok"
+      },
+      "purpose": "A-T1 capture core: accumulates a bd-recon-format network_log + cookies + WebSocket records with capture-TIME credential redaction default-ON (via active_redactor). CDP event mapping (feed_cdp_event), capture diff, and the detector-gated challenge driver (passive self-clear + manual handoff, never solving).",
+      "public_api": [
+        "SessionCapture",
+        "feed_cdp_event",
+        "capture_via_cdp",
+        "diff_captures",
+        "drive_challenge_handling",
+        "handle_challenge_on_page"
+      ],
+      "invariants": [],
+      "data_flow": "CDP Network.* -> join by requestId -> record_network: url/headers/bodies through active_redactor BEFORE storage. cookies -> placeholder. request bodies -> always length-marker (POST creds never retained). WS frames -> metadata-only by default; opt-in payload scrubbed + len-capped + frame-count-capped.",
+      "risk": 0.141,
+      "guard_file": true,
+      "notes": "GUARD (547d70c9), byte-identical. Redaction posture exemplary. _UNREDACTED stamp (to_capture_dict) fires loud ONLY for a dev pass-through redactor (unredacted=True) -- inert in release. CHALLENGE HANDLING is automation-policy-clean: detection-only between waits, site's own challenge self-clears on the normal page-load wait, explicit HUMAN handoff ('Never solve') with a redacted evidence bundle when the passive budget elapses; resume stays gated on operator_complete()+can_resume(). Per-instance _pending/_ws state (no cross-capture shared mutation)."
+    },
+    {
+      "path": "tools/capture_session.py",
+      "sha256": "27be68b9656893175d5c99e02f83cb101af94b35b97dbbe8597b4fe319941b15",
+      "lines": 992,
+      "rubric": {
+        "auth": "na",
+        "injection": "ok",
+        "ssrf": "na",
+        "secret": "ok",
+        "error_contract": "ok",
+        "type_none": "ok",
+        "concurrency": "na",
+        "resource_lifecycle": "ok",
+        "input_validation": "ok",
+        "dead_code": "ok"
+      },
+      "purpose": "CLI live-capture driver (cockpit/noVNC path): headed browser launch, recorder attach (session+DOM), non-interactive sentinel-file finish (touch FINISH/CANCEL), navigation/challenge recovery, query-stripped per-title page-URL memory, and WACZ write + digest verify.",
+      "public_api": [
+        "run",
+        "parse args via _build_parser"
+      ],
+      "invariants": [],
+      "data_flow": "argv -> headed browser -> attach recorders -> drive noVNC session / poll sentinel -> capture.to_capture_dict -> write_wacz -> verify_wacz_bytes. url-memory: title -> _strip_query(page_url) atomic .tmp+os.replace.",
+      "risk": 0.142,
+      "guard_file": true,
+      "notes": "GUARD (27be68b9), byte-identical. NO SQL in this module: :270 'sql_fstring' is a FALSE POSITIVE (a print() banner f-string 'Capturing {start_url}...'). path_sinks 175/189/1093 = url-memory open()/atomic-write + WACZ verify read-back -- all operator/CLI-controlled paths (the capture out dir), values query-stripped, no web taint. raw_mode capture is loudly labelled. No eval/exec/subprocess."
+    },
+    {
+      "path": "bulk_downloader/dom_recorder.py",
+      "sha256": "1657d0a0e39917ae26ba7aa1629ff3d2672efea84e9a881ec090c292f1cddce5",
+      "lines": 384,
+      "rubric": {
+        "auth": "na",
+        "injection": "ok",
+        "ssrf": "na",
+        "secret": "ok",
+        "error_contract": "ok",
+        "type_none": "ok",
+        "concurrency": "ok",
+        "resource_lifecycle": "ok",
+        "input_validation": "ok",
+        "dead_code": "ok"
+      },
+      "purpose": "Browser-side DOM capture wiring: injects the vendored rrweb + snapdom bundles via add_script_tag AFTER load, starts rrweb.record with the project PII-redaction classes + maskAllInputs, buffers events in-page, and drains them to DomCapture over page.evaluate. No-CDN guarantee.",
+      "public_api": [
+        "recorder_script",
+        "rrweb_to_record_kwargs",
+        "arm_dom_recorder",
+        "drain_dom_events",
+        "snapshot_dom",
+        "get_status",
+        "using_local_assets"
+      ],
+      "invariants": [],
+      "data_flow": "vendored static JS -> add_script_tag -> rrweb.record(maskAllInputs:true, recordCanvas:false, collectFonts:false) -> window.__bd_dom_buf (200k cap, drop-counted) -> page.evaluate(static _DRAIN_JS) -> rrweb_to_record_kwargs -> record_dom_event.",
+      "risk": 0.02,
+      "guard_file": true,
+      "notes": "GUARD (1657d0a0), byte-identical. INJECTION CLEAR: all injected JS is vendored static; every page.evaluate uses a static string (no untrusted interpolation). The ';' ASI separator in recorder_script() is load-bearing (guarded by test_dom_recorder_asi -- one of the 5 ASI checks, distinct from the 7 release guards). Bounded buffer/snapshot, drop-counted, arm-fail-streak surfaced. Module-global diagnostic counters (_ARM_FAIL_STREAK/_DOM_DROPPED_TOTAL) are process-globals -- fine for the single-threaded capture flow (low-sev observation)."
+    },
+    {
+      "path": "bulk_downloader/live_recorder.py",
+      "sha256": "561a20b7c4f8931fdfcf4df7f7db953e6f69eed656cfad8fea650211fe5f0bcb",
+      "lines": 772,
+      "rubric": {
+        "auth": "na",
+        "injection": "ok",
+        "ssrf": "finding",
+        "secret": "na",
+        "error_contract": "ok",
+        "type_none": "ok",
+        "concurrency": "ok",
+        "resource_lifecycle": "ok",
+        "input_validation": "ok",
+        "dead_code": "ok"
+      },
+      "purpose": "Live cam-stream recorder: parse_live_url host-matches known cam sites, watch() arms a Recording, a scheduler probes liveness (streamlink --json) and spawns streamlink/ffmpeg to record to disk, with disk-pressure gating, a max-active cap, dedupe, and SIGTERM->SIGKILL teardown. State persisted to recordings.json.",
+      "public_api": [
+        "watch",
+        "unwatch",
+        "parse_live_url",
+        "list_recordings",
+        "get_recording",
+        "start_scheduler",
+        "stop_scheduler",
+        "init"
+      ],
+      "invariants": [
+        "I-CAP01-rec-url-shape (NEW, UNGUARDED candidate)"
+      ],
+      "data_flow": "url -> watch(): parse_live_url host-allowlist (SKIPPED when site_override+room_override both given) + UNCONDITIONAL ^https?://...$ shape check -> Recording(url=...). scheduler -> _is_room_live(rec.url) [streamlink --json LIST-form] -> _build_cmd(rec.url) [streamlink/ffmpeg LIST-form, re-validates ^https?://] -> Popen(shell=False).",
+      "risk": 0.059,
+      "notes": "Both subprocess sites are LIST-form shell=False (682 streamlink --json, 744 Popen(cmd)) -> no shell injection. Argument injection is closed: rec.url is entry-validated ^https?://...$ at BOTH population paths (watch():435 AND _load_state() rehydration -- both added by a prior audit v3.43.62, with explicit 'recordings.json is user-writable, do not trust' reasoning), so rec.url can never be read as a -flag. room slug allowlisted (_looks_like_safe_room). See finding F-CAP01-01 for the SSRF residual on the override path."
+    }
+  ],
+  "findings": [
+    {
+      "id": "F-CAP01-01",
+      "file": "bulk_downloader/live_recorder.py",
+      "line_range": [
+        421,
+        438
+      ],
+      "category": "ssrf",
+      "severity": "medium",
+      "confidence": "confirmed-at-boundary",
+      "title": "watch() site_override+room_override path bypasses the cam-site HOST allowlist (validates URL shape only) -> streamlink/ffmpeg will fetch any http(s) host",
+      "detail": "On the normal path, parse_live_url restricts the URL host to known cam sites via _SITE_PATTERNS. When BOTH site_override and room_override are supplied, parse_live_url is SKIPPED (line 421) and the only remaining gate is the ^https?://[A-Za-z0-9.\\-/_?=&%:]+$ SHAPE check (435). A shape-valid but arbitrary-host URL (e.g. http://169.254.169.254/latest/meta-data/, http://localhost:5555/..., a private-range host) is then stored as rec.url and handed to streamlink (_is_room_live: 'streamlink --json <url>') and to ffmpeg/streamlink in _build_cmd -> the server fetches an operator-attacker-chosen internal URL. This is classic SSRF surface. It is NOT shell/argument injection (list-form, shape-validated leading scheme), so the graph's mechanical scanner (shell=false) reported the subprocess as safe and missed it. [WITNESS W6 CONFIRMED at the live_recorder boundary: watch(site_override,room_override) accepts a link-local metadata IP. Capability proven; only cross-batch route reachability remains to set final severity.]",
+      "fix": "On the override path, still constrain the URL host: require parse_live_url to recognize the host (reject overrides for an unknown host), OR add an explicit SSRF guard (reject private/loopback/link-local/metadata IPs via ipaddress.is_global, mirroring I0003's provider_resolve classifier) before storing rec.url. Apply the same host check in both watch() and _load_state().",
+      "repro_test": "tests/test_live_recorder_ssrf_override_host.py::test_override_rejects_non_cam_host (TO WRITE in the serial fix-cut; RED on pristine 532)",
+      "source": "manual",
+      "reachability_note": "Reachability + true severity depend on the APP-layer route that calls watch(): (a) is it behind the operator auth gate, and (b) are site_override/room_override exposed to that caller? That wiring is in the APP batch (app_*.py), not CAP-01. Recorded as TRIAGE pending the cross-batch route audit; do not fix in isolation until reachability is confirmed.",
+      "witness": "witnesses/cap01_witnesses.py::W6 (watch() override path returned ok=True for http://169.254.169.254/latest/meta-data/, host not in parse_live_url allowlist)"
+    }
+  ],
+  "false_positive_confirmations": [
+    {
+      "at": "bulk_downloader/provenance.py:91",
+      "scanner_class": "sql_fstring",
+      "verdict": "FP",
+      "reason": "sys.stderr.write error-message f-string inside _ensure_table, attributed to the enclosing cx.execute context",
+      "triage_rule": "f-string in a sys.stderr.write/print/logging call is not a SQL sink even inside a function that also calls cx.execute"
+    },
+    {
+      "at": "tools/capture_session.py:270",
+      "scanner_class": "sql_fstring",
+      "verdict": "FP",
+      "reason": "print() console banner f-string; module contains no SQL at all",
+      "triage_rule": "same as above"
+    },
+    {
+      "at": "bulk_downloader/provenance.py:65-99,177,228,251,288",
+      "scanner_class": "sql_sites(12)",
+      "verdict": "FP-benign",
+      "reason": "static DDL + fully parameterized INSERT/SELECT + the safe dynamic-WHERE pattern (constant fragments, bound ? values)",
+      "triage_rule": "a sql_site whose only interpolation is constant string fragments with all values bound to ? params is parametrized=true (the scanner left parametrized=null)"
+    }
+  ],
+  "new_invariants": [
+    {
+      "id": "I-CAP01-rec-url-shape",
+      "statement": "Any url stored in a live_recorder Recording must be entry-validated to ^https?://...$ before it can reach a subprocess argv. Both population paths (watch() and _load_state() rehydration) must enforce it; _is_room_live relies on this invariant rather than re-validating.",
+      "at": "bulk_downloader/live_recorder.py",
+      "status": "UNGUARDED",
+      "guard_test": null,
+      "promote_note": "Currently enforced by convention at watch():435 and _load_state():(rehydration re-check). UNGUARDED until a serial fix-cut adds a RED guard asserting BOTH paths reject a non-^https?:// url and that no Recording with a bad url reaches _build_cmd/_is_room_live. Pairs with the F-CAP01-01 host-allowlist fix (extend the same guard to assert host constraint).",
+      "witness": "witnesses/cap01_witnesses.py::W5+W6 (shape gate + override-host repro)"
+    }
+  ],
+  "new_patterns": [
+    {
+      "id": "DP-CAP01-cand-1",
+      "rule": "list-form subprocess (shell=False) is NOT sufficient to clear a URL/path argv element: also require the value to be shape-validated so it cannot be read as an option (argument injection) AND host-constrained if it triggers a network fetch (SSRF). Flag a subprocess argv element that is a request-derived URL whose host is not allowlisted.",
+      "signature": "subprocess.run/Popen([...]) with shell=False where an argv element is a URL var that reaches the network and whose host validation is bypassable",
+      "status": "candidate",
+      "note": "Refinement of the existing subprocess detector: shell=false currently scores the site safe, which is why F-CAP01-01 was a manual-only catch. Promote to defect_patterns after confirming on the F-CAP01-01 repro."
+    }
+  ],
+  "audited_files": 9,
+  "audited_lines_sloc": 3935,
+  "findings_confirmed": 0,
+  "findings_probable": 0,
+  "findings_triage": 0,
+  "positive_assurances": 9,
+  "guards_verified_byte_identical": 5,
+  "guard_touch": false,
+  "tracker_write": false,
+  "tree_reverified_byte_identical": true,
+  "battery_used": [
+    "manual line-by-line (primary)",
+    "graph pre-digest (RISK/SECURITY_SURFACE/TAINT_MAP/REVIEW_STATE/INVARIANTS)",
+    "bandit/vulture/radon available in ~/rev (cross-check)"
+  ],
+  "findings_confirmed_at_boundary": 1
+}

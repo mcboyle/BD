@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+"""bd-fuzz-pathguard -- fuzz the REAL path-confinement guard (backup._is_safe_path).
+
+Loads the app's actual _is_safe_path(base, candidate) and hammers it with a
+battery of traversal payloads (.., encoded .., absolute paths, symlink targets,
+Windows drive letters, UNC, unicode dot lookalikes, long names, null bytes,
+double-encoding). Asserts:
+  - every ESCAPE payload is REJECTED (returns False / raises) -- a survivor is
+    BD-PATHGUARD-ESCAPE (high: confinement bypass)
+  - every legitimate INSIDE path is ACCEPTED (no false-positive over-blocking)
+Uses a real temp base dir with a real symlink. Read-only w.r.t. the tree.
+
+Usage: bd-fuzz-pathguard [--work DIR] [--json] [--selftest]
+Exit 1 if any escape survives, else 0.
+"""
+import argparse
+import importlib.util
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+# (candidate, should_be_inside)
+ESCAPES = [
+    "../etc/passwd", "../../etc/passwd", "../../../../../../etc/passwd",
+    "..\\..\\windows\\system32", "foo/../../bar", "./../../x",
+    "/etc/passwd", "/root/.ssh/id_rsa", "C:\\Windows\\System32",
+    "\\\\server\\share\\x", "foo/./../../out", "....//....//etc",
+    "%2e%2e/%2e%2e/etc", "..%2f..%2fetc", "\x00/etc/passwd",
+    "a" * 300 + "/../../etc", "foo/\u002e\u002e/\u002e\u002e/etc",
+]
+INSIDE = ["file.txt", "sub/file.txt", "a/b/c/d.json", "./ok.txt", "deep/nested/ok"]
+
+
+def load_guard(work):
+    p = os.path.join(work, "bulk_downloader", "backup.py")
+    if not os.path.exists(p):
+        return None, "bulk_downloader/backup.py not found"
+    try:
+        import types
+        pkg = types.ModuleType("bulk_downloader")
+        pkg.__path__ = [os.path.join(work, "bulk_downloader")]
+        sys.modules.setdefault("bulk_downloader", pkg)
+        for extra in (work, "/tmp/prestaged_site_packages"):
+            if extra not in sys.path:
+                sys.path.insert(0, extra)
+        spec = importlib.util.spec_from_file_location("bulk_downloader.backup", p)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["bulk_downloader.backup"] = mod
+        spec.loader.exec_module(mod)
+        return getattr(mod, "_is_safe_path", None), None
+    except Exception as e:
+        return None, f"import failed: {e}"
+
+
+def _reference_inside(base, cand):
+    """Ground truth: does (base/cand) actually resolve inside base on THIS host?
+    Uses realpath + commonpath -- independent of the guard's implementation."""
+    try:
+        b = os.path.realpath(str(base))
+        c = os.path.realpath(os.path.join(str(base), str(cand)))
+        return os.path.commonpath([b, c]) == b
+    # why: input unavailable/unreadable; return the safe default (False) rather than a value derived from a failed read
+    except Exception:
+        return False  # unresolvable -> treat as unsafe
+
+
+def fuzz(work):
+    guard, err = load_guard(work)
+    if not guard:
+        return {"error": err, "escapes_survived": [], "false_blocks": [], "tested": 0}
+    escapes_survived, false_blocks = [], []
+    tested = 0
+    with tempfile.TemporaryDirectory() as d:
+        base = Path(d) / "base"
+        base.mkdir()
+        (base / "sub").mkdir()
+        outside = Path(d) / "outside_secret"
+        outside.write_text("x")
+        payloads = list(ESCAPES) + list(INSIDE)
+        try:
+            os.symlink(outside, base / "link_out")
+            payloads.append("link_out")  # symlink escaping base
+        except OSError:
+            pass
+        for cand in payloads:
+            tested += 1
+            ref_inside = _reference_inside(base, cand)
+            try:
+                res = guard(base, Path(cand)) is True
+            except Exception:  # why: operation failed; degrade to the default and continue -- correctness unaffected, only completeness
+                res = False  # a raise is a safe rejection
+            # DANGEROUS: guard says safe but it actually escapes base
+            if res and not ref_inside:
+                escapes_survived.append(cand)
+            # over-block: guard rejects a genuinely-inside path
+            if not res and ref_inside:
+                false_blocks.append(cand)
+    return {"error": None, "escapes_survived": escapes_survived,
+            "false_blocks": false_blocks, "tested": tested}
+
+
+def selftest():
+    ok = True
+    res = fuzz(sec.DEFAULT_WORK)
+    loaded = res["error"] is None
+    print(("PASS" if loaded else "FAIL") +
+          f"  real _is_safe_path loads + fuzzed ({res['tested']} payloads, err={res['error']})")
+    ok &= loaded
+    if loaded:
+        no_escape = res["escapes_survived"] == []
+        print(("PASS" if no_escape else "FAIL") +
+              f"  no traversal escape survives ({len(res['escapes_survived'])} survived: "
+              f"{res['escapes_survived'][:3]})")
+        ok &= no_escape
+        no_fp = res["false_blocks"] == []
+        print(("PASS" if no_fp else "WARN") +
+              f"  no legitimate inside-path over-blocked ({res['false_blocks']})")
+        # false-blocks are a usability warning, not a security failure
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    sec.require_source_tree(a.work)
+    res = fuzz(a.work)
+    if sec.emit(res, as_json=a.json):
+        return 1 if res["escapes_survived"] else 0
+    if res["error"]:
+        print(f"{R}guard not loadable{RST}: {res['error']}")
+        return 1
+    if res["escapes_survived"]:
+        print(f"{R}CONFINEMENT BYPASS -- {len(res['escapes_survived'])} escape(s) survived:{RST}")
+        for e in res["escapes_survived"]:
+            print(f"  {R}BD-PATHGUARD-ESCAPE{RST} {DIM}{e!r}{RST}")
+    else:
+        print(f"{G}_is_safe_path rejected all {len([e for e in res])} traversal payloads{RST}")
+    if res["false_blocks"]:
+        print(f"{Y}over-blocked legitimate paths: {res['false_blocks']}{RST}")
+    print(f"{DIM}{res['tested']} payloads fuzzed{RST}")
+    return 1 if res["escapes_survived"] else 0
+
+
+sys.exit(main())

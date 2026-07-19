@@ -1,0 +1,23 @@
+{
+ "contracts": [
+  {
+   "id": "CT-rec-url-shape",
+   "file": "bulk_downloader/live_recorder.py",
+   "symbol": "rec.url",
+   "guard_signature": "\\^https\\?://",
+   "producers": [
+    "watch",
+    "_load_state"
+   ],
+   "consumers_relying": [
+    "_is_room_live",
+    "_build_cmd"
+   ],
+   "note": "Every path that SETS rec.url (watch entry, recordings.json rehydration) must shape-validate it; _is_room_live consumes it WITHOUT re-validating and relies on this. From CAP-01 finding F-CAP01-01 + invariant I-CAP01-rec-url-shape."
+  }
+ ],
+ "_meta": {
+  "generated": "2026-07-14T22:43:30+00:00",
+  "version_context": "v3.66.754"
+ }
+}

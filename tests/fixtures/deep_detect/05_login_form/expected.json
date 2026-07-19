@@ -1,0 +1,122 @@
+{
+  "best_login": {
+    "action": "/api/auth/login",
+    "bot_defenses": [],
+    "confidence": 100,
+    "confidence_calibrated": 0.7346,
+    "do_not_auto_submit": false,
+    "has_password": true,
+    "has_username_or_email": true,
+    "honeypot_fields": [],
+    "login_types": [
+      "form_password"
+    ],
+    "method": "POST",
+    "raw_score": 115,
+    "reasons": [
+      "visible password input (+50)",
+      "visible username/email input (+25)",
+      "form method=POST (+10)",
+      "form action contains login term (+20)",
+      "login vocabulary in form text (+10)"
+    ],
+    "safe_fields": {
+      "email": "email",
+      "password": "password"
+    },
+    "submit_selector": "button[type='submit']",
+    "warnings": []
+  },
+  "blockers": {
+    "blocked": false,
+    "bot_defense_systems": [],
+    "bot_defenses": [],
+    "captchas": [],
+    "do_not_auto_submit": false,
+    "do_not_download": false,
+    "drm_or_encryption": false,
+    "drm_systems": [],
+    "duplicate_fields": 0,
+    "fingerprinting": [],
+    "honeypot_count": 0,
+    "warnings": []
+  },
+  "buckets": {
+    "accepted": [],
+    "best": null,
+    "counts": {
+      "accepted": 0,
+      "rejected": 1,
+      "warnings": 0
+    },
+    "rejected": [
+      {
+        "reasons": [
+          "empty/anchor href"
+        ],
+        "score": -100,
+        "source_type": null,
+        "url": null
+      }
+    ],
+    "rejected_raw": [
+      {
+        "bonuses": [],
+        "penalties": [
+          [
+            "empty/anchor href",
+            -100
+          ]
+        ],
+        "reasons": [
+          "empty/anchor href"
+        ],
+        "rejected": true,
+        "score": -100,
+        "url": null
+      }
+    ],
+    "warnings": []
+  },
+  "csp": null,
+  "disclaimers": [],
+  "login_candidates": [
+    {
+      "action": "/api/auth/login",
+      "bot_defenses": [],
+      "confidence": 100,
+      "confidence_calibrated": 0.7346,
+      "do_not_auto_submit": false,
+      "has_password": true,
+      "has_username_or_email": true,
+      "honeypot_fields": [],
+      "login_types": [
+        "form_password"
+      ],
+      "method": "POST",
+      "raw_score": 115,
+      "reasons": [
+        "visible password input (+50)",
+        "visible username/email input (+25)",
+        "form method=POST (+10)",
+        "form action contains login term (+20)",
+        "login vocabulary in form text (+10)"
+      ],
+      "safe_fields": {
+        "email": "email",
+        "password": "password"
+      },
+      "submit_selector": "button[type='submit']",
+      "warnings": []
+    }
+  ],
+  "manifests": {
+    "dash": null,
+    "hls": null,
+    "smooth": null
+  },
+  "provider_embeds": [],
+  "provider_resolutions": [],
+  "source_breakdown": {},
+  "workflow_required": null
+}

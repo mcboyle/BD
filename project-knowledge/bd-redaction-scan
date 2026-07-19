@@ -1,0 +1,118 @@
+#!/usr/bin/env python3
+"""bd-redaction-scan -- find ad-hoc redaction logic across output surfaces.
+
+Complements bd-secret-floor (which proves the canonical redactor is the floor):
+this enumerates every place that redacts secret-ish material (redact/secret/
+token/auth/csrf/cookie/signature) and classifies whether it delegates to the
+canonical helper or rolls its own. Covers logs, exports, reports, and clipboard
+sinks. Rule BD-REDACT-ADHOC (medium). Advisory, read-only, deterministic.
+
+Usage: bd-redaction-scan [--work DIR] [--canonical sym] [--json] [--selftest]
+Exit 0 (advisory).
+"""
+import argparse
+import os
+import re
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+# a redaction *operation*: a string transform keyed on secret vocabulary
+REDACT_OP = re.compile(
+    r'(re\.sub|\.replace|mask|redact|scrub|sanitize|\*{3,}|xxx|REDACTED)', re.I)
+SECRET_VOCAB = re.compile(
+    r'(?i)\b(secret|token|api[_-]?key|auth|csrf|cookie|signature|sig|password|bearer|expires)\b')
+SURFACE = re.compile(r'(?i)(log|export|report|clipboard|pyperclip|\.md|\.csv|dump|jsonify|print)')
+
+
+def scan(work, canonical=None):
+    canon = canonical or _detect_canonical(work)
+    canon_re = re.compile(r'\b' + re.escape(canon) + r'\b') if canon else None
+    findings = []
+    for _p, rel, txt in sec.iter_py(work, strict=True, label="--work/--tree"):
+        for i, line in enumerate(txt.splitlines(), 1):
+            if not (REDACT_OP.search(line) and SECRET_VOCAB.search(line)):
+                continue
+            if canon_re and canon_re.search(line):
+                continue  # delegates to canonical -> fine
+            # only count it as redaction if the op is a *transform*, not a mere
+            # mention (require replace/sub/mask/mask-literal on the same line)
+            if not re.search(r're\.sub|\.replace|mask|\*{3,}|REDACTED|xxx', line, re.I):
+                continue
+            surface = bool(SURFACE.search(txt))
+            findings.append(sec.finding(
+                "bd-redaction-scan", "BD-REDACT-ADHOC", "medium", rel, i,
+                "ad-hoc secret redaction not delegating to canonical"
+                + (f" '{canon}'" if canon else ""),
+                on_output_surface=surface, snippet=line.strip()[:110]))
+    findings.sort(key=lambda f: (not f["extra"]["on_output_surface"], f["file"], f["line"]))
+    return canon, findings
+
+
+def _detect_canonical(work):
+    counts = {}
+    for _p, _rel, txt in sec.iter_py(work):
+        for line in re.findall(r'^\s*(?:from\s+[\w.]+\s+import\s+.*|import\s+[\w.]+.*)$', txt, re.M):
+            for sym in re.findall(r'\b(redact|scrub|sanitize)\w*\b', line):
+                counts[sym] = counts.get(sym, 0) + 1
+    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[0][0] if counts else None
+
+
+def selftest():
+    ok = True
+    canon_mod = ('from bulk_downloader.redact import scrub\n'
+                 'def a(t): return scrub(t)  # token=... canonical\n')
+    adhoc_mod = ('import re\n'
+                 'def a(t): return re.sub(r"token=\\S+", "token=***", t)\n')
+    mention = ('def a(t):\n    # token handling, no redaction here\n    return t\n')
+    with tempfile.TemporaryDirectory() as d:
+        b = os.path.join(d, "bulk_downloader")
+        os.makedirs(b)
+        open(os.path.join(b, "canon.py"), "w").write(canon_mod)
+        open(os.path.join(b, "adhoc.py"), "w").write(adhoc_mod)
+        open(os.path.join(b, "mention.py"), "w").write(mention)
+        canon, f = scan(d, canonical="scrub")
+    files = sorted(os.path.basename(x["file"]) for x in f)
+    good = files == ["adhoc.py"]
+    print(("PASS" if good else "FAIL") + f"  fixture: only adhoc.py flagged (got {files})")
+    ok &= good
+    a = scan(sec.DEFAULT_WORK)[1]
+    b2 = scan(sec.DEFAULT_WORK)[1]
+    det = [(x["file"], x["line"]) for x in a] == [(x["file"], x["line"]) for x in b2]
+    print(("PASS" if det else "FAIL") + f"  real-tree determinism ({len(a)} findings x2)")
+    ok &= det
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
+    ap.add_argument("--canonical", default=None)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    canon, findings = scan(a.work, a.canonical)
+    onsurf = sum(1 for f in findings if f["extra"]["on_output_surface"])
+    if sec.emit({"canonical": canon, "findings": findings,
+                 "summary": {"total": len(findings), "on_output_surface": onsurf}},
+                as_json=a.json):
+        return 0
+    print(f"canonical redactor: {G}{canon or '(none)'}{RST}")
+    if not findings:
+        print(f"{G}no ad-hoc redaction logic found{RST}")
+        return 0
+    for f in findings[:40]:
+        s = Y + "[surface]" + RST if f["extra"]["on_output_surface"] else DIM + "[internal]" + RST
+        print(f"  {s} {f['file']}:{f['line']}  {DIM}{f['extra']['snippet']}{RST}")
+    print(f"{DIM}{len(findings)} ad-hoc redactor(s), {onsurf} on an output surface{RST}")
+    return 0
+
+
+sys.exit(main())

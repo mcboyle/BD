@@ -1,0 +1,5 @@
+{
+  "description": "HLS master playlist with two variants (720p, 1080p). Tests the HLS parser path and variant ranking.",
+  "base_url": "https://cdn.example.test/stream/master.m3u8",
+  "prefer_resolution": "highest"
+}

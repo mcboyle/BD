@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+"""bd-evidence-pack -- package validation evidence for a release.
+
+Emits a manifest of the validation evidence: the commands an operator ran (or
+should run), the version pins (from STATE), the guard shas, the artifact
+evidence chain root (via bd-evidence-chain), and the trust score. This is the
+"here's the proof this release works" bundle -- distinct from bd-review-pack
+(reviewer diff view) and bd-release-attestation (pass/fail gate). Read-only.
+
+Usage: bd-evidence-pack [--home DIR] [--work DIR] [--json] [--selftest]
+Exit 0 evidence pack composed / 2 CANNOT-EVALUATE (absent inputs or a
+composed dependency reported nothing -- a pack assembled around a hole
+is not evidence).
+"""
+import argparse, os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+
+def _tool_json(tool, *args):
+    """Delegates to sec.tool_json (ONE implementation, with an error channel).
+
+    I-3: this was `except Exception: return None`, and callers wrote `... or {}`.
+    A TIMED-OUT dependency was indistinguishable from one reporting nothing, and
+    a crashed sub-tool silently zeroed whatever it fed. This pack is EVIDENCE; a
+    pack assembled around a hole, that does not mention the hole, is not evidence.
+    """
+    data, err = sec.tool_json(tool, *args)
+    if err:
+        sys.stderr.write("CANNOT-EVALUATE: reason=DEP_FAILED (%s)\n" % err)
+        sys.exit(sec.EXIT_CANNOT_EVALUATE)
+    return data
+
+VALIDATION_COMMANDS=[
+    "python3 tools/verify_release.py --zip <release.zip>   # gate on $?",
+    "capture.sh --workers=180   # binding full-suite gate (on stash)",
+    "bd-invariant-engine   # guard/version/tree/egress/route invariants",
+]
+def build(home, work):
+    st=sec.load_state(home) or {}
+    chain=_tool_json("bd-evidence-chain","--home",home) or {}
+    trust=_tool_json("bd-trust-score","--work",work,"--home",home) or {}
+    guards=st.get("guards_full_sha256",{})
+    return {"version":st.get("built_version") or st.get("live_version"),
+            "validation_commands":VALIDATION_COMMANDS,
+            "validation_line":st.get("validation"),
+            "guard_count":len(guards),
+            "chain_root":chain.get("chain_root"),
+            "artifact_count":len(chain.get("artifacts",[])),
+            "trust_score":trust.get("score")}
+
+def _expect_version():
+    """The version the SOURCE TREE declares about itself.
+
+    Deliberately a DIFFERENT route than the one under test (which reads the
+    STATE pin), so this stays a cross-check and not x==x. Refuses rather than
+    comparing None to None -- an absent comparand is CANNOT-EVALUATE, not a pass.
+    """
+    v = sec.detect_tree_version(sec.DEFAULT_WORK)
+    if not v:
+        sys.stderr.write("CANNOT-EVALUATE selftest: reason=ABSENT "
+                         "(work tree declares no __version__)\n")
+        sys.exit(2)
+    return v
+
+
+def selftest():
+    ok=True
+    ep=build("/home/claude", sec.DEFAULT_WORK)
+    want=_expect_version()
+    print(("PASS" if ep.get("version")==want else "FAIL")+"  evidence pack built (v=%s, want %s)"%(ep.get("version"),want))
+    ok=ok and ep.get("version")==want
+    print(("PASS" if ep.get("guard_count")==7 else "FAIL")+"  7 guards (%s)"%ep.get("guard_count"))
+    ok=ok and ep.get("guard_count")==7
+    print(("PASS" if ep.get("chain_root") and ep.get("artifact_count") else "FAIL")+"  chain root + %s artifacts"%ep.get("artifact_count"))
+    ok=ok and bool(ep.get("chain_root"))
+    # verdict-seam controls (I-6)
+    rcs=(_verdict_rc({"trust_score":100,"guard_count":7}),
+         _verdict_rc({"trust_score":None,"guard_count":7}))
+    print(("PASS" if rcs==(0,2) else "FAIL")+
+          "  NEG: dep-hole -> CANNOT-EVALUATE(2) (got %s)"%(rcs,))
+    ok=ok and rcs==(0,2)
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def _verdict_rc(ep):
+    """0 = pack composed; 2 = a composed dependency reported nothing."""
+    if ep.get("trust_score") is None or ep.get("guard_count") is None:
+        sys.stderr.write("CANNOT-EVALUATE evidence pack: reason=DEP_FAILED "
+                         "(composed dependency reported nothing)\n")
+        return 2
+    return 0
+
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--home",default="/home/claude"); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    sec.require_source_tree(a.work)
+    sec.require_bundle(a.home)
+    ep=build(a.home,a.work)
+    if sec.emit(ep,as_json=a.json): return _verdict_rc(ep)
+    print("=== Evidence pack: v%s ==="%ep["version"])
+    print("guards: %s | chain artifacts: %s | trust: %s/100"%(ep["guard_count"],ep["artifact_count"],ep["trust_score"]))
+    print("validation commands:")
+    for c in ep["validation_commands"]: print("  $ "+c)
+    return _verdict_rc(ep)
+sys.exit(main())

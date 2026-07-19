@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+"""bd-precut -- predict + GATE a release cut before you bump/build.
+
+Three checks, each delegating to the authoritative source (no re-derived models):
+  1. precut_check.py     -- version/pin consistency, changed-file surface, guards.
+  2. in-sync GENERATORS  -- runs the actual in-sync gate tests (they regenerate the
+                            derived doc in-process and diff vs source). This catches
+                            a FUNCTION_INDEX/ROUTE_INDEX/etc that is stale vs source
+                            -- the class the old file-diff prediction MISSED (F-03).
+  3. bd-envscan (v2)     -- the exact env_vars that would fail the env-tranche gate
+                            (delegates to config_surface_inventory). Catches the
+                            BD_-literal trap (F-01) the old flow shipped at v3.66.699.
+
+Usage:
+  bd-precut [--baseline ZIP] [--root DIR] [--json]        # advisory (exit 0)
+  bd-precut --gate [...]                                  # BLOCKING: exit != 0 if any
+                                                          #   real problem -> gate a cut:
+                                                          #   bd-precut --gate && bd-cut ...
+  bd-precut --no-insync / --no-envscan                   # skip a check
+"""
+import argparse, glob, os, re, subprocess, sys, tempfile
+
+IN_SYNC = [
+    "tests/test_function_index_in_sync.py",
+    "tests/test_dependency_graph_in_sync.py",
+    "tests/test_import_graph_no_new_edges.py",
+    "tests/test_route_index_in_sync.py",
+    "tests/test_endpoint_catalog_in_sync.py",
+    "tests/test_pin_index_in_sync.py",
+    "tests/test_route_map_invariant.py",
+]
+
+
+def _version(name):
+    m = re.search(r"v?(\d+)[._](\d+)[._](\d+)", os.path.basename(name))
+    return tuple(int(x) for x in m.groups()) if m else (0, 0, 0)
+
+
+def _auto_baseline():
+    pats = ["/mnt/user-data/uploads/BulkDownloader_v*.zip",
+            "/home/claude/out/BulkDownloader_v*.zip",
+            "/home/claude/BulkDownloader_v*.zip"]
+    found = []
+    for p in pats:
+        found += glob.glob(p)
+    found = [f for f in found if "overlay" not in os.path.basename(f).lower()]
+    return max(found, key=_version) if found else None
+
+
+def _auto_root():
+    for c in ("/home/claude/work", os.getcwd()):
+        if os.path.isdir(os.path.join(c, "bulk_downloader")):
+            return c
+    return os.getcwd()
+
+
+def _run_insync(root):
+    """Run the in-sync gate tests (authoritative staleness check). Returns
+    (ok, detail). Degrades to (None, reason) if the harness can't run."""
+    rt = os.path.join(root, "run_tests.py")
+    if not os.path.isfile(rt):
+        return None, "run_tests.py not found"
+    present = [t for t in IN_SYNC if os.path.isfile(os.path.join(root, t))]
+    if not present:
+        return None, "no in-sync test files found"
+    env = dict(os.environ)
+    env["BD_HOME"] = tempfile.mkdtemp()
+    env["BD_DISABLE_KEEPALIVE"] = "1"
+    env["PYTHONPATH"] = "/tmp/prestaged_site_packages"
+    try:
+        r = subprocess.run([sys.executable, "run_tests.py"] + present,
+                           cwd=root, env=env, capture_output=True, text=True, timeout=180)
+    except Exception as e:
+        return None, f"harness error: {e}"
+    out = r.stdout + r.stderr
+    m = re.search(r"Failed:\s*(\d+)", out)
+    failed = int(m.group(1)) if m else (0 if r.returncode == 0 else 1)
+    fails = re.findall(r"FAIL\s+(\S+)", out)
+    return (failed == 0), (fails[:8] if failed else "all in-sync gates green")
+
+
+def _run_envscan(root):
+    """Run bd-envscan (v2). Returns (ok, open_env_vars)."""
+    exe = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-envscan")
+    try:
+        r = subprocess.run([sys.executable, exe, "--tree", root, "--json"],
+                           capture_output=True, text=True, timeout=120)
+        import json
+        d = json.loads(r.stdout) if r.stdout.strip().startswith("{") else {}
+        ev = d.get("open_env_vars", [])
+        return (not ev), ev
+    except Exception as e:
+        return None, f"envscan error: {e}"
+
+
+def selftest():
+    """DELEGATE: wraps bd-coretest. Asserts the target file is present in the tool's own
+    bin dir -- if not, FAIL (a wrapper that cannot find what it wraps is broken;
+    a selftest that cannot verify must not report success)."""
+    import os as _o
+    here = _o.path.dirname(_o.path.realpath(__file__))
+    found = _o.path.isfile(_o.path.join(here, "bd-coretest"))
+    print(("PASS" if found else "FAIL") + "  delegation target present: bd-coretest")
+    print("SELFTEST PASS" if found else "SELFTEST FAIL")
+    return 0 if found else 1
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="bd-precut")
+    ap.add_argument("--baseline")
+    ap.add_argument("--root")
+    ap.add_argument("--gate", action="store_true", help="exit != 0 on any real problem")
+    ap.add_argument("--no-insync", action="store_true")
+    ap.add_argument("--no-envscan", action="store_true")
+    ap.add_argument("--no-coretest", action="store_true",
+                    help="skip the tool-integrity check (bd-coretest, ~12s)")
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest",action="store_true")
+    a = ap.parse_args(argv)
+    if a.selftest:
+        return selftest()
+
+    root = a.root or _auto_root()
+    baseline = a.baseline or _auto_baseline()
+    print(f"== bd-precut{' --gate' if a.gate else ''} :: root={root}")
+    if baseline:
+        print(f"               baseline={os.path.basename(baseline)}\n")
+
+    blocking = []
+
+    # 1. precut_check (version/pin/surface)
+    tool = os.path.join(root, "tools", "precut_check.py")
+    if os.path.isfile(tool) and baseline:
+        rc = subprocess.run([sys.executable, tool, "--baseline", baseline,
+                             "--root", root], timeout=900).returncode
+        if rc != 0:
+            blocking.append("precut_check (version/pin/surface)")
+    else:
+        print("  [precut_check skipped -- no tool or baseline]\n")
+
+    # 2. executable footgun registry (env-tranche F-01 + in-sync F-03 + route-map +
+    #    import-edge + endpoint + pin + guard-sha) -- the single source of truth,
+    #    so no lesson is forgotten and nothing is double-run.
+    fge = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-footguns")
+    if os.path.isfile(fge):
+        rc = subprocess.run([sys.executable, fge, "--check", "--tree", root], timeout=900).returncode
+        if rc == 3:
+            blocking.append("footgun violation(s) -- see bd-footguns output above")
+    else:
+        print("  [bd-footguns not found -- footgun registry SKIPPED]")
+
+    # 3. metric ratchets (Plan A2/F1): a cut must not regress a pinned metric
+    #    (unwired operator endpoints, defect DP total, ...). Delegates to bd-ratchet.
+    rex = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-ratchet")
+    if os.path.isfile(rex):
+        import subprocess as _sp
+        rc = _sp.run([sys.executable, rex, "--check", "--tree", root], timeout=900).returncode
+        if rc == 3:
+            blocking.append("metric ratchet regressed -- see bd-ratchet output above")
+
+    # 4. TOOL INTEGRITY (702): the gates above are only as trustworthy as the
+    #    tools that run them. bd-coretest fault-injects the release-gating
+    #    mutators (bd-cut/bd-bump/bd-regen/bd-guardcheck/bd-handoff/bd-pack/...)
+    #    and asserts each CATCHES an injected fault. It existed but NOTHING RAN IT
+    #    -- a check that never runs is prose, not a gate (the whole thesis of the
+    #    footgun registry). This program has already been bitten: bd-band-derive
+    #    once shipped a near-constant band (a false-GREEN class bug) caught only by
+    #    manual diffing. ~12s against a ~32s gate: cheap insurance that the tool
+    #    about to cut a release is not itself broken.
+    ct = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-coretest")
+    if os.path.isfile(ct) and not a.no_coretest:
+        import subprocess as _sp
+        cp = _sp.run([sys.executable, ct], capture_output=True, text=True, timeout=900)
+        tail = [ln for ln in cp.stdout.splitlines() if "CORE TOOLS PASSING" in ln]
+        print("  [tool integrity] " + (tail[0].strip() if tail else
+                                       "bd-coretest rc=%d" % cp.returncode))
+        if cp.returncode != 0:
+            blocking.append("core tool integrity FAILED -- a release-gating tool "
+                            "does not catch an injected fault (bd-coretest)")
+    elif a.no_coretest:
+        print("  [tool integrity] SKIPPED (--no-coretest)")
+    else:
+        print("  [bd-coretest not found -- tool integrity SKIPPED]")
+
+    print()
+    if blocking:
+        print("RESULT: NOT CUT-READY -- " + "; ".join(blocking))
+        return 3 if a.gate else 0   # only BLOCK (non-zero) in --gate mode
+    print("RESULT: cut-ready (version/pin/surface OK, derived docs in sync, "
+          "no env trap, gating tools have teeth)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

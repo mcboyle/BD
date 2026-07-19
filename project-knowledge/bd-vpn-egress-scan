@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""bd-vpn-egress-scan -- find egress paths that ignore vpn_required (fail-open risk).
+
+Static scan for outbound-egress sites (fetch calls, subprocess launches that
+reach the network, browser launch/context) that do NOT route through the
+vpn/proxy selection or the vpn_required fail-closed check. A control-plane
+fetch/probe/subprocess with no proxy argument and no vpn_runtime reference in
+the function is BD-VPN-BYPASS (egress may leak on the clear interface for a
+vpn_required site). Reuses the taint engine's sink model + the fetch inventory.
+Advisory, read-only.
+
+Usage: bd-vpn-egress-scan [--work DIR] [--json] [--only bypass] [--selftest]
+Exit 0 (advisory).
+"""
+import argparse
+import ast
+import os
+import re
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+EGRESS = re.compile(
+    r'\b(requests\.(?:get|post|head|put)|httpx\.(?:get|post|head|Client|AsyncClient)'
+    r'|urlopen|\.fetch\(|http_probe|deep_detect|\.goto\(|new_context\(|\.launch\()')
+VPN_AWARE = re.compile(
+    r'vpn_runtime|vpn_required|get_socks_url|effective_download_proxy|proxy_url'
+    r'|proxies\s*=|proxy\s*=|VPNRequiredError|_download_proxy|socks')
+# functions that are clearly control-plane / probes (higher risk if they leak)
+CONTROL_PLANE = re.compile(r'probe|health|check|ping|version|update|telemetry|manifest')
+
+
+def scan(work):
+    findings = []
+    egress_fns = 0
+    for _p, rel, txt in sec.iter_py(work, strict=True, label="--work/--tree"):
+        if not EGRESS.search(txt):
+            continue
+        try:
+            tree = ast.parse(txt)
+        except SyntaxError:
+            continue
+        lines = txt.splitlines()
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            seg = "\n".join(lines[node.lineno - 1:
+                                  getattr(node, "end_lineno", node.lineno + 40)])
+            if not EGRESS.search(seg):
+                continue
+            egress_fns += 1
+            if VPN_AWARE.search(seg):
+                continue  # function references proxy/vpn selection -> covered
+            control = bool(CONTROL_PLANE.search(node.name))
+            findings.append(sec.finding(
+                "bd-vpn-egress-scan", "BD-VPN-BYPASS",
+                "high" if control else "medium", rel, node.lineno,
+                f"egress in {node.name}() with no vpn/proxy reference",
+                function=node.name, control_plane=control))
+    findings.sort(key=lambda f: (not f["extra"]["control_plane"], f["file"], f["line"]))
+    return findings, egress_fns
+
+
+def selftest():
+    ok = True
+    code = ('import requests\n'
+            'def probe_health(url):\n'
+            '    return requests.get(url)\n'                 # bypass, control-plane
+            'def guarded(url):\n'
+            '    from . import vpn_runtime\n'
+            '    p = vpn_runtime.get_socks_url_for_site("s")\n'
+            '    return requests.get(url, proxies={"https": p})\n'  # covered
+            'def nonet():\n'
+            '    return 1 + 1\n')                            # no egress
+    with tempfile.TemporaryDirectory() as d:
+        b = os.path.join(d, "bulk_downloader")
+        os.makedirs(b)
+        open(os.path.join(b, "m.py"), "w").write(code)
+        f, n = scan(d)
+    fns = sorted(x["extra"]["function"] for x in f)
+    good = fns == ["probe_health"] and any(x["extra"]["control_plane"] for x in f)
+    print(("PASS" if good else "FAIL") +
+          f"  fixture: only unguarded probe flagged as control-plane ({fns})")
+    ok &= good
+    a = scan(sec.DEFAULT_WORK)[0]
+    b2 = scan(sec.DEFAULT_WORK)[0]
+    det = [(x["file"], x["line"]) for x in a] == [(x["file"], x["line"]) for x in b2]
+    print(("PASS" if det else "FAIL") + f"  real-tree determinism ({len(a)} findings x2)")
+    ok &= det
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--only", choices=["bypass"], default=None)
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    findings, egress_fns = scan(a.work)
+    control = sum(1 for f in findings if f["extra"]["control_plane"])
+    if sec.emit({"findings": findings, "summary": {
+            "egress_functions": egress_fns, "bypass": len(findings),
+            "control_plane_bypass": control}}, as_json=a.json):
+        return 0
+    print(f"egress functions: {egress_fns}; {len(findings)} with no vpn/proxy reference")
+    for f in findings[:40]:
+        sev = (R if f["extra"]["control_plane"] else Y) + \
+            ("control-plane" if f["extra"]["control_plane"] else "egress       ") + RST
+        print(f"  {sev} {f['file']}:{f['extra']['function']} (L{f['line']})")
+    print(f"{DIM}{len(findings)} possible vpn_required bypass(es), {control} control-plane{RST}")
+    return 0
+
+
+sys.exit(main())

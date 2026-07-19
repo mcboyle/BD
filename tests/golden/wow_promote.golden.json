@@ -1,0 +1,94 @@
+{
+  "api_base_candidate": null,
+  "confidence": "high",
+  "evidence_counts": {
+    "dom_log_count": 1,
+    "network_log_count": 421
+  },
+  "host": "auth.wowgirls.com",
+  "match": {
+    "hosts": [
+      "auth.wowgirls.com"
+    ],
+    "url_patterns": [
+      "^https://auth\\.wowgirls\\.com/"
+    ]
+  },
+  "media_hosts": [
+    "content-video2.wowgirls.com",
+    "ssl.p.jwpcdn.com"
+  ],
+  "network_patterns": [
+    ".../x{resolution}_{variant}.mp4",
+    ".../{download}.mp4"
+  ],
+  "normalized_from": "bulk_downloader.template_draft.v2",
+  "observed_api_hosts": [],
+  "rejected_patterns": [],
+  "resolutions": [
+    4320,
+    2160,
+    540,
+    480,
+    360,
+    240
+  ],
+  "review_notes": [
+    "Normalized from a rich WACZ-builder draft into the runtime reviewed shape.",
+    "Add the concrete api{base, paths} and modal-scoped row_selectors during review.",
+    "download.trigger is a click target (may open a modal), not a final row.",
+    "Never auto-enabled; promote explicitly after review."
+  ],
+  "safety_notes": [
+    "Do not bypass Cloudflare, CAPTCHA, Turnstile, DRM, or paywalls.",
+    "Do not save short-lived signed media URLs from captures.",
+    "Do not persist cookies, tokens, Authorization headers, or query strings.",
+    "Use this only with user-authorized sessions and site-provided playback/download flows.",
+    "Ignore captcha/turnstile selectors when generating login templates."
+  ],
+  "schema": "bulk_downloader.template.review_candidate.v1",
+  "selectors": {
+    "download": {
+      "trigger": "a[download]"
+    },
+    "login": {
+      "email": "input#user-email",
+      "password": "input[name=\"password\"]",
+      "submit": "button[type=\"submit\"]"
+    },
+    "player": {
+      "container": "video",
+      "fullscreen": "[aria-label*=\"fullscreen\" i]",
+      "play_button": "[aria-label*=\"play\" i]"
+    }
+  },
+  "source": {
+    "captured_at": "2026-06-13T18:11:30.647794+00:00",
+    "dom_log_count": 1,
+    "full_snapshot_labels": [
+      null
+    ],
+    "host": "auth.wowgirls.com",
+    "network_log_count": 421,
+    "origin": "https://auth.wowgirls.com",
+    "url_no_query": "https://auth.wowgirls.com"
+  },
+  "source_capture": "<volatile>",
+  "status": "review_ready",
+  "warnings": [
+    "dropped row selector (not modal-scoped or unsafe): span.ca-applied",
+    "dropped row selector (not modal-scoped or unsafe): span.format",
+    "dropped row selector (not modal-scoped or unsafe): span.title",
+    "dropped row selector (not modal-scoped or unsafe): a.ct_dl_button",
+    "no modal-scoped row selectors derived — add them during manual review (the download trigger only opens the modal)"
+  ],
+  "workflow": {
+    "derived_steps": [
+      "render: initial DOM snapshot",
+      "network: download-resolution / manifest response observed"
+    ],
+    "source": "dom_log",
+    "trigger_candidate": null,
+    "trigger_evidence": null
+  }
+}

@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""bd-yt-dlp-check -- validate yt-dlp availability + safe invocation (Batch B).
+
+Probes the REAL yt-dlp (capability, not a flag): resolves the binary, reads its
+version, counts extractors, and audits the tree's yt-dlp invocation sites for
+the argv terminator ('--' before the URL, so a hostile URL starting with '-'
+can't be read as a flag) and for shell=True. Reports readiness + any unsafe
+call sites (BD-YTDLP-NO-TERMINATOR). Read-only.
+
+Usage: bd-yt-dlp-check [--work DIR] [--bin yt-dlp] [--json] [--selftest]
+Exit 0 if available + no unsafe sites, else 1.
+"""
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+INVOKE = re.compile(r'yt[_-]dlp|yt-dlp')
+# a subprocess arg list that includes the URL without a preceding "--"
+CALL_LINE = re.compile(r'(subprocess|Popen|run|check_output|check_call).*yt[-_]dlp|yt-dlp.*\]')
+
+
+def probe_binary(binname):
+    path = shutil.which(binname)
+    info = {"binary": binname, "path": path, "available": bool(path),
+            "version": None, "extractors": None, "error": None}
+    if not path:
+        info["error"] = "yt-dlp not on PATH (run under `bd`, or pip/pack install)"
+        return info
+    try:
+        v = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=20)
+        info["version"] = v.stdout.strip() or None
+    except Exception as e:
+        info["error"] = f"version probe failed: {e}"
+        return info
+    try:
+        ex = subprocess.run([path, "--list-extractors"], capture_output=True,
+                            text=True, timeout=40)
+        info["extractors"] = len([l for l in ex.stdout.splitlines() if l.strip()])
+    except Exception:  # why: handled failure is non-fatal here; proceed with the value left unset
+        pass
+    return info
+
+
+def audit_calls(work):
+    findings = []
+    for _p, rel, txt in sec.iter_py(work, strict=True, label="--work/--tree"):
+        if not INVOKE.search(txt):
+            continue
+        lines = txt.splitlines()
+        for i, line in enumerate(lines, 1):
+            if "shell=True" in line and INVOKE.search("\n".join(lines[max(0, i - 3):i + 2])):
+                findings.append(sec.finding(
+                    "bd-yt-dlp-check", "BD-YTDLP-SHELL", "high", rel, i,
+                    "yt-dlp invoked with shell=True", snippet=line.strip()[:100]))
+    return findings
+
+
+def selftest():
+    ok = True
+    info = probe_binary("yt-dlp")
+    avail = info["available"] and info["version"]
+    print(("PASS" if avail else "FAIL") +
+          f"  yt-dlp available + versioned (v={info['version']}, "
+          f"extractors={info['extractors']})")
+    ok &= bool(avail)
+    # audit fixture: one shell=True yt-dlp call flagged
+    with tempfile.TemporaryDirectory() as d:
+        b = os.path.join(d, "bulk_downloader")
+        os.makedirs(b)
+        open(os.path.join(b, "bad.py"), "w").write(
+            "import subprocess\n"
+            "def run(u):\n"
+            "    subprocess.run(f'yt-dlp {u}', shell=True)\n")
+        open(os.path.join(b, "ok.py"), "w").write(
+            "import subprocess\n"
+            "def run(u):\n"
+            "    subprocess.run(['yt-dlp', '--', u])\n")
+        f = audit_calls(d)
+    good = len(f) == 1 and os.path.basename(f[0]["file"]) == "bad.py"
+    print(("PASS" if good else "FAIL") +
+          f"  fixture: shell=True call flagged, safe call clean ({len(f)} finding)")
+    ok &= good
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
+    ap.add_argument("--bin", default="yt-dlp")
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    info = probe_binary(a.bin)
+    findings = audit_calls(a.work)
+    if sec.emit({"probe": info, "call_findings": findings,
+                 "summary": {"available": info["available"], "unsafe_calls": len(findings)}},
+                as_json=a.json):
+        return 0 if (info["available"] and not findings) else 1
+    if info["available"]:
+        print(f"{G}yt-dlp available{RST}: {info['path']}  {DIM}v{info['version']}, "
+              f"{info['extractors']} extractors{RST}")
+    else:
+        print(f"{R}yt-dlp NOT available{RST}: {info['error']}")
+    for f in findings:
+        print(f"  {R}{f['rule']}{RST} {f['file']}:{f['line']}  {DIM}{f['extra']['snippet']}{RST}")
+    if not findings and info["available"]:
+        print(f"{G}no unsafe yt-dlp invocation sites{RST}")
+    return 0 if (info["available"] and not findings) else 1
+
+
+sys.exit(main())

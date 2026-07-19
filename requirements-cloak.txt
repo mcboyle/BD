@@ -1,0 +1,50 @@
+# Bulk Downloader — CloakBrowser stealth backend (OPTIONAL, posture-sensitive)
+#
+# Install (online package index):  pip install -U -r requirements-cloak.txt
+#   (equivalently:                  pip install -U "cloakbrowser[geoip]")
+#
+# Install (OFFLINE / air-gapped):   install_linux.sh tries local wheelhouses
+#   before the index, so neither this file nor the index is required when one
+#   of these is present:
+#     * vendored wheels in the tree:  pip install --no-index --find-links wheels/ "cloakbrowser[geoip]"
+#     * bd_cloak combined offline pack (a complete wheelhouse — cloakbrowser +
+#       httpx + playwright + geoip extras):
+#         pip install --no-index --find-links <pack>/pip-wheels "cloakbrowser[geoip]"
+#       (point install_linux.sh at it via BD_CLOAK_PACK=<dir>, or drop the pack
+#        at ./bd_cloak_combined_offline_pack or ~/bd_cloak_combined_offline_pack;
+#        the pack also ships its own install_offline.sh for a full restore that
+#        additionally pulls the build-time npm layer + caches we do NOT need.)
+#
+# Stealth Chromium binary:          python -m cloakbrowser install
+# Verify:                           python -m cloakbrowser info
+#                                   python -c "import cloakbrowser; print(cloakbrowser.__file__)"
+#
+# Why this is a separate file (not requirements.txt / -optional.txt):
+#   * cloakbrowser is the stealth browser backend selected by
+#     bulk_downloader/cloak.py (resolve_backend() -> cloakbrowser when it is
+#     importable, else the Playwright fallback). Keeping it in its own file
+#     makes the posture-sensitive backend explicit and auditable.
+#   * It also keeps the per-line, non-fatal optional-install loop in
+#     install_linux.sh from installing it twice — the installer has a
+#     dedicated CloakBrowser step that reads THIS file, then provisions the
+#     browser binary and runs an availability check.
+#   * If this dependency is absent, every browser flow (capture / login /
+#     runner / keepalive) falls back to Playwright. The dedicated installer
+#     step is therefore NON-FATAL by design.
+#
+# cloakbrowser 0.3.31 requires only httpx + playwright (both already core
+# runtime deps in requirements.txt). It drives the same Chromium that
+# `playwright install chromium` provides — there is NO separate browser
+# engine and NO npm layer to install for the Python backend. The [geoip]
+# extra ships optional geo data; cloak.py never forces geoip as a launch
+# option (the installer must not add launch args / fingerprint flags).
+#
+# NOT here, on purpose: rrweb / snapdom. Those are vendored JavaScript under
+# bulk_downloader/vendor/{rrweb,snapdom} and loaded from disk by
+# bulk_downloader/dom_recorder.py. They are not pip or npm runtime installs.
+# v3.66.539: floor raised 0.3.31 -> 0.4.5. The verified backend on the live box is
+# cloakbrowser 0.4.5 driving stealth Chromium 146.0.7680.177.5 (resolve_backend()=
+# cloakbrowser; STATE.json records "cloakbrowser Chromium 146 installed"). 0.3.31
+# predates that binary channel. Still a floor (not a hard pin): the offline pack
+# and a live index install both satisfy it, and a newer 0.4.x is allowed.
+cloakbrowser[geoip]>=0.4.5

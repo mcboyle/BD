@@ -1,0 +1,439 @@
+#!/usr/bin/env python3
+"""bd-deep-capture -- exhaustive GUI capture: every page, subtab, toggle, modal.
+
+capture_gui.py shoots a hand-list of surfaces once each. That answers "does the
+page render". It does not answer "what does the operator actually SEE", because
+most of BD's surface is one click deep and invisible to a URL walk:
+
+  * COCKPIT VIEWS are client-side (`<a data-p="...">` in cockpit_console.py).
+    A URL walk of /cockpit finds 13 pages; there are 44 views. This tool drives
+    them by data-p key -- the source of truth -- not by scraping link text.
+  * SUBTABS are aria-pressed segmented controls (13 files), not role=tab (1).
+    A crawler keyed on standard tab ARIA captures nothing and reports success.
+  * SUBTAB STATE IS IN THE URL. Queue's All/Running/Waiting is useUrlState ->
+    ?status=running. A naive "did we navigate away?" guard that compares the
+    FULL url discards every one of them. Compare the PATHNAME.
+  * DISCLOSURES hide toggles. Sections are expanded (aria-expanded, [hidden])
+    until the DOM stops changing, so every control is in the frame.
+
+Safety: a destructive-label denylist guards the MODAL prospecting pass (it
+clicks buttons to find dialogs). It is deliberately NOT applied to navigation --
+that mistake silently dropped the cockpit's "Rollback" VIEW from a sweep.
+
+Boots its own backend (start_new_session -> guaranteed teardown), seeds a site,
+forces the theme before first paint, and shoots full_page. Chunk with
+--start/--count to fit an exec window.
+
+WHEN: to produce a visual baseline before/after any FE change; to prove a
+surface exists; to hand a human the whole GUI without a browser.
+
+Verify a sweep is COMPLETE with:  bd-gui-surface --captured <dir> --gate
+
+--selftest. --json. ASCII. Writes only under --out.
+"""
+import argparse
+import json
+import os
+import re
+import signal
+import socket
+import subprocess
+import sys
+import time
+import urllib.request
+
+G, R, Y, DIM, BOLD, RST = ("\033[32m", "\033[31m", "\033[33m",
+                           "\033[2m", "\033[1m", "\033[0m")
+DEFAULT_WORK = "/home/claude/work"
+SERVE = "/home/claude/render_kit/spa_serve.py"
+
+# Never click these while PROSPECTING FOR MODALS. Not applied to navigation.
+DENY = re.compile(
+    r"delete|remove|clear|purge|reset|wipe|start all|resume|pause|stop|restart|"
+    r"shutdown|logout|sign out|save|apply|submit|enqueue|retry|upgrade|install|"
+    r"uninstall|rebuild|migrate|rollback|deploy|kill|abort|drop|revoke|rotate|"
+    r"regenerate|prune|trash|cancel", re.I)
+MODAL_OK = re.compile(
+    r"add|new|open|ops|more|filter|option|help|menu|configure|edit|advanced|"
+    r"detail|show|manage|select|choose|browse|search|command|wizard", re.I)
+
+EXPAND_JS = """
+() => {
+  let n = 0;
+  document.querySelectorAll('details:not([open])').forEach(d => { d.open = true; n++; });
+  document.querySelectorAll('[aria-expanded="false"]').forEach(e => {
+    const r = e.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) { try { e.click(); n++; } catch (_) {} }
+  });
+  document.querySelectorAll('[hidden]').forEach(e => { e.hidden = false; n++; });
+  return n;
+}
+"""
+
+# aria-pressed is BD's segmented control. role=tab exists in exactly one file.
+TABS_JS = """
+() => {
+  const out = [], seen = new Set();
+  const push = e => {
+    const t = (e.textContent || '').trim().slice(0, 40);
+    const r = e.getBoundingClientRect();
+    if (!t || seen.has(t) || r.width <= 0 || r.height <= 0) return;
+    seen.add(t); out.push(t);
+  };
+  document.querySelectorAll('[role="tab"],[aria-selected],[aria-pressed]').forEach(push);
+  return out;
+}
+"""
+
+COCKPIT_NAV_JS = """
+() => [...document.querySelectorAll('a[data-p]')]
+    .map(e => e.getAttribute('data-p'))
+    .filter((v, i, a) => v && a.indexOf(v) === i)
+"""
+
+
+def _pathname(url):
+    from urllib.parse import urlsplit
+    p = urlsplit(url).path or "/"
+    return p if p == "/" else p.rstrip("/")
+
+
+def slug(s):
+    s = re.sub(r"[^a-z0-9]+", "-", (s or "").strip().lower()).strip("-")
+    return s or "x"
+
+
+def port_open(host, port):
+    with socket.socket() as s:
+        s.settimeout(0.4)
+        return s.connect_ex((host, port)) == 0
+
+
+def spa_routes(work):
+    src = ""
+    for n in ("App.tsx", "App.jsx"):
+        p = os.path.join(work, "frontend", "src", n)
+        if os.path.isfile(p):
+            src += open(p, errors="replace").read()
+    out = [p for p in re.findall(r'path=["\']([^"\']+)["\']', src)
+           if p.startswith("/") and ":" not in p and "<" not in p and p not in ("/*", "*")]
+    seen, ordered = set(), []
+    for r in ["/"] + sorted(out):
+        if r not in seen:
+            seen.add(r)
+            ordered.append(r)
+    return ordered
+
+
+COCKPIT_ROUTES = [
+    "/cockpit", "/cockpit/reports", "/cockpit/reports/capture_diagnostics",
+    "/cockpit/reports/dom_recorder_status", "/cockpit/reports/replay_validation",
+    "/cockpit/reports/site_health", "/cockpit/reports/system_status",
+    "/cockpit/reports/vpn_secrets_status", "/cockpit/reports/workflow_analytics",
+    "/cockpit/settings", "/cockpit/settings/secrets", "/cockpit/template-manager",
+]
+
+
+def seed_site(base):
+    try:
+        req = urllib.request.Request(
+            base + "/api/sites", method="POST",
+            data=json.dumps({"name": "Demo", "url": "https://example.com"}).encode(),
+            headers={"Content-Type": "application/json"})
+        r = json.loads(urllib.request.urlopen(req, timeout=8).read())
+        return r.get("id") or r.get("site", {}).get("id")
+    except Exception:  # why: input unavailable/unreadable; return empty so the caller uses its fallback, not a wrong value
+        return None
+
+
+def settle(pg, rounds=6):
+    for _ in range(rounds):
+        try:
+            n = pg.evaluate(EXPAND_JS)
+        except Exception:  # why: input unavailable/unreadable; return empty so the caller uses its fallback, not a wrong value
+            return
+        pg.wait_for_timeout(180)
+        if not n:
+            return
+
+
+def shoot(pg, out, name, man, path, kind):
+    fn = "%s.png" % name
+    try:
+        pg.wait_for_timeout(200)
+        pg.screenshot(path=os.path.join(out, fn), full_page=True)
+        man["shots"].append({"file": fn, "path": path, "kind": kind})
+        print("    + %s" % fn)
+    except Exception as e:
+        man["shots"].append({"file": fn, "path": path, "kind": kind,
+                             "error": str(e)[:100]})
+        print("    ! %s: %s" % (fn, str(e)[:60]))
+
+
+def do_route(pg, base, path, name, out, man, modals=True):
+    js = []
+    h = lambda e: js.append(str(e))  # noqa: E731
+    pg.on("pageerror", h)
+    try:
+        pg.goto(base + path, wait_until="domcontentloaded", timeout=30000)
+        try:
+            pg.wait_for_load_state("networkidle", timeout=2500)
+        except Exception:  # why: handled failure is non-fatal here; proceed with the value left unset
+            pass  # BD's SPA holds a poll open -- networkidle never fires
+        pg.wait_for_timeout(500)
+        settle(pg)
+        shoot(pg, out, name, man, path, "page")
+
+        try:
+            tabs = pg.evaluate(TABS_JS)
+        # why: read failed; degrade to the default and continue -- affects completeness, not correctness
+        except Exception:
+            tabs = []
+        for t in tabs[:14]:
+            try:
+                el = pg.get_by_text(t, exact=True).first
+                if not el.is_visible(timeout=1200):
+                    continue
+                el.click(timeout=2500)
+                pg.wait_for_timeout(450)
+                # ?status=running is legitimate subtab state -- compare PATHNAME
+                if _pathname(pg.url) != path:
+                    pg.goto(base + path, wait_until="domcontentloaded", timeout=20000)
+                    pg.wait_for_timeout(400)
+                    continue
+                settle(pg)
+                shoot(pg, out, "%s__tab-%s" % (name, slug(t)), man, path, "tab")
+            except Exception:  # why: this item is unreadable/unparseable; skip it, the loop continues over the rest
+                continue
+
+        if modals:
+            try:
+                btns = pg.evaluate(
+                    """() => [...document.querySelectorAll('button,[role=button]')]
+                    .filter(b => { const r = b.getBoundingClientRect();
+                                   return r.width > 0 && r.height > 0; })
+                    .map(b => (b.textContent || '').trim())
+                    .filter(t => t && t.length < 30)""")
+            # why: read failed; degrade to the default and continue -- affects completeness, not correctness
+            except Exception:
+                btns = []
+            done = set()
+            for t in btns[:25]:
+                if t in done or DENY.search(t) or not MODAL_OK.search(t):
+                    continue
+                done.add(t)
+                try:
+                    el = pg.get_by_text(t, exact=True).first
+                    if not el.is_visible(timeout=800):
+                        continue
+                    el.click(timeout=2000)
+                    pg.wait_for_timeout(600)
+                    if _pathname(pg.url) != path:
+                        pg.goto(base + path, wait_until="domcontentloaded", timeout=20000)
+                        pg.wait_for_timeout(400)
+                        settle(pg)
+                        continue
+                    if pg.evaluate("""() => !!document.querySelector(
+                            '[role=dialog],[role=alertdialog],.modal,[aria-modal=true]')"""):
+                        settle(pg)
+                        shoot(pg, out, "%s__modal-%s" % (name, slug(t)), man, path, "modal")
+                        pg.keyboard.press("Escape")
+                        pg.wait_for_timeout(300)
+                except Exception:  # why: this item is unreadable/unparseable; skip it, the loop continues over the rest
+                    continue
+    finally:
+        pg.remove_listener("pageerror", h)
+        if js:
+            man["js_errors"].append({"path": path, "n": len(js), "first": js[0][:120]})
+
+
+def do_cockpit_views(pg, base, out, man, only=None):
+    """Drive the cockpit's client-side views by data-p key -- NOT by link text,
+    and with NO destructive-label filter (these are view switches; filtering them
+    silently dropped 'Rollback' from a previous sweep)."""
+    pg.goto(base + "/cockpit", wait_until="domcontentloaded", timeout=30000)
+    pg.wait_for_timeout(800)
+    settle(pg)
+    try:
+        keys = pg.evaluate(COCKPIT_NAV_JS)
+    # why: read failed; degrade to the default and continue -- affects completeness, not correctness
+    except Exception:
+        keys = []
+    if only:
+        keys = [k for k in keys if k in only]
+    print("  cockpit views discovered: %d" % len(keys))
+    for k in keys:
+        try:
+            pg.goto(base + "/cockpit", wait_until="domcontentloaded", timeout=20000)
+            pg.wait_for_timeout(400)
+            settle(pg)
+            # Click the router anchor DIRECTLY. Three views (rollbackc,
+            # downloadexplain, savedviews) live inside collapsed sidebar groups,
+            # so a visibility-gated click cannot reach them -- and silently
+            # skipping them is how they went missing from a whole sweep.
+            hit = pg.evaluate(
+                'k => { const a = document.querySelector(`a[data-p="${k}"]`);'
+                ' if (!a) return null; a.click();'
+                ' return (a.textContent || k).trim(); }', k)
+            if not hit:
+                raise RuntimeError("no a[data-p=%s]" % k)
+            pg.wait_for_timeout(900)
+            settle(pg)
+            shoot(pg, out, "cockpit__view-%s" % slug(hit), man, "/cockpit", "cockpit-view")
+        except Exception as e:
+            man["shots"].append({"file": "cockpit__view-%s" % k, "kind": "cockpit-view",
+                                 "error": str(e)[:100]})
+            print("    ! view %s: %s" % (k, str(e)[:60]))
+
+
+def selftest():
+    ok = True
+
+    # NEG: the bug that dropped a real cockpit view. 'Rollback' matches the
+    # destructive denylist -- which must NEVER be applied to navigation.
+    n1 = bool(DENY.search("Rollback"))
+    print(("%sPASS%s" if n1 else "%sFAIL%s") % ((G, RST) if n1 else (R, RST)) +
+          "  NEG: 'Rollback' IS a destructive label (so nav must not be DENY-filtered)")
+    ok &= n1
+
+    # POS: pathname compare keeps a query-param subtab, drops a real navigation
+    keep = _pathname("http://h/queue?status=running") == "/queue"
+    drop = _pathname("http://h/settings") != "/queue"
+    p1 = keep and drop
+    print(("%sPASS%s" if p1 else "%sFAIL%s") % ((G, RST) if p1 else (R, RST)) +
+          "  POS: ?status subtab kept, real navigation still detected")
+    ok &= p1
+
+    # NEG: root path must not be rstrip'd to empty
+    n2 = _pathname("http://h/") == "/"
+    print(("%sPASS%s" if n2 else "%sFAIL%s") % ((G, RST) if n2 else (R, RST)) +
+          "  NEG: '/' does not rstrip to ''")
+    ok &= n2
+
+    # POS: modal prospecting still refuses destructive buttons
+    p2 = bool(DENY.search("Delete site")) and not MODAL_OK.search("Delete site") is None
+    p2 = bool(DENY.search("Delete site"))
+    print(("%sPASS%s" if p2 else "%sFAIL%s") % ((G, RST) if p2 else (R, RST)) +
+          "  POS: modal pass refuses 'Delete site'")
+    ok &= p2
+
+    # POS: slug is stable + ascii
+    p3 = slug("Oracle & Eligibility") == "oracle-eligibility"
+    print(("%sPASS%s" if p3 else "%sFAIL%s") % ((G, RST) if p3 else (R, RST)) +
+          "  POS: slug('Oracle & Eligibility') -> oracle-eligibility")
+    ok &= p3
+
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="bd-deep-capture")
+    ap.add_argument("--group", choices=["main", "cockpit"])
+    ap.add_argument("--out")
+    ap.add_argument("--work", default=DEFAULT_WORK)
+    ap.add_argument("--theme", default="dark", choices=["dark", "light"])
+    ap.add_argument("--start", type=int, default=0)
+    ap.add_argument("--count", type=int, default=999)
+    ap.add_argument("--views", action="store_true",
+                    help="cockpit: drive the client-side views (data-p)")
+    ap.add_argument("--only", help="cockpit: comma list of data-p keys")
+    ap.add_argument("--no-modals", action="store_true")
+    ap.add_argument("--port", type=int, default=5599)
+    ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+
+    if a.selftest:
+        return selftest()
+    if not a.group or not a.out:
+        ap.error("--group and --out are required")
+
+    base = "http://%s:%d" % (a.host, a.port)
+    os.makedirs(a.out, exist_ok=True)
+
+    proc = None
+    if not port_open(a.host, a.port):
+        proc = subprocess.Popen(
+            [sys.executable, SERVE], cwd=a.work,
+            env=dict(os.environ, PYTHONPATH=a.work, BD_DISABLE_KEEPALIVE="1"),
+            start_new_session=True,
+            stdout=open(os.path.join(a.out, "serve.log"), "w"),
+            stderr=subprocess.STDOUT)
+
+    def teardown():
+        if proc and proc.poll() is None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                time.sleep(1)
+                if proc.poll() is None:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+    man = {"group": a.group, "theme": a.theme, "shots": [], "js_errors": []}
+    try:
+        dl = time.time() + 40
+        while time.time() < dl and not port_open(a.host, a.port):
+            time.sleep(0.5)
+        if not port_open(a.host, a.port):
+            print("%sFAIL%s backend never came up" % (R, RST))
+            return 1
+
+        sid = seed_site(base)
+        if a.group == "main":
+            targets = [(r, slug(r) if r != "/" else "home") for r in spa_routes(a.work)]
+            if sid:
+                targets += [("/sites/%s" % sid, "sites_detail"),
+                            ("/sites/%s/settings" % sid, "sites_settings")]
+        else:
+            targets = [(r, slug(r)) for r in COCKPIT_ROUTES]
+            if sid:
+                targets.append(("/cockpit/settings/site/%s" % sid, "cockpit-settings-site"))
+        targets = targets[a.start:a.start + a.count]
+
+        if a.dry_run:
+            print("DRY: %d routes" % len(targets))
+            for p, n in targets:
+                print("   %s -> %s" % (p, n))
+            return 0
+
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as pw:
+            br = pw.chromium.launch(headless=True)
+            ctx = br.new_context(viewport={"width": 1440, "height": 900})
+            ctx.add_init_script(
+                "try{localStorage.setItem('theme','%s');"
+                "localStorage.setItem('bd-theme','%s');}catch(e){}"
+                "document.addEventListener('DOMContentLoaded',()=>{"
+                "document.documentElement.classList.%s('dark');"
+                "document.documentElement.setAttribute('data-theme','%s');"
+                "document.body&&document.body.classList.%s('dark');});"
+                % (a.theme, a.theme, "add" if a.theme == "dark" else "remove",
+                   a.theme, "add" if a.theme == "dark" else "remove"))
+            pg = ctx.new_page()
+            for i, (path, name) in enumerate(targets):
+                print("  [%d] %s" % (a.start + i, path))
+                do_route(pg, base, path, name, a.out, man, modals=not a.no_modals)
+            if a.group == "cockpit" and a.views:
+                only = set(a.only.split(",")) if a.only else None
+                do_cockpit_views(pg, base, a.out, man, only=only)
+            br.close()
+
+        mf = os.path.join(a.out, "manifest_%s_%d.json" % (a.group, a.start))
+        json.dump(man, open(mf, "w"), indent=2, sort_keys=True)
+        good = [s for s in man["shots"] if "error" not in s]
+        if a.json:
+            print(json.dumps(man, indent=2, sort_keys=True))
+        else:
+            print("\n  %d shots  |  pages with JS errors: %d"
+                  % (len(good), len(man["js_errors"])))
+        return 0
+    finally:
+        teardown()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

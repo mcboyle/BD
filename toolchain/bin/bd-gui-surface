@@ -1,0 +1,445 @@
+#!/usr/bin/env python3
+"""bd-gui-surface -- the COMPLETE operator-visible surface, derived from source.
+
+Route counts do not describe the GUI. Two whole classes of surface are invisible
+to them, and both were found the hard way:
+
+  1. COCKPIT VIEWS. The cockpit is a single server route (/cockpit) that renders
+     its views client-side: the router dispatches `PAGES[p]()`, so the RENDERABLE
+     view set is the PAGES registry in tools/cockpit_console.py. They are not
+     Flask routes, so route enumeration scores them zero, and gui_audit_kit/
+     enumerate_surfaces.py -- which walks the url_map -- never sees them. A
+     URL-walk of the cockpit finds 13 pages; the registry holds far more.
+
+     HISTORY: this tool used to report "44 views", and that number was repeated
+     as fact for a long time. It was wrong. The old regex required data-p to be
+     the ONLY attribute on the <a>, so every anchor with class="btn"/class="on"/
+     data-dl= was invisible, and the selftest ENSHRINED the bug with a NEG control
+     asserting that attribute-bearing anchors are not views. Views are now derived
+     from PAGES (the router's own table); anchors are reported separately as
+     NAVIGATION, and the gap between them (dark views / orphan anchors) is the
+     number worth looking at.
+
+  2. SPA SUBTABS. BD's segmented controls are aria-pressed buttons (13 files),
+     NOT role=tab (1 file). There are zero <details>. Any inventory keyed on
+     standard tab ARIA silently reports nothing and calls it clean.
+
+This tool derives all of it STATICALLY -- no browser, no server -- so it can gate.
+It is the surface denominator that a parity or coverage number should be a
+fraction OF. bd-parity-scan answers "can the GUI reach this tool"; this answers
+"what does the GUI actually contain".
+
+WHEN: before a GUI/parity claim, before a capture sweep (to know what SHOULD be
+captured), and whenever asked "is surface X exposed anywhere".
+
+Read-only. Deterministic. ASCII. --json. --selftest with negative controls.
+Exit 0 always in report mode; --gate exits 1 if a captured/expected mismatch is
+passed via --captured DIR.
+"""
+import argparse
+import json
+import os
+import re
+import sys
+
+G, R, Y, DIM, BOLD, RST = ("\033[32m", "\033[31m", "\033[33m",
+                           "\033[2m", "\033[1m", "\033[0m")
+DEFAULT_WORK = "/home/claude/work"
+
+# THE DENOMINATOR. The cockpit's client-side router dispatches `PAGES[p]()`, so
+# the set of RENDERABLE views is the PAGES registry -- nothing else. Anchors are
+# NAVIGATION, not views, and deriving the view count from anchors was wrong twice
+# over:
+#
+#   1. The old regex required data-p to be the ONLY attribute on the <a>:
+#          <a\s+data-p="([a-z0-9_-]+)"\s*>([^<]{1,60})</a>
+#      Every real anchor carrying class="btn" / class="on" / data-dl= was
+#      therefore INVISIBLE. It reported 44 views where the source has 83 distinct
+#      anchor keys and 133 registered pages. The regex did not describe a blind
+#      spot -- it CREATED one, and the selftest then certified it with a "NEG
+#      control" asserting that an attribute-bearing anchor is not a view.
+#   2. Even fixed, anchors undercount: a page reachable only by REDIRECT alias,
+#      hash deeplink, or a runtime-templated data-p has no literal anchor at all.
+#
+# So: views come from PAGES. Anchors are reported separately, and the DIFFERENCE
+# between them is the interesting number (dark views / orphan anchors).
+PAGES_RE = re.compile(r'\bPAGES\.([a-zA-Z0-9_]+)\s*=')
+# an <a> carrying data-p, in ANY attribute order, with any other attributes
+COCKPIT_ANCHOR_RE = re.compile(
+    r'<a\b[^>]*?\bdata-p="([a-z0-9_-]+)"[^>]*>(.*?)</a>', re.S)
+# data-p="${...}" -- a nav link whose key is computed at RUNTIME. Statically we
+# cannot know the key; it is counted and REPORTED, never silently ignored.
+TEMPLATED_ANCHOR_RE = re.compile(r'<a\b[^>]*?\bdata-p="[^"]*\$\{[^"]*"')
+REDIRECT_BLOCK_RE = re.compile(r'const\s+REDIRECT\s*=\s*\{(.*?)\n\}', re.S)
+REDIRECT_KEY_RE = re.compile(r'(?:^|[,{\s])([a-zA-Z0-9_]+)\s*:\s*\[')
+# path="/queue" in App.tsx
+SPA_ROUTE_RE = re.compile(r'path=["\']([^"\']+)["\']')
+SETTINGS_SECTION_RE = re.compile(r'\{\s*label:\s*"([^"]+)",\s*id:\s*"([^"]+)"\s*\}')
+
+
+def _unescape(s):
+    for a, b in (("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", '"')):
+        s = s.replace(a, b)
+    return s.strip()
+
+
+def _cockpit_src(work=DEFAULT_WORK):
+    src = ""
+    for rel in ("tools/cockpit_console.py", "tools/cockpit_core.py"):
+        p = os.path.join(work, rel)
+        if os.path.isfile(p):
+            src += open(p, errors="replace").read()
+    return src
+
+
+def _strip_tags(s):
+    return _unescape(re.sub(r"<[^>]+>", "", s)).strip()
+
+
+def cockpit_redirects(work=DEFAULT_WORK):
+    """REDIRECT aliases: key -> [realPage, tab]. A page reached only via an alias
+    is NOT dark, so the alias targets must be known before calling anything dark."""
+    m = REDIRECT_BLOCK_RE.search(_cockpit_src(work))
+    return sorted(set(REDIRECT_KEY_RE.findall(m.group(1)))) if m else []
+
+
+def cockpit_anchors(work=DEFAULT_WORK):
+    """Distinct data-p keys carried by <a> tags, in ANY attribute order."""
+    out = {}
+    for key, label in COCKPIT_ANCHOR_RE.findall(_cockpit_src(work)):
+        lab = _strip_tags(label)[:60]
+        if key not in out or (not out[key] and lab):
+            out[key] = lab
+    return [{"key": k, "label": out[k]} for k in sorted(out)]
+
+
+def cockpit_views(work=DEFAULT_WORK):
+    """The RENDERABLE cockpit views: the PAGES registry the router dispatches on.
+    This -- not the anchor set -- is the surface denominator."""
+    src = _cockpit_src(work)
+    keys = sorted(set(PAGES_RE.findall(src)))
+    labels = {a["key"]: a["label"] for a in cockpit_anchors(work)}
+    return [{"key": k, "label": labels.get(k, "")} for k in keys]
+
+
+# v3.66.732: THE DENOMINATOR WAS MISSING TWO MECHANISMS.
+#
+# This tool used to call a view DARK when no static <a data-p> anchor and no
+# REDIRECT alias named it. It reported SEVEN: advlanding, complexity, daily,
+# inbox, maturity, orghealth, syslanding. All seven were FALSE POSITIVES, and
+# acting on the report cost a reverted cut. The cockpit reaches views by two
+# further mechanisms this scan could not see:
+#
+#   TAB CONSOLIDATION. v3.66.107 deliberately merged inbox+daily+alerts into
+#   `priority` (data-ptab) and the composite indices into `scores`. The nav
+#   entries were removed ON PURPOSE (test_v3_66_107 pins the removal) and the
+#   renderers KEPT on purpose (so deep-links and direct go() resolve).
+#
+#   PROGRAMMATIC TIER LANDING. _tierLanding(t) returns 'advlanding'/'syslanding'
+#   and the router dispatches it by layout mode. No anchor names them; code does.
+#
+# "No anchor" is not "unreachable" -- it is "unreachable BY ANCHOR". Reporting a
+# deliberately-closed control as DARK invites the next session to wire it back.
+# So the verdict is now three-valued: UNREACHABLE (a real finding), CLOSED (dark
+# by anchor, reachable by a derived mechanism -- informational), and the count
+# that gates is UNREACHABLE only.
+TIER_LANDING_RE = re.compile(r"function\s+_tierLanding\s*\([^)]*\)\s*\{(.*?)\}", re.S)
+TIER_QUOTED_RE = re.compile(r"'([a-zA-Z0-9_]+)'")
+# Views consolidated into a tabbed host page at v3.66.107 (view -> host page).
+CONSOLIDATED_VIEWS = {
+    "inbox": "priority",
+    "daily": "priority",
+    "complexity": "scores",
+    "maturity": "scores",
+    "orghealth": "scores",
+}
+
+
+def cockpit_tier_landings(work=DEFAULT_WORK):
+    """Views the router reaches by CODE (_tierLanding), never by anchor."""
+    m = TIER_LANDING_RE.search(_cockpit_src(work))
+    return sorted(set(TIER_QUOTED_RE.findall(m.group(1)))) if m else []
+
+
+def cockpit_surface(work=DEFAULT_WORK):
+    """Views vs navigation, and the gap between them -- the number that matters."""
+    src = _cockpit_src(work)
+    views = cockpit_views(work)
+    anchors = cockpit_anchors(work)
+    vkeys = {v["key"] for v in views}
+    akeys = {a["key"] for a in anchors}
+    redirects = set(cockpit_redirects(work))
+    landings = set(cockpit_tier_landings(work))
+    # Only honour a consolidation the source still shows: if the host page or its
+    # tab machinery is gone, the view really IS unreachable and must say so.
+    consolidated = {v: host for v, host in CONSOLIDATED_VIEWS.items()
+                    if f"PAGES.{host}=" in src and "data-ptab" in src}
+    templated = len(TEMPLATED_ANCHOR_RE.findall(src))
+
+    no_anchor = vkeys - akeys - redirects
+    # CLOSED: no anchor, but a derived mechanism reaches it. Informational.
+    closed = sorted(k for k in no_anchor if k in landings or k in consolidated)
+    # UNREACHABLE: no anchor, no redirect, no tab-host, no tier-landing. A finding.
+    unreachable = sorted(no_anchor - set(closed))
+    # An anchor pointing at a key with no PAGES entry throws inside go().
+    orphan = sorted(akeys - vkeys - redirects)
+    return {
+        "renderable_views": len(views),
+        "nav_anchor_keys": len(anchors),
+        "redirect_aliases": len(redirects),
+        "tier_landings": sorted(landings),
+        "consolidated_views": consolidated,
+        "templated_anchor_sites": templated,
+        # dark_views/dark_view_count keep their names for existing consumers, but
+        # now mean UNREACHABLE -- a real finding -- not "lacks an anchor".
+        "dark_views": unreachable,
+        "dark_view_count": len(unreachable),
+        "closed_views": closed,
+        "closed_view_count": len(closed),
+        "orphan_anchors": orphan,
+        "orphan_anchor_count": len(orphan),
+    }
+
+
+def spa_routes(work=DEFAULT_WORK):
+    src = ""
+    for n in ("App.tsx", "App.jsx"):
+        p = os.path.join(work, "frontend", "src", n)
+        if os.path.isfile(p):
+            src += open(p, errors="replace").read()
+    static, param = set(), set()
+    for r in SPA_ROUTE_RE.findall(src):
+        if not r.startswith("/") or r in ("/*", "*"):
+            continue
+        (param if (":" in r or "<" in r) else static).add(r)
+    return sorted(static), sorted(param)
+
+
+def settings_sections(work=DEFAULT_WORK):
+    p = os.path.join(work, "frontend", "src", "routes", "Settings.tsx")
+    if not os.path.isfile(p):
+        return []
+    src = open(p, errors="replace").read()
+    return [{"label": l, "id": i} for l, i in SETTINGS_SECTION_RE.findall(src)]
+
+
+def segmented_controls(work=DEFAULT_WORK):
+    """Which files carry aria-pressed segmented controls (the real subtab signal)."""
+    root = os.path.join(work, "frontend", "src")
+    hits = []
+    for dirpath, _dn, fns in os.walk(root):
+        for fn in sorted(fns):
+            if not fn.endswith((".tsx", ".jsx", ".ts")):
+                continue
+            p = os.path.join(dirpath, fn)
+            try:
+                src = open(p, errors="replace").read()
+            except OSError:
+                continue
+            n = src.count("aria-pressed")
+            if n:
+                hits.append({"file": os.path.relpath(p, work), "aria_pressed": n})
+    return sorted(hits, key=lambda h: h["file"])
+
+
+def inventory(work=DEFAULT_WORK):
+    static, param = spa_routes(work)
+    return {
+        "work": work,
+        "spa_routes_static": static,
+        "spa_routes_param": param,
+        "cockpit_views": cockpit_views(work),
+        "cockpit_nav_anchors": cockpit_anchors(work),
+        "cockpit_surface": cockpit_surface(work),
+        "settings_sections": settings_sections(work),
+        "segmented_control_files": segmented_controls(work),
+    }
+
+
+def selftest():
+    ok = True
+    import tempfile
+
+    # POS: an anchor is recognised, entity-unescaped
+    src = '<a data-p="oracle">Oracle &amp; Eligibility</a>'
+    got = COCKPIT_ANCHOR_RE.findall(src)
+    p1 = got and got[0][0] == "oracle" and _strip_tags(got[0][1]) == "Oracle & Eligibility"
+    print(("%sPASS%s" if p1 else "%sFAIL%s") % ((G, RST) if p1 else (R, RST)) +
+          "  POS: cockpit anchor parsed + entity-unescaped")
+    ok &= bool(p1)
+
+    # POS (was a FALSE NEG CONTROL): an anchor with OTHER attributes is still a
+    # real anchor. The old regex demanded data-p be the sole attribute and the old
+    # selftest asserted that as correct -- which is how 39 live views went missing
+    # and how "44" became folklore. class=/href=/data-dl= must NOT hide a key.
+    p1b = all(
+        COCKPIT_ANCHOR_RE.findall(s) and COCKPIT_ANCHOR_RE.findall(s)[0][0] == k
+        for s, k in (
+            ('<a class="btn" data-p="governance">Governance</a>', "governance"),
+            ('<a data-p="home" class="on">Home</a>', "home"),
+            ('<a class="btn" data-dl="x" data-p="oracleverdict">verdict</a>',
+             "oracleverdict"),
+            ('<a href="/x" data-p="nope">X</a>', "nope"),
+        ))
+    print(("%sPASS%s" if p1b else "%sFAIL%s") % ((G, RST) if p1b else (R, RST)) +
+          "  POS: attribute-bearing anchors are SEEN (class/href/data-dl)")
+    ok &= bool(p1b)
+
+    # NEG: a data-p on a non-anchor tag is not an anchor
+    n2 = not COCKPIT_ANCHOR_RE.findall('<div data-p="x">X</div>')
+    print(("%sPASS%s" if n2 else "%sFAIL%s") % ((G, RST) if n2 else (R, RST)) +
+          "  NEG: data-p on a non-anchor is not an anchor")
+    ok &= n2
+
+    # POS: views come from the PAGES registry (the router's own table), not anchors
+    p1c = sorted(PAGES_RE.findall("PAGES.home=x; PAGES.graph =y; NOTPAGES.z=1")) \
+        == ["graph", "home"]
+    print(("%sPASS%s" if p1c else "%sFAIL%s") % ((G, RST) if p1c else (R, RST)) +
+          "  POS: PAGES registry parsed (the renderable-view denominator)")
+    ok &= bool(p1c)
+
+    # NEG: param routes are NOT counted as static (they need a live id to render)
+    with tempfile.TemporaryDirectory() as td:
+        d = os.path.join(td, "frontend", "src")
+        os.makedirs(d)
+        open(os.path.join(d, "App.tsx"), "w").write(
+            'path="/queue" path="/sites/:id" path="/*"')
+        s, pm = spa_routes(td)
+        n3 = s == ["/queue"] and pm == ["/sites/:id"]
+        print(("%sPASS%s" if n3 else "%sFAIL%s") % ((G, RST) if n3 else (R, RST)) +
+              "  NEG: param route segregated, glob dropped (%s | %s)" % (s, pm))
+        ok &= n3
+
+    # POS (the regression that matters): the live tree's RENDERABLE view count is
+    # the PAGES registry. The old assertion was `>= 40`, which passed happily at
+    # the broken 44 -- a floor low enough to certify the bug. Anchor the floor to
+    # the real surface, and assert views >= anchors (a view can lack an anchor;
+    # an anchor cannot lack a view -- that would throw in go()).
+    inv = inventory()
+    cs = inv["cockpit_surface"]
+    n_views = cs["renderable_views"]
+    n_anch = cs["nav_anchor_keys"]
+    p2 = n_views >= 100 and n_views >= n_anch
+    print(("%sPASS%s" if p2 else "%sFAIL%s") % ((G, RST) if p2 else (R, RST)) +
+          "  POS: %d renderable views >= %d nav anchors (>=100; the old regex saw 44)"
+          % (n_views, n_anch))
+    ok &= p2
+
+    # NEG: no anchor may point at a key with no PAGES entry -- go() would throw.
+    p3 = cs["orphan_anchor_count"] == 0
+    print(("%sPASS%s" if p3 else "%sFAIL%s") % ((G, RST) if p3 else (R, RST)) +
+          "  NEG: 0 orphan anchors (every data-p resolves to a PAGES entry)")
+    ok &= p3
+
+    a = json.dumps(inventory(), sort_keys=True)
+    b = json.dumps(inventory(), sort_keys=True)
+    det = a == b
+    print(("%sPASS%s" if det else "%sFAIL%s") % ((G, RST) if det else (R, RST)) +
+          "  deterministic output")
+    ok &= det
+
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="bd-gui-surface")
+    ap.add_argument("--work", default=DEFAULT_WORK)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--captured", help="a capture dir; report what is MISSING from it")
+    ap.add_argument("--gate", action="store_true",
+                    help="exit 1 on any FINDING: a dark (UNREACHABLE) cockpit view, "
+                         "an orphan anchor, or -- with --captured -- an uncaptured "
+                         "surface")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+
+    if a.selftest:
+        return selftest()
+
+    inv = inventory(a.work)
+    missing = []
+    if a.captured and os.path.isdir(a.captured):
+        shots = {f.lower() for f in os.listdir(a.captured) if f.endswith(".png")}
+        blob = " ".join(shots)
+        for v in inv["cockpit_views"]:
+            key = re.sub(r"[^a-z0-9]+", "-", v["label"].lower()).strip("-")
+            if key and key not in blob:
+                missing.append({"kind": "cockpit-view", "id": v["key"],
+                                "label": v["label"]})
+        inv["captured_dir"] = a.captured
+        inv["uncaptured"] = missing
+
+    # v3.66.738 -- THE GATE NOW FAILS ON THE FINDING IT COMPUTES.
+    #
+    # Mutation-tested and caught red-handed: destroy the `scores` tab host in
+    # cockpit_console.py and this tool correctly flips dark_view_count 0 -> 3
+    # (complexity/maturity/orghealth revert to UNREACHABLE, exactly as the @732
+    # rebuild intended) -- AND STILL EXITS 0. The number was emitted only into
+    # --json, never printed in the human report, and `--gate` could only ever
+    # fail on missing SCREENSHOTS. So the whole three-state reachability model
+    # could regress from 0 to 3 dark views and every automated check stayed green.
+    #
+    # It was never a gate that could not see. It saw perfectly, and NOTHING
+    # FAILED ON WHAT IT SAW. A finding no one can fail on is not a finding; it
+    # is a log line.
+    cs = inv.get("cockpit_surface") or {}
+    findings = []
+    if cs.get("dark_view_count"):
+        findings.append(f"{cs['dark_view_count']} UNREACHABLE cockpit view(s): "
+                        f"{cs.get('dark_views')}")
+    if cs.get("orphan_anchor_count"):
+        findings.append(f"{cs['orphan_anchor_count']} orphan anchor(s): "
+                        f"{cs.get('orphan_anchors')}")
+    if missing:
+        findings.append(f"{len(missing)} uncaptured surface(s)")
+    inv["findings"] = findings
+
+    if a.json:
+        print(json.dumps(inv, indent=2, sort_keys=True))
+        return 1 if (a.gate and findings) else 0
+
+    st, pm = inv["spa_routes_static"], inv["spa_routes_param"]
+    print("%s== bd-gui-surface :: %s ==%s" % (BOLD, a.work, RST))
+    # These two numbers ARE the point of the tool and were previously visible
+    # only in --json. An operator reading the report could not see them at all.
+    print("  cockpit reachability: %s%d UNREACHABLE%s (findings) | %d CLOSED "
+          "(anchor-less by design) | %d orphan anchor(s)"
+          % (R if cs.get("dark_view_count") else G,
+             cs.get("dark_view_count", 0), RST,
+             cs.get("closed_view_count", 0),
+             cs.get("orphan_anchor_count", 0)))
+    if cs.get("dark_views"):
+        print("    %sUNREACHABLE:%s %s" % (R, RST, ", ".join(cs["dark_views"])))
+    print("  SPA routes        : %d static + %d param" % (len(st), len(pm)))
+    print("  cockpit views     : %d %s(client-side; a URL-walk of /cockpit finds 13)%s"
+          % (len(inv["cockpit_views"]), DIM, RST))
+    print("  settings sections : %d" % len(inv["settings_sections"]))
+    print("  segmented-control files (aria-pressed): %d"
+          % len(inv["segmented_control_files"]))
+    print("\n  %scockpit views%s" % (BOLD, RST))
+    for v in inv["cockpit_views"]:
+        print("    %-18s %s" % (v["key"], v["label"]))
+    if a.captured:
+        print("\n  %scapture coverage vs %s%s" % (BOLD, a.captured, RST))
+        if missing:
+            print("    %sUNCAPTURED (%d)%s" % (R, len(missing), RST))
+            for m in missing:
+                print("      %-18s %s" % (m["id"], m["label"]))
+        else:
+            print("    %severy cockpit view is captured%s" % (G, RST))
+
+    # THE GATE FAILS ON THE FINDING. Previously this returned
+    # `1 if (a.gate and missing) else 0` -- i.e. it could only ever fail on
+    # missing SCREENSHOTS, never on an UNREACHABLE view, which is the thing the
+    # tool exists to find.
+    if a.gate and findings:
+        print("\n  %sGATE FAIL%s -- %d finding(s):" % (R, RST, len(findings)))
+        for f in findings:
+            print("    - %s" % f)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

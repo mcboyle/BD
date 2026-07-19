@@ -1,0 +1,143 @@
+{
+ "coverage_source": "/tmp/coverage.json",
+ "gaps": [
+  {
+   "file": "bulk_downloader/capture_bodies.py",
+   "function": "_redact_text",
+   "span": "234-240",
+   "uncovered_lines": [
+    234,
+    235,
+    236,
+    237,
+    238,
+    239,
+    240
+   ],
+   "uncovered_frac": 1.0,
+   "untested": "NO -- covered",
+   "shape": "F0001/VR (green-suite-untested-path)",
+   "status": "CLOSED @v3.66.808",
+   "closed_by": [
+    "tests/test_v3_66_680_coverage_gaps.py",
+    "tests/test_v3_66_704_coverage_gaps.py"
+   ],
+   "verification": "RUN @808 under run_tests.py: 18 passed / 0 failed / 0 skipped, incl. verify_chain tamper-detection and the empty-table case.",
+   "line_number_caveat": "Spans were pinned to v3.66.754 and have DRIFTED -- capture_bodies.py:234-240 now points at COMMENT text. The line numbers were stale independently of the coverage question; do not re-derive gaps from these spans."
+  },
+  {
+   "file": "bulk_downloader/capture_bodies.py",
+   "function": "_redact_text._maybe",
+   "span": "235-239",
+   "uncovered_lines": [
+    235,
+    236,
+    237,
+    238,
+    239
+   ],
+   "uncovered_frac": 1.0,
+   "untested": "NO -- covered",
+   "shape": "F0001/VR (green-suite-untested-path)",
+   "status": "CLOSED @v3.66.808",
+   "closed_by": [
+    "tests/test_v3_66_680_coverage_gaps.py",
+    "tests/test_v3_66_704_coverage_gaps.py"
+   ],
+   "verification": "RUN @808 under run_tests.py: 18 passed / 0 failed / 0 skipped, incl. verify_chain tamper-detection and the empty-table case.",
+   "line_number_caveat": "Spans were pinned to v3.66.754 and have DRIFTED -- capture_bodies.py:234-240 now points at COMMENT text. The line numbers were stale independently of the coverage question; do not re-derive gaps from these spans."
+  },
+  {
+   "file": "bulk_downloader/provenance.py",
+   "function": "verify_chain",
+   "span": "233-276",
+   "uncovered_lines": [
+    233,
+    234,
+    235,
+    236,
+    237,
+    238,
+    239,
+    240,
+    241,
+    242,
+    243,
+    244,
+    245,
+    246,
+    247,
+    248,
+    249,
+    250,
+    251,
+    252,
+    253,
+    254,
+    255,
+    256,
+    257,
+    258,
+    259,
+    260,
+    261,
+    262,
+    263,
+    264,
+    265,
+    266,
+    267,
+    268,
+    269,
+    270,
+    271,
+    272,
+    273,
+    274,
+    275,
+    276
+   ],
+   "uncovered_frac": 1.0,
+   "untested": "NO -- covered",
+   "shape": "F0001/VR (green-suite-untested-path)",
+   "status": "CLOSED @v3.66.808",
+   "closed_by": [
+    "tests/test_v3_66_680_coverage_gaps.py",
+    "tests/test_v3_66_704_coverage_gaps.py"
+   ],
+   "verification": "RUN @808 under run_tests.py: 18 passed / 0 failed / 0 skipped, incl. verify_chain tamper-detection and the empty-table case.",
+   "line_number_caveat": "Spans were pinned to v3.66.754 and have DRIFTED -- capture_bodies.py:234-240 now points at COMMENT text. The line numbers were stale independently of the coverage question; do not re-derive gaps from these spans."
+  },
+  {
+   "file": "bulk_downloader/provenance.py",
+   "function": "record",
+   "span": "126-193",
+   "uncovered_lines": [
+    131,
+    132,
+    133,
+    134,
+    135,
+    136,
+    137
+   ],
+   "uncovered_frac": 0.1,
+   "untested": "NO -- covered",
+   "shape": "partial-path",
+   "status": "CLOSED @v3.66.808",
+   "closed_by": [
+    "tests/test_v3_66_680_coverage_gaps.py",
+    "tests/test_v3_66_704_coverage_gaps.py"
+   ],
+   "verification": "RUN @808 under run_tests.py: 18 passed / 0 failed / 0 skipped, incl. verify_chain tamper-detection and the empty-table case.",
+   "line_number_caveat": "Spans were pinned to v3.66.754 and have DRIFTED -- capture_bodies.py:234-240 now points at COMMENT text. The line numbers were stale independently of the coverage question; do not re-derive gaps from these spans."
+  }
+ ],
+ "total": 4,
+ "_meta": {
+  "generated": "2026-07-14T22:43:30+00:00",
+  "version_context": "v3.66.754",
+  "corrected_v3_66_808": "ALL FOUR GAPS ARE CLOSED. This file asserted 'untested: WHOLLY' for four spans that are in fact covered by dedicated tests (680 + 704), verified by RUNNING them at @808. The file was a stale snapshot of /tmp/coverage.json from v3.66.754 and had been read as current for 54 versions. Two independent staleness modes were present at once: the VERDICT was wrong (tests exist) and the SPANS were wrong (line numbers drifted onto comments) -- either alone would have produced a confident, useless answer."
+ },
+ "total_open": 0
+}

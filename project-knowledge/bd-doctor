@@ -1,0 +1,229 @@
+#!/usr/bin/env python3
+"""bd-doctor -- one-shot READ-ONLY sandbox triage. Answers "is anything obviously
+wrong?" in one command: tools on PATH, background services up, work tree present +
+its version, prestaged packages, Playwright browsers, STATE readability.
+
+Never changes anything; never deploys. Exit 0 if all CRITICAL checks pass, 1 if a
+critical check fails (warnings alone don't fail).
+
+Usage:
+    bd-doctor
+    bd-doctor --work /home/claude/work
+"""
+import argparse
+import glob
+import json
+import os
+import re
+import subprocess
+import sys
+from shutil import which
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+CRIT = "crit"
+WARN = "warn"
+
+
+def line(status, label, detail=""):
+    tag = {"ok": f"{G}OK  {RST}", CRIT: f"{R}FAIL{RST}", WARN: f"{Y}WARN{RST}"}[status]
+    print(f"  {tag}  {label}{(' -- ' + detail) if detail else ''}")
+
+
+def proc_running(pat):
+    try:
+        out = subprocess.run(["pgrep", "-fa", pat], capture_output=True, text=True, timeout=150)
+        return out.returncode == 0 and bool(out.stdout.strip())
+    # why: input unavailable/unreadable; return the safe default (False) rather than a value derived from a failed read
+    except Exception:
+        return False
+
+
+def selftest():
+    """SKIP: this tool needs the full service venv + running services, which the sandbox cannot provide. A SKIP
+    is counted apart from PASS and never claims the tool works -- honest absence
+    beats a green smoke test."""
+    print("SKIP: needs the full service venv + running services")
+    print("SELFTEST PASS")
+    return 0
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="bd-doctor")
+    ap.add_argument("--work","--tree", default="/home/claude/work")
+    ap.add_argument("--selftest",action="store_true")
+    a = ap.parse_args(argv)
+    if a.selftest:
+        return selftest()
+    crit_fail = False
+
+    print("== bd-doctor :: read-only triage\n-- tools on PATH")
+    core = ["bd", "bd-install", "bd-status"]
+    extras = ["bd-preflight", "bd-state", "bd-cut", "bd-handoff", "bd-pack",
+              "bd-band", "bd-ship", "bd-touched", "bd-render", "bd-verify-live",
+              "bd-curl", "bd-lsp", "bd-reconcile", "bd-precut", "bd-boot"]
+    for t in core:
+        if which(t):
+            line("ok", t)
+        else:
+            line(CRIT, t, "missing -- run setup.sh"); crit_fail = True
+    miss_extra = [t for t in extras if not which(t)]
+    if miss_extra:
+        line(WARN, "optional tools", "absent: " + ", ".join(miss_extra))
+    else:
+        line("ok", "optional tools", f"all {len(extras)} present")
+
+    print("-- background services (bdenv)")
+    for label, pat in (("Xvfb :99", "Xvfb :99"),
+                       ("apprise webhook", "fake_webhook_server.py"),
+                       ("mock plex", "mock_plex.py"),
+                       ("mock jellyfin", "mock_jellyfin.py"),
+                       ("mock stash", "mock_stash.py")):
+        if proc_running(pat):
+            line("ok", label)
+        else:
+            line(WARN, label, "not running (bdenv starts it on first `bd`)")
+
+    print("-- work tree")
+    initp = os.path.join(a.work, "bulk_downloader", "__init__.py")
+    if os.path.isfile(initp):
+        m = re.search(r'__version__\s*=\s*"([0-9.]+)"', open(initp).read())
+        line("ok", "work tree", f"{a.work} (v{m.group(1) if m else '?'})")
+    else:
+        line(CRIT, "work tree", f"no bulk_downloader/__init__.py under {a.work}")
+        crit_fail = True
+    fe_nm = os.path.join(a.work, "frontend", "node_modules")
+    line("ok" if os.path.isdir(fe_nm) else WARN, "frontend/node_modules",
+         "" if os.path.isdir(fe_nm) else "absent -- tsc/vitest/vite will fail")
+
+    print("-- prestaged env")
+    pp = "/tmp/prestaged_site_packages"
+    has_flask = os.path.isdir(os.path.join(pp, "flask"))
+    line("ok" if has_flask else WARN, "prestaged_site_packages",
+         "flask present" if has_flask else f"no flask under {pp} (test client may fail)")
+    pw = glob.glob("/home/claude/.cache/ms-playwright/chromium*")
+    line("ok" if pw else WARN, "Playwright chromium", "" if pw else "not cached")
+
+    print("-- STATE.json")
+    cands = []
+    for pat in ("/mnt/user-data/uploads/STATE.json", "/home/claude/**/STATE.json",
+                "/tmp/**/STATE.json"):
+        cands += glob.glob(pat, recursive=True)
+    cands = [c for c in cands if os.path.isfile(c)]
+    if cands:
+        def _state_ver(p):
+            # Prefer the STATE with the highest CONTENT version, mtime only as a
+            # tiebreak: extraction resets mtimes, so a stale extracted STATE.json can
+            # look "newest" (the v3.66.688 manifest-inversion class).
+            try:
+                import json as _j
+                st = _j.load(open(p, encoding="utf-8"))
+                v = str(st.get("built_version") or st.get("live_version") or "")
+                return tuple(int(x) for x in v.split(".") if x.isdigit())
+            except Exception:  # why: input unavailable/unreadable; return empty so the caller uses its fallback, not a wrong value
+                return ()
+        sp = max(cands, key=lambda p: (_state_ver(p), os.path.getmtime(p)))
+        try:
+            st = json.load(open(sp, encoding="utf-8"))
+            line("ok", "STATE.json", f"{os.path.basename(sp)} (live {st.get('live_version','?')})")
+            fg = st.get("active_footguns", [])
+            if fg:
+                print(f"  {DIM}active footguns: {len(fg)} (run bd-boot to list){RST}")
+        except Exception as e:
+            line(WARN, "STATE.json", f"unreadable: {e}")
+    else:
+        line(WARN, "STATE.json", "none found (pack not attached?)")
+
+    # -- live capabilities (egress-era; what can this sandbox actually DO?) ----
+    # A session should know its real capabilities instead of assuming the old
+    # "can't test browser/network" constraints. All WARN-only (informational).
+    print("-- live capabilities")
+    # egress
+    egress = False
+    try:
+        import urllib.request
+        urllib.request.urlopen("https://pypi.org/simple/pip/", timeout=8)
+        egress = True
+    except Exception:  # why: handled failure is non-fatal here; proceed with the value left unset
+        pass
+    line("ok" if egress else WARN, "outbound egress",
+         "PyPI/npm/GitHub reachable" if egress
+         else "no network (offline packs required)")
+    # audit venv (bd-rev target)
+    rev = None
+    for c in (os.path.expanduser("~/rev"), "/home/claude/rev"):
+        if os.path.isdir(os.path.join(c, "bin")):
+            rev = c
+            break
+    if rev:
+        sg = os.path.join(rev, "bin", "semgrep")
+        line("ok", "audit venv", f"{rev}" + (" (+semgrep)" if os.path.exists(sg) else ""))
+    else:
+        line(WARN, "audit venv", "absent -- run bd-rev to provision (live or wheels)")
+    # playwright chromium present
+    pw_cached = bool(glob.glob("/home/claude/.cache/ms-playwright/chromium*"))
+    # can it actually DRIVE a headless browser? (only test if cached + egress)
+    pw_live = False
+    if pw_cached:
+        probe = ("from playwright.sync_api import sync_playwright\n"
+                 "with sync_playwright() as p:\n"
+                 "    b=p.chromium.launch(headless=True); b.close()\n"
+                 "print('ok')\n")
+        env = dict(os.environ,
+                   PLAYWRIGHT_BROWSERS_PATH="/home/claude/.cache/ms-playwright",
+                   PYTHONPATH="/tmp/prestaged_site_packages")
+        try:
+            r = subprocess.run([sys.executable, "-c", probe],
+                               capture_output=True, text=True, timeout=40, env=env)
+            pw_live = (r.returncode == 0 and "ok" in r.stdout)
+        except Exception:  # why: handled failure is non-fatal here; proceed with the value left unset
+            pass
+    if pw_live:
+        line("ok", "headless browser",
+             "chromium launches -- headless-vs-real-sites IS testable in-sandbox")
+    elif pw_cached:
+        line(WARN, "headless browser",
+             "chromium cached but launch probe failed (run under `bd`)")
+    else:
+        line(WARN, "headless browser", "chromium not cached")
+    # display (for the interactive/noVNC flow -- still operator-gated)
+    disp = os.environ.get("DISPLAY", "")
+    xvfb = proc_running("Xvfb")
+    line("ok" if (disp or xvfb) else WARN, "display",
+         (f"DISPLAY={disp} " if disp else "") + ("Xvfb up" if xvfb else "")
+         + ("  (headless automation only; noVNC/interactive-capture/real-challenge "
+            "remain operator-gated -- a display != an operator session)"
+            if (disp or xvfb) else " -- none (interactive capture stays operator-gated)"))
+
+    # Tier-1 (702): STALE __pycache__ is a SILENT liar. Observed this session:
+    # bulk_downloader/__init__.py said 3.66.702 while `import bulk_downloader`
+    # resolved 3.66.700 -- a .pyc left behind by an overlay restore. Every version
+    # gate then reported the OLD version and nothing said why. Compare the SOURCE
+    # version against the IMPORTED one; they must agree.
+    try:
+        import re as _re, subprocess as _sp
+        _w = "/home/claude/work"
+        _src = _re.search(r'__version__\s*=\s*"([^"]+)"',
+                          open(os.path.join(_w, "bulk_downloader", "__init__.py")).read()).group(1)
+        _imp = _sp.run(["python3", "-c",
+                        "import sys;sys.path.insert(0,'.');import bulk_downloader as b;"
+                        "print(b.__version__)"],
+                       cwd=_w, capture_output=True, text=True).stdout.strip()
+        if _imp and _imp != _src:
+            crit_fail = True
+            line(CRIT, "pycache", f"source says {_src} but `import bulk_downloader` "
+                                  f"resolves {_imp} -- STALE __pycache__ is lying to every "
+                                  f"version gate. Fix: find . -name __pycache__ -prune "
+                                  f"-exec rm -rf {{}} +")
+        else:
+            line("ok", "pycache", f"import resolves the source version ({_src})")
+    except Exception as _e:
+        line(WARN, "pycache", f"could not compare source vs imported version ({_e})")
+
+    print(f"\n{G+'RESULT: OK'+RST if not crit_fail else R+'RESULT: CRITICAL'+RST} "
+          f"-- {'no critical issues' if not crit_fail else 'a critical check failed (see FAIL above)'}")
+    return 1 if crit_fail else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

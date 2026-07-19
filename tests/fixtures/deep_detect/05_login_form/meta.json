@@ -1,0 +1,4 @@
+{
+  "description": "Standard login form: email + password + remember-me + submit. Tests login_candidates detection and form-field classification (username/password/csrf/etc).",
+  "base_url": "https://example.test/account/login"
+}

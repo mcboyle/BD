@@ -1,0 +1,26 @@
+# Build artefacts and dependencies — never committed.
+node_modules/
+dist/
+
+# Vite cache
+.vite/
+
+# Vitest cache
+.vitest-cache/
+
+# TypeScript incremental build info
+*.tsbuildinfo
+
+# Logs from local dev
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Playwright (U8)
+playwright-report/
+test-results/
+.playwright/

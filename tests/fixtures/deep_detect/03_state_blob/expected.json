@@ -1,0 +1,129 @@
+{
+  "best_login": null,
+  "blockers": {
+    "blocked": false,
+    "bot_defense_systems": [],
+    "bot_defenses": [],
+    "captchas": [],
+    "do_not_auto_submit": false,
+    "do_not_download": false,
+    "drm_or_encryption": false,
+    "drm_systems": [],
+    "duplicate_fields": 0,
+    "fingerprinting": [],
+    "honeypot_count": 0,
+    "warnings": []
+  },
+  "buckets": {
+    "accepted": [
+      {
+        "ceiling_reasons": [],
+        "codec": null,
+        "confidence": 0.85,
+        "confidence_ceiling": 1.0,
+        "found_in": "state_blob:__NEXT_DATA__",
+        "fps": null,
+        "reasons": [
+          "URL found in state blob under key hls"
+        ],
+        "requires_click": false,
+        "resolution": {
+          "ambiguous": true,
+          "label": "master",
+          "rank": 9500
+        },
+        "score": 165,
+        "size_bytes": null,
+        "source_type": "hls_manifest",
+        "url": "https://cdn.example.test/abc123/master.m3u8",
+        "warnings": []
+      },
+      {
+        "ceiling_reasons": [],
+        "codec": null,
+        "confidence": 0.5,
+        "confidence_ceiling": 1.0,
+        "found_in": "state_blob:__NEXT_DATA__",
+        "fps": null,
+        "reasons": [
+          "URL found in state blob under key mp4"
+        ],
+        "requires_click": false,
+        "resolution": {
+          "height": 1080,
+          "label": "1080p",
+          "rank": 1080
+        },
+        "score": 80,
+        "size_bytes": null,
+        "source_type": "direct_file",
+        "url": "https://cdn.example.test/abc123/1080p.mp4",
+        "warnings": []
+      },
+      {
+        "ceiling_reasons": [],
+        "codec": null,
+        "confidence": 0.4167,
+        "confidence_ceiling": 1.0,
+        "found_in": "state_blob:__NEXT_DATA__",
+        "fps": null,
+        "reasons": [
+          "URL found in state blob under key url"
+        ],
+        "requires_click": false,
+        "resolution": null,
+        "score": 70,
+        "size_bytes": null,
+        "source_type": "subtitle_track",
+        "url": "https://cdn.example.test/abc123/en.vtt",
+        "warnings": []
+      }
+    ],
+    "best": {
+      "ceiling_reasons": [],
+      "codec": null,
+      "confidence": 0.85,
+      "confidence_ceiling": 1.0,
+      "found_in": "state_blob:__NEXT_DATA__",
+      "fps": null,
+      "reasons": [
+        "URL found in state blob under key hls"
+      ],
+      "requires_click": false,
+      "resolution": {
+        "ambiguous": true,
+        "label": "master",
+        "rank": 9500
+      },
+      "score": 165,
+      "size_bytes": null,
+      "source_type": "hls_manifest",
+      "url": "https://cdn.example.test/abc123/master.m3u8",
+      "warnings": []
+    },
+    "counts": {
+      "accepted": 3,
+      "rejected": 0,
+      "warnings": 0
+    },
+    "rejected": [],
+    "rejected_raw": [],
+    "warnings": []
+  },
+  "csp": null,
+  "disclaimers": [],
+  "login_candidates": [],
+  "manifests": {
+    "dash": null,
+    "hls": null,
+    "smooth": null
+  },
+  "provider_embeds": [],
+  "provider_resolutions": [],
+  "source_breakdown": {
+    "direct_file": 1,
+    "hls_manifest": 1,
+    "subtitle_track": 1
+  },
+  "workflow_required": null
+}

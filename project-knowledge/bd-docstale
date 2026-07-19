@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""bd-docstale -- which PK docs are behind the current version.
+
+Scans <dir>/*.md for `verified-against: vX.Y.Z` and reports how far each is
+behind __version__. High-signal: most PK docs drift for many releases.
+Usage: bd-docstale [--dir /mnt/project] [--work DIR] [--behind N]
+Exit 0 always (report tool); use --behind N to exit 1 if any doc is >N behind.
+"""
+import argparse, glob, os, re, sys
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+def patch(v): 
+    m=re.match(r'3\.66\.(\d+)',v); return int(m.group(1)) if m else None
+def selftest():
+    # patch() extracts the cut number; must parse a real version and reject junk.
+    ok = (patch("3.66.700") == 700 and patch("not-a-version") is None)
+    print(("PASS" if patch("3.66.700") == 700 else "FAIL") + "  parses 3.66.700 -> 700")
+    print(("PASS" if patch("junk") is None else "FAIL") + "  NEG: junk -> None (no false cut number)")
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap=argparse.ArgumentParser(); ap.add_argument("--dir",default="/mnt/project")
+    ap.add_argument("--work","--tree",default="/home/claude/work"); ap.add_argument("--behind",type=int)
+    ap.add_argument("--selftest", action="store_true",
+                   help="real fault-injection selftest")
+    a=ap.parse_args()
+    if a.selftest:
+        return selftest()
+    cur=None
+    try:
+        cur=patch(re.search(r'3\.66\.\d+',open(os.path.join(a.work,"bulk_downloader/__init__.py")).read()).group(0))
+    # why: handled failure is non-fatal; proceed with the value left unset
+    except Exception: pass
+    rows=[]
+    for f in sorted(glob.glob(os.path.join(a.dir,"*.md"))):
+        try: head="".join([next(open(f)) for _ in range(3)])
+        except Exception:  # why: fewer than 3 lines (StopIteration) or an odd encoding;
+                           # read a fixed prefix instead -- the marker search below is identical
+            head=open(f).read(300)
+        m=re.search(r'verified-against:\s*v?(3\.66\.(\d+))',head)
+        if m: rows.append((os.path.basename(f),int(m.group(2))))
+    if not rows:
+        print("no verified-against markers found"); return 0
+    rows.sort(key=lambda r:r[1])
+    print(f"{DIM}current __version__ patch: 3.66.{cur}{RST}")
+    worst=0
+    for name,p in rows:
+        d=(cur-p) if cur else 0; worst=max(worst,d)
+        tag=(G+"current"+RST if d==0 else (Y if d<100 else R)+f"{d} behind"+RST)
+        print(f"  3.66.{p:<4} {tag:<20} {name}")
+    print(f"{DIM}{len(rows)} marked docs; worst is {worst} releases behind{RST}")
+    if a.behind is not None and worst>a.behind: return 1
+    return 0
+sys.exit(main())

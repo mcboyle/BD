@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+"""bd-rev -- provision (and verify) the audit-battery venv on demand.
+
+The audit battery (bd-scan, defect_patterns' peers, the TS scan) needs a venv of
+non-service tools -- radon / vulture / bandit / detect-secrets / libcst / semgrep
+(+ npm jscpd). On stash this is ~/rev; in the sandbox it did not exist, so
+bd-scan --semgrep/--ts and jscpd could not run here at all. Now that the sandbox
+has egress, this builds that venv on demand:
+
+  * LIVE (default): pip-install the pinned deps from PyPI + npm-install jscpd.
+    ~90s, always current, no giant upload needed.
+  * OFFLINE (--offline or auto on no-egress): install from the uploaded wheels
+    (bd_review_tools_kit / semgrep_kit) for reproducibility / air-gapped runs.
+
+Pins (kept == the stash ~/rev per STATE so scan results match):
+  radon==6.0.1 vulture==2.16 bandit==1.9.4 detect-secrets==1.5.0
+  libcst==1.8.6 semgrep==1.168.0  |  npm: jscpd@5.0.11
+
+Usage:
+  bd-rev                      provision at ~/rev (default), live-pull
+  bd-rev --dir /path          provision elsewhere
+  bd-rev --offline            use uploaded wheels only (no network)
+  bd-rev --verify             P4: check the installed tools match the pins (rc!=0 on drift)
+  bd-rev --no-jscpd           skip the npm jscpd step (python-only battery)
+Stdlib only; wraps pip/npm via subprocess.
+"""
+import argparse
+import glob
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+PINS = {
+    "radon": "6.0.1", "vulture": "2.16", "bandit": "1.9.4",
+    "detect-secrets": "1.5.0", "libcst": "1.8.6", "semgrep": "1.168.0",
+}
+JSCPD_PIN = "5.0.11"
+# import name != dist name for a couple
+IMPORT_NAME = {"detect-secrets": "detect_secrets"}
+
+
+def run(cmd, timeout=1200, env=None):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=timeout, env=env)
+    except subprocess.TimeoutExpired:
+        class _R:  # noqa
+            returncode, stdout, stderr = 124, "", "timeout"
+        return _R()
+
+
+def _have_egress():
+    try:
+        import urllib.request
+        urllib.request.urlopen("https://pypi.org/simple/radon/", timeout=8)
+        return True
+    # why: input unavailable/unreadable; return the safe default (False) rather than a value derived from a failed read
+    except Exception:
+        return False
+
+
+def _find_wheels():
+    """Locate an uploaded wheels/ dir from the review-tools kit."""
+    for pat in ("/home/claude/**/wheels", "/mnt/user-data/uploads/**/wheels",
+                "/home/claude/uploads_backup/**/wheels"):
+        for d in glob.glob(pat, recursive=True):
+            if os.path.isdir(d) and glob.glob(os.path.join(d, "*.whl")):
+                return d
+    return None
+
+
+def provision(vdir, offline, do_jscpd):
+    py = sys.executable
+    # 1) create venv
+    if not os.path.isdir(os.path.join(vdir, "bin")):
+        print(f"  creating venv at {vdir}")
+        r = run([py, "-m", "venv", vdir])
+        if r.returncode != 0:
+            print(f"{R}FAIL{RST} venv create:\n{r.stderr[-500:]}")
+            return 1
+    vpip = os.path.join(vdir, "bin", "pip")
+    specs = [f"{k}=={v}" for k, v in PINS.items()]
+
+    live = not offline and _have_egress()
+    src = "LIVE (PyPI)" if live else "OFFLINE (wheels)"
+    print(f"  installing python battery -- {src}")
+    if live:
+        r = run([vpip, "install", "--quiet", *specs])
+    else:
+        wheels = _find_wheels()
+        if not wheels:
+            print(f"{R}FAIL{RST} --offline but no uploaded wheels/ dir found "
+                  f"(bd_review_tools_kit). Either attach it or drop --offline.")
+            return 1
+        r = run([vpip, "install", "--quiet", "--no-index",
+                 "--find-links", wheels, *specs])
+    if r.returncode != 0:
+        print(f"{R}FAIL{RST} pip install:\n{(r.stdout + r.stderr)[-800:]}")
+        return 1
+    print(f"  {G}python battery installed{RST}: {', '.join(PINS)}")
+
+    # 2) jscpd via npm (best-effort; not fatal)
+    if do_jscpd:
+        npm = shutil.which("npm")
+        if not npm:
+            print(f"  {Y}npm not found -- jscpd skipped{RST}")
+        elif live:
+            prefix = os.path.join(vdir, "npm")
+            os.makedirs(prefix, exist_ok=True)
+            env = dict(os.environ, NPM_CONFIG_PREFIX=prefix)
+            r = run([npm, "install", "-g", f"jscpd@{JSCPD_PIN}"], env=env)
+            ok = os.path.exists(os.path.join(prefix, "bin", "jscpd"))
+            print(f"  {'jscpd installed' if ok else Y+'jscpd install unclear'+RST} "
+                  f"-> {prefix}/bin/jscpd")
+        else:
+            print(f"  {Y}--offline: jscpd needs npm/network -- skipped{RST}")
+    return 0
+
+
+def verify(vdir):
+    """P4: installed tools must match the pins (a live pull that grabbed a newer
+    semgrep would silently change scan results)."""
+    vpy = os.path.join(vdir, "bin", "python")
+    if not os.path.exists(vpy):
+        print(f"{R}FAIL{RST} no venv at {vdir} (run bd-rev first)")
+        return 1
+    bad = []
+    for dist, want in PINS.items():
+        mod = IMPORT_NAME.get(dist, dist.replace("-", "_"))
+        r = run([vpy, "-c",
+                 f"import importlib.metadata as m; print(m.version('{dist}'))"])
+        got = (r.stdout or "").strip()
+        tag = G + "OK " + RST if got == want else R + "DRIFT" + RST
+        print(f"  {tag} {dist}: installed {got or '(missing)'} | pinned {want}")
+        if got != want:
+            bad.append((dist, got, want))
+    # jscpd (best-effort)
+    jbin = os.path.join(vdir, "npm", "bin", "jscpd")
+    if os.path.exists(jbin):
+        r = run([jbin, "--version"])
+        got = (r.stdout or "").strip().split()[-1] if r.stdout else "?"
+        tag = G + "OK " + RST if got == JSCPD_PIN else Y + "note" + RST
+        print(f"  {tag} jscpd: installed {got} | pinned {JSCPD_PIN}")
+    print("=" * 50)
+    if bad:
+        print(f"{R}PIN DRIFT{RST} ({len(bad)}): the audit venv differs from the "
+              f"pinned versions -- scan results may not match. Re-pin bd-rev PINS "
+              f"or reprovision --offline for reproducibility.")
+        return 1
+    print(f"{G}CLEAN{RST} -- audit venv matches all pins.")
+    return 0
+
+
+def selftest():
+    """DELEGATE: wraps bd-fetch. Asserts the target file is present in the tool's own
+    bin dir -- if not, FAIL (a wrapper that cannot find what it wraps is broken;
+    a selftest that cannot verify must not report success)."""
+    import os as _o
+    here = _o.path.dirname(_o.path.realpath(__file__))
+    found = _o.path.isfile(_o.path.join(here, "bd-fetch"))
+    print(("PASS" if found else "FAIL") + "  delegation target present: bd-fetch")
+    print("SELFTEST PASS" if found else "SELFTEST FAIL")
+    return 0 if found else 1
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dir", default=os.path.expanduser("~/rev"))
+    ap.add_argument("--offline", action="store_true")
+    ap.add_argument("--verify", action="store_true")
+    ap.add_argument("--no-jscpd", action="store_true")
+    ap.add_argument("--selftest",action="store_true")
+    a = ap.parse_args(argv)
+    if a.selftest:
+        return selftest()
+
+    print(f"bd-rev -- audit venv @ {a.dir}")
+    print("=" * 50)
+    if a.verify:
+        return verify(a.dir)
+    rc = provision(a.dir, a.offline, not a.no_jscpd)
+    if rc == 0:
+        print()
+        print(f"{DIM}now runnable: bd-scan --semgrep --ts --venv {a.dir} ; "
+              f"jscpd via {a.dir}/npm/bin/jscpd{RST}")
+        print(f"{DIM}verify pins anytime: bd-rev --verify --dir {a.dir}{RST}")
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())

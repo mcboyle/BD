@@ -1,0 +1,47 @@
+# --- environments (never commit; rebuilt by bootstrap) ---
+venv/
+.venv/
+node_modules/
+*.egg-info/
+
+# --- build output ---
+frontend/dist/
+build/
+dist/
+*.pyc
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.node-compile-cache/
+
+# --- runtime state (BD_HOME): user data, history, credentials ---
+bd_home/
+*.db
+*.sqlite3
+app_config.json
+sites_config.json
+cookies/
+*.cookies.json
+
+# --- capture output: may contain live session material ---
+captures/
+live_recordings/
+screenshots/
+reports/
+*.har
+*.wacz
+
+# --- release + session artifacts (distributed as zips, not tracked) ---
+*.zip
+out/
+work/
+nextsess/
+audit_carry/
+
+# --- local ---
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log

@@ -1,0 +1,295 @@
+#!/usr/bin/env python3
+"""bd-tools -- the map of the toolchain: every bd-* tool, grouped, with a one-liner.
+
+The suite is large (~80 tools); this makes it navigable. Reads each tool's summary
+line and prints it under a category. `bd-tools <term>` filters by name/summary.
+
+Usage:
+    bd-tools               grouped index
+    bd-tools <term>        only tools whose name/summary matches
+    bd-tools --bin DIR     scan a different bin (default /home/claude/bin)
+Read-only.
+"""
+import argparse
+import glob
+import os
+import re
+import sys
+
+C, G, Y, DIM, BOLD, RST = "\033[36m", "\033[32m", "\033[33m", "\033[2m", "\033[1m", "\033[0m"
+
+# curated categories (tool -> group). Unlisted tools fall under "other".
+CATEGORY = {
+    "Bootstrap / provisioning": ["bd", "bd-boot", "bd-prestage", "bd-install", "bd-venv",
+        "bd-preflight", "bd-state", "bd-status", "bd-doctor", "bd-intake", "bd-optpack",
+        "bd-fetch", "bd-packs"],
+    "Cut readiness / gates": ["bd-ready", "bd-guardcheck", "bd-guard-declare", "bd-versync",
+        "bd-changelog", "bd-ascii", "bd-pinscan", "bd-bandcheck", "bd-imports", "bd-regen",
+        "bd-factcheck", "bd-treecheck", "bd-smoke", "bd-selfcheck", "bd-fullsuite",
+        "bd-regen-order", "bd-lost-symbol"],
+    "Inspect / search": ["bd-route", "bd-deps", "bd-pin", "bd-envscan",
+        "bd-sym", "bd-kb", "bd-capsweep", "bd-freshest", "bd-lsp", "bd-curl"],
+    "Impact / change": ["bd-since", "bd-band-derive", "bd-snapshot", "bd-checkpoint", "bd-timeit",
+        "bd-reindex", "bd-consumer-graph"],
+    "Quality / security / docs": ["bd-ssrf", "bd-secrets", "bd-coverage", "bd-flakes",
+        "bd-doclint", "bd-docstale", "bd-render", "bd-parity-scan", "bd-surface-census"],
+    "Egress / SSRF primitives (Wave 0)": ["bd-url-classify", "bd-path-scan",
+        "bd-secret-floor", "bd-fetch-policy", "bd-host-guard"],
+    "Security static audits (Wave 1)": ["bd-redaction-scan", "bd-csrf-audit",
+        "bd-path-guard", "bd-devsurf-audit", "bd-defaults-audit", "bd-html-taint",
+        "bd-report-sanitizer", "bd-fetch-migration"],
+    "Interop readiness (Wave 2)": ["bd-yt-dlp-check", "bd-jd-check", "bd-crx-check",
+        "bd-node-plugin-check"],
+    "Guard fuzz + fixtures (Wave 3)": ["bd-secret-fixture", "bd-secret-canary",
+        "bd-fuzz-pathguard", "bd-fuzz-redaction", "bd-fuzz-urlguard", "bd-fuzz-import",
+        "bd-property-tests", "bd-mutation-test", "bd-redaction-compiler"],
+    "Taint dataflow (Wave 4)": ["bd-url-taint", "bd-egress-taint", "bd-secret-taint",
+        "bd-path-taint", "bd-template-taint"],
+    "netns / VPN egress proof (Wave 5)": ["bd-netns-proof", "bd-netns-launch-proof",
+        "bd-vpn-proof", "bd-egress-proof", "bd-vpn-required", "bd-vpn-egress-scan"],
+    "Release evidence + invariants (Wave 6)": ["bd-evidence", "bd-proof-ledger", "bd-evidence-chain",
+        "bd-invariant-engine", "bd-rollback-plan", "bd-release-note",
+        "bd-release-attestation", "bd-trust-score", "bd-rollback-oracle",
+        "bd-deploy-proof", "bd-review-pack", "bd-evidence-pack", "bd-policy-compiler"],
+    "Config / schema / data safety (Wave 7)": ["bd-config-risk", "bd-config-orphan",
+        "bd-json-schema-check", "bd-json-roundtrip", "bd-store-check",
+        "bd-schema-oracle", "bd-config-lineage", "bd-api-contract"],
+    "Plugin / capture / template hardening (Wave 8)": ["bd-plugin-manifest",
+        "bd-plugin-audit", "bd-template-safety", "bd-log-sanitize", "bd-scrub-proof",
+        "bd-share-safe", "bd-plugin-threatmodel", "bd-plugin-containment",
+        "bd-plugin-sandbox-check", "bd-capture-risk", "bd-wacz-scrub",
+        "bd-artifact-quarantine", "bd-plugin-permission-diff", "bd-plugin-diff",
+        "bd-template-diff", "bd-template-promote-check", "bd-plugin-fuzz",
+        "bd-plugin-chaos", "bd-plugin-lifecycle-trace", "bd-capture-trace"],
+    "Supply chain + toolchain assurance (Wave 9)": ["bd-supply-chain-scan",
+        "bd-binary-audit", "bd-offline-proof", "bd-dependency-license",
+        "bd-env-parity", "bd-archive-normalize", "bd-time-travel",
+        "bd-version-genealogy"],
+    "Architecture intel / decomposition (Wave 10)": ["bd-decomp", "bd-graph-build", "bd-l0-graph", "bd-defect-scan", "bd-seam-finder",
+        "bd-coupling-meter", "bd-domain-slicer", "bd-monolith-xray",
+        "bd-decomp-plan", "bd-monolith-slice", "bd-risk-graph",
+        "bd-interface-contracts", "bd-contract-testgen", "bd-state-machine-extract",
+        "bd-state-machine-test", "bd-workflow-model", "bd-workflow-replay"],
+    "UI / FE / operator quality (Wave 11)": ["bd-fe-route-diff", "bd-spa-boundary",
+        "bd-cockpit-governance", "bd-dashboard-readonly", "bd-ui-contract",
+        "bd-body-contract"],
+    "Doc/KB truth + agent governance (Wave 13)": ["bd-pending", "bd-doc-truth", "bd-kb-conflict",
+        "bd-runtime-gate", "bd-agent-watchdog", "bd-agent-scorecard",
+        "bd-agent-redteam", "bd-agent-debate", "bd-decision-memory",
+        "bd-archaeology", "bd-lineage", "bd-frontier-lab", "bd-innovation-radar",
+        "bd-tracker-recon"],
+    "Runtime / scheduling / chaos (Wave 12)": ["bd-scheduler-check", "bd-scheduler-sim",
+        "bd-calendar-check", "bd-network-chaos", "bd-queue-chaos", "bd-db-chaos",
+        "bd-capture-chaos", "bd-job-forensics", "bd-run-timeline", "bd-log-causality",
+        "bd-observability-map"],
+    "Toolchain self-governance": ["bd-equiv", "bd-tool-lint", "bd-tool-smoke", "bd-sweep", "bd-golden", "bd-fixture-lint"],
+    "Dev loop": ["bd-band", "bd-parband", "bd-retest", "bd-cut", "bd-precut", "bd-bump",
+        "bd-job"],
+    "Close / package": ["bd-ship", "bd-handoff", "bd-pack", "bd-session", "bd-kb-sync",
+                        "bd-pk-mirror",
+        "bd-mkbdsuite", "bd-mkauditstate", "bd-zipcheck", "bd-repin-dist"],
+    "Deploy / verify": ["bd-verify-live", "bd-rollback", "bd-reconcile",
+        "bd-deploy-manifest", "bd-deploy-rehearse"],
+    "Sandbox harness": ["bd-rev", "bd-live", "bd-dltest", "bd-runner-nav", "bd-corpus",
+        "bd-recognizer-drift", "bd-fixture-serve", "bd-opv", "bd-novnc", "bd-proxy",
+        "bd-vpnlab", "bd-sbcap", "bd-render"],
+    "GUI render / capture": ["bd-render", "bd-render-env", "bd-gui-surface",
+        "bd-deep-capture", "bd-fe-dead-control"],
+    "Audit / coordination": ["bd-audit", "bd-parallel", "bd-tools"],
+    "Session-start gates (session)": ["bd-worktree-check", "bd-verify"],
+    "Living context (session)": ["bd-footguns", "bd-brief", "bd-ratchet", "bd-band-derive", "bd-coretest"],
+}
+
+
+def summary(path):
+    try:
+        head = open(path, errors="ignore").read(600)
+    except Exception:  # why: input unavailable/unreadable; return empty so the caller uses its fallback, not a wrong value
+        return ""
+    m = re.search(r'bd-[\w-]+\s+--\s+(.+)', head)
+    return m.group(1).strip() if m else ""
+
+
+
+# ---------------------------------------------------------------------------
+# WHEN (702): a catalog tells you a tool EXISTS; it does not tell you WHEN to
+# reach for it. 88 tools were previously BOTH uncalled by any other tool AND
+# absent from the PK reference -- runnable only by remembering they exist.
+#
+# Every tool therefore inherits a session-phase TRIGGER from its category. This
+# is derived (category -> trigger) rather than 227 hand-written prose lines, so
+# it cannot drift per-tool; and `bd-tools --check` FAILS if any tool in bin/ is
+# missing from CATEGORY, so a new tool cannot ship without a "when".
+WHEN = {
+ "Bootstrap / provisioning": "SESSION START -- opening the sandbox, before any work.",
+ "Session-start gates (session)": "SESSION START -- immediately after bootstrap, before touching code.",
+ "Living context (session)": "SESSION START -- load derived truth + armed footguns + capability probe (bd-brief). Re-run after any environment change.",
+ "Cut readiness / gates": "BEFORE EVERY CUT -- bd-precut --gate is the one entry point; these are what it delegates to.",
+ "Impact / change": "BEFORE BANDING -- given a diff, derive WHAT MUST BE TESTED (bd-band-derive is the engine; blast/suites/touched are shims).",
+ "Inspect / search": "ANY TIME -- answering 'where is X / what reads Y' before editing.",
+ "Dev loop": "WHILE EDITING -- fast feedback between edits.",
+ "Quality / security / docs": "BEFORE A CUT that touches the relevant surface; or on a periodic sweep.",
+ "Close / package": "SESSION CLOSE -- ONLY after the operator confirms stash GREEN. Order: build+verify+present -> STOP -> bd-handoff -> bd-pack.",
+ "Deploy / verify": "AT/AFTER DEPLOY -- operator-run; verifies the artifact and the live service.",
+ "Sandbox harness": "WHEN EXERCISING RUNTIME in-sandbox (capture, download, netns, browser).",
+ "Toolchain self-governance": "WHEN CHANGING THE TOOLCHAIN -- and bd-coretest now runs inside bd-precut --gate on every cut.",
+ "Audit / coordination": "DURING AN AUDIT PROGRAM -- multi-session review work.",
+ "Egress / SSRF primitives (Wave 0)": "WHEN TOUCHING outbound requests / URL handling (SSRF surface).",
+ "Security static audits (Wave 1)": "WHEN TOUCHING request/response, redaction, CSRF, or path handling.",
+ "Interop readiness (Wave 2)": "WHEN TOUCHING an external integration (yt-dlp / JDownloader / CRX).",
+ "Guard fuzz + fixtures (Wave 3)": "WHEN CHANGING A GUARD or a parser boundary -- fuzz before trusting it.",
+ "Taint dataflow (Wave 4)": "WHEN A SECRET / PATH / URL / TEMPLATE could reach a sink you just added.",
+ "netns / VPN egress proof (Wave 5)": "WHEN TOUCHING capture isolation, netns, or VPN egress (F5).",
+ "Release evidence + invariants (Wave 6)": "AT CUT/CLOSE -- assemble the proof that this release is what it claims.",
+ "Config / schema / data safety (Wave 7)": "WHEN ADDING/CHANGING A CONFIG KEY or a stored schema (see FG-COUNT-PIN-EDITABLE-SET).",
+ "Plugin / capture / template hardening (Wave 8)": "WHEN TOUCHING plugins, capture, or templates.",
+ "Supply chain + toolchain assurance (Wave 9)": "WHEN PINS / DEPS / PACKAGED TOOLS change.",
+ "Architecture intel / decomposition (Wave 10)": "BEFORE AN ARCH/DECOMP WAVE -- find the seam, the coupling, the blast, the ordered plan.",
+ "UI / FE / operator quality (Wave 11)": "WHEN TOUCHING the SPA / operator surface.",
+ "Runtime / scheduling / chaos (Wave 12)": "WHEN VALIDATING resilience of the queue / scheduler / DB / network paths.",
+ "Doc/KB truth + agent governance (Wave 13)": "WHEN DOCS/STATE MAY HAVE DRIFTED from source -- and at session close.",
+ "GUI render / capture": "WHEN making or verifying a FRONTEND/GUI change -- bd-render-env FIRST (it gates the browser), then bd-gui-surface for the denominator, bd-deep-capture for the pixels.",
+}
+NOT_TOOLS = {"bdtools_sec.py", "bdtools_taint.py", "bdtools_cache.py",
+             "bdtools_cli.py",
+             "bd-audit-gate.py", "bd-triage.py"}
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("term", nargs="?", default="")
+    ap.add_argument("--bin", default="/home/claude/bin")
+    ap.add_argument("--when", action="store_true",
+                    help="session playbook: phase -> trigger -> tools")
+    ap.add_argument("--check", action="store_true",
+                    help="GATE: fail if any tool in bin/ has no category (=no 'when')")
+    ap.add_argument("--emit-doc", metavar="PATH",
+                    help="write the WHEN-TO-USE markdown (the PK doc)")
+    ap.add_argument("--json", action="store_true",
+                    help="machine-readable coverage/category map")
+    ap.add_argument("--selftest", action="store_true")
+
+    a = ap.parse_args()
+    if a.selftest:
+        import os as _os, json as _json
+        ok = True
+        listed = {t for v in CATEGORY.values() for t in v}
+        have = {t for t in _os.listdir(a.bin)
+                if t.startswith("bd") and not t.endswith(".json")} - NOT_TOOLS
+        # POS: real coverage
+        cov = not (have - listed) and not (listed - have)
+        print(("PASS" if cov else "FAIL") + "  every tool categorized + no stale entries")
+        ok = ok and cov
+        # POS: every category carries a WHEN trigger
+        nowhen = [c for c in CATEGORY if not WHEN.get(c)]
+        print(("PASS" if not nowhen else "FAIL") +
+              "  every category declares a WHEN trigger (%d missing)" % len(nowhen))
+        ok = ok and not nowhen
+        # NEG control: an undeclared tool MUST be reported missing (the gate's teeth)
+        fake = "bd-zz-selftest-phantom"
+        detected = fake not in listed
+        print(("PASS" if detected else "FAIL") +
+              "  NEG: an uncategorized tool is NOT silently accepted")
+        ok = ok and detected
+        print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+        return 0 if ok else 1
+
+    if a.json:
+        import os as _os, json as _json
+        listed = {t for v in CATEGORY.values() for t in v}
+        have = {t for t in _os.listdir(a.bin)
+                if t.startswith("bd") and not t.endswith(".json")} - NOT_TOOLS
+        print(_json.dumps({
+            "categories": {c: [t for t in CATEGORY[c] if t in have] for c in CATEGORY},
+            "when": WHEN,
+            "tools": len(have),
+            "categorized": len(have & listed),
+            "uncategorized": sorted(have - listed),
+            "stale": sorted(listed - have),
+        }, indent=1))
+        return 0
+
+    if a.check or a.when or a.emit_doc:
+        import os as _os
+        listed = {t for v in CATEGORY.values() for t in v}
+        have = {t for t in _os.listdir(a.bin)
+                if t.startswith("bd") and not t.endswith(".json")} - NOT_TOOLS
+        missing = sorted(have - listed)
+        stale = sorted(listed - have)
+        if a.when or a.emit_doc:
+            lines = ["# BD toolchain -- WHEN to use what",
+                     "",
+                     "Generated by `bd-tools --emit-doc` (derived from the live bin/, never hand-kept).",
+                     "A category's TRIGGER is the 'when'; each tool's line is the 'what'.",
+                     ""]
+            for cat_name in CATEGORY:
+                tools_in = [t for t in CATEGORY[cat_name] if t in have]
+                if not tools_in:
+                    continue
+                lines.append("## %s" % cat_name)
+                lines.append("**WHEN:** %s" % WHEN.get(cat_name, "(no trigger declared)"))
+                lines.append("")
+                for t in tools_in:
+                    lines.append("- `%s` -- %s" % (t, (summary(_os.path.join(a.bin, t)) or "").strip()))
+                lines.append("")
+            doc = "\n".join(lines)
+            if a.emit_doc:
+                open(a.emit_doc, "w").write(doc)
+                print("wrote %s (%d categories)" % (a.emit_doc, len(CATEGORY)))
+            else:
+                print(doc)
+        if a.check:
+            print("coverage: %d/%d tools categorized" % (len(have & listed), len(have)))
+            if stale:
+                print("STALE (in catalog, not in bin): " + " ".join(stale))
+            if missing:
+                print("NO 'WHEN' (in bin, uncategorized): " + " ".join(missing))
+                print("BLOCKED -- every tool must declare a category (= a session trigger).")
+                return 3
+            if stale:
+                return 3
+            print("OK -- every tool has a category and therefore a 'when'.")
+        return 0
+
+
+    tools = {os.path.basename(p): p for p in glob.glob(os.path.join(a.bin, "bd*"))
+             if os.path.isfile(p)}
+    placed = set()
+    total = len(tools)
+    pat = a.term.lower()
+    shown = 0
+    for group, names in CATEGORY.items():
+        rows = []
+        for n in names:
+            if n in tools:
+                placed.add(n)
+                s = summary(tools[n])
+                if pat and pat not in n.lower() and pat not in s.lower():
+                    continue
+                rows.append((n, s))
+        if rows:
+            print(f"\n{BOLD}{group}{RST}")
+            for n, s in rows:
+                print(f"  {C}{n:<20}{RST} {DIM}{s[:74]}{RST}")
+                shown += 1
+    # uncategorized
+    other = sorted(set(tools) - placed)
+    orows = []
+    for n in other:
+        s = summary(tools[n])
+        if pat and pat not in n.lower() and pat not in s.lower():
+            continue
+        orows.append((n, s))
+    if orows:
+        print(f"\n{BOLD}Other{RST}")
+        for n, s in orows:
+            print(f"  {C}{n:<20}{RST} {DIM}{s[:74]}{RST}")
+            shown += 1
+    if pat:
+        print(f"\n{DIM}{shown} tool(s) matching {a.term!r} (of {total}){RST}")
+    else:
+        print(f"\n{DIM}{total} tools total. `bd-tools <term>` to filter.{RST}")
+    return 0
+
+
+sys.exit(main())

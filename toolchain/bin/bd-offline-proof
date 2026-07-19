@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""bd-offline-proof -- prove offline install completeness.
+
+Checks each offline-install capability tier and reports present/missing:
+  wheels        service venv importable (flask/playwright) + wheelhouse staged
+  browsers      chromium (base) + firefox/webkit (pack_E) in the pw cache
+  netdeps       ip/nft/aria2c/jq/sqlite3 on PATH (pack_G/G2)
+  audit         audit venv (semgrep) + fd/shellcheck (pack_H)
+  node          node runtime present
+A tier is COMPLETE, PARTIAL, or ABSENT. This is the "can I install/run fully
+offline" attestation. Read-only.
+
+Exit 0 (report-only) unless --require TIERS is given, then: 0 = every required
+tier COMPLETE / 1 = a required tier is PARTIAL or ABSENT / 2 = CANNOT-EVALUATE.
+A required tier that is not COMPLETE is a real failed attestation, not a note.
+
+Usage: bd-offline-proof [--home DIR] [--work DIR] [--json] [--selftest]
+"""
+import argparse, glob, os, shutil, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+
+def tier_status(present, total):
+    if present==total: return "COMPLETE"
+    if present==0: return "ABSENT"
+    return "PARTIAL"
+
+def check(home, work):
+    tiers={}
+    # wheels
+    pw=glob.glob(os.path.join(home,"pyext_kit","wheels","*.whl"))
+    venv_sp=glob.glob(os.path.join(work,"venv","lib","python*","site-packages"))
+    flask=any(os.path.exists(os.path.join(sp,"flask")) for sp in venv_sp)
+    tiers["wheels"]={"checks":{"wheelhouse_staged":bool(pw),"venv_flask":flask},}
+    # browsers
+    cache=os.path.join(home,".cache","ms-playwright")
+    br={"chromium":bool(glob.glob(os.path.join(cache,"chromium-*"))),
+        "firefox":bool(glob.glob(os.path.join(cache,"firefox-*"))),
+        "webkit":bool(glob.glob(os.path.join(cache,"webkit-*")))}
+    tiers["browsers"]={"checks":br}
+    # netdeps
+    nd={b:bool(shutil.which(b)) for b in ("ip","nft","aria2c","jq","sqlite3")}
+    tiers["netdeps"]={"checks":nd}
+    # audit
+    au={"audit_venv":os.path.exists(os.path.join(home,"audit_tools","venv","bin","python")),
+        "fd":os.path.exists(os.path.join(home,"audit_tools","bin","fd")),
+        "shellcheck":os.path.exists(os.path.join(home,"audit_tools","bin","shellcheck"))}
+    tiers["audit"]={"checks":au}
+    # node
+    tiers["node"]={"checks":{"node":bool(shutil.which("node"))}}
+    for t,d in tiers.items():
+        ch=d["checks"]; p=sum(1 for v in ch.values() if v)
+        d["present"]=p; d["total"]=len(ch); d["status"]=tier_status(p,len(ch))
+    return tiers
+
+def selftest():
+    ok=True
+    t=check("/home/claude","/home/claude/work")
+    print(("PASS" if len(t)==5 else "FAIL")+"  5 capability tiers checked")
+    ok=ok and len(t)==5
+    # netdeps should be COMPLETE (installed this session)
+    print(("PASS" if t["netdeps"]["status"] in ("COMPLETE","PARTIAL") else "FAIL")+"  netdeps tier: %s"%t["netdeps"]["status"])
+    ok=ok and t["netdeps"]["status"]!="ABSENT"
+    print(("PASS" if t["browsers"]["status"]!="ABSENT" else "FAIL")+"  browsers tier: %s"%t["browsers"]["status"])
+    # contract controls (I-6): report-only=0, required-missing=1, unknown-tier=2
+    fake={"wheels":{"status":"COMPLETE"},"netdeps":{"status":"ABSENT"}}
+    rcs=(_verdict_rc(fake,None),_verdict_rc(fake,"wheels"),
+         _verdict_rc(fake,"netdeps"),_verdict_rc(fake,"nope"))
+    print(("PASS" if rcs==(0,0,1,2) else "FAIL")+
+          "  NEG: report-only 0 / required-COMPLETE 0 / required-ABSENT 1 / unknown 2 (got %s)"%(rcs,))
+    ok=ok and rcs==(0,0,1,2)
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def _verdict_rc(tiers, require):
+    """0 if every required tier is COMPLETE; 1 if any is not. No --require ->
+    report-only (0). Unknown tier name in --require -> 2 (asked about something
+    that does not exist)."""
+    if not require:
+        return 0
+    req=[r.strip() for r in require.split(",") if r.strip()]
+    unknown=[r for r in req if r not in tiers]
+    if unknown:
+        sys.stderr.write("CANNOT-EVALUATE offline-proof: reason=ABSENT "
+                         "(unknown tier(s): %s)\n"%",".join(unknown))
+        return 2
+    bad=[r for r in req if tiers[r]["status"]!="COMPLETE"]
+    if bad:
+        sys.stderr.write("required tier(s) not COMPLETE: %s\n"
+                         %", ".join("%s=%s"%(r,tiers[r]["status"]) for r in bad))
+        return 1
+    return 0
+
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--home",default="/home/claude"); ap.add_argument("--work","--tree",default="/home/claude/work")
+    ap.add_argument("--require",default=None,help="comma-separated tiers that must be COMPLETE (e.g. wheels,netdeps)")
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    sec.require_source_tree(a.work)
+    sec.require_bundle(a.home)
+    t=check(a.home,a.work)
+    if sec.emit({"tiers":t,"summary":{k:v["status"] for k,v in t.items()}},as_json=a.json): return _verdict_rc(t,a.require)
+    print("offline install completeness:")
+    for name,d in t.items():
+        col={"COMPLETE":G,"PARTIAL":Y,"ABSENT":R}[d["status"]]
+        miss=[k for k,v in d["checks"].items() if not v]
+        print("  %s%-9s%s %s (%d/%d)%s"%(col,d["status"],RST,name,d["present"],d["total"],(" missing: "+",".join(miss)) if miss else ""))
+    return _verdict_rc(t,a.require)
+sys.exit(main())

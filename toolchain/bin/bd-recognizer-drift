@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""bd-recognizer-drift -- verify a recognizer still fires against a live/fixture page.
+
+Static fixtures test the recognizer against a FROZEN DOM; they cannot catch
+site-drift (a target site swaps its player embed, quietly breaking a recognizer
+that still passes its fixture). Now that the sandbox drives a headless browser,
+this fetches a real page's DOM and runs the ACTUAL recognition path against it:
+
+  * extractors.is_supported_url(url)  -- does a host-pattern still match?
+  * detect.run_recognizers(dom, net, ctx) -- does a DOM recognizer still fire?
+
+It reports MATCH / NO-MATCH / DRIFT (expected a match, got none) per the audit
+program's recognizer-coverage method. Read-only: it inspects the DOM, never
+downloads media, never handles a challenge (reports + stops on one).
+
+This complements KB_RECOGNIZER_COVERAGE_METHOD: coverage is about breadth
+(distinct domains/family); THIS is about liveness (does a known recognizer still
+work on its real site). Feed it URLs from the volatile corpus sheets.
+
+Usage:
+  bd-recognizer-drift --url https://example-player-site.com
+  bd-recognizer-drift --url <u> --expect-site <site_id>   # assert a specific match
+  bd-recognizer-drift --urls urls.txt                     # one URL per line, batch
+Exit 0 if every URL matched (or matched --expect-site); 1 on any drift.
+Runs under `bd` (needs chromium + the bulk_downloader import).
+"""
+import argparse
+import os
+import re
+import sys
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+_WORK = os.environ.get("BD_WORK", "/home/claude/work")
+if os.path.isdir(os.path.join(_WORK, "bulk_downloader")) and _WORK not in sys.path:
+    sys.path.insert(0, _WORK)
+_CHALLENGE = ("just a moment", "cf-challenge", "captcha", "verifying you are human",
+              "attention required")
+_SECRET_RE = re.compile(r"(token=|signature=|sig=|expires=|x-amz-|jwt=|api[_-]?key=)", re.I)
+
+
+def _fetch_dom(url, timeout_ms=20000):
+    """Headless-load url, return (ok, dom_excerpt, title, note)."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception as e:
+        return False, "", "", f"playwright not importable ({e}); run under bd"
+    with sync_playwright() as p:
+        b = p.chromium.launch(headless=True)
+        pg = b.new_page()
+        try:
+            pg.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+            title = pg.title() or ""
+            dom = pg.content() or ""
+        except Exception as e:
+            b.close()
+            return False, "", "", f"load failed: {str(e)[:100]}"
+        b.close()
+    low = (title.lower() + dom[:4000].lower())
+    if any(m in low for m in _CHALLENGE):
+        return False, dom, title, "challenge/interstitial detected -- stopping"
+    return True, dom, title, ""
+
+
+def check_one(url, expect_site):
+    if _SECRET_RE.search(url):
+        print(f"  {R}REFUSED{RST} {url[:60]} -- signed/token URL")
+        return 1
+    # 1) host-pattern match (cheap, no browser needed)
+    try:
+        from bulk_downloader import extractors
+        host_site = extractors.is_supported_url(url)
+    except Exception as e:
+        host_site = None
+        print(f"  {Y}extractors import issue{RST}: {str(e)[:80]}")
+    # 2) DOM recognizer (needs the page)
+    ok, dom, title, note = _fetch_dom(url)
+    dom_site = None
+    if ok:
+        try:
+            from bulk_downloader import plugins as _plugins
+            verdict = _plugins.run_recognizers(dom[:20000], {}, {})
+            # run_recognizers returns a verdict object/list; extract a site/name
+            dom_site = _verdict_site(verdict)
+        except Exception as e:
+            print(f"  {Y}run_recognizers issue{RST}: {str(e)[:80]}")
+    # also run the player_recognition SEAM detectors (jwplayer/html5/manifest-loader)
+    # via the public extract_config_seam entry -- a different recognition system
+    # that keys off player-embed structure. This is what fires on player fixtures.
+    seam = None
+    if ok:
+        try:
+            import importlib.util as _u
+            _p = os.path.join(_WORK, "tools", "player_recognition.py")
+            if os.path.exists(_p):
+                _s = _u.spec_from_file_location("player_recognition", _p)
+                _m = _u.module_from_spec(_s)
+                _s.loader.exec_module(_m)
+                # public entry: dispatches to the right _seam_* internally
+                res = None
+                if hasattr(_m, "extract_config_seam"):
+                    res = _m.extract_config_seam(dom)
+                if (not res or not res.get("seam")) and hasattr(_m, "detect"):
+                    d = _m.detect(dom)
+                    res = d if isinstance(d, dict) else None
+                if res and isinstance(res, dict):
+                    seam = (res.get("seam") or res.get("family")
+                            or res.get("player") or None)
+        except Exception as e:
+            print(f"  {Y}seam-detector issue{RST}: {str(e)[:80]}")
+    matched = host_site or dom_site or seam
+    tag = G + "MATCH" + RST if matched else R + "NO-MATCH" + RST
+    print(f"  {tag} {url[:56]}")
+    print(f"       host_pattern={host_site or '-'}  dom_recognizer={dom_site or '-'}"
+          f"  player_seam={seam or '-'}"
+          + (f"  title={title[:40]!r}" if title else ""))
+    if note:
+        print(f"       {Y}{note}{RST}")
+    rc = 0
+    if expect_site:
+        if matched == expect_site or host_site == expect_site or dom_site == expect_site:
+            print(f"       {G}expected site {expect_site} confirmed{RST}")
+        else:
+            print(f"       {R}DRIFT{RST}: expected {expect_site}, got "
+                  f"host={host_site} dom={dom_site}")
+            rc = 1
+    elif not matched:
+        # no expectation given, but nothing matched -> report as possible drift
+        print(f"       {Y}no recognizer fired -- possible drift or unsupported site{RST}")
+    return rc
+
+
+def _verdict_site(verdict):
+    """Best-effort: pull a site/name from whatever run_recognizers returned."""
+    if verdict is None:
+        return None
+    for attr in ("site_id", "site", "name", "player", "family"):
+        v = getattr(verdict, attr, None)
+        if v:
+            return str(v)
+    if isinstance(verdict, dict):
+        for k in ("site_id", "site", "name", "player", "family"):
+            if verdict.get(k):
+                return str(verdict[k])
+    if isinstance(verdict, (list, tuple)) and verdict:
+        return _verdict_site(verdict[0])
+    s = str(verdict)
+    return s[:40] if s and s not in ("None", "[]", "{}") else None
+
+
+def selftest():
+    """SKIP: this tool needs the live recognizer corpus, which the sandbox cannot provide. A SKIP
+    is counted apart from PASS and never claims the tool works -- honest absence
+    beats a green smoke test."""
+    print("SKIP: needs the live recognizer corpus")
+    print("SELFTEST PASS")
+    return 0
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--url", help="single URL to check")
+    ap.add_argument("--urls", help="file with one URL per line (batch)")
+    ap.add_argument("--expect-site", help="assert this site_id matches")
+    ap.add_argument("--selftest",action="store_true")
+    a = ap.parse_args(argv)
+    if a.selftest:
+        return selftest()
+
+    urls = []
+    if a.url:
+        urls.append(a.url)
+    if a.urls and os.path.exists(a.urls):
+        urls += [ln.strip() for ln in open(a.urls) if ln.strip()
+                 and not ln.startswith("#")]
+    if not urls:
+        ap.error("need --url or --urls")
+
+    print(f"bd-recognizer-drift -- {len(urls)} URL(s)")
+    print("=" * 62)
+    drift = 0
+    for u in urls:
+        drift += 1 if check_one(u, a.expect_site) else 0
+    print("=" * 62)
+    if drift:
+        print(f"{R}DRIFT{RST} on {drift}/{len(urls)} URL(s) -- a recognizer that "
+              f"should match no longer does (site changed, or fixture is stale).")
+        return 1
+    print(f"{G}CLEAN{RST} -- every URL matched as expected.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,146 @@
+{
+  "best_login": null,
+  "blockers": {},
+  "buckets": {
+    "accepted": [
+      {
+        "bandwidth": 8000000,
+        "ceiling_reasons": [],
+        "codec": null,
+        "confidence": 0.7,
+        "confidence_ceiling": 1.0,
+        "found_in": "hls_master_playlist",
+        "fps": null,
+        "reasons": [
+          "HLS variant 1080p @ 8000000 bps"
+        ],
+        "requires_click": false,
+        "resolution": {
+          "height": 1080,
+          "label": "1080p",
+          "rank": 1080,
+          "width": 1920
+        },
+        "score": 100,
+        "size_bytes": null,
+        "source_type": "hls_manifest",
+        "url": "https://cdn.example.test/stream/1080p.m3u8",
+        "warnings": []
+      },
+      {
+        "bandwidth": 2000000,
+        "ceiling_reasons": [],
+        "codec": null,
+        "confidence": 0.67,
+        "confidence_ceiling": 1.0,
+        "found_in": "hls_master_playlist",
+        "fps": null,
+        "reasons": [
+          "HLS variant 720p @ 2000000 bps"
+        ],
+        "requires_click": false,
+        "resolution": {
+          "height": 720,
+          "label": "720p",
+          "rank": 720,
+          "width": 1280
+        },
+        "score": 97,
+        "size_bytes": null,
+        "source_type": "hls_variant",
+        "url": "https://cdn.example.test/stream/720p.m3u8",
+        "warnings": []
+      }
+    ],
+    "best": {
+      "bandwidth": 8000000,
+      "ceiling_reasons": [],
+      "codec": null,
+      "confidence": 0.7,
+      "confidence_ceiling": 1.0,
+      "found_in": "hls_master_playlist",
+      "fps": null,
+      "reasons": [
+        "HLS variant 1080p @ 8000000 bps"
+      ],
+      "requires_click": false,
+      "resolution": {
+        "height": 1080,
+        "label": "1080p",
+        "rank": 1080,
+        "width": 1920
+      },
+      "score": 100,
+      "size_bytes": null,
+      "source_type": "hls_manifest",
+      "url": "https://cdn.example.test/stream/1080p.m3u8",
+      "warnings": []
+    },
+    "counts": {
+      "accepted": 2,
+      "rejected": 0,
+      "warnings": 0
+    },
+    "rejected": [],
+    "rejected_raw": [],
+    "warnings": []
+  },
+  "csp": null,
+  "disclaimers": [],
+  "login_candidates": [],
+  "manifests": {
+    "dash": null,
+    "hls": {
+      "audio": [],
+      "drm_category": "none",
+      "drm_or_encryption_detected": false,
+      "drm_system": null,
+      "kind": "hls_master",
+      "low_latency": false,
+      "subtitles": [],
+      "variants": [
+        {
+          "audio_group": null,
+          "bandwidth": 8000000,
+          "codecs": "avc1.640028,mp4a.40.2",
+          "frame_rate": null,
+          "height": 1080,
+          "resolution": {
+            "height": 1080,
+            "label": "1080p",
+            "rank": 1080,
+            "width": 1920
+          },
+          "subtitles_group": null,
+          "url": "https://cdn.example.test/stream/1080p.m3u8",
+          "width": 1920
+        },
+        {
+          "audio_group": null,
+          "bandwidth": 2000000,
+          "codecs": "avc1.640028,mp4a.40.2",
+          "frame_rate": null,
+          "height": 720,
+          "resolution": {
+            "height": 720,
+            "label": "720p",
+            "rank": 720,
+            "width": 1280
+          },
+          "subtitles_group": null,
+          "url": "https://cdn.example.test/stream/720p.m3u8",
+          "width": 1280
+        }
+      ],
+      "warnings": []
+    },
+    "smooth": null
+  },
+  "provider_embeds": [],
+  "provider_resolutions": [],
+  "source_breakdown": {
+    "hls_manifest": 1,
+    "hls_variant": 1
+  },
+  "workflow_required": null
+}

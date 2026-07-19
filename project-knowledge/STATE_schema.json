@@ -1,0 +1,165 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BulkDownloader session STATE pin",
+  "description": "Single machine-readable source of truth for per-session state. Carried in the next-session pack; validated against the source zip by bd-state. Prose docs (CONTINUATION/KB_HANDOFF/Backlog/Roadmap) narrate; THIS file is the pin. If a prose doc disagrees with STATE.json, STATE.json + the source zip win.",
+  "type": "object",
+  "required": [
+    "live_version",
+    "zip",
+    "guards",
+    "parity",
+    "deploy_queue",
+    "next",
+    "generated_at"
+  ],
+  "properties": {
+    "live_version": {
+      "type": "string",
+      "description": "version actually running on stash (operator-confirmed via /api/health)"
+    },
+    "built_version": {
+      "type": "string",
+      "description": "highest BUILT but maybe-not-deployed version; == live_version when nothing is pending"
+    },
+    "deploy_status": {
+      "description": "deploy state. Historically a free-text status line; the enum tokens are the intended controlled vocabulary. Either form validates.",
+      "oneOf": [
+        {
+          "enum": [
+            "live_validated",
+            "built_pending_deploy",
+            "built_unvalidated"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "zip": {
+      "type": "object",
+      "required": [
+        "name",
+        "sha256",
+        "file_count"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "file_count": {
+          "type": "integer"
+        }
+      }
+    },
+    "guards": {
+      "type": "object",
+      "description": "release-guard path -> first-8 sha; ALL must be byte-identical to baseline unless a change is sha-declared",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "parity": {
+      "type": "object",
+      "properties": {
+        "spa_wired": {
+          "type": "integer"
+        },
+        "operator_facing": {
+          "type": "integer"
+        },
+        "operator_facing_unwired": {
+          "type": "integer"
+        },
+        "spa_wired_total": {
+          "type": "integer"
+        },
+        "dev_internal": {
+          "type": "integer"
+        },
+        "gui_gated": {
+          "type": "integer"
+        }
+      }
+    },
+    "validation": {
+      "description": "on-stash binding-gate results. Either the structured object (intended) or a one-line capture summary string (what STATE has carried).",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "binding_suite": {
+              "type": "string",
+              "description": "e.g. '8676/8619/0/57'"
+            },
+            "live_tests": {
+              "type": "string",
+              "description": "e.g. '20/15/0'"
+            },
+            "routes": {
+              "type": "integer"
+            },
+            "health_version": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "deploy_queue": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "empty when nothing pending"
+    },
+    "next": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "ordered tranche IDs, most-recommended first"
+    },
+    "active_footguns": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "active footgun warnings carried forward; the real STATE key (the schema previously named a phantom 'open_footguns' that STATE never emitted)"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "static_kb_manifest_pin": {
+      "type": "object",
+      "description": "sha256 of STATIC_KB_MANIFEST.json held OUTSIDE the PK -- the external pin that makes 'is this bundle CANON' answerable (the manifest cannot certify itself). bd-kb-sync verifies the pasted PK against this.",
+      "required": [
+        "sha256",
+        "files"
+      ],
+      "properties": {
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "files": {
+          "type": "integer"
+        },
+        "version": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

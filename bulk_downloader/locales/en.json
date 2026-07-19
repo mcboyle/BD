@@ -1,0 +1,32 @@
+{
+  "_meta": {
+    "lang": "en",
+    "name": "English (baseline)",
+    "phase": "v3.46.1 Phase 191 starter wrap",
+    "description": "English baseline. These entries match the literals in the templates. Translators copy this file and replace the values."
+  },
+  "tab.queue": "Queue",
+  "tab.history": "History",
+  "tab.stats": "Stats",
+  "tab.events": "Events",
+  "btn.start": "Start",
+  "btn.pause": "Pause",
+  "btn.resume": "Resume",
+  "btn.stop": "Stop",
+  "btn.save": "Save",
+  "btn.cancel": "Cancel",
+  "btn.close": "Close",
+  "btn.clear": "Clear",
+  "btn.clear_done": "Clear Done",
+  "btn.refresh": "Refresh",
+  "btn.config": "Config",
+  "btn.dark": "Dark",
+  "btn.light": "Light",
+  "btn.login": "Login",
+  "btn.login_wizard": "Login Wizard",
+  "btn.manual_teach": "Manual Teach",
+  "btn.retry_failed": "Retry Failed",
+  "header.live_events": "Live Events",
+  "sidebar.sites": "Sites",
+  "ev.filter": "filter text..."
+}

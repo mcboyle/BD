@@ -1,0 +1,2 @@
+249
+# grown @3.66.799: bd-pk-mirror: PK mirror-drift gate (rev-799) -- required precondition for PK .py cuts 2-3; live-proven 4 DRIFTED. Budget 248->249; the @728 subtraction sweep remains queued. POOL RE-MEASURED @808: 87 listed-only of 249 (used 162, orphan 0) -- the '84' figure was stale, as were the register's 92 and the tracker's 84. The pool MOVES as tools are added; re-run bd-consumer-graph --dead-tools at decision time rather than quoting any number from a document. rev-808 edited 7 tools and added NONE, so the budget is unchanged at 249 == 249.

@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""bd-capsweep -- before you call a catalog item OPEN, prove it isn't built ANYWHERE.
+
+Immunizes the @682 failure shape `catalog-id-not-shipped-module`: a capability
+declared open because the module its @601 planning-ID names lacks it, when it
+shipped under a different module (IEX-3 "checksum manifest" -> marketplace.py;
+AI-5 "promotion gate" -> auto_promote.py). Round count is no defense if every
+round greps the same obvious module.
+
+What it does, given a capability description:
+  1. expands the query with a built-in synonym map (capability verbs/nouns),
+  2. greps the WHOLE tree (bulk_downloader/ + tools/, excluding vendor/pyc/tests),
+  3. ranks modules by hit density,
+  4. cross-refs the completed[] rows in TASK_TRACKER_DATA.json (shipped-by-ID),
+  5. verdict: LIKELY BUILT under <modules>  |  ABSENT (candidate open).
+
+Usage:
+  bd-capsweep "export import checksum manifest verify"
+  bd-capsweep --id IEX-3 "export/import round-trip checksum manifest"
+  bd-capsweep --tree /home/claude/work --data /home/claude/nextsess/TASK_TRACKER_DATA.json "netns per-capture isolation"
+
+Exit 0 always (advisory). It never gates -- it stops you from a WRONG open verdict.
+"""
+import argparse, json, os, re, subprocess, sys
+from collections import Counter
+
+# capability-stem -> synonyms it may ship under (extend freely; this is the whole point)
+SYN = {
+    "export": ["export", "dump", "bundle", "marketplace", "eol_export"],
+    "import": ["import", "load", "ingest", "apply"],
+    "checksum": ["checksum", "sha256", "hash", "hmac", "digest", "manifest"],
+    "manifest": ["manifest", "checksum", "sha256"],
+    "verify": ["verify", "validate", "check", "signature", "verify_signature"],
+    "promote": ["promote", "promotion", "auto_promote", "gate", "reviewed"],
+    "review": ["review", "ai_review", "advisory", "reviewed", "visual"],
+    "gate": ["gate", "promote_gate", "clean_diff", "staged"],
+    "diff": ["diff", "clean_diff", "compute_clean_diff", "staged"],
+    "narrow": ["narrow", "minimal", "minimize", "prune", "reduce", "shortest", "unique"],
+    "selector": ["selector", "selectors", "prune_selectors", "element_pick"],
+    "isolation": ["isolation", "isolate", "netns", "namespace", "unshare", "sandbox"],
+    "netns": ["netns", "network_namespace", "unshare", "ip netns", "nftables"],
+    "proxy": ["proxy", "proxy_pool", "rotate", "rotation", "egress"],
+    "rotation": ["rotation", "rotate", "pool"],
+    "idle": ["idle", "scale", "pause", "wake", "autoscale"],
+    "scaling": ["scale", "scaling", "autoscale", "idle"],
+    "calendar": ["calendar", "ics", "icalendar", "vcalendar"],
+    "restore": ["restore", "revert", "rollback", "snapshot", "record_template_version", "revert_selectors"],
+    "snapshot": ["snapshot", "restore", "revert", "point_in_time", "as_of"],
+    "template": ["template", "template_registry", "selector_versions", "marketplace"],
+    "backup": ["backup", "backup_verify", "smoke_restore", "encrypt"],
+    "encryption": ["encrypt", "encryption", "passphrase", "cipher", "fernet", "gpg"],
+    "hoster": ["hoster", "hosters", "queryhosters", "jd_bridge"],
+    "extractor": ["extractor", "runner_extractors", "plugin_exec", "shim", "ytdlp"],
+    "crx": ["crx", "unpack", "mv3", "manifest_version", "extension"],
+    "replication": ["replication", "litestream", "db_replication"],
+    "metrics": ["metrics", "prometheus", "openmetrics", "metrics_prom"],
+    "search": ["search", "semantic", "embeddings", "vector_index", "rag"],
+}
+STOP = {"the","a","an","of","to","for","on","in","and","or","with","round","trip",
+        "roundtrip","per","before","after","system","support","gate-",""}
+
+def expand(words):
+    terms = set()
+    raw = " ".join(words).lower()
+    for tok in re.split(r"[^a-z0-9_]+", raw):   # split on any run of non-alphanumeric (spaces, -, /)
+        if not tok or tok in STOP or len(tok) < 3:
+            continue
+        terms.add(tok)
+        terms.update(SYN.get(tok, []))
+    return sorted(t for t in terms if len(t) >= 3)
+
+def grep_tree(tree, terms):
+    """Return (weighted_scores, module_terms, term_df).
+    Score weights each matched term by 1/df (rare terms dominate; generic
+    terms like 'check'/'sandbox'/'apply' that hit many modules count for little).
+    """
+    pat = "|".join(re.escape(t) for t in terms)
+    candidates = []
+    for sub in ("bulk_downloader", "tools"):
+        base = os.path.join(tree, sub)
+        if not os.path.isdir(base):
+            continue
+        try:
+            out = subprocess.run(["grep", "-rliE", pat, base],
+                                 capture_output=True, text=True, timeout=60).stdout
+        except Exception:  # why: this item is unreadable/unparseable; skip it, the loop continues over the rest
+            continue
+        for f in out.splitlines():
+            if "/vendor/" in f or f.endswith(".pyc") or "/__pycache__/" in f:
+                continue
+            if re.search(r"/tests?/|/test_", f):
+                continue
+            candidates.append(f)
+    module_terms = {}   # relpath -> set(matched terms)
+    df = Counter()      # term -> #modules containing it
+    for f in candidates:
+        try:
+            txt = open(f, errors="ignore").read().lower()
+        except Exception:  # why: this item is unreadable/unparseable; skip it, the loop continues over the rest
+            continue
+        matched = {t for t in terms if t in txt}
+        if matched:
+            module_terms[os.path.relpath(f, tree)] = matched
+            for t in matched:
+                df[t] += 1
+    weight = {t: 1.0 / df[t] for t in df}                 # idf-ish
+    scores = {m: round(sum(weight[t] for t in ts), 3) for m, ts in module_terms.items()}
+    return scores, module_terms, df
+
+def tracker_ids(data_path, ident, terms):
+    if not data_path or not os.path.exists(data_path):
+        return []
+    try:
+        d = json.load(open(data_path))
+    except Exception:  # why: input unavailable/unreadable; return empty so the caller uses its fallback, not a wrong value
+        return []
+    blob_rows = d.get("completed", [])
+    found = []
+    needles = [ident.lower()] if ident else []
+    needles += [t for t in terms if len(t) >= 5][:4]
+    for r in blob_rows:
+        s = json.dumps(r).lower()
+        if any(n and n in s for n in needles):
+            found.append(f"{r.get('ID','?')} (v{r.get('Version','?')})")
+    return found[:6]
+
+def selftest():
+    # expand() must drop stopwords and <3-char tokens, keep real terms.
+    terms = expand(["the capture DOM recorder"])
+    ok = ("capture" in terms and "recorder" in terms and "the" not in terms)
+    print(("PASS" if "capture" in terms else "FAIL") + "  keeps meaningful term 'capture'")
+    print(("PASS" if "the" not in terms else "FAIL") + "  NEG: drops stopword 'the' (%s)" % sorted(terms)[:5])
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Whole-tree capability existence sweep (advisory).")
+    ap.add_argument("query", nargs="+", help="capability description, e.g. 'export import checksum manifest'")
+    ap.add_argument("--id", default="", help="the catalog planning-ID (for tracker cross-ref)")
+    ap.add_argument("--tree","--work", default="/home/claude/work", help="source tree root")
+    ap.add_argument("--data", default="/home/claude/nextsess/TASK_TRACKER_DATA.json",
+                    help="TASK_TRACKER_DATA.json for shipped-by-ID cross-ref")
+    ap.add_argument("--top", type=int, default=6)
+    ap.add_argument("--selftest",action="store_true")
+    import sys as _s
+    if "--selftest" in _s.argv: return selftest()
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+
+    terms = expand(a.query)
+    if not terms:
+        print("no searchable terms after synonym expansion; add more words"); return 0
+    print(f"query terms (expanded): {' '.join(terms)}\n")
+
+    scores, module_terms, df = grep_tree(a.tree, terms)
+    tids = tracker_ids(a.data, a.id, terms)
+
+    def distinctive(ts):                 # terms rare enough to be meaningful (in <=3 modules)
+        return sorted(t for t in ts if df.get(t, 0) <= 3)
+
+    if scores:
+        ranked = sorted(scores, key=lambda m: scores[m], reverse=True)[:a.top]
+        print("CANDIDATE MODULES (weighted by term rarity; * = distinctive term in <=3 modules) --")
+        for m in ranked:
+            ts = module_terms[m]
+            marks = sorted((f"*{t}" if df.get(t, 0) <= 3 else t) for t in ts)
+            print(f"  {scores[m]:>5}  {m}")
+            print(f"         matched: {', '.join(marks)}")
+        top = ranked[0]
+        top_distinct = distinctive(module_terms[top])
+        print()
+        if top_distinct:
+            print(f"VERDICT: LIKELY BUILT -- '{top}' matches distinctive term(s): {', '.join(top_distinct)}.")
+            print("         READ IT before calling this OPEN. The capability may ship under a")
+            print("         different module than the @601 ID names -- that is the exact trap.")
+        else:
+            print("VERDICT: WEAK -- matches are generic/common terms only (likely incidental).")
+            print("         Probably a genuine candidate OPEN; skim the top module to confirm.")
+    else:
+        print("CANDIDATE MODULES: none.")
+        print("VERDICT: ABSENT across the whole tree -- genuine candidate OPEN.")
+
+    if tids:
+        print(f"\nTRACKER completed[] cross-ref (an ID whose row mentions these terms):")
+        for t in tids:
+            print(f"  {t}")
+    print("\nreminder: verify the CAPABILITY, not the catalog module. @601 planning IDs != shipped module names.")
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

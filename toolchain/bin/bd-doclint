@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+"""bd-doclint -- PK docs missing a verified-against marker (complements bd-docstale).
+
+bd-docstale reports HOW STALE marked docs are; bd-doclint finds docs with NO
+marker at all (can't tell if they're current). Read-only.
+Usage: bd-doclint [--dir /mnt/project]
+"""
+import argparse, glob, os, re, sys
+G,Y,DIM,RST="\033[32m","\033[33m","\033[2m","\033[0m"
+def selftest():
+    """IMPORT-OK: doc marker lint with no independent fault surface. Structural check
+    only -- the module parsed and exposes main(); this is the weakest selftest
+    kind and says so."""
+    ok = "main" in globals() and callable(main)
+    print(("PASS" if ok else "FAIL") + "  module structural check (main present)")
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    import sys as _s
+    if "--selftest" in _s.argv: return selftest()
+    ap=argparse.ArgumentParser(); ap.add_argument("--dir",default="/mnt/project"); a=ap.parse_args()
+    marked=unmarked=0; miss=[]
+    for f in sorted(glob.glob(os.path.join(a.dir,"*.md"))):
+        try: head="".join(open(f,errors="ignore").readlines()[:4])
+        # why: this item is unreadable/unparseable; skip it, the loop continues over the rest
+        except Exception: continue
+        if re.search(r'verified-against:\s*v?\d',head): marked+=1
+        else: unmarked+=1; miss.append(os.path.basename(f))
+    print(f"{G}{marked}{RST} marked, {Y}{len(miss)}{RST} without a verified-against marker:")
+    for m in miss[:40]: print(f"  {Y}?{RST} {m}")
+    if len(miss)>40: print(f"  {DIM}... +{len(miss)-40} more{RST}")
+    print(f"{DIM}unmarked docs can't be staleness-checked; add `<!-- verified-against: vX -->`{RST}")
+    return 0
+sys.exit(main())

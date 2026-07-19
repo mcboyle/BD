@@ -1,0 +1,4464 @@
+{
+  "cached_at": 1784237164.1558146,
+  "entries": [
+    {
+      "name": "10Musume-JP",
+      "yml_path": "scrapers/10Musume-JP.yml",
+      "sha": "c085586f00a58daf935bead9baa230ff8effdfdc",
+      "size": 1447,
+      "companion_files": []
+    },
+    {
+      "name": "10Musume",
+      "yml_path": "scrapers/10Musume.yml",
+      "sha": "177a5be8270474d6a6df87dd09052a3aad702780",
+      "size": 1426,
+      "companion_files": []
+    },
+    {
+      "name": "1passforallsites",
+      "yml_path": "scrapers/1passforallsites.yml",
+      "sha": "a5cb88aa568d39a4d7796af8f8f2f2eb1641c571",
+      "size": 879,
+      "companion_files": []
+    },
+    {
+      "name": "1pondo",
+      "yml_path": "scrapers/1pondo.yml",
+      "sha": "ad6c4190c5885b185e091594127f6fbbcf79ef17",
+      "size": 1333,
+      "companion_files": []
+    },
+    {
+      "name": "21Roles",
+      "yml_path": "scrapers/21Roles.yml",
+      "sha": "aa25c27e177dced087e961bbdbfda49e7c42bf46",
+      "size": 2099,
+      "companion_files": []
+    },
+    {
+      "name": "AD4X",
+      "yml_path": "scrapers/AD4X.yml",
+      "sha": "7e0ff9d5a5fea9c233f32d75dc4eee797336a312",
+      "size": 1002,
+      "companion_files": []
+    },
+    {
+      "name": "AEBN",
+      "yml_path": "scrapers/AEBN.yml",
+      "sha": "afab2a8f59cdcb08bf7f710662f966195174218e",
+      "size": 4414,
+      "companion_files": []
+    },
+    {
+      "name": "APOVStory",
+      "yml_path": "scrapers/APOVStory.yml",
+      "sha": "d78b57853cb96d68ade0554eef30dd4e6ff6a226",
+      "size": 1052,
+      "companion_files": []
+    },
+    {
+      "name": "ATK",
+      "yml_path": "scrapers/ATK.yml",
+      "sha": "a4d36cc63f7bbfd16cfebf1acba784af2fe648ee",
+      "size": 8759,
+      "companion_files": []
+    },
+    {
+      "name": "AVE-JP",
+      "yml_path": "scrapers/AVE-JP.yml",
+      "sha": "e8f163dca94a9c9c9b033d44d0bc34c9912d4709",
+      "size": 5286,
+      "companion_files": []
+    },
+    {
+      "name": "AVE",
+      "yml_path": "scrapers/AVE.yml",
+      "sha": "251a6414506d0cc8c033ea59583290d22b4735c4",
+      "size": 2613,
+      "companion_files": []
+    },
+    {
+      "name": "AVJiali",
+      "yml_path": "scrapers/AVJiali.yml",
+      "sha": "6c620f557d23254b48b7147f3f28a1923fccc1fa",
+      "size": 4720,
+      "companion_files": []
+    },
+    {
+      "name": "AVMoo",
+      "yml_path": "scrapers/AVMoo.yml",
+      "sha": "399f4f0bf41f475caa6176fdbb737e71a76346ae",
+      "size": 2382,
+      "companion_files": []
+    },
+    {
+      "name": "AbbyWinters",
+      "yml_path": "scrapers/AbbyWinters.yml",
+      "sha": "c88d9e58f2552abb71068453d10b86c9d7fa0297",
+      "size": 960,
+      "companion_files": []
+    },
+    {
+      "name": "AbuseMe",
+      "yml_path": "scrapers/AbuseMe.yml",
+      "sha": "d4970da1d926cfd68b0d68f80cd7bbce3bbbc66c",
+      "size": 1161,
+      "companion_files": []
+    },
+    {
+      "name": "AdultDoorway",
+      "yml_path": "scrapers/AdultDoorway.yml",
+      "sha": "f2972d92a4152a7ac59209483d3a8acec0b14ded",
+      "size": 2154,
+      "companion_files": []
+    },
+    {
+      "name": "AdultDvdMarketPlace",
+      "yml_path": "scrapers/AdultDvdMarketPlace.yml",
+      "sha": "07aae6bc7432dabe0269b8b3a05764e8a501bb14",
+      "size": 2308,
+      "companion_files": []
+    },
+    {
+      "name": "AdultEmpire",
+      "yml_path": "scrapers/AdultEmpire.yml",
+      "sha": "5c05796b0530184dcde15f5a3134023990036bf6",
+      "size": 7461,
+      "companion_files": []
+    },
+    {
+      "name": "AdultEmpireCash",
+      "yml_path": "scrapers/AdultEmpireCash.yml",
+      "sha": "5d566647acef64f8c21c3f019648d3c625892595",
+      "size": 4513,
+      "companion_files": []
+    },
+    {
+      "name": "AdultFilmDatabase",
+      "yml_path": "scrapers/AdultFilmDatabase.yml",
+      "sha": "0b18f3c76f0d19e78633eab2f9d8ad56704f4c36",
+      "size": 1398,
+      "companion_files": []
+    },
+    {
+      "name": "AdultFilmIndex",
+      "yml_path": "scrapers/AdultFilmIndex.yml",
+      "sha": "eeb782d978df3e618dbdad1ff1bea5931b743d8c",
+      "size": 4739,
+      "companion_files": []
+    },
+    {
+      "name": "AdultPrime",
+      "yml_path": "scrapers/AdultPrime.yml",
+      "sha": "5b620201e59335194b69f2ef32e0e60288a4b765",
+      "size": 3944,
+      "companion_files": []
+    },
+    {
+      "name": "AdultSiteRunner",
+      "yml_path": "scrapers/AdultSiteRunner.yml",
+      "sha": "8596bf85341ccf9fedab3249849d9c57f941373e",
+      "size": 6505,
+      "companion_files": []
+    },
+    {
+      "name": "Affect3DStore",
+      "yml_path": "scrapers/Affect3DStore.yml",
+      "sha": "4acc2ae423aba56d379958d1a7367d82d99c183c",
+      "size": 744,
+      "companion_files": []
+    },
+    {
+      "name": "AkiraLaneProductions",
+      "yml_path": "scrapers/AkiraLaneProductions.yml",
+      "sha": "8efa96b76fb8d04c6d60e76dcb8f5342c92dfd17",
+      "size": 1763,
+      "companion_files": []
+    },
+    {
+      "name": "AllAnalAllTheTime",
+      "yml_path": "scrapers/AllAnalAllTheTime.yml",
+      "sha": "7a4565f66851acbfef38181b31967b2190a652cd",
+      "size": 1091,
+      "companion_files": []
+    },
+    {
+      "name": "AmateurAllure",
+      "yml_path": "scrapers/AmateurAllure.yml",
+      "sha": "a00a216ae6fc4f0840f97ee9d0a8f0652a42d8b7",
+      "size": 4528,
+      "companion_files": []
+    },
+    {
+      "name": "AmateurBoxxx",
+      "yml_path": "scrapers/AmateurBoxxx.yml",
+      "sha": "7d8804b48d3ad303db93b36514440803626d0fd1",
+      "size": 688,
+      "companion_files": []
+    },
+    {
+      "name": "AmateureExtreme",
+      "yml_path": "scrapers/AmateureExtreme.yml",
+      "sha": "8c9155e7398e05bd51039e5f103d0c7ed6d9a201",
+      "size": 948,
+      "companion_files": []
+    },
+    {
+      "name": "AmourAngels",
+      "yml_path": "scrapers/AmourAngels.yml",
+      "sha": "f8fda7c35c77ae35399d7fb1306a93c3351f9916",
+      "size": 1258,
+      "companion_files": []
+    },
+    {
+      "name": "AnatomikMedia",
+      "yml_path": "scrapers/AnatomikMedia.yml",
+      "sha": "6d9d80987a2518b8fa2a597b9c208b68a8464ae6",
+      "size": 973,
+      "companion_files": []
+    },
+    {
+      "name": "Andomark",
+      "yml_path": "scrapers/Andomark.yml",
+      "sha": "bb3721e0ab71229371090a6cf0f2ddec3d277f24",
+      "size": 16284,
+      "companion_files": []
+    },
+    {
+      "name": "AngelaWhite",
+      "yml_path": "scrapers/AngelaWhite.yml",
+      "sha": "c6cac0c80017a309264db935bffe3111016a5213",
+      "size": 1721,
+      "companion_files": []
+    },
+    {
+      "name": "AngeloGodshack",
+      "yml_path": "scrapers/AngeloGodshack.yml",
+      "sha": "086359e96cde6ec82aa3a27f82adb6ac5b861618",
+      "size": 999,
+      "companion_files": []
+    },
+    {
+      "name": "AniDB",
+      "yml_path": "scrapers/AniDB.yml",
+      "sha": "f90e1765e6904c295631a73a0f46ae8581343773",
+      "size": 10237,
+      "companion_files": []
+    },
+    {
+      "name": "Anime-DB",
+      "yml_path": "scrapers/Anime-DB.yml",
+      "sha": "743cd593341b92b9b4dcf3ecd689208646f8899d",
+      "size": 4345,
+      "companion_files": []
+    },
+    {
+      "name": "AntonioSuleiman",
+      "yml_path": "scrapers/AntonioSuleiman.yml",
+      "sha": "47a5d61af1dcaf3cab9e961617639f94bd513b62",
+      "size": 2030,
+      "companion_files": []
+    },
+    {
+      "name": "ArchAngelVideo",
+      "yml_path": "scrapers/ArchAngelVideo.yml",
+      "sha": "67b871c8b1cfcae4be3b4dedb4c0b391f43c4350",
+      "size": 960,
+      "companion_files": []
+    },
+    {
+      "name": "AsianStreetMeat",
+      "yml_path": "scrapers/AsianStreetMeat.yml",
+      "sha": "57778ff523a49c5dab1a173e7ca7e6638b1199db",
+      "size": 1444,
+      "companion_files": []
+    },
+    {
+      "name": "Assylum",
+      "yml_path": "scrapers/Assylum.yml",
+      "sha": "e4094c248162844afa188720d864cab6a22cd38b",
+      "size": 1323,
+      "companion_files": []
+    },
+    {
+      "name": "AussieAss",
+      "yml_path": "scrapers/AussieAss.yml",
+      "sha": "c6d4c4699af21091b210a810f28fcfb2ba9a20be",
+      "size": 760,
+      "companion_files": []
+    },
+    {
+      "name": "AussieFelatioQueens",
+      "yml_path": "scrapers/AussieFelatioQueens.yml",
+      "sha": "d407c1ee99b30bc728888f1fe18cfaf501142aed",
+      "size": 696,
+      "companion_files": []
+    },
+    {
+      "name": "AuthorityAngels",
+      "yml_path": "scrapers/AuthorityAngels.yml",
+      "sha": "1b41e4b47fdf6e33513f8f8d7290e63c4de0bd5f",
+      "size": 1173,
+      "companion_files": []
+    },
+    {
+      "name": "Aziani",
+      "yml_path": "scrapers/Aziani.yml",
+      "sha": "5bee4300abf6367ab0f23d4eaee041512f8f1981",
+      "size": 1013,
+      "companion_files": []
+    },
+    {
+      "name": "BBWHighway",
+      "yml_path": "scrapers/BBWHighway.yml",
+      "sha": "0fcc4fc09dd4c8fa57b148c8b66d6d1d6ac48dd6",
+      "size": 2657,
+      "companion_files": []
+    },
+    {
+      "name": "BaDoink",
+      "yml_path": "scrapers/BaDoink.yml",
+      "sha": "4caf632b19124f4a048a7b39dbe8930708555d43",
+      "size": 6350,
+      "companion_files": []
+    },
+    {
+      "name": "Baberotica",
+      "yml_path": "scrapers/Baberotica.yml",
+      "sha": "eb35d150981bfefd6de0e5c0cf07424b10e02d37",
+      "size": 9309,
+      "companion_files": []
+    },
+    {
+      "name": "Babes&Stars",
+      "yml_path": "scrapers/Babes&Stars.yml",
+      "sha": "cea287a09ae252a216d6da63ac17469d8ac906cb",
+      "size": 2714,
+      "companion_files": []
+    },
+    {
+      "name": "BabestationTV",
+      "yml_path": "scrapers/BabestationTV.yml",
+      "sha": "779b38ce21c42c1bd41363ffb33d04e8664b7b77",
+      "size": 980,
+      "companion_files": []
+    },
+    {
+      "name": "BadPuppy",
+      "yml_path": "scrapers/BadPuppy.yml",
+      "sha": "f274df0b9af944b4f8400263b0303615a8375f02",
+      "size": 1393,
+      "companion_files": []
+    },
+    {
+      "name": "BamVisions",
+      "yml_path": "scrapers/BamVisions.yml",
+      "sha": "33a957d6d3b885d0784a42bc825c48974e06c140",
+      "size": 795,
+      "companion_files": []
+    },
+    {
+      "name": "Bang",
+      "yml_path": "scrapers/Bang.yml",
+      "sha": "3b373853873961f6d680a2b02e3d96f9aa4476e4",
+      "size": 6330,
+      "companion_files": []
+    },
+    {
+      "name": "BathroomCreepers",
+      "yml_path": "scrapers/BathroomCreepers.yml",
+      "sha": "5622a7873467d843efef05c8f3946dc6eddb8076",
+      "size": 1859,
+      "companion_files": []
+    },
+    {
+      "name": "BelAmi",
+      "yml_path": "scrapers/BelAmi.yml",
+      "sha": "9830a68bb00f2385d4753de5a44da5683b084ed7",
+      "size": 2552,
+      "companion_files": []
+    },
+    {
+      "name": "BeltBound",
+      "yml_path": "scrapers/BeltBound.yml",
+      "sha": "f2cc90851cc01ac2558bd12c7f62d255651b716c",
+      "size": 918,
+      "companion_files": []
+    },
+    {
+      "name": "BiCollegeFucks",
+      "yml_path": "scrapers/BiCollegeFucks.yml",
+      "sha": "da7f1fcd91b944a92712d4f834688a736dbc94b5",
+      "size": 8434,
+      "companion_files": []
+    },
+    {
+      "name": "BiGuysFuck",
+      "yml_path": "scrapers/BiGuysFuck.yml",
+      "sha": "20b51a67eb2ea310ba57fab061d2743880f968d1",
+      "size": 1973,
+      "companion_files": []
+    },
+    {
+      "name": "BigAssTease",
+      "yml_path": "scrapers/BigAssTease.yml",
+      "sha": "ab23c1847d11d06363cd00ce448d96851b79bee1",
+      "size": 1570,
+      "companion_files": []
+    },
+    {
+      "name": "BigBootyTGirls",
+      "yml_path": "scrapers/BigBootyTGirls.yml",
+      "sha": "f66224a2fa4722d30ffae4ceb82e96c5fed58126",
+      "size": 1281,
+      "companion_files": []
+    },
+    {
+      "name": "BlackGirlFetish",
+      "yml_path": "scrapers/BlackGirlFetish.yml",
+      "sha": "2a2d4f2ca55c3eb1a7fc129555c500f612f62f31",
+      "size": 1496,
+      "companion_files": []
+    },
+    {
+      "name": "BlakeMason",
+      "yml_path": "scrapers/BlakeMason.yml",
+      "sha": "4613ff9052cdca69073416f3c440bb31236712c1",
+      "size": 3473,
+      "companion_files": []
+    },
+    {
+      "name": "BlowBangGirls",
+      "yml_path": "scrapers/BlowBangGirls.yml",
+      "sha": "f1351fc963bdfd3e7ef05a745404faca6976d045",
+      "size": 1757,
+      "companion_files": []
+    },
+    {
+      "name": "BluMedia",
+      "yml_path": "scrapers/BluMedia.yml",
+      "sha": "9dc26e6c6ea8fb0f3d39467c3b630f9c8f39fc3a",
+      "size": 6443,
+      "companion_files": []
+    },
+    {
+      "name": "BondageCafe",
+      "yml_path": "scrapers/BondageCafe.yml",
+      "sha": "4cd4143e33f1f11d1d29eaecb82b63486e50a956",
+      "size": 869,
+      "companion_files": []
+    },
+    {
+      "name": "BondageJunkies",
+      "yml_path": "scrapers/BondageJunkies.yml",
+      "sha": "95525db2f33300f3dd7e4f0716dc5e5e15eca239",
+      "size": 1485,
+      "companion_files": []
+    },
+    {
+      "name": "Boobpedia",
+      "yml_path": "scrapers/Boobpedia.yml",
+      "sha": "f4c9b06b0b03144d520d9894f3e68764fb809f0e",
+      "size": 16959,
+      "companion_files": []
+    },
+    {
+      "name": "BornToBeBound",
+      "yml_path": "scrapers/BornToBeBound.yml",
+      "sha": "104291bf278491781857d76f459ef36a79902bcc",
+      "size": 1158,
+      "companion_files": []
+    },
+    {
+      "name": "BoundHeat",
+      "yml_path": "scrapers/BoundHeat.yml",
+      "sha": "2212c79b3a8701b846391d6232feb9e4d152301a",
+      "size": 1838,
+      "companion_files": []
+    },
+    {
+      "name": "Boundhoneys",
+      "yml_path": "scrapers/Boundhoneys.yml",
+      "sha": "24b59bdad87193274faac947edafc53f8713db67",
+      "size": 889,
+      "companion_files": []
+    },
+    {
+      "name": "Boundlife",
+      "yml_path": "scrapers/Boundlife.yml",
+      "sha": "377c8d70b10a6e1c5fad2994087a6084ab8a62b7",
+      "size": 747,
+      "companion_files": []
+    },
+    {
+      "name": "BoxTruckSex",
+      "yml_path": "scrapers/BoxTruckSex.yml",
+      "sha": "7045eea6a7fce99b8b243e1692dd5fd43149b2cc",
+      "size": 903,
+      "companion_files": []
+    },
+    {
+      "name": "BoyCrush",
+      "yml_path": "scrapers/BoyCrush.yml",
+      "sha": "022911c3a0998dc3f322f0e68a726e3d460e89ea",
+      "size": 1420,
+      "companion_files": []
+    },
+    {
+      "name": "BoyFun",
+      "yml_path": "scrapers/BoyFun.yml",
+      "sha": "8aabb855c0990118266fc15187d10f4e8378890a",
+      "size": 2595,
+      "companion_files": []
+    },
+    {
+      "name": "BradMontana",
+      "yml_path": "scrapers/BradMontana.yml",
+      "sha": "e5692a6e62d603f060ba235d4b05c19bea7caf8c",
+      "size": 738,
+      "companion_files": []
+    },
+    {
+      "name": "BrandNewAmateurs",
+      "yml_path": "scrapers/BrandNewAmateurs.yml",
+      "sha": "247ff19a6b99a6a679c00e9a18634b3cb6e53f9f",
+      "size": 1269,
+      "companion_files": []
+    },
+    {
+      "name": "Brasileirinhas",
+      "yml_path": "scrapers/Brasileirinhas.yml",
+      "sha": "adb0b4514a9f9ed90df4d8b652d4578893fa4958",
+      "size": 951,
+      "companion_files": []
+    },
+    {
+      "name": "BreathTakers",
+      "yml_path": "scrapers/BreathTakers.yml",
+      "sha": "058ff371d6269cb054e207cde83bba9192492b9a",
+      "size": 882,
+      "companion_files": []
+    },
+    {
+      "name": "BreedItRaw",
+      "yml_path": "scrapers/BreedItRaw.yml",
+      "sha": "734f4fe63480efe2a2b8d6e6f1ade5b67c26fad5",
+      "size": 2266,
+      "companion_files": []
+    },
+    {
+      "name": "CDGirls",
+      "yml_path": "scrapers/CDGirls.yml",
+      "sha": "d446180159a25f9f1ea73666e8c6428e1e419d3d",
+      "size": 2093,
+      "companion_files": []
+    },
+    {
+      "name": "CJXXX",
+      "yml_path": "scrapers/CJXXX.yml",
+      "sha": "173d1af8bf009a155cf5bfaa6e5a86f0cc192fdd",
+      "size": 2259,
+      "companion_files": []
+    },
+    {
+      "name": "CamSoda",
+      "yml_path": "scrapers/CamSoda.yml",
+      "sha": "b2d8d67131db9f004fbc3636f017ee03c197dd3b",
+      "size": 1028,
+      "companion_files": []
+    },
+    {
+      "name": "CamWhorestv",
+      "yml_path": "scrapers/CamWhorestv.yml",
+      "sha": "be1127c2f9e44316d08277963ac52a6b73040a50",
+      "size": 781,
+      "companion_files": []
+    },
+    {
+      "name": "Caribbeancom-JP",
+      "yml_path": "scrapers/Caribbeancom-JP.yml",
+      "sha": "43a119284ce213d2ba81751314fa94906db2520b",
+      "size": 4116,
+      "companion_files": []
+    },
+    {
+      "name": "Caribbeancom",
+      "yml_path": "scrapers/Caribbeancom.yml",
+      "sha": "3d70f5d46a0c97f6bd7fea9320b0fd1f6b08e0f9",
+      "size": 2803,
+      "companion_files": []
+    },
+    {
+      "name": "CarnalPlus",
+      "yml_path": "scrapers/CarnalPlus.yml",
+      "sha": "9591e6cc77116a57e56d942cd59cbc060389689c",
+      "size": 12906,
+      "companion_files": []
+    },
+    {
+      "name": "Catalina Cruz",
+      "yml_path": "scrapers/Catalina Cruz.yml",
+      "sha": "c5c79abfb95ed2cfe0b1842b822a6980d31eacf5",
+      "size": 641,
+      "companion_files": []
+    },
+    {
+      "name": "CherryPimps",
+      "yml_path": "scrapers/CherryPimps.yml",
+      "sha": "886f821801353f76a385103882e89be7bf152471",
+      "size": 2148,
+      "companion_files": []
+    },
+    {
+      "name": "ChickPass",
+      "yml_path": "scrapers/ChickPass.yml",
+      "sha": "d985e7bfb7f26fe925e6edce4af2eee74b003ff7",
+      "size": 5674,
+      "companion_files": []
+    },
+    {
+      "name": "ChubsAndCubs",
+      "yml_path": "scrapers/ChubsAndCubs.yml",
+      "sha": "0b1be4f8e8ff2fcec93d31af70972a2644777ef6",
+      "size": 1571,
+      "companion_files": []
+    },
+    {
+      "name": "ClassLesbians",
+      "yml_path": "scrapers/ClassLesbians.yml",
+      "sha": "86c07bfdc800c3cd1bba1034e3c0e536389746a4",
+      "size": 764,
+      "companion_files": []
+    },
+    {
+      "name": "ClaudiaMarie",
+      "yml_path": "scrapers/ClaudiaMarie.yml",
+      "sha": "fa0920158893c8212cfbdfb120acc9ef98dc2eff",
+      "size": 681,
+      "companion_files": []
+    },
+    {
+      "name": "ClubDom",
+      "yml_path": "scrapers/ClubDom.yml",
+      "sha": "8555f118e77edcef2fc317e755b01a2450fad9d1",
+      "size": 2597,
+      "companion_files": []
+    },
+    {
+      "name": "ClubSeventeen",
+      "yml_path": "scrapers/ClubSeventeen.yml",
+      "sha": "b637697d7aacabf41e7cad881aa623953fd7ab3c",
+      "size": 2453,
+      "companion_files": []
+    },
+    {
+      "name": "Cockhero",
+      "yml_path": "scrapers/Cockhero.yml",
+      "sha": "ac0f48e801ca354b0dd0d601ae87bc4600ede91f",
+      "size": 1047,
+      "companion_files": []
+    },
+    {
+      "name": "CocksuckersGuide",
+      "yml_path": "scrapers/CocksuckersGuide.yml",
+      "sha": "eeff7568f325187e1248c644344c3f2902efa61e",
+      "size": 1248,
+      "companion_files": []
+    },
+    {
+      "name": "CockyBoys",
+      "yml_path": "scrapers/CockyBoys.yml",
+      "sha": "61f6d6cfcbdeb49b7c6f4e0c1b6ad4971acc3a48",
+      "size": 1419,
+      "companion_files": []
+    },
+    {
+      "name": "ColbyKnox",
+      "yml_path": "scrapers/ColbyKnox.yml",
+      "sha": "6af5683746919b1b2914ac49a4300072fcaf8d40",
+      "size": 934,
+      "companion_files": []
+    },
+    {
+      "name": "Colette",
+      "yml_path": "scrapers/Colette.yml",
+      "sha": "60bcfda239c18983d72818188ecfd7b8523c4745",
+      "size": 1886,
+      "companion_files": []
+    },
+    {
+      "name": "CollegeUniform",
+      "yml_path": "scrapers/CollegeUniform.yml",
+      "sha": "5aed5344e48878c15097187e8934c0122ef5a020",
+      "size": 1174,
+      "companion_files": []
+    },
+    {
+      "name": "CombatZone",
+      "yml_path": "scrapers/CombatZone.yml",
+      "sha": "ad879ef07089e4dcf06f520fd83b2cc14d55f7ba",
+      "size": 2587,
+      "companion_files": []
+    },
+    {
+      "name": "CorbinFisher",
+      "yml_path": "scrapers/CorbinFisher.yml",
+      "sha": "e4ce60660e07b5a32f208c06330088238e89e14a",
+      "size": 5983,
+      "companion_files": []
+    },
+    {
+      "name": "Cospuri",
+      "yml_path": "scrapers/Cospuri.yml",
+      "sha": "2d765a034e5b78ea15866380bcbdf53d471c9444",
+      "size": 2120,
+      "companion_files": []
+    },
+    {
+      "name": "CrashpadSeries",
+      "yml_path": "scrapers/CrashpadSeries.yml",
+      "sha": "012b8a4d3f15bec695b46f1d55cd9ee2675b8a89",
+      "size": 947,
+      "companion_files": []
+    },
+    {
+      "name": "CruelBrats",
+      "yml_path": "scrapers/CruelBrats.yml",
+      "sha": "df6cdaaba7644c6d3f7aee5fd07da62def3bf79c",
+      "size": 1391,
+      "companion_files": []
+    },
+    {
+      "name": "CruelGirlfriend",
+      "yml_path": "scrapers/CruelGirlfriend.yml",
+      "sha": "c8f1fd261a7448d427fcc5727b96e58b2884b73e",
+      "size": 2654,
+      "companion_files": []
+    },
+    {
+      "name": "CruisingPorn",
+      "yml_path": "scrapers/CruisingPorn.yml",
+      "sha": "4a18a7f5fa512418875f6e52a7405d3adf8d1403",
+      "size": 3093,
+      "companion_files": []
+    },
+    {
+      "name": "CumEatingCuckolds",
+      "yml_path": "scrapers/CumEatingCuckolds.yml",
+      "sha": "21c2fba6e5b8bd4daea77decd2ff5cc200c56d17",
+      "size": 752,
+      "companion_files": []
+    },
+    {
+      "name": "Cumlouder",
+      "yml_path": "scrapers/Cumlouder.yml",
+      "sha": "e952d31041af6a956c0144f15f7d86209d89ba4f",
+      "size": 3536,
+      "companion_files": []
+    },
+    {
+      "name": "CutlersDen",
+      "yml_path": "scrapers/CutlersDen.yml",
+      "sha": "ecc6ba1669e2775c0718e8120c0486c6b7fc1e99",
+      "size": 2027,
+      "companion_files": []
+    },
+    {
+      "name": "CzechAV",
+      "yml_path": "scrapers/CzechAV.yml",
+      "sha": "b31c42b1db2d89ab1859c1ead5da87ef86c360e2",
+      "size": 2236,
+      "companion_files": []
+    },
+    {
+      "name": "CzechVR",
+      "yml_path": "scrapers/CzechVR.yml",
+      "sha": "013725e1c1e4392d194d1a4221b8416b4bab618c",
+      "size": 3149,
+      "companion_files": []
+    },
+    {
+      "name": "DDFNetwork",
+      "yml_path": "scrapers/DDFNetwork.yml",
+      "sha": "83ab3293a4dac071e8f00993509e82eb54fc3ddb",
+      "size": 912,
+      "companion_files": []
+    },
+    {
+      "name": "DEMedia",
+      "yml_path": "scrapers/DEMedia.yml",
+      "sha": "bea73fa336d80571efed04d2a0bb336fa4071cff",
+      "size": 790,
+      "companion_files": []
+    },
+    {
+      "name": "DFB",
+      "yml_path": "scrapers/DFB.yml",
+      "sha": "c28b36f4e8e073ff67761b24a08aae19ff738d3e",
+      "size": 1401,
+      "companion_files": []
+    },
+    {
+      "name": "DLsite",
+      "yml_path": "scrapers/DLsite.yml",
+      "sha": "11aef539fbdc8b8488b3fe4b4f4279c7637a6622",
+      "size": 4277,
+      "companion_files": []
+    },
+    {
+      "name": "DMM",
+      "yml_path": "scrapers/DMM.yml",
+      "sha": "8e64e3862531a271591294162ae544193dde69b3",
+      "size": 3854,
+      "companion_files": []
+    },
+    {
+      "name": "Damplips",
+      "yml_path": "scrapers/Damplips.yml",
+      "sha": "7120d880e0b916751efabcf0a66ac13fac742f25",
+      "size": 826,
+      "companion_files": []
+    },
+    {
+      "name": "Danni",
+      "yml_path": "scrapers/Danni.yml",
+      "sha": "65a84c490977496d0a9cd0251a673b4f6a768bab",
+      "size": 627,
+      "companion_files": []
+    },
+    {
+      "name": "DarkRoomVR",
+      "yml_path": "scrapers/DarkRoomVR.yml",
+      "sha": "d204766241c7ec75f4d9cd6eeb4aad3ebbe65f26",
+      "size": 853,
+      "companion_files": []
+    },
+    {
+      "name": "DarkkoTV",
+      "yml_path": "scrapers/DarkkoTV.yml",
+      "sha": "f5568111e307246396da7209c0bc938d82613af9",
+      "size": 3304,
+      "companion_files": []
+    },
+    {
+      "name": "DartTechStudios",
+      "yml_path": "scrapers/DartTechStudios.yml",
+      "sha": "7af9dd3c09d0ef686cd033672c7e6873b88d3585",
+      "size": 1999,
+      "companion_files": []
+    },
+    {
+      "name": "DeepInSex",
+      "yml_path": "scrapers/DeepInSex.yml",
+      "sha": "e795020c8bde4fd8286157badfe4d7a60039b4f2",
+      "size": 3282,
+      "companion_files": []
+    },
+    {
+      "name": "DesperateAmateurs",
+      "yml_path": "scrapers/DesperateAmateurs.yml",
+      "sha": "b518407dadc58470ae2baf95eccb0bd21440c2c1",
+      "size": 895,
+      "companion_files": []
+    },
+    {
+      "name": "DesperatePleasuresXXX",
+      "yml_path": "scrapers/DesperatePleasuresXXX.yml",
+      "sha": "667bbd47695949f8df5d260e36d77692d188796e",
+      "size": 1564,
+      "companion_files": []
+    },
+    {
+      "name": "DeviantArt",
+      "yml_path": "scrapers/DeviantArt.yml",
+      "sha": "332838943b25db0bf8458b8797d747454601689b",
+      "size": 1012,
+      "companion_files": []
+    },
+    {
+      "name": "Dickdrainers",
+      "yml_path": "scrapers/Dickdrainers.yml",
+      "sha": "23884eb45262cee8948f30f8b9a118823c2a2095",
+      "size": 1191,
+      "companion_files": []
+    },
+    {
+      "name": "DigitalDesire",
+      "yml_path": "scrapers/DigitalDesire.yml",
+      "sha": "4bedc88c4766d424685371bb7067dd0efe06892a",
+      "size": 740,
+      "companion_files": []
+    },
+    {
+      "name": "DirtyFlix",
+      "yml_path": "scrapers/DirtyFlix.yml",
+      "sha": "b161ad0d32ddfb9ad6c0abc5265918a7adf62328",
+      "size": 1900,
+      "companion_files": []
+    },
+    {
+      "name": "DollsHub",
+      "yml_path": "scrapers/DollsHub.yml",
+      "sha": "3b7a16ae7f1a493b6ce435a7e4b262e3964a37eb",
+      "size": 1302,
+      "companion_files": []
+    },
+    {
+      "name": "DorcelClub",
+      "yml_path": "scrapers/DorcelClub.yml",
+      "sha": "e40d3a03e49ff3da6ba88db78676e9ba59a89af1",
+      "size": 2369,
+      "companion_files": []
+    },
+    {
+      "name": "DorcelVision",
+      "yml_path": "scrapers/DorcelVision.yml",
+      "sha": "803a71d42451ff2316b7f39e32cff1e957826839",
+      "size": 2827,
+      "companion_files": []
+    },
+    {
+      "name": "DreamTranny",
+      "yml_path": "scrapers/DreamTranny.yml",
+      "sha": "7efbe952dabf1f91aef9eeae7b05672527867c60",
+      "size": 3572,
+      "companion_files": []
+    },
+    {
+      "name": "DreamsOfSpanking",
+      "yml_path": "scrapers/DreamsOfSpanking.yml",
+      "sha": "0eb7059816f725d8eb4d266e2b6ea491e66b0698",
+      "size": 1182,
+      "companion_files": []
+    },
+    {
+      "name": "DreddXXX",
+      "yml_path": "scrapers/DreddXXX.yml",
+      "sha": "9e7aa1602cc144bc97c9c0c50920ceb243052bf6",
+      "size": 700,
+      "companion_files": []
+    },
+    {
+      "name": "EastBoys",
+      "yml_path": "scrapers/EastBoys.yml",
+      "sha": "080357a1a15c0f63e7b84d43e04e5cdf5a317e7d",
+      "size": 1054,
+      "companion_files": []
+    },
+    {
+      "name": "EliteBabes",
+      "yml_path": "scrapers/EliteBabes.yml",
+      "sha": "0319345307c53f8b64e4978b7a30cb9de9468154",
+      "size": 1378,
+      "companion_files": []
+    },
+    {
+      "name": "ElseCinema",
+      "yml_path": "scrapers/ElseCinema.yml",
+      "sha": "0cb4bdfc6bea07165f7efafc785813540b2673ec",
+      "size": 1183,
+      "companion_files": []
+    },
+    {
+      "name": "EmilyBloom",
+      "yml_path": "scrapers/EmilyBloom.yml",
+      "sha": "cfefc3920b0f4129635ccbf31a39f9f83685d3b4",
+      "size": 1282,
+      "companion_files": []
+    },
+    {
+      "name": "EnglishLads",
+      "yml_path": "scrapers/EnglishLads.yml",
+      "sha": "b72a93dfc65539c5a2e45ff157049e4ee9bb7cbf",
+      "size": 3118,
+      "companion_files": []
+    },
+    {
+      "name": "EnjoyX",
+      "yml_path": "scrapers/EnjoyX.yml",
+      "sha": "1db516c6495a1c80533665a27eccd4a8dedb6e70",
+      "size": 803,
+      "companion_files": []
+    },
+    {
+      "name": "Eporner",
+      "yml_path": "scrapers/Eporner.yml",
+      "sha": "2f3e6061032abbb35ca763fe72176ec33297cbdb",
+      "size": 2034,
+      "companion_files": []
+    },
+    {
+      "name": "EricJohnsSexAdventures",
+      "yml_path": "scrapers/EricJohnsSexAdventures.yml",
+      "sha": "5fe75160321ab6a980dbc64150ef8c41f03c2571",
+      "size": 737,
+      "companion_files": []
+    },
+    {
+      "name": "EricVideos",
+      "yml_path": "scrapers/EricVideos.yml",
+      "sha": "f1910b926696cd9368b40a0e3371f3b4658d0fb5",
+      "size": 1859,
+      "companion_files": []
+    },
+    {
+      "name": "EroProfile",
+      "yml_path": "scrapers/EroProfile.yml",
+      "sha": "7229ab8f0a616afaafb1845094ff4652792dbd8f",
+      "size": 963,
+      "companion_files": []
+    },
+    {
+      "name": "Eroteric",
+      "yml_path": "scrapers/Eroteric.yml",
+      "sha": "4180067e92d2f0bb32c4a9301f04780c327089eb",
+      "size": 771,
+      "companion_files": []
+    },
+    {
+      "name": "EvilAngelStore",
+      "yml_path": "scrapers/EvilAngelStore.yml",
+      "sha": "4a86d92f6c99a13ce230401eda98315138b320d1",
+      "size": 1783,
+      "companion_files": []
+    },
+    {
+      "name": "EvilErotic",
+      "yml_path": "scrapers/EvilErotic.yml",
+      "sha": "eb0552dc0fae10148110c736b4ce1aa782a6924f",
+      "size": 3564,
+      "companion_files": []
+    },
+    {
+      "name": "ExpliciteArt",
+      "yml_path": "scrapers/ExpliciteArt.yml",
+      "sha": "bdde02a9c004393a4e7975606862dc28831ab5fd",
+      "size": 1800,
+      "companion_files": []
+    },
+    {
+      "name": "ExploitedX",
+      "yml_path": "scrapers/ExploitedX.yml",
+      "sha": "0921e99873340368d8ce5c7f8dbf2b0807f550e2",
+      "size": 4018,
+      "companion_files": []
+    },
+    {
+      "name": "ExtraPackage",
+      "yml_path": "scrapers/ExtraPackage.yml",
+      "sha": "59353a9ada0b7ecd151b3917738e0035abf6f88b",
+      "size": 2301,
+      "companion_files": []
+    },
+    {
+      "name": "ExtremeMoviePass",
+      "yml_path": "scrapers/ExtremeMoviePass.yml",
+      "sha": "61a30777fa04ac98df9286bde8cc28172bf4725f",
+      "size": 956,
+      "companion_files": []
+    },
+    {
+      "name": "FFCSH",
+      "yml_path": "scrapers/FFCSH.yml",
+      "sha": "f5672b579349732cdfd3c1f3bbd307162ce1571d",
+      "size": 1746,
+      "companion_files": []
+    },
+    {
+      "name": "FFstockings",
+      "yml_path": "scrapers/FFstockings.yml",
+      "sha": "71d6301760c4adaf829f268f3679db05c4c3d78c",
+      "size": 588,
+      "companion_files": []
+    },
+    {
+      "name": "FILF",
+      "yml_path": "scrapers/FILF.yml",
+      "sha": "d135a3a7c598eb16c83299773d983101078880dc",
+      "size": 558,
+      "companion_files": []
+    },
+    {
+      "name": "FTV",
+      "yml_path": "scrapers/FTV.yml",
+      "sha": "3cca1fe680232ea88008c8255a855dee6761ad18",
+      "size": 831,
+      "companion_files": []
+    },
+    {
+      "name": "Fakku",
+      "yml_path": "scrapers/Fakku.yml",
+      "sha": "c3e17da2b62a27f6cb58ce6644023f921e53dd91",
+      "size": 912,
+      "companion_files": []
+    },
+    {
+      "name": "FamilyTherapyXXX",
+      "yml_path": "scrapers/FamilyTherapyXXX.yml",
+      "sha": "e01f17cc9fc08e1454c27eeb487217a448aecc4c",
+      "size": 1403,
+      "companion_files": []
+    },
+    {
+      "name": "FapHouse",
+      "yml_path": "scrapers/FapHouse.yml",
+      "sha": "c4b9bb4a1534baa770b0d285c971c9bd9f6665ed",
+      "size": 912,
+      "companion_files": []
+    },
+    {
+      "name": "Fapello",
+      "yml_path": "scrapers/Fapello.yml",
+      "sha": "52685f0660689a1e1fa78b0f7f2095aa2a37fda8",
+      "size": 547,
+      "companion_files": []
+    },
+    {
+      "name": "Femanic",
+      "yml_path": "scrapers/Femanic.yml",
+      "sha": "78dfd77d0afd1394482f8b0f58b838befc9796b3",
+      "size": 664,
+      "companion_files": []
+    },
+    {
+      "name": "FemdomEmpire",
+      "yml_path": "scrapers/FemdomEmpire.yml",
+      "sha": "67d550c530ccc6d1e85f9dc3266efa42fd833bb0",
+      "size": 2778,
+      "companion_files": []
+    },
+    {
+      "name": "Femjoy",
+      "yml_path": "scrapers/Femjoy.yml",
+      "sha": "847edc2fa9c31edd9143aa0ff0fec5ef699c4ae8",
+      "size": 2054,
+      "companion_files": []
+    },
+    {
+      "name": "FetishNetwork",
+      "yml_path": "scrapers/FetishNetwork.yml",
+      "sha": "8e90366549fede9ff9ad7657f00abb646f329ffa",
+      "size": 3018,
+      "companion_files": []
+    },
+    {
+      "name": "FilthFlix",
+      "yml_path": "scrapers/FilthFlix.yml",
+      "sha": "a7ffa5e19bee4806f4491f5960a00d0c93cb43bc",
+      "size": 797,
+      "companion_files": []
+    },
+    {
+      "name": "FilthyFamily",
+      "yml_path": "scrapers/FilthyFamily.yml",
+      "sha": "a6acc3b5460efd141ed9d0cd421c5cbf996986e3",
+      "size": 1334,
+      "companion_files": []
+    },
+    {
+      "name": "FinishesTheJob",
+      "yml_path": "scrapers/FinishesTheJob.yml",
+      "sha": "a1615bcb32b240dd1c73af9b1686def7df59a83f",
+      "size": 1187,
+      "companion_files": []
+    },
+    {
+      "name": "Firstanalquest",
+      "yml_path": "scrapers/Firstanalquest.yml",
+      "sha": "f29b0c49de4b2382e7bd24a544b85bff86b07eb7",
+      "size": 1008,
+      "companion_files": []
+    },
+    {
+      "name": "Fistertwister",
+      "yml_path": "scrapers/Fistertwister.yml",
+      "sha": "6f0ea018f7e7f0c1064b56e0821aad823ddad26f",
+      "size": 760,
+      "companion_files": []
+    },
+    {
+      "name": "FittingRoom",
+      "yml_path": "scrapers/FittingRoom.yml",
+      "sha": "5f46e828169e2de1a4b00499908c66ab5826c583",
+      "size": 1133,
+      "companion_files": []
+    },
+    {
+      "name": "FoToRoCuffed",
+      "yml_path": "scrapers/FoToRoCuffed.yml",
+      "sha": "66081964a7d4bd32d8cc4d8358789a6bf9f14645",
+      "size": 944,
+      "companion_files": []
+    },
+    {
+      "name": "FootFetishDaily",
+      "yml_path": "scrapers/FootFetishDaily.yml",
+      "sha": "732b259c8691705f2d06f0a4f1e7145e2c8b06dd",
+      "size": 4554,
+      "companion_files": []
+    },
+    {
+      "name": "FragileSlave",
+      "yml_path": "scrapers/FragileSlave.yml",
+      "sha": "a1a75b2a58c7db536800e0b5c95dee61f263831b",
+      "size": 1050,
+      "companion_files": []
+    },
+    {
+      "name": "FrancescoMalcom",
+      "yml_path": "scrapers/FrancescoMalcom.yml",
+      "sha": "141d7dfde3133f6e72c34102f8b71eccf2652b40",
+      "size": 1247,
+      "companion_files": []
+    },
+    {
+      "name": "FrankfurtSexStories",
+      "yml_path": "scrapers/FrankfurtSexStories.yml",
+      "sha": "182481d5d6c662f6409ae88f8bf7e5f015dcf265",
+      "size": 1233,
+      "companion_files": []
+    },
+    {
+      "name": "FratX",
+      "yml_path": "scrapers/FratX.yml",
+      "sha": "80603602d9e042df46d1ddb5c50198f3dc07cac6",
+      "size": 1006,
+      "companion_files": []
+    },
+    {
+      "name": "FreakMobHardcore",
+      "yml_path": "scrapers/FreakMobHardcore.yml",
+      "sha": "331629b87971c0d8f9e5c025b8bb215e826e97be",
+      "size": 709,
+      "companion_files": []
+    },
+    {
+      "name": "FreeonesCommunity",
+      "yml_path": "scrapers/FreeonesCommunity.yml",
+      "sha": "e53c30d4da7f4b9bc054afdaaca3632545d12d63",
+      "size": 6400,
+      "companion_files": []
+    },
+    {
+      "name": "FreeonesStore",
+      "yml_path": "scrapers/FreeonesStore.yml",
+      "sha": "94d515eafe8dcc4867a272ecb3c517d8a4ab4765",
+      "size": 2259,
+      "companion_files": []
+    },
+    {
+      "name": "Frenchtwinks",
+      "yml_path": "scrapers/Frenchtwinks.yml",
+      "sha": "9ef5447059f05743a68b78fefbe2d979c4697d46",
+      "size": 2152,
+      "companion_files": []
+    },
+    {
+      "name": "Freshmen",
+      "yml_path": "scrapers/Freshmen.yml",
+      "sha": "29feaae05429ab0cd920c267b53e7cf1fc3bb91c",
+      "size": 1861,
+      "companion_files": []
+    },
+    {
+      "name": "FrolicMe",
+      "yml_path": "scrapers/FrolicMe.yml",
+      "sha": "cb1dc591177c09ba93fc1ee0ea1379eed70341b9",
+      "size": 1022,
+      "companion_files": []
+    },
+    {
+      "name": "FuckPassVR",
+      "yml_path": "scrapers/FuckPassVR.yml",
+      "sha": "0c244bd277a65f9212e0713c6e299a8a8fd8869c",
+      "size": 3343,
+      "companion_files": []
+    },
+    {
+      "name": "FuckedHard18",
+      "yml_path": "scrapers/FuckedHard18.yml",
+      "sha": "6d4f0b0fa53ad7cdc4cc483989ba89c6fb8c379f",
+      "size": 895,
+      "companion_files": []
+    },
+    {
+      "name": "Fuckermate",
+      "yml_path": "scrapers/Fuckermate.yml",
+      "sha": "a8af6e2bc4491968e7a19f07c4a30b91fdd2d60f",
+      "size": 784,
+      "companion_files": []
+    },
+    {
+      "name": "FuckingAwesome",
+      "yml_path": "scrapers/FuckingAwesome.yml",
+      "sha": "d1051dd766cba4fc2239b9b809549a8ab943168e",
+      "size": 882,
+      "companion_files": []
+    },
+    {
+      "name": "Futanarica",
+      "yml_path": "scrapers/Futanarica.yml",
+      "sha": "fff328664dec0d569168f2bca38dbe9c827cfeb3",
+      "size": 624,
+      "companion_files": []
+    },
+    {
+      "name": "FutileStruggles",
+      "yml_path": "scrapers/FutileStruggles.yml",
+      "sha": "19b94f34353039d93c21fd012964d4f1b6e2f543",
+      "size": 961,
+      "companion_files": []
+    },
+    {
+      "name": "FuxersNetwork",
+      "yml_path": "scrapers/FuxersNetwork.yml",
+      "sha": "c8519cbcf1487e82285ece55db665d7adac51d57",
+      "size": 835,
+      "companion_files": []
+    },
+    {
+      "name": "GASM",
+      "yml_path": "scrapers/GASM.yml",
+      "sha": "349af82e5bcd6c86654bd57df0f00d6da9705989",
+      "size": 1978,
+      "companion_files": []
+    },
+    {
+      "name": "GAYHOOPLA",
+      "yml_path": "scrapers/GAYHOOPLA.yml",
+      "sha": "720d11bc06698b9d78cdad14c4e05136215ccfe5",
+      "size": 1965,
+      "companion_files": []
+    },
+    {
+      "name": "GIGA",
+      "yml_path": "scrapers/GIGA.yml",
+      "sha": "9ed7e1cb280af39c2634d62acd95f39f6ec8eaab",
+      "size": 3663,
+      "companion_files": []
+    },
+    {
+      "name": "GammaEntertainment",
+      "yml_path": "scrapers/GammaEntertainment.yml",
+      "sha": "94e17bb12e500773c9520b38de4769269cfde596",
+      "size": 7214,
+      "companion_files": []
+    },
+    {
+      "name": "GayAdultEmpire",
+      "yml_path": "scrapers/GayAdultEmpire.yml",
+      "sha": "de4a427c4f1fd0159c371ebb8b78f7b0c4e53918",
+      "size": 4795,
+      "companion_files": []
+    },
+    {
+      "name": "GayNetwork",
+      "yml_path": "scrapers/GayNetwork.yml",
+      "sha": "db9eb2c20cb309c3b1ab7e6a2a113042532a1a48",
+      "size": 5679,
+      "companion_files": []
+    },
+    {
+      "name": "GermanMistresses",
+      "yml_path": "scrapers/GermanMistresses.yml",
+      "sha": "9e8126b37e9abf5f7aa49ba65772770d25d2806e",
+      "size": 1022,
+      "companion_files": []
+    },
+    {
+      "name": "GirlsOfPB",
+      "yml_path": "scrapers/GirlsOfPB.yml",
+      "sha": "ce661111784f0257758b637d3fe911570c56242b",
+      "size": 2512,
+      "companion_files": []
+    },
+    {
+      "name": "GirlsOutWest",
+      "yml_path": "scrapers/GirlsOutWest.yml",
+      "sha": "8547aff162b0a87a01b642da8a3f40c66a3510e9",
+      "size": 3315,
+      "companion_files": []
+    },
+    {
+      "name": "GirlsRimming",
+      "yml_path": "scrapers/GirlsRimming.yml",
+      "sha": "b3223cdfa1d89fd3ac299de8d4223889ed1ed2ab",
+      "size": 943,
+      "companion_files": []
+    },
+    {
+      "name": "GirlsUnderArrest",
+      "yml_path": "scrapers/GirlsUnderArrest.yml",
+      "sha": "ca47b032bc421e4dd9abc8a32b2db7acf93c1472",
+      "size": 1116,
+      "companion_files": []
+    },
+    {
+      "name": "Glamose",
+      "yml_path": "scrapers/Glamose.yml",
+      "sha": "374d96ef2c04120b53e2707718c865ac9cf460df",
+      "size": 2580,
+      "companion_files": []
+    },
+    {
+      "name": "GloryHoleSwallow",
+      "yml_path": "scrapers/GloryHoleSwallow.yml",
+      "sha": "2299bbe189527662fc8fe63d4c4d7efeb91ec4e2",
+      "size": 2374,
+      "companion_files": []
+    },
+    {
+      "name": "GlossTightsGlamour",
+      "yml_path": "scrapers/GlossTightsGlamour.yml",
+      "sha": "c5d1e494000fdd92f004d527f33e146aee1800ff",
+      "size": 863,
+      "companion_files": []
+    },
+    {
+      "name": "GoddessSnow",
+      "yml_path": "scrapers/GoddessSnow.yml",
+      "sha": "0b9b7c63da2ca4e43e44a2e4d985633c58e6af0d",
+      "size": 2866,
+      "companion_files": []
+    },
+    {
+      "name": "GotCuffs.com",
+      "yml_path": "scrapers/GotCuffs.com.yml",
+      "sha": "05ae7cc76cb81e551b485ca7ab14158c37a669c6",
+      "size": 937,
+      "companion_files": []
+    },
+    {
+      "name": "GroobyClub",
+      "yml_path": "scrapers/GroobyClub.yml",
+      "sha": "20ec9594617bfe90a3543646ecb9ee99ba2d5330",
+      "size": 2995,
+      "companion_files": []
+    },
+    {
+      "name": "GroobyNetwork-Brazilian",
+      "yml_path": "scrapers/GroobyNetwork-Brazilian.yml",
+      "sha": "a7a8994bba91e50c7b701052e8be87d1fd7a64bf",
+      "size": 1196,
+      "companion_files": []
+    },
+    {
+      "name": "GroobyNetwork-Partial",
+      "yml_path": "scrapers/GroobyNetwork-Partial.yml",
+      "sha": "04e8863908359cceea8f464e3ce0bd69e4db7a66",
+      "size": 11101,
+      "companion_files": []
+    },
+    {
+      "name": "GroobyVR",
+      "yml_path": "scrapers/GroobyVR.yml",
+      "sha": "b429a1edbc7900420914eb448041ee2a92a4f404",
+      "size": 4054,
+      "companion_files": []
+    },
+    {
+      "name": "GuyBone",
+      "yml_path": "scrapers/GuyBone.yml",
+      "sha": "22bc989857c1ec7a247c43fb32ccf797ab06d6e2",
+      "size": 2046,
+      "companion_files": []
+    },
+    {
+      "name": "GuysInSweatpants",
+      "yml_path": "scrapers/GuysInSweatpants.yml",
+      "sha": "1137ec1bae098487a453444316c21d2a5ed93ef8",
+      "size": 2681,
+      "companion_files": []
+    },
+    {
+      "name": "GymRotic",
+      "yml_path": "scrapers/GymRotic.yml",
+      "sha": "e0ede3863b8b78f26087ab75a9bb3649e1a65a13",
+      "size": 1144,
+      "companion_files": []
+    },
+    {
+      "name": "H0930_C0930_H4610-JP",
+      "yml_path": "scrapers/H0930_C0930_H4610-JP.yml",
+      "sha": "66cc774b6495eff05915c43c9fe3bc2587888df9",
+      "size": 2413,
+      "companion_files": []
+    },
+    {
+      "name": "HDPorn",
+      "yml_path": "scrapers/HDPorn.yml",
+      "sha": "056a41be318cf3c9a49003e5056aff2f597bf19c",
+      "size": 585,
+      "companion_files": []
+    },
+    {
+      "name": "HQPorner",
+      "yml_path": "scrapers/HQPorner.yml",
+      "sha": "523ab1a2c295932ff4e220273ebc5012c9475291",
+      "size": 1239,
+      "companion_files": []
+    },
+    {
+      "name": "HandDomination",
+      "yml_path": "scrapers/HandDomination.yml",
+      "sha": "bc66ce32130dc253acc5e54433686cec14235e61",
+      "size": 849,
+      "companion_files": []
+    },
+    {
+      "name": "HarmonyVision",
+      "yml_path": "scrapers/HarmonyVision.yml",
+      "sha": "16de9d8956f3ebd55f079af3138bf3579eee66df",
+      "size": 1167,
+      "companion_files": []
+    },
+    {
+      "name": "HeavyOnHotties",
+      "yml_path": "scrapers/HeavyOnHotties.yml",
+      "sha": "8deaccbdc3bc32e592279817d3c4da27ff2559ad",
+      "size": 873,
+      "companion_files": []
+    },
+    {
+      "name": "Hegre",
+      "yml_path": "scrapers/Hegre.yml",
+      "sha": "e652b8f52738b7df979fcb4be0ba3c5e31c3537e",
+      "size": 4770,
+      "companion_files": []
+    },
+    {
+      "name": "HelixStudios",
+      "yml_path": "scrapers/HelixStudios.yml",
+      "sha": "9752294f733082bea0fa49384edd60b07a755523",
+      "size": 4985,
+      "companion_files": []
+    },
+    {
+      "name": "HentaiDude",
+      "yml_path": "scrapers/HentaiDude.yml",
+      "sha": "8deabdc2e7ca6483203412c7f3865f99118c5680",
+      "size": 931,
+      "companion_files": []
+    },
+    {
+      "name": "Heydouga-JP",
+      "yml_path": "scrapers/Heydouga-JP.yml",
+      "sha": "14ee090854637bf226fa438ba494d928cd79caed",
+      "size": 1774,
+      "companion_files": []
+    },
+    {
+      "name": "Heyzo-JP",
+      "yml_path": "scrapers/Heyzo-JP.yml",
+      "sha": "19b14bcb1e22c37f49e52842c5e94362858b7d13",
+      "size": 1958,
+      "companion_files": []
+    },
+    {
+      "name": "Heyzo",
+      "yml_path": "scrapers/Heyzo.yml",
+      "sha": "3f29e9df02870dd3621fb59698ee27602f6f3b4d",
+      "size": 1685,
+      "companion_files": []
+    },
+    {
+      "name": "HimerosTV",
+      "yml_path": "scrapers/HimerosTV.yml",
+      "sha": "351afe8c563144c7f03310c7939bc8e6fcdde861",
+      "size": 1137,
+      "companion_files": []
+    },
+    {
+      "name": "Hitzefrei",
+      "yml_path": "scrapers/Hitzefrei.yml",
+      "sha": "7bf4c2c243020f7ad82515784e3d7fa0306d8429",
+      "size": 2194,
+      "companion_files": []
+    },
+    {
+      "name": "HmvMania",
+      "yml_path": "scrapers/HmvMania.yml",
+      "sha": "7c985211ed9469f100d0c4b27d8aec5ff33f996e",
+      "size": 1895,
+      "companion_files": []
+    },
+    {
+      "name": "HobbyPorn",
+      "yml_path": "scrapers/HobbyPorn.yml",
+      "sha": "e951c01d4697c575d8dc54a42e73ff71a27f3d2d",
+      "size": 1293,
+      "companion_files": []
+    },
+    {
+      "name": "HollyRandall",
+      "yml_path": "scrapers/HollyRandall.yml",
+      "sha": "00a2800ad18ceac7c5a6b94081cf5302d5bef40c",
+      "size": 858,
+      "companion_files": []
+    },
+    {
+      "name": "HotCollegeFucks",
+      "yml_path": "scrapers/HotCollegeFucks.yml",
+      "sha": "5f23e923f59f41c9c7a5ba43751c958f44d31a80",
+      "size": 8441,
+      "companion_files": []
+    },
+    {
+      "name": "HotGuysFuck",
+      "yml_path": "scrapers/HotGuysFuck.yml",
+      "sha": "d632de06b08cb63266833c563f86f83a4d8a816b",
+      "size": 1977,
+      "companion_files": []
+    },
+    {
+      "name": "Hotmovies",
+      "yml_path": "scrapers/Hotmovies.yml",
+      "sha": "b6abaae754cd423f708866ef700822fc428ee5c2",
+      "size": 5317,
+      "companion_files": []
+    },
+    {
+      "name": "HouseOfGord",
+      "yml_path": "scrapers/HouseOfGord.yml",
+      "sha": "76d02e23d71696a387fb628af4f79e0b82563a42",
+      "size": 1448,
+      "companion_files": []
+    },
+    {
+      "name": "Hucows",
+      "yml_path": "scrapers/Hucows.yml",
+      "sha": "9896135b72d9568bf71875e436198845b22819a2",
+      "size": 875,
+      "companion_files": []
+    },
+    {
+      "name": "Hustler",
+      "yml_path": "scrapers/Hustler.yml",
+      "sha": "041305adc49b76aab38076d84d7fd5c1ba324932",
+      "size": 2596,
+      "companion_files": []
+    },
+    {
+      "name": "Hypnotube",
+      "yml_path": "scrapers/Hypnotube.yml",
+      "sha": "c2bb2f4e3a5b96704f289c14595182912dbccac1",
+      "size": 803,
+      "companion_files": []
+    },
+    {
+      "name": "IKissGirls",
+      "yml_path": "scrapers/IKissGirls.yml",
+      "sha": "fd0d0e0865bd42b3c2730f43925df98971558a49",
+      "size": 989,
+      "companion_files": []
+    },
+    {
+      "name": "IMDB",
+      "yml_path": "scrapers/IMDB.yml",
+      "sha": "de152de99a47b4dcf47b655a9c9b831c72fc42a0",
+      "size": 3863,
+      "companion_files": []
+    },
+    {
+      "name": "IWantClips",
+      "yml_path": "scrapers/IWantClips.yml",
+      "sha": "557ae1f4c4123a978cab1c34f03aa76cb9a822cc",
+      "size": 2730,
+      "companion_files": []
+    },
+    {
+      "name": "IafdStreaming",
+      "yml_path": "scrapers/IafdStreaming.yml",
+      "sha": "6cf18b09edfd64a026046969122821d96fb4de31",
+      "size": 1601,
+      "companion_files": []
+    },
+    {
+      "name": "InTheCrack",
+      "yml_path": "scrapers/InTheCrack.yml",
+      "sha": "e46d358ff1d0833bae656f27b242ed4afa808887",
+      "size": 1459,
+      "companion_files": []
+    },
+    {
+      "name": "IncestFlix",
+      "yml_path": "scrapers/IncestFlix.yml",
+      "sha": "94e3ff10207657032f3bc8508c812d969ec65c36",
+      "size": 863,
+      "companion_files": []
+    },
+    {
+      "name": "InnOfSin",
+      "yml_path": "scrapers/InnOfSin.yml",
+      "sha": "cb7d9ad0dc6b2fa6160f0d2338e1667eb4983eb3",
+      "size": 1879,
+      "companion_files": []
+    },
+    {
+      "name": "InterracialPass",
+      "yml_path": "scrapers/InterracialPass.yml",
+      "sha": "a3fcc1eccd34947f48c53e3927b55fa7615dd743",
+      "size": 1027,
+      "companion_files": []
+    },
+    {
+      "name": "ItsPOV",
+      "yml_path": "scrapers/ItsPOV.yml",
+      "sha": "10c16db8c8cd007be22d4753d4d65c880f0cce87",
+      "size": 976,
+      "companion_files": []
+    },
+    {
+      "name": "JBVideo",
+      "yml_path": "scrapers/JBVideo.yml",
+      "sha": "e3d554581ae12bd5928ec509a58b8be954126356",
+      "size": 763,
+      "companion_files": []
+    },
+    {
+      "name": "JacquieEtMichelElite",
+      "yml_path": "scrapers/JacquieEtMichelElite.yml",
+      "sha": "c7d60736c9dca1088d3eb9947a2e40a80e9bbc4e",
+      "size": 2904,
+      "companion_files": []
+    },
+    {
+      "name": "JacquieEtMichelStars",
+      "yml_path": "scrapers/JacquieEtMichelStars.yml",
+      "sha": "059f99079b80469baea86c7b223ce846981bc7ac",
+      "size": 677,
+      "companion_files": []
+    },
+    {
+      "name": "JakeCruiseMedia",
+      "yml_path": "scrapers/JakeCruiseMedia.yml",
+      "sha": "c815097af063a7a49e638a5ce2631be72e1f41a3",
+      "size": 3642,
+      "companion_files": []
+    },
+    {
+      "name": "JapanHDV",
+      "yml_path": "scrapers/JapanHDV.yml",
+      "sha": "07357901369fb2451389c51d8d788afcd12d4e87",
+      "size": 4076,
+      "companion_files": []
+    },
+    {
+      "name": "JapornXXX",
+      "yml_path": "scrapers/JapornXXX.yml",
+      "sha": "2f33f8685cb91f6b1bad235234b8dcf963419795",
+      "size": 847,
+      "companion_files": []
+    },
+    {
+      "name": "JavBus",
+      "yml_path": "scrapers/JavBus.yml",
+      "sha": "b0ae164103bfb468d589224274b17fe165be0474",
+      "size": 3597,
+      "companion_files": []
+    },
+    {
+      "name": "JavDatabase",
+      "yml_path": "scrapers/JavDatabase.yml",
+      "sha": "385015fe11d629542c6364806456edd1a56d3db6",
+      "size": 4816,
+      "companion_files": []
+    },
+    {
+      "name": "JavHD",
+      "yml_path": "scrapers/JavHD.yml",
+      "sha": "b4cdcf5185158bb8484b4a94f6b428603bb9cf82",
+      "size": 1948,
+      "companion_files": []
+    },
+    {
+      "name": "JavHub",
+      "yml_path": "scrapers/JavHub.yml",
+      "sha": "f5c075c8a6ad75e95c1e11e5832f244c5a5f767f",
+      "size": 1849,
+      "companion_files": []
+    },
+    {
+      "name": "JavLand",
+      "yml_path": "scrapers/JavLand.yml",
+      "sha": "d5d3b83224f71c308d8d44e2f2262698dd1f9e22",
+      "size": 2231,
+      "companion_files": []
+    },
+    {
+      "name": "JavLibrary",
+      "yml_path": "scrapers/JavLibrary.yml",
+      "sha": "f87eab10c9c5fe8bccd3ffeca290d47aae6aed34",
+      "size": 3564,
+      "companion_files": []
+    },
+    {
+      "name": "JavLibrary_cn",
+      "yml_path": "scrapers/JavLibrary_cn.yml",
+      "sha": "62a60d2d8f18aa45f85bc1160be1c183204f1bc8",
+      "size": 3568,
+      "companion_files": []
+    },
+    {
+      "name": "JaxSlayher",
+      "yml_path": "scrapers/JaxSlayher.yml",
+      "sha": "6405a8e940f6a5542fb8d7dd591fe5fa4d486c4d",
+      "size": 2471,
+      "companion_files": []
+    },
+    {
+      "name": "Jeedoo",
+      "yml_path": "scrapers/Jeedoo.yml",
+      "sha": "62bcf34cc9a8c5657f467505bc41a325bc677184",
+      "size": 2962,
+      "companion_files": []
+    },
+    {
+      "name": "Jhdv",
+      "yml_path": "scrapers/Jhdv.yml",
+      "sha": "3ef6cf4c56a7879f9ece8b9902814de754b16cb5",
+      "size": 1150,
+      "companion_files": []
+    },
+    {
+      "name": "JimWeathersArchives",
+      "yml_path": "scrapers/JimWeathersArchives.yml",
+      "sha": "3e9722d7cae768340b8f4fa0923fe1cb857ad171",
+      "size": 1535,
+      "companion_files": []
+    },
+    {
+      "name": "JoyBear",
+      "yml_path": "scrapers/JoyBear.yml",
+      "sha": "048a354cdb79f30b8ea7fda82f294c363e41add9",
+      "size": 2147,
+      "companion_files": []
+    },
+    {
+      "name": "JulesJordan",
+      "yml_path": "scrapers/JulesJordan.yml",
+      "sha": "a003d02d427628392f416e64f39cffc6d2720a58",
+      "size": 6000,
+      "companion_files": []
+    },
+    {
+      "name": "Karissa-Diamond",
+      "yml_path": "scrapers/Karissa-Diamond.yml",
+      "sha": "b29c49187cbcb17d47be3d4b45cbf35c0586f116",
+      "size": 1528,
+      "companion_files": []
+    },
+    {
+      "name": "Karups",
+      "yml_path": "scrapers/Karups.yml",
+      "sha": "16b4148af9b3b4ed17fc0523d3a3368816663a57",
+      "size": 1624,
+      "companion_files": []
+    },
+    {
+      "name": "KaylaKleevage",
+      "yml_path": "scrapers/KaylaKleevage.yml",
+      "sha": "37aa0e5d2f6f6a1c74f60b3c36164ae6f55723f5",
+      "size": 1383,
+      "companion_files": []
+    },
+    {
+      "name": "KellyMadisonMedia",
+      "yml_path": "scrapers/KellyMadisonMedia.yml",
+      "sha": "fdec7e94c8707a81b82f37e6bb93ae31b0ae28c5",
+      "size": 4667,
+      "companion_files": []
+    },
+    {
+      "name": "Killergram",
+      "yml_path": "scrapers/Killergram.yml",
+      "sha": "7d0dbacd270a074c34f8794af176295f556053cd",
+      "size": 795,
+      "companion_files": []
+    },
+    {
+      "name": "KimHolland",
+      "yml_path": "scrapers/KimHolland.yml",
+      "sha": "f0996c97343b47356289c3afd5384803c554db74",
+      "size": 1859,
+      "companion_files": []
+    },
+    {
+      "name": "Kin8tengoku",
+      "yml_path": "scrapers/Kin8tengoku.yml",
+      "sha": "ca2546a1e0db0b6448d6fd087d705c243b6c89ee",
+      "size": 944,
+      "companion_files": []
+    },
+    {
+      "name": "Kink",
+      "yml_path": "scrapers/Kink.yml",
+      "sha": "22a755156cb3d22509e93458ffeeafb5348935b9",
+      "size": 11102,
+      "companion_files": []
+    },
+    {
+      "name": "KinkBomb",
+      "yml_path": "scrapers/KinkBomb.yml",
+      "sha": "4fa89d5acfdfc76262d78448af0e0db830bc8178",
+      "size": 1129,
+      "companion_files": []
+    },
+    {
+      "name": "KinkMen",
+      "yml_path": "scrapers/KinkMen.yml",
+      "sha": "1bf9079604a56b97bf457e192696a3679c704b13",
+      "size": 6613,
+      "companion_files": []
+    },
+    {
+      "name": "KinkTrans",
+      "yml_path": "scrapers/KinkTrans.yml",
+      "sha": "ce0079b1c1c1a243434726dc2f4984e74a6fdc1d",
+      "size": 6451,
+      "companion_files": []
+    },
+    {
+      "name": "KinkyMistresses",
+      "yml_path": "scrapers/KinkyMistresses.yml",
+      "sha": "4482bd1d21f8e403086fb4510176b1bfed3eec1c",
+      "size": 693,
+      "companion_files": []
+    },
+    {
+      "name": "Kpopping",
+      "yml_path": "scrapers/Kpopping.yml",
+      "sha": "bcc7ac80e8a0e2151256d7c2c2396651e7469d04",
+      "size": 3119,
+      "companion_files": []
+    },
+    {
+      "name": "KristenBjorn",
+      "yml_path": "scrapers/KristenBjorn.yml",
+      "sha": "5685519960c1439d01f32cf38ad324d787b3b000",
+      "size": 3662,
+      "companion_files": []
+    },
+    {
+      "name": "LaraLarsen",
+      "yml_path": "scrapers/LaraLarsen.yml",
+      "sha": "3a7adc03ef4ed9763dd118a35a0b5634e868cdb4",
+      "size": 914,
+      "companion_files": []
+    },
+    {
+      "name": "Lasublime",
+      "yml_path": "scrapers/Lasublime.yml",
+      "sha": "4d9bae3719f158e0660fa1ddcb47ceca59d7e3c1",
+      "size": 850,
+      "companion_files": []
+    },
+    {
+      "name": "LetThemWatch",
+      "yml_path": "scrapers/LetThemWatch.yml",
+      "sha": "2470d4cb8b96ba4f2ad30e54cd23ed703534f8b1",
+      "size": 1317,
+      "companion_files": []
+    },
+    {
+      "name": "LewRubens",
+      "yml_path": "scrapers/LewRubens.yml",
+      "sha": "58a7d26f803d25605d82dd739fbdb53b81f6dc73",
+      "size": 805,
+      "companion_files": []
+    },
+    {
+      "name": "LexiDona",
+      "yml_path": "scrapers/LexiDona.yml",
+      "sha": "4a76082dade731e626093cda3643171dc99d0dd2",
+      "size": 587,
+      "companion_files": []
+    },
+    {
+      "name": "LittleCapriceDreams",
+      "yml_path": "scrapers/LittleCapriceDreams.yml",
+      "sha": "05f24a3ae823697e94046eb4be0f0e5513fac182",
+      "size": 1431,
+      "companion_files": []
+    },
+    {
+      "name": "LoneStarAngel",
+      "yml_path": "scrapers/LoneStarAngel.yml",
+      "sha": "cd3bf13597d4ef4fb28e267cf7fe7e4c4841f972",
+      "size": 741,
+      "companion_files": []
+    },
+    {
+      "name": "LordAardvark",
+      "yml_path": "scrapers/LordAardvark.yml",
+      "sha": "dc4708747dc782daa1a362a7602b4d5dec2a2b19",
+      "size": 2760,
+      "companion_files": []
+    },
+    {
+      "name": "LoveHerFilms",
+      "yml_path": "scrapers/LoveHerFilms.yml",
+      "sha": "4cb51abcc0f696e20f945ac41bacd581a73cf8b8",
+      "size": 3604,
+      "companion_files": []
+    },
+    {
+      "name": "LucasEntertainment",
+      "yml_path": "scrapers/LucasEntertainment.yml",
+      "sha": "f1a4938c5464461614e910c043a8fc9ffd941a50",
+      "size": 3541,
+      "companion_files": []
+    },
+    {
+      "name": "LustCinema",
+      "yml_path": "scrapers/LustCinema.yml",
+      "sha": "aeb8c935be23d1f28a3cdb81d124feda7c05b4dc",
+      "size": 1178,
+      "companion_files": []
+    },
+    {
+      "name": "Lustery",
+      "yml_path": "scrapers/Lustery.yml",
+      "sha": "24ca8d055c85b58ba20dfe6ff6d71a1ec4e4b154",
+      "size": 3055,
+      "companion_files": []
+    },
+    {
+      "name": "MFC",
+      "yml_path": "scrapers/MFC.yml",
+      "sha": "5a1dbfd2dc9a96818725b3168904e3d49b22569b",
+      "size": 2664,
+      "companion_files": []
+    },
+    {
+      "name": "MFVideoXXX",
+      "yml_path": "scrapers/MFVideoXXX.yml",
+      "sha": "3e711c3838bae8c08bea4f9257c8ab53d80cbc5b",
+      "size": 1462,
+      "companion_files": []
+    },
+    {
+      "name": "MMP_Network",
+      "yml_path": "scrapers/MMP_Network.yml",
+      "sha": "7ac529bc32379cacb479159319b504a17a00fb7f",
+      "size": 1828,
+      "companion_files": []
+    },
+    {
+      "name": "MPLStudios",
+      "yml_path": "scrapers/MPLStudios.yml",
+      "sha": "2a45dca64665c9d9a6a1f483c4593049210cc413",
+      "size": 1299,
+      "companion_files": []
+    },
+    {
+      "name": "MVG",
+      "yml_path": "scrapers/MVG.yml",
+      "sha": "8b8c63785bb73b98a5a38726309dad0b540b5cd9",
+      "size": 1641,
+      "companion_files": []
+    },
+    {
+      "name": "MadBrosX",
+      "yml_path": "scrapers/MadBrosX.yml",
+      "sha": "64c8bc11b114a1746f12041376d1ebcb723fc91d",
+      "size": 1001,
+      "companion_files": []
+    },
+    {
+      "name": "MadeInCanada",
+      "yml_path": "scrapers/MadeInCanada.yml",
+      "sha": "325200a699e5eac89dd31593bc9febc4aeccbf92",
+      "size": 606,
+      "companion_files": []
+    },
+    {
+      "name": "MadhotX",
+      "yml_path": "scrapers/MadhotX.yml",
+      "sha": "0cf6933ba9debe5a3e5b630ed3b5ec1bdf20d896",
+      "size": 932,
+      "companion_files": []
+    },
+    {
+      "name": "Madou",
+      "yml_path": "scrapers/Madou.yml",
+      "sha": "2b56b215a87160d555d18f500ecc74969ea40a2a",
+      "size": 902,
+      "companion_files": []
+    },
+    {
+      "name": "Mandyflores",
+      "yml_path": "scrapers/Mandyflores.yml",
+      "sha": "525c9dca9529573462183d4aac7cdbe46c6edf65",
+      "size": 951,
+      "companion_files": []
+    },
+    {
+      "name": "ManyVids",
+      "yml_path": "scrapers/ManyVids.yml",
+      "sha": "886643aa65d585a25a3d42c1fdba60ee034e7298",
+      "size": 4655,
+      "companion_files": []
+    },
+    {
+      "name": "ManyVidsClub",
+      "yml_path": "scrapers/ManyVidsClub.yml",
+      "sha": "c059d046413a6bf28931a92d5a10186b68aa3afb",
+      "size": 1057,
+      "companion_files": []
+    },
+    {
+      "name": "MariskaX",
+      "yml_path": "scrapers/MariskaX.yml",
+      "sha": "42525e961bdc97c03957f915b0c53ae2374297d6",
+      "size": 899,
+      "companion_files": []
+    },
+    {
+      "name": "MarsMedia",
+      "yml_path": "scrapers/MarsMedia.yml",
+      "sha": "ffd429ca05af5250461c9adb5b5158f1c25611ff",
+      "size": 1688,
+      "companion_files": []
+    },
+    {
+      "name": "Masqulin",
+      "yml_path": "scrapers/Masqulin.yml",
+      "sha": "982956fe19c4a7cdfd4dd257c021b8d288feb415",
+      "size": 650,
+      "companion_files": []
+    },
+    {
+      "name": "MatureNL",
+      "yml_path": "scrapers/MatureNL.yml",
+      "sha": "7af632d118e98b1764588c19ee43b329924dd15e",
+      "size": 2696,
+      "companion_files": []
+    },
+    {
+      "name": "MaverickMen",
+      "yml_path": "scrapers/MaverickMen.yml",
+      "sha": "a9585f57b7a3e86a8528a11015d5631736e0a24f",
+      "size": 2218,
+      "companion_files": []
+    },
+    {
+      "name": "MaxHardcore",
+      "yml_path": "scrapers/MaxHardcore.yml",
+      "sha": "67934d2e407b8ee6f0c06e7c51ebfaedef9957a6",
+      "size": 866,
+      "companion_files": []
+    },
+    {
+      "name": "MeanWorld",
+      "yml_path": "scrapers/MeanWorld.yml",
+      "sha": "40a589808ae5b8b57e710ad0eb82119d762a3f32",
+      "size": 1286,
+      "companion_files": []
+    },
+    {
+      "name": "MeanaWolf",
+      "yml_path": "scrapers/MeanaWolf.yml",
+      "sha": "2f158cde612423e2bc1e02ef54f6c7dc7b108709",
+      "size": 896,
+      "companion_files": []
+    },
+    {
+      "name": "MelonJuggler",
+      "yml_path": "scrapers/MelonJuggler.yml",
+      "sha": "7b8e4dd95a54ea69115c34b7acd0e945eb3c1a58",
+      "size": 886,
+      "companion_files": []
+    },
+    {
+      "name": "MenAtPlay",
+      "yml_path": "scrapers/MenAtPlay.yml",
+      "sha": "05e53b7fd5d5aa6b0a62327f8457eee4bd14ee14",
+      "size": 908,
+      "companion_files": []
+    },
+    {
+      "name": "MensRush",
+      "yml_path": "scrapers/MensRush.yml",
+      "sha": "195218271299a8ae035944932557ea5da170ef4e",
+      "size": 659,
+      "companion_files": []
+    },
+    {
+      "name": "MetalBondage",
+      "yml_path": "scrapers/MetalBondage.yml",
+      "sha": "5beee9d55da9e6f5f751459dedaaf4316ac2be43",
+      "size": 1046,
+      "companion_files": []
+    },
+    {
+      "name": "MilfTugs",
+      "yml_path": "scrapers/MilfTugs.yml",
+      "sha": "52b3edb65b5d01eb8fc403e6b8c76f87972ba371",
+      "size": 2090,
+      "companion_files": []
+    },
+    {
+      "name": "MilkyPeru",
+      "yml_path": "scrapers/MilkyPeru.yml",
+      "sha": "b2871922dcec6f5b75337abee665443d36587c70",
+      "size": 929,
+      "companion_files": []
+    },
+    {
+      "name": "Milovana",
+      "yml_path": "scrapers/Milovana.yml",
+      "sha": "20d8e22d657dffe010235a77c44c1ad39faf9a62",
+      "size": 1905,
+      "companion_files": []
+    },
+    {
+      "name": "MindControlTheatre",
+      "yml_path": "scrapers/MindControlTheatre.yml",
+      "sha": "0b359f07247a3cd579162d8fff82f0176fd08538",
+      "size": 7143,
+      "companion_files": []
+    },
+    {
+      "name": "MissAV_en",
+      "yml_path": "scrapers/MissAV_en.yml",
+      "sha": "90b03d3c62439358da863ce18384268016480d94",
+      "size": 1615,
+      "companion_files": []
+    },
+    {
+      "name": "MissAV_jp",
+      "yml_path": "scrapers/MissAV_jp.yml",
+      "sha": "690a79b6dc3acd4580ca31d6627eeb73b8f48b70",
+      "size": 1631,
+      "companion_files": []
+    },
+    {
+      "name": "MissMedeaMortelle",
+      "yml_path": "scrapers/MissMedeaMortelle.yml",
+      "sha": "e802753a09d76c78b1a1bc6559fb28827931398d",
+      "size": 1068,
+      "companion_files": []
+    },
+    {
+      "name": "ModelGaydar",
+      "yml_path": "scrapers/ModelGaydar.yml",
+      "sha": "0b7338ce8bdae9fe90265f8ca329068c035bf95e",
+      "size": 4208,
+      "companion_files": []
+    },
+    {
+      "name": "ModelMayhem",
+      "yml_path": "scrapers/ModelMayhem.yml",
+      "sha": "c2d948b070279c83ede4a0056f1867b1c9420001",
+      "size": 2322,
+      "companion_files": []
+    },
+    {
+      "name": "ModelMediaAsia",
+      "yml_path": "scrapers/ModelMediaAsia.yml",
+      "sha": "4dc3171f5498daecea2d488976cf81ab5977debb",
+      "size": 4238,
+      "companion_files": []
+    },
+    {
+      "name": "ModelMediaUS",
+      "yml_path": "scrapers/ModelMediaUS.yml",
+      "sha": "9be27e10efa9f6f53c8626163e754df8a2998866",
+      "size": 1608,
+      "companion_files": []
+    },
+    {
+      "name": "MomPov",
+      "yml_path": "scrapers/MomPov.yml",
+      "sha": "cf8cc5336c7608bf3b953e69542e9f72f06944c0",
+      "size": 684,
+      "companion_files": []
+    },
+    {
+      "name": "MoodX",
+      "yml_path": "scrapers/MoodX.yml",
+      "sha": "18eaf9327e2ee4fa182d42622c37c77238666609",
+      "size": 911,
+      "companion_files": []
+    },
+    {
+      "name": "Motherless",
+      "yml_path": "scrapers/Motherless.yml",
+      "sha": "af6d3af5c3e65836800a099c819ff6689a5d0025",
+      "size": 2210,
+      "companion_files": []
+    },
+    {
+      "name": "Mousouzoku",
+      "yml_path": "scrapers/Mousouzoku.yml",
+      "sha": "9d537c38247c3ed3e58cc1c787510e69d4f257ce",
+      "size": 4526,
+      "companion_files": []
+    },
+    {
+      "name": "MrBigFatDick",
+      "yml_path": "scrapers/MrBigFatDick.yml",
+      "sha": "9e3273335b5e1fbebacab42cd82dbe960e2f7659",
+      "size": 1721,
+      "companion_files": []
+    },
+    {
+      "name": "MrDeepFakes",
+      "yml_path": "scrapers/MrDeepFakes.yml",
+      "sha": "5892fb786d7aa0866fccb626486a672ca1dd419a",
+      "size": 4095,
+      "companion_files": []
+    },
+    {
+      "name": "MugFucked",
+      "yml_path": "scrapers/MugFucked.yml",
+      "sha": "0a59f5130ed5489057219fa0c6c49a592d268b72",
+      "size": 693,
+      "companion_files": []
+    },
+    {
+      "name": "Mundomais",
+      "yml_path": "scrapers/Mundomais.yml",
+      "sha": "6fed278ace11f4171207b0abdb9585fba2cbecdd",
+      "size": 1238,
+      "companion_files": []
+    },
+    {
+      "name": "MyCherryCrush",
+      "yml_path": "scrapers/MyCherryCrush.yml",
+      "sha": "1a94533d965fa132967bda2d06d2ca35a84cdd11",
+      "size": 1402,
+      "companion_files": []
+    },
+    {
+      "name": "MyDirtyHobby",
+      "yml_path": "scrapers/MyDirtyHobby.yml",
+      "sha": "27084b975c66da733a84cee4676bdde8476eed04",
+      "size": 3172,
+      "companion_files": []
+    },
+    {
+      "name": "MyNakedDolls",
+      "yml_path": "scrapers/MyNakedDolls.yml",
+      "sha": "8c246cb6760326c6c0648ecef89a371941a68e2a",
+      "size": 2063,
+      "companion_files": []
+    },
+    {
+      "name": "MySweetApple",
+      "yml_path": "scrapers/MySweetApple.yml",
+      "sha": "00b9702a20cca8c2e52d936870c0ac8583564313",
+      "size": 842,
+      "companion_files": []
+    },
+    {
+      "name": "MyTinyDick",
+      "yml_path": "scrapers/MyTinyDick.yml",
+      "sha": "93ce72830a69fd826fdd898e166ee0dab9715502",
+      "size": 2130,
+      "companion_files": []
+    },
+    {
+      "name": "Mypervmom",
+      "yml_path": "scrapers/Mypervmom.yml",
+      "sha": "c8a6b16796f0a9c6d6719ab2f0ea751d6fc370e9",
+      "size": 1219,
+      "companion_files": []
+    },
+    {
+      "name": "NVGNetwork",
+      "yml_path": "scrapers/NVGNetwork.yml",
+      "sha": "785d21ae8e121e1910fd6bdcb07ecc7583128f91",
+      "size": 1440,
+      "companion_files": []
+    },
+    {
+      "name": "NakedSword",
+      "yml_path": "scrapers/NakedSword.yml",
+      "sha": "f6204f6caf54d538bde4ec390fe71ad050f6d39c",
+      "size": 2648,
+      "companion_files": []
+    },
+    {
+      "name": "NastyDaddy",
+      "yml_path": "scrapers/NastyDaddy.yml",
+      "sha": "3a6a7c43b3c357e38f4bf3e465713336ea7ffd87",
+      "size": 910,
+      "companion_files": []
+    },
+    {
+      "name": "NaughtyAlysha",
+      "yml_path": "scrapers/NaughtyAlysha.yml",
+      "sha": "15fb060cfb53fe3b86a78fd582de3a7f5016b70d",
+      "size": 1125,
+      "companion_files": []
+    },
+    {
+      "name": "NaughtyNatural",
+      "yml_path": "scrapers/NaughtyNatural.yml",
+      "sha": "8e3be679f7305fb0c03a9ab8eb9a357208de2ea3",
+      "size": 1501,
+      "companion_files": []
+    },
+    {
+      "name": "NewSensationsMain",
+      "yml_path": "scrapers/NewSensationsMain.yml",
+      "sha": "3ad7e93093412f1e66daa4d8cded4b115a3ef3e4",
+      "size": 1710,
+      "companion_files": []
+    },
+    {
+      "name": "NewSensationsNetworkSites",
+      "yml_path": "scrapers/NewSensationsNetworkSites.yml",
+      "sha": "3e6bff0dd42e383c19849aa100ca8dec9399c63b",
+      "size": 2689,
+      "companion_files": []
+    },
+    {
+      "name": "NewSensationsVOD",
+      "yml_path": "scrapers/NewSensationsVOD.yml",
+      "sha": "60456c9fd27aa42b16a5fd62c1ea51687a8e633f",
+      "size": 2650,
+      "companion_files": []
+    },
+    {
+      "name": "Newgrounds",
+      "yml_path": "scrapers/Newgrounds.yml",
+      "sha": "a6abdcec929a8ca09afa5babe3951256fa24b315",
+      "size": 1422,
+      "companion_files": []
+    },
+    {
+      "name": "NikkiAndTera",
+      "yml_path": "scrapers/NikkiAndTera.yml",
+      "sha": "090f9917cd9b2990de524ed68cefb3f62b6f17d5",
+      "size": 1104,
+      "companion_files": []
+    },
+    {
+      "name": "NoelAlejandro",
+      "yml_path": "scrapers/NoelAlejandro.yml",
+      "sha": "28df3e48a22b0457ff0cc524bdfd287bbcfdd696",
+      "size": 940,
+      "companion_files": []
+    },
+    {
+      "name": "Nubiles",
+      "yml_path": "scrapers/Nubiles.yml",
+      "sha": "3e1c6a40f20d532937888ebe0c9b274192b87ee9",
+      "size": 8542,
+      "companion_files": []
+    },
+    {
+      "name": "OLBMedia",
+      "yml_path": "scrapers/OLBMedia.yml",
+      "sha": "d6ea8607a1cdb0b47d04ba10f798829f29605341",
+      "size": 1122,
+      "companion_files": []
+    },
+    {
+      "name": "OldGoesYoung",
+      "yml_path": "scrapers/OldGoesYoung.yml",
+      "sha": "10094f3c211dfa68ac63d0443664eb3b0068504f",
+      "size": 830,
+      "companion_files": []
+    },
+    {
+      "name": "OldNanny",
+      "yml_path": "scrapers/OldNanny.yml",
+      "sha": "5e6df0581031532b13a9776a4a4d48d7921f94ca",
+      "size": 1110,
+      "companion_files": []
+    },
+    {
+      "name": "Oldje",
+      "yml_path": "scrapers/Oldje.yml",
+      "sha": "d54490271ef34f3b9ca33f9d884002adb06432f9",
+      "size": 2161,
+      "companion_files": []
+    },
+    {
+      "name": "OnlyTarts",
+      "yml_path": "scrapers/OnlyTarts.yml",
+      "sha": "28e617f9d60ad7fc89a7564af27f2d8204b97c11",
+      "size": 3153,
+      "companion_files": []
+    },
+    {
+      "name": "Oreno3d",
+      "yml_path": "scrapers/Oreno3d.yml",
+      "sha": "18529b2b6d86bb81d8e5100ea3b1195b9ef10e24",
+      "size": 1717,
+      "companion_files": []
+    },
+    {
+      "name": "PKFStudios",
+      "yml_path": "scrapers/PKFStudios.yml",
+      "sha": "1c2742a286c7faa17dc2d7956c51b279d015e631",
+      "size": 2104,
+      "companion_files": []
+    },
+    {
+      "name": "POVR",
+      "yml_path": "scrapers/POVR.yml",
+      "sha": "62ae08799c6a4193b74ccd098e62ecdd77dd620a",
+      "size": 4110,
+      "companion_files": []
+    },
+    {
+      "name": "POVTrain",
+      "yml_path": "scrapers/POVTrain.yml",
+      "sha": "73d4f1eec40670f0239a00c4ac07063811979afb",
+      "size": 1844,
+      "companion_files": []
+    },
+    {
+      "name": "PPVNetwork",
+      "yml_path": "scrapers/PPVNetwork.yml",
+      "sha": "69b20f5af8bfd194724061d1612d19aa74097b1d",
+      "size": 2240,
+      "companion_files": []
+    },
+    {
+      "name": "Paco-JP",
+      "yml_path": "scrapers/Paco-JP.yml",
+      "sha": "86d7a7fde3658273dc64ccaa1e3b809c4020fba3",
+      "size": 1700,
+      "companion_files": []
+    },
+    {
+      "name": "Paco",
+      "yml_path": "scrapers/Paco.yml",
+      "sha": "8673cb0857d4e6458b442c5293164c6f6c09dc4c",
+      "size": 1351,
+      "companion_files": []
+    },
+    {
+      "name": "PacoJp",
+      "yml_path": "scrapers/PacoJp.yml",
+      "sha": "c0f08e2508a5b8d57b6f77caf7b6fe9e0400c39a",
+      "size": 1261,
+      "companion_files": []
+    },
+    {
+      "name": "Passionxxx",
+      "yml_path": "scrapers/Passionxxx.yml",
+      "sha": "fa5b2a1aa9f732d8bde6c7a90c5ce77702e0daf3",
+      "size": 910,
+      "companion_files": []
+    },
+    {
+      "name": "PaysiteManager",
+      "yml_path": "scrapers/PaysiteManager.yml",
+      "sha": "f8dafe88705d7fb409b08901aafe8c0cf2af6942",
+      "size": 4982,
+      "companion_files": []
+    },
+    {
+      "name": "PegasProductions",
+      "yml_path": "scrapers/PegasProductions.yml",
+      "sha": "557a14ad9fff114c2d1f5fedbb27e8bbb0ac6f3c",
+      "size": 3710,
+      "companion_files": []
+    },
+    {
+      "name": "Penthouse",
+      "yml_path": "scrapers/Penthouse.yml",
+      "sha": "372235dbdc2519b1078f6f2c2c87aa6bd039441c",
+      "size": 862,
+      "companion_files": []
+    },
+    {
+      "name": "PervCity",
+      "yml_path": "scrapers/PervCity.yml",
+      "sha": "64a42cf20aac3980e6160814a39d637126f18146",
+      "size": 3423,
+      "companion_files": []
+    },
+    {
+      "name": "Perverformer",
+      "yml_path": "scrapers/Perverformer.yml",
+      "sha": "910a6b875ffed514fac14423066fff0c0d9d47a3",
+      "size": 1140,
+      "companion_files": []
+    },
+    {
+      "name": "Perverzija",
+      "yml_path": "scrapers/Perverzija.yml",
+      "sha": "50ee5eec052140909d710775717fde79470fc909",
+      "size": 1059,
+      "companion_files": []
+    },
+    {
+      "name": "Philavise",
+      "yml_path": "scrapers/Philavise.yml",
+      "sha": "fc26c32222c061614710224d70a02db07126a87c",
+      "size": 797,
+      "companion_files": []
+    },
+    {
+      "name": "Pics-X",
+      "yml_path": "scrapers/Pics-X.yml",
+      "sha": "d369ca7bc01f89ecf525e802ee57e063badda5ca",
+      "size": 2182,
+      "companion_files": []
+    },
+    {
+      "name": "PigBoyRuben",
+      "yml_path": "scrapers/PigBoyRuben.yml",
+      "sha": "4b3eb1b3ec19c89b63e55247674d6a771acc0d51",
+      "size": 1021,
+      "companion_files": []
+    },
+    {
+      "name": "PimpBunny",
+      "yml_path": "scrapers/PimpBunny.yml",
+      "sha": "6c100f548437446de3b8a84452607109cefe39e4",
+      "size": 1421,
+      "companion_files": []
+    },
+    {
+      "name": "PinkLabelTV",
+      "yml_path": "scrapers/PinkLabelTV.yml",
+      "sha": "9167972445d6c616c7946efdba86da30dc4f0ab8",
+      "size": 2403,
+      "companion_files": []
+    },
+    {
+      "name": "PinkVisual",
+      "yml_path": "scrapers/PinkVisual.yml",
+      "sha": "cc361a80a94680d13133f574553f91c1fd914737",
+      "size": 992,
+      "companion_files": []
+    },
+    {
+      "name": "Pinkoclub",
+      "yml_path": "scrapers/Pinkoclub.yml",
+      "sha": "4a1b2d1078aa591a6827957a41db9e913a704a3a",
+      "size": 2495,
+      "companion_files": []
+    },
+    {
+      "name": "PinupDollars",
+      "yml_path": "scrapers/PinupDollars.yml",
+      "sha": "ffdba53b982d7d23b5d3e119bd33614322a74391",
+      "size": 1132,
+      "companion_files": []
+    },
+    {
+      "name": "PissPlay",
+      "yml_path": "scrapers/PissPlay.yml",
+      "sha": "cd94c4f08f26ac4ac267427f72a4082923b8a768",
+      "size": 813,
+      "companion_files": []
+    },
+    {
+      "name": "PissyNetwork",
+      "yml_path": "scrapers/PissyNetwork.yml",
+      "sha": "497c13ca98f6ebb7ff02c1d12681e3e5cceaa4a9",
+      "size": 843,
+      "companion_files": []
+    },
+    {
+      "name": "PlumperPass",
+      "yml_path": "scrapers/PlumperPass.yml",
+      "sha": "7c20ca5b4f3749c59cd0fab56d30b9506a674245",
+      "size": 1121,
+      "companion_files": []
+    },
+    {
+      "name": "Plushies",
+      "yml_path": "scrapers/Plushies.yml",
+      "sha": "112d53ac482972e225e4e3fb43518be823c8fff1",
+      "size": 1629,
+      "companion_files": []
+    },
+    {
+      "name": "PornBaseData",
+      "yml_path": "scrapers/PornBaseData.yml",
+      "sha": "b063c6c9c6abe399085dbb82f7e30ad732fc857e",
+      "size": 3974,
+      "companion_files": []
+    },
+    {
+      "name": "PornHex",
+      "yml_path": "scrapers/PornHex.yml",
+      "sha": "0d4edf1bdf63242b1128e18087d127d1823f901f",
+      "size": 2046,
+      "companion_files": []
+    },
+    {
+      "name": "PornPics",
+      "yml_path": "scrapers/PornPics.yml",
+      "sha": "3ebe32d8f62f659ca28d848ae87288f151c262ab",
+      "size": 785,
+      "companion_files": []
+    },
+    {
+      "name": "Pornbcn",
+      "yml_path": "scrapers/Pornbcn.yml",
+      "sha": "3a2c850b7ccaf2d5e2a96aecfc80ad3941b7e47b",
+      "size": 1023,
+      "companion_files": []
+    },
+    {
+      "name": "Pornbox",
+      "yml_path": "scrapers/Pornbox.yml",
+      "sha": "c23e47016cccba5cd35ae91be4768d9f8970af12",
+      "size": 2105,
+      "companion_files": []
+    },
+    {
+      "name": "Porncz",
+      "yml_path": "scrapers/Porncz.yml",
+      "sha": "4cc46ed0a9ca5090a518776e578b6e2daab842ae",
+      "size": 1461,
+      "companion_files": []
+    },
+    {
+      "name": "Pornditos",
+      "yml_path": "scrapers/Pornditos.yml",
+      "sha": "de388703045c2065a35602e78ee123c8cfb7b0f9",
+      "size": 2042,
+      "companion_files": []
+    },
+    {
+      "name": "PornhubPremium",
+      "yml_path": "scrapers/PornhubPremium.yml",
+      "sha": "a650dba13ab8c39cbae64504c6321c4ece291ea1",
+      "size": 4867,
+      "companion_files": []
+    },
+    {
+      "name": "PornstarPlatinum",
+      "yml_path": "scrapers/PornstarPlatinum.yml",
+      "sha": "e7ffffc1d2300ea4190f59fbeb82a48768e9d23e",
+      "size": 1017,
+      "companion_files": []
+    },
+    {
+      "name": "PortaGloryhole",
+      "yml_path": "scrapers/PortaGloryhole.yml",
+      "sha": "5e344611135daa988add60d544a497da14a5fe88",
+      "size": 1386,
+      "companion_files": []
+    },
+    {
+      "name": "PrimalFetishNetwork",
+      "yml_path": "scrapers/PrimalFetishNetwork.yml",
+      "sha": "63e42f78ae49b66abee75fd9d5dd2db47b0dbd48",
+      "size": 919,
+      "companion_files": []
+    },
+    {
+      "name": "Private",
+      "yml_path": "scrapers/Private.yml",
+      "sha": "d4ced31ed52d324644f67387faf7dfe9fc68658a",
+      "size": 5363,
+      "companion_files": []
+    },
+    {
+      "name": "ProducersFun",
+      "yml_path": "scrapers/ProducersFun.yml",
+      "sha": "7050594cba66e9ee91b50c9f73ea9d5371c6cece",
+      "size": 1124,
+      "companion_files": []
+    },
+    {
+      "name": "PuffyNetwork",
+      "yml_path": "scrapers/PuffyNetwork.yml",
+      "sha": "fc719b69fc0f4a09bafd03fff3076d50991167c3",
+      "size": 3655,
+      "companion_files": []
+    },
+    {
+      "name": "PureMedia",
+      "yml_path": "scrapers/PureMedia.yml",
+      "sha": "b2b15ac96dee20013c2b29c700b421497f0de97e",
+      "size": 1038,
+      "companion_files": []
+    },
+    {
+      "name": "PurePass",
+      "yml_path": "scrapers/PurePass.yml",
+      "sha": "51787d278b2d5eed45644a3e021a236226a15729",
+      "size": 4598,
+      "companion_files": []
+    },
+    {
+      "name": "Putalocura",
+      "yml_path": "scrapers/Putalocura.yml",
+      "sha": "99334173dd52ed26a1658b439fe5e129ff23af74",
+      "size": 1153,
+      "companion_files": []
+    },
+    {
+      "name": "Queensnake",
+      "yml_path": "scrapers/Queensnake.yml",
+      "sha": "8c1dd311d86d10a8b6e1a82550349d8ccfea5a3a",
+      "size": 1775,
+      "companion_files": []
+    },
+    {
+      "name": "QueerCrush",
+      "yml_path": "scrapers/QueerCrush.yml",
+      "sha": "eae5976a34194e139c568dc3ee4ebef0edfe84c9",
+      "size": 1235,
+      "companion_files": []
+    },
+    {
+      "name": "R18.dev",
+      "yml_path": "scrapers/R18.dev.yml",
+      "sha": "d4ff261dcf2702c1471cd7b58fc040cd04620cc2",
+      "size": 14488,
+      "companion_files": []
+    },
+    {
+      "name": "RachelSteele",
+      "yml_path": "scrapers/RachelSteele.yml",
+      "sha": "ffcfd16c69ba62ad92707a163bf9d33ec4cee612",
+      "size": 1484,
+      "companion_files": []
+    },
+    {
+      "name": "RandyBlue",
+      "yml_path": "scrapers/RandyBlue.yml",
+      "sha": "bfae19fe6f12a53b525428501badd5d467a4125c",
+      "size": 879,
+      "companion_files": []
+    },
+    {
+      "name": "RawErotic",
+      "yml_path": "scrapers/RawErotic.yml",
+      "sha": "f4e54221f9873bb7910fa871d94a45b50f043f0d",
+      "size": 4069,
+      "companion_files": []
+    },
+    {
+      "name": "RawFuckClub",
+      "yml_path": "scrapers/RawFuckClub.yml",
+      "sha": "cef2ea7b59285c58dd86ce580d7c2efe195e335b",
+      "size": 5213,
+      "companion_files": []
+    },
+    {
+      "name": "RealityStudio",
+      "yml_path": "scrapers/RealityStudio.yml",
+      "sha": "d65809b96d1d1b7261e593449fdf0ce0a93685ed",
+      "size": 2854,
+      "companion_files": []
+    },
+    {
+      "name": "RedHotStraightBoys",
+      "yml_path": "scrapers/RedHotStraightBoys.yml",
+      "sha": "9b28ae82ff6e29a32fa611546520d8bf0658d35d",
+      "size": 1089,
+      "companion_files": []
+    },
+    {
+      "name": "Reddit",
+      "yml_path": "scrapers/Reddit.yml",
+      "sha": "f10b7c22e92d913770a7b9085e43049233b46b2e",
+      "size": 1343,
+      "companion_files": []
+    },
+    {
+      "name": "ReflectiveDesire",
+      "yml_path": "scrapers/ReflectiveDesire.yml",
+      "sha": "90e44fb14639cead4f82bb3dab9b9cb3d14adfb1",
+      "size": 3405,
+      "companion_files": []
+    },
+    {
+      "name": "RestrictedSenses",
+      "yml_path": "scrapers/RestrictedSenses.yml",
+      "sha": "c98b1d9b141f66c9cabafc9cea92739abdb30ad1",
+      "size": 729,
+      "companion_files": []
+    },
+    {
+      "name": "RichardNailder",
+      "yml_path": "scrapers/RichardNailder.yml",
+      "sha": "95ece63103f20cdae8c7496f218c7d91a7dde622",
+      "size": 3721,
+      "companion_files": []
+    },
+    {
+      "name": "RimTeens",
+      "yml_path": "scrapers/RimTeens.yml",
+      "sha": "f1badc9975a4600f76d89fe0d24672f6c83fce2c",
+      "size": 1433,
+      "companion_files": []
+    },
+    {
+      "name": "RomeroMultimedia",
+      "yml_path": "scrapers/RomeroMultimedia.yml",
+      "sha": "d767af2415843072a135779a68faede76183230c",
+      "size": 2766,
+      "companion_files": []
+    },
+    {
+      "name": "Rule34Video",
+      "yml_path": "scrapers/Rule34Video.yml",
+      "sha": "c36450aa96c9de25f75ff9b894c04fdf349fea18",
+      "size": 3077,
+      "companion_files": []
+    },
+    {
+      "name": "S1",
+      "yml_path": "scrapers/S1.yml",
+      "sha": "371c6cbd0a480f95eee381666498a635be89ac46",
+      "size": 1991,
+      "companion_files": []
+    },
+    {
+      "name": "SARJ-LLC-JSON",
+      "yml_path": "scrapers/SARJ-LLC-JSON.yml",
+      "sha": "db5cd7e0ae24776ecfeffd498201abe21f26a5eb",
+      "size": 4190,
+      "companion_files": []
+    },
+    {
+      "name": "SLRoriginals",
+      "yml_path": "scrapers/SLRoriginals.yml",
+      "sha": "9e503f7ada62295ca6467979d4cf00fb0f014243",
+      "size": 1798,
+      "companion_files": []
+    },
+    {
+      "name": "SeeMomSuck",
+      "yml_path": "scrapers/SeeMomSuck.yml",
+      "sha": "da258c1e1c71f3f3c94ed8b5b4646605a20dc4d0",
+      "size": 919,
+      "companion_files": []
+    },
+    {
+      "name": "SelfieSuck",
+      "yml_path": "scrapers/SelfieSuck.yml",
+      "sha": "947ad89971e7ce2004d25a22180a9a7a5a3ca0aa",
+      "size": 896,
+      "companion_files": []
+    },
+    {
+      "name": "SexBabesVR",
+      "yml_path": "scrapers/SexBabesVR.yml",
+      "sha": "90d9a86bf9b33fbc3053ea74a21c10a78272e297",
+      "size": 1002,
+      "companion_files": []
+    },
+    {
+      "name": "SexLikeReal",
+      "yml_path": "scrapers/SexLikeReal.yml",
+      "sha": "ade73ae6505bc3fb2a982a4a46768392e7430c98",
+      "size": 3925,
+      "companion_files": []
+    },
+    {
+      "name": "SexLikeReal_Trans",
+      "yml_path": "scrapers/SexLikeReal_Trans.yml",
+      "sha": "c7c3099e0e94f438392ff1d5c4c979be2cb81de3",
+      "size": 3908,
+      "companion_files": []
+    },
+    {
+      "name": "SexMex",
+      "yml_path": "scrapers/SexMex.yml",
+      "sha": "d949652036a296b3c8950ce5201d7d5f7b4675e6",
+      "size": 2471,
+      "companion_files": []
+    },
+    {
+      "name": "SexPOV",
+      "yml_path": "scrapers/SexPOV.yml",
+      "sha": "84087f523ed1e8af34309e80139a73706ccca8e1",
+      "size": 1072,
+      "companion_files": []
+    },
+    {
+      "name": "SexTB",
+      "yml_path": "scrapers/SexTB.yml",
+      "sha": "7fc57b364b444c6fb32e1908e19ed492eaa147b0",
+      "size": 1434,
+      "companion_files": []
+    },
+    {
+      "name": "SexVR",
+      "yml_path": "scrapers/SexVR.yml",
+      "sha": "aee2291e02736ffdd8e305a3cce0bc0ed78485f0",
+      "size": 3244,
+      "companion_files": []
+    },
+    {
+      "name": "Sheer",
+      "yml_path": "scrapers/Sheer.yml",
+      "sha": "b3099c55174b29c80cc572e6c59415ffcdde8713",
+      "size": 893,
+      "companion_files": []
+    },
+    {
+      "name": "ShemaleStarDB",
+      "yml_path": "scrapers/ShemaleStarDB.yml",
+      "sha": "6a1a5283af7867fe863ba661e70cf8fc7a1d0b58",
+      "size": 1929,
+      "companion_files": []
+    },
+    {
+      "name": "ShesFreaky",
+      "yml_path": "scrapers/ShesFreaky.yml",
+      "sha": "7f1c3bae5db15adc5b24bcb244070539942950a6",
+      "size": 1571,
+      "companion_files": []
+    },
+    {
+      "name": "ShockChallenge",
+      "yml_path": "scrapers/ShockChallenge.yml",
+      "sha": "5e18a0173e2c0f0f82c2f431635cae65534bb13d",
+      "size": 1021,
+      "companion_files": []
+    },
+    {
+      "name": "Shopmaker",
+      "yml_path": "scrapers/Shopmaker.yml",
+      "sha": "1a632680643dfcb2343e6ae50d153a76c4a88650",
+      "size": 6843,
+      "companion_files": []
+    },
+    {
+      "name": "ShowyBeauty",
+      "yml_path": "scrapers/ShowyBeauty.yml",
+      "sha": "56c57f0f5d20aae1c62e9f86163b2003f7f44ea8",
+      "size": 1262,
+      "companion_files": []
+    },
+    {
+      "name": "Shy-Girls",
+      "yml_path": "scrapers/Shy-Girls.yml",
+      "sha": "b370c3bb50e78ef6be2407592f7cf62f5e8ad9d3",
+      "size": 622,
+      "companion_files": []
+    },
+    {
+      "name": "ShylaJ",
+      "yml_path": "scrapers/ShylaJ.yml",
+      "sha": "b25696d4b4d749a555554bc90a3a331d0ee0fbde",
+      "size": 994,
+      "companion_files": []
+    },
+    {
+      "name": "Sinematica",
+      "yml_path": "scrapers/Sinematica.yml",
+      "sha": "7149bcc1d6e560e20fc4732a9a33a81960e7e387",
+      "size": 1409,
+      "companion_files": []
+    },
+    {
+      "name": "SinsLife",
+      "yml_path": "scrapers/SinsLife.yml",
+      "sha": "7b2857bf15e8c815195adaee9b12dbefaeac26f6",
+      "size": 781,
+      "companion_files": []
+    },
+    {
+      "name": "SketchySex",
+      "yml_path": "scrapers/SketchySex.yml",
+      "sha": "8fc599735c58696b5572944ed802cead6ba22a52",
+      "size": 1172,
+      "companion_files": []
+    },
+    {
+      "name": "SlaveMouth",
+      "yml_path": "scrapers/SlaveMouth.yml",
+      "sha": "d1a3e79482a7a83bf6c405b54ab1f464ba1426e3",
+      "size": 1670,
+      "companion_files": []
+    },
+    {
+      "name": "Slim4k",
+      "yml_path": "scrapers/Slim4k.yml",
+      "sha": "e27813dd1de9de8d83aacb62802a90150de97b4e",
+      "size": 1208,
+      "companion_files": []
+    },
+    {
+      "name": "SmokingMina",
+      "yml_path": "scrapers/SmokingMina.yml",
+      "sha": "41c82e5c162bc7e309e5117ae02f8f715c3b8c4d",
+      "size": 703,
+      "companion_files": []
+    },
+    {
+      "name": "SmutPuppet",
+      "yml_path": "scrapers/SmutPuppet.yml",
+      "sha": "5cf5fd9b63f3338b6b58dc84a5cb638c8826208f",
+      "size": 3423,
+      "companion_files": []
+    },
+    {
+      "name": "SpankBang",
+      "yml_path": "scrapers/SpankBang.yml",
+      "sha": "e09b41b8bc246be39cdf09055849ac5dcda0f38e",
+      "size": 1540,
+      "companion_files": []
+    },
+    {
+      "name": "SpermMania",
+      "yml_path": "scrapers/SpermMania.yml",
+      "sha": "e632c0eed6ff8f5887c5ce4e9b98da26c62fc739",
+      "size": 898,
+      "companion_files": []
+    },
+    {
+      "name": "Spizoo",
+      "yml_path": "scrapers/Spizoo.yml",
+      "sha": "c7332fdf610cc1ce2ac9808e5a0b68387a40cbcf",
+      "size": 3742,
+      "companion_files": []
+    },
+    {
+      "name": "Spritzz",
+      "yml_path": "scrapers/Spritzz.yml",
+      "sha": "cc6c0044ebe447577d6f154cc1c76e666901ced3",
+      "size": 988,
+      "companion_files": []
+    },
+    {
+      "name": "SpunkWorthy",
+      "yml_path": "scrapers/SpunkWorthy.yml",
+      "sha": "4661fa24d9515c3c4311578f1b22b632ff43797e",
+      "size": 2167,
+      "companion_files": []
+    },
+    {
+      "name": "StarsFetishFantasies",
+      "yml_path": "scrapers/StarsFetishFantasies.yml",
+      "sha": "74d547dae3b6b1774f0499ad4a12043cd259ad4c",
+      "size": 1917,
+      "companion_files": []
+    },
+    {
+      "name": "StasyQ",
+      "yml_path": "scrapers/StasyQ.yml",
+      "sha": "d4b08ec45d11bb380e68db51ad5dcd395bb6fe05",
+      "size": 3573,
+      "companion_files": []
+    },
+    {
+      "name": "StasyQVR",
+      "yml_path": "scrapers/StasyQVR.yml",
+      "sha": "d66230b1202f76b1879ba71261d668d0bc17cc22",
+      "size": 1443,
+      "companion_files": []
+    },
+    {
+      "name": "Staxus",
+      "yml_path": "scrapers/Staxus.yml",
+      "sha": "229f1d0dfc302d466a38d4dfe3c1733330e569a9",
+      "size": 14911,
+      "companion_files": []
+    },
+    {
+      "name": "StrapOnCum",
+      "yml_path": "scrapers/StrapOnCum.yml",
+      "sha": "be6317e583d1ce36f3a3ee68f07600fac3f222ce",
+      "size": 780,
+      "companion_files": []
+    },
+    {
+      "name": "StraponDreamer",
+      "yml_path": "scrapers/StraponDreamer.yml",
+      "sha": "3226f5367c0d190fdaf26b9c19979cb8942736c5",
+      "size": 540,
+      "companion_files": []
+    },
+    {
+      "name": "StripzVR",
+      "yml_path": "scrapers/StripzVR.yml",
+      "sha": "190f269663e054ef21b0729013c6773a35dbd29e",
+      "size": 1505,
+      "companion_files": []
+    },
+    {
+      "name": "Strokies",
+      "yml_path": "scrapers/Strokies.yml",
+      "sha": "da658025c651f27898e9df3033b2c0f8c862d537",
+      "size": 1167,
+      "companion_files": []
+    },
+    {
+      "name": "StudioFOW",
+      "yml_path": "scrapers/StudioFOW.yml",
+      "sha": "fcb1f66c8c41de015fcb668409ec45445ae75b52",
+      "size": 1058,
+      "companion_files": []
+    },
+    {
+      "name": "SubbyHubby",
+      "yml_path": "scrapers/SubbyHubby.yml",
+      "sha": "12aac02f222b4cac1fc67706b61f0b18072ced89",
+      "size": 2532,
+      "companion_files": []
+    },
+    {
+      "name": "SubmissiveX",
+      "yml_path": "scrapers/SubmissiveX.yml",
+      "sha": "d962bf0b8fcfd6074f5ecedde4dc238d29620b3c",
+      "size": 688,
+      "companion_files": []
+    },
+    {
+      "name": "SubspaceLand",
+      "yml_path": "scrapers/SubspaceLand.yml",
+      "sha": "ff2725a5ee6782f6d14aa4515fffeec3129e1352",
+      "size": 868,
+      "companion_files": []
+    },
+    {
+      "name": "SugarDaddyPorn",
+      "yml_path": "scrapers/SugarDaddyPorn.yml",
+      "sha": "eff2abbbe339dc81ef0ba08efb90b988796e69b8",
+      "size": 1989,
+      "companion_files": []
+    },
+    {
+      "name": "SwallowBay",
+      "yml_path": "scrapers/SwallowBay.yml",
+      "sha": "ae277ad20130e35f237ffc62868d1a5f7e3ac26f",
+      "size": 814,
+      "companion_files": []
+    },
+    {
+      "name": "SwallowSalon",
+      "yml_path": "scrapers/SwallowSalon.yml",
+      "sha": "b71aaff31839c8146a12c002b0f660f9032442e5",
+      "size": 1699,
+      "companion_files": []
+    },
+    {
+      "name": "SweetFemdom",
+      "yml_path": "scrapers/SweetFemdom.yml",
+      "sha": "0f9718b1b86f012b3437c31accf9647ed20f1b11",
+      "size": 970,
+      "companion_files": []
+    },
+    {
+      "name": "SweetyX",
+      "yml_path": "scrapers/SweetyX.yml",
+      "sha": "ad2aa3feef23172b59b9788747f69313da00ede3",
+      "size": 914,
+      "companion_files": []
+    },
+    {
+      "name": "SwingerBlog",
+      "yml_path": "scrapers/SwingerBlog.yml",
+      "sha": "fbde92ad0522d1a2a422dc5a85bb868e964c1e8e",
+      "size": 714,
+      "companion_files": []
+    },
+    {
+      "name": "TACAmateurs",
+      "yml_path": "scrapers/TACAmateurs.yml",
+      "sha": "616e7fec876102c4894bab74a64dfcc07b1a4347",
+      "size": 717,
+      "companion_files": []
+    },
+    {
+      "name": "TGirlNetwork",
+      "yml_path": "scrapers/TGirlNetwork.yml",
+      "sha": "15db4a9e181022882e706e50a78e1df5a6ca1e48",
+      "size": 2622,
+      "companion_files": []
+    },
+    {
+      "name": "TGirlsHouse",
+      "yml_path": "scrapers/TGirlsHouse.yml",
+      "sha": "834f73f8a85ab47eef792891cdfb078d5d4423e1",
+      "size": 3684,
+      "companion_files": []
+    },
+    {
+      "name": "TMDB-json",
+      "yml_path": "scrapers/TMDB-json.yml",
+      "sha": "aa60850cad95c429b7dd623f132f00a94911128f",
+      "size": 1301,
+      "companion_files": []
+    },
+    {
+      "name": "TMDB",
+      "yml_path": "scrapers/TMDB.yml",
+      "sha": "1bd70ed9b2389c15ef34963d8b6ced60c1473677",
+      "size": 2644,
+      "companion_files": []
+    },
+    {
+      "name": "TOAXXX",
+      "yml_path": "scrapers/TOAXXX.yml",
+      "sha": "13e3fdd2a9676fc3c0959b13c4c071130058598c",
+      "size": 1182,
+      "companion_files": []
+    },
+    {
+      "name": "TSPlayground",
+      "yml_path": "scrapers/TSPlayground.yml",
+      "sha": "9b7d4e9cb3468a23b7a90d52f5c0ba6a4155d8c9",
+      "size": 1022,
+      "companion_files": []
+    },
+    {
+      "name": "TabooHandjobs",
+      "yml_path": "scrapers/TabooHandjobs.yml",
+      "sha": "54248455dff3ea3d33dde7fb701362130087646b",
+      "size": 1034,
+      "companion_files": []
+    },
+    {
+      "name": "TadpolexStudio",
+      "yml_path": "scrapers/TadpolexStudio.yml",
+      "sha": "aa872dba5fab919d4cfe1051bdcfa68591d0be24",
+      "size": 1248,
+      "companion_files": []
+    },
+    {
+      "name": "TakeVan",
+      "yml_path": "scrapers/TakeVan.yml",
+      "sha": "76818e9b580c044480fc0335ae32dd5400802b67",
+      "size": 748,
+      "companion_files": []
+    },
+    {
+      "name": "TaraTainton",
+      "yml_path": "scrapers/TaraTainton.yml",
+      "sha": "98951e6bdd52bc075e92c7ce6b6f55c921b9bad2",
+      "size": 664,
+      "companion_files": []
+    },
+    {
+      "name": "TeenDreams",
+      "yml_path": "scrapers/TeenDreams.yml",
+      "sha": "578d154a79e3b63ff61cd1e9f17dcfc02ceb6387",
+      "size": 1421,
+      "companion_files": []
+    },
+    {
+      "name": "TeenMegaWorld",
+      "yml_path": "scrapers/TeenMegaWorld.yml",
+      "sha": "ff757a10039cf12641cd7ad8e2a93550ee1a7504",
+      "size": 3550,
+      "companion_files": []
+    },
+    {
+      "name": "Teencoreclub",
+      "yml_path": "scrapers/Teencoreclub.yml",
+      "sha": "775bc645e84d8d5b9cf03f68a69545dc24b1f420",
+      "size": 2032,
+      "companion_files": []
+    },
+    {
+      "name": "TeenyTaboo",
+      "yml_path": "scrapers/TeenyTaboo.yml",
+      "sha": "cc9079290033c6f06d9718ffa30e92fe5cf37d6e",
+      "size": 899,
+      "companion_files": []
+    },
+    {
+      "name": "Tenshigao",
+      "yml_path": "scrapers/Tenshigao.yml",
+      "sha": "4fc3f5b628d16fdb2bf6a34ae9e0928aac995fbf",
+      "size": 4748,
+      "companion_files": []
+    },
+    {
+      "name": "TesteDeFudelidade",
+      "yml_path": "scrapers/TesteDeFudelidade.yml",
+      "sha": "d3adbde610ee0d2b6028d64ba3de3bb7e99470cf",
+      "size": 1684,
+      "companion_files": []
+    },
+    {
+      "name": "TexasBukkake",
+      "yml_path": "scrapers/TexasBukkake.yml",
+      "sha": "eb99270107ac8212bff7e9942e0b15466641e3da",
+      "size": 736,
+      "companion_files": []
+    },
+    {
+      "name": "TheBattleForEarth",
+      "yml_path": "scrapers/TheBattleForEarth.yml",
+      "sha": "1e8ba1de18363803e5aa2111c226d69b2de1e1d2",
+      "size": 2974,
+      "companion_files": []
+    },
+    {
+      "name": "TheBroNetwork",
+      "yml_path": "scrapers/TheBroNetwork.yml",
+      "sha": "da69d529ba64511d74295afdeefd1043603b2b96",
+      "size": 1747,
+      "companion_files": []
+    },
+    {
+      "name": "TheFemaleOrgasm",
+      "yml_path": "scrapers/TheFemaleOrgasm.yml",
+      "sha": "6368ace9ee961e9e4d62d79fdaa60fb11731caaa",
+      "size": 1945,
+      "companion_files": []
+    },
+    {
+      "name": "TheFlourish",
+      "yml_path": "scrapers/TheFlourish.yml",
+      "sha": "fd09f5ef8fd0670e9f87b4913f036edda4a8a67d",
+      "size": 1276,
+      "companion_files": []
+    },
+    {
+      "name": "TheHabibShow",
+      "yml_path": "scrapers/TheHabibShow.yml",
+      "sha": "b5b377fc42eeb8a591759dc5a62af4cac590809e",
+      "size": 469,
+      "companion_files": []
+    },
+    {
+      "name": "TheNude",
+      "yml_path": "scrapers/TheNude.yml",
+      "sha": "1cbc52ff81eb0d43d385328ea4e3b9a8447a4855",
+      "size": 7076,
+      "companion_files": []
+    },
+    {
+      "name": "TheSensitiveSpot",
+      "yml_path": "scrapers/TheSensitiveSpot.yml",
+      "sha": "33e6bf2d50fd1cde960c43c890763c25a78b3537",
+      "size": 769,
+      "companion_files": []
+    },
+    {
+      "name": "ThirdRockEnt",
+      "yml_path": "scrapers/ThirdRockEnt.yml",
+      "sha": "11f8ca6f7061956061b9faf3570df241bec3545d",
+      "size": 5170,
+      "companion_files": []
+    },
+    {
+      "name": "ThirdSexXXX",
+      "yml_path": "scrapers/ThirdSexXXX.yml",
+      "sha": "c8033efb3363328e5fbe3b5f6b99a1010a5eb287",
+      "size": 875,
+      "companion_files": []
+    },
+    {
+      "name": "ThisVid",
+      "yml_path": "scrapers/ThisVid.yml",
+      "sha": "bb07f45c81e884959163d97bc7a8aab5907461fa",
+      "size": 1838,
+      "companion_files": []
+    },
+    {
+      "name": "TimTales",
+      "yml_path": "scrapers/TimTales.yml",
+      "sha": "e3991bbfb8b1b497a6503f5d36aec310c75dbe98",
+      "size": 1951,
+      "companion_files": []
+    },
+    {
+      "name": "Timestamp.trade",
+      "yml_path": "scrapers/Timestamp.trade.yml",
+      "sha": "d3d27cea0f562f8c3363a4d2c5d5cfe20f6673cd",
+      "size": 2167,
+      "companion_files": []
+    },
+    {
+      "name": "TitanMen",
+      "yml_path": "scrapers/TitanMen.yml",
+      "sha": "c82322f4894e81ec840cefc30041cdef8b2cb6f4",
+      "size": 2893,
+      "companion_files": []
+    },
+    {
+      "name": "Trans500",
+      "yml_path": "scrapers/Trans500.yml",
+      "sha": "b017fff268d48ce849254a7afa9da1e259d6f823",
+      "size": 2899,
+      "companion_files": []
+    },
+    {
+      "name": "TransModelDatabase",
+      "yml_path": "scrapers/TransModelDatabase.yml",
+      "sha": "ae229deee41acd458a548999697f9c8fdc84ae37",
+      "size": 1892,
+      "companion_files": []
+    },
+    {
+      "name": "Transerotica",
+      "yml_path": "scrapers/Transerotica.yml",
+      "sha": "4a1545c1ac8a7c799f8d784886389835c68ac688",
+      "size": 1079,
+      "companion_files": []
+    },
+    {
+      "name": "TreasureIslandMedia",
+      "yml_path": "scrapers/TreasureIslandMedia.yml",
+      "sha": "7ad9a17c108f2c0b8487fc97de2dc03c3b3ae209",
+      "size": 4399,
+      "companion_files": []
+    },
+    {
+      "name": "TrikePatrol",
+      "yml_path": "scrapers/TrikePatrol.yml",
+      "sha": "6ae452539f8d004716151e5e158446f50cbe693d",
+      "size": 2520,
+      "companion_files": []
+    },
+    {
+      "name": "TripForFuck",
+      "yml_path": "scrapers/TripForFuck.yml",
+      "sha": "8d40830bc003efdd8a11da18f23efb22ff3aabe8",
+      "size": 967,
+      "companion_files": []
+    },
+    {
+      "name": "TugPass",
+      "yml_path": "scrapers/TugPass.yml",
+      "sha": "aafc7c3db959d8507eb17c14c37c5f811df25a9a",
+      "size": 3846,
+      "companion_files": []
+    },
+    {
+      "name": "TukTukPatrol",
+      "yml_path": "scrapers/TukTukPatrol.yml",
+      "sha": "a35824aca5b52c0ee625b8a2dc29d700ab4cbc42",
+      "size": 2032,
+      "companion_files": []
+    },
+    {
+      "name": "TwistedFactory",
+      "yml_path": "scrapers/TwistedFactory.yml",
+      "sha": "984b82d8b67dc86b8846ff19d855c1357166c723",
+      "size": 7520,
+      "companion_files": []
+    },
+    {
+      "name": "TwoTGirls",
+      "yml_path": "scrapers/TwoTGirls.yml",
+      "sha": "562e1674deacd02ac2be5e931e9e0ac007555a5b",
+      "size": 616,
+      "companion_files": []
+    },
+    {
+      "name": "UltraFilms",
+      "yml_path": "scrapers/UltraFilms.yml",
+      "sha": "19c28d10261758cca0938bbedafda8bd0db059ff",
+      "size": 919,
+      "companion_files": []
+    },
+    {
+      "name": "UnderHentai",
+      "yml_path": "scrapers/UnderHentai.yml",
+      "sha": "f9fd2f26b7a3dd3089a9d44d30e7dda44e174694",
+      "size": 3094,
+      "companion_files": []
+    },
+    {
+      "name": "VNAGirls",
+      "yml_path": "scrapers/VNAGirls.yml",
+      "sha": "993894600f1051dc047b1bcbd95813010567c658",
+      "size": 2482,
+      "companion_files": []
+    },
+    {
+      "name": "VRAllure",
+      "yml_path": "scrapers/VRAllure.yml",
+      "sha": "033e95f334ef4f199a9d67ba171f42e2080c4d74",
+      "size": 2835,
+      "companion_files": []
+    },
+    {
+      "name": "VRBangers",
+      "yml_path": "scrapers/VRBangers.yml",
+      "sha": "c01c0fc0462d802cdfca4a6703ae86663bc69071",
+      "size": 5595,
+      "companion_files": []
+    },
+    {
+      "name": "VRLatina",
+      "yml_path": "scrapers/VRLatina.yml",
+      "sha": "ddf3686b13e38f00b097a6ec95a6989c1233af7d",
+      "size": 2653,
+      "companion_files": []
+    },
+    {
+      "name": "VRPorn",
+      "yml_path": "scrapers/VRPorn.yml",
+      "sha": "831ae2e04529c0fe178900faa66afac94df8d28a",
+      "size": 1487,
+      "companion_files": []
+    },
+    {
+      "name": "VRSpy",
+      "yml_path": "scrapers/VRSpy.yml",
+      "sha": "4c06ee7d823d947ceac67bf460b933e261d9bbb4",
+      "size": 4885,
+      "companion_files": []
+    },
+    {
+      "name": "VRpornnow",
+      "yml_path": "scrapers/VRpornnow.yml",
+      "sha": "d8c7dd5f8a66e09c36f39e1d5b4724d47b34f87d",
+      "size": 2239,
+      "companion_files": []
+    },
+    {
+      "name": "VegasDreamsLLC",
+      "yml_path": "scrapers/VegasDreamsLLC.yml",
+      "sha": "eddf18150e0681878b720791b76ce95d17762b7f",
+      "size": 2001,
+      "companion_files": []
+    },
+    {
+      "name": "VegasDreamworks",
+      "yml_path": "scrapers/VegasDreamworks.yml",
+      "sha": "ab65fe7638d77aeebf7a1dba2c2a328ea8d7578b",
+      "size": 765,
+      "companion_files": []
+    },
+    {
+      "name": "VelvetEcstasy",
+      "yml_path": "scrapers/VelvetEcstasy.yml",
+      "sha": "e600e29876350fa30b5a499ea7f19ae32a21c9e7",
+      "size": 1526,
+      "companion_files": []
+    },
+    {
+      "name": "VelvetVeronica",
+      "yml_path": "scrapers/VelvetVeronica.yml",
+      "sha": "e7e904ee5537a0a3a45ec30b3d29ea43d65109c8",
+      "size": 1045,
+      "companion_files": []
+    },
+    {
+      "name": "VenusAV",
+      "yml_path": "scrapers/VenusAV.yml",
+      "sha": "35a13e92aa10938cab83bf3518f04c8898757818",
+      "size": 1057,
+      "companion_files": []
+    },
+    {
+      "name": "Vip4K",
+      "yml_path": "scrapers/Vip4K.yml",
+      "sha": "39e8c7416478c2b49df5740365eb6125eb8733ff",
+      "size": 1639,
+      "companion_files": []
+    },
+    {
+      "name": "Vipissy",
+      "yml_path": "scrapers/Vipissy.yml",
+      "sha": "afa2d4e9ea5a1fc1c1eb6b1906398b434f2e6a8c",
+      "size": 1855,
+      "companion_files": []
+    },
+    {
+      "name": "VirtualPee",
+      "yml_path": "scrapers/VirtualPee.yml",
+      "sha": "91855692b65815db5534e743dd9090ea6f40ec38",
+      "size": 766,
+      "companion_files": []
+    },
+    {
+      "name": "VirtualTaboo",
+      "yml_path": "scrapers/VirtualTaboo.yml",
+      "sha": "6ca7305b74694811d4b4887e18177ddda3552380",
+      "size": 2842,
+      "companion_files": []
+    },
+    {
+      "name": "Visit-X",
+      "yml_path": "scrapers/Visit-X.yml",
+      "sha": "3fcf546f657861fe8c1933a44190ea61a3d4c5e1",
+      "size": 875,
+      "companion_files": []
+    },
+    {
+      "name": "Vivid",
+      "yml_path": "scrapers/Vivid.yml",
+      "sha": "5e650810f9cf63e930a3948f84c32612693f507d",
+      "size": 1310,
+      "companion_files": []
+    },
+    {
+      "name": "Voyeurweb",
+      "yml_path": "scrapers/Voyeurweb.yml",
+      "sha": "7417a747d68ad8095f098098924223f4182d6d76",
+      "size": 940,
+      "companion_files": []
+    },
+    {
+      "name": "VrxDB",
+      "yml_path": "scrapers/VrxDB.yml",
+      "sha": "0e7b2b9684d7d853000fa07dc6a140cf380618b6",
+      "size": 925,
+      "companion_files": []
+    },
+    {
+      "name": "WOWGirlsBlog",
+      "yml_path": "scrapers/WOWGirlsBlog.yml",
+      "sha": "2ae33de9d290c563d513751031edeb9faecd6f26",
+      "size": 844,
+      "companion_files": []
+    },
+    {
+      "name": "WakeUpnFuck",
+      "yml_path": "scrapers/WakeUpnFuck.yml",
+      "sha": "cd0b78e672e808f050799dc4b37ad99b01f2bea5",
+      "size": 1570,
+      "companion_files": []
+    },
+    {
+      "name": "Wallhaven",
+      "yml_path": "scrapers/Wallhaven.yml",
+      "sha": "f8b9909e7cd86fd041c566247e2986975fe7434b",
+      "size": 2774,
+      "companion_files": []
+    },
+    {
+      "name": "WankItNow",
+      "yml_path": "scrapers/WankItNow.yml",
+      "sha": "7324c8def50ebf2be3f91d442b559616850884cc",
+      "size": 1912,
+      "companion_files": []
+    },
+    {
+      "name": "Watch4Beauty",
+      "yml_path": "scrapers/Watch4Beauty.yml",
+      "sha": "8a8ef4a54f280a036876a2f636b33d65a022fdfd",
+      "size": 3938,
+      "companion_files": []
+    },
+    {
+      "name": "Watch4Fetish",
+      "yml_path": "scrapers/Watch4Fetish.yml",
+      "sha": "a260c92f9fd8a04f8cbfa86bc8df528d6ae75acb",
+      "size": 952,
+      "companion_files": []
+    },
+    {
+      "name": "WatchMyGF",
+      "yml_path": "scrapers/WatchMyGF.yml",
+      "sha": "af311bba1030e3b134296193a5fd5cbd3bce7264",
+      "size": 664,
+      "companion_files": []
+    },
+    {
+      "name": "WatchYouJerk",
+      "yml_path": "scrapers/WatchYouJerk.yml",
+      "sha": "fa0dcdbed21aeee2cc8dc0eb7dabed900fdf4058",
+      "size": 833,
+      "companion_files": []
+    },
+    {
+      "name": "Waybig",
+      "yml_path": "scrapers/Waybig.yml",
+      "sha": "855788430ff996a08db7933674443a17863ce2ce",
+      "size": 2806,
+      "companion_files": []
+    },
+    {
+      "name": "WeAreHairy",
+      "yml_path": "scrapers/WeAreHairy.yml",
+      "sha": "ab8ca6b155e297ccac53ccfc83c3c54e12af29fd",
+      "size": 2109,
+      "companion_files": []
+    },
+    {
+      "name": "WeFuckBlackGirls",
+      "yml_path": "scrapers/WeFuckBlackGirls.yml",
+      "sha": "cdd7132f5a6043fad49c39f398f9488b81e8df38",
+      "size": 2236,
+      "companion_files": []
+    },
+    {
+      "name": "Whoaboyz",
+      "yml_path": "scrapers/Whoaboyz.yml",
+      "sha": "4f9f2d89e2327263c9ae289964be884b733dc900",
+      "size": 1164,
+      "companion_files": []
+    },
+    {
+      "name": "WhoresHub",
+      "yml_path": "scrapers/WhoresHub.yml",
+      "sha": "2d870e5e6528c4561d47e9e149f01bc33e30ae8b",
+      "size": 1787,
+      "companion_files": []
+    },
+    {
+      "name": "WikiData",
+      "yml_path": "scrapers/WikiData.yml",
+      "sha": "293d3b6f637ddf0d4333dc1da438059383cffbd7",
+      "size": 5726,
+      "companion_files": []
+    },
+    {
+      "name": "Williamhiggins",
+      "yml_path": "scrapers/Williamhiggins.yml",
+      "sha": "f3e71a51cec019894fe5c94d4db6b450a4099f90",
+      "size": 2259,
+      "companion_files": []
+    },
+    {
+      "name": "WoodmancastingX",
+      "yml_path": "scrapers/WoodmancastingX.yml",
+      "sha": "67654fbb6d96550d4f7327d8d9c2121e095b6507",
+      "size": 1797,
+      "companion_files": []
+    },
+    {
+      "name": "WowPorn",
+      "yml_path": "scrapers/WowPorn.yml",
+      "sha": "312e12a5c9a7a410e7921cee524d78a5529de434",
+      "size": 1007,
+      "companion_files": []
+    },
+    {
+      "name": "Wtfpass",
+      "yml_path": "scrapers/Wtfpass.yml",
+      "sha": "8448c5fbc0ed4cea7fec9388537c168250d32a9c",
+      "size": 1404,
+      "companion_files": []
+    },
+    {
+      "name": "X-artcom",
+      "yml_path": "scrapers/X-artcom.yml",
+      "sha": "90f4b3d3cfade0c48b75d0ecfd9aed3ca0693153",
+      "size": 2099,
+      "companion_files": []
+    },
+    {
+      "name": "XConfessions",
+      "yml_path": "scrapers/XConfessions.yml",
+      "sha": "ec6507fba8dc7487020f201d44a17b10aa35e0f2",
+      "size": 3611,
+      "companion_files": []
+    },
+    {
+      "name": "XVirtual",
+      "yml_path": "scrapers/XVirtual.yml",
+      "sha": "2b3c086de96a3d3a2ba987d93240faa2ddc04b09",
+      "size": 1570,
+      "companion_files": []
+    },
+    {
+      "name": "XXXBios",
+      "yml_path": "scrapers/XXXBios.yml",
+      "sha": "f30869eba70c49b1705626a547e5cf387e6b195a",
+      "size": 1621,
+      "companion_files": []
+    },
+    {
+      "name": "XXXJobInterviews",
+      "yml_path": "scrapers/XXXJobInterviews.yml",
+      "sha": "84ba9ab98ebaac7fbe893e643568aab1308ed0b2",
+      "size": 1073,
+      "companion_files": []
+    },
+    {
+      "name": "XXXPawn",
+      "yml_path": "scrapers/XXXPawn.yml",
+      "sha": "a2c31213987f115a384bc76a327b3c12bc010cff",
+      "size": 1478,
+      "companion_files": []
+    },
+    {
+      "name": "Xartxxx",
+      "yml_path": "scrapers/Xartxxx.yml",
+      "sha": "d33147624b9ca1552460848196b55531ba042f0a",
+      "size": 572,
+      "companion_files": []
+    },
+    {
+      "name": "Xes",
+      "yml_path": "scrapers/Xes.yml",
+      "sha": "21a5c35bb24a0a6320116f8ac899f795ddf6707a",
+      "size": 988,
+      "companion_files": []
+    },
+    {
+      "name": "Xhamster",
+      "yml_path": "scrapers/Xhamster.yml",
+      "sha": "286b5aa29ad6ebb9f67ac80be3acbe84cbc3428e",
+      "size": 2604,
+      "companion_files": []
+    },
+    {
+      "name": "Xnxx",
+      "yml_path": "scrapers/Xnxx.yml",
+      "sha": "5010789808b7f05139dedec0f445226a6f8e4467",
+      "size": 2307,
+      "companion_files": []
+    },
+    {
+      "name": "Xrares",
+      "yml_path": "scrapers/Xrares.yml",
+      "sha": "a834d3b4f2100c2955e32d38a56662e6db5c152d",
+      "size": 874,
+      "companion_files": []
+    },
+    {
+      "name": "Xslist",
+      "yml_path": "scrapers/Xslist.yml",
+      "sha": "ab241ca4f849c07c5431d6f23da5c6c66a20561b",
+      "size": 2784,
+      "companion_files": []
+    },
+    {
+      "name": "Xtube",
+      "yml_path": "scrapers/Xtube.yml",
+      "sha": "50bbf7cc4e9555791ffeb8cd43c8623042b136d6",
+      "size": 829,
+      "companion_files": []
+    },
+    {
+      "name": "Xvideos",
+      "yml_path": "scrapers/Xvideos.yml",
+      "sha": "ae2d3e9b3b7e9d4e7265a05a359b9351d7bb283a",
+      "size": 2642,
+      "companion_files": []
+    },
+    {
+      "name": "YNGR",
+      "yml_path": "scrapers/YNGR.yml",
+      "sha": "752e5a602a690535e01d100565d39ccb12482ca6",
+      "size": 890,
+      "companion_files": []
+    },
+    {
+      "name": "Yanks",
+      "yml_path": "scrapers/Yanks.yml",
+      "sha": "165be887f0e557e6b6aaa929676bec3334696322",
+      "size": 1034,
+      "companion_files": []
+    },
+    {
+      "name": "YouPorn",
+      "yml_path": "scrapers/YouPorn.yml",
+      "sha": "f7349966df71e99d1a09c182278e66fd186a48b0",
+      "size": 1185,
+      "companion_files": []
+    },
+    {
+      "name": "ZentaiDolls",
+      "yml_path": "scrapers/ZentaiDolls.yml",
+      "sha": "dec086fbba4668a60de868d897fd0259bdddedd0",
+      "size": 983,
+      "companion_files": []
+    },
+    {
+      "name": "ZexyVR",
+      "yml_path": "scrapers/ZexyVR.yml",
+      "sha": "8252ed1626cc08c7ffe0a40b5af18a9a3a42a3c9",
+      "size": 2217,
+      "companion_files": []
+    },
+    {
+      "name": "Zishy",
+      "yml_path": "scrapers/Zishy.yml",
+      "sha": "3f332c77f2f292e7e30f2f5c84c9f59717252ce1",
+      "size": 1387,
+      "companion_files": []
+    },
+    {
+      "name": "angelasommers",
+      "yml_path": "scrapers/angelasommers.yml",
+      "sha": "9a42d2f0915a850e6edad656d8bf14f0cbc74c3a",
+      "size": 832,
+      "companion_files": []
+    },
+    {
+      "name": "arzon.jp",
+      "yml_path": "scrapers/arzon.jp.yml",
+      "sha": "2a1ba694177d648491268b9bbce24861882c2d11",
+      "size": 4113,
+      "companion_files": []
+    },
+    {
+      "name": "auntykathy",
+      "yml_path": "scrapers/auntykathy.yml",
+      "sha": "11dc5a4a71ee09e9f6a5c533dfce6c51d1f4b262",
+      "size": 890,
+      "companion_files": []
+    },
+    {
+      "name": "bellapass",
+      "yml_path": "scrapers/bellapass.yml",
+      "sha": "39f58f9fe6a729a77b20029a508427feff2e5431",
+      "size": 1539,
+      "companion_files": []
+    },
+    {
+      "name": "bibian-av",
+      "yml_path": "scrapers/bibian-av.yml",
+      "sha": "f336e5fb25841c4a2f1bd5040423998e188bddd8",
+      "size": 2655,
+      "companion_files": []
+    },
+    {
+      "name": "brandibelle",
+      "yml_path": "scrapers/brandibelle.yml",
+      "sha": "da1d159039a1b70ba27d4a047840db8f8616d4d4",
+      "size": 409,
+      "companion_files": []
+    },
+    {
+      "name": "brickyates",
+      "yml_path": "scrapers/brickyates.yml",
+      "sha": "3dbca2e5c24ca6f2ece32a301818ebb4b0e11e16",
+      "size": 908,
+      "companion_files": []
+    },
+    {
+      "name": "bruceandmorgan",
+      "yml_path": "scrapers/bruceandmorgan.yml",
+      "sha": "b80411afd0fbd27d98964efafcc616e4f5e75a63",
+      "size": 485,
+      "companion_files": []
+    },
+    {
+      "name": "chastitybabes",
+      "yml_path": "scrapers/chastitybabes.yml",
+      "sha": "1359c60ec302b686d08328beee641aa0e1f24caf",
+      "size": 1310,
+      "companion_files": []
+    },
+    {
+      "name": "danbooru-api",
+      "yml_path": "scrapers/danbooru-api.yml",
+      "sha": "7893c72396ebbb2de9db86bce1bfd40c2b50baf5",
+      "size": 1911,
+      "companion_files": []
+    },
+    {
+      "name": "data18",
+      "yml_path": "scrapers/data18.yml",
+      "sha": "5e400a1acc632eb4c60a295b5d7f0feac485e49c",
+      "size": 5112,
+      "companion_files": []
+    },
+    {
+      "name": "derpibooru",
+      "yml_path": "scrapers/derpibooru.yml",
+      "sha": "9c67282a59d55ec1730e410cafd1d400fe720f78",
+      "size": 1475,
+      "companion_files": []
+    },
+    {
+      "name": "duga.jp",
+      "yml_path": "scrapers/duga.jp.yml",
+      "sha": "c8ac4ce5dacc50dc62368fbc4870bc1320b6976a",
+      "size": 3198,
+      "companion_files": []
+    },
+    {
+      "name": "e621",
+      "yml_path": "scrapers/e621.yml",
+      "sha": "14ae6f2f8921e077d9be7b04accd0cc09c0055ba",
+      "size": 1616,
+      "companion_files": []
+    },
+    {
+      "name": "ehentai",
+      "yml_path": "scrapers/ehentai.yml",
+      "sha": "17076401d42576ecf2dcf78cf7e9cbe3bdb3e0cc",
+      "size": 2383,
+      "companion_files": []
+    },
+    {
+      "name": "erodougazo",
+      "yml_path": "scrapers/erodougazo.yml",
+      "sha": "03c9943c167a56a13ed3ad4a14f316a9dec3bd8f",
+      "size": 5047,
+      "companion_files": []
+    },
+    {
+      "name": "famegirls",
+      "yml_path": "scrapers/famegirls.yml",
+      "sha": "7f4489620e2a1c82c8610fc211e050bfe401c86f",
+      "size": 1448,
+      "companion_files": []
+    },
+    {
+      "name": "fandom-wiki",
+      "yml_path": "scrapers/fandom-wiki.yml",
+      "sha": "d1fd3f00e88d5738068738c148aa714f5fd37bef",
+      "size": 6519,
+      "companion_files": []
+    },
+    {
+      "name": "fc2",
+      "yml_path": "scrapers/fc2.yml",
+      "sha": "4c0dda32e33ee54c69426139c5af9f569e296e2a",
+      "size": 2900,
+      "companion_files": []
+    },
+    {
+      "name": "gelbooru-json",
+      "yml_path": "scrapers/gelbooru-json.yml",
+      "sha": "108d3913c63346ea3ff3c68968c53b259d7b9347",
+      "size": 1144,
+      "companion_files": []
+    },
+    {
+      "name": "gelbooru-xpath",
+      "yml_path": "scrapers/gelbooru-xpath.yml",
+      "sha": "4919251c993ae48374fe211b31e94b6048673bbe",
+      "size": 3544,
+      "companion_files": []
+    },
+    {
+      "name": "girls.dreamnet.com",
+      "yml_path": "scrapers/girls.dreamnet.com.yml",
+      "sha": "4efba13d6e8c21d3f36914c08c8b076504f1e9c8",
+      "size": 1212,
+      "companion_files": []
+    },
+    {
+      "name": "graphis",
+      "yml_path": "scrapers/graphis.yml",
+      "sha": "fd5eb9431a81daeff9f241b012355127d9490a68",
+      "size": 1976,
+      "companion_files": []
+    },
+    {
+      "name": "hanime",
+      "yml_path": "scrapers/hanime.yml",
+      "sha": "252f641931e69a94c1e4477852bee747abaf63b1",
+      "size": 1362,
+      "companion_files": []
+    },
+    {
+      "name": "hentai2read",
+      "yml_path": "scrapers/hentai2read.yml",
+      "sha": "428f396e70bc8e213b78672c96e70a67f7c40432",
+      "size": 1155,
+      "companion_files": []
+    },
+    {
+      "name": "hstream",
+      "yml_path": "scrapers/hstream.yml",
+      "sha": "f290cd934ed1bb91a93ce96d460ac6df9acb1367",
+      "size": 2512,
+      "companion_files": []
+    },
+    {
+      "name": "hushpass",
+      "yml_path": "scrapers/hushpass.yml",
+      "sha": "9a60c79e73f81eff819fad653574c64ef24eabd8",
+      "size": 952,
+      "companion_files": []
+    },
+    {
+      "name": "hussiemodels",
+      "yml_path": "scrapers/hussiemodels.yml",
+      "sha": "3ba2862ac634d9b1da911089120595825cfb08ef",
+      "size": 3721,
+      "companion_files": []
+    },
+    {
+      "name": "insex",
+      "yml_path": "scrapers/insex.yml",
+      "sha": "c1b3c80684fa4743a01d65b4a9b6ca0d668891ff",
+      "size": 4631,
+      "companion_files": []
+    },
+    {
+      "name": "insexOL",
+      "yml_path": "scrapers/insexOL.yml",
+      "sha": "a3cd743fb9b0d0e2bb50a2ca4ec9143a94cb4cb2",
+      "size": 1075,
+      "companion_files": []
+    },
+    {
+      "name": "jade-net-home",
+      "yml_path": "scrapers/jade-net-home.yml",
+      "sha": "067ac854e1e37a1d1192e08d59a878f837c7438a",
+      "size": 2475,
+      "companion_files": []
+    },
+    {
+      "name": "javdb",
+      "yml_path": "scrapers/javdb.yml",
+      "sha": "feafba54b639ff27c3b4fc38c7f2774ba33eff9d",
+      "size": 4559,
+      "companion_files": []
+    },
+    {
+      "name": "javdb_zh",
+      "yml_path": "scrapers/javdb_zh.yml",
+      "sha": "e7c1fa139c8b72333068dad58d2815b617ea1115",
+      "size": 4480,
+      "companion_files": []
+    },
+    {
+      "name": "jerkoffinstructions",
+      "yml_path": "scrapers/jerkoffinstructions.yml",
+      "sha": "b612786ad1c84f8e3f2845e4dd3a428afa23379c",
+      "size": 1125,
+      "companion_files": []
+    },
+    {
+      "name": "karatmedia",
+      "yml_path": "scrapers/karatmedia.yml",
+      "sha": "f53e5a304e1c9c7f22c48f459279072ca65499fd",
+      "size": 2317,
+      "companion_files": []
+    },
+    {
+      "name": "kinkyfamily",
+      "yml_path": "scrapers/kinkyfamily.yml",
+      "sha": "643dd73a00b1b0512a28592db523ffb0ecabc5eb",
+      "size": 681,
+      "companion_files": []
+    },
+    {
+      "name": "lethalpass",
+      "yml_path": "scrapers/lethalpass.yml",
+      "sha": "0e6330ed5780278c4df525c64eda8e46e3b7024a",
+      "size": 875,
+      "companion_files": []
+    },
+    {
+      "name": "luxeplayhouse",
+      "yml_path": "scrapers/luxeplayhouse.yml",
+      "sha": "1c754e36528952bfb659a8eb6472091a85d5b67c",
+      "size": 835,
+      "companion_files": []
+    },
+    {
+      "name": "mgstage",
+      "yml_path": "scrapers/mgstage.yml",
+      "sha": "50969cee219a5f8d07312f461aa347a1748d28ed",
+      "size": 1068,
+      "companion_files": []
+    },
+    {
+      "name": "moebooru",
+      "yml_path": "scrapers/moebooru.yml",
+      "sha": "b48d695c5ec106712ecac64a355281fc19c5670b",
+      "size": 1248,
+      "companion_files": []
+    },
+    {
+      "name": "my-slavegirl",
+      "yml_path": "scrapers/my-slavegirl.yml",
+      "sha": "8d24e20de9054c00b0bf9557eef9dc8264402a0e",
+      "size": 680,
+      "companion_files": []
+    },
+    {
+      "name": "nhentai",
+      "yml_path": "scrapers/nhentai.yml",
+      "sha": "d6d1510a1ed25d9092bb3d85a6aa4d4ccffb1e74",
+      "size": 1824,
+      "companion_files": []
+    },
+    {
+      "name": "okebooru",
+      "yml_path": "scrapers/okebooru.yml",
+      "sha": "b9f6f64fddedee95eca3b2e5247914a7e16e984c",
+      "size": 1285,
+      "companion_files": []
+    },
+    {
+      "name": "pantyjobs",
+      "yml_path": "scrapers/pantyjobs.yml",
+      "sha": "d43b2dbd965fd4f858d327abdf8504e18e6005a1",
+      "size": 570,
+      "companion_files": []
+    },
+    {
+      "name": "peeonher",
+      "yml_path": "scrapers/peeonher.yml",
+      "sha": "f83e2e8f868fe7da0e048e4101ce4ec097683c94",
+      "size": 736,
+      "companion_files": []
+    },
+    {
+      "name": "pjgirls",
+      "yml_path": "scrapers/pjgirls.yml",
+      "sha": "8576d6fcced14fd836c64cbcd024ce08369ba6ff",
+      "size": 940,
+      "companion_files": []
+    },
+    {
+      "name": "pornworld",
+      "yml_path": "scrapers/pornworld.yml",
+      "sha": "cc1e96e10a5bb3a3e59dd92a4623a7dd871a9196",
+      "size": 2443,
+      "companion_files": []
+    },
+    {
+      "name": "privatecastings",
+      "yml_path": "scrapers/privatecastings.yml",
+      "sha": "ec532bb772c03f204b6c426be6a86adc2aa636ac",
+      "size": 529,
+      "companion_files": []
+    },
+    {
+      "name": "purgatoryx",
+      "yml_path": "scrapers/purgatoryx.yml",
+      "sha": "dbf698c521519d879b921f84f003b99b12d55de4",
+      "size": 1294,
+      "companion_files": []
+    },
+    {
+      "name": "realbooru",
+      "yml_path": "scrapers/realbooru.yml",
+      "sha": "9220d2bac472ed03836c88c446881a6f921fe33e",
+      "size": 1015,
+      "companion_files": []
+    },
+    {
+      "name": "rule34-us",
+      "yml_path": "scrapers/rule34-us.yml",
+      "sha": "fbe8836a2d32f0f4b9a8b24fd0a61879fd044da7",
+      "size": 846,
+      "companion_files": []
+    },
+    {
+      "name": "sankakucomplex",
+      "yml_path": "scrapers/sankakucomplex.yml",
+      "sha": "dc06264d1b5745bb4f9a15dee6387ccd5abe7075",
+      "size": 2127,
+      "companion_files": []
+    },
+    {
+      "name": "sapphix",
+      "yml_path": "scrapers/sapphix.yml",
+      "sha": "632b46c0333d8ed00d6be5ea5c504ec9da189bd0",
+      "size": 981,
+      "companion_files": []
+    },
+    {
+      "name": "scatbook",
+      "yml_path": "scrapers/scatbook.yml",
+      "sha": "fa871cdcf97329b388c888b129a65bb2b18adee3",
+      "size": 1770,
+      "companion_files": []
+    },
+    {
+      "name": "sensuallovexxx",
+      "yml_path": "scrapers/sensuallovexxx.yml",
+      "sha": "8187605457f12a67bb37431a91cc21bbcaf8ef47",
+      "size": 904,
+      "companion_files": []
+    },
+    {
+      "name": "sexuria",
+      "yml_path": "scrapers/sexuria.yml",
+      "sha": "f3a4ea7d5de7b96e56bd62dbab46cf3c310980ba",
+      "size": 1571,
+      "companion_files": []
+    },
+    {
+      "name": "sgvideo",
+      "yml_path": "scrapers/sgvideo.yml",
+      "sha": "bb5663be8d8b51899ddf18814a48c07e2383d797",
+      "size": 644,
+      "companion_files": []
+    },
+    {
+      "name": "shagmag",
+      "yml_path": "scrapers/shagmag.yml",
+      "sha": "04e71991580b6c0f99cd6e585608cfa798ef12eb",
+      "size": 901,
+      "companion_files": []
+    },
+    {
+      "name": "shimmie2-graphql",
+      "yml_path": "scrapers/shimmie2-graphql.yml",
+      "sha": "56aa239950a6b776bb46c04b20f4da8cc49c8651",
+      "size": 1382,
+      "companion_files": []
+    },
+    {
+      "name": "shimmie2-xpath",
+      "yml_path": "scrapers/shimmie2-xpath.yml",
+      "sha": "c643445f5416f529df82d98fe9100a76b6c1dd9c",
+      "size": 826,
+      "companion_files": []
+    },
+    {
+      "name": "spermcocktails",
+      "yml_path": "scrapers/spermcocktails.yml",
+      "sha": "fb61ed69ff1ea5f39b0300a3d193a04de05ccb03",
+      "size": 2455,
+      "companion_files": []
+    },
+    {
+      "name": "sugarcookie",
+      "yml_path": "scrapers/sugarcookie.yml",
+      "sha": "931f81826ca7a0de65183227732602f9c1de4c6b",
+      "size": 823,
+      "companion_files": []
+    },
+    {
+      "name": "taboopov",
+      "yml_path": "scrapers/taboopov.yml",
+      "sha": "17bf1b1396987d967a9cdf8f256b9e7216902568",
+      "size": 1012,
+      "companion_files": []
+    },
+    {
+      "name": "theclassicporn",
+      "yml_path": "scrapers/theclassicporn.yml",
+      "sha": "1af26e08b9dc40985faf8557250e0027247255d1",
+      "size": 7225,
+      "companion_files": []
+    },
+    {
+      "name": "toughlovex",
+      "yml_path": "scrapers/toughlovex.yml",
+      "sha": "3c0dab1347f66f678f6a355a0caefe4a52228bd0",
+      "size": 461,
+      "companion_files": []
+    },
+    {
+      "name": "trafficpimps",
+      "yml_path": "scrapers/trafficpimps.yml",
+      "sha": "4893bf82fa5469439ac4a98645dcd21b413c09dc",
+      "size": 1242,
+      "companion_files": []
+    },
+    {
+      "name": "unkotare.com",
+      "yml_path": "scrapers/unkotare.com.yml",
+      "sha": "8b0fdc3da13634f829640657486d0a812683980d",
+      "size": 2653,
+      "companion_files": []
+    },
+    {
+      "name": "vTubie",
+      "yml_path": "scrapers/vTubie.yml",
+      "sha": "bdb66ce2fae7dac4ee8092aa4fec71b67b45c0a9",
+      "size": 1779,
+      "companion_files": []
+    },
+    {
+      "name": "vogov",
+      "yml_path": "scrapers/vogov.yml",
+      "sha": "212d92da6f4087587b3d2fdfdb22f7c0e2eb69a4",
+      "size": 1651,
+      "companion_files": []
+    },
+    {
+      "name": "wankz",
+      "yml_path": "scrapers/wankz.yml",
+      "sha": "d068b1f612eaf27d4b71959567b2c7cfc8c41695",
+      "size": 729,
+      "companion_files": []
+    },
+    {
+      "name": "xSinsVR",
+      "yml_path": "scrapers/xSinsVR.yml",
+      "sha": "f191fd4c88540052d01176ca09945793cf4b4cd8",
+      "size": 1157,
+      "companion_files": []
+    }
+  ]
+}

@@ -1,0 +1,389 @@
+#!/usr/bin/env python3
+"""explain_invariant.py — KB_PLAN_v2 C.2.
+
+CLI that prints everything a fresh Claude needs to know about a
+load-bearing invariant by its ID:
+
+    1. The INV_TAGS.md section (locality index — where the
+       invariant is tagged in source).
+    2. The DANGER_MAP.md entry (rationale — why the invariant
+       exists and what breaks if it's violated).
+    3. Pinning tests (which tests reference the ID by grep).
+    4. Currently-tagged source lines (live grep of `# INV-<ID>`
+       across bulk_downloader/, tools/, run_tests.py — the actual
+       lines as they exist now, not as INV_TAGS.md says).
+
+The last item is the difference between this CLI and just opening
+INV_TAGS.md: INV_TAGS.md can drift from source (the regression test
+catches *count* drift but not *line-number* drift after an unrelated
+edit). This CLI shows where the tags actually are today.
+
+Read-only. Never edits any file.
+
+Usage:
+
+    python tools/explain_invariant.py INV-001
+
+    # Without the INV- prefix is also accepted; case-insensitive.
+    python tools/explain_invariant.py 4
+
+    # Explicit kb-dir if DANGER_MAP.md and INV_TAGS.md don't both
+    # live at the repo root.
+    python tools/explain_invariant.py INV-001 --kb-dir ~/kb
+
+    # List every known invariant (from INV_TAGS.md) and exit.
+    python tools/explain_invariant.py --list
+
+Exit codes:
+
+  0   Found and printed.
+  1   ID not found in INV_TAGS.md.
+  2   INV_TAGS.md missing or unparseable.
+
+Implementation notes:
+
+  - INV_TAGS.md is the source of truth for which invariants exist.
+    DANGER_MAP.md has the rationale text but is searched by the
+    `DANGER_MAP entry:` cross-reference inside the INV_TAGS section,
+    not by ID (DANGER_MAP entries are titled, not numbered).
+
+  - Pinning tests are detected by grep — any test file that
+    contains the ID in its source is reported. False positives are
+    possible (a comment mentioning INV-001 isn't necessarily a
+    pinning test) but acceptable; the operator can read the file
+    and decide.
+
+  - Source greps run against bulk_downloader/, tools/, and
+    run_tests.py — the same scope as the A.1 regression test.
+"""
+import argparse
+import re
+import sys
+from pathlib import Path
+
+
+# Same scan paths as tests/test_inv_tags_not_regressed.py — keeps
+# the two artifacts consistent. If one expands, the other should.
+_SOURCE_SCAN_PATHS = (
+    "bulk_downloader",
+    "tools",
+    "run_tests.py",
+)
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+_INV_HEADER_RE = re.compile(
+    r"^## (INV-\d+)\s*(?:—\s*(.+?))?\s*$",
+    re.MULTILINE,
+)
+
+
+def _parse_inv_tags(text: str) -> list[tuple[str, str, str]]:
+    """Parse INV_TAGS.md into [(id, title, body), ...].
+
+    Each tuple is the invariant ID (e.g. "INV-001"), the title text
+    after the em-dash, and the body text up to the next `## INV-`
+    or end of file."""
+    headers: list[tuple[int, str, str]] = []
+    for m in _INV_HEADER_RE.finditer(text):
+        headers.append((m.start(), m.group(1), (m.group(2) or "").strip()))
+    # Bracket each header with its body span.
+    out: list[tuple[str, str, str]] = []
+    for i, (start, inv_id, title) in enumerate(headers):
+        end = headers[i + 1][0] if i + 1 < len(headers) else len(text)
+        # Skip past the header line itself.
+        nl = text.find("\n", start)
+        body_start = (nl + 1) if nl != -1 else start
+        body = text[body_start:end].strip("\n")
+        out.append((inv_id, title, body))
+    return out
+
+
+def _normalize_id(arg: str) -> str:
+    """Accept 'INV-1', 'INV-001', '1', 'inv-1' etc. Returns the
+    canonical 'INV-NNN' form with zero-padded 3-digit number."""
+    s = arg.strip().upper()
+    if s.startswith("INV-"):
+        s = s[4:]
+    try:
+        n = int(s)
+    except ValueError:
+        return arg.strip().upper()  # Will fail lookup, with the
+        # user's input echoed back in the error.
+    return f"INV-{n:03d}"
+
+
+def _find_danger_map_entry(danger_text: str, dm_title_hint: str) -> str | None:
+    """Locate the DANGER_MAP.md section matching `dm_title_hint`.
+
+    INV_TAGS.md sections contain a `DANGER_MAP entry: "<title>"`
+    line; we use that title to find the matching `### <title>`
+    heading in DANGER_MAP.md.
+
+    Returns the section text (heading + body up to next heading at
+    the same level), or None if not found. Matching is fuzzy: a hit
+    requires the heading text to *contain* the hint (case-sensitive
+    on alphanumeric, ignoring smart-quote / em-dash variants).
+    """
+    if not dm_title_hint:
+        return None
+    # Strip surrounding quotes; INV_TAGS uses regular straight or
+    # smart quotes inconsistently across sessions.
+    cleaned_hint = dm_title_hint.strip().strip("\"'“”‘’").lower()
+    # Normalize quote-likes for the match, and remove backticks —
+    # DANGER_MAP headings often quote identifiers with backticks
+    # (`session_keeper`) while INV_TAGS quotes them in prose without
+    # backticks. Stripping equalizes them for the contains-match.
+    def _norm(s: str) -> str:
+        s = (s.replace("“", '"').replace("”", '"')
+              .replace("‘", "'").replace("’", "'")
+              .replace("`", ""))
+        return s.lower()
+
+    cleaned_hint = _norm(cleaned_hint)
+
+    lines = danger_text.splitlines()
+    # Collect (lineno, heading_text, level) for every heading.
+    hits: list[tuple[int, str, int]] = []
+    for i, line in enumerate(lines):
+        if line.startswith("### "):
+            hits.append((i, line[4:].strip(), 3))
+        elif line.startswith("## "):
+            hits.append((i, line[3:].strip(), 2))
+    # Find a `###` whose normalized title contains the hint.
+    target_idx: int | None = None
+    for j, (i, title, level) in enumerate(hits):
+        if level != 3:
+            continue
+        if cleaned_hint in _norm(title):
+            target_idx = j
+            break
+    if target_idx is None:
+        return None
+    # Section runs from this heading to the next heading at level
+    # <= 3 (any heading; sibling or parent).
+    start = hits[target_idx][0]
+    end_lineno = len(lines)
+    for j in range(target_idx + 1, len(hits)):
+        if hits[j][2] <= 3:
+            end_lineno = hits[j][0]
+            break
+    return "\n".join(lines[start:end_lineno]).rstrip("\n")
+
+
+def _grep_source_for_id(root: Path, inv_id: str) -> list[tuple[str, int, str]]:
+    """Return [(relpath, lineno, line_text), ...] for every line in
+    the source scan paths that contains `# <inv_id>`. This is the
+    "where the tags actually are today" report — bypasses INV_TAGS.md
+    so a drift in line numbers is visible immediately."""
+    needle = f"# {inv_id}"
+    out: list[tuple[str, int, str]] = []
+    for rel in _SOURCE_SCAN_PATHS:
+        base = root / rel
+        if not base.exists():
+            continue
+        if base.is_file():
+            files = [base]
+        else:
+            files = sorted(base.rglob("*.py"))
+        for fp in files:
+            try:
+                text = fp.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for i, line in enumerate(text.splitlines(), 1):
+                if needle in line:
+                    out.append((
+                        str(fp.relative_to(root)),
+                        i,
+                        line.rstrip(),
+                    ))
+    return out
+
+
+def _grep_tests_for_id(root: Path, inv_id: str) -> list[str]:
+    """Return relative paths of test files that mention `inv_id`
+    anywhere (comment, docstring, or constant). Heuristic; the
+    operator decides whether each is actually a pinning test."""
+    tests_dir = root / "tests"
+    if not tests_dir.is_dir():
+        return []
+    hits: list[str] = []
+    for fp in sorted(tests_dir.glob("test_*.py")):
+        try:
+            text = fp.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if inv_id in text:
+            hits.append(str(fp.relative_to(root)))
+    return hits
+
+
+def _extract_dm_title_hint(body: str) -> str:
+    """Pull the DANGER_MAP entry title from an INV_TAGS section body.
+
+    INV_TAGS sections start with a line like:
+        DANGER_MAP entry: "<title>"
+    or sometimes without quotes. We grab the right-hand side."""
+    for line in body.splitlines():
+        if line.strip().startswith("DANGER_MAP entry:"):
+            after = line.split(":", 1)[1].strip()
+            # Strip wrapping quotes if present.
+            return after.strip().strip("\"'“”‘’")
+    return ""
+
+
+def _format_listing(invs: list[tuple[str, str, str]]) -> str:
+    """One-line-per-INV summary for --list mode."""
+    if not invs:
+        return "(no invariants found in INV_TAGS.md)\n"
+    out = []
+    width = max(len(i[0]) for i in invs)
+    for inv_id, title, _body in invs:
+        out.append(f"  {inv_id:<{width}}  {title}")
+    return "\n".join(out) + "\n"
+
+
+def explain(root: Path, kb_dir: Path, inv_id: str) -> tuple[int, str]:
+    """Build the explanation string for `inv_id`. Returns
+    (exit_code, output_text)."""
+    inv_path = kb_dir / "INV_TAGS.md"
+    inv_text = None
+    try:
+        inv_text = inv_path.read_text(encoding="utf-8")
+    except OSError:
+        # Fall back to repo root if --kb-dir doesn't have it.
+        inv_path = root / "INV_TAGS.md"
+        try:
+            inv_text = inv_path.read_text(encoding="utf-8")
+        except OSError:
+            return 2, (f"FAIL: INV_TAGS.md not found in {kb_dir} or "
+                       f"{root}\n")
+    invs = _parse_inv_tags(inv_text)
+    by_id = {i[0]: i for i in invs}
+    match = by_id.get(inv_id)
+    if match is None:
+        out = (f"FAIL: {inv_id} not found in INV_TAGS.md.\n"
+               f"Known invariants:\n")
+        out += _format_listing(invs)
+        return 1, out
+
+    _id, title, body = match
+    out_lines: list[str] = []
+    out_lines.append(f"# {inv_id} — {title}")
+    out_lines.append("")
+    out_lines.append("## From INV_TAGS.md")
+    out_lines.append("")
+    out_lines.append(body.rstrip())
+    out_lines.append("")
+
+    # DANGER_MAP entry (rationale).
+    dm_path = kb_dir / "DANGER_MAP.md"
+    dm_text = None
+    try:
+        dm_text = dm_path.read_text(encoding="utf-8")
+    except OSError:
+        pass
+    dm_hint = _extract_dm_title_hint(body)
+    if dm_text is not None and dm_hint:
+        section = _find_danger_map_entry(dm_text, dm_hint)
+        if section:
+            out_lines.append("## From DANGER_MAP.md")
+            out_lines.append("")
+            out_lines.append(section)
+            out_lines.append("")
+        else:
+            out_lines.append("## From DANGER_MAP.md")
+            out_lines.append("")
+            out_lines.append(f"(no matching section found for "
+                             f"hint {dm_hint!r})")
+            out_lines.append("")
+    elif dm_text is None:
+        out_lines.append("## From DANGER_MAP.md")
+        out_lines.append("")
+        out_lines.append("(DANGER_MAP.md not in --kb-dir)")
+        out_lines.append("")
+
+    # Live source grep.
+    src_hits = _grep_source_for_id(root, inv_id)
+    out_lines.append("## Currently-tagged source lines")
+    out_lines.append("")
+    if src_hits:
+        out_lines.append("```")
+        for rel, lineno, line in src_hits:
+            out_lines.append(f"{rel}:{lineno}: {line.strip()}")
+        out_lines.append("```")
+    else:
+        out_lines.append("(no `# {0}` comments found in source — "
+                         "either the tag was removed or the ID is "
+                         "documented but not yet tagged)".format(inv_id))
+    out_lines.append("")
+
+    # Pinning tests.
+    test_hits = _grep_tests_for_id(root, inv_id)
+    out_lines.append("## Pinning tests (grep)")
+    out_lines.append("")
+    if test_hits:
+        out_lines.append("```")
+        for t in test_hits:
+            out_lines.append(t)
+        out_lines.append("```")
+        out_lines.append("")
+        out_lines.append("(heuristic — a mention is not necessarily "
+                         "a pinning test; read the file to confirm)")
+    else:
+        out_lines.append(f"(no test files mention {inv_id} — the "
+                         f"invariant may be enforced indirectly or "
+                         f"not yet have a dedicated test)")
+    out_lines.append("")
+
+    return 0, "\n".join(out_lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("inv_id", nargs="?",
+                    help="invariant ID (e.g. INV-001, or just 1)")
+    ap.add_argument("--kb-dir", type=Path, default=None,
+                    help="directory containing INV_TAGS.md and "
+                         "DANGER_MAP.md (default: repo root)")
+    ap.add_argument("--list", action="store_true",
+                    help="list every known invariant and exit")
+    args = ap.parse_args(argv)
+
+    root = _repo_root()
+    kb_dir = args.kb_dir or root
+
+    if args.list:
+        inv_path = kb_dir / "INV_TAGS.md"
+        try:
+            text = inv_path.read_text(encoding="utf-8")
+        except OSError:
+            inv_path = root / "INV_TAGS.md"
+            try:
+                text = inv_path.read_text(encoding="utf-8")
+            except OSError:
+                print(f"FAIL: INV_TAGS.md not found in {kb_dir} or "
+                      f"{root}", file=sys.stderr)
+                return 2
+        invs = _parse_inv_tags(text)
+        print(_format_listing(invs), end="")
+        return 0
+
+    if not args.inv_id:
+        ap.print_help()
+        return 2
+
+    rc, output = explain(root, kb_dir, _normalize_id(args.inv_id))
+    if rc == 0:
+        sys.stdout.write(output)
+    else:
+        sys.stderr.write(output)
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())

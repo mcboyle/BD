@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""bd-release-note -- generate release notes from STATE + tree diff + changelog.
+
+Assembles a human-readable release note for the current version: changed files
+vs the pinned zip (via the same diff bd-since uses), the CHANGELOG top entry,
+the validation line + guard status from STATE, and the next-actions from STATE.
+For operator sign-off + the tracker. Read-only.
+
+Usage: bd-release-note [--work DIR] [--home DIR] [--json] [--selftest]
+Exit 0 note composed (informational) / 2 CANNOT-EVALUATE (absent
+tree/bundle -- guarded upstream).
+"""
+import argparse, glob, os, re, sys, zipfile
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+
+def changed_files(work, home):
+    # --home is a SECOND corpus root. With neither zip nor STATE, load_state()
+    # returned {} and the tool cheerfully emitted release notes about nothing, rc=0.
+    sec.require_corpus(home, min_files=1, label="--home",
+                       patterns=("BulkDownloader_v3_66_*.zip",))
+    zp=sorted(glob.glob(os.path.join(home,"BulkDownloader_v3_66_*.zip")),key=os.path.getmtime,reverse=True)
+    if not zp: return None
+    pinned={}
+    with zipfile.ZipFile(zp[0]) as z:
+        for n in z.namelist():
+            if n.endswith(".py"): pinned[n]=z.read(n)
+    ch=[]
+    for p,rel,_t in sec.iter_py(work, strict=True, label="--work/--tree"):
+        if rel not in pinned or pinned[rel]!=open(p,"rb").read(): ch.append(rel)
+    return sorted(ch)
+
+def build(work, home):
+    st=sec.load_state(home) or {}
+    ver=st.get("built_version") or st.get("live_version")
+    chlog=os.path.join(work,"CHANGELOG.md")
+    top=""
+    if os.path.exists(chlog):
+        s=open(chlog).read()
+        m=re.search(r'(## v?[0-9].*?)(?=\n## v?[0-9]|\Z)', s, re.S)
+        top=(m.group(1).strip()[:600] if m else "")
+    ch=changed_files(work,home)
+    nxt=st.get("next")
+    return {"version":ver,"changed_files":ch if ch is not None else [],
+            "changelog_top":top,"validation":st.get("validation"),
+            "deploy_status":st.get("deploy_status"),"next":nxt}
+
+def _expect_version():
+    """The version the SOURCE TREE declares about itself.
+
+    Deliberately a DIFFERENT route than the one under test (which reads the
+    STATE pin), so this stays a cross-check and not x==x. Refuses rather than
+    comparing None to None -- an absent comparand is CANNOT-EVALUATE, not a pass.
+    """
+    v = sec.detect_tree_version(sec.DEFAULT_WORK)
+    if not v:
+        sys.stderr.write("CANNOT-EVALUATE selftest: reason=ABSENT "
+                         "(work tree declares no __version__)\n")
+        sys.exit(2)
+    return v
+
+
+def selftest():
+    ok=True
+    n=build(sec.DEFAULT_WORK,"/home/claude")
+    want=_expect_version()
+    good=n["version"]==want and n["changelog_top"]
+    print(("PASS" if good else "FAIL")+"  note built (version=%s, changelog top len=%d)"%(n["version"],len(n["changelog_top"])))
+    ok=ok and good
+    pristine=n["changed_files"]==[]
+    print(("PASS" if pristine else "WARN")+"  pristine tree -> 0 changed files (%d)"%len(n["changed_files"]))
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK); ap.add_argument("--home",default="/home/claude")
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    n=build(a.work,a.home)
+    if sec.emit(n,as_json=a.json): return 0
+    print("=== Release note: v%s ==="%n["version"])
+    print("deploy: %s"%n.get("deploy_status"))
+    print("changed files vs pinned zip: %d"%len(n["changed_files"]))
+    for f in n["changed_files"][:20]: print("  - %s"%f)
+    if n.get("validation"): print("validation: %s"%str(n["validation"])[:160])
+    print(DIM+"(changelog top + next-actions in --json)"+RST)
+    return 0
+sys.exit(main())

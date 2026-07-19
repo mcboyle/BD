@@ -1,0 +1,315 @@
+#!/usr/bin/env python3
+"""bd-pk-mirror -- detect drift between static-PK .py files and their
+work-tree / bdsuite-bin counterparts.
+
+WHY A bd-* TOOL AND NOT A tests/ SUITE: /mnt/project does not exist on
+stash. A tests/ gate would assert over a denominator that structurally
+excludes its own subject on the machine where the full suite runs -- it
+would report clean, truthfully and uselessly. That is the exact failure
+shape this project catalogues.
+
+Per PK .py file, one verdict:
+  PK-ONLY          no counterpart anywhere (the render-harness class --
+                   load-bearing, not a defect)
+  MIRROR-IDENTICAL every counterpart is byte-identical to the PK copy
+  MIRROR-DRIFTED   counterparts agree with EACH OTHER but differ from the
+                   PK copy (the PK copy is a stale account of superseded
+                   code -- FG-PK-MIRROR-DRIFTS-SILENTLY realized)
+  AMBIGUOUS        counterparts DISAGREE among themselves (the pre-799
+                   bd-audit-gate shape: two same-named tools with
+                   different behaviour depending on which is invoked)
+
+UNKNOWN IS A THIRD STATE AND IT FAILS OPEN: if the work tree is not
+extracted, this says "cannot verify" and exits non-zero. It never reports
+OK on an empty probe.
+
+Usage:
+  bd-pk-mirror [--pk DIR] [--work DIR] [--bin DIR] [--check] [--json]
+  bd-pk-mirror --selftest
+  --check : exit 1 on any MIRROR-DRIFTED or AMBIGUOUS (both are defects;
+            PK-ONLY and IDENTICAL are healthy states)
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import sys
+
+G, R, Y, D, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+
+def _sha(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+_SKIP_DIRS = {"node_modules", "venv", ".venv", "__pycache__", ".git",
+              ".pytest_cache", ".mypy_cache", "dist", "build"}
+
+# Non-source suffixes that share the PK root with the tools -- data and docs
+# that must NEVER be treated as mirror subjects even if they briefly lack a dot.
+_NONSOURCE_EXT = {".md", ".json", ".txt", ".xlsx", ".png", ".db", ".log",
+                  ".csv", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".zip"}
+
+
+def _is_source(path: str) -> bool:
+    """The denominator is 'is a source script', DERIVED, not 'ends in .py'.
+
+    @805 (the netns-probe cut) exposed that the PK mirrors ~241 EXTENSIONLESS
+    bd-* tools (bash + python shebangs) and every one was invisible to this
+    gate -- the drift gate could not see the toolchain it exists to guard.
+    Live witness: bin/bd-venv drifted from its PK mirror at @797e and this gate
+    reported IN-SYNC every run since, purely because bd-venv has no .py suffix.
+
+    A .py suffix still qualifies (fast path, and covers the render-harness .py
+    files). Otherwise, a dotless file whose first line is an interpreter
+    shebang is a script we mirror. A dotted NON-source file (.md/.json/...) is
+    explicitly excluded so widening the net cannot sweep in data or docs -- the
+    NEG the selftest pins. Unreadable -> not source (conservative; a blob that
+    cannot be read as a script is not one we compare)."""
+    name = os.path.basename(path)
+    ext = os.path.splitext(name)[1].lower()
+    if ext == ".py":
+        return True
+    if ext in _NONSOURCE_EXT:
+        return False
+    if ext:
+        # some other extension we do not mirror as a tool
+        return False
+    # dotless: qualify iff it opens with a shebang
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(2) == b"#!"
+    except OSError:
+        return False
+
+
+def _is_sidecar_mirror(path: str, bin_dir: str) -> bool:
+    """A DATA SIDECAR mirror: a dotted non-source PK file that is ALSO shipped in
+    bin/. Distinct from _is_source on purpose (@808).
+
+    _is_source deliberately excludes data and docs so widening cannot sweep them
+    in -- correct, and pinned by a NEG. But it left a hole: FOOTGUNS.json ships in
+    bin/ AND is mirrored in PK, so it is a mirror by any honest reading, and the
+    gate could not see it drift. It did drift (PK 9d17bc74 / 65,323 b vs bin
+    aa18c168 / 61,266 b at @806) and this gate reported clean the whole time.
+
+    The @804/@806 registers said closing this needed 'collision-distinguishing
+    logic' because README.md is 24,834 b in PK and 533 b in the work tree --
+    genuinely different documents. MEASURED @808: README.md is not in bin/ at
+    all. Matching sidecars against bin/ ONLY (never the work tree) dissolves the
+    collision structurally rather than adjudicating it -- a PK doc with no bin
+    twin is never a sidecar, so there is nothing to get wrong.
+    """
+    if not bin_dir or not os.path.isdir(bin_dir):
+        return False
+    name = os.path.basename(path)
+    if not os.path.splitext(name)[1]:
+        return False          # dotless is _is_source's business
+    if os.path.splitext(name)[1].lower() == ".py":
+        return False          # .py is already source
+    return os.path.isfile(os.path.join(bin_dir, name))
+
+
+def _counterparts(name: str, roots: list[str]) -> list[str]:
+    hits = []
+    for root in roots:
+        if not root or not os.path.isdir(root):
+            continue
+        for dirpath, dirnames, files in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+            if name in files:
+                hits.append(os.path.join(dirpath, name))
+    return hits
+
+
+def classify(pk_root: str, work: str, bin_dir: str):
+    rows = []
+    for entry in sorted(os.listdir(pk_root)):
+        pk_path = os.path.join(pk_root, entry)
+        if not os.path.isfile(pk_path):
+            continue
+        if not _is_source(pk_path):
+            if _is_sidecar_mirror(pk_path, bin_dir):
+                twin = os.path.join(bin_dir, entry)
+                pk_sha, tw_sha = _sha(pk_path), _sha(twin)
+                rows.append({
+                    "file": entry,
+                    "verdict": ("SIDECAR-IDENTICAL" if pk_sha == tw_sha
+                                else "SIDECAR-DRIFTED"),
+                    "pk_sha": pk_sha[:12],
+                    "counterparts": [{"path": twin, "sha": tw_sha[:12]}]})
+            continue
+        hits = _counterparts(entry, [work, bin_dir])
+        if not hits:
+            rows.append({"file": entry, "verdict": "PK-ONLY",
+                         "counterparts": []})
+            continue
+        pk_sha = _sha(pk_path)
+        shas = {h: _sha(h) for h in hits}
+        distinct = set(shas.values())
+        if len(distinct) > 1:
+            verdict = "AMBIGUOUS"
+        elif distinct == {pk_sha}:
+            verdict = "MIRROR-IDENTICAL"
+        else:
+            verdict = "MIRROR-DRIFTED"
+        rows.append({"file": entry, "verdict": verdict,
+                     "pk_sha": pk_sha[:12],
+                     "counterparts": [{"path": h, "sha": s[:12]}
+                                      for h, s in sorted(shas.items())]})
+    return rows
+
+
+def selftest() -> int:
+    """Synthetic pk/tree/bin trio proving every branch, including the two
+    the live tree (post-799) no longer exhibits (AMBIGUOUS) and the
+    fail-open path. RED-provable: each control targets one verdict."""
+    import tempfile
+    ok = True
+    with tempfile.TemporaryDirectory() as td:
+        pk = os.path.join(td, "pk"); os.makedirs(pk)
+        wt = os.path.join(td, "wt", "tools"); os.makedirs(wt)
+        bn = os.path.join(td, "bin"); os.makedirs(bn)
+
+        def w(root, name, body):
+            open(os.path.join(root, name), "w").write(body)
+
+        w(pk, "same.py", "A")
+        w(wt, "same.py", "A")                       # -> IDENTICAL
+        w(pk, "stale.py", "OLD")
+        w(wt, "stale.py", "NEW"); w(bn, "stale.py", "NEW")  # -> DRIFTED
+        w(pk, "split.py", "X")
+        w(wt, "split.py", "Y"); w(bn, "split.py", "Z")      # -> AMBIGUOUS
+        w(pk, "only.py", "harness")                          # -> PK-ONLY
+        # @805: the denominator hole. Extensionless bd-* tools (bash+python
+        # shebangs) were invisible; a NON-source dotless blob must stay out.
+        w(pk, "bd-tool", "#!/usr/bin/env python3\nOLD\n")
+        w(bn, "bd-tool", "#!/usr/bin/env python3\nNEW\n")   # -> DRIFTED (dotless py)
+        w(pk, "bd-sh", "#!/bin/bash\nold\n")
+        w(bn, "bd-sh", "#!/bin/bash\nnew\n")               # -> DRIFTED (dotless bash)
+        w(pk, "NOTES", "a note, no shebang\n")
+        w(bn, "NOTES", "a DIFFERENT note\n")                # -> EXCLUDED (not source)
+        # @808 (FOOTGUNS.json): a DATA SIDECAR shipped in bin/ and mirrored in PK
+        # is not "source", so _is_source excluded it and the gate could not see
+        # it drift. Live cost: FOOTGUNS.json drifted PK 9d17bc74 (65,323 b) vs
+        # bin aa18c168 (61,266 b) at @806 and this gate reported clean throughout.
+        w(pk, "DATA.json", "{\"a\": 1}")
+        w(bn, "DATA.json", "{\"a\": 2}")                     # -> SIDECAR-DRIFTED
+        w(pk, "SAME.json", "{\"b\": 1}")
+        w(bn, "SAME.json", "{\"b\": 1}")                     # -> SIDECAR-IDENTICAL
+        # NEG (the collision the 806 register feared): a PK doc whose basename also
+        # exists in the WORK TREE but NOT in bin/ is a genuinely different document
+        # (README.md: 24,834 b in PK vs 533 b in the tree). Sidecars are matched
+        # against bin/ ONLY, so this must stay invisible -- widening must not buy
+        # a false positive.
+        w(pk, "README.md", "the long PK readme\n")
+        w(wt, "README.md", "short tree readme\n")            # -> EXCLUDED (no bin twin)
+
+        rows = {r["file"]: r["verdict"]
+                for r in classify(pk, os.path.dirname(wt), bn)}
+        cases = [("same.py", "MIRROR-IDENTICAL"),
+                 ("stale.py", "MIRROR-DRIFTED"),
+                 ("split.py", "AMBIGUOUS"),
+                 ("only.py", "PK-ONLY"),
+                 ("bd-tool", "MIRROR-DRIFTED"),
+                 ("bd-sh", "MIRROR-DRIFTED"),
+                 ("DATA.json", "SIDECAR-DRIFTED"),
+                 ("SAME.json", "SIDECAR-IDENTICAL"),
+                 ("README.md", None)]
+        for name, want in cases:
+            got = rows.get(name)
+            good = got == want
+            ok &= good
+            print(("%sPASS%s" if good else "%sFAIL%s")
+                  % ((G, RST) if good else (R, RST))
+                  + f"  {name}: {got} (want {want})")
+
+        # NEG: a non-source dotless blob must NOT be a mirror subject. Widening
+        # the denominator to catch tools must not sweep in data/docs.
+        excl = "NOTES" not in rows
+        ok &= excl
+        print(("%sPASS%s" if excl else "%sFAIL%s")
+              % ((G, RST) if excl else (R, RST))
+              + "  NON-source dotless blob excluded (NOTES: %s)"
+              % rows.get("NOTES", "absent"))
+
+        # FAIL-OPEN: absent work tree must refuse, not report clean.
+        import subprocess
+        r = subprocess.run(
+            [sys.executable, os.path.realpath(__file__),
+             "--pk", pk, "--work", os.path.join(td, "no_such_tree"),
+             "--bin", bn],
+            capture_output=True, text=True)
+        fo = r.returncode != 0 and "cannot verify" in (r.stdout + r.stderr)
+        ok &= fo
+        print(("%sPASS%s" if fo else "%sFAIL%s")
+              % ((G, RST) if fo else (R, RST))
+              + "  FAIL-OPEN: absent work tree refuses (rc=%s)" % r.returncode)
+
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--pk", default="/mnt/project")
+    ap.add_argument("--work", default="/home/claude/work")
+    ap.add_argument("--bin", dest="bin_dir", default="/home/claude/bin")
+    ap.add_argument("--check", action="store_true")
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+
+    if not os.path.isdir(a.pk):
+        print(f"{R}XX{RST}  cannot verify -- PK root absent: {a.pk} "
+              f"(this gate is sandbox-only by design)", file=sys.stderr)
+        return 2
+    if not os.path.isdir(a.work):
+        print(f"{R}XX{RST}  cannot verify -- work tree absent: {a.work} "
+              f"(run bd-install first; refusing to report OK on an empty "
+              f"probe)", file=sys.stderr)
+        return 2
+
+    rows = classify(a.pk, a.work, a.bin_dir)
+    counts = {}
+    for r in rows:
+        counts[r["verdict"]] = counts.get(r["verdict"], 0) + 1
+
+    if a.json:
+        print(json.dumps({"rows": rows, "counts": counts}, indent=1))
+    else:
+        order = {"AMBIGUOUS": 0, "MIRROR-DRIFTED": 1, "SIDECAR-DRIFTED": 2,
+                 "PK-ONLY": 3, "MIRROR-IDENTICAL": 4, "SIDECAR-IDENTICAL": 5}
+        for r in sorted(rows, key=lambda x: (order[x["verdict"]], x["file"])):
+            col = {"AMBIGUOUS": R, "MIRROR-DRIFTED": R, "SIDECAR-DRIFTED": R,
+                   "PK-ONLY": Y, "MIRROR-IDENTICAL": G,
+                   "SIDECAR-IDENTICAL": G}[r["verdict"]]
+            extra = ""
+            if r["verdict"] in ("MIRROR-DRIFTED", "AMBIGUOUS",
+                                "SIDECAR-DRIFTED"):
+                extra = "  pk=%s vs %s" % (
+                    r["pk_sha"],
+                    ",".join(c["sha"] for c in r["counterparts"]))
+            print(f"  {col}{r['verdict']:<17}{RST}{r['file']}{D}{extra}{RST}")
+        print("  -- " + "  ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+
+    bad = (counts.get("MIRROR-DRIFTED", 0) + counts.get("AMBIGUOUS", 0)
+           + counts.get("SIDECAR-DRIFTED", 0))
+    if a.check and bad:
+        print(f"{R}CHECK FAIL{RST} -- {bad} drifted/ambiguous PK mirror(s); "
+              f"the PK copy is a stale account of superseded code",
+              file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

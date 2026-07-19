@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""bd-csrf-audit -- audit CSRF coverage of mutating endpoints.
+
+Reads the authoritative ENDPOINT_CATALOG.md (kept in sync by
+test_endpoint_catalog_in_sync). Lists every mutating route (POST/PUT/PATCH/
+DELETE) marked CSRF:no and cross-references the known-intentional bypasses in
+_check_csrf (bootstrap pair/redeem, Bearer paths). Flags any CSRF:no mutating
+route with no documented reason -> BD-CSRF-UNGUARDED (high). Advisory,
+read-only.
+
+Usage: bd-csrf-audit [--work DIR] [--json] [--only unguarded] [--selftest]
+Exit 0 (advisory); 1 with --fail-on-unguarded if any undocumented gap.
+"""
+import argparse
+import os
+import re
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+# Documented intentional CSRF:no bypasses (from _check_csrf + catalog header).
+KNOWN_BYPASS = {
+    "/api/pair/redeem": "bootstrap: first cookie-session request has no token yet",
+}
+# Path prefixes whose CSRF:no is auth-mode-dependent, not a route defect
+# (bearer/no-session clients handled by _check_token / same-origin Referer).
+NOTE = ("cockpit UI sends X-CSRF-Token; covered by the same gate as /api/",)
+
+
+def audit(work):
+    cat = sec.parse_endpoint_catalog(work)
+    rows = []
+    for r in cat:
+        if r["method"] not in sec.MUTATING:
+            continue
+        guarded = r["csrf"]
+        reason = KNOWN_BYPASS.get(r["path"])
+        status = ("guarded" if guarded else
+                  "documented-bypass" if reason else "UNGUARDED")
+        rows.append({"method": r["method"], "path": r["path"],
+                     "csrf": guarded, "status": status,
+                     "reason": reason or "", "desc": r["desc"]})
+    rows.sort(key=lambda x: ({"UNGUARDED": 0, "documented-bypass": 1, "guarded": 2}[x["status"]],
+                             x["path"]))
+    return rows
+
+
+def selftest():
+    ok = True
+    fake = ("## /api/* routes\n\n```\n"
+            "POST    /api/thing/create        CSRF: yes  - guarded write\n"
+            "POST    /api/pair/redeem         CSRF: no   - bootstrap\n"
+            "POST    /api/leaky/write         CSRF: no   - undocumented\n"
+            "GET     /api/thing/list          CSRF: no   - read only\n"
+            "```\n")
+    with tempfile.TemporaryDirectory() as d:
+        open(os.path.join(d, "ENDPOINT_CATALOG.md"), "w").write(fake)
+        rows = audit(d)
+    by = {r["path"]: r["status"] for r in rows}
+    good = (by.get("/api/leaky/write") == "UNGUARDED"
+            and by.get("/api/pair/redeem") == "documented-bypass"
+            and by.get("/api/thing/create") == "guarded"
+            and "/api/thing/list" not in by)  # GET excluded
+    print(("PASS" if good else "FAIL") + f"  fixture classification ({by})")
+    ok &= good
+    # real tree: every UNGUARDED is genuinely CSRF:no + mutating (self-consistency)
+    real = audit(sec.DEFAULT_WORK)
+    ung = [r for r in real if r["status"] == "UNGUARDED"]
+    cons = all(not r["csrf"] and r["method"] in sec.MUTATING for r in ung)
+    print(("PASS" if cons else "FAIL") +
+          f"  real-tree consistency ({len(real)} mutating, {len(ung)} unguarded)")
+    ok &= cons
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--only", choices=["unguarded"], default=None)
+    ap.add_argument("--fail-on-unguarded", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    sec.require_source_tree(a.work)
+    rows = audit(a.work)
+    if a.only == "unguarded":
+        rows = [r for r in rows if r["status"] == "UNGUARDED"]
+    ung = sum(1 for r in rows if r["status"] == "UNGUARDED")
+    if sec.emit({"routes": rows, "summary": {
+            "mutating": len(rows), "unguarded": ung,
+            "documented_bypass": sum(1 for r in rows if r["status"] == "documented-bypass")}},
+            as_json=a.json):
+        return 1 if (a.fail_on_unguarded and ung) else 0
+    if not rows:
+        print(f"{Y}no ENDPOINT_CATALOG.md found (run tools/build_endpoint_catalog.py){RST}")
+        return 0
+    for r in rows[:60]:
+        if r["status"] == "UNGUARDED":
+            tag = R + "UNGUARDED" + RST
+        elif r["status"] == "documented-bypass":
+            tag = Y + "bypass   " + RST
+        else:
+            tag = G + "guarded  " + RST
+        note = DIM + " (" + r["reason"] + ")" + RST if r["reason"] else ""
+        print(f"  {tag}  {r['method']:<6} {r['path']}{note}")
+    print(f"{DIM}{len(rows)} mutating route(s); {ung} unguarded with no documented reason{RST}")
+    return 1 if (a.fail_on_unguarded and ung) else 0
+
+
+sys.exit(main())

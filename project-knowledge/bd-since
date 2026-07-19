@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""bd-since -- what has changed in the work tree vs the pinned source zip.
+
+bd-preflight asserts byte-identity; bd-since LISTS the diff (Matt overlays files,
+so tree and zip diverge). For each changed source file it suggests what to band /
+regen, so an overlay session knows its blast radius.
+
+Usage: bd-since [--work DIR] [--zip SRC.zip]
+Exit 0 always (report tool).
+"""
+import argparse
+import re
+import glob
+import hashlib
+import os
+import sys
+import zipfile
+
+
+def _bd_pick_newest(paths):
+    """Highest VERSION wins; ties resolve to /home/claude.
+
+    These lists glob BOTH /mnt/user-data/uploads AND /home/claude, then sorted the PATH
+    STRINGS with reverse=True. Lexicographically "/mnt..." > "/home...", so the READ-ONLY
+    UPLOADS COPY ALWAYS WON -- regardless of version. bd-since cheerfully diffed the work
+    tree against a FOUR-RELEASE-STALE zip (722 against a live 726) while looking entirely
+    correct; bd-agent-scorecard scored off that, and bd-evidence BLOCKED on the result.
+
+    The denominator CONTAINED the right file. The ORDERING discarded it. Sort by the thing
+    actually being asked about -- the version -- not by where the file happens to live.
+    """
+    def _k(p):
+        nums = tuple(int(x) for x in re.findall(r"\d+", os.path.basename(p)))
+        return (nums, p.startswith("/home/claude"))
+    return sorted(paths, key=_k, reverse=True)
+
+
+G, R, Y, C, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[36m", "\033[2m", "\033[0m"
+
+
+def sha_bytes(b):
+    return hashlib.sha256(b).hexdigest()
+
+
+def sha_file(p):
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        for c in iter(lambda: f.read(65536), b""):
+            h.update(c)
+    return h.hexdigest()
+
+
+def newest_zip():
+    z = _bd_pick_newest(glob.glob("/mnt/user-data/uploads/BulkDownloader_v3_66_*.zip")
+               + glob.glob("/home/claude/BulkDownloader_v3_66_*.zip")
+                        + glob.glob("/home/claude/out/BulkDownloader_v3_66_*.zip"))
+    return z[0] if z else None
+
+
+def hint(rel):
+    r = rel.lower()
+    if r.startswith("tests/"):
+        return "band this test file directly"
+    if r.endswith((".ts", ".tsx", ".jsx", ".css")) or "frontend/" in r:
+        return "FE change -> repin dist (bd-repin-dist) + vitest"
+    if "/routes" in r or rel.endswith("app.py") or "blueprint" in r:
+        return "route change -> bd-regen + route counts + ENDPOINT_CATALOG"
+    if rel.endswith(".py"):
+        return "py change -> bd-regen (function index/dep graph); check bd-imports"
+    return "map via TOUCHED_FILE_TO_TEST.md"
+
+
+def selftest():
+    # hint() classifies a changed path into a band/regen action; a test file
+    # must map to banding that test, a route file to a route-regen reminder.
+    h_test = hint("tests/test_foo.py")
+    h_route = hint("bulk_downloader/app.py")
+    ok = ("band" in h_test.lower())
+    print(("PASS" if "band" in h_test.lower() else "FAIL") + "  test file -> band hint (%r)" % h_test)
+    # NEG: sha_bytes must actually distinguish content (not a constant)
+    import hashlib as _h
+    diff = sha_bytes(b"a") != sha_bytes(b"b")
+    print(("PASS" if diff else "FAIL") + "  NEG: sha_bytes distinguishes content")
+    ok = ok and diff
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work","--tree", default="/home/claude/work")
+    ap.add_argument("--zip", default=None)
+    ap.add_argument("--selftest",action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    z = a.zip or newest_zip()
+    if not z or not os.path.exists(z):
+        print(f"{R}no source zip found (BulkDownloader_v3_66_*.zip){RST}")
+        return 0
+    print(f"{DIM}work {a.work}  vs  {os.path.basename(z)}{RST}")
+    zsha = {}
+    with zipfile.ZipFile(z) as zf:
+        for n in zf.namelist():
+            if n.endswith("/"):
+                continue
+            zsha[n] = sha_bytes(zf.read(n))
+    # tracked = files present in the zip; walk those + detect tree extras under bulk_downloader/tests/tools/frontend/src
+    modified, removed, added = [], [], []
+    for rel, want in zsha.items():
+        p = os.path.join(a.work, rel)
+        if not os.path.exists(p):
+            removed.append(rel)
+        elif sha_file(p) != want:
+            modified.append(rel)
+    # added: new .py/.ts under key source dirs not in the zip
+    for base in ("bulk_downloader", "tests", "tools"):
+        for p in glob.glob(os.path.join(a.work, base, "**", "*.py"), recursive=True):
+            rel = os.path.relpath(p, a.work)
+            if rel not in zsha:
+                added.append(rel)
+    if not (modified or removed or added):
+        print(f"{G}work tree == pinned zip (byte-identical){RST}")
+        return 0
+    if modified:
+        print(f"\n{Y}MODIFIED ({len(modified)}):{RST}")
+        for r in sorted(modified)[:40]:
+            print(f"  {C}~{RST} {r}\n      {DIM}{hint(r)}{RST}")
+        if len(modified) > 40:
+            print(f"  {DIM}... +{len(modified)-40} more{RST}")
+    if added:
+        print(f"\n{G}ADDED ({len(added)}):{RST}")
+        for r in sorted(added)[:20]:
+            print(f"  {G}+{RST} {r}\n      {DIM}new module -> bd-regen + bd-imports (declare edges){RST}")
+    if removed:
+        print(f"\n{R}REMOVED ({len(removed)}):{RST}")
+        for r in sorted(removed)[:20]:
+            print(f"  {R}-{RST} {r}")
+    print(f"\n{DIM}{len(modified)} modified, {len(added)} added, {len(removed)} removed{RST}")
+    return 0
+
+
+sys.exit(main())

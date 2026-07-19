@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Bulk Downloader — Options</title>
+<style>
+  body { font: 14px system-ui, sans-serif; max-width: 420px; padding: 20px;
+         background: #181a1f; color: #e8eaed; margin: 20px auto; }
+  h1 { font-size: 18px; margin: 0 0 16px; }
+  label { display: block; margin: 16px 0 6px; font-size: 12px;
+          color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
+  input { width: 100%; padding: 8px 10px; border: 1px solid #2a2e34;
+          background: #14171c; color: #e8eaed; border-radius: 4px;
+          font-size: 13px; box-sizing: border-box; }
+  button { margin-top: 16px; padding: 8px 16px;
+           background: #2563eb; border: 0; color: white;
+           border-radius: 4px; cursor: pointer; font-size: 13px; }
+  button:hover { background: #1d4ed8; }
+  .help { font-size: 11px; color: #64748b; margin-top: 4px; line-height: 1.5; }
+  #saved { margin-top: 10px; color: #86efac; font-size: 12px; display: none; }
+</style>
+</head>
+<body>
+<h1>Bulk Downloader — Extension Options</h1>
+
+<label for="bd_url">Server URL</label>
+<input id="bd_url" type="url" placeholder="http://127.0.0.1:5555">
+<div class="help">The Bulk Downloader API root. Default is localhost
+on port 5555. Use the LAN IP or a Tailscale name to reach the
+downloader from this machine.</div>
+
+<label for="bd_token">Auth Token (optional)</label>
+<input id="bd_token" type="password" placeholder="Leave empty if global auth is off">
+<div class="help">Required only when global authentication is enabled in
+Bulk Downloader. Sent as <code>X-BD-Token</code> header on every request.</div>
+
+<button id="save">Save</button>
+<div id="saved">Saved.</div>
+
+<!-- v1.1.0: Vault autofill section ─────────────────────────────────── -->
+<h1 style="margin-top:40px">🔐 Password Vault</h1>
+<div id="vault-status" style="background:#14171c;border:1px solid #2a2e34;border-radius:4px;padding:12px;font-size:12px">
+  <div id="vault-status-text" style="color:#94a3b8">Loading…</div>
+</div>
+
+<div id="vault-not-paired" style="display:none;margin-top:14px">
+  <div class="help" style="margin-bottom:10px">
+    Pair this extension with your Bulk Downloader vault to autofill saved
+    passwords on websites you visit.
+    <br><br>
+    Get a pairing token from the app: open BulkDownloader → click the
+    🔐 toolbar button → "Pair browser extension" → paste the token below.
+  </div>
+  <label for="pair_token">Pairing Token</label>
+  <input id="pair_token" type="text" placeholder="paste token from app">
+  <label for="pair_label">Label (optional, for identification)</label>
+  <input id="pair_label" type="text" placeholder="e.g. Chrome on Laptop">
+  <button id="do-pair" style="background:#0ea5e9">Pair Vault</button>
+  <div id="pair-result" style="margin-top:10px;font-size:12px"></div>
+</div>
+
+<div id="vault-paired" style="display:none;margin-top:14px">
+  <label for="idle_lock">Auto-lock after idle</label>
+  <select id="idle_lock" style="width:100%;padding:8px 10px;background:#14171c;color:#e8eaed;border:1px solid #2a2e34;border-radius:4px">
+    <option value="0">Never (until manually unpaired)</option>
+    <option value="5">5 minutes</option>
+    <option value="15" selected>15 minutes (default)</option>
+    <option value="60">1 hour</option>
+    <option value="240">4 hours</option>
+  </select>
+  <div class="help">After this much inactivity, the extension stops
+  accepting fetch requests until the next pairing. Re-pair from the
+  app to reset.</div>
+
+  <div id="silent-origins-wrap" style="margin-top:14px;display:none">
+    <label>Silent-fill origins</label>
+    <div id="silent-origins-list" style="background:#14171c;border:1px solid #2a2e34;border-radius:4px;padding:8px;font-size:12px;font-family:ui-monospace,monospace"></div>
+    <div class="help">On these origins, autofill happens immediately on
+    page load without clicking the suggestion. Manage per-site from the
+    popup when you're on the page.</div>
+  </div>
+
+  <button id="do-unpair" style="background:#dc2626;margin-top:14px">Unpair Vault</button>
+</div>
+
+<script src="options.js"></script>
+</body>
+</html>

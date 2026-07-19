@@ -1,0 +1,121 @@
+{
+ "url": "https://demo-react-player.test/watch/asset",
+ "origin": "https://demo-react-player.test",
+ "host": "demo-react-player.test",
+ "captured_at": "2026-07-10T00:00:00+00:00",
+ "dom_log": [
+  {
+   "type": "full_snapshot",
+   "html": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>ReactPlayer Stream</title><script src=\"https://cdn.demo-react-player.test/react-player.js\"></script></head><body><div class=\"react-player\" data-react-player style=\"width:640px;height:360px\"><video></video></div><script>ReactPlayer.canPlay(\"https://vod.demo-react-player.test/asset/manifest.m3u8\");</script></body></html>"
+  }
+ ],
+ "network_log": [
+  {
+   "url": "https://demo-react-player.test/watch/asset",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "text/html; charset=utf-8"
+    }
+   ]
+  },
+  {
+   "url": "https://cdn.demo-react-player.test/react-player.js",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "text/javascript"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-react-player.test/asset/manifest.m3u8",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "application/vnd.apple.mpegurl"
+    },
+    {
+     "name": "content-length",
+     "value": "3900"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-react-player.test/asset/video/480/seg-1.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-react-player.test/asset/video/480/seg-2.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-react-player.test/asset/video/720/seg-1.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-react-player.test/asset/video/720/seg-2.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-react-player.test/asset/video/1080/seg-1.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-react-player.test/asset/video/1080/seg-2.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  },
+  {
+   "url": "https://vod.demo-react-player.test/asset/audio/en/seg-1.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "audio/mp2t"
+    }
+   ]
+  }
+ ],
+ "cookies": "<REDACTED>",
+ "dom_log_count": 1,
+ "network_log_count": 10
+}

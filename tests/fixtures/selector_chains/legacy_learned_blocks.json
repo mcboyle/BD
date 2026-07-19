@@ -1,0 +1,77 @@
+{
+  "_comment": "P5-1 fixture. Three realistic learned.{login,download} blocks in the LEGACY list[str] shape that ships in sites_config.json today. Selectors are the exact output of bulk_downloader.learn.synthesize_selectors() for representative recorded events (see tools/regen note below) — NOT hand-invented. The SelectorStep backward-compat shim must round-trip every one of these unchanged. To swap in real stash blocks later: replace the contents of each site's learned.* arrays with the real persisted lists; the shim tests are shape-driven and will still apply.",
+  "_regen": "Generated 2026-05-28 from synthesize_selectors() on representative {input#login-email, input#login-password, button#login-submit, a.download-link, button#dl-start} recorded events. Faithful to v3.66.31 code.",
+  "sites": [
+    {
+      "site_id": "fixture_aylo_family",
+      "url": "https://example-members.test/login",
+      "learned": {
+        "login": {
+          "user_field": [
+            "#login-email",
+            "input[name='email']",
+            "input[type='email']",
+            "input[autocomplete='username']",
+            "[aria-label='Email address']"
+          ],
+          "pass_field": [
+            "#login-password",
+            "input[name='password']",
+            "input[type='password']",
+            "input[autocomplete='current-password']"
+          ],
+          "submit_btn": [
+            "#login-submit",
+            "button.btn-primary",
+            "button:has-text('Sign in')",
+            "[role='button']:has-text('Sign in'), button:has-text('Sign in')"
+          ]
+        },
+        "download": {
+          "row_selectors": [
+            "[aria-label='Download video']",
+            "a:has-text('Download')",
+            "[role='button']:has-text('Download'), a:has-text('Download')"
+          ],
+          "trigger_selectors": [
+            "#dl-start",
+            "button:has-text('Start Download')",
+            "[role='button']:has-text('Start Download'), button:has-text('Start Download')"
+          ],
+          "url_attribute": "href"
+        }
+      }
+    },
+    {
+      "site_id": "fixture_single_selector",
+      "url": "https://minimal.test/signin",
+      "learned": {
+        "login": {
+          "user_field": ["#username"],
+          "pass_field": ["#password"],
+          "submit_btn": ["button[type='submit']"]
+        },
+        "download": {
+          "row_selectors": ["a.dl"],
+          "trigger_selectors": []
+        }
+      }
+    },
+    {
+      "site_id": "fixture_empty_and_partial",
+      "url": "https://sparse.test/",
+      "learned": {
+        "login": {
+          "user_field": [],
+          "pass_field": ["input[type='password']"]
+        },
+        "download": {
+          "row_selectors": [
+            "[data-testid='download-button']",
+            "div.download-wrapper a"
+          ]
+        }
+      }
+    }
+  ]
+}

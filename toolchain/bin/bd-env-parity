@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""bd-env-parity -- compare sandbox/stash/prod capability parity.
+
+Snapshots THIS environment's capabilities (python/node versions, ffmpeg,
+yt-dlp, browsers present, netns tools, key packages) and diffs against a saved
+baseline (--baseline stash.json) to surface parity gaps -- e.g. a test that
+passes in sandbox but the stash lacks a browser, or a version skew. --write
+snapshots the current env. Read-only.
+
+Usage:
+    bd-env-parity --write [--out FILE]
+    bd-env-parity --baseline FILE [--json]
+    bd-env-parity --selftest
+Exit 0 (informational -- reports/generates; does not render a pass/fail verdict and does not gate).
+"""
+import argparse, json, os, shutil, subprocess, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+
+def _ver(cmd):
+    try:
+        return subprocess.run(cmd,capture_output=True,text=True,timeout=8).stdout.strip().split(chr(10))[0][:40]
+    except Exception:  # why: input unavailable/unreadable; return empty so the caller uses its fallback, not a wrong value
+        return None
+
+def snapshot():
+    home="/home/claude"; cache=os.path.join(home,".cache","ms-playwright")
+    import glob as _g
+    return {"python":sys.version.split()[0],
+            "node":_ver(["node","--version"]),
+            "ffmpeg":_ver(["ffmpeg","-version"]),
+            "browsers":{b:bool(_g.glob(os.path.join(cache,b+"-*"))) for b in ("chromium","firefox","webkit")},
+            "netns_tools":{b:bool(shutil.which(b)) for b in ("ip","nft","iptables")},
+            "tools":{b:bool(shutil.which(b)) for b in ("aria2c","jq","sqlite3","semgrep")}}
+
+def flatten(d,prefix=""):
+    out={}
+    for k,v in d.items():
+        key=prefix+k
+        if isinstance(v,dict): out.update(flatten(v,key+"."))
+        else: out[key]=v
+    return out
+
+def diff(base, cur):
+    fb=flatten(base); fc=flatten(cur); rows=[]
+    for k in sorted(set(fb)|set(fc)):
+        if fb.get(k)!=fc.get(k): rows.append({"cap":k,"baseline":fb.get(k),"current":fc.get(k)})
+    return rows
+
+def selftest():
+    ok=True
+    s=snapshot()
+    print(("PASS" if s["python"] else "FAIL")+"  snapshot built (py %s)"%s["python"])
+    ok=ok and bool(s["python"])
+    d=diff(s,s)
+    print(("PASS" if not d else "FAIL")+"  self-diff empty")
+    ok=ok and not d
+    base=json.loads(json.dumps(s)); base["node"]="v0.0.0"
+    d2=diff(base,s)
+    print(("PASS" if any(x["cap"]=="node" for x in d2) else "FAIL")+"  version skew detected")
+    ok=ok and any(x["cap"]=="node" for x in d2)
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--write",action="store_true"); ap.add_argument("--out",default="/home/claude/env_baseline.json")
+    ap.add_argument("--baseline",default=None)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    cur=snapshot()
+    if a.write:
+        json.dump(cur,open(a.out,"w"),indent=2,sort_keys=True); print(G+"env snapshot written"+RST+" -> "+a.out); return 0
+    if not a.baseline:
+        if a.json: json.dump(cur,sys.stdout,indent=2,sort_keys=True); sys.stdout.write(chr(10)); return 0
+        print("current env capabilities:"); 
+        for k,v in flatten(cur).items(): print("  %s = %s"%(k,v))
+        return 0
+    base=json.load(open(a.baseline)); d=diff(base,cur)
+    if sec.emit({"parity_gaps":d,"summary":{"gaps":len(d)}},as_json=a.json): return 0
+    if not d: print(G+"full parity with baseline"+RST); return 0
+    for x in d: print("  %sSKEW%s %s: baseline=%s current=%s"%(Y,RST,x["cap"],x["baseline"],x["current"]))
+    return 0
+sys.exit(main())

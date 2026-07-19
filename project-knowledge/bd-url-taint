@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""bd-url-taint -- track untrusted URLs into outbound fetches (SSRF root-cause).
+
+Uses the shared taint engine: SOURCES are user/page/template/plugin-derived URL
+values (request.args/json/form, page.url/content, template fields, function
+params named url/host/target/link); SINKS are outbound fetch calls
+(requests/httpx/urlopen/http_probe/deep_detect). Reports each source->sink flow
+so the SSRF review knows WHICH untrusted inputs reach the network, not just
+which files fetch. Advisory, read-only.
+
+Usage: bd-url-taint [--work DIR] [--json] [--selftest]
+Exit 0 (advisory).
+"""
+import argparse
+import ast
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import bdtools_taint as taint
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+URL_SOURCES = ["request.args", "request.json", "request.form", "request.values",
+               "page.url", "page.content", "request.get_json"]
+URL_PARAM_NAMES = {"url", "host", "target", "link", "src", "href", "endpoint", "uri"}
+FETCH_SINKS = ["get", "post", "head", "put", "urlopen", "request", "fetch",
+               "http_probe", "deep_detect", "Client"]
+
+
+def src_pred(node):
+    d = taint.attr_source(node, URL_SOURCES)
+    if d:
+        return d
+    # request.args.get(...) call
+    if taint.call_name_matches(node, ["get"]):
+        callee = taint._name_of(node.func) or ""
+        if any(callee.startswith(s) for s in URL_SOURCES):
+            return f"source {callee}()"
+    return None
+
+
+def sink_pred(node):
+    if not isinstance(node, ast.Call):
+        return None
+    nm = taint._name_of(node.func) or ""
+    last = nm.rsplit(".", 1)[-1]
+    # bare network fns are always sinks
+    if last in ("urlopen", "http_probe", "deep_detect", "fetch"):
+        return f"fetch {nm}"
+    # get/post/head/put only when the receiver looks like an HTTP client
+    if last in ("get", "post", "head", "put", "request", "Client"):
+        recv = nm.rsplit(".", 1)[0].lower() if "." in nm else ""
+        if any(k in recv for k in ("request", "httpx", "session", "client",
+                                   "http", "urllib", "fetcher")):
+            return f"fetch {nm}"
+    return None
+
+
+def run(work):
+    flows = taint.analyze_tree(work, src_pred, sink_pred,
+                               lambda a: a in URL_PARAM_NAMES)
+    return [f.as_dict() for f in flows]
+
+
+def selftest():
+    ok = True
+    code = ('import requests\n'
+            'def h():\n'
+            '    u = request.args.get("u")\n'
+            '    requests.get(u)\n'
+            'def fixed():\n'
+            '    requests.get("https://x/")\n'
+            'def viaparam(url):\n'
+            '    requests.post(url)\n')
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        b = os.path.join(d, "bulk_downloader")
+        os.makedirs(b)
+        open(os.path.join(b, "m.py"), "w").write(code)
+        flows = run(d)
+    funcs = sorted({f["func"] for f in flows})
+    good = "h" in funcs and "viaparam" in funcs and "fixed" not in funcs
+    print(("PASS" if good else "FAIL") + f"  tainted-URL flows in h+viaparam, not fixed ({funcs})")
+    ok &= good
+    real = run(sec.DEFAULT_WORK)
+    r2 = run(sec.DEFAULT_WORK)
+    det = [(f["file"], f["source_line"], f["sink_line"]) for f in real] == \
+          [(f["file"], f["source_line"], f["sink_line"]) for f in r2]
+    print(("PASS" if det else "FAIL") + f"  real-tree determinism ({len(real)} flows x2)")
+    ok &= det
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    sec.require_source_tree(a.work)
+    flows = run(a.work)
+    if sec.emit({"flows": flows, "summary": {"count": len(flows)}}, as_json=a.json):
+        return 0
+    if not flows:
+        print(f"{G}no untrusted-URL -> fetch flows found (intra-procedural){RST}")
+        return 0
+    for f in flows[:40]:
+        print(f"  {Y}URL-TAINT{RST} {f['file']}:{f['func']}  "
+              f"{DIM}{f['source']} (L{f['source_line']}) -> {f['sink']} (L{f['sink_line']}){RST}")
+    print(f"{DIM}{len(flows)} untrusted-URL -> fetch flow(s) [intra-procedural]{RST}")
+    return 0
+
+
+sys.exit(main())

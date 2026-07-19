@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""bd-bandcheck -- validate a proposed band target list BEFORE running it, so you
+don't trip the band footguns:
+  * passing the whole tests/ dir or a known-hang file -> perf_lab hang / >200s timeout
+  * passing a test-FUNCTION name as a path (test_spa_wired_join_is_faithful) ->
+    run_tests falls back to a broad run -> timeout -> band ABORT
+  * co-banding files that leak env (test_phases_195_199 leaks BD_INSTALL_DIR) ->
+    the other file fails for no visible reason
+
+Usage:
+  bd-bandcheck tests/test_foo.py tests/test_bar.py ...
+  bd-bandcheck --tree DIR tests/...
+Exit 1 if any target is unsafe/invalid, else 0.
+"""
+import argparse, os, sys
+
+# known-hang / never-band-directly (from KNOWN_FLAKES.md + memory)
+HANG = {
+    "test_perf_lab.py": "hangs the whole run; on-stash only",
+    "test_v3_66_146_nav_guard.py": ">200s timeout in sandbox (known, not a regression)",
+}
+# test FUNCTIONS people mistake for files -> the real file to band instead
+NOT_A_FILE = {
+    "test_spa_wired_join_is_faithful": "tests/test_route_index_in_sync.py  (it's a FUNCTION at ~line 86, not a file)",
+}
+# pairs that must NOT co-band (env leak between them in a single-boot band)
+LEAK_PAIRS = [
+    ({"test_phases_195_199.py"}, {"test_cut8_schedules.py"},
+     "test_phases_195_199 leaks BD_INSTALL_DIR in single-boot bands"),
+]
+
+def selftest():
+    """DELEGATE: wraps bd-band. Asserts the target file is present in the tool's own
+    bin dir -- if not, FAIL (a wrapper that cannot find what it wraps is broken;
+    a selftest that cannot verify must not report success)."""
+    import os as _o
+    here = _o.path.dirname(_o.path.realpath(__file__))
+    found = _o.path.isfile(_o.path.join(here, "bd-band"))
+    print(("PASS" if found else "FAIL") + "  delegation target present: bd-band")
+    print("SELFTEST PASS" if found else "SELFTEST FAIL")
+    return 0 if found else 1
+
+
+def main():
+    import sys as _s
+    if "--selftest" in _s.argv: return selftest()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("targets", nargs="+")
+    ap.add_argument("--tree","--work", default="/home/claude/work")
+    a = ap.parse_args()
+    rc = 0
+    names = set()
+    for t in a.targets:
+        base = os.path.basename(t.rstrip("/"))
+        # whole-dir
+        if t.rstrip("/").endswith("tests") or t.rstrip("/") in ("tests", "."):
+            print(f"  UNSAFE  '{t}' -- the whole tests/ dir HANGS at test_perf_lab.py. Band targeted files."); rc = 1; continue
+        # function-not-file
+        stem = base[:-3] if base.endswith(".py") else base
+        if stem in NOT_A_FILE:
+            print(f"  NOT A FILE  '{t}' is a test FUNCTION -> a broad run -> timeout -> ABORT.")
+            print(f"              band instead: {NOT_A_FILE[stem]}"); rc = 1; continue
+        # known hang
+        if base in HANG:
+            print(f"  UNSAFE  {base} -- {HANG[base]}."); rc = 1; continue
+        # exists?
+        path = t if os.path.isabs(t) else os.path.join(a.tree, t)
+        if not os.path.exists(path):
+            # maybe they gave a bare name
+            alt = os.path.join(a.tree, "tests", base)
+            if os.path.exists(alt):
+                print(f"  ok      {base}  (resolved to tests/{base})")
+                names.add(base); continue
+            print(f"  MISSING '{t}' -- no such file under {a.tree}. Typo? (a non-file path triggers a broad run)."); rc = 1; continue
+        print(f"  ok      {os.path.relpath(path, a.tree)}")
+        names.add(base)
+    # leak-pair co-band check
+    for setA, setB, why in LEAK_PAIRS:
+        if names & setA and names & setB:
+            print(f"\n  LEAK CO-BAND  {sorted(names & setA)} + {sorted(names & setB)} -- {why}. Split into two bands."); rc = 1
+    print("\n" + ("all targets safe to band." if rc == 0 else "=> fix the flagged targets before banding (else timeout/ABORT/false-fail)."))
+    return rc
+
+if __name__ == "__main__":
+    sys.exit(main())

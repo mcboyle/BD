@@ -1,0 +1,286 @@
+{
+  "golden": {
+    "IDENTITY": "identity",
+    "RENDITION": "rendition",
+    "classify_value": {
+      "0421687814ca2989c5c85ced65fad82e": "md5",
+      "32088": "id",
+      "720p": "opaque",
+      "hello-world": "opaque",
+      "poppy_cox": "opaque",
+      "seg_1.mp4": "filename"
+    },
+    "derive_pattern": {
+      "key|0421687814ca2989c5c85ced65fad82e|False": {
+        "confidence": "medium",
+        "key": "key",
+        "rationale": "query param 'key' carries a md5-shaped id; captured on the query key",
+        "regex": "[?&]key=([0-9a-fA-F]{32})",
+        "sample_shape": "md5"
+      },
+      "movie_id|32088|True": {
+        "confidence": "medium",
+        "key": "movie_id",
+        "rationale": "path segment holds a id-shaped id; anchored on segment boundary \u2014 tighten the prefix to the real path once confirmed",
+        "regex": "/(\\d{1,12})(?:/|$)",
+        "sample_shape": "id"
+      },
+      "q|720p|False": {
+        "confidence": "medium",
+        "key": "q",
+        "rationale": "query param 'q' carries a opaque-shaped id; captured on the query key",
+        "regex": "[?&]q=([A-Za-z0-9._-]+)",
+        "sample_shape": "opaque"
+      },
+      "resolution|480|True": {
+        "confidence": "medium",
+        "key": "resolution",
+        "rationale": "path segment holds a id-shaped id; anchored on segment boundary \u2014 tighten the prefix to the real path once confirmed",
+        "regex": "/(\\d{1,12})(?:/|$)",
+        "sample_shape": "id"
+      }
+    },
+    "manifest_resolutions_hls": [
+      240,
+      480,
+      1080
+    ],
+    "manifest_resolutions_mpd": [
+      240,
+      720,
+      2160
+    ],
+    "network_patterns": {
+      "api_patterns": [
+        "/api/v{version}/movie/{movie_id}/download-resolution/{resolution}"
+      ],
+      "content_type_counts": {},
+      "media_patterns": [
+        ".../{manifest}.m3u8"
+      ],
+      "observed_api_hosts": [
+        "api2.reptyle.com"
+      ],
+      "resolutions_seen": [
+        1080
+      ],
+      "status_counts": {
+        "200": 6,
+        "204": 1
+      },
+      "top_hosts": [
+        {
+          "count": 3,
+          "host": "customer-x.cloudflarestream.com"
+        },
+        {
+          "count": 2,
+          "host": "api2.reptyle.com"
+        },
+        {
+          "count": 1,
+          "host": "app.reptyle.com"
+        },
+        {
+          "count": 1,
+          "host": "analytics.google.com"
+        }
+      ]
+    },
+    "segment_is_addressable": {
+      "0421687814ca2989c5c85ced65fad82e": true,
+      "1080": true,
+      "240": true,
+      "32088": true,
+      "480": true,
+      "720p": true,
+      "AVC_1080": true,
+      "a1b2c3d4": true,
+      "api": false,
+      "init.mp4": true,
+      "movies": false,
+      "poppy_cox": false,
+      "seg_1.mp4": true,
+      "sprite.vtt": true,
+      "v1": true,
+      "watch": false
+    },
+    "segment_regex": {
+      "0421687814ca2989c5c85ced65fad82e": "[0-9a-fA-F]{6,}",
+      "1080": "\\d+",
+      "240": "\\d+",
+      "32088": "\\d+",
+      "480": "\\d+",
+      "720p": "[A-Za-z0-9._-]+",
+      "AVC_1080": "[A-Za-z0-9._-]+",
+      "a1b2c3d4": "[0-9a-fA-F]{6,}",
+      "api": "[A-Za-z0-9._-]+",
+      "init.mp4": "[A-Za-z0-9._-]+\\.[A-Za-z0-9]{1,6}",
+      "movies": "[A-Za-z0-9._-]+",
+      "poppy_cox": "[A-Za-z0-9._-]+",
+      "seg_1.mp4": "[A-Za-z0-9._-]+\\.[A-Za-z0-9]{1,6}",
+      "sprite.vtt": "[A-Za-z0-9._-]+\\.[A-Za-z0-9]{1,6}",
+      "v1": "[A-Za-z0-9._-]+",
+      "watch": "[A-Za-z0-9._-]+"
+    },
+    "segment_role": {
+      "0421687814ca2989c5c85ced65fad82e": "identity",
+      "1080": "identity",
+      "240": "identity",
+      "32088": "identity",
+      "480": "identity",
+      "720p": "rendition",
+      "AVC_1080": "rendition",
+      "a1b2c3d4": "identity",
+      "api": "identity",
+      "init.mp4": "rendition",
+      "movies": "identity",
+      "poppy_cox": "identity",
+      "seg_1.mp4": "rendition",
+      "sprite.vtt": "rendition",
+      "v1": "identity",
+      "watch": "identity"
+    },
+    "segments": {
+      "https://api2.reptyle.com/api/v1/movie/32088/download-resolution/1080": [
+        "api2.reptyle.com",
+        [
+          "api",
+          "v1",
+          "movie",
+          "32088",
+          "download-resolution",
+          "1080"
+        ]
+      ],
+      "https://api2.reptyle.com/api/v1/movie/32088/watch": [
+        "api2.reptyle.com",
+        [
+          "api",
+          "v1",
+          "movie",
+          "32088",
+          "watch"
+        ]
+      ],
+      "https://app.reptyle.com/movies/32088": [
+        "app.reptyle.com",
+        [
+          "movies",
+          "32088"
+        ]
+      ],
+      "https://customer-bk3o9te23pydwwcb.cloudflarestream.com/0421687814ca/video/480/seg_3.mp4": [
+        "customer-bk3o9te23pydwwcb.cloudflarestream.com",
+        [
+          "0421687814ca",
+          "video",
+          "480",
+          "seg_3.mp4"
+        ]
+      ]
+    }
+  },
+  "inputs": {
+    "derive": [
+      [
+        "movie_id",
+        "32088",
+        true
+      ],
+      [
+        "resolution",
+        "480",
+        true
+      ],
+      [
+        "key",
+        "0421687814ca2989c5c85ced65fad82e",
+        false
+      ],
+      [
+        "q",
+        "720p",
+        false
+      ]
+    ],
+    "hls_body": "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=426x240\n240.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=2000000,RESOLUTION=854x480\n480.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=6000000,RESOLUTION=1920x1080\n1080.m3u8\n",
+    "mpd_body": "<MPD><Period><AdaptationSet><Representation height=\"240\"/><Representation height=\"720\"/><Representation height=\"2160\"/></AdaptationSet></Period></MPD>",
+    "network_log": [
+      {
+        "method": "GET",
+        "response_status": 200,
+        "type": "document",
+        "url": "https://app.reptyle.com/movies/32088"
+      },
+      {
+        "method": "GET",
+        "response_status": 200,
+        "type": "xhr",
+        "url": "https://api2.reptyle.com/api/v1/movie/32088/watch"
+      },
+      {
+        "method": "GET",
+        "response_status": 200,
+        "type": "xhr",
+        "url": "https://api2.reptyle.com/api/v1/movie/32088/download-resolution/1080"
+      },
+      {
+        "method": "GET",
+        "response_status": 200,
+        "type": "media",
+        "url": "https://customer-x.cloudflarestream.com/abc/video/240/seg_1.mp4"
+      },
+      {
+        "method": "GET",
+        "response_status": 200,
+        "type": "media",
+        "url": "https://customer-x.cloudflarestream.com/abc/video/480/seg_3.mp4"
+      },
+      {
+        "method": "GET",
+        "response_status": 200,
+        "type": "xhr",
+        "url": "https://customer-x.cloudflarestream.com/abc/master.m3u8"
+      },
+      {
+        "method": "POST",
+        "response_status": 204,
+        "type": "xhr",
+        "url": "https://analytics.google.com/g/collect?v=2"
+      }
+    ],
+    "segments": [
+      "movies",
+      "32088",
+      "api",
+      "v1",
+      "watch",
+      "0421687814ca2989c5c85ced65fad82e",
+      "240",
+      "480",
+      "1080",
+      "720p",
+      "AVC_1080",
+      "seg_1.mp4",
+      "init.mp4",
+      "poppy_cox",
+      "a1b2c3d4",
+      "sprite.vtt"
+    ],
+    "urls": [
+      "https://app.reptyle.com/movies/32088",
+      "https://api2.reptyle.com/api/v1/movie/32088/watch",
+      "https://api2.reptyle.com/api/v1/movie/32088/download-resolution/1080",
+      "https://customer-bk3o9te23pydwwcb.cloudflarestream.com/0421687814ca/video/480/seg_3.mp4"
+    ],
+    "values": [
+      "32088",
+      "0421687814ca2989c5c85ced65fad82e",
+      "seg_1.mp4",
+      "720p",
+      "poppy_cox",
+      "hello-world"
+    ]
+  }
+}

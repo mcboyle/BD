@@ -1,0 +1,9 @@
+* text=auto eol=lf
+*.py   text diff=python
+*.md   text
+*.json text
+*.sh   text eol=lf
+*.bat  text eol=crlf
+# Large capture corpora: treat as data, keep them out of diffs
+tests/corpus/**      linguist-generated=true -diff
+tests/fixtures/recon_corpus/** linguist-generated=true -diff

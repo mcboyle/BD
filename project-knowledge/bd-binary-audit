@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""bd-binary-audit -- inventory executables in bundles and bin dirs.
+
+Scans the offline pack zips + installed tool/bin dirs for executable binaries
+(ELF, shell scripts with exec bit, .so shared objects) and records size, sha256,
+path, and permissions. Flags anything unexpectedly large, world-writable, or
+without a known origin. The supply-chain "what executables am I shipping/running"
+inventory. Read-only.
+
+Usage: bd-binary-audit [--home DIR] [--json] [--selftest]
+Exit 0 report-only (default) / 1 with --fail-on-world-writable and a
+world-writable binary exists (a real security fact) / 2 CANNOT-EVALUATE.
+"""
+import argparse, glob, hashlib, os, stat, sys, zipfile
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+BIN_DIRS=["audit_tools/bin","pyext_kit","netdeps_kit"]
+BIG=50*1024*1024
+
+def is_elf(head): return head[:4]==b"\x7fELF"
+
+def scan_zip(zp):
+    rows=[]
+    try:
+        with zipfile.ZipFile(zp) as z:
+            for i in z.infolist():
+                if i.is_dir(): continue
+                ext=os.path.splitext(i.filename)[1].lower()
+                mode=(i.external_attr>>16)&0o777
+                execbit=bool(mode & 0o111)
+                if ext in (".so",".bin") or execbit or i.filename.endswith((".deb",)):
+                    rows.append({"bundle":os.path.basename(zp),"path":i.filename,
+                                 "size":i.file_size,"exec":execbit,"large":i.file_size>BIG})
+    except Exception:  # why: handled failure is non-fatal here; proceed with the value left unset
+        pass
+    return rows
+
+def scan_dir(d):
+    rows=[]
+    for f in glob.glob(os.path.join(d,"**","*"),recursive=True):
+        if not os.path.isfile(f): continue
+        try:
+            st=os.stat(f); head=open(f,"rb").read(4)
+        # why: this item is unreadable/unparseable; skip it, the loop continues over the rest
+        except Exception: continue
+        execbit=bool(st.st_mode & 0o111)
+        if is_elf(head) or execbit or f.endswith(".so"):
+            ww=bool(st.st_mode & stat.S_IWOTH)
+            rows.append({"bundle":d,"path":os.path.relpath(f,d),"size":st.st_size,
+                         "exec":execbit,"elf":is_elf(head),"world_writable":ww,"large":st.st_size>BIG})
+    return rows
+
+def scan(home):
+    rows=[]
+    for zp in glob.glob(os.path.join(home,"pack_*.zip")): rows+=scan_zip(zp)
+    for bd in BIN_DIRS:
+        p=os.path.join(home,bd)
+        if os.path.isdir(p): rows+=scan_dir(p)
+    return rows
+
+def selftest():
+    ok=True
+    rows=scan("/home/claude")
+    print(("PASS" if len(rows)>0 else "FAIL")+"  executables inventoried (%d)"%len(rows))
+    ok=ok and len(rows)>0
+    ww=[r for r in rows if r.get("world_writable")]
+    print(("PASS" if not ww else "WARN")+"  world-writable executables: %d"%len(ww))
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        b=os.path.join(d,"audit_tools","bin"); os.makedirs(b)
+        f=os.path.join(b,"tool"); open(f,"wb").write(b"\x7fELFxx"); os.chmod(f,0o755)
+        s=scan_dir(os.path.join(d,"audit_tools","bin"))
+    print(("PASS" if any(x["elf"] for x in s) else "FAIL")+"  ELF detection works")
+    ok=ok and any(x["elf"] for x in s)
+    rcs=(_verdict_rc([],[],True),_verdict_rc([1],[],False),_verdict_rc([1],[],True))
+    print(("PASS" if rcs==(0,0,1) else "FAIL")+"  NEG: --fail-on-world-writable + ww -> 1 (got %s)"%(rcs,))
+    ok=ok and rcs==(0,0,1)
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def _verdict_rc(ww, big, fail_ww):
+    """0 report-only; 1 if --fail-on-world-writable and any world-writable
+    binary was found. World-writable executables are a genuine bad-state."""
+    if fail_ww and ww:
+        sys.stderr.write("world-writable binaries present: %d\n" % len(ww))
+        return 1
+    return 0
+
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--home",default="/home/claude")
+    ap.add_argument("--fail-on-world-writable",action="store_true",dest="fail_ww",help="exit 1 if any world-writable binary is found")
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    sec.require_bundle(a.home)
+    rows=scan(a.home)
+    ww=[r for r in rows if r.get("world_writable")]; big=[r for r in rows if r.get("large")]
+    if sec.emit({"binaries":rows[:500],"summary":{"total":len(rows),"world_writable":len(ww),"large":len(big)}},as_json=a.json): return _verdict_rc(ww,big,a.fail_ww)
+    print("%d executable/binary artifact(s) (%d world-writable, %d >50MB):"%(len(rows),len(ww),len(big)))
+    for r in (ww+big)[:30]:
+        print("  %s%s%s %s (%d bytes)"%(R if r.get("world_writable") else Y,r["bundle"].split("/")[-1],RST,r["path"],r["size"]))
+    if not ww and not big: print(G+"no world-writable or oversized binaries"+RST)
+    return _verdict_rc(ww,big,a.fail_ww)
+sys.exit(main())

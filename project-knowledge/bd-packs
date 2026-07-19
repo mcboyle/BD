@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""bd-packs -- presence + integrity of every offline pack in one glance.
+
+Base install packs (A-D), the cloak consumable, and the optional tier (E-H via
+bd-optpack). Reports present / valid (zip testable) / size. Fast pre-bootstrap
+"do I have a complete, non-truncated upload set?" check.
+Usage: bd-packs   Exit 0 if all present packs are valid, 1 if any is truncated.
+"""
+import sys
+import glob, os, subprocess, sys, zipfile
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+DIRS=["/mnt/user-data/uploads","/home/claude","/home/claude/packs_out"]
+def find(name):
+    for d in DIRS:
+        p=os.path.join(d,name)
+        if os.path.isfile(p): return p
+    return None
+def valid(p):
+    try:
+        with zipfile.ZipFile(p) as z: return z.testzip() is None
+    # why: input unavailable/unreadable; return the safe default (False) rather than a value derived from a failed read
+    except Exception: return False
+def human(n):
+    for u in ("B","K","M","G"):
+        if n<1024: return f"{n:.0f}{u}"
+        n/=1024
+    return f"{n:.0f}T"
+def selftest():
+    import tempfile, os as _o, shutil as _s, zipfile as _z
+    d = tempfile.mkdtemp(prefix="ct_pk_")
+    good = _o.path.join(d, "pack_A.zip")
+    with _z.ZipFile(good, "w") as z: z.writestr("a.txt", "x")
+    bad = _o.path.join(d, "pack_B.zip"); open(bad, "wb").write(b"not a zip")
+    vg, vb = valid(good), valid(bad)
+    ok = (vg and not vb)
+    print(("PASS" if vg else "FAIL") + "  valid zip -> valid")
+    print(("PASS" if not vb else "FAIL") + "  NEG: garbage zip -> invalid (no false-good pack)")
+    _s.rmtree(d, ignore_errors=True)
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    if "--selftest" in sys.argv: return selftest()
+    bad=0
+    print("Base install packs (bd-install auto-installs inner kits):")
+    for L in "ABCD":
+        p=find(f"pack_{L}.zip")
+        if not p: print(f"  {Y}-- {RST}pack_{L}.zip {DIM}absent{RST}"); continue
+        ok=valid(p); bad+= (0 if ok else 1)
+        print(f"  {(G+'OK'+RST) if ok else (R+'XX'+RST)} pack_{L}.zip  {DIM}{human(os.path.getsize(p))}{RST}")
+    print("Cloak consumable (bd-venv):")
+    cl=sorted(glob.glob("/mnt/user-data/uploads/bd_cloak_pack_*.zip")
+              +glob.glob("/home/claude/bd_cloak_pack_*.zip")
+              +glob.glob("/home/claude/packs_out/bd_cloak_pack_*.zip"),reverse=True)
+    if cl:
+        ok=valid(cl[0]); bad+=(0 if ok else 1)
+        print(f"  {(G+'OK'+RST) if ok else (R+'XX'+RST)} {os.path.basename(cl[0])}  {DIM}{human(os.path.getsize(cl[0]))}{RST}")
+    else: print(f"  {Y}-- {RST}bd_cloak_pack_*.zip {DIM}absent{RST}")
+    print("Optional expansion tier (install-on-demand):")
+    if subprocess.run(["bash","-c","command -v bd-optpack"],capture_output=True).returncode==0:
+        r=subprocess.run(["bd-optpack","--brief"],capture_output=True,text=True)
+        print(f"  {DIM}{r.stdout.strip()}{RST}")
+    else:
+        for L in "EFGH":
+            p=find(f"pack_{L}.zip")
+            print(f"  {(G+'OK'+RST) if p and valid(p) else Y+'--'+RST} pack_{L}.zip"
+                  f"{DIM}  {human(os.path.getsize(p)) if p else 'absent'}{RST}")
+    print((f"{G}RESULT: all present packs valid{RST}" if not bad
+           else f"{R}RESULT: {bad} pack(s) TRUNCATED/corrupt -- re-upload{RST}"))
+    return 1 if bad else 0
+sys.exit(main())

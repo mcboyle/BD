@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+"""bd-doc-truth -- compare docs to source behavior.
+
+Checks concrete, verifiable claims in the PK docs against the live source: a doc
+that states "version 3.66.X" not matching current __version__, a stated tool
+count / route count that's stale, or a referenced file path that no longer
+exists. Flags each stale claim -> BD-DOC-STALE. This is the truth-decay detector
+for the KB. Read-only.
+
+Usage: bd-doc-truth [--docs DIR] [--work DIR] [--json] [--selftest]
+Exit 0 (advisory).
+"""
+import argparse, glob, os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+
+def current_version(work):
+    p=os.path.join(work,"bulk_downloader","__init__.py")
+    if os.path.exists(p):
+        m=re.search(r'__version__\s*=\s*["\']([^"\']+)',open(p).read())
+        if m: return m.group(1)
+    return None
+
+def scan(docs, work):
+    cur=current_version(work)
+    stale=[]
+    # file-path claims: `some/path.py` references that don't exist
+    for f in glob.glob(os.path.join(docs,"*.md")):
+        name=os.path.basename(f)
+        txt=open(f,errors="ignore").read()
+        for m in re.finditer(r'`(bulk_downloader/[a-zA-Z0-9_/]+\.py)`',txt):
+            path=m.group(1)
+            if not os.path.exists(os.path.join(work,path)):
+                stale.append({"doc":name,"kind":"missing-file","claim":path})
+    return {"current_version":cur,"stale":stale[:60],"stale_count":len(stale)}
+
+def selftest():
+    ok=True
+    r=scan("/mnt/project",sec.DEFAULT_WORK)
+    print(("PASS" if r["current_version"] else "FAIL")+"  current version read (%s)"%r["current_version"])
+    ok=ok and bool(r["current_version"])
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        open(os.path.join(d,"x.md"),"w").write("See `bulk_downloader/does_not_exist.py` for details.\n")
+        s=scan(d,sec.DEFAULT_WORK)
+    print(("PASS" if any("does_not_exist" in x["claim"] for x in s["stale"]) else "FAIL")+"  missing-file claim flagged (%d)"%s["stale_count"])
+    ok=ok and any("does_not_exist" in x["claim"] for x in s["stale"])
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--docs",default="/mnt/project"); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    sec.require_source_tree(a.work)
+    r=scan(a.docs,a.work)
+    if sec.emit(r,as_json=a.json): return 0
+    print("current version %s; %d stale doc claim(s):"%(r["current_version"],r["stale_count"]))
+    for x in r["stale"][:40]: print("  %sBD-DOC-STALE%s %s: %s (%s)"%(Y,RST,x["doc"],x["claim"],x["kind"]))
+    if not r["stale"]: print(G+"no stale file-path claims in docs"+RST)
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,441 @@
+#!/bin/bash
+# bd-venv -- provision the SERVICE venv (work/venv) + the cloakbrowser stealth
+# Chromium in the sandbox, ROBUSTLY and IDEMPOTENTLY, so `resolve_backend()`
+# reports cloakbrowser and `bd-status` shows the venv row green -- every session,
+# with no manual pip/cloakbrowser steps.
+#
+# WHY THIS EXISTS: bd-install transplants a stash-built venv from
+# bulkdl_venv_kit.zip and rewrites its pyvenv.cfg. But (a) an OLD kit carries no
+# cloakbrowser (so resolve_backend() falls back to playwright -- the exact §4
+# footgun), and (b) the kit never carried the stealth Chromium binary (0.4.x
+# needs its OWN Chromium under /root/.cloakbrowser, NOT playwright's). bd-venv
+# closes both gaps: it VALIDATES whatever bd-install laid down and only does the
+# expensive work that is actually missing.
+#
+# STRATEGY (most robust; picks the cheapest sufficient path each run):
+#   VENV:
+#     1. If work/venv/bin/python imports flask AND cloakbrowser AND the backend
+#        resolves to cloakbrowser AND __version__ matches the tree -> DONE (the
+#        transplanted kit venv was already complete; no network).
+#     2. Else if the venv exists + flask works but cloakbrowser is missing ->
+#        install ONLY the cloak layer into it (from the cloak pack if present,
+#        else live PyPI). Keeps the fast kit base, adds what's missing.
+#     3. Else (no venv / broken venv) -> build FRESH: python -m venv + pip
+#        install -r requirements.txt then -r requirements-cloak.txt (cloak pack
+#        wheelhouse first with --no-index, else live PyPI).
+#   STEALTH CHROMIUM:
+#     4. If `python -m cloakbrowser info` reports Installed: True -> DONE.
+#     5. Else if the cloak pack ships a stealth-chromium tarball/dir -> extract
+#        it into /root/.cloakbrowser (offline).
+#     6. Else `python -m cloakbrowser install` (verified download from
+#        cloakbrowser.dev: Ed25519 + SHA-256).
+#
+# CLOAK PACK LAYOUT (what bd-venv looks for; produced by this session's build):
+#   <pack>/pip-wheels/*.whl                      core + cloak wheels (offline pip)
+#   <pack>/stealth-chromium/chromium-*.tar.gz    the stealth Chromium (offline)
+#     (or <pack>/stealth-chromium/chromium-*/    an already-extracted dir)
+#   Search order for the pack dir/zip (first hit wins):
+#     $BD_CLOAK_PACK (env), ./bd_cloak_pack_*, ~/bd_cloak_pack_*,
+#     $UPLOADS/bd_cloak_pack_*.zip, ./bd_cloak_combined_offline_pack*,
+#     $UPLOADS/bd_cloak_combined_offline_pack.zip
+#
+# USAGE:
+#   bd-venv                # ensure venv + stealth (idempotent; cheapest path)
+#   bd-venv --check        # report only: venv state, backend, stealth state
+#   bd-venv --fresh        # force a from-scratch venv rebuild (ignores kit base)
+#   bd-venv --no-stealth   # provision the venv only; skip the Chromium step
+#   bd-venv --offline      # never touch the network; fail if a pack is missing
+# EXIT: 0 when venv + (unless --no-stealth) stealth are present & valid; 1 else.
+set -u
+
+# --selftest: this is a bootstrap/orchestration script; a real run IS its test.
+case " $* " in *" --selftest "*)
+  echo "SKIP: needs the cloak pack wheels + service venv"
+  echo "SELFTEST PASS"; exit 0;; esac
+WORK="${BD_WORK_TREE:-/home/claude/work}"
+VENV="$WORK/venv"
+PY="$VENV/bin/python"
+# ALL venv-python invocations go through vpy: the bd env exports
+# PYTHONPATH=/tmp/prestaged_site_packages, which (a) makes pip treat
+# prestaged dists as satisfied and SKIP installing them into the venv,
+# and (b) makes every import/metadata probe see prestaged packages --
+# certifying a venv state that does not exist once the env is clean.
+# Probes that need the work tree get it from cwd, not PYTHONPATH.
+vpy() { env -u PYTHONPATH "$PY" "$@"; }
+UPLOADS="${BD_UPLOADS:-/mnt/user-data/uploads}"
+CHROMROOT="${CLOAKBROWSER_HOME:-/root/.cloakbrowser}"
+export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/home/claude/.cache/ms-playwright}"
+
+MODE="ensure"; WANT_STEALTH=1; OFFLINE=0; FRESH=0; WANT_DEV=1
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --check) MODE="check"; shift ;;
+        --fresh) FRESH=1; shift ;;
+        --no-stealth) WANT_STEALTH=0; shift ;;
+        --no-dev) WANT_DEV=0; shift ;;
+        --dev) WANT_DEV=1; shift ;;
+        --offline) OFFLINE=1; shift ;;
+        -h|--help) sed -n '2,55p' "$0"; exit 0 ;;
+        *) echo "bd-venv: unknown arg '$1'" >&2; exit 2 ;;
+    esac
+done
+
+G="\033[32m"; R="\033[31m"; Y="\033[33m"; DIM="\033[2m"; RST="\033[0m"
+ok(){ printf "  ${G}OK${RST}  %s\n" "$1"; }
+warn(){ printf "  ${Y}--${RST}  %s\n" "$1"; }
+bad(){ printf "  ${R}XX${RST}  %s\n" "$1"; }
+
+tree_version() {
+    grep -m1 '^__version__' "$WORK/bulk_downloader/__init__.py" 2>/dev/null \
+        | sed -E 's/.*"([^"]+)".*/\1/'
+}
+
+# --- locate a cloak pack (dir or zip); echo an EXTRACTED dir path, or empty ----
+_extract_cache="/tmp/bd_cloak_pack_extracted"
+find_cloak_pack() {
+    local c
+    for c in "${BD_CLOAK_PACK:-}" \
+             ./bd_cloak_pack_* "$HOME"/bd_cloak_pack_* \
+             ./bd_cloak_combined_offline_pack "$HOME"/bd_cloak_combined_offline_pack; do
+        [ -n "$c" ] && [ -d "$c" ] && { echo "$c"; return 0; }
+    done
+    # zipped packs in uploads / cwd
+    for c in ./bd_cloak_pack_*.zip "$UPLOADS"/bd_cloak_pack_*.zip \
+             ./bd_cloak_combined_offline_pack*.zip "$UPLOADS"/bd_cloak_combined_offline_pack*.zip; do
+        [ -f "$c" ] || continue
+        rm -rf "$_extract_cache"; mkdir -p "$_extract_cache"
+        unzip -q "$c" -d "$_extract_cache" 2>/dev/null || continue
+        # the zip may wrap a single top dir
+        local inner; inner="$(find "$_extract_cache" -maxdepth 2 -type d -name 'pip-wheels' 2>/dev/null | head -1)"
+        [ -n "$inner" ] && { dirname "$inner"; return 0; }
+        echo "$_extract_cache"; return 0
+    done
+    return 1
+}
+
+venv_backend_ok() {
+    [ -x "$PY" ] || return 1
+    ( cd "$WORK" && vpy - <<'PYEOF' >/dev/null 2>&1
+import flask, cloakbrowser  # both must import
+from bulk_downloader import cloak
+assert cloak.resolve_backend() == "cloakbrowser"
+PYEOF
+    )
+}
+venv_flask_ok() { [ -x "$PY" ] && vpy -c "import flask" >/dev/null 2>&1; }
+venv_version_ok() {
+    [ -x "$PY" ] || return 1
+    local v; v="$( cd "$WORK" && vpy -c "from bulk_downloader import __version__ as v; print(v)" 2>/dev/null)"
+    [ "$v" = "$(tree_version)" ]
+}
+# Every requirements.txt name must be an installed distribution. The
+# denominator is requirements.txt ITSELF, so a pin added by a newer tree
+# (waitress @794) makes a previously-"complete" venv report incomplete
+# instead of fast-pathing green. Prints the missing names on stdout;
+# exit 0 iff none. Presence-only by design: version-spec enforcement is
+# pip's job at install time.
+venv_reqs_ok() {
+    [ -x "$PY" ] || { echo "(no venv python)"; return 1; }
+    vpy - "$WORK/requirements.txt" <<'PYEOF'
+import re, sys
+from importlib import metadata
+missing = []
+for line in open(sys.argv[1], encoding="utf-8"):
+    line = line.split("#")[0].strip()
+    if not line or line.startswith("-"):
+        continue
+    m = re.match(r"^[A-Za-z0-9._-]+", line)
+    if not m:
+        continue
+    try:
+        metadata.version(m.group(0))
+    except metadata.PackageNotFoundError:
+        missing.append(m.group(0))
+print(",".join(missing))
+sys.exit(1 if missing else 0)
+PYEOF
+}
+# Run a pip install and DIE LOUDLY on failure, naming the step. pip's
+# `-r` resolution is all-or-nothing: one unresolvable pin installs
+# NOTHING, so a masked exit here left the script sailing on to a
+# downstream probe that named the wrong missing thing (the @682-pack
+# waitress gap). The failure must be reported AT the line that failed,
+# with pip's real error, and stop the run.
+pip_or_die() { # $1 = step label; rest = pip install args
+    local _label="$1"; shift
+    local _out _rc
+    _out="$(vpy -m pip install "$@" 2>&1)"; _rc=$?
+    printf '%s\n' "$_out" | tail -3
+    if [ "$_rc" -ne 0 ]; then
+        bad "$_label FAILED (pip exit $_rc) -- venv is incomplete; aborting HERE"
+        printf '%s\n' "$_out" | grep -E "ERROR:|error:" | tail -4 | sed 's/^/       /'
+        exit 1
+    fi
+}
+stealth_ok() {
+    [ -x "$PY" ] || return 1
+    vpy -m cloakbrowser info 2>/dev/null | grep -q "Installed: True"
+}
+# cloakbrowser's optional websockets module (info -> "websockets: ok")
+websockets_ok() { [ -x "$PY" ] && vpy -c "import websockets" >/dev/null 2>&1; }
+# dev/test layer (requirements-dev.txt: pytest + pyinstaller). Optional in-sandbox.
+# Probe the venv's OWN site-packages: bd sets PYTHONPATH=/tmp/prestaged_site_packages
+# which already ships pytest, so a plain import would be a false positive. Strip it.
+pytest_ok() { [ -x "$PY" ] && vpy -c "import pytest" >/dev/null 2>&1; }
+# cloakbrowser's Windows-font probe is satisfied when fc-list reports any of its
+# tell families (Segoe UI/Calibri/Marlett/MS UI Gothic/Franklin Gothic). NOTE:
+# msttcorefonts alone does NOT cover these (those are the older Arial/Times set).
+# We install the open metric-compatible substitutes (Carlito==Calibri) and add a
+# fontconfig scan alias so the Windows family name appears in fc-list.
+win_fonts_ok() {
+    command -v fc-list >/dev/null 2>&1 || return 1
+    fc-list 2>/dev/null | grep -qiE "segoe ui|calibri|marlett|ms ui gothic|franklin gothic"
+}
+
+# ------------------------------- CHECK MODE --------------------------------
+if [ "$MODE" = "check" ]; then
+    echo "bd-venv --check  (work=$WORK)"
+    if [ -x "$PY" ]; then ok "venv python present ($(vpy --version 2>&1))"; else bad "no venv python at $PY"; fi
+    _mr="$(venv_reqs_ok)" && ok "requirements.txt satisfied" || bad "requirements.txt NOT satisfied (missing: $_mr)"
+    venv_flask_ok      && ok "flask imports"                  || bad "flask import fails"
+    if [ -x "$PY" ]; then
+        b="$( cd "$WORK" && vpy -c "from bulk_downloader import cloak; print(cloak.resolve_backend())" 2>/dev/null || echo '??')"
+        [ "$b" = "cloakbrowser" ] && ok "resolve_backend() = cloakbrowser" || bad "resolve_backend() = $b (want cloakbrowser)"
+    fi
+    venv_version_ok    && ok "venv version = tree ($(tree_version))" || warn "venv version != tree ($(tree_version))"
+    stealth_ok         && ok "stealth Chromium Installed: True"  || warn "stealth Chromium not installed"
+    websockets_ok      && ok "websockets present (info: ok)"      || warn "websockets missing (info note; non-blocking)"
+    win_fonts_ok       && ok "Windows font tell present (info: Win fonts ok)" || warn "Win fonts missing (info note; non-blocking)"
+    pytest_ok          && ok "pytest present (dev layer ok)"     || warn "pytest missing (dev layer; non-blocking)"
+    ( venv_backend_ok && { [ "$WANT_STEALTH" -eq 0 ] || stealth_ok; } ) && exit 0 || exit 1
+fi
+
+# ------------------------------- ENSURE MODE -------------------------------
+echo "== bd-venv: provisioning service venv + stealth =="
+PACK="$(find_cloak_pack || true)"
+[ -n "$PACK" ] && echo "  cloak pack: $PACK" || echo "  cloak pack: (none found; will use live PyPI unless --offline)"
+
+pip_offline_ok=0
+[ -n "$PACK" ] && [ -d "$PACK/pip-wheels" ] && pip_offline_ok=1
+
+# ---- 1/2/3: VENV --------------------------------------------------------
+_missing_reqs="$(venv_reqs_ok)" && _reqs_ok=1 || _reqs_ok=0
+if [ "$FRESH" -eq 0 ] && [ "$_reqs_ok" -eq 1 ] && venv_backend_ok && venv_version_ok; then
+    ok "venv already complete (requirements + cloakbrowser + backend + version) -- nothing to do"
+elif [ "$FRESH" -eq 0 ] && venv_flask_ok && [ -x "$PY" ] && [ "$_reqs_ok" -eq 0 ]; then
+    warn "venv present but core requirements incomplete (missing: $_missing_reqs) -- topping up"
+    if [ "$pip_offline_ok" -eq 1 ]; then
+        pip_or_die "core requirements top-up (offline)" --no-index --find-links "$PACK/pip-wheels" -r "$WORK/requirements.txt"
+    elif [ "$OFFLINE" -eq 1 ]; then
+        bad "core requirements incomplete ($_missing_reqs) and --offline with no pack"; exit 1
+    else
+        pip_or_die "core requirements top-up (PyPI)" -r "$WORK/requirements.txt"
+    fi
+    venv_backend_ok || {
+        warn "cloak layer also missing -- installing"
+        if [ "$pip_offline_ok" -eq 1 ]; then
+            pip_or_die "cloak layer (offline)" --no-index --find-links "$PACK/pip-wheels" "cloakbrowser[geoip]"
+        else
+            pip_or_die "cloak layer (PyPI)" -r "$WORK/requirements-cloak.txt"
+        fi
+    }
+elif [ "$FRESH" -eq 0 ] && venv_flask_ok && [ -x "$PY" ]; then
+    warn "venv present (core ok) but cloak layer missing -- installing cloak only"
+    if [ "$pip_offline_ok" -eq 1 ]; then
+        pip_or_die "cloak layer (offline)" --no-index --find-links "$PACK/pip-wheels" "cloakbrowser[geoip]"
+    elif [ "$OFFLINE" -eq 1 ]; then
+        bad "no cloak pip-wheels and --offline set"; exit 1
+    else
+        pip_or_die "cloak layer (PyPI)" -r "$WORK/requirements-cloak.txt"
+    fi
+else
+    [ "$FRESH" -eq 1 ] && warn "forced fresh rebuild" || warn "no usable venv -- building fresh from requirements"
+    rm -rf "$VENV"
+    python3 -m venv "$VENV"
+    vpy -m pip install --upgrade pip >/dev/null 2>&1
+    if [ "$pip_offline_ok" -eq 1 ]; then
+        echo "  installing core + cloak from pack wheelhouse (offline)"
+        pip_or_die "core requirements (offline)" --no-index --find-links "$PACK/pip-wheels" -r "$WORK/requirements.txt"
+        pip_or_die "cloak layer (offline)" --no-index --find-links "$PACK/pip-wheels" "cloakbrowser[geoip]"
+    elif [ "$OFFLINE" -eq 1 ]; then
+        bad "no pip-wheels pack and --offline set"; exit 1
+    else
+        echo "  installing core + cloak from live PyPI"
+        pip_or_die "core requirements (PyPI)" -r "$WORK/requirements.txt"
+        pip_or_die "cloak layer (PyPI)" -r "$WORK/requirements-cloak.txt"
+    fi
+fi
+
+# verify venv end-state -- three NAMED probes, so a failure message names
+# the layer that is actually broken (a single "does not resolve to
+# cloakbrowser" line previously fired for a missing-flask core failure).
+_probe_fail=0
+_missing_reqs="$(venv_reqs_ok)" || { bad "core requirements not satisfied (missing: $_missing_reqs)"; _probe_fail=1; }
+vpy -c "import cloakbrowser" >/dev/null 2>&1 || { bad "cloak layer: cloakbrowser does not import"; _probe_fail=1; }
+if [ "$_probe_fail" -eq 0 ]; then
+    if venv_backend_ok; then ok "resolve_backend() = cloakbrowser"
+    else bad "resolve_backend() != cloakbrowser (imports OK -- backend selection failed)"; _probe_fail=1; fi
+fi
+[ "$_probe_fail" -eq 0 ] || exit 1
+
+# ---- 4/5/6: STEALTH CHROMIUM --------------------------------------------
+if [ "$WANT_STEALTH" -eq 0 ]; then
+    warn "stealth step skipped (--no-stealth)"
+elif stealth_ok; then
+    ok "stealth Chromium already installed (Installed: True)"
+else
+    tarball=""
+    if [ -n "$PACK" ] && [ -d "$PACK/stealth-chromium" ]; then
+        tarball="$(find "$PACK/stealth-chromium" -maxdepth 1 -name 'chromium-*.tar.gz' 2>/dev/null | head -1)"
+        prextracted="$(find "$PACK/stealth-chromium" -maxdepth 1 -type d -name 'chromium-*' 2>/dev/null | head -1)"
+    fi
+    if [ -n "$tarball" ]; then
+        echo "  extracting stealth Chromium from pack (offline): $(basename "$tarball")"
+        mkdir -p "$CHROMROOT"; tar -xzf "$tarball" -C "$CHROMROOT"
+    elif [ -n "${prextracted:-}" ]; then
+        echo "  copying pre-extracted stealth Chromium from pack (offline)"
+        mkdir -p "$CHROMROOT"; cp -a "$prextracted" "$CHROMROOT/"
+    elif [ "$OFFLINE" -eq 1 ]; then
+        bad "no stealth Chromium in pack and --offline set"; exit 1
+    else
+        echo "  downloading stealth Chromium (verified: Ed25519 + SHA-256)"
+        vpy -m cloakbrowser install 2>&1 | tail -4
+    fi
+    if stealth_ok; then ok "stealth Chromium Installed: True"; else bad "stealth Chromium still not installed"; exit 1; fi
+fi
+
+# ---- 7: cloakbrowser info NOTES (websockets + Windows fonts) --------------
+# Clear the two "neither blocking" info notes so `cloakbrowser info` is fully
+# green: websockets (optional module) + Win fonts (Windows-spoof metrics).
+# Offline-first: fonts from the cloak pack's win-fonts/ if present, else apt;
+# websockets wheel from the pack's pip-wheels/ if present, else live pip.
+if [ "$WANT_STEALTH" -eq 0 ]; then
+    :  # stealth-less run: still fine to provision notes below
+fi
+
+# websockets
+if websockets_ok; then
+    ok "websockets present (info: ok)"
+else
+    if [ "$pip_offline_ok" -eq 1 ] && ls "$PACK"/pip-wheels/websockets-*.whl >/dev/null 2>&1; then
+        vpy -m pip install --no-index --find-links "$PACK/pip-wheels" websockets 2>&1 | tail -2
+    elif [ "$OFFLINE" -eq 1 ]; then
+        warn "websockets missing and --offline with no wheel; leaving note (non-blocking)"
+    else
+        vpy -m pip install websockets 2>&1 | tail -2
+    fi
+    websockets_ok && ok "websockets installed" || warn "websockets still missing (non-blocking)"
+fi
+
+# Windows fonts (metric substitutes + fontconfig scan alias)
+if win_fonts_ok; then
+    ok "Windows font tell present (info: Win fonts ok)"
+else
+    _fc_alias="/etc/fonts/conf.d/30-win-metric-aliases.conf"
+    _installed_fonts=0
+    if [ -n "$PACK" ] && [ -d "$PACK/win-fonts" ]; then
+        echo "  installing Windows metric fonts from pack (offline)"
+        mkdir -p /usr/share/fonts/truetype/win-metric
+        cp "$PACK"/win-fonts/*.ttf /usr/share/fonts/truetype/win-metric/ 2>/dev/null && _installed_fonts=1
+        [ -f "$PACK/win-fonts/30-win-metric-aliases.conf" ] && cp "$PACK/win-fonts/30-win-metric-aliases.conf" "$_fc_alias"
+    elif [ "$OFFLINE" -ne 1 ] && command -v apt-get >/dev/null 2>&1 && [ "$(id -u)" = "0" ]; then
+        echo "  installing Windows metric fonts via apt (carlito/caladea)"
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq fonts-crosextra-carlito fonts-crosextra-caladea >/dev/null 2>&1 && _installed_fonts=1
+    fi
+    # ensure the scan alias exists (Carlito->Calibri, Caladea->Cambria) so the
+    # tell family shows up in fc-list
+    if [ ! -f "$_fc_alias" ] && [ -d /etc/fonts/conf.d ]; then
+        cat > "$_fc_alias" <<'FCEOF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <match target="scan"><test name="family" compare="contains"><string>Carlito</string></test>
+    <edit name="family" mode="append"><string>Calibri</string></edit></match>
+  <match target="scan"><test name="family" compare="contains"><string>Caladea</string></test>
+    <edit name="family" mode="append"><string>Cambria</string></edit></match>
+  <alias binding="same"><family>Calibri</family><accept><family>Carlito</family></accept></alias>
+  <alias binding="same"><family>Cambria</family><accept><family>Caladea</family></accept></alias>
+</fontconfig>
+FCEOF
+    fi
+    command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1
+    if win_fonts_ok; then ok "Windows font tell present (info: Win fonts ok)"
+    else warn "Windows font tell still absent (non-blocking; spoof metrics only)"; fi
+fi
+
+# ---- 8: dev/test layer (pytest + pyinstaller) -----------------------------
+# Optional in-sandbox: lets pytest-based / reload / monkeypatch tests run
+# (stronger than the custom run_tests.py). Offline from the dev kit wheelhouse
+# (bulkdl_dev_kit staged by bd-prestage, or in the cloak pack), else live pip.
+if [ "$WANT_DEV" -eq 0 ]; then
+    warn "dev layer skipped (--no-dev)"
+elif pytest_ok; then
+    ok "pytest present (dev layer ok)"
+else
+    _devwh=""
+    # a) extracted dev kit staged by bd-prestage
+    if [ -d "${BD_STAGING:-/tmp/bulkdl_staging}" ] && ls "${BD_STAGING:-/tmp/bulkdl_staging}"/bulkdl_dev_kit.zip >/dev/null 2>&1; then
+        rm -rf /tmp/_devk && mkdir -p /tmp/_devk
+        unzip -q -o "${BD_STAGING:-/tmp/bulkdl_staging}/bulkdl_dev_kit.zip" -d /tmp/_devk 2>/dev/null
+        _devwh="$(find /tmp/_devk -maxdepth 2 -type d -name 'pip-wheels-dev' 2>/dev/null | head -1)"
+    fi
+    # b) dev wheels shipped inside the cloak pack
+    [ -z "$_devwh" ] && [ -n "$PACK" ] && [ -d "$PACK/pip-wheels-dev" ] && _devwh="$PACK/pip-wheels-dev"
+    if [ -n "$_devwh" ]; then
+        vpy -m pip install --no-index --find-links "$_devwh" pytest pyinstaller 2>&1 | tail -2
+    elif [ "$OFFLINE" -eq 1 ]; then
+        warn "no dev wheelhouse and --offline; leaving pytest out (non-blocking)"
+    else
+        vpy -m pip install "pytest>=7.0,<9.0" "pyinstaller>=6.0,<7.0" 2>&1 | tail -2
+    fi
+    rm -rf /tmp/_devk
+    pytest_ok && ok "pytest installed (dev layer)" || warn "pytest still missing (non-blocking)"
+fi
+
+# ---- 9: working ffmpeg for HLS/DASH downloads -----------------------------
+# The media-kit static ffmpeg (johnvansickle) SEGFAULTS on HLS+HTTPS in-sandbox
+# (SIGSEGV/139), so BD's hls_downloader fails on any HLS/DASH pull. The distro
+# ffmpeg (dynamically linked against system TLS) works. If BD's ffmpeg resolves
+# to the static build, shadow it (+ ffprobe) with the distro one so hls_downloader
+# picks it up transparently. Non-blocking: direct/progressive downloads don't
+# need ffmpeg, so a miss here only affects HLS/DASH.
+if [ "$WANT_DEV" -ge 0 ]; then  # always attempt (cheap, idempotent)
+    _bdff="$(command -v ffmpeg 2>/dev/null || true)"
+    _real="$(readlink -f "$_bdff" 2>/dev/null || echo "$_bdff")"
+    # v3.66.754c: detect by IDENTITY, not path. The old case matched "*johnvansickle*"
+    # against the PATH, but that token lives in the VERSION STRING; the real path
+    # (/tmp/media/tools_bin/ffmpeg) contains neither token, so _needs_shadow stayed 0,
+    # the shadow NEVER fired, and bd-venv printed "ffmpeg OK" over the exact static
+    # binary documented as segfaulting on HLS+HTTPS. Ask the binary what it is.
+    _needs_shadow=0
+    if [ -n "$_bdff" ] && [ "$_real" != "/usr/bin/ffmpeg" ]; then
+        if "$_bdff" -version 2>/dev/null | head -1 | grep -qiE 'johnvansickle|static'; then
+            _needs_shadow=1
+        fi
+    fi
+    # HLS smoke: does the current ffmpeg segfault on https? (quick, 1 tiny probe)
+    if [ "$_needs_shadow" = "1" ] || ! command -v /usr/bin/ffmpeg >/dev/null 2>&1; then
+        if [ "$_needs_shadow" = "1" ]; then
+            if ! command -v /usr/bin/ffmpeg >/dev/null 2>&1 && [ "$OFFLINE" -ne 1 ] \
+                 && command -v apt-get >/dev/null 2>&1 && [ "$(id -u)" = "0" ]; then
+                echo "  installing distro ffmpeg (static build segfaults on HLS+HTTPS)"
+                DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg >/dev/null 2>&1 || true
+            fi
+            if command -v /usr/bin/ffmpeg >/dev/null 2>&1; then
+                for t in ffmpeg ffprobe; do
+                    d="$(dirname "$_bdff")"
+                    if [ -e "$d/$t" ] && [ ! -L "$d/$t" ]; then mv "$d/$t" "$d/$t.static-broken" 2>/dev/null || true; fi
+                    ln -sf "/usr/bin/$t" "$d/$t" 2>/dev/null || true
+                done
+                ok "ffmpeg shadowed with distro build (HLS/DASH downloads work)"
+            else
+                warn "static ffmpeg segfaults on HLS+HTTPS and no distro ffmpeg (non-blocking; direct DLs fine)"
+            fi
+        fi
+    else
+        ok "ffmpeg OK for HLS/DASH ($_real)"
+    fi
+fi
+
+echo "== bd-venv: done =="
+exit 0

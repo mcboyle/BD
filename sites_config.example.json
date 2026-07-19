@@ -1,0 +1,15 @@
+[
+    {
+        "comment":      "--- Copy this file to sites_config.json and fill in your credentials ---",
+        "url":          "https://example.com/login",
+        "username":     "your@email.com",
+        "password":     "yourpassword",
+        "user_field":   "#email",
+        "pass_field":   "#password",
+        "submit_btn":   "button[type=submit]",
+        "success_url":  "example.com/members",
+        "output":       "cookies/example.json",
+        "domain":       "example.com",
+        "wait":         3
+    }
+]

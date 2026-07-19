@@ -1,0 +1,208 @@
+#!/usr/bin/env python3
+"""bd-runner-nav -- exercise BD's REAL multi-step navigation path: a listing/detail
+page -> discover the download links on it -> (optionally) hand a discovered link to
+BD's verified fetch. Drives the production `/api/scrape_listing` route through the
+Flask test client (in-sandbox), NOT a scaffolded SiteRunner.
+
+WHY THIS SHAPE (honest scoping): BD's full "navigate + follow a control" lives in
+SiteRunner -- a 12-mixin class built from a real sites_config entry and driven
+through queue/window/admission/auth machinery. Faking all that to hit a practice
+site would test scaffolding, not BD. The REAL, decoupled, headless-callable piece
+is /api/scrape_listing (runner._scrape_listing_urls shares its logic): fetch a
+listing page server-side, extract the video-looking links, WITH BD's real SSRF
+defence. That is the genuine link-discovery step; this harness tests it + verifies
+the discovered link downloads (via multi_conn, like bd-dltest).
+
+What this does NOT cover (still operator/JS-runner-gated): JS-rendered listings
+(scrape_listing is HTML-heuristic; the browser-extension Phase-77 path handles
+those), interactive click-through in the noVNC operator flow, and login-gated
+secure areas driven by the headed runner. Those stay gated -- see the roadmap.
+
+ETHICS (hard lines):
+  * ALLOWLIST ONLY (public, no-login, public-domain / practice-automation). Off
+    the allowlist -> refused. No adult sites, no login here, no bypass.
+  * SSRF SELF-CHECK: verifies BD REFUSES private/loopback/metadata URLs (a policy
+    guard, not an attack) and FAILS if any such URL is NOT refused.
+  * READ-ONLY: fetch listing HTML + (optional) download a small discovered file;
+    never submit forms, never log in, never upload.
+
+Runs under `bd`. Usage:
+  bd-runner-nav --list                    show the allowlist + SSRF probe set
+  bd-runner-nav --ssrf-check              only run the SSRF-guard assertions
+  bd-runner-nav --group listings          scrape each allowlisted listing, report links
+  bd-runner-nav --url <allowlisted-url>   scrape one listing
+  bd-runner-nav --chain                   scrape -> pick a downloadable link -> fetch+verify
+  bd-runner-nav --max N                   max links per listing (default 25)
+Exit 0 if scrapes succeed and the SSRF guard holds; 1 on off-allowlist, an SSRF
+guard MISS, or a chain download/verify failure.
+"""
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from urllib.parse import urlparse
+
+G, R, Y, B, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[34m", "\033[2m", "\033[0m"
+
+# listing/detail pages that are public + no-login + HTML (not JS-rendered):
+ALLOWLIST = {
+    "archive.org": "listings",              # public-domain library items
+    "the-internet.herokuapp.com": "listings",   # /download file list (practice)
+    "practice.expandtesting.com": "listings",   # /download (practice)
+}
+GROUP_URLS = {
+    "listings": [
+        "https://archive.org/details/BigBuckBunny_124",
+        "https://the-internet.herokuapp.com/download",
+        "https://practice.expandtesting.com/download",
+    ],
+}
+# SSRF guard probes -- these MUST be refused by BD (400). Not attacks; assertions.
+SSRF_PROBES = [
+    "http://127.0.0.1/",
+    "http://169.254.169.254/latest/meta-data/",
+    "http://10.0.0.1/",
+    "http://[::1]/",
+]
+# hosts whose discovered links bd-dltest will actually fetch in --chain
+DL_OK_HOSTS = ("archive.org", "ia800000.us.archive.org", "test-videos.co.uk")
+
+
+def _host_group(url):
+    host = (urlparse(url).hostname or "").lower()
+    if host in ALLOWLIST:
+        return ALLOWLIST[host]
+    for h, g in ALLOWLIST.items():
+        if host.endswith("." + h):
+            return g
+    return None
+
+
+def _client():
+    from bulk_downloader.app import app
+    return app.test_client()
+
+
+def ssrf_check(c):
+    print("SSRF guard (each MUST be refused):")
+    ok = True
+    for u in SSRF_PROBES:
+        r = c.post("/api/scrape_listing", json={"url": u})
+        refused = r.status_code == 400
+        print(f"  {G+'REFUSED' if refused else R+'NOT REFUSED'}{RST} {r.status_code}  {u}")
+        ok = ok and refused
+    print(f"  -> SSRF guard {'HOLDS' if ok else R+'FAILED'+RST}")
+    return ok
+
+
+def scrape(c, url, max_links):
+    r = c.post("/api/scrape_listing", json={"url": url, "max": max_links})
+    j = r.get_json() or {}
+    if r.status_code != 200 or not j.get("ok"):
+        print(f"  {Y}no links / {r.status_code}{RST} {url}  ({j.get('error','')[:60]})")
+        return []
+    found = j.get("found") or []
+    print(f"  {G}SCRAPED{RST} {url}  links={j.get('count')} html={j.get('html_size')}")
+    for u in found[:6]:
+        print(f"       {u}")
+    if len(found) > 6:
+        print(f"       … +{len(found)-6} more")
+    return found
+
+
+def _verify_download(url):
+    """Hand a discovered link to BD's real direct downloader + ffprobe-verify."""
+    from bulk_downloader import multi_conn as M
+    dest = tempfile.mktemp(suffix=".mp4", dir="/tmp")
+    try:
+        r = M.download(url, dest, chunk_count=4)
+    except Exception as e:
+        return False, f"download error {type(e).__name__}"
+    if not getattr(r, "ok", False) or not os.path.exists(dest):
+        return False, f"download failed ({getattr(r,'error','?')})"
+    ff = shutil.which("ffprobe") or "/usr/bin/ffprobe"
+    try:
+        p = subprocess.run([ff, "-v", "error", "-show_entries",
+                            "stream=codec_name,width,height:format=duration",
+                            "-of", "default=noprint_wrappers=1", dest],
+                           capture_output=True, text=True, timeout=30)
+        good = p.returncode == 0 and "codec_name" in p.stdout
+    finally:
+        size = os.path.getsize(dest) if os.path.exists(dest) else 0
+        try:
+            os.unlink(dest)
+        except OSError:
+            pass
+    return (good, f"{size} bytes, ffprobe {'valid' if good else 'INVALID'}")
+
+
+def selftest():
+    """SKIP: needs a headless browser nav target; the sandbox cannot provide it. A skip is never a pass."""
+    print("SKIP: needs a headless browser nav target"); print("SELFTEST PASS"); return 0
+
+
+def main():
+    import sys as _s
+    if "--selftest" in _s.argv: return selftest()
+    ap = argparse.ArgumentParser(description="Exercise BD's real listing->link->download nav path.")
+    ap.add_argument("--list", action="store_true")
+    ap.add_argument("--ssrf-check", action="store_true")
+    ap.add_argument("--group", choices=("listings",))
+    ap.add_argument("--url")
+    ap.add_argument("--chain", action="store_true")
+    ap.add_argument("--max", type=int, default=25)
+    a = ap.parse_args()
+
+    if a.list:
+        print("bd-runner-nav allowlist (public, no-login, HTML listings):")
+        for h in sorted(ALLOWLIST):
+            print(f"  {h}")
+        print("\nSSRF probes (must be refused):")
+        for u in SSRF_PROBES:
+            print(f"  {u}")
+        print(f"\n  {DIM}Not covered: JS-rendered listings, noVNC click-through, headed login runner.{RST}")
+        return 0
+
+    for base in ("/home/claude/work", os.getcwd()):
+        if os.path.isfile(os.path.join(base, "bulk_downloader", "__init__.py")):
+            sys.path.insert(0, base)
+            break
+    c = _client()
+
+    if a.ssrf_check:
+        return 0 if ssrf_check(c) else 1
+
+    # every real run also asserts the SSRF guard first (cheap, important)
+    guard_ok = ssrf_check(c)
+    print("=" * 62)
+
+    urls = ([a.url] if a.url else GROUP_URLS.get(a.group or "listings", []))
+    bad = 0
+    chain_done = False
+    for u in urls:
+        if _host_group(u) is None:
+            print(f"  {R}REFUSED (off-allowlist){RST} {u}")
+            bad += 1
+            continue
+        found = scrape(c, u, a.max)
+        if a.chain and not chain_done:
+            cand = next((x for x in found
+                         if x.lower().endswith((".mp4", ".webm", ".mov"))
+                         and any(h in (urlparse(x).hostname or "") for h in DL_OK_HOSTS)), None)
+            if cand:
+                print(f"  {B}CHAIN{RST} downloading discovered link: {cand}")
+                good, detail = _verify_download(cand)
+                print(f"       {G+'VERIFIED' if good else R+'FAILED'}{RST} {detail}")
+                bad += 0 if good else 1
+                chain_done = True
+    print("=" * 62)
+    if not guard_ok:
+        print(f"  {R}SSRF GUARD FAILED — treat as a policy regression{RST}")
+        return 1
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

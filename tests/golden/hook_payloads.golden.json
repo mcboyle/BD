@@ -1,0 +1,117 @@
+{
+  "capture.done": [
+    "network_count",
+    "ts",
+    "url"
+  ],
+  "capture.started": [
+    "ts",
+    "url"
+  ],
+  "cookies.refreshed": [
+    "count",
+    "site_id"
+  ],
+  "download.done": [
+    "file_size",
+    "filename",
+    "path",
+    "site_id",
+    "ts",
+    "url"
+  ],
+  "download.failed": [
+    "message",
+    "site_id",
+    "ts",
+    "url"
+  ],
+  "download.needs_review": [
+    "message",
+    "site_id",
+    "ts",
+    "url"
+  ],
+  "download.progress": [
+    "file_size",
+    "site_id",
+    "ts",
+    "url"
+  ],
+  "download.retry": [
+    "message",
+    "retries",
+    "site_id",
+    "ts",
+    "url"
+  ],
+  "plugin.quarantined": [
+    "fails",
+    "key",
+    "last_error"
+  ],
+  "plugin.recovered": [
+    "key"
+  ],
+  "queue.drained": [
+    "done",
+    "failed",
+    "review",
+    "site_id",
+    "ts"
+  ],
+  "queue.enqueued": [
+    "added",
+    "dupes",
+    "site_id",
+    "skipped",
+    "ts"
+  ],
+  "queue.idle": [
+    "idle_seconds",
+    "site_id"
+  ],
+  "review.approved": [
+    "count",
+    "site_id",
+    "ts"
+  ],
+  "review.skipped": [
+    "count",
+    "site_id",
+    "ts"
+  ],
+  "site.cooldown": [
+    "duration_seconds",
+    "reason",
+    "site_id"
+  ],
+  "site.recovered": [
+    "site_id"
+  ],
+  "template.promoted": [
+    "filename",
+    "host",
+    "ts"
+  ],
+  "template.reviewed": [
+    "enabled",
+    "filename",
+    "host",
+    "ts"
+  ],
+  "vpn.killswitch_armed": [
+    "reason",
+    "ts",
+    "tunnel_id"
+  ],
+  "vpn.tunnel_down": [
+    "ts",
+    "tunnel_id"
+  ],
+  "vpn.tunnel_up": [
+    "socks_port",
+    "ts",
+    "tunnel_id"
+  ]
+}

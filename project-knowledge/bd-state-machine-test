@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""bd-state-machine-test -- test allowed/forbidden state transitions.
+
+Takes the extracted state machine (bd-state-machine-extract) plus a FORBIDDEN
+transition list (illegal workflow jumps -- e.g. done->running, stopped->done)
+and checks whether any forbidden transition appears in the observed transitions.
+A forbidden transition that IS observed -> BD-ILLEGAL-TRANSITION (a workflow can
+jump a state it shouldn't). Also reports terminal states with outgoing edges.
+Read-only.
+
+Usage: bd-state-machine-test [--subsystem runner] [--work DIR] [--json] [--selftest]
+Exit 1 if an illegal transition is observed, else 0.
+"""
+import argparse, os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+
+import importlib.util, importlib.machinery
+def _load_tool(tool):
+    p=os.path.join(os.path.dirname(os.path.realpath(__file__)),tool)
+    modname=tool.replace("-","_")
+    spec=importlib.util.spec_from_loader(modname,importlib.machinery.SourceFileLoader(modname,p))
+    m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); return m
+
+_ex=_load_tool("bd-state-machine-extract")
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+# terminal states must not transition out
+TERMINAL={"done","stopped","failed","cancelled","complete","error"}
+FORBIDDEN=[("done","running"),("done","pending"),("stopped","running"),
+           ("failed","done"),("cancelled","running"),("complete","pending")]
+
+def test(work, subsystem):
+    sm=_ex.extract(work,subsystem)
+    observed=set(map(tuple,sm["transitions"]))
+    illegal=[list(t) for t in FORBIDDEN if t in observed]
+    terminal_leaks=[list(t) for t in observed if t[0] in TERMINAL]
+    return {"subsystem":subsystem,"states":sm["states"],"observed":len(observed),
+            "illegal_transitions":illegal,"terminal_leaks":terminal_leaks}
+
+def selftest():
+    ok=True
+    # forbidden list correctness: done->running must be forbidden
+    print(("PASS" if ("done","running") in FORBIDDEN else "FAIL")+"  done->running is in the forbidden set")
+    # a machine with no illegal transitions passes
+    r=test(sec.DEFAULT_WORK,"runner")
+    print(("PASS" if isinstance(r["illegal_transitions"],list) else "FAIL")+"  real runner tested (%d illegal, %d terminal-leak)"%(len(r["illegal_transitions"]),len(r["terminal_leaks"])))
+    # synthetic illegal
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        b=os.path.join(d,"bulk_downloader"); os.makedirs(b)
+        open(os.path.join(b,"runner.py"),"w").write('status="done"\nstatus="running"\n# done -> running\n')
+        r2=test(d,"runner")
+    print(("PASS" if ["done","running"] in r2["illegal_transitions"] else "FAIL")+"  synthetic illegal done->running caught")
+    ok=ok and ["done","running"] in r2["illegal_transitions"]
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--subsystem",default="runner"); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    sec.require_source_tree(a.work)
+    r=test(a.work,a.subsystem)
+    bad=r["illegal_transitions"] or r["terminal_leaks"]
+    if sec.emit(r,as_json=a.json): return 1 if r["illegal_transitions"] else 0
+    print("%s: %d states, %d observed transitions"%(a.subsystem,len(r["states"]),r["observed"]))
+    for t in r["illegal_transitions"]: print("  %sBD-ILLEGAL-TRANSITION%s %s -> %s"%(R,RST,t[0],t[1]))
+    for t in r["terminal_leaks"]: print("  %sterminal-leak%s %s -> %s (terminal state with outgoing edge)"%(Y,RST,t[0],t[1]))
+    if not bad: print(G+"no illegal transitions observed"+RST)
+    return 1 if r["illegal_transitions"] else 0
+sys.exit(main())

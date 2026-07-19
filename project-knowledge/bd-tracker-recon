@@ -1,0 +1,381 @@
+#!/usr/bin/env python3
+"""bd-tracker-recon -- reconcile the task tracker against SHIPPED SOURCE.
+
+The failure this catches (surfaced by the 774 silent-drop audit -- 18 confirmed
+closure holes spanning v165->654, incl. the entire S-slice program @601-654 with
+zero rows): work shipped to a released version, but the tracker row was never
+moved to `completed`. `tasktracker_gen --check` cannot see this -- it renders
+DATA.json to md+xlsx and diffs the two RENDERED artifacts against each other. Its
+denominator is the rendering, so it goes green whenever the .md and .xlsx agree,
+including when both agree that a shipped item is still "incomplete." A check whose
+denominator structurally excludes the thing being asked reports clean and useless.
+
+This gate makes the SHIPPED SOURCE the denominator. Only `incomplete` rows are
+hole-candidates: the `awaiting_operator` section is operator-gated BY SECTION --
+its rows are "sandbox/built done, operator live-verify/deploy step pending," which
+is a correctly-open state the source cannot prove finished, so those rows are never
+a closure hole. For each `incomplete` row it greps the row's declared artifacts
+against the work tree and reads its status, and classifies:
+
+  SHIPPED-BUT-OPEN  the status asserts a live ship-to-completion ("SHIPPED +
+                    stash-green @NNN" / "LIVE @NNN") AND an artifact is present in
+                    the tree AND the row carries NO residual/pending/epic/operator
+                    qualifier -> a closure hole (should be in `completed`). The
+                    completion assertion must be for the WHOLE row, not a sub-part;
+                    ID-in-CHANGELOG is only a corroborator (short IDs like "MOD"
+                    match sub-items "MOD-1..", so it is never sufficient alone).
+  OPEN-OK           genuinely open: operator/calendar-bound, an epic with open
+                    residual, or a sandbox fix explicitly awaiting operator
+                    (the sandbox-delivered != live-shipped distinction is honored).
+  UNKNOWN           artifacts are declared but none can be located, and no
+                    operator/awaiting reason to be open -> the tool CANNOT certify.
+                    Unknown is a third state and it FAILS OPEN; never counts clean.
+
+Deliberately NOT attempted in v1: absent-row detection ("a shipped program with no
+row at all," the S-slice shape). A sound version needs a feature-level denominator;
+a per-version scan is unsound because `completed` rows are feature-keyed, not
+version-keyed, so it over-flags every version. Shipping an unsound check would BE
+the failure shape this tool exists to catch. Left as a documented follow-up.
+
+This tool is the deliberate SUBTRACT-policy exception (TRACKER-RECON-DEC / ROI #62):
+added precisely because it closes the exact hole the existing gate cannot see.
+Budget floor moves 247 -> 248. Read-only.
+
+Usage:
+    bd-tracker-recon [--data DATA.json] [--work DIR] [--json]
+    bd-tracker-recon --selftest
+
+Exit 1 if any SHIPPED-BUT-OPEN hole is found; exit 2 if the tool cannot fully
+evaluate (unknowns, or missing data/tree); exit 0 only when every open row is
+OPEN-OK with no unknowns.
+"""
+import argparse
+import glob
+import json
+import os
+import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+try:
+    import bdtools_sec as sec
+    DEFAULT_WORK = sec.DEFAULT_WORK
+except Exception:  # why: bdtools_sec is optional here; fall back to the
+    # documented default path. Degrades COMPLETENESS, not correctness, and the
+    # caller sees sec=None rather than a wrong answer.
+    sec = None
+    DEFAULT_WORK = "/home/claude/work"
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+_PYREF = re.compile(r"\b([A-Za-z_][\w./-]*\.py)(?::(\d+))?")
+# status/scope text that means the row is CORRECTLY still open (operator-gated,
+# an epic with residual, or a sandbox deliverable whose live step is pending).
+_OPEN_QUALIFIER = re.compile(
+    r"awaiting operator|awaiting fold|awaiting stash|awaiting deploy|"
+    r"operator step|operator test|operator-bound|operator re-promote|"
+    r"operator decision|pending operator|live check|live-verify|"
+    r"acceptance pending|creds pending|live.{0,12}pending|pending \(|"
+    r"\bpending\b|\bEPIC\b|residual|remain|deferred|blocked by|"
+    r"calendar|sandbox-verified|sandbox part done|part done|"
+    r"built @|built \+|deployed @.{0,40}pending|not started|in progress",
+    re.I,
+)
+# status text asserting a LIVE ship-to-completion for the WHOLE row.
+_LIVESHIP = re.compile(
+    r"SHIPPED \+ stash-green|\bLIVE @\d|shipped to live|"
+    r"shipped @\d.{0,30}stash-green|merged to (?:main|live)|GA @\d",
+    re.I,
+)
+
+
+# ---- data / tree loading ---------------------------------------------------
+
+def load_data(path):
+    with open(path) as f:
+        return json.load(f)
+
+
+def open_rows(data):
+    rows = []
+    for sect in ("incomplete", "awaiting_operator"):
+        for r in data.get(sect, []) or []:
+            rr = dict(r)
+            rr["_section"] = sect
+            rows.append(rr)
+    return rows
+
+
+
+def row_text(row):
+    # every text field concatenated for signal extraction
+    return " ".join(str(row.get(k, "")) for k in row.keys() if k != "_section")
+
+
+def row_artifacts(row):
+    txt = row_text(row)
+    out = []
+    for m in _PYREF.finditer(txt):
+        out.append((m.group(1), m.group(2)))
+    return out
+
+
+# ---- source-denominator probes ---------------------------------------------
+
+def artifact_present(work, relpath, lineno):
+    """Is this .py artifact present in the shipped tree (and long enough for the
+    cited line)? Returns True/False/None(=indeterminate: path shape but absent)."""
+    base = relpath.split("/")[-1]
+    # search anywhere under bulk_downloader for the basename, then confirm the
+    # relpath tail matches
+    hits = glob.glob(os.path.join(work, "bulk_downloader", "**", base),
+                     recursive=True)
+    hits += glob.glob(os.path.join(work, "**", base), recursive=True)
+    hits = [h for h in set(hits) if h.endswith(relpath) or os.path.basename(h) == base]
+    if not hits:
+        return False
+    if lineno:
+        try:
+            n = sum(1 for _ in open(hits[0], errors="ignore"))
+            return n >= int(lineno)
+        except Exception:  # why: unreadable/short file -> UNKNOWN, not False.
+            # None is this function's third state and the caller treats it as
+            # 'cannot verify' rather than 'does not satisfy'.
+            return None
+    return True
+
+
+def id_in_changelog(changelog_text, row_id):
+    """Corroborator only. Requires a distinctive ID (>=4 chars, hyphenated or
+    digit-bearing) so short prefixes like 'MOD' that match sub-items 'MOD-1..'
+    do not count. Never sufficient alone to flag a hole."""
+    if not row_id:
+        return False
+    rid = row_id.strip()
+    if len(rid) < 4 or not (("-" in rid) or any(c.isdigit() for c in rid)):
+        return False
+    return re.search(r"(?<![\w-])" + re.escape(rid) + r"(?![\w-])",
+                     changelog_text) is not None
+
+
+# ---- classification --------------------------------------------------------
+
+def classify_row(row, work, changelog_text):
+    # awaiting_operator is operator-gated by section: the operator step is the
+    # tracked open work, which source cannot prove finished. Never a hole.
+    if row.get("_section") == "awaiting_operator":
+        return "OPEN-OK", "operator-gated (awaiting_operator section)"
+
+    txt = row_text(row)
+    arts = row_artifacts(row)
+    art_states = [artifact_present(work, p, ln) for (p, ln) in arts]
+    any_art_present = any(s is True for s in art_states)
+    all_art_absent = bool(arts) and all(s is False for s in art_states)
+    any_art_indeterminate = any(s is None for s in art_states)
+
+    open_qual = bool(_OPEN_QUALIFIER.search(txt))
+    live_ship = bool(_LIVESHIP.search(txt))
+    corrob = id_in_changelog(changelog_text, row.get("ID"))
+
+    # SHIPPED-BUT-OPEN requires ALL: a whole-row live-ship completion marker,
+    # an artifact present in the shipped tree, and NO open-qualifier language.
+    if live_ship and any_art_present and not open_qual:
+        why = ["status asserts live ship-to-completion", "artifact present in tree"]
+        if corrob:
+            why.append("ID corroborated in CHANGELOG")
+        return "SHIPPED-BUT-OPEN", "; ".join(why)
+
+    # UNKNOWN (fail-open): artifacts declared but not locatable, and no reason
+    # (operator-qualifier) to be legitimately open.
+    if (all_art_absent or any_art_indeterminate) and not open_qual:
+        return "UNKNOWN", (
+            "declared artifacts not locatable in tree "
+            f"({[p for p, _ in arts]})")
+
+    return "OPEN-OK", ("open-qualified (operator/epic/residual/pending)"
+                       if open_qual else "no whole-row live-ship evidence")
+
+
+# ---- run -------------------------------------------------------------------
+
+def run(data_path, work):
+    if not os.path.exists(data_path):
+        return 2, {"error": f"tracker data not found: {data_path}"}
+    if not os.path.isdir(os.path.join(work, "bulk_downloader")):
+        return 2, {"error": f"source tree not found under {work}"}
+    cl_path = os.path.join(work, "CHANGELOG.md")
+    changelog_text = open(cl_path, errors="ignore").read() if os.path.exists(cl_path) else ""
+
+    data = load_data(data_path)
+    rows = open_rows(data)
+    results = []
+    for r in rows:
+        verdict, why = classify_row(r, work, changelog_text)
+        results.append({"id": r.get("ID"), "section": r["_section"],
+                        "verdict": verdict, "why": why})
+
+    holes = [x for x in results if x["verdict"] == "SHIPPED-BUT-OPEN"]
+    unknowns = [x for x in results if x["verdict"] == "UNKNOWN"]
+
+    report = {
+        "open_rows": len(rows),
+        "incomplete_examined": sum(1 for r in rows if r["_section"] == "incomplete"),
+        "awaiting_operator_gated": sum(1 for r in rows
+                                       if r["_section"] == "awaiting_operator"),
+        "shipped_but_open": holes,
+        "unknown": unknowns,
+        "ok": len(rows) - len(holes) - len(unknowns),
+    }
+    exit_code = 0
+    if holes:
+        exit_code = 1
+    elif unknowns:
+        exit_code = 2
+    return exit_code, report
+
+
+def render(report):
+    if "error" in report:
+        print(f"{R}CANNOT EVALUATE{RST}  {report['error']}")
+        return
+    print(f"open rows: {report['open_rows']} "
+          f"({report['incomplete_examined']} incomplete examined, "
+          f"{report['awaiting_operator_gated']} awaiting_operator gated)  "
+          f"-> {G}{report['ok']} OPEN-OK{RST}, "
+          f"{R}{len(report['shipped_but_open'])} shipped-but-open{RST}, "
+          f"{Y}{len(report['unknown'])} unknown{RST}")
+    for h in report["shipped_but_open"]:
+        print(f"  {R}SHIPPED-BUT-OPEN{RST}  {h['id']} ({h['section']})  {DIM}{h['why']}{RST}")
+    for u in report["unknown"]:
+        print(f"  {Y}UNKNOWN{RST}          {u['id']} ({u['section']})  {DIM}{u['why']}{RST}")
+
+
+# ---- selftest --------------------------------------------------------------
+
+def selftest():
+    import tempfile
+    import shutil
+    ok = True
+    tmp = tempfile.mkdtemp()
+    try:
+        bd = os.path.join(tmp, "bulk_downloader")
+        os.makedirs(bd)
+        # a shipped feature file, long enough for a cited line
+        with open(os.path.join(bd, "app_shipped.py"), "w") as f:
+            f.write("\n".join(f"# line {i}" for i in range(120)))
+        # a genuinely-open feature has NO file in the tree
+        with open(os.path.join(tmp, "CHANGELOG.md"), "w") as f:
+            f.write("## v3.66.700 - the SHIPPED feature\n"
+                    "did the SHIP-HOLE thing (app_shipped.py)\n\n"
+                    "## v3.66.701 - unrelated\n")
+        data = {
+            "incomplete": [
+                # POS: whole-row live ship-to-completion, artifact present, no qualifier
+                {"ID": "SHIP-HOLE", "Item / scope": "the shipped thing",
+                 "Status": "SHIPPED + stash-green @700",
+                 "Next action / notes": "see app_shipped.py:60"},
+                # NEG: sandbox fix explicitly awaiting operator -> correctly open
+                {"ID": "SANDBOX-WAIT", "Item / scope": "delivered in sandbox",
+                 "Status": "FIX DELIVERED @756 in-sandbox; awaiting operator test",
+                 "Next action / notes": "app_shipped.py:10"},
+                # NEG: an EPIC with sub-items shipped but residual open -> not a hole
+                {"ID": "EPIC-1", "Item / scope": "EPIC: sub-A shipped, residual remain",
+                 "Status": "SHIPPED @700 sub-A (stash-green); MOD-3 residual remain",
+                 "Next action / notes": "app_shipped.py:5"},
+                # NEG: artifact declared but absent from tree -> UNKNOWN (fail-open)
+                {"ID": "GHOST", "Item / scope": "cites a missing file",
+                 "Status": "coding",
+                 "Next action / notes": "app_nonexistent.py:5"},
+            ],
+            "awaiting_operator": [
+                # NEG: operator-gated by SECTION even though CHANGELOG names it
+                # and an artifact exists -> OPEN-OK (the OPV-B2 false-positive class)
+                {"ID": "OPV-B2", "Item / scope": "operator live download leg",
+                 "Status": "SANDBOX-VERIFIED @700; operator step pending",
+                 "Next action / notes": "SHIP-HOLE ... app_shipped.py:1"},
+            ],
+            "completed": [{"ID": "X", "Version": "3.66.701"}],
+        }
+        dpath = os.path.join(tmp, "TASK_TRACKER_DATA.json")
+        json.dump(data, open(dpath, "w"))
+
+        code, rep = run(dpath, tmp)
+        verds = {}
+        for x in rep["shipped_but_open"]:
+            verds[x["id"]] = "SHIPPED-BUT-OPEN"
+        for x in rep["unknown"]:
+            verds[x["id"]] = "UNKNOWN"
+        for rid in ("SHIP-HOLE", "SANDBOX-WAIT", "EPIC-1", "GHOST", "OPV-B2"):
+            verds.setdefault(rid, "OPEN-OK")
+
+        def check(name, got, want):
+            nonlocal ok
+            good = got == want
+            ok = ok and good
+            print(f"  {(G+'PASS'+RST) if good else (R+'FAIL'+RST)} {name}: {got} "
+                  f"{'' if good else '(want '+want+')'}")
+
+        # load-bearing property: the denominator CONTAINS the shipped-but-open row
+        # (unlike tasktracker_gen --check, which is structurally blind to it)
+        check("POS live-ship + artifact + no qualifier -> hole", verds["SHIP-HOLE"],
+              "SHIPPED-BUT-OPEN")
+        check("NEG sandbox-delivered awaiting operator -> open", verds["SANDBOX-WAIT"],
+              "OPEN-OK")
+        check("NEG epic with residual -> open (not a hole)", verds["EPIC-1"], "OPEN-OK")
+        check("NEG missing artifact -> UNKNOWN (fails open, not clean)", verds["GHOST"],
+              "UNKNOWN")
+        check("NEG awaiting_operator gated by section -> open", verds["OPV-B2"],
+              "OPEN-OK")
+        check("exit code with a hole present", str(code), "1")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    print((G + "SELFTEST PASS" + RST) if ok else (R + "SELFTEST FAIL" + RST))
+    return 0 if ok else 1
+
+
+def _find_default_data():
+    for c in ("/home/claude/vpack/TASK_TRACKER_DATA.json",
+              "/home/claude/TASK_TRACKER_DATA.json",
+              os.path.join(DEFAULT_WORK, "TASK_TRACKER_DATA.json")):
+        if os.path.exists(c):
+            return c
+    hits = glob.glob("/home/claude/**/TASK_TRACKER_DATA.json", recursive=True)
+    return hits[0] if hits else "/home/claude/vpack/TASK_TRACKER_DATA.json"
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--data", default=None,
+                    help="TASK_TRACKER_DATA.json (default: auto-locate)")
+    ap.add_argument("--work", "--tree", default=DEFAULT_WORK)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    # F-1 corpus guard: the work tree IS this gate's denominator (open rows are
+    # reconciled against shipped source), so refuse to mint a verdict over an
+    # absent tree -- require_corpus exits CANNOT-EVALUATE when bulk_downloader/
+    # holds no .py, so we can never report RECON CLEAN over a tree that isn't
+    # there. run() re-derives from the same path; this is the fail-fast gate.
+    if sec is not None:
+        sec.require_corpus(os.path.join(a.work, "bulk_downloader"),
+                           patterns=("*.py",), label="--work/--tree")
+    data_path = a.data or _find_default_data()
+    code, rep = run(data_path, a.work)
+    if a.json:
+        print(json.dumps(rep, indent=2))
+    else:
+        render(rep)
+        if code == 0 and "error" not in rep:
+            print(f"{G}RECON CLEAN{RST} -- every open row is OPEN-OK, no unknowns.")
+        elif code == 1:
+            print(f"{R}RECON: closure hole(s) found{RST}.")
+        elif code == 2:
+            print(f"{Y}RECON: CANNOT fully certify{RST} "
+                  f"(unknowns or missing inputs -- fails open).")
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main())

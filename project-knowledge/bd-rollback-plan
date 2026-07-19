@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""bd-rollback-plan -- generate a version-specific rollback checklist.
+
+Reads STATE.json to produce a concrete, copy-pasteable rollback plan for the
+CURRENT release: the prior version to revert to, the artifact references (zip
+name + sha), the deploy steps in reverse (systemctl stop -> overlay prior zip ->
+pycache clear -> restart), the guard/verify confirmation, and the GREEN check.
+Distinct from bd-rollback (which wraps tools/rollback.py at runtime) -- this is
+the human-readable plan/runbook. Read-only.
+
+Usage: bd-rollback-plan [--home DIR] [--to VERSION] [--json] [--selftest]
+Exit 0 plan derived (informational) / 2 CANNOT-EVALUATE (no versions
+derivable from the bundle).
+"""
+import argparse, os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+
+def plan(home, to_version):
+    st=sec.load_state(home)
+    if not st: return {"error":"no STATE.json"}
+    cur=st.get("built_version") or st.get("live_version")
+    z=st.get("zip",{})
+    if not isinstance(z,dict): z={"name":str(z)}
+    parts=cur.split(".") if cur else []
+    prev=to_version or (".".join(parts[:-1]+[str(int(parts[-1])-1)]) if parts and parts[-1].isdigit() else "PRIOR")
+    steps=[
+        "sudo systemctl stop bulkdownloader.service",
+        "cd ~/BulkDownloader",
+        "unzip -o BulkDownloader_v3_66_%s.zip   # the PRIOR pinned release zip" % prev.split(".")[-1],
+        "find . -name __pycache__ -type d -prune -exec rm -rf {} +",
+        "sudo systemctl restart bulkdownloader.service",
+        "python3 tools/verify_release.py --zip BulkDownloader_v3_66_%s.zip  # gate on $?" % prev.split(".")[-1],
+        "capture.sh --workers=180   # confirm GREEN before declaring rolled back",
+    ]
+    return {"current":cur,"rollback_to":prev,
+            "current_zip":{"name":z.get("name"),"sha256":z.get("sha256")},
+            "steps":steps,
+            "note":"Overlay-only cuts cannot delete files; a rollback that removed a file needs the full prior tree, not an overlay."}
+
+def _expect_version():
+    """The version the SOURCE TREE declares about itself.
+
+    Deliberately a DIFFERENT route than the one under test (which reads the
+    STATE pin), so this stays a cross-check and not x==x. Refuses rather than
+    comparing None to None -- an absent comparand is CANNOT-EVALUATE, not a pass.
+    """
+    v = sec.detect_tree_version(sec.DEFAULT_WORK)
+    if not v:
+        sys.stderr.write("CANNOT-EVALUATE selftest: reason=ABSENT "
+                         "(work tree declares no __version__)\n")
+        sys.exit(2)
+    return v
+
+
+def selftest():
+    ok=True
+    p=plan("/home/claude",None)
+    want=_expect_version()
+    prior=".".join(want.split(".")[:-1]+[str(int(want.split(".")[-1])-1)])
+    good="error" not in p and p["current"]==want and p["rollback_to"].endswith(prior.split(".")[-1])
+    print(("PASS" if good else "FAIL")+"  plan derives current+prior (cur=%s -> %s)"%(p.get("current"),p.get("rollback_to")))
+    ok=ok and good
+    has_steps=len(p.get("steps",[]))>=6 and any("systemctl" in s for s in p["steps"])
+    print(("PASS" if has_steps else "FAIL")+"  concrete deploy-reverse steps present (%d)"%len(p.get("steps",[])))
+    ok=ok and has_steps
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--home",default="/home/claude"); ap.add_argument("--to",default=None)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    sec.require_bundle(a.home)
+    p=plan(a.home,a.to)
+    if "error" in p:
+        # not a finding about the release -- the PLAN could not be derived
+        sys.stderr.write("CANNOT-EVALUATE rollback plan: reason=ABSENT (%s)\n"%p["error"])
+        print(R+p["error"]+RST); return 2
+    if sec.emit(p,as_json=a.json): return 0
+    print("rollback plan: %s -> %s"%(p["current"],p["rollback_to"]))
+    print("  current zip: %s  %s"%(p["current_zip"]["name"],(p["current_zip"]["sha256"] or "")[:16]))
+    for i,s in enumerate(p["steps"],1):
+        print("  %d. %s"%(i,s))
+    print(DIM+p["note"]+RST)
+    return 0
+sys.exit(main())

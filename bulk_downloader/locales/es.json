@@ -1,0 +1,32 @@
+{
+  "_meta": {
+    "lang": "es",
+    "name": "Español",
+    "phase": "v3.46.1 Phase 191 demo locale",
+    "description": "Demonstration locale. Covers the 24 strings wrapped in the starter pass. To extend: dump the current template via /api/i18n/template + translate new keys."
+  },
+  "tab.queue": "Cola",
+  "tab.history": "Historial",
+  "tab.stats": "Estadísticas",
+  "tab.events": "Eventos",
+  "btn.start": "Iniciar",
+  "btn.pause": "Pausar",
+  "btn.resume": "Reanudar",
+  "btn.stop": "Detener",
+  "btn.save": "Guardar",
+  "btn.cancel": "Cancelar",
+  "btn.close": "Cerrar",
+  "btn.clear": "Limpiar",
+  "btn.clear_done": "Limpiar terminados",
+  "btn.refresh": "Actualizar",
+  "btn.config": "Configuración",
+  "btn.dark": "Oscuro",
+  "btn.light": "Claro",
+  "btn.login": "Acceder",
+  "btn.login_wizard": "Asistente de acceso",
+  "btn.manual_teach": "Enseñar manualmente",
+  "btn.retry_failed": "Reintentar fallidos",
+  "header.live_events": "Eventos en vivo",
+  "sidebar.sites": "Sitios",
+  "ev.filter": "filtrar texto..."
+}

@@ -1,0 +1,105 @@
+"""U36 — L6 (real-templated-auto-login) + L7 (phase-b-fallback), the
+two login-subsystem live tests.
+
+Both are deliberately READ-ONLY: they inspect login state/config the
+app already records, and never fire a real login (which could trip a
+captcha or a billing upsell — lesson I1). So both are disruptive=False.
+Unit-testable here: registration, the non-disruptive flag, graceful
+degradation, and L7's session_history logic against a sandbox DB.
+"""
+import live_tests.checks as checks  # noqa: F401 (registers the checks)
+import live_tests.harness as h
+from bulk_downloader import db
+
+
+_LEVELS = (h.PASS, h.WARN, h.FAIL)
+
+
+def _get_test(test_id):
+    for t in h.registry():
+        if t.id == test_id:
+            return t
+    return None
+
+
+# ── registration ───────────────────────────────────────────────────
+
+def test_l6_l7_registered():
+    ids = {t.id for t in h.registry()}
+    assert "L6" in ids and "L7" in ids
+
+
+def test_login_tests_are_not_disruptive():
+    # they are read-only — they never fire a real login, so they are
+    # safe to run any time (no captcha / no billing-upsell risk)
+    assert _get_test("L6").disruptive is False
+    assert _get_test("L7").disruptive is False
+
+
+# ── graceful degradation ───────────────────────────────────────────
+
+def _dead_ctx():
+    return h.Context("http://localhost:1", "/tmp/u36_no_dir")
+
+
+def test_l6_unreachable_is_warn():
+    level, detail = _get_test("L6").fn(_dead_ctx())
+    assert level == h.WARN
+    assert "not testable" in detail or "unreachable" in detail
+
+
+def test_l7_no_db_is_warn():
+    level, detail = _get_test("L7").fn(_dead_ctx())
+    assert level == h.WARN
+    assert "no DB" in detail
+
+
+def test_both_return_valid_tuples():
+    for tid in ("L6", "L7"):
+        res = _get_test(tid).fn(_dead_ctx())
+        assert isinstance(res, tuple) and len(res) == 2
+        assert res[0] in _LEVELS
+        assert isinstance(res[1], str) and res[1]
+
+
+# ── L7 against a real sandbox DB (read-only over session_history) ──
+
+def test_l7_warns_with_empty_session_history(clean_workdir):
+    db.db_init()
+    ctx = h.Context("http://localhost:1", str(clean_workdir))
+    level, detail = _get_test("L7").fn(ctx)
+    assert level == h.WARN
+    assert "no login events" in detail
+
+
+def test_l7_passes_when_a_fallback_event_exists(clean_workdir):
+    db.db_init()
+    db.session_event_record("s1", None, "login_template_fallback",
+                            "template failed; opened manual login")
+    ctx = h.Context("http://localhost:1", str(clean_workdir))
+    level, detail = _get_test("L7").fn(ctx)
+    assert level == h.PASS
+    assert "login_template_fallback" in detail
+
+
+def test_l7_warns_with_logins_but_no_fallback(clean_workdir):
+    db.db_init()
+    # login activity exists, but the Phase B fallback never fired
+    db.session_event_record("s1", None, "login", "ok")
+    ctx = h.Context("http://localhost:1", str(clean_workdir))
+    level, detail = _get_test("L7").fn(ctx)
+    # never fired is not a failure — the templates may all just work
+    assert level == h.WARN
+
+
+# ── harness integration ────────────────────────────────────────────
+
+def test_l6_l7_run_via_harness(tmp_path):
+    rdir = tmp_path / "results"
+    # non-disruptive -> run on a default run; WARN against a dead
+    # target -> exit 0
+    code = h.run_all("http://localhost:1", str(tmp_path),
+                     only=["L6", "L7"], results_dir=rdir)
+    assert code == 0
+    assert (rdir / "L6.log").is_file()
+    assert (rdir / "L7.log").is_file()

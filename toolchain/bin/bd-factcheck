@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+"""bd-factcheck -- immunize `stale-copy-of-derived-fact` (the most-cited shape:
+STATE.living_files read 20/22/90 when source was 10/17/125). Derive the canonical
+counts from the live tree, then flag any number in STATE.json / a target doc that
+claims a different value for the same thing.
+
+Usage:
+  bd-factcheck [--tree DIR] [--doc STATE.json|handoff.md ...]
+Exit 1 if any drift is found (so it can gate a doc update), else 0.
+"""
+import argparse, glob, json, os, re, sys
+
+def derive(tree):
+    def n(p): return len([f for f in glob.glob(os.path.join(tree, p)) if not f.endswith("__init__.py") or True])
+    counts = {
+        "bulk_downloader modules": len(glob.glob(os.path.join(tree, "bulk_downloader/*.py"))),
+        "test files": len(glob.glob(os.path.join(tree, "tests/*.py"))),
+        "tools": len(glob.glob(os.path.join(tree, "tools/*.py"))),
+    }
+    # routes + blueprints from ROUTE_INDEX / ENDPOINT_CATALOG if present
+    ri = os.path.join(tree, "ROUTE_INDEX.json")
+    if os.path.exists(ri):
+        try:
+            d = json.load(open(ri))
+            rows = d if isinstance(d, list) else d.get("routes", d.get("entries", []))
+            if isinstance(rows, list):
+                counts["routes"] = len(rows)
+        except Exception:  # why: route-index not parseable here; leave counts["routes"] unset and fall through to the catalog
+            pass
+    ec = os.path.join(tree, "ENDPOINT_CATALOG.md")
+    if os.path.exists(ec):
+        txt = open(ec, errors="ignore").read()
+        # count distinct blueprint identifiers only if the catalog clearly lists them
+        bps = set(re.findall(r"\b([a-z][a-z0-9_]+_bp)\b", txt))
+        if len(bps) >= 10:            # only trust it if it found a plausible number
+            counts["blueprints"] = len(bps)
+    return counts
+
+# keyword -> the derive() key it should match
+KW = {
+    r"bulk_downloader\b|backend modules?": "bulk_downloader modules",
+    r"test files?": "test files",
+    r"\btools\b": "tools",
+    r"\broutes?\b": "routes",
+    r"\bblueprints?\b": "blueprints",
+}
+
+def _json_claim_lines(txt):
+    """For a JSON doc, return only the (key, value-as-line) pairs that make
+    PRESENT-tense claims: skip the active_footguns subtree and all but the
+    newest changes_<N> entry -- both are HISTORICAL narrative whose embedded
+    numbers were true when written ("998 routes" @682, "ROUTES (622, ...)")
+    and will mismatch the live tree forever (v3.66.689 test cut). Returns
+    None when the doc is not JSON (caller falls back to line scan)."""
+    import json as _json
+    try:
+        obj = _json.loads(txt)
+    except Exception:  # why: doc is not JSON; signal that to the caller, which falls back to a line scan
+        return None
+    changes = [int(m) for m in re.findall(r'"changes_(\d+)"', txt)]
+    max_changes = max(changes, default=0)
+    # why: v3.66.805 -- "newest" is not "current". The rule below kept the
+    # newest changes_<N> in scope on the premise that it describes the CUT
+    # BEING SHIPPED. Measured @805 that premise was false: newest was
+    # changes_796 against built_version 3.66.805 -- nine releases stale and
+    # checked as present-tense. It was dormant only because changes_796 was an
+    # unauthored stub ("TODO(author): what this cut did") with no entries at
+    # all for 797-805. Anchor on EQUALITY WITH THE BUILT VERSION instead, and
+    # fall back to newest-key only when built_version is unreadable -- saying
+    # so, because a silent fallback is how the premise rotted unnoticed.
+    _built = obj.get("built_version") or obj.get("version") or ""
+    _m = re.search(r"(\d+)$", str(_built))
+    present_n = int(_m.group(1)) if _m else None
+    if present_n is None:
+        sys.stderr.write("bd-factcheck: built_version unreadable; falling back to "
+                         "newest changes_<N> as present-tense (may be stale)\n")
+        present_n = max_changes
+    out = []
+
+    def walk(node, keypath):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if k == "active_footguns":
+                    continue
+                m = re.match(r"changes_(\d+)$", str(k))
+                if m and present_n is not None and int(m.group(1)) != present_n:
+                    continue
+                # why: v3.66.805 -- toolchain_<N> keys are per-bdsuite-rev
+                # historical narrative ("ships in bdsuite_v3_66_702.zip, 228
+                # tools"). ALL of them are excluded, not all-but-newest as with
+                # changes_, for two independent reasons: (1) the newest such key
+                # tracks a PAST bdsuite rev (728 while live is 809), so no
+                # toolchain_ key is ever present-tense; (2) "tools" in these
+                # sentences means the bdsuite toolchain, while this tool's live
+                # denominator is work/tools/*.py -- a SUBJECT mismatch, so even a
+                # current key would be compared against the wrong population.
+                if re.match(r"toolchain_(\d+)$", str(k)):
+                    continue
+                walk(v, keypath + [str(k)])
+        elif isinstance(node, list):
+            for v in node:
+                walk(v, keypath)
+        elif isinstance(node, str):
+            out.append('"%s": %s' % (keypath[-1] if keypath else "", node))
+    walk(obj, [])
+    return out
+
+
+def scan(doc, counts):
+    try:
+        txt = open(doc, errors="ignore").read()
+    except Exception:  # why: v3.66.754c -- an unreadable doc used to return [] and the tool then
+                       # reported "no stale numbers found" over ZERO scanned docs (an empty
+                       # denominator, proven live: the default pointed at a dead path, so EVERY
+                       # default run scanned nothing). Absent is UNKNOWN, not clean.
+        return None
+    lines = _json_claim_lines(txt)
+    if lines is None:
+        lines = txt.splitlines()
+    findings = []
+    for line in lines:
+        # exclude numbers in VERSION/ID context: "@682", "v3_66_532",
+        # "3.66.689" are release references, not live counts (v3.66.689 test
+        # cut caught the proximity heuristic grabbing them).
+        def _stat_num(mm):
+            s, e = mm.start(1), mm.end(1)
+            before = line[s - 1] if s else ""
+            if before in "@._-/>vV":
+                return False
+            if e < len(line) - 1 and line[e] in "._/" and line[e + 1].isdigit():
+                return False
+            return True
+        nums = [(mm.start(), int(mm.group(1)))
+                for mm in re.finditer(r"\b(\d{2,5})\b", line) if _stat_num(mm)]
+        if not nums:
+            continue
+        low = line.lower()
+        for pat, key in KW.items():
+            if key not in counts:
+                continue
+            km = re.search(pat, low)
+            if not km:
+                continue
+            live = counts[key]
+            # pick the number nearest the keyword occurrence -- and require
+            # ADJACENCY (<=12 chars): real counts read "998 routes" /
+            # "routes: 998"; a release number 80 chars away on the same long
+            # sentence is not a claim about this keyword (v3.66.689 test cut).
+            kpos = km.start()
+            pos, num = min(nums, key=lambda pn: abs(pn[0] - kpos))
+            if abs(pos - kpos) > 12:
+                continue
+            plausible = (0.5 * live <= num <= 1.5 * live) or abs(num - live) <= 100
+            if num != live and plausible:
+                findings.append((os.path.basename(doc), num, key, live, line.strip()[:60]))
+    return findings
+
+
+def selftest():
+    """Delegates to bd-coretest --only bd-factcheck -- the REAL fault-injection case
+    (I-5/C-23). A bespoke smoke selftest here would assert "it runs", which is
+    the ~92%-are-smoke problem bd-coretest exists to fix. If the harness is
+    absent we say so and FAIL: a selftest that cannot verify must not report
+    success."""
+    import subprocess as _sp
+    ct = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-coretest")
+    if not os.path.isfile(ct):
+        print("SELFTEST FAIL")
+        sys.stderr.write("CANNOT-EVALUATE selftest: reason=ABSENT "
+                         "(bd-coretest harness not found)\n")
+        return 2
+    cp = _sp.run([sys.executable, ct, "--no-cache", "--only", "bd-factcheck"],
+                 capture_output=True, text=True, timeout=180)
+    sys.stdout.write(cp.stdout)
+    ok = cp.returncode == 0
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--tree","--work", default="/home/claude/work")
+    ap.add_argument("--doc", nargs="*", default=["/home/claude/STATE.json"])
+    ap.add_argument("--selftest", action="store_true",
+                   help="fault-injection selftest (delegates to bd-coretest)")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    counts = derive(a.tree)
+    print("LIVE-DERIVED canonical counts:")
+    for k, v in counts.items():
+        print(f"  {v:>5}  {k}")
+    print()
+    allf = []
+    scanned, missing = 0, []
+    for d in a.doc:
+        r = scan(d, counts)
+        if r is None:
+            missing.append(d)
+        else:
+            scanned += 1
+            allf += r
+    for m in missing:
+        print(f"  ! doc NOT READABLE: {m}", file=sys.stderr)
+    if scanned == 0:
+        print("REFUSING a clean verdict: 0 of %d docs could be read. An empty denominator"
+              " is UNKNOWN, not 'no stale numbers'." % len(a.doc), file=sys.stderr)
+        return 2
+    # de-dupe
+    seen = set(); uniq = []
+    for f in allf:
+        if f not in seen:
+            seen.add(f); uniq.append(f)
+    if uniq:
+        print("POSSIBLE STALE NUMBERS (doc says X, live is Y for the same thing):")
+        for doc, num, key, live, ctx in uniq:
+            print(f"  [{doc}] {key}: doc says {num}, live is {live}")
+            print(f"        ctx: {ctx}")
+        print("\nverify before trusting; a derived number in prose is the stale-copy shape -- prefer generating it.")
+        return 1
+    print("no obvious stale derivable numbers found in the scanned doc(s).")
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

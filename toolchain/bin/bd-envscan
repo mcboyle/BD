@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""bd-envscan (v2) -- name the exact env_vars that will fail the env-tranche gate.
+
+WHY v2: the gate (test_v3_66_319 no_open_env_vars_remain + test_v3_66_305
+config_danger) does NOT just scan os.environ read sites, and it does NOT flag every
+BD_ literal. It flags env_vars that config_surface_inventory classifies as OPEN
+(runtime_tunable AND gui_exposure != 'full'). v1 re-implemented a scan and drifted:
+the ORIGINAL missed string/dict-key literals (false NEGATIVE -> the v3.66.699
+BD_NETNS regression); a naive literal-scan patch flagged the ~38 legitimate declared
+BD_ vars (false POSITIVE). v2 stops re-deriving the gate and CALLS it -- it imports
+config_surface_inventory and reports csi._open_settings(...) filtered to env_vars,
+which is BYTE-FOR-BYTE what test_v3_66_319 asserts. False-negative- and
+false-positive-free by construction.
+
+  bd-envscan [--tree DIR] [--baseline-tree DIR] [--json] [--selftest]
+
+--baseline-tree diffs against a prior tree so it reports what THIS cut ADDED
+(the actionable trap) vs what was already open. Advisory: exit 0, but exit 3 if
+open env_vars exist in --tree (so it can gate a pre-cut hook if wired to $?).
+"""
+import argparse, os, sys, importlib
+
+
+def _load_csi(tree):
+    for e in (os.path.join(tree, "tools"), tree, "/tmp/prestaged_site_packages"):
+        if e not in sys.path:
+            sys.path.insert(0, e)
+    importlib.invalidate_caches()
+    if "config_surface_inventory" in sys.modules:
+        del sys.modules["config_surface_inventory"]
+    return importlib.import_module("config_surface_inventory")
+
+
+def _open_env(tree):
+    """(sorted open env_var keys, {key->item}, open_runtime_tunable count) for a tree."""
+    csi = _load_csi(tree)
+    d = csi.build(tree)
+    items = {it["key"]: it for it in d["items"]}
+    openset = set(csi._open_settings(d["items"]))
+    ev = sorted(k for k in openset if items[k].get("kind") == "env_var")
+    return ev, items, d["counts"].get("open_runtime_tunable")
+
+
+def _src(item):
+    return item.get("source_file") or (sorted(item.get("files", []))[:1] or ["?"])[0]
+
+
+def _selftest():
+    # negative + positive controls on the DELEGATE (csi._open_settings), the logic
+    # v2 relies on -- no full synthetic tree needed.
+    tree = os.environ.get("BD_SELFTEST_TREE", "/home/claude/work")
+    try:
+        csi = _load_csi(tree)
+    except Exception as e:
+        print("FAIL  config_surface_inventory import:", e); return 1
+    ok = True
+    # NEGATIVE control: an env_var exposed 'full' is NOT open
+    neg = [{"key": "X", "kind": "env_var", "runtime_tunable": True, "gui_exposure": "full"}]
+    if csi._open_settings(neg):
+        print("FAIL  NEG: a full-exposure env_var was reported open"); ok = False
+    else:
+        print("PASS  NEG: full-exposure env_var not open")
+    # POSITIVE control: runtime_tunable + gui_exposure 'none' IS open
+    pos = [{"key": "Y", "kind": "env_var", "runtime_tunable": True, "gui_exposure": "none"}]
+    if csi._open_settings(pos) == ["Y"]:
+        print("PASS  POS: runtime_tunable+none env_var is open")
+    else:
+        print("FAIL  POS: runtime_tunable+none env_var not flagged open"); ok = False
+    # DETERMINISM on the real tree
+    try:
+        a, _, _ = _open_env(tree); b, _, _ = _open_env(tree)
+        if a == b:
+            print(f"PASS  determinism ({len(a)} open env_vars x2 identical)")
+        else:
+            print("FAIL  determinism: two builds differ"); ok = False
+    except Exception as e:
+        print("FAIL  build on tree:", e); ok = False
+    print("SELFTEST", "PASS" if ok else "FAIL")
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--tree", "--work", default="/home/claude/work")
+    ap.add_argument("--baseline-tree", default=None)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return _selftest()
+
+    cur, items, count = _open_env(a.tree)
+    base = None
+    if a.baseline_tree:
+        base, _, _ = _open_env(a.baseline_tree)
+    added = [k for k in cur if base is not None and k not in base]
+    preexisting = [k for k in cur if base is not None and k in base]
+
+    if a.json:
+        import json
+        print(json.dumps({"tree": a.tree, "open_env_vars": cur,
+                          "open_runtime_tunable_count": count,
+                          "added_vs_baseline": added,
+                          "preexisting_vs_baseline": preexisting}, indent=1))
+        return 3 if cur else 0
+
+    if not cur:
+        print(f"CLEAN -- 0 open env_vars (open_runtime_tunable={count}).")
+        print("test_v3_66_319 + test_v3_66_305 will PASS on this tree.")
+        return 0
+
+    print(f"OPEN env_vars that WILL fail test_v3_66_319 ({len(cur)}; "
+          f"open_runtime_tunable={count}):\n")
+    for k in cur:
+        tag = ""
+        if base is not None:
+            tag = "  <-- ADDED by this cut" if k in added else "  (pre-existing)"
+        print(f"  {k}   ({_src(items[k])}){tag}")
+    if base is not None and added:
+        print(f"\nthis cut ADDED {len(added)} open env_var(s): {added}")
+        print("that is the trap. fix: don't BD_-prefix an internal/backend-only name")
+        print("(e.g. NETNS_NS, not BD_NETNS) -- a BD_ literal anywhere in a .py is scanned.")
+    print("\nBAND test_v3_66_319 + test_v3_66_305 before this cut.")
+    return 3
+
+
+if __name__ == "__main__":
+    sys.exit(main())

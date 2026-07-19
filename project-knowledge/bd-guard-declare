@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""bd-guard-declare -- declare an intentional change to a release-guard file by
+rebaselining its SHA in STATE.json atomically, instead of hand-editing.
+
+THE 7 RELEASE GUARDS must stay byte-identical between releases UNLESS the operator
+explicitly declares a new SHA (the per-release baseline lives in STATE.guards +
+the newest KB_HANDOFF). Today that declaration is a manual edit of STATE.json (and
+a note in the handoff) -- error-prone: a typo'd SHA, or updating STATE but not the
+handoff, silently breaks the guard contract. This mechanizes the SAFE parts:
+
+  * verify the named file IS one of the 7 guards (refuses a non-guard),
+  * recompute its live sha256 from the tree,
+  * show the OLD (pinned) vs NEW (live) sha and require a reason,
+  * on --apply, rewrite STATE.guards[path] to the new 8-char sha + append a
+    guard_change record to STATE.guards_changelog (who/when/why/old->new),
+  * print the KB_HANDOFF line to paste (the prose half stays a human step).
+
+It NEVER edits a guard file and NEVER touches the other 6 -- one guard, one
+declaration, with the reason recorded. Without --apply it is a dry-run diff.
+
+Usage:
+  bd-guard-declare --file tools/build_release.py --reason "carries in-sync gate" [--apply]
+    --state   STATE.json to rebaseline (default: newest STATE.json in uploads/home)
+    --root    tree root to recompute the live sha from (default: /home/claude/work)
+    --apply   actually rewrite STATE (else dry-run)
+Exit 0 on a clean dry-run/apply; 1 if the file is not a guard or is missing.
+Stdlib only.
+"""
+import argparse
+import glob
+import hashlib
+import json
+import os
+import sys
+import time
+
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+# The canonical 7 release guards (path -> ok). Kept here as the authority so a
+# typo'd --file cannot rebaseline a non-guard.
+GUARDS = {
+    "bulk_downloader/extraction_core.py",
+    "bulk_downloader/session_capture.py",
+    "bulk_downloader/dom_capture.py",
+    "bulk_downloader/dom_recorder.py",
+    "bulk_downloader/capture_bodies.py",
+    "tools/capture_session.py",
+    "tools/build_release.py",
+}
+
+
+def _find_state():
+    cands = []
+    for pat in ("/mnt/user-data/uploads/**/STATE.json",
+                "/home/claude/**/STATE.json", "/mnt/project/STATE.json"):
+        cands += glob.glob(pat, recursive=True)
+    cands = [c for c in cands if os.path.isfile(c)]
+    def _state_ver(p):
+        # Prefer the STATE with the highest CONTENT version, mtime only as a
+        # tiebreak: extraction resets mtimes, so a stale extracted STATE.json can
+        # look "newest" (the v3.66.688 manifest-inversion class).
+        try:
+            import json as _j
+            st = _j.load(open(p, encoding="utf-8"))
+            v = str(st.get("built_version") or st.get("live_version") or "")
+            return tuple(int(x) for x in v.split(".") if x.isdigit())
+        except Exception:  # why: input unavailable/unreadable; return empty so the caller uses its fallback, not a wrong value
+            return ()
+    return max(cands, key=lambda p: (_state_ver(p), os.path.getmtime(p))) if cands else None
+
+
+def selftest():
+    """Drive the real --apply path against a synthetic tree+STATE (no interactive
+    step needed -- the old SKIP was a skip-that-passed-green). Asserts the pin is
+    rewritten in BOTH guard maps, the changelog gains a record, AND the repack
+    warning is emitted (the checkers read STATE from the version zip, not this
+    loose file -- a silent write there is the #12 defect)."""
+    import tempfile, subprocess, json as _j, hashlib as _h
+    rel = "bulk_downloader/extraction_core.py"
+    ok = True
+    with tempfile.TemporaryDirectory() as td:
+        root = os.path.join(td, "work")
+        os.makedirs(os.path.dirname(os.path.join(root, rel)))
+        open(os.path.join(root, rel), "w").write("NEW GUARD CONTENT")
+        live8 = _h.sha256(b"NEW GUARD CONTENT").hexdigest()[:8]
+        sp = os.path.join(td, "STATE.json")
+        _j.dump({"guards": {rel: "0ldsha00"},
+                 "guards_full_sha256": {rel: "0" * 64}}, open(sp, "w"))
+        r = subprocess.run(
+            [sys.executable, os.path.abspath(__file__), "--file", rel,
+             "--root", root, "--state", sp, "--apply", "--reason", "selftest"],
+            capture_output=True, text=True, timeout=30)
+        out = r.stdout + r.stderr
+        st = _j.load(open(sp))
+        p1 = st["guards"].get(rel) == live8
+        print(("PASS" if p1 else "FAIL") + "  APPLY: STATE.guards[extraction_core] rewritten to live sha")
+        ok &= p1
+        p2 = st.get("guards_full_sha256", {}).get(rel) == _h.sha256(b"NEW GUARD CONTENT").hexdigest()
+        print(("PASS" if p2 else "FAIL") + "  APPLY: guards_full_sha256 ALSO rewritten (the @705 dual-map bug)")
+        ok &= p2
+        p3 = len(st.get("guards_changelog", [])) == 1
+        print(("PASS" if p3 else "FAIL") + "  APPLY: guards_changelog gains one record")
+        ok &= p3
+        p4 = "REPACK" in out.upper() and "version zip" in out.lower()
+        print(("PASS" if p4 else "FAIL") + "  WARN: emits the repack-required note (checkers read STATE from the zip)")
+        ok &= p4
+        p5 = rel not in GUARDS or True  # sanity: rel is a declared guard
+        n1 = subprocess.run(
+            [sys.executable, os.path.abspath(__file__), "--file",
+             "bulk_downloader/not_a_guard.py", "--root", root, "--state", sp,
+             "--apply", "--reason", "x"], capture_output=True, text=True, timeout=30)
+        p6 = n1.returncode == 1 and "REFUSED" in (n1.stdout + n1.stderr)
+        print(("PASS" if p6 else "FAIL") + "  NEG: a non-guard file is REFUSED")
+        ok &= p6
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main(argv=None):
+    import sys as _s
+    if "--selftest" in _s.argv: return selftest()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--file", required=True, help="the guard file being changed")
+    ap.add_argument("--reason", help="why this guard legitimately changed (required with --apply)")
+    ap.add_argument("--state", default=None)
+    ap.add_argument("--root", default="/home/claude/work")
+    ap.add_argument("--apply", action="store_true")
+    a = ap.parse_args(argv)
+
+    rel = a.file.strip()
+    if rel not in GUARDS:
+        print(f"{R}REFUSED{RST} -- {rel} is not one of the 7 release guards.")
+        print("  guards:", ", ".join(sorted(GUARDS)))
+        return 1
+
+    fp = os.path.join(a.root, rel)
+    if not os.path.exists(fp):
+        print(f"{R}ERROR{RST} -- {fp} not found in the tree.")
+        return 1
+    live = hashlib.sha256(open(fp, "rb").read()).hexdigest()
+    live8 = live[:8]
+
+    state_path = a.state or _find_state()
+    if not state_path or not os.path.exists(state_path):
+        print(f"{R}ERROR{RST} -- no STATE.json found (pass --state).")
+        return 1
+    st = json.load(open(state_path))
+    guards = st.get("guards", {})
+    old8 = guards.get(rel, "(unset)")
+
+    print(f"bd-guard-declare -- {rel}")
+    print("=" * 66)
+    print(f"  STATE: {state_path}")
+    print(f"  OLD pinned sha : {old8}")
+    print(f"  NEW live   sha : {live8}   (full: {live})")
+    if old8 == live8:
+        print(f"  {G}no change{RST} -- live sha already matches the pin; nothing to declare.")
+        return 0
+    print(f"  {Y}DRIFT{RST}: pin {old8} -> live {live8}")
+
+    if not a.apply:
+        print()
+        print(f"{DIM}dry-run -- re-run with --apply --reason \"...\" to rebaseline.{RST}")
+        return 0
+
+    if not a.reason:
+        print(f"{R}--reason is required with --apply{RST} (records WHY the guard changed).")
+        return 1
+
+    # apply: rewrite the pin + append a changelog record
+    guards[rel] = live8
+    st["guards"] = guards
+    # v3.66.705 BUGFIX: STATE carries TWO guard maps -- `guards` (8-char) and
+    # `guards_full_sha256` (full digest). This tool updated only the first, so after a
+    # legitimate guard declaration bd-guardcheck (which reads the FULL map) still
+    # reported "1 drifted" against the OLD sha -- a declared, intentional guard change
+    # looked like unexplained drift, which is exactly the signal that must stay
+    # trustworthy. Update both.
+    import hashlib as _hl
+    _full = _hl.sha256(open(os.path.join(a.root, rel), "rb").read()).hexdigest()
+    _fullmap = st.get("guards_full_sha256") or {}
+    _fullmap[rel] = _full
+    st["guards_full_sha256"] = _fullmap
+    rec = {
+        "file": rel, "old_sha": old8, "new_sha": live8,
+        "full_sha256": live, "reason": a.reason,
+        "declared_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    st.setdefault("guards_changelog", []).append(rec)
+    tmp = state_path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(st, f, indent=1)
+    os.replace(tmp, state_path)
+    print(f"  {G}APPLIED{RST} -- STATE.guards[{rel}] = {live8}; guards_changelog +1.")
+    print()
+    # v3.66.762: the checkers (bd-guardcheck / bd-precut / bd-state) read the guard
+    # baseline from STATE.json INSIDE the version zip, not this loose file. This
+    # write reaches them ONLY after the version zip is repacked (bd-handoff -> bd-pack
+    # at session close). Written to one channel, read from another -- say so loudly,
+    # or the guard gate stays RED against the old sha until the repack lands.
+    print(f"{Y}NOTE: this updated the loose STATE.json ({os.path.basename(state_path)}).{RST}")
+    print(f"{Y}The guard CHECKERS read the baseline from STATE inside the version zip --{RST}")
+    print(f"{Y}this declaration takes effect only after the zip is REPACKED (bd-handoff -> bd-pack).{RST}")
+    print()
+    print(f"{Y}NOW paste this into the newest KB_HANDOFF guard baseline (prose half):{RST}")
+    print(f"  - {rel}: {live8}  (was {old8}) -- {a.reason}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

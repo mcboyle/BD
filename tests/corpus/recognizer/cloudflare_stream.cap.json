@@ -1,0 +1,67 @@
+{
+ "url": "https://demo-cfstream.test/watch/asset",
+ "origin": "https://demo-cfstream.test",
+ "host": "demo-cfstream.test",
+ "captured_at": "2026-07-10T00:00:00+00:00",
+ "dom_log": [
+  {
+   "type": "full_snapshot",
+   "html": "<html><head><script src=\"https://embed.cloudflarestream.com/embed/sdk.latest.js\"></script></head><body><stream src=\"abc123def\"></stream></body></html>"
+  }
+ ],
+ "network_log": [
+  {
+   "url": "https://demo-cfstream.test/watch/asset",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "text/html; charset=utf-8"
+    }
+   ]
+  },
+  {
+   "url": "https://videodelivery.net/abc123def/manifest/video.m3u8",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "application/vnd.apple.mpegurl"
+    }
+   ]
+  },
+  {
+   "url": "https://videodelivery.net/abc123def/manifest/480/seg-1.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  },
+  {
+   "url": "https://videodelivery.net/abc123def/manifest/720/seg-1.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  },
+  {
+   "url": "https://videodelivery.net/abc123def/manifest/1080/seg-1.ts",
+   "response_status": 200,
+   "response_headers": [
+    {
+     "name": "content-type",
+     "value": "video/mp2t"
+    }
+   ]
+  }
+ ],
+ "cookies": "<REDACTED>",
+ "dom_log_count": 1,
+ "network_log_count": 5
+}

@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""bd-review-pack -- assemble a review bundle for a cut.
+
+Collects, into one JSON, everything a reviewer needs: changed files vs the
+pinned zip (with per-file band/regen hints where derivable), the invariant
+status, the release note, and the trust score. Reuses bd-release-note,
+bd-invariant-engine, bd-trust-score. The reviewer-facing companion to
+bd-release-attestation (which is the machine gate). Read-only.
+
+Usage: bd-review-pack [--home DIR] [--work DIR] [--json] [--selftest]
+Exit 0 composed, no violated invariants / 1 composed, invariants
+violated / 2 CANNOT-EVALUATE (absent inputs or a composed dependency
+reported nothing).
+"""
+import argparse, os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+
+def _tool_json(tool, *args):
+    """Delegates to sec.tool_json (ONE implementation, with an error channel).
+
+    I-3: this was `except Exception: return None`, and callers wrote `... or {}`.
+    A TIMED-OUT dependency was indistinguishable from one reporting nothing, and
+    a crashed sub-tool silently zeroed whatever it fed. This pack is EVIDENCE; a
+    pack assembled around a hole, that does not mention the hole, is not evidence.
+    """
+    data, err = sec.tool_json(tool, *args)
+    if err:
+        sys.stderr.write("CANNOT-EVALUATE: reason=DEP_FAILED (%s)\n" % err)
+        sys.exit(sec.EXIT_CANNOT_EVALUATE)
+    return data
+
+def build(home, work):
+    note=_tool_json("bd-release-note","--work",work,"--home",home) or {}
+    inv=_tool_json("bd-invariant-engine","--work",work,"--home",home) or {}
+    trust=_tool_json("bd-trust-score","--work",work,"--home",home) or {}
+    return {"version":note.get("version"),
+            "changed_files":note.get("changed_files",[]),
+            "invariants":inv.get("invariants",[]),
+            "invariants_violated":inv.get("summary",{}).get("violated"),
+            "trust_score":trust.get("score"),
+            "validation":note.get("validation"),
+            "next":note.get("next")}
+
+def _expect_version():
+    """The version the SOURCE TREE declares about itself.
+
+    Deliberately a DIFFERENT route than the one under test (which reads the
+    STATE pin), so this stays a cross-check and not x==x. Refuses rather than
+    comparing None to None -- an absent comparand is CANNOT-EVALUATE, not a pass.
+    """
+    v = sec.detect_tree_version(sec.DEFAULT_WORK)
+    if not v:
+        sys.stderr.write("CANNOT-EVALUATE selftest: reason=ABSENT "
+                         "(work tree declares no __version__)\n")
+        sys.exit(2)
+    return v
+
+
+def selftest():
+    ok=True
+    rp=build("/home/claude", sec.DEFAULT_WORK)
+    want=_expect_version()
+    print(("PASS" if rp.get("version")==want else "FAIL")+"  composes note+inv+trust (v=%s, want %s)"%(rp.get("version"),want))
+    ok=ok and rp.get("version")==want
+    print(("PASS" if rp.get("trust_score")==100 else "WARN")+"  trust score carried (%s)"%rp.get("trust_score"))
+    print(("PASS" if isinstance(rp.get("invariants"),list) and rp["invariants"] else "FAIL")+"  invariants carried (%d)"%len(rp.get("invariants",[])))
+    ok=ok and bool(rp.get("invariants"))
+    # verdict-seam controls (I-6)
+    rcs=(_verdict_rc({"trust_score":100,"invariants_violated":0}),
+         _verdict_rc({"trust_score":100,"invariants_violated":2}),
+         _verdict_rc({"trust_score":None,"invariants_violated":0}))
+    print(("PASS" if rcs==(0,1,2) else "FAIL")+
+          "  NEG: violated->1, dep-hole->2 (got %s)"%(rcs,))
+    ok=ok and rcs==(0,1,2)
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def _verdict_rc(rp):
+    """0 = composed, nothing violated; 1 = invariants violated;
+    2 = a composed dependency reported nothing (a hole is not a verdict)."""
+    if rp.get("trust_score") is None or rp.get("invariants_violated") is None:
+        sys.stderr.write("CANNOT-EVALUATE review pack: reason=DEP_FAILED "
+                         "(composed dependency reported nothing)\n")
+        return 2
+    return 1 if rp["invariants_violated"] else 0
+
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--home",default="/home/claude"); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    sec.require_source_tree(a.work)
+    sec.require_bundle(a.home)
+    rp=build(a.home,a.work)
+    if sec.emit(rp,as_json=a.json): return _verdict_rc(rp)
+    print("=== Review pack: v%s ==="%rp["version"])
+    print("trust score: %s/100 | invariants violated: %s"%(rp.get("trust_score"),rp.get("invariants_violated")))
+    print("changed files: %d"%len(rp["changed_files"]))
+    for f in rp["changed_files"][:20]: print("  - %s"%f)
+    return _verdict_rc(rp)
+sys.exit(main())

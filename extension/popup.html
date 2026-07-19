@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Bulk Downloader</title>
+<style>
+  body { font: 13px system-ui, sans-serif; width: 280px; padding: 12px;
+         background: #181a1f; color: #e8eaed; margin: 0; }
+  h1 { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
+  button { width: 100%; padding: 8px 12px; margin: 4px 0;
+           border: 1px solid #2a2e34; background: #1f2228;
+           color: #e8eaed; border-radius: 4px; cursor: pointer;
+           font-size: 13px; }
+  button:hover { background: #262a31; border-color: #3a3f47; }
+  button.pri { background: #2563eb; border-color: #2563eb; color: white; }
+  button.pri:hover { background: #1d4ed8; }
+  .row { display: flex; gap: 6px; margin-top: 6px; font-size: 11px;
+         color: #94a3b8; }
+  #status { padding: 6px 8px; background: #14171c; border-radius: 3px;
+            font-size: 11px; margin-top: 8px; word-break: break-all; }
+  a { color: #60a5fa; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<h1>Bulk Downloader</h1>
+
+<!-- v1.2.0: routing preview. Shows where the current tab's URL would go. -->
+<div id="route-preview" style="margin-bottom:8px;padding:8px 10px;background:#14171c;border-radius:4px;border:1px solid #2a2e34;font-size:11px;display:none">
+  <div id="route-preview-text" style="color:#94a3b8">Checking routing...</div>
+  <div id="route-preview-detail" style="margin-top:4px;font-size:10px;color:#64748b;display:none"></div>
+</div>
+
+<button class="pri" id="send-page">Send this page</button>
+<button id="send-all-tabs">Send all tabs in this window</button>
+<button id="scrape-page">Scrape video links on page</button>
+
+<!-- v1.2.0: per-site override picker. Hidden by default; shown on
+     "Override..." click. Populated from /api/sites_list. -->
+<details id="override-details" style="margin-top:8px;font-size:11px">
+  <summary style="cursor:pointer;color:#94a3b8;padding:4px 0">Override: send to specific site...</summary>
+  <select id="override-site" style="width:100%;margin-top:6px;padding:6px;background:#1f2228;color:#e8eaed;border:1px solid #2a2e34;border-radius:3px;font-size:12px">
+    <option value="">— loading sites —</option>
+  </select>
+  <button id="override-send" style="margin-top:6px">Send to selected site</button>
+</details>
+
+<!-- v1.1.0: Vault status pill + quick actions -->
+<div id="vault-pill" style="margin-top:10px;padding:8px 10px;background:#14171c;border-radius:4px;border:1px solid #2a2e34;display:none">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+    <div style="display:flex;align-items:center;gap:6px;font-size:11px">
+      <span id="vault-dot" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#64748b"></span>
+      <span id="vault-label">Vault: not paired</span>
+    </div>
+    <button id="vault-lock" style="display:none;width:auto;padding:3px 8px;margin:0;font-size:10px;background:#2a2e34">Lock now</button>
+  </div>
+  <div id="vault-silent-row" style="display:none;margin-top:6px;padding-top:6px;border-top:1px solid #2a2e34;font-size:10px;color:#94a3b8;display:flex;align-items:center;justify-content:space-between;gap:6px">
+    <span>Silent autofill on this site:</span>
+    <button id="vault-silent-toggle" style="width:auto;padding:2px 8px;margin:0;font-size:10px">off</button>
+  </div>
+</div>
+
+<div class="row"><a id="open-options" href="#">Options</a></div>
+<div id="status" style="display:none"></div>
+<script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""bd-plugin-lifecycle-trace -- static trace of plugin hook lifecycle.
+
+Statically maps the plugin hook system: which lifecycle events exist
+(@hook("event") registrations), where each is FIRED in the app (the call sites
+that dispatch the event), and the before/after-capture ordering. The sandbox
+can't run the live browser, so this is the static execution map a reviewer uses
+to see what a plugin hook can intercept and in what order. Read-only.
+
+Usage: bd-plugin-lifecycle-trace [--work DIR] [--json] [--selftest]
+Exit 0 (informational -- reports/generates; does not render a pass/fail verdict and does not gate).
+"""
+import argparse, os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+HOOK_REG=re.compile(r'@hook\(\s*["\']([a-z_]+)["\']')
+HOOK_FIRE=re.compile(r'(?:fire|dispatch|emit|run_hooks?|call_hooks?|_hooks)\(\s*["\']([a-z_]+)["\']')
+
+def trace(work):
+    events={}
+    for _p,rel,txt in sec.iter_py(work, strict=True, label="--work/--tree"):
+        for m in HOOK_REG.finditer(txt):
+            events.setdefault(m.group(1),{"registered_in":set(),"fired_in":set()})["registered_in"].add(rel)
+        for m in HOOK_FIRE.finditer(txt):
+            events.setdefault(m.group(1),{"registered_in":set(),"fired_in":set()})["fired_in"].add(rel)
+    rows=[]
+    for ev,d in sorted(events.items()):
+        rows.append({"event":ev,"registered_in":sorted(d["registered_in"])[:3],
+                     "fired_in":sorted(d["fired_in"])[:3],
+                     "orphan_fire": not d["registered_in"] and bool(d["fired_in"]),
+                     "never_fired": bool(d["registered_in"]) and not d["fired_in"]})
+    return rows
+
+def selftest():
+    ok=True
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        b=os.path.join(d,"bulk_downloader"); os.makedirs(b)
+        open(os.path.join(b,"p.py"),"w").write('@hook("before_capture")\ndef h(p): pass\n')
+        open(os.path.join(b,"runner.py"),"w").write('run_hooks("before_capture", payload)\nfire("after_capture", x)\n')
+        rows=trace(d)
+    byev={r["event"]:r for r in rows}
+    good="before_capture" in byev and byev["before_capture"]["fired_in"] and byev.get("after_capture",{}).get("orphan_fire")
+    print(("PASS" if good else "FAIL")+"  before_capture reg+fire linked, after_capture orphan-fire flagged (%s)"%sorted(byev))
+    ok=ok and good
+    real=trace(sec.DEFAULT_WORK)
+    print(("PASS" if isinstance(real,list) else "FAIL")+"  real tree: %d hook events traced"%len(real))
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    rows=trace(a.work)
+    if sec.emit({"events":rows,"summary":{"events":len(rows),"orphan_fires":sum(1 for r in rows if r["orphan_fire"]),"never_fired":sum(1 for r in rows if r["never_fired"])}},as_json=a.json): return 0
+    print("%d lifecycle event(s):"%len(rows))
+    for r in rows[:40]:
+        flag=(R+" orphan-fire"+RST) if r["orphan_fire"] else ((Y+" never-fired"+RST) if r["never_fired"] else "")
+        print("  %s%s%s%s  %sreg:%s fire:%s%s"%(G,r["event"],RST,flag,DIM,len(r["registered_in"]),len(r["fired_in"]),RST))
+    return 0
+sys.exit(main())

@@ -1,0 +1,5 @@
+{
+  "description": "Page with CSP meta tag allowing only same-origin media, plus one off-origin candidate that should be flagged as a violation. Tests P12 wiring end-to-end.",
+  "base_url": "https://page.test/",
+  "prefer_resolution": "highest"
+}

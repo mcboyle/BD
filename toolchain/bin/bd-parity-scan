@@ -1,0 +1,645 @@
+#!/usr/bin/env python3
+"""bd-parity-scan -- derive the CLI-only surface LIVE; no baseline to go stale.
+
+The shipped parity machinery mixes live derivation with hand tables:
+  * routes + SPA wiring: LIVE (gui_parity_inventory._routes_from_app/_spa_wiring)
+  * CLI tools' gui_support: an 8-entry hand dict (_BACKED) + name heuristics
+  * config keys' gui_exposure (config_surface_inventory): asserted per entry,
+    with ZERO scans of the frontend
+  * nothing, anywhere, at FLAG granularity (618 add_argument sites)
+
+This tool re-derives everything from source at scan time and reports:
+  1. per-tool BRIDGE status -- how (if at all) the GUI can reach the tool:
+       exec-bridged      backend subprocesses into it        (file:line)
+       library-bridged   backend imports its module          (file:line)
+       registry-listed   tools/registry.json lists it (list-only endpoint)
+       none              structurally unreachable from the GUI
+  2. per-FLAG inventory (argparse option strings + subcommands + raw-argv
+     tools + env knobs), each with file:line provenance, and whether any
+     GUI path can set it (today: none can -- there is no arg-passing bridge)
+  3. config-key staleness receipt: keys whose ASSERTED gui_exposure
+     contradicts a live text scan of frontend/src
+  4. inventory staleness receipt: tools whose _BACKED/heuristic gui_support
+     contradicts the derived bridge status
+
+Read-only. Deterministic. ASCII. --json. --selftest with negative controls.
+Exit 0 always in report mode (it is a scanner, not a gate); --gate exits 1
+if any tool-dark or flag-dark item exists (for future ratchet use).
+"""
+import argparse
+import ast
+import glob
+import importlib.util
+import json
+import os
+import re
+import sys
+
+G, R, Y, DIM, BOLD, RST = ("\033[32m", "\033[31m", "\033[33m",
+                           "\033[2m", "\033[1m", "\033[0m")
+DEFAULT_WORK = "/home/claude/work"
+RESULTS = "/home/claude/.bd_parity_scan.json"
+
+ENV_RE = re.compile(r"os\.(?:environ\.get|getenv)\(\s*['\"]([A-Z][A-Z0-9_]+)['\"]")
+
+
+def _load_mod(path, name):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+# ---------------- CLI surface (AST) ----------------
+def scan_tool(path):
+    """One tools/*.py -> {flags, subcommands, envs, raw_argv} with line nos."""
+    try:
+        src = open(path, encoding="utf-8", errors="replace").read()
+        tree = ast.parse(src)
+    except (OSError, SyntaxError) as e:
+        return {"parse_error": str(e), "flags": [], "subcommands": [],
+                "envs": [], "raw_argv": False}
+    flags, subs = [], []
+    uses_argparse = "argparse" in src
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        attr = fn.attr if isinstance(fn, ast.Attribute) else ""
+        if attr == "add_argument":
+            opts = [a.value for a in node.args
+                    if isinstance(a, ast.Constant) and isinstance(a.value, str)]
+            if opts:
+                flags.append({"opts": opts, "line": node.lineno})
+        elif attr == "add_parser":
+            if node.args and isinstance(node.args[0], ast.Constant):
+                subs.append({"name": node.args[0].value, "line": node.lineno})
+    envs = sorted({m.group(1) for m in ENV_RE.finditer(src)})
+    raw = (not uses_argparse) and ("sys.argv" in src)
+    return {"flags": flags, "subcommands": subs, "envs": envs, "raw_argv": raw}
+
+
+# ---------------- GUI bridge (backend -> tools) ----------------
+
+def exec_bridge_state(work):
+    """v3.66.721: the EXEC BRIDGE is a separate fact from `tools/*.py` exec-bridging.
+
+    scan_bridges() asks "does the backend subprocess into tools/<stem>.py?". Since 717
+    there is a general, validated exec SEAM (bulk_downloader/tool_bridge.py) that runs an
+    ALLOWLISTED BINARY (yt-dlp, ffprobe) with validated arguments -- it does not shell out
+    to tools/*.py, so scan_bridges correctly reports 0 and thereby IMPLIES no exec seam
+    exists. That implication is now false, and it is the exact premise the exec-bridge
+    decision was made to fix. Report the seam explicitly.
+    """
+    p = os.path.join(work, "bulk_downloader", "tool_bridge.py")
+    if not os.path.isfile(p):
+        return {"present": False, "allowlisted": 0, "tools": []}
+    try:
+        src = open(p, encoding="utf-8", errors="replace").read()
+    except OSError:
+        return {"present": False, "allowlisted": 0, "tools": []}
+    names = re.findall(r'al\["([a-z0-9_.\-]+)"\]\s*=', src)
+    return {"present": True, "allowlisted": len(names), "tools": sorted(set(names))}
+
+def scan_bridges(work, tool_stems):
+    """How does bulk_downloader/*.py reach each tool? Returns
+    {stem: [{"how": exec|import, "site": file:line}, ...]}."""
+    hits = {s: [] for s in tool_stems}
+    for f in sorted(glob.glob(os.path.join(work, "bulk_downloader", "*.py"))):
+        try:
+            src = open(f, encoding="utf-8", errors="replace").read()
+            tree = ast.parse(src)
+        except (OSError, SyntaxError):
+            continue
+        rel = os.path.relpath(f, work)
+        for node in ast.walk(tree):
+            # import bridges: from tools.x / import tools.x / importlib of tools/x
+            if isinstance(node, ast.ImportFrom) and node.module:
+                parts = node.module.split(".")
+                if parts[0] == "tools" and len(parts) > 1 and parts[1] in hits:
+                    hits[parts[1]].append(
+                        {"how": "import", "site": "%s:%d" % (rel, node.lineno)})
+                elif node.module in hits:   # sys.path-injected flat import
+                    hits[node.module].append(
+                        {"how": "import", "site": "%s:%d" % (rel, node.lineno)})
+            elif isinstance(node, ast.Import):
+                for al in node.names:
+                    parts = al.name.split(".")
+                    st = parts[1] if (parts[0] == "tools" and len(parts) > 1) \
+                        else parts[0]
+                    if st in hits:
+                        hits[st].append(
+                            {"how": "import", "site": "%s:%d" % (rel, node.lineno)})
+            # exec bridges: any Call whose string args reference tools/<stem>.py
+            elif isinstance(node, ast.Call):
+                for a in ast.walk(node):
+                    if isinstance(a, ast.Constant) and isinstance(a.value, str):
+                        m = re.search(r"tools[/\\]([A-Za-z0-9_]+)\.py", a.value)
+                        if m and m.group(1) in hits:
+                            fname = node.func.attr if isinstance(
+                                node.func, ast.Attribute) else getattr(
+                                node.func, "id", "")
+                            if fname in ("Popen", "run", "call", "check_call",
+                                         "check_output", "spawn_tool",
+                                         "run_dev_tool"):
+                                hits[m.group(1)].append(
+                                    {"how": "exec",
+                                     "site": "%s:%d" % (rel, node.lineno)})
+    return hits
+
+
+def load_registry(work):
+    p = os.path.join(work, "tools", "registry.json")
+    try:
+        d = json.load(open(p))
+        out = set()
+        for t in d.get("tools", []):
+            if isinstance(t, dict):
+                s = (t.get("script") or "").replace(".py", "")
+                if s:
+                    out.add(s)
+                if t.get("id"):
+                    out.add(t["id"])
+        return out
+    except (OSError, ValueError):
+        return set()
+
+
+# ---------------- config-key staleness (P2 claims vs LIVE app surfaces) ----
+def live_gui_keys(work):
+    """The set of keys the GUI can actually control, asked of the RUNNING app:
+      * /api/settings/schema  -> per-site config-store fields (writable)
+      * /api/settings/envfile -> the .env editor's ALLOWLISTED env vars
+        (validate_envfile_updates rejects anything not in EDITOR_KEYS)
+    Returns (writable_keys, envfile_keys, source_note) or (None, None, err)."""
+    try:
+        sys.path.insert(0, work)
+        os.environ.setdefault("BD_DISABLE_KEEPALIVE", "1")
+        from bulk_downloader.app import app as _app  # noqa: PLC0415
+        c = _app.test_client()
+        sch = c.get("/api/settings/schema").get_json() or {}
+        fields = set()
+
+        def walk(o):
+            if isinstance(o, dict):
+                k = o.get("key")
+                if isinstance(k, str):
+                    fields.add(k)
+                for v in o.values():
+                    walk(v)
+            elif isinstance(o, list):
+                for v in o:
+                    walk(v)
+        walk(sch.get("fields"))
+        walk(sch.get("by_category"))
+        env = c.get("/api/settings/envfile").get_json() or {}
+        envk = {r.get("name") for r in env.get("env", []) if r.get("name")}
+        return fields, envk, "live app (test_client)"
+    except Exception as e:  # noqa: BLE001
+        return None, None, "app unavailable: %s" % str(e)[:120]
+
+
+_IDENT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.]*$")
+_DOTKEY_RE = re.compile(r"^[a-z][a-z0-9_]+\.[a-z][a-z0-9_.]*$")
+# a dotted literal whose final segment is a file extension is a FILENAME whose
+# stem happens to collide with a schema namespace (e.g. cross_site_selectors.json)
+_FILE_EXT = {"json", "jsonl", "yaml", "yml", "txt", "md", "csv", "log", "db",
+             "py", "sh", "html", "js", "ts", "tsx", "zip", "sqlite", "ini",
+             "toml", "cfg", "bak", "lock", "pid", "sock"}
+
+
+def _is_config_key(lit):
+    return bool(_DOTKEY_RE.match(lit)) and lit.rsplit(".", 1)[-1] not in _FILE_EXT
+
+
+def global_config_receipt(work, declared_provider=None):
+    """The global_config class -- the surface the config-parity ratchet does NOT
+    measure (verified at 708: adding a global key leaves the inventory count
+    unmoved). The write path (app_global_config) iterates GLOBAL_CONFIG_SCHEMA
+    and SILENTLY DROPS anything not declared: POST returns 200, writes nothing.
+    So a key that is READ by code but NOT DECLARED is worse than GUI-dark -- the
+    GUI/API *appear* to control it while every write is a no-op.
+    Buckets: read_but_undeclared (the live defect class), declared_unread."""
+    if declared_provider:
+        declared, src = declared_provider(work)
+    else:
+        try:
+            sys.path.insert(0, work)
+            from bulk_downloader.global_config import GLOBAL_CONFIG_SCHEMA
+            declared, src = set(GLOBAL_CONFIG_SCHEMA), "GLOBAL_CONFIG_SCHEMA (live import)"
+        except Exception as e:  # noqa: BLE001
+            return {"unavailable": "schema import failed: %s" % str(e)[:100]}
+    namespaces = {k.split(".")[0] for k in declared}
+    reads = {}
+    for f in sorted(glob.glob(os.path.join(work, "bulk_downloader", "*.py"))):
+        if f.endswith(("global_config.py", "app_global_config.py")):
+            continue      # the schema/write-path themselves are not "readers"
+        try:
+            tree = ast.parse(open(f, encoding="utf-8", errors="replace").read())
+        except (OSError, SyntaxError):
+            continue
+        rel = os.path.relpath(f, work)
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                    and _is_config_key(node.value)
+                    and node.value.split(".")[0] in namespaces):
+                reads.setdefault(node.value, []).append(
+                    "%s:%d" % (rel, node.lineno))
+    undeclared = sorted(k for k in reads if k not in declared)
+    return {"declared_source": src, "declared_total": len(declared),
+            "read_keys_total": len(reads),
+            "read_but_undeclared": [
+                {"key": k, "readers": reads[k][:4]} for k in undeclared],
+            "declared_unread": sorted(declared - set(reads)),
+            }
+
+
+
+def config_receipt(work, p2, key_provider=None):
+    """For every P2 item, compare its ASSERTED gui_exposure against the LIVE
+    GUI-controllable key set. key_provider is injectable for selftests."""
+    fields, envk, src = (key_provider or live_gui_keys)(work)
+    if fields is None:
+        return {"unavailable": src, "total_keys": 0,
+                "claimed_exposed_but_not_controllable": [],
+                "controllable_but_claimed_dark": [],
+                "display_only_appropriate": [], "unscored": []}
+    gui = fields | envk
+    deploy_only = set(getattr(p2, "_DEPLOY_ONLY", ()))
+    d = p2.build(work)
+    stale_up, stale_down, display_only, unscored = [], [], [], []
+    for it in d.get("items", []):
+        key, exp = it.get("key", ""), it.get("gui_exposure", "")
+        if not key:
+            continue
+        if not _IDENT_RE.match(key):
+            unscored.append({"key": key, "asserted": exp})
+            continue
+        controllable = key in gui
+        if key in deploy_only and not controllable:
+            display_only.append({"key": key, "asserted": exp})
+        elif exp in ("full", "partial") and not controllable:
+            stale_up.append({"key": key, "asserted": exp,
+                             "source": it.get("source_file", "")})
+        elif exp in ("none", "display-only") and controllable:
+            where = "envfile-editor" if key in envk else "settings-schema"
+            stale_down.append({"key": key, "asserted": exp, "live_via": where,
+                               "source": it.get("source_file", "")})
+    return {"live_source": src,
+            "gui_controllable_keys": len(gui),
+            "claimed_exposed_but_not_controllable": sorted(
+                stale_up, key=lambda x: x["key"]),
+            "controllable_but_claimed_dark": sorted(
+                stale_down, key=lambda x: x["key"]),
+            "display_only_appropriate": sorted(
+                display_only, key=lambda x: x["key"]),
+            "unscored": sorted(unscored, key=lambda x: x["key"]),
+            "total_keys": len(d.get("items", []))}
+
+
+# ---------------- main build ----------------
+def build(work):
+    tools_dir = os.path.join(work, "tools")
+    # v3.66.714: RECURSIVE. The glob was tools/*.py, so every tool under a subdirectory
+    # was outside the denominator entirely -- tools/decomp/ (import_graph_gate,
+    # dead_code_gate, make_shim, templates_snapshot), tools/audit/, tools/data/. A tool
+    # the scan cannot see is scored neither dark nor bridged; it simply does not exist,
+    # and "192 of 208 dark" was a fraction of the wrong total.
+    paths = [p for p in sorted(glob.glob(os.path.join(tools_dir, "**", "*.py"),
+                                         recursive=True))
+             if not os.path.basename(p).startswith("_")
+             and "__pycache__" not in p]
+    stems = [os.path.splitext(os.path.basename(p))[0] for p in paths]
+    bridges = scan_bridges(work, set(stems))
+    registry = load_registry(work)
+
+    p1 = _load_mod(os.path.join(tools_dir, "gui_parity_inventory.py"), "_p1")
+    p2 = _load_mod(os.path.join(tools_dir, "config_surface_inventory.py"), "_p2")
+    backed = dict(getattr(p1, "_BACKED", {}))
+
+    tools_out, n_flags, n_dark_flags = [], 0, 0
+    for p, stem in zip(paths, stems):
+        info = scan_tool(p)
+        br = bridges.get(stem, [])
+        if any(b["how"] == "exec" for b in br):
+            status = "exec-bridged"
+        elif any(b["how"] == "import" for b in br):
+            status = "library-bridged"
+        elif stem in registry:
+            status = "registry-listed"
+        else:
+            status = "none"
+        # flag reachability: TRUE only for an exec bridge (args could pass);
+        # imports and list-only registry cannot set argparse flags.
+        flags_dark = status != "exec-bridged"
+        pe = info.get("parse_error")
+        nf = len(info.get("flags", [])) + len(info.get("subcommands", []))
+        n_flags += nf
+        if flags_dark:
+            n_dark_flags += nf
+        tools_out.append({
+            "tool": stem, "file": "tools/%s.py" % stem,
+            "bridge": status, "bridge_sites": br,
+            "flags": info.get("flags", []),
+            "subcommands": info.get("subcommands", []),
+            "env_knobs": info.get("envs", []),
+            "raw_argv": info.get("raw_argv", False),
+            "flag_count": nf, "flags_gui_dark": flags_dark,
+            "parse_error": pe,
+            "p1_asserted_gui_support": (backed.get(stem, ("(heuristic)",))[0]
+                                        if stem in backed else "(heuristic)"),
+        })
+
+    # inventory staleness receipt: _BACKED claims vs derived bridge
+    inv_stale = []
+    for stem, (sup, loc) in sorted(backed.items()):
+        derived = next((t["bridge"] for t in tools_out if t["tool"] == stem),
+                       "missing-from-tools/")
+        if derived in ("none", "registry-listed", "missing-from-tools/"):
+            inv_stale.append({"tool": stem, "asserted": sup,
+                              "asserted_location": loc, "derived_bridge": derived})
+
+    dark = [t for t in tools_out if t["bridge"] == "none"]
+    summary = {
+        "tools_total": len(tools_out),
+        "tools_dark": len(dark),
+        # v3.66.721: the general exec SEAM, distinct from tools/*.py exec-bridging.
+        "exec_bridge": exec_bridge_state(work),
+        "tools_exec_bridged": sum(1 for t in tools_out
+                                  if t["bridge"] == "exec-bridged"),
+        "tools_library_bridged": sum(1 for t in tools_out
+                                     if t["bridge"] == "library-bridged"),
+        "tools_registry_listed_only": sum(1 for t in tools_out
+                                          if t["bridge"] == "registry-listed"),
+        "flags_total": n_flags,
+        "flags_gui_dark": n_dark_flags,
+        "env_knobs_total": sum(len(t["env_knobs"]) for t in tools_out),
+        "raw_argv_tools": sum(1 for t in tools_out if t["raw_argv"]),
+        "parse_errors": sum(1 for t in tools_out if t.get("parse_error")),
+    }
+    return {"work": work, "summary": summary, "tools": tools_out,
+            "inventory_staleness": inv_stale,
+            "config_receipt": config_receipt(work, p2),
+            "global_config_receipt": global_config_receipt(work)}
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work", default=DEFAULT_WORK)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--full", action="store_true",
+                    help="print every dark tool (default: top summary only)")
+    ap.add_argument("--gate", action="store_true",
+                    help="exit 1 if any tool-dark or flag-dark item exists")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+
+    d = build(a.work)
+    json.dump(d, open(RESULTS, "w"), indent=2, sort_keys=True)
+    s = d["summary"]
+    if a.json:
+        print(json.dumps({"summary": s,
+                          "inventory_staleness": d["inventory_staleness"],
+                          "config_receipt_counts": {
+                              k: (len(v) if isinstance(v, list) else v)
+                              for k, v in d["config_receipt"].items()},
+                          "global_config_receipt_counts": {
+                              k: (len(v) if isinstance(v, list) else v)
+                              for k, v in d["global_config_receipt"].items()},
+                          "results": RESULTS}, sort_keys=True))
+    else:
+        print("%sbd-parity-scan%s %s(derived live from source; no baseline)%s"
+              % (BOLD, RST, DIM, RST))
+        print("  tools: %d total%s | %s%d dark%s | %d exec-bridged (tools/*.py) | "
+              "%d library-bridged | %d registry-list-only"
+              % (s["tools_total"],
+                 DIM + " (tools/**/*.py, excl. _-prefixed)" + RST,
+                 R, s["tools_dark"], RST,
+                 s["tools_exec_bridged"], s["tools_library_bridged"],
+                 s["tools_registry_listed_only"]))
+        # v3.66.721: the exec SEAM is a separate fact. "0 exec-bridged" above means "the
+        # backend does not subprocess into tools/*.py" -- it does NOT mean no exec seam
+        # exists, and reading it that way is the false premise this bridge was built to fix.
+        _eb = s.get("exec_bridge") or {}
+        if _eb.get("present"):
+            print("  %sexec bridge: PRESENT%s (bulk_downloader/tool_bridge.py) -- "
+                  "%d allowlisted binar%s: %s %s(validated, no shell; a GUI value CAN reach "
+                  "an argument through this seam)%s"
+                  % (G, RST, _eb.get("allowlisted", 0),
+                     "y" if _eb.get("allowlisted", 0) == 1 else "ies",
+                     ", ".join(_eb.get("tools", [])) or "-", DIM, RST))
+        else:
+            print("  %sexec bridge: ABSENT%s -- no code path passes a GUI value as a tool "
+                  "argument. Flags cannot be exposed incrementally; the seam does not exist."
+                  % (R, RST))
+        print("  flags/subcommands: %d total | %s%d GUI-dark%s | "
+              "env knobs: %d | raw-argv tools: %d"
+              % (s["flags_total"], R, s["flags_gui_dark"], RST,
+                 s["env_knobs_total"], s["raw_argv_tools"]))
+        if s["parse_errors"]:
+            print("  %sWARN%s %d tool(s) UNPARSEABLE -- their flag surface is "
+                  "UNKNOWN, not zero:" % (R, RST, s["parse_errors"]))
+            for t in d["tools"]:
+                if t.get("parse_error"):
+                    print("    %s: %s" % (t["tool"], t["parse_error"][:90]))
+        inv = d["inventory_staleness"]
+        if inv:
+            print("\n%sinventory staleness (_BACKED claims vs derived):%s" % (BOLD, RST))
+            for it in inv:
+                print("  %s%-24s%s asserted %s @ %s but derived bridge = %s"
+                      % (Y, it["tool"], RST, it["asserted"],
+                         it["asserted_location"], it["derived_bridge"]))
+        cr = d["config_receipt"]
+        if cr.get("unavailable"):
+            print("\n%sconfig-key receipt:%s %s" % (BOLD, RST, cr["unavailable"]))
+        else:
+            up = cr["claimed_exposed_but_not_controllable"]
+            dn = cr["controllable_but_claimed_dark"]
+            print("\n%sconfig-key receipt%s (%d keys vs %d live GUI-controllable"
+                  " via %s): %s%d claimed exposed but NOT controllable%s | "
+                  "%d controllable but claimed dark | %d display-only ok | "
+                  "%d unscored"
+                  % (BOLD, RST, cr["total_keys"], cr["gui_controllable_keys"],
+                     cr["live_source"], R if up else G, len(up), RST, len(dn),
+                     len(cr["display_only_appropriate"]), len(cr["unscored"])))
+            for it in up[:15]:
+                print("  %sSTALE%s %-34s asserted=%s (%s)"
+                      % (R, RST, it["key"], it["asserted"], it["source"]))
+            if len(up) > 15:
+                print("  %s... %d more in %s%s"
+                      % (DIM, len(up) - 15, RESULTS, RST))
+            for it in dn[:8]:
+                print("  %sDARK-CLAIM%s %-28s asserted=%s but live via %s"
+                      % (Y, RST, it["key"], it["asserted"], it["live_via"]))
+        if a.full:
+            print("\n%sdark tools:%s" % (BOLD, RST))
+            for t in d["tools"]:
+                if t["bridge"] == "none":
+                    print("  %-28s flags=%-3d env=%d%s"
+                          % (t["tool"], t["flag_count"], len(t["env_knobs"]),
+                             " raw-argv" if t["raw_argv"] else ""))
+        gr = d["global_config_receipt"]
+        if gr.get("unavailable"):
+            print("\n%sglobal_config receipt:%s %s" % (BOLD, RST, gr["unavailable"]))
+        else:
+            u = gr["read_but_undeclared"]
+            print("\n%sglobal_config receipt%s (%d declared via %s | %d read): "
+                  "%s%d READ-BUT-UNDECLARED%s -- writes to these SILENTLY NO-OP"
+                  % (BOLD, RST, gr["declared_total"], gr["declared_source"],
+                     gr["read_keys_total"], R if u else G, len(u), RST))
+            for it in u[:20]:
+                print("  %sNO-OP-WRITE%s %-40s read at %s"
+                      % (R, RST, it["key"], it["readers"][0]))
+            if len(u) > 20:
+                print("  %s... %d more in %s%s" % (DIM, len(u) - 20, RESULTS, RST))
+        print("\n%sfull detail -> %s%s" % (DIM, RESULTS, RST))
+    if a.gate and (s["tools_dark"] or s["flags_gui_dark"]):
+        return 1
+    return 0
+
+
+# ---------------- selftest ----------------
+def selftest():
+    import shutil
+    import tempfile
+    ok = True
+
+    def chk(cond, msg):
+        nonlocal ok
+        print(("%sPASS%s  " % (G, RST) if cond else "%sFAIL%s  " % (R, RST)) + msg)
+        ok = ok and bool(cond)
+
+    d = tempfile.mkdtemp()
+    tl = os.path.join(d, "tools")
+    be = os.path.join(d, "bulk_downloader")
+    fe = os.path.join(d, "frontend", "src")
+    os.makedirs(tl)
+    os.makedirs(be)
+    os.makedirs(fe)
+
+    # fixture tool A: 2 flags, 1 subcommand, 1 env, exec-bridged by backend
+    open(os.path.join(tl, "alpha.py"), "w").write(
+        "import argparse, os\n"
+        "p = argparse.ArgumentParser()\n"
+        "p.add_argument('--speed')\n"
+        "p.add_argument('--depth', '-d')\n"
+        "sp = p.add_subparsers().add_parser('sync')\n"
+        "os.environ.get('ALPHA_MODE')\n")
+    # fixture tool B: 1 flag, dark (no bridge, not in registry)
+    open(os.path.join(tl, "beta.py"), "w").write(
+        "import argparse\np = argparse.ArgumentParser()\n"
+        "p.add_argument('--hidden-flag')\n")
+    # fixture tool C: raw argv, registry-listed
+    open(os.path.join(tl, "gamma.py"), "w").write(
+        "import sys\nx = sys.argv[1]\n")
+    open(os.path.join(tl, "registry.json"), "w").write(
+        json.dumps({"tools": [{"id": "gamma", "script": "gamma.py"}]}))
+    # minimal P1/P2 stand-ins (loaded by name, so fixtures suffice)
+    open(os.path.join(tl, "gui_parity_inventory.py"), "w").write(
+        "_BACKED = {'beta': ('partial', '/cockpit/x')}\n")
+    open(os.path.join(tl, "config_surface_inventory.py"), "w").write(
+        "_DEPLOY_ONLY = {'BD_HOME'}\n"
+        "def build(root):\n"
+        "    return {'items': [\n"
+        "        {'key': 'ghost_key', 'gui_exposure': 'full', 'source_file': 's'},\n"
+        "        {'key': 'real_key', 'gui_exposure': 'none', 'source_file': 's'},\n"
+        "        {'key': 'BD_HOME', 'gui_exposure': 'display-only',\n"
+        "         'source_file': 's'},\n"
+        "        {'key': 'fine_key', 'gui_exposure': 'none', 'source_file': 's'},\n"
+        "    ]}\n")
+    # backend exec-bridges alpha
+    open(os.path.join(be, "app_x.py"), "w").write(
+        "import subprocess\n"
+        "subprocess.run(['python3', 'tools/alpha.py', '--speed', '1'])\n")
+    out = build(d)
+    t = {x["tool"]: x for x in out["tools"]}
+
+    chk(t["alpha"]["bridge"] == "exec-bridged" and
+        t["alpha"]["bridge_sites"][0]["site"].startswith("bulk_downloader/app_x.py:"),
+        "exec bridge detected with file:line provenance")
+    chk(t["alpha"]["flag_count"] == 3 and not t["alpha"]["flags_gui_dark"],
+        "exec-bridged tool's flags counted (2 flags + 1 subcommand) and NOT dark")
+    chk(t["alpha"]["env_knobs"] == ["ALPHA_MODE"], "env knob extracted")
+    chk(t["beta"]["bridge"] == "none" and t["beta"]["flags_gui_dark"]
+        and t["beta"]["flag_count"] == 1,
+        "POS: unbridged tool + its flag reported GUI-dark")
+    chk(t["gamma"]["bridge"] == "registry-listed" and t["gamma"]["raw_argv"],
+        "registry-list-only + raw-argv classified (list-only != controllable)")
+    dark_set = {x["tool"] for x in out["tools"] if x["bridge"] == "none"}
+    chk("beta" in dark_set and "alpha" not in dark_set
+        and "gamma" not in dark_set,
+        "NEG: registry-listed and exec-bridged tools are NOT counted dark")
+    inv = {i["tool"]: i for i in out["inventory_staleness"]}
+    chk("beta" in inv and inv["beta"]["derived_bridge"] == "none",
+        "staleness receipt: _BACKED claim contradicted by derived bridge")
+    # receipt with an INJECTED live-key provider (schema={real_key},
+    # envfile allowlist={fine_key}); app not needed for the fixture tree.
+    p2f = _load_mod(os.path.join(tl, "config_surface_inventory.py"), "_p2f")
+    cr = config_receipt(d, p2f,
+                        key_provider=lambda w: ({"real_key"}, {"fine_key"},
+                                                "injected"))
+    chk([x["key"] for x in cr["claimed_exposed_but_not_controllable"]]
+        == ["ghost_key"],
+        "POS: key claimed 'full' but in NO live surface -> stale claim")
+    chk([x["key"] for x in cr["controllable_but_claimed_dark"]]
+        == ["fine_key", "real_key"],
+        "POS: keys claimed 'none' but live in schema/envfile -> stale down")
+    chk(cr["controllable_but_claimed_dark"][0]["live_via"] == "envfile-editor",
+        "live_via distinguishes envfile allowlist from settings schema")
+    chk([x["key"] for x in cr["display_only_appropriate"]] == ["BD_HOME"],
+        "NEG: _DEPLOY_ONLY key with no live surface is NOT a gap")
+    cr2 = config_receipt(d, p2f,
+                         key_provider=lambda w: (None, None, "boom"))
+    chk(cr2.get("unavailable") == "boom" and
+        cr2["claimed_exposed_but_not_controllable"] == [],
+        "NEG: app-unavailable degrades to explicit 'unavailable', never to "
+        "a fabricated receipt")
+    # global_config receipt controls (injected declared set)
+    open(os.path.join(be, "reader.py"), "w").write(
+        "K1 = 'automation.ghost_toggle'\n"          # read, NOT declared -> flag
+        "K2 = 'automation.real_toggle'\n"           # read AND declared -> fine
+        "F  = 'config.json'\n"                      # filename-ish, wrong shape
+        "P  = 'other.namespace_key'\n")             # namespace not in schema -> skip
+    gr = global_config_receipt(
+        d, declared_provider=lambda w: ({"automation.real_toggle",
+                                         "automation.unused_knob"}, "injected"))
+    chk([x["key"] for x in gr["read_but_undeclared"]] == ["automation.ghost_toggle"]
+        and gr["read_but_undeclared"][0]["readers"][0].startswith(
+            "bulk_downloader/reader.py:"),
+        "POS: read-but-undeclared global key flagged with reader file:line")
+    chk("automation.real_toggle" not in
+        [x["key"] for x in gr["read_but_undeclared"]],
+        "NEG: declared+read key is NOT flagged")
+    chk(not any("other.namespace_key" in str(x) or "config.json" in str(x)
+                for x in gr["read_but_undeclared"]),
+        "NEG: foreign-namespace and filename-shaped literals excluded")
+    open(os.path.join(be, "reader2.py"), "w").write(
+        "X = 'automation.rules.json'\n")   # in-namespace FILENAME
+    gr2 = global_config_receipt(
+        d, declared_provider=lambda w: ({"automation.real_toggle"}, "injected"))
+    chk(not any(x["key"] == "automation.rules.json"
+                for x in gr2["read_but_undeclared"]),
+        "NEG: in-namespace filename (.json tail) is NOT a config key")
+    chk(gr["declared_unread"] == ["automation.unused_knob"],
+        "declared-but-unread reported (informational)")
+
+    open(os.path.join(tl, "broken.py"), "w").write("def x(:\n")
+    out2 = build(d)
+    bt = [t for t in out2["tools"] if t["tool"] == "broken"][0]
+    chk(out2["summary"]["parse_errors"] == 1 and bt["parse_error"],
+        "POS: an unparseable tool is surfaced as UNKNOWN surface, "
+        "never silently zero flags")
+    os.unlink(os.path.join(tl, "broken.py"))
+
+    b1 = json.dumps(build(d), sort_keys=True)
+    b2 = json.dumps(build(d), sort_keys=True)
+    chk(b1 == b2, "deterministic output")
+    shutil.rmtree(d, ignore_errors=True)
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

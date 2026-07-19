@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""bd-wacz-scrub -- scrub secrets from a WACZ / capture export zip.
+
+Reads a WACZ (or any zip) and writes a scrubbed copy: each text member is run
+through the log/report scrubber (jwt/bearer/aws/kv/signed-url/internal-host),
+binary members are copied unchanged. Verifies the output is secret-free
+(bd-scrub-proof) and refuses to emit a "scrubbed" file that still has secrets.
+Reuses bd-log-sanitize + bd-scrub-proof. Writes to --out.
+
+Usage: bd-wacz-scrub INPUT.wacz --out OUTPUT.wacz [--json]
+       bd-wacz-scrub --selftest
+Exit 1 if it cannot produce a clean output, else 0.
+"""
+import argparse, os, sys, zipfile
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+
+import importlib.util, importlib.machinery
+def _load_tool(tool):
+    p=os.path.join(os.path.dirname(os.path.realpath(__file__)),tool)
+    modname=tool.replace("-","_")
+    spec=importlib.util.spec_from_loader(modname,importlib.machinery.SourceFileLoader(modname,p))
+    m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); return m
+
+_ls=_load_tool("bd-log-sanitize"); _sp=_load_tool("bd-scrub-proof")
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+TEXT_EXT={".log",".txt",".json",".md",".csv",".html",".xml",".yaml",".yml",".ndjson",".cdx",".cdxj"}
+
+def scrub_zip(inp, out):
+    total=0; members=0
+    with zipfile.ZipFile(inp) as zin, zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data=zin.read(item.filename)
+            ext=os.path.splitext(item.filename)[1].lower()
+            if ext in TEXT_EXT:
+                text=data.decode("utf-8","ignore")
+                scrubbed,counts=_ls.scrub(text)
+                total+=sum(counts.values()); members+=1
+                zout.writestr(item, scrubbed.encode("utf-8"))
+            else:
+                zout.writestr(item, data)
+    proof=_sp.prove(out)
+    return {"out":out,"redactions":total,"text_members":members,"safe":proof.get("safe",False),"residual":proof.get("total_secrets",0)}
+
+def selftest():
+    ok=True
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        inp=os.path.join(d,"in.wacz")
+        with zipfile.ZipFile(inp,"w") as z:
+            z.writestr("archive/data.cdxj","host 10.0.70.20 Bearer abcdef0123456789ABCDEF")
+            z.writestr("pages/img.png",b"\x89PNG\x00")
+        out=os.path.join(d,"out.wacz")
+        r=scrub_zip(inp,out)
+        print(("PASS" if r["redactions"]>=2 and r["safe"] else "FAIL")+"  wacz scrubbed clean (%d redactions, safe=%s)"%(r["redactions"],r["safe"]))
+        ok=ok and r["safe"] and r["redactions"]>=2
+        with zipfile.ZipFile(out) as z:
+            png=z.read("pages/img.png")
+    print(("PASS" if png.startswith(b"\x89PNG") else "FAIL")+"  binary member preserved")
+    ok=ok and png.startswith(b"\x89PNG")
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("input",nargs="?"); ap.add_argument("--out",default=None)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    if not a.input or not a.out: print(R+"INPUT and --out required"+RST); return 1
+    if not zipfile.is_zipfile(a.input): print(R+"input is not a zip/wacz"+RST); return 1
+    r=scrub_zip(a.input,a.out)
+    if not r["safe"]:
+        os.remove(a.out) if os.path.exists(a.out) else None
+        if sec.emit({**r,"refused":True},as_json=a.json): return 1
+        print(R+"REFUSED"+RST+": %d secret(s) remain after scrub"%r["residual"]); return 1
+    if sec.emit(r,as_json=a.json): return 0
+    print(G+"scrubbed WACZ"+RST+" -> %s (%d redactions across %d text members, verified clean)"%(r["out"],r["redactions"],r["text_members"]))
+    return 0
+sys.exit(main())

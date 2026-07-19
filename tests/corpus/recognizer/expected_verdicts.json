@@ -1,0 +1,721 @@
+{
+  "adult": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 7,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "videojs",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 14,
+    "requires_runtime_capture": true,
+    "signing_schemes": [
+      "cloudfront",
+      "generic_token"
+    ],
+    "site_type": "signed_cloudfront",
+    "ssai": false
+  },
+  "art": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 1,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "artplayer",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 21,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": false
+  },
+  "banb": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "videojs",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 2,
+    "requires_runtime_capture": true,
+    "signing_schemes": [
+      "generic_token"
+    ],
+    "site_type": "signed_generic_token",
+    "ssai": true
+  },
+  "bang": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 1,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "videojs",
+    "primary_protocol": "progressive",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 16,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "direct_progressive",
+    "ssai": false
+  },
+  "beeg": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "native_custom",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 6,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": false
+  },
+  "bit": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 0,
+    "downloadable": false,
+    "drm": true,
+    "player_family": "bitmovin",
+    "primary_protocol": "hls",
+    "recommended_path": "not_downloadable",
+    "rendition_count": 0,
+    "requires_runtime_capture": false,
+    "signing_schemes": [],
+    "site_type": "drm_protected",
+    "ssai": true
+  },
+  "brazzers": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "videojs",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 1,
+    "requires_runtime_capture": true,
+    "signing_schemes": [
+      "generic_token"
+    ],
+    "site_type": "signed_generic_token",
+    "ssai": true
+  },
+  "brightcove": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "brightcove",
+    "primary_protocol": "hls",
+    "recommended_path": "auto_template",
+    "rendition_count": 0,
+    "requires_runtime_capture": false,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": false
+  },
+  "bunny_stream": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "bunny_stream",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 0,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": false
+  },
+  "clappr": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "clappr",
+    "primary_protocol": "hls",
+    "recommended_path": "auto_template",
+    "rendition_count": 0,
+    "requires_runtime_capture": false,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": false
+  },
+  "cloudflare_stream": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "cloudflare_stream",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 0,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": false
+  },
+  "dailymotion": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "dailymotion",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 0,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": false
+  },
+  "dashjs": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "dashjs",
+    "primary_protocol": "dash",
+    "recommended_path": "auto_template",
+    "rendition_count": 0,
+    "requires_runtime_capture": false,
+    "signing_schemes": [],
+    "site_type": "dash_manifest",
+    "ssai": false
+  },
+  "dfx": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "videojs",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 10,
+    "requires_runtime_capture": true,
+    "signing_schemes": [
+      "cloudfront",
+      "generic_token"
+    ],
+    "site_type": "signed_cloudfront",
+    "ssai": false
+  },
+  "dpla": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 1,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "dplayer",
+    "primary_protocol": "progressive",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 1,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "direct_progressive",
+    "ssai": true
+  },
+  "embed": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": false,
+    "drm": false,
+    "player_family": "unknown",
+    "primary_protocol": null,
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 0,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "iframe_embed",
+    "ssai": false
+  },
+  "erome": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "videojs",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 4,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": true
+  },
+  "hlsjs": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "hlsjs",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 14,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": false
+  },
+  "iframe": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "wistia",
+    "primary_protocol": "hls",
+    "recommended_path": "auto_template",
+    "rendition_count": 1,
+    "requires_runtime_capture": false,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": false
+  },
+  "kaltura": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "kaltura",
+    "primary_protocol": "hls",
+    "recommended_path": "auto_template",
+    "rendition_count": 0,
+    "requires_runtime_capture": false,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": false
+  },
+  "kelly": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "videojs",
+    "primary_protocol": "progressive",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 2,
+    "requires_runtime_capture": true,
+    "signing_schemes": [
+      "generic_token"
+    ],
+    "site_type": "signed_generic_token",
+    "ssai": false
+  },
+  "media": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 2,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "mediaelement",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 2,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": false
+  },
+  "mux": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "mux",
+    "primary_protocol": "hls",
+    "recommended_path": "auto_template",
+    "rendition_count": 0,
+    "requires_runtime_capture": false,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": false
+  },
+  "mxchrome": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "media_chrome",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 1,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": false
+  },
+  "news": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "native_custom",
+    "primary_protocol": "progressive",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 3,
+    "requires_runtime_capture": true,
+    "signing_schemes": [
+      "generic_token"
+    ],
+    "site_type": "signed_generic_token",
+    "ssai": false
+  },
+  "nook": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "videojs",
+    "primary_protocol": null,
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 1,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "unknown",
+    "ssai": false
+  },
+  "nubiles": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "videojs",
+    "primary_protocol": "progressive",
+    "recommended_path": "auto_template",
+    "rendition_count": 2,
+    "requires_runtime_capture": false,
+    "signing_schemes": [],
+    "site_type": "direct_progressive",
+    "ssai": false
+  },
+  "peg": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "flowplayer",
+    "primary_protocol": "progressive",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 8,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "direct_progressive",
+    "ssai": false
+  },
+  "react_player": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "react_player",
+    "primary_protocol": "hls",
+    "recommended_path": "auto_template",
+    "rendition_count": 0,
+    "requires_runtime_capture": false,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": false
+  },
+  "redgif": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "native_custom",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 0,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": false
+  },
+  "reptyle": {
+    "anti_bot": [],
+    "caption_count": 1,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "jwplayer",
+    "primary_protocol": "progressive",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 4,
+    "requires_runtime_capture": true,
+    "signing_schemes": [
+      "generic_token"
+    ],
+    "site_type": "signed_generic_token",
+    "ssai": false
+  },
+  "scroller": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "native_custom",
+    "primary_protocol": "progressive",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 25,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "direct_progressive",
+    "ssai": false
+  },
+  "shaka": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": false,
+    "drm": true,
+    "player_family": "shaka",
+    "primary_protocol": "hls",
+    "recommended_path": "not_downloadable",
+    "rendition_count": 13,
+    "requires_runtime_capture": false,
+    "signing_schemes": [],
+    "site_type": "drm_protected",
+    "ssai": true
+  },
+  "shaka_clear": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "shaka",
+    "primary_protocol": "dash",
+    "recommended_path": "auto_template",
+    "rendition_count": 0,
+    "requires_runtime_capture": false,
+    "signing_schemes": [],
+    "site_type": "dash_manifest",
+    "ssai": false
+  },
+  "sproutvideo": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "sproutvideo",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 0,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": false
+  },
+  "teen": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "plyr",
+    "primary_protocol": "progressive",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 3,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "direct_progressive",
+    "ssai": false
+  },
+  "theo": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 1,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "theoplayer",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 9,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": false
+  },
+  "tiny": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "vidstack",
+    "primary_protocol": "progressive",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 3,
+    "requires_runtime_capture": true,
+    "signing_schemes": [
+      "aws_sigv4",
+      "generic_token"
+    ],
+    "site_type": "signed_aws_sigv4",
+    "ssai": false
+  },
+  "ultra": {
+    "anti_bot": [
+      "akamai"
+    ],
+    "caption_count": 1,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "jwplayer",
+    "primary_protocol": "progressive",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 3,
+    "requires_runtime_capture": true,
+    "signing_schemes": [
+      "generic_token"
+    ],
+    "site_type": "signed_generic_token",
+    "ssai": false
+  },
+  "vdash": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 2,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "vidstack",
+    "primary_protocol": "dash",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 2,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "dash_manifest",
+    "ssai": false
+  },
+  "vimeo": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "vimeo",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 0,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": false
+  },
+  "vip4k": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "playerjs",
+    "primary_protocol": "progressive",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 3,
+    "requires_runtime_capture": true,
+    "signing_schemes": [
+      "generic_token"
+    ],
+    "site_type": "signed_generic_token",
+    "ssai": false
+  },
+  "vixen": {
+    "anti_bot": [
+      "akamai",
+      "cloudflare"
+    ],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "native_custom",
+    "primary_protocol": "progressive",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 13,
+    "requires_runtime_capture": true,
+    "signing_schemes": [
+      "cloudfront",
+      "generic_token"
+    ],
+    "site_type": "signed_cloudfront",
+    "ssai": false
+  },
+  "wow": {
+    "anti_bot": [],
+    "caption_count": 2,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "jwplayer",
+    "primary_protocol": "progressive",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 6,
+    "requires_runtime_capture": true,
+    "signing_schemes": [
+      "generic_token"
+    ],
+    "site_type": "signed_generic_token",
+    "ssai": false
+  },
+  "wowza": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "flowplayer",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 0,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": true
+  },
+  "xnxx": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "native_custom",
+    "primary_protocol": "hls",
+    "recommended_path": "auto_template",
+    "rendition_count": 3,
+    "requires_runtime_capture": false,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": true
+  }
+}

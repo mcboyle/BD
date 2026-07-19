@@ -1,0 +1,4 @@
+{
+  "description": "JSON-LD VideoObject schema.org markup with contentUrl + embedUrl + thumbnailUrl. Tests extract_jsonld_media and how its candidates rank against state-blob candidates.",
+  "base_url": "https://example.test/watch/season-1/ep4"
+}

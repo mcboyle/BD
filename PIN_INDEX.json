@@ -1,0 +1,342 @@
+{
+  "schema_version": 1,
+  "generated_from": "AST scan of tests/*.py",
+  "note": "DO NOT EDIT BY HAND — tests/test_pin_index_in_sync.py fails the build. Regenerate: python tools/build_pin_index.py. `line` is informational.",
+  "coverage": {
+    "covers": [
+      "version",
+      "count_dict"
+    ],
+    "handled_elsewhere": {
+      "guard_sha": "STATE.json — the 7 byte-identical guard SHAs, re-derived from the built zip and auto-repinned by bd-handoff; gated by verify_release / bd-state. Not a hand-typed tree pin.",
+      "route_count": "tools/check_route_counts.py (G12) — source-decorator count == gui_parity inventory count == the integer pins in tests/test_wave2_backlog.py."
+    },
+    "known_gaps": [
+      "bare integer-equality asserts (assert X == N) are intentionally NOT indexed — too ambiguous to separate from arbitrary test asserts; the route-count subset that matters is gated by G12.",
+      "count_dict captures every {str: int} equality literal; a few may be non-count dicts. Over-capture is intentional — surfacing a non-pin is cheap, missing a real pin is the failure we are preventing."
+    ]
+  },
+  "counts": {
+    "total": 31,
+    "version": 1,
+    "count_dict": 30,
+    "test_files_scanned": 1071,
+    "by_file": {
+      "tests/test_capture_scrub_hook.py": 2,
+      "tests/test_config_snapshot_diff.py": 1,
+      "tests/test_contracts.py": 1,
+      "tests/test_daily_digest.py": 2,
+      "tests/test_dom_analyzer.py": 1,
+      "tests/test_kb_golden_questions.py": 1,
+      "tests/test_settings_center_slice4.py": 1,
+      "tests/test_v3_43_67_vixen.py": 2,
+      "tests/test_v3_60_phase12.py": 1,
+      "tests/test_v3_66_127_rollback_center.py": 2,
+      "tests/test_v3_66_15_phase4_p5_site_memory.py": 4,
+      "tests/test_v3_66_20_phase4_jwplayer_feeds.py": 1,
+      "tests/test_v3_66_302_gui_parity_reconcile.py": 1,
+      "tests/test_v3_66_491_sink_plugins.py": 1,
+      "tests/test_v3_66_497_plugin_kv.py": 1,
+      "tests/test_v3_66_649_search_facets.py": 4,
+      "tests/test_validators.py": 5
+    }
+  },
+  "pins": [
+    {
+      "form": "count_dict",
+      "file": "tests/test_capture_scrub_hook.py",
+      "line": 42,
+      "value": {
+        "signed_query_param": 6,
+        "email": 2,
+        "jwt": 1
+      },
+      "gates_what": "test_parse_redactions_counts_only"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_capture_scrub_hook.py",
+      "line": 73,
+      "value": {
+        "signed_query_param": 6,
+        "email": 2,
+        "jwt": 1
+      },
+      "gates_what": "test_scrub_writes_twin_and_manifest_raw_untouched"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_config_snapshot_diff.py",
+      "line": 73,
+      "value": {
+        "added": 0,
+        "removed": 0,
+        "changed": 0
+      },
+      "gates_what": "test_diff_identical_when_unchanged"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_contracts.py",
+      "line": 230,
+      "value": {
+        "x": 1
+      },
+      "gates_what": "test_contract_maybe_json_handles_all_arg_shapes — _maybe_json must never raise regardless of the args object."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_daily_digest.py",
+      "line": 96,
+      "value": {
+        "a": 0,
+        "b": 2
+      },
+      "gates_what": "test_compute_delta_and_zero_detection"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_daily_digest.py",
+      "line": 100,
+      "value": {
+        "x": 3
+      },
+      "gates_what": "test_compute_delta_and_zero_detection"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_dom_analyzer.py",
+      "line": 101,
+      "value": {
+        "jwt": 2
+      },
+      "gates_what": "test_gate_fails_closed_on_residual — If the scan reports a residual, the gate must withhold tree+html and"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_kb_golden_questions.py",
+      "line": 64,
+      "value": {
+        "routes": 0,
+        "importers": 0,
+        "pins": 0
+      },
+      "gates_what": "test_golden_can_i_retire_safe_for_absent_target — A target with no routes / importers / pins reads SAFE — the SAFE-path logic."
+    },
+    {
+      "form": "version",
+      "file": "tests/test_settings_center_slice4.py",
+      "line": 200,
+      "value": "3.66.805",
+      "gates_what": "test_containment_routes_and_version"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_43_67_vixen.py",
+      "line": 87,
+      "value": {
+        "x": 1
+      },
+      "gates_what": "test_single_quoted_attr"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_43_67_vixen.py",
+      "line": 108,
+      "value": {
+        "a": 1,
+        "b": 2
+      },
+      "gates_what": "test_handles_multiline_content"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_60_phase12.py",
+      "line": 213,
+      "value": {
+        "a": 1
+      },
+      "gates_what": "test_maybe_json_returns_true_with_flag"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_127_rollback_center.py",
+      "line": 75,
+      "value": {
+        "v": 1
+      },
+      "gates_what": "test_round_trip_restores_and_is_idempotent"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_127_rollback_center.py",
+      "line": 100,
+      "value": {
+        "v": 1
+      },
+      "gates_what": "test_reject_reverts_immediately"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_15_phase4_p5_site_memory.py",
+      "line": 55,
+      "value": {
+        "hls_master": 1
+      },
+      "gates_what": "test_first_call_creates_block"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_15_phase4_p5_site_memory.py",
+      "line": 101,
+      "value": {
+        "login_form": 1,
+        "drm": 1
+      },
+      "gates_what": "test_disclaimers_tracked_in_blocker_history"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_15_phase4_p5_site_memory.py",
+      "line": 399,
+      "value": {
+        "hls_master": 1
+      },
+      "gates_what": "test_recorded_config_round_trips"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_15_phase4_p5_site_memory.py",
+      "line": 414,
+      "value": {
+        "x": 1
+      },
+      "gates_what": "test_returned_dict_is_shallow_copy — Mutating the returned dict should NOT mutate the config —"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_20_phase4_jwplayer_feeds.py",
+      "line": 135,
+      "value": {
+        "jwplayer_resolved_hls": 2,
+        "jwplayer_resolved": 1,
+        "jwplayer_resolved_dash": 1
+      },
+      "gates_what": "test_multi_entry_feed_flattens_with_indices"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_302_gui_parity_reconcile.py",
+      "line": 79,
+      "value": {
+        "data_layer.": 15,
+        "report_center.": 9,
+        "actions_center.": 0
+      },
+      "gates_what": "test_gated_blueprint_counts_unchanged — G12 invariant: the 3 write-blueprint counts must be unchanged by the"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_491_sink_plugins.py",
+      "line": 177,
+      "value": {
+        "id": 9
+      },
+      "gates_what": "test_at_least_once_failed_lands_in_dead_letter_not_lost"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_497_plugin_kv.py",
+      "line": 76,
+      "value": {
+        "k1": 1,
+        "k2": 2
+      },
+      "gates_what": "test_delete_and_keys_and_items"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_649_search_facets.py",
+      "line": 34,
+      "value": {
+        "a": 3,
+        "b": 1
+      },
+      "gates_what": "test_facet_counts_groups_by_site_and_status"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_649_search_facets.py",
+      "line": 35,
+      "value": {
+        "done": 3,
+        "error": 1
+      },
+      "gates_what": "test_facet_counts_groups_by_site_and_status"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_649_search_facets.py",
+      "line": 48,
+      "value": {
+        "a": 1
+      },
+      "gates_what": "test_facet_counts_respects_site_filter"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_649_search_facets.py",
+      "line": 69,
+      "value": {
+        "a": 1
+      },
+      "gates_what": "test_facets_route_registered_and_returns_shape"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_validators.py",
+      "line": 59,
+      "value": {
+        "x": 1
+      },
+      "gates_what": "test_clean_json"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_validators.py",
+      "line": 63,
+      "value": {
+        "x": 1,
+        "y": 2
+      },
+      "gates_what": "test_markdown_fenced"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_validators.py",
+      "line": 67,
+      "value": {
+        "x": 1
+      },
+      "gates_what": "test_markdown_no_lang"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_validators.py",
+      "line": 73,
+      "value": {
+        "x": 1
+      },
+      "gates_what": "test_prose_wrapped"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_validators.py",
+      "line": 77,
+      "value": {
+        "x": 1
+      },
+      "gates_what": "test_bare_embedded"
+    }
+  ]
+}

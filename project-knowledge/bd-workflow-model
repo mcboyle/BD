@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""bd-workflow-model -- model operator workflows.
+
+Reconstructs the operator's key workflows as ordered steps by correlating route
+groups (UI/API entry points) with the state machine (bd-state-machine-extract)
+and the artifacts produced. Emits a model per workflow (e.g. enqueue-download,
+capture-session, promote-template) listing the API calls, the state changes, and
+the artifacts + rollback points. A high-level map for onboarding + change-impact.
+Reuses interface-contracts + state-machine-extract. Read-only, heuristic.
+
+Usage: bd-workflow-model [--work DIR] [--json] [--selftest]
+Exit 0 (informational -- reports/generates; does not render a pass/fail verdict and does not gate).
+"""
+import argparse, os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+
+import importlib.util, importlib.machinery
+def _load_tool(tool):
+    p=os.path.join(os.path.dirname(os.path.realpath(__file__)),tool)
+    modname=tool.replace("-","_")
+    spec=importlib.util.spec_from_loader(modname,importlib.machinery.SourceFileLoader(modname,p))
+    m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); return m
+
+_ic=_load_tool("bd-interface-contracts"); _sm=_load_tool("bd-state-machine-extract")
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+# workflow templates keyed by route-prefix signal
+WORKFLOWS=[
+ {"name":"enqueue-download","route_hint":"/api/download","states_from":"runner","artifacts":["download file","tracker row"],"rollback":"stop + dead-letter"},
+ {"name":"capture-session","route_hint":"/api/capture","states_from":"capture","artifacts":["WACZ","template candidate"],"rollback":"discard capture"},
+ {"name":"promote-template","route_hint":"/api/template","states_from":"template","artifacts":["reviewed template.json"],"rollback":"revert to draft"},
+ {"name":"schedule-run","route_hint":"/api/schedule","states_from":"schedule","artifacts":["scheduled job"],"rollback":"cancel schedule"},
+]
+
+def model(work):
+    contract=_ic.build(work)
+    routes=contract["route_contract"]
+    out=[]
+    for wf in WORKFLOWS:
+        apis=[r["path"] for r in routes if r.get("path","").startswith(wf["route_hint"])][:8]
+        sm=_sm.extract(work,wf["states_from"])
+        out.append({"workflow":wf["name"],"api_calls":apis,"states":sm["states"][:8],
+                    "transitions":[list(t) for t in sm["transitions"][:6]],
+                    "artifacts":wf["artifacts"],"rollback":wf["rollback"]})
+    return out
+
+def selftest():
+    ok=True
+    wfs=model(sec.DEFAULT_WORK)
+    print(("PASS" if len(wfs)==4 else "FAIL")+"  4 workflows modeled")
+    ok=ok and len(wfs)==4
+    dl=[w for w in wfs if w["workflow"]=="enqueue-download"][0]
+    print(("PASS" if "artifacts" in dl and "rollback" in dl else "FAIL")+"  workflow has artifacts + rollback")
+    ok=ok and "rollback" in dl
+    any_api=any(w["api_calls"] for w in wfs)
+    print(("PASS" if any_api else "WARN")+"  workflows correlated to API routes")
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    sec.require_source_tree(a.work)
+    wfs=model(a.work)
+    if sec.emit({"workflows":wfs},as_json=a.json): return 0
+    for w in wfs:
+        print("%s%s%s:"%(G,w["workflow"],RST))
+        print("  APIs: %s%s%s"%(DIM,", ".join(w["api_calls"][:4]) or "(none matched)",RST))
+        print("  states: %s | artifacts: %s | rollback: %s"%(", ".join(w["states"][:5]) or "-",", ".join(w["artifacts"]),w["rollback"]))
+    return 0
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head><title>Sign in — Example</title></head>
+<body>
+<header>
+  <h1>Example Service</h1>
+</header>
+<main>
+  <h2>Sign in to your account</h2>
+  <form action="/api/auth/login" method="post" id="login-form">
+    <label for="email">Email or username</label>
+    <input type="email" name="email" id="email" autocomplete="username" required>
+
+    <label for="password">Password</label>
+    <input type="password" name="password" id="password" autocomplete="current-password" required>
+
+    <label>
+      <input type="checkbox" name="remember" value="1"> Remember me
+    </label>
+
+    <button type="submit" name="submit" value="login">Sign in</button>
+  </form>
+  <p><a href="/account/forgot">Forgot your password?</a></p>
+</main>
+</body>
+</html>

@@ -1,0 +1,657 @@
+#!/usr/bin/env python3
+"""bd-tool-lint -- lint the whole bd-* toolchain against the KB footgun catalog.
+
+AUTO-DISCOVERS every bd-* tool + bdtools_*.py in the bin dir (you never name a
+tool). For each, checks the failure shapes that have actually bitten this project:
+
+  ERRORS (block packaging):
+    hijack          a tool imported by another (via _load_tool("X") or a
+                    SourceFileLoader for X) whose module-level sys.exit(main())
+                    is NOT guarded by `if __name__ == "__main__"` -> importing it
+                    runs its main() with the importer's argv (the rev-x bug).
+    no-selftest     no --selftest handling (toolchain convention).
+    non-ascii       non-ASCII bytes in source (the on-stash gate rejects these).
+    no-json         advertises analysis but has no --json (machine-readability).
+
+  WARNINGS (advisory):
+    unguarded-main  module-level sys.exit(main()) with no guard (future import risk).
+    ansi-in-json    runtime: `--json` output contains ANSI escapes (breaks parsers).
+    set-in-output   prints list(<set>) / iterates a set into output (nondeterminism).
+    pct-in-template code-generating template formatted with `%` (collides with %s).
+
+--gate exits non-zero if ANY error is found (for use as a packaging gate).
+Read-only. ASCII-only. Deterministic.
+
+Usage:
+    bd-tool-lint [--bin DIR] [--json] [--gate] [--warnings]
+    bd-tool-lint --selftest
+Exit 1 if errors (or, with --gate, errors present), else 0.
+"""
+import argparse
+import ast as _ast
+import glob
+import ast
+import os
+import re
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec   # noqa: E402  (ONE definition of corpus_profile)
+
+DEFAULT_BIN = "/home/claude/bin"
+# The release-gating mutators: they edit the tree and gate every release. The
+# 30-phase deep dive flagged these as the highest latent risk (all lack a
+# selftest). Tracked, not excused; the untested count is ratcheted.
+CRITICAL_CORE = [
+    "bd-cut", "bd-bump", "bd-handoff", "bd-pack", "bd-regen", "bd-guardcheck",
+    "bd-checkpoint", "bd-blast", "bd-suites", "bd-touched",
+]
+# Ratchet baseline: how many CRITICAL_CORE tools currently lack a selftest.
+# This number must only FALL. Backfill a selftest -> lower it here.
+CRITICAL_CORE_UNTESTED_BASELINE = 0  # 702: was 10. Every release-gating mutator now
+# has a --selftest delegating to its bd-coretest fault-injection case. The ratchet
+# now FLOORS at zero: a new untested gating tool cannot be added.
+G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+ANSI = re.compile(r"\033\[[0-9;]*m")
+
+# tools that require a positional/opt input -> skip the runtime ansi-in-json probe
+NEEDS_INPUT = {
+    "bd-url-classify", "bd-log-sanitize", "bd-scrub-proof", "bd-share-safe",
+    "bd-capture-risk", "bd-wacz-scrub", "bd-artifact-quarantine", "bd-calendar-check",
+    "bd-job-forensics", "bd-run-timeline", "bd-log-causality", "bd-archaeology",
+    "bd-lineage", "bd-plugin-permission-diff", "bd-plugin-diff", "bd-template-diff",
+    "bd-template-promote-check", "bd-rollback-oracle", "bd-frontier-lab",
+}
+
+
+def discover(bindir):
+    tools = []
+    for p in sorted(glob.glob(os.path.join(bindir, "bd-*")) +
+                    glob.glob(os.path.join(bindir, "bdtools_*.py"))):
+        if os.path.isfile(p):
+            tools.append(os.path.basename(p))
+    return tools
+
+
+def imported_set(bindir, tools):
+    """Names of tools imported by another tool (must carry the __main__ guard)."""
+    imported = set()
+    pat_load = re.compile(r'_load_tool\(\s*["\'](bd-[a-z0-9-]+)["\']')
+    pat_loader = re.compile(r'SourceFileLoader\([^)]*["\'](bd-[a-z0-9-]+)["\']')
+    pat_path = re.compile(r'os\.path\.join\([^)]*,\s*["\'](bd-[a-z0-9-]+)["\']\)')
+    for t in tools:
+        try:
+            src = open(os.path.join(bindir, t), errors="ignore").read()
+        except OSError:
+            continue
+        for rx in (pat_load, pat_loader):
+            imported.update(rx.findall(src))
+        # a tool that builds a path to another bd- tool and spec-loads it
+        if "spec_from_loader" in src or "SourceFileLoader" in src:
+            imported.update(pat_path.findall(src))
+    return imported
+
+
+def has_guard(src):
+    return re.search(r'if\s+__name__\s*==\s*["\']__main__["\']\s*:', src) is not None
+
+
+def module_level_exit_main(src):
+    # a sys.exit(main()) that is NOT indented (module scope)
+    return re.search(r'(?m)^sys\.exit\(main\(\)\)\s*$', src) is not None
+
+
+def code_template_with_pct(src):
+    # a triple-quoted block that defines code AND is later formatted with `%`
+    has_tmpl = bool(re.search(r'(TMPL|TEMPLATE|EMITTED|_tmpl)\s*=\s*[\'"]{3}', src))
+    fmt_pct = bool(re.search(r'(TMPL|TEMPLATE)\s*%\s|\)\s*%\s*(dict|\()', src))
+    return has_tmpl and fmt_pct
+
+
+def set_in_output(src):
+    # printing list(<name>) where name is likely a set, or f-string over a set literal
+    return bool(re.search(r'list\([a-z_]+\)\[:', src)) and "sorted(" not in src[:0] or \
+        bool(re.search(r'%\s*list\(\w+\)\[', src))
+
+
+def _never_exec():
+    """The mutators no checker may EXECUTE (I-7).
+
+    bd-tool-lint's runtime probe runs `bd -c "<tool> --json"` for every tool not
+    in NEEDS_INPUT -- but NEEDS_INPUT is an INPUT-NEEDS list, not a NEVER-EXEC
+    list, so a full `--gate` (without --no-runtime) would have executed bd-install,
+    bd-boot, bd-cut, bd-bump, bd-pack, bd-handoff ... 17 mutators in all.
+    `bd-install` does `rm -rf work/*` and takes the service venv with it: a linter
+    that destroys your session by linting is not a linter. bd-sweep already carries
+    the doctrine and the list; import it rather than keeping a second copy that can
+    drift (I-9).
+    """
+    try:
+        import importlib.machinery as _m, importlib.util as _u
+        p = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-sweep")
+        ldr = _m.SourceFileLoader("_bd_sweep", p)
+        mod = _u.module_from_spec(_u.spec_from_loader("_bd_sweep", ldr))
+        ldr.exec_module(mod)
+        return frozenset(mod.NEVER_EXEC)
+    except Exception as e:
+        # A checker that cannot load its own never-exec list must NOT fall back to
+        # "execute everything". Fail closed: refuse to run anything.
+        sys.stderr.write("bd-tool-lint: cannot load NEVER_EXEC from bd-sweep (%s); "
+                         "runtime probe disabled (fail-closed)\n" % e)
+        return None
+
+
+NEVER_EXEC = _never_exec()
+
+
+def runtime_ansi_in_json(tool, bindir):
+    """Run <tool> --json (best-effort) and check stdout for ANSI escapes."""
+    exe = os.path.join(bindir, tool)
+    try:
+        r = subprocess.run(["bd", "-c", tool + " --json"], capture_output=True,
+                           text=True, timeout=60)
+        out = r.stdout
+        if not out.strip():
+            return None  # produced nothing (needs input) -> inconclusive
+        return bool(ANSI.search(out))
+    except Exception:  # why: runtime probe could not run this tool; None = inconclusive, never a clean pass
+        return None
+
+
+# ---------------------------------------------------------------- corpus guard
+# F-1 (the class): a tool that takes a corpus arg and mints a verdict over it
+# must refuse when that corpus is absent/empty. iter_py() globs, and a glob over
+# a directory that is not there yields nothing -- so the tool scans 0 files,
+# finds 0 problems, and reports GREEN. A check whose search set structurally
+# excludes the thing being asked about reports clean TRUTHFULLY and is useless.
+#
+# Measured at 728: 102 analysis tools take a corpus arg; 100 of them minted a
+# green verdict over a tree that does not exist. That is not 100 bugs to hand-fix
+# and hope nobody re-adds -- it is one missing precondition, so it is enforced
+# HERE, at package time, not by diligence.
+#
+# Enforcement follows the CRITICAL_CORE precedent above: hard-failing 99 legacy
+# tools today would emit 99 unresolvable errors and the gate would just be turned
+# off. So the known set is a DECLARED, FROZEN BACKLOG (warning, counted, can only
+# shrink), while ANY TOOL NOT IN IT IS AN ERROR. You cannot add a new unguarded
+# corpus tool; you can only pay the old ones down.
+CORPUS_ARG_RE = re.compile(
+    r'add_argument\(\s*["\'](--tree|--work|--home|--scan|--corpus|--root|--src)["\']')
+# Guarded = calls the shared precondition, OR asks iter_py to guard for it, OR
+# declares an alternative mechanism explicitly (bd-worktree-check refuses via its
+# own status=error -> exit 2; the marker keeps the backlog honest rather than
+# listing a tool that does refuse).
+CORPUS_GUARD_RE = re.compile(r'require_corpus|strict\s*=\s*True|lint:\s*corpus-guard-ok')
+CORPUS_MARKER_RE = re.compile(r'#\s*lint:\s*corpus-guard-ok')
+
+# FROZEN AT 3.66.728. Shrink only. Re-freeze with --corpus-debt --update.
+CORPUS_UNGUARDED_BASELINE = frozenset([
+    # EMPTY -- the F-1 backlog is PAID. Nothing may join it: a NEW unguarded
+    # corpus tool is an ERROR, not a baseline entry.
+])
+
+
+CORPUS_FLAGS = ("--tree", "--work", "--home", "--scan", "--corpus", "--root", "--src")
+
+
+def _corpus_ast(src):
+    """AST, not grep. A regex over raw text matches these flag names inside a
+    tool's own STRING LITERALS -- which is how the first cut of this very check
+    reported bd-tool-lint as a corpus tool (its selftest fixtures contain the
+    text add_argument("--tree")). That is the string-grep-not-decorator shape,
+    committed by the checker written to catch exactly this class. Parse it.
+
+    Returns (declares, guarded, parsed). parsed=False means we COULD NOT SEE --
+    the caller must say so rather than report a clean result over a failed probe.
+    """
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return (False, False, False)
+    declares = guarded = False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fname = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+        if fname == "add_argument":
+            for arg in node.args:
+                if isinstance(arg, ast.Constant) and arg.value in CORPUS_FLAGS:
+                    declares = True
+        if fname == "require_corpus":
+            guarded = True
+        for kw in node.keywords:
+            if (kw.arg == "strict" and isinstance(kw.value, ast.Constant)
+                    and kw.value.value is True):
+                guarded = True
+    return (declares, guarded, True)
+
+
+BROAD_EXCEPT = re.compile(r'^\s*except\s*(Exception|BaseException)?\s*:', re.M)
+JUSTIFIED = re.compile(r'#\s*(why|ok|intentional|benign|expected)\b', re.I)
+
+
+def blind_excepts(src):
+    """D-30: broad excepts that swallow a failure with no stated reason.
+
+    Criterion is SILENCE-BY-USE, decided on the AST: a broad handler (bare /
+    Exception / BaseException) is blind only if it neither (a) carries a
+    reason comment (# why: / # ok / ...), (b) re-raises or exits, (c)
+    references the bound exception in its body (surfacing it in a return /
+    message / SKIP reason), nor (d) logs/prints/writes anything. Breadth is
+    not the defect; SILENCE is -- and a handler that returns `SKIP, str(e)`
+    is not silent, while `except Exception as e: return None` binds e and
+    still is (the earlier regex criterion excluded by BINDING, which credited
+    discarded bindings and over/under-counted both ways). Falls back to the
+    regex criterion on unparseable source AND SAYS SO in the result (the
+    corpus_profile precedent: a checker that cannot see must not report a
+    clean probe).
+
+    Historical counts, same tree: grep-era claim 347 (locator wrong, bare
+    except: is ONE), first AST census 303 (counted surfacing handlers), this
+    criterion 64 at introduction.
+    """
+    lines = src.splitlines()
+    try:
+        tree = _ast.parse(src)
+    except SyntaxError:
+        # fall back to the old regex criterion, marked so the caller can say so
+        out = []
+        for m in BROAD_EXCEPT.finditer(src):
+            ln = src[:m.start()].count("\n")
+            window = "\n".join(lines[ln:ln + 3])
+            if JUSTIFIED.search(window) or "raise" in window or "sys.exit" in window:
+                continue
+            out.append(ln + 1)
+        return out
+    out = []
+    for node in _ast.walk(tree):
+        if not isinstance(node, _ast.ExceptHandler):
+            continue
+        ty = node.type
+        if not (ty is None or (isinstance(ty, _ast.Name)
+                               and ty.id in ("Exception", "BaseException"))):
+            continue
+        ln = node.lineno - 1
+        # a reason may sit on the except line, or on the line directly above it
+        # (the natural place for an inline `except X: continue` handler)
+        if JUSTIFIED.search(lines[ln]) or (ln > 0 and JUSTIFIED.search(lines[ln - 1])):
+            continue
+        end = getattr(node.body[-1], "end_lineno", node.body[-1].lineno)
+        body_src = "\n".join(lines[node.body[0].lineno - 1:end])
+        def _has(pred):
+            return any(pred(x) for b in node.body for x in _ast.walk(b))
+        if _has(lambda n: isinstance(n, _ast.Raise)):
+            continue
+        if "sys.exit" in body_src or "os._exit" in body_src:
+            continue
+        if node.name and re.search(r"\b%s\b" % re.escape(node.name), body_src):
+            continue  # surfaces the exception (return/message/reason)
+        if _has(lambda n: isinstance(n, _ast.Call) and (
+                (isinstance(n.func, _ast.Name) and n.func.id == "print") or
+                (isinstance(n.func, _ast.Attribute) and n.func.attr in
+                 ("write", "warning", "error", "info", "debug", "exception")))):
+            continue  # logs something
+        out.append(node.lineno)
+    return out
+
+
+def declares_corpus_arg(src):
+    """Delegates to bdtools_sec.corpus_profile -- ONE definition, suite-wide."""
+    return sec.corpus_profile(src)[0]
+
+
+def has_corpus_guard(src):
+    return sec.corpus_profile(src)[1]
+
+
+def lint_tool(tool, bindir, imported, do_runtime):
+    path = os.path.join(bindir, tool)
+    raw = open(path, "rb").read()
+    try:
+        src = raw.decode("ascii")
+        non_ascii = False
+    except UnicodeDecodeError:
+        src = raw.decode("utf-8", "replace")
+        non_ascii = True
+    errors, warnings = [], []
+    is_lib = tool.startswith("bdtools_")
+    # a tool "opts into" the analysis convention if it builds on the shared libs.
+    # Legacy operational/workflow tools (bd-boot, bd-cut, bd-bump, ...) don't and
+    # are a different class -- selftest/json don't apply to them.
+    is_analysis = ("bdtools_sec" in src or "bdtools_taint" in src) and not is_lib
+
+    # --- ERRORS (all tools) ---
+    if tool in imported and not has_guard(src):
+        errors.append("hijack: imported by another tool but no `if __name__==__main__` guard")
+    if non_ascii:
+        if is_analysis or is_lib:
+            errors.append("non-ascii: source has non-ASCII bytes (analysis tools must be ASCII)")
+        else:
+            warnings.append("non-ascii: source has non-ASCII bytes (ok for terminal output)")
+
+    # --- CRITICAL CORE (the release-gating mutators) ---
+    # These EDIT the tree and GATE every release, yet none has a selftest. The
+    # deep dive named this the highest latent risk in the suite. Silently
+    # excusing them (the old behavior) hid it; hard-failing them would emit 10
+    # unresolvable errors. So: track them as a DECLARED BACKLOG with a RATCHET --
+    # visible, counted, and the count can only fall (see --ratchet).
+    if tool in CRITICAL_CORE and "--selftest" not in src:
+        warnings.append("critical-core-no-selftest: release-gating mutator with no "
+                        "selftest (tracked; see --ratchet)")
+
+    # --- ERRORS (analysis tools only -- the selftest/json convention) ---
+    if is_analysis and "--selftest" not in src:
+        errors.append("no-selftest: missing --selftest handling")
+    # Tier-2 (702): the SELFTEST OUTPUT CONTRACT. A harness (bd-coretest, a repack
+    # gate, a CI sweep) must be able to tell PASS from FAIL without regex-guessing
+    # each tool's prose -- which is exactly what had to be done when sweeping the
+    # suite. Every tool that HAS a --selftest must emit a parseable terminal verdict.
+    # A verdict is PASS, FAIL, or an explicit "SKIP:" (a recognized third state --
+    # a tool that needs live infra prints "SKIP: needs <X>" and that is honest, not
+    # a missing verdict; a skip is counted apart from pass by the sweep).
+    _has_verdict = ("SELFTEST PASS" in src and "SELFTEST FAIL" in src) or \
+                   ('"SKIP:' in src or "'SKIP:" in src)
+    if "--selftest" in src and not _has_verdict:
+        errors.append("selftest-contract: --selftest must print a final "
+                      "'SELFTEST PASS'/'SELFTEST FAIL' or an explicit 'SKIP:' line "
+                      "(machine-readable verdict)")
+    if is_analysis and "--json" not in src and "sys.stdout" not in src:
+        errors.append("no-json: no --json / machine-readable output")
+    # --- corpus-arg-unguarded (F-1): new = ERROR, legacy = tracked backlog ---
+    if is_analysis and declares_corpus_arg(src) and not has_corpus_guard(src):
+        if tool in CORPUS_UNGUARDED_BASELINE:
+            warnings.append("corpus-arg-unguarded: takes a corpus arg but never "
+                            "calls require_corpus() -- mints a verdict over an "
+                            "absent/empty tree (tracked backlog; see --corpus-debt)")
+        else:
+            errors.append("corpus-arg-unguarded: takes a corpus arg (--tree/--work/"
+                          "--home/--scan/--corpus) but never calls require_corpus() "
+                          "-- it would report GREEN over a tree that does not exist. "
+                          "Guard it with sec.require_corpus() / iter_py(strict=True), "
+                          "or declare an alternative with '# lint: corpus-guard-ok -- <why>'")
+
+    # --- WARNINGS ---
+    if module_level_exit_main(src) and not has_guard(src):
+        warnings.append("unguarded-main: module-level sys.exit(main()) not guarded")
+    if code_template_with_pct(src):
+        warnings.append("pct-in-template: code template formatted with % (use .replace)")
+    if re.search(r'%\s*list\(\w+\)\[', src):
+        warnings.append("set-in-output: list(<set>) sliced into output (nondeterministic)")
+    blind = blind_excepts(src)
+    if blind:
+        warnings.append("blind-except: %d broad except(s) swallow a failure with no "
+                        "stated reason (lines %s%s) -- a crashed dependency becomes a "
+                        "clean verdict; add '# why: ...' or re-raise"
+                        % (len(blind), ",".join(str(x) for x in blind[:5]),
+                           ", ..." if len(blind) > 5 else ""))
+    if (do_runtime and tool not in NEEDS_INPUT and not is_lib
+            and NEVER_EXEC is not None and tool not in NEVER_EXEC):
+        a = runtime_ansi_in_json(tool, bindir)
+        if a is True:
+            warnings.append("ansi-in-json: --json output contains ANSI escapes")
+
+    return {"tool": tool, "errors": errors, "warnings": warnings}
+
+
+def run(bindir, do_runtime):
+    tools = discover(bindir)
+    imported = imported_set(bindir, tools)
+    results = [lint_tool(t, bindir, imported, do_runtime) for t in tools]
+    analysis = [t for t in tools if _is_analysis(bindir, t)]
+    tset = set(tools)
+    cc_present = [t for t in CRITICAL_CORE if t in tset]
+    cc_untested = [t for t in cc_present
+                   if "--selftest" not in open(os.path.join(bindir, t),
+                                               errors="ignore").read()]
+    # corpus-guard accounting: the debt must be VISIBLE and can only shrink.
+    corpus_unguarded, corpus_guarded = [], []
+    for t in analysis:
+        csrc = open(os.path.join(bindir, t), errors="ignore").read()
+        if not declares_corpus_arg(csrc):
+            continue
+        (corpus_guarded if has_corpus_guard(csrc) else corpus_unguarded).append(t)
+    corpus_new = sorted(set(corpus_unguarded) - CORPUS_UNGUARDED_BASELINE)
+    corpus_fixed = sorted(CORPUS_UNGUARDED_BASELINE - set(corpus_unguarded)
+                          - (set(tools) ^ set(tools)))
+    corpus_fixed = [t for t in corpus_fixed if t in set(tools)]
+    return {"bin": bindir, "tools": len(tools), "analysis_tools": len(analysis),
+            "imported_tools": sorted(imported),
+            "results": results,
+            "corpus_debt": {
+                "with_corpus_arg": len(corpus_guarded) + len(corpus_unguarded),
+                "guarded": sorted(corpus_guarded),
+                "guarded_count": len(corpus_guarded),
+                "unguarded_count": len(corpus_unguarded),
+                "baseline": len(CORPUS_UNGUARDED_BASELINE),
+                "new": corpus_new,
+                "fixed_since_baseline": corpus_fixed,
+                "regressed": bool(corpus_new)},
+            "error_count": sum(len(r["errors"]) for r in results),
+            "warning_count": sum(len(r["warnings"]) for r in results),
+            "critical_core": {"present": len(cc_present),
+                              "untested": sorted(cc_untested),
+                              "untested_count": len(cc_untested),
+                              "baseline": CRITICAL_CORE_UNTESTED_BASELINE,
+                              "regressed": len(cc_untested) > CRITICAL_CORE_UNTESTED_BASELINE},
+            "clean": all(not r["errors"] for r in results)}
+
+
+def _is_analysis(bindir, tool):
+    if tool.startswith("bdtools_"):
+        return False
+    try:
+        s = open(os.path.join(bindir, tool), errors="ignore").read()
+    except OSError:
+        return False
+    return "bdtools_sec" in s or "bdtools_taint" in s
+
+
+def selftest():
+    ok = True
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        # tool B imports A via _load_tool; A lacks a guard -> must be caught
+        open(os.path.join(d, "bd-a"), "w").write(
+            "import sys\ndef main():\n    print('a'); return 0\n"
+            "def selftest():\n    return 0\n"
+            "# --json\nsys.exit(main())\n")
+        open(os.path.join(d, "bd-b"), "w").write(
+            "import sys\n_x=_load_tool('bd-a')\ndef main():\n    return 0\n"
+            "def selftest():\n    print('SELFTEST PASS' if 1 else 'SELFTEST FAIL')\n"
+            "    return 0\n# --json --selftest\n"
+            'if __name__ == "__main__":\n    sys.exit(main())\n')
+        # a clean guarded tool
+        open(os.path.join(d, "bd-c"), "w").write(
+            "import sys\ndef main():\n    print('c'); return 0\n"
+            "def selftest():\n    print('SELFTEST PASS' if 1 else 'SELFTEST FAIL')\n"
+            "    return 0\n# --json --selftest\n"
+            'if __name__ == "__main__":\n    sys.exit(main())\n')
+        res = run(d, do_runtime=False)
+    by = {r["tool"]: r for r in res["results"]}
+    hijack = any("hijack" in e for e in by["bd-a"]["errors"])
+    print(("PASS" if hijack else "FAIL") + "  hijack detected (bd-a imported by bd-b, no guard)")
+    ok &= hijack
+    guarded_clean = not any("hijack" in e for e in by["bd-c"]["errors"])
+    print(("PASS" if guarded_clean else "FAIL") + "  guarded tool not flagged for hijack")
+    ok &= guarded_clean
+    b_ok = not by["bd-b"]["errors"]  # bd-b is guarded + has selftest/json markers
+    print(("PASS" if b_ok else "FAIL") + "  importing tool (guarded) clean (%s)" % by["bd-b"]["errors"])
+    ok &= b_ok
+    # non-ascii detection
+    with tempfile.TemporaryDirectory() as d:
+        open(os.path.join(d, "bd-u"), "wb").write(
+            "import sys, bdtools_sec\ndef main():return 0\ndef selftest():return 0\n# --json\n".encode() +
+            "x='\u2013'\n".encode("utf-8") +
+            'if __name__=="__main__":\n sys.exit(main())\n'.encode())
+        r2 = run(d, do_runtime=False)
+    na = any("non-ascii" in e for e in r2["results"][0]["errors"])
+    print(("PASS" if na else "FAIL") + "  non-ASCII source flagged")
+    ok &= na
+    # the REAL toolchain must now be hijack-clean (proves the rev-x fix is complete)
+    real = run(DEFAULT_BIN, do_runtime=False)
+    hijacks = [r["tool"] for r in real["results"] if any("hijack" in e for e in r["errors"])]
+    print(("PASS" if not hijacks else "FAIL") +
+          "  LIVE toolchain has 0 hijack errors (%d tools scanned)%s" %
+          (real["tools"], "" if not hijacks else " -> " + str(hijacks)))
+    ok &= not hijacks
+    ok &= _selftest_corpus_guard()
+    # blind-except is SILENCE-BY-USE, not breadth: a handler that surfaces the
+    # exception (returns/logs it) must NOT be flagged; a silent one must be.
+    _surf = "def f():\n    try: x=1\n    except Exception as e: return None, str(e)\n"
+    _sil = "def f():\n    try: x=1\n    except Exception: return None\n"
+    be_ok = (blind_excepts(_surf) == [] and len(blind_excepts(_sil)) == 1)
+    print(("PASS" if be_ok else "FAIL") +
+          "  blind-except: surfacing handler not flagged, silent one flagged")
+    ok &= be_ok
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def _selftest_corpus_guard():
+    """The F-1 enforcement check: a NEW tool that mints a verdict over a corpus
+    it never validated must be an ERROR at package time. POS: the guarded forms
+    (require_corpus, iter_py(strict=True), and an explicitly declared alternative)
+    are all accepted. NEG: an unguarded tool NOT in the frozen backlog errors.
+    """
+    import tempfile
+    ok = True
+    head = "import sys, bdtools_sec\n# --json --selftest\n"
+    tail = ("def selftest():\n    print('SELFTEST PASS')\n    return 0\n"
+            'if __name__ == "__main__":\n    sys.exit(main())\n')
+    with tempfile.TemporaryDirectory() as d:
+        open(os.path.join(d, "bd-unguarded"), "w").write(
+            head + 'def main():\n    ap.add_argument("--tree", default=".")\n'
+            "    return 0\n" + tail)
+        open(os.path.join(d, "bd-guarded"), "w").write(
+            head + 'def main():\n    ap.add_argument("--tree", default=".")\n'
+            "    bdtools_sec.require_corpus(a.tree)\n    return 0\n" + tail)
+        open(os.path.join(d, "bd-strict"), "w").write(
+            head + 'def main():\n    ap.add_argument("--work", default=".")\n'
+            "    bdtools_sec.iter_py(a.work, strict=True)\n    return 0\n" + tail)
+        open(os.path.join(d, "bd-declared"), "w").write(
+            head + "# lint: corpus-guard-ok -- refuses via its own status=error -> 2\n"
+            'def main():\n    ap.add_argument("--tree", default=".")\n'
+            "    return 0\n" + tail)
+        res = run(d, do_runtime=False)
+    by = {r["tool"]: r for r in res["results"]}
+
+    def has_cau(t):
+        return any("corpus-arg-unguarded" in e for e in by[t]["errors"])
+
+    neg = has_cau("bd-unguarded")
+    print(("PASS" if neg else "FAIL") +
+          "  NEG new unguarded corpus tool is an ERROR (blocks packaging)")
+    ok &= neg
+    for t in ("bd-guarded", "bd-strict", "bd-declared"):
+        good = not has_cau(t)
+        print(("PASS" if good else "FAIL") + "  POS %s accepted as guarded" % t)
+        ok &= good
+    dbt = res["corpus_debt"]
+    acct = dbt["new"] == ["bd-unguarded"] and dbt["with_corpus_arg"] == 4
+    print(("PASS" if acct else "FAIL") +
+          "  corpus-debt accounting: with_corpus_arg=%d new=%s"
+          % (dbt["with_corpus_arg"], dbt["new"]))
+    ok &= acct
+    return ok
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--bin", default=DEFAULT_BIN)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--gate", action="store_true")
+    ap.add_argument("--warnings", action="store_true")
+    ap.add_argument("--no-runtime", action="store_true")
+    ap.add_argument("--ratchet", action="store_true",
+                    help="fail if the untested critical-core count rose above baseline")
+    ap.add_argument("--corpus-debt", action="store_true",
+                    help="report the corpus-arg-unguarded backlog (F-1) and exit")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    res = run(a.bin, do_runtime=not a.no_runtime)
+    cc = res["critical_core"]
+    cd = res["corpus_debt"]
+    if a.corpus_debt:
+        print("corpus-arg-unguarded backlog (F-1) -- frozen baseline %d, now %d"
+              % (cd["baseline"], cd["unguarded_count"]))
+        print("  analysis tools taking a corpus arg : %d" % cd["with_corpus_arg"])
+        print("  guarded                            : %d  (%s)"
+              % (cd["guarded_count"], ", ".join(cd["guarded"]) or "-"))
+        print("  unguarded (tracked debt)           : %d" % cd["unguarded_count"])
+        if cd["fixed_since_baseline"]:
+            print("  %sfixed since baseline (re-freeze!)  : %d  (%s)%s"
+                  % (G, len(cd["fixed_since_baseline"]),
+                     ", ".join(cd["fixed_since_baseline"]), RST))
+        if cd["new"]:
+            print("  %sNEW (unbaselined -- these ERROR)   : %s%s"
+                  % (R, ", ".join(cd["new"]), RST))
+        return 1 if cd["new"] else 0
+    if a.json:
+        import json
+        json.dump(res, sys.stdout, indent=1, sort_keys=True)
+        sys.stdout.write("\n")
+        blocked = (a.gate and not res["clean"]) or (a.ratchet and cc["regressed"])
+        return 1 if blocked else 0
+    print("linted %d tools (%d analysis + %d operational/legacy): %s%d error(s)%s, %s%d warning(s)%s" %
+          (res["tools"], res["analysis_tools"], res["tools"] - res["analysis_tools"],
+           R if res["error_count"] else G, res["error_count"], RST,
+           Y if res["warning_count"] else G, res["warning_count"], RST))
+    # critical-core ratchet line -- always shown, so the backlog is visible
+    col = R if cc["regressed"] else (Y if cc["untested_count"] else G)
+    print("critical-core (release-gating mutators): %s%d/%d untested%s (baseline %d)" %
+          (col, cc["untested_count"], cc["present"], RST, cc["baseline"]))
+    if cc["untested_count"] and a.warnings:
+        print("  %suntested: %s%s" % (DIM, ", ".join(cc["untested"]), RST))
+    # corpus-guard ratchet line -- the F-1 backlog, always visible, shrink-only
+    ccol = R if cd["regressed"] else (Y if cd["unguarded_count"] else G)
+    print("corpus-guard (F-1): %s%d/%d corpus-arg tools UNGUARDED%s (baseline %d%s)" %
+          (ccol, cd["unguarded_count"], cd["with_corpus_arg"], RST, cd["baseline"],
+           "; %d fixed" % len(cd["fixed_since_baseline"])
+           if cd["fixed_since_baseline"] else ""))
+    for r in res["results"]:
+        if not r["errors"] and not (a.warnings and r["warnings"]):
+            continue
+        for e in r["errors"]:
+            print("  %sERROR%s %s: %s" % (R, RST, r["tool"], e))
+        if a.warnings:
+            for w in r["warnings"]:
+                print("  %swarn %s %s: %s" % (Y, RST, r["tool"], w))
+    if cc["regressed"]:
+        print("%sRATCHET REGRESSION: %d untested critical-core tools > baseline %d "
+              "-- a release-gating mutator lost its selftest.%s" %
+              (R, cc["untested_count"], cc["baseline"], RST))
+    # 702: WHEN-coverage. A tool that no other tool calls and that no doc places in
+    # a session is a dead-end -- 88 of them existed. Every tool must carry a
+    # category (== a session trigger) in bd-tools; this enforces it so a NEW tool
+    # cannot ship without a "when". Delegates to bd-tools --check (the authority),
+    # never re-derives the category map.
+    when_bad = False
+    _bt = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-tools")
+    if os.path.isfile(_bt):
+        _cp = subprocess.run([sys.executable, _bt, "--check", "--bin", a.bin],
+                             capture_output=True, text=True, timeout=900)
+        when_bad = (_cp.returncode == 3)
+        _last = [l for l in _cp.stdout.splitlines() if l.strip()]
+        print("when-coverage (every tool has a session trigger): %s%s%s" %
+              (R if when_bad else G, _last[-1] if _last else "?", RST))
+        if when_bad:
+            for l in _cp.stdout.splitlines():
+                if "NO 'WHEN'" in l or "STALE" in l:
+                    print("  %s%s%s" % (R, l, RST))
+    if res["clean"] and not cc["regressed"] and not when_bad:
+        print("%sno errors -- toolchain clean%s" % (G, RST))
+    blocked = ((not res["clean"]) or (a.gate and not res["clean"])
+               or (a.ratchet and cc["regressed"]) or (a.gate and when_bad))
+    # Tier-1 (702): the A1 exit-code convention, finally adopted.
+    #   0 = ok | 2 = the TOOL broke | 3 = POLICY blocked (a gate said no)
+    # These three were previously 1 / 3 / 3 across bd-tool-lint / bd-precut /
+    # bd-tools for the SAME KIND of verdict, so a wrapper could not tell "the
+    # checker crashed" from "the checker says no". A lint failure is a POLICY block.
+    return 3 if blocked else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""bd-decision-memory -- bind decisions to code.
+
+Scans the DECISION docs (files matching *DECISION*.md / *_DECISION.md) and maps
+each to the code artifacts it references (module paths, route paths, guard files,
+test files mentioned in the doc). Reports decisions whose referenced code no
+longer exists (a decision about deleted code) and code-less decisions. The
+"which decision governs this file" index. Read-only.
+
+Usage: bd-decision-memory [--docs DIR] [--work DIR] [--json] [--selftest]
+Exit 0 (informational -- reports/generates; does not render a pass/fail verdict and does not gate).
+"""
+import argparse, glob, os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+CODEREF=re.compile(r'`?((?:bulk_downloader|tools|tests)/[a-zA-Z0-9_/]+\.py)`?|(/api/[a-z0-9_/]+)')
+
+def scan(docs, work):
+    rows=[]
+    for f in glob.glob(os.path.join(docs,"*DECISION*.md"))+glob.glob(os.path.join(docs,"*_DECISION*.md")):
+        name=os.path.basename(f); txt=open(f,errors="ignore").read()
+        refs=set(); dangling=[]
+        for m in CODEREF.finditer(txt):
+            r=m.group(1) or m.group(2)
+            if not r: continue
+            refs.add(r)
+            if r.endswith(".py") and not os.path.exists(os.path.join(work,r)):
+                dangling.append(r)
+        rows.append({"decision":name,"code_refs":sorted(refs)[:10],"ref_count":len(refs),"dangling":dangling})
+    return rows
+
+def selftest():
+    ok=True
+    rows=scan("/mnt/project",sec.DEFAULT_WORK)
+    print(("PASS" if len(rows)>0 else "WARN")+"  decision docs found (%d)"%len(rows))
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        open(os.path.join(d,"X_DECISION.md"),"w").write("We chose `bulk_downloader/gone.py` and route /api/things.\n")
+        s=scan(d,sec.DEFAULT_WORK)
+    good=s and "bulk_downloader/gone.py" in s[0]["dangling"]
+    print(("PASS" if good else "FAIL")+"  dangling code ref in a decision flagged")
+    ok=ok and good
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--docs",default="/mnt/project"); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    sec.require_source_tree(a.work)
+    rows=scan(a.docs,a.work)
+    if sec.emit({"decisions":rows,"summary":{"count":len(rows),"with_dangling":sum(1 for r in rows if r["dangling"])}},as_json=a.json): return 0
+    print("%d decision doc(s) bound to code:"%len(rows))
+    for r in rows[:40]:
+        print("  %s%s%s -> %d refs%s"%(G,r["decision"],RST,r["ref_count"],(" %s%d dangling%s"%(R,len(r["dangling"]),RST)) if r["dangling"] else ""))
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

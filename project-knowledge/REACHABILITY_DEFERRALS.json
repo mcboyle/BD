@@ -1,0 +1,41 @@
+{
+ "deferrals": {
+  "F-CAP01-01": {
+   "finding": "F-CAP01-01",
+   "from_batch": "CAP-01",
+   "severity": "medium",
+   "category": "ssrf",
+   "confidence": "confirmed-at-boundary",
+   "resolved_by_subsys": [
+    "APP"
+   ],
+   "note": "Reachability + true severity depend on the APP-layer route that calls watch(): (a) is it behind the operator auth gate, and (b) are site_override/room_override exposed to that caller? That wiring is i",
+   "status": "open"
+  },
+  "F-RUN01-02": {
+   "finding": "F-RUN01-02",
+   "from_batch": "RUN-01",
+   "severity": "high",
+   "category": "injection",
+   "confidence": "confirmed-defect / probable-reachability",
+   "resolved_by_subsys": [
+    "APP",
+    "CORE_BD"
+   ],
+   "note": "Two gates: (1) config['use_ytdlp_fallback'] must be on (opt-in, default False, per-site); (2) the job URL must be able to begin with '-'. Some enqueue paths validate startswith('http') (app.py:1881, :",
+   "status": "open"
+  },
+  "F-RUN01-03": {
+   "finding": "F-RUN01-03",
+   "from_batch": "RUN-01",
+   "severity": "low",
+   "category": "type_none",
+   "confidence": "probable",
+   "resolved_by_subsys": [
+    "SETTINGS"
+   ],
+   "note": "Operator-config fields; may be validated upstream by the I0004 site_editor/settings-center validator - whether THESE two fields flow through that validator (vs global_config direct load) is owned by t",
+   "status": "open"
+  }
+ }
+}

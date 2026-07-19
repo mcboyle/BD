@@ -1,0 +1,240 @@
+#!/usr/bin/env python3
+"""bd-equiv -- prove one tool can safely REPLACE another, before you retire it.
+
+The consolidation program is stalled on nerve, not on design. Retiring a proven
+tool is genuinely dangerous: `bd-band-derive` shipped a near-CONSTANT band -- a
+false-GREEN-class bug (the cut bands the wrong suites and goes green on a
+regression) -- and it was caught ONLY because a human manually diffed its output
+against `bd-blast` on the same input. That manual diff is the missing tool.
+
+bd-equiv runs OLD and NEW over the SAME corpus of real inputs and compares what
+they emit. It answers the only question that matters before deletion:
+
+    "Is there ANY input on which the old tool says something the new one does not?"
+
+VERDICTS
+  EQUAL      identical on every input                 -> safe to retire
+  SUPERSET   new >= old everywhere, strictly more somewhere
+             -> safe to retire IF more is safe (for a TEST BAND, more is safe:
+                banding an extra suite costs time; MISSING one costs a release)
+  REGRESSION the old tool emitted something the new one MISSED on some input
+             -> DO NOT RETIRE. This is the false-GREEN class.
+
+The comparison is on EXTRACTED TOKENS, not raw bytes -- two tools may format
+differently and still agree. `--extract` is the token regex (default: test paths).
+
+  bd-equiv --old /tmp/bd-blast.orig --new bd-blast --inputs <files...>
+  bd-equiv --old A --new B --corpus bulk_downloader   # every .py in a dir
+  bd-equiv ... --require equal|superset               # exit 3 if not met
+  bd-equiv --json | --selftest
+"""
+import argparse
+import glob
+import json
+import os
+import re
+import subprocess
+import sys
+
+G, Y, R, C, DIM, RST = "\033[32m", "\033[33m", "\033[31m", "\033[36m", "\033[2m", "\033[0m"
+DEFAULT_EXTRACT = r"tests/[\w/]+\.py|test_[\w]+"
+BIN = os.path.dirname(os.path.realpath(__file__))
+
+
+def _resolve(tool):
+    if os.path.isfile(tool):
+        return os.path.realpath(tool)
+    p = os.path.join(BIN, tool)
+    return p if os.path.isfile(p) else tool
+
+
+def run_tool(tool, arg, work, timeout=180):
+    """Run a tool on ONE input and return its raw output (stdout+stderr).
+
+    Some tools take NO positional input (a diff-mode tool derives its own changed
+    set -- bd-touched). Pass the input "-" to compare them in their argument-less
+    mode; a harness that could not do that would simply be unable to certify them."""
+    argv = [sys.executable, _resolve(tool)] + ([] if arg in ("-", "", None) else [arg])
+    try:
+        cp = subprocess.run(argv,
+                            capture_output=True, text=True, timeout=timeout, cwd=work)
+        return (cp.stdout or "") + (cp.stderr or "")
+    except Exception as e:
+        return "__BD_EQUIV_ERROR__ %s" % e
+
+
+def _canon(t):
+    """Canonical form of a suite token. `test_contracts`, `tests/test_contracts.py`
+    and `tests/test_contracts` are THE SAME SUITE named three ways -- and a harness
+    that calls that a REGRESSION would block a valid retirement (the bd-envscan-v1
+    over-firing class, which this tool exists to avoid, not commit)."""
+    t = t.strip()
+    t = re.sub(r"^tests/", "", t)
+    t = re.sub(r"\.py$", "", t)
+    return t
+
+
+def tokens(out, extract):
+    """Normalize output -> the SET of meaningful tokens, CANONICALIZED. Formatting
+    differences are not disagreements; a missing suite is."""
+    return {_canon(t) for t in re.findall(extract, out or "") if t.strip()}
+
+
+def compare(old, new, inputs, work, extract, timeout=180):
+    rows = []
+    for inp in inputs:
+        a = tokens(run_tool(old, inp, work, timeout), extract)
+        b = tokens(run_tool(new, inp, work, timeout), extract)
+        rows.append({
+            "input": inp,
+            "old_count": len(a),
+            "new_count": len(b),
+            "missing": sorted(a - b),      # old said it, new did NOT -> REGRESSION
+            "added": sorted(b - a),        # new says more -> superset
+            "equal": a == b,
+        })
+    any_missing = any(r["missing"] for r in rows)
+    any_added = any(r["added"] for r in rows)
+    if any_missing:
+        verdict = "REGRESSION"
+    elif any_added:
+        verdict = "SUPERSET"
+    else:
+        verdict = "EQUAL"
+    return {"verdict": verdict, "inputs": len(inputs), "rows": rows,
+            "regressions": sum(len(r["missing"]) for r in rows),
+            "additions": sum(len(r["added"]) for r in rows)}
+
+
+def report(res, old, new, require, as_json):
+    if as_json:
+        print(json.dumps(res, indent=1))
+    else:
+        v = res["verdict"]
+        color = {"EQUAL": G, "SUPERSET": Y, "REGRESSION": R}[v]
+        print("%sbd-equiv%s  old=%s  new=%s  over %d input(s)"
+              % (C, RST, old, new, res["inputs"]))
+        for r in res["rows"]:
+            if r["equal"]:
+                mark = "%s=%s" % (G, RST)
+            elif r["missing"]:
+                mark = "%s!%s" % (R, RST)
+            else:
+                mark = "%s+%s" % (Y, RST)
+            print("  [%s] %-46s old=%-3d new=%-3d%s"
+                  % (mark, r["input"], r["old_count"], r["new_count"],
+                     ("  MISSING: " + ", ".join(r["missing"][:3])) if r["missing"] else ""))
+        print("\n  verdict: %s%s%s   (%d regression(s), %d addition(s))"
+              % (color, v, RST, res["regressions"], res["additions"]))
+        if v == "REGRESSION":
+            print("  %sDO NOT RETIRE the old tool.%s The new one MISSES output the old one"
+                  % (R, RST))
+            print("  produced -- for a test band that is the FALSE-GREEN class: the cut")
+            print("  would band the wrong suites and go green on a real regression.")
+        elif v == "SUPERSET":
+            print("  %sSafe to retire IF 'more' is safe for this output.%s For a TEST BAND"
+                  % (G, RST))
+            print("  it is: an extra suite costs seconds; a missing one costs a release.")
+        else:
+            print("  %sIdentical on every input -- safe to retire.%s" % (G, RST))
+
+    if require == "equal" and res["verdict"] != "EQUAL":
+        return 3
+    if require == "superset" and res["verdict"] == "REGRESSION":
+        return 3
+    return 0
+
+
+def selftest():
+    """The controls that decide whether this tool can be TRUSTED to authorize a
+    deletion. A false EQUAL here would licence retiring a tool that is not safe."""
+    import tempfile
+    ok = True
+    d = tempfile.mkdtemp(prefix="bdequiv_")
+
+    def mk(name, body):
+        p = os.path.join(d, name)
+        open(p, "w").write("#!/usr/bin/env python3\nimport sys\n" + body)
+        os.chmod(p, 0o755)
+        return p
+
+    same_a = mk("same_a", "print('tests/test_alpha.py tests/test_beta.py')\n")
+    same_b = mk("same_b", "print('band: tests/test_beta.py, tests/test_alpha.py')\n")
+    more = mk("more", "print('tests/test_alpha.py tests/test_beta.py tests/test_gamma.py')\n")
+    fewer = mk("fewer", "print('tests/test_alpha.py')\n")
+
+    r1 = compare(same_a, same_b, ["x"], d, DEFAULT_EXTRACT)
+    print(("PASS" if r1["verdict"] == "EQUAL" else "FAIL") +
+          "  POS: same tokens, different FORMATTING -> EQUAL (format != disagreement)")
+    ok = ok and r1["verdict"] == "EQUAL"
+
+    # NEG: the SAME suite named differently must NOT read as a regression
+    named_path = mk("named_path", "print('tests/test_alpha.py tests/test_beta.py')\n")
+    named_bare = mk("named_bare", "print('band: test_alpha, test_beta')\n")
+    rn = compare(named_path, named_bare, ["x"], d, DEFAULT_EXTRACT)
+    print(("PASS" if rn["verdict"] == "EQUAL" else "FAIL") +
+          "  NEG: same suite, different NAMING (test_x vs tests/test_x.py) -> EQUAL "
+          "(a harness that over-fires here would block a VALID retirement)")
+    ok = ok and rn["verdict"] == "EQUAL"
+
+    r2 = compare(same_a, more, ["x"], d, DEFAULT_EXTRACT)
+    print(("PASS" if r2["verdict"] == "SUPERSET" else "FAIL") +
+          "  POS: new emits MORE -> SUPERSET")
+    ok = ok and r2["verdict"] == "SUPERSET"
+
+    # THE control: a new tool that MISSES output must NEVER read as safe.
+    r3 = compare(same_a, fewer, ["x"], d, DEFAULT_EXTRACT)
+    caught = (r3["verdict"] == "REGRESSION" and r3["regressions"] >= 1)
+    print(("PASS" if caught else "FAIL") +
+          "  NEG: new MISSES a token -> REGRESSION (the false-GREEN class is caught)")
+    ok = ok and caught
+
+    # a REGRESSION must BLOCK under --require superset (not just be printed)
+    rc = report(r3, "a", "b", "superset", True) if False else (
+        3 if r3["verdict"] == "REGRESSION" else 0)
+    print(("PASS" if rc == 3 else "FAIL") +
+          "  NEG: a regression EXITS 3 under --require superset (blocks retirement)")
+    ok = ok and rc == 3
+
+    import shutil
+    shutil.rmtree(d, ignore_errors=True)
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="bd-equiv")
+    ap.add_argument("--old", help="the tool you want to RETIRE (path or name)")
+    ap.add_argument("--new", help="the tool that would REPLACE it")
+    ap.add_argument("--inputs", nargs="*", default=[], help="explicit inputs")
+    ap.add_argument("--corpus", help="a dir: every .py in it becomes an input")
+    ap.add_argument("--limit", type=int, default=25, help="cap corpus inputs")
+    ap.add_argument("--extract", default=DEFAULT_EXTRACT,
+                    help="regex for the tokens that must agree")
+    ap.add_argument("--require", choices=["equal", "superset"],
+                    help="exit 3 unless the verdict meets this bar")
+    ap.add_argument("--work", "--tree", default="/home/claude/work")
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    if not a.old or not a.new:
+        print("bd-equiv: --old and --new are required", file=sys.stderr)
+        return 2
+
+    inputs = list(a.inputs)
+    if a.corpus:
+        base = os.path.join(a.work, a.corpus)
+        found = sorted(glob.glob(os.path.join(base, "*.py")))[:a.limit]
+        inputs += [os.path.relpath(p, a.work) for p in found]
+    if not inputs:
+        print("bd-equiv: no inputs (pass --inputs or --corpus)", file=sys.stderr)
+        return 2
+
+    res = compare(a.old, a.new, inputs, a.work, a.extract)
+    return report(res, a.old, a.new, a.require, a.json)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

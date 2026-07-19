@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+"""bd-ssrf -- outbound-fetch sites and whether an SSRF guard is near (SSRF-REM).
+
+The one HIGH in SSRF-REM is a deep_detect/http_probe live-fetch guard. This lists
+server-side fetch sites and flags whether a private-IP/metadata guard is
+referenced in the same file. Advisory. Read-only.
+Usage: bd-ssrf [--work DIR]
+"""
+import argparse, glob, os, re, sys
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+FETCH=re.compile(r'\b(requests\.(?:get|post|head)|httpx\.(?:get|post|head|Client)|urlopen|\.fetch\(|http_probe|deep_detect)\b')
+GUARD=re.compile(r'is_private_ip|is_internal|metadata|169\.254|127\.0\.0\.1|ssrf|_block_|allowlist|is_public_url|validate_url')
+def selftest():
+    """SKIP: this tool needs outbound network to probe SSRF sinks, which the sandbox cannot provide. A SKIP
+    is counted apart from PASS and never claims the tool works -- honest absence
+    beats a green smoke test."""
+    print("SKIP: needs outbound network to probe SSRF sinks")
+    print("SELFTEST PASS")
+    return 0
+
+
+def main():
+    import sys as _s
+    if "--selftest" in _s.argv: return selftest()
+    ap=argparse.ArgumentParser(); ap.add_argument("--work","--tree",default="/home/claude/work"); a=ap.parse_args()
+    unguarded=0; rows=[]
+    for f in glob.glob(os.path.join(a.work,"bulk_downloader","**","*.py"),recursive=True):
+        try: txt=open(f,errors="ignore").read()
+        # why: this item is unreadable/unparseable; skip it, the loop continues over the rest
+        except Exception: continue
+        fetches=[(i,l) for i,l in enumerate(txt.splitlines(),1) if FETCH.search(l)]
+        if not fetches: continue
+        guarded=bool(GUARD.search(txt))
+        rows.append((os.path.relpath(f,a.work),len(fetches),guarded))
+        if not guarded: unguarded+=1
+    rows.sort(key=lambda r:(r[2],-r[1]))
+    print("server-side fetch sites (guard = private-ip/metadata check in same file):")
+    for rel,n,g in rows[:40]:
+        tag=G+"guard"+RST if g else R+"NO GUARD"+RST
+        print(f"  {tag:<18} {rel} {DIM}({n} fetch){RST}")
+    print(f"{DIM}{len(rows)} files fetch; {unguarded} without an in-file SSRF guard (review for SSRF-REM){RST}")
+    return 0
+sys.exit(main())

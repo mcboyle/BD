@@ -1,0 +1,5 @@
+[
+  {"name": "bd-stash", "url": "http://stash.lan:5555", "token": "optional-bearer-token"},
+  {"name": "bd-02",    "url": "http://10.0.0.12:5555"},
+  {"name": "bd-03",    "url": "http://10.0.0.13:5555"}
+]

@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""bd-monolith-xray -- deep decomposition x-ray of a large module.
+
+Analyzes a large module (default app.py) into natural seams: route groups (by
+url prefix), shared-state clusters (functions touching the same module globals),
+and import zones. Reports the candidate blueprint boundaries + how much of the
+file each would carve off, so a decomposition can proceed in the safest order.
+Reuses bd-seam-finder for per-function risk. Read-only.
+
+Usage: bd-monolith-xray [--module bulk_downloader/app.py] [--work DIR] [--json] [--selftest]
+Exit 0 x-ray produced / 1 target not found (usage guard). Informational.
+"""
+import argparse, ast, os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
+
+import importlib.util, importlib.machinery
+def _load_tool(tool):
+    p=os.path.join(os.path.dirname(os.path.realpath(__file__)),tool)
+    modname=tool.replace("-","_")
+    spec=importlib.util.spec_from_loader(modname,importlib.machinery.SourceFileLoader(modname,p))
+    m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); return m
+
+_sf=_load_tool("bd-seam-finder")
+import os as _oscli, sys as _syscli
+_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
+from bdtools_cli import G, R, Y, DIM, RST
+
+def xray(path):
+    src=open(path,errors="ignore").read()
+    tree=ast.parse(src)
+    funcs=_sf.analyze(path)
+    total_lines=src.count(chr(10))+1
+    # route groups by url prefix
+    groups={}
+    for node in tree.body:
+        if not isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)): continue
+        for d in node.decorator_list:
+            dd=ast.dump(d)
+            m=re.search(r"'(/api/[a-z0-9_]+)",dd) or re.search(r"'(/[a-z0-9_]+)",dd)
+            if m:
+                prefix="/".join(m.group(1).split("/")[:3])
+                groups.setdefault(prefix,{"routes":0,"lines":0,"funcs":[]})
+                g=groups[prefix]; g["routes"]+=1
+                g["lines"]+=(getattr(node,"end_lineno",node.lineno)-node.lineno)
+                if len(g["funcs"])<6: g["funcs"].append(node.name)
+    route_groups=sorted(({"prefix":k,**v} for k,v in groups.items()),key=lambda g:-g["lines"])
+    low=[f for f in funcs if f["tier"]=="LOW"]
+    return {"module":os.path.basename(path),"total_lines":total_lines,"functions":len(funcs),
+            "low_risk_seams":len(low),"low_risk_lines":sum(f["size"] for f in low),
+            "route_groups":route_groups[:15]}
+
+def selftest():
+    ok=True
+    x=xray(os.path.join(sec.DEFAULT_WORK,"bulk_downloader","app.py"))
+    print(("PASS" if x["total_lines"]>1000 else "FAIL")+"  app.py x-rayed (%d lines, %d funcs)"%(x["total_lines"],x["functions"]))
+    ok=ok and x["total_lines"]>1000
+    print(("PASS" if x["route_groups"] else "WARN")+"  %d route groups found"%len(x["route_groups"]))
+    print(("PASS" if x["low_risk_seams"]>0 else "FAIL")+"  %d low-risk seams (%d lines)"%(x["low_risk_seams"],x["low_risk_lines"]))
+    ok=ok and x["low_risk_seams"]>0
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--module",default="bulk_downloader/app.py"); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest: return selftest()
+    sec.require_source_tree(a.work)
+    path=os.path.join(a.work,a.module)
+    if not os.path.exists(path): print(R+"not found"+RST); return 1
+    x=xray(path)
+    if sec.emit(x,as_json=a.json): return 0
+    print("%s x-ray: %d lines, %d functions, %d low-risk seams (%d lines carve-able)"%(x["module"],x["total_lines"],x["functions"],x["low_risk_seams"],x["low_risk_lines"]))
+    print("candidate blueprint boundaries (by route prefix):")
+    for g in x["route_groups"][:12]:
+        print("  %s%-20s%s %d routes, ~%d lines  %s%s%s"%(G,g["prefix"],RST,g["routes"],g["lines"],DIM,",".join(g["funcs"][:3]),RST))
+    return 0
+if __name__ == "__main__":
+    sys.exit(main())

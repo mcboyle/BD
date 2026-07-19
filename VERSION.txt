@@ -1,0 +1,7 @@
+# BulkDL venv kit
+python_version: Python 3.12.3
+pkg_count: 61
+built_on: stash 2026-05-25T13:52:59Z
+notes: Drop-in replacement for the venv that install_linux.sh would
+       build. Sandbox installer extracts to /home/claude/work/venv/
+       and updates pyvenv.cfg paths to match the new location.

@@ -1,0 +1,30 @@
+{
+  "_synthetic": true,
+  "_purpose": "P3-T12 fixture. A HANDCRAFTED challenge capture used to prove (a) the page is DETECTED as a challenge (challenge_present) and (b) the redaction floor SCRUBS challenge-response / token material the same way it scrubs any sensitive capture artifact. Every token/response value below is an OBVIOUSLY-FAKE placeholder with ZERO real bypass value -- it exists only as scrubber bait. This fixture NEVER solves or bypasses a challenge; it proves solving-related content is destroyed, not produced.",
+  "url": "https://example.test/protected",
+  "origin": "https://example.test",
+  "host": "example.test",
+  "captured_at": "2026-01-01T00:00:00+00:00",
+  "title": "Just a moment... verify you are human",
+  "challenge_markers": ["cf-turnstile", "challenges.cloudflare.com", "hcaptcha"],
+  "dom_log": [
+    {
+      "type": "full_snapshot",
+      "html": "<html><head><title>Just a moment...</title></head><body><h1>Verify you are human</h1><div class=\"cf-turnstile\" data-sitekey=\"SYNTHETIC-FAKE-SITEKEY-0000\"></div><div class=\"h-captcha\" data-sitekey=\"SYNTHETIC-FAKE-HCAPTCHA-0000\"></div><p>Checking your browser before accessing example.test. This process is automatic.</p><p class=\"chl-hint\">click each image containing a traffic light then press verify</p></body></html>"
+    }
+  ],
+  "challenge_solving_synthetic": {
+    "_note": "obviously-fake placeholders; scrubber bait only -- not a working response of any kind",
+    "cf_turnstile_response": "SYNTHETIC0FAKE0TURNSTILE0RESPONSE0Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3Ab3",
+    "challenge_jwt": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.U1lOVEhFVElDX0ZBS0VfcGF5bG9hZA.FAKE_SIG_not_real_synthetic_value",
+    "challenge_token": "SYNTHETIC0FAKE0CHALLENGE0TOKEN0Xy9Xy9Xy9Xy9Xy9Xy9Xy9Xy9Xy9Xy9Xy9Xy9Xy9Xy9Xy9Xy9Xy9Xy9Xy9Xy9Xy9Xy9",
+    "solve_hint": "click each image containing a traffic light then press verify"
+  },
+  "network_log": [
+    {
+      "url": "https://challenges.example.test/cdn-cgi/chl?cf_challenge_response=SYNTHETIC_FAKE_response_xxxxxxxxxxxx&__cf_chl_tk=SYNTHETIC_FAKE_tk",
+      "method": "POST",
+      "_note": "realistic cloudflare challenge-response query shape -- see the known-gap test"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""bd-ready -- one-shot cut-readiness preflight (aggregates the check tools).
+
+Runs the read-only gates that predict an on-stash failure BEFORE you cut:
+guards intact, version consistent, CHANGELOG valid, derived docs in sync,
+no undeclared import edges. Advisory -- never changes anything.
+Usage: bd-ready [--work DIR]   Exit 0 if all green, 1 if any gate would fail.
+"""
+import argparse, subprocess, sys
+G,R,Y,BOLD,RST="\033[32m","\033[31m","\033[33m","\033[1m","\033[0m"
+CHECKS=[("guards","bd-guardcheck"),("version","bd-versync"),("changelog","bd-changelog"),
+        ("derived docs","bd-regen"),("import edges","bd-imports"),
+        ("derived-fact counts","bd-factcheck"),("equality pins","bd-pinscan")]
+def selftest():
+    """DELEGATE: wraps bd-coretest. Asserts the target file is present in the tool's own
+    bin dir -- if not, FAIL (a wrapper that cannot find what it wraps is broken;
+    a selftest that cannot verify must not report success)."""
+    import os as _o
+    here = _o.path.dirname(_o.path.realpath(__file__))
+    found = _o.path.isfile(_o.path.join(here, "bd-coretest"))
+    print(("PASS" if found else "FAIL") + "  delegation target present: bd-coretest")
+    print("SELFTEST PASS" if found else "SELFTEST FAIL")
+    return 0 if found else 1
+
+
+def main():
+    ap=argparse.ArgumentParser(); ap.add_argument("--work","--tree",default="/home/claude/work")
+    ap.add_argument("--selftest",action="store_true")
+    a=ap.parse_args()
+    if a.selftest:
+        return selftest(); print(f"{BOLD}== cut-readiness preflight =={RST}"); worst=0
+    for label,tool in CHECKS:
+        r=subprocess.run([tool],capture_output=True,text=True, timeout=150)  # each tool defaults to /home/claude/work
+        ok=r.returncode==0
+        print(f"  {(G+'PASS'+RST) if ok else (R+'FAIL'+RST)}  {label}")
+        if not ok:
+            worst=1
+            tail=[l for l in (r.stdout+r.stderr).splitlines() if l.strip()][-2:]
+            for l in tail: print(f"        {Y}{l.strip()[:90]}{RST}")
+    print((f"{G}READY: all cut gates green{RST}" if not worst
+           else f"{R}NOT READY: fix the FAIL(s) above before bd-cut{RST}"))
+    return worst
+sys.exit(main())

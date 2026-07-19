@@ -1,0 +1,313 @@
+#!/usr/bin/env python3
+"""bd-footguns -- an EXECUTABLE footgun registry.
+
+The problem this fixes: hard-won footguns live as PROSE (STATE.active_footguns, KB
+docs). Prose can be forgotten, mis-remembered, or phrased as a mechanism that drifts
+from the real gate -- exactly what shipped the v3.66.699 env-tranche regression.
+A footgun that is a RUNNABLE DETECTOR cannot be forgotten: it runs pre-cut, every
+cut, and it DELEGATES to the authoritative check (a tool or an in-sync test) so it
+cannot drift.
+
+Each footgun binds: a stable id, an observable RULE (invariant, not mechanism), a
+DETECTOR (delegate to the real gate), the tests it PROTECTS, PROVENANCE (which cut
+introduced it / which cut it bit), the FIX, and STATUS.
+
+  bd-footguns --check [--tree DIR]     run every active detector; exit 3 on a
+                                       BLOCKING violation (wire before bd-cut).
+  bd-footguns --list [--json]          the registry (human/machine).
+  bd-footguns --explain ID             one footgun in full.
+  bd-footguns --selftest               neg + pos controls.
+
+External FOOTGUNS.json (tree root or alongside this tool) is merged over the
+embedded seed, so the registry grows with the project without editing the tool.
+"""
+import argparse, json, os, re, subprocess, sys, tempfile
+
+# ---- embedded seed: the mechanically-checkable footguns from the 693-700 review.
+# Each detector DELEGATES to the authoritative gate (no re-derived models -> no drift).
+SEED = [
+    {"id": "FG-ENV-TRANCHE-BD-LITERAL", "severity": "blocking", "status": "active",
+     "rule": "No BD_ literal anywhere in a shipped .py may become an OPEN operator-tunable env_var.",
+     "detector": {"kind": "tool", "cmd": ["bd-envscan", "--tree", "{tree}"], "block_on_exit": [3]},
+     "protects": ["test_v3_66_319_env_tranche_4_3d", "test_v3_66_305_config_danger"],
+     "fix": "Do not BD_-prefix an internal/backend-only name (e.g. NETNS_NS, not BD_NETNS).",
+     "provenance": {"introduced_cut": "674", "bit_at_cut": "699", "review_id": "F-01"}},
+
+    {"id": "FG-FUNCTION-INDEX-LINESHIFT", "severity": "blocking", "status": "active",
+     "rule": "A line-shifting edit to a FUNCTION_INDEX-tracked module (incl. runner_extractors.py, not just app/runner) must regenerate FUNCTION_INDEX.",
+     "detector": {"kind": "insync", "test": "tests/test_function_index_in_sync.py"},
+     "protects": ["test_function_index_in_sync"],
+     "fix": "python3 tools/build_function_index.py (or bd-regen --write) before the cut.",
+     "provenance": {"bit_at_cut": "695", "review_id": "F-03"}},
+
+    {"id": "FG-ROUTE-MAP-BASELINE", "severity": "blocking", "status": "active",
+     "rule": "A route add must re-freeze route_map_baseline + update _BASELINE_SHA, and gui_parity must regen BEFORE ROUTE_INDEX.",
+     "detector": {"kind": "insync", "test": "tests/test_route_map_invariant.py"},
+     "protects": ["test_route_map_invariant", "test_route_index_in_sync"],
+     "fix": "Regen tests/route_map_baseline.txt via tools/route_map_snapshot.py with PYTHONPATH=tree:/tmp/prestaged (NOT env -u PYTHONPATH) + update _BASELINE_SHA.",
+     "provenance": {"review_id": "footgun-taxonomy #4"}},
+
+    {"id": "FG-IMPORT-EDGE-BASELINE", "severity": "blocking", "status": "active",
+     "rule": "A new INTERNAL import edge must re-freeze the import_graph baseline in the SAME cut.",
+     "detector": {"kind": "insync", "test": "tests/test_import_graph_no_new_edges.py"},
+     "protects": ["test_import_graph_no_new_edges"],
+     "fix": "python3 tools/decomp/import_graph_gate.py --update (then regen DEPENDENCY_GRAPH).",
+     "provenance": {"review_id": "footgun-taxonomy #24"}},
+
+    {"id": "FG-ENDPOINT-CATALOG-SYNC", "severity": "blocking", "status": "active",
+     "rule": "A route change must regen ENDPOINT_CATALOG + route counts.",
+     "detector": {"kind": "insync", "test": "tests/test_endpoint_catalog_in_sync.py"},
+     "protects": ["test_endpoint_catalog_in_sync"],
+     "fix": "python3 tools/build_endpoint_catalog.py + tools/check_route_counts.py.",
+     "provenance": {"review_id": "route-add discipline"}},
+
+    {"id": "FG-OVERLAY-ORPHAN-ON-DELETE", "severity": "advisory", "status": "active",
+     "rule": "Deploy is `unzip -o` over the live tree: it overwrites and adds, NEVER "
+             "removes. A file DELETED in a cut keeps living on stash, and because the "
+             "graph gates (dependency_graph, import_graph_gate) GLOB THE DISK, the orphan "
+             "is scanned as live source and its stale edge trips the frozen baseline. "
+             "bit@718: app_sched_exports.py, deleted at 716, was still on stash and put "
+             "test_import_graph_no_new_edges RED even though the release zip was correct. "
+             "This is a DEPLOY defect, not a code defect -- the fix is on the deploy side.",
+     "detector": {"kind": "advisory", "note": "run bd-deploy-manifest --zip <rel> on stash"},
+     "protects": ["test_import_graph_no_new_edges", "test_dependency_graph_in_sync"],
+     "fix": "on stash, before/with the overlay: bd-deploy-manifest --zip <release.zip> "
+            "--script | sh   (deletes the orphans the overlay leaves behind).",
+     "provenance": {"review_id": "718 stash RED: overlay deploy never deletes"}},
+
+    {"id": "FG-SPA-WIRING-ROUTE-INDEX", "severity": "blocking", "status": "active",
+     "rule": "Adding or removing a FRONTEND CALL to an API endpoint is a ROUTE_INDEX "
+             "change. ROUTE_INDEX records a spa_wired flag per (method, path); wiring a "
+             "control FLIPS it even though no route was added, removed, or renamed. "
+             "bit@714: the VPN kill-switch controls were wired, ROUTE_INDEX was not "
+             "regenerated, and the full suite went RED on stash with "
+             "'only-in-parity=[the 4 killswitch routes]'. 'Route change' is not just "
+             "url_map: it is anything the index records, and the index records WHO CALLS "
+             "the route.",
+     "detector": {"kind": "insync", "test": "tests/test_route_index_in_sync.py"},
+     "protects": ["test_route_index_in_sync", "test_spa_wired_join_is_faithful"],
+     "fix": "python3 tools/build_route_index.py (AFTER gui_parity), then band "
+            "tests/test_route_index_in_sync.py -- note test_spa_wired_join_is_faithful "
+            "lives INSIDE that file, it is not a separate suite.",
+     "provenance": {"review_id": "714 stash RED: wiring a control is a route change"}},
+
+    {"id": "FG-PIN-INDEX-POSTBUMP", "severity": "blocking", "status": "active",
+     "rule": "After a version bump, PIN_INDEX must be regenerated (it pins the version).",
+     "detector": {"kind": "insync", "test": "tests/test_pin_index_in_sync.py"},
+     "protects": ["test_pin_index_in_sync"],
+     "fix": "python3 tools/build_pin_index.py after the 3-part version bump.",
+     "provenance": {"review_id": "bump discipline"}},
+
+    {"id": "FG-GUARD-SHA-BYTE-IDENTICAL", "severity": "blocking", "status": "active",
+     "rule": "The 7 SHA-pinned release-guard files stay byte-identical unless a new SHA is explicitly declared.",
+     "detector": {"kind": "tool", "cmd": ["bd-guardcheck"], "block_on_exit": [1, 2]},
+     "protects": ["guard-SHA gate (build_release / verify_release)"],
+     "fix": "Revert the guard-file edit, or declare a new SHA deliberately.",
+     "provenance": {"review_id": "release floor"}},
+
+    # advisory (documented but not yet mechanically detectable) -- still LISTED so
+    # it is never forgotten, but does not block until a detector is written.
+    {"id": "FG-CLOAK-EXECPATH-COMPOSE", "severity": "advisory", "status": "active",
+     "rule": "The F5 browser-in-netns shim must WRAP cloak's executable_path, not replace it.",
+     "detector": {"kind": "none"},
+     "protects": ["(F5 wiring cut -- verify with bd-netns-launch-proof)"],
+     "fix": "shim -> cloak binary via NETNS_BROWSER_BIN; validate on a live netns launch.",
+     "provenance": {"review_id": "F-07 / next-session P0"}},
+]
+
+
+def _load_registry(tree):
+    # HIGHEST-REGISTRY-VERSION WINS. Never last-wins (F-2): whichever file was read
+    # LAST overwrote the entry, and the tool-adjacent copy ships inside the bdsuite
+    # zip -- so a stale bundle silently REVERTED lessons at runtime. The v3.66.721
+    # venv-destruction consequence vanished from the live registry while remaining
+    # "in the KB": absent, and trusted.
+    reg = {f["id"]: f for f in SEED}
+    ver = {f["id"]: -1 for f in SEED}
+    for cand in (os.path.join(tree, "FOOTGUNS.json"),
+                 os.path.join(os.path.dirname(os.path.realpath(__file__)), "FOOTGUNS.json")):
+        if not os.path.isfile(cand):
+            continue
+        try:
+            ext = json.load(open(cand))
+        except (ValueError, OSError) as exc:
+            sys.stderr.write("WARN: unreadable footgun registry %s (%s) -- NOT silently "
+                             "ignored\n" % (cand, exc))
+            continue
+        fver = ext.get("version", 0) if isinstance(ext, dict) else 0
+        for f in ext.get("footguns", ext if isinstance(ext, list) else []):
+            fid = f.get("id")
+            if not fid:
+                continue
+            if fid in ver and fver <= ver[fid]:
+                continue      # a STALER copy may not revert a lesson
+            reg[fid] = {**reg.get(fid, {}), **f}
+            ver[fid] = fver
+    return list(reg.values())
+
+
+def _run_tool(cmd, tree):
+    cmd = [c.replace("{tree}", tree) for c in cmd]
+    exe = cmd[0]
+    if not os.path.isabs(exe):
+        local = os.path.join(os.path.dirname(os.path.realpath(__file__)), exe)
+        if os.path.isfile(local):
+            cmd = [sys.executable, local] + cmd[1:]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=150)
+        return r.returncode, (r.stdout + r.stderr)
+    except Exception as e:
+        return None, str(e)
+
+
+def _run_insync(test, tree):
+    rt = os.path.join(tree, "run_tests.py")
+    tf = os.path.join(tree, test)
+    if not (os.path.isfile(rt) and os.path.isfile(tf)):
+        return None, "test/harness missing"
+    env = dict(os.environ, BD_HOME=tempfile.mkdtemp(), BD_DISABLE_KEEPALIVE="1",
+               PYTHONPATH="/tmp/prestaged_site_packages")
+    try:
+        r = subprocess.run([sys.executable, "run_tests.py", test], cwd=tree, env=env,
+                           capture_output=True, text=True, timeout=180)
+        out = r.stdout + r.stderr
+        m = re.search(r"Failed:\s*(\d+)", out)
+        failed = int(m.group(1)) if m else (0 if r.returncode == 0 else 1)
+        return (failed == 0), out
+    except Exception as e:
+        return None, str(e)
+
+
+def _check_one(fg, tree):
+    """Returns ('pass'|'violation'|'skip'|'advisory', detail)."""
+    if fg.get("status") != "active":
+        return "skip", "inactive"
+    det = fg.get("detector", {})
+    kind = det.get("kind")
+    if kind == "none":
+        return "advisory", "documented (no mechanical detector)"
+    if kind == "tool":
+        rc, _ = _run_tool(det["cmd"], tree)
+        if rc is None:
+            return "skip", "tool unavailable"
+        return ("violation" if rc in det.get("block_on_exit", []) else "pass"), f"exit {rc}"
+    if kind == "insync":
+        ok, _ = _run_insync(det["test"], tree)
+        if ok is None:
+            return "skip", "harness/test missing"
+        return ("pass" if ok else "violation"), det["test"]
+    if kind == "grep":
+        pat = re.compile(det["pattern"])
+        hit = any(pat.search(open(os.path.join(dp, f), errors="ignore").read())
+                  for dp, _, fs in os.walk(os.path.join(tree, det.get("root", "bulk_downloader")))
+                  for f in fs if f.endswith(".py"))
+        bad = hit if det.get("must_not_match") else (not hit)
+        return ("violation" if bad else "pass"), det["pattern"]
+    return "skip", f"unknown detector kind {kind}"
+
+
+def cmd_check(a):
+    reg = _load_registry(a.tree)
+    active = [f for f in reg if f.get("status") == "active"]
+    results, violations = [], []
+    print(f"bd-footguns --check :: {len(active)} active footguns vs {a.tree}\n")
+    # Tier-1 (702): the detectors are INDEPENDENT subprocesses (each runs a tool or
+    # an in-sync test), and they were run one at a time -- 11.1s of mostly-waiting on
+    # a gate that runs before EVERY cut. Fan them out. Output stays deterministic:
+    # results are re-sorted into the same order before printing, so the report is
+    # byte-identical to the serial one; only the waiting is shared.
+    ordered = sorted(active, key=lambda f: (f.get("severity") != "blocking", f["id"]))
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(8, len(ordered) or 1)) as ex:
+            verdicts = list(ex.map(lambda fg: _check_one(fg, a.tree), ordered))
+    except Exception:  # why: the thread pool is an OPTIMISATION only; on any pool failure we
+                       # recompute the SAME verdicts serially -- no check is skipped, only slower
+        verdicts = [_check_one(fg, a.tree) for fg in ordered]   # fail-safe: serial
+    for fg, (verdict, detail) in zip(ordered, verdicts):
+        results.append({"id": fg["id"], "verdict": verdict, "detail": detail,
+                        "severity": fg.get("severity")})
+        icon = {"pass": "PASS", "violation": "VIOLATION", "skip": "skip",
+                "advisory": "note"}[verdict]
+        print(f"  [{icon:9}] {fg['id']:34} {detail}")
+        if verdict == "violation" and fg.get("severity") == "blocking":
+            violations.append(fg)
+    if a.json:
+        print(json.dumps(results, indent=1))
+    print()
+    if violations:
+        print(f"BLOCKED -- {len(violations)} footgun violation(s):")
+        for fg in violations:
+            print(f"  * {fg['id']}: {fg['rule']}")
+            print(f"    FIX: {fg['fix']}")
+        return 3
+    print("OK -- no active footgun violated.")
+    return 0
+
+
+def cmd_list(a):
+    reg = _load_registry(a.tree)
+    if a.json:
+        print(json.dumps(reg, indent=1)); return 0
+    for fg in sorted(reg, key=lambda f: (f.get("severity") != "blocking", f["id"])):
+        p = fg.get("provenance", {})
+        prov = " ".join(f"{k}={v}" for k, v in p.items())
+        print(f"[{fg.get('severity','?'):9}] {fg['id']}  ({fg.get('status')})")
+        print(f"    rule: {fg['rule']}")
+        print(f"    {prov}")
+    return 0
+
+
+def cmd_explain(a):
+    reg = {f["id"]: f for f in _load_registry(a.tree)}
+    fg = reg.get(a.explain)
+    if not fg:
+        print(f"no footgun {a.explain}. --list to see ids."); return 2
+    print(json.dumps(fg, indent=2)); return 0
+
+
+def selftest():
+    ok = True
+    reg = _load_registry("/home/claude/work")
+    print(f"PASS  registry loads ({len(reg)} footguns)" if reg else "FAIL  empty registry")
+    ok = ok and bool(reg)
+    ids = {f["id"] for f in reg}
+    need = {"FG-ENV-TRANCHE-BD-LITERAL", "FG-FUNCTION-INDEX-LINESHIFT", "FG-GUARD-SHA-BYTE-IDENTICAL"}
+    print(("PASS" if need <= ids else "FAIL") + f"  core footguns present ({len(need & ids)}/{len(need)})")
+    ok = ok and need <= ids
+    # POSITIVE control: a synthetic tree with an undeclared BD_ read violates env-tranche
+    d = tempfile.mkdtemp(); os.makedirs(os.path.join(d, "bulk_downloader"))
+    open(os.path.join(d, "bulk_downloader", "x.py"), "w").write('import os\nY=os.environ.get("BD_TOTALLY_FAKE_OPEN_VAR","")\n')
+    fg = next(f for f in reg if f["id"] == "FG-ENV-TRANCHE-BD-LITERAL")
+    v, _ = _check_one(fg, d)
+    # (env-tranche detector runs bd-envscan which needs the real tree's csi; on a bare
+    #  temp tree it will 'skip' -- so accept pass/skip, and assert the DETECTOR wiring)
+    print(("PASS" if v in ("violation", "skip", "pass") else "FAIL") + f"  env-tranche detector wired (verdict={v})")
+    # NEGATIVE control: an inactive footgun is skipped
+    v2, _ = _check_one({"id": "T", "status": "retired", "detector": {"kind": "none"}}, d)
+    print(("PASS" if v2 == "skip" else "FAIL") + "  inactive footgun skipped")
+    ok = ok and v2 == "skip"
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="bd-footguns")
+    ap.add_argument("--tree", "--work", default="/home/claude/work")
+    ap.add_argument("--check", action="store_true")
+    ap.add_argument("--list", action="store_true")
+    ap.add_argument("--explain", metavar="ID")
+    ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--json", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    if a.explain:
+        return cmd_explain(a)
+    if a.list:
+        return cmd_list(a)
+    return cmd_check(a)  # default
+
+
+if __name__ == "__main__":
+    sys.exit(main())

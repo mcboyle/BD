@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+"""bd-deps -- blueprint / module dependency inspector (DEPENDENCY_GRAPH.json).
+
+Answers "what provides this blueprint / who depends on this module?" for decomp
+and blast-radius work, without hand-reading the graph JSON.
+
+Usage:
+    bd-deps                 # list blueprints (module, #routes, #providers)
+    bd-deps <name>          # a blueprint's module + providers + routes
+    bd-deps <module.py>     # reverse: which blueprints list it as a provider
+    bd-deps --work DIR
+Read-only.
+"""
+import argparse
+import json
+import os
+import sys
+
+G, C, Y, DIM, RST = "\033[32m", "\033[36m", "\033[33m", "\033[2m", "\033[0m"
+
+
+def selftest():
+    """IMPORT-OK: DEPENDENCY_GRAPH.json reader with no independent fault surface. Structural check
+    only -- the module parsed and exposes main(); this is the weakest selftest
+    kind and says so."""
+    ok = "main" in globals() and callable(main)
+    print(("PASS" if ok else "FAIL") + "  module structural check (main present)")
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("name", nargs="?")
+    ap.add_argument("--work","--tree", default="/home/claude/work")
+    ap.add_argument("--selftest",action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    p = os.path.join(a.work, "DEPENDENCY_GRAPH.json")
+    if not os.path.exists(p):
+        print("DEPENDENCY_GRAPH.json not found (bd-regen --write)")
+        return 1
+    d = json.load(open(p))
+    bp = d.get("blueprint", {})
+    if not isinstance(bp, dict):
+        print("unexpected graph shape")
+        return 1
+
+    if not a.name:
+        print(f"{len(bp)} blueprints:")
+        for name in sorted(bp):
+            e = bp[name]
+            print(f"  {C}{name:<20}{RST} {DIM}{e.get('module','?'):<26} "
+                  f"routes={e.get('route_count', len(e.get('routes', [])))} "
+                  f"providers={len(e.get('providers', []))}{RST}")
+        print(f"{DIM}bd-deps <blueprint> | bd-deps <module.py> (reverse){RST}")
+        return 0
+
+    q = a.name
+    # direct blueprint hit
+    if q in bp:
+        e = bp[q]
+        print(f"{C}{q}{RST}  module={e.get('module')}")
+        prov = e.get("providers", [])
+        print(f"  providers ({len(prov)}):")
+        for x in prov:
+            print(f"    {x}")
+        rts = e.get("routes", [])
+        print(f"  routes ({len(rts)}):")
+        for r in rts[:20]:
+            print(f"    {r}")
+        if len(rts) > 20:
+            print(f"    {DIM}... +{len(rts)-20} more{RST}")
+        return 0
+
+    # reverse lookup: which blueprints list q as provider/module
+    qn = os.path.basename(q)
+    users = []
+    for name, e in bp.items():
+        provs = [os.path.basename(x) for x in e.get("providers", [])]
+        if qn in provs or os.path.basename(e.get("module", "")) == qn:
+            users.append(name)
+    if users:
+        print(f"{qn} is used by {G}{len(users)}{RST} blueprint(s):")
+        for u in sorted(users):
+            print(f"  {C}{u}{RST}")
+        print(f"{DIM}touching {qn} -> re-band those blueprints' tests + bd-regen{RST}")
+        return 0
+    print(f"no blueprint references {q!r} (try bd-deps with no arg to list)")
+    return 1
+
+
+sys.exit(main())
