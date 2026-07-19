@@ -205,9 +205,19 @@ Method notes:
   looks like.
 - Many tools take `--work` / `--tree` to point at a tree root. Check argparse
   before concluding a tool is bound to a path.
-- Some will need a `BD_ROOT`-style override rather than a rewrite. Note which,
-  but **do not start porting during this phase** — the ledger comes first, so
-  the porting work can be prioritised rather than done in discovery order.
+- Some will need a `BD_ROOT`-style override rather than a rewrite.
+
+**Port as you go — fix what you find, do not defer it to a later pass.** An
+earlier draft of this mission made Phase 3 a ledger only; that was overruled.
+When a tool fails only because it hardcodes a sandbox path, fix it in place and
+prove the fix by running it. Keep the ledger updated as the record of what you
+did, not as a substitute for doing it. Two constraints on that:
+
+- **Fix the cause, not the symptom.** A tool that assumes `/home/claude/work`
+  wants a resolved tree root (argument, then `BD_ROOT`, then a repo-root walk),
+  not a second hardcoded path.
+- **Every port needs a run.** A ported tool that has not been executed against
+  this tree is `UNKNOWN`, not `RUNS`.
 - `docs/repo/SANDBOX_SPEC_AND_LAYOUT_v3_66_805.md` documents the environment the
   tools were written for. It is the reference for what a port must supply.
 
@@ -220,10 +230,20 @@ Method notes:
   example, anything that diffs the work tree against a pinned zip, or that
   snapshots the tree — git does both natively). Recommend, don't delete.
 
+## Environment
+
+You have **full network access**. Install from upstream — **do not use the
+offline packs (A-H, cloak, nuitka, test-tools)**; they exist to provision an
+air-gapped sandbox and are 2.5 GB of redundant transfer here.
+`docs/repo/ENVIRONMENT_PROVISIONING.md` gives the upstream equivalent of every
+pack, tiered so you install only what the task needs, plus a capability probe.
+Run the probe before scoping anything that needs `CAP_NET_ADMIN` — that
+capability is unverified in this environment.
+
 ## Out of scope for this mission
 
-Do not: modify `bulk_downloader/`, bump the version, touch guard files, port
-tools (Phase 3 is a ledger), fix the pyflakes backlog, or run the full suite.
+Do not: modify `bulk_downloader/`, bump the version, touch guard files, fix the
+pyflakes backlog, or run the full suite.
 
 ## Report at the end
 
