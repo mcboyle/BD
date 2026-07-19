@@ -214,16 +214,48 @@ uninstallable rather than suggesting the rename. Verified against noble.
 **`jq` and `sqlite3` are not in the base image.** They are widely assumed to be
 always present and they are not; they arrive here.
 
-**Capability caveat — this is the part most likely to fail in a cloud
-environment.** Netns and nftables work needs `CAP_NET_ADMIN` and `/dev/net/tun`.
-The old sandbox had both. **Whether the Claude Code cloud environment does is
-unverified — I could not test it from here.** Probe it (§10) before scoping any
-VPN or egress work, and if the capability is absent, record that the proof
-cannot run rather than running a weaker check and reporting green.
+### 7.1 What the network capabilities actually are
 
-Note also that the WireGuard *kernel module* was absent even in the old sandbox;
-`veth` stood in. That proves iface-scoped egress policy, not a live handshake —
-do not overstate what a passing egress proof demonstrates.
+**`CAP_NET_ADMIN` and `/dev/net/tun` are present in the Claude Code cloud
+environment — operator-reported, not measured by me.** Treat that as reliable
+but keep the attribution: it is the kind of fact that changes when an image is
+rebuilt, and the probe in §11 costs nothing.
+
+That unlocks Tier 3 work that was previously assumed host-only. Verified in an
+equivalent environment with the same two capabilities:
+
+| Capability | Result | How established |
+| --- | --- | --- |
+| create/delete a netns | **works** | `ip netns add` succeeded |
+| nftables rules + counters | **works** | package installs, tooling present |
+| `/dev/net/tun` | present | operator-reported; file exists in the twin env |
+| **WireGuard interface** | **DOES NOT WORK** | `ip link add type wireguard` → *Unknown device type* |
+
+**The WireGuard kernel module is absent.** `CAP_NET_ADMIN` plus `/dev/net/tun`
+does **not** imply it, and the two are easy to conflate. A `veth` pair stands in,
+which proves **iface-scoped egress policy and leak prevention** — it does not
+prove a live handshake. Do not let a green egress proof be reported as "the VPN
+works"; it demonstrates that traffic is dropped when the named interface is
+down, which is a different and narrower claim.
+
+**Probe by doing, not by asking.** `capsh --print` lists `cap_net_admin` in the
+bounding set in environments where it is nonetheless unusable. The only honest
+test is to create a namespace and delete it. §11 does exactly that.
+
+### 7.2 A tool that asserts this instead of deriving it
+
+`bd-netns-proof` runs clean against a clone (exit 0) and prints:
+
+> `netns toolchain present: True; creating a netns needs CAP_NET_ADMIN (stash-only)`
+
+**That parenthetical is false here.** Creating a netns succeeded in an
+environment with these capabilities. The tool *declares* the capability
+host-only rather than *deriving* it, so it under-reports what can be tested and
+routes work to the host that does not need to go there. This is the §0 shape in
+its plain form — an assertion standing in for a measurement — and it is a good
+first target for the port-as-you-go work: replace the hardcoded verdict with an
+actual `ip netns add` probe and report three states (works / lacks capability /
+could not determine).
 
 ---
 
@@ -344,7 +376,9 @@ r "mem"           "$(free -h | awk '/^Mem:/{print $2}')"
 r "disk free"     "$(df -h / | awk 'NR==2{print $4}')"
 r "/dev/net/tun"  "$([ -e /dev/net/tun ] && echo present || echo ABSENT)"
 r "CAP_NET_ADMIN" "$(capsh --print 2>/dev/null | grep -q cap_net_admin && echo yes || echo NO)"
-r "netns"         "$(ip netns add _p 2>/dev/null && ip netns del _p 2>/dev/null && echo yes || echo NO)"
+r "netns create"  "$(ip netns add _p 2>/dev/null && ip netns del _p 2>/dev/null && echo yes || echo NO)"
+r "wireguard mod" "$(ip link add _wg type wireguard 2>/dev/null && ip link del _wg 2>/dev/null && echo yes || echo "NO (veth stands in; no live handshake)")"
+r "nft"           "$(command -v nft >/dev/null && echo present || echo absent)"
 r "outbound 443"  "$(curl -sI -o /dev/null -w %{http_code} https://pypi.org 2>/dev/null)"
 r "Xvfb"          "$(command -v Xvfb >/dev/null && echo present || echo absent)"
 r "node"          "$(node -v 2>/dev/null || echo absent)"
