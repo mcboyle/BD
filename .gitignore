@@ -46,3 +46,6 @@ audit_carry/
 .DS_Store
 *.log
 .claude-env-report.md
+audit-venv/
+audit_venv/
+.claude-env-report.md

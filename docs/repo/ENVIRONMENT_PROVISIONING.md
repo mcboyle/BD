@@ -49,24 +49,32 @@ baseline nobody measured.
 
 ---
 
-## 2 | Tiers — install what the task needs, not everything
+## 2 | Everything installs at session start
 
-Provisioning all of this takes ~10 minutes and several GB. Almost no session
-needs all of it.
+`scripts/cloud-setup.sh` provisions **all** of the below on every new session.
+Nothing is opt-in. **Measured: 181 s, ~3.6 GB.**
 
-| Tier | Gets you | Time | Needed for |
-| --- | --- | --- | --- |
-| **0 — core** | app runs, unit tests pass | ~2 min | most sessions |
-| **1 — browsers** | capture, recognizer, e2e | +3 min | anything Playwright |
-| **2 — audit** | semgrep/bandit/vulture/jscpd/a11y | +3 min | `bd-rev`, code audit |
-| **3 — net** | wireguard, nftables, dnsmasq, aria2 | +1 min | VPN/egress proofs |
-| **4 — security** | nuclei, ffuf, gitleaks, oha, websocat | +2 min | security sweeps |
-| **5 — extras** | pypy, R, caddy, Bento4, GTK, nuitka | +4 min | rare, specific |
+Opt *out* of a group only when you have a reason, with `BD_SKIP_<GROUP>=1`:
+`BROWSERS`, `AUDIT`, `NET`, `SECTOOLS`, `EXTRAS`, `CLOAK`. Every skip is written
+to the report as a WARN naming what can no longer run, so a skipped capability
+can never be read later as a passing suite.
 
-Tier 0 is the default in `scripts/cloud-setup.sh`. Everything below is additive
-and each tier is independently skippable.
+The sections below are the reference for *what each group provides and why* —
+useful when a step WARNs and you need to know what you lost, not a menu to
+choose from.
 
----
+**Two operational notes from running it end to end:**
+
+- **Disk is the binding constraint, not time.** The full install consumed
+  ~3.6 GB. Check headroom before assuming a session can also build the
+  frontend and a release artifact.
+- **Never resolve "latest" through `api.github.com`.** Unauthenticated calls are
+  rate-limited and return **403**, which is precisely how the first version of
+  this script failed — intermittently, on two tools, with an error that never
+  named the cause. Every binary is now pinned to a direct asset URL with no API
+  call. That is also the correct answer for reproducibility: `gitleaks` decides
+  CI outcomes here and `nuclei`'s finding count is a function of its template
+  pack, so an unpinned upgrade silently changes results.
 
 ## 3 | Tier 0 — core runtime
 
