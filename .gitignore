@@ -45,3 +45,4 @@ audit_carry/
 !.env.example
 .DS_Store
 *.log
+.claude-env-report.md

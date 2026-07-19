@@ -139,11 +139,18 @@ cd frontend && npm ci && cd ..
 - A fast suite runs green:
   `./venv/bin/python -m pytest tests/test_settings_center_slice4.py -q`
 
-**Expected friction, so you don't misdiagnose it:** `requirements.txt` was
-resolved for a curated offline wheelhouse, not a clean index. Pins may not
-resolve. If one fails, **report the specific conflict — do not silently relax a
-pin**, and do not add `--no-deps` to make it quiet. A pin that cannot resolve is
-information about the dependency set, not an obstacle to route around.
+**Correction to an earlier warning:** it was previously suggested that
+`requirements.txt` might not resolve against a clean index because it was built
+for an offline wheelhouse. **That was measured and is wrong** — both
+`requirements.txt` and `requirements-dev.txt` resolve cleanly (pip dry-run,
+exit 0, 20 and 27 packages respectively), and `scripts/cloud-setup.sh` installs
+them successfully end to end. If a pin *does* fail, report the specific conflict;
+do not silently relax it or add `--no-deps` to quiet it. A pin that cannot
+resolve is information about the dependency set, not an obstacle to route around.
+
+**Faster path:** `bash scripts/cloud-setup.sh` performs this whole phase and
+writes `.claude-env-report.md`. Read that report first — a `WARN` row is an
+ABSENT capability, not a passing one.
 
 Do **not** run the whole `tests/` directory. Known long runners:
 `test_perf_lab.py`, `test_v3_66_146_nav_guard`.
