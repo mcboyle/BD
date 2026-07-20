@@ -242,7 +242,7 @@ real site. The sandbox test proved the math; this proves it against `db.session_
 real history.
 
 - **Source-confirmed:** the median comes from `db.session_lifetime_observations(site_id, account_idx)`
-  (`db.py:1382`); the predictor needs **≥3 learned lifetimes** or it returns "no opinion."
+  (`db.py:1578`); the predictor needs **≥3 learned lifetimes** or it returns "no opinion."
 - **Prep (Cowork):** on the sanctioned practice site (`practicetestautomation.com`,
   `student`/`Password123`), confirm the site is configured with a real login flow. F1.4 needs history,
   so **seed 3+ normal login cycles first** (Cowork can script the login drives — authorized use).
