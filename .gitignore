@@ -23,12 +23,21 @@ app_config.json
 sites_config.json
 cookies/
 *.cookies.json
+vapid_keys.json          # generated web-push PRIVATE key -- must never be committed
 
 # --- capture output: may contain live session material ---
 captures/
 live_recordings/
 screenshots/
-reports/
+# reports/ holds BOTH generated inventories/diagnostics (ignored -- rebuilt by
+# tools) AND frozen source-of-truth baselines/manifests the parity gates compare
+# against (tracked). Ignore the directory contents, then re-include the
+# baselines explicitly -- they were silently dropped from git by the old blanket
+# `reports/` rule, which is why the parity gates could not find them.
+reports/*
+!reports/config_gui_manifest.json
+!reports/config_parity_baseline.json
+!reports/legacy_parity_baseline.json
 *.har
 *.wacz
 
