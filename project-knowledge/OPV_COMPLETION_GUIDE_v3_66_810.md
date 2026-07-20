@@ -83,7 +83,7 @@ also pass `tools/opv_guide_lint.py` against the live url_map + tree.
 | F3.1 | saved-search create -> confirm id -> delete | 200 / id=1 / 200 (full round-trip) |
 | NOVNC | `GET /metrics` | carries `bd_takeover_active` + `bd_takeover_total` |
 | VPNKILL | `GET /api/vpn/tunnels` + `/kill_switch/state` | 200 / 200 (routes valid; kmod-absent = BLOCKED for the live tunnel) |
-| F4.1 | manifest `share_target` + `GET /dashboard?url=` | share_target present; dashboard 200 |
+| F4.1 | manifest `share_target` + the `/dashboard?url=` receiver | share_target present; dashboard 200 (SPA catch-all) |
 | F45 | cadence constants (`FAST/SLOW/STREAM_SAFETY`) | 93% / 50% reduction (code-confirmed) |
 
 F1.4, B2 and PICK need an operator precondition (a configured site / a display / a
@@ -100,7 +100,8 @@ written, but the live arm is operator-owned.
   READY / NEEDS-SETUP / BLOCKED verdict per item, so this guide's status stays measured.
 - `tools/opv_guide_lint.py` — validates THIS guide's route claims against the LIVE Flask url_map and
   every `file.py:NNN` against the actual tree (symbol-anchored, self-correcting). Trusts no markdown;
-  run it on the box whose tree is the test case. It already caught one stale ref (db.py:1382 -> :1578).
+  run it on the box whose tree is the test case. It already caught one stale line ref in this guide
+  (a db.py function ref that had drifted ~200 lines) and self-corrected it.
 
 ### D. Measured per-item state on stash (2026-07-20, v3.66.810)
 
