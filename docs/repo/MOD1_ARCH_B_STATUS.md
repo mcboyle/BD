@@ -52,11 +52,17 @@ read as "done on stash" that was only shown to hold in the sandbox (CLAUDE.md 9,
   wg0 handshake is stash-only. "Egress fails closed" is supportable; "the VPN
   tunnel works" is a box measurement.
 - **C-8 (KASM-T10) fingerprint MAGNITUDE.** The counter-tell: does live-X present
-  a materially worse fingerprint than headless? On the GPU-less sandbox the only
-  delta is the UA token (`HeadlessChrome` -> `Chrome`) and `navigator.webdriver`
-  stays `true` in BOTH -- so Arch B's value is input realism, not webdriver
-  evasion. The magnitude that could invert the case for B on some targets needs
-  **real GPU hardware**; measure it on stash before leaning on B.
+  a materially worse fingerprint than headless? The measurement TOOL now exists --
+  `tools/kasm_fingerprint_probe.py` -- and runs headful-on-X vs headless with the
+  real takeover browser's anti-automation args, diffing the bot-check surface
+  (WebGL vendor/renderer, screen, cores, webdriver, UA, canvas hash, ...). It is
+  HONEST about its own floor: on a GPU-less host the WebGL renderer is a software
+  rasterizer in BOTH modes, so it flags `gpu_less_run` and says the result
+  understates the real-hardware delta. In-sandbox the only observable delta is the
+  UA token (`HeadlessChrome` -> `Chrome`, which headful fixes); with the takeover
+  args `navigator.webdriver` is suppressed in both. The magnitude that could invert
+  the case for B still needs **real GPU hardware** -- run the tool on stash:
+  `python tools/kasm_fingerprint_probe.py --display :5 --json c8.json`.
 - **The FE-artifact parity/route gates.** `gui_parity`, `route_index_in_sync`,
   `spa_wired_join`, `parity_abc`, `challenge_parity`, `idle_sweep` fail in the
   sandbox for a MISSING-ARTIFACT reason (identical on pristine HEAD -- generated
