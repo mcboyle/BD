@@ -144,6 +144,25 @@ def _resolve_effective_mode(config: dict, active_count: int):
             f"requested remote_vnc, running remote ({why or 'vnc unavailable'})")
 
 
+def _admit_takeover(config: dict, active_count: int):
+    """MOD-1 C-4: the runtime entry point for the C-2 ladder. Returns
+    (headless, effective_mode, reason). This is what the admission path calls so
+    a `remote_vnc` request is a VISIBLE downgrade instead of a silent dead toggle
+    (plan 1.2/2): before this, admission used `_remote_admitted`, which only knew
+    "remote", so remote_vnc fell to headless=False (visible) with no reason.
+
+    headless is True for any non-visible effective mode: `remote` rides the proven
+    Arch-A CDP screencast, and `remote_vnc` rides it too until C-5 gives it a
+    dedicated Xvnc display -- it cannot promote past `remote` while `_vnc_probe`
+    is the C-4 stub, so no operator is told "real X input" while on synthetic CDP.
+
+    Equivalence: for `remote` and `visible` this yields the same headless verdict
+    as the old `_remote_admitted` path; only `remote_vnc` changes."""
+    effective, reason = _resolve_effective_mode(config, active_count)
+    headless = effective != "visible"
+    return (headless, effective, reason)
+
+
 class AuthMixin:
     def login_async(self,on_done=None,allow_manual=True):
         """Phase 4.4: by default, allow manual takeover when auto-login
@@ -396,13 +415,16 @@ class AuthMixin:
             _sk.pause_site_keepers(self.site_id)  # INV-001
         except Exception:
             pass
-        # MOD-1 A-4/A-5a: remote (headless + screencast) engages only when
-        # mode=remote AND the kill-switch is enabled AND we are under the
-        # concurrency cap (A-5a). Any gate failing falls back to VISIBLE -- the
-        # server-display path -- so a solve is never blocked, only kept off remote.
-        mode = _resolve_takeover_mode(self.config)
+        # MOD-1 A-4/A-5a + C-4: route the decision through the self-downgrade
+        # ladder. remote/remote_vnc (headless + screencast) engage only when the
+        # kill-switch is enabled AND we are under the concurrency cap; any gate
+        # failing falls back to VISIBLE -- the server-display path -- so a solve
+        # is never blocked, only kept off remote. Unlike the old _remote_admitted
+        # call this makes remote_vnc a VISIBLE downgrade (carries a reason)
+        # instead of a silent dead toggle.
         from . import takeover as _tk
-        headless = _remote_admitted(self.config, _tk.active_channel_count())
+        headless, eff_mode, downgrade_reason = _admit_takeover(
+            self.config, _tk.active_channel_count())
         try:
             handle = open_manual_login_browser(cfg, manual_profile_dir=profile,
                                                headless=headless)
@@ -424,9 +446,13 @@ class AuthMixin:
             except Exception as e:
                 sys.stderr.write(f"  captcha takeover: screencast start failed: {e}\n")
         sessions[url] = {"session_id": session_id, "handle": handle, "started_at": time.time()}
-        eff_mode = "remote" if headless else "visible"
-        self.log_event("captcha", f"Manual solve session started ({eff_mode}) for {url[:60]}", url=url)
-        return {"ok": True, "session_id": session_id, "url": url, "mode": eff_mode}
+        # eff_mode/downgrade_reason come from the ladder (_admit_takeover); surface
+        # the reason so a downgrade is never silent (plan 1.2 -- a silent downgrade
+        # is a lie by omission).
+        label = eff_mode + (f" (downgraded: {downgrade_reason})" if downgrade_reason else "")
+        self.log_event("captcha", f"Manual solve session started ({label}) for {url[:60]}", url=url)
+        return {"ok": True, "session_id": session_id, "url": url,
+                "mode": eff_mode, "mode_reason": downgrade_reason}
     def end_captcha_solve_session(self, url: str, resolution: str = "resolved") -> bool:
         """Close the visible browser for `url`. If resolution=='resolved',
         requeue the URL (status pending) so the worker picks it up on
