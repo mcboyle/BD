@@ -4,6 +4,26 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. For pre-v3.46 history
 see [CHANGELOG_archive.md](CHANGELOG_archive.md).
 
+## v3.66.807 - MOD-1 C-8 fingerprint measurement + the box-only fixes that greened 806
+
+- MOD-1 C-8 (KASM-T10): tools/kasm_fingerprint_probe.py measures whether the
+  live-X (KasmVNC) takeover browser presents a materially worse fingerprint than
+  headless -- the counter-tell for Arch B. It launches headful-on-X vs headless
+  with the real takeover anti-automation args and diffs the bot-check surface
+  (WebGL vendor/renderer, screen, cores, webdriver, UA, canvas hash). Honest
+  about its floor: on a GPU-less host both modes report a software renderer, so it
+  flags gpu_less_run and states the result understates the real-hardware
+  magnitude. RED-first unit tests on the diff/verdict logic; verified live against
+  KasmVNC. The magnitude needs real GPU hardware:
+  `python tools/kasm_fingerprint_probe.py --display :5 --json c8.json`.
+- Folds in the 5 box-only failures the Python-3.12 full suite caught on 806 (they
+  landed after the 806 CHANGELOG entry): graph/index artifacts re-frozen under
+  3.12 (the 3.11 sandbox could not parse the 3.12-only f-string in
+  tools/diag_csrf_bootstrap.py, dropping its edges); takeover_vnc routed through
+  cloak.launch_browser (cloak-parity) with cloak preserving a caller DISPLAY on
+  the netns path; BD_VNC_CHROME ledgered as host-managed in the envfile editor.
+- Guard files 7/7 unchanged.
+
 ## v3.66.806 - MOD-1 Arch B (remote_vnc / KasmVNC) coexist path + config-parity repair
 
 MOD-1 coexist C-series (Arch B captcha takeover over KasmVNC), all RED-first,
