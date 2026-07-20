@@ -69,7 +69,28 @@ feature could not persist per-site. Now in `CFG_FIELDS` + `DEFAULTS`; measured o
   `STREAM_SAFETY=60s`): idle-request reduction **93% (busy) / 50% (idle)** when the SSE stream
   connects. The ~80% figure is in-band for the busy case; record the real numbers, not the round one.
 
-### C. Two reproducible diagnostic scripts (committed, PR #3)
+### B2. Dry-run through this guide's paste blocks (executed against a live service, 2026-07-20)
+
+Every runnable procedure below was EXECUTED against a running BD service (not just
+route-checked) and returned what the guide says it should. Routes + source-refs
+also pass `tools/opv_guide_lint.py` against the live url_map + tree.
+
+| Item | Executed | Result |
+| --- | --- | --- |
+| F2a | `GET /api/data/site_health` | 200; payload has clusters/sites/total_failures |
+| F2.6 | the full load -> test -> pin paste block | load/test/pin all 200; `test` matched div:93, body:1; **pin -> status=draft_review_required, enabled=False**; draft torn down |
+| F3.2 | enable + revert of `automation.drift_repair_enabled` | 200 / 200 (round-trips clean) |
+| F3.1 | saved-search create -> confirm id -> delete | 200 / id=1 / 200 (full round-trip) |
+| NOVNC | `GET /metrics` | carries `bd_takeover_active` + `bd_takeover_total` |
+| VPNKILL | `GET /api/vpn/tunnels` + `/kill_switch/state` | 200 / 200 (routes valid; kmod-absent = BLOCKED for the live tunnel) |
+| F4.1 | manifest `share_target` + `GET /dashboard?url=` | share_target present; dashboard 200 |
+| F45 | cadence constants (`FAST/SLOW/STREAM_SAFETY`) | 93% / 50% reduction (code-confirmed) |
+
+F1.4, B2 and PICK need an operator precondition (a configured site / a display / a
+human click), so their routes are confirmed and the paste blocks are valid as
+written, but the live arm is operator-owned.
+
+### C. Three reproducible diagnostic scripts (committed, PR #3)
 
 - `scripts/bd-stash-report.sh` — captures GUI-config render truth (GET-returns / explicit-control /
   in-bundle per key), backend POST-acceptance (written then reverted), the per-site editable
@@ -77,6 +98,9 @@ feature could not persist per-site. Now in `CFG_FIELDS` + `DEFAULTS`; measured o
   booleans/counts/http-codes, no secret values.
 - `scripts/bd-opv-check.sh` — probes all 11 OPV items' real endpoints + host state and prints a
   READY / NEEDS-SETUP / BLOCKED verdict per item, so this guide's status stays measured.
+- `tools/opv_guide_lint.py` — validates THIS guide's route claims against the LIVE Flask url_map and
+  every `file.py:NNN` against the actual tree (symbol-anchored, self-correcting). Trusts no markdown;
+  run it on the box whose tree is the test case. It already caught one stale ref (db.py:1382 -> :1578).
 
 ### D. Measured per-item state on stash (2026-07-20, v3.66.810)
 
