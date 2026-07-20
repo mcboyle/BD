@@ -14,6 +14,10 @@ FIX = {
  "bd-docstale": ("RUNS-DEGRADED", "'no verified-against markers found' -- PK/docs here carry them; scanned the wrong place"),
  "bd-since": ("RUNS-DEGRADED", "'no source zip found' -- needs the release zip; git diff replaces it (redundant)"),
  "bd-surface-census": ("RUNS-DEGRADED", "all zeros (0 env vars / 0 config / 0 modules) -- scanned an empty denominator"),
+ # home-port batch: --work default -> sec.DEFAULT_WORK / DEFAULT_BIN -> this file's dir.
+ "bd-ascii": ("RUNS", "PORTED: --work default -> sec.DEFAULT_WORK; scans the clone CHANGELOG (exit 0 == ASCII-clean)"),
+ "bd-changelog": ("RUNS", "PORTED: --work default -> sec.DEFAULT_WORK; reads the clone top entry (v3.66.805)"),
+ "bd-sweep": ("RUNS", "PORTED: DEFAULT_BIN -> this file's dir; now smoke-tests the real toolchain/bin"),
 }
 GITRED = {"bd-since", "bd-snapshot", "bd-checkpoint"}
 for name, (cls, why) in FIX.items():

@@ -56,6 +56,12 @@ this tree.
    "creating a netns needs CAP_NET_ADMIN (stash-only)" with a probe that actually
    adds+deletes a throwaway netns and reports three states; here it now correctly
    says "netns creation here: works". `--selftest` PASS with a new check.
+3. **`--home`/`--work` own-default batch (3 more RUNS).** `bd-ascii`, `bd-changelog`
+   (own `default="/home/claude/work"` -> `sec.DEFAULT_WORK`, `sec` import added) and
+   `bd-sweep` (`DEFAULT_BIN` -> this file's dir) now run against the clone. Tools
+   that ALSO require the version pack (`bd-dependency-license`, `bd-version-genealogy`,
+   `bd-band-derive`) got the same `--work` fix but stay SANDBOX-BOUND -- a second
+   dependency (release zip / STATE bundle, absent from a clone) binds them.
 
 ## Caveats on the counts
 
@@ -78,9 +84,9 @@ this tree.
 
 | Class | Count |
 | --- | --- |
-| `RUNS` | 85 |
+| `RUNS` | 88 |
 | `RUNS-DEGRADED` | 21 |
-| `SANDBOX-BOUND` | 83 |
+| `SANDBOX-BOUND` | 80 |
 | `UNKNOWN` | 55 |
 | **total** | **244** |
 
@@ -116,13 +122,15 @@ this tree.
 - `bd-since` -- bd-preflight asserts byte-identity; bd-since LISTS the diff (Matt overlays files
 - `bd-snapshot` -- (one snapshot per file per version baseline) so "what have I changed this sessio
 
-## Appendix: `RUNS` (85)
+## Appendix: `RUNS` (88)
 
 | Tool | Justification |
 | --- | --- |
 | `bd-api-contract` | runs clean with no args; produced counts (non-empty denominator) |
+| `bd-ascii` | PORTED: --work default -> sec.DEFAULT_WORK; scans the clone CHANGELOG (exit 0 == ASCII-clean) |
 | `bd-capture-chaos` | post-port: produces real output about this tree (capture chaos: 3 failure modes /   contained raises     -> error:Runti) |
 | `bd-capture-trace` | post-port: produces real output about this tree (capture pipeline map: /   session_capture.py: network, storage, bodies) |
+| `bd-changelog` | PORTED: --work default -> sec.DEFAULT_WORK; reads the clone top entry (v3.66.805) |
 | `bd-config-lineage` | post-port: produces real output about this tree (  [-RS--] MAX_CONTENT_LENGTH (reads:1) /   [-RS--] _autopick (reads:1)) |
 | `bd-config-orphan` | runs clean with no args; produced counts (non-empty denominator) |
 | `bd-config-risk` | post-port: produces real output about this tree (config/env risk (71 keys, 28 high-risk): /   risk 5  BD_AUTH_THROTTLE ) |
@@ -196,6 +204,7 @@ this tree.
 | `bd-ssrf` | clean with --tree pointed at the clone; output is about this tree |
 | `bd-state-machine-extract` | post-port: produces real output about this tree (runner state machine: 16 states, 0 transitions /   states: cookies_exp) |
 | `bd-state-machine-test` | post-port: produces real output about this tree (runner: 16 states, 0 observed transitions / no illegal transitions obs) |
+| `bd-sweep` | PORTED: DEFAULT_BIN -> this file's dir; now smoke-tests the real toolchain/bin |
 | `bd-template-safety` | post-port: produces real output about this tree (1 template(s) checked; 0 issue(s) / all templates safe to export) |
 | `bd-template-taint` | clean with --tree pointed at the clone; output is about this tree |
 | `bd-ui-contract` | runs clean with no args; produced counts (non-empty denominator) |
@@ -232,7 +241,7 @@ this tree.
 | `bd-tool-lint` | exit 0: linted 0 tools (0 analysis + 0 operational/legacy): 0 error(s), 0 warning(s) / c |
 | `bd-versync` | exit 0: __init__.py __version__ : NOT FOUND / CHANGELOG top entry     : NOT FOUND / VERS |
 
-## Appendix: `SANDBOX-BOUND` (83)
+## Appendix: `SANDBOX-BOUND` (80)
 
 | Tool | Justification |
 | --- | --- |
@@ -241,13 +250,11 @@ this tree.
 | `bd-agent-scorecard` | fails against the clone referencing a sandbox path; no working tree-root override |
 | `bd-agent-watchdog` | fails against the clone referencing a sandbox path; no working tree-root override |
 | `bd-archive-normalize` | fails against the clone referencing a sandbox path; no working tree-root override |
-| `bd-ascii` | fails against the clone referencing a sandbox path; no working tree-root override |
 | `bd-audit` | hardcodes a sandbox path with no --tree/--work override |
 | `bd-band-derive` | fails against the clone referencing a sandbox path; no working tree-root override |
 | `bd-binary-audit` | fails against the clone referencing a sandbox path; no working tree-root override |
 | `bd-boot` | mutating/heavy; hardcodes a sandbox path (needs /home/claude infra); not run |
 | `bd-bump` | mutating/heavy; hardcodes a sandbox path (needs /home/claude infra); not run |
-| `bd-changelog` | fails against the clone referencing a sandbox path; no working tree-root override |
 | `bd-consumer-graph` | hardcodes a sandbox path with no --tree/--work override |
 | `bd-corpus` | hardcodes a sandbox path with no --tree/--work override |
 | `bd-cut` | mutating/heavy; hardcodes a sandbox path (needs /home/claude infra); not run |
@@ -308,7 +315,6 @@ this tree.
 | `bd-status` | hardcodes a sandbox path with no --tree/--work override |
 | `bd-store-check` | fails against the clone referencing a sandbox path; no working tree-root override |
 | `bd-supply-chain-scan` | fails against the clone referencing a sandbox path; no working tree-root override |
-| `bd-sweep` | fails against the clone referencing a sandbox path; no working tree-root override |
 | `bd-time-travel` | fails against the clone referencing a sandbox path; no working tree-root override |
 | `bd-tool-smoke` | fails against the clone referencing a sandbox path; no working tree-root override |
 | `bd-tools` | hardcodes a sandbox path with no --tree/--work override |
