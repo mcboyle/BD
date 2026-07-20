@@ -17,6 +17,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # gitleaks scans the PR diff via `git log <base>^..<head>`; the default
+          # shallow checkout (depth 1) lacks the base commit, so the range is an
+          # "unknown revision" and the scan aborts at ~0 bytes. Full history fixes it.
+          fetch-depth: 0
 
       - name: Secret scan (fails on anything not baselined)
         uses: gitleaks/gitleaks-action@v2
