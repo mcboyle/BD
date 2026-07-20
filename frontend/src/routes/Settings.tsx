@@ -1457,6 +1457,33 @@ export function Settings() {
                 />
               }
             />
+            <SettingRow
+              label="VNC takeover display"
+              hint="X display the Remote-VNC takeover browser renders on (e.g. :5). Must match where kasmvncserver is serving. Empty uses the default (:5)."
+              control={
+                <Input
+                  type="text"
+                  value={draft.captcha_vnc_display ?? ""}
+                  onChange={(e) => setField("captcha_vnc_display", e.target.value)}
+                  placeholder=":5"
+                  className="w-24 text-right tabular"
+                />
+              }
+            />
+            <SettingRow
+              label="VNC takeover websocket port"
+              hint="KasmVNC websocket port the derived capability probe + default viewer target. Must match the server's -websocketPort. Empty uses the default (8444)."
+              control={
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  value={draft.captcha_vnc_websocket_port ?? ""}
+                  onChange={(e) => setField("captcha_vnc_websocket_port", e.target.value)}
+                  placeholder="8444"
+                  className="w-24 text-right tabular"
+                />
+              }
+            />
           </SettingSection>
 
           <SettingSection
@@ -1812,6 +1839,7 @@ export function Settings() {
             {/* L4/L5 + A9: DOWNLOAD-AFFECTING. Safety-bearing; fail closed to disabled. */}
             {([
               ["automation.auto_quarantine_enabled", "Auto-quarantine (L4)", "Quarantines a site without asking. Download-affecting."],
+              ["automation.disco_enabled", "Auto-discovery (L4 / A-DISCO)", "Enumerate -> triage -> auto-queue new targets. Download-affecting."],
               ["automation.auto_repair_enabled", "Auto-repair (L5)", "Rewrites selectors autonomously. Download-affecting."],
               ["automation.auto_refresh_enabled", "Auto-refresh templates (L5)", "Refreshes templates autonomously. Download-affecting."],
               ["automation.auto_promote_enabled", "Auto-promote candidates (A5)", "Promotes a clean candidate template without review."],
@@ -2142,6 +2170,17 @@ export function Settings() {
                   onChange={(e) => setField("oidc_scopes", e.target.value)}
                   placeholder="openid email profile"
                   className="w-full"
+                />
+              }
+            />
+            <SettingRow
+              label="Egress isolation (netns / wg0)"
+              hint="Confine the takeover + extractor browsers to a network namespace whose only route is the VPN, fail-closed (a broken tunnel blocks egress rather than leaking). Off by default; needs iproute2/nftables + CAP_NET_ADMIN on the host. The advanced {egress:{wg_iface,...}} form is file-managed."
+              control={
+                <Switch
+                  checked={!!draft.netns_isolation}
+                  onChange={(v) => setField("netns_isolation", v)}
+                  ariaLabel="Egress isolation (netns / wg0 fail-closed)"
                 />
               }
             />

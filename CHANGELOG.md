@@ -4,6 +4,25 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. For pre-v3.46 history
 see [CHANGELOG_archive.md](CHANGELOG_archive.md).
 
+## v3.66.811 - MOD-1 Cut: render the GUI controls the 808/809 knobs were missing (close the section-0 gate hole)
+
+- v3.66.808/809 declared captcha_vnc_display, captcha_vnc_websocket_port and
+  netns_isolation and added them to settingsSchema.ts, which made the
+  config-surface gate read gui_exposure=full -- but Settings.tsx renders global
+  controls from EXPLICIT hand-written JSX, and none was added, so no control
+  rendered (a browser render + a stash report both showed refs_in_Settings.tsx=0).
+  The gate certified a string, not a control (CLAUDE.md 0). This cut adds the
+  actual controls: VNC display + websocket-port text fields under "Challenge
+  handling", a netns_isolation toggle under "Security & access", and -- found by
+  the same audit -- automation.disco_enabled (a pre-existing omission from the
+  Automation L4 toggle list). Adds the three keys to the GlobalConfigSubset type.
+- Closes the gate hole with a RED-first test (test_mod1_c12_settings_controls_render)
+  that re-derives the SUBJECT: EVERY settingsSchema key must have an explicit
+  Settings.tsx control (a draft.<key> read or setField("<key>") write), not just a
+  string in a .ts file. Four keys failed on pristine 810; all pass now.
+- tsc --noEmit clean; the four control labels are present in the rebuilt bundle;
+  guards 7/7. No new config key, so config-parity is unchanged.
+
 ## v3.66.810 - MOD-1 Cut: predictive-relogin per-site knobs GUI-configurable (+ drop-on-reload fix)
 
 - predictive_relogin_enabled / predictive_relogin_fraction (the F1.4 predictor:

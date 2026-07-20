@@ -1,0 +1,90 @@
+================================================================================
+CODEX EXECUTION PROMPT — drive the OPV Completion Guide (v3.66.811) on stash
+For the Codex CLI running LOCALLY with shell + the operator's Chrome + a live
+connection to the stash VM. Mode: minimal intervention, risk-gated autonomy.
+Paste this whole file, or run the CLI directly (see "CLI INVOCATION" at the end).
+================================================================================
+
+WHO YOU ARE AND WHAT YOU CAN REACH
+You are the Codex CLI, running on the operator's machine with a shell, the local
+Chrome, and network reach to the stash VM (BulkDownloader v3.66.811 @
+http://<stash>:5555, repo ~/BulkDownloader, ./venv on Python 3.12). So you CAN run
+the live checks. The operator wants MINIMAL intervention: run everything you safely
+can yourself; surface only the high-risk mutations + the final attestation. You
+never self-certify a live PASS — the operator attests.
+
+INTERPRETER (load-bearing): use Python 3.12 to match CI. A 3.12-only f-string in
+tools/diag_csrf_bootstrap.py means artifacts regenerated under 3.11 silently
+diverge from the box. `./venv/bin/python` on stash is already 3.12.
+
+--------------------------------------------------------------------------------
+STEP 1 — RUN THE CLI ORCHESTRATOR (does measure-first + Tier-1 safe items)
+--------------------------------------------------------------------------------
+    cd ~/BulkDownloader
+    bash scripts/bd-opv-run.sh ~/BulkDownloader http://127.0.0.1:5555
+Read the disposition table it prints. It runs, envelope-wrapped and autonomously:
+the diagnostics (bd-opv-check + bd-stash-report + opv_guide_lint), F2a (read), F2.6
+(pin a review-only draft, then delete it), F3.2 (enable->revert drift_repair), F3.1
+(saved-search create->delete), NOVNC /metrics, F4.1 dashboard, F45 cadence. It
+GATES the risky items behind --allow-risky and marks device/human items OPERATOR.
+
+--------------------------------------------------------------------------------
+STEP 2 — CODE-SIDE VERIFICATION (in the repo; paste the real output)
+--------------------------------------------------------------------------------
+    ./venv/bin/python tools/opv_guide_lint.py project-knowledge/OPV_COMPLETION_GUIDE_v3_66_810.md   # routes vs live url_map, refs vs tree
+    ./venv/bin/python -m pytest tests/test_mod1_c12_settings_controls_render.py -q                  # every settings key has a real control
+    ./venv/bin/python tools/config_surface_inventory.py --check                                     # open_runtime_tunable must be 0
+    for t in build_endpoint_catalog build_function_index dependency_graph check_route_counts capture_model_golden; do ./venv/bin/python tools/$t.py --check; echo "$t=$?"; done
+    ( cd frontend && npx tsc --noEmit && npx vitest run src/lib/settingsSchema.test.ts src/routes/Settings.*.test.tsx )
+Fix any FAIL in code and re-run. If dependency_graph drifts because you added a
+tools/*.py, regen it UNDER 3.12: `./venv/bin/python tools/dependency_graph.py`.
+Watch for a stray `BD_[A-Z_]` token in any new .sh/.py — the config-surface scanner
+ledgers it as a phantom env var and opens parity debt.
+
+--------------------------------------------------------------------------------
+STEP 3 — RISKY LIVE MUTATIONS (Tier 2): propose -> one operator go -> run + revert
+--------------------------------------------------------------------------------
+Only with an explicit operator "go": re-run `bd-opv-run.sh ... --allow-risky`, or
+drive the item yourself. OPV-B2 (one real ~2MB download off a review-only draft;
+NOTHING persists). OPV-VPNKILL (egress kill+clear; MEDIUM risk; ONLY if the
+WireGuard kmod is present — else NAMED SKIP, never faked). Any auth-off change is
+auth-off-needs-restart. Each runs inside the envelope and proves its revert.
+
+--------------------------------------------------------------------------------
+STEP 4 — DEVICE / HUMAN (Tier 3): set up + hand off
+--------------------------------------------------------------------------------
+OPV-PICK (a HUMAN click in the noVNC picker) and OPV-F4.1/F4.5 (a phone with the
+PWA). Bring up the surface via the local Chrome, write the exact step +
+pass-condition, let the operator act, read the result, ledger it. Deploy
+precondition for the v3.66.811 GUI toggles: `cd frontend && npm run build` +
+restart, then confirm `refs_in_Settings.tsx >= 1` from the stash report.
+
+--------------------------------------------------------------------------------
+THE ENVELOPE + THE FLOOR (apply however autonomous you are)
+--------------------------------------------------------------------------------
+  - Every mutation: snapshot -> mutate -> prove -> run -> revert -> prove-revert ->
+    ledger. An open envelope is a FINDING.
+  - Ethics: SANCTIONED targets only; DETECT never SOLVE; no adult/piracy/registry.
+  - Secret-hygiene: anchored greps, never echo a secret VALUE.
+  - A blocked target is a NAMED SKIP, never a FAIL, never a substitution.
+
+--------------------------------------------------------------------------------
+CLOSE — you present, the operator attests
+--------------------------------------------------------------------------------
+Re-run bd-opv-run.sh at the END so the final status is MEASURED. Present the
+PASS / FAIL / SKIP / OPERATOR-RUN dispositions as one table with evidence pointers,
+every envelope closed. STOP — the operator attests the live PASSes. Report honestly:
+name any part that could not run and why.
+
+--------------------------------------------------------------------------------
+CLI INVOCATION (run without pasting this prompt)
+--------------------------------------------------------------------------------
+  # unattended: measure + all Tier-1 safe items, envelope-wrapped, no mutations
+  bash scripts/bd-opv-run.sh ~/BulkDownloader http://127.0.0.1:5555
+
+  # with the operator present, also run the gated live mutations (B2, VPNKILL):
+  bash scripts/bd-opv-run.sh ~/BulkDownloader http://127.0.0.1:5555 --allow-risky
+
+  # code-side gate only (no live box needed), e.g. in CI or a repo clone:
+  ./venv/bin/python tools/opv_guide_lint.py project-knowledge/OPV_COMPLETION_GUIDE_v3_66_810.md
+================================================================================
