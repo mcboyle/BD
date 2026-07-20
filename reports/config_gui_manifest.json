@@ -178,6 +178,8 @@
     "captcha_takeover_idle_timeout_s": "full",
     "captcha_takeover_max_concurrent": "full",
     "captcha_takeover_mode": "full",
+    "captcha_vnc_display": "full",
+    "captcha_vnc_websocket_port": "full",
     "capture_bodies": "full",
     "capture_raw": "full",
     "capture_schedules": "full",

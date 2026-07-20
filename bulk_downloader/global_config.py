@@ -385,6 +385,14 @@ GLOBAL_CONFIG_SCHEMA: dict = {
     # long is finalized by the sweep (dismissed + ender + channel closed); the
     # SSE viewer stream honors the same bound. Reset on each accepted input.
     "captcha_takeover_idle_timeout_s": {"type": str, "safety": False, "safe_default": "300"},
+    # MOD-1 Arch-B (remote_vnc, v3.66.808): the KasmVNC display the takeover
+    # browser renders on and the KasmVNC websocket port the probe + default
+    # viewer target. Read in takeover_vnc.py via config.get(); declared here so a
+    # SPA save persists them (str, int()-coerced at the read site -- mirrors
+    # captcha_takeover_max_concurrent). Non-safety; defaults match takeover_vnc's
+    # _DEFAULT_DISPLAY / _DEFAULT_WS_PORT so behavior is byte-identical when unset.
+    "captcha_vnc_display":         {"type": str, "safety": False, "safe_default": ":5"},
+    "captcha_vnc_websocket_port":  {"type": str, "safety": False, "safe_default": "8444"},
 }
 
 # Top-level keys that are LEGITIMATELY dicts — not the flat-lookup footgun.

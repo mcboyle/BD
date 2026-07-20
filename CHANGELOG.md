@@ -4,6 +4,20 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. For pre-v3.46 history
 see [CHANGELOG_archive.md](CHANGELOG_archive.md).
 
+## v3.66.808 - MOD-1 Cut: the two Arch-B VNC takeover knobs become GUI-configurable
+
+- captcha_vnc_display and captcha_vnc_websocket_port are now DECLARED
+  global_config keys (GLOBAL_CONFIG_SCHEMA) with FE controls in the "Challenge
+  handling" settings section. Before this cut they were read via a plain
+  config.get() with a code default, were absent from the schema, and so
+  POST /api/global_config rejected them 400 ("unknown config key") -- an operator
+  could not set the KasmVNC display or websocket port from the UI, the gap
+  MOD1_ARCH_B_STATUS.md flagged. Declared as str (int()-coerced at the read site,
+  mirroring captcha_takeover_max_concurrent); defaults :5 / 8444 match
+  takeover_vnc's code defaults so behavior is byte-identical when unset. Ledgered
+  gui_exposure=full in reports/config_gui_manifest.json; parity ratchet open=0.
+  RED-first (tests/test_mod1_c9_vnc_config_gui.py). Guards 7/7 unchanged.
+
 ## v3.66.807 - MOD-1 C-8 fingerprint measurement + the box-only fixes that greened 806
 
 - MOD-1 C-8 (KASM-T10): tools/kasm_fingerprint_probe.py measures whether the
