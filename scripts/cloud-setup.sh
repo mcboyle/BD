@@ -140,7 +140,17 @@ if [ "$HAVE_REPO" = 0 ]; then
   row "app provisioning" "**DEFERRED**" "repo not present at setup time -- run \`bd-provision\` once checked out"
   echo "[defer] app provisioning -- repo not found; run bd-provision after checkout"
 else
-  step "python venv"  core     python3 -m venv venv
+  # Match the box/CI interpreter (Python 3.12), NOT the sandbox default python3
+  # (3.11). This is load-bearing: regenerating graph/parity artifacts or running
+  # the band under 3.11 SILENTLY diverges from the 3.12 box -- a 3.12-only
+  # f-string in tools/diag_csrf_bootstrap.py drops its edges when parsed by 3.11,
+  # which is exactly what read green in the sandbox but FAILED the box on
+  # v3.66.807 (the graph/index/import-graph artifacts came out short). requirements
+  # are already proven on 3.12 (the box runs them), so 3.12 is strictly more
+  # faithful. Fall back to python3 only if 3.12 is genuinely absent.
+  PYBIN="$(command -v python3.12 || command -v python3)"
+  row "python interp" "OK" "venv built on $("$PYBIN" --version 2>&1) (box/CI parity)"
+  step "python venv"  core     "$PYBIN" -m venv venv
   step "pip upgrade"  optional ./venv/bin/pip install -q --upgrade pip
   step "runtime deps" core     ./venv/bin/pip install -q -r requirements.txt
   step "test deps"    core     ./venv/bin/pip install -q "pytest>=7.0,<9.0" pyflakes
@@ -358,7 +368,11 @@ R="${1:-$PWD}"
 [ -f "$R/bulk_downloader/__init__.py" ] || {
   echo "not a BulkDownloader checkout: $R"; echo "usage: bd-provision [repo-path]"; exit 2; }
 cd "$R"; echo "provisioning $R"
-python3 -m venv venv
+# Build on 3.12 to match the box/CI (the 3.11 sandbox default diverges on
+# artifact regen -- see cloud-setup.sh's "python interp" note). 3.12 or bust-to-3.11.
+PYBIN="$(command -v python3.12 || command -v python3)"
+echo "python interp: $("$PYBIN" --version 2>&1)"
+"$PYBIN" -m venv venv
 ./venv/bin/pip install -q --upgrade pip
 ./venv/bin/pip install -q -r requirements.txt || exit 1
 ./venv/bin/pip install -q "pytest>=7.0,<9.0" pyflakes
