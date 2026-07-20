@@ -25,6 +25,21 @@ cookies/
 *.cookies.json
 vapid_keys.json          # generated web-push PRIVATE key -- must never be committed
 
+# DB maintenance markers the app/tests write to CWD (the repo root) at startup --
+# the FTS-optimize and integrity-check timestamps. They are per-run state, not
+# source, and dirtied the tree on every service/pytest run this session (tripping
+# the stop hook). Ignore so a sandbox run leaves a clean tree.
+.fts_optimize_last
+.integrity_check_last
+.integrity_last_run
+# Capture/draft dirs the app + DOM-analyzer write under the repo root when
+# capture_store_root is unset (default PROJECT_ROOT). Runtime artifacts, not source.
+/captures/
+/offline_out/
+/offline_captures/
+/templates/drafts/
+/templates/review_candidates/
+
 # --- capture output: may contain live session material ---
 captures/
 live_recordings/

@@ -4,6 +4,53 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. For pre-v3.46 history
 see [CHANGELOG_archive.md](CHANGELOG_archive.md).
 
+## v3.66.810 - MOD-1 Cut: predictive-relogin per-site knobs GUI-configurable (+ drop-on-reload fix)
+
+- predictive_relogin_enabled / predictive_relogin_fraction (the F1.4 predictor:
+  relogin at a fraction of the learned session-lifetime median) are read by
+  runner_auth.py from the per-site config but were absent from CFG_FIELDS. Two
+  bugs fixed: (1) DROP-ON-RELOAD -- _load_sites_config rebuilds each site as
+  {k: cfg_in.get(k, DEFAULTS.get(k,"")) for k in CFG_FIELDS}, so a key not in
+  CFG_FIELDS was silently dropped on restart; the feature could not persist
+  per-site. (2) NO GUI CONTROL. Both now in CFG_FIELDS + DEFAULTS (off / 0.8,
+  byte-identical to the pre-cut absent-key behaviour), categorized with the other
+  relogin fields (gated -> renders a control in the schema-driven site editor),
+  typed in site_editor (_FIELD_TYPES + NUMERIC_RANGES enforces the 0..1 fraction
+  at a direct PUT). Ledgered gui_exposure=full.
+- Version bump 3.66.810 (3 coupled edits + PIN_INDEX). RED-first with a bug-fix
+  guard that a value SURVIVES the CFG_FIELDS reload rebuild
+  (tests/test_mod1_c11_predictive_relogin_gui.py). Guards 7/7 unchanged.
+
+## v3.66.809 - MOD-1 Cut: netns egress-isolation toggle becomes GUI-configurable
+
+- netns_isolation (the C-7 opt-in egress confinement: wg0 sole route,
+  fail-closed) is now a DECLARED global_config key with an FE toggle in the
+  "Security & access" settings section. Before this cut it was read via
+  cfg.get(), was absent from GLOBAL_CONFIG_SCHEMA, so POST /api/global_config
+  rejected it 400 and no control existed. Declared type (bool, dict): the GUI
+  toggle sends a bare bool while the advanced form
+  ({enabled, egress:{wg_iface,wg_conf,address,mtu?}}) stays valid -- a dict value
+  takes validate_config's dict branch (no scalar type check; netns's sub-keys do
+  not shadow flat schema keys). safety=False preserves pre-cut behavior byte-for-
+  byte (never validated/fail-closed before; enforcement fail-closes at the launch
+  layer via NetnsRequiredError). Default OFF. Ledgered gui_exposure=full; ratchet
+  open=0. RED-first with an explicit regression guard that the advanced dict form
+  still validates clean (tests/test_mod1_c10_netns_config_gui.py). Guards 7/7.
+
+## v3.66.808 - MOD-1 Cut: the two Arch-B VNC takeover knobs become GUI-configurable
+
+- captcha_vnc_display and captcha_vnc_websocket_port are now DECLARED
+  global_config keys (GLOBAL_CONFIG_SCHEMA) with FE controls in the "Challenge
+  handling" settings section. Before this cut they were read via a plain
+  config.get() with a code default, were absent from the schema, and so
+  POST /api/global_config rejected them 400 ("unknown config key") -- an operator
+  could not set the KasmVNC display or websocket port from the UI, the gap
+  MOD1_ARCH_B_STATUS.md flagged. Declared as str (int()-coerced at the read site,
+  mirroring captcha_takeover_max_concurrent); defaults :5 / 8444 match
+  takeover_vnc's code defaults so behavior is byte-identical when unset. Ledgered
+  gui_exposure=full in reports/config_gui_manifest.json; parity ratchet open=0.
+  RED-first (tests/test_mod1_c9_vnc_config_gui.py). Guards 7/7 unchanged.
+
 ## v3.66.807 - MOD-1 C-8 fingerprint measurement + the box-only fixes that greened 806
 
 - MOD-1 C-8 (KASM-T10): tools/kasm_fingerprint_probe.py measures whether the
