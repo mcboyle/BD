@@ -64,6 +64,19 @@ def resolve_vnc_display(config: Optional[dict]) -> str:
     return d if d.startswith(":") else f":{d}"
 
 
+def viewer_url(config: Optional[dict]) -> str:
+    """MOD-1 C-6: the browser-reachable URL of KasmVNC's own web client, for the
+    cockpit iframe. Prefer the operator's ``novnc_url`` (the cockpit runs in the
+    operator's browser, which may be remote from the host, so only they know the
+    reachable address); fall back to the loopback default when unset -- correct
+    when the cockpit is on the same host, and an honest 'set novnc_url' prompt in
+    the FE when it is not reachable."""
+    u = (config or {}).get("novnc_url")
+    if u:
+        return str(u)
+    return f"http://127.0.0.1:{resolve_ws_port(config)}/"
+
+
 # ── the DERIVED probe ────────────────────────────────────────────────────────
 
 def _port_open(host: str, port: int, timeout: float = 0.5) -> bool:
@@ -263,5 +276,5 @@ def register_all() -> None:
 
 __all__ = [
     "probe_endpoint", "census", "launch", "teardown", "register_all",
-    "resolve_vnc_display", "resolve_ws_port", "VncTakeoverSession",
+    "resolve_vnc_display", "resolve_ws_port", "viewer_url", "VncTakeoverSession",
 ]

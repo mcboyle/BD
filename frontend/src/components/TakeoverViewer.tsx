@@ -24,19 +24,38 @@ interface TakeoverViewerProps {
   /** Source geometry the solve browser screencasts at. */
   width?: number;
   height?: number;
+  /** MOD-1 C-6: the EFFECTIVE takeover mode from the poll. "remote_vnc" renders
+   *  KasmVNC's own web client in an iframe (real X input) instead of the CDP
+   *  screencast canvas; anything else keeps the Arch A canvas path. */
+  mode?: string | null;
+  /** KasmVNC web-client URL, present only on a remote_vnc session. */
+  vncUrl?: string | null;
+  /** Non-empty when the requested mode was downgraded; shown to the operator so
+   *  the downgrade is never silent (plan 1.2). */
+  reason?: string | null;
 }
 
 type CdpInput = Record<string, unknown>;
 
-export function TakeoverViewer({ sid, width = 1280, height = 720 }: TakeoverViewerProps) {
+export function TakeoverViewer({
+  sid,
+  width = 1280,
+  height = 720,
+  mode,
+  vncUrl,
+  reason,
+}: TakeoverViewerProps) {
+  const isVnc = mode === "remote_vnc";
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // Newest-wins: hold only the latest frame, drawn on the next animation frame.
   const pendingFrame = useRef<string | null>(null);
   const rafId = useRef<number | null>(null);
 
   // ── screencast in: dedicated EventSource, torn down on unmount ────────────
+  // Arch B (remote_vnc) is driven through KasmVNC, so the CDP screencast
+  // EventSource must NOT open for it (no shared-channel traffic, no CDP pump).
   useEffect(() => {
-    if (!sid) return;
+    if (!sid || isVnc) return;
     const url = `/cockpit/api/takeover/${sid}/screencast`;
     const es = new EventSource(url, { withCredentials: true });
 
@@ -65,7 +84,7 @@ export function TakeoverViewer({ sid, width = 1280, height = 720 }: TakeoverView
       if (rafId.current != null) cancelAnimationFrame(rafId.current);
       rafId.current = null;
     };
-  }, [sid]);
+  }, [sid, isVnc]);
 
   // ── input out: map to the source viewport, POST the allowlisted event ─────
   const send = useCallback(
@@ -116,11 +135,48 @@ export function TakeoverViewer({ sid, width = 1280, height = 720 }: TakeoverView
     e.preventDefault();
   };
 
+  // MOD-1 C-6: the effective-mode banner. Always shown; when the requested mode
+  // was downgraded, `reason` explains it (a silent downgrade is a lie by
+  // omission, plan 1.2).
+  const banner = (
+    <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
+      <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-mono text-emerald-200">
+        {isVnc ? "Remote VNC (KasmVNC)" : mode === "remote" ? "Remote (screencast)" : mode || "remote"}
+      </span>
+      {reason ? <span className="text-amber-300/80">downgraded: {reason}</span> : null}
+      <span className="text-ink-3">
+        {isVnc
+          ? "Real input via KasmVNC — BD does not see keystrokes."
+          : "Live solve — click and type to solve the challenge remotely."}
+      </span>
+    </div>
+  );
+
+  if (isVnc) {
+    return (
+      <div className="mt-2 rounded border border-border/60 bg-black/40 p-2">
+        {banner}
+        {vncUrl ? (
+          <iframe
+            src={vncUrl}
+            title="Remote captcha solve view (KasmVNC)"
+            aria-label="Remote captcha solve view — interact through KasmVNC"
+            className="block h-[520px] w-full max-w-full rounded border-0"
+            allow="clipboard-read; clipboard-write"
+          />
+        ) : (
+          <div className="rounded bg-amber-500/10 p-3 text-xs text-amber-200">
+            KasmVNC viewer URL is not set. Set <span className="font-mono">noVNC URL</span> in
+            Settings to a browser-reachable address of the KasmVNC endpoint.
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="mt-2 rounded border border-border/60 bg-black/40 p-2">
-      <div className="mb-1 text-xs text-ink-3">
-        Live solve — click and type to solve the challenge remotely.
-      </div>
+      {banner}
       <canvas
         ref={canvasRef}
         width={width}

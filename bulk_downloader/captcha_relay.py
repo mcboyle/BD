@@ -177,6 +177,16 @@ class PendingCaptcha:
     # A-5b idle clock: set when the solve starts, refreshed on each accepted
     # operator input. None on entries that never entered `solving`.
     last_input_at: Optional[float] = None
+    # MOD-1 C-6: the EFFECTIVE takeover mode + downgrade reason, persisted from
+    # the starter's result at solve start so the polled cockpit shows what is
+    # actually running (and why it downgraded) -- not just the requested mode.
+    # None until the solve starts; mode_reason is "" on a clean (non-downgraded)
+    # promotion, a non-empty explanation otherwise (plan 1.2).
+    mode: Optional[str] = None
+    mode_reason: Optional[str] = None
+    # MOD-1 C-6: KasmVNC web-client URL for the cockpit iframe, set only on a
+    # remote_vnc session. None for cdp/visible (which use the screencast canvas).
+    vnc_url: Optional[str] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -503,6 +513,12 @@ def start_solve(url: str) -> dict:
         p.status = "solving"
         p.solve_session_id = session_id
         p.last_input_at = time.time()  # A-5b: idle clock starts at solve start
+        # MOD-1 C-6: persist the effective mode + reason so the polled cockpit
+        # can show a downgrade instead of dropping it (it only lived in the
+        # one-shot start_solve reply before).
+        p.mode = (info or {}).get("mode")
+        p.mode_reason = (info or {}).get("mode_reason")
+        p.vnc_url = (info or {}).get("vnc_url")
     # MOD-1: open the per-session takeover channel so the cockpit screencast
     # route can subscribe, and audit the takeover start (session-summary
     # granularity -- NOT per input frame/event).

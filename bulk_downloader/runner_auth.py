@@ -453,8 +453,12 @@ class AuthMixin:
                     "captcha",
                     f"Manual solve session started ({label}) for {url[:60]}",
                     url=url)
+                # MOD-1 C-6: hand the cockpit KasmVNC's own web-client URL so the
+                # viewer embeds it (Arch B renders through KasmVNC, not the CDP
+                # canvas).
                 return {"ok": True, "session_id": session_id, "url": url,
-                        "mode": eff_mode, "mode_reason": downgrade_reason}
+                        "mode": eff_mode, "mode_reason": downgrade_reason,
+                        "vnc_url": _tv.viewer_url(self.config)}
         try:
             handle = open_manual_login_browser(cfg, manual_profile_dir=profile,
                                                headless=headless)
