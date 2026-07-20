@@ -25,7 +25,7 @@ for a in "$@"; do [ "$a" = "--allow-risky" ] && ALLOW_RISKY=1; done
 OUT=/tmp/bd_opv_run; JAR=/tmp/bd_opv_run.jar; LEDGER="$OUT/LEDGER.txt"
 PY="$R/venv/bin/python"; [ -x "$PY" ] || PY="python3"
 [ -f "$R/bulk_downloader/__init__.py" ] || { echo "not a BD checkout: $R"; exit 2; }
-cd "$R"; rm -rf "$OUT" "$JAR"; mkdir -p "$OUT"
+cd "$R" || { echo "cannot cd into $R"; exit 2; }; rm -rf "$OUT" "$JAR"; mkdir -p "$OUT"
 led(){ printf '%-22s %-10s %s\n' "$1" "$2" "$3" | tee -a "$LEDGER"; }
 hdr(){ echo; echo "== $* =="; }
 
@@ -57,31 +57,61 @@ if [ "$(code /api/data/site_health)" = "200" ]; then
   [ "${NC% *}" != "0" ] && led "F2a" "PASS" "site_health coherent (clusters/sites present)" || led "F2a" "NEEDS-SETUP" "0 clusters -- drive sanctioned failures first"
 else led "F2a" "FAIL" "site_health route not 200"; fi
 
-# F2.6 -- load->test->pin review-only draft, then delete it (envelope)
-CAP="$(GET /api/analyzer/captures | "$PY" -c 'import sys,json;c=json.load(sys.stdin).get("captures",[]);print(c[0]["name"] if c else "")' 2>/dev/null)"
+# F2.6 -- load->test->pin review-only draft, then delete ONLY the draft we create.
+# SNAPSHOT-DIFF, not "newest": deleting the newest draft (an earlier version did)
+# removes a pre-existing OPERATOR draft if our pin created none. (Cross-agent review
+# flagged this; verified against template_manager.DRAFTS_DIR + the pin response.)
+# CAP: prefer a capture whose NAME encodes a host -- pin needs one (a redacted /
+# hash-named capture reports host="" and pin 400s "host required"). Picking the
+# bare newest would exclude the check's own subject (a pinnable capture) from its
+# denominator, so it could never pass (CLAUDE.md 0). Fall back to any capture so
+# the path still runs (and reports the honest reason) when none carry a host.
+CAP="$(GET /api/analyzer/captures | "$PY" -c 'import sys,json
+c=json.load(sys.stdin).get("captures",[])
+h=[x for x in c if (x.get("host") or "").strip()]
+p=(h or c)
+print((p[0].get("rel_path") or p[0].get("name","")) if p else "")' 2>/dev/null)"
 if [ -n "$CAP" ]; then
-  DRAFTS_BEFORE="$(ls templates/drafts 2>/dev/null | wc -l)"
+  DBEFORE=""; for f in templates/drafts/*.template-draft.json; do [ -e "$f" ] && DBEFORE="$DBEFORE $f "; done
   POST POST /api/analyzer/load "{\"capture\":\"$CAP\"}" >/dev/null
   POST POST /api/analyzer/test "{\"capture\":\"$CAP\",\"selectors\":[\"div\"]}" >/dev/null
   PIN="$(POST POST /api/analyzer/pin "{\"capture\":\"$CAP\",\"selector\":\"div\",\"role\":\"container\"}")"
   ST="$(echo "$PIN" | "$PY" -c 'import sys,json;d=json.load(sys.stdin);print(d.get("status"),d.get("enabled"))' 2>/dev/null)"
-  # teardown: remove any draft we just created (leave pre-existing alone)
-  for f in $(ls -t templates/drafts/*.template-draft.json 2>/dev/null | head -1); do rm -f "$f"; done
-  DRAFTS_AFTER="$(ls templates/drafts 2>/dev/null | wc -l)"
-  [ "$ST" = "draft_review_required False" ] && led "F2.6" "PASS" "pin->review-only draft (enabled=False), draft removed" \
-    || led "F2.6" "CHECK" "pin status: $ST"
+  ERR="$(echo "$PIN" | "$PY" -c 'import sys,json;print(json.load(sys.stdin).get("error") or "")' 2>/dev/null)"
+  # teardown: remove ONLY drafts that appeared since the snapshot (ours)
+  for f in templates/drafts/*.template-draft.json; do
+    [ -e "$f" ] || continue
+    case "$DBEFORE" in *" $f "*) : ;; *) rm -f "$f" ;; esac
+  done
+  if [ "$ST" = "draft_review_required False" ]; then
+    led "F2.6" "PASS" "pin->review-only draft (enabled=False); only our new draft removed"
+  elif [ -n "$ERR" ]; then
+    led "F2.6" "NEEDS-SETUP" "pin could not run: $ERR (seed a host-named sanctioned capture)"
+  else
+    led "F2.6" "CHECK" "pin status: $ST"
+  fi
 else led "F2.6" "NEEDS-SETUP" "no captures on disk -- capture a sanctioned page first"; fi
 
-# F3.2 -- enable then restore the PRIOR value (envelope). Unset/None normalizes to
-# off; the JSON we send must be lowercase true/false (None is not valid JSON).
-drget(){ GET /api/global_config | "$PY" -c 'import sys,json;v=json.load(sys.stdin).get("automation.drift_repair_enabled");print("True" if v is True else "False")' 2>/dev/null; }
-B0="$(drget)"; [ "$B0" = "True" ] && REV=true || REV=false
-POST POST /api/global_config '{"automation.drift_repair_enabled": true}' >/dev/null
-E="$(drget)"
-POST POST /api/global_config "{\"automation.drift_repair_enabled\": $REV}" >/dev/null
-A0="$(drget)"
-[ "$E" = "True" ] && [ "$A0" = "$B0" ] && led "F3.2" "PASS" "flag enable->revert restored to $B0 (scheduled tick still owed)" \
-  || led "F3.2" "CHECK" "enable=$E restored=$A0 (expected $B0)"
+# F3.2 -- enable then restore via the DEDICATED toggle route. This is the canonical
+# lever (app_template_manager: POST /api/automation/drift_repair/toggle {enabled}
+# -> _gc.set_config(ENABLE_KEY); GET /api/automation/drift_repair reports the
+# authoritative `enabled`). The generic /api/global_config POST is the WRONG lever.
+# (Cross-agent review flagged this; verified against the route source.) Envelope:
+# read -> enable -> verify -> revert -> verify. Bails to CHECK if not a readable bool.
+dren(){ GET /api/automation/drift_repair | "$PY" -c 'import sys,json
+try: print("True" if json.load(sys.stdin).get("enabled") is True else "False")
+except Exception: print("ERR")' 2>/dev/null; }
+B0="$(dren)"
+if [ "$B0" != "True" ] && [ "$B0" != "False" ]; then led "F3.2" "CHECK" "GET /api/automation/drift_repair not a readable bool ($B0)"
+else
+  [ "$B0" = "True" ] && REV=true || REV=false
+  POST POST /api/automation/drift_repair/toggle '{"enabled": true}' >/dev/null
+  E="$(dren)"
+  POST POST /api/automation/drift_repair/toggle "{\"enabled\": $REV}" >/dev/null
+  A0="$(dren)"
+  { [ "$E" = "True" ] && [ "$A0" = "$B0" ]; } && led "F3.2" "PASS" "toggle enable->revert restored to $B0 (scheduled tick still owed)" \
+    || led "F3.2" "CHECK" "enable=$E restored=$A0 (expected $B0)"
+fi
 
 # F3.1 -- saved-search create -> confirm -> delete (envelope)
 POST POST /api/saved_searches '{"name":"opv-run-tmp","query":"failed","action":"enqueue","daily_cap":20}' >/dev/null
