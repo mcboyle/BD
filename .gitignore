@@ -18,6 +18,8 @@ __pycache__/
 # --- runtime state (BD_HOME): user data, history, credentials ---
 bd_home/
 *.db
+# pre-migration DB backup (migrations.py: <db> + ".premigration.bak") -- live history, never commit
+*.premigration.bak
 *.sqlite3
 app_config.json
 sites_config.json
