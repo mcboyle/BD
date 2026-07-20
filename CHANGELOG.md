@@ -4,6 +4,23 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. For pre-v3.46 history
 see [CHANGELOG_archive.md](CHANGELOG_archive.md).
 
+## v3.66.810 - MOD-1 Cut: predictive-relogin per-site knobs GUI-configurable (+ drop-on-reload fix)
+
+- predictive_relogin_enabled / predictive_relogin_fraction (the F1.4 predictor:
+  relogin at a fraction of the learned session-lifetime median) are read by
+  runner_auth.py from the per-site config but were absent from CFG_FIELDS. Two
+  bugs fixed: (1) DROP-ON-RELOAD -- _load_sites_config rebuilds each site as
+  {k: cfg_in.get(k, DEFAULTS.get(k,"")) for k in CFG_FIELDS}, so a key not in
+  CFG_FIELDS was silently dropped on restart; the feature could not persist
+  per-site. (2) NO GUI CONTROL. Both now in CFG_FIELDS + DEFAULTS (off / 0.8,
+  byte-identical to the pre-cut absent-key behaviour), categorized with the other
+  relogin fields (gated -> renders a control in the schema-driven site editor),
+  typed in site_editor (_FIELD_TYPES + NUMERIC_RANGES enforces the 0..1 fraction
+  at a direct PUT). Ledgered gui_exposure=full.
+- Version bump 3.66.810 (3 coupled edits + PIN_INDEX). RED-first with a bug-fix
+  guard that a value SURVIVES the CFG_FIELDS reload rebuild
+  (tests/test_mod1_c11_predictive_relogin_gui.py). Guards 7/7 unchanged.
+
 ## v3.66.809 - MOD-1 Cut: netns egress-isolation toggle becomes GUI-configurable
 
 - netns_isolation (the C-7 opt-in egress confinement: wg0 sole route,

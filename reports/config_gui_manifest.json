@@ -327,6 +327,8 @@
     "post_download_pipeline_first_match": "full",
     "post_download_timeout": "full",
     "pre_scrape_action": "full",
+    "predictive_relogin_enabled": "full",
+    "predictive_relogin_fraction": "full",
     "prelogin_minutes": "full",
     "proxy": "full",
     "push_on_failures": "full",

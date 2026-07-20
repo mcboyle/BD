@@ -108,6 +108,9 @@ NUMERIC_RANGES = {
     "auto_relogin_interval_hours": (1, 168),
     "warmup_every":         (0, 86400),
     "min_size_pct":         (0, 100),
+    # MOD-1 F1.4 (v3.66.810): predictive-relogin fraction is a 0..1 multiplier of
+    # the learned-lifetime median. Float-consumed (NOT in INT_TYPED_FIELDS).
+    "predictive_relogin_fraction": (0.0, 1.0),
 }
 
 # v3.66.527 (VR-P11 redirected): the subset of NUMERIC_RANGES whose runtime
@@ -562,6 +565,10 @@ _FIELD_TYPES = {
     "use_http_dl": ("boolean", "Use direct HTTP download when possible"),
     "sched_enabled": ("boolean", "Enable the per-site schedule"),
     "auto_relogin_enabled": ("boolean", "Enable auto-relogin"),
+    "predictive_relogin_enabled": ("boolean",
+        "Relogin predictively at a fraction of the learned session-lifetime median"),
+    "predictive_relogin_fraction": ("number",
+        "Fraction of the learned lifetime median to relogin at (0..1; default 0.8)"),
     "use_real_chrome": ("boolean", "Use a real Chrome binary"),
     "use_stealth": ("boolean", "Enable stealth anti-detection"),
     "use_stealth_library": ("boolean", "Use the stealth library"),

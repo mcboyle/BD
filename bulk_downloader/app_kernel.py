@@ -23,6 +23,10 @@ CFG_FIELDS=["name","login_url","username","password","user_field","pass_field","
             "ytdlp_concurrent_fragments","download_rate_limit",
             # v3.47.7: auto-relogin toggle + interval
             "auto_relogin_enabled","auto_relogin_interval_hours",
+            # MOD-1 F1.4 (v3.66.810): predictive relogin -- fire at fraction*median
+            # of LEARNED session lifetimes. In CFG_FIELDS so a per-site setting
+            # survives the _load_sites_config rebuild (was dropped before).
+            "predictive_relogin_enabled","predictive_relogin_fraction",
             "filename_template","use_http_dl","chunk_size_mb","skip_if_exists",
             "dismiss_selectors",
             # Phase 9: Cloudflare-resistance toggles. All default ON; user can
@@ -484,6 +488,10 @@ DEFAULTS={"wait":4,"delay":3,"max_concurrent":2,"max_retries":2,"no_button_thres
           # and the old behavior (silent failure on expiry) caused the
           # "login screen reappears even though it said online" bug.
           "auto_relogin_enabled":True,
+          # MOD-1 F1.4: predictive relogin off by default (byte-identical to the
+          # pre-cut behaviour where the key was absent); fraction 0.8 mirrors
+          # relogin_predict.DEFAULT_FRACTION.
+          "predictive_relogin_enabled":False,"predictive_relogin_fraction":0.8,
           "auto_relogin_interval_hours":12,
           "use_real_chrome":True,"use_stealth":True,"use_persistent_profile":True,
           # v3.43.56: opt-in playwright-stealth library integration.
