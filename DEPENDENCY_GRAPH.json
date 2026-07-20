@@ -2308,7 +2308,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1354,
+    "edge_count": 1356,
     "in": {
       "bulk_downloader/_envfile.py": [
         "bulk_downloader/__init__.py",
@@ -3143,7 +3143,8 @@
         "bulk_downloader/runner.py",
         "bulk_downloader/runner_browser.py",
         "bulk_downloader/selector_playground.py",
-        "bulk_downloader/session_keeper.py"
+        "bulk_downloader/session_keeper.py",
+        "bulk_downloader/takeover_vnc.py"
       ],
       "bulk_downloader/cluster_rate.py": [
         "bulk_downloader/app_cluster_rate.py",
@@ -3366,6 +3367,7 @@
         "tools/body_contract.py",
         "tools/body_contract_fixtures.py",
         "tools/dast_probe.py",
+        "tools/diag_csrf_bootstrap.py",
         "tools/queue_intelligence.py"
       ],
       "bulk_downloader/db_replication.py": [
@@ -6453,6 +6455,7 @@
       ],
       "bulk_downloader/takeover_vnc.py": [
         "bulk_downloader/captcha_relay.py",
+        "bulk_downloader/cloak.py",
         "bulk_downloader/netns_isolation.py",
         "bulk_downloader/runner_auth.py",
         "bulk_downloader/takeover.py"
@@ -6734,6 +6737,9 @@
       "tools/dependency_report.py": [
         "tools/environment_report.py"
       ],
+      "tools/diag_csrf_bootstrap.py": [
+        "bulk_downloader/db.py"
+      ],
       "tools/document_schemas.py": [
         "tools/template_inventory.py"
       ],
@@ -6975,6 +6981,7 @@
       "tools/config_surface_inventory.py",
       "tools/ct1_synth.py",
       "tools/dast_probe.py",
+      "tools/diag_csrf_bootstrap.py",
       "tools/endpoint_reachability.py",
       "tools/evidence_policy.py",
       "tools/gen_frontend_secret_keys.py",
@@ -7048,6 +7055,7 @@
       "tools/dast_probe.py",
       "tools/dependency_inventory.py",
       "tools/dependency_report.py",
+      "tools/diag_csrf_bootstrap.py",
       "tools/document_schemas.py",
       "tools/endpoint_reachability.py",
       "tools/environment_report.py",

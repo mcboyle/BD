@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 1354,
+  "edge_count": 1356,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1771,6 +1771,7 @@
     ],
     "bulk_downloader/takeover_vnc.py": [
       "bulk_downloader/captcha_relay.py",
+      "bulk_downloader/cloak.py",
       "bulk_downloader/netns_isolation.py",
       "bulk_downloader/runner_auth.py",
       "bulk_downloader/takeover.py"
@@ -2051,6 +2052,9 @@
     ],
     "tools/dependency_report.py": [
       "tools/environment_report.py"
+    ],
+    "tools/diag_csrf_bootstrap.py": [
+      "bulk_downloader/db.py"
     ],
     "tools/document_schemas.py": [
       "tools/template_inventory.py"

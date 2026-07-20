@@ -9,9 +9,13 @@ Two leak vectors, both closed by construction (verify, do not assume):
    default-drop) becomes its only route, FAIL-CLOSED (if isolation is required
    but the netns can't be created, the launch RAISES -- never uncontained).
 
+The takeover browser launches THROUGH cloak (cloak.launch_browser), never a raw
+pw.chromium.launch -- cloak applies the netns shim (containment) and its
+anti-automation launch (the cloak-parity gate, test_v3_66_285, enforces this).
+
 RED on pristine @805: resolve_vnc_display keeps the host part (":evil-host:7"),
-_contained_launch_kwargs does not exist, and VncTakeoverSession launches raw
-(bypassing capture_netns), so a fail-closed netns failure does NOT stop it.
+and VncTakeoverSession launches raw (bypassing capture_netns), so a fail-closed
+netns failure does NOT stop it.
 """
 from __future__ import annotations
 
@@ -42,22 +46,40 @@ def test_display_is_always_unix_domain_no_host():
     assert tv.resolve_vnc_display({"captcha_vnc_display": "junk"}) == ":5"
 
 
-# ── 2. the launch is routed through the netns shim when contained ─────────────
+# ── 2. the launch goes THROUGH cloak (never raw), headful, netns-aware ────────
 
-def test_launch_kwargs_uncontained_when_ns_none():
-    kw = tv._contained_launch_kwargs(None, ":5", "/opt/chrome", ["--a"])
-    assert kw["headless"] is False
-    assert kw["executable_path"] == "/opt/chrome"     # normal launch, no shim
-    assert "NETNS_NS" not in kw["env"]
-    assert kw["env"]["DISPLAY"] == ":5"               # unix form always
+def test_launch_routes_through_cloak_with_unix_display_and_netns(monkeypatch):
+    import contextlib
+    from bulk_downloader import cloak
+    _reset()
+    tv._session_factory = tv.VncTakeoverSession       # the REAL session
 
+    @contextlib.contextmanager
+    def _capture(cfg, kind, ident, **kw):
+        yield "bd_takeover_xyz"                        # pretend isolation is on
+    monkeypatch.setattr(ni, "capture_netns", _capture)
 
-def test_launch_kwargs_routes_through_shim_when_contained():
-    kw = tv._contained_launch_kwargs("bd_takeover_dead", ":5", "/opt/chrome", ["--a"])
-    assert "shim" in kw["executable_path"]            # exec the netns shim, not chrome
-    assert kw["env"]["NETNS_NS"] == "bd_takeover_dead"
-    assert kw["env"]["NETNS_BROWSER_BIN"] == "/opt/chrome"  # shim execs the real browser
-    assert kw["env"]["DISPLAY"] == ":5"
+    calls = {}
+
+    class _FakeBrowser:
+        def new_page(self):
+            return type("P", (), {"goto": lambda self, u: None})()
+        def is_connected(self):
+            return True
+        def close(self):
+            pass
+
+    def _fake_launch(**kw):
+        calls.update(kw)
+        return _FakeBrowser(), None, "playwright"      # cloak-parity: THIS is the seam
+    monkeypatch.setattr(cloak, "launch_browser", _fake_launch)
+
+    tv.launch({"captcha_vnc_display": "evil-host:5"}, "vnc-cloak")
+    assert calls["headless"] is False                 # headful on X
+    assert calls["netns"] == "bd_takeover_xyz"         # egress confinement threaded
+    assert calls["env"]["DISPLAY"] == ":5"             # unix form, host stripped
+    tv.teardown("vnc-cloak")
+    _reset()
 
 
 # ── 3. FAIL-CLOSED: a required-but-unavailable netns must stop the launch ─────
