@@ -13,7 +13,7 @@
 #
 # Opt OUT of a group by setting its flag to 1 (each named in full so the
 # config-surface scanner can ledger them):
-#   BD_SKIP_BROWSERS  BD_SKIP_AUDIT  BD_SKIP_NET  BD_SKIP_SECTOOLS  BD_SKIP_EXTRAS  BD_SKIP_CLOAK
+#   BD_SKIP_BROWSERS  BD_SKIP_AUDIT  BD_SKIP_NET  BD_SKIP_SECTOOLS  BD_SKIP_EXTRAS  BD_SKIP_CLOAK  BD_SKIP_ARCHB
 # Nothing is opt-in; the default installs the lot (~10-14 min, several GB).
 
 set -uo pipefail   # deliberately NOT -e: a failed step must be RECORDED, not
@@ -109,6 +109,7 @@ skip(){
     NET)      [ "${BD_SKIP_NET:-0}"      = "1" ] ;;
     SECTOOLS) [ "${BD_SKIP_SECTOOLS:-0}" = "1" ] ;;
     EXTRAS)   [ "${BD_SKIP_EXTRAS:-0}"   = "1" ] ;;
+    ARCHB)    [ "${BD_SKIP_ARCHB:-0}"    = "1" ] ;;
     *)        return 1 ;;
   esac
 }
@@ -253,6 +254,35 @@ else
                                      libcairo2 libgirepository-1.0-1
   step "misc tooling" optional apt_i pypy3 caddy postgresql-client patchelf
   step "profiling"    optional ./venv/bin/pip install -q py-spy
+fi
+
+# ========================================================= 7b. arch b (kasmvnc)
+# MOD-1 remote_vnc captcha takeover: the KasmVNC display server + web client.
+# Deps are ordinary X libs (no kernel module), so it installs on any host. Two
+# pieces are load-bearing and were learned by breaking them:
+#   - kasmvncserver reads /etc/ssl/private/ssl-cert-snakeoil.key at startup and
+#     DIES (no log, no display) if the invoking user cannot read it -- the key is
+#     root:ssl-cert 640, so generate it AND add the user to the ssl-cert group.
+#   - the github .deb is repo-scope blocked in the Claude sandbox (403) -> this is
+#     `optional`, so a blocked pull degrades to a WARN instead of failing the run;
+#     on a normal host (stash) it installs.
+if skip ARCHB; then
+  row "arch b (kasmvnc)" "WARN" "skipped via BD_SKIP_ARCHB -- remote_vnc takeover CANNOT run"
+else
+  step "kasmvnc" optional bash -c "command -v kasmvncserver >/dev/null || { curl -sSLf -o /tmp/kasm.deb https://github.com/kasmtech/KasmVNC/releases/download/v1.4.0/kasmvncserver_noble_1.4.0_amd64.deb && $SUDO apt-get install -y /tmp/kasm.deb; }"
+  step "snakeoil cert"  optional bash -c "$SUDO make-ssl-cert generate-default-snakeoil --force-overwrite"
+  step "ssl-cert group" optional bash -c "$SUDO usermod -aG ssl-cert \"\$(id -un)\""
+fi
+
+# ==================================================== 7c. reconcile inventories
+# gui_parity_inventory.json is gitignored and build-time generated; the
+# gui-parity RECONCILE gate compares the shipped inventory to a fresh regen, so a
+# stale one (any new tool / route / env var, e.g. BD_SKIP_ARCHB above) reads as
+# drift and fails the full suite. Regenerate it HERE, in the deploy venv, so the
+# shipped artifact matches a same-environment regen by construction. Needs the app
+# venv (full deps), so it runs after the browser/dep steps.
+if [ "$HAVE_REPO" = 1 ] && [ -x ./venv/bin/python ]; then
+  step "gui-parity inventory" optional ./venv/bin/python tools/gui_parity_inventory.py
 fi
 
 # ================================================================ 8. runtime

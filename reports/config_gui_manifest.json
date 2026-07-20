@@ -79,6 +79,7 @@
     "BD_SECRETS_AUDIT_SINK": "full",
     "BD_SESSION_KEEPER_USE_CLOAKBROWSER": "full",
     "BD_SITES_CONFIG_PATH": "display-only",
+    "BD_SKIP_ARCHB": "display-only",
     "BD_SKIP_AUDIT": "display-only",
     "BD_SKIP_BROWSERS": "display-only",
     "BD_SKIP_CLOAK": "display-only",
