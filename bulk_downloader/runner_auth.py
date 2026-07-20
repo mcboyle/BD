@@ -33,14 +33,16 @@ def _finite_config_float(raw, default):
     return v
 
 
-_TAKEOVER_MODES = ("visible", "remote")
+_TAKEOVER_MODES = ("visible", "remote", "remote_vnc")
 
 
 def _resolve_takeover_mode(config: dict) -> str:
-    """MOD-1 A-4: resolve how a captcha solve session presents. Reads
+    """MOD-1 A-4 / C-2: resolve how a captcha solve session presents. Reads
     `captcha_takeover_mode` from the merged config; anything not in
-    {visible, remote} falls back to 'visible' (the human/server-display path),
-    so a typo or a future value can never silently disable the fallback."""
+    {visible, remote, remote_vnc} falls back to 'visible' (the human/server-
+    display path), so a typo or a future value can never silently disable the
+    fallback. This is the REQUESTED mode; _resolve_effective_mode applies the
+    self-downgrade ladder to it."""
     mode = str((config or {}).get("captcha_takeover_mode", "visible") or "visible").strip().lower()
     return mode if mode in _TAKEOVER_MODES else "visible"
 
@@ -79,6 +81,67 @@ def _remote_admitted(config: dict, active_count: int) -> bool:
     return (_resolve_takeover_mode(config) == "remote"
             and _takeover_enabled(config)
             and active_count < _takeover_max_concurrent(config))
+
+
+# ── MOD-1 C-2: remote_vnc capability probe + the self-downgrade ladder ───────
+
+_vnc_probe = None  # Optional[Callable[[dict], tuple[bool, str]]]; wired at C-4.
+
+
+def register_vnc_probe(fn) -> None:
+    """MOD-1 C-2: inject the DERIVED vnc-availability probe
+    fn(config) -> (available: bool, reason: str). app.py wires the real probe at
+    C-4 -- it must OBSERVE the Xvnc/KasmVNC endpoint and never trust a config
+    flag claiming the stack is installed. Tests inject to exercise the ladder."""
+    global _vnc_probe
+    _vnc_probe = fn
+
+
+def _vnc_available(config: dict):
+    """MOD-1 C-2: (available, reason) for the vnc takeover stack. DERIVED, not
+    asserted. Delegates to the wired probe; with no probe (the default until
+    C-4) it is a stub returning unavailable, so remote_vnc downgrades to remote
+    and behaviour is unchanged. A probe that raises or cannot determine the
+    state returns available=False -- UNKNOWN DOWNGRADES, never assume vnc works."""
+    if _vnc_probe is None:
+        return (False, "vnc backend not provisioned")
+    try:
+        available, reason = _vnc_probe(config)
+    except Exception:
+        return (False, "vnc probe error")
+    return (bool(available), str(reason or ("" if available else "vnc unavailable")))
+
+
+def _resolve_effective_mode(config: dict, active_count: int):
+    """MOD-1 C-2: the self-downgrade ladder. Returns (effective_mode, reason)
+    where reason is "" iff effective == requested, else a non-empty operator-
+    facing explanation (a silent downgrade is a lie by omission, plan 1.2):
+
+        remote_vnc --(stack absent | probe unknown)--> remote
+        remote     --(kill-switch off | over cap)-----> visible
+        visible    = always available, never blocked
+
+    The kill-switch masters BOTH remote paths (plan 4.2, fail-closed); ONE
+    shared cap governs both (plan 4.3). _remote_admitted is kept intact for A --
+    this composes the same gates, it does not rewrite them."""
+    requested = _resolve_takeover_mode(config)
+    if requested == "visible":
+        return ("visible", "")
+    # requested is remote or remote_vnc -- both mastered by the kill-switch + cap.
+    if not _takeover_enabled(config):
+        return ("visible",
+                f"requested {requested}, running visible (takeover kill-switch off)")
+    if active_count >= _takeover_max_concurrent(config):
+        return ("visible",
+                f"requested {requested}, running visible (over concurrency cap)")
+    if requested == "remote":
+        return ("remote", "")
+    # requested == remote_vnc: needs the derived stack; unknown/absent -> remote.
+    available, why = _vnc_available(config)
+    if available:
+        return ("remote_vnc", "")
+    return ("remote",
+            f"requested remote_vnc, running remote ({why or 'vnc unavailable'})")
 
 
 class AuthMixin:
