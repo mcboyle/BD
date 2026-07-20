@@ -4,6 +4,37 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. For pre-v3.46 history
 see [CHANGELOG_archive.md](CHANGELOG_archive.md).
 
+## v3.66.806 - MOD-1 Arch B (remote_vnc / KasmVNC) coexist path + config-parity repair
+
+MOD-1 coexist C-series (Arch B captcha takeover over KasmVNC), all RED-first,
+seven SHA-pinned guard files unchanged, verified live against KasmVNC 1.4.0:
+
+- C-4b: wire the C-2 self-downgrade ladder into the runtime admission path, so
+  captcha_takeover_mode=remote_vnc is a VISIBLE downgrade to remote (with a
+  reason) instead of a silent dead toggle. remote/visible paths byte-identical.
+- C-5: the remote_vnc transport (bulk_downloader/takeover_vnc.py) -- a dedicated
+  headful browser on its own Xvnc display, bound into the C-1 registry as
+  kind="vnc" so the one shared cap and the no-orphan sweep both count it, with a
+  DERIVED capability probe (observes the endpoint, UNKNOWN downgrades) and a
+  sweep census.
+- C-6: cockpit KasmVNC viewer embed + effective-mode/reason readout. PendingCaptcha
+  gains mode/mode_reason/vnc_url so the polled cockpit shows what is running and
+  why it downgraded; TakeoverViewer renders KasmVNC in an iframe for remote_vnc.
+- C-7 (KASM-T8): egress containment for the takeover browser -- unix-domain X by
+  construction (no X-over-TCP) and launch through the netns fail-closed path so
+  wg0 (or default-drop) is the sole route. Verified: external egress from inside
+  the namespace is blocked while the X unix socket stays reachable.
+
+Repo + config-parity repair:
+
+- Track the reports/ parity baselines (config_gui_manifest, config_parity_baseline,
+  legacy_parity_baseline) that the blanket reports/ gitignore had silently dropped
+  from git -- the missing baselines were what made the parity gates fail as if
+  environmental. Generated inventories stay ignored; vapid_keys.json now ignored.
+- Ledger the cloud-setup.sh bootstrap flags (BD_SKIP_* opt-outs, BD_REPO_CANDIDATES)
+  and the BD_VNC_CHROME deploy pin; rewrote skip() to name each flag explicitly so
+  the scanner no longer sees a bare BD_SKIP_ token. open_runtime_tunable back to 0.
+
 ## v3.66.805 - plugin quarantine state honours BD_HOME (out of the install tree)
 
 - plugins.py::_quarantine_state_path() no longer anchors the quarantine state
