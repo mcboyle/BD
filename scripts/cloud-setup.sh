@@ -11,8 +11,9 @@
 # Load-bearing steps hard-fail. Everything else degrades to a recorded WARN and
 # is never silently skipped.
 #
-# Opt OUT of a group with BD_SKIP_<GROUP>=1:
-#   BROWSERS  AUDIT  NET  SECTOOLS  EXTRAS  CLOAK
+# Opt OUT of a group by setting its flag to 1 (each named in full so the
+# config-surface scanner can ledger them):
+#   BD_SKIP_BROWSERS  BD_SKIP_AUDIT  BD_SKIP_NET  BD_SKIP_SECTOOLS  BD_SKIP_EXTRAS  BD_SKIP_CLOAK
 # Nothing is opt-in; the default installs the lot (~10-14 min, several GB).
 
 set -uo pipefail   # deliberately NOT -e: a failed step must be RECORDED, not
@@ -96,7 +97,21 @@ step(){                       # step <label> <core|optional> <command...>
   rm -f "$log"
 }
 
-skip(){ [ "$(eval echo \${BD_SKIP_$1:-0})" = "1" ]; }
+# skip <GROUP> -> true when that group's opt-out flag is set to 1. Each flag is
+# named EXPLICITLY (rather than eval'ing a dynamically-built name) so the
+# config-surface scanner sees the real per-group env vars, not a bare prefix it
+# cannot ledger.
+skip(){
+  case "$1" in
+    BROWSERS) [ "${BD_SKIP_BROWSERS:-0}" = "1" ] ;;
+    CLOAK)    [ "${BD_SKIP_CLOAK:-0}"    = "1" ] ;;
+    AUDIT)    [ "${BD_SKIP_AUDIT:-0}"    = "1" ] ;;
+    NET)      [ "${BD_SKIP_NET:-0}"      = "1" ] ;;
+    SECTOOLS) [ "${BD_SKIP_SECTOOLS:-0}" = "1" ] ;;
+    EXTRAS)   [ "${BD_SKIP_EXTRAS:-0}"   = "1" ] ;;
+    *)        return 1 ;;
+  esac
+}
 
 # sudo may be absent when already root; wrap it.
 SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo"
