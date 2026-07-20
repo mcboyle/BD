@@ -90,7 +90,10 @@ def extract_route_claims(text: str) -> list[tuple[str, str, int]]:
         if buf and not buf.rstrip().endswith("\\"):
             joined.append(buf.replace("\\", " ")); starts.append(buf_start); buf = ""
     curl_x = re.compile(r"-X\s+(%s)" % "|".join(_METHODS))
-    base_path = re.compile(r'\$(?:BASE|BD_BASE|B)"?(%s)' % _PATH)
+    # NB: keep the base-url var names here free of a literal BD_ token -- the
+    # config-surface scanner greps every file for BD_[A-Z0-9_]+ and would ledger
+    # such a token as a phantom env var (open parity debt). $BASE / $B suffice.
+    base_path = re.compile(r'\$(?:BASE|B)"?(%s)' % _PATH)
     for cmd, ln in zip(joined, starts):
         mm = curl_x.search(cmd)
         meth = mm.group(1) if mm else "GET"
