@@ -139,8 +139,12 @@ _FRAME_QUEUE_MAX = 4  # small: screencast is newest-wins, not a backlog
 
 
 class SessionChannel:
-    def __init__(self, sid: str):
+    def __init__(self, sid: str, kind: str = "cdp"):
         self.sid = sid
+        # MOD-1 C-1: transport tag. "cdp" = SSE screencast + CDP input (the
+        # frame/input plumbing below); "vnc" = KasmVNC (uses none of it, but
+        # lives in the SAME registry so the cap and the sweep still see it).
+        self.kind = kind
         self.frames: "_queue.Queue[str]" = _queue.Queue(maxsize=_FRAME_QUEUE_MAX)
         self.inputs: "_queue.Queue[dict]" = _queue.Queue()
         self.closed = _threading.Event()
@@ -174,12 +178,16 @@ _shared_bucket = InputRateBucket()
 _takeover_total = 0
 
 
-def open_channel(sid: str) -> SessionChannel:
+def open_channel(sid: str, kind: str = "cdp") -> SessionChannel:
+    """Register (or reuse) a takeover channel for `sid`. MOD-1 C-1: `kind` tags
+    the transport ("cdp" | "vnc") so ONE registry spans both -- the concurrency
+    cap and the no-orphan sweep count a vnc session even though it uses none of
+    the frame/input plumbing. Do not fork the registry (plan 1.3)."""
     global _takeover_total
     with _channels_lock:
         ch = _channels.get(sid)
         if ch is None or ch.closed.is_set():
-            ch = SessionChannel(sid)
+            ch = SessionChannel(sid, kind=kind)
             _channels[sid] = ch
             _takeover_total += 1  # A-5c: a new stream was opened
         return ch
@@ -188,6 +196,14 @@ def open_channel(sid: str) -> SessionChannel:
 def get_channel(sid: str):
     with _channels_lock:
         return _channels.get(sid)
+
+
+def channel_kind(sid: str):
+    """MOD-1 C-1: the transport kind of an open channel ("cdp"|"vnc"), or None
+    if no such channel. Thread-safe."""
+    with _channels_lock:
+        ch = _channels.get(sid)
+        return ch.kind if ch is not None else None
 
 
 def close_channel(sid: str) -> None:
@@ -272,19 +288,28 @@ def drain_inputs(sid: str, max_n: int = 32) -> list:
     return out
 
 
-def active_channel_count() -> int:
+def active_channel_count(kind: str | None = None) -> int:
     """A-5a: number of open takeover channels == active remote solve sessions.
-    Used by the concurrency-cap admission check. Thread-safe."""
+    Used by the concurrency-cap admission check. MOD-1 C-1: the default (kind
+    None) spans BOTH transports so ONE cap governs cdp+vnc (operator attention
+    is the shared scarce resource, plan 4.3); pass kind to count one transport.
+    Thread-safe."""
     with _channels_lock:
-        return len(_channels)
+        if kind is None:
+            return len(_channels)
+        return sum(1 for ch in _channels.values() if ch.kind == kind)
 
 
-def list_channel_sids() -> list:
-    """A-5b: the sids of ALL open channels. The no-orphan sweep's denominator
-    for the channel surface -- every open channel, not just the ones the
-    registry remembers (A5-R3). Thread-safe snapshot."""
+def list_channel_sids(kind: str | None = None) -> list:
+    """A-5b: the sids of open channels. The no-orphan sweep's denominator for
+    the channel surface -- every open channel, not just the ones the registry
+    remembers (A5-R3). MOD-1 C-1: the default (kind None) spans BOTH transports
+    so a vnc session is swept like a cdp one; pass kind to snapshot one
+    transport. Thread-safe snapshot."""
     with _channels_lock:
-        return list(_channels.keys())
+        if kind is None:
+            return list(_channels.keys())
+        return [s for s, ch in _channels.items() if ch.kind == kind]
 
 
 def takeover_total() -> int:

@@ -5,9 +5,14 @@ Collects the network-namespace evidence for a PID: the net-ns inode (from
 /proc/<pid>/ns/net), the host's own inode for comparison, interface list, and
 route/DNS reachability where inspectable. A process is CONFINED iff its net-ns
 inode differs from the host's. In-sandbox we can read our own + a child PID's
-inode (real evidence); actually CREATING a netns needs CAP_NET_ADMIN (stash) --
-so --logic-only verifies the comparison logic against synthetic inodes without
-requiring privilege. Read-only.
+inode (real evidence). Whether this environment can CREATE a netns is DERIVED,
+not asserted: the report attempts to add+delete a throwaway netns and reports
+one of three states (works / lacks-capability / unknown) -- capability varies by
+environment (it works in the Claude Code cloud env, is stash-only on some hosts),
+so a hardcoded "(stash-only)" verdict under-reports what is actually testable.
+`--logic-only` verifies the comparison logic against synthetic inodes without
+privilege. The confinement evidence is read-only; the create-probe leaves no
+residue (it deletes the throwaway netns it makes).
 
 A verdict has THREE states: confined / shared / unknown. An unreadable ns
 inode is UNKNOWN -- it is never reported as "shares host net namespace"; a
@@ -48,14 +53,43 @@ def host_inode():
     return ns_inode(1) or ns_inode("self")
 
 
-def evidence(pid):
+def netns_create_probe():
+    """DERIVED capability check: actually try to create+delete a throwaway netns
+    and report which of THREE states holds -- never asserts a hardcoded verdict,
+    never leaves a stray netns. (state, detail) with state in
+    {works, lacks-capability, unknown}. 'Probe by doing': capsh may list
+    cap_net_admin in the bounding set where it is nonetheless unusable, so the
+    only honest test is to create a namespace and delete it."""
+    import shutil
+    if shutil.which("ip") is None:
+        return ("unknown", "ip(8) absent -- cannot probe")
+    name = "_bdnsprobe_%d" % os.getpid()
+    try:
+        add = subprocess.run(["ip", "netns", "add", name],
+                             capture_output=True, text=True, timeout=5)
+    except Exception as e:
+        return ("unknown", f"probe raised: {type(e).__name__}")
+    if add.returncode == 0:
+        subprocess.run(["ip", "netns", "del", name], capture_output=True, timeout=5)
+        return ("works", "created + deleted a throwaway netns")
+    err = (add.stderr or "").strip()
+    low = err.lower()
+    if "operation not permitted" in low or "permission denied" in low:
+        return ("lacks-capability", err[:80] or "operation not permitted")
+    return ("unknown", err[:80] or f"exit {add.returncode}")
+
+
+def evidence(pid, probe_create=False):
     self_ino = ns_inode(pid)
     host_ino = host_inode()
     logic = confinement_logic(self_ino, host_ino)
     ev = {"pid": pid, "ns_inode": self_ino, "host_ns_inode": host_ino,
           "confined": logic["confined"], "verdict": logic["verdict"],
           "reason": logic["reason"],
-          "interfaces": [], "netns_toolchain": None}
+          "interfaces": [], "netns_toolchain": None, "netns_create": None}
+    # DERIVED create-capability (opt-in so --gate loops do not churn netns).
+    if probe_create:
+        ev["netns_create"] = netns_create_probe()
     # interface list (best-effort, from the pid's ns via ip if privileged)
     import shutil
     ev["netns_toolchain"] = shutil.which("ip") is not None
@@ -140,6 +174,14 @@ def selftest():
     # 4. real module's is_supported agrees on toolchain presence
     print(("PASS" if ev["netns_toolchain"] is not None else "FAIL") +
           f"  netns toolchain probed (ip present={ev['netns_toolchain']})")
+    # 5. DERIVED create-probe: yields one of the THREE states and leaves no
+    # residue -- replaces the old hardcoded "(stash-only)" assertion.
+    state, _detail = netns_create_probe()
+    valid = state in ("works", "lacks-capability", "unknown")
+    residue = os.path.exists(f"/run/netns/_bdnsprobe_{os.getpid()}")
+    print(("PASS" if (valid and not residue) else "FAIL") +
+          f"  netns-create DERIVED not asserted (state={state}, no residue={not residue})")
+    ok &= valid and not residue
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
     return 0 if ok else 1
 
@@ -189,7 +231,7 @@ def main():
             print(R + f"logic-only: {bad} comparator case(s) wrong" + RST)
             return 1
         return 0
-    ev = evidence(a.pid)
+    ev = evidence(a.pid, probe_create=not a.gate)
     if sec.emit(ev, as_json=a.json):
         if a.gate:
             if ev["verdict"] == "unknown":
@@ -203,8 +245,9 @@ def main():
     print(f"  net-ns inode: {ev['ns_inode']}  (host: {ev['host_ns_inode']})")
     print(f"  {DIM}{ev['reason']}{RST}")
     print(f"  interfaces: {', '.join(ev['interfaces']) or '(none/unreadable)'}")
+    nc = ev.get("netns_create") or ("unknown", "not probed")
     print(f"  {DIM}netns toolchain present: {ev['netns_toolchain']}; "
-          f"creating a netns needs CAP_NET_ADMIN (stash-only){RST}")
+          f"netns creation here: {nc[0]} ({nc[1]}){RST}")
     if a.gate:
         if ev["verdict"] == "unknown":
             print(R + f"GATE FAIL -- verdict UNKNOWN (expected {a.expect}); "

@@ -9,6 +9,8 @@ Usage:
 Exit 1 on any problem, else 0.
 """
 import argparse, os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # for DEFAULT_WORK (resolves the repo root on a clone)
 
 def tree_version(tree):
     try:
@@ -41,7 +43,7 @@ def selftest():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tree","--work", default="/home/claude/work")
+    ap.add_argument("--tree","--work", default=sec.DEFAULT_WORK)
     ap.add_argument("--changelog", default=None)
     ap.add_argument("--selftest", action="store_true",
                    help="real fault-injection selftest")

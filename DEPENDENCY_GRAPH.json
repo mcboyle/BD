@@ -2215,6 +2215,7 @@
         "bulk_downloader/shares.py",
         "bulk_downloader/shortcuts.py",
         "bulk_downloader/stream_relay.py",
+        "bulk_downloader/takeover_vnc.py",
         "bulk_downloader/template_canary.py",
         "tools/adversarial_probe.py",
         "tools/autonomy_center.py",
@@ -2307,7 +2308,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1349,
+    "edge_count": 1356,
     "in": {
       "bulk_downloader/_envfile.py": [
         "bulk_downloader/__init__.py",
@@ -3024,7 +3025,8 @@
         "bulk_downloader/app.py",
         "bulk_downloader/app_captcha_relay.py",
         "bulk_downloader/login_impl/manual.py",
-        "bulk_downloader/runner.py"
+        "bulk_downloader/runner.py",
+        "bulk_downloader/takeover_vnc.py"
       ],
       "bulk_downloader/captcha_resolver.py": [
         "bulk_downloader/runner_challenge.py"
@@ -3141,7 +3143,8 @@
         "bulk_downloader/runner.py",
         "bulk_downloader/runner_browser.py",
         "bulk_downloader/selector_playground.py",
-        "bulk_downloader/session_keeper.py"
+        "bulk_downloader/session_keeper.py",
+        "bulk_downloader/takeover_vnc.py"
       ],
       "bulk_downloader/cluster_rate.py": [
         "bulk_downloader/app_cluster_rate.py",
@@ -3834,7 +3837,8 @@
       "bulk_downloader/netns_isolation.py": [
         "bulk_downloader/cloak.py",
         "bulk_downloader/runner.py",
-        "bulk_downloader/runner_extractors.py"
+        "bulk_downloader/runner_extractors.py",
+        "bulk_downloader/takeover_vnc.py"
       ],
       "bulk_downloader/notify_apprise.py": [
         "bulk_downloader/app.py",
@@ -4035,7 +4039,8 @@
         "bulk_downloader/runner.py"
       ],
       "bulk_downloader/runner_auth.py": [
-        "bulk_downloader/runner.py"
+        "bulk_downloader/runner.py",
+        "bulk_downloader/takeover_vnc.py"
       ],
       "bulk_downloader/runner_browser.py": [
         "bulk_downloader/runner.py"
@@ -4267,6 +4272,11 @@
       "bulk_downloader/takeover.py": [
         "bulk_downloader/captcha_relay.py",
         "bulk_downloader/metrics_prom.py",
+        "bulk_downloader/runner_auth.py",
+        "bulk_downloader/takeover_vnc.py"
+      ],
+      "bulk_downloader/takeover_vnc.py": [
+        "bulk_downloader/app.py",
         "bulk_downloader/runner_auth.py"
       ],
       "bulk_downloader/template_assist.py": [
@@ -4926,6 +4936,7 @@
         "bulk_downloader/shares.py",
         "bulk_downloader/storage_tier.py",
         "bulk_downloader/stream_relay.py",
+        "bulk_downloader/takeover_vnc.py",
         "bulk_downloader/templates.py",
         "bulk_downloader/tg_bot.py",
         "bulk_downloader/thumbnail_gen.py",
@@ -6216,7 +6227,8 @@
         "bulk_downloader/profile_sync.py",
         "bulk_downloader/relogin_predict.py",
         "bulk_downloader/session_keeper.py",
-        "bulk_downloader/takeover.py"
+        "bulk_downloader/takeover.py",
+        "bulk_downloader/takeover_vnc.py"
       ],
       "bulk_downloader/runner_browser.py": [
         "bulk_downloader/cloak.py",
@@ -6440,6 +6452,13 @@
       "bulk_downloader/tags.py": [
         "bulk_downloader/db.py",
         "bulk_downloader/tag_inference.py"
+      ],
+      "bulk_downloader/takeover_vnc.py": [
+        "bulk_downloader/captcha_relay.py",
+        "bulk_downloader/cloak.py",
+        "bulk_downloader/netns_isolation.py",
+        "bulk_downloader/runner_auth.py",
+        "bulk_downloader/takeover.py"
       ],
       "bulk_downloader/template_assist.py": [
         "bulk_downloader/selector_library.py",
@@ -6993,7 +7012,7 @@
       "tools/workflow_diagnostic.py",
       "tools/wow_promote_golden.py"
     ],
-    "total": 216,
+    "total": 217,
     "with_edges": [
       "tools/_probe_lib.py",
       "tools/adversarial_probe.py",

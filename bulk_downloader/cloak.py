@@ -387,7 +387,8 @@ def open_persistent_context(
     if netns:
         pw_shim, pw_env = _netns_launch_plan(netns, PLAYWRIGHT)
         pw_extra["executable_path"] = pw_shim
-        pw_extra["env"] = pw_env
+        _caller_env = pw_extra.get("env")   # preserve caller env (e.g. DISPLAY)
+        pw_extra["env"] = {**pw_env, **_caller_env} if _caller_env else pw_env
     pw = sync_playwright().start()
     try:
         context = pw.chromium.launch_persistent_context(
@@ -475,7 +476,11 @@ def launch_browser(
     if netns:
         pw_shim, pw_env = _netns_launch_plan(netns, PLAYWRIGHT)
         launch_kwargs["executable_path"] = pw_shim
-        launch_kwargs["env"] = pw_env
+        # Preserve caller-supplied env keys (e.g. DISPLAY for a headful-on-X
+        # takeover) on top of the netns env; NETNS_* still win since they are only
+        # in pw_env. No-op for the existing callers, which pass no env with netns.
+        _caller_env = launch_kwargs.get("env")
+        launch_kwargs["env"] = {**pw_env, **_caller_env} if _caller_env else pw_env
     pw = sync_playwright().start()
     try:
         browser = pw.chromium.launch(headless=headless, args=args, **launch_kwargs)

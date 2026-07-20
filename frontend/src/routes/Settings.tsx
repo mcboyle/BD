@@ -1406,7 +1406,7 @@ export function Settings() {
             />
             <SettingRow
               label="Captcha takeover mode"
-              hint="How a captcha solve session presents. 'Visible' opens the solve browser on the server display (default). 'Remote' opens it headless and streams it to this cockpit so you can solve the challenge here."
+              hint="How a captcha solve session presents. 'Visible' opens the solve browser on the server display (default). 'Remote' opens it headless and streams it to this cockpit over CDP so you can solve the challenge here. 'Remote VNC' streams a live KasmVNC display with real X input (harder to fingerprint as non-human, at the cost of a heavier stack and a different display fingerprint); it needs the VNC display stack and falls back to Remote when that stack is absent."
               control={
                 <select
                   value={draft.captcha_takeover_mode ?? "visible"}
@@ -1415,6 +1415,7 @@ export function Settings() {
                 >
                   <option value="visible">Visible (server display)</option>
                   <option value="remote">Remote (cockpit takeover)</option>
+                  <option value="remote_vnc">Remote VNC (KasmVNC)</option>
                 </select>
               }
             />

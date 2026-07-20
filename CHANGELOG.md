@@ -4,6 +4,57 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. For pre-v3.46 history
 see [CHANGELOG_archive.md](CHANGELOG_archive.md).
 
+## v3.66.807 - MOD-1 C-8 fingerprint measurement + the box-only fixes that greened 806
+
+- MOD-1 C-8 (KASM-T10): tools/kasm_fingerprint_probe.py measures whether the
+  live-X (KasmVNC) takeover browser presents a materially worse fingerprint than
+  headless -- the counter-tell for Arch B. It launches headful-on-X vs headless
+  with the real takeover anti-automation args and diffs the bot-check surface
+  (WebGL vendor/renderer, screen, cores, webdriver, UA, canvas hash). Honest
+  about its floor: on a GPU-less host both modes report a software renderer, so it
+  flags gpu_less_run and states the result understates the real-hardware
+  magnitude. RED-first unit tests on the diff/verdict logic; verified live against
+  KasmVNC. The magnitude needs real GPU hardware:
+  `python tools/kasm_fingerprint_probe.py --display :5 --json c8.json`.
+- Folds in the 5 box-only failures the Python-3.12 full suite caught on 806 (they
+  landed after the 806 CHANGELOG entry): graph/index artifacts re-frozen under
+  3.12 (the 3.11 sandbox could not parse the 3.12-only f-string in
+  tools/diag_csrf_bootstrap.py, dropping its edges); takeover_vnc routed through
+  cloak.launch_browser (cloak-parity) with cloak preserving a caller DISPLAY on
+  the netns path; BD_VNC_CHROME ledgered as host-managed in the envfile editor.
+- Guard files 7/7 unchanged.
+
+## v3.66.806 - MOD-1 Arch B (remote_vnc / KasmVNC) coexist path + config-parity repair
+
+MOD-1 coexist C-series (Arch B captcha takeover over KasmVNC), all RED-first,
+seven SHA-pinned guard files unchanged, verified live against KasmVNC 1.4.0:
+
+- C-4b: wire the C-2 self-downgrade ladder into the runtime admission path, so
+  captcha_takeover_mode=remote_vnc is a VISIBLE downgrade to remote (with a
+  reason) instead of a silent dead toggle. remote/visible paths byte-identical.
+- C-5: the remote_vnc transport (bulk_downloader/takeover_vnc.py) -- a dedicated
+  headful browser on its own Xvnc display, bound into the C-1 registry as
+  kind="vnc" so the one shared cap and the no-orphan sweep both count it, with a
+  DERIVED capability probe (observes the endpoint, UNKNOWN downgrades) and a
+  sweep census.
+- C-6: cockpit KasmVNC viewer embed + effective-mode/reason readout. PendingCaptcha
+  gains mode/mode_reason/vnc_url so the polled cockpit shows what is running and
+  why it downgraded; TakeoverViewer renders KasmVNC in an iframe for remote_vnc.
+- C-7 (KASM-T8): egress containment for the takeover browser -- unix-domain X by
+  construction (no X-over-TCP) and launch through the netns fail-closed path so
+  wg0 (or default-drop) is the sole route. Verified: external egress from inside
+  the namespace is blocked while the X unix socket stays reachable.
+
+Repo + config-parity repair:
+
+- Track the reports/ parity baselines (config_gui_manifest, config_parity_baseline,
+  legacy_parity_baseline) that the blanket reports/ gitignore had silently dropped
+  from git -- the missing baselines were what made the parity gates fail as if
+  environmental. Generated inventories stay ignored; vapid_keys.json now ignored.
+- Ledger the cloud-setup.sh bootstrap flags (BD_SKIP_* opt-outs, BD_REPO_CANDIDATES)
+  and the BD_VNC_CHROME deploy pin; rewrote skip() to name each flag explicitly so
+  the scanner no longer sees a bare BD_SKIP_ token. open_runtime_tunable back to 0.
+
 ## v3.66.805 - plugin quarantine state honours BD_HOME (out of the install tree)
 
 - plugins.py::_quarantine_state_path() no longer anchors the quarantine state
