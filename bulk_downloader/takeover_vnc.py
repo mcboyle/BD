@@ -59,9 +59,16 @@ def resolve_ws_port(config: Optional[dict]) -> int:
 
 
 def resolve_vnc_display(config: Optional[dict]) -> str:
-    d = (config or {}).get("captcha_vnc_display", _DEFAULT_DISPLAY)
-    d = str(d or _DEFAULT_DISPLAY)
-    return d if d.startswith(":") else f":{d}"
+    """The takeover display, ALWAYS as a unix-domain ``:<n>`` (optionally
+    ``:<n>.<screen>``) -- never a ``host:<n>`` TCP form. MOD-1 C-7 (KASM-T8):
+    unix-domain by construction, so the X protocol cannot egress over TCP. Any
+    host part in the configured value is dropped, not honoured."""
+    raw = str((config or {}).get("captcha_vnc_display") or _DEFAULT_DISPLAY)
+    # keep only the trailing display[.screen] number: "host:5" -> "5", ":5" -> "5".
+    tail = raw.rsplit(":", 1)[-1].strip()
+    if tail and all(c.isdigit() or c == "." for c in tail):
+        return f":{tail}"
+    return _DEFAULT_DISPLAY
 
 
 def viewer_url(config: Optional[dict]) -> str:
@@ -123,6 +130,28 @@ def probe_endpoint(config: Optional[dict] = None):
 
 # ── the dedicated headful-on-X browser session ───────────────────────────────
 
+def _contained_launch_kwargs(ns: Optional[str], display: str,
+                             chrome_path: Optional[str], args: list) -> dict:
+    """Playwright launch kwargs for the takeover browser (MOD-1 C-7).
+
+    DISPLAY is always the unix-domain form (no X-over-TCP). When ``ns`` is an
+    active egress netns, the launch is routed through the netns browser shim so
+    the ns's wg0 (or default-drop) is its ONLY egress -- leak-free by
+    construction. When ``ns`` is None (isolation off), it is a normal launch,
+    byte-identical to the pre-C-7 path. Pure -- writes only the shim file."""
+    import tempfile
+    env = {**os.environ, "DISPLAY": display}
+    kw: dict = {"headless": False, "args": list(args), "env": env}
+    if ns:
+        from . import netns_isolation as _ni
+        env.update(_ni.browser_launch_env(ns, chrome_path or ""))
+        kw["executable_path"] = _ni.write_browser_shim(
+            os.path.join(tempfile.gettempdir(), "bd_netns_shim"))
+    elif chrome_path:
+        kw["executable_path"] = chrome_path
+    return kw
+
+
 class VncTakeoverSession:
     """A thread-owned headful browser rendered on the vnc display. Playwright's
     sync API is thread-bound (see ManualLoginSession), so the browser lives on
@@ -162,32 +191,41 @@ class VncTakeoverSession:
 
     def _run(self) -> None:
         try:
+            from contextlib import ExitStack
             from playwright.sync_api import sync_playwright
-            env = {**os.environ, "DISPLAY": self.display}
-            launch_kw = {"headless": False, "args": self._launch_args(), "env": env}
-            if _executable_path:            # optional operator pin for the browser build
-                launch_kw["executable_path"] = _executable_path
-            with sync_playwright() as pw:
-                browser = pw.chromium.launch(**launch_kw)
-                try:
-                    page = browser.new_page()
-                    if self.url:
-                        try:
-                            page.goto(self.url)
-                        except Exception:
-                            pass  # a slow/blocked target must not fail the session
-                    self._alive = True
-                    self._ready.set()
-                    while not self._stop.wait(0.5):
-                        if not browser.is_connected():
-                            break
-                finally:
-                    self._alive = False
+            from . import netns_isolation as _ni
+            with ExitStack() as stack:
+                # MOD-1 C-7 (KASM-T8): confine the takeover browser's egress to the
+                # operator's isolation posture, exactly like every other BD browser.
+                # capture_netns FAIL-CLOSES: if isolation is required but the netns
+                # cannot be created it RAISES here, so we never launch uncontained.
+                # ns is None when isolation is off -> byte-identical raw launch.
+                ns = stack.enter_context(
+                    _ni.capture_netns(self.config, "takeover", self.sid))
+                with sync_playwright() as pw:
+                    chrome = _executable_path or pw.chromium.executable_path
+                    launch_kw = _contained_launch_kwargs(
+                        ns, self.display, chrome, self._launch_args())
+                    browser = pw.chromium.launch(**launch_kw)
                     try:
-                        browser.close()
-                    except Exception:
-                        pass
-        except Exception as e:  # launch failed -- surface via start()
+                        page = browser.new_page()
+                        if self.url:
+                            try:
+                                page.goto(self.url)
+                            except Exception:
+                                pass  # a slow/blocked target must not fail the session
+                        self._alive = True
+                        self._ready.set()
+                        while not self._stop.wait(0.5):
+                            if not browser.is_connected():
+                                break
+                    finally:
+                        self._alive = False
+                        try:
+                            browser.close()
+                        except Exception:
+                            pass
+        except Exception as e:  # launch failed (incl. fail-closed) -- surface via start()
             self._error = e
             self._alive = False
             self._ready.set()
