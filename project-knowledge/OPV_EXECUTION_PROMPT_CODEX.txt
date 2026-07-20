@@ -1,0 +1,110 @@
+================================================================================
+CODEX EXECUTION PROMPT — verify the OPV guide + emit the operator runbook
+For ChatGPT Codex (cloud agent, isolated repo clone). Paste this whole file.
+================================================================================
+
+WHO YOU ARE AND WHAT YOU CAN ACTUALLY REACH
+You are ChatGPT Codex, running in an isolated sandbox with a CLONE of the
+BulkDownloader repo. You have NO network route to the operator's box "stash"
+(10.0.70.20, a LAN address) — so you CANNOT run the live-service probes yourself.
+Be honest about that boundary; do not pretend to have hit stash.
+
+Split your work into what you CAN verify (the code + guide, in your clone) and
+what only the box can answer (the live OPV items) — which you package as a runbook
+for the operator, with the exact commands and the exact expected results.
+
+NEUTRALITY NOTE: the checks are runner-agnostic on purpose. The scripts and the
+validator re-derive truth from the running service / the tree, so they produce the
+same answer for you, for Cowork, for a human, or for CI. What differs is REACH:
+Cowork has the operator present to run on-box; you do not. Everything below
+respects that.
+
+INTERPRETER (load-bearing): use Python 3.12 to match CI. The repo has a 3.12-only
+f-string (tools/diag_csrf_bootstrap.py); regenerating graph/parity/index artifacts
+under 3.11 silently drops edges and diverges from the box. Build the venv with
+python3.12 (scripts/cloud-setup.sh already does), or `python3.12 -m venv venv`.
+
+--------------------------------------------------------------------------------
+PART A — STATIC VERIFICATION YOU CAN DO FULLY (run these, paste the real output)
+--------------------------------------------------------------------------------
+cd <repo>
+
+1. Guide lint — routes vs the LIVE url_map, source-refs symbol-verified vs the tree
+   (self-corrects a drifted line ref; it already caught a ~200-line db.py drift):
+     ./venv/bin/python tools/opv_guide_lint.py project-knowledge/OPV_COMPLETION_GUIDE_v3_66_810.md
+   Expect: exit 0, "every route + symbol-anchored source-ref resolves".
+
+2. GUI render-gate — every settingsSchema key must have a REAL Settings.tsx control
+   (not just a string in a .ts file: the section-0 hole this test closes):
+     ./venv/bin/python -m pytest tests/test_mod1_c12_settings_controls_render.py -q
+   Expect: 2 passed. If it fails, a settings key lacks a control — fix the JSX.
+
+3. Config-parity / no open debt — declared runtime-tunable keys must all be exposed:
+     ./venv/bin/python tools/config_surface_inventory.py --check
+   Then: open_runtime_tunable must be 0. (Watch for a stray `BD_[A-Z_]` token in any
+   NEW .sh/.py file — the scanner ledgers it as a phantom env var and opens debt.)
+
+4. Structural build gates — endpoint catalog, function index, dependency graph,
+   route counts, capture model, version pins (run each; all must exit 0):
+     for t in build_endpoint_catalog build_function_index dependency_graph \
+              check_route_counts capture_model_golden; do
+       ./venv/bin/python tools/$t.py --check; echo "$t exit=$?"; done
+   If dependency_graph drifts because you ADDED a tools/*.py, regen it UNDER 3.12:
+     ./venv/bin/python tools/dependency_graph.py   # never under 3.11
+
+5. Guards — seven SHA-pinned files must stay byte-identical (re-derive; do not edit):
+     bd-guardcheck   (or hash them: extraction_core, session_capture, dom_capture,
+     dom_recorder, capture_bodies, tools/capture_session, tools/build_release)
+
+6. FE typecheck + the settings vitest suites:
+     ( cd frontend && npx tsc --noEmit && \
+       npx vitest run src/lib/settingsSchema.test.ts src/routes/Settings.*.test.tsx )
+
+Report PASS/FAIL per check with the real output. Fix any FAIL in code and re-run;
+do not narrate a green you did not see.
+
+--------------------------------------------------------------------------------
+PART B — THE LIVE OPV ITEMS (you cannot run these; emit the runbook)
+--------------------------------------------------------------------------------
+You have no route to stash, so you CANNOT execute the 11 live items. Instead, for
+each item in project-knowledge/OPV_COMPLETION_GUIDE_v3_66_810.md, produce an
+OPERATOR RUNBOOK entry containing, verbatim from the guide:
+  - the exact command block to run ON stash (from ~/BulkDownloader),
+  - the exact OBSERVE line (what the response should say), and
+  - the PASS condition + the TEARDOWN.
+Lead the runbook with the measure-first step so status is derived, not assumed:
+     cd ~/BulkDownloader
+     bash scripts/bd-opv-check.sh    ~/BulkDownloader http://127.0.0.1:5555
+     bash scripts/bd-stash-report.sh ~/BulkDownloader http://127.0.0.1:5555
+     ./venv/bin/python tools/opv_guide_lint.py project-knowledge/OPV_COMPLETION_GUIDE_v3_66_810.md
+Include the v3.66.811 deploy precondition: `cd frontend && npm run build` + restart,
+then confirm `refs_in_Settings.tsx >= 1` for captcha_vnc_display /
+captcha_vnc_websocket_port / netns_isolation before claiming any GUI path.
+
+Do NOT invent results for Part B. Mark each item's live result "operator-run".
+Where the guide already records a measured verdict (F2a NEEDS-SETUP, F2.6 READY,
+F3.2 forced-PASSED, VPNKILL BLOCKED on absent WireGuard kmod, ...), carry it as
+the last-known value and tell the operator to re-confirm via Part B step 0.
+
+--------------------------------------------------------------------------------
+THE FLOOR + THE ENVELOPE (repo operating rules — apply regardless of runner)
+--------------------------------------------------------------------------------
+  - Ethics: SANCTIONED targets only (the QA sites, practicetestautomation.com with
+    published creds, the bd-dltest media set, official challenge test pages).
+    DETECT, never SOLVE a challenge. No adult / piracy / registry targets.
+  - Secret-hygiene: anchored greps; never echo a secret VALUE (present/absent only).
+  - Every live mutation runs inside the envelope: snapshot -> mutate -> prove ->
+    run -> revert -> prove-revert -> ledger. An open envelope is a FINDING.
+  - A dead target is a NAMED SKIP — never a FAIL, never a substitution.
+  - Do NOT fake a blocked item. VPNKILL's live-tunnel arm needs the WireGuard kernel
+    module; if `modprobe wireguard` fails, it is a SKIP with the reason, full stop.
+
+--------------------------------------------------------------------------------
+DELIVERABLE
+--------------------------------------------------------------------------------
+1. Part A results table (check -> PASS/FAIL -> the output you saw). Fixes committed.
+2. Part B runbook: the 11 items as operator command-blocks + expected results.
+3. A one-paragraph honest summary: what you verified in-clone vs. what only stash
+   can answer. STOP there — the operator runs Part B and attests the live PASSes;
+   you do not self-certify a live result you could not observe.
+================================================================================
