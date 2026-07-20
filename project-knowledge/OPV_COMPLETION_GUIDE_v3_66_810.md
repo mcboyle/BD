@@ -1,13 +1,14 @@
-<!-- verified-against: v3.66.810 -->
+<!-- verified-against: v3.66.811 -->
 <!-- CURRENCY: procedures below are version-independent and unchanged. The version
      anchor, the per-item STATUS lines, and the "Session checks" section at the top
      were re-derived on 2026-07-20 from a running stash box via
      scripts/bd-stash-report.sh + scripts/bd-opv-check.sh (measured, not quoted).
-     v3.66.808-810 made three OPV/Arch-B knobs config-declared; one of the three
-     GUI surfaces is complete, two have a KNOWN pending FE control (see below). The
-     keystroke procedures for every item remain valid as written. -->
+     v3.66.808-810 made three OPV/Arch-B knobs config-declared; v3.66.811 added the
+     two global GUI controls that were missing, so all three GUI surfaces are now
+     complete. Routes + source-refs below pass tools/opv_guide_lint.py against the
+     live url_map + tree. The keystroke procedures remain valid as written. -->
 
-# OPV Completion Guide — the 11 remaining live-verify items (v3.66.810)
+# OPV Completion Guide — the 11 remaining live-verify items (v3.66.811)
 
 **Target:** BulkDownloader v3.66.810 (procedures unchanged since v3.66.783) · stash `mboyle@10.0.70.20` · `bulkdownloader` @ localhost:5555
 **Companion to:** COWORK_OPERATOR_AUTOMATION_GUIDE (the canon — envelope, grants, ethics floor)
@@ -35,19 +36,20 @@ off a register. Where a claim is sandbox-only or box-only, it says so (CLAUDE.md
 
 | Cut | Knob(s) | Backend (POST accepts) | GUI control renders? |
 | --- | --- | --- | --- |
-| v3.66.808 | `captcha_vnc_display`, `captcha_vnc_websocket_port` | ✅ 200 (was 400) | ❌ **PENDING** — no `Settings.tsx` JSX yet |
-| v3.66.809 | `netns_isolation` | ✅ 200 (was 400) | ❌ **PENDING** — no toggle JSX yet |
+| v3.66.808 | `captcha_vnc_display`, `captcha_vnc_websocket_port` | ✅ 200 (was 400) | ✅ **fixed in v3.66.811** — text fields under "Challenge handling" |
+| v3.66.809 | `netns_isolation` | ✅ 200 (was 400) | ✅ **fixed in v3.66.811** — toggle under "Security & access" |
 | v3.66.810 | `predictive_relogin_enabled` / `_fraction` (per-site) | ✅ (in `CFG_FIELDS`) | ✅ renders via the schema-driven per-site editor (`SiteSettings.tsx`) |
 
-**The render gap (honest, CLAUDE.md §0).** For the two *global* knobs, the backend accepts the key and
-the key ships in the SPA bundle, but `Settings.tsx` renders global controls from **explicit
-hand-written JSX** (e.g. `captcha_takeover_mode` is a literal `<select>`), and no JSX was added for the
-new keys. The config-surface gate marked them `gui_exposure="full"` because the key STRING appears in
-`settingsSchema.ts` — a check that verifies a string, not a rendered control. Measured on stash: all
-three global keys `refs_in_Settings.tsx=0`, `in_GET=False`, `in_dist=PRESENT`. So today they are
-**API-settable but not UI-settable**; the FE controls + a render-verifying RED test are the owed
-follow-up (tracked in PR #3). The per-site predictive-relogin controls (Cut 3) DO render — different,
-schema-driven path.
+**The render gap (found, then closed in v3.66.811, CLAUDE.md §0).** 808/809 declared the two global
+knobs and added them to `settingsSchema.ts`, which made the config-surface gate read
+`gui_exposure="full"` — but that check only verifies the key STRING appears in a `.ts` file.
+`Settings.tsx` renders global controls from **explicit hand-written JSX** (e.g. `captcha_takeover_mode`
+is a literal `<select>`), and no JSX was added, so no control rendered. A browser render AND a stash
+report both confirmed `refs_in_Settings.tsx=0`. **v3.66.811 adds the explicit controls** (and, from the
+same audit, `automation.disco_enabled`, a pre-existing omission) plus a RED-first test that re-derives
+the subject: every settingsSchema key must have a real control, not just a string. To confirm on the
+box: re-run `scripts/bd-stash-report.sh` — `refs_in_Settings.tsx` flips `0 -> >=1` for all three.
+The per-site predictive-relogin controls (Cut 3) already rendered — a different, schema-driven path.
 
 **One real bug fixed in Cut 3.** `predictive_relogin_*` was absent from `CFG_FIELDS`, so
 `_load_sites_config`'s `{k: … for k in CFG_FIELDS}` rebuild **dropped it on restart** — the F1.4
@@ -88,7 +90,7 @@ feature could not persist per-site. Now in `CFG_FIELDS` + `DEFAULTS`; measured o
 | 6 | B2 | **READY** | BBB target 206; real-fetch + no-persist proven in-sandbox |
 | 7 | PICK | **display UP; human click owed** | noVNC/KasmVNC listening on :6080 + :8444; takeover enabled |
 | 8 | NOVNC-PRECEDENCE | **READY to observe** | /metrics carries `bd_takeover_active=0`; enabled, mode=`remote` |
-| 9 | VPNKILL | **BLOCKED** | WireGuard kmod **absent on stash**; netns knob backend-ready, FE control pending |
+| 9 | VPNKILL | **BLOCKED** | WireGuard kmod **absent on stash**; netns egress toggle now renders (811) |
 | 10 | F4.1/F4.5 | **mechanism READY; phone-bound** | manifest `share_target` present; `/dashboard?url=` resolves |
 | 11 | F45-METRIC | **code-confirmed** | 93% (busy) / 50% (idle) request-rate drop when SSE connects |
 
