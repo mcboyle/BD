@@ -393,6 +393,16 @@ GLOBAL_CONFIG_SCHEMA: dict = {
     # _DEFAULT_DISPLAY / _DEFAULT_WS_PORT so behavior is byte-identical when unset.
     "captcha_vnc_display":         {"type": str, "safety": False, "safe_default": ":5"},
     "captcha_vnc_websocket_port":  {"type": str, "safety": False, "safe_default": "8444"},
+    # MOD-1 C-7 (v3.66.809): opt-in per-capture egress confinement (wg0 sole route,
+    # fail-closed). netns_isolation.py reads it via cfg.get(); declared here so the
+    # GUI can arm/disarm it. Type is (bool, dict): the GUI toggle sends a bare bool,
+    # while the advanced form -- {enabled, egress:{wg_iface,wg_conf,address,mtu?}} --
+    # is a dict, which validate_config routes through its dict branch (no scalar type
+    # check; netns's sub-keys enabled/egress do not shadow flat schema keys, so it
+    # stays valid). safety=False preserves pre-cut behavior exactly (the key was
+    # never validated/fail-closed before; enforcement fail-closes at the launch
+    # layer via NetnsRequiredError, not here). Default OFF.
+    "netns_isolation":             {"type": (bool, dict), "safety": False, "safe_default": False},
 }
 
 # Top-level keys that are LEGITIMATELY dicts — not the flat-lookup footgun.

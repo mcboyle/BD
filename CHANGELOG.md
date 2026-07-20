@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. For pre-v3.46 history
 see [CHANGELOG_archive.md](CHANGELOG_archive.md).
 
+## v3.66.809 - MOD-1 Cut: netns egress-isolation toggle becomes GUI-configurable
+
+- netns_isolation (the C-7 opt-in egress confinement: wg0 sole route,
+  fail-closed) is now a DECLARED global_config key with an FE toggle in the
+  "Security & access" settings section. Before this cut it was read via
+  cfg.get(), was absent from GLOBAL_CONFIG_SCHEMA, so POST /api/global_config
+  rejected it 400 and no control existed. Declared type (bool, dict): the GUI
+  toggle sends a bare bool while the advanced form
+  ({enabled, egress:{wg_iface,wg_conf,address,mtu?}}) stays valid -- a dict value
+  takes validate_config's dict branch (no scalar type check; netns's sub-keys do
+  not shadow flat schema keys). safety=False preserves pre-cut behavior byte-for-
+  byte (never validated/fail-closed before; enforcement fail-closes at the launch
+  layer via NetnsRequiredError). Default OFF. Ledgered gui_exposure=full; ratchet
+  open=0. RED-first with an explicit regression guard that the advanced dict form
+  still validates clean (tests/test_mod1_c10_netns_config_gui.py). Guards 7/7.
+
 ## v3.66.808 - MOD-1 Cut: the two Arch-B VNC takeover knobs become GUI-configurable
 
 - captcha_vnc_display and captcha_vnc_websocket_port are now DECLARED

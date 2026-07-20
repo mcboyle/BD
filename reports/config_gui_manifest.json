@@ -274,6 +274,7 @@
     "multi_conn_timeout_s": "full",
     "mutation_observer_timeout_ms": "full",
     "name": "full",
+    "netns_isolation": "full",
     "no_button_threshold": "full",
     "notify_apprise_enabled": "full",
     "notify_apprise_urls": "full",

@@ -186,6 +186,7 @@ export const SETTINGS_SCHEMA: Record<string, SettingFieldMeta> = {
   dev_mode: { section: "Security & access", label: "Dev mode" },
   framework_reports: { section: "Security & access", label: "Framework reports" },
   test_mode: { section: "Security & access", label: "Test mode" },
+  netns_isolation: { section: "Security & access", label: "Egress isolation (netns / wg0 fail-closed)" },
 };
 
 export function sectionForField(field: string): SettingsSection | null {
