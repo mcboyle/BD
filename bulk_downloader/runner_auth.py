@@ -425,6 +425,36 @@ class AuthMixin:
         from . import takeover as _tk
         headless, eff_mode, downgrade_reason = _admit_takeover(
             self.config, _tk.active_channel_count())
+
+        # MOD-1 C-5: remote_vnc launches a DEDICATED browser on its own Xvnc
+        # display, driven through KasmVNC (real X input) -- NOT the CDP
+        # screencast. It only reaches here when the C-2 derived probe OBSERVED
+        # the stack; a runtime launch failure falls back to remote (screencast)
+        # so a solve is never blocked. takeover_vnc.launch opens the kind="vnc"
+        # C-1 channel; the later start_solve open_channel(sid) reuses it.
+        if eff_mode == "remote_vnc":
+            session_id = f"captcha-{self.site_id}-{int(time.time())}"
+            try:
+                from . import takeover_vnc as _tv
+                vsess = _tv.launch(self.config, session_id, url=url)
+            except Exception as e:
+                sys.stderr.write(
+                    f"  captcha takeover: vnc launch failed ({e}); "
+                    f"falling back to remote\n")
+                eff_mode, headless = "remote", True
+                downgrade_reason = ((downgrade_reason + "; ") if downgrade_reason
+                                    else "") + "vnc launch failed -> remote"
+            else:
+                sessions[url] = {"session_id": session_id, "handle": vsess,
+                                 "started_at": time.time(), "kind": "vnc"}
+                label = eff_mode + (f" (downgraded: {downgrade_reason})"
+                                    if downgrade_reason else "")
+                self.log_event(
+                    "captcha",
+                    f"Manual solve session started ({label}) for {url[:60]}",
+                    url=url)
+                return {"ok": True, "session_id": session_id, "url": url,
+                        "mode": eff_mode, "mode_reason": downgrade_reason}
         try:
             handle = open_manual_login_browser(cfg, manual_profile_dir=profile,
                                                headless=headless)
@@ -467,7 +497,16 @@ class AuthMixin:
                 self._update_job(url, "pending", "Captcha solved manually — retrying")
             return False
         handle = sess.get("handle")
-        if handle is not None:
+        if sess.get("kind") == "vnc":
+            # MOD-1 C-5: a vnc session's handle is a VncTakeoverSession -- close it
+            # and its kind="vnc" C-1 channel through the module's teardown.
+            try:
+                from . import takeover_vnc as _tv
+                _tv.teardown(sess.get("session_id"))
+            except Exception as e:
+                sys.stderr.write(
+                    f"[runner] vnc teardown failed (non-fatal): {e}\n")
+        elif handle is not None:
             try:
                 # We don't want to capture/harvest cookies — the persistent profile
                 # already holds them. Just close cleanly.

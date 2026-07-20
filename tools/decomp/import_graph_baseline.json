@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 1349,
+  "edge_count": 1353,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -252,6 +252,7 @@
       "bulk_downloader/shares.py",
       "bulk_downloader/storage_tier.py",
       "bulk_downloader/stream_relay.py",
+      "bulk_downloader/takeover_vnc.py",
       "bulk_downloader/templates.py",
       "bulk_downloader/tg_bot.py",
       "bulk_downloader/thumbnail_gen.py",
@@ -1542,7 +1543,8 @@
       "bulk_downloader/profile_sync.py",
       "bulk_downloader/relogin_predict.py",
       "bulk_downloader/session_keeper.py",
-      "bulk_downloader/takeover.py"
+      "bulk_downloader/takeover.py",
+      "bulk_downloader/takeover_vnc.py"
     ],
     "bulk_downloader/runner_browser.py": [
       "bulk_downloader/cloak.py",
@@ -1766,6 +1768,11 @@
     "bulk_downloader/tags.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/tag_inference.py"
+    ],
+    "bulk_downloader/takeover_vnc.py": [
+      "bulk_downloader/captcha_relay.py",
+      "bulk_downloader/runner_auth.py",
+      "bulk_downloader/takeover.py"
     ],
     "bulk_downloader/template_assist.py": [
       "bulk_downloader/selector_library.py",
@@ -2043,9 +2050,6 @@
     ],
     "tools/dependency_report.py": [
       "tools/environment_report.py"
-    ],
-    "tools/diag_csrf_bootstrap.py": [
-      "bulk_downloader/db.py"
     ],
     "tools/document_schemas.py": [
       "tools/template_inventory.py"
