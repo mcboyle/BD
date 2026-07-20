@@ -132,6 +132,13 @@ df -h / | awk 'NR==2{print "disk free at start: "$4}'
 # ============================================================ 0. system base
 step "apt update" optional bash -c "$SUDO apt-get update -qq"
 
+# Git identity. Every in-session commit must be attributable to Claude with the
+# noreply@anthropic.com committer email, or the verified-commit stop-hook flags
+# it as Unverified. Set --global so it holds before the repo is even located.
+# (GitHub's own PR-merge commit is authored by GitHub and will still read
+# Unverified -- that is expected and is NOT a local commit to rewrite.)
+step "git identity" optional bash -c 'git config --global user.email noreply@anthropic.com && git config --global user.name Claude'
+
 # ================================================================ 1. core app
 # Everything here needs the checkout. If the repo is not present at setup time
 # (a legitimate sequencing fact, not a provisioning failure) these are DEFERRED
@@ -149,6 +156,17 @@ else
   # are already proven on 3.12 (the box runs them), so 3.12 is strictly more
   # faithful. Fall back to python3 only if 3.12 is genuinely absent.
   PYBIN="$(command -v python3.12 || command -v python3)"
+  # Guard against a stale ./venv on the WRONG interpreter (a 3.11 venv carried
+  # over from a prior provisioning). `python3.12 -m venv venv` will NOT relocate
+  # an existing interpreter binary -- the dir keeps its old python -- so remove it
+  # first and rebuild genuinely on 3.12. This is the ROOT CAUSE of the /tmp/venv312
+  # workaround seen through v3.66.811: ./venv came up 3.11, so every graph/parity
+  # regen had to dodge it. With this guard, ./venv/bin/python IS the box 3.12.
+  if [ -x ./venv/bin/python ] && command -v python3.12 >/dev/null 2>&1 \
+     && ! ./venv/bin/python -c 'import sys; raise SystemExit(0 if sys.version_info[:2]==(3,12) else 1)' 2>/dev/null; then
+    row "venv rebuild" "OK" "removed stale $(./venv/bin/python --version 2>&1) venv; rebuilding on 3.12"
+    rm -rf venv
+  fi
   row "python interp" "OK" "venv built on $("$PYBIN" --version 2>&1) (box/CI parity)"
   step "python venv"  core     "$PYBIN" -m venv venv
   step "pip upgrade"  optional ./venv/bin/pip install -q --upgrade pip
