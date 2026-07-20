@@ -201,6 +201,12 @@ _takeover_ender: Optional[Callable[[str, str, str], None]] = None
 # must say so, never fold it into "0 orphans" (unknown-fails-to-reap).
 _session_census: Optional[Callable[[], list]] = None
 
+# MOD-1 C-1: vnc-backend census hook, parallel to _session_census. Wired by
+# app.py once the KasmVNC backend exists (plan C-4). Until then it is None, so
+# the sweep reports the vnc surface as unverified WHENEVER vnc sessions are
+# present -- fixing the denominator before the thing it must contain exists.
+_vnc_census: Optional[Callable[[], list]] = None
+
 
 # ─── Public API: setters / queries ──────────────────────────────────
 
@@ -226,6 +232,15 @@ def register_session_census(fn: Callable[[], list]) -> None:
     sweep's live-surface cross-check (A5-R3)."""
     global _session_census
     _session_census = fn
+
+
+def register_vnc_census(fn: Callable[[], list]) -> None:
+    """MOD-1 C-1: inject a callable confirming the vnc takeover backend (the
+    KasmVNC/Xvnc surface). Same fail-loud contract as register_session_census:
+    when vnc sessions exist and this is unwired or raises, sweep_report reports
+    the vnc surface as `unverified`, never a silent 0. Wired by app.py at C-4."""
+    global _vnc_census
+    _vnc_census = fn
 
 
 def list_pending(include_resolved: bool = False) -> list[dict]:
@@ -641,6 +656,28 @@ def sweep_report(now: Optional[float] = None) -> dict:
         orphan_browsers = [(sid_, u) for (sid_, u) in live
                            if u not in active_urls]
 
+    # Cross-check 3 (MOD-1 C-1): the vnc transport. Only relevant when vnc-kind
+    # sessions exist -- an empty vnc denominator on a pure-cdp host is empty
+    # because UNUSED, not unseen, so it is NOT unverified (no false noise). When
+    # vnc sessions ARE present but the backend census is unwired or raises, the
+    # vnc surface is unverifiable and the sweep says so (unknown-fails-to-reap).
+    try:
+        vnc_sids = takeover.list_channel_sids(kind="vnc")
+    except Exception:
+        vnc_sids = None
+    if vnc_sids is None:
+        unverified.append("vnc")
+    elif vnc_sids:
+        vnc_ok = False
+        if _vnc_census is not None:
+            try:
+                _vnc_census()
+                vnc_ok = True
+            except Exception as e:
+                sys.stderr.write(f"[captcha-relay] vnc census raised: {e}\n")
+        if not vnc_ok:
+            unverified.append("vnc")
+
     # Act outside the lock.
     for site_id, url, sid in to_end:
         _call_ender(site_id, url, "dismissed")
@@ -708,13 +745,14 @@ def start_sweeper(interval_s: float = 30.0) -> bool:
 # ─── Test/introspection helpers ─────────────────────────────────────
 
 def _reset_for_tests() -> None:
-    global _takeover_starter, _takeover_ender, _session_census
+    global _takeover_starter, _takeover_ender, _session_census, _vnc_census
     with _lock:
         _pending.clear()
     _last_push_ts.clear()
     _takeover_starter = None
     _takeover_ender = None
     _session_census = None
+    _vnc_census = None
     try:
         takeover.reset_takeover_total()  # A-5c: zero the cumulative counter
     except Exception:
@@ -807,6 +845,6 @@ __all__ = [
     "is_pending",
     "list_pending", "get_pending",
     "register_takeover_starter", "register_takeover_ender",
-    "register_session_census",
+    "register_session_census", "register_vnc_census",
     "sweep_expired", "sweep_report", "start_sweeper",
 ]
