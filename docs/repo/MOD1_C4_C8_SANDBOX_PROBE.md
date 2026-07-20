@@ -15,8 +15,8 @@ needs a real operator session/device; **impossible** = a named missing primitive
 
 | Arm | Plan intent | Column | Verdict |
 | --- | --- | --- | --- |
-| C-4 KasmVNC `.deb` | delivery mechanism | **impossible here (narrow)** | binary gated by GitHub session repo-scope; add_repo cross-owner rejected |
-| C-4/C-6 serving loop | web viewer | **mechanism** | x11vnc+noVNC+websockify serving loop stands up, loopback-bound |
+| C-4 KasmVNC install | delivery mechanism | **mechanism** | offline deb pack installs (exit 0); **live serving session proven** -- HTTP 200 from `Server: KasmVNC/4.0` on loopback |
+| C-4/C-6 serving loop | web viewer | **mechanism** | KasmVNC's own web client serves; x11vnc+noVNC also stands up as the stand-in |
 | C-5 lifecycle | registry binding | **mechanism** | real headful browser on X, registered `kind="vnc"`, counted, swept, torn down |
 | C-7 egress | fail-closed | **mechanism** (policy) + **impossible** (live tunnel) | veth up/down/up proves iface-scoped drop; WireGuard kmod absent |
 | C-8 fingerprint | counter-tell | **mechanism** measured; **magnitude is stash** | only the UA token differs on GPU-less HW; `navigator.webdriver=true` in BOTH |
@@ -25,38 +25,72 @@ Several moved from column 3 to column 1, exactly as the probe prompt predicted.
 
 ---
 
-## C-4 -- KasmVNC provisioning (delivery mechanism)
+## C-4 -- KasmVNC provisioning + serving session
 
-**Genuinely blocked here, for a precise reason -- and it is not the one the plan
-gives.** The plan says "display stack is stash-only." False: the display stack
-installs and runs (see C-5/C-6). What is actually blocked is the *kasmtech
-binary*:
+**Two-stage history, both stages now resolved.**
+
+*Stage 1 -- pulling the binary was blocked, for a precise reason (not the plan's).*
+The plan says "display stack is stash-only." False: the display stack installs
+and runs. What was actually blocked was pulling the *kasmtech binary* over the
+network:
 
 ```
-$ curl -sSLf -o /tmp/kasm.deb \
-    https://github.com/kasmtech/KasmVNC/releases/download/v1.4.0/kasmvncserver_noble_1.4.0_amd64.deb
-exit=22   (HTTP 403)
-$ curl -sL <same URL> | head -1
-{"message":"GitHub access to this repository is not enabled for this session.
- Use add_repo to request access."}
+$ curl -sSLf .../KasmVNC/releases/download/v1.4.0/kasmvncserver_noble_1.4.0_amd64.deb
+exit=22 (HTTP 403) -> body: "GitHub access to this repository is not enabled
+                              for this session. Use add_repo to request access."
+$ add_repo kasmtech/KasmVNC
+  -> "cross-tier adds are not supported in v1 ... owner(s) [mcboyle]"
 ```
 
-This is the **GitHub session repo-scope gate**, not the outbound proxy: all
-`github.com` traffic is scoped to `mcboyle/bd`. The documented remedy fails too --
-`add_repo kasmtech/KasmVNC` returns *"cross-tier adds are not supported in v1 ...
-session already has repos from owner(s) [mcboyle]."* So the kasmtech `.deb`
-cannot be pulled in this session at all.
+That was the **GitHub session repo-scope gate**, not the outbound proxy. The
+operator then supplied an **offline deb pack** (`pack_kasm`, 33 debs, KasmVNC
+1.4.0 noble + deps), which side-steps the gate entirely.
 
-`KASMVNC_PULL_GUIDE.md` reports the install/config as VERIFIED in a
-differently-scoped environment (HTTP 200, 2,254,804 bytes, `apt-get install`
-exit 0, no kernel module). That is credible -- the deps are ordinary X libs --
-but **it is not my measurement and I do not restate it as one.** What I *can*
-prove in-sandbox is the equivalent web-delivery loop, below (C-6). Both the pull
-guide and `ONLINE_PULL_LIST.md` endorse the apt `x11vnc+noVNC` stack as the
-legitimate stand-in for headless checks.
+*Stage 2 -- offline install + a LIVE serving session, both proven here.* This is
+the row `KASMVNC_PULL_GUIDE.md` and the pack `MANIFEST.md` both marked
+**NOT PROVEN** ("kasmvncserver daemonizes, background processes do not survive
+between tool calls"). Proven now by starting *and* probing within one shell call:
 
-**Do not record C-4 complete on an install.** The gate is a session an operator
-can see and drive; that is stash/operator work regardless of provisioning.
+```
+sh install_kasm.sh              -> exit 0; Xkasmvnc, kasmvncserver, web client
+                                   (/usr/share/kasmvnc/www, 280 files), v1.4.0-1
+kasmvncserver :5 -websocketPort 8444 -disableBasicAuth -sslOnly 0 -publicIP 127.0.0.1
+  port 8444                     -> LISTEN 127.0.0.1:8444  (up in ~1.2s)
+  Xkasmvnc                      -> process ALIVE
+  curl -si http://127.0.0.1:8444/ -> HTTP/1.1 200 OK
+                                     Server: KasmVNC/4.0
+                                     Content-length: 68800
+                                     Cross-Origin-Embedder-Policy: require-corp
+                                     Cross-Origin-Opener-Policy: same-origin
+                                 -> <title>KasmVNC</title>   (its own web client)
+  fluxbox                       -> ran on the display; clean teardown (kill exit 0)
+```
+
+Bound to `127.0.0.1` -- the plan 4.1 loopback requirement. This is KasmVNC's
+own web delivery (C-6's "do NOT rebuild noVNC"), serving live.
+
+**Three provisioning corrections found by doing -- the guides get these wrong:**
+
+1. **Passwd path.** The server reads `$HOME/.kasmpasswd` (kasmvncserver:1173),
+   **not** `$HOME/.vnc/kasmpasswd` as `KASMVNC_PULL_GUIDE.md` 4.2 and the pack
+   `MANIFEST.md` state. A user created at the guide's path is invisible to the
+   server, which then drops to the interactive write-user prompt; under `</dev/null`
+   that prompt EOF-loops forever on `Invalid choice: ''` -- the "hang" both
+   authors hit. Create the user as the **invoking OS user** (`root` here), at the
+   real path: `kasmvncpasswd -u root -wo $HOME/.kasmpasswd`.
+2. **DE-selection marker.** Even with a valid `xstartup`, the server prompts for a
+   Desktop Environment unless `$HOME/.vnc/.de-was-selected` exists
+   (`shouldPromptUserToSelectDe` -> `DeWasntSelectedYet`). `touch` it to proceed
+   with the bare-WM xstartup. Do **not** use `-select-de` (rejects fluxbox).
+3. **`-publicIP` is mandatory without STUN egress.** On first start Xkasmvnc's
+   WebRTC ICE layer queries public STUN servers; with no UDP egress it cycles ~60s
+   through all of them and dies: *"Failed to get public IP, please specify it with
+   -publicIP."* Pass `-publicIP 127.0.0.1` for a loopback session. This looked
+   exactly like a deadlock ("Xvnc seems to be deadlocked") -- it is not; it is
+   ICE. Relevant to stash too if stash lacks STUN egress.
+
+**Still operator-owned:** a session a human actually *sees and drives* through a
+browser. Install + serve is proven; the human solve is not a sandbox artifact.
 
 ---
 
@@ -78,9 +112,11 @@ scrot /tmp/c6_render.png                  -> 23999-byte PNG of the display
 
 x11vnc bound to `127.0.0.1` -- the plan's 4.1 loopback requirement, load-bearing
 security not tidiness. This is the mechanism KasmVNC's own `/usr/share/kasmvnc/www`
-would otherwise provide; the plan says KasmVNC *supersedes* this stack for
-full-motion content, and that specific superiority (codec/latency) is the one
-property this stand-in does not reproduce -- stated precisely, not "un-sandboxable."
+would otherwise provide -- **and now does**, proven serving live under C-4 above.
+The plan says KasmVNC *supersedes* this stack for full-motion content; that
+specific superiority (WebRTC/codec/latency) is the one property this apt stand-in
+does not reproduce -- and the KasmVNC ICE path it depends on is exactly what
+needed `-publicIP` to come up here. Both stated precisely, not "un-sandboxable."
 
 ---
 
@@ -172,10 +208,10 @@ actually distinguish live-X from headless collapses. Two honest consequences:
 
 ---
 
-## What the operator still owns (unchanged by this probe)
+## What the operator still owns (after this probe)
 
-- C-4 live serving session an operator drives (KasmVNC binary is repo-scope
-  gated here regardless).
+- C-4 a session a **human sees and drives** through a browser -- provisioning,
+  serving, and the loopback HTTP endpoint are all proven; the human solve is not.
 - C-7 live WireGuard handshake (kmod absent).
 - C-8 magnitude on real GPU hardware (the number that can invert the case).
 
