@@ -78,6 +78,21 @@ this tree.
   but they do not produce a result on a bare clone as-is.
 - This is a measured pass honest about its denominator, not a certified final set.
 
+## Decided against: a `--no-bundle` mode / STATE.json fixture for the pack tools
+
+The obvious next lever -- let the ~20 `require_bundle` tools (`bd-trust-score`,
+`bd-deploy-proof`, `bd-release-attestation`, `bd-proof-ledger`,
+`bd-evidence-chain`, ...) run without the version pack -- was investigated and
+**rejected as a soundness violation**, not deferred. These are attestation tools:
+their value is cross-checking the tree against the authoritative bundle.
+`bd-trust-score`'s own contract is explicit -- "exit 2 = CANNOT-EVALUATE (absent
+tree, absent bundle, or a CROSS-TREE blend)", with selftest NEG cases enforcing
+the refusal. Making them score/attest without the bundle would report OK over a
+subject they cannot see (CLAUDE.md section 0), and committing a STATE.json
+fixture would put fake authoritative state in the tree. Their `CANNOT-EVALUATE`
+(exit 2) is the CORRECT terminal behaviour. **This is the real portability
+ceiling for in-repo work; do not re-open it as a port.**
+
 ---
 
 ## Counts
