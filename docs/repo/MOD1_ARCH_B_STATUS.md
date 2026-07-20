@@ -51,18 +51,25 @@ read as "done on stash" that was only shown to hold in the sandbox (CLAUDE.md 9,
   confinement and fail-closed policy are proven over default-drop/veth; the live
   wg0 handshake is stash-only. "Egress fails closed" is supportable; "the VPN
   tunnel works" is a box measurement.
-- **C-8 (KASM-T10) fingerprint MAGNITUDE.** The counter-tell: does live-X present
-  a materially worse fingerprint than headless? The measurement TOOL now exists --
-  `tools/kasm_fingerprint_probe.py` -- and runs headful-on-X vs headless with the
-  real takeover browser's anti-automation args, diffing the bot-check surface
-  (WebGL vendor/renderer, screen, cores, webdriver, UA, canvas hash, ...). It is
-  HONEST about its own floor: on a GPU-less host the WebGL renderer is a software
-  rasterizer in BOTH modes, so it flags `gpu_less_run` and says the result
-  understates the real-hardware delta. In-sandbox the only observable delta is the
-  UA token (`HeadlessChrome` -> `Chrome`, which headful fixes); with the takeover
-  args `navigator.webdriver` is suppressed in both. The magnitude that could invert
-  the case for B still needs **real GPU hardware** -- run the tool on stash:
-  `python tools/kasm_fingerprint_probe.py --display :5 --json c8.json`.
+- **C-8 (KASM-T10) fingerprint -- MEASURED ON STASH (2026-07-20).** The tool
+  `tools/kasm_fingerprint_probe.py` was run on stash against the REAL KasmVNC
+  takeover display (`:5`), and separately on Xvfb -- IDENTICAL results, which
+  proves KasmVNC on stash is software-rendered. Verdict: the counter-tell does
+  NOT materialize on this deployment. 3/18 properties differ and every one favors
+  Arch B or is neutral:
+  - `user_agent`: real `Chrome` (headful) vs `HeadlessChrome` (headless) -- live-X
+    FIXES the headline headless tell.
+  - `plugins_count`: 5 vs 0 -- live-X fixes the empty-plugins headless tell.
+  - `canvas_hash`: differs (minor AA/font-hinting; not a tell either way).
+  - `navigator.webdriver`: suppressed in BOTH by the anti-automation args.
+  - WebGL renderer: software rasterizer in BOTH -> **no datacenter-GPU leak**.
+
+  So on stash's software-rendered display, `remote_vnc` is MORE human than
+  headless, not worse -- the fingerprint concern that could have inverted the case
+  for Arch B is disproven here. The only scenario that would change this is a
+  GPU-accelerated KasmVNC (VirtualGL/DRI3) on a host with a discrete GPU; re-run
+  the tool there if that config is ever used. Command:
+  `./venv/bin/python tools/kasm_fingerprint_probe.py --display :5 --json c8.json`.
 - **The FE-artifact parity/route gates.** `gui_parity`, `route_index_in_sync`,
   `spa_wired_join`, `parity_abc`, `challenge_parity`, `idle_sweep` fail in the
   sandbox for a MISSING-ARTIFACT reason (identical on pristine HEAD -- generated
