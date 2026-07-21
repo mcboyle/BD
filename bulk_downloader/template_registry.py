@@ -211,14 +211,21 @@ def score_template_against_html(template, html) -> float:
 
 
 def select_best_variant(url: str, html, template_dirs=None):
-    """Among the host's template variants, the one whose selectors best fit
-    `html`. Ties (incl. all-zero) fall back to host specificity (variant order).
-    With <=1 variant or no html, defers to find_template_for_url."""
+    """Among the most host-specific variants, return the best HTML fit.
+    Score ties (including all-zero) keep variant discovery order. With <=1
+    variant or no html, return the first discovered variant."""
     variants = find_template_variants_for_url(url, template_dirs)
     if not variants:
         return None
     if len(variants) == 1 or not html:
         return variants[0]
+    host = urlparse(url).netloc
+    max_key = _template_host_match_key(variants[0], host)
+    variants = [
+        variant
+        for variant in variants
+        if _template_host_match_key(variant, host) == max_key
+    ]
     best = None
     best_score = -1.0
     for v in variants:  # already sorted most-specific first -> stable tie-break

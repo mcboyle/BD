@@ -5,10 +5,11 @@ from pathlib import Path
 from bulk_downloader.template_registry import (
     find_template_for_url,
     find_template_variants_for_url,
+    score_template_against_html,
 )
 
 
-def _write_template(directory, filename, *, host, match=None):
+def _write_template(directory, filename, *, host, match=None, selectors=None):
     path = Path(directory) / filename
     path.write_text(
         json.dumps(
@@ -16,7 +17,7 @@ def _write_template(directory, filename, *, host, match=None):
                 "host": host,
                 "status": "enabled",
                 "match": match or {},
-                "selectors": {},
+                "selectors": selectors or {},
             }
         ),
         encoding="utf-8",
@@ -230,6 +231,41 @@ def test_variant_discovery_uses_same_alias_rules_as_primary_lookup():
     assert [template["host"] for template in variants] == [primary["host"]]
 
 
+def test_html_scoring_cannot_override_more_specific_host_match():
+    directory = tempfile.mkdtemp()
+    _write_template(
+        directory,
+        "exact.template.json",
+        host="deep.members.example.com",
+        selectors={"download": {"btn": "button.exact-layout"}},
+    )
+    _write_template(
+        directory,
+        "broader.template.json",
+        host="members.example.com",
+        selectors={"download": {"btn": "button.broader-layout"}},
+    )
+
+    url = "https://deep.members.example.com/video/1"
+    html = '<button class="broader-layout">download</button>'
+    variants = find_template_variants_for_url(url, template_dirs=[directory])
+    assert [template["host"] for template in variants] == [
+        "deep.members.example.com",
+        "members.example.com",
+    ]
+    assert score_template_against_html(variants[0], html) == 0.0
+    assert score_template_against_html(variants[1], html) == 1.0
+
+    matched = find_template_for_url(
+        url,
+        template_dirs=[directory],
+        html=html,
+    )
+
+    assert matched is not None
+    assert matched["host"] == "deep.members.example.com"
+
+
 if __name__ == "__main__":
     test_explicit_alias_matches_but_unlisted_sibling_does_not()
     test_valid_sibling_domain_matches_domain_family()
@@ -241,3 +277,4 @@ if __name__ == "__main__":
     test_non_list_and_non_string_alias_metadata_fails_closed()
     test_match_priority_is_canonical_then_alias_then_child_then_sibling()
     test_variant_discovery_uses_same_alias_rules_as_primary_lookup()
+    test_html_scoring_cannot_override_more_specific_host_match()
