@@ -372,6 +372,60 @@ class TestMultiConnResultShape:
             assert hasattr(r, f)
 
 
+def test_multi_conn_progress_counts_unique_bytes_across_chunk_retry(
+        monkeypatch, tmp_path):
+    """Retry traffic is bandwidth, but not new logical output progress."""
+    from bulk_downloader import multi_conn as m
+
+    class Response:
+        status_code = 206
+
+        def __init__(self, chunks):
+            self._chunks = chunks
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def iter_bytes(self, buffer_size):
+            yield from self._chunks
+
+    responses = iter((Response([b"ab"]), Response([b"ab", b"cd"])))
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def stream(self, *args, **kwargs):
+            return next(responses)
+
+    fake_httpx = type("Httpx", (), {"Client": Client})
+    monkeypatch.setitem(sys.modules, "httpx", fake_httpx)
+    monkeypatch.setattr(m, "is_available", lambda: True)
+    monkeypatch.setattr(m, "_guard_url", lambda url: (True, ""))
+    logical_progress = []
+    network_deltas = []
+
+    result = m.download(
+        "https://cdn.test/v.mp4", str(tmp_path / "v.mp4"),
+        content_length=4, chunk_count=1, chunk_retries=1,
+        progress_cb=lambda got, total: logical_progress.append((got, total)),
+        bytes_callback=network_deltas.append,
+    )
+
+    assert result.ok is True
+    assert logical_progress == [(2, 4), (4, 4)]
+    assert network_deltas == [2, 2, 2]
+
+
 class TestMultiConnSparseAllocate:
     def test_allocates_file(self):
         from bulk_downloader import multi_conn as m

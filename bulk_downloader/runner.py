@@ -510,6 +510,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # event log and can choose to restart the site.
         self._worker_heartbeats = {}   # {worker_idx: last_beat_unix_seconds}
         self._worker_current_urls = {} # {worker_idx: url currently processing}
+        self._worker_url_generations = {} # {worker_idx: run generation}
+        self._worker_run_generation = 0
         self._job_progress_samples = {} # {url: {bytes, at, bps}}
         self._worker_heartbeats_lock = threading.Lock()
         # v3.43.24: watchdog populates this with {worker_idx, last_beat_age_s}
@@ -741,8 +743,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # belonged to the previous run. Guard both maps with the same lock so
         # the watchdog never observes a half-reset worker snapshot.
         with self._worker_heartbeats_lock:
+            self._worker_run_generation += 1
+            run_generation = self._worker_run_generation
             self._worker_heartbeats.clear()
             self._worker_current_urls.clear()
+            self._worker_url_generations.clear()
             self._hung_workers = []
         # Progress samples are guarded separately by the jobs lock. Never hold
         # both locks at once: _update_job follows the same one-way ordering.
@@ -997,7 +1002,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # worker_idx is passed so each worker gets its own profile dir
         # (Chrome won't let two processes share one).
         self._worker_threads=[
-            threading.Thread(target=self._worker_loop,args=(i,),daemon=True,name=f"dl-{self.site_id}-{i}")
+            threading.Thread(target=self._worker_loop,args=(i,run_generation),daemon=True,name=f"dl-{self.site_id}-{i}")
             for i in range(n)]
         for t in self._worker_threads: t.start()
         threading.Thread(target=self._watch_done,daemon=True).start()
@@ -1006,10 +1011,20 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # in 15min. Can't safely kill threads in Python, so we don't
         # try — just surface the signal loudly so the user can choose
         # to restart the site.
-        threading.Thread(target=self._watchdog_loop, daemon=True,
+        threading.Thread(target=self._watchdog_loop, args=(run_generation,), daemon=True,
                           name=f"watchdog-{self.site_id}").start()
 
-    def _watchdog_loop(self):
+    def _publish_watchdog_snapshot(self, run_generation, beats, hung_workers):
+        """Publish only a still-current heartbeat snapshot for this run."""
+        with self._worker_heartbeats_lock:
+            if run_generation != self._worker_run_generation:
+                return False
+            if beats != self._worker_heartbeats:
+                return False
+            self._hung_workers = list(hung_workers)
+            return True
+
+    def _watchdog_loop(self, run_generation=None):
         """v3.43.24: monitor worker heartbeats. Threads should stamp
         every iteration (~1s under load, longer when blocked on the
         URL queue). A stamp older than 15min means the worker is hung.
@@ -1025,38 +1040,50 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         HUNG_THRESHOLD_S = 15 * 60  # 15 minutes
         POLL_INTERVAL_S = 60
         already_flagged = set()
+        if run_generation is None:
+            with self._worker_heartbeats_lock:
+                run_generation = self._worker_run_generation
         while not self._stop.is_set():
+            with self._worker_heartbeats_lock:
+                if run_generation != self._worker_run_generation:
+                    return
             # Use stop.wait() so we exit promptly on shutdown
             if self._stop.wait(POLL_INTERVAL_S):
                 return
             now = time.time()
             with self._worker_heartbeats_lock:
+                if run_generation != self._worker_run_generation:
+                    return
                 beats = dict(self._worker_heartbeats)
-            self._hung_workers = []
+            hung_workers = []
             for widx, last_beat in beats.items():
                 age_s = now - last_beat
                 if age_s > HUNG_THRESHOLD_S:
-                    self._hung_workers.append({
+                    hung_workers.append({
                         "worker_idx": widx,
                         "last_beat_age_s": round(age_s, 1),
                     })
-                    # Log once per hung-event — don't spam every 60s
-                    key = (widx, int(last_beat))
-                    if key not in already_flagged:
-                        already_flagged.add(key)
-                        self.log_event("worker_hung",
-                            f"Worker {widx} has not heartbeat in "
-                            f"{int(age_s/60)}min — likely hung. "
-                            f"Consider stopping and restarting the site.")
-                        sys.stderr.write(
-                            f"[{self.site_id}] WATCHDOG: worker {widx} "
-                            f"hung for {int(age_s/60)}min\n")
-                else:
-                    # Worker recovered (rare, but possible after long
-                    # Playwright operation). Clear flagged set entries
-                    # for this worker so a future hang re-logs.
-                    already_flagged = {k for k in already_flagged
-                                       if k[0] != widx}
+            if not self._publish_watchdog_snapshot(
+                    run_generation, beats, hung_workers):
+                continue
+            hung_ids = {item["worker_idx"] for item in hung_workers}
+            already_flagged = {
+                key for key in already_flagged if key[0] in hung_ids}
+            for item in hung_workers:
+                widx = item["worker_idx"]
+                last_beat = beats[widx]
+                key = (widx, int(last_beat))
+                if key in already_flagged:
+                    continue
+                already_flagged.add(key)
+                age_s = item["last_beat_age_s"]
+                self.log_event("worker_hung",
+                    f"Worker {widx} has not heartbeat in "
+                    f"{int(age_s/60)}min — likely hung. "
+                    f"Consider stopping and restarting the site.")
+                sys.stderr.write(
+                    f"[{self.site_id}] WATCHDOG: worker {widx} "
+                    f"hung for {int(age_s/60)}min\n")
 
     def _effective_concurrency(self):
         """Phase 64 (v3.41.0): bandwidth-aware concurrency. If
@@ -2126,19 +2153,26 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 pass
 
     def _process_worker_url(self, worker_idx, browser, url,
-                            persistent_ctx=None):
+                            persistent_ctx=None, run_generation=None):
         """Map a worker to its URL only for the duration of processing."""
         with self._worker_heartbeats_lock:
+            if run_generation is None:
+                run_generation = self._worker_run_generation
+            if run_generation != self._worker_run_generation:
+                return False
             self._worker_current_urls[worker_idx] = url
+            self._worker_url_generations[worker_idx] = run_generation
         try:
-            return self._process_one(
-                browser, url, persistent_ctx=persistent_ctx)
+            self._process_one(browser, url, persistent_ctx=persistent_ctx)
+            return True
         finally:
             with self._worker_heartbeats_lock:
-                if self._worker_current_urls.get(worker_idx) == url:
+                if (self._worker_url_generations.get(worker_idx) == run_generation
+                        and self._worker_current_urls.get(worker_idx) == url):
                     self._worker_current_urls.pop(worker_idx, None)
+                    self._worker_url_generations.pop(worker_idx, None)
 
-    def _worker_loop(self, worker_idx=0):
+    def _worker_loop(self, worker_idx=0, run_generation=None):
         """One persistent worker thread. Owns its own playwright + browser
         for the entire lifetime; pulls URLs from self._url_queue and
         processes them one at a time. Exits when:
@@ -2155,6 +2189,9 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         Phase 19: worker_idx is used to pick a per-worker profile dir so
         multiple workers don't fight over Chrome's SingletonLock."""
         pw=None; browser=None; persistent_ctx=None
+        if run_generation is None:
+            with self._worker_heartbeats_lock:
+                run_generation = self._worker_run_generation
         # Phase 18.fix: track when this worker last refreshed the ctx
         # cookies. Compared against self._cookies_updated_at; when newer
         # cookies are available (e.g. after a re-login), the worker
@@ -2188,6 +2225,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 # even if the worker is paused or waiting for
                 # session_ok — both are legitimate "alive" states.
                 with self._worker_heartbeats_lock:
+                    if run_generation != self._worker_run_generation:
+                        break
                     self._worker_heartbeats[worker_idx] = time.time()
                 self._pause.wait()
                 if self._stop.is_set(): break
@@ -2426,9 +2465,15 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                                 acquired_global=True; break
                         if not acquired_global:
                             self._url_queue.task_done(); continue
-                    self._process_worker_url(
+                    processed = self._process_worker_url(
                         worker_idx, browser, url,
-                        persistent_ctx=persistent_ctx)
+                        persistent_ctx=persistent_ctx,
+                        run_generation=run_generation)
+                    if not processed:
+                        # A restarted run invalidated this worker after it
+                        # dequeued the URL. Put the current-run work back rather
+                        # than silently consuming it in this stale generation.
+                        self._url_queue.put_nowait(url)
                 except Exception as e:
                     try: self._handle_failure(url,f"worker error: {str(e)[:100]}")
                     except Exception: pass

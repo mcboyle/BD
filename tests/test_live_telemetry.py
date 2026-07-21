@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 
 
 def _telemetry_runner(monkeypatch, *, url="https://example.test/video.mp4"):
@@ -22,6 +23,8 @@ def _telemetry_runner(monkeypatch, *, url="https://example.test/video.mp4"):
     runner._lock = threading.Lock()
     runner._worker_heartbeats = {}
     runner._worker_current_urls = {}
+    runner._worker_url_generations = {}
+    runner._worker_run_generation = 1
     runner._job_progress_samples = {}
     runner._worker_heartbeats_lock = threading.Lock()
     monkeypatch.setattr(runner_mod, "queue_upsert", lambda *args, **kwargs: None)
@@ -103,6 +106,69 @@ def test_worker_url_mapping_clears_when_processing_raises(monkeypatch):
         raise AssertionError("expected processing failure")
 
     assert runner._worker_current_urls == {}
+
+
+def test_old_worker_generation_cannot_map_or_unmap_new_worker(monkeypatch):
+    runner = _telemetry_runner(monkeypatch)
+    old_url = "https://example.test/old.mp4"
+    new_url = "https://example.test/new.mp4"
+    entered = threading.Event()
+    release = threading.Event()
+
+    def block(*args, **kwargs):
+        entered.set()
+        assert release.wait(2.0)
+
+    runner._process_one = block
+    old_worker = threading.Thread(
+        target=runner._process_worker_url,
+        args=(4, object(), old_url),
+        kwargs={"run_generation": 1},
+    )
+    old_worker.start()
+    assert entered.wait(2.0)
+
+    with runner._worker_heartbeats_lock:
+        runner._worker_run_generation = 2
+        runner._worker_current_urls.clear()
+        runner._worker_url_generations.clear()
+        runner._worker_current_urls[4] = new_url
+        runner._worker_url_generations[4] = 2
+
+    release.set()
+    old_worker.join(2.0)
+    assert not old_worker.is_alive()
+    assert runner._worker_current_urls == {4: new_url}
+    assert runner._worker_url_generations == {4: 2}
+
+    calls = []
+    runner._process_one = lambda *args, **kwargs: calls.append(args)
+    processed = runner._process_worker_url(
+        4, object(), old_url, run_generation=1)
+
+    assert processed is False
+    assert calls == []
+    assert runner._worker_current_urls == {4: new_url}
+    assert runner._worker_url_generations == {4: 2}
+
+
+def test_watchdog_rejects_old_generation_and_changed_heartbeat_snapshots(monkeypatch):
+    runner = _telemetry_runner(monkeypatch)
+    runner._hung_workers = []
+    old_snapshot = {2: 0.0}
+    hung = [{"worker_idx": 2, "last_beat_age_s": 1000.0}]
+
+    runner._worker_run_generation = 2
+    assert runner._publish_watchdog_snapshot(1, old_snapshot, hung) is False
+    assert runner._hung_workers == []
+
+    runner._worker_heartbeats = {2: 999.0}
+    assert runner._publish_watchdog_snapshot(2, old_snapshot, hung) is False
+    assert runner._hung_workers == []
+
+    current_snapshot = {2: 999.0}
+    assert runner._publish_watchdog_snapshot(2, current_snapshot, hung) is True
+    assert runner._hung_workers == hung
 
 
 def test_start_clears_stale_worker_tracking(monkeypatch):
@@ -215,3 +281,100 @@ def test_dashboard_aggregates_current_not_completion_throughput(fresh_app):
     body = fresh_app.get("/api/dashboard").get_json()
 
     assert body["throughput_bps"] == 654.0
+
+
+class _StreamResponse:
+    def __init__(self, chunks, *, status_code=200, content_length=None):
+        self.status_code = status_code
+        self.headers = {
+            "Content-Length": str(
+                sum(len(chunk) for chunk in chunks)
+                if content_length is None else content_length)
+        }
+        self._chunks = list(chunks)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def iter_bytes(self, chunk_size=None):
+        yield from self._chunks
+
+
+def _tick_clock():
+    value = [0.0]
+
+    def tick():
+        value[0] += 1.1
+        return value[0]
+
+    return tick
+
+
+def test_direct_http_progress_reports_cumulative_file_size(monkeypatch, tmp_path):
+    import httpx
+    from bulk_downloader import runner as runner_mod
+    from bulk_downloader import runner_transport as transport
+
+    runner = runner_mod.SiteRunner.__new__(runner_mod.SiteRunner)
+    runner.site_id = "telemetry"
+    runner.config = {"user_agent": "test"}
+    runner._stop = threading.Event()
+    runner._download_proxy_url = lambda: None
+    updates = []
+    runner._update_job = lambda *args, **extra: updates.append(extra["file_size"])
+    response = _StreamResponse([b"ab", b"cde", b"f"])
+    monkeypatch.setattr(httpx, "stream", lambda *args, **kwargs: response)
+    monkeypatch.setattr(transport.time, "time", _tick_clock())
+    monkeypatch.setattr(transport, "_SUPERVISOR_AVAILABLE", False)
+
+    ok = runner._do_direct_http_download(
+        "https://page.test/v", "https://cdn.test/v.mp4",
+        str(tmp_path / "v.mp4"))
+
+    assert ok is True
+    assert updates == [2, 5, 6]
+
+
+def test_sequential_resume_progress_reports_absolute_file_size(monkeypatch, tmp_path):
+    import httpx
+    from bulk_downloader import rate_limit
+    from bulk_downloader import runner as runner_mod
+    from bulk_downloader import runner_transport as transport
+
+    runner = runner_mod.SiteRunner.__new__(runner_mod.SiteRunner)
+    runner.site_id = "telemetry"
+    runner.config = {"parallel_chunks": 1, "use_curl_cffi": False}
+    runner._stop = threading.Event()
+    runner._pause = threading.Event()
+    runner._pause.set()
+    runner._pick_fastest_mirror = lambda url: url
+    runner._recommended_chunk_bytes = lambda: 1024
+    runner._current_cap_mbps = lambda: 0
+    runner._download_proxy_url = lambda: None
+    runner._observe_throughput = lambda *args: None
+    runner.log_event = lambda *args, **kwargs: None
+    runner.log = type("Log", (), {"warning": lambda *args, **kwargs: None})()
+    updates = []
+    runner._update_job = lambda *args, **extra: updates.append(extra["file_size"])
+
+    final_path = Path(tmp_path) / "resume.mp4"
+    part_path = final_path.with_suffix(final_path.suffix + ".part")
+    part_path.write_bytes(b"abcd")
+    response = _StreamResponse(
+        [b"ef", b"gh"], status_code=206, content_length=4)
+    monkeypatch.setattr(httpx, "stream", lambda *args, **kwargs: response)
+    monkeypatch.setattr(transport.time, "time", _tick_clock())
+    monkeypatch.setattr(transport, "record_bandwidth", lambda delta: None)
+    slot = type("Slot", (), {"release": lambda self: None})()
+    monkeypatch.setattr(rate_limit, "acquire", lambda url: slot)
+
+    size = runner._http_download(
+        "https://page.test/v", object(),
+        type("Ctx", (), {"cookies": lambda self: []})(),
+        "https://cdn.test/v.mp4", final_path)
+
+    assert size == 8
+    assert updates == [6, 8]

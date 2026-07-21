@@ -238,6 +238,8 @@ def test_runner_init_creates_heartbeat_state():
     src = _RUNNER_PY.read_text(encoding="utf-8")
     assert "self._worker_heartbeats = {}" in src
     assert "self._worker_current_urls = {}" in src
+    assert "self._worker_url_generations = {}" in src
+    assert "self._worker_run_generation = 0" in src
     assert "self._job_progress_samples = {}" in src
     assert "self._worker_heartbeats_lock = threading.Lock()" in src
     assert "self._hung_workers = []" in src
@@ -246,7 +248,7 @@ def test_runner_init_creates_heartbeat_state():
 def test_worker_loop_stamps_heartbeat():
     """The watchdog can't detect hangs if workers don't stamp."""
     src = _RUNNER_PY.read_text(encoding="utf-8")
-    wl_start = src.find("def _worker_loop(self, worker_idx=0)")
+    wl_start = src.find("def _worker_loop(")
     assert wl_start > 0
     wl_body = src[wl_start:wl_start + 5000]
     assert "self._worker_heartbeats[worker_idx] = time.time()" in wl_body, (
@@ -277,9 +279,9 @@ def test_streaming_progress_paths_report_advancing_file_size():
 def test_watchdog_loop_method_exists():
     """The watchdog body must exist as a SiteRunner method."""
     src = _RUNNER_PY.read_text(encoding="utf-8")
-    assert "def _watchdog_loop(self)" in src
+    assert "def _watchdog_loop(" in src
     # 15-minute threshold (configurable in code; verify the constant)
-    wd_start = src.find("def _watchdog_loop(self)")
+    wd_start = src.find("def _watchdog_loop(")
     wd_body = src[wd_start:wd_start + 2500]
     assert "HUNG_THRESHOLD_S = 15 * 60" in wd_body
 
