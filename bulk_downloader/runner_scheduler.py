@@ -9,7 +9,6 @@ import json, os, sys, threading, time
 from datetime import datetime, timedelta
 
 from .runner_util import _ts
-from .runner_queue import job_status_writer
 from .db import queue_upsert
 
 
@@ -181,7 +180,7 @@ class SchedulerMixin:
         # Pending side-effects collected inside the lock, run after.
         # Each entry: (url, message, prior_status, attempt, failure_class)
         side_effects = []
-        with job_status_writer(self) as mark_status_changed:
+        with self._job_status_writer() as mark_status_changed:
             mutated = False
             for url, j in self.jobs.items():
                 st = j.get("status", "")

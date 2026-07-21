@@ -12,7 +12,6 @@ import sys, threading, queue
 
 from playwright.sync_api import TimeoutError as PWTimeout
 from .runner_util import _check_video_magic_bytes, resolve_url_attribute
-from .runner_queue import job_status_writer
 
 # httpx soft import (moved verbatim from runner.py; flat sibling). _HTTPX_AVAILABLE.
 try:
@@ -631,7 +630,7 @@ class ManualMixin:
         # that were waiting for selectors
         if learned_count:
             self._auto_teach_logged = False
-            with job_status_writer(self) as mark_status_changed:
+            with self._job_status_writer() as mark_status_changed:
                 changed = False
                 for u, j in self.jobs.items():
                     if j.get("auto_teach_seen") and j.get("status") == "needs_review":
@@ -665,7 +664,7 @@ class ManualMixin:
             self.log.debug("manual download cancel error (browser may already be gone): %s", e)
         # Clear the auto_teach state so retry is clean
         try:
-            with job_status_writer(self) as mark_status_changed:
+            with self._job_status_writer() as mark_status_changed:
                 if target_url in self.jobs:
                     j = self.jobs[target_url]
                     if j.get("auto_teach_seen"):

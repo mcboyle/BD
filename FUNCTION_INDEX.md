@@ -258,25 +258,25 @@ Schema version: 2
 ## `bulk_downloader/runner_manual.py` (19 entries)
 
 ```
-- L0033 `_fire_capture_lifecycle` `[private]` — v3.66.468 WS3: fire a GATED capture-path lifecycle event.
-- L0050 `_ManualDownloadSession` `[private]` — Owns a Playwright session for the duration of a manual download
-  - L0055 `_ManualDownloadSession.__init__` `[dunder]`
-  - L0072 `_ManualDownloadSession.ready`
-  - L0076 `_ManualDownloadSession.error`
-  - L0079 `_ManualDownloadSession._launch` `[private]` — Open browser+context+page. Only called from the worker thread.
-  - L0145 `_ManualDownloadSession._run` `[private]` — Owner thread for the manual download Playwright session.
-  - L0467 `_ManualDownloadSession._send` `[private]` — Dispatch a command and wait for the response. Returns the
-  - L0484 `_ManualDownloadSession.finalize` — Harvest recordings + cookies, close session. Returns
-  - L0494 `_ManualDownloadSession.verify` — Test the user's picked selectors against the live DOM.
-  - L0502 `_ManualDownloadSession.test_download` — v3.43.0: dry-run a real fetch of the URL the picks would
-  - L0513 `_ManualDownloadSession.commit` — Snapshot cookies and close the session for a Teach Mode commit.
-  - L0522 `_ManualDownloadSession.cancel` — Close the session without harvesting anything.
-  - L0528 `_ManualDownloadSession.snapshot_cookies` — Read cookies without closing the session.
-- L0535 `ManualMixin` `[class]`
-  - L0536 `ManualMixin.start_manual_download` — Phase 41.3: open a non-headless Chromium at `target_url` with
-  - L0574 `ManualMixin.finish_manual_download` — User clicked 'Done' on the download takeover. Harvest the
-  - L0656 `ManualMixin.cancel_manual_download` — User clicked Cancel. Close the session, no learning.
-  - L0682 `ManualMixin.is_awaiting_manual_download`
+- L0032 `_fire_capture_lifecycle` `[private]` — v3.66.468 WS3: fire a GATED capture-path lifecycle event.
+- L0049 `_ManualDownloadSession` `[private]` — Owns a Playwright session for the duration of a manual download
+  - L0054 `_ManualDownloadSession.__init__` `[dunder]`
+  - L0071 `_ManualDownloadSession.ready`
+  - L0075 `_ManualDownloadSession.error`
+  - L0078 `_ManualDownloadSession._launch` `[private]` — Open browser+context+page. Only called from the worker thread.
+  - L0144 `_ManualDownloadSession._run` `[private]` — Owner thread for the manual download Playwright session.
+  - L0466 `_ManualDownloadSession._send` `[private]` — Dispatch a command and wait for the response. Returns the
+  - L0483 `_ManualDownloadSession.finalize` — Harvest recordings + cookies, close session. Returns
+  - L0493 `_ManualDownloadSession.verify` — Test the user's picked selectors against the live DOM.
+  - L0501 `_ManualDownloadSession.test_download` — v3.43.0: dry-run a real fetch of the URL the picks would
+  - L0512 `_ManualDownloadSession.commit` — Snapshot cookies and close the session for a Teach Mode commit.
+  - L0521 `_ManualDownloadSession.cancel` — Close the session without harvesting anything.
+  - L0527 `_ManualDownloadSession.snapshot_cookies` — Read cookies without closing the session.
+- L0534 `ManualMixin` `[class]`
+  - L0535 `ManualMixin.start_manual_download` — Phase 41.3: open a non-headless Chromium at `target_url` with
+  - L0573 `ManualMixin.finish_manual_download` — User clicked 'Done' on the download takeover. Harvest the
+  - L0655 `ManualMixin.cancel_manual_download` — User clicked Cancel. Close the session, no learning.
+  - L0681 `ManualMixin.is_awaiting_manual_download`
 ```
 
 
@@ -295,18 +295,18 @@ Schema version: 2
 ## `bulk_downloader/runner_teach.py` (12 entries)
 
 ```
-- L0032 `_draft_override_is_fresh` `[private]` — True iff ``ov`` is a usable, non-expired draft-test override dict.
-- L0052 `TeachMixin` `[class]`
-  - L0053 `TeachMixin._teach_base_url` `[private]` — The URL the takeover browser uses to hit teach_* endpoints. The
-  - L0063 `TeachMixin.teach_verify` — Phase 10: dry-run picked selectors against the page that's
-  - L0076 `TeachMixin.teach_test_download` — v3.43.0: extend Verify by actually fetching ~2 MB of the URL
-  - L0085 `TeachMixin.teach_commit` — Phase 10: persist the user's picked selectors and close the
-  - L0174 `TeachMixin.teach_cancel` — Same as cancel_manual_download but uses a cleaner status
-  - L0201 `TeachMixin._recover_selector` `[private]` — v3.43.73: when all learned selectors fail at runtime, attempt
-  - L0249 `TeachMixin._draft_override_template` `[private]` — B2 (v3.66.240): the per-site draft-test override template, or None.
-  - L0263 `TeachMixin._override_suppresses_persist` `[private]` — B2 (Decision 2): True when a draft-test override is active AND its
-  - L0276 `TeachMixin._persist_learned_to_draft` `[private]` — B2 (Decision 2, persist toggle ON): copy this run's learned block
-  - L0309 `TeachMixin._handle_auto_teach_check` `[private]` — Phase 19 auto-teach for the first URL: if the site has no learned
+- L0031 `_draft_override_is_fresh` `[private]` — True iff ``ov`` is a usable, non-expired draft-test override dict.
+- L0051 `TeachMixin` `[class]`
+  - L0052 `TeachMixin._teach_base_url` `[private]` — The URL the takeover browser uses to hit teach_* endpoints. The
+  - L0062 `TeachMixin.teach_verify` — Phase 10: dry-run picked selectors against the page that's
+  - L0075 `TeachMixin.teach_test_download` — v3.43.0: extend Verify by actually fetching ~2 MB of the URL
+  - L0084 `TeachMixin.teach_commit` — Phase 10: persist the user's picked selectors and close the
+  - L0173 `TeachMixin.teach_cancel` — Same as cancel_manual_download but uses a cleaner status
+  - L0200 `TeachMixin._recover_selector` `[private]` — v3.43.73: when all learned selectors fail at runtime, attempt
+  - L0248 `TeachMixin._draft_override_template` `[private]` — B2 (v3.66.240): the per-site draft-test override template, or None.
+  - L0262 `TeachMixin._override_suppresses_persist` `[private]` — B2 (Decision 2): True when a draft-test override is active AND its
+  - L0275 `TeachMixin._persist_learned_to_draft` `[private]` — B2 (Decision 2, persist toggle ON): copy this run's learned block
+  - L0308 `TeachMixin._handle_auto_teach_check` `[private]` — Phase 19 auto-teach for the first URL: if the site has no learned
 ```
 
 
@@ -358,22 +358,22 @@ Schema version: 2
 ## `bulk_downloader/runner_scheduler.py` (16 entries)
 
 ```
-- L0016 `SchedulerMixin` `[class]`
-  - L0017 `SchedulerMixin._start_auto_retry` `[private]` — Spin up the auto-retry scanner thread if not already running.
-  - L0026 `SchedulerMixin._stop_auto_retry` `[private]` — Signal the auto-retry thread to exit and wait up to 2s for it.
-  - L0034 `SchedulerMixin._parse_retry_schedule` `[private]` — Parse '1h,4h,24h' → [3600, 14400, 86400] in seconds. Tolerates
-  - L0051 `SchedulerMixin._auto_retry_loop` `[private]` — Scan for retry-eligible jobs every 60s. Bumps stuck
-  - L0079 `SchedulerMixin._scan_subscriptions` `[private]` — Phase 73 (v3.41.0): RSS-style URL subscriptions. Each subscription
-  - L0150 `SchedulerMixin._auto_retry_scan` `[private]` — One scan pass. Reads config flags inside the loop so toggle
-  - L0283 `SchedulerMixin._maybe_drift_recover` `[private]` — If learned download selectors are missing more than they hit,
-  - L0308 `SchedulerMixin._load_rl` `[private]`
-  - L0320 `SchedulerMixin._save_rl` `[private]`
-  - L0335 `SchedulerMixin._clear_rl` `[private]`
-  - L0339 `SchedulerMixin._next_sched_dt` `[private]`
-  - L0349 `SchedulerMixin.sched_next_str` — Render the next scheduled-run time as a short human string for
-  - L0359 `SchedulerMixin.start_scheduler` — Spawn the scheduler thread if `sched_enabled` is True. Idempotent
-  - L0370 `SchedulerMixin.stop_scheduler` — Signal the scheduler thread to exit and wait up to 12s for it.
-  - L0382 `SchedulerMixin._sched_loop` `[private]` — Scheduler thread body. Waits until the configured sched_time,
+- L0015 `SchedulerMixin` `[class]`
+  - L0016 `SchedulerMixin._start_auto_retry` `[private]` — Spin up the auto-retry scanner thread if not already running.
+  - L0025 `SchedulerMixin._stop_auto_retry` `[private]` — Signal the auto-retry thread to exit and wait up to 2s for it.
+  - L0033 `SchedulerMixin._parse_retry_schedule` `[private]` — Parse '1h,4h,24h' → [3600, 14400, 86400] in seconds. Tolerates
+  - L0050 `SchedulerMixin._auto_retry_loop` `[private]` — Scan for retry-eligible jobs every 60s. Bumps stuck
+  - L0078 `SchedulerMixin._scan_subscriptions` `[private]` — Phase 73 (v3.41.0): RSS-style URL subscriptions. Each subscription
+  - L0149 `SchedulerMixin._auto_retry_scan` `[private]` — One scan pass. Reads config flags inside the loop so toggle
+  - L0282 `SchedulerMixin._maybe_drift_recover` `[private]` — If learned download selectors are missing more than they hit,
+  - L0307 `SchedulerMixin._load_rl` `[private]`
+  - L0319 `SchedulerMixin._save_rl` `[private]`
+  - L0334 `SchedulerMixin._clear_rl` `[private]`
+  - L0338 `SchedulerMixin._next_sched_dt` `[private]`
+  - L0348 `SchedulerMixin.sched_next_str` — Render the next scheduled-run time as a short human string for
+  - L0358 `SchedulerMixin.start_scheduler` — Spawn the scheduler thread if `sched_enabled` is True. Idempotent
+  - L0369 `SchedulerMixin.stop_scheduler` — Signal the scheduler thread to exit and wait up to 12s for it.
+  - L0381 `SchedulerMixin._sched_loop` `[private]` — Scheduler thread body. Waits until the configured sched_time,
 ```
 
 

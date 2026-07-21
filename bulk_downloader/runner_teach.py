@@ -7,7 +7,6 @@ conditional). Cycle rule: imports nothing from .runner.
 """
 import sys, time
 
-from .runner_queue import job_status_writer
 
 # scrapling_adapter soft import (moved verbatim from runner.py; flat sibling so
 # `.`=bulk_downloader is unchanged). Provides _scrap + _SCRAPLING_AVAILABLE.
@@ -151,7 +150,7 @@ class TeachMixin:
 
         # Phase 41.2: re-enqueue URLs blocked on auto_teach
         self._auto_teach_logged = False
-        with job_status_writer(self) as mark_status_changed:
+        with self._job_status_writer() as mark_status_changed:
             changed = False
             for u, j in self.jobs.items():
                 if j.get("auto_teach_seen") and j.get("status") == "needs_review":
@@ -184,7 +183,7 @@ class TeachMixin:
             self.log.debug("teach_cancel: session close error: %s", e)
         # Phase 41.2: clear auto_teach state on the URL
         try:
-            with job_status_writer(self) as mark_status_changed:
+            with self._job_status_writer() as mark_status_changed:
                 if target_url in self.jobs:
                     j = self.jobs[target_url]
                     if j.get("auto_teach_seen"):
@@ -328,7 +327,7 @@ class TeachMixin:
         teach_message = (
             "Auto-teach: take over to teach download selectors. "
             "Click the download button by hand, then 'I'm Done'.")
-        with job_status_writer(self) as mark_status_changed:
+        with self._job_status_writer() as mark_status_changed:
             others_in_teach = any(
                 j.get("status") == "needs_review" and j.get("auto_teach_seen")
                 for u, j in self.jobs.items() if u != url
