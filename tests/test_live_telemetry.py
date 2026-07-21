@@ -29,6 +29,10 @@ def _telemetry_runner(monkeypatch, *, url="https://example.test/video.mp4"):
     runner._worker_url_generations = {}
     runner._worker_run_generation = 1
     runner._job_progress_samples = {}
+    runner._job_status_version = 0
+    runner._completion_notification_token = None
+    runner._completion_notification_serial = 0
+    runner._claimed_completion_notification = None
     runner._worker_heartbeats_lock = threading.Lock()
     runner._run_lifecycle_lock = threading.RLock()
     monkeypatch.setattr(runner_mod, "queue_upsert", lambda *args, **kwargs: None)
@@ -96,6 +100,7 @@ def test_unchanged_bytes_do_not_refresh_worker_heartbeat(monkeypatch):
 
 def test_worker_url_mapping_clears_when_processing_raises(monkeypatch):
     runner = _telemetry_runner(monkeypatch)
+    runner.jobs["https://example.test/video.mp4"]["status"] = "pending"
 
     def fail(*args, **kwargs):
         raise RuntimeError("download exploded")
@@ -118,6 +123,7 @@ def test_old_worker_generation_cannot_map_or_unmap_new_worker(monkeypatch):
     new_url = "https://example.test/new.mp4"
     entered = threading.Event()
     release = threading.Event()
+    runner.jobs[old_url] = {"status": "pending", "file_size": 0}
 
     def block(*args, **kwargs):
         entered.set()
@@ -150,7 +156,7 @@ def test_old_worker_generation_cannot_map_or_unmap_new_worker(monkeypatch):
     processed = runner._process_worker_url(
         4, object(), old_url, run_generation=1)
 
-    assert processed is False
+    assert processed == runner._WORKER_CLAIM_STALE
     assert calls == []
     assert runner._worker_current_urls == {4: new_url}
     assert runner._worker_url_generations == {4: 2}
@@ -407,6 +413,123 @@ def test_stop_and_replacement_start_cannot_overtake_worker_publication(monkeypat
         (0, initial_generation + 1),
         (0, initial_generation + 2),
     ]
+
+
+def test_retry_before_notification_claim_invalidates_completion(monkeypatch):
+    """A real retry mutation must beat a not-yet-claimed completion notice."""
+    from bulk_downloader import plugins, push, runner_queue
+
+    runner = _telemetry_runner(monkeypatch)
+    failed_url = "https://example.test/failed.mp4"
+    runner._stop = threading.Event()
+    runner._state = "running"
+    runner.config = {"name": "Telemetry"}
+    runner.jobs = {
+        failed_url: {"status": "failed", "retry_after": 0},
+    }
+    runner.urls = [failed_url]
+    pushes = []
+    emits = []
+    monkeypatch.setattr(
+        runner_queue, "queue_bulk_update", lambda *args, **kwargs: None)
+    monkeypatch.setattr(push, "send_push", lambda **kwargs: pushes.append(kwargs))
+    monkeypatch.setattr(plugins, "emit", lambda *args, **kwargs: emits.append(args))
+
+    action, token = runner._finalize_watch_done(1)
+    assert action == "notify"
+    entered_claim = threading.Event()
+    release_claim = threading.Event()
+    original_claim = runner._claim_completion_notification
+
+    def blocked_claim(*args, **kwargs):
+        entered_claim.set()
+        assert release_claim.wait(2.0)
+        return original_claim(*args, **kwargs)
+
+    runner._claim_completion_notification = blocked_claim
+    notifier = threading.Thread(
+        target=runner._notify_watch_done_if_current, args=(1, token))
+    notifier.start()
+    assert entered_claim.wait(2.0)
+
+    assert runner.bulk_retry([failed_url]) == 1
+    release_claim.set()
+    notifier.join(2.0)
+
+    assert not notifier.is_alive()
+    assert runner.jobs[failed_url]["status"] == "pending"
+    assert pushes == []
+    assert emits == []
+
+
+def test_bulk_pause_completed_before_worker_claim_prevents_processing(monkeypatch):
+    """Eligibility is decided atomically at the final pre-process claim."""
+    runner = _telemetry_runner(monkeypatch)
+    from bulk_downloader import runner_queue
+
+    url = "https://example.test/video.mp4"
+    runner.jobs[url]["status"] = "pending"
+    monkeypatch.setattr(
+        runner_queue, "queue_bulk_update", lambda *args, **kwargs: None)
+    entered_claim = threading.Event()
+    release_claim = threading.Event()
+    processed = []
+    original_claim = runner._claim_worker_item
+
+    def blocked_claim(*args, **kwargs):
+        entered_claim.set()
+        assert release_claim.wait(2.0)
+        return original_claim(*args, **kwargs)
+
+    runner._claim_worker_item = blocked_claim
+    runner._process_one = lambda *args, **kwargs: processed.append(args)
+    result = []
+    worker = threading.Thread(
+        target=lambda: result.append(runner._process_worker_url(
+            3, object(), url, run_generation=1)))
+    worker.start()
+    assert entered_claim.wait(2.0)
+
+    assert runner.bulk_pause([url]) == 1
+    release_claim.set()
+    worker.join(2.0)
+
+    assert not worker.is_alive()
+    assert result == [runner._WORKER_CLAIM_INELIGIBLE]
+    assert processed == []
+
+
+def test_bulk_pause_after_worker_claim_is_after_processing_began(monkeypatch):
+    """Once claimed/running, pending-only pause cannot cancel in-flight work."""
+    from bulk_downloader import runner_queue
+
+    runner = _telemetry_runner(monkeypatch)
+    url = "https://example.test/video.mp4"
+    runner.jobs[url]["status"] = "pending"
+    monkeypatch.setattr(
+        runner_queue, "queue_bulk_update", lambda *args, **kwargs: None)
+    process_entered = threading.Event()
+    process_release = threading.Event()
+    result = []
+
+    def blocked_process(*args, **kwargs):
+        process_entered.set()
+        assert process_release.wait(2.0)
+
+    runner._process_one = blocked_process
+    worker = threading.Thread(
+        target=lambda: result.append(runner._process_worker_url(
+            3, object(), url, run_generation=1)))
+    worker.start()
+    assert process_entered.wait(2.0)
+
+    assert runner.jobs[url]["status"] == "running"
+    assert runner.bulk_pause([url]) == 0
+    process_release.set()
+    worker.join(2.0)
+
+    assert not worker.is_alive()
+    assert result == [runner._WORKER_CLAIM_PROCESSED]
 
 
 def test_start_clears_stale_worker_tracking(monkeypatch):

@@ -356,7 +356,7 @@ from .runner_accounts import AccountsMixin  # noqa: E402
 from .runner_browser import BrowserMixin  # noqa: E402
 from .runner_scheduler import SchedulerMixin  # noqa: E402
 from .runner_telemetry import TelemetryMixin  # noqa: E402
-from .runner_queue import QueueMixin  # noqa: E402
+from .runner_queue import QueueMixin, job_status_writer  # noqa: E402
 from .runner_extractors import ExtractorsMixin  # noqa: E402
 from .runner_auth import AuthMixin  # noqa: E402
 from .runner_transport import TransportMixin  # noqa: E402
@@ -404,6 +404,10 @@ def _run_lifecycle_serialized(method):
 
 
 class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, TelemetryMixin, SchedulerMixin, BrowserMixin, AccountsMixin, ManualMixin, IntegrityMixin, TeachMixin, ChallengeMixin, IntegrationsMixin):
+    _WORKER_CLAIM_STALE = "stale"
+    _WORKER_CLAIM_INELIGIBLE = "ineligible"
+    _WORKER_CLAIM_PROCESSED = "processed"
+
     def __init__(self,site_id,config):
         # Phase 34: structured logger, scoped to this site. Used in
         # preference to sys.stderr.write for code added from Phase 34
@@ -534,6 +538,10 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         self._worker_url_generations = {} # {worker_idx: run generation}
         self._worker_run_generation = 0
         self._job_progress_samples = {} # {url: {bytes, at, bps}}
+        self._job_status_version = 0
+        self._completion_notification_token = None
+        self._completion_notification_serial = 0
+        self._claimed_completion_notification = None
         # Run transitions use this outermost lock. Any operation needing more
         # than one lock follows: lifecycle -> jobs -> heartbeats -> queue.
         # RLock is intentional: overseer finalization atomically calls start().
@@ -779,6 +787,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # both locks at once: _update_job follows the same one-way ordering.
         with self._lock:
             self._job_progress_samples.clear()
+            self._completion_notification_token = None
         if self.is_rate_limited(): return
         # v3.43.41: download window check. When the site is configured
         # with active hours (window_enabled=True), refuse to start
@@ -1230,10 +1239,14 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         for _ in self._worker_threads:
             try: self._url_queue.put_nowait(None)
             except Exception: pass
-        with self._lock:
+        with job_status_writer(self) as mark_status_changed:
+            changed = False
             for u,j in self.jobs.items():
                 if j["status"] in ("pending","running"):
                     j.update({"status":"stopped","message":"Stopped","ts":_ts()})
+                    changed = True
+            if changed:
+                mark_status_changed()
         self._state="stopped"
         # Workers close their own browsers in their finally blocks. We don't
         # call browser.close() across threads — Playwright sync is not
@@ -1502,7 +1515,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             except Exception:
                 pass  # translator failure must never block queue update
         byte_advanced = False
-        with self._lock:
+        with self._job_status_writer() as mark_status_changed:
             prev_status = (self.jobs.get(url) or {}).get("status")
             prev_bytes = int((self.jobs.get(url) or {}).get("file_size", 0))
             # v3.43.80: auto-create entry for unknown URL so stale retry_one isn't a no-op.
@@ -1510,6 +1523,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 self.jobs[url] = {"last_progress_at": now}
             if url in self.jobs:
                 self.jobs[url].update({"status":status,"message":message,"ts":_ts(),**extra})
+                mark_status_changed()
                 # v3.43.23: stamp last_progress_at whenever there's a
                 # real signal of progress. Two cases count as progress:
                 #   (a) the status changed (running → done, running →
@@ -2183,6 +2197,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
 
             restart = False
             with self._lock:
+                self._completion_notification_token = None
                 retryable = [
                     (u, j["retry_after"]) for u, j in self.jobs.items()
                     if j["status"] == "pending" and j.get("retry_after", 0) > 0
@@ -2209,24 +2224,43 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     self._state = "done" if counts["pending"] == 0 else "idle"
                     snapshot = (self._state, counts["pending"], counts["done"],
                                 counts["failed"], counts["needs_review"])
+                    if counts["pending"] == 0:
+                        self._completion_notification_serial = (
+                            getattr(self, "_completion_notification_serial", 0)
+                            + 1)
+                        token = (
+                            run_generation,
+                            self._completion_notification_serial,
+                            getattr(self, "_job_status_version", 0),
+                            snapshot,
+                        )
+                        self._completion_notification_token = token
+                    else:
+                        token = None
 
             if restart:
                 # RLock keeps the generation check and restart indivisible.
                 self.start()
                 return "restarted", None
             if snapshot[1] == 0:
-                return "notify", snapshot
+                return "notify", token
             return "complete", snapshot
 
-    def _notify_watch_done_if_current(self, run_generation, snapshot):
-        """Emit completion side effects only for the captured current state."""
+    def _claim_completion_notification(self, run_generation, token):
+        """Atomically claim a still-current completion token for delivery."""
         with self._run_lifecycle_lock:
-            if self._stop.is_set():
-                return False
-            with self._worker_heartbeats_lock:
-                if run_generation != self._worker_run_generation:
-                    return False
             with self._lock:
+                if self._stop.is_set():
+                    return None
+                with self._worker_heartbeats_lock:
+                    if run_generation != self._worker_run_generation:
+                        return None
+                if token != getattr(self, "_completion_notification_token", None):
+                    return None
+                token_generation, _, token_version, snapshot = token
+                if (token_generation != run_generation
+                        or token_version != getattr(self, "_job_status_version", 0)):
+                    return None
                 counts = {
                     status: sum(
                         1 for job in self.jobs.values()
@@ -2235,35 +2269,45 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 }
                 current = (self._state, counts["pending"], counts["done"],
                            counts["failed"], counts["needs_review"])
-            if current != snapshot or snapshot[0] != "done":
-                return False
+                if current != snapshot or snapshot[0] != "done":
+                    return None
+                # This is the atomic decision point. External delivery occurs
+                # without lifecycle/jobs locks; later status changes are
+                # semantically after the completion notice was claimed.
+                self._completion_notification_token = None
+                self._claimed_completion_notification = token
+                return snapshot
 
-            _, _, done, failed, review = snapshot
-            # Hold lifecycle across the external effects so a replacement run
-            # cannot begin after validation but before completion is signalled.
-            try:
-                from . import push as _push
-                site_name = self.config.get("name", self.site_id)
-                parts = [f"{done} done"]
-                if failed: parts.append(f"{failed} failed")
-                if review: parts.append(f"{review} need review")
-                _push.send_push(
-                    title=f"{site_name}: queue complete",
-                    body=" · ".join(parts),
-                    url=f"/?site={self.site_id}",
-                    tag=f"qdone:{self.site_id}",
-                    throttle_seconds=30,
-                )
-            except Exception as e:
-                sys.stderr.write(f"  push send failed (non-fatal): {str(e)[:80]}\n")
-            try:
-                from . import plugins as _pl
-                _pl.emit("queue.drained",
-                         {"site_id": self.site_id, "done": done,
-                          "failed": failed, "review": review, "ts": _ts()})
-            except Exception:
-                pass
-            return True
+    def _notify_watch_done_if_current(self, run_generation, token):
+        """Deliver a completion token only after an atomic current-state claim."""
+        snapshot = self._claim_completion_notification(run_generation, token)
+        if snapshot is None:
+            return False
+
+        _, _, done, failed, review = snapshot
+        try:
+            from . import push as _push
+            site_name = self.config.get("name", self.site_id)
+            parts = [f"{done} done"]
+            if failed: parts.append(f"{failed} failed")
+            if review: parts.append(f"{review} need review")
+            _push.send_push(
+                title=f"{site_name}: queue complete",
+                body=" · ".join(parts),
+                url=f"/?site={self.site_id}",
+                tag=f"qdone:{self.site_id}",
+                throttle_seconds=30,
+            )
+        except Exception as e:
+            sys.stderr.write(f"  push send failed (non-fatal): {str(e)[:80]}\n")
+        try:
+            from . import plugins as _pl
+            _pl.emit("queue.drained",
+                     {"site_id": self.site_id, "done": done,
+                      "failed": failed, "review": review, "ts": _ts()})
+        except Exception:
+            pass
+        return True
 
     def _requeue_generation_item(self, item_generation, url):
         """Restore eligible work using the documented lifecycle lock order."""
@@ -2294,19 +2338,41 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 with self._worker_heartbeats_lock:
                     return item_generation == self._worker_run_generation
 
+    def _claim_worker_item(self, worker_idx, url, run_generation=None):
+        """Atomically claim eligible current-run work immediately pre-process."""
+        with self._job_status_writer() as mark_status_changed:
+            with self._worker_heartbeats_lock:
+                current_generation = self._worker_run_generation
+                if run_generation is None:
+                    run_generation = current_generation
+                if run_generation != current_generation:
+                    return self._WORKER_CLAIM_STALE, run_generation
+            job = self.jobs.get(url)
+            if not job or job.get("status") != "pending":
+                return self._WORKER_CLAIM_INELIGIBLE, run_generation
+            now = time.time()
+            job.update({
+                "status": "running",
+                "message": "Claimed by worker",
+                "ts": _ts(),
+                "last_progress_at": now,
+            })
+            mark_status_changed()
+            with self._worker_heartbeats_lock:
+                self._worker_current_urls[worker_idx] = url
+                self._worker_url_generations[worker_idx] = run_generation
+            return "claimed", run_generation
+
     def _process_worker_url(self, worker_idx, browser, url,
                             persistent_ctx=None, run_generation=None):
-        """Map a worker to its URL only for the duration of processing."""
-        with self._worker_heartbeats_lock:
-            if run_generation is None:
-                run_generation = self._worker_run_generation
-            if run_generation != self._worker_run_generation:
-                return False
-            self._worker_current_urls[worker_idx] = url
-            self._worker_url_generations[worker_idx] = run_generation
+        """Claim, map, and process one URL with an unambiguous result."""
+        claim_result, run_generation = self._claim_worker_item(
+            worker_idx, url, run_generation)
+        if claim_result != "claimed":
+            return claim_result
         try:
             self._process_one(browser, url, persistent_ctx=persistent_ctx)
-            return True
+            return self._WORKER_CLAIM_PROCESSED
         finally:
             with self._worker_heartbeats_lock:
                 if (self._worker_url_generations.get(worker_idx) == run_generation
@@ -2629,10 +2695,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                         worker_idx, browser, url,
                         persistent_ctx=persistent_ctx,
                         run_generation=run_generation)
-                    if not processed:
-                        # This item belongs to the stale worker's own run. A new
-                        # start enqueues its own generation-tagged copy, so the
-                        # rejected old item must be consumed, never resurrected.
+                    if processed in (
+                            self._WORKER_CLAIM_STALE,
+                            self._WORKER_CLAIM_INELIGIBLE):
+                        # Both paths consume the dequeued entry. Stale work has
+                        # a replacement generation copy; ineligible work was
+                        # explicitly stopped/completed before the claim.
                         pass
                 except Exception as e:
                     try: self._handle_failure(url,f"worker error: {str(e)[:100]}")

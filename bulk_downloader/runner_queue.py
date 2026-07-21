@@ -6,7 +6,7 @@ free-name scan of the moved bodies (the seams doc omitted the playlist +
 yt_dlp_archive conditionals). Cycle rule: kernel from .runner_util, nothing
 from .runner.
 """
-import queue, sqlite3, sys, time
+import contextlib, queue, sqlite3, sys, threading, time
 from pathlib import Path
 
 from .runner_util import _ts
@@ -34,7 +34,44 @@ except Exception as _e:
     _YTDLP_ARCH_AVAILABLE = False
 
 
+_JOB_STATUS_BOOTSTRAP_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def job_status_writer(runner):
+    """Guard an eligibility/completion mutation and invalidate its token.
+
+    Combined lock order is lifecycle -> jobs -> heartbeats -> queue. The
+    yielded callback must be invoked after an actual in-memory mutation;
+    persistence and plugin/network effects belong outside this scope.
+    """
+    lifecycle_lock = getattr(runner, "_run_lifecycle_lock", None)
+    if lifecycle_lock is None:
+        with _JOB_STATUS_BOOTSTRAP_LOCK:
+            lifecycle_lock = getattr(runner, "_run_lifecycle_lock", None)
+            if lifecycle_lock is None:
+                lifecycle_lock = threading.RLock()
+                runner._run_lifecycle_lock = lifecycle_lock
+    with lifecycle_lock:
+        with runner._lock:
+            changed = [False]
+
+            def mark_changed():
+                changed[0] = True
+
+            try:
+                yield mark_changed
+            finally:
+                if changed[0]:
+                    runner._job_status_version = (
+                        getattr(runner, "_job_status_version", 0) + 1)
+                    runner._completion_notification_token = None
+
+
 class QueueMixin:
+    def _job_status_writer(self):
+        return job_status_writer(self)
+
     def _restore_queue(self):
         """Load persisted queue rows and rebuild self.urls / self.jobs."""
         rows = queue_load(self.site_id)
@@ -211,46 +248,51 @@ class QueueMixin:
                             existing_files.add(p.stem.lower())
                 except Exception as e:
                     self.log.error("folder scan failed: %s", e)
-        with self._lock:
-            done_set={u for u,j in self.jobs.items() if j["status"]=="done"}
-            ord_start=len(self.urls)
-            for u, hdrs in parsed_urls:
-                if dedupe and u in done_set: dupes+=1; continue
-                # v3.43.19: URLs already in the job map (any status) count
-                # toward dupes too so the caller sees added+dupes+skipped
-                # add up to the input size. Previously these were silently
-                # dropped which made the import summary misleading.
-                if u in self.jobs: dupes+=1; continue
-                # v3.45.0 Phase 194: content-rights blocklist check. URLs
-                # matching a blocklist pattern are refused at enqueue time;
-                # the refusal is logged to the audit table. Fail-open so a
-                # broken blocklist never silently halts queue intake.
+        prepared = []
+        for u, hdrs in parsed_urls:
+            # Count URLs dropped as already-present before potentially slow
+            # policy/file work; the status-writer transaction repeats the
+            # duplicate check before publication.
+            with self._lock:
+                if u in self.jobs:
+                    dupes+=1
+                    continue
+            # v3.45.0 Phase 194: content-rights checks may touch persistence,
+            # so they deliberately remain outside the lifecycle transaction.
+            try:
+                from . import content_rights as _cr
+                block = _cr.url_is_blocked(u)
+                if block:
+                    _cr.record_refusal(u,
+                        f"blocklist id {block.get('id')}: "
+                        f"{block.get('reason','')[:100]}")
+                    dupes += 1
+                    continue
+            except Exception:
+                pass
+            pre_done=False
+            if folder_scan and existing_files:
                 try:
-                    from . import content_rights as _cr
-                    block = _cr.url_is_blocked(u)
-                    if block:
-                        _cr.record_refusal(u,
-                            f"blocklist id {block.get('id')}: "
-                            f"{block.get('reason','')[:100]}")
-                        dupes += 1  # surfaced as dropped, like dedupe
-                        continue
-                except Exception:
-                    pass
-                # Phase 7.4: filename-match check
-                pre_done=False
-                if folder_scan and existing_files:
-                    try:
-                        from urllib.parse import urlparse
-                        last=urlparse(u).path.rstrip("/").split("/")[-1] or ""
-                        # strip common extensions
-                        for ext in (".html",".php",".htm",".aspx",""):
-                            if last.lower().endswith(ext):
-                                stem=last[:-len(ext)] if ext else last
-                                if stem.lower() in existing_files:
-                                    pre_done=True; break
-                    except Exception: pass
-                status="done" if pre_done else "pending"
-                msg="Already on disk (folder scan)" if pre_done else ""
+                    from urllib.parse import urlparse
+                    last=urlparse(u).path.rstrip("/").split("/")[-1] or ""
+                    for ext in (".html",".php",".htm",".aspx",""):
+                        if last.lower().endswith(ext):
+                            stem=last[:-len(ext)] if ext else last
+                            if stem.lower() in existing_files:
+                                pre_done=True; break
+                except Exception: pass
+            status="done" if pre_done else "pending"
+            msg="Already on disk (folder scan)" if pre_done else ""
+            prepared.append((u, hdrs, pre_done, status, msg))
+
+        # Publish the prepared intake as one lifecycle/job transaction. Slow
+        # policy and filesystem checks above never hold either lock.
+        with self._job_status_writer() as mark_status_changed:
+            ord_start=len(self.urls)
+            for u, hdrs, pre_done, status, msg in prepared:
+                if u in self.jobs:
+                    dupes+=1
+                    continue
                 self.jobs[u]={"status":status,"message":msg,"ts":_ts() if pre_done else "",
                               "priority":url_priorities.get(u, "normal"),"retries":0,"retry_after":0,
                               "filename":"","file_size":0,
@@ -258,12 +300,13 @@ class QueueMixin:
                               # immediately flag as stuck. Updated by _update_job on every
                               # state change or byte advance.
                               "last_progress_at": time.time()}
-                # Phase 68: store custom headers on the job if any
                 if hdrs:
                     self.jobs[u]["custom_headers"] = hdrs
                 self.urls.append(u); new_urls.append(u)
                 if pre_done: skipped_on_disk+=1
                 else: added+=1
+            if new_urls:
+                mark_status_changed()
         # Phase 4.2: bulk-insert into queue table outside the lock
         if new_urls:
             try: queue_bulk_upsert(self.site_id, new_urls, ord_start=ord_start)
@@ -354,13 +397,15 @@ class QueueMixin:
         urls=set(urls)
         removed=0
         skipped_review=0
-        with self._lock:
+        with self._job_status_writer() as mark_status_changed:
             for u in list(self.jobs.keys()):
                 if u in urls:
                     if (self.jobs.get(u) or {}).get("status") == "needs_review":
                         skipped_review+=1
                     del self.jobs[u]; removed+=1
             self.urls=[u for u in self.urls if u not in urls]
+            if removed:
+                mark_status_changed()
         try:
             queue_bulk_delete(self.site_id, list(urls))
         except Exception: pass
@@ -377,7 +422,7 @@ class QueueMixin:
         """Approve needs_review URLs to bypass the min_resolution threshold.
         Sets force_download=True on each job and re-queues as pending."""
         urls=set(urls); n=0; approved=[]
-        with self._lock:
+        with self._job_status_writer() as mark_status_changed:
             for u in urls:
                 j=self.jobs.get(u)
                 if not j: continue
@@ -385,6 +430,8 @@ class QueueMixin:
                           "ts":_ts(),"force_download":True,"retries":0,"retry_after":0})
                 if u not in self.urls: self.urls.append(u)
                 approved.append(u); n+=1
+            if n:
+                mark_status_changed()
         try:
             queue_bulk_update(self.site_id, approved, status="pending",
                               force_download=1, retries=0, retry_after=0,
@@ -407,7 +454,7 @@ class QueueMixin:
         A paused job moves to status='stopped' with a marker message so
         the UI can show it's user-paused, not system-stopped."""
         urls = set(urls); n = 0; paused = []
-        with self._lock:
+        with self._job_status_writer() as mark_status_changed:
             for u in urls:
                 j = self.jobs.get(u)
                 if not j: continue
@@ -417,6 +464,8 @@ class QueueMixin:
                           "ts": _ts(),
                           "_paused_by_user": True})
                 paused.append(u); n += 1
+            if n:
+                mark_status_changed()
         try:
             queue_bulk_update(self.site_id, paused, status="stopped",
                               message="Paused by user")
@@ -426,7 +475,7 @@ class QueueMixin:
         """v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
         Re-queues them as pending. Idempotent on jobs that aren't stopped."""
         urls = set(urls); n = 0; resumed = []
-        with self._lock:
+        with self._job_status_writer() as mark_status_changed:
             for u in urls:
                 j = self.jobs.get(u)
                 if not j: continue
@@ -436,6 +485,8 @@ class QueueMixin:
                           "_paused_by_user": False})
                 if u not in self.urls: self.urls.append(u)
                 resumed.append(u); n += 1
+            if n:
+                mark_status_changed()
         try:
             queue_bulk_update(self.site_id, resumed, status="pending",
                               message="Resumed", retries=0, retry_after=0)
@@ -447,7 +498,7 @@ class QueueMixin:
         state (returning 'retry pending' on a successful job would be
         confusing)."""
         urls = set(urls); n = 0; retried = []
-        with self._lock:
+        with self._job_status_writer() as mark_status_changed:
             for u in urls:
                 j = self.jobs.get(u)
                 if not j: continue
@@ -456,6 +507,8 @@ class QueueMixin:
                           "ts": _ts(), "retries": 0, "retry_after": 0})
                 if u not in self.urls: self.urls.append(u)
                 retried.append(u); n += 1
+            if n:
+                mark_status_changed()
         try:
             queue_bulk_update(self.site_id, retried, status="pending",
                               message="Retry requested", retries=0, retry_after=0)
@@ -535,10 +588,12 @@ class QueueMixin:
         """Drop URLs in `done` or `stopped` status from both the in-memory
         job map and the queue table. History rows (in the separate `history`
         table) are NOT affected — those persist for audit/reporting."""
-        with self._lock:
+        with self._job_status_writer() as mark_status_changed:
             removed=[u for u,j in self.jobs.items() if j["status"] in ("done","stopped")]
             self.jobs={u:j for u,j in self.jobs.items() if u not in removed}
             self.urls=[u for u in self.urls if u not in removed]
+            if removed:
+                mark_status_changed()
         try:
             queue_delete_status(self.site_id,"done")
             queue_delete_status(self.site_id,"stopped")
@@ -548,11 +603,13 @@ class QueueMixin:
         them up again. Clears retries/retry_after counters too — the
         retry budget restarts fresh."""
         retried=[]
-        with self._lock:
+        with self._job_status_writer() as mark_status_changed:
             for u,j in self.jobs.items():
                 if j["status"]=="failed":
                     j.update({"status":"pending","message":"","ts":"","retries":0,"retry_after":0})
                     retried.append(u)
+            if retried:
+                mark_status_changed()
         try:
             queue_bulk_update(self.site_id, retried, status="pending",
                               message="", retries=0, retry_after=0)
