@@ -33,7 +33,7 @@ excepts. v3.43.17 narrowed the remaining bare `except:` clauses to
 ──────────────────────────────────────────────────────────────────────
 """
 # Load-bearing invariants tagged inline as # INV-<ID>; see DANGER_MAP.md.
-import collections, contextlib, itertools, json, math, os, queue, re, shutil, sqlite3, subprocess, sys, threading, time
+import collections, contextlib, functools, itertools, json, math, os, queue, re, shutil, sqlite3, subprocess, sys, threading, time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -382,6 +382,27 @@ def _finite_config_float(raw, default):
     return v
 
 
+_RUN_LIFECYCLE_BOOTSTRAP_LOCK = threading.Lock()
+
+
+def _run_lifecycle_serialized(method):
+    """Serialize public run transitions through one re-entrant lock."""
+    @functools.wraps(method)
+    def serialized(self, *args, **kwargs):
+        lock = getattr(self, "_run_lifecycle_lock", None)
+        if lock is None:
+            # Preserve direct unbound-method use by legacy adapters/tests while
+            # still making first-use initialization safe between two callers.
+            with _RUN_LIFECYCLE_BOOTSTRAP_LOCK:
+                lock = getattr(self, "_run_lifecycle_lock", None)
+                if lock is None:
+                    lock = threading.RLock()
+                    self._run_lifecycle_lock = lock
+        with lock:
+            return method(self, *args, **kwargs)
+    return serialized
+
+
 class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, TelemetryMixin, SchedulerMixin, BrowserMixin, AccountsMixin, ManualMixin, IntegrityMixin, TeachMixin, ChallengeMixin, IntegrationsMixin):
     def __init__(self,site_id,config):
         # Phase 34: structured logger, scoped to this site. Used in
@@ -513,6 +534,10 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         self._worker_url_generations = {} # {worker_idx: run generation}
         self._worker_run_generation = 0
         self._job_progress_samples = {} # {url: {bytes, at, bps}}
+        # Run transitions use this outermost lock. Any operation needing more
+        # than one lock follows: lifecycle -> jobs -> heartbeats -> queue.
+        # RLock is intentional: overseer finalization atomically calls start().
+        self._run_lifecycle_lock = threading.RLock()
         self._worker_heartbeats_lock = threading.Lock()
         # v3.43.24: watchdog populates this with {worker_idx, last_beat_age_s}
         # dicts for any worker that hasn't heartbeat in >15min. Empty
@@ -737,6 +762,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
 
 
 
+    @_run_lifecycle_serialized
     def start(self):
         if self._state=="running": return
         # A fresh run must not inherit liveness state from worker threads that
@@ -1196,6 +1222,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             self._state = "running"
             self._pause.set()
 
+    @_run_lifecycle_serialized
     def stop(self):
         self._rl_autostart=False  # P3-A: operator stop cancels a pending rate-limit resume
         self._stop.set(); self._pause.set()
@@ -2133,33 +2160,87 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 return
             if tuple(self._worker_threads) == tuple(worker_threads):
                 self._worker_threads=[]
-        if self._stop.is_set(): return
-        if not self._worker_generation_is_current(run_generation): return
-        with self._lock:
-            retryable=[(u,j["retry_after"]) for u,j in self.jobs.items()
-                       if j["status"]=="pending" and j.get("retry_after",0)>0]
-        if retryable:
-            earliest=min(ra for _,ra in retryable); wait=earliest-time.time()
-            if wait>0:
-                for u,ra in retryable:
-                    mins=max(1,int((ra-time.time())//60))
-                    with self._lock:
-                        if u in self.jobs: self.jobs[u]["message"]=f"Retry in ~{mins}m"
-                if self._stop.wait(max(0, wait)):
+        while True:
+            outcome = self._finalize_watch_done(run_generation)
+            if outcome is None:
+                return
+            action, payload = outcome
+            if action == "retry_wait":
+                if self._stop.wait(payload):
                     return
-            if not self._worker_generation_is_current(run_generation): return
-            if not self._stop.is_set(): self._state="idle"; self.start()
+                continue
+            if action == "notify":
+                self._notify_watch_done_if_current(run_generation, payload)
             return
-        if not self._worker_generation_is_current(run_generation): return
-        pending=sum(1 for j in self.jobs.values() if j["status"]=="pending")
-        self._state="done" if pending==0 else "idle"
-        # Phase 16.43: send a "queue complete" push notification when the
-        # queue actually finishes. We aggregate counts so the user gets
-        # one summary push rather than per-URL spam.
-        if pending == 0:
-            done = sum(1 for j in self.jobs.values() if j["status"] == "done")
-            failed = sum(1 for j in self.jobs.values() if j["status"] == "failed")
-            review = sum(1 for j in self.jobs.values() if j["status"] == "needs_review")
+    def _finalize_watch_done(self, run_generation):
+        """Commit retry/final state only if this overseer still owns the run."""
+        with self._run_lifecycle_lock:
+            if self._stop.is_set():
+                return None
+            with self._worker_heartbeats_lock:
+                if run_generation != self._worker_run_generation:
+                    return None
+
+            restart = False
+            with self._lock:
+                retryable = [
+                    (u, j["retry_after"]) for u, j in self.jobs.items()
+                    if j["status"] == "pending" and j.get("retry_after", 0) > 0
+                ]
+                if retryable:
+                    wait = min(ra for _, ra in retryable) - time.time()
+                    if wait > 0:
+                        now = time.time()
+                        for url, retry_after in retryable:
+                            mins = max(1, int((retry_after - now) // 60))
+                            if url in self.jobs:
+                                self.jobs[url]["message"] = f"Retry in ~{mins}m"
+                        return "retry_wait", max(0, wait)
+                    self._state = "idle"
+                    restart = True
+                    snapshot = None
+                else:
+                    counts = {
+                        status: sum(
+                            1 for job in self.jobs.values()
+                            if job["status"] == status)
+                        for status in ("pending", "done", "failed", "needs_review")
+                    }
+                    self._state = "done" if counts["pending"] == 0 else "idle"
+                    snapshot = (self._state, counts["pending"], counts["done"],
+                                counts["failed"], counts["needs_review"])
+
+            if restart:
+                # RLock keeps the generation check and restart indivisible.
+                self.start()
+                return "restarted", None
+            if snapshot[1] == 0:
+                return "notify", snapshot
+            return "complete", snapshot
+
+    def _notify_watch_done_if_current(self, run_generation, snapshot):
+        """Emit completion side effects only for the captured current state."""
+        with self._run_lifecycle_lock:
+            if self._stop.is_set():
+                return False
+            with self._worker_heartbeats_lock:
+                if run_generation != self._worker_run_generation:
+                    return False
+            with self._lock:
+                counts = {
+                    status: sum(
+                        1 for job in self.jobs.values()
+                        if job["status"] == status)
+                    for status in ("pending", "done", "failed", "needs_review")
+                }
+                current = (self._state, counts["pending"], counts["done"],
+                           counts["failed"], counts["needs_review"])
+            if current != snapshot or snapshot[0] != "done":
+                return False
+
+            _, _, done, failed, review = snapshot
+            # Hold lifecycle across the external effects so a replacement run
+            # cannot begin after validation but before completion is signalled.
             try:
                 from . import push as _push
                 site_name = self.config.get("name", self.site_id)
@@ -2175,9 +2256,6 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 )
             except Exception as e:
                 sys.stderr.write(f"  push send failed (non-fatal): {str(e)[:80]}\n")
-
-            # E1 (v3.66.494): the queue drained to empty -- emit the plugin
-            # event (isolated; a throwing consumer never breaks completion).
             try:
                 from . import plugins as _pl
                 _pl.emit("queue.drained",
@@ -2185,24 +2263,36 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                           "failed": failed, "review": review, "ts": _ts()})
             except Exception:
                 pass
+            return True
 
     def _requeue_generation_item(self, item_generation, url):
-        """Atomically restore a current-run queue item without duplicates."""
-        with self._worker_heartbeats_lock:
-            if item_generation != self._worker_run_generation:
-                return False
-            if (self.jobs.get(url) or {}).get("status") != "pending":
-                return False
-            tagged_item = (item_generation, url)
-            q = self._url_queue
-            with q.mutex:
-                for queued in q.queue:
-                    if queued == tagged_item or queued == url:
+        """Restore eligible work using the documented lifecycle lock order."""
+        with self._run_lifecycle_lock:
+            with self._lock:
+                if (self.jobs.get(url) or {}).get("status") != "pending":
+                    return False
+                with self._worker_heartbeats_lock:
+                    if item_generation != self._worker_run_generation:
                         return False
-                q._put(tagged_item)
-                q.unfinished_tasks += 1
-                q.not_empty.notify()
-            return True
+                    tagged_item = (item_generation, url)
+                    q = self._url_queue
+                    with q.mutex:
+                        for queued in q.queue:
+                            if queued == tagged_item or queued == url:
+                                return False
+                        q._put(tagged_item)
+                        q.unfinished_tasks += 1
+                        q.not_empty.notify()
+                    return True
+
+    def _generation_item_is_processable(self, item_generation, url):
+        """Validate a dequeued item against the current run and job state."""
+        with self._run_lifecycle_lock:
+            with self._lock:
+                if (self.jobs.get(url) or {}).get("status") != "pending":
+                    return False
+                with self._worker_heartbeats_lock:
+                    return item_generation == self._worker_run_generation
 
     def _process_worker_url(self, worker_idx, browser, url,
                             persistent_ctx=None, run_generation=None):
@@ -2368,6 +2458,13 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                         item_generation = self._worker_run_generation
                 if item_generation != run_generation:
                     self._requeue_generation_item(item_generation, url)
+                    self._url_queue.task_done()
+                    continue
+                # A status writer may legitimately run after queue insertion.
+                # Revalidate at dequeue so stopped/completed work is consumed,
+                # never resurrected into processing.
+                if not self._generation_item_is_processable(
+                        item_generation, url):
                     self._url_queue.task_done()
                     continue
                 # v3.45.4 / v3.46.3 Phase 185: worker affinity by tag.

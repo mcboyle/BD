@@ -5,6 +5,8 @@ import threading
 import queue
 from pathlib import Path
 
+import pytest
+
 
 def _telemetry_runner(monkeypatch, *, url="https://example.test/video.mp4"):
     """Build the smallest real SiteRunner surface needed by telemetry tests."""
@@ -28,6 +30,7 @@ def _telemetry_runner(monkeypatch, *, url="https://example.test/video.mp4"):
     runner._worker_run_generation = 1
     runner._job_progress_samples = {}
     runner._worker_heartbeats_lock = threading.Lock()
+    runner._run_lifecycle_lock = threading.RLock()
     monkeypatch.setattr(runner_mod, "queue_upsert", lambda *args, **kwargs: None)
     return runner
 
@@ -225,6 +228,185 @@ def test_generation_requeue_is_deduplicated_and_cannot_resurrect_stopped_work(
     runner.jobs[url]["status"] = "pending"
     assert runner._requeue_generation_item(1, url) is False
     assert runner._url_queue.empty()
+
+
+def test_generation_requeue_holds_job_lock_through_queue_publication(monkeypatch):
+    """A stop/status writer cannot slip between eligibility and q._put."""
+    runner = _telemetry_runner(monkeypatch)
+    url = "https://example.test/video.mp4"
+    runner._url_queue = queue.Queue()
+    runner.jobs[url]["status"] = "pending"
+    entered_put = threading.Event()
+    release_put = threading.Event()
+    status_changed = threading.Event()
+    original_put = runner._url_queue._put
+
+    def blocked_put(item):
+        entered_put.set()
+        assert release_put.wait(2.0)
+        original_put(item)
+
+    runner._url_queue._put = blocked_put
+
+    requeue_thread = threading.Thread(
+        target=runner._requeue_generation_item, args=(1, url))
+    requeue_thread.start()
+    assert entered_put.wait(2.0)
+
+    def mark_stopped():
+        with runner._lock:
+            runner.jobs[url]["status"] = "stopped"
+        status_changed.set()
+
+    status_thread = threading.Thread(target=mark_stopped)
+    status_thread.start()
+    assert not status_changed.wait(0.1)
+
+    release_put.set()
+    requeue_thread.join(2.0)
+    status_thread.join(2.0)
+    assert not requeue_thread.is_alive()
+    assert not status_thread.is_alive()
+    assert runner.jobs[url]["status"] == "stopped"
+    assert runner._generation_item_is_processable(1, url) is False
+
+
+@pytest.mark.parametrize("old_status,retry_after", [
+    ("done", 0),
+    ("pending", 1),
+])
+def test_watch_done_commit_rejects_generation_changed_at_barrier(
+        monkeypatch, old_status, retry_after):
+    """An old overseer cannot finalize, restart, or notify a replacement run."""
+    from bulk_downloader import plugins, push
+
+    runner = _telemetry_runner(monkeypatch)
+    runner._stop = threading.Event()
+    runner._url_queue = queue.Queue()
+    runner._worker_threads = []
+    runner._state = "running"
+    runner.config = {"name": "Telemetry"}
+    runner.jobs = {
+        "https://example.test/old.mp4": {
+            "status": old_status, "retry_after": retry_after,
+        },
+    }
+    entered_commit = threading.Event()
+    release_commit = threading.Event()
+    starts = []
+    pushes = []
+    emits = []
+    original_finalize = runner._finalize_watch_done
+
+    def blocked_finalize(*args, **kwargs):
+        entered_commit.set()
+        assert release_commit.wait(2.0)
+        return original_finalize(*args, **kwargs)
+
+    runner._finalize_watch_done = blocked_finalize
+    runner.start = lambda: starts.append("restart")
+    monkeypatch.setattr(push, "send_push", lambda **kwargs: pushes.append(kwargs))
+    monkeypatch.setattr(plugins, "emit", lambda *args, **kwargs: emits.append(args))
+
+    overseer = threading.Thread(
+        target=runner._watch_done, kwargs={
+            "run_generation": 1, "worker_threads": (),
+        })
+    overseer.start()
+    assert entered_commit.wait(2.0)
+    with runner._run_lifecycle_lock:
+        with runner._worker_heartbeats_lock:
+            runner._worker_run_generation = 2
+        with runner._lock:
+            runner.jobs = {
+                "https://example.test/new.mp4": {
+                    "status": "pending", "retry_after": 0,
+                }
+            }
+        runner._state = "running"
+    release_commit.set()
+    overseer.join(2.0)
+
+    assert not overseer.is_alive()
+    assert runner._state == "running"
+    assert starts == []
+    assert pushes == []
+    assert emits == []
+
+
+def test_stop_and_replacement_start_cannot_overtake_worker_publication(monkeypatch):
+    """Start publication is one lifecycle transaction with stop/start."""
+    runner = _telemetry_runner(monkeypatch)
+    url = "https://example.test/video.mp4"
+    publish_reached = threading.Event()
+    publish_release = threading.Event()
+    stop_done = threading.Event()
+
+    class PublicationBarrierConfig(dict):
+        def get(self, key, default=None):
+            if (key == "max_concurrent"
+                    and threading.current_thread().name == "start-one"):
+                publish_reached.set()
+                assert publish_release.wait(2.0)
+            return super().get(key, default)
+
+    runner.config = PublicationBarrierConfig({
+        "auto_teach_first_run": False,
+        "max_concurrent": 1,
+    })
+    runner.jobs[url].update({"status": "pending", "retry_after": 0})
+    runner._state = "idle"
+    runner._hung_workers = []
+    runner._stop = threading.Event()
+    runner._pause = threading.Event()
+    runner._pause.set()
+    runner._url_queue = queue.Queue()
+    runner._worker_threads = []
+    runner._rl_autostart = False
+    runner.is_rate_limited = lambda: False
+    runner.log_event = lambda *args, **kwargs: None
+    runner.log = type("Log", (), {
+        "warning": lambda *args, **kwargs: None,
+        "debug": lambda *args, **kwargs: None,
+    })()
+    runner._stop_auto_retry = lambda: None
+    worker_runs = []
+    runner._worker_loop = lambda *args: worker_runs.append(args)
+    runner._watch_done = lambda *args: None
+    runner._watchdog_loop = lambda *args: None
+    initial_generation = runner._worker_run_generation
+
+    first = threading.Thread(target=runner.start, name="start-one")
+    first.start()
+    assert publish_reached.wait(2.0)
+
+    def stop_run():
+        runner.stop()
+        stop_done.set()
+
+    stopper = threading.Thread(target=stop_run, name="stop-between-starts")
+    stopper.start()
+    try:
+        assert not stop_done.wait(0.1)
+    finally:
+        publish_release.set()
+        first.join(2.0)
+        stopper.join(2.0)
+
+    assert not first.is_alive()
+    assert not stopper.is_alive()
+    with runner._lock:
+        runner.jobs[url].update({"status": "pending", "retry_after": 0})
+    runner.start()
+    replacement_pool = runner._worker_threads
+
+    assert runner._state == "running"
+    assert runner._worker_run_generation == initial_generation + 2
+    assert runner._worker_threads is replacement_pool
+    assert worker_runs == [
+        (0, initial_generation + 1),
+        (0, initial_generation + 2),
+    ]
 
 
 def test_start_clears_stale_worker_tracking(monkeypatch):
