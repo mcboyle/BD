@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 import queue
+import types
 from pathlib import Path
 
 import pytest
@@ -742,6 +743,219 @@ def test_start_rechecks_stop_generation_after_waiting_for_lifecycle_lock(
     assert worker_runs == []
     assert runner._worker_generation_invalidated is True
     assert runner._stop.is_set()
+
+
+def test_delayed_multi_conn_child_progress_is_rejected_after_stop(
+        monkeypatch, tmp_path):
+    """A chunk thread cannot publish progress after its worker is stopped."""
+    from bulk_downloader import runner_transport, sse_broker
+
+    url = "https://example.test/video.mp4"
+    runner = _telemetry_runner(monkeypatch, url=url)
+    runner.config = {
+        "multi_conn_count": 2,
+        "multi_conn_min_size_mb": 100,
+        "worker_teardown_wait_s": 0,
+    }
+    runner._worker_generation_invalidated = False
+    runner._worker_context = threading.local()
+    runner._stop = threading.Event()
+    runner._pause = threading.Event()
+    runner._pause.set()
+    runner._worker_threads = []
+    runner._state = "running"
+    runner._rl_autostart = False
+    runner._manual_download_session = None
+    runner._manual_login_handle = None
+    runner._stop_auto_retry = lambda: None
+    runner.log = types.SimpleNamespace(
+        warning=lambda *args, **kwargs: None,
+        debug=lambda *args, **kwargs: None,
+    )
+    runner._worker_current_urls = {0: url}
+    runner._worker_url_generations = {0: 1}
+    runner._worker_heartbeats = {0: 10.0}
+
+    child_waiting = threading.Event()
+    release_child = threading.Event()
+    callback_finished = threading.Event()
+    published = []
+    now = [100.0]
+
+    class FakeMultiConn:
+        @staticmethod
+        def probe(*args, **kwargs):
+            return types.SimpleNamespace(
+                ok=True,
+                content_length=200 * 1024 * 1024,
+                accept_ranges=True,
+                error="",
+            )
+
+        @staticmethod
+        def should_use_multi_conn(*args, **kwargs):
+            return True
+
+        @staticmethod
+        def download(*args, progress_cb, **kwargs):
+            def delayed_progress():
+                child_waiting.set()
+                assert release_child.wait(3.0)
+                progress_cb(1024, 4096)
+                callback_finished.set()
+
+            child = threading.Thread(target=delayed_progress, name="mc-delayed")
+            child.start()
+            child.join(3.0)
+            assert not child.is_alive()
+            return types.SimpleNamespace(
+                ok=True,
+                bytes_written=4096,
+                chunks_completed=2,
+                chunks_failed=0,
+                elapsed_s=1.0,
+                avg_speed_bps=4096.0,
+                chunk_count=2,
+                error="",
+            )
+
+    monkeypatch.setattr(runner_transport, "_MULTI_CONN_AVAILABLE", True)
+    monkeypatch.setattr(runner_transport, "_mconn", FakeMultiConn)
+    monkeypatch.setattr(runner_transport.time, "time", lambda: now[0])
+    monkeypatch.setattr(
+        sse_broker, "publish", lambda *args, **kwargs: published.append(args))
+
+    results = []
+
+    def worker_download():
+        runner._worker_context.run_generation = 1
+        results.append(runner._try_multi_conn_download(
+            url, url, str(tmp_path / "video.part"), headers={}))
+
+    worker = threading.Thread(target=worker_download, name="old-worker")
+    worker.start()
+    assert child_waiting.wait(2.0)
+
+    runner.stop()
+    now[0] = 102.0
+    release_child.set()
+
+    worker.join(3.0)
+    assert not worker.is_alive()
+    assert callback_finished.is_set()
+    assert results == [True]
+    assert runner.jobs[url]["status"] == "stopped"
+    assert runner.jobs[url]["file_size"] == 0
+    assert runner._worker_heartbeats == {0: 10.0}
+    assert published == []
+
+
+def test_single_start_api_reports_teardown_refusal(fresh_app):
+    from bulk_downloader.runner import StartOutcome
+    from bulk_downloader.app_state import runners
+
+    class RefusingRunner:
+        def start(self):
+            return StartOutcome.TEARDOWN_PENDING
+
+        def is_rate_limited(self):
+            return False
+
+        def state(self):
+            return "stopped"
+
+    runners["refusing"] = RefusingRunner()
+
+    response = fresh_app.post("/api/sites/refusing/start")
+
+    assert response.status_code == 409
+    assert response.get_json() == {
+        "ok": False,
+        "error": "prior workers are still tearing down",
+        "blocked_by": "worker_teardown",
+    }
+
+
+def test_single_start_api_preserves_low_disk_success_shape(fresh_app):
+    from bulk_downloader.app_state import runners
+
+    class LowDiskRunner:
+        def start(self):
+            return None
+
+        def is_rate_limited(self):
+            return False
+
+        def state(self):
+            return "low_disk"
+
+    runners["low-disk"] = LowDiskRunner()
+
+    response = fresh_app.post("/api/sites/low-disk/start")
+
+    assert response.status_code == 200
+    assert response.get_json() == {"ok": True, "blocked_by": "low_disk"}
+
+
+@pytest.mark.parametrize(
+    ("rate_limited", "state", "expected"),
+    [
+        (True, "idle", {"ok": True, "blocked_by": "rate_limited"}),
+        (False, "running", {"ok": True}),
+    ],
+)
+def test_single_start_api_preserves_existing_success_shapes(
+        fresh_app, rate_limited, state, expected):
+    from bulk_downloader.app_state import runners
+
+    class ExistingOutcomeRunner:
+        def start(self):
+            return None
+
+        def is_rate_limited(self):
+            return rate_limited
+
+        def state(self):
+            return state
+
+    runners["existing-outcome"] = ExistingOutcomeRunner()
+
+    response = fresh_app.post("/api/sites/existing-outcome/start")
+
+    assert response.status_code == 200
+    assert response.get_json() == expected
+
+
+def test_bulk_start_api_excludes_and_surfaces_teardown_refusal(
+        fresh_app, monkeypatch):
+    from bulk_downloader import app as app_module
+    from bulk_downloader.runner import StartOutcome
+    from bulk_downloader.app_state import runners
+
+    class Runner:
+        def __init__(self, outcome):
+            self.outcome = outcome
+
+        def start(self):
+            return self.outcome
+
+    runners["ready"] = Runner(None)
+    runners["refusing"] = Runner(StartOutcome.TEARDOWN_PENDING)
+    monkeypatch.setattr(app_module, "_check_csrf", lambda: None)
+    monkeypatch.setattr(app_module, "_rate_check", lambda action: True)
+
+    response = fresh_app.post("/api/start_all")
+    body = response.get_json()
+
+    assert response.status_code == 200
+    assert body["ok"] is False
+    assert body["applied_to"] == 1
+    assert body["total_sites"] == 2
+    assert body["errors"] == [{
+        "sid": "refusing",
+        "error": "prior workers are still tearing down",
+        "blocked_by": "worker_teardown",
+    }]
 
 
 def test_retry_before_notification_claim_invalidates_completion(monkeypatch):

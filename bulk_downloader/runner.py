@@ -33,7 +33,7 @@ excepts. v3.43.17 narrowed the remaining bare `except:` clauses to
 ──────────────────────────────────────────────────────────────────────
 """
 # Load-bearing invariants tagged inline as # INV-<ID>; see DANGER_MAP.md.
-import collections, contextlib, functools, itertools, json, math, os, queue, re, shutil, sqlite3, subprocess, sys, threading, time
+import collections, contextlib, enum, functools, itertools, json, math, os, queue, re, shutil, sqlite3, subprocess, sys, threading, time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -384,6 +384,18 @@ def _finite_config_float(raw, default):
 
 _RUN_LIFECYCLE_BOOTSTRAP_LOCK = threading.Lock()
 _START_RECHECK_TEARDOWN = object()
+
+
+class StartOutcome(str, enum.Enum):
+    """Exceptional public outcomes from ``start()``.
+
+    Successful and policy-blocked starts keep their historical ``None``
+    return so existing callers remain compatible. A bounded teardown wait is
+    operationally different: no replacement run was admitted, so callers that
+    surface operator actions need an explicit result.
+    """
+
+    TEARDOWN_PENDING = "worker_teardown"
 
 
 def _run_lifecycle_serialized(method):
@@ -816,7 +828,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                         log.warning(
                             "start refused: %d prior worker(s) still tearing down",
                             len(still_alive))
-                    return None
+                    return StartOutcome.TEARDOWN_PENDING
 
             outcome = self._start_serialized(
                 _teardown_generation=teardown_generation)
