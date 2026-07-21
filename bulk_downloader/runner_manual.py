@@ -387,7 +387,7 @@ class _ManualDownloadSession:
                         # payload path -- a vpn_required site whose tunnel is
                         # down must not be probed on the clear interface.
                         try:
-                            _cp_proxy = self._download_proxy_url()
+                            _cp_proxy = self._runner._download_proxy_url()
                         except Exception as _cpe:
                             if _VPN_RUNTIME_AVAILABLE and isinstance(
                                     _cpe, vpn_runtime.VPNRequiredError):
