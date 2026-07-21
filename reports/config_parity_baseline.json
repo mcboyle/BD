@@ -1,0 +1,6 @@
+{
+  "open_count": 0,
+  "open": [],
+  "display_open": [],
+  "note": "GUI-parity ratchet baseline: open = runtime-tunable settings not yet gui_exposure=full. Shrinks as Phase-4 cuts land controls (add the key to reports/config_gui_manifest.json, then re-pin). display_open = deploy/path-only settings not yet display-only."
+}

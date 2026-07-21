@@ -5499,6 +5499,12 @@ try:
         return out
 
     _captcha_relay.register_session_census(_captcha_session_census)
+    # MOD-1 C-5: bind the remote_vnc transport's seams -- the DERIVED capability
+    # probe (into runner_auth's C-2 ladder) and the vnc census (into the sweep's
+    # C-1 cross-check). Only now that the launch path exists does the probe go
+    # live, so remote_vnc cannot promote into an unbuilt path.
+    from . import takeover_vnc as _takeover_vnc
+    _takeover_vnc.register_all()
     # The reaper actually runs (idle-timeout + orphan reap need a caller).
     _captcha_relay.start_sweeper()
 except Exception as _captcha_wire_err:

@@ -59,7 +59,10 @@ def _deploy_only_from_source():
 # host-managed infra vars that must NOT be GUI-writable (mirrors the plan)
 # host-managed infra vars + the bootstrap .env pointer that must NOT be GUI-writable
 _HOST_MANAGED = {"DISPLAY", "PLAYWRIGHT_BROWSERS_PATH", "APPDATA",
-                 "FLASK_DEBUG", "BULK_DOWNLOADER_DEBUG", "BD_ENVFILE"}
+                 "FLASK_DEBUG", "BULK_DOWNLOADER_DEBUG", "BD_ENVFILE",
+                 # MOD-1 C-5/C-7: the vnc-takeover browser BINARY pin -- host/
+                 # deploy-managed like PLAYWRIGHT_BROWSERS_PATH, not a .env knob.
+                 "BD_VNC_CHROME"}
 
 
 # ── 1. boot loader: parse + setdefault (real env wins) ───────────────────────

@@ -37,6 +37,11 @@ type CaptchaItem = {
   status?: string;
   title?: string;
   solve_session_id?: string | null;
+  // MOD-1 C-6: effective takeover mode + downgrade reason + KasmVNC viewer URL,
+  // persisted onto the polled pending state so the cockpit shows what is running.
+  mode?: string | null;
+  mode_reason?: string | null;
+  vnc_url?: string | null;
 };
 type CaptchaPending = { ok?: boolean; pending?: CaptchaItem[] };
 type ImportResult = OkResult & { added?: number; skipped?: number };
@@ -441,7 +446,12 @@ export function ImportsCenter() {
                     </div>
                     <div className="break-all font-mono text-xs text-emerald-200/70">{p.url}</div>
                     {p.status === "solving" && p.solve_session_id ? (
-                      <TakeoverViewer sid={p.solve_session_id} />
+                      <TakeoverViewer
+                        sid={p.solve_session_id}
+                        mode={p.mode}
+                        vncUrl={p.vnc_url}
+                        reason={p.mode_reason}
+                      />
                     ) : null}
                   </td>
                   <td className="py-1.5 text-right align-top">

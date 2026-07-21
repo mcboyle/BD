@@ -10,8 +10,8 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1349**
-- tools: 216 · with internal edge: 102 · with tool→package edge: 49
+- internal import edges: **1357**
+- tools: 218 · with internal edge: 0 · with tool→package edge: 0
 - blueprints: 160 · config stores: 5
 
 ## Most-imported modules (coupling hotspots)
@@ -21,7 +21,7 @@ Graph version: 1
 - `bulk_downloader/constants.py`: 31
 - `bulk_downloader/cookies.py`: 18
 - `bulk_downloader/plugins.py`: 17
-- `bulk_downloader/app.py`: 15
+- `bulk_downloader/app.py`: 16
 - `bulk_downloader/runner.py`: 15
 - `bulk_downloader/capture_artifact_redact.py`: 14
 - `bulk_downloader/aiassist.py`: 13
@@ -29,11 +29,11 @@ Graph version: 1
 - `bulk_downloader/app_dev.py`: 12
 - `bulk_downloader/capture_ingest.py`: 12
 - `bulk_downloader/site_editor.py`: 12
+- `bulk_downloader/cloak.py`: 11
 - `bulk_downloader/learn.py`: 11
 - `bulk_downloader/secrets_store.py`: 11
 - `bulk_downloader/capture_redact.py`: 10
 - `bulk_downloader/capture_synth.py`: 10
-- `bulk_downloader/cloak.py`: 10
 - `bulk_downloader/template_manager.py`: 10
 - `bulk_downloader/detect.py`: 9
 
@@ -203,7 +203,7 @@ Graph version: 1
 ## Config stores → reader / writer modules
 
 - **app_settings_center** — readers 8, writers 0
-- **global_config** — readers 67, writers 1
+- **global_config** — readers 68, writers 1
 - **site_editor** — readers 24, writers 0
 - **vpn_config** — readers 16, writers 1
 - **widgets_config** — readers 4, writers 1

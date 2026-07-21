@@ -513,7 +513,7 @@ GET     /api/rights/blocklist                                  CSRF: no   — Li
 POST    /api/rights/remove/<int:bid>                           CSRF: yes
 GET     /api/route_preview                                     CSRF: no   — Dry-run routing: given URL(s), return which site each would
 POST    /api/route_preview                                     CSRF: yes  — Dry-run routing: given URL(s), return which site each would
-POST    /api/route_urls                                        CSRF: yes  — POST {"text": "url1\nurl2\n..."}  →  distributes to matching sites.
+POST    /api/route_urls                                        CSRF: yes  — POST {"text": "url1\nurl2\n..."}  â†’  distributes to matching sites.
 POST    /api/runners/pause_all                                 CSRF: yes  — Pause every site's runner (stops dequeueing new URLs; in-flight
 POST    /api/runners/resume_all                                CSRF: yes  — Inverse of pause_all — restart all paused runners. Idempotent
 GET     /api/runs                                              CSRF: no   — Most-recent-first list of tracked download runs (read-only).

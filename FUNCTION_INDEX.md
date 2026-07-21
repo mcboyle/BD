@@ -148,21 +148,21 @@ Schema version: 2
 - L5157 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
 - L5225 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
 - L5369 `serve_ss` `GET /screenshots/<path:filename>`
-- L6642 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
-- L6649 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
-- L6660 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
-- L6675 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
-- L6739 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
-- L6768 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
-- L6776 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
-- L6793 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
-- L6805 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
-- L6828 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
-- L6844 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
-- L6860 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
-- L6877 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
-- L6930 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
-- L7051 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
+- L6648 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
+- L6655 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
+- L6666 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
+- L6681 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
+- L6745 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
+- L6774 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
+- L6782 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
+- L6799 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
+- L6811 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
+- L6834 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
+- L6850 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
+- L6866 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
+- L6883 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
+- L6936 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
+- L7057 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
 ```
 
 
@@ -449,31 +449,35 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_auth.py` (22 entries)
+## `bulk_downloader/runner_auth.py` (26 entries)
 
 ```
 - L0016 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
-- L0039 `_resolve_takeover_mode` `[private]` — MOD-1 A-4: resolve how a captcha solve session presents. Reads
-- L0048 `_truthy` `[private]`
-- L0058 `_takeover_enabled` `[private]` — MOD-1 A-5a KILL-SWITCH: remote takeover is OFF unless explicitly enabled
-- L0064 `_takeover_max_concurrent` `[private]` — MOD-1 A-5a concurrency cap (floor 1; bad/absent -> default 2).
-- L0074 `_remote_admitted` `[private]` — MOD-1 A-5a admission: remote (headless + screencast) takeover engages only
-- L0084 `AuthMixin` `[class]`
-  - L0085 `AuthMixin.login_async` — Phase 4.4: by default, allow manual takeover when auto-login
-  - L0207 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
-  - L0274 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
-  - L0300 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
-  - L0367 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
-  - L0402 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
-  - L0607 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
-  - L0657 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
-  - L0662 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
-  - L0677 `AuthMixin.is_awaiting_manual_login`
-  - L0679 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
-  - L0701 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
-  - L0780 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
-  - L0788 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
-  - L0853 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
+- L0039 `_resolve_takeover_mode` `[private]` — MOD-1 A-4 / C-2: resolve how a captcha solve session presents. Reads
+- L0050 `_truthy` `[private]`
+- L0060 `_takeover_enabled` `[private]` — MOD-1 A-5a KILL-SWITCH: remote takeover is OFF unless explicitly enabled
+- L0066 `_takeover_max_concurrent` `[private]` — MOD-1 A-5a concurrency cap (floor 1; bad/absent -> default 2).
+- L0076 `_remote_admitted` `[private]` — MOD-1 A-5a admission: remote (headless + screencast) takeover engages only
+- L0091 `register_vnc_probe` — MOD-1 C-2: inject the DERIVED vnc-availability probe
+- L0100 `_vnc_available` `[private]` — MOD-1 C-2: (available, reason) for the vnc takeover stack. DERIVED, not
+- L0115 `_resolve_effective_mode` `[private]` — MOD-1 C-2: the self-downgrade ladder. Returns (effective_mode, reason)
+- L0147 `_admit_takeover` `[private]` — MOD-1 C-4: the runtime entry point for the C-2 ladder. Returns
+- L0166 `AuthMixin` `[class]`
+  - L0167 `AuthMixin.login_async` — Phase 4.4: by default, allow manual takeover when auto-login
+  - L0289 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
+  - L0356 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
+  - L0382 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
+  - L0490 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
+  - L0534 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
+  - L0739 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
+  - L0789 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
+  - L0794 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
+  - L0809 `AuthMixin.is_awaiting_manual_login`
+  - L0811 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
+  - L0833 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
+  - L0912 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
+  - L0920 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
+  - L0985 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
 ```
 
 
@@ -677,4 +681,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 501 across 22 files._
+_Total entries: 505 across 22 files._

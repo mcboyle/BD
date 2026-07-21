@@ -4,6 +4,123 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. For pre-v3.46 history
 see [CHANGELOG_archive.md](CHANGELOG_archive.md).
 
+## v3.66.811 - MOD-1 Cut: render the GUI controls the 808/809 knobs were missing (close the section-0 gate hole)
+
+- v3.66.808/809 declared captcha_vnc_display, captcha_vnc_websocket_port and
+  netns_isolation and added them to settingsSchema.ts, which made the
+  config-surface gate read gui_exposure=full -- but Settings.tsx renders global
+  controls from EXPLICIT hand-written JSX, and none was added, so no control
+  rendered (a browser render + a stash report both showed refs_in_Settings.tsx=0).
+  The gate certified a string, not a control (CLAUDE.md 0). This cut adds the
+  actual controls: VNC display + websocket-port text fields under "Challenge
+  handling", a netns_isolation toggle under "Security & access", and -- found by
+  the same audit -- automation.disco_enabled (a pre-existing omission from the
+  Automation L4 toggle list). Adds the three keys to the GlobalConfigSubset type.
+- Closes the gate hole with a RED-first test (test_mod1_c12_settings_controls_render)
+  that re-derives the SUBJECT: EVERY settingsSchema key must have an explicit
+  Settings.tsx control (a draft.<key> read or setField("<key>") write), not just a
+  string in a .ts file. Four keys failed on pristine 810; all pass now.
+- tsc --noEmit clean; the four control labels are present in the rebuilt bundle;
+  guards 7/7. No new config key, so config-parity is unchanged.
+
+## v3.66.810 - MOD-1 Cut: predictive-relogin per-site knobs GUI-configurable (+ drop-on-reload fix)
+
+- predictive_relogin_enabled / predictive_relogin_fraction (the F1.4 predictor:
+  relogin at a fraction of the learned session-lifetime median) are read by
+  runner_auth.py from the per-site config but were absent from CFG_FIELDS. Two
+  bugs fixed: (1) DROP-ON-RELOAD -- _load_sites_config rebuilds each site as
+  {k: cfg_in.get(k, DEFAULTS.get(k,"")) for k in CFG_FIELDS}, so a key not in
+  CFG_FIELDS was silently dropped on restart; the feature could not persist
+  per-site. (2) NO GUI CONTROL. Both now in CFG_FIELDS + DEFAULTS (off / 0.8,
+  byte-identical to the pre-cut absent-key behaviour), categorized with the other
+  relogin fields (gated -> renders a control in the schema-driven site editor),
+  typed in site_editor (_FIELD_TYPES + NUMERIC_RANGES enforces the 0..1 fraction
+  at a direct PUT). Ledgered gui_exposure=full.
+- Version bump 3.66.810 (3 coupled edits + PIN_INDEX). RED-first with a bug-fix
+  guard that a value SURVIVES the CFG_FIELDS reload rebuild
+  (tests/test_mod1_c11_predictive_relogin_gui.py). Guards 7/7 unchanged.
+
+## v3.66.809 - MOD-1 Cut: netns egress-isolation toggle becomes GUI-configurable
+
+- netns_isolation (the C-7 opt-in egress confinement: wg0 sole route,
+  fail-closed) is now a DECLARED global_config key with an FE toggle in the
+  "Security & access" settings section. Before this cut it was read via
+  cfg.get(), was absent from GLOBAL_CONFIG_SCHEMA, so POST /api/global_config
+  rejected it 400 and no control existed. Declared type (bool, dict): the GUI
+  toggle sends a bare bool while the advanced form
+  ({enabled, egress:{wg_iface,wg_conf,address,mtu?}}) stays valid -- a dict value
+  takes validate_config's dict branch (no scalar type check; netns's sub-keys do
+  not shadow flat schema keys). safety=False preserves pre-cut behavior byte-for-
+  byte (never validated/fail-closed before; enforcement fail-closes at the launch
+  layer via NetnsRequiredError). Default OFF. Ledgered gui_exposure=full; ratchet
+  open=0. RED-first with an explicit regression guard that the advanced dict form
+  still validates clean (tests/test_mod1_c10_netns_config_gui.py). Guards 7/7.
+
+## v3.66.808 - MOD-1 Cut: the two Arch-B VNC takeover knobs become GUI-configurable
+
+- captcha_vnc_display and captcha_vnc_websocket_port are now DECLARED
+  global_config keys (GLOBAL_CONFIG_SCHEMA) with FE controls in the "Challenge
+  handling" settings section. Before this cut they were read via a plain
+  config.get() with a code default, were absent from the schema, and so
+  POST /api/global_config rejected them 400 ("unknown config key") -- an operator
+  could not set the KasmVNC display or websocket port from the UI, the gap
+  MOD1_ARCH_B_STATUS.md flagged. Declared as str (int()-coerced at the read site,
+  mirroring captcha_takeover_max_concurrent); defaults :5 / 8444 match
+  takeover_vnc's code defaults so behavior is byte-identical when unset. Ledgered
+  gui_exposure=full in reports/config_gui_manifest.json; parity ratchet open=0.
+  RED-first (tests/test_mod1_c9_vnc_config_gui.py). Guards 7/7 unchanged.
+
+## v3.66.807 - MOD-1 C-8 fingerprint measurement + the box-only fixes that greened 806
+
+- MOD-1 C-8 (KASM-T10): tools/kasm_fingerprint_probe.py measures whether the
+  live-X (KasmVNC) takeover browser presents a materially worse fingerprint than
+  headless -- the counter-tell for Arch B. It launches headful-on-X vs headless
+  with the real takeover anti-automation args and diffs the bot-check surface
+  (WebGL vendor/renderer, screen, cores, webdriver, UA, canvas hash). Honest
+  about its floor: on a GPU-less host both modes report a software renderer, so it
+  flags gpu_less_run and states the result understates the real-hardware
+  magnitude. RED-first unit tests on the diff/verdict logic; verified live against
+  KasmVNC. The magnitude needs real GPU hardware:
+  `python tools/kasm_fingerprint_probe.py --display :5 --json c8.json`.
+- Folds in the 5 box-only failures the Python-3.12 full suite caught on 806 (they
+  landed after the 806 CHANGELOG entry): graph/index artifacts re-frozen under
+  3.12 (the 3.11 sandbox could not parse the 3.12-only f-string in
+  tools/diag_csrf_bootstrap.py, dropping its edges); takeover_vnc routed through
+  cloak.launch_browser (cloak-parity) with cloak preserving a caller DISPLAY on
+  the netns path; BD_VNC_CHROME ledgered as host-managed in the envfile editor.
+- Guard files 7/7 unchanged.
+
+## v3.66.806 - MOD-1 Arch B (remote_vnc / KasmVNC) coexist path + config-parity repair
+
+MOD-1 coexist C-series (Arch B captcha takeover over KasmVNC), all RED-first,
+seven SHA-pinned guard files unchanged, verified live against KasmVNC 1.4.0:
+
+- C-4b: wire the C-2 self-downgrade ladder into the runtime admission path, so
+  captcha_takeover_mode=remote_vnc is a VISIBLE downgrade to remote (with a
+  reason) instead of a silent dead toggle. remote/visible paths byte-identical.
+- C-5: the remote_vnc transport (bulk_downloader/takeover_vnc.py) -- a dedicated
+  headful browser on its own Xvnc display, bound into the C-1 registry as
+  kind="vnc" so the one shared cap and the no-orphan sweep both count it, with a
+  DERIVED capability probe (observes the endpoint, UNKNOWN downgrades) and a
+  sweep census.
+- C-6: cockpit KasmVNC viewer embed + effective-mode/reason readout. PendingCaptcha
+  gains mode/mode_reason/vnc_url so the polled cockpit shows what is running and
+  why it downgraded; TakeoverViewer renders KasmVNC in an iframe for remote_vnc.
+- C-7 (KASM-T8): egress containment for the takeover browser -- unix-domain X by
+  construction (no X-over-TCP) and launch through the netns fail-closed path so
+  wg0 (or default-drop) is the sole route. Verified: external egress from inside
+  the namespace is blocked while the X unix socket stays reachable.
+
+Repo + config-parity repair:
+
+- Track the reports/ parity baselines (config_gui_manifest, config_parity_baseline,
+  legacy_parity_baseline) that the blanket reports/ gitignore had silently dropped
+  from git -- the missing baselines were what made the parity gates fail as if
+  environmental. Generated inventories stay ignored; vapid_keys.json now ignored.
+- Ledger the cloud-setup.sh bootstrap flags (BD_SKIP_* opt-outs, BD_REPO_CANDIDATES)
+  and the BD_VNC_CHROME deploy pin; rewrote skip() to name each flag explicitly so
+  the scanner no longer sees a bare BD_SKIP_ token. open_runtime_tunable back to 0.
+
 ## v3.66.805 - plugin quarantine state honours BD_HOME (out of the install tree)
 
 - plugins.py::_quarantine_state_path() no longer anchors the quarantine state

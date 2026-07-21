@@ -684,6 +684,11 @@ _DEPLOY_ONLY = {
     "BD_WIDGETS_CONFIG_PATH", "BD_CAPTURES_ROOT", "BD_DEV_MODE_DISABLE",
     "BD_DISABLE_KEEPALIVE", "DISPLAY", "PLAYWRIGHT_BROWSERS_PATH", "APPDATA",
     "FLASK_DEBUG", "BULK_DOWNLOADER_DEBUG",
+    # MOD-1 C-5/C-7: optional pin for the vnc-takeover browser BINARY, read at
+    # import in takeover_vnc.py. Set before the process launches the browser --
+    # a GUI write cannot take effect (matches PLAYWRIGHT_BROWSERS_PATH /
+    # CLOAKBROWSER_BINARY_PATH) -> display-only, not undelivered parity.
+    "BD_VNC_CHROME",
     # v3.66.315 (Phase 4.2): cockpit/fleet/framework BIND ports are set before the
     # process starts -> a GUI write is meaningless; target display-only.
     "BD_COCKPIT_PORT", "BD_FLEET_PORT", "BD_FRAMEWORK_PORT",

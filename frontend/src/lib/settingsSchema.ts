@@ -114,6 +114,8 @@ export const SETTINGS_SCHEMA: Record<string, SettingFieldMeta> = {
   captcha_takeover_enabled: { section: "Challenge handling", label: "Remote takeover enabled (kill-switch)" },
   captcha_takeover_max_concurrent: { section: "Challenge handling", label: "Remote takeover max concurrent" },
   captcha_takeover_idle_timeout_s: { section: "Challenge handling", label: "Remote takeover idle timeout (sec)" },
+  captcha_vnc_display: { section: "Challenge handling", label: "VNC takeover display (e.g. :5)" },
+  captcha_vnc_websocket_port: { section: "Challenge handling", label: "VNC takeover websocket port" },
   // ── Advanced ───────────────────────────────────────────────────────────
   auth_throttle: { section: "Advanced", label: "Auth throttle" },
   auth_throttle_base: { section: "Advanced", label: "Auth throttle base" },
@@ -184,6 +186,7 @@ export const SETTINGS_SCHEMA: Record<string, SettingFieldMeta> = {
   dev_mode: { section: "Security & access", label: "Dev mode" },
   framework_reports: { section: "Security & access", label: "Framework reports" },
   test_mode: { section: "Security & access", label: "Test mode" },
+  netns_isolation: { section: "Security & access", label: "Egress isolation (netns / wg0 fail-closed)" },
 };
 
 export function sectionForField(field: string): SettingsSection | null {

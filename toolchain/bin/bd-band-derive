@@ -1113,7 +1113,7 @@ def selftest():
 
 def main():
     ap = argparse.ArgumentParser(prog="bd-band-derive")
-    ap.add_argument("--work", "--tree", default="/home/claude/work")
+    ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
     ap.add_argument("--file")
     ap.add_argument("--files", nargs="+")
     ap.add_argument("--emit", action="store_true")

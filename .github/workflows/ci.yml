@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+# gitleaks-action@v2 lists the PR's commits to scan its diff, which needs
+# pull-requests:read; the default GITHUB_TOKEN is contents:read only, so the
+# call 403s ("Resource not accessible by integration") without this block.
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   postgres-integration:
     permissions:
@@ -52,10 +59,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # gitleaks scans the PR diff via `git log <base>^..<head>`; the default
+          # shallow checkout (depth 1) lacks the base commit, so the range is an
+          # "unknown revision" and the scan aborts at ~0 bytes. Full history fixes it.
+          fetch-depth: 0
 
       - name: Secret scan (fails on anything not baselined)
         uses: gitleaks/gitleaks-action@v2
         env:
+          # gitleaks-action@v2 requires a token to scan PRs (breaking change,
+          # 2025); the auto-provided GITHUB_TOKEN is sufficient for a public/
+          # private repo scan -- no gitleaks license key needed for a user repo.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
           GITLEAKS_BASELINE_PATH: .gitleaks-baseline.json
 

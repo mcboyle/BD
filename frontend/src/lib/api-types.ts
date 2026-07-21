@@ -466,6 +466,13 @@ export interface GlobalConfigSubset {
   captcha_takeover_max_concurrent?: string;
   // v3.66.760 (MOD-1 A-5b): idle-timeout for a remote solve session.
   captcha_takeover_idle_timeout_s?: string;
+  // v3.66.811 (MOD-1 Arch-B): the KasmVNC display + websocket port the takeover
+  // browser renders on (str; int-coerced backend-side). Declared 808.
+  captcha_vnc_display?: string;
+  captcha_vnc_websocket_port?: string;
+  // v3.66.811 (MOD-1 C-7): egress-isolation toggle. The GUI control sets the bool
+  // form; the advanced {enabled, egress:{...}} dict form is file-managed.
+  netns_isolation?: boolean;
 
   // v3.66.711 (A-GUI Cut 3): the automation program's control surface. These keys
   // are DOTTED, so they must be quoted -- they are not valid TS identifiers.

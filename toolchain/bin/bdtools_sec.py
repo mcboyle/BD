@@ -23,7 +23,33 @@ import zipfile
 from urllib.parse import urlsplit
 
 # ---------------------------------------------------------------- constants
-DEFAULT_WORK = "/home/claude/work"
+def _resolve_default_work():
+    """Resolve the work-tree root instead of hardcoding the sandbox path -- this
+    is the shared DEFAULT_WORK behind ~most analysis tools, so fixing it here
+    ports all of them at once (fix the cause, not each symptom). Order:
+      1. $BD_ROOT, if it holds a bulk_downloader/ package (explicit override);
+      2. a bounded walk up from this file to the repo root, marker
+         bulk_downloader/__init__.py (works when toolchain/ is inside the tree,
+         i.e. a git clone);
+      3. the legacy sandbox default /home/claude/work (the sandbox keeps the
+         toolchain in /home/claude/bin, a sibling of /home/claude/work, so the
+         walk finds nothing and this fallback preserves sandbox behaviour).
+    """
+    env = os.environ.get("BD_ROOT")
+    if env and os.path.isfile(os.path.join(env, "bulk_downloader", "__init__.py")):
+        return env
+    d = os.path.dirname(os.path.realpath(__file__))
+    for _ in range(8):
+        if os.path.isfile(os.path.join(d, "bulk_downloader", "__init__.py")):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return "/home/claude/work"
+
+
+DEFAULT_WORK = _resolve_default_work()
 ALLOWED_SCHEMES = ("http", "https")
 
 # Suite-wide exit contract. A tool that could not evaluate must never print a

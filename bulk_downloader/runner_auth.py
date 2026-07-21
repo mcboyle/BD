@@ -33,14 +33,16 @@ def _finite_config_float(raw, default):
     return v
 
 
-_TAKEOVER_MODES = ("visible", "remote")
+_TAKEOVER_MODES = ("visible", "remote", "remote_vnc")
 
 
 def _resolve_takeover_mode(config: dict) -> str:
-    """MOD-1 A-4: resolve how a captcha solve session presents. Reads
+    """MOD-1 A-4 / C-2: resolve how a captcha solve session presents. Reads
     `captcha_takeover_mode` from the merged config; anything not in
-    {visible, remote} falls back to 'visible' (the human/server-display path),
-    so a typo or a future value can never silently disable the fallback."""
+    {visible, remote, remote_vnc} falls back to 'visible' (the human/server-
+    display path), so a typo or a future value can never silently disable the
+    fallback. This is the REQUESTED mode; _resolve_effective_mode applies the
+    self-downgrade ladder to it."""
     mode = str((config or {}).get("captcha_takeover_mode", "visible") or "visible").strip().lower()
     return mode if mode in _TAKEOVER_MODES else "visible"
 
@@ -79,6 +81,86 @@ def _remote_admitted(config: dict, active_count: int) -> bool:
     return (_resolve_takeover_mode(config) == "remote"
             and _takeover_enabled(config)
             and active_count < _takeover_max_concurrent(config))
+
+
+# ── MOD-1 C-2: remote_vnc capability probe + the self-downgrade ladder ───────
+
+_vnc_probe = None  # Optional[Callable[[dict], tuple[bool, str]]]; wired at C-4.
+
+
+def register_vnc_probe(fn) -> None:
+    """MOD-1 C-2: inject the DERIVED vnc-availability probe
+    fn(config) -> (available: bool, reason: str). app.py wires the real probe at
+    C-4 -- it must OBSERVE the Xvnc/KasmVNC endpoint and never trust a config
+    flag claiming the stack is installed. Tests inject to exercise the ladder."""
+    global _vnc_probe
+    _vnc_probe = fn
+
+
+def _vnc_available(config: dict):
+    """MOD-1 C-2: (available, reason) for the vnc takeover stack. DERIVED, not
+    asserted. Delegates to the wired probe; with no probe (the default until
+    C-4) it is a stub returning unavailable, so remote_vnc downgrades to remote
+    and behaviour is unchanged. A probe that raises or cannot determine the
+    state returns available=False -- UNKNOWN DOWNGRADES, never assume vnc works."""
+    if _vnc_probe is None:
+        return (False, "vnc backend not provisioned")
+    try:
+        available, reason = _vnc_probe(config)
+    except Exception:
+        return (False, "vnc probe error")
+    return (bool(available), str(reason or ("" if available else "vnc unavailable")))
+
+
+def _resolve_effective_mode(config: dict, active_count: int):
+    """MOD-1 C-2: the self-downgrade ladder. Returns (effective_mode, reason)
+    where reason is "" iff effective == requested, else a non-empty operator-
+    facing explanation (a silent downgrade is a lie by omission, plan 1.2):
+
+        remote_vnc --(stack absent | probe unknown)--> remote
+        remote     --(kill-switch off | over cap)-----> visible
+        visible    = always available, never blocked
+
+    The kill-switch masters BOTH remote paths (plan 4.2, fail-closed); ONE
+    shared cap governs both (plan 4.3). _remote_admitted is kept intact for A --
+    this composes the same gates, it does not rewrite them."""
+    requested = _resolve_takeover_mode(config)
+    if requested == "visible":
+        return ("visible", "")
+    # requested is remote or remote_vnc -- both mastered by the kill-switch + cap.
+    if not _takeover_enabled(config):
+        return ("visible",
+                f"requested {requested}, running visible (takeover kill-switch off)")
+    if active_count >= _takeover_max_concurrent(config):
+        return ("visible",
+                f"requested {requested}, running visible (over concurrency cap)")
+    if requested == "remote":
+        return ("remote", "")
+    # requested == remote_vnc: needs the derived stack; unknown/absent -> remote.
+    available, why = _vnc_available(config)
+    if available:
+        return ("remote_vnc", "")
+    return ("remote",
+            f"requested remote_vnc, running remote ({why or 'vnc unavailable'})")
+
+
+def _admit_takeover(config: dict, active_count: int):
+    """MOD-1 C-4: the runtime entry point for the C-2 ladder. Returns
+    (headless, effective_mode, reason). This is what the admission path calls so
+    a `remote_vnc` request is a VISIBLE downgrade instead of a silent dead toggle
+    (plan 1.2/2): before this, admission used `_remote_admitted`, which only knew
+    "remote", so remote_vnc fell to headless=False (visible) with no reason.
+
+    headless is True for any non-visible effective mode: `remote` rides the proven
+    Arch-A CDP screencast, and `remote_vnc` rides it too until C-5 gives it a
+    dedicated Xvnc display -- it cannot promote past `remote` while `_vnc_probe`
+    is the C-4 stub, so no operator is told "real X input" while on synthetic CDP.
+
+    Equivalence: for `remote` and `visible` this yields the same headless verdict
+    as the old `_remote_admitted` path; only `remote_vnc` changes."""
+    effective, reason = _resolve_effective_mode(config, active_count)
+    headless = effective != "visible"
+    return (headless, effective, reason)
 
 
 class AuthMixin:
@@ -333,13 +415,50 @@ class AuthMixin:
             _sk.pause_site_keepers(self.site_id)  # INV-001
         except Exception:
             pass
-        # MOD-1 A-4/A-5a: remote (headless + screencast) engages only when
-        # mode=remote AND the kill-switch is enabled AND we are under the
-        # concurrency cap (A-5a). Any gate failing falls back to VISIBLE -- the
-        # server-display path -- so a solve is never blocked, only kept off remote.
-        mode = _resolve_takeover_mode(self.config)
+        # MOD-1 A-4/A-5a + C-4: route the decision through the self-downgrade
+        # ladder. remote/remote_vnc (headless + screencast) engage only when the
+        # kill-switch is enabled AND we are under the concurrency cap; any gate
+        # failing falls back to VISIBLE -- the server-display path -- so a solve
+        # is never blocked, only kept off remote. Unlike the old _remote_admitted
+        # call this makes remote_vnc a VISIBLE downgrade (carries a reason)
+        # instead of a silent dead toggle.
         from . import takeover as _tk
-        headless = _remote_admitted(self.config, _tk.active_channel_count())
+        headless, eff_mode, downgrade_reason = _admit_takeover(
+            self.config, _tk.active_channel_count())
+
+        # MOD-1 C-5: remote_vnc launches a DEDICATED browser on its own Xvnc
+        # display, driven through KasmVNC (real X input) -- NOT the CDP
+        # screencast. It only reaches here when the C-2 derived probe OBSERVED
+        # the stack; a runtime launch failure falls back to remote (screencast)
+        # so a solve is never blocked. takeover_vnc.launch opens the kind="vnc"
+        # C-1 channel; the later start_solve open_channel(sid) reuses it.
+        if eff_mode == "remote_vnc":
+            session_id = f"captcha-{self.site_id}-{int(time.time())}"
+            try:
+                from . import takeover_vnc as _tv
+                vsess = _tv.launch(self.config, session_id, url=url)
+            except Exception as e:
+                sys.stderr.write(
+                    f"  captcha takeover: vnc launch failed ({e}); "
+                    f"falling back to remote\n")
+                eff_mode, headless = "remote", True
+                downgrade_reason = ((downgrade_reason + "; ") if downgrade_reason
+                                    else "") + "vnc launch failed -> remote"
+            else:
+                sessions[url] = {"session_id": session_id, "handle": vsess,
+                                 "started_at": time.time(), "kind": "vnc"}
+                label = eff_mode + (f" (downgraded: {downgrade_reason})"
+                                    if downgrade_reason else "")
+                self.log_event(
+                    "captcha",
+                    f"Manual solve session started ({label}) for {url[:60]}",
+                    url=url)
+                # MOD-1 C-6: hand the cockpit KasmVNC's own web-client URL so the
+                # viewer embeds it (Arch B renders through KasmVNC, not the CDP
+                # canvas).
+                return {"ok": True, "session_id": session_id, "url": url,
+                        "mode": eff_mode, "mode_reason": downgrade_reason,
+                        "vnc_url": _tv.viewer_url(self.config)}
         try:
             handle = open_manual_login_browser(cfg, manual_profile_dir=profile,
                                                headless=headless)
@@ -361,9 +480,13 @@ class AuthMixin:
             except Exception as e:
                 sys.stderr.write(f"  captcha takeover: screencast start failed: {e}\n")
         sessions[url] = {"session_id": session_id, "handle": handle, "started_at": time.time()}
-        eff_mode = "remote" if headless else "visible"
-        self.log_event("captcha", f"Manual solve session started ({eff_mode}) for {url[:60]}", url=url)
-        return {"ok": True, "session_id": session_id, "url": url, "mode": eff_mode}
+        # eff_mode/downgrade_reason come from the ladder (_admit_takeover); surface
+        # the reason so a downgrade is never silent (plan 1.2 -- a silent downgrade
+        # is a lie by omission).
+        label = eff_mode + (f" (downgraded: {downgrade_reason})" if downgrade_reason else "")
+        self.log_event("captcha", f"Manual solve session started ({label}) for {url[:60]}", url=url)
+        return {"ok": True, "session_id": session_id, "url": url,
+                "mode": eff_mode, "mode_reason": downgrade_reason}
     def end_captcha_solve_session(self, url: str, resolution: str = "resolved") -> bool:
         """Close the visible browser for `url`. If resolution=='resolved',
         requeue the URL (status pending) so the worker picks it up on
@@ -378,7 +501,16 @@ class AuthMixin:
                 self._update_job(url, "pending", "Captcha solved manually — retrying")
             return False
         handle = sess.get("handle")
-        if handle is not None:
+        if sess.get("kind") == "vnc":
+            # MOD-1 C-5: a vnc session's handle is a VncTakeoverSession -- close it
+            # and its kind="vnc" C-1 channel through the module's teardown.
+            try:
+                from . import takeover_vnc as _tv
+                _tv.teardown(sess.get("session_id"))
+            except Exception as e:
+                sys.stderr.write(
+                    f"[runner] vnc teardown failed (non-fatal): {e}\n")
+        elif handle is not None:
             try:
                 # We don't want to capture/harvest cookies — the persistent profile
                 # already holds them. Just close cleanly.

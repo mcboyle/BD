@@ -42,6 +42,8 @@ INT_TYPED = {
 FLOAT_TYPED = {
     "wait", "delay", "disk_threshold_gb", "parallel_min_size_mb",
     "auto_relogin_interval_hours", "min_size_pct",
+    # v3.66.810 (MOD-1 F1.4): 0..1 fraction of the learned-lifetime median.
+    "predictive_relogin_fraction",
 }
 
 # ── Embedded fixture matrix (mirrors fixture_numeric_sites.json) ───────────────
