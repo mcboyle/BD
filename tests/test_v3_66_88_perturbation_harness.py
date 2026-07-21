@@ -17,11 +17,13 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from bulk_downloader import perturbation_harness as ph
+from capture_test_fixtures import capture_fixture_lane
 
-U = "/mnt/user-data/uploads/"
+_FIXTURES = capture_fixture_lane()
 
 
 def _load(p):
+    p = os.fspath(p)
     if p.endswith(".json"):
         return json.load(open(p))
     with zipfile.ZipFile(p) as z:
@@ -30,9 +32,9 @@ def _load(p):
 
 
 def _cap():
-    if not os.path.exists(U + "capA.json"):
+    if not _FIXTURES.has("capA.json"):
         pytest.skip("capture not present")
-    return _load(U + "capA.json")
+    return _load(_FIXTURES.path("capA.json"))
 
 
 class TestBoundaryEnforced:

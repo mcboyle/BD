@@ -158,14 +158,18 @@ def test_login_username_fallback_does_not_grab_password_field():
 
 
 # ── real-data verification (only if the strict captures are present) ─────────
-_CORPUS = Path("/home/claude/corpus/wacz")
+from capture_test_fixtures import capture_fixture_lane
+
+
+_STRICT_FIXTURES = capture_fixture_lane(strict=True)
 
 
 def test_real_bang247_yields_api_candidate():
-    cap = _CORPUS / "bang247_redacted_strict.wacz"
-    if not cap.exists():
+    name = "bang247_redacted_strict.wacz"
+    if not _STRICT_FIXTURES.has(name):
         import pytest
         pytest.skip("bang247 strict capture not present")
+    cap = _STRICT_FIXTURES.path(name)
     dn = _dl(build_template(cap))
     api = dn.get("api_template") or ""
     assert "video-download" in api and "{" in api, \
@@ -174,10 +178,11 @@ def test_real_bang247_yields_api_candidate():
 
 
 def test_real_wow247_rows_no_api():
-    cap = _CORPUS / "wow247_redacted_strict.wacz"
-    if not cap.exists():
+    name = "wow247_redacted_strict.wacz"
+    if not _STRICT_FIXTURES.has(name):
         import pytest
         pytest.skip("wow247 strict capture not present")
+    cap = _STRICT_FIXTURES.path(name)
     dn = _dl(build_template(cap))
     assert dn.get("row_selectors"), f"wow247 should derive direct-link rows; dn={dn}"
     assert not dn.get("api_template"), \

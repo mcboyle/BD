@@ -19,12 +19,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from bulk_downloader import capture_workbench as wb
 from bulk_downloader.capture_synth import synthesize
+from capture_test_fixtures import capture_fixture_lane
 
-U = "/mnt/user-data/uploads/"
+_FIXTURES = capture_fixture_lane()
 MEDIA = re.compile(r"\.(mp4|m3u8|ts|webm|mpd|m4s)(\b|$)", re.I)
 
 
 def _load(p):
+    p = os.fspath(p)
     if p.endswith(".json"):
         return json.load(open(p))
     with zipfile.ZipFile(p) as z:
@@ -33,9 +35,9 @@ def _load(p):
 
 
 def _single(f):
-    if not os.path.exists(U + f):
+    if not _FIXTURES.has(f):
         pytest.skip("capture not present")
-    cap = _load(U + f)
+    cap = _load(_FIXTURES.path(f))
     media = [(e.get("seq", 0), e.get("url") or "") for e in (cap.get("network_log") or [])
              if MEDIA.search(urlsplit(e.get("url") or "").path)]
     g = max(media, key=lambda t: t[0])[1]
@@ -43,9 +45,10 @@ def _single(f):
 
 
 def _pair(a, b):
-    if not (os.path.exists(U + a) and os.path.exists(U + b)):
+    if not _FIXTURES.has(a, b):
         pytest.skip("captures not present")
-    return wb.build_workbench(synthesize(_load(U + a), _load(U + b))).to_dict()["skeleton"]
+    return wb.build_workbench(synthesize(
+        _load(_FIXTURES.path(a)), _load(_FIXTURES.path(b)))).to_dict()["skeleton"]
 
 
 # ── the masking/recognition helper, unit-level ────────────────────────────────

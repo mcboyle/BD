@@ -23,8 +23,9 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from tools import cockpit_core as cc
+from capture_test_fixtures import capture_fixture_lane
 
-_UP = Path("/mnt/user-data/uploads")
+_FIXTURES = capture_fixture_lane()
 
 
 @pytest.fixture(autouse=True)
@@ -41,8 +42,9 @@ def _stage_two_captures():
     """Copy two real captures under the captures root if available; else skip."""
     got = []
     for q in ("4k", "720p"):
-        src = _UP / f"ultrafilms_2candies_{q}.wacz"
-        if src.exists():
+        name = f"ultrafilms_2candies_{q}.wacz"
+        if _FIXTURES.has(name):
+            src = _FIXTURES.path(name)
             dst = cc.captures_root() / f"ultrafilms_2candies_{q}.wacz"
             cc.captures_root().mkdir(parents=True, exist_ok=True)
             shutil.copy(src, dst)
