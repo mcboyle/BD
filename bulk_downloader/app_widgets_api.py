@@ -437,8 +437,9 @@ def _collect_data(site_id: str | None) -> dict:
 
     # Try dashboard_widgets — rolling-window metrics + success rate.
     try:
+        import importlib
         from . import dashboard_widgets
-        from . import app_state as _app_state
+        _app_state = importlib.import_module("bulk_downloader.app_state")
         _all_runners = getattr(_app_state, "runners", {}) or {}
         _all_cfg = getattr(_app_state, "s_cfg", {}) or {}
         _snap_runners = (

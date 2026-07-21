@@ -825,7 +825,7 @@ DELETE  /api/widgets/<scope>                                   CSRF: yes
 GET     /api/widgets/<scope>                                   CSRF: no
 PUT     /api/widgets/<scope>                                   CSRF: yes
 GET     /api/widgets/all                                       CSRF: no
-GET     /api/widgets/data                                      CSRF: no   — Aggregate current values for all 21 KPIs.
+GET     /api/widgets/data                                      CSRF: no   — Aggregate current values for all 36 KPIs.
 GET     /api/ytdlp/sites_affected                              CSRF: no   — Read-only blast-radius map: which configured sites depend on each extractor
 POST    /api/ytdlp_archive/derive                              CSRF: yes  — Test URL → (extractor, id) derivation. Used by the UI to show
 GET     /api/ytdlp_archive/stats                               CSRF: no   — Stats for the archive file configured on any site. The UI uses
