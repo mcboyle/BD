@@ -213,7 +213,7 @@ def test_direct_rrweb_record_still_works():
         page = browser.new_page()
         page.set_default_navigation_timeout(20000)
         _install_fixture_route(page)
-        page.goto(_FIXTURE_URL, wait_until="commit")
+        page.goto(_FIXTURE_URL, wait_until="load")
         page.add_script_tag(content=rrweb_js())
         kinds = page.evaluate(
             "() => { const ev=[]; const stop=window.rrweb.record({emit:e=>ev.push(e.type)});"
