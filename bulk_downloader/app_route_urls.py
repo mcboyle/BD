@@ -27,7 +27,7 @@ def _app_s_cfg():
 
 @route_urls_bp.route("/api/route_urls",methods=["POST"])
 def api_route_urls():
-    """POST {"text": "url1\\nurl2\\n..."}  →  distributes to matching sites.
+    """POST {"text": "url1\\nurl2\\n..."}  â†’  distributes to matching sites.
 
     Routing logic mirrors quick_add: per-site url_patterns regex first,
     then hostname match. URLs that don't match any site go into the
@@ -42,7 +42,7 @@ def api_route_urls():
     # Phase 75 (v3.38.x): AI pre-classifier. When enabled per request via
     # ?ai_filter=1 (or json {"ai_filter": true}), filter URLs that look
     # like LISTING pages (rather than download pages) before routing them.
-    # The AI fast path uses URL pattern heuristics first — only escalates
+    # The AI fast path uses URL pattern heuristics first â€” only escalates
     # to a real model call for ambiguous URLs.
     body = request.json or {}
     ai_filter = body.get("ai_filter") or request.args.get("ai_filter") == "1"
@@ -51,7 +51,7 @@ def api_route_urls():
         from urllib.parse import urlparse as _up
         keep = []
         for url in urls:
-            # Heuristic fast path — common listing patterns
+            # Heuristic fast path â€” common listing patterns
             try:
                 path = (_up(url).path or "").lower()
             except Exception:
@@ -73,6 +73,7 @@ def api_route_urls():
     from urllib.parse import urlparse
     by_site = {}  # sid -> list of urls
     unrouted = []
+    results = []
     for url in urls:
         try: target_host = (urlparse(url).hostname or "").lower()
         except Exception: target_host = ""
@@ -102,8 +103,12 @@ def api_route_urls():
             if score > best_score: best_score = score; best_sid = sid
         if best_score > 0 and best_sid:
             by_site.setdefault(best_sid, []).append(url)
+            results.append({"url": url, "site_id": best_sid,
+                            "matched": True})
         else:
             unrouted.append(url)
+            results.append({"url": url, "site_id": None,
+                            "matched": False})
 
     summary = {}
     for sid, site_urls in by_site.items():
@@ -112,7 +117,8 @@ def api_route_urls():
         summary[sid] = {"name": s_cfg[sid].get("name", sid),
                         "added": added, "dupes": dupes,
                         "total_in_batch": len(site_urls)}
-    return jsonify({"ok": True, "summary": summary, "unrouted": unrouted,
+    return jsonify({"ok": True, "results": results,
+                    "summary": summary, "unrouted": unrouted,
                     "unrouted_count": len(unrouted), "total_in": len(urls),
                     "skipped_listings": skipped_listings if ai_filter else [],
                     "skipped_listings_count": len(skipped_listings) if ai_filter else 0})
@@ -121,4 +127,3 @@ def register_routes(app) -> int:
     app.register_blueprint(route_urls_bp)
     return sum(1 for r in app.url_map.iter_rules()
                if r.endpoint.startswith("route_urls."))
-
