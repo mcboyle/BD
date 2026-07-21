@@ -113,7 +113,7 @@ written, but the live arm is operator-owned.
 | 4 | F3.1/WK | **mechanism READY; week-bound** | 0 saved searches; the 7-day cap proof can't be compressed |
 | 5 | F1.4-EN | **NEEDS-SETUP (now GUI-toggleable)** | per-site control renders (810); seed a login site + ≥3 cycles |
 | 6 | B2 | **READY** | BBB target 206; real-fetch + no-persist proven in-sandbox |
-| 7 | PICK | **display UP; human click owed** | noVNC/KasmVNC listening on :6080 + :8444; takeover enabled |
+| 7 | PICK | **click PASSED; persist-OFF test owed** | live noVNC click derived `#opv-download`; review-only draft verified and removed; all 8 prior draft hashes restored |
 | 8 | NOVNC-PRECEDENCE | **READY to observe** | /metrics carries `bd_takeover_active=0`; enabled, mode=`remote` |
 | 9 | VPNKILL | **BLOCKED** | WireGuard kmod **absent on stash**; netns egress toggle now renders (811) |
 | 10 | F4.1/F4.5 | **COMPLETED (operator accepted; iPhone exception)** | dashboard reached on iPhone; receiver + Resolve mechanism verified; native iOS share target N/A |
@@ -131,7 +131,7 @@ written, but the live arm is operator-owned.
 | 4 | **OPV-F3.1 / F3.1-WK** | week | 1 paste + 7-day wait | low (enqueue cap) | mechanism READY |
 | 5 | **OPV-F1.4-EN** | live median | seed logins + 1 tap/paste | low (per-site flag) | NEEDS-SETUP |
 | 6 | **OPV-B2** | real download | 1 paste | low (1 real DL, allowlisted) | READY |
-| 7 | **OPV-PICK** | noVNC display | operator click | none (draft only) | display UP |
+| 7 | **OPV-PICK** | noVNC display | click completed | none (draft only) | click PASSED; B2 persist-OFF arm owed |
 | 8 | **NOVNC-PRECEDENCE** | noVNC display | operator observe | none | READY to observe |
 | 9 | **OPV-VPNKILL** | real tunnel | 1 paste | medium (egress fail-closed) | BLOCKED (kmod) |
 | 10 | **OPV-F4.1 / F4.5** | iPhone | operator acceptance | none | COMPLETED (iOS exception recorded) |
@@ -328,8 +328,13 @@ curl -s -b "$JAR" -H "X-CSRF-Token: $CSRF" -H 'Content-Type: application/json' \
 
 ## 7 · OPV-PICK — live element-pick click (noVNC display)
 
-**STATUS (810, measured):** display UP — noVNC/KasmVNC is listening on stash (:6080 + :8444),
-`captcha_takeover_enabled=true`. This genuinely needs a **human click**, so it stays operator-owned.
+**STATUS (live stash, operator run 2026-07-20): click arm PASSED; persist-OFF arm remains.** A real
+operator click was sent through the noVNC `:6080` canvas to a synthetic sanctioned picker page on
+display `:99`. Server-side `inspect_pick` derived the stable selector `#opv-download` (XPath
+`//button[1]`) and pin created `opv-pick.test.template-draft.json` with
+`status=draft_review_required`, `review_required=true`, and `enabled=false`. The test browser exited;
+teardown removed only that synthetic draft and verified all 8 pre-existing draft SHA-256 hashes were
+unchanged. The separate persist-OFF live extraction required by the combined pass condition is still owed.
 
 **What it proves:** a real operator click in the picker derives a stable selector and lands a
 review-only draft.
