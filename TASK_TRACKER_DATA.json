@@ -1,19 +1,20 @@
 {
   "meta": {
     "title": "BulkDownloader — unified task tracker",
-    "generated_note": "Recovered 2026-07-21 from the complete v3.66.539 canonical pack and reconciled through current v3.66.811 OPV work. TASK_TRACKER_DATA.json is canonical; TASK_TRACKER.md and TASK_TRACKER.xlsx are generated from it.",
-    "live_on_stash": "v3.66.811 (fresh /api/health: ok=true, db_ok=true, build.sha=33f7e5a463bc, active_downloads=1, queue_depth=962); b60f58f0d25cbfb5d3bda07b81ee113e10650218 remains the last fully validated deployed source commit (12,610 total / 12,537 passed / 0 failed / 73 gated skips)",
-    "gate_line": "Acceptance-snapshot PR head 51c63341de697bb3f585055ba73f84e03fe8658b contains the v3.66.811 runtime reconciliation and passed compatibility/CI, but was not deployed; later docs-only closeout commits do not change that runtime baseline",
+    "generated_note": "Recovered 2026-07-21 from the complete v3.66.539 canonical pack and reconciled against v3.66.811 OPV evidence available on 2026-07-21. TASK_TRACKER_DATA.json is canonical; TASK_TRACKER.md and TASK_TRACKER.xlsx are generated from it.",
+    "live_on_stash": "Observed 2026-07-21: v3.66.811 with /api/health ok=true, db_ok=true, build.sha=33f7e5a463bc. Volatile queue/worker counters are intentionally omitted. b60f58f0d25cbfb5d3bda07b81ee113e10650218 is the last fully validated deployed source commit (12,610 total / 12,537 passed / 0 failed / 73 gated skips)",
+    "gate_line": "At the 2026-07-21 acceptance snapshot, pre-documentation PR head 51c63341de697bb3f585055ba73f84e03fe8658b contained the v3.66.811 runtime reconciliation and passed compatibility/CI but had not been deployed; later documentation commits do not change that runtime baseline",
     "priority_note": "Reachability deferrals and time-, infrastructure-, or operator-bound observations remain open in their own rows. Corpus disposition is manual review debt, not an OPV failure.",
-    "live_version": "3.66.811",
+    "metadata_snapshot_date": "2026-07-21",
+    "live_version_observed_2026_07_21": "3.66.811",
     "last_updated": "v3.66.811 OPV reconciliation (2026-07-21 pre-merge snapshot)",
     "recovery_source": "v3.66.539 canonical pack; historical denominator preserved: 0 incomplete, 266 completed, 25 awaiting operator, 11 decided against",
     "last_fully_validated_deployed_version": "3.66.811 live artifact",
     "last_fully_validated_deployed_sha": "b60f58f0d25cbfb5d3bda07b81ee113e10650218",
-    "live_health_build_sha": "33f7e5a463bc",
-    "pr_head_version": "3.66.811",
-    "pr_head_sha": "51c63341de697bb3f585055ba73f84e03fe8658b",
-    "pr_head_context": "Acceptance-snapshot / pre-documentation implementation head; later docs-only closeout commits do not change runtime behavior"
+    "live_health_build_sha_observed_2026_07_21": "33f7e5a463bc",
+    "acceptance_snapshot_pr_version": "3.66.811",
+    "acceptance_snapshot_pr_head_sha": "51c63341de697bb3f585055ba73f84e03fe8658b",
+    "acceptance_snapshot_pr_head_context": "Pre-documentation implementation head observed on 2026-07-21; later documentation commits do not change runtime behavior"
   },
   "columns": {
     "incomplete": [
@@ -2225,10 +2226,10 @@
     {
       "ID": "OPV-B2",
       "Category": "Operator verify",
-      "Item / scope": "B2 override-extraction live verify -- unreviewed draft -> one real download + 4 invariants (I1 not-enabled, I2 override-branch, I3 no-persist, I4 challenge->manual-handoff)",
+      "Item / scope": "B2 override-extraction acceptance -- unreviewed draft -> one real download (I1-I3 live; I4 manual-handoff inheritance source-confirmed)",
       "Version": "v3.66.811 OPV",
       "State": "COMPLETED (live stash)",
-      "Notes": "Repository commit 16303769dbbdc60ba7ec40db72ca65803cda3204 records the live runner/browser probe: exactly 262,144 bytes of sanctioned video/mp4 sampled with persist=false, no file saved, the draft left review-only, draft/reviewed/config hashes restored, and all temporary state removed. The consolidated pre-merge acceptance snapshot is reports/OPV_VALIDATION_REPORT_2026-07-21.md."
+      "Notes": "Repository commit 16303769dbbdc60ba7ec40db72ca65803cda3204 records the live runner/browser probe: exactly 262,144 bytes of sanctioned video/mp4 sampled with persist=false, no file saved, the draft left review-only, draft/reviewed/config hashes restored, and all temporary state removed. That live arm demonstrated I1/I2/I3. I4 was source-confirmed, not live-triggered, because the sanctioned fixture encountered no challenge; the separate P3-T12-CALLSITE real challenge detect-to-handoff observation remains awaiting operator. The consolidated pre-merge acceptance snapshot is reports/OPV_VALIDATION_REPORT_2026-07-21.md."
     },
     {
       "ID": "NOVNC-PRECEDENCE",

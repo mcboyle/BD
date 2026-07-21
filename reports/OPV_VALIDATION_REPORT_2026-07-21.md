@@ -1,11 +1,16 @@
 # BulkDownloader OPV Validation Report
 
 **Validation date:** 2026-07-21
+
 **Overall result:** COMPLETE / PASS
+
 **Deployment target:** `stash` — `/home/mboyle/BulkDownloader`
+
 **Validated deployed commit:** `b60f58f0d25cbfb5d3bda07b81ee113e10650218`
-**GitHub PR head:** `51c63341de697bb3f585055ba73f84e03fe8658b`
-**Pull request:** `mcboyle/BD#7` — draft, CLEAN, MERGEABLE
+
+**GitHub PR head at acceptance snapshot:** `51c63341de697bb3f585055ba73f84e03fe8658b`
+
+**Pull request state at acceptance snapshot:** `mcboyle/BD#7` — draft, CLEAN, MERGEABLE
 
 > The deployed commit is the fully validated live OPV deployment. The later PR
 > head merges the current GitHub `main` into the OPV branch. That merge passed
@@ -149,6 +154,9 @@ totals. This combined report supersedes it.
 ## Final disposition
 
 **OPV operator validation: COMPLETE.**
+
 **Live export: RUNNING.**
+
 **GitHub preservation: COMPLETE.**
+
 **PR conflict resolution: COMPLETE; CI GREEN; PR remains draft and unmerged.**

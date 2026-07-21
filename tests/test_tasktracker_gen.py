@@ -78,6 +78,45 @@ def test_md_totals_track_the_data_not_a_stored_string():
     assert "| A1 |" in md and "| C1 |" in md
 
 
+def test_md_totals_include_decided_against_and_grand_total():
+    m = _load()
+    data = _sample()
+    data["decided_against"] = [
+        {"ID": "D1", "Category": "x", "Item / scope": "s", "Version": "1.0",
+         "State": "REJECTED", "Notes": "reason"},
+        {"ID": "D2", "Category": "x", "Item / scope": "s", "Version": "1.0",
+         "State": "DROPPED", "Notes": "reason"},
+    ]
+    md = m.render_md(data)
+    assert ("**Totals:** 3 incomplete · 1 completed · 2 decided against · "
+            "6 total." in md)
+
+
+def test_xlsx_summary_includes_decided_against_and_grand_total():
+    if not _have_openpyxl():
+        return
+    import openpyxl
+    m = _load()
+    data = _sample()
+    data["decided_against"] = [
+        {"ID": "D1", "Category": "x", "Item / scope": "s", "Version": "1.0",
+         "State": "REJECTED", "Notes": "reason"},
+        {"ID": "D2", "Category": "x", "Item / scope": "s", "Version": "1.0",
+         "State": "DROPPED", "Notes": "reason"},
+    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        xp = Path(tmp) / "TASK_TRACKER.xlsx"
+        m.render_xlsx(data, xp)
+        wb = openpyxl.load_workbook(xp, data_only=True, read_only=True)
+        try:
+            totals = {row[0]: row[1] for row in
+                      wb["Summary"].iter_rows(values_only=True) if row and row[0]}
+            assert totals["Decided against"] == 2
+            assert totals["Grand total"] == 6
+        finally:
+            wb.close()
+
+
 def test_markdown_has_one_terminal_newline():
     md = _load().render_md(_sample())
     assert md.endswith("\n")
