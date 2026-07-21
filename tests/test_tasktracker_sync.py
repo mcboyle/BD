@@ -18,6 +18,14 @@ def _load():
     return mod
 
 
+def _have_openpyxl():
+    try:
+        import openpyxl  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def _make_xlsx(path, inc_ids, comp_ids):
     import openpyxl
     wb = openpyxl.Workbook()
@@ -87,3 +95,28 @@ def test_regen_makes_md_match_xlsx():
     assert m.check(str(d)) == 1          # mismatched before
     assert m.regen(str(d)) == 0          # regenerate md from xlsx
     assert m.check(str(d)) == 0          # now in sync
+
+
+def test_xlsx_ids_releases_file_handle():
+    """The read-only ID scan must not block Windows cleanup."""
+    if not _have_openpyxl():
+        return
+    d = Path(tempfile.mkdtemp(prefix="bd_ttsync_handle_"))
+    xp = d / "TASK_TRACKER.xlsx"
+    _make_xlsx(xp, ["A"], ["B"])
+    assert _load().xlsx_ids(xp)
+    xp.unlink()
+    d.rmdir()
+
+
+def test_rows_releases_file_handle():
+    """The legacy regen reader must not block Windows cleanup."""
+    if not _have_openpyxl():
+        return
+    d = Path(tempfile.mkdtemp(prefix="bd_ttsync_rows_handle_"))
+    xp = d / "TASK_TRACKER.xlsx"
+    _make_xlsx(xp, ["A"], ["B"])
+    header, rows = _load()._rows(xp, "Incomplete")
+    assert header and rows
+    xp.unlink()
+    d.rmdir()

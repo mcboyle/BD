@@ -14,6 +14,17 @@
 **Companion to:** COWORK_OPERATOR_AUTOMATION_GUIDE (the canon — envelope, grants, ethics floor)
 **Status source:** measured 2026-07-20 on stash (service up, git @ v3.66.810) via the two diagnostic scripts named above — this supersedes any quoted status.
 
+> **Status update (2026-07-21):**
+> `reports/OPV_VALIDATION_REPORT_2026-07-21.md` is the consolidated pre-merge
+> acceptance snapshot and supersedes this guide's July 20 measured-status
+> summary. Keep the procedures and July 20 observations as evidence, especially
+> where time or infrastructure cannot be compressed. Predictive relogin after
+> at least three learned lifetimes, the saved-search seven-day soak, a naturally
+> scheduled F3.2 daily tick against real drift, a real challenge
+> detect-to-handoff, and a real WireGuard tunnel fail-closed run remain
+> operator/time/infrastructure-bound; the consolidated acceptance result does
+> not claim those observations complete.
+>
 > **Read this first.** Every item below is reduced to the *minimum human keystroke* — usually a
 > single paste block — with Cowork doing all the setup, verification, revert, and ledgering around it.
 > The split is deliberate: an environment safety classifier may block Cowork from *executing* live
@@ -311,8 +322,8 @@ enabling the draft — and the 4 safety invariants hold.
 
 - **Route (source-confirmed):** `POST /api/template/test_extract` (`app_template.py:330`) sets the
   per-site unreviewed-draft override and can enqueue one live `probe` run. Probe transport
-  (`runner_transport.py:506`) caps the stream at 256 KB and writes no file. The no-persist gate is
-  `_override_suppresses_persist` (`runner_teach.py:256`), which suppresses live-config and draft
+  (`runner_transport.py:490`) caps the stream at 256 KB and writes no file. The no-persist gate is
+  `_override_suppresses_persist` (`runner_teach.py:262`), which suppresses live-config and draft
   selector writeback; explicit `clear:true` removes the override.
 - **Prep (Cowork):** on a sanctioned media target (the `bd-dltest` set — Big Buck Bunny MP4), stage a
   review-only draft with a selector pick. Snapshot the site's persisted selectors + enabled state.

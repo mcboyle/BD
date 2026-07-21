@@ -1,5 +1,14 @@
 # Template Host Alias Matching Implementation Plan
 
+> **Current status (2026-07-21):** The implementation and focused validation
+> work in Tasks 1-4 is complete on the pre-documentation implementation baseline
+> `51c63341de697bb3f585055ba73f84e03fe8658b`. The last fully validated live
+> deployment is the distinct commit
+> `b60f58f0d25cbfb5d3bda07b81ee113e10650218`. Task 5 remains open for the
+> parent's final merged-head deployment and acceptance proof; earlier candidate
+> or focused live evidence does not mark that final deployment complete. Later
+> docs-only closeout commits do not change the runtime implementation baseline.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make reviewed templates safely reusable across explicitly declared sibling hosts, with an opt-in parent-domain scope, while preserving the already-general shared HTTP response fix.

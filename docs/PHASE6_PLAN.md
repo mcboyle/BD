@@ -1,5 +1,10 @@
 # Phase 6 — SPA UI/UX, deferred from Slices 4–5 (v3.66.360 baseline)
 
+> **Current status (2026-07-21): COMPLETE.** `CHANGELOG.md` v3.66.363 records
+> Phase 6 completion (P6-5/6/7/8 after P6-1/2/3 at 361 and P6-4 at 362).
+> The backlog below is the historical implementation baseline, not a current
+> queue; any new UI work needs its own tracker row.
+
 Carries the items intentionally deferred while finishing Slices 4c/4d/5. All are
 **frontend-only, non-guard, no-route** unless noted. Each ships via the normal
 overlay; the per-slice gate is unchanged (tsc → vite build → vitest → both-theme

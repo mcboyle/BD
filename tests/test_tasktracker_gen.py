@@ -78,6 +78,12 @@ def test_md_totals_track_the_data_not_a_stored_string():
     assert "| A1 |" in md and "| C1 |" in md
 
 
+def test_markdown_has_one_terminal_newline():
+    md = _load().render_md(_sample())
+    assert md.endswith("\n")
+    assert not md.endswith("\n\n")
+
+
 def test_render_then_check_is_in_sync():
     if not _have_openpyxl():
         return
@@ -120,6 +126,19 @@ def test_check_detects_xlsx_drift():
         wb["Incomplete"]["A2"] = "MUTATED"
         wb.save(xp)
         assert m.check(str(d)) == 1
+
+
+def test_xlsx_signature_releases_file_handle():
+    """Read-only signature workbooks must not block Windows cleanup."""
+    if not _have_openpyxl():
+        return
+    m = _load()
+    with tempfile.TemporaryDirectory() as tmp:
+        xp = Path(tmp) / "TASK_TRACKER.xlsx"
+        m.render_xlsx(_sample(), xp)
+        assert m._xlsx_signature(xp)
+        xp.unlink()
+        assert not xp.exists()
 
 
 def test_gated_chain_renders_and_checks():

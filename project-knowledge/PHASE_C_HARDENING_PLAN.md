@@ -1,6 +1,12 @@
 <!-- verified-against: v3.66.593 -->
 # PHASE C — F2 / REDACTION / POSTURE HARDENING PLAN
 
+> **Current status (2026-07-21): PARKED / OPERATOR-GATED.** Keep this as a
+> local-only validation plan, not an active queue. Real manifest-retaining WACZ
+> material must never be circulated, committed, or used to claim completion;
+> each future increment requires explicit operator authorization, its own
+> tracker row, and the local corpus-breakage gate described below.
+
 <!-- authored against live baseline v3.66.593. CONSOLIDATES + REFRESHES the Phase-C material that -->
 <!-- lived inside FORWARD_PLAN_post_172.md (a 172-era doc "SUPERSEDED IN PART"). The methodology + the -->
 <!-- COMPLETE F2 list + the C1..C6 ordering are lifted from there and re-anchored to @593 state. -->

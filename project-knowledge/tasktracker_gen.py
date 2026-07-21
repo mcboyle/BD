@@ -162,7 +162,7 @@ def render_md(data):
     if decided:
         parts += ["## Decided against (closed by decision — the reason IS the artifact)",
                   "", _md_table(DECIDED_COLS, decided), ""]
-    return "\n".join(parts) + "\n"
+    return "\n".join(parts).rstrip() + "\n"
 
 
 def render_xlsx(data, path):
@@ -383,11 +383,14 @@ def _xlsx_signature(path):
     cell-value rows. Avoids brittle byte-compare (zip mtimes/ordering)."""
     import openpyxl
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
-    sig = {}
-    for s in wb.sheetnames:
-        sig[s] = [tuple("" if c is None else str(c) for c in row)
-                  for row in wb[s].iter_rows(values_only=True)]
-    return sig
+    try:
+        sig = {}
+        for s in wb.sheetnames:
+            sig[s] = [tuple("" if c is None else str(c) for c in row)
+                      for row in wb[s].iter_rows(values_only=True)]
+        return sig
+    finally:
+        wb.close()
 
 
 def check(d):

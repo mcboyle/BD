@@ -48,16 +48,19 @@ def xlsx_ids(path):
         sys.exit("tasktracker_sync: openpyxl required (run in the venv/sandbox): "
                  "pip install openpyxl --break-system-packages")
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
-    out = {}
-    for _name, sheet, _h in SECTIONS:
-        if sheet not in wb.sheetnames:
-            continue
-        ids = []
-        for row in wb[sheet].iter_rows(min_row=2, values_only=True):
-            if row and row[0] not in (None, ""):
-                ids.append(str(row[0]).strip())
-        out[_name] = ids
-    return out
+    try:
+        out = {}
+        for _name, sheet, _h in SECTIONS:
+            if sheet not in wb.sheetnames:
+                continue
+            ids = []
+            for row in wb[sheet].iter_rows(min_row=2, values_only=True):
+                if row and row[0] not in (None, ""):
+                    ids.append(str(row[0]).strip())
+            out[_name] = ids
+        return out
+    finally:
+        wb.close()
 
 
 def md_ids(path):
@@ -112,13 +115,16 @@ def check(d):
 def _rows(path, sheet):
     import openpyxl
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
-    if sheet not in wb.sheetnames:
-        return [], []
-    rows = list(wb[sheet].iter_rows(min_row=1, values_only=True))
-    header = [str(c) if c is not None else "" for c in rows[0]] if rows else []
-    data = [[("" if c is None else str(c)) for c in r]
-            for r in rows[1:] if r and r[0] not in (None, "")]
-    return header, data
+    try:
+        if sheet not in wb.sheetnames:
+            return [], []
+        rows = list(wb[sheet].iter_rows(min_row=1, values_only=True))
+        header = [str(c) if c is not None else "" for c in rows[0]] if rows else []
+        data = [[("" if c is None else str(c)) for c in r]
+                for r in rows[1:] if r and r[0] not in (None, "")]
+        return header, data
+    finally:
+        wb.close()
 
 
 def _md_table(header, data):

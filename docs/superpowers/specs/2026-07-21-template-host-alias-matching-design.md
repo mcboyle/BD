@@ -1,5 +1,14 @@
 # Template Host Alias Matching Design
 
+> **Current status (2026-07-21):** This design is implemented and focused-tested
+> on the pre-documentation implementation baseline
+> `51c63341de697bb3f585055ba73f84e03fe8658b`. Deployment proof for the final
+> merged head is still pending: the last fully validated live deployment
+> is the distinct commit `b60f58f0d25cbfb5d3bda07b81ee113e10650218`.
+> Treat the Deployment and Verification section as unfinished until the parent
+> performs the final merged deployment and acceptance run. Later docs-only
+> closeout commits do not change the runtime implementation baseline.
+
 ## Goal
 
 Prevent reviewed templates from silently dropping out when a site moves an
