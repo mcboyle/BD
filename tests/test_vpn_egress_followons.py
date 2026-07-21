@@ -253,17 +253,16 @@ def test_manual_download_session_delegates_proxy_resolution_to_runner():
         "bulk_downloader.app": types.SimpleNamespace(
             _is_url_public=lambda url: True),
     }
-    saved_modules = {name: sys.modules.get(name) for name in fake_modules}
-    missing_package_attr = object()
-    saved_package_attrs = {
-        name.rsplit(".", 1)[1]: getattr(
-            bulk_downloader, name.rsplit(".", 1)[1], missing_package_attr)
+    missing_import = object()
+    saved_modules = {
+        name: sys.modules.get(name, missing_import)
         for name in fake_modules
     }
-    # Simulate arbitrary import order: a previously imported app remains
-    # cached on the package even when its sys.modules entry is replaced.
-    bulk_downloader.app = types.SimpleNamespace(
-        _is_url_public=lambda url: False)
+    saved_package_attrs = {
+        name.rsplit(".", 1)[1]: getattr(
+            bulk_downloader, name.rsplit(".", 1)[1], missing_import)
+        for name in fake_modules
+    }
     original_client = runner_manual.httpx.Client
     response_q = queue.Queue()
     cancel_q = queue.Queue()
@@ -280,6 +279,10 @@ def test_manual_download_session_delegates_proxy_resolution_to_runner():
     session._cmd_q.put(("cancel", None, cancel_q))
 
     try:
+        # Simulate arbitrary import order: a previously imported app remains
+        # cached on the package even when its sys.modules entry is replaced.
+        bulk_downloader.app = types.SimpleNamespace(
+            _is_url_public=lambda url: False)
         sys.modules.update(fake_modules)
         for name, module in fake_modules.items():
             setattr(bulk_downloader, name.rsplit(".", 1)[1], module)
@@ -288,12 +291,12 @@ def test_manual_download_session_delegates_proxy_resolution_to_runner():
     finally:
         runner_manual.httpx.Client = original_client
         for name, module in saved_modules.items():
-            if module is None:
+            if module is missing_import:
                 sys.modules.pop(name, None)
             else:
                 sys.modules[name] = module
         for name, module in saved_package_attrs.items():
-            if module is missing_package_attr:
+            if module is missing_import:
                 if hasattr(bulk_downloader, name):
                     delattr(bulk_downloader, name)
             else:
@@ -303,6 +306,66 @@ def test_manual_download_session_delegates_proxy_resolution_to_runner():
     assert response[0] == "ok", response
     assert proxy_resolutions == [proxy_sentinel]
     assert client_proxies == [proxy_sentinel]
+
+
+def test_manual_proxy_test_setup_failure_does_not_leak_import_state():
+    """A dependency lookup failure must precede all fake-module mutation."""
+    import bulk_downloader
+    from bulk_downloader import runner_manual
+
+    names = ("app", "detect", "cookies")
+    missing = object()
+    saved_modules = {
+        name: sys.modules.get(f"bulk_downloader.{name}", missing)
+        for name in names
+    }
+    saved_attrs = {
+        name: getattr(bulk_downloader, name, missing)
+        for name in names
+    }
+    original_httpx = runner_manual.httpx
+    preloaded_app = types.ModuleType("bulk_downloader.app")
+
+    class _FailingHTTPX:
+        @property
+        def Client(self):
+            raise RuntimeError("forced Client setup failure")
+
+    try:
+        sys.modules["bulk_downloader.app"] = preloaded_app
+        bulk_downloader.app = preloaded_app
+        for name in ("detect", "cookies"):
+            sys.modules.pop(f"bulk_downloader.{name}", None)
+            if hasattr(bulk_downloader, name):
+                delattr(bulk_downloader, name)
+        runner_manual.httpx = _FailingHTTPX()
+
+        try:
+            test_manual_download_session_delegates_proxy_resolution_to_runner()
+        except RuntimeError as exc:
+            assert str(exc) == "forced Client setup failure"
+        else:
+            assert False, "expected the forced Client setup failure"
+
+        assert sys.modules["bulk_downloader.app"] is preloaded_app
+        assert bulk_downloader.app is preloaded_app
+        for name in ("detect", "cookies"):
+            assert f"bulk_downloader.{name}" not in sys.modules
+            assert not hasattr(bulk_downloader, name)
+    finally:
+        runner_manual.httpx = original_httpx
+        for name, module in saved_modules.items():
+            qualified = f"bulk_downloader.{name}"
+            if module is missing:
+                sys.modules.pop(qualified, None)
+            else:
+                sys.modules[qualified] = module
+        for name, module in saved_attrs.items():
+            if module is missing:
+                if hasattr(bulk_downloader, name):
+                    delattr(bulk_downloader, name)
+            else:
+                setattr(bulk_downloader, name, module)
 
 
 def test_runner_controlplane_sites_proxied_and_fail_closed():
