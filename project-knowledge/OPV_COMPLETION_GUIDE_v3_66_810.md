@@ -116,8 +116,8 @@ written, but the live arm is operator-owned.
 | 7 | PICK | **display UP; human click owed** | noVNC/KasmVNC listening on :6080 + :8444; takeover enabled |
 | 8 | NOVNC-PRECEDENCE | **READY to observe** | /metrics carries `bd_takeover_active=0`; enabled, mode=`remote` |
 | 9 | VPNKILL | **BLOCKED** | WireGuard kmod **absent on stash**; netns egress toggle now renders (811) |
-| 10 | F4.1/F4.5 | **mechanism READY; phone-bound** | manifest `share_target` present; `/dashboard?url=` resolves |
-| 11 | F45-METRIC | **code-confirmed** | 93% (busy) / 50% (idle) request-rate drop when SSE connects |
+| 10 | F4.1/F4.5 | **COMPLETED (operator accepted; iPhone exception)** | dashboard reached on iPhone; receiver + Resolve mechanism verified; native iOS share target N/A |
+| 11 | F45-METRIC | **COMPLETED (code-confirmed; optional live measure waived)** | 93% (busy) / 50% (idle) request-rate drop when SSE connects |
 
 ---
 
@@ -134,8 +134,8 @@ written, but the live arm is operator-owned.
 | 7 | **OPV-PICK** | noVNC display | operator click | none (draft only) | display UP |
 | 8 | **NOVNC-PRECEDENCE** | noVNC display | operator observe | none | READY to observe |
 | 9 | **OPV-VPNKILL** | real tunnel | 1 paste | medium (egress fail-closed) | BLOCKED (kmod) |
-| 10 | **OPV-F4.1 / F4.5** | phone | phone tap | none | mechanism READY |
-| 11 | **OPV-F45-METRIC** | phone + measure | optional | none | code-confirmed |
+| 10 | **OPV-F4.1 / F4.5** | iPhone | operator acceptance | none | COMPLETED (iOS exception recorded) |
+| 11 | **OPV-F45-METRIC** | code + optional measure | measure waived | none | COMPLETED (code-confirmed) |
 
 Batch 1–4 in one session (all low-friction, no device). 5–11 as devices/sessions allow.
 
@@ -399,8 +399,11 @@ curl -s -b "$JAR" -H "X-CSRF-Token: $CSRF" -X POST "$BASE/api/vpn/kill_switch/$T
 
 ## 10 · OPV-F4.1 / F4.5 — phone share-target (device)
 
-**STATUS (810, measured):** mechanism READY — `static/manifest.json` carries `share_target`,
-`/dashboard?url=` resolves (200). The 2-tap flow needs a **phone** with the PWA installed (device-bound).
+**STATUS (operator accepted, 2026-07-20): COMPLETED.** The iPhone reached the live dashboard;
+`static/manifest.json` carries `share_target`, and the `/dashboard?url=` receiver plus Resolve path were
+verified against the live backend and browser rehearsal. WebKit does not expose the Web Share Target API,
+so the native OS share-sheet arm is not applicable on iPhone; the operator explicitly accepted that
+platform exception and closed the item.
 
 **What it proves:** a 2-tap phone share into BD lands a URL in the resolve/add flow via the PWA
 share-target, and (F4.5) idle polling backs off while the SSE stream is live.
@@ -418,13 +421,15 @@ share-target, and (F4.5) idle polling backs off while the SSE stream is live.
 - **Observe (Cowork):** the resolve box arrives pre-filled (params stripped from the address bar);
   Resolve returns a `/api/route_urls` result mapping the URL to a site (or "no match" — still correct).
 - **Pass:** 2-tap share pre-fills the resolve box and Resolve returns a routing result end-to-end.
-- **Teardown:** none. **Ledger:** `OPV-F4.1 2-tap share→/dashboard→resolve, routed`.
+- **Teardown:** none. **Ledger:** `OPV-F4.1 receiver→/dashboard→resolve complete; native iOS
+  share-target N/A (WebKit unsupported), operator accepted`.
 
 ---
 
 ## 11 · OPV-F45-METRIC — idle-request reduction measurement (optional)
 
-**STATUS (810, measured):** code-confirmed. From the wired cadence constants (`FAST=4s`, `SLOW=30s`,
+**STATUS (operator accepted, 2026-07-20): COMPLETED (code-confirmed; optional live measure waived).**
+From the wired cadence constants (`FAST=4s`, `SLOW=30s`,
 `STREAM_SAFETY=60s`): connecting the SSE stream cuts the `/api/dashboard` poll rate by **93% from the
 busy cadence** (900→60 req/hr) and **50% from the idle cadence** (120→60 req/hr). A live wall-clock
 measurement is the optional confirmation.
