@@ -20,7 +20,7 @@
     "total": 32,
     "version": 1,
     "count_dict": 31,
-    "test_files_scanned": 1089,
+    "test_files_scanned": 1077,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_config_snapshot_diff.py": 1,
@@ -128,7 +128,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.811",
+      "value": "3.66.805",
       "gates_what": "test_containment_routes_and_version"
     },
     {

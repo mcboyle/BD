@@ -75,6 +75,11 @@ def test_every_pin_has_required_fields():
         assert p["form"] in ("version", "count_dict"), p["form"]
 
 
+def test_pin_paths_are_platform_independent_posix_paths():
+    d = _load()
+    assert all("\\" not in p["file"] for p in d["pins"]), d["pins"]
+
+
 def test_no_pins_from_fixture_files():
     """The bump()-footgun guard: synthetic pin strings in fixture files must never
     be indexed as real pins (AST already excludes them; this is belt-and-suspenders)."""
