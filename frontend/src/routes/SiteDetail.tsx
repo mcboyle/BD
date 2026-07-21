@@ -495,8 +495,6 @@ function DashboardTile({
         <div
           className="dashboard-tile-handle absolute right-1 top-1 z-10 grid h-6 w-6 cursor-grab place-items-center rounded-sm bg-surface/90 text-ink-3 backdrop-blur transition-colors hover:bg-surface-2 hover:text-ink active:cursor-grabbing"
           aria-label={`Drag to reorder ${id} tile`}
-          role="button"
-          tabIndex={0}
         >
           <GripVertical className="h-3.5 w-3.5" aria-hidden />
         </div>

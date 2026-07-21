@@ -4,6 +4,7 @@ import { Check, Plus } from "lucide-react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -82,6 +83,9 @@ export function WidgetPicker({ open, onOpenChange, siteId }: WidgetPickerProps) 
           <DialogTitle className="text-sm font-semibold">
             Widget library
           </DialogTitle>
+          <DialogDescription className="text-xs text-ink-3">
+            Choose which widgets appear on this dashboard.
+          </DialogDescription>
           <div className="text-xs text-ink-3">
             {ids.length} of {WIDGETS.length} widgets active
           </div>

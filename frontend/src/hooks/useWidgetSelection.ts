@@ -134,7 +134,16 @@ export function useWidgetSelection(siteId?: string): UseWidgetSelection {
         setGlobalIds(readStored());
       }
     };
-    const onSameTabChange = () => setGlobalIds(readStored());
+    const onSameTabChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ ids?: unknown }>).detail;
+      if (Array.isArray(detail?.ids)) {
+        setGlobalIds(detail.ids.filter(
+          (id): id is string => typeof id === "string" && ALL_WIDGET_IDS.has(id),
+        ));
+        return;
+      }
+      setGlobalIds(readStored());
+    };
     window.addEventListener("storage", onStorage);
     window.addEventListener(SELECTION_CHANGE_EVENT, onSameTabChange);
     return () => {
@@ -217,7 +226,9 @@ export function useWidgetSelection(siteId?: string): UseWidgetSelection {
     // The native storage event only fires in *other* documents. Home and its
     // picker mount separate hook instances in the same document, so publish a
     // local signal as well to keep their rendered selections in lockstep.
-    window.dispatchEvent(new Event(SELECTION_CHANGE_EVENT));
+    window.dispatchEvent(new CustomEvent(SELECTION_CHANGE_EVENT, {
+      detail: { ids: next.slice() },
+    }));
   }, []);
 
   const setIds = useCallback(

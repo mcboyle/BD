@@ -106,13 +106,14 @@ describe("Home dashboard widget coverage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Customize dashboard" }));
     await waitFor(() => {
       expect(
-        screen.getAllByRole("button", { name: /Drag to reorder .* tile/ }),
+        screen.getAllByLabelText(/Drag to reorder .* tile/),
       ).toHaveLength(WIDGETS.length + LEGACY_WIDGET_IDS.length);
     });
     for (const id of LEGACY_WIDGET_IDS) {
-      expect(
-        screen.getByRole("button", { name: `Drag to reorder ${id} tile` }),
-      ).toBeInTheDocument();
+      const handle = screen.getByLabelText(`Drag to reorder ${id} tile`);
+      expect(handle).toBeInTheDocument();
+      expect(handle).not.toHaveAttribute("role");
+      expect(handle).not.toHaveAttribute("tabindex");
     }
   });
 
@@ -125,6 +126,9 @@ describe("Home dashboard widget coverage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Customize dashboard" }));
     fireEvent.click(screen.getByRole("button", { name: "Open widget library" }));
+    expect(await screen.findByRole("dialog")).toHaveAccessibleDescription(
+      "Choose which widgets appear on this dashboard.",
+    );
     fireEvent.click(
       await screen.findByRole("button", { name: "Add Top studio to dashboard" }),
     );
@@ -132,7 +136,7 @@ describe("Home dashboard widget coverage", () => {
 
     expect(await screen.findByText("Top studio", { exact: true })).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Drag to reorder lib_top_studio tile" }),
+      screen.getByLabelText("Drag to reorder lib_top_studio tile"),
     ).toBeInTheDocument();
   });
 });
