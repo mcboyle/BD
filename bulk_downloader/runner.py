@@ -509,6 +509,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # it logs a worker_hung event so the user sees it in the
         # event log and can choose to restart the site.
         self._worker_heartbeats = {}   # {worker_idx: last_beat_unix_seconds}
+        self._worker_current_urls = {} # {worker_idx: url currently processing}
+        self._job_progress_samples = {} # {url: {bytes, at, bps}}
         self._worker_heartbeats_lock = threading.Lock()
         # v3.43.24: watchdog populates this with {worker_idx, last_beat_age_s}
         # dicts for any worker that hasn't heartbeat in >15min. Empty
@@ -735,6 +737,17 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
 
     def start(self):
         if self._state=="running": return
+        # A fresh run must not inherit liveness state from worker threads that
+        # belonged to the previous run. Guard both maps with the same lock so
+        # the watchdog never observes a half-reset worker snapshot.
+        with self._worker_heartbeats_lock:
+            self._worker_heartbeats.clear()
+            self._worker_current_urls.clear()
+            self._hung_workers = []
+        # Progress samples are guarded separately by the jobs lock. Never hold
+        # both locks at once: _update_job follows the same one-way ordering.
+        with self._lock:
+            self._job_progress_samples.clear()
         if self.is_rate_limited(): return
         # v3.43.41: download window check. When the site is configured
         # with active hours (window_enabled=True), refuse to start
@@ -1231,6 +1244,30 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
 
 
 
+    def _current_throughput_bps(self, now: float | None = None) -> float:
+        """Sum recent byte rates for jobs that are still running.
+
+        Progress emitters tick about once per second. A sample older than five
+        seconds is therefore no longer evidence of live transfer activity and
+        must decay to zero instead of leaving the dashboard stuck at the last
+        completed-download EWMA.
+        """
+        current = time.time() if now is None else float(now)
+        total = 0.0
+        with self._lock:
+            for url, sample in self._job_progress_samples.items():
+                job = self.jobs.get(url) or {}
+                if job.get("status") != "running":
+                    continue
+                sample_at = sample.get("at")
+                sample_bps = float(sample.get("bps", 0.0) or 0.0)
+                if sample_at is None or sample_bps <= 0:
+                    continue
+                age = current - float(sample_at)
+                if 0.0 <= age <= 5.0:
+                    total += sample_bps
+        return total
+
     def get_status(self,light=False):
         """Return runner state. With `light=True`, omit `jobs` and
         `url_order` — the two heavy fields. Used by the sidebar poll which
@@ -1314,10 +1351,9 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 "awaiting_manual_login":self.is_awaiting_manual_login(),
                 "awaiting_manual_download":self.is_awaiting_manual_download(),
                 "cookie_age_hours": self._cookie_age_hours(),
-                # AUDIT FIX (v3.42.0): _bytes_per_sec was a stub never updated.
-                # The real per-download EWMA lives in _throughput_ewma_bps,
-                # populated by _observe_throughput after each download.
-                "bytes_per_sec": getattr(self, "_throughput_ewma_bps", 0.0),
+                # Live rate from fresh running-job byte samples. Completion
+                # EWMA remains separate for chunk tuning and queue ETA.
+                "bytes_per_sec": self._current_throughput_bps(),
                 # v3.48 (#8): queue-completion ETA in seconds. 0 = unknown.
                 "eta_s": eta_s,
                 "learned_summary":self._learned_summary(),
@@ -1403,6 +1439,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 message = friendly_error(message)
             except Exception:
                 pass  # translator failure must never block queue update
+        byte_advanced = False
         with self._lock:
             prev_status = (self.jobs.get(url) or {}).get("status")
             prev_bytes = int((self.jobs.get(url) or {}).get("file_size", 0))
@@ -1424,6 +1461,24 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 new_bytes = int(extra.get("file_size", prev_bytes) or 0)
                 if prev_status != status or new_bytes > prev_bytes:
                     self.jobs[url]["last_progress_at"] = now
+                if new_bytes > prev_bytes:
+                    byte_advanced = True
+                    previous_sample = self._job_progress_samples.get(url) or {}
+                    previous_sample_bytes = previous_sample.get("bytes")
+                    previous_sample_at = previous_sample.get("at")
+                    sample_bps = 0.0
+                    if (previous_sample_bytes is not None
+                            and previous_sample_at is not None):
+                        elapsed = now - float(previous_sample_at)
+                        if elapsed > 0:
+                            sample_bps = (
+                                new_bytes - int(previous_sample_bytes)
+                            ) / elapsed
+                    self._job_progress_samples[url] = {
+                        "bytes": new_bytes,
+                        "at": now,
+                        "bps": max(0.0, sample_bps),
+                    }
                 # AUDIT FIX (v3.42.0): centrally clear the Phase 72 retry
                 # counter on ANY success transition. Previously only the
                 # HTTP-download success path cleared it; Playwright/manual/
@@ -1443,6 +1498,14 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     except Exception:
                         # Never let scoring code break the queue
                         pass
+        # Keep lock ordering one-way: never acquire the heartbeat lock while
+        # holding the jobs lock. Only genuine byte advancement proves that a
+        # worker blocked inside a long stream is alive; message churn does not.
+        if byte_advanced:
+            with self._worker_heartbeats_lock:
+                for worker_idx, current_url in self._worker_current_urls.items():
+                    if current_url == url:
+                        self._worker_heartbeats[worker_idx] = now
         # Phase 13: log status TRANSITIONS (not every spurious update with
         # the same status). Skips noisy intra-state messages like "Opening
         # page..." / "Downloading 23%". Filename and file_size land in
@@ -2062,6 +2125,19 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             except Exception:
                 pass
 
+    def _process_worker_url(self, worker_idx, browser, url,
+                            persistent_ctx=None):
+        """Map a worker to its URL only for the duration of processing."""
+        with self._worker_heartbeats_lock:
+            self._worker_current_urls[worker_idx] = url
+        try:
+            return self._process_one(
+                browser, url, persistent_ctx=persistent_ctx)
+        finally:
+            with self._worker_heartbeats_lock:
+                if self._worker_current_urls.get(worker_idx) == url:
+                    self._worker_current_urls.pop(worker_idx, None)
+
     def _worker_loop(self, worker_idx=0):
         """One persistent worker thread. Owns its own playwright + browser
         for the entire lifetime; pulls URLs from self._url_queue and
@@ -2350,7 +2426,9 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                                 acquired_global=True; break
                         if not acquired_global:
                             self._url_queue.task_done(); continue
-                    self._process_one(browser,url,persistent_ctx=persistent_ctx)
+                    self._process_worker_url(
+                        worker_idx, browser, url,
+                        persistent_ctx=persistent_ctx)
                 except Exception as e:
                     try: self._handle_failure(url,f"worker error: {str(e)[:100]}")
                     except Exception: pass
@@ -3265,5 +3343,3 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         "network":   [30, 120, 600],      # 30s, 2m, 10m
         "transient": [600, 3600],         # 10m, 1h (legacy default)
     }
-
-

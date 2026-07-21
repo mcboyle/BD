@@ -108,7 +108,7 @@ def api_dashboard():
             low_disk_sites.append({"site_id": sid, "name": cfg.get("name","") or sid})
         # Throughput rate
         try:
-            bytes_per_sec_total += float(getattr(runner, "_throughput_ewma_bps", 0) or 0)
+            bytes_per_sec_total += float(runner._current_throughput_bps() or 0)
         except Exception: pass
 
     # Queue ETA: jobs/minute over the last 60s applied to remaining pending.
@@ -373,4 +373,3 @@ def register_routes(app) -> int:
     app.register_blueprint(dashboard_bp)
     return sum(1 for r in app.url_map.iter_rules()
                if r.endpoint.startswith("dashboard."))
-

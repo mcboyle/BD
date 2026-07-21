@@ -253,11 +253,13 @@ class TransportMixin:
                                 self._update_job(
                                     page_url, "running",
                                     f"Direct {pct}% • {fmt_bytes(got)}",
+                                    file_size=got,
                                 )
                             else:
                                 self._update_job(
                                     page_url, "running",
                                     f"Direct • {fmt_bytes(got)}",
+                                    file_size=got,
                                 )
             return True
         except httpx.RequestError as e:
@@ -353,6 +355,7 @@ class TransportMixin:
                 page_url, "running",
                 f"Multi-conn {chunk_count}× {pct}% • "
                 f"{fmt_bytes(got)} / {fmt_bytes(total)}",
+                file_size=got,
             )
             # v3.48 (#24): also push the progress over SSE so the UI's
             # progress bar updates without polling. Throttled per-URL
@@ -1412,7 +1415,7 @@ class TransportMixin:
                                 msg=f"⬇ {pct}% • {fmt_bytes(downloaded)}/{fmt_bytes(total)} • {fmt_bytes(int(speed))}/s{cap_str}"
                             else:
                                 msg=f"⬇ {fmt_bytes(downloaded)} • {fmt_bytes(int(speed))}/s{cap_str}"
-                            self._update_job(page_url,"running",msg)
+                            self._update_job(page_url,"running",msg,file_size=downloaded)
                             # Phase 6.2: every progress tick, persist
                             # current bytes-on-disk to the queue table.
                             # On crash recovery, resume picks up from this
