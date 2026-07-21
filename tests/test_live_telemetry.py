@@ -118,6 +118,27 @@ def test_worker_url_mapping_clears_when_processing_raises(monkeypatch):
     assert runner._worker_current_urls == {}
 
 
+def test_worker_mapping_clears_when_claim_transition_publication_raises(
+        monkeypatch):
+    runner = _telemetry_runner(monkeypatch)
+    url = "https://example.test/video.mp4"
+    runner.jobs[url]["status"] = "pending"
+    processed = []
+
+    def fail_transition(*args, **kwargs):
+        raise RuntimeError("transition publication exploded")
+
+    runner._update_job = fail_transition
+    runner._process_one = lambda *args, **kwargs: processed.append(args)
+
+    with pytest.raises(RuntimeError, match="transition publication exploded"):
+        runner._process_worker_url(4, object(), url, run_generation=1)
+
+    assert processed == []
+    assert runner._worker_current_urls == {}
+    assert runner._worker_url_generations == {}
+
+
 def test_old_worker_generation_cannot_map_or_unmap_new_worker(monkeypatch):
     runner = _telemetry_runner(monkeypatch)
     old_url = "https://example.test/old.mp4"

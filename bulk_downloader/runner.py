@@ -2382,11 +2382,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             worker_idx, url, run_generation)
         if claim_result != "claimed":
             return claim_result
-        self._update_job(
-            url, "running", "Claimed by worker",
-            _transition_prev_status="pending",
-            _memory_already_updated=True)
         try:
+            self._update_job(
+                url, "running", "Claimed by worker",
+                _transition_prev_status="pending",
+                _memory_already_updated=True)
             self._process_one(browser, url, persistent_ctx=persistent_ctx)
             return self._WORKER_CLAIM_PROCESSED
         finally:
