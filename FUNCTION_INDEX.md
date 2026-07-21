@@ -457,26 +457,27 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_transport.py` (17 entries)
+## `bulk_downloader/runner_transport.py` (18 entries)
 
 ```
 - L0069 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
-- L0089 `TransportMixin` `[class]`
-  - L0090 `TransportMixin._download_proxy_url` `[private]` — Effective proxy URL for this site's in-process payload downloads.
-  - L0132 `TransportMixin._do_direct_http_download` `[private]` — Simple httpx GET → file. Used by library extractor for non-HLS
-  - L0257 `TransportMixin._try_multi_conn_download` `[private]` — v3.43.74: probe the URL and, if viable, run a parallel
-  - L0432 `TransportMixin._looks_like_media` `[private]` — BP-VH1: True if the response is plausibly downloadable MEDIA, by
-  - L0465 `TransportMixin._probe_outcome` `[private]` — BP-VH1: map a probe result to one of done | non_media | fail.
-  - L0471 `TransportMixin._integrity_size_ok` `[private]` — BP-INT (v3.66.284): True if the received byte count satisfies the
-  - L0481 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
-  - L0505 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
-  - L0598 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
-  - L1066 `TransportMixin._http_download` `[private]` — Stream the file URL to disk via httpx, with progress updates,
-  - L1494 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
-  - L1541 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
-  - L1878 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
-  - L1911 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
-  - L1935 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
+- L0089 `_closeable_response_context` `[private]` — Turn a closeable HTTP response into a context manager.
+- L0101 `TransportMixin` `[class]`
+  - L0102 `TransportMixin._download_proxy_url` `[private]` — Effective proxy URL for this site's in-process payload downloads.
+  - L0144 `TransportMixin._do_direct_http_download` `[private]` — Simple httpx GET → file. Used by library extractor for non-HLS
+  - L0269 `TransportMixin._try_multi_conn_download` `[private]` — v3.43.74: probe the URL and, if viable, run a parallel
+  - L0444 `TransportMixin._looks_like_media` `[private]` — BP-VH1: True if the response is plausibly downloadable MEDIA, by
+  - L0477 `TransportMixin._probe_outcome` `[private]` — BP-VH1: map a probe result to one of done | non_media | fail.
+  - L0483 `TransportMixin._integrity_size_ok` `[private]` — BP-INT (v3.66.284): True if the received byte count satisfies the
+  - L0493 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
+  - L0517 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
+  - L0610 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
+  - L1078 `TransportMixin._http_download` `[private]` — Stream the file URL to disk via httpx, with progress updates,
+  - L1506 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
+  - L1553 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
+  - L1891 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
+  - L1924 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
+  - L1948 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
 ```
 
 
@@ -656,4 +657,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 480 across 22 files._
+_Total entries: 481 across 22 files._

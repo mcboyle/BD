@@ -15,6 +15,9 @@ tunnel-drop validation is on-stash.
 from __future__ import annotations
 
 import inspect
+import queue
+import sys
+import types
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -180,16 +183,124 @@ def test_runner_controlplane_marked_three_sites():
         f"expected >=3 VPN-CONTROLPLANE markers (discovery/listing/deep-detect); found {n}")
 
 
+def test_manual_download_session_delegates_proxy_resolution_to_runner():
+    """The standalone manual session must resolve its proxy via its owner."""
+    from bulk_downloader import runner_manual
+
+    proxy_sentinel = "socks5://manual-session-sentinel.invalid:1080"
+    proxy_resolutions = []
+    client_proxies = []
+
+    class _FakeRunner:
+        site_id = "manual-proxy-test"
+        config = {}
+
+        def _download_proxy_url(self):
+            proxy_resolutions.append(proxy_sentinel)
+            return proxy_sentinel
+
+    class _FakeLocator:
+        def get_attribute(self, name):
+            return "https://media.example/video.mp4" if name == "href" else None
+
+    page = types.SimpleNamespace(url="https://members.example/video")
+
+    class _FakeContext:
+        pages = [page]
+
+        def cookies(self):
+            return []
+
+        def close(self):
+            pass
+
+    class _FakeBrowser:
+        def close(self):
+            pass
+
+    class _FakePlaywright:
+        def stop(self):
+            pass
+
+    class _FakeResponse:
+        status_code = 206
+        headers = {"Content-Type": "video/mp4", "Content-Length": "20"}
+        content = b"\x00\x00\x00\x18ftypisom" + (b"\x00" * 8)
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            client_proxies.append(kwargs.get("proxy"))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, *args, **kwargs):
+            return _FakeResponse()
+
+    fake_modules = {
+        "bulk_downloader.detect": types.SimpleNamespace(
+            find_best_download=lambda *args, **kwargs: {
+                "_learned_sel": "a.download",
+                "locator": _FakeLocator(),
+                "text": "Download",
+            }),
+        "bulk_downloader.cookies": types.SimpleNamespace(
+            pw_to_json=lambda cookies: cookies),
+        "bulk_downloader.app": types.SimpleNamespace(
+            _is_url_public=lambda url: True),
+    }
+    saved_modules = {name: sys.modules.get(name) for name in fake_modules}
+    original_client = runner_manual.httpx.Client
+    response_q = queue.Queue()
+    cancel_q = queue.Queue()
+    session = object.__new__(runner_manual._ManualDownloadSession)
+    session._runner = _FakeRunner()
+    session._cmd_q = queue.Queue()
+    session._error = None
+    session._ready = runner_manual.threading.Event()
+    session._closed = runner_manual.threading.Event()
+    session._thread = types.SimpleNamespace(name="manual-proxy-test")
+    session._launch = lambda: (
+        _FakeBrowser(), _FakeContext(), page, _FakePlaywright())
+    session._cmd_q.put(("test_download", {}, response_q))
+    session._cmd_q.put(("cancel", None, cancel_q))
+
+    try:
+        sys.modules.update(fake_modules)
+        runner_manual.httpx.Client = _FakeClient
+        session._run()
+    finally:
+        runner_manual.httpx.Client = original_client
+        for name, module in saved_modules.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
+
+    response = response_q.get_nowait()
+    assert response[0] == "ok", response
+    assert proxy_resolutions == [proxy_sentinel]
+    assert client_proxies == [proxy_sentinel]
+
+
 def test_runner_controlplane_sites_proxied_and_fail_closed():
-    """Each control-plane discovery site resolves _download_proxy_url, threads it
-    into its httpx client, and has a VPNRequiredError fail-closed branch.
+    """Each control-plane site resolves _download_proxy_url on its owner, threads
+    it into its httpx client, and has a VPNRequiredError fail-closed branch.
 
     Counts distinctive literals globally (NOT a fixed char window -- see the
     v3.66.391 fixed-window-overflow lesson)."""
     src = _RUNNER_PY.read_text(encoding="utf-8")
+    manual_src = (_REPO_ROOT / "bulk_downloader" / "runner_manual.py").read_text(
+        encoding="utf-8")
     assert src.count("VPN-CONTROLPLANE") >= 3, "expected >=3 control-plane markers"
-    assert src.count("_cp_proxy = self._download_proxy_url()") >= 3, (
-        "each control-plane site must resolve the fail-closed _download_proxy_url")
+    assert src.count("_cp_proxy = self._download_proxy_url()") == 2, (
+        "the two SiteRunner control-plane sites must resolve their own proxy")
+    assert manual_src.count(
+        "_cp_proxy = self._runner._download_proxy_url()") == 1, (
+        "the standalone manual session must resolve its stored runner's proxy")
     assert src.count("proxy=_cp_proxy") >= 3, (
         "each control-plane client must thread proxy=_cp_proxy")
     assert src.count("_cpe, vpn_runtime.VPNRequiredError") >= 3, (
