@@ -185,6 +185,7 @@ def test_runner_controlplane_marked_three_sites():
 
 def test_manual_download_session_delegates_proxy_resolution_to_runner():
     """The standalone manual session must resolve its proxy via its owner."""
+    import bulk_downloader
     from bulk_downloader import runner_manual
 
     proxy_sentinel = "socks5://manual-session-sentinel.invalid:1080"
@@ -253,6 +254,16 @@ def test_manual_download_session_delegates_proxy_resolution_to_runner():
             _is_url_public=lambda url: True),
     }
     saved_modules = {name: sys.modules.get(name) for name in fake_modules}
+    missing_package_attr = object()
+    saved_package_attrs = {
+        name.rsplit(".", 1)[1]: getattr(
+            bulk_downloader, name.rsplit(".", 1)[1], missing_package_attr)
+        for name in fake_modules
+    }
+    # Simulate arbitrary import order: a previously imported app remains
+    # cached on the package even when its sys.modules entry is replaced.
+    bulk_downloader.app = types.SimpleNamespace(
+        _is_url_public=lambda url: False)
     original_client = runner_manual.httpx.Client
     response_q = queue.Queue()
     cancel_q = queue.Queue()
@@ -270,6 +281,8 @@ def test_manual_download_session_delegates_proxy_resolution_to_runner():
 
     try:
         sys.modules.update(fake_modules)
+        for name, module in fake_modules.items():
+            setattr(bulk_downloader, name.rsplit(".", 1)[1], module)
         runner_manual.httpx.Client = _FakeClient
         session._run()
     finally:
@@ -279,6 +292,12 @@ def test_manual_download_session_delegates_proxy_resolution_to_runner():
                 sys.modules.pop(name, None)
             else:
                 sys.modules[name] = module
+        for name, module in saved_package_attrs.items():
+            if module is missing_package_attr:
+                if hasattr(bulk_downloader, name):
+                    delattr(bulk_downloader, name)
+            else:
+                setattr(bulk_downloader, name, module)
 
     response = response_q.get_nowait()
     assert response[0] == "ok", response
