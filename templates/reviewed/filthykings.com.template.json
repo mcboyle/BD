@@ -1,0 +1,108 @@
+{
+  "schema": "bulk_downloader.template.review_candidate.v1",
+  "normalized_from": "bulk_downloader.template_draft.v2",
+  "status": "enabled",
+  "host": "www.filthykings.com",
+  "confidence": "high",
+  "match": {
+    "hosts": [
+      "www.filthykings.com",
+      "members.filthykings.com"
+    ],
+    "url_patterns": [
+      "^https://(?:www|members)\\.filthykings\\.com/"
+    ]
+  },
+  "selectors": {
+    "player": {
+      "container": "video",
+      "play_button": "button[title=\"Play Video\"]"
+    },
+    "download": {
+      "trigger": "[title*=\"Download\" i]",
+      "api_template": "https://service.gammaapis.com/user/history/download/filthykings/{filthyking_id}"
+    }
+  },
+  "network_patterns": [
+    "/user/history/download/filthykings/{filthyking_id}"
+  ],
+  "resolutions": [
+    2160,
+    1080,
+    720,
+    576,
+    540,
+    480,
+    360,
+    240
+  ],
+  "source": {
+    "capture_file": "filthykings.com_026255e0_20260721_003033_62b2.wacz",
+    "capture_sha256": "a40274ab295ec200af9ba87c00d1981c940019b7f60971abea77e25220b481f5",
+    "captured_at": "2026-07-21T00:30:33.304396+00:00",
+    "dom_log_count": 2588,
+    "full_snapshot_labels": [],
+    "host": "www.filthykings.com",
+    "network_log_count": 905,
+    "origin": "https://www.filthykings.com",
+    "url_no_query": "https://www.filthykings.com/en/login"
+  },
+  "source_capture": "filthykings.com_026255e0_20260721_003033_62b2.wacz",
+  "evidence_counts": {
+    "dom_log_count": 2588,
+    "network_log_count": 905
+  },
+  "observed_api_hosts": [
+    "service.gammaapis.com"
+  ],
+  "api_base_candidate": "https://service.gammaapis.com",
+  "api_candidate": {
+    "base": "https://service.gammaapis.com/user/history",
+    "filthykings": "/download/filthykings/{filthyking_id}",
+    "filthykings_1": "/streaming/filthykings/{filthyking_id}"
+  },
+  "media_hosts": [
+    "streaming-hls.gammacdn.com"
+  ],
+  "workflow": {
+    "derived_steps": [
+      "interact: element (a.Link.styles_LRoKZh4vsQ.Header-DesktopSidebar-Link) -> req:70 manifest:0 seg:0 direct:0",
+      "interact: play button (button.Button--hover.Button.ScenePlayerHeaderPlus-WatchEpisodeButton-Button.ScenePlayerHeaderPlus-WatchEpisodeButton-Button--hover.styles__ijM3uOQ0s) -> req:9 manifest:1 seg:3 direct:0",
+      "interact: element (span.Icon-Svg) -> req:13 manifest:0 seg:1 direct:0",
+      "interact: quality select (span.styles_fct9sP2gyL) -> req:19 manifest:0 seg:1 direct:0"
+    ],
+    "trigger_candidate": "button.Button--hover.Button.ScenePlayerHeaderPlus-WatchEpisodeButton-Button.ScenePlayerHeaderPlus-WatchEpisodeButton-Button--hover.styles__ijM3uOQ0s",
+    "trigger_evidence": "operator click whose effect first produced media (action_timeline)",
+    "source": "action_timeline",
+    "verify": {
+      "action_count": 4,
+      "checks": [
+        "play captured",
+        "download captured"
+      ],
+      "gap_count": 0,
+      "tier": "ready",
+      "warnings": []
+    }
+  },
+  "safety_notes": [
+    "Do not bypass Cloudflare, CAPTCHA, Turnstile, DRM, or paywalls.",
+    "Do not save short-lived signed media URLs from captures.",
+    "Do not persist cookies, tokens, Authorization headers, or query strings.",
+    "Use this only with user-authorized sessions and site-provided playback/download flows.",
+    "Ignore captcha/turnstile selectors when generating login templates."
+  ],
+  "warnings": [
+    "dropped row selector (not modal-scoped or unsafe): a.Link.Link.VideoJSPlayer-DownloadOption-Link.VideoJSPlayer-DownloadOption-Link.styles_rQ2d8EqJoa.styles_rQ2d8EqJoa",
+    "no modal-scoped row selectors derived \u2014 add them during manual review (the download trigger only opens the modal)",
+    "API patterns kept relative \u2014 no explicit API host in the draft; set a concrete api{base} during review (the API may live on a different subdomain than the page) \u2014 download-resolution calls were observed on: service.gammaapis.com; set api{base} accordingly"
+  ],
+  "rejected_patterns": [],
+  "review_notes": [
+    "Normalized from a rich WACZ-builder draft into the runtime reviewed shape.",
+    "Add the concrete api{base, paths} and modal-scoped row_selectors during review.",
+    "download.trigger is a click target (may open a modal), not a final row.",
+    "Never auto-enabled; promote explicitly after review."
+  ],
+  "promoted_at": 1784595201
+}
