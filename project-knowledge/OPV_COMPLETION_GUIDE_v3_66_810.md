@@ -61,10 +61,9 @@ feature could not persist per-site. Now in `CFG_FIELDS` + `DEFAULTS`; measured o
 - **OPV-F2.6** — ran `dom_analyzer` end-to-end against real captures: scan → analyze (0 residual) →
   tree → test (matched selectors) → `pin_candidate` returned **`status=draft_review_required`,
   enabled=False**. Mechanism PASS in-sandbox; the operator draft-through-cockpit arm is still owed.
-- **OPV-B2** — the exact check `test_download` applies: a real range fetch of the sanctioned Big Buck
-  Bunny target returned **HTTP 206 + MP4 `ftyp` magic bytes**; the no-persist invariant
-  (`_override_suppresses_persist`, gating BOTH the live-config and the draft writes) is code-confirmed.
-  The full runner+browser integration remains box-only.
+- **OPV-B2** — the initial sandbox check returned **HTTP 206 + MP4 `ftyp` magic bytes**. The later
+  live stash arm also passed through the full runner/browser path with persist OFF; see the measured
+  status and evidence in §6.
 - **OPV-F45-METRIC** — computed from the wired cadence constants (`FAST=4s`, `SLOW=30s`,
   `STREAM_SAFETY=60s`): idle-request reduction **93% (busy) / 50% (idle)** when the SSE stream
   connects. The ~80% figure is in-band for the busy case; record the real numbers, not the round one.
@@ -86,9 +85,9 @@ also pass `tools/opv_guide_lint.py` against the live url_map + tree.
 | F4.1 | manifest `share_target` + the `/dashboard?url=` receiver | share_target present; dashboard 200 (SPA catch-all) |
 | F45 | cadence constants (`FAST/SLOW/STREAM_SAFETY`) | 93% / 50% reduction (code-confirmed) |
 
-F1.4, B2 and PICK need an operator precondition (a configured site / a display / a
-human click), so their routes are confirmed and the paste blocks are valid as
-written, but the live arm is operator-owned.
+F1.4 still needs an operator precondition (a configured login site and three learned cycles).
+B2 and PICK were subsequently completed through their live stash arms; the paste blocks remain as
+reproduction instructions.
 
 ### C. Three reproducible diagnostic scripts (committed, PR #3)
 
@@ -112,8 +111,8 @@ written, but the live arm is operator-owned.
 | 3 | F3.2-LIVE | **forced PASSED; scheduled owed** | last forced run: ran=True, repaired=1 (site `miru`), 7 drafts pending |
 | 4 | F3.1/WK | **mechanism READY; week-bound** | 0 saved searches; the 7-day cap proof can't be compressed |
 | 5 | F1.4-EN | **NEEDS-SETUP (now GUI-toggleable)** | per-site control renders (810); seed a login site + ≥3 cycles |
-| 6 | B2 | **READY** | BBB target 206; real-fetch + no-persist proven in-sandbox |
-| 7 | PICK | **click PASSED; persist-OFF test owed** | live noVNC click derived `#opv-download`; review-only draft verified and removed; all 8 prior draft hashes restored |
+| 6 | B2 | **COMPLETED** | live runner probe sampled 262,144 BBB bytes with persist OFF; no file saved; draft/reviewed/config hashes restored |
+| 7 | PICK | **COMPLETED** | noVNC click derived `#opv-download`; review-only draft plus B2 persist-OFF arm passed; all test state removed |
 | 8 | NOVNC-PRECEDENCE | **READY to observe** | /metrics carries `bd_takeover_active=0`; enabled, mode=`remote` |
 | 9 | VPNKILL | **BLOCKED** | WireGuard kmod **absent on stash**; netns egress toggle now renders (811) |
 | 10 | F4.1/F4.5 | **COMPLETED (operator accepted; iPhone exception)** | dashboard reached on iPhone; receiver + Resolve mechanism verified; native iOS share target N/A |
@@ -130,8 +129,8 @@ written, but the live arm is operator-owned.
 | 3 | **OPV-F3.2-LIVE** | cron tick | 1 paste + wait | none (review-only) | forced PASSED |
 | 4 | **OPV-F3.1 / F3.1-WK** | week | 1 paste + 7-day wait | low (enqueue cap) | mechanism READY |
 | 5 | **OPV-F1.4-EN** | live median | seed logins + 1 tap/paste | low (per-site flag) | NEEDS-SETUP |
-| 6 | **OPV-B2** | real download | 1 paste | low (1 real DL, allowlisted) | READY |
-| 7 | **OPV-PICK** | noVNC display | click completed | none (draft only) | click PASSED; B2 persist-OFF arm owed |
+| 6 | **OPV-B2** | real download | completed | low (capped sanctioned probe) | COMPLETED |
+| 7 | **OPV-PICK** | noVNC display | completed | none (draft only) | COMPLETED |
 | 8 | **NOVNC-PRECEDENCE** | noVNC display | operator observe | none | READY to observe |
 | 9 | **OPV-VPNKILL** | real tunnel | 1 paste | medium (egress fail-closed) | BLOCKED (kmod) |
 | 10 | **OPV-F4.1 / F4.5** | iPhone | operator acceptance | none | COMPLETED (iOS exception recorded) |
@@ -297,28 +296,34 @@ curl -s -b "$JAR" -H "X-CSRF-Token: $CSRF" -H 'Content-Type: application/json' \
 
 ## 6 · OPV-B2 — real "Test (live)" draft override (one real download)
 
-**STATUS (810, measured):** READY — the sanctioned media target is reachable (BBB 206). This session
-proved the extraction half (real fetch → HTTP 206 + MP4 `ftyp` magic) and the no-persist invariant in
-code; the operator arm below runs it end-to-end through the runner on stash.
+**STATUS (live stash, 2026-07-20): COMPLETED.** A temporary review-only draft drove the dedicated
+`/api/template/test_extract` runner/browser path with `persist=false`, `probe=true`, and
+`force_download=true`. The sanctioned Big Buck Bunny attachment reached terminal `done`; the probe
+sampled exactly **262,144 bytes (256 KB)** of `video/mp4` and reported
+`aborted — no file saved`. The draft remained `draft_review_required`; draft and reviewed-template
+SHA-256 maps were unchanged; the override was explicitly cleared; the temporary site was deleted;
+and the original `sites_config.json` byte hash was restored. The media fixture encountered no
+challenge; challenge handling is source-confirmed to inherit the normal manual-handoff path unchanged,
+with no B2 auto-solve branch. NOVNC-PRECEDENCE remains a separate OPV item.
 
 **What it proves:** a draft-test override runs **one real extraction** without persisting selectors or
 enabling the draft — and the 4 safety invariants hold.
 
-- **Route (source-confirmed):** `POST /api/sites/<sid>/teach_test_download` (`app_sites_teach.py:382`)
-  → body key is **`selectors`** → `runners[sid].teach_test_download(picks)` → `test_download`
-  (`runner_manual.py:501`, dry-run real fetch ~2 MB). The no-persist gate is
-  `_override_suppresses_persist` (`runner_teach.py:256`), which suppresses BOTH the live-config write
-  (`runner_manual.py:606`) and the draft write (`runner_teach.py:128`).
+- **Route (source-confirmed):** `POST /api/template/test_extract` (`app_template.py:330`) sets the
+  per-site unreviewed-draft override and can enqueue one live `probe` run. Probe transport
+  (`runner_transport.py:506`) caps the stream at 256 KB and writes no file. The no-persist gate is
+  `_override_suppresses_persist` (`runner_teach.py:256`), which suppresses live-config and draft
+  selector writeback; explicit `clear:true` removes the override.
 - **Prep (Cowork):** on a sanctioned media target (the `bd-dltest` set — Big Buck Bunny MP4), stage a
   review-only draft with a selector pick. Snapshot the site's persisted selectors + enabled state.
-- **Paste (you)** — run the live test off the draft (Cowork fills the exact selector):
+- **Paste (you)** — run the live test off the draft (Cowork fills the site, draft, and sanctioned URL):
 ```bash
 curl -s -b "$JAR" -H "X-CSRF-Token: $CSRF" -H 'Content-Type: application/json' \
-     -X POST "$BASE/api/sites/<sid>/teach_test_download" \
-     -d '{"selectors":{"media":"video source"}}' | python3 -m json.tool
+     -X POST "$BASE/api/template/test_extract" \
+     -d '{"site_id":"<sid>","template":<draft-json>,"draft_file":"<draft-file>","persist":false,"probe":true,"force_download":true,"url":"<sanctioned-url>"}' | python3 -m json.tool
 ```
-- **Observe:** response `ok:true` with the extraction detail; **then** Cowork diffs — the site's
-  persisted selectors and enabled flag are **unchanged**.
+- **Observe:** response `ok:true`, `override_set:true`, `persist:false`, and `probe:true`; poll the
+  site queue for terminal `done`, positive sampled bytes, and `no file saved`, then diff all snapshots.
 - **Pass:** one real extraction attempt ran; nothing persisted; draft still `draft_review_required`;
   the 4 invariants hold.
 - **Teardown (Cowork):** delete the staged draft, confirm selectors/enabled back to snapshot.
@@ -328,13 +333,16 @@ curl -s -b "$JAR" -H "X-CSRF-Token: $CSRF" -H 'Content-Type: application/json' \
 
 ## 7 · OPV-PICK — live element-pick click (noVNC display)
 
-**STATUS (live stash, operator run 2026-07-20): click arm PASSED; persist-OFF arm remains.** A real
+**STATUS (live stash, operator run 2026-07-20): COMPLETED.** A real
 operator click was sent through the noVNC `:6080` canvas to a synthetic sanctioned picker page on
 display `:99`. Server-side `inspect_pick` derived the stable selector `#opv-download` (XPath
 `//button[1]`) and pin created `opv-pick.test.template-draft.json` with
 `status=draft_review_required`, `review_required=true`, and `enabled=false`. The test browser exited;
 teardown removed only that synthetic draft and verified all 8 pre-existing draft SHA-256 hashes were
-unchanged. The separate persist-OFF live extraction required by the combined pass condition is still owed.
+unchanged. The combined B2 arm then ran an unreviewed review-only draft through the live extraction
+path with persist OFF: 256 KB of sanctioned BBB media was sampled, no file was saved, no selector or
+template hash changed, and the temporary override/site/draft state was removed. Together these satisfy
+the click → stable selector → review-only draft → persist-OFF extraction pass condition.
 
 **What it proves:** a real operator click in the picker derives a stable selector and lands a
 review-only draft.
@@ -477,3 +485,4 @@ bash scripts/bd-stash-report.sh ~/BulkDownloader http://127.0.0.1:5555   # GUI-c
 bash scripts/bd-opv-check.sh    ~/BulkDownloader http://127.0.0.1:5555   # per-item READY/NEEDS-SETUP/BLOCKED
 # upload the two /tmp/*.tar.gz for analysis
 ```
+
