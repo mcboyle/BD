@@ -37,8 +37,12 @@ def _capture(content_id, filename, expires, token, session):
 
 
 def _draft_and_template():
-    a = _capture("a1b2c3d4", "2160p.mp4", "1700000000", "TOKAAA", "sessAAA")
-    b = _capture("e5f6a7b8", "2160p.mp4", "1700009999", "TOKBBB", "sessBBB")
+    # Two sessions of the same title: a full hex identifier is stable while
+    # session/signing values rotate.  This preserves the goal's document path
+    # so skeleton inference can expose its content_id slot.
+    content_id = "a1b2c3d4e5f67890123456789abcdef"
+    a = _capture(content_id, "2160p.mp4", "1700000000", "TOKAAA", "sessAAA")
+    b = _capture(content_id, "2160p.mp4", "1700009999", "TOKBBB", "sessBBB")
     draft = wb.build_workbench(synthesize(a, b), captures=(a, b))
     return draft, ct.build_template(draft), (a, b)
 

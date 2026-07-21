@@ -41,13 +41,22 @@ try:  # behavioral tier is optional
 except Exception:  # pragma: no cover - env without playwright
     sync_playwright = None
 
-_FIXTURE = (
-    "data:text/html,"
+_FIXTURE_URL = "http://dom-recorder-fixture.test/asi"
+_FIXTURE_HTML = (
     "<body><h1 id='h'>asi-fixture</h1><div id='root'></div>"
     "<script>setTimeout(function(){var d=document.createElement('div');"
     "d.id='added';d.textContent='m';document.getElementById('root')"
     ".appendChild(d);},80);</script></body>"
 )
+
+
+def _install_fixture_route(page):
+    """Serve the fixture as an intercepted HTTP document, never a data URL."""
+    page.route(
+        _FIXTURE_URL,
+        lambda route: route.fulfill(
+            status=200, content_type="text/html", body=_FIXTURE_HTML),
+    )
 
 
 # ---------------------------------------------------------------- static tier
@@ -135,13 +144,10 @@ def test_bootstrap_executes_and_recording_starts_on_fixture():
     try:
         page = browser.new_page()
         page.set_default_navigation_timeout(20000)
-        cap = DomCapture(url=_FIXTURE, redact=True)
+        _install_fixture_route(page)
+        cap = DomCapture(url=_FIXTURE_URL, redact=True)
         attach_dom_recorder(page, cap, redact=True)  # registrar (logs once)
-        try:
-            page.goto(_FIXTURE, wait_until="load")
-        except Exception as e:  # pragma: no cover - browser/nav unstable
-            page.close()
-            pytest.skip(f"navigation unstable here: {e}")
+        page.goto(_FIXTURE_URL, wait_until="load")
         armed = arm_dom_recorder(page)          # post-load, via add_script_tag
         page.wait_for_timeout(900)
         started = page.evaluate("!!window.__bd_rrweb_started")
@@ -164,8 +170,9 @@ def test_bootstrap_executes_and_recording_starts_on_fixture():
 def test_old_bare_newline_join_does_not_start_recording():
     """Direct regression for the exact ASI failure: the OLD bare-newline join
     leaves recording un-started, while the fixed recorder_script() starts it.
-    Injected here via add_init_script purely to isolate the *join* (the separator
-    property is independent of the production arm-after-load path)."""
+    The join is injected after document navigation, matching the production
+    arm-after-load path; a separate benign init script proves the intercepted
+    HTTP fixture retains document-start init-script semantics."""
     p, browser = _launch()
     try:
         old_join = rrweb_js() + "\n" + _BOOTSTRAP
@@ -178,12 +185,11 @@ def test_old_bare_newline_join_does_not_start_recording():
             # v3.66.165: the bootstrap's readiness gate is now window.rrweb only
             # (no __bd_dom_event binding), so nothing extra need be exposed —
             # the join is the only variable under test.
-            page.add_init_script(script)
-            try:
-                page.goto(_FIXTURE, wait_until="load")
-            except Exception as e:  # pragma: no cover - browser/nav unstable
-                page.close()
-                pytest.skip(f"navigation unstable here: {e}")
+            page.add_init_script("window.__bd_fixture_init = true")
+            _install_fixture_route(page)
+            page.goto(_FIXTURE_URL, wait_until="load")
+            assert page.evaluate("window.__bd_fixture_init") is True
+            page.add_script_tag(content=script)
             page.wait_for_timeout(700)
             val = page.evaluate("!!window.__bd_rrweb_started")
             page.close()
@@ -206,11 +212,8 @@ def test_direct_rrweb_record_still_works():
     try:
         page = browser.new_page()
         page.set_default_navigation_timeout(20000)
-        try:
-            page.goto(_FIXTURE, wait_until="load")
-        except Exception as e:  # pragma: no cover - browser/nav unstable
-            page.close()
-            pytest.skip(f"navigation unstable here: {e}")
+        _install_fixture_route(page)
+        page.goto(_FIXTURE_URL, wait_until="commit")
         page.add_script_tag(content=rrweb_js())
         kinds = page.evaluate(
             "() => { const ev=[]; const stop=window.rrweb.record({emit:e=>ev.push(e.type)});"
