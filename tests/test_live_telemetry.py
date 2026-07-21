@@ -437,6 +437,313 @@ def test_stop_and_replacement_start_cannot_overtake_worker_publication(monkeypat
     ]
 
 
+def test_stop_start_waits_for_old_profile_and_rejects_stale_worker_writes(
+        monkeypatch):
+    """A replacement run cannot overlap or be mutated by its predecessor."""
+    from bulk_downloader import runner as runner_mod
+
+    runner = _telemetry_runner(monkeypatch)
+    url = "https://example.test/video.mp4"
+    runner.config = {
+        "auto_teach_first_run": False,
+        "max_concurrent": 1,
+    }
+    runner.jobs[url].update({"status": "pending", "retry_after": 0})
+    runner._state = "idle"
+    runner._hung_workers = []
+    runner._stop = threading.Event()
+    runner._pause = threading.Event()
+    runner._pause.set()
+    runner._session_ok = threading.Event()
+    runner._session_ok.set()
+    runner._url_queue = queue.Queue()
+    runner._worker_threads = []
+    runner._rl_autostart = False
+    runner._worker_generation_invalidated = False
+    runner._worker_context = threading.local()
+    runner.cookies = []
+    runner._cookies_updated_at = 0.0
+    runner.is_rate_limited = lambda: False
+    runner._effective_concurrency = lambda: 1
+    runner._maybe_drift_recover = lambda: None
+    runner._watchdog_loop = lambda *args: None
+    runner._stop_auto_retry = lambda: None
+    runner.log_event = lambda *args, **kwargs: None
+    runner.log = type("Log", (), {
+        "warning": lambda *args, **kwargs: None,
+        "debug": lambda *args, **kwargs: None,
+    })()
+    runner._manual_download_session = None
+    runner._manual_login_handle = None
+    monkeypatch.setattr(runner_mod, "_VPN_RUNTIME_AVAILABLE", False)
+
+    first_process_entered = threading.Event()
+    release_first_process = threading.Event()
+    old_profile_closed = threading.Event()
+    replacement_launched = threading.Event()
+    replacement_processed = threading.Event()
+    overlap_detected = threading.Event()
+    profile_lock = threading.Lock()
+    active_profile_count = [0]
+    process_calls = [0]
+
+    class ProfileContext:
+        def close(self):
+            with profile_lock:
+                active_profile_count[0] -= 1
+                assert active_profile_count[0] >= 0
+                if active_profile_count[0] == 0:
+                    old_profile_closed.set()
+
+    def launch_browser(*, worker_idx, netns):
+        del worker_idx, netns
+        with profile_lock:
+            if active_profile_count[0]:
+                overlap_detected.set()
+            active_profile_count[0] += 1
+            launch_number = process_calls[0] + 1
+        if launch_number > 1:
+            replacement_launched.set()
+        return None, ProfileContext(), None, "test"
+
+    def process_one(browser, process_url, persistent_ctx=None):
+        del browser, persistent_ctx
+        process_calls[0] += 1
+        if process_calls[0] == 1:
+            first_process_entered.set()
+            assert release_first_process.wait(3.0)
+            runner._update_job(
+                process_url, "failed", "stale generation failure",
+                file_size=111)
+            return
+        runner._update_job(
+            process_url, "done", "replacement generation complete",
+            file_size=222)
+        replacement_processed.set()
+
+    runner._launch_browser = launch_browser
+    runner._process_one = process_one
+
+    runner.start()
+    assert first_process_entered.wait(2.0)
+    first_generation = runner._worker_run_generation
+    runner.stop()
+    assert runner._worker_run_generation != first_generation
+
+    with runner._job_status_writer() as mark_status_changed:
+        runner.jobs[url].update({
+            "status": "pending",
+            "message": "restart requested",
+            "file_size": 0,
+            "retry_after": 0,
+        })
+        mark_status_changed()
+
+    starter = threading.Thread(target=runner.start, name="replacement-start")
+    starter.start()
+    try:
+        assert not replacement_launched.wait(0.2)
+        assert starter.is_alive()
+    finally:
+        release_first_process.set()
+
+    assert old_profile_closed.wait(2.0)
+    starter.join(2.0)
+    assert not starter.is_alive()
+    assert replacement_launched.wait(2.0)
+    assert replacement_processed.wait(2.0)
+    assert not overlap_detected.is_set()
+    assert runner.jobs[url]["status"] == "done"
+    assert runner.jobs[url]["message"] == "replacement generation complete"
+    assert runner.jobs[url]["file_size"] == 222
+
+    runner.stop()
+    for worker in tuple(runner._worker_threads):
+        worker.join(2.0)
+
+
+def test_stop_serializes_failure_side_effects_and_rejects_stale_repeat(
+        monkeypatch):
+    """Failure DB/hooks are ordered before stop or rejected after it."""
+    from bulk_downloader import hooks, runner_telemetry
+
+    runner = _telemetry_runner(monkeypatch)
+    url = "https://example.test/video.mp4"
+    runner.config = {"name": "Telemetry", "max_retries": 0}
+    runner._stop = threading.Event()
+    runner._pause = threading.Event()
+    runner._pause.set()
+    runner._url_queue = queue.Queue()
+    runner._worker_threads = []
+    runner._rl_autostart = False
+    runner._state = "running"
+    runner._manual_download_session = None
+    runner._manual_login_handle = None
+    runner._stop_auto_retry = lambda: None
+    runner.log = type("Log", (), {
+        "warning": lambda *args, **kwargs: None,
+        "debug": lambda *args, **kwargs: None,
+    })()
+
+    classification_entered = threading.Event()
+    release_classification = threading.Event()
+    stop_done = threading.Event()
+    side_effects = []
+
+    def classify(message):
+        del message
+        classification_entered.set()
+        assert release_classification.wait(3.0)
+        return "permanent"
+
+    runner._classify_error = classify
+    monkeypatch.setattr(
+        runner_telemetry, "db_log",
+        lambda *args, **kwargs: side_effects.append(("db", args, kwargs)))
+    monkeypatch.setattr(
+        hooks, "fire_event",
+        lambda *args, **kwargs: side_effects.append(("hook", args, kwargs)))
+
+    failure = threading.Thread(
+        target=runner._handle_failure,
+        args=(url, "HTTP 404 from old worker"),
+        kwargs={"_run_generation": 1},
+    )
+    failure.start()
+    assert classification_entered.wait(2.0)
+
+    stopper = threading.Thread(
+        target=lambda: (runner.stop(), stop_done.set()),
+        name="stop-during-failure-publication",
+    )
+    stopper.start()
+    try:
+        assert not stop_done.wait(0.2)
+    finally:
+        release_classification.set()
+
+    failure.join(2.0)
+    stopper.join(2.0)
+    assert not failure.is_alive()
+    assert not stopper.is_alive()
+    assert stop_done.is_set()
+    assert [kind for kind, *_ in side_effects] == ["db", "hook"]
+    assert runner.jobs[url]["status"] == "failed"
+
+    before = list(side_effects)
+    assert runner._handle_failure(
+        url, "late failure from old worker", _run_generation=1) is False
+    assert side_effects == before
+    assert runner.jobs[url]["status"] == "failed"
+
+
+def test_start_refuses_replacement_when_old_worker_misses_teardown_budget(
+        monkeypatch):
+    """A wedged browser cannot hang start or permit profile overlap."""
+    runner = _telemetry_runner(monkeypatch)
+    runner.config = {"worker_teardown_wait_s": 0}
+    runner._worker_generation_invalidated = True
+    runner._stop = threading.Event()
+    runner._stop.set()
+    runner._state = "stopped"
+    starts = []
+
+    class WedgedWorker:
+        def join(self, timeout=None):
+            assert timeout is not None
+
+        def is_alive(self):
+            return True
+
+    runner._worker_threads = [WedgedWorker()]
+    runner._start_serialized = lambda **kwargs: starts.append("launched")
+    runner.log = type("Log", (), {
+        "warning": lambda *args, **kwargs: None,
+    })()
+
+    runner.start()
+
+    assert starts == []
+    assert runner._worker_generation_invalidated is True
+    assert runner._stop.is_set()
+
+
+def test_start_rechecks_stop_generation_after_waiting_for_lifecycle_lock(
+        monkeypatch):
+    """A stop landing after start's precheck still forces teardown gating."""
+    runner = _telemetry_runner(monkeypatch)
+    url = "https://example.test/video.mp4"
+    runner.config = {
+        "auto_teach_first_run": False,
+        "max_concurrent": 1,
+        "worker_teardown_wait_s": 0,
+    }
+    runner.jobs[url].update({"status": "pending", "retry_after": 0})
+    runner._state = "idle"
+    runner._hung_workers = []
+    runner._stop = threading.Event()
+    runner._pause = threading.Event()
+    runner._pause.set()
+    runner._url_queue = queue.Queue()
+    runner._rl_autostart = False
+    runner._worker_generation_invalidated = False
+    runner.is_rate_limited = lambda: False
+    runner._stop_auto_retry = lambda: None
+    runner._watch_done = lambda *args: None
+    runner._watchdog_loop = lambda *args: None
+    runner.log_event = lambda *args, **kwargs: None
+    runner.log = type("Log", (), {
+        "warning": lambda *args, **kwargs: None,
+        "debug": lambda *args, **kwargs: None,
+    })()
+    runner._manual_download_session = None
+    runner._manual_login_handle = None
+    worker_runs = []
+    runner._worker_loop = lambda *args: worker_runs.append(args)
+
+    class WedgedWorker:
+        def join(self, timeout=None):
+            assert timeout is not None
+
+        def is_alive(self):
+            return True
+
+    runner._worker_threads = [WedgedWorker()]
+    start_waiting_for_lock = threading.Event()
+    allow_start_lock = threading.Event()
+
+    class GatedRLock:
+        def __init__(self):
+            self._lock = threading.RLock()
+
+        def __enter__(self):
+            if threading.current_thread().name == "precheck-start":
+                start_waiting_for_lock.set()
+                assert allow_start_lock.wait(3.0)
+            self._lock.acquire()
+            return self
+
+        def __exit__(self, *args):
+            self._lock.release()
+
+    runner._run_lifecycle_lock = GatedRLock()
+    starter = threading.Thread(target=runner.start, name="precheck-start")
+    starter.start()
+    assert start_waiting_for_lock.wait(2.0)
+
+    runner.stop()
+    with runner._job_status_writer() as mark_status_changed:
+        runner.jobs[url].update({"status": "pending", "retry_after": 0})
+        mark_status_changed()
+    allow_start_lock.set()
+    starter.join(2.0)
+
+    assert not starter.is_alive()
+    assert worker_runs == []
+    assert runner._worker_generation_invalidated is True
+    assert runner._stop.is_set()
+
+
 def test_retry_before_notification_claim_invalidates_completion(monkeypatch):
     """A real retry mutation must beat a not-yet-claimed completion notice."""
     from bulk_downloader import plugins, push, runner_queue

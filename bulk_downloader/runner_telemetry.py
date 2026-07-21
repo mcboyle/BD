@@ -379,7 +379,31 @@ class TelemetryMixin:
                                  "connection","eof","timed out")):
             return "network"
         return "transient"
-    def _handle_failure(self,url,message,screenshot=""):
+    def _handle_failure(self,url,message,screenshot="",_run_generation=None):
+        """Fence all worker failure side effects within one run transaction."""
+        generation_resolver = getattr(self, "_worker_write_generation", None)
+        run_generation = (
+            generation_resolver(_run_generation)
+            if generation_resolver is not None else _run_generation)
+        if run_generation is None:
+            return self._handle_failure_current(
+                url, message, screenshot=screenshot)
+        generation_guard = getattr(
+            self, "_worker_write_generation_is_current", None)
+        if generation_guard is not None and not generation_guard(run_generation):
+            return False
+        lifecycle_lock = getattr(self, "_run_lifecycle_lock", None)
+        if lifecycle_lock is None:
+            return False
+        with lifecycle_lock:
+            if (generation_guard is not None
+                    and not generation_guard(run_generation)):
+                return False
+            return self._handle_failure_current(
+                url, message, screenshot=screenshot,
+                _run_generation=run_generation)
+
+    def _handle_failure_current(self,url,message,screenshot="",_run_generation=None):
         """Central failure handler. Classifies the error message into one of
         four categories (permanent/rate_limit/network/transient) via
         _classify_error, then either:
@@ -400,7 +424,9 @@ class TelemetryMixin:
         # Permanent errors fail immediately — no retry.
         if kind=="permanent" or retries>=max_ret or not schedule:
             tag=f"[{kind}] " if kind!="transient" else ""
-            self._update_job(url,"failed",tag+message,screenshot=screenshot)
+            self._update_job(
+                url,"failed",tag+message,screenshot=screenshot,
+                _run_generation=_run_generation)
             db_log(self.site_id,self.config.get("name","?"),url,"failed","",0,
                    tag+message,screenshot)
             # Phase 20: fire failure hook (webhook, HA notify, etc.) only
@@ -422,7 +448,8 @@ class TelemetryMixin:
                              f"{tag}Retry {retries+1}/{max_ret} in {ds} — {message}",
                              retries=retries+1,
                              retry_after=_adm.next_eligible_retry(
-                                 time.time()+delay, self.config))
+                                 time.time()+delay, self.config),
+                             _run_generation=_run_generation)
     def _screenshot(self,page,url):
         """Save a viewport screenshot of `page` to a deterministic filename
         derived from `url`. Returns the relative path as a POSIX string

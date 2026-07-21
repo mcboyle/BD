@@ -383,6 +383,7 @@ def _finite_config_float(raw, default):
 
 
 _RUN_LIFECYCLE_BOOTSTRAP_LOCK = threading.Lock()
+_START_RECHECK_TEARDOWN = object()
 
 
 def _run_lifecycle_serialized(method):
@@ -537,6 +538,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         self._worker_current_urls = {} # {worker_idx: url currently processing}
         self._worker_url_generations = {} # {worker_idx: run generation}
         self._worker_run_generation = 0
+        self._worker_generation_invalidated = False
+        self._worker_context = threading.local()
         self._job_progress_samples = {} # {url: {bytes, at, bps}}
         self._job_status_version = 0
         self._completion_notification_token = None
@@ -770,14 +773,70 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
 
 
 
-    @_run_lifecycle_serialized
     def start(self):
+        # A stopped generation may still be unwinding a browser owned by one
+        # of its worker threads. Wait outside the lifecycle lock: a worker
+        # that reached a status writer just before stop must be able to enter
+        # that lock, observe its stale generation, and exit. Browser teardown
+        # happens in the worker's finally block before Thread.join returns.
+        while True:
+            teardown_generation = None
+            worker_lock = getattr(self, "_worker_heartbeats_lock", None)
+            if worker_lock is not None:
+                with worker_lock:
+                    if getattr(self, "_worker_generation_invalidated", False):
+                        teardown_generation = self._worker_run_generation
+            elif getattr(self, "_worker_generation_invalidated", False):
+                teardown_generation = getattr(self, "_worker_run_generation", 0)
+
+            if teardown_generation is not None:
+                captured_workers = tuple(getattr(self, "_worker_threads", ()))
+                current_thread = threading.current_thread()
+                wait_budget = max(0.0, _finite_config_float(
+                    self.config.get("worker_teardown_wait_s", 5.0), 5.0))
+                deadline = time.monotonic() + wait_budget
+                for worker in captured_workers:
+                    if worker is current_thread:
+                        continue
+                    try:
+                        worker.join(
+                            timeout=max(0.0, deadline - time.monotonic()))
+                    except (RuntimeError, AttributeError):
+                        pass
+                still_alive = []
+                for worker in captured_workers:
+                    try:
+                        if worker.is_alive():
+                            still_alive.append(worker)
+                    except AttributeError:
+                        pass
+                if still_alive:
+                    log = getattr(self, "log", None)
+                    if log is not None:
+                        log.warning(
+                            "start refused: %d prior worker(s) still tearing down",
+                            len(still_alive))
+                    return None
+
+            outcome = self._start_serialized(
+                _teardown_generation=teardown_generation)
+            if outcome is _START_RECHECK_TEARDOWN:
+                continue
+            return outcome
+
+    @_run_lifecycle_serialized
+    def _start_serialized(self, _teardown_generation=None):
         if self._state=="running": return
         # A fresh run must not inherit liveness state from worker threads that
         # belonged to the previous run. Guard both maps with the same lock so
         # the watchdog never observes a half-reset worker snapshot.
         with self._worker_heartbeats_lock:
-            self._worker_run_generation += 1
+            if getattr(self, "_worker_generation_invalidated", False):
+                if _teardown_generation != self._worker_run_generation:
+                    return _START_RECHECK_TEARDOWN
+                self._worker_generation_invalidated = False
+            else:
+                self._worker_run_generation += 1
             run_generation = self._worker_run_generation
             self._worker_heartbeats.clear()
             self._worker_current_urls.clear()
@@ -1235,6 +1294,19 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
     def stop(self):
         self._rl_autostart=False  # P3-A: operator stop cancels a pending rate-limit resume
         self._stop.set(); self._pause.set()
+        # Invalidate the generation before changing job state. An in-flight
+        # worker may return from Playwright after stop(), but it no longer owns
+        # status, failure, progress, or heartbeat publication for this runner.
+        worker_lock = getattr(self, "_worker_heartbeats_lock", None)
+        if worker_lock is None:
+            # Preserve the long-standing unbound-method adapter surface. The
+            # lifecycle decorator already serializes this bootstrap.
+            worker_lock = threading.Lock()
+            self._worker_heartbeats_lock = worker_lock
+        with worker_lock:
+            self._worker_run_generation = (
+                getattr(self, "_worker_run_generation", 0) + 1)
+            self._worker_generation_invalidated = True
         # Wake any worker blocked on queue.get with a sentinel each.
         for _ in self._worker_threads:
             try: self._url_queue.put_nowait(None)
@@ -1491,7 +1563,36 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         return total
 
 
+    def _worker_write_generation(self, explicit_generation=None):
+        """Return a worker-thread generation, or None for control-plane writes."""
+        if explicit_generation is not None:
+            return explicit_generation
+        context = getattr(self, "_worker_context", None)
+        return getattr(context, "run_generation", None) if context else None
+
+    def _worker_write_generation_is_current(self, explicit_generation=None):
+        """Reject mutations from worker threads whose run was invalidated."""
+        run_generation = self._worker_write_generation(explicit_generation)
+        if run_generation is None:
+            return True
+        return self._worker_generation_is_current(run_generation)
+
     def _update_job(self,url,status,message,**extra):
+        """Serialize worker-originated publication against stop/start."""
+        explicit_generation = extra.pop("_run_generation", None)
+        run_generation = self._worker_write_generation(explicit_generation)
+        if run_generation is None:
+            return self._update_job_current(url, status, message, **extra)
+        # Fast stale rejection prevents an invalidated worker from waiting on
+        # a replacement start's lifecycle transaction.
+        if not self._worker_generation_is_current(run_generation):
+            return False
+        with self._run_lifecycle_lock:
+            if not self._worker_generation_is_current(run_generation):
+                return False
+            return self._update_job_current(url, status, message, **extra)
+
+    def _update_job_current(self,url,status,message,**extra):
         """Central state-mutation: change a job's status/message, log
         the transition, and persist to the queue table. `extra` accepts
         kv pairs (filename, file_size, retries, retry_after, screenshot,
@@ -2416,6 +2517,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         if run_generation is None:
             with self._worker_heartbeats_lock:
                 run_generation = self._worker_run_generation
+        worker_context = getattr(self, "_worker_context", None)
+        if worker_context is None:
+            worker_context = threading.local()
+            self._worker_context = worker_context
+        previous_generation = getattr(worker_context, "run_generation", None)
+        worker_context.run_generation = run_generation
         # Phase 18.fix: track when this worker last refreshed the ctx
         # cookies. Compared against self._cookies_updated_at; when newer
         # cookies are available (e.g. after a re-login), the worker
@@ -2719,7 +2826,10 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                         # explicitly stopped/completed before the claim.
                         pass
                 except Exception as e:
-                    try: self._handle_failure(url,f"worker error: {str(e)[:100]}")
+                    try:
+                        self._handle_failure(
+                            url, f"worker error: {str(e)[:100]}",
+                            _run_generation=run_generation)
                     except Exception: pass
                 finally:
                     if acquired_global and _global_sem is not None:
@@ -2750,6 +2860,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             # contractually non-raising, so a broad except here would only add a
             # blind spot (and a new DP-13) without protecting anything.
             _ns_stack.close()
+            if previous_generation is None:
+                try: del worker_context.run_generation
+                except AttributeError: pass
+            else:
+                worker_context.run_generation = previous_generation
 
 
 
