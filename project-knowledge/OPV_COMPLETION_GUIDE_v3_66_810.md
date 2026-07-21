@@ -108,7 +108,7 @@ written, but the live arm is operator-owned.
 | # | OPV | Measured status | Note |
 |---|---|---|---|
 | 1 | F2a | **NEEDS-SETUP** | site_health: 0 clusters, 0 per-site rows — no failure history yet |
-| 2 | F2.6 | **READY** | 10 captures on disk; mechanism proven in-sandbox |
+| 2 | F2.6 | **COMPLETED** | live stash: example.com capture loaded; h1/body matched; disabled review draft pinned and removed; all 8 prior draft hashes restored |
 | 3 | F3.2-LIVE | **forced PASSED; scheduled owed** | last forced run: ran=True, repaired=1 (site `miru`), 7 drafts pending |
 | 4 | F3.1/WK | **mechanism READY; week-bound** | 0 saved searches; the 7-day cap proof can't be compressed |
 | 5 | F1.4-EN | **NEEDS-SETUP (now GUI-toggleable)** | per-site control renders (810); seed a login site + ≥3 cycles |
@@ -126,7 +126,7 @@ written, but the live arm is operator-owned.
 | # | OPV | Gate | Human effort | Risk | Measured |
 |---|---|---|---|---|---|
 | 1 | **OPV-F2a** | GUI read | 1 tap | none (read-only) | NEEDS-SETUP |
-| 2 | **OPV-F2.6** | GUI/API | 1 paste | none (review-only draft) | READY |
+| 2 | **OPV-F2.6** | GUI/API | completed | none (review-only draft) | COMPLETED |
 | 3 | **OPV-F3.2-LIVE** | cron tick | 1 paste + wait | none (review-only) | forced PASSED |
 | 4 | **OPV-F3.1 / F3.1-WK** | week | 1 paste + 7-day wait | low (enqueue cap) | mechanism READY |
 | 5 | **OPV-F1.4-EN** | live median | seed logins + 1 tap/paste | low (per-site flag) | NEEDS-SETUP |
@@ -166,9 +166,11 @@ legitimately break it, so read it as "the report is coherent," not "row 1 must e
 
 ## 2 · OPV-F2.6 — DOM-Analyzer workbench (API path, review-only draft)
 
-**STATUS (810, measured):** READY — 10 captures on disk. The mechanism (load → tree → test → pin →
-`draft_review_required`, never enabled) was run end-to-end in-sandbox this session and PASSED; the
-operator arm below is the same flow on stash.
+**STATUS (live stash, operator run 2026-07-20): COMPLETED.** The sanctioned `example.com` capture
+loaded with HTTP 200; selector testing returned `h1=1` and `body=1`; pin returned HTTP 200 and created
+`example.com.template-draft.json` with `status=draft_review_required`, `review_required=true`, and
+`enabled=false`. Teardown removed only that new draft, then verified all 8 pre-existing draft names and
+SHA-256 hashes exactly matched the pre-test snapshot.
 
 **What it proves:** load a capture → build the DOM tree → test operator selectors → pin a
 **review-only** draft (`status='draft_review_required'`, never enabled).
