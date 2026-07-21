@@ -326,16 +326,16 @@ Schema version: 2
 ## `bulk_downloader/runner_accounts.py` (10 entries)
 
 ```
-- L0015 `AccountsMixin` `[class]`
-  - L0016 `AccountsMixin.is_rate_limited` — True if the site is currently in a 24h cooldown window from a
-  - L0029 `AccountsMixin.rl_remaining` — Render the rate-limit cooldown remaining as a short human
-  - L0037 `AccountsMixin._fire_site_hook` `[private]` — v3.66.470: fire an in-process plugin hook for a site state
-  - L0048 `AccountsMixin.trigger_rate_limit`
-  - L0093 `AccountsMixin._get_active_account` `[private]` — Return the currently-active (username, password, cookie_file)
-  - L0115 `AccountsMixin._rotate_account_if_available` `[private]` — Advance to the next account whose cooldown has elapsed.
-  - L0215 `AccountsMixin._persist_account_state` `[private]` — Save the accounts array (with updated cooldown_until values)
-  - L0224 `AccountsMixin._persist_pool_state` `[private]` — v3.43.35: merge the account pool's per-slot health state
-  - L0253 `AccountsMixin._wait_rl_autostart` `[private]`
+- L0014 `AccountsMixin` `[class]`
+  - L0015 `AccountsMixin.is_rate_limited` — True if the site is currently in a 24h cooldown window from a
+  - L0028 `AccountsMixin.rl_remaining` — Render the rate-limit cooldown remaining as a short human
+  - L0036 `AccountsMixin._fire_site_hook` `[private]` — v3.66.470: fire an in-process plugin hook for a site state
+  - L0047 `AccountsMixin.trigger_rate_limit`
+  - L0092 `AccountsMixin._get_active_account` `[private]` — Return the currently-active (username, password, cookie_file)
+  - L0114 `AccountsMixin._rotate_account_if_available` `[private]` — Advance to the next account whose cooldown has elapsed.
+  - L0214 `AccountsMixin._persist_account_state` `[private]` — Save the accounts array (with updated cooldown_until values)
+  - L0223 `AccountsMixin._persist_pool_state` `[private]` — v3.43.35: merge the account pool's per-slot health state
+  - L0252 `AccountsMixin._wait_rl_autostart` `[private]`
 ```
 
 

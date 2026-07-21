@@ -9,7 +9,6 @@ import sys, threading, time
 from pathlib import Path
 
 from .runner_util import _resolve_safe
-from .runner_queue import job_status_writer
 
 
 class AccountsMixin:
@@ -52,7 +51,7 @@ class AccountsMixin:
         if self._rotate_account_if_available(reason):
             sys.stderr.write(f"  [{self.site_id}] rotated account to recover from rate limit\n")
             # Re-queue the URL that hit the limit (don't count against retries)
-            with job_status_writer(self) as mark_status_changed:
+            with self._job_status_writer() as mark_status_changed:
                 if url in self.jobs:
                     self.jobs[url].update({"status":"pending","message":"Rotated to fresh account","ts":""})
                     mark_status_changed()
@@ -76,7 +75,7 @@ class AccountsMixin:
         # Workers now exit cleanly via _stop event + queue sentinels (set
         # above and pushed in stop()); rate-limit recovery uses the same
         # mechanism.
-        with job_status_writer(self) as mark_status_changed:
+        with self._job_status_writer() as mark_status_changed:
             changed = False
             for u,j in self.jobs.items():
                 if j["status"] in ("pending","running","stopped"):
