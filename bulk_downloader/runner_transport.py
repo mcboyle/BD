@@ -15,7 +15,7 @@ MRO dispatch and is impossible in the staticmethod contexts anyway).
 The 4 adapter soft-import blocks are DUPLICATED here (the core dispatch in
 runner.py still references the same flags); flat-sibling imports are idempotent.
 """
-import json, math, os, shutil, sqlite3, sys, time
+import contextlib, json, math, os, shutil, sqlite3, sys, time
 from datetime import datetime
 from pathlib import Path
 
@@ -84,6 +84,18 @@ def _finite_config_float(raw, default):
     if not math.isfinite(v):
         return float(default)
     return v
+
+
+def _closeable_response_context(response):
+    """Turn a closeable HTTP response into a context manager.
+
+    curl_cffi returns a ``Response`` from the module-level
+    ``request(..., stream=True)`` call, but that object only exposes
+    ``close()``; it does not implement ``__enter__``/``__exit__``.
+    ``contextlib.closing`` gives it the lifecycle expected by the shared
+    streaming loop without changing the httpx branch.
+    """
+    return contextlib.closing(response)
 
 
 class TransportMixin:
@@ -1231,19 +1243,19 @@ class TransportMixin:
                 # v3.63.10: curl_cffi has no module-level `stream` function;
                 # only Session has a .stream() method. The public module-
                 # level streaming API is `request(method, url, stream=True,
-                # ...)` returning a Response that supports both
-                # context-manager use and `.iter_content()`. This was a real
+                # ...)` returning a Response with `.iter_content()`. This was a real
                 # bug from v3.63.9: every HTTP-path download failed with
                 # `AttributeError: module 'curl_cffi.requests' has no
                 # attribute 'stream'` and fell back to the browser path,
                 # which is functional but much slower and triggered the
                 # 15-min worker-hung watchdog under load. See
                 # `tests/test_curl_cffi_api.py` for the contract pin.
-                resp_ctx = cffi_requests.request("GET", file_url, stream=True,
-                                                 cookies=cookies, headers=headers,
-                                                 allow_redirects=True,
-                                                 timeout=300, impersonate=impersonate,
-                                                 proxies=proxies)
+                resp_ctx = _closeable_response_context(
+                    cffi_requests.request("GET", file_url, stream=True,
+                                          cookies=cookies, headers=headers,
+                                          allow_redirects=True,
+                                          timeout=300, impersonate=impersonate,
+                                          proxies=proxies))
             else:
                 # Fallback: httpx, with optional proxy
                 # v3.36.8: httpx 0.28+ removed the `proxies` parameter; use
@@ -1734,11 +1746,12 @@ class TransportMixin:
                         # `request(method, url, stream=True, ...)`. See
                         # the contract pin in
                         # `tests/test_curl_cffi_api.py`.
-                        resp_ctx = _cffi.request("GET", file_url, stream=True,
-                                                 headers=req_headers,
-                                                 cookies=cookies, allow_redirects=True,
-                                                 timeout=300, impersonate="chrome124",
-                                                 proxies=proxies)
+                        resp_ctx = _closeable_response_context(
+                            _cffi.request("GET", file_url, stream=True,
+                                          headers=req_headers,
+                                          cookies=cookies, allow_redirects=True,
+                                          timeout=300, impersonate="chrome124",
+                                          proxies=proxies))
                     else:
                         # v3.36.8: httpx 0.28+ uses `proxy` (singular).
                         kw = {"timeout": httpx.Timeout(30.0, connect=15.0, read=300.0)}
