@@ -85,6 +85,65 @@ def test_invalid_sibling_domains_fail_closed():
         ) is None
 
 
+def test_canonical_host_does_not_match_url_host_with_trailing_dot():
+    directory = tempfile.mkdtemp()
+    _write_template(
+        directory,
+        "canonical.template.json",
+        host="example.com",
+    )
+
+    assert find_template_for_url(
+        "https://example.com./video/1",
+        template_dirs=[directory],
+    ) is None
+
+
+def test_sibling_domain_with_multiple_trailing_dots_fails_closed():
+    directory = tempfile.mkdtemp()
+    _write_template(
+        directory,
+        "multiple-dots.template.json",
+        host="www.example.com",
+        match={"sibling_domain": "example.com.."},
+    )
+
+    assert find_template_for_url(
+        "https://members.example.com/video/1",
+        template_dirs=[directory],
+    ) is None
+
+
+def test_domains_below_localhost_fail_closed():
+    for index, sibling_domain in enumerate(("api.localhost", "deep.api.localhost")):
+        directory = tempfile.mkdtemp()
+        _write_template(
+            directory,
+            f"localhost-{index}.template.json",
+            host=f"www.{sibling_domain}",
+            match={"sibling_domain": sibling_domain},
+        )
+        assert find_template_for_url(
+            f"https://members.{sibling_domain}/video/1",
+            template_dirs=[directory],
+        ) is None
+
+
+def test_dotted_all_numeric_sibling_domains_fail_closed():
+    for index, sibling_domain in enumerate(("127.1", "0.0.1")):
+        directory = tempfile.mkdtemp()
+        _write_template(
+            directory,
+            f"numeric-{index}.template.json",
+            host=f"www.{sibling_domain}",
+            match={"sibling_domain": sibling_domain},
+        )
+        assert find_template_for_url(
+            f"https://members.{sibling_domain}/video/1",
+            template_dirs=[directory],
+        ) is None
+
+
 def test_non_list_and_non_string_alias_metadata_fails_closed():
     bad_values = (
         "members.example.com",
@@ -175,6 +234,10 @@ if __name__ == "__main__":
     test_explicit_alias_matches_but_unlisted_sibling_does_not()
     test_valid_sibling_domain_matches_domain_family()
     test_invalid_sibling_domains_fail_closed()
+    test_canonical_host_does_not_match_url_host_with_trailing_dot()
+    test_sibling_domain_with_multiple_trailing_dots_fails_closed()
+    test_domains_below_localhost_fail_closed()
+    test_dotted_all_numeric_sibling_domains_fail_closed()
     test_non_list_and_non_string_alias_metadata_fails_closed()
     test_match_priority_is_canonical_then_alias_then_child_then_sibling()
     test_variant_discovery_uses_same_alias_rules_as_primary_lookup()

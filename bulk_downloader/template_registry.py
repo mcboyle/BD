@@ -31,16 +31,27 @@ _HOST_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 def _valid_sibling_domain(canonical_host: str, value) -> str:
     if not isinstance(value, str):
         return ""
-    domain = value.strip().lower().rstrip(".")
+    raw_domain = value.strip().lower()
+    if raw_domain.endswith(".."):
+        return ""
+    domain = raw_domain.rstrip(".")
     canonical = (canonical_host or "").strip().lower().rstrip(".")
-    if not domain or domain == "localhost" or "." not in domain:
+    if (
+        not domain
+        or domain == "localhost"
+        or domain.endswith(".localhost")
+        or "." not in domain
+    ):
         return ""
     try:
         ipaddress.ip_address(domain)
         return ""
     except ValueError:
         pass
-    if any(not _HOST_LABEL_RE.fullmatch(label) for label in domain.split(".")):
+    labels = domain.split(".")
+    if all(label.isdigit() for label in labels):
+        return ""
+    if any(not _HOST_LABEL_RE.fullmatch(label) for label in labels):
         return ""
     if canonical != domain and not canonical.endswith("." + domain):
         return ""
@@ -48,8 +59,8 @@ def _valid_sibling_domain(canonical_host: str, value) -> str:
 
 
 def _template_host_match_key(template: dict, url_host: str):
-    host = (url_host or "").strip().lower().rstrip(".")
-    canonical = str((template or {}).get("host") or "").strip().lower().rstrip(".")
+    host = (url_host or "").strip().lower()
+    canonical = str((template or {}).get("host") or "").strip().lower()
     if not host or not canonical:
         return None
     if host == canonical:
@@ -58,6 +69,7 @@ def _template_host_match_key(template: dict, url_host: str):
     match = template.get("match")
     if not isinstance(match, dict):
         match = {}
+    normalized_host = host.rstrip(".")
     aliases = match.get("hosts")
     if isinstance(aliases, list):
         exact_aliases = {
@@ -65,14 +77,16 @@ def _template_host_match_key(template: dict, url_host: str):
             for value in aliases
             if isinstance(value, str) and value.strip()
         }
-        if host in exact_aliases:
-            return (3, len(host))
+        if normalized_host in exact_aliases:
+            return (3, len(normalized_host))
 
     if _host_matches(canonical, host):
         return (2, len(canonical))
 
     sibling = _valid_sibling_domain(canonical, match.get("sibling_domain"))
-    if sibling and (host == sibling or host.endswith("." + sibling)):
+    if sibling and (
+        normalized_host == sibling or normalized_host.endswith("." + sibling)
+    ):
         return (1, len(sibling))
     return None
 
