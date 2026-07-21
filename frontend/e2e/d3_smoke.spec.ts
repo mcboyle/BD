@@ -28,6 +28,41 @@ test.describe("D3 SPA smoke", () => {
     await expect(page.getByRole("navigation", { name: /Primary/i })).toBeVisible();
   });
 
+  test("widget picker discovers the full catalog and updates a tile", async ({ page }) => {
+    await page.goto(`${BASE}/`);
+    await page.getByRole("button", { name: "Customize dashboard" }).click();
+    await page.getByRole("button", { name: "Open widget library" }).click();
+
+    const picker = page.getByRole("dialog", { name: "Widget library" });
+    await expect(picker).toBeVisible();
+    await expect(picker.getByRole("tab", { name: /^All 36$/ })).toBeVisible();
+
+    const catalogActions = picker.getByRole("button", {
+      name: /^(?:Add|Remove) .+ (?:to|from) dashboard$/,
+    });
+    await expect(catalogActions).toHaveCount(36);
+
+    const addRepresentative = picker.getByRole("button", {
+      name: "Add Top studio to dashboard",
+    });
+    await addRepresentative.click();
+    const removeRepresentative = picker.getByRole("button", {
+      name: "Remove Top studio from dashboard",
+    });
+    await expect(removeRepresentative).toHaveAttribute("aria-pressed", "true");
+
+    await page.keyboard.press("Escape");
+    await expect(picker).toBeHidden();
+    await expect(page.getByText("Top studio", { exact: true })).toBeVisible();
+
+    // Restore the selection before leaving the isolated browser context.
+    await page.getByRole("button", { name: "Open widget library" }).click();
+    await removeRepresentative.click();
+    await expect(addRepresentative).toHaveAttribute("aria-pressed", "false");
+    await page.keyboard.press("Escape");
+    await expect(page.getByText("Top studio", { exact: true })).toBeHidden();
+  });
+
   test("/ returns 503 with the Node-missing message when dist is absent", async ({
     page,
   }) => {

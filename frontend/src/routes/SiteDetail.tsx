@@ -30,6 +30,7 @@ import { WidgetPicker } from "@/components/WidgetPicker";
 import {
   useDashboardLayout,
   LEGACY_WIDGET_IDS,
+  kpiLayoutId,
 } from "@/hooks/useDashboardLayout";
 import { useWidgetData } from "@/hooks/useWidgetData";
 import { useWidgetSelection } from "@/hooks/useWidgetSelection";
@@ -443,17 +444,14 @@ function buildWidgets(
   ));
 
   const kpiTiles = extraIds
-    .filter(
-      (id) =>
-        WIDGETS_BY_ID[id] !== undefined &&
-        !(LEGACY_WIDGET_IDS as readonly string[]).includes(id),
-    )
+    .filter((id) => WIDGETS_BY_ID[id] !== undefined)
     .map((id) => {
       const def = WIDGETS_BY_ID[id];
       const spec = def.spec(kpiData);
+      const layoutId = kpiLayoutId(id);
       return (
-        <div key={id} className="dashboard-tile-wrap h-full">
-          <DashboardTile id={id} editMode={editMode}>
+        <div key={layoutId} className="dashboard-tile-wrap h-full">
+          <DashboardTile id={layoutId} editMode={editMode}>
             <div className="hairline h-full overflow-hidden rounded-md border bg-surface">
               <KPICard spec={spec} />
             </div>
