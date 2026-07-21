@@ -27,3 +27,25 @@ The existing `gates` job is unchanged.
   will provide the isolated PostgreSQL 16 service for that run.
 
 No stash or production database was contacted.
+
+## Live stash validation (2026-07-21)
+
+Stash Docker CE 29.5.3 ran the exact four modules against a uniquely named,
+disposable `postgres:16` container. The container used a dynamically allocated
+loopback port and non-production credentials; `MOD3_PG_TEST_DSN` was scoped
+only to the pytest process. Dependencies, including psycopg, were installed in
+an isolated temporary virtual environment under `/tmp`.
+
+Sanitized result: `38 passed in 7.76s`, with no skipped tests. This includes
+all 15 tests that require a live PostgreSQL service.
+
+Cleanup was verified before disconnecting: the exact container was absent and
+the temporary virtual environment was absent. The temporary log was also
+removed. No stash application service, production Python environment, or
+production database was changed or contacted.
+
+## Least-privilege follow-up
+
+The `postgres-integration` job now explicitly receives only `contents: read`
+permission, and its checkout step disables persisted credentials. These limits
+apply only to the integration job; the existing `gates` job remains unchanged.

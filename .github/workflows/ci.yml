@@ -7,6 +7,8 @@ on:
 
 jobs:
   postgres-integration:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -24,6 +26,8 @@ jobs:
           - 5432:5432
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@v5
         with:
