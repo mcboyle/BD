@@ -192,7 +192,13 @@ class _Widgets:
                     state = runner.state()
                     if state != "running":
                         continue
-                    threads = getattr(runner, "_threads", []) or []
+                    # SiteRunner's production worker list is
+                    # ``_worker_threads``. ``_threads`` was an obsolete name
+                    # retained by old tests and made live dashboards show 0.
+                    threads = getattr(runner, "_worker_threads", None)
+                    if threads is None:
+                        threads = getattr(runner, "_threads", [])
+                    threads = threads or []
                     alive = sum(1 for t in threads if t and t.is_alive())
                     if alive == 0:
                         continue

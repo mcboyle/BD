@@ -5,12 +5,29 @@ Mixin: methods reference self.* only; NO __init__. Import block derived by AST
 free-name scan of the moved bodies (not the seams doc, which models module-top
 imports only). Cycle rule: imports nothing from .runner.
 """
-import sys, time
+import collections, sys, threading, time
 
 from .db import db_log
 
 
 class ChallengeMixin:
+    def _record_captcha_encounter(self, now=None):
+        """Record one detected challenge and retain exactly 24 hours."""
+        now = time.time() if now is None else float(now)
+        encounters = getattr(self, "_captcha_encounters", None)
+        if encounters is None:
+            encounters = collections.deque()
+            self._captcha_encounters = encounters
+        encounters_lock = getattr(self, "_captcha_encounters_lock", None)
+        if encounters_lock is None:
+            encounters_lock = threading.Lock()
+            self._captcha_encounters_lock = encounters_lock
+        cutoff = now - 86400
+        with encounters_lock:
+            while encounters and float(encounters[0]) < cutoff:
+                encounters.popleft()
+            encounters.append(now)
+
     def _handle_captcha_check(self, page, url):
         """Phase 7.2: detect a visible captcha on the current page, try
         the Turnstile auto-solver (Phase 15.10), then the yt-dlp CDN
@@ -26,6 +43,7 @@ class ChallengeMixin:
         extracted from _process_one in v3.43.18."""
         if not self._has_captcha(page):
             return True
+        self._record_captcha_encounter()
         # v3.43.39: detect type up-front for stat tracking + UI surface.
         # Falls back to "unknown" if the resolver can't classify.
         try:

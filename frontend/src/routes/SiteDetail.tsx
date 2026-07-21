@@ -118,7 +118,7 @@ export function SiteDetail() {
   );
   const [editMode, setEditMode] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const { data: kpiData } = useWidgetData();
+  const { data: kpiData } = useWidgetData(siteId);
 
   // Delete: actual mutation lives here, but the e2e only asserts the
   // affordance is present and enabled. We don't auto-confirm on click

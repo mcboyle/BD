@@ -240,9 +240,9 @@ export const WIDGETS: KPIWidget[] = [
   { id: "avg_size", cat: "performance", title: "Avg file size",
     desc: "Typical download size",
     spec: d => ({ value: d.avg_size_fmt, label: "Avg file size" }) },
-  { id: "avg_quality", cat: "performance", title: "Avg quality",
-    desc: "% at 2160p / 1080p",
-    spec: d => ({ value: d.avg_quality_label, label: "Avg quality",
+  { id: "avg_quality", cat: "performance", title: "Top resolution",
+    desc: "Most common resolution",
+    spec: d => ({ value: d.avg_quality_label, label: "Top resolution",
                   extra: d.avg_quality_breakdown }) },
 
   // capacity

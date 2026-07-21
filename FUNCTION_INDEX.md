@@ -176,42 +176,42 @@ Schema version: 2
 - L0401 `_run_lifecycle_serialized` `[private]` — Serialize public run transitions through one re-entrant lock.
 - L0419 `SiteRunner` `[class]`
   - L0424 `SiteRunner.__init__` `[dunder]`
-  - L0628 `SiteRunner._scrape_listing_urls` `[private]` — Phase 73: same scrape logic as /api/scrape_listing endpoint —
-  - L0720 `SiteRunner.update_config` — Swap in a new config dict and restart the scheduler so the
-  - L0728 `SiteRunner.set_cookies_from_file` — Load Playwright-format cookies from `path` into this runner.
-  - L0741 `SiteRunner.set_cookies` — Replace the runner's cookie list in memory and bump the
-  - L0750 `SiteRunner.cookie_info` — Return a snapshot dict describing cookie health for the UI:
-  - L0788 `SiteRunner.start`
-  - L0840 `SiteRunner._start_serialized` `[private]`
-  - L1131 `SiteRunner._publish_watchdog_snapshot` `[private]` — Publish only a still-current heartbeat snapshot for this run.
-  - L1141 `SiteRunner._watchdog_loop` `[private]` — v3.43.24: monitor worker heartbeats. Threads should stamp
-  - L1202 `SiteRunner._effective_concurrency` `[private]` — Phase 64 (v3.41.0): bandwidth-aware concurrency. If
-  - L1280 `SiteRunner.pause` — Pause the worker pool. Workers finish the URL they're currently
-  - L1295 `SiteRunner.resume` — Resume from paused / paused_no_button / low_disk states.
-  - L1306 `SiteRunner.stop`
-  - L1406 `SiteRunner._current_throughput_bps` `[private]` — Sum recent byte rates for jobs that are still running.
-  - L1430 `SiteRunner.get_status` — Return runner state. With `light=True`, omit `jobs` and
-  - L1532 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
-  - L1549 `SiteRunner.state`
-  - L1551 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
-  - L1578 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
-  - L1585 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
-  - L1592 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
-  - L1607 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
-  - L2115 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
-  - L2144 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
-  - L2191 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
-  - L2249 `SiteRunner._worker_generation_is_current` `[private]`
-  - L2253 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
-  - L2314 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
-  - L2374 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
-  - L2406 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
-  - L2437 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
-  - L2457 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
-  - L2466 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
-  - L2491 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
-  - L2512 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
-  - L2889 `SiteRunner._process_one` `[private]` — Process a single URL.
+  - L0633 `SiteRunner._scrape_listing_urls` `[private]` — Phase 73: same scrape logic as /api/scrape_listing endpoint —
+  - L0725 `SiteRunner.update_config` — Swap in a new config dict and restart the scheduler so the
+  - L0733 `SiteRunner.set_cookies_from_file` — Load Playwright-format cookies from `path` into this runner.
+  - L0746 `SiteRunner.set_cookies` — Replace the runner's cookie list in memory and bump the
+  - L0755 `SiteRunner.cookie_info` — Return a snapshot dict describing cookie health for the UI:
+  - L0793 `SiteRunner.start`
+  - L0845 `SiteRunner._start_serialized` `[private]`
+  - L1136 `SiteRunner._publish_watchdog_snapshot` `[private]` — Publish only a still-current heartbeat snapshot for this run.
+  - L1146 `SiteRunner._watchdog_loop` `[private]` — v3.43.24: monitor worker heartbeats. Threads should stamp
+  - L1207 `SiteRunner._effective_concurrency` `[private]` — Phase 64 (v3.41.0): bandwidth-aware concurrency. If
+  - L1285 `SiteRunner.pause` — Pause the worker pool. Workers finish the URL they're currently
+  - L1300 `SiteRunner.resume` — Resume from paused / paused_no_button / low_disk states.
+  - L1311 `SiteRunner.stop`
+  - L1411 `SiteRunner._current_throughput_bps` `[private]` — Sum recent byte rates for jobs that are still running.
+  - L1435 `SiteRunner.get_status` — Return runner state. With `light=True`, omit `jobs` and
+  - L1537 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
+  - L1554 `SiteRunner.state`
+  - L1556 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
+  - L1583 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
+  - L1590 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
+  - L1597 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
+  - L1612 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
+  - L2120 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
+  - L2149 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
+  - L2196 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
+  - L2254 `SiteRunner._worker_generation_is_current` `[private]`
+  - L2258 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
+  - L2319 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
+  - L2379 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
+  - L2411 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
+  - L2442 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
+  - L2462 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
+  - L2471 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
+  - L2496 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
+  - L2517 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
+  - L2894 `SiteRunner._process_one` `[private]` — Process a single URL.
 ```
 
 
@@ -280,15 +280,16 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_challenge.py` (6 entries)
+## `bulk_downloader/runner_challenge.py` (7 entries)
 
 ```
 - L0013 `ChallengeMixin` `[class]`
-  - L0014 `ChallengeMixin._handle_captcha_check` `[private]` — Phase 7.2: detect a visible captcha on the current page, try
-  - L0072 `ChallengeMixin._has_captcha` `[private]` — Phase 7.2: quick check for visible captcha widgets on the page.
-  - L0086 `ChallengeMixin._try_turnstile_solve` `[private]` — Backward-compat alias for _try_captcha_solve. The name
-  - L0092 `ChallengeMixin._try_captcha_solve` `[private]` — v3.43.39: type-aware captcha solving. Detects whether
-  - L0190 `ChallengeMixin._try_turnstile_solve_LEGACY` `[private]` — Phase 15.10: solve a Cloudflare Turnstile challenge via 2captcha.
+  - L0014 `ChallengeMixin._record_captcha_encounter` `[private]` — Record one detected challenge and retain exactly 24 hours.
+  - L0031 `ChallengeMixin._handle_captcha_check` `[private]` — Phase 7.2: detect a visible captcha on the current page, try
+  - L0090 `ChallengeMixin._has_captcha` `[private]` — Phase 7.2: quick check for visible captcha widgets on the page.
+  - L0104 `ChallengeMixin._try_turnstile_solve` `[private]` — Backward-compat alias for _try_captcha_solve. The name
+  - L0110 `ChallengeMixin._try_captcha_solve` `[private]` — v3.43.39: type-aware captcha solving. Detects whether
+  - L0208 `ChallengeMixin._try_turnstile_solve_LEGACY` `[private]` — Phase 15.10: solve a Cloudflare Turnstile challenge via 2captcha.
 ```
 
 
@@ -676,4 +677,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 500 across 22 files._
+_Total entries: 501 across 22 files._

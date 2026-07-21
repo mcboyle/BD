@@ -511,6 +511,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             "last_failure_at": 0,
             "last_success_at": 0,
         }
+        # Exact encounter timestamps for the dashboard's rolling 24-hour
+        # count. Unlike the general 500-message event log, this deque is
+        # pruned by age and records one entry per detected challenge.
+        self._captcha_encounters_lock = threading.Lock()
+        self._captcha_encounters = collections.deque()
         # Phase 15.7: session warming. Track the timestamp of the last
         # successful warm-up so we don't re-warm before every URL — that
         # would itself look bot-like (humans don't visit the homepage

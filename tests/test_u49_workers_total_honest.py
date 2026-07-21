@@ -20,6 +20,7 @@ from __future__ import annotations
 import importlib
 import re
 import sys
+import threading
 from pathlib import Path
 from unittest.mock import patch
 
@@ -123,3 +124,114 @@ def test_workers_total_is_real_value_when_runners_configured():
         )
     finally:
         sys.path.pop(0)
+
+
+class _ProductionShapedRunner:
+    """The real SiteRunner has config/_worker_threads/get_status, but no
+    active_worker_count() method or max_concurrent attribute."""
+
+    def __init__(self, *, pending=0, running=0, rate=0.0, capacity=3):
+        self.config = {"max_concurrent": capacity}
+        self._lock = threading.Lock()
+        self.jobs = {
+            **{f"p-{i}": {"status": "pending"} for i in range(pending)},
+            **{f"r-{i}": {"status": "running"} for i in range(running)},
+        }
+        self._rate = rate
+
+    def get_status(self, light=False):
+        return {
+            "state": "running" if any(
+                j["status"] == "running" for j in self.jobs.values()) else "idle",
+            "counts": {
+                "pending": sum(j["status"] == "pending" for j in self.jobs.values()),
+                "running": sum(j["status"] == "running" for j in self.jobs.values()),
+            },
+        }
+
+    def state(self):
+        return self.get_status(light=True)["state"]
+
+    def _current_throughput_bps(self):
+        return self._rate
+
+
+def test_worker_counts_follow_real_runner_shape_and_running_jobs():
+    """A production-shaped runner must not collapse to 0/unknown simply
+    because it lacks the obsolete active_worker_count/max_concurrent attrs."""
+    from bulk_downloader.app_widgets_api import compute_worker_counts
+
+    runners = {
+        "busy": _ProductionShapedRunner(pending=5, running=1, capacity=4),
+        "idle": _ProductionShapedRunner(capacity=2),
+    }
+
+    assert compute_worker_counts(runners) == {
+        "workers_active": 1,
+        "workers_total": 6,
+        "sites_running": 1,
+        "sites_total": 2,
+    }
+
+
+def test_widget_collector_overlays_live_queue_rate_and_capacity(monkeypatch):
+    """The catalog's headline fields must agree with the live runner status
+    used by health/dashboard endpoints, even when db_stats is stale."""
+    from bulk_downloader import app_state, app_widgets_api
+    from bulk_downloader import db as db_mod
+
+    runners = {
+        "busy": _ProductionShapedRunner(
+            pending=5, running=1, rate=2048.0, capacity=4),
+        "idle": _ProductionShapedRunner(capacity=2),
+    }
+    monkeypatch.setattr(app_state, "runners", runners)
+    monkeypatch.setattr(app_state, "s_cfg", {
+        "busy": {"name": "Busy"}, "idle": {"name": "Idle"},
+    })
+    monkeypatch.setattr(db_mod, "db_stats", lambda site_id=None: {
+        "counts": {"pending": 0, "running": 0},
+    })
+
+    out = app_widgets_api._collect_data(None)
+
+    assert out["queue_depth"] == 5
+    assert out["workers_active"] == 1
+    assert out["workers_total"] == 6
+    assert out["sites_running"] == 1
+    assert out["sites_total"] == 2
+    assert out["throughput_fmt"] == "2.0 KB/s"
+    assert out["bandwidth_fmt"] == "2.0 KB/s"
+    assert out["avg_speed_fmt"] == "2.0 KB/s"
+
+
+def test_widget_collector_site_scope_excludes_other_runner(monkeypatch):
+    """SiteDetail's catalog must derive every live headline from only the
+    requested runner, not leak another site's queue, capacity, or rate."""
+    from bulk_downloader import app_state, app_widgets_api
+    from bulk_downloader import db as db_mod
+
+    runners = {
+        "busy": _ProductionShapedRunner(
+            pending=5, running=1, rate=2048.0, capacity=4),
+        "other": _ProductionShapedRunner(
+            pending=99, running=2, rate=8192.0, capacity=8),
+    }
+    monkeypatch.setattr(app_state, "runners", runners)
+    monkeypatch.setattr(app_state, "s_cfg", {
+        "busy": {"name": "Busy"}, "other": {"name": "Other"},
+    })
+    monkeypatch.setattr(db_mod, "db_stats", lambda site_id=None: {
+        "counts": {"pending": 0, "running": 0},
+    })
+
+    out = app_widgets_api._collect_data("busy")
+
+    assert out["queue_depth"] == 5
+    assert out["workers_active"] == 1
+    assert out["workers_total"] == 4
+    assert out["sites_running"] == 1
+    assert out["sites_total"] == 1
+    assert out["throughput_fmt"] == "2.0 KB/s"
+    assert out["bandwidth_fmt"] == "2.0 KB/s"
+    assert out["avg_speed_fmt"] == "2.0 KB/s"

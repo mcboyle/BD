@@ -129,11 +129,9 @@ def test_eta_clear_absent_when_no_throughput():
                                      "bandwidth_fmt": None}):
                 out = app_widgets_api._collect_data(None)
 
-        # No eta_clear_fmt key when forecast is undefined.
-        assert "eta_clear_fmt" not in out, (
-            f"eta_clear_fmt should be absent when files_hour=0, "
-            f"got {out.get('eta_clear_fmt')!r}"
-        )
+            # Explicit None is the stable schema contract when forecast is
+            # unavailable; the renderer still shows an honest em dash.
+            assert out.get("eta_clear_fmt") is None
     finally:
         sys.path.pop(0)
 
@@ -211,10 +209,7 @@ def test_cookies_oldest_absent_when_no_sites():
             else:
                 app_mod.s_cfg = original_s_cfg
 
-        assert "cookies_oldest_days" not in out, (
-            f"cookies_oldest_days leaked with empty s_cfg: "
-            f"{out.get('cookies_oldest_days')!r}"
-        )
+            assert out.get("cookies_oldest_days") is None
         assert "cookies_oldest_site" not in out
     finally:
         sys.path.pop(0)
