@@ -990,12 +990,16 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     f"waiting for selector teach\n")
                 return
 
-        self._stop.clear(); self._pause.set(); self._state="running"; self._consec_no_btn=0
         # Drain any leftover items from a previous run, then enqueue. (F1:
         # the drain repays unfinished_tasks so _watch_done's `==0` gate stays
         # reachable after a stop->start mid-queue.)
-        self._drain_url_queue()
-        for u in pending: self._url_queue.put(u)
+        with self._worker_heartbeats_lock:
+            if run_generation != self._worker_run_generation:
+                return
+            self._stop.clear(); self._pause.set(); self._state="running"; self._consec_no_btn=0
+            self._drain_url_queue()
+            for u in pending:
+                self._url_queue.put((run_generation, u))
         n=max(1,int(self.config.get("max_concurrent", DEFAULT_MAX_CONCURRENT)))
         # Spawn N persistent worker threads. Each owns one playwright/browser
         # and serves URLs from the queue until stop or queue exhaustion.
@@ -1005,7 +1009,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             threading.Thread(target=self._worker_loop,args=(i,run_generation),daemon=True,name=f"dl-{self.site_id}-{i}")
             for i in range(n)]
         for t in self._worker_threads: t.start()
-        threading.Thread(target=self._watch_done,daemon=True).start()
+        worker_snapshot = tuple(self._worker_threads)
+        threading.Thread(
+            target=self._watch_done,
+            args=(run_generation, worker_snapshot),
+            daemon=True).start()
         # v3.43.24: spawn watchdog thread. Polls worker heartbeats every
         # 60s, logs a worker_hung event if any worker hasn't stamped
         # in 15min. Can't safely kill threads in Python, so we don't
@@ -2072,7 +2080,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
 
 
 
-    def _watch_done(self):
+    def _worker_generation_is_current(self, run_generation):
+        with self._worker_heartbeats_lock:
+            return run_generation == self._worker_run_generation
+
+    def _watch_done(self, run_generation=None, worker_threads=None):
         """Background overseer thread spawned by start(). Polls the queue
         until either:
           • All URLs are processed (queue.unfinished_tasks == 0)
@@ -2088,22 +2100,41 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
 
         Only one _watch_done is ever active per runner — start() spawns
         it as a daemon and lets it manage its own lifetime."""
-        # Wait for the queue to drain AND all worker threads to exit.
+        if run_generation is None or worker_threads is None:
+            with self._worker_heartbeats_lock:
+                if run_generation is None:
+                    run_generation = self._worker_run_generation
+                if worker_threads is None:
+                    worker_threads = tuple(self._worker_threads)
+        if not self._worker_generation_is_current(run_generation):
+            return
+        # Wait for the queue to drain AND all captured worker threads to exit.
         # Workers exit when the queue is empty + a sentinel is sent, or when
         # _stop is set.
         while True:
+            if not self._worker_generation_is_current(run_generation):
+                return
             if self._stop.is_set(): break
             if self._url_queue.unfinished_tasks==0: break
             time.sleep(0.5)
-        # Send sentinels so workers stop blocking on queue.get
-        for _ in self._worker_threads:
-            try: self._url_queue.put_nowait(None)
-            except Exception: pass
-        for t in self._worker_threads:
+        # The generation check and sentinel publication are atomic with a new
+        # start's drain/enqueue block, so an old overseer cannot poison it.
+        with self._worker_heartbeats_lock:
+            if run_generation != self._worker_run_generation:
+                return
+            for _ in worker_threads:
+                try: self._url_queue.put_nowait(None)
+                except Exception: pass
+        for t in worker_threads:
             try: t.join(timeout=30)
             except Exception: pass
-        self._worker_threads=[]
+        with self._worker_heartbeats_lock:
+            if run_generation != self._worker_run_generation:
+                return
+            if tuple(self._worker_threads) == tuple(worker_threads):
+                self._worker_threads=[]
         if self._stop.is_set(): return
+        if not self._worker_generation_is_current(run_generation): return
         with self._lock:
             retryable=[(u,j["retry_after"]) for u,j in self.jobs.items()
                        if j["status"]=="pending" and j.get("retry_after",0)>0]
@@ -2114,9 +2145,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     mins=max(1,int((ra-time.time())//60))
                     with self._lock:
                         if u in self.jobs: self.jobs[u]["message"]=f"Retry in ~{mins}m"
-                time.sleep(max(0,wait))
+                if self._stop.wait(max(0, wait)):
+                    return
+            if not self._worker_generation_is_current(run_generation): return
             if not self._stop.is_set(): self._state="idle"; self.start()
             return
+        if not self._worker_generation_is_current(run_generation): return
         pending=sum(1 for j in self.jobs.values() if j["status"]=="pending")
         self._state="done" if pending==0 else "idle"
         # Phase 16.43: send a "queue complete" push notification when the
@@ -2151,6 +2185,24 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                           "failed": failed, "review": review, "ts": _ts()})
             except Exception:
                 pass
+
+    def _requeue_generation_item(self, item_generation, url):
+        """Atomically restore a current-run queue item without duplicates."""
+        with self._worker_heartbeats_lock:
+            if item_generation != self._worker_run_generation:
+                return False
+            if (self.jobs.get(url) or {}).get("status") != "pending":
+                return False
+            tagged_item = (item_generation, url)
+            q = self._url_queue
+            with q.mutex:
+                for queued in q.queue:
+                    if queued == tagged_item or queued == url:
+                        return False
+                q._put(tagged_item)
+                q.unfinished_tasks += 1
+                q.not_empty.notify()
+            return True
 
     def _process_worker_url(self, worker_idx, browser, url,
                             persistent_ctx=None, run_generation=None):
@@ -2307,6 +2359,17 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 except queue.Empty: continue
                 if url is None:
                     self._url_queue.task_done(); break  # sentinel
+                queue_item = url
+                if (isinstance(queue_item, tuple) and len(queue_item) == 2
+                        and isinstance(queue_item[0], int)):
+                    item_generation, url = queue_item
+                else:
+                    with self._worker_heartbeats_lock:
+                        item_generation = self._worker_run_generation
+                if item_generation != run_generation:
+                    self._requeue_generation_item(item_generation, url)
+                    self._url_queue.task_done()
+                    continue
                 # v3.45.4 / v3.46.3 Phase 185: worker affinity by tag.
                 # When the site has `worker_affinity` config set, each
                 # worker only processes URLs whose pre-applied tags
@@ -2355,7 +2418,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                                 self.config.get("max_concurrent", DEFAULT_MAX_CONCURRENT))
                             if other_can_take or unrestricted_exists:
                                 # Someone else can take it; requeue
-                                self._url_queue.put_nowait(url)
+                                self._url_queue.put_nowait(queue_item)
                                 self._url_queue.task_done()
                                 self._stop.wait(0.2)
                                 continue
@@ -2385,7 +2448,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                             continue
                         if not _qp.dependency_satisfied(_j, self.jobs):
                             # dependency still in flight -> requeue + brief wait
-                            self._url_queue.put_nowait(url)
+                            self._url_queue.put_nowait(queue_item)
                             self._url_queue.task_done()
                             self._stop.wait(1.0)
                             continue
@@ -2406,7 +2469,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                             self.state = "daily_budget_exhausted"
                         except Exception:
                             pass
-                        self._url_queue.put_nowait(url)
+                        self._url_queue.put_nowait(queue_item)
                         self._url_queue.task_done()
                         # Wait 60s before retrying — gives midnight rollover
                         # plenty of time to land if it's almost here, and
@@ -2426,7 +2489,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                             self.state = "daily_budget_exhausted"
                         except Exception:
                             pass
-                        self._url_queue.put_nowait(url)
+                        self._url_queue.put_nowait(queue_item)
                         self._url_queue.task_done()
                         self._stop.wait(60)
                         continue
@@ -2446,7 +2509,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                             self.state = "mem_budget_exhausted"
                         except Exception:
                             pass
-                        self._url_queue.put_nowait(url)
+                        self._url_queue.put_nowait(queue_item)
                         self._url_queue.task_done()
                         self._stop.wait(30)
                         continue
@@ -2470,10 +2533,10 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                         persistent_ctx=persistent_ctx,
                         run_generation=run_generation)
                     if not processed:
-                        # A restarted run invalidated this worker after it
-                        # dequeued the URL. Put the current-run work back rather
-                        # than silently consuming it in this stale generation.
-                        self._url_queue.put_nowait(url)
+                        # This item belongs to the stale worker's own run. A new
+                        # start enqueues its own generation-tagged copy, so the
+                        # rejected old item must be consumed, never resurrected.
+                        pass
                 except Exception as e:
                     try: self._handle_failure(url,f"worker error: {str(e)[:100]}")
                     except Exception: pass

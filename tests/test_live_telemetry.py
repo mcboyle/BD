@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import threading
+import queue
 from pathlib import Path
 
 
@@ -169,6 +170,61 @@ def test_watchdog_rejects_old_generation_and_changed_heartbeat_snapshots(monkeyp
     current_snapshot = {2: 999.0}
     assert runner._publish_watchdog_snapshot(2, current_snapshot, hung) is True
     assert runner._hung_workers == hung
+
+
+def test_old_watch_done_cannot_mutate_new_generation(monkeypatch):
+    runner = _telemetry_runner(monkeypatch)
+    new_url = "https://example.test/new.mp4"
+    runner._worker_run_generation = 2
+    runner._stop = threading.Event()
+    runner._url_queue = queue.Queue()
+    runner._url_queue.put((2, new_url))
+    runner.jobs = {new_url: {"status": "pending", "retry_after": 0}}
+    runner._state = "running"
+
+    class Worker:
+        def __init__(self):
+            self.joins = 0
+
+        def join(self, timeout=None):
+            self.joins += 1
+
+    old_worker = Worker()
+    new_worker = Worker()
+    runner._worker_threads = [new_worker]
+
+    runner._watch_done(run_generation=1, worker_threads=(old_worker,))
+
+    assert runner._url_queue.qsize() == 1
+    assert runner._url_queue.unfinished_tasks == 1
+    assert runner._worker_threads == [new_worker]
+    assert old_worker.joins == 0
+    assert new_worker.joins == 0
+    assert runner._state == "running"
+
+
+def test_generation_requeue_is_deduplicated_and_cannot_resurrect_stopped_work(
+        monkeypatch):
+    runner = _telemetry_runner(monkeypatch)
+    url = "https://example.test/video.mp4"
+    runner._worker_run_generation = 2
+    runner._url_queue = queue.Queue()
+    runner.jobs[url]["status"] = "pending"
+    runner._url_queue.put((2, url))
+
+    assert runner._requeue_generation_item(2, url) is False
+    assert list(runner._url_queue.queue) == [(2, url)]
+    assert runner._url_queue.unfinished_tasks == 1
+
+    runner._url_queue.get_nowait()
+    runner._url_queue.task_done()
+    runner.jobs[url]["status"] = "stopped"
+    assert runner._requeue_generation_item(2, url) is False
+    assert runner._url_queue.empty()
+
+    runner.jobs[url]["status"] = "pending"
+    assert runner._requeue_generation_item(1, url) is False
+    assert runner._url_queue.empty()
 
 
 def test_start_clears_stale_worker_tracking(monkeypatch):

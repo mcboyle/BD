@@ -448,6 +448,7 @@ def download(
     total_downloaded = [0]  # cumulative unique logical output bytes
     chunk_progress = {chunk.index: 0 for chunk in chunks}
     chunk_lengths = {chunk.index: chunk.length for chunk in chunks}
+    last_published = [0]
     chunk_results: dict = {}
 
     def _on_progress(chunk_index: int, attempt_bytes: int, delta: int):
@@ -470,10 +471,17 @@ def download(
             except Exception:
                 pass
         if progress_cb and logical_advanced:
-            try:
-                progress_cb(logical_total, content_length)
-            except Exception:
-                pass
+            # A slower earlier callback can resume after a later thread has
+            # computed a larger total. Re-enter the progress lock and publish
+            # only a new high-water mark so observers never see bytes regress.
+            with progress_lock:
+                if logical_total <= last_published[0]:
+                    return
+                last_published[0] = logical_total
+                try:
+                    progress_cb(logical_total, content_length)
+                except Exception:
+                    pass
 
     cancel_event = threading.Event()
     if cancel_check is not None:
