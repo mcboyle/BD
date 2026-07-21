@@ -7,6 +7,8 @@ conditional). Cycle rule: imports nothing from .runner.
 """
 import sys, time
 
+from .runner_queue import job_status_writer
+
 # scrapling_adapter soft import (moved verbatim from runner.py; flat sibling so
 # `.`=bulk_downloader is unchanged). Provides _scrap + _SCRAPLING_AVAILABLE.
 try:
@@ -149,7 +151,8 @@ class TeachMixin:
 
         # Phase 41.2: re-enqueue URLs blocked on auto_teach
         self._auto_teach_logged = False
-        with self._lock:
+        with job_status_writer(self) as mark_status_changed:
+            changed = False
             for u, j in self.jobs.items():
                 if j.get("auto_teach_seen") and j.get("status") == "needs_review":
                     j["auto_teach_seen"] = False
@@ -157,6 +160,9 @@ class TeachMixin:
                     j["message"] = "Queued after teach completion"
                     try: self._url_queue.put_nowait(u)
                     except Exception: pass
+                    changed = True
+            if changed:
+                mark_status_changed()
         # Phase 41.5: spawn workers now that selectors are learned and
         # pending URLs exist. start() is idempotent.
         try: self.start()
@@ -178,7 +184,7 @@ class TeachMixin:
             self.log.debug("teach_cancel: session close error: %s", e)
         # Phase 41.2: clear auto_teach state on the URL
         try:
-            with self._lock:
+            with job_status_writer(self) as mark_status_changed:
                 if target_url in self.jobs:
                     j = self.jobs[target_url]
                     if j.get("auto_teach_seen"):
@@ -187,6 +193,7 @@ class TeachMixin:
                         j["message"] = "Cancelled — retry to resume teach flow"
                         try: self._url_queue.put_nowait(target_url)
                         except Exception: pass
+                        mark_status_changed()
             self._auto_teach_logged = False
         except Exception: pass
         self._login_status = "✗ Teach Mode cancelled"
@@ -315,20 +322,50 @@ class TeachMixin:
         already_flagged = job.get("auto_teach_seen", False)
         if has_dl or already_flagged:
             return False
-        with self._lock:
+        deferred = False
+        selected = False
+        selected_prev_status = None
+        teach_message = (
+            "Auto-teach: take over to teach download selectors. "
+            "Click the download button by hand, then 'I'm Done'.")
+        with job_status_writer(self) as mark_status_changed:
             others_in_teach = any(
                 j.get("status") == "needs_review" and j.get("auto_teach_seen")
                 for u, j in self.jobs.items() if u != url
             )
-        if others_in_teach:
-            try: self._url_queue.put_nowait(url)
-            except Exception: pass
+            if others_in_teach:
+                current = self.jobs.get(url)
+                if current and current.get("status") == "running":
+                    current.update({
+                        "status": "pending",
+                        "message": "Waiting for teach completion",
+                        "ts": "",
+                    })
+                try: self._url_queue.put_nowait(url)
+                except Exception: pass
+                mark_status_changed()
+                deferred = True
+            else:
+                current = self.jobs.get(url)
+                if current:
+                    selected_prev_status = current.get("status")
+                    current.update({
+                        "status": "needs_review",
+                        "message": teach_message,
+                        "ts": "",
+                        "auto_teach_seen": True,
+                    })
+                    mark_status_changed()
+                    selected = True
+        if deferred:
             self._stop.wait(timeout=5.0)
             return True
-        self._update_job(url, "needs_review",
-            "Auto-teach: take over to teach download selectors. "
-            "Click the download button by hand, then 'I'm Done'.",
-            auto_teach_seen=True)
+        if selected:
+            self._update_job(
+                url, "needs_review", teach_message,
+                _transition_prev_status=selected_prev_status,
+                _memory_already_updated=True,
+                auto_teach_seen=True)
         if not getattr(self, "_auto_teach_logged", False):
             self.log_event("auto_teach",
                 "First URL needs selector teaching. Click 'Take over' to begin. "

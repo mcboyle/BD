@@ -1506,6 +1506,9 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         change. The UI flags status='running' with no progress in 60min
         as stuck (amber row). Reset on status transitions because a
         brand-new state ('running' from 'pending') isn't stuck."""
+        _transition_prev_status = extra.pop("_transition_prev_status", None)
+        _memory_already_updated = bool(
+            extra.pop("_memory_already_updated", False))
         now = time.time()
         # v3.43.80 Phase 86: friendly_error translates raw failure msgs.
         if status == "failed" and message:
@@ -1522,8 +1525,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             if url not in self.jobs:
                 self.jobs[url] = {"last_progress_at": now}
             if url in self.jobs:
-                self.jobs[url].update({"status":status,"message":message,"ts":_ts(),**extra})
-                mark_status_changed()
+                if not _memory_already_updated:
+                    self.jobs[url].update({
+                        "status": status, "message": message,
+                        "ts": _ts(), **extra,
+                    })
+                    mark_status_changed()
                 # v3.43.23: stamp last_progress_at whenever there's a
                 # real signal of progress. Two cases count as progress:
                 #   (a) the status changed (running → done, running →
@@ -1574,6 +1581,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     except Exception:
                         # Never let scoring code break the queue
                         pass
+        if _transition_prev_status is not None:
+            # Worker claim already committed pending -> running atomically.
+            # Reuse the normal post-lock publisher with its captured prior
+            # status so logs/history/persistence/SSE happen exactly once.
+            prev_status = _transition_prev_status
         # Keep lock ordering one-way: never acquire the heartbeat lock while
         # holding the jobs lock. Only genuine byte advancement proves that a
         # worker blocked inside a long stream is alive; message churn does not.
@@ -2370,6 +2382,10 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             worker_idx, url, run_generation)
         if claim_result != "claimed":
             return claim_result
+        self._update_job(
+            url, "running", "Claimed by worker",
+            _transition_prev_status="pending",
+            _memory_already_updated=True)
         try:
             self._process_one(browser, url, persistent_ctx=persistent_ctx)
             return self._WORKER_CLAIM_PROCESSED

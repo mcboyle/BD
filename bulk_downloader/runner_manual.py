@@ -12,6 +12,7 @@ import sys, threading, queue
 
 from playwright.sync_api import TimeoutError as PWTimeout
 from .runner_util import _check_video_magic_bytes, resolve_url_attribute
+from .runner_queue import job_status_writer
 
 # httpx soft import (moved verbatim from runner.py; flat sibling). _HTTPX_AVAILABLE.
 try:
@@ -630,7 +631,8 @@ class ManualMixin:
         # that were waiting for selectors
         if learned_count:
             self._auto_teach_logged = False
-            with self._lock:
+            with job_status_writer(self) as mark_status_changed:
+                changed = False
                 for u, j in self.jobs.items():
                     if j.get("auto_teach_seen") and j.get("status") == "needs_review":
                         j["auto_teach_seen"] = False
@@ -638,6 +640,9 @@ class ManualMixin:
                         j["message"] = "Queued after teach completion"
                         try: self._url_queue.put_nowait(u)
                         except Exception: pass
+                        changed = True
+                if changed:
+                    mark_status_changed()
             # Phase 41.5: now that pending URLs exist and selectors are
             # learned, spawn workers. start() is idempotent if already
             # running; if idle, it'll spawn fresh workers.
@@ -660,7 +665,7 @@ class ManualMixin:
             self.log.debug("manual download cancel error (browser may already be gone): %s", e)
         # Clear the auto_teach state so retry is clean
         try:
-            with self._lock:
+            with job_status_writer(self) as mark_status_changed:
                 if target_url in self.jobs:
                     j = self.jobs[target_url]
                     if j.get("auto_teach_seen"):
@@ -669,6 +674,7 @@ class ManualMixin:
                         j["message"] = "Cancelled — retry to resume teach flow"
                         try: self._url_queue.put_nowait(target_url)
                         except Exception: pass
+                        mark_status_changed()
             self._auto_teach_logged = False
         except Exception: pass
         self._login_status="✗ Manual download cancelled"

@@ -9,6 +9,7 @@ import sys, threading, time
 from pathlib import Path
 
 from .runner_util import _resolve_safe
+from .runner_queue import job_status_writer
 
 
 class AccountsMixin:
@@ -51,9 +52,10 @@ class AccountsMixin:
         if self._rotate_account_if_available(reason):
             sys.stderr.write(f"  [{self.site_id}] rotated account to recover from rate limit\n")
             # Re-queue the URL that hit the limit (don't count against retries)
-            with self._lock:
+            with job_status_writer(self) as mark_status_changed:
                 if url in self.jobs:
                     self.jobs[url].update({"status":"pending","message":"Rotated to fresh account","ts":""})
+                    mark_status_changed()
             return
         # v3.66.470: edge-triggered cooldown event. We reach here only when no
         # fresh account was available (the rotate path above recovers without
@@ -74,11 +76,17 @@ class AccountsMixin:
         # Workers now exit cleanly via _stop event + queue sentinels (set
         # above and pushed in stop()); rate-limit recovery uses the same
         # mechanism.
-        with self._lock:
+        with job_status_writer(self) as mark_status_changed:
+            changed = False
             for u,j in self.jobs.items():
                 if j["status"] in ("pending","running","stopped"):
                     j.update({"status":"pending","message":"","ts":"","retry_after":0})
-            if url in self.jobs: self.jobs[url]["message"]=f"Re-queued: {reason}"
+                    changed = True
+            if url in self.jobs:
+                self.jobs[url]["message"]=f"Re-queued: {reason}"
+                changed = True
+            if changed:
+                mark_status_changed()
         self._state="rate_limited"
         self._rl_autostart=True  # P3-A: arm auto-resume for when cooldown elapses
         threading.Thread(target=self._wait_rl_autostart,daemon=True).start()

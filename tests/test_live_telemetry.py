@@ -35,6 +35,7 @@ def _telemetry_runner(monkeypatch, *, url="https://example.test/video.mp4"):
     runner._claimed_completion_notification = None
     runner._worker_heartbeats_lock = threading.Lock()
     runner._run_lifecycle_lock = threading.RLock()
+    runner.log_event = lambda *args, **kwargs: None
     monkeypatch.setattr(runner_mod, "queue_upsert", lambda *args, **kwargs: None)
     return runner
 
@@ -530,6 +531,216 @@ def test_bulk_pause_after_worker_claim_is_after_processing_began(monkeypatch):
 
     assert not worker.is_alive()
     assert result == [runner._WORKER_CLAIM_PROCESSED]
+
+
+def test_multi_worker_auto_teach_deferral_releases_claim_to_pending(monkeypatch):
+    """A second claimed worker must not requeue itself as stuck running."""
+    runner = _telemetry_runner(monkeypatch)
+    first = "https://example.test/teach-first.mp4"
+    second = "https://example.test/teach-second.mp4"
+    runner.config = {"auto_teach_first_run": True, "learned": {}}
+    runner.jobs = {
+        first: {"status": "pending", "file_size": 0},
+        second: {"status": "pending", "file_size": 0},
+    }
+    runner.urls = [first, second]
+    runner._url_queue = queue.Queue()
+    runner._stop = threading.Event()
+    runner._stop.set()  # make the deferral backoff return immediately
+    runner._auto_teach_logged = False
+    runner.log_event = lambda *args, **kwargs: None
+
+    def auto_teach_only(browser, url, persistent_ctx=None):
+        with runner._lock:
+            job = dict(runner.jobs[url])
+        assert runner._handle_auto_teach_check(url, job) is True
+
+    runner._process_one = auto_teach_only
+
+    assert runner._process_worker_url(
+        0, object(), first, run_generation=1) == runner._WORKER_CLAIM_PROCESSED
+    assert runner.jobs[first]["status"] == "needs_review"
+    assert runner._process_worker_url(
+        1, object(), second, run_generation=1) == runner._WORKER_CLAIM_PROCESSED
+
+    assert runner.jobs[second]["status"] == "pending"
+    assert list(runner._url_queue.queue) == [second]
+
+
+def test_claim_publishes_running_transition_effects_exactly_once(monkeypatch):
+    """Atomic claim still records the normal pending-to-running lifecycle."""
+    from bulk_downloader import run_history
+
+    runner = _telemetry_runner(monkeypatch)
+    url = "https://example.test/video.mp4"
+    runner.jobs[url]["status"] = "pending"
+    starts = []
+    lifecycle = []
+    state_logs = []
+    monkeypatch.setattr(
+        run_history, "record_run_start",
+        lambda site_id, started_url: starts.append((site_id, started_url)) or "r1")
+    monkeypatch.setattr(
+        run_history, "emit_lifecycle",
+        lambda *args, **kwargs: lifecycle.append((args, kwargs)))
+    runner.log_event = lambda kind, message, **kwargs: state_logs.append(
+        (kind, message, kwargs))
+
+    def normal_process(*args, **kwargs):
+        runner._update_job(url, "running", "Opening page")
+
+    runner._process_one = normal_process
+    result = runner._process_worker_url(0, object(), url, run_generation=1)
+
+    assert result == runner._WORKER_CLAIM_PROCESSED
+    assert starts == [("telemetry", url)]
+    assert len(lifecycle) == 1
+    assert [event for event in state_logs
+            if event[0] == "state" and event[1].startswith("running:")] == [
+        ("state", "running: Claimed by worker", {
+            "url": url, "extra": {"prev": "pending"},
+        })
+    ]
+    assert runner.jobs[url]["_run_id"] == "r1"
+
+
+def test_accounts_writer_waits_for_lifecycle_transaction(monkeypatch):
+    """A non-QueueMixin status writer cannot mutate outside lifecycle."""
+    runner = _telemetry_runner(monkeypatch)
+    url = "https://example.test/video.mp4"
+    runner.jobs[url]["status"] = "failed"
+    runner._rotate_account_if_available = lambda reason: True
+    done = threading.Event()
+
+    def recover():
+        runner.trigger_rate_limit(url, "test recovery")
+        done.set()
+
+    with runner._run_lifecycle_lock:
+        worker = threading.Thread(target=recover)
+        worker.start()
+        assert not done.wait(0.1)
+        assert runner.jobs[url]["status"] == "failed"
+
+    worker.join(2.0)
+    assert not worker.is_alive()
+    assert runner.jobs[url]["status"] == "pending"
+
+
+def test_scheduler_auto_retry_uses_status_writer(monkeypatch):
+    from bulk_downloader import runner_scheduler
+
+    runner = _telemetry_runner(monkeypatch)
+    url = "https://example.test/video.mp4"
+    runner.config = {
+        "auto_retry_failed": True,
+        "auto_retry_review": False,
+        "auto_retry_classify": False,
+        "auto_retry_schedule": "1s",
+        "auto_retry_max_attempts": 3,
+    }
+    runner.jobs[url].update({
+        "status": "failed",
+        "next_auto_retry_at": 1,
+        "auto_retry_count": 0,
+        "message": "temporary",
+    })
+    runner.log_event = lambda *args, **kwargs: None
+    runner.log = type("Log", (), {"info": lambda *args, **kwargs: None})()
+    monkeypatch.setattr(runner_scheduler.time, "time", lambda: 10.0)
+    monkeypatch.setattr(
+        runner_scheduler, "queue_upsert", lambda *args, **kwargs: None)
+    version = runner._job_status_version
+
+    runner._auto_retry_scan()
+
+    assert runner.jobs[url]["status"] == "pending"
+    assert runner._job_status_version == version + 1
+
+
+@pytest.mark.parametrize("method_name", [
+    "teach_cancel",
+    "cancel_manual_download",
+])
+def test_takeover_cancel_requeues_through_status_writer(monkeypatch, method_name):
+    runner = _telemetry_runner(monkeypatch)
+    url = "https://example.test/video.mp4"
+    runner.jobs[url].update({
+        "status": "needs_review",
+        "auto_teach_seen": True,
+    })
+    runner._url_queue = queue.Queue()
+    runner._auto_teach_logged = True
+    runner.log = type("Log", (), {"debug": lambda *args, **kwargs: None})()
+    cancelled = []
+    runner._manual_download_session = type("Session", (), {
+        "target_url": url,
+        "cancel": lambda self, timeout: cancelled.append(timeout),
+    })()
+    version = runner._job_status_version
+
+    ok, _ = getattr(runner, method_name)()
+
+    assert ok is True
+    assert cancelled
+    assert runner.jobs[url]["status"] == "pending"
+    assert list(runner._url_queue.queue) == [url]
+    assert runner._job_status_version == version + 1
+
+
+@pytest.mark.parametrize("mode", ["teach", "manual"])
+def test_takeover_completion_requeues_waiters_through_status_writer(
+        monkeypatch, mode):
+    from bulk_downloader import learn
+
+    runner = _telemetry_runner(monkeypatch)
+    target = "https://example.test/target.mp4"
+    waiting = "https://example.test/waiting.mp4"
+    runner.config = {"learned": {}}
+    runner.jobs = {
+        target: {"status": "needs_review", "auto_teach_seen": True},
+        waiting: {"status": "needs_review", "auto_teach_seen": True},
+    }
+    runner.urls = [target, waiting]
+    runner._url_queue = queue.Queue()
+    runner._auto_teach_logged = True
+    runner._override_suppresses_persist = lambda: False
+    runner._persist_learned_to_draft = lambda: None
+    runner.start = lambda: None
+    runner.log = type("Log", (), {
+        "warning": lambda *args, **kwargs: None,
+        "error": lambda *args, **kwargs: None,
+        "debug": lambda *args, **kwargs: None,
+    })()
+    monkeypatch.setattr(learn, "merge_learned", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        learn, "classify_download",
+        lambda *args, **kwargs: {"trigger_selectors": [".download"]})
+
+    if mode == "teach":
+        runner._manual_download_session = type("TeachSession", (), {
+            "target_url": target,
+            "commit": lambda self, timeout: (True, []),
+        })()
+        invoke = lambda: runner.teach_commit({
+            "trigger_selectors": [".download"],
+        })
+    else:
+        runner._manual_download_session = type("ManualSession", (), {
+            "target_url": target,
+            "finalize": lambda self, timeout: (
+                True, "ok", [], {"clicks": []}),
+        })()
+        invoke = runner.finish_manual_download
+    version = runner._job_status_version
+
+    ok, _ = invoke()
+
+    assert ok is True
+    assert runner.jobs[target]["status"] == "done"
+    assert runner.jobs[waiting]["status"] == "pending"
+    assert list(runner._url_queue.queue) == [waiting]
+    assert runner._job_status_version >= version + 2
 
 
 def test_start_clears_stale_worker_tracking(monkeypatch):
