@@ -554,7 +554,8 @@ class TransportMixin:
         ua = (self.config.get("fingerprint") or {}).get("user_agent") or \
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " \
             "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        headers = {"User-Agent": ua, "Referer": page_url, "Accept": "*/*"}
+        headers = {"User-Agent": ua, "Referer": page_url, "Accept": "*/*",
+                   "Range": f"bytes=0-{PROBE_CAP - 1}"}
         recv = 0; ctype = ""; total = 0; status = 0; head = b""
         # F-RUN02-02: resolve the fail-closed VPN download proxy first. A
         # vpn_required site whose tunnel is down/killed raises VPNRequiredError
@@ -583,6 +584,10 @@ class TransportMixin:
                 except Exception: total = 0
                 if 200 <= status < 300:
                     for chunk in resp.iter_bytes():
+                        remaining = PROBE_CAP - recv
+                        if remaining <= 0:
+                            break
+                        chunk = chunk[:remaining]
                         if len(head) < 512:
                             head += chunk[:512 - len(head)]   # BP-VH1: sniff media
                         recv += len(chunk)

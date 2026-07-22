@@ -134,6 +134,36 @@ def test_modal_rows_kept_generic_dropped():
     assert any("dropped row selector" in w for w in c["warnings"])
 
 
+def test_modal_suffix_class_rows_are_kept():
+    draft = {
+        "schema_version": "bulk_downloader.template_draft.v1",
+        "host": "x.com",
+        "selectors": {"download": {
+            "button_hint": '[title*="Download" i]',
+            "row_selectors": [
+                ".VideoJSPlayer-Modal .VideoJSPlayer-DownloadOption-Link"
+            ],
+        }},
+    }
+    rows = normalize_draft(draft)["selectors"]["download"]["row_selectors"]
+    assert rows == [".VideoJSPlayer-Modal .VideoJSPlayer-DownloadOption-Link"]
+
+
+def test_modal_suffix_requires_end_of_class_token():
+    draft = {
+        "schema_version": "bulk_downloader.template_draft.v1",
+        "host": "x.com",
+        "selectors": {"download": {
+            "button_hint": '[title*="Download" i]',
+            "row_selectors": [".foo-modal-close a[href]"],
+        }},
+    }
+    rows = normalize_draft(draft)["selectors"]["download"].get(
+        "row_selectors", []
+    )
+    assert rows == []
+
+
 def test_download_button_maps_to_trigger():
     flat = {"schema": "bulk_downloader.template.draft.v1", "host": "x.com",
             "network_patterns": ["https://x.com/movie/9/watch"],

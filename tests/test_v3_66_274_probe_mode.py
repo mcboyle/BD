@@ -143,12 +143,13 @@ def test_probe_done_on_reachable_nonzero():
 
 
 def test_probe_caps_first_bytes():
-    """Probe reads at most ~256 KB then aborts — it does not drain the stream."""
-    big = [b"z" * 65536] * 100  # 6.4 MB available
+    """Probe never counts more than 256 KiB, even across an oversized chunk."""
+    big = [b"z" * (256 * 1024 + 4096), b"y" * 65536]
     cap, self, fake, _ = _run_probe(
         200, {"Content-Type": "video/mp4"}, big)
     assert cap["status"] == "done"
-    assert cap["size"] <= 256 * 1024 + 65536, cap  # stopped near the cap
+    assert cap["size"] == 256 * 1024, cap
+    assert fake.calls[0][2]["headers"]["Range"] == "bytes=0-262143"
 
 
 def test_probe_needs_review_on_error_status():
