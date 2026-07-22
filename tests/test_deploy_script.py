@@ -67,7 +67,8 @@ def _fake_backend_python(dirpath, expected_dir, exit_code=0):
     p = os.path.join(dirpath, "python")
     with open(p, "w") as f:
         f.write('#!/usr/bin/env bash\n')
-        f.write('if [ "$PWD" != %s ]; then\n' % shlex.quote(expected_dir))
+        f.write('expected_dir="$(cd %s && pwd -P)"\n' % shlex.quote(expected_dir))
+        f.write('if [ "$PWD" != "$expected_dir" ]; then\n')
         f.write("  printf 'unexpected probe cwd' >&2\n")
         f.write('  exit 9\n')
         f.write('fi\n')
@@ -101,7 +102,8 @@ def _run(args, binroot, env_extra=None, cwd=None):
     shell_args = []
     path_value = False
     for arg in args:
-        shell_args.append(_git_bash_path(arg) if path_value else arg)
+        shell_args.append(
+            _git_bash_path(arg) if path_value and os.path.isabs(arg) else arg)
         path_value = arg in {"--zip", "--dir"}
     if os.name == "nt":
         return subprocess.run(
@@ -183,6 +185,43 @@ def test_backend_probe_failure_has_generic_error_without_probe_stderr():
     assert "resolve_backend() probe execution failed" in r.stderr
     assert "private probe stderr" not in r.stdout + r.stderr
     assert "<none>" not in r.stderr
+
+
+def test_relative_install_dir_keeps_default_backend_python_resolvable():
+    work = tempfile.mkdtemp(prefix="bd_dep_")
+    caller_dir = os.path.join(work, "caller"); os.makedirs(caller_dir)
+    relative_dir = "install"
+    assert not os.path.isabs(relative_dir)
+    instdir = os.path.join(caller_dir, relative_dir); os.makedirs(instdir)
+    binroot = os.path.join(work, "bin")
+    zip_path, sha = _make_zip(work)
+    _fake_curl(binroot, "3.66.214")
+    _fake_backend_python(
+        os.path.join(instdir, "venv", "bin"), _git_bash_path(instdir))
+    r = _run(["--zip", zip_path, "--expect", "3.66.214", "--sha", sha,
+              "--dir", relative_dir, "--health-url", "http://x/api/health",
+              "--timeout", "5", "--interval", "1"], binroot, cwd=caller_dir)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "resolve_backend()==cloakbrowser confirmed" in r.stdout
+
+
+def test_relative_backend_python_override_resolves_from_caller_dir():
+    work = tempfile.mkdtemp(prefix="bd_dep_")
+    caller_dir = os.path.join(work, "caller"); os.makedirs(caller_dir)
+    instdir = os.path.join(caller_dir, "install"); os.makedirs(instdir)
+    binroot = os.path.join(work, "bin")
+    zip_path, sha = _make_zip(work)
+    _fake_curl(binroot, "3.66.214")
+    relative_python = os.path.join("venv-bin", "python")
+    assert not os.path.isabs(relative_python)
+    _fake_backend_python(
+        os.path.join(caller_dir, "venv-bin"), _git_bash_path(instdir))
+    r = _run(["--zip", zip_path, "--expect", "3.66.214", "--sha", sha,
+              "--dir", instdir, "--health-url", "http://x/api/health",
+              "--timeout", "5", "--interval", "1"], binroot,
+             {"BD_VENV_PYTHON": relative_python}, cwd=caller_dir)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "resolve_backend()==cloakbrowser confirmed" in r.stdout
 
 
 def test_sha_mismatch_exits_nonzero_before_unzip():

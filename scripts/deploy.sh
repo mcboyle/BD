@@ -42,6 +42,7 @@ set -euo pipefail
 die()  { printf 'deploy.sh: FAIL: %s\n' "$*" >&2; exit 1; }
 note() { printf 'deploy.sh: %s\n' "$*"; }
 
+CALLER_DIR="$(pwd -P)"
 ZIP=""; EXPECT=""; SHA=""; DIR="${BD_DEPLOY_DIR:-$HOME/BulkDownloader}"
 HEALTH_URL="http://localhost:5555/api/health"
 TIMEOUT=60; INTERVAL=2
@@ -67,9 +68,14 @@ done
 [ -n "$EXPECT" ] || die "--expect <version> is required"
 [ -f "$ZIP" ]    || die "zip not found: $ZIP"
 [ -d "$DIR" ]    || die "install dir not found: $DIR"
+DIR="$(cd "$DIR" && pwd -P)"
 
 RESTART_CMD="${BD_RESTART_CMD:-sudo systemctl restart bulkdownloader}"
-VENV_PY="${BD_VENV_PYTHON:-$DIR/venv/bin/python}"
+case "${BD_VENV_PYTHON:-}" in
+  "") VENV_PY="$DIR/venv/bin/python";;
+  /*) VENV_PY="$BD_VENV_PYTHON";;
+  *)  VENV_PY="$CALLER_DIR/$BD_VENV_PYTHON";;
+esac
 
 # ── 1. sha256 gate ────────────────────────────────────────────────
 if [ "$SKIP_SHA" -eq 1 ]; then
