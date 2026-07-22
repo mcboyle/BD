@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. For pre-v3.46 history
 see [CHANGELOG_archive.md](CHANGELOG_archive.md).
 
+## v3.66.812 - OPV live-warning contract and runtime fixes
+
+- Normalize deployed live API shapes for site, extractor, auth-health, vision,
+  kill-switch, and VPN inventory checks so valid runtime evidence is recognized.
+- Load canonical JSON cookie jars in auth-health and pass account credentials to
+  account-backed session keepers.
+- Initialize persisted VPN runtime state at app startup, apply persisted
+  auto-recovery settings, and reject configured tunnels that are not registered.
+
 ## v3.66.811 - MOD-1 Cut: render the GUI controls the 808/809 knobs were missing (close the section-0 gate hole)
 
 - v3.66.808/809 declared captcha_vnc_display, captcha_vnc_websocket_port and
