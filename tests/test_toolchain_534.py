@@ -39,22 +39,13 @@ def test_capture_sh_has_graph_checkhash_gate():
         "capture.sh has no graph --check-hash gate -- P2 pin is toothless on stash (B not wired)"
 
 
-def test_capture_sh_graph_gate_is_conditional():
+def test_capture_sh_graph_gate_uses_external_pin_with_required_mode():
     txt = _read("capture.sh")
     assert txt, "capture.sh not found"
-    # the gate must reference the graph db path AND be conditional (db-present
-    # check) so it is a graceful no-op when the db isn't deployed to stash.
-    assert "KNOWLEDGE_GRAPH.db" in txt, \
-        "capture.sh graph gate does not reference KNOWLEDGE_GRAPH.db (B not wired)"
-    # conditional guard: a `[ -f ... ]` file-presence test on the db candidate
-    # (the db path may be held in a loop var, so accept a guard that tests a
-    # candidate var for -f AND a graceful-skip branch when absent).
-    has_presence_guard = bool(re.search(r"\[\s+-f\s+\"?\$\w+\"?\s+\]", txt)) \
-        and "KNOWLEDGE_GRAPH.db" in txt
-    has_skip_branch = ("skipped" in txt.lower() and "graph" in txt.lower())
-    assert has_presence_guard and has_skip_branch, \
-        "capture.sh graph gate is not conditional on the db being present with a " \
-        "graceful skip (must no-op when the db isn't deployed -- B not wired safely)"
+    assert "BD_GRAPH_HASH_PIN" in txt
+    assert "BD_REQUIRE_GRAPH_HASH" in txt
+    assert re.search(r'if \[ ! -f "\$graph_pin" \]', txt)
+    assert "UNKNOWN -- optional check not armed" in txt
 
 
 # --------------------------------------------------------------------------- #

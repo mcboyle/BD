@@ -285,6 +285,17 @@ _MANIFEST_EXCLUDE_SUFFIXES = (".pyc", ".pyo", ".log",
 _MANIFEST_EXCLUDE_NAMES = {"downloader_history.db",
                            "downloader_history.db-wal",
                            "downloader_history.db-shm",
+                           # Deployment graph state never belongs in a release.
+                           # The canonical stash check derives a temporary DB
+                           # and keeps its trust pin under /var/lib, outside the
+                           # install tree.  Exact names avoid over-excluding
+                           # legitimate source fixtures with other .db names.
+                           "KNOWLEDGE_GRAPH.db",
+                           "KNOWLEDGE_GRAPH.db-wal",
+                           "KNOWLEDGE_GRAPH.db-shm",
+                           "KNOWLEDGE_GRAPH.db-journal",
+                           "KNOWLEDGE_GRAPH.db.sha256",
+                           "KNOWLEDGE_GRAPH.content.sha256",
                            # v3.66.781 (BUILD-HYG): the video dedup DB
                            # (dedup.get_default_registry default
                            # "video_hashes.db", opened WAL-mode in

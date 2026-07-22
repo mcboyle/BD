@@ -100,7 +100,42 @@ Two long-open "one-line decision" items, both resolving to **leave as-is with ra
 
 | Item | Choice | Rationale |
 |---|---|---|
-| **#14 graph content-pin (bd-cut)** | **Leave advisory; do NOT ship a `.sha256` pin** | bd-cut already prints "graph content pin: NOT CHECKED ... UNKNOWN, not OK" (@723/@762) — no silent pass, the honesty requirement is already met. The KNOWLEDGE_GRAPH.db is a per-session artifact re-derived from source (the ground truth); a shipped per-cut `.sha256` pins a volatile artifact and adds regen friction for marginal integrity value over the source itself. |
+| **#14 graph content-pin (stash certification)** | **Require an external deployment-source pin; never ship the DB or pin** | The trust anchor is `/var/lib/bulkdownloader/validation/KNOWLEDGE_GRAPH.content.sha256`, outside the install tree. Deployment acceptance derives it once from the exact installed source. Routine certification sets `BD_REQUIRE_GRAPH_HASH=1`, rebuilds the graph in a temporary directory, compares canonical rows, and deletes the DB. Mutable audit-state DB pins remain separate and advisory. |
 | **#15 tool-subtraction (bd-audit-gate.py)** | **KEEP the tool; budget floor stays 247** | bd-audit-gate.py is NOT a dead stub — it is a functional composite gate running defect_patterns --check + invariants --check + review_state --check. "stub" in its docstring meant "extensible" (fuzz/differential replays can be added later), not "empty". There is no clear subtraction candidate, so the 247 leaf-budget floor holds unchanged. |
 
-Neither required a cut. Both are settled; do not re-raise without new evidence.
+Decision #14 was superseded for the dependency/graph hardening release. Generate
+the external pin only after the release archive has passed its independent
+SHA/version/build gates on stash:
+
+```bash
+set -euo pipefail
+release_root=/home/mboyle/BulkDownloader
+test -d "$release_root"
+cd "$release_root"
+operator_group=$(id -gn)
+graph_tmp=$(mktemp -d)
+cleanup_graph_tmp() { rm -rf -- "${graph_tmp:?}"; }
+trap cleanup_graph_tmp EXIT
+venv/bin/python tools/l0_extract.py --root "$release_root" \
+  --db "$graph_tmp/KNOWLEDGE_GRAPH.db"
+venv/bin/python tools/graph_build.py \
+  --db "$graph_tmp/KNOWLEDGE_GRAPH.db" \
+  --hash-pin "$graph_tmp/KNOWLEDGE_GRAPH.content.sha256" \
+  --write-hash
+sudo install -d -o root -g "$operator_group" -m 0750 \
+  /var/lib/bulkdownloader/validation
+sudo install -o root -g "$operator_group" -m 0640 \
+  "$graph_tmp/KNOWLEDGE_GRAPH.content.sha256" \
+  /var/lib/bulkdownloader/validation/KNOWLEDGE_GRAPH.content.sha256
+venv/bin/python tools/graph_build.py \
+  --db "$graph_tmp/KNOWLEDGE_GRAPH.db" \
+  --hash-pin /var/lib/bulkdownloader/validation/KNOWLEDGE_GRAPH.content.sha256 \
+  --check-hash
+```
+
+Then run routine certification with `BD_REQUIRE_GRAPH_HASH=1`. Never write or
+refresh the pin immediately before a routine check: doing so would bless the
+very drift the gate is meant to detect. The release ZIP excludes the graph DB,
+its SQLite sidecars, and both legacy and deployment graph-pin filenames.
+
+Decision #15 remains settled; do not re-raise it without new evidence.
