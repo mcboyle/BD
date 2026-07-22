@@ -215,9 +215,9 @@ test.describe("U13 — Dashboard customize", () => {
     await page.goto(`${BASE}/m2/`);
     await page.getByRole("button", { name: /Customize dashboard/i }).click();
     // Each tile gets an aria-label "Drag to reorder <id> tile".
-    const handles = page.getByRole("button", {
-      name: /Drag to reorder .* tile/i,
-    });
+    const handles = page.locator(
+      '[aria-label^="Drag to reorder "][aria-label$=" tile"]',
+    );
     expect(await handles.count()).toBeGreaterThan(0);
     await page.getByRole("button", { name: /Exit dashboard edit mode/i }).click();
   });

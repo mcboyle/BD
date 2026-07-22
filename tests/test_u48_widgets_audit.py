@@ -207,11 +207,8 @@ def test_gpu_collector_fails_open_when_nvidia_smi_missing():
         importlib.reload(app_widgets_api)
         with patch("shutil.which", return_value=None):
             out = app_widgets_api._collect_data(None)
-        # No gpu keys at all.
-        gpu_keys = [k for k in out if k.startswith("gpu_")]
-        assert gpu_keys == [], (
-            f"gpu_* keys leaked when nvidia-smi missing: {gpu_keys}"
-        )
+        assert out.get("gpu_util_pct") is None
+        assert out.get("gpu_mem_pct") is None
     finally:
         sys.path.pop(0)
 
@@ -233,10 +230,8 @@ def test_gpu_collector_fails_open_on_nvidia_smi_error():
         with patch("shutil.which", return_value="/usr/bin/nvidia-smi"):
             with patch("subprocess.run", return_value=FailedRun()):
                 out = app_widgets_api._collect_data(None)
-        gpu_keys = [k for k in out if k.startswith("gpu_")]
-        assert gpu_keys == [], (
-            f"gpu_* keys leaked on nvidia-smi nonzero exit: {gpu_keys}"
-        )
+        assert out.get("gpu_util_pct") is None
+        assert out.get("gpu_mem_pct") is None
     finally:
         sys.path.pop(0)
 
@@ -260,10 +255,8 @@ def test_gpu_collector_fails_open_on_malformed_output():
             with patch("subprocess.run", return_value=MalformedRun()):
                 # Must not raise.
                 out = app_widgets_api._collect_data(None)
-        gpu_keys = [k for k in out if k.startswith("gpu_")]
-        assert gpu_keys == [], (
-            f"gpu_* keys leaked on malformed output: {gpu_keys}"
-        )
+        assert out.get("gpu_util_pct") is None
+        assert out.get("gpu_mem_pct") is None
     finally:
         sys.path.pop(0)
 

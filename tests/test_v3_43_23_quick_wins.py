@@ -50,8 +50,9 @@ def test_update_job_stamps_last_progress_at_on_status_change():
     last_progress_at. Without this, the frontend can't tell stuck
     from healthy-running."""
     src = _RUNNER_PY.read_text(encoding="utf-8")
-    # The pattern must be in _update_job
-    upd_start = src.find("def _update_job(self,url,status,message,**extra)")
+    # Generation validation is a small wrapper; the mutation lives in the
+    # current-generation implementation.
+    upd_start = src.find("def _update_job_current(self,url,status,message,**extra)")
     assert upd_start > 0
     upd_body = src[upd_start:upd_start + 3000]
     assert "last_progress_at" in upd_body, (
@@ -107,4 +108,3 @@ def test_retry_one_validates_state():
 
 
 # ── 6. Sticky table headers ───────────────────────────────────────────
-

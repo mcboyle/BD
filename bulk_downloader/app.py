@@ -16,7 +16,7 @@ from .db import (
     db_stats, db_prune, db_vacuum,
     queue_upsert, db_integrity_check,
 )
-from .runner import SiteRunner, _ts
+from .runner import SiteRunner, StartOutcome, _ts
 
 # v3.43.24: self-test at startup. Catches environment problems
 # (corrupt DB, missing dirs, Playwright not installed, firewall
@@ -5128,7 +5128,14 @@ def _do_action(sid, action):
     method = getattr(runner, action, None)
     if method is None or not callable(method):
         return jsonify({"error": f"unknown action: {action}"}), 400
-    method()
+    outcome = method()
+    if (action == "start"
+            and outcome is StartOutcome.TEARDOWN_PENDING):
+        return jsonify({
+            "ok": False,
+            "error": "prior workers are still tearing down",
+            "blocked_by": StartOutcome.TEARDOWN_PENDING.value,
+        }), 409
     extra = {}
     if action == "start":
         if runner.is_rate_limited():
@@ -5161,11 +5168,22 @@ def _do_action_all(action):
             if method is None or not callable(method):
                 results["errors"].append({"sid": sid, "error": f"unknown action: {action}"})
                 continue
-            method()
+            outcome = method()
+            if (action == "start"
+                    and outcome is StartOutcome.TEARDOWN_PENDING):
+                results["errors"].append({
+                    "sid": sid,
+                    "error": "prior workers are still tearing down",
+                    "blocked_by": StartOutcome.TEARDOWN_PENDING.value,
+                })
+                continue
             results["ok"] += 1
         except Exception as e:
             results["errors"].append({"sid": sid, "error": str(e)[:200]})
-    return jsonify({"ok": True, "applied_to": results["ok"],
+    teardown_refused = any(
+        item.get("blocked_by") == StartOutcome.TEARDOWN_PENDING.value
+        for item in results["errors"])
+    return jsonify({"ok": not teardown_refused, "applied_to": results["ok"],
                     "total_sites": len(runners), "errors": results["errors"]})
 
 # /api/pause_all -> app_pause_all.py (Phase 4 thin-core-shell extraction)

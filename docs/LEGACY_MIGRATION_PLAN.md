@@ -1,6 +1,13 @@
 # LEGACY_MIGRATION_PLAN — full migration of the legacy shell into the D3 SPA
 
-> **LIVE STATUS lives in TASK_TRACKER, not here.** This doc is a v3.66.201 *schedule*, not a tracker; phases/tranches it lists as future may already be LIVE (e.g. T1–T11 shipped by v3.66.264). Re-derive status from `TASK_TRACKER.xlsx`/`.md` (the canonical source) + `tools/legacy_parity.py`. Anchor any code reference on a SYMBOL, never a line number (they drift). Remaining live items: T12, P4, EXIT-1/3/4.
+> **LIVE STATUS lives in TASK_TRACKER, not here.** This doc is a v3.66.201 *schedule*, not a tracker; phases/tranches it lists as future may already be LIVE (e.g. T1–T11 shipped by v3.66.264). Re-derive status from canonical `TASK_TRACKER_DATA.json` (with `TASK_TRACKER.md`/`.xlsx` as generated views) + `tools/legacy_parity.py`. Anchor any code reference on a SYMBOL, never a line number (they drift). Remaining live items: T12, P4, EXIT-1/3/4.
+
+> **Current status (re-derived 2026-07-21):**
+> `python tools/legacy_parity.py --json` reports `legacy_total=0`,
+> `spa_total=358`, `legacy_only_count=0`, and `family_count=0`. That live tool
+> output is authoritative for endpoint parity; it does not waive the separate
+> operator soak/deletion exit criteria. Use the canonical tracker for those
+> remaining disposition steps.
 
 Status: PLAN, cut at v3.66.201 alongside the ratchet gate. **Every tranche below is per-task
 authorized** — this document schedules nothing; it sequences. Source is ground truth; re-derive

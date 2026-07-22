@@ -17,6 +17,7 @@ exist. Runner construction is avoided via the unbound-method-on-stub pattern
 """
 import threading
 import time
+from contextlib import contextmanager
 
 from bulk_downloader.runner import SiteRunner
 from bulk_downloader import plugins as _pl
@@ -51,6 +52,11 @@ def _fresh_stub(rotate=False):
             # trigger_rate_limit spawns this on a daemon thread; no-op keeps
             # the test from sleeping on the real 60s autostart loop.
             pass
+
+        @contextmanager
+        def _job_status_writer(self):
+            """Match the QueueMixin seam required by AccountsMixin."""
+            yield lambda: None
 
     return _Stub()
 

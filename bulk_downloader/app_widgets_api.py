@@ -13,7 +13,7 @@ Five endpoints:
 The data endpoint aggregates the existing stats sources — dashboard_widgets
 already provides rolling-window metrics, db_stats provides counts. We don't
 need new collectors for v3.43.60; we just shape the existing data into the
-keys the 21 KPI renderers expect.
+  keys the 36 KPI renderers expect.
 """
 from __future__ import annotations
 
@@ -29,6 +29,33 @@ except ImportError:  # pragma: no cover
 
 
 widgets_bp = Blueprint("widgets_api", __name__) if Blueprint else None
+
+
+# One primary backend field for every catalog widget. Collectors may return
+# None when a source is genuinely unavailable, but the field is always
+# explicit so the frontend never has to guess whether schema drift occurred.
+WIDGET_PRIMARY_FIELDS = {
+    "done_today": "done_today", "done_hour": "done_hour",
+    "bytes_today": "bytes_today_fmt", "files_hour": "files_hour",
+    "throughput": "throughput_fmt", "success_rate": "success_rate",
+    "avg_speed": "avg_speed_fmt", "avg_size": "avg_size_fmt",
+    "avg_quality": "avg_quality_label", "queue_depth": "queue_depth",
+    "workers": "workers_active", "disk_free": "disk_free_fmt",
+    "bandwidth": "bandwidth_fmt", "action_req": "action_req",
+    "stuck": "stuck", "failures": "failures_hr",
+    "retries": "retries_pending", "cpu_ram": "cpu_pct",
+    "gpu": "gpu_util_pct", "eta_clear": "eta_clear_fmt",
+    "cookies": "cookies_oldest_days", "sites_active": "sites_running",
+    "lib_total": "lib_total", "lib_size": "lib_size_fmt",
+    "lib_watched": "lib_watched_pct", "lib_unrated": "lib_unrated",
+    "lib_missing": "lib_missing", "lib_recent": "lib_recent",
+    "lib_top_studio": "lib_top_studio", "audit_recent": "audit_recent",
+    "success_rate_24h": "success_rate_24h",
+    "error_top_cluster": "error_top_cluster",
+    "captcha_24h": "captcha_24h", "cookie_warnings": "cookie_warnings",
+    "sites_need_attention": "sites_need_attention",
+    "active_alerts": "active_alerts",
+}
 
 
 def _err(msg: str, status: int = 400):
@@ -84,7 +111,7 @@ def widgets_delete_scope(scope):
 
 @widgets_bp.route("/api/widgets/data", methods=["GET"]) if widgets_bp else (lambda f: f)
 def widgets_data():
-    """Aggregate current values for all 21 KPIs.
+    """Aggregate current values for all 36 KPIs.
 
     For v3.43.60 we wire what's easily available from existing modules and
     leave placeholders (None) for KPIs that need new collectors. The frontend
@@ -97,6 +124,260 @@ def widgets_data():
         sys.stderr.write(f"[widgets-api] data collection raised: {e}\n")
         d = {}
     return jsonify({"ok": True, "data": d, "site_id": site_id, "ts": time.time()})
+
+
+def _runner_live_counts(runner) -> tuple[int, int]:
+    """Return pending/running counts from the production runner contract."""
+    try:
+        status = runner.get_status(light=True)
+        counts = status.get("counts") if isinstance(status, dict) else {}
+        if not isinstance(counts, dict):
+            counts = {}
+        return (
+            int(counts.get("pending") or 0),
+            int(counts.get("running") or 0),
+        )
+    except Exception:
+        # Compatibility for older/test runners that expose only the former
+        # helper method. Production SiteRunner does not implement it.
+        try:
+            return 0, int(runner.active_worker_count() or 0)
+        except Exception:
+            return 0, 0
+
+
+def _runner_capacity(runner) -> int:
+    """Read configured capacity from real SiteRunner or legacy adapters."""
+    try:
+        direct = int(getattr(runner, "max_concurrent", 0) or 0)
+        if direct > 0:
+            return direct
+    except Exception:
+        pass
+    try:
+        configured = int((getattr(runner, "config", {}) or {}).get(
+            "max_concurrent", 0) or 0)
+        if configured > 0:
+            return configured
+    except Exception:
+        pass
+    try:
+        return len(getattr(runner, "_worker_threads", ()) or ())
+    except Exception:
+        return 0
+
+
+def _collect_history_data(site_id: str | None) -> dict:
+    """Time-windowed widget values from canonical history rows."""
+    from .db import db_conn
+
+    now = time.time()
+    today = time.strftime("%Y-%m-%dT00:00:00", time.gmtime(now))
+    hour_ago = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(now - 3600))
+    day_ago = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(now - 86400))
+    where = " AND site_id = ?" if site_id else ""
+    params = [today, hour_ago, today, hour_ago, day_ago, day_ago]
+    if site_id:
+        # The site predicate appears once at the end of the aggregate query.
+        params.append(site_id)
+    with db_conn() as cx:
+        row = cx.execute(
+            "SELECT "
+            "SUM(CASE WHEN status='done' AND ts>=? THEN 1 ELSE 0 END) done_today, "
+            "SUM(CASE WHEN status='done' AND ts>=? THEN 1 ELSE 0 END) done_hour, "
+            "SUM(CASE WHEN status='done' AND ts>=? THEN file_size ELSE 0 END) bytes_today, "
+            "SUM(CASE WHEN status='failed' AND ts>=? THEN 1 ELSE 0 END) failures_hr, "
+            "SUM(CASE WHEN status='done' AND ts>=? THEN 1 ELSE 0 END) done_24h, "
+            "SUM(CASE WHEN status='failed' AND ts>=? THEN 1 ELSE 0 END) failed_24h, "
+            "AVG(CASE WHEN status='done' AND ts>=? AND file_size>0 "
+            "THEN file_size END) avg_size "
+            "FROM history WHERE 1=1" + where,
+            # avg_size uses the same 24-hour cutoff as success.
+            params[:6] + [day_ago] + ([site_id] if site_id else []),
+        ).fetchone()
+    if not row:
+        return {}
+    done_today = int(row["done_today"] or 0)
+    done_hour = int(row["done_hour"] or 0)
+    bytes_today = int(row["bytes_today"] or 0)
+    done_24h = int(row["done_24h"] or 0)
+    failed_24h = int(row["failed_24h"] or 0)
+    sample = done_24h + failed_24h
+    out = {
+        "done_today": done_today,
+        "done_today_extra": f"{done_today} completed",
+        "done_hour": done_hour,
+        "files_hour": done_hour,
+        "bytes_today_fmt": _fmt_bytes(bytes_today),
+        "bytes_today_breakdown": f"{done_today} completed",
+        "failures_hr": int(row["failures_hr"] or 0),
+        "success_rate": round(100.0 * done_24h / sample, 1) if sample else None,
+        "success_rate_24h": round(100.0 * done_24h / sample, 1) if sample else None,
+        "success_rate_24h_extra": f"{sample} jobs" if sample else "no samples",
+    }
+    if row["avg_size"]:
+        out["avg_size_fmt"] = _fmt_bytes(int(row["avg_size"]))
+    return out
+
+
+def _collect_library_data(site_id: str | None) -> dict:
+    """Library widget primaries, restricted to the requested site."""
+    from .db import db_conn
+
+    where = " WHERE site_id = ?" if site_id else ""
+    params = [site_id] if site_id else []
+    with db_conn() as cx:
+        row = cx.execute(
+            "SELECT COUNT(*) total, COALESCE(SUM(file_size),0) total_size, "
+            "COALESCE(SUM(CASE WHEN watched<>0 THEN 1 ELSE 0 END),0) watched, "
+            "COALESCE(SUM(CASE WHEN rating IS NULL THEN 1 ELSE 0 END),0) unrated, "
+            "COALESCE(SUM(CASE WHEN file_exists=0 THEN 1 ELSE 0 END),0) missing, "
+            "COALESCE(SUM(CASE WHEN added_at>=? THEN 1 ELSE 0 END),0) recent "
+            "FROM library" + where,
+            [time.time() - 7 * 86400] + params,
+        ).fetchone()
+        studio = cx.execute(
+            "SELECT studio k, COUNT(*) n FROM library" + where +
+            (" AND studio<>''" if where else " WHERE studio<>''") +
+            " GROUP BY studio ORDER BY n DESC, studio LIMIT 1",
+            params,
+        ).fetchone()
+        resolution = cx.execute(
+            "SELECT resolution k, COUNT(*) n FROM library" + where +
+            (" AND resolution<>''" if where else " WHERE resolution<>''") +
+            " GROUP BY resolution ORDER BY n DESC, resolution LIMIT 1",
+            params,
+        ).fetchone()
+        enriched = cx.execute(
+            "SELECT COUNT(*) n FROM library" + where +
+            (" AND resolution<>''" if where else " WHERE resolution<>''"),
+            params,
+        ).fetchone()
+    total = int(row["total"] or 0)
+    watched = int(row["watched"] or 0)
+    unrated = int(row["unrated"] or 0)
+    missing = int(row["missing"] or 0)
+    out = {
+        "lib_total": total,
+        "lib_total_extra": f"{total} files",
+        "lib_size_fmt": _fmt_bytes(int(row["total_size"] or 0)),
+        "lib_size_extra": f"across {total} files",
+        "lib_watched_pct": round(100.0 * watched / total, 1) if total else 0.0,
+        "lib_watched_extra": f"{watched} of {total}",
+        "lib_unrated": unrated,
+        "lib_unrated_extra": f"{round(100.0 * unrated / total)}% of library" if total else "",
+        "lib_missing": missing,
+        "lib_missing_extra": "files moved or deleted" if missing else "all present",
+        "lib_recent": int(row["recent"] or 0),
+    }
+    if studio:
+        out["lib_top_studio"] = studio["k"]
+        out["lib_top_studio_extra"] = f"{studio['n']} files"
+    if resolution:
+        n = int(resolution["n"] or 0)
+        total_enriched = int(enriched["n"] or 0) if enriched else 0
+        out["avg_quality_label"] = resolution["k"]
+        out["avg_quality_breakdown"] = (
+            f"{round(100.0 * n / total_enriched)}% of {total_enriched} enriched files"
+            if total_enriched else None)
+    return out
+
+
+def _collect_live_health(runners: dict) -> dict:
+    """Current action, liveness, retry, and 24-hour captcha signals."""
+    now = time.time()
+    action = stuck = retries = 0
+    captcha = 0
+    active_states = {"running", "downloading", "processing", "active"}
+    action_tokens = ("captcha", "login", "log in", "auth", "session", "cookie")
+    for runner in runners.values():
+        try:
+            status = runner.get_status(light=True)
+        except Exception:
+            status = {}
+        try:
+            lock = getattr(runner, "_lock", None)
+            if lock is None:
+                jobs = list((getattr(runner, "jobs", {}) or {}).values())
+            else:
+                with lock:
+                    jobs = list((getattr(runner, "jobs", {}) or {}).values())
+            actionable_jobs = sum(
+                1 for job in jobs
+                if isinstance(job, dict)
+                and job.get("status") == "needs_review"
+                and (
+                    bool(job.get("captcha_type"))
+                    or any(token in str(job.get("message") or "").lower()
+                           for token in action_tokens)
+                )
+            )
+            manual_wait = int(bool(
+                status.get("awaiting_manual_login")
+                or status.get("awaiting_manual_download")
+            ))
+            # A manual-wait flag usually describes one of the review jobs;
+            # take the larger count so that item is not counted twice.
+            action += max(actionable_jobs, manual_wait)
+            stuck += sum(
+                1 for job in jobs
+                if isinstance(job, dict)
+                and job.get("status") in active_states
+                and float(job.get("last_progress_at") or 0) > 0
+                and now - float(job.get("last_progress_at") or 0) >= 3600
+            )
+            retries += sum(
+                1 for job in jobs
+                if isinstance(job, dict)
+                and (
+                    (job.get("status") == "pending"
+                     and float(job.get("retry_after") or 0) > now)
+                    or (job.get("status") in {"failed", "needs_review"}
+                        and float(job.get("next_auto_retry_at") or 0) > now)
+                )
+            )
+        except Exception:
+            pass
+        encounters = getattr(runner, "_captcha_encounters", None)
+        if encounters is not None:
+            try:
+                encounters_lock = getattr(
+                    runner, "_captcha_encounters_lock", None)
+                if encounters_lock is None:
+                    encounter_snapshot = list(encounters)
+                else:
+                    with encounters_lock:
+                        encounter_snapshot = list(encounters)
+                captcha += sum(
+                    1 for ts in encounter_snapshot
+                    if now - 86400 <= float(ts or 0) <= now + 1
+                )
+            except Exception:
+                # A diagnostic race must not suppress the other live-health
+                # fields. Older runners can briefly lack the dedicated lock.
+                pass
+        else:
+            # Compatibility for a runner created before encounter timestamps
+            # existed: URL-bearing events are deduplicated; message-only
+            # solver logs are deliberately ignored because one encounter can
+            # emit many of them.
+            captcha += len({
+                str(event["url"])
+                for event in list(getattr(runner, "_event_log", None) or [])
+                if event.get("kind") == "captcha"
+                and event.get("url")
+                and float(event.get("ts") or 0) >= now - 86400
+            })
+    return {
+        "action_req": action,
+        "action_req_breakdown": "captcha/login review items" if action else "none",
+        "stuck": stuck,
+        "stuck_breakdown": "no progress for 60+ minutes" if stuck else "none",
+        "retries_pending": retries,
+        "retries_extra": "scheduled" if retries else "none",
+        "captcha_24h": captcha,
+        "captcha_24h_extra": "runtime encounters, last 24h",
+    }
 
 
 def compute_worker_counts(runners: dict) -> dict:
@@ -124,10 +405,14 @@ def compute_worker_counts(runners: dict) -> dict:
     """
     total_active = 0
     total_cap = 0
+    sites_running = 0
     for r in runners.values():
         try:
-            total_active += getattr(r, "active_worker_count", lambda: 0)()
-            total_cap += getattr(r, "max_concurrent", 0)
+            _pending, running = _runner_live_counts(r)
+            total_active += running
+            total_cap += _runner_capacity(r)
+            if running > 0:
+                sites_running += 1
         except Exception:
             pass
     return {
@@ -137,10 +422,7 @@ def compute_worker_counts(runners: dict) -> dict:
         # `total_cap or <N>` here. See DANGER_MAP and
         # tests/test_u49_workers_total_honest.py.
         "workers_total": total_cap if total_cap > 0 else None,
-        "sites_running": sum(
-            1 for r in runners.values()
-            if getattr(r, "active_worker_count", lambda: 0)() > 0
-        ),
+        "sites_running": sites_running,
         "sites_total": len(runners),
     }
 
@@ -155,25 +437,51 @@ def _collect_data(site_id: str | None) -> dict:
 
     # Try dashboard_widgets — rolling-window metrics + success rate.
     try:
+        import importlib
         from . import dashboard_widgets
-        if hasattr(dashboard_widgets, "snapshot_for_site"):
-            snap = dashboard_widgets.snapshot_for_site(site_id) if site_id else dashboard_widgets.snapshot()
-        elif hasattr(dashboard_widgets, "snapshot"):
-            snap = dashboard_widgets.snapshot()
-        else:
-            snap = {}
+        _app_state = importlib.import_module("bulk_downloader.app_state")
+        _all_runners = getattr(_app_state, "runners", {}) or {}
+        _all_cfg = getattr(_app_state, "s_cfg", {}) or {}
+        _snap_runners = (
+            {site_id: _all_runners[site_id]}
+            if site_id and site_id in _all_runners else
+            ({} if site_id else _all_runners)
+        )
+        _snap_cfg = {site_id: _all_cfg.get(site_id, {})} if site_id else _all_cfg
+        snap = (
+            {} if site_id and not _snap_runners
+            else dashboard_widgets.snapshot(_snap_runners, _snap_cfg)
+        )
         if isinstance(snap, dict):
-            # Direct mappings.
-            out["done_today"] = snap.get("done_today")
-            out["done_hour"] = snap.get("done_hour")
-            out["bytes_today_fmt"] = snap.get("bytes_today_fmt") or snap.get("bytes_today")
-            out["throughput_fmt"] = snap.get("throughput_fmt") or snap.get("throughput")
-            out["success_rate"] = snap.get("success_rate_pct") or snap.get("success_rate")
-            out["files_hour"] = snap.get("files_hour")
-            out["avg_speed_fmt"] = snap.get("avg_speed_fmt")
-            out["bandwidth_fmt"] = snap.get("bandwidth_fmt")
+            if "bytes_per_sec" in snap:
+                rate = float(snap.get("bytes_per_sec") or 0)
+                rate_fmt = dashboard_widgets.format_rate(rate)
+                out["throughput_fmt"] = rate_fmt
+                out["bandwidth_fmt"] = rate_fmt
+                active = int(snap.get("active_workers") or 0)
+                out["avg_speed_fmt"] = dashboard_widgets.format_rate(
+                    rate / active if active > 0 else 0)
+            out["success_rate"] = snap.get("success_pct")
+            # Backward-compatible adapters may already enrich the rolling
+            # snapshot with activity keys; canonical history overlays these
+            # whenever the history table is available.
+            for key in ("done_today", "done_hour", "files_hour"):
+                if key in snap:
+                    out[key] = snap[key]
+            if "bytes_today_fmt" in snap or "bytes_today" in snap:
+                out["bytes_today_fmt"] = (
+                    snap.get("bytes_today_fmt") or snap.get("bytes_today"))
+            if out["success_rate"] is None:
+                out["success_rate"] = (
+                    snap.get("success_rate_pct")
+                    if "success_rate_pct" in snap else snap.get("success_rate"))
     except Exception as e:
         sys.stderr.write(f"[widgets-api] dashboard_widgets snapshot failed: {e}\n")
+    if site_id:
+        # dashboard_widgets owns process-global rolling telemetry. A scoped
+        # history query below is the only authoritative source for a site's
+        # success rate, so never retain the singleton value here.
+        out["success_rate"] = None
 
     # db_stats — queue depth, status counts.
     try:
@@ -196,16 +504,42 @@ def _collect_data(site_id: str | None) -> dict:
         import importlib
         app_mod = importlib.import_module("bulk_downloader.app_state")
         runners = getattr(app_mod, "runners", {}) or {}
-        if site_id and site_id in runners:
-            r = runners[site_id]
-            out["workers_active"] = getattr(r, "active_worker_count", lambda: 0)()
-            out["workers_total"] = getattr(r, "max_concurrent", 0) or len(getattr(r, "_workers", []))
+        scoped_runners = (
+            {site_id: runners[site_id]}
+            if site_id and site_id in runners else
+            ({} if site_id else runners)
+        )
+        wc = compute_worker_counts(scoped_runners)
+        out.update(wc)
+
+        # Live runner state is authoritative for queue/rate headlines. The
+        # global db_stats(None) path is historical and may legitimately lag
+        # the in-memory queue while an export is active.
+        if scoped_runners:
+            queue_depth = 0
+            throughput_bps = 0.0
+            for r in scoped_runners.values():
+                pending, _running = _runner_live_counts(r)
+                queue_depth += pending
+                try:
+                    throughput_bps += float(r._current_throughput_bps() or 0)
+                except Exception:
+                    pass
+            out["queue_depth"] = queue_depth
+            from . import dashboard_widgets as _dashboard_widgets
+            rate_fmt = _dashboard_widgets.format_rate(throughput_bps)
+            out["throughput_fmt"] = rate_fmt
+            out["bandwidth_fmt"] = rate_fmt
+            out["avg_speed_fmt"] = _dashboard_widgets.format_rate(
+                throughput_bps / wc["workers_active"]
+                if wc["workers_active"] > 0 else 0)
         else:
-            wc = compute_worker_counts(runners)
-            out["workers_active"] = wc["workers_active"]
-            out["workers_total"] = wc["workers_total"]
-            out["sites_running"] = wc["sites_running"]
-            out["sites_total"] = wc["sites_total"]
+            # The dashboard snapshot is process-global and may retain a prior
+            # sample after the fleet is removed. Empty/scoped-missing fleets
+            # must not advertise that stale activity.
+            out["throughput_fmt"] = None
+            out["bandwidth_fmt"] = None
+            out["avg_speed_fmt"] = None
     except Exception as e:
         sys.stderr.write(f"[widgets-api] worker count failed: {e}\n")
 
@@ -283,6 +617,8 @@ def _collect_data(site_id: str | None) -> dict:
             import importlib as _il
             _app_mod = _il.import_module("bulk_downloader.app_state")
             _s_cfg = getattr(_app_mod, "s_cfg", {}) or {}
+            if site_id:
+                _s_cfg = {site_id: _s_cfg.get(site_id, {})}
             for _sc in _s_cfg.values() if isinstance(_s_cfg, dict) else []:
                 _dd = (_sc or {}).get("download_dir") if isinstance(_sc, dict) else None
                 if _dd:
@@ -365,6 +701,9 @@ def _collect_data(site_id: str | None) -> dict:
         app_mod = importlib.import_module("bulk_downloader.app_state")
         cfg_map = getattr(app_mod, "s_cfg", {}) or {}
         runners = getattr(app_mod, "runners", {}) or {}
+        if site_id:
+            cfg_map = {site_id: cfg_map.get(site_id, {})}
+            runners = {site_id: runners[site_id]} if site_id in runners else {}
 
         # Success rate (24h) + sites-need-attention via site_changelog.
         try:
@@ -399,6 +738,8 @@ def _collect_data(site_id: str | None) -> dict:
 
         # Top error cluster via error_fingerprint.
         try:
+            if site_id:
+                raise LookupError("global-only error cluster")
             from . import error_fingerprint as _ef
             clusters = _ef.explain_top_clusters(hours=24, n=1)
             if clusters:
@@ -411,6 +752,9 @@ def _collect_data(site_id: str | None) -> dict:
             else:
                 out["error_top_cluster"] = "none"
                 out["error_top_cluster_extra"] = "no failures, last 24h"
+        except LookupError:
+            out["error_top_cluster"] = None
+            out["error_top_cluster_extra"] = "global metric"
         except Exception as e:
             sys.stderr.write(
                 f"[widgets-api] error_fingerprint failed: {e}\n")
@@ -444,12 +788,17 @@ def _collect_data(site_id: str | None) -> dict:
         # v3.58 (Phase 10, #133): active alerts — alert rules that
         # fired in the last 24h (disk-write rate, error spikes, etc.).
         try:
+            if site_id:
+                raise LookupError("global-only alerts")
             from . import alerts_engine as _alerts
             fired = _alerts.active_alerts(lookback_hours=24)
             out["active_alerts"] = len(fired)
             out["active_alerts_extra"] = (
                 "none, last 24h" if not fired
                 else "fired, last 24h")
+        except LookupError:
+            out["active_alerts"] = None
+            out["active_alerts_extra"] = "global metric"
         except Exception as e:
             sys.stderr.write(f"[widgets-api] alerts check failed: {e}\n")
     except Exception as e:
@@ -461,19 +810,41 @@ def _collect_data(site_id: str | None) -> dict:
     # If no completions in the window, leave the key absent →
     # renderer shows '—'.
     try:
-        import time as _t
-        from .db import db_conn
-        cutoff = _t.time() - 86400
-        with db_conn() as cx:
-            r = cx.execute(
-                "SELECT AVG(file_size) AS avg_size FROM history "
-                "WHERE status = 'completed' AND ts >= ? "
-                "AND file_size > 0",
-                (cutoff,)).fetchone()
-            if r and r["avg_size"]:
-                out["avg_size_fmt"] = _fmt_bytes(int(r["avg_size"]))
+        out.update(_collect_history_data(site_id))
     except Exception as e:
-        sys.stderr.write(f"[widgets-api] avg_size failed: {e}\n")
+        sys.stderr.write(f"[widgets-api] history metrics failed: {e}\n")
+    try:
+        out.update(_collect_library_data(site_id))
+    except Exception as e:
+        sys.stderr.write(f"[widgets-api] scoped library metrics failed: {e}\n")
+        if site_id:
+            # Never leave values from the earlier global compatibility
+            # collector in a site-scoped response when the scoped query fails.
+            for key in (
+                "lib_total", "lib_total_extra", "lib_size_fmt",
+                "lib_size_extra", "lib_watched_pct", "lib_watched_extra",
+                "lib_unrated", "lib_unrated_extra", "lib_missing",
+                "lib_missing_extra", "lib_recent", "lib_top_studio",
+                "lib_top_studio_extra", "avg_quality_label",
+                "avg_quality_breakdown",
+            ):
+                out[key] = None
+    try:
+        import importlib as _il
+        _state = _il.import_module("bulk_downloader.app_state")
+        _runners = getattr(_state, "runners", {}) or {}
+        _scoped = (
+            {site_id: _runners[site_id]}
+            if site_id and site_id in _runners else
+            ({} if site_id else _runners)
+        )
+        if _scoped:
+            out.update(_collect_live_health(_scoped))
+    except Exception as e:
+        sys.stderr.write(f"[widgets-api] live health metrics failed: {e}\n")
+    if site_id:
+        out["audit_recent"] = None
+        out["audit_recent_extra"] = "global metric"
 
     # v3.63.6: eta_clear — forecast how long until the queue drains.
     # eta_hours = queue_depth / files_hour, formatted as "Xh" / "X.Yd".
@@ -509,6 +880,8 @@ def _collect_data(site_id: str | None) -> dict:
         import importlib as _il
         _app_mod = _il.import_module("bulk_downloader.app_state")
         _s_cfg = getattr(_app_mod, "s_cfg", {}) or {}
+        if site_id:
+            _s_cfg = {site_id: _s_cfg.get(site_id, {})}
         if isinstance(_s_cfg, dict) and _s_cfg:
             from . import doctor as _doctor
             checks = _doctor.cookie_freshness(_s_cfg)
@@ -526,6 +899,14 @@ def _collect_data(site_id: str | None) -> dict:
     except Exception as e:
         sys.stderr.write(f"[widgets-api] cookies_oldest failed: {e}\n")
 
+    for primary in WIDGET_PRIMARY_FIELDS.values():
+        out.setdefault(primary, None)
+    # Composite primaries need their companion fields to distinguish an
+    # unavailable source from a genuine zero.
+    out.setdefault("workers_total", None)
+    out.setdefault("sites_total", 0)
+    out.setdefault("ram_pct", None)
+    out.setdefault("gpu_mem_pct", None)
     return out
 
 

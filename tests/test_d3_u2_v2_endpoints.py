@@ -252,6 +252,24 @@ def test_d3_u2_health_v2_shape():
     assert "available" in body["last_suite"]
 
 
+def test_d3_u2_health_v2_uses_current_runner_counts_schema():
+    """Health v2 sums the current nested pending/running runner schema."""
+    from bulk_downloader import app as a
+    from bulk_downloader.app_state import runners
+
+    class _RunnerWithStatus:
+        def get_status(self, *, light):
+            assert light is True
+            return {"counts": {"pending": 7, "running": 1}}
+
+    runners["current"] = _RunnerWithStatus()
+
+    body = a.app.test_client().get("/api/health/v2").get_json()
+
+    assert body["queue_depth"] == 7
+    assert body["active_downloads"] == 1
+
+
 def test_d3_u2_health_v2_ollama_cache_attribute():
     """Verify the Ollama cache mechanism is wired — second request
     within 30s reuses the cached value. We check the function has

@@ -16,11 +16,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from bulk_downloader.capture_synth import synthesize, _media_kind
 from bulk_downloader import capture_workbench as wb
+from capture_test_fixtures import capture_fixture_lane
 
-U = "/mnt/user-data/uploads/"
+_FIXTURES = capture_fixture_lane()
 
 
 def _load(p):
+    p = os.fspath(p)
     if p.endswith(".json"):
         return json.load(open(p))
     with zipfile.ZipFile(p) as z:
@@ -29,9 +31,9 @@ def _load(p):
 
 
 def _synth(a, b):
-    if not (os.path.exists(U + a) and os.path.exists(U + b)):
+    if not _FIXTURES.has(a, b):
         pytest.skip("captures not present")
-    return synthesize(_load(U + a), _load(U + b))
+    return synthesize(_load(_FIXTURES.path(a)), _load(_FIXTURES.path(b)))
 
 
 class TestMediaKind:

@@ -40,14 +40,16 @@ def _run_status(d):
     return rc, buf.getvalue()
 
 
-def _write_data(d, n_inc, n_await, n_comp):
+def _write_data(d, n_inc, n_await, n_comp, n_decided=0):
     inc = [{"ID": f"I{i}", "Sandbox-able?": "Yes", "Tier": "A"}
            for i in range(n_inc)]
     awa = [{"ID": f"W{i}", "Sandbox-able?": "No", "Tier": "B"}
            for i in range(n_await)]
     comp = [{"ID": f"C{i}"} for i in range(n_comp)]
+    decided = [{"ID": f"D{i}"} for i in range(n_decided)]
     data = {"columns": {"incomplete": [], "completed": []},
-            "incomplete": inc, "awaiting_operator": awa, "completed": comp}
+            "incomplete": inc, "awaiting_operator": awa, "completed": comp,
+            "decided_against": decided}
     with open(os.path.join(d, "TASK_TRACKER_DATA.json"), "w",
               encoding="utf-8") as fh:
         fh.write(json.dumps(data))
@@ -74,3 +76,12 @@ def test_status_degrades_gracefully_when_data_absent():
     assert ("not found" in low or "no data" in low or "unavailable" in low), \
         f"expected a clear data-absent message, got: {out!r}"
     assert "traceback" not in low and "error" not in low
+
+
+def test_status_counts_decided_against_in_grand_total():
+    d = tempfile.mkdtemp(prefix="tt_status_decided_")
+    _write_data(d, 3, 2, 7, n_decided=4)
+    rc, out = _run_status(d)
+    assert rc == 0
+    assert "decided-against:   4" in out
+    assert "total:             16" in out

@@ -304,9 +304,10 @@ def test_runner_start_checks_window():
     """SiteRunner.start() must consult download_window before
     proceeding past the rate-limit check."""
     src = _RUNNER_PY.read_text(encoding="utf-8")
-    pos = src.find("def start(self):")
+    pos = src.find("def _start_serialized(self, _teardown_generation=None):")
     assert pos > 0
-    body = src[pos:pos + 1500]
+    nxt = src.find("\n    def ", pos + 1)
+    body = src[pos:nxt]
     assert "download_window" in body
     assert "site_in_window" in body
     assert "window_paused" in body
@@ -317,8 +318,9 @@ def test_runner_start_logs_window_pause_only_once():
     window_paused, not on every start() call. Otherwise repeated
     start() attempts during the off-hours flood the log."""
     src = _RUNNER_PY.read_text(encoding="utf-8")
-    pos = src.find("def start(self):")
-    body = src[pos:pos + 1500]
+    pos = src.find("def _start_serialized(self, _teardown_generation=None):")
+    nxt = src.find("\n    def ", pos + 1)
+    body = src[pos:nxt]
     assert 'self._state != "window_paused"' in body
 
 
@@ -327,8 +329,9 @@ def test_runner_window_check_failopen():
     runner must still attempt to start — fail-open prevents a bug
     in the new code from breaking all sites globally."""
     src = _RUNNER_PY.read_text(encoding="utf-8")
-    pos = src.find("def start(self):")
-    body = src[pos:pos + 2500]
+    pos = src.find("def _start_serialized(self, _teardown_generation=None):")
+    nxt = src.find("\n    def ", pos + 1)
+    body = src[pos:nxt]
     # Look for the try/except wrapping the window check
     assert "window check failed" in body
 
@@ -378,8 +381,6 @@ def test_window_status_endpoint_registered():
 
 
 # ── UI ───────────────────────────────────────────────────────────────
-
-
 
 
 

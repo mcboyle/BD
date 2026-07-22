@@ -12,19 +12,28 @@ verdict hardening") goes stale the instant a cut ships something else — which 
 exactly what happened when 276 shipped the row selector instead. `TASK_TRACKER`
 owns status; the plan owns the spec; the version is decided when the cut lands.
 
-## 2. TASK_TRACKER is the single source; the narratives are history
-`TASK_TRACKER.xlsx` (canonical) + `.md` (mirror) are the only "what's left" list.
+## 2. TASK_TRACKER_DATA.json is the single source; the narratives are history
+`TASK_TRACKER_DATA.json` is canonical. `TASK_TRACKER.md` and
+`TASK_TRACKER.xlsx` are generated views of that JSON and together form the
+human-readable "what's left" list.
 `Backlog.md`, `Roadmap.md`, Track-F docs, `BUILD_PLAN` = per-cut history / specs,
 not parallel task lists. Anything actionable in a narrative must exist as a
 tracker row. **Memory may be stale** — a memory summary said T11 was "next" when
 it had been LIVE for 12 versions. Re-derive status from the tracker + source each
 session; never act on a memory/plan claim without confirming against the tree.
 
-## 3. xlsx<->md drift is a one-command gate
-The two TASK_TRACKER files are hand-synced (the original generator is absent).
-Run **`python3 tools/tasktracker_sync.py --check <pack-dir>`** at session close;
-it exits 1 if the ID sets differ. (A GCW-3 row once lived in the xlsx but not the
-md, caught only by an ad-hoc diff — this gate makes that impossible to miss.)
+## 3. JSON -> generated Markdown/XLSX is the gated order
+After changing `TASK_TRACKER_DATA.json`, run these in order:
+
+1. `python3 tools/tasktracker_gen.py --render <pack-dir>`
+2. `python3 tools/tasktracker_gen.py --audit <pack-dir>`
+3. `python3 tools/tasktracker_gen.py --check <pack-dir>`
+
+`--audit` checks section schemas and duplicate IDs; `--check` independently
+renders both generated artifacts and rejects drift. `tasktracker_sync.py` is a
+legacy recovery/diagnostic tool, not the canonical editing path. A GCW-3 row
+once lived in the xlsx but not the md and was caught only by an ad-hoc diff;
+the generator gates make that class of drift impossible to miss.
 
 ## 4. Canonical plans travel in the pack or land in-tree
 A doc referenced as canonical (e.g. Backlog named `PHASE4_RETIREMENT_PLAN.md` as

@@ -357,7 +357,7 @@ def _download_chunk(
                         out_f.write(buf)
                         bytes_written += len(buf)
                         try:
-                            on_progress(len(buf))
+                            on_progress(chunk.index, bytes_written, len(buf))
                         except Exception:
                             pass
                 if bytes_written != chunk.length:
@@ -397,8 +397,8 @@ def download(
 
     `content_length`: if known (e.g. from a prior probe), pass it in.
     If 0, we probe first.
-    `progress_cb(downloaded, total)`: called with cumulative bytes
-    every progress event. Optional.
+    `progress_cb(downloaded, total)`: called with cumulative unique logical
+    output bytes. Retried writes to the same chunk offsets do not advance it.
     `bytes_callback(delta_bytes)`: called with the per-write delta on
     every chunk write. Used for bandwidth supervision (v3.43.76);
     callers can pass `supervisor.acquire`-style hooks here. Optional.
@@ -445,12 +445,22 @@ def download(
 
     # Shared progress state
     progress_lock = threading.Lock()
-    total_downloaded = [0]  # mutable container so threads can update
+    total_downloaded = [0]  # cumulative unique logical output bytes
+    chunk_progress = {chunk.index: 0 for chunk in chunks}
+    chunk_lengths = {chunk.index: chunk.length for chunk in chunks}
+    last_published = [0]
     chunk_results: dict = {}
 
-    def _on_progress(delta: int):
+    def _on_progress(chunk_index: int, attempt_bytes: int, delta: int):
+        logical_advanced = False
         with progress_lock:
-            total_downloaded[0] += delta
+            prior = chunk_progress[chunk_index]
+            current = min(chunk_lengths[chunk_index], max(prior, attempt_bytes))
+            if current > prior:
+                chunk_progress[chunk_index] = current
+                total_downloaded[0] += current - prior
+                logical_advanced = True
+            logical_total = total_downloaded[0]
         # v3.43.76: feed the bandwidth supervisor (if configured) so
         # per-chunk writes respect the configured throttle. Called
         # OUTSIDE the lock so the supervisor's potential sleep doesn't
@@ -460,11 +470,18 @@ def download(
                 bytes_callback(delta)
             except Exception:
                 pass
-        if progress_cb:
-            try:
-                progress_cb(total_downloaded[0], content_length)
-            except Exception:
-                pass
+        if progress_cb and logical_advanced:
+            # A slower earlier callback can resume after a later thread has
+            # computed a larger total. Re-enter the progress lock and publish
+            # only a new high-water mark so observers never see bytes regress.
+            with progress_lock:
+                if logical_total <= last_published[0]:
+                    return
+                last_published[0] = logical_total
+                try:
+                    progress_cb(logical_total, content_length)
+                except Exception:
+                    pass
 
     cancel_event = threading.Event()
     if cancel_check is not None:

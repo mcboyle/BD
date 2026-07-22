@@ -16,8 +16,9 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from bulk_downloader import temporal_harness as th
+from capture_test_fixtures import capture_fixture_lane
 
-U = "/mnt/user-data/uploads/"
+_FIXTURES = capture_fixture_lane()
 
 # the real N=3 ultrafilms title1 series and an N=2 pair
 ULTRA_SERIES = ["capA.json", "ultrafilms_title1_later.wacz",
@@ -26,6 +27,7 @@ NUBILE_PAIR = ["nubile_title1_cap1.wacz", "nubile_title1_cap2.wacz"]
 
 
 def _load(p):
+    p = os.fspath(p)
     if p.endswith(".json"):
         return json.load(open(p))
     with zipfile.ZipFile(p) as z:
@@ -34,9 +36,10 @@ def _load(p):
 
 
 def _series(files):
-    if not all(os.path.exists(U + f) for f in files):
+    if not _FIXTURES.has(*files):
         pytest.skip("captures not present")
-    return th.drift_series([_load(U + f) for f in files], labels=files)
+    return th.drift_series(
+        [_load(_FIXTURES.path(f)) for f in files], labels=files)
 
 
 class TestUltrafilmsN3:

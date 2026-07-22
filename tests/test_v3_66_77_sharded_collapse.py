@@ -16,6 +16,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bulk_downloader.capture_synth import synthesize
 from bulk_downloader import capture_workbench as wb
 from bulk_downloader import validation_corpus as vc
+from capture_test_fixtures import capture_fixture_lane
+
+
+_FIXTURES = capture_fixture_lane()
 
 
 def _entry(seq, url):
@@ -87,12 +91,12 @@ class TestRealBros:
             with zipfile.ZipFile(p) as z:
                 n = [x for x in z.namelist() if x.endswith("capture.json")][0]
                 return json.loads(z.read(n))
-        base = "/mnt/user-data/uploads/"
-        a = base + "bros_title1_1.wacz"
-        b = base + "bros_title1_cap2.wacz"
-        if not (os.path.exists(a) and os.path.exists(b)):
+        a = "bros_title1_1.wacz"
+        b = "bros_title1_cap2.wacz"
+        if not _FIXTURES.has(a, b):
             pytest.skip("bros captures not present in this environment")
-        return wb.build_workbench(synthesize(load(a), load(b))).to_dict()
+        return wb.build_workbench(synthesize(
+            load(_FIXTURES.path(a)), load(_FIXTURES.path(b)))).to_dict()
 
     def test_bros_collapses_to_one_identity(self):
         d = self._bros()

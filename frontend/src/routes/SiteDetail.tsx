@@ -30,6 +30,7 @@ import { WidgetPicker } from "@/components/WidgetPicker";
 import {
   useDashboardLayout,
   LEGACY_WIDGET_IDS,
+  kpiLayoutId,
 } from "@/hooks/useDashboardLayout";
 import { useWidgetData } from "@/hooks/useWidgetData";
 import { useWidgetSelection } from "@/hooks/useWidgetSelection";
@@ -117,7 +118,7 @@ export function SiteDetail() {
   );
   const [editMode, setEditMode] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const { data: kpiData } = useWidgetData();
+  const { data: kpiData } = useWidgetData(siteId);
 
   // Delete: actual mutation lives here, but the e2e only asserts the
   // affordance is present and enabled. We don't auto-confirm on click
@@ -443,17 +444,14 @@ function buildWidgets(
   ));
 
   const kpiTiles = extraIds
-    .filter(
-      (id) =>
-        WIDGETS_BY_ID[id] !== undefined &&
-        !(LEGACY_WIDGET_IDS as readonly string[]).includes(id),
-    )
+    .filter((id) => WIDGETS_BY_ID[id] !== undefined)
     .map((id) => {
       const def = WIDGETS_BY_ID[id];
       const spec = def.spec(kpiData);
+      const layoutId = kpiLayoutId(id);
       return (
-        <div key={id} className="dashboard-tile-wrap h-full">
-          <DashboardTile id={id} editMode={editMode}>
+        <div key={layoutId} className="dashboard-tile-wrap h-full">
+          <DashboardTile id={layoutId} editMode={editMode}>
             <div className="hairline h-full overflow-hidden rounded-md border bg-surface">
               <KPICard spec={spec} />
             </div>
@@ -497,8 +495,6 @@ function DashboardTile({
         <div
           className="dashboard-tile-handle absolute right-1 top-1 z-10 grid h-6 w-6 cursor-grab place-items-center rounded-sm bg-surface/90 text-ink-3 backdrop-blur transition-colors hover:bg-surface-2 hover:text-ink active:cursor-grabbing"
           aria-label={`Drag to reorder ${id} tile`}
-          role="button"
-          tabIndex={0}
         >
           <GripVertical className="h-3.5 w-3.5" aria-hidden />
         </div>

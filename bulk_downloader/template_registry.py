@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 from pathlib import Path
+import re
 from urllib.parse import urlparse
 
 
@@ -21,6 +23,72 @@ def _host_matches(template_host: str, url_host: str) -> bool:
         return False
 
     return url_host == template_host or url_host.endswith("." + template_host)
+
+
+_HOST_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+
+
+def _valid_sibling_domain(canonical_host: str, value) -> str:
+    if not isinstance(value, str):
+        return ""
+    raw_domain = value.strip().lower()
+    if raw_domain.endswith(".."):
+        return ""
+    domain = raw_domain.rstrip(".")
+    canonical = (canonical_host or "").strip().lower().rstrip(".")
+    if (
+        not domain
+        or domain == "localhost"
+        or domain.endswith(".localhost")
+        or "." not in domain
+    ):
+        return ""
+    try:
+        ipaddress.ip_address(domain)
+        return ""
+    except ValueError:
+        pass
+    labels = domain.split(".")
+    if all(label.isdigit() for label in labels):
+        return ""
+    if any(not _HOST_LABEL_RE.fullmatch(label) for label in labels):
+        return ""
+    if canonical != domain and not canonical.endswith("." + domain):
+        return ""
+    return domain
+
+
+def _template_host_match_key(template: dict, url_host: str):
+    host = (url_host or "").strip().lower()
+    canonical = str((template or {}).get("host") or "").strip().lower()
+    if not host or not canonical:
+        return None
+    if host == canonical:
+        return (4, len(canonical))
+
+    match = template.get("match")
+    if not isinstance(match, dict):
+        match = {}
+    normalized_host = host.rstrip(".")
+    aliases = match.get("hosts")
+    if isinstance(aliases, list):
+        exact_aliases = {
+            value.strip().lower().rstrip(".")
+            for value in aliases
+            if isinstance(value, str) and value.strip()
+        }
+        if normalized_host in exact_aliases:
+            return (3, len(normalized_host))
+
+    if _host_matches(canonical, host):
+        return (2, len(canonical))
+
+    sibling = _valid_sibling_domain(canonical, match.get("sibling_domain"))
+    if sibling and (
+        normalized_host == sibling or normalized_host.endswith("." + sibling)
+    ):
+        return (1, len(sibling))
+    return None
 
 
 def load_templates(template_dirs=None):
@@ -69,11 +137,9 @@ def find_template_for_url(url: str, template_dirs=None, *, html=None):
     best = None
     best_key = None
     for template in load_templates(template_dirs):
-        thost = (template.get("host", "") or "").lower().strip()
-        if _host_matches(thost, host):
-            key = (host.lower().strip() == thost, len(thost))
-            if best_key is None or key > best_key:
-                best, best_key = template, key
+        key = _template_host_match_key(template, host)
+        if key is not None and (best_key is None or key > best_key):
+            best, best_key = template, key
 
     return best
 
@@ -88,12 +154,11 @@ def find_template_variants_for_url(url: str, template_dirs=None):
         return []
     matches = []
     for template in load_templates(template_dirs):
-        thost = (template.get("host", "") or "").lower().strip()
-        if _host_matches(thost, host):
-            spec = (host.lower().strip() == thost, len(thost))
-            matches.append((spec, template))
-    matches.sort(key=lambda m: m[0], reverse=True)
-    return [t for _, t in matches]
+        key = _template_host_match_key(template, host)
+        if key is not None:
+            matches.append((key, template))
+    matches.sort(key=lambda match: match[0], reverse=True)
+    return [template for _, template in matches]
 
 
 def _leaf_selectors(template):
@@ -146,14 +211,21 @@ def score_template_against_html(template, html) -> float:
 
 
 def select_best_variant(url: str, html, template_dirs=None):
-    """Among the host's template variants, the one whose selectors best fit
-    `html`. Ties (incl. all-zero) fall back to host specificity (variant order).
-    With <=1 variant or no html, defers to find_template_for_url."""
+    """Among the most host-specific variants, return the best HTML fit.
+    Score ties (including all-zero) keep variant discovery order. With <=1
+    variant or no html, return the first discovered variant."""
     variants = find_template_variants_for_url(url, template_dirs)
     if not variants:
         return None
     if len(variants) == 1 or not html:
         return variants[0]
+    host = urlparse(url).netloc
+    max_key = _template_host_match_key(variants[0], host)
+    variants = [
+        variant
+        for variant in variants
+        if _template_host_match_key(variant, host) == max_key
+    ]
     best = None
     best_score = -1.0
     for v in variants:  # already sorted most-specific first -> stable tie-break

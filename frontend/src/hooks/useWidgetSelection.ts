@@ -33,6 +33,7 @@ import {
 // PUT would silently reset everyone's sizes to "sm".
 
 const STORAGE_KEY = "bd-widget-selection";
+const SELECTION_CHANGE_EVENT = "bd-widget-selection-change";
 
 interface WidgetEntry {
   id: string;
@@ -133,8 +134,22 @@ export function useWidgetSelection(siteId?: string): UseWidgetSelection {
         setGlobalIds(readStored());
       }
     };
+    const onSameTabChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ ids?: unknown }>).detail;
+      if (Array.isArray(detail?.ids)) {
+        setGlobalIds(detail.ids.filter(
+          (id): id is string => typeof id === "string" && ALL_WIDGET_IDS.has(id),
+        ));
+        return;
+      }
+      setGlobalIds(readStored());
+    };
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    window.addEventListener(SELECTION_CHANGE_EVENT, onSameTabChange);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(SELECTION_CHANGE_EVENT, onSameTabChange);
+    };
   }, [scopeMode]);
 
   // ── Per-site mode ───────────────────────────────────────────────
@@ -208,6 +223,12 @@ export function useWidgetSelection(siteId?: string): UseWidgetSelection {
   const commitGlobal = useCallback((next: string[]) => {
     writeStored(next);
     setGlobalIds(next);
+    // The native storage event only fires in *other* documents. Home and its
+    // picker mount separate hook instances in the same document, so publish a
+    // local signal as well to keep their rendered selections in lockstep.
+    window.dispatchEvent(new CustomEvent(SELECTION_CHANGE_EVENT, {
+      detail: { ids: next.slice() },
+    }));
   }, []);
 
   const setIds = useCallback(
@@ -228,15 +249,11 @@ export function useWidgetSelection(siteId?: string): UseWidgetSelection {
         if (siteIds.includes(id)) return;
         putMutation.mutate([...siteIds, id]);
       } else {
-        setGlobalIds(prev => {
-          if (prev.includes(id)) return prev;
-          const next = [...prev, id];
-          writeStored(next);
-          return next;
-        });
+        if (globalIds.includes(id)) return;
+        commitGlobal([...globalIds, id]);
       }
     },
-    [scopeMode, siteIds, putMutation],
+    [scopeMode, siteIds, putMutation, globalIds, commitGlobal],
   );
 
   const remove = useCallback(
@@ -245,15 +262,11 @@ export function useWidgetSelection(siteId?: string): UseWidgetSelection {
         if (!siteIds.includes(id)) return;
         putMutation.mutate(siteIds.filter(x => x !== id));
       } else {
-        setGlobalIds(prev => {
-          if (!prev.includes(id)) return prev;
-          const next = prev.filter(x => x !== id);
-          writeStored(next);
-          return next;
-        });
+        if (!globalIds.includes(id)) return;
+        commitGlobal(globalIds.filter(x => x !== id));
       }
     },
-    [scopeMode, siteIds, putMutation],
+    [scopeMode, siteIds, putMutation, globalIds, commitGlobal],
   );
 
   const reset = useCallback(() => {

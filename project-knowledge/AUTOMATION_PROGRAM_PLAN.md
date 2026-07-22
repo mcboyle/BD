@@ -1,6 +1,13 @@
 <!-- verified-against: v3.66.593 -->
 # AUTOMATION PROGRAM — BUILD PLAN (A0–A9)
 
+> **Current status (2026-07-21): BASE PROGRAM SHIPPED.** The base A0-A9
+> sequence landed across v3.66.690-708; v3.66.708 records the connected A9
+> capstone after the 706 restore rehearsal and 707 autonomous-cycle ceiling,
+> and v3.66.709+ hardened the GUI write/read contract. Sections describing A0
+> as partial are historical. Expansion tracks remain candidates unless a
+> current tracker row and fresh source evidence say otherwise.
+
 <!-- authored against live baseline v3.66.593. This is the sequenced BUILD PLAN that AUTOMATION_POLICY.md -->
 <!-- references as "BD_FORWARD_ROADMAP.md" (which did not exist). It fulfills that reference for the -->
 <!-- automation sequence. POLICY says WHAT/WHY + honest current-state labels; THIS says ORDER/DEPS/GATES. -->

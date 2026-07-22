@@ -145,57 +145,73 @@ Schema version: 2
 - L5070 `_is_url_public` `[private]` — AUDIT FIX (v3.43.16): SSRF defence. Resolve the hostname and ensure
 - L5097 `_rate_check` `[private]` — Return True if the request should be allowed, False if rate
 - L5117 `_do_action` `[private]` — Common body for start/pause/resume/stop/clear/retry. Rate-limits
-- L5150 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
-- L5207 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
-- L5351 `serve_ss` `GET /screenshots/<path:filename>`
-- L6630 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
-- L6637 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
-- L6648 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
-- L6663 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
-- L6727 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
-- L6756 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
-- L6764 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
-- L6781 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
-- L6793 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
-- L6816 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
-- L6832 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
-- L6848 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
-- L6865 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
-- L6918 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
-- L7039 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
+- L5157 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
+- L5225 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
+- L5369 `serve_ss` `GET /screenshots/<path:filename>`
+- L6648 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
+- L6655 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
+- L6666 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
+- L6681 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
+- L6745 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
+- L6774 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
+- L6782 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
+- L6799 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
+- L6811 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
+- L6834 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
+- L6850 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
+- L6866 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
+- L6883 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
+- L6936 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
+- L7057 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
 ```
 
 
-## `bulk_downloader/runner.py` (27 entries)
+## `bulk_downloader/runner.py` (43 entries)
 
 ```
 - L0318 `set_global_concurrent_cap` — Resize the global semaphore. n=0 disables the cap.
 - L0328 `get_global_concurrent_cap`
 - L0365 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
-- L0385 `SiteRunner` `[class]`
-  - L0386 `SiteRunner.__init__` `[dunder]`
-  - L0576 `SiteRunner._scrape_listing_urls` `[private]` — Phase 73: same scrape logic as /api/scrape_listing endpoint —
-  - L0668 `SiteRunner.update_config` — Swap in a new config dict and restart the scheduler so the
-  - L0676 `SiteRunner.set_cookies_from_file` — Load Playwright-format cookies from `path` into this runner.
-  - L0689 `SiteRunner.set_cookies` — Replace the runner's cookie list in memory and bump the
-  - L0698 `SiteRunner.cookie_info` — Return a snapshot dict describing cookie health for the UI:
-  - L0736 `SiteRunner.start`
-  - L0999 `SiteRunner._watchdog_loop` `[private]` — v3.43.24: monitor worker heartbeats. Threads should stamp
-  - L1048 `SiteRunner._effective_concurrency` `[private]` — Phase 64 (v3.41.0): bandwidth-aware concurrency. If
-  - L1126 `SiteRunner.pause` — Pause the worker pool. Workers finish the URL they're currently
-  - L1141 `SiteRunner.resume` — Resume from paused / paused_no_button / low_disk states.
-  - L1151 `SiteRunner.stop`
-  - L1234 `SiteRunner.get_status` — Return runner state. With `light=True`, omit `jobs` and
-  - L1337 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
-  - L1354 `SiteRunner.state`
-  - L1356 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
-  - L1383 `SiteRunner._update_job` `[private]` — Central state-mutation: change a job's status/message, log
-  - L1851 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
-  - L1880 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
-  - L1927 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
-  - L1985 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
-  - L2065 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
-  - L2395 `SiteRunner._process_one` `[private]` — Process a single URL.
+- L0389 `StartOutcome` `[class]` — Exceptional public outcomes from ``start()``.
+- L0401 `_run_lifecycle_serialized` `[private]` — Serialize public run transitions through one re-entrant lock.
+- L0419 `SiteRunner` `[class]`
+  - L0424 `SiteRunner.__init__` `[dunder]`
+  - L0633 `SiteRunner._scrape_listing_urls` `[private]` — Phase 73: same scrape logic as /api/scrape_listing endpoint —
+  - L0725 `SiteRunner.update_config` — Swap in a new config dict and restart the scheduler so the
+  - L0733 `SiteRunner.set_cookies_from_file` — Load Playwright-format cookies from `path` into this runner.
+  - L0746 `SiteRunner.set_cookies` — Replace the runner's cookie list in memory and bump the
+  - L0755 `SiteRunner.cookie_info` — Return a snapshot dict describing cookie health for the UI:
+  - L0793 `SiteRunner.start`
+  - L0845 `SiteRunner._start_serialized` `[private]`
+  - L1136 `SiteRunner._publish_watchdog_snapshot` `[private]` — Publish only a still-current heartbeat snapshot for this run.
+  - L1146 `SiteRunner._watchdog_loop` `[private]` — v3.43.24: monitor worker heartbeats. Threads should stamp
+  - L1207 `SiteRunner._effective_concurrency` `[private]` — Phase 64 (v3.41.0): bandwidth-aware concurrency. If
+  - L1285 `SiteRunner.pause` — Pause the worker pool. Workers finish the URL they're currently
+  - L1300 `SiteRunner.resume` — Resume from paused / paused_no_button / low_disk states.
+  - L1311 `SiteRunner.stop`
+  - L1411 `SiteRunner._current_throughput_bps` `[private]` — Sum recent byte rates for jobs that are still running.
+  - L1435 `SiteRunner.get_status` — Return runner state. With `light=True`, omit `jobs` and
+  - L1537 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
+  - L1554 `SiteRunner.state`
+  - L1556 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
+  - L1583 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
+  - L1590 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
+  - L1597 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
+  - L1612 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
+  - L2120 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
+  - L2149 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
+  - L2196 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
+  - L2254 `SiteRunner._worker_generation_is_current` `[private]`
+  - L2258 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
+  - L2319 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
+  - L2379 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
+  - L2411 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
+  - L2442 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
+  - L2462 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
+  - L2471 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
+  - L2496 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
+  - L2517 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
+  - L2894 `SiteRunner._process_one` `[private]` — Process a single URL.
 ```
 
 
@@ -259,38 +275,39 @@ Schema version: 2
 - L0534 `ManualMixin` `[class]`
   - L0535 `ManualMixin.start_manual_download` — Phase 41.3: open a non-headless Chromium at `target_url` with
   - L0573 `ManualMixin.finish_manual_download` — User clicked 'Done' on the download takeover. Harvest the
-  - L0651 `ManualMixin.cancel_manual_download` — User clicked Cancel. Close the session, no learning.
-  - L0676 `ManualMixin.is_awaiting_manual_download`
+  - L0655 `ManualMixin.cancel_manual_download` — User clicked Cancel. Close the session, no learning.
+  - L0681 `ManualMixin.is_awaiting_manual_download`
 ```
 
 
-## `bulk_downloader/runner_challenge.py` (6 entries)
+## `bulk_downloader/runner_challenge.py` (7 entries)
 
 ```
 - L0013 `ChallengeMixin` `[class]`
-  - L0014 `ChallengeMixin._handle_captcha_check` `[private]` — Phase 7.2: detect a visible captcha on the current page, try
-  - L0072 `ChallengeMixin._has_captcha` `[private]` — Phase 7.2: quick check for visible captcha widgets on the page.
-  - L0086 `ChallengeMixin._try_turnstile_solve` `[private]` — Backward-compat alias for _try_captcha_solve. The name
-  - L0092 `ChallengeMixin._try_captcha_solve` `[private]` — v3.43.39: type-aware captcha solving. Detects whether
-  - L0190 `ChallengeMixin._try_turnstile_solve_LEGACY` `[private]` — Phase 15.10: solve a Cloudflare Turnstile challenge via 2captcha.
+  - L0014 `ChallengeMixin._record_captcha_encounter` `[private]` — Record one detected challenge and retain exactly 24 hours.
+  - L0031 `ChallengeMixin._handle_captcha_check` `[private]` — Phase 7.2: detect a visible captcha on the current page, try
+  - L0090 `ChallengeMixin._has_captcha` `[private]` — Phase 7.2: quick check for visible captcha widgets on the page.
+  - L0104 `ChallengeMixin._try_turnstile_solve` `[private]` — Backward-compat alias for _try_captcha_solve. The name
+  - L0110 `ChallengeMixin._try_captcha_solve` `[private]` — v3.43.39: type-aware captcha solving. Detects whether
+  - L0208 `ChallengeMixin._try_turnstile_solve_LEGACY` `[private]` — Phase 15.10: solve a Cloudflare Turnstile challenge via 2captcha.
 ```
 
 
 ## `bulk_downloader/runner_teach.py` (12 entries)
 
 ```
-- L0030 `_draft_override_is_fresh` `[private]` — True iff ``ov`` is a usable, non-expired draft-test override dict.
-- L0050 `TeachMixin` `[class]`
-  - L0051 `TeachMixin._teach_base_url` `[private]` — The URL the takeover browser uses to hit teach_* endpoints. The
-  - L0061 `TeachMixin.teach_verify` — Phase 10: dry-run picked selectors against the page that's
-  - L0074 `TeachMixin.teach_test_download` — v3.43.0: extend Verify by actually fetching ~2 MB of the URL
-  - L0083 `TeachMixin.teach_commit` — Phase 10: persist the user's picked selectors and close the
-  - L0168 `TeachMixin.teach_cancel` — Same as cancel_manual_download but uses a cleaner status
-  - L0194 `TeachMixin._recover_selector` `[private]` — v3.43.73: when all learned selectors fail at runtime, attempt
-  - L0242 `TeachMixin._draft_override_template` `[private]` — B2 (v3.66.240): the per-site draft-test override template, or None.
-  - L0256 `TeachMixin._override_suppresses_persist` `[private]` — B2 (Decision 2): True when a draft-test override is active AND its
-  - L0269 `TeachMixin._persist_learned_to_draft` `[private]` — B2 (Decision 2, persist toggle ON): copy this run's learned block
-  - L0302 `TeachMixin._handle_auto_teach_check` `[private]` — Phase 19 auto-teach for the first URL: if the site has no learned
+- L0031 `_draft_override_is_fresh` `[private]` — True iff ``ov`` is a usable, non-expired draft-test override dict.
+- L0051 `TeachMixin` `[class]`
+  - L0052 `TeachMixin._teach_base_url` `[private]` — The URL the takeover browser uses to hit teach_* endpoints. The
+  - L0062 `TeachMixin.teach_verify` — Phase 10: dry-run picked selectors against the page that's
+  - L0075 `TeachMixin.teach_test_download` — v3.43.0: extend Verify by actually fetching ~2 MB of the URL
+  - L0084 `TeachMixin.teach_commit` — Phase 10: persist the user's picked selectors and close the
+  - L0173 `TeachMixin.teach_cancel` — Same as cancel_manual_download but uses a cleaner status
+  - L0200 `TeachMixin._recover_selector` `[private]` — v3.43.73: when all learned selectors fail at runtime, attempt
+  - L0248 `TeachMixin._draft_override_template` `[private]` — B2 (v3.66.240): the per-site draft-test override template, or None.
+  - L0262 `TeachMixin._override_suppresses_persist` `[private]` — B2 (Decision 2): True when a draft-test override is active AND its
+  - L0275 `TeachMixin._persist_learned_to_draft` `[private]` — B2 (Decision 2, persist toggle ON): copy this run's learned block
+  - L0308 `TeachMixin._handle_auto_teach_check` `[private]` — Phase 19 auto-teach for the first URL: if the site has no learned
 ```
 
 
@@ -315,11 +332,11 @@ Schema version: 2
   - L0028 `AccountsMixin.rl_remaining` — Render the rate-limit cooldown remaining as a short human
   - L0036 `AccountsMixin._fire_site_hook` `[private]` — v3.66.470: fire an in-process plugin hook for a site state
   - L0047 `AccountsMixin.trigger_rate_limit`
-  - L0085 `AccountsMixin._get_active_account` `[private]` — Return the currently-active (username, password, cookie_file)
-  - L0107 `AccountsMixin._rotate_account_if_available` `[private]` — Advance to the next account whose cooldown has elapsed.
-  - L0207 `AccountsMixin._persist_account_state` `[private]` — Save the accounts array (with updated cooldown_until values)
-  - L0216 `AccountsMixin._persist_pool_state` `[private]` — v3.43.35: merge the account pool's per-slot health state
-  - L0245 `AccountsMixin._wait_rl_autostart` `[private]`
+  - L0092 `AccountsMixin._get_active_account` `[private]` — Return the currently-active (username, password, cookie_file)
+  - L0114 `AccountsMixin._rotate_account_if_available` `[private]` — Advance to the next account whose cooldown has elapsed.
+  - L0214 `AccountsMixin._persist_account_state` `[private]` — Save the accounts array (with updated cooldown_until values)
+  - L0223 `AccountsMixin._persist_pool_state` `[private]` — v3.43.35: merge the account pool's per-slot health state
+  - L0252 `AccountsMixin._wait_rl_autostart` `[private]`
 ```
 
 
@@ -349,19 +366,19 @@ Schema version: 2
   - L0050 `SchedulerMixin._auto_retry_loop` `[private]` — Scan for retry-eligible jobs every 60s. Bumps stuck
   - L0078 `SchedulerMixin._scan_subscriptions` `[private]` — Phase 73 (v3.41.0): RSS-style URL subscriptions. Each subscription
   - L0149 `SchedulerMixin._auto_retry_scan` `[private]` — One scan pass. Reads config flags inside the loop so toggle
-  - L0276 `SchedulerMixin._maybe_drift_recover` `[private]` — If learned download selectors are missing more than they hit,
-  - L0301 `SchedulerMixin._load_rl` `[private]`
-  - L0313 `SchedulerMixin._save_rl` `[private]`
-  - L0328 `SchedulerMixin._clear_rl` `[private]`
-  - L0332 `SchedulerMixin._next_sched_dt` `[private]`
-  - L0342 `SchedulerMixin.sched_next_str` — Render the next scheduled-run time as a short human string for
-  - L0352 `SchedulerMixin.start_scheduler` — Spawn the scheduler thread if `sched_enabled` is True. Idempotent
-  - L0363 `SchedulerMixin.stop_scheduler` — Signal the scheduler thread to exit and wait up to 12s for it.
-  - L0375 `SchedulerMixin._sched_loop` `[private]` — Scheduler thread body. Waits until the configured sched_time,
+  - L0282 `SchedulerMixin._maybe_drift_recover` `[private]` — If learned download selectors are missing more than they hit,
+  - L0307 `SchedulerMixin._load_rl` `[private]`
+  - L0319 `SchedulerMixin._save_rl` `[private]`
+  - L0334 `SchedulerMixin._clear_rl` `[private]`
+  - L0338 `SchedulerMixin._next_sched_dt` `[private]`
+  - L0348 `SchedulerMixin.sched_next_str` — Render the next scheduled-run time as a short human string for
+  - L0358 `SchedulerMixin.start_scheduler` — Spawn the scheduler thread if `sched_enabled` is True. Idempotent
+  - L0369 `SchedulerMixin.stop_scheduler` — Signal the scheduler thread to exit and wait up to 12s for it.
+  - L0381 `SchedulerMixin._sched_loop` `[private]` — Scheduler thread body. Waits until the configured sched_time,
 ```
 
 
-## `bulk_downloader/runner_telemetry.py` (13 entries)
+## `bulk_downloader/runner_telemetry.py` (14 entries)
 
 ```
 - L0022 `TelemetryMixin` `[class]`
@@ -375,33 +392,36 @@ Schema version: 2
   - L0239 `TelemetryMixin._pick_fastest_mirror` `[private]` — Phase 69 (v3.41.0): speculative mirror failover. Fire concurrent
   - L0318 `TelemetryMixin._build_mirror_urls` `[private]` — Generate alternate URLs to try when the primary CDN fails.
   - L0359 `TelemetryMixin._classify_error` `[private]` — Phase 6.3: classify a failure message into a retry category.
-  - L0382 `TelemetryMixin._handle_failure` `[private]` — Central failure handler. Classifies the error message into one of
-  - L0426 `TelemetryMixin._screenshot` `[private]` — Save a viewport screenshot of `page` to a deterministic filename
+  - L0382 `TelemetryMixin._handle_failure` `[private]` — Fence all worker failure side effects within one run transaction.
+  - L0406 `TelemetryMixin._handle_failure_current` `[private]` — Central failure handler. Classifies the error message into one of
+  - L0453 `TelemetryMixin._screenshot` `[private]` — Save a viewport screenshot of `page` to a deterministic filename
 ```
 
 
-## `bulk_downloader/runner_queue.py` (19 entries)
+## `bulk_downloader/runner_queue.py` (21 entries)
 
 ```
-- L0037 `QueueMixin` `[class]`
-  - L0038 `QueueMixin._restore_queue` `[private]` — Load persisted queue rows and rebuild self.urls / self.jobs.
-  - L0080 `QueueMixin.load_urls` — Phase 7.4: when folder_scan=True, walk the configured download_dir
-  - L0307 `QueueMixin.reorder_urls`
-  - L0319 `QueueMixin.set_priority`
-  - L0329 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
-  - L0347 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
-  - L0376 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
-  - L0402 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
-  - L0425 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
-  - L0444 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
-  - L0464 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
-  - L0488 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
-  - L0534 `QueueMixin.clear_completed` — Drop URLs in `done` or `stopped` status from both the in-memory
-  - L0546 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
-  - L0560 `QueueMixin.retry`
-  - L0562 `QueueMixin.clear`
-  - L0564 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
-  - L0570 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
+- L0041 `job_status_writer` — Guard an eligibility/completion mutation and invalidate its token.
+- L0071 `QueueMixin` `[class]`
+  - L0072 `QueueMixin._job_status_writer` `[private]`
+  - L0075 `QueueMixin._restore_queue` `[private]` — Load persisted queue rows and rebuild self.urls / self.jobs.
+  - L0117 `QueueMixin.load_urls` — Phase 7.4: when folder_scan=True, walk the configured download_dir
+  - L0350 `QueueMixin.reorder_urls`
+  - L0362 `QueueMixin.set_priority`
+  - L0372 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
+  - L0390 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
+  - L0421 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
+  - L0449 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
+  - L0474 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
+  - L0495 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
+  - L0517 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
+  - L0541 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
+  - L0587 `QueueMixin.clear_completed` — Drop URLs in `done` or `stopped` status from both the in-memory
+  - L0601 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
+  - L0617 `QueueMixin.retry`
+  - L0619 `QueueMixin.clear`
+  - L0621 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
+  - L0627 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
 ```
 
 
@@ -461,26 +481,27 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_transport.py` (17 entries)
+## `bulk_downloader/runner_transport.py` (18 entries)
 
 ```
 - L0069 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
-- L0089 `TransportMixin` `[class]`
-  - L0090 `TransportMixin._download_proxy_url` `[private]` — Effective proxy URL for this site's in-process payload downloads.
-  - L0132 `TransportMixin._do_direct_http_download` `[private]` — Simple httpx GET → file. Used by library extractor for non-HLS
-  - L0257 `TransportMixin._try_multi_conn_download` `[private]` — v3.43.74: probe the URL and, if viable, run a parallel
-  - L0432 `TransportMixin._looks_like_media` `[private]` — BP-VH1: True if the response is plausibly downloadable MEDIA, by
-  - L0465 `TransportMixin._probe_outcome` `[private]` — BP-VH1: map a probe result to one of done | non_media | fail.
-  - L0471 `TransportMixin._integrity_size_ok` `[private]` — BP-INT (v3.66.284): True if the received byte count satisfies the
-  - L0481 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
-  - L0505 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
-  - L0598 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
-  - L1066 `TransportMixin._http_download` `[private]` — Stream the file URL to disk via httpx, with progress updates,
-  - L1494 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
-  - L1541 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
-  - L1878 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
-  - L1911 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
-  - L1935 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
+- L0089 `_closeable_response_context` `[private]` — Turn a closeable HTTP response into a context manager.
+- L0101 `TransportMixin` `[class]`
+  - L0102 `TransportMixin._download_proxy_url` `[private]` — Effective proxy URL for this site's in-process payload downloads.
+  - L0144 `TransportMixin._do_direct_http_download` `[private]` — Simple httpx GET → file. Used by library extractor for non-HLS
+  - L0271 `TransportMixin._try_multi_conn_download` `[private]` — v3.43.74: probe the URL and, if viable, run a parallel
+  - L0456 `TransportMixin._looks_like_media` `[private]` — BP-VH1: True if the response is plausibly downloadable MEDIA, by
+  - L0489 `TransportMixin._probe_outcome` `[private]` — BP-VH1: map a probe result to one of done | non_media | fail.
+  - L0495 `TransportMixin._integrity_size_ok` `[private]` — BP-INT (v3.66.284): True if the received byte count satisfies the
+  - L0505 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
+  - L0529 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
+  - L0622 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
+  - L1090 `TransportMixin._http_download` `[private]` — Stream the file URL to disk via httpx, with progress updates,
+  - L1518 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
+  - L1565 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
+  - L1903 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
+  - L1936 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
+  - L1960 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
 ```
 
 
@@ -660,4 +681,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 484 across 22 files._
+_Total entries: 505 across 22 files._

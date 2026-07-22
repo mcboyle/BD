@@ -136,10 +136,13 @@ def render_md(data):
     parts = [f"# {title}", ""]
     if meta.get("generated_note"):
         parts += [f"*{meta['generated_note']}*", ""]
-    totals = f"**Totals:** {n_inc} incomplete · {n_comp} completed."
+    grand_total = n_inc + n_comp + len(awaiting) + len(decided)
+    totals = f"**Totals:** {n_inc} incomplete · {n_comp} completed"
     if awaiting:
-        totals = (f"**Totals:** {n_inc} incomplete · {n_comp} completed · "
-                  f"{len(awaiting)} awaiting operator.")
+        totals += f" · {len(awaiting)} awaiting operator"
+    if decided:
+        totals += f" · {len(decided)} decided against"
+    totals += f" · {grand_total} total."
     if meta.get("live_on_stash"):
         gate = f" ({meta['gate_line']})" if meta.get("gate_line") else ""
         totals += f" **Live on stash:** {meta['live_on_stash']}{gate}."
@@ -162,7 +165,7 @@ def render_md(data):
     if decided:
         parts += ["## Decided against (closed by decision — the reason IS the artifact)",
                   "", _md_table(DECIDED_COLS, decided), ""]
-    return "\n".join(parts) + "\n"
+    return "\n".join(parts).rstrip() + "\n"
 
 
 def render_xlsx(data, path):
@@ -317,10 +320,14 @@ def render_xlsx(data, path):
         ws_s.cell(row=r, column=1).alignment = WRAP
     srow([])
     section("Totals")
+    grand_total = n_inc + len(awaiting) + n_comp + len(decided)
     _total_rows = [("Incomplete items", n_inc)]
     if awaiting:
         _total_rows.append(("Awaiting operator", len(awaiting)))
     _total_rows.append(("Completed items", n_comp))
+    if decided:
+        _total_rows.append(("Decided against", len(decided)))
+    _total_rows.append(("Grand total", grand_total))
     for lbl, n in _total_rows:
         r = srow([lbl, n])
         ws_s.cell(row=r, column=2).font = Font(bold=True)
@@ -383,11 +390,14 @@ def _xlsx_signature(path):
     cell-value rows. Avoids brittle byte-compare (zip mtimes/ordering)."""
     import openpyxl
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
-    sig = {}
-    for s in wb.sheetnames:
-        sig[s] = [tuple("" if c is None else str(c) for c in row)
-                  for row in wb[s].iter_rows(values_only=True)]
-    return sig
+    try:
+        sig = {}
+        for s in wb.sheetnames:
+            sig[s] = [tuple("" if c is None else str(c) for c in row)
+                      for row in wb[s].iter_rows(values_only=True)]
+        return sig
+    finally:
+        wb.close()
 
 
 def check(d):
@@ -506,12 +516,14 @@ def status(d):
     inc = data.get("incomplete", []) or []
     comp = data.get("completed", []) or []
     awaiting = data.get("awaiting_operator", []) or []
-    total = len(inc) + len(comp) + len(awaiting)
+    decided = data.get("decided_against", []) or []
+    total = len(inc) + len(comp) + len(awaiting) + len(decided)
     n_inc, n_comp, sandbox, tier = _rollups(inc, comp)
     print(f"  TASK TRACKER STATUS ({DATA_NAME})")
     print(f"    incomplete:        {len(inc)}")
     print(f"    awaiting-operator: {len(awaiting)}")
     print(f"    completed:         {len(comp)}")
+    print(f"    decided-against:   {len(decided)}")
     print(f"    total:             {total}")
     if sandbox:
         print("    incomplete by Sandbox-able?: "

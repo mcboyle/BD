@@ -88,7 +88,10 @@ def _gates_what(funcs, lineno):
 
 
 def _scan_file(path: Path, root: Path):
-    rel = os.path.relpath(path, root)
+    # Persist repository paths in one cross-platform form. os.path.relpath()
+    # emitted backslashes on Windows, making a locally generated index fail
+    # the same gate on Linux (and vice versa).
+    rel = path.resolve().relative_to(root.resolve()).as_posix()
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
     except (SyntaxError, UnicodeDecodeError):

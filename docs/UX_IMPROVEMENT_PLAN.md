@@ -5,6 +5,12 @@ in-page filter tabs + full 7,631px Settings, in **both** light and dark. Harness
 `spa_render.sh` / `spa_tabs.py` / `subtabs_cap.py` / `subtabs_click.py` (theme-aware via
 `BD_THEME`). All renders against the live backend on `127.0.0.1:5599`, empty instance.
 
+> **Current status (2026-07-21): HISTORICAL BASELINE.** Later Phase 6 work
+> shipped across v3.66.361-363 and supersedes this document's START HERE and
+> future-tense status labels. Keep the design/validation rationale for history;
+> use `CHANGELOG.md`, `docs/PHASE6_PLAN.md`, and the canonical tracker for current
+> status.
+
 **Release-risk (whole plan):** non-guard, non-route, **frontend-only** (`frontend/src/**`
 + `index.css`). Ships via the normal overlay — no in-sync doc regen, none of the 7 release
 guards touched, no `@app.route` change. `/api/dashboard/v2` is shared (Home + Dashboard) and

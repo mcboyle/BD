@@ -31,7 +31,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
-# [SAST 3:13pm 13 may] removed unused: import threading
+import threading
 # [SAST 3:13pm 13 may] removed unused: import time
 from unittest.mock import patch, MagicMock
 
@@ -370,6 +370,121 @@ class TestMultiConnResultShape:
         for f in ("ok", "content_length", "accept_ranges",
                   "final_url", "server", "error"):
             assert hasattr(r, f)
+
+
+def test_multi_conn_progress_counts_unique_bytes_across_chunk_retry(
+        monkeypatch, tmp_path):
+    """Retry traffic is bandwidth, but not new logical output progress."""
+    from bulk_downloader import multi_conn as m
+
+    class Response:
+        status_code = 206
+
+        def __init__(self, chunks):
+            self._chunks = chunks
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def iter_bytes(self, buffer_size):
+            yield from self._chunks
+
+    responses = iter((Response([b"ab"]), Response([b"ab", b"cd"])))
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def stream(self, *args, **kwargs):
+            return next(responses)
+
+    fake_httpx = type("Httpx", (), {"Client": Client})
+    monkeypatch.setitem(sys.modules, "httpx", fake_httpx)
+    monkeypatch.setattr(m, "is_available", lambda: True)
+    monkeypatch.setattr(m, "_guard_url", lambda url: (True, ""))
+    logical_progress = []
+    network_deltas = []
+
+    result = m.download(
+        "https://cdn.test/v.mp4", str(tmp_path / "v.mp4"),
+        content_length=4, chunk_count=1, chunk_retries=1,
+        progress_cb=lambda got, total: logical_progress.append((got, total)),
+        bytes_callback=network_deltas.append,
+    )
+
+    assert result.ok is True
+    assert logical_progress == [(2, 4), (4, 4)]
+    assert network_deltas == [2, 2, 2]
+
+
+def test_multi_conn_progress_publication_is_monotonic_across_threads(
+        monkeypatch, tmp_path):
+    from bulk_downloader import multi_conn as m
+
+    class Response:
+        status_code = 206
+
+        def __init__(self, chunks):
+            self._chunks = chunks
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def iter_bytes(self, buffer_size):
+            yield from self._chunks
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def stream(self, method, url, *, headers):
+            if headers["Range"] == "bytes=0-1":
+                return Response([b"a", b"b"])
+            return Response([b"cd"])
+
+    fake_httpx = type("Httpx", (), {"Client": Client})
+    monkeypatch.setitem(sys.modules, "httpx", fake_httpx)
+    monkeypatch.setattr(m, "is_available", lambda: True)
+    monkeypatch.setattr(m, "_guard_url", lambda url: (True, ""))
+    release_first = threading.Event()
+    published = []
+
+    def bandwidth(delta):
+        if delta == 1 and not release_first.is_set():
+            assert release_first.wait(2.0)
+
+    def progress(got, total):
+        published.append(got)
+        if got >= 3:
+            release_first.set()
+
+    result = m.download(
+        "https://cdn.test/v.mp4", str(tmp_path / "v.mp4"),
+        content_length=4, chunk_count=2,
+        progress_cb=progress, bytes_callback=bandwidth,
+    )
+
+    assert result.ok is True
+    assert published == sorted(published)
+    assert published[-1] == 4
 
 
 class TestMultiConnSparseAllocate:

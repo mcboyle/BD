@@ -180,7 +180,8 @@ class SchedulerMixin:
         # Pending side-effects collected inside the lock, run after.
         # Each entry: (url, message, prior_status, attempt, failure_class)
         side_effects = []
-        with self._lock:
+        with self._job_status_writer() as mark_status_changed:
+            mutated = False
             for url, j in self.jobs.items():
                 st = j.get("status", "")
                 if st == "needs_review":
@@ -209,6 +210,7 @@ class SchedulerMixin:
                         # — log it ONCE so the user can see why it's
                         # not retrying, then mark to skip future scans.
                         j["next_auto_retry_at"] = -1  # sentinel: never
+                        mutated = True
                     continue
                 # Determine delay
                 if use_classify and _rp is not None:
@@ -226,6 +228,7 @@ class SchedulerMixin:
                 if next_at == 0:
                     # First time seeing this stuck job — set the timer
                     j["next_auto_retry_at"] = now + delay
+                    mutated = True
                     continue
                 if next_at < 0: continue   # sentinel for "permanent, give up"
                 if now < next_at: continue
@@ -260,6 +263,9 @@ class SchedulerMixin:
                     now + next_delay if next_delay > 0 else -1)
                 side_effects.append(
                     (url, msg, st, attempt, fail_class))
+                mutated = True
+            if mutated:
+                mark_status_changed()
         # Release lock before doing SQLite + logging — these can be slow
         for url, msg, prior_status, attempt, fail_class in side_effects:
             try:

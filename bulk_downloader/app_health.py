@@ -43,6 +43,19 @@ def _app__app_boot_time():
     return getattr(importlib.import_module("bulk_downloader.app"), "_app_boot_time")
 
 
+def _runner_queue_counts(status: dict) -> tuple[int, int]:
+    """Return pending/running counts from current or legacy runner status."""
+    counts = status.get("counts")
+    if not isinstance(counts, dict):
+        counts = {}
+    pending = counts.get("pending")
+    running = counts.get("running")
+    return (
+        int((status.get("queued") if pending is None else pending) or 0),
+        int((status.get("active") if running is None else running) or 0),
+    )
+
+
 @health_bp.route("/api/health")
 def api_health():
     _app_boot_time = _app__app_boot_time()
@@ -62,8 +75,9 @@ def api_health():
         for r in runners.values():
             try:
                 st = r.get_status(light=True)
-                total_queued += int(st.get("queued") or 0)
-                total_active += int(st.get("active") or 0)
+                pending, running = _runner_queue_counts(st)
+                total_queued += pending
+                total_active += running
             except Exception:
                 # Per-runner status failure shouldn't fail the health probe
                 # itself — we report what we can and flag the discrepancy.
@@ -132,8 +146,9 @@ def api_health_v2():
         for r in runners.values():
             try:
                 st = r.get_status(light=True)
-                total_queued += int(st.get("queued") or 0)
-                total_active += int(st.get("active") or 0)
+                pending, running = _runner_queue_counts(st)
+                total_queued += pending
+                total_active += running
             except Exception:
                 payload["ok"] = False
                 payload.setdefault("degraded", "runner_status_error")

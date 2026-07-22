@@ -6,10 +6,11 @@
   "confidence": "high",
   "match": {
     "hosts": [
-      "www.filthykings.com"
+      "www.filthykings.com",
+      "members.filthykings.com"
     ],
     "url_patterns": [
-      "^https://www\\.filthykings\\.com/"
+      "^https://(?:www|members)\\.filthykings\\.com/"
     ]
   },
   "selectors": {

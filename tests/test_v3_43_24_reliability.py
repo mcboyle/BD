@@ -237,6 +237,10 @@ def test_runner_init_creates_heartbeat_state():
     so the watchdog can safely read them at startup."""
     src = _RUNNER_PY.read_text(encoding="utf-8")
     assert "self._worker_heartbeats = {}" in src
+    assert "self._worker_current_urls = {}" in src
+    assert "self._worker_url_generations = {}" in src
+    assert "self._worker_run_generation = 0" in src
+    assert "self._job_progress_samples = {}" in src
     assert "self._worker_heartbeats_lock = threading.Lock()" in src
     assert "self._hung_workers = []" in src
 
@@ -244,7 +248,7 @@ def test_runner_init_creates_heartbeat_state():
 def test_worker_loop_stamps_heartbeat():
     """The watchdog can't detect hangs if workers don't stamp."""
     src = _RUNNER_PY.read_text(encoding="utf-8")
-    wl_start = src.find("def _worker_loop(self, worker_idx=0)")
+    wl_start = src.find("def _worker_loop(")
     assert wl_start > 0
     wl_body = src[wl_start:wl_start + 5000]
     assert "self._worker_heartbeats[worker_idx] = time.time()" in wl_body, (
@@ -252,12 +256,32 @@ def test_worker_loop_stamps_heartbeat():
     )
 
 
+def test_streaming_progress_paths_report_advancing_file_size():
+    """Every byte-streaming path must feed the central liveness seam."""
+    src = _RUNNER_PY.read_text(encoding="utf-8")
+
+    direct_start = src.find("def _do_direct_http_download(")
+    direct_end = src.find("def _try_multi_conn_download(", direct_start)
+    direct_body = src[direct_start:direct_end]
+    assert "file_size=got" in direct_body
+
+    multi_start = direct_end
+    multi_end = src.find("\n    def ", multi_start + 4)
+    multi_body = src[multi_start:multi_end]
+    assert "file_size=got" in multi_body
+
+    sequential_start = src.find("def _http_download(")
+    sequential_end = src.find("\n    def ", sequential_start + 4)
+    sequential_body = src[sequential_start:sequential_end]
+    assert "file_size=downloaded" in sequential_body
+
+
 def test_watchdog_loop_method_exists():
     """The watchdog body must exist as a SiteRunner method."""
     src = _RUNNER_PY.read_text(encoding="utf-8")
-    assert "def _watchdog_loop(self)" in src
+    assert "def _watchdog_loop(" in src
     # 15-minute threshold (configurable in code; verify the constant)
-    wd_start = src.find("def _watchdog_loop(self)")
+    wd_start = src.find("def _watchdog_loop(")
     wd_body = src[wd_start:wd_start + 2500]
     assert "HUNG_THRESHOLD_S = 15 * 60" in wd_body
 

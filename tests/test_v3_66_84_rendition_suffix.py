@@ -16,11 +16,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from bulk_downloader import capture_workbench as wb
 from bulk_downloader.capture_synth import synthesize
+from capture_test_fixtures import capture_fixture_lane
 
-U = "/mnt/user-data/uploads/"
+_FIXTURES = capture_fixture_lane()
 
 
 def _load(p):
+    p = os.fspath(p)
     if p.endswith(".json"):
         return json.load(open(p))
     with zipfile.ZipFile(p) as z:
@@ -58,9 +60,10 @@ class TestNoFalsePositives:
 class TestNubileNowCorrect:
     def test_slug_identity_filename_rendition(self):
         a, b = "nubile_title1_cap1.wacz", "nubile_title1_cap2.wacz"
-        if not (os.path.exists(U + a) and os.path.exists(U + b)):
+        if not _FIXTURES.has(a, b):
             pytest.skip("captures not present")
-        sk = wb.build_workbench(synthesize(_load(U + a), _load(U + b))).to_dict()["skeleton"]
+        sk = wb.build_workbench(synthesize(
+            _load(_FIXTURES.path(a)), _load(_FIXTURES.path(b)))).to_dict()["skeleton"]
         ids = [s["sample"] for s in sk["skeleton_slots"] if s["role"] == "identity"]
         rends = [s["sample"] for s in sk["skeleton_slots"] if s["role"] == "rendition"]
         # the slug is the lone identity; the resolution-suffixed filename is a rendition

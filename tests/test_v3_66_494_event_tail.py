@@ -241,7 +241,7 @@ def test_queue_drained_and_update_job_wired_in_source():
     """Structural backstop: the runner.py emits survive a refactor."""
     src = _RUNNER_PY.read_text(encoding="utf-8")
     # _update_job body carries both download emits
-    uj = src.find("def _update_job")
+    uj = src.find("def _update_job_current")
     nxt = src.find("\n    def ", uj + 1)
     body = src[uj:nxt]
     assert 'emit("download.progress"' in body

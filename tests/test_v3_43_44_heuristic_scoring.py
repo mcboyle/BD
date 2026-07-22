@@ -571,8 +571,9 @@ def test_runner_update_job_calls_fingerprint_update():
     """On status=done, _update_job must fold the URL into the
     per-site fingerprint via heuristic_scoring."""
     src = _RUNNER_PY.read_text(encoding="utf-8")
-    pos = src.find("def _update_job")
-    body = src[pos:pos + 3500]
+    pos = src.find("def _update_job_current")
+    nxt = src.find("\n    def ", pos + 1)
+    body = src[pos:nxt]
     assert "heuristic_scoring" in body
     assert "update_fingerprint_from_success" in body
     assert "url_fingerprint" in body
@@ -582,8 +583,9 @@ def test_runner_fingerprint_update_failopen():
     """Scoring failures must NOT propagate out of _update_job — a
     bug in scoring code shouldn't break the queue."""
     src = _RUNNER_PY.read_text(encoding="utf-8")
-    pos = src.find("def _update_job")
-    body = src[pos:pos + 4000]
+    pos = src.find("def _update_job_current")
+    nxt = src.find("\n    def ", pos + 1)
+    body = src[pos:nxt]
     # The fingerprint block is wrapped in try/except
     assert "Never let scoring code break the queue" in body
 

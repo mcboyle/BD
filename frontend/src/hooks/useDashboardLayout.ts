@@ -57,6 +57,14 @@ export const LEGACY_WIDGET_IDS = WIDGET_IDS;
 
 export type WidgetId = (typeof WIDGET_IDS)[number];
 
+// Catalog IDs are also used as react-grid-layout keys. The catalog's
+// `throughput` KPI shares an ID with the legacy ThroughputSparkline, so give
+// only colliding KPI tiles a stable layout alias while keeping selection and
+// API persistence on the canonical catalog ID.
+export function kpiLayoutId(id: string): string {
+  return LEGACY_WIDGET_IDS.includes(id as WidgetId) ? `kpi-${id}` : id;
+}
+
 // B-3: the global storage key. Per-site overrides use
 // `${GLOBAL_STORAGE_KEY}-${siteId}` — see resolveStorageKey().
 const GLOBAL_STORAGE_KEY = "bd-dashboard-layout";
@@ -196,14 +204,15 @@ function readStored(storageKey: string): Layouts | null {
 // useWidgetSelection). Without it, KPI widgets would be reconciled
 // away every render — defeating the picker.
 function reconcile(stored: Layout[], defaults: Layout[], extraIds: string[] = [], kpiW: number = KPI_DEFAULT_WIDTH_LG): Layout[] {
+  const extraLayoutIds = extraIds.map(kpiLayoutId);
   const known = new Set<string>([
     ...LEGACY_WIDGET_IDS,
-    ...KPI_WIDGET_IDS,
+    ...Array.from(KPI_WIDGET_IDS, kpiLayoutId),
   ]);
   // The full set of IDs that SHOULD be in the layout: legacy 5 +
   // whatever's in the current KPI selection. Anything in storage
   // outside this set gets dropped (renamed or removed widgets).
-  const desired = new Set<string>([...LEGACY_WIDGET_IDS, ...extraIds]);
+  const desired = new Set<string>([...LEGACY_WIDGET_IDS, ...extraLayoutIds]);
   const storedKeys = new Set(stored.map((s) => s.i));
   // Keep stored entries that are still canonical AND still desired.
   const kept = stored.filter((s) => known.has(s.i) && desired.has(s.i));
@@ -215,8 +224,8 @@ function reconcile(stored: Layout[], defaults: Layout[], extraIds: string[] = []
   // KPI extras stack below.
   const missingLegacy = defaults
     .filter((d) => !storedKeys.has(d.i) && desired.has(d.i));
-  const missingKpi = extraIds
-    .filter((id) => !storedKeys.has(id) && !LEGACY_WIDGET_IDS.includes(id as WidgetId));
+  const missingKpi = extraLayoutIds
+    .filter((id) => !storedKeys.has(id));
 
   const appendedLegacy = missingLegacy.map((d, i) => ({
     ...d,

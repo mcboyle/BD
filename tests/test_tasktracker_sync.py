@@ -18,6 +18,14 @@ def _load():
     return mod
 
 
+def _have_openpyxl():
+    try:
+        import openpyxl  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def _make_xlsx(path, inc_ids, comp_ids):
     import openpyxl
     wb = openpyxl.Workbook()
@@ -87,3 +95,59 @@ def test_regen_makes_md_match_xlsx():
     assert m.check(str(d)) == 1          # mismatched before
     assert m.regen(str(d)) == 0          # regenerate md from xlsx
     assert m.check(str(d)) == 0          # now in sync
+
+
+def test_regen_renders_every_registered_section():
+    """Regen must not discard non-legacy tracker sections."""
+    if not _have_openpyxl():
+        return
+    import openpyxl
+
+    d = Path(tempfile.mkdtemp(prefix="bd_ttsync_sections_"))
+    xp = d / "TASK_TRACKER.xlsx"
+    m = _load()
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    expected = {
+        name: f"TASK-{index}"
+        for index, (name, _sheet, _heading) in enumerate(m.SECTIONS, start=1)
+    }
+    for section, sheet, _heading in m.SECTIONS:
+        task_id = expected[section]
+        ws = wb.create_sheet(sheet)
+        ws.append(["ID", "Category"])
+        ws.append([task_id, "x"])
+    wb.save(xp)
+    (d / "TASK_TRACKER.md").write_text("# tracker\n\n", encoding="utf-8")
+
+    assert m.regen(str(d)) == 0
+    rendered = (d / "TASK_TRACKER.md").read_text(encoding="utf-8")
+    for section, task_id in expected.items():
+        assert f"## {section}" in rendered
+        assert f"| {task_id} | x |" in rendered
+    assert m.check(str(d)) == 0
+
+
+def test_xlsx_ids_releases_file_handle():
+    """The read-only ID scan must not block Windows cleanup."""
+    if not _have_openpyxl():
+        return
+    d = Path(tempfile.mkdtemp(prefix="bd_ttsync_handle_"))
+    xp = d / "TASK_TRACKER.xlsx"
+    _make_xlsx(xp, ["A"], ["B"])
+    assert _load().xlsx_ids(xp)
+    xp.unlink()
+    d.rmdir()
+
+
+def test_rows_releases_file_handle():
+    """The legacy regen reader must not block Windows cleanup."""
+    if not _have_openpyxl():
+        return
+    d = Path(tempfile.mkdtemp(prefix="bd_ttsync_rows_handle_"))
+    xp = d / "TASK_TRACKER.xlsx"
+    _make_xlsx(xp, ["A"], ["B"])
+    header, rows = _load()._rows(xp, "Incomplete")
+    assert header and rows
+    xp.unlink()
+    d.rmdir()

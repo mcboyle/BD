@@ -226,6 +226,28 @@ def test_snapshot_active_workers_counts_alive_threads():
     assert snap["active_workers"] == 3
 
 
+def test_snapshot_active_workers_uses_production_worker_thread_attribute():
+    """SiteRunner stores live workers in _worker_threads; the snapshot must
+    not inspect the obsolete _threads name and report zero during a run."""
+    from bulk_downloader.dashboard_widgets import _Widgets
+
+    class _FakeThread:
+        def is_alive(self): return True
+
+    class _ProductionShapedRunner:
+        _state = "running"
+        _worker_threads = [_FakeThread(), _FakeThread()]
+        _lock = threading.Lock()
+        jobs = {}
+
+        def state(self): return self._state
+
+    snap = _Widgets().snapshot(
+        runners_dict={"site_running": _ProductionShapedRunner()})
+
+    assert snap["active_workers"] == 2
+
+
 def test_snapshot_eta_computes_when_rate_known():
     """ETA = remaining_bytes / bytes_per_sec when both are positive."""
     from bulk_downloader.dashboard_widgets import (
