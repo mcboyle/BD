@@ -20,7 +20,7 @@
     "total": 32,
     "version": 1,
     "count_dict": 31,
-    "test_files_scanned": 1091,
+    "test_files_scanned": 1094,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_config_snapshot_diff.py": 1,

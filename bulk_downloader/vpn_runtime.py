@@ -129,6 +129,9 @@ def init(
         try:
             vpn_config.load()
             count, errors = vpn_config.register_loaded_tunnels()
+            settings = vpn_config.get_global_settings()
+            vpn_kill_switch.set_auto_recover(bool(
+                settings.get("kill_switch_auto_recover", True)))
         except Exception as e:
             sys.stderr.write(f"[vpn-runtime] load/register failed: {e}\n")
             count, errors = 0, [str(e)]
@@ -141,6 +144,14 @@ def init(
         _site_to_tunnel.clear()
         _site_required.clear()
         sites = sites_config.get("sites", []) if isinstance(sites_config, dict) else []
+        if not sites and isinstance(sites_config, dict):
+            sites = [dict(cfg, site_id=sid)
+                     for sid, cfg in sites_config.items()
+                     if isinstance(cfg, dict)]
+        elif isinstance(sites, dict):
+            sites = [dict(cfg, site_id=sid)
+                     for sid, cfg in sites.items()
+                     if isinstance(cfg, dict)]
         for s in sites:
             if not isinstance(s, dict):
                 continue
@@ -153,6 +164,11 @@ def init(
                 if tid:
                     _site_to_tunnel[sid] = tid
                     _site_required[sid] = bool(vpncfg.get("required", False))
+            elif s.get("vpn_enabled"):
+                tid = s.get("vpn_tunnel_id")
+                if tid:
+                    _site_to_tunnel[sid] = tid
+                    _site_required[sid] = bool(s.get("vpn_required", False))
 
         # 4: subscribe to kill-switch
         vpn_kill_switch.register_kill_callback(_on_kill_switch_event)

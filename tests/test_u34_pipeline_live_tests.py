@@ -47,6 +47,39 @@ def test_l11_unreachable_is_warn():
     assert "not testable" in detail
 
 
+class _TopLevelStatusContext:
+    """Match the deployed /api/status and extractor-matrix schemas."""
+
+    def get(self, path, timeout=15):
+        if path == "/api/status":
+            return True, 200, {"site-a": {"state": "idle"}}, 1.0
+        if path == "/api/sites/site-a/queue/counts":
+            return True, 200, {"done": 1, "failed": 0}, 1.0
+        if path == "/api/dev/extractor_matrix":
+            return True, 200, {
+                "extractors": [
+                    {"name": "gallery-dl", "library_installed": True},
+                    {"name": "missing", "library_installed": False},
+                ]
+            }, 1.0
+        return False, 404, {}, 1.0
+
+    def log(self, _message):
+        pass
+
+
+def test_l11_accepts_deployed_top_level_status_schema():
+    level, detail = _get_test("L11").fn(_TopLevelStatusContext())
+    assert level == h.PASS
+    assert "1 completed" in detail
+
+
+def test_l13_accepts_deployed_extractor_matrix_schema():
+    level, detail = _get_test("L13").fn(_TopLevelStatusContext())
+    assert level == h.PASS
+    assert "1 of 2" in detail
+
+
 def test_l13_unreachable_is_warn():
     level, detail = _get_test("L13").fn(_dead_ctx())
     assert level == h.WARN

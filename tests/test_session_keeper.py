@@ -457,3 +457,28 @@ def test_keep_alive_toggle():
         r3 = c.post(f'/api/sites/{sid}/keep_alive_toggle',
                     json={'enabled': True}, headers=H)
         assert r3.get_json()["enabled"] is True
+
+
+def test_start_session_keepers_passes_account_credentials(monkeypatch):
+    """An account-backed keeper must receive that account's password."""
+    from bulk_downloader import app as app_module
+    from bulk_downloader import session_keeper as sk
+
+    captured = []
+    monkeypatch.delenv("BD_DISABLE_KEEPALIVE", raising=False)
+    monkeypatch.setattr(app_module, "s_cfg", {
+        "fixture": {
+            "keep_alive_enabled": True,
+            "accounts": [{"username": "tester", "password": "fixturepass"}],
+        }
+    })
+    monkeypatch.setattr(
+        sk, "start_keeper",
+        lambda site_id, account_idx, cfg, callback: captured.append(
+            (site_id, account_idx, cfg, callback)),
+    )
+
+    app_module._start_session_keepers()
+
+    assert captured[0][2]["username"] == "tester"
+    assert captured[0][2]["password"] == "fixturepass"
