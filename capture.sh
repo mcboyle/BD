@@ -197,28 +197,68 @@ echo "  --- tail of suite run ---"
 tail -25 "$OUT/02_suite_run.log"
 echo "  Summary written: $OUT/02_SUMMARY.txt"
 
-# ── [2b/9] graph content-hash gate (P2 @533) ─────────────────────
-# Recompute-and-compare the KNOWLEDGE_GRAPH.db content pin so a re-saved /
-# drifted graph is caught on-stash, not just in the sandbox. CONDITIONAL: the
-# graph db is a volatile audit artifact, NOT shipped in the deploy zip, so this
-# is a graceful no-op on a stash that has no graph db. It fires only when the db
-# is deployed alongside for an on-stash audit refresh.
+# ── [2b/9] deployment-local source-graph gate ─────────────────────────
+# The trust anchor is a small content pin OUTSIDE the install tree.  Rebuild the
+# graph from the currently deployed source into a throwaway directory, compare
+# canonical node/edge rows, and delete the SQLite database on every exit path.
+# A missing pin is UNKNOWN by default and a hard failure for release/OPV runs
+# that set BD_REQUIRE_GRAPH_HASH=1.  Pin generation is a separate, deliberate
+# deployment-acceptance step; never write a pin immediately before this check.
+# bd_graph_gate_function_begin
+run_graph_hash_gate() (
+  graph_pin="${BD_GRAPH_HASH_PIN:-/var/lib/bulkdownloader/validation/KNOWLEDGE_GRAPH.content.sha256}"
+  graph_required="${BD_REQUIRE_GRAPH_HASH:-0}"
+
+  if [ ! -f "$graph_pin" ]; then
+    echo "graph content pin: MISSING -- $graph_pin"
+    if [ "$graph_required" = "1" ]; then
+      echo "graph content pin is required (BD_REQUIRE_GRAPH_HASH=1)"
+      return 1
+    fi
+    echo "graph content pin: UNKNOWN -- optional check not armed"
+    return 0
+  fi
+  if [ ! -r "$graph_pin" ]; then
+    echo "graph content pin: UNREADABLE -- $graph_pin"
+    if [ "$graph_required" = "1" ]; then
+      echo "graph content pin must be readable (BD_REQUIRE_GRAPH_HASH=1)"
+      return 1
+    fi
+    echo "graph content pin: UNKNOWN -- optional check not armed"
+    return 0
+  fi
+  if [ ! -x venv/bin/python ] || [ ! -f tools/l0_extract.py ] \
+      || [ ! -f tools/graph_build.py ]; then
+    echo "graph content pin: CANNOT EVALUATE -- graph tools or venv missing"
+    return 2
+  fi
+
+  graph_tmp=$(mktemp -d "${TMPDIR:-/tmp}/bd_graph.XXXXXX") || {
+    echo "graph content pin: CANNOT EVALUATE -- mktemp failed"
+    return 2
+  }
+  cleanup_graph_tmp() {
+    if [ -n "${graph_tmp:-}" ]; then
+      rm -rf -- "$graph_tmp"
+    fi
+  }
+  trap cleanup_graph_tmp EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  graph_db="$graph_tmp/KNOWLEDGE_GRAPH.db"
+
+  venv/bin/python tools/l0_extract.py --root "$PWD" --db "$graph_db" || return $?
+  venv/bin/python tools/graph_build.py --db "$graph_db" \
+      --hash-pin "$graph_pin" --check-hash
+)
+# bd_graph_gate_function_end
+
 echo "=== [2b/9] graph content-hash gate (P2) ==="
 GRAPH_EXIT=0
-{
-  GRAPH_DB=""
-  for cand in ./review/artifacts/KNOWLEDGE_GRAPH.db /home/claude/review/artifacts/KNOWLEDGE_GRAPH.db; do
-    if [ -f "$cand" ] && [ -f "$cand.sha256" ]; then GRAPH_DB="$cand"; break; fi
-  done
-  if [ -n "$GRAPH_DB" ] && [ -f tools/graph_build.py ]; then
-    venv/bin/python tools/graph_build.py --db "$GRAPH_DB" \
-        --hash-pin "$GRAPH_DB.sha256" --check-hash
-    GRAPH_EXIT=$?
-    echo "graph-gate exit: $GRAPH_EXIT"
-  else
-    echo "  (no graph db+pin present -- P2 check-hash skipped; db is not a deploy artifact)"
-  fi
-} > "$OUT/02b_graph_checkhash.log" 2>&1
+run_graph_hash_gate > "$OUT/02b_graph_checkhash.log" 2>&1
+GRAPH_EXIT=$?
+echo "graph-gate exit: $GRAPH_EXIT" >> "$OUT/02b_graph_checkhash.log"
 tail -5 "$OUT/02b_graph_checkhash.log" | sed 's|^|  |'
 
 # ── [3/9] CSRF diagnostic (no app running) ───────────────────────
