@@ -2308,7 +2308,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1356,
+    "edge_count": 1358,
     "in": {
       "bulk_downloader/_envfile.py": [
         "bulk_downloader/__init__.py",
@@ -3218,6 +3218,7 @@
         "bulk_downloader/app_cookie_clipboard.py",
         "bulk_downloader/app_dashboard.py",
         "bulk_downloader/app_sites_auth.py",
+        "bulk_downloader/cookie_health.py",
         "bulk_downloader/cookie_quality.py",
         "bulk_downloader/dev_suite/capture_diag.py",
         "bulk_downloader/login_impl/manual.py",
@@ -4433,6 +4434,7 @@
         "bulk_downloader/vpn.py"
       ],
       "bulk_downloader/vpn_runtime.py": [
+        "bulk_downloader/app.py",
         "bulk_downloader/runner.py",
         "bulk_downloader/runner_browser.py",
         "bulk_downloader/runner_extractors.py",
@@ -4940,6 +4942,7 @@
         "bulk_downloader/templates.py",
         "bulk_downloader/tg_bot.py",
         "bulk_downloader/thumbnail_gen.py",
+        "bulk_downloader/vpn_runtime.py",
         "bulk_downloader/watch_folder.py",
         "bulk_downloader/webhooks.py",
         "bulk_downloader/yt_dlp_archive.py",
@@ -5690,6 +5693,7 @@
         "bulk_downloader/db.py"
       ],
       "bulk_downloader/cookie_health.py": [
+        "bulk_downloader/cookies.py",
         "bulk_downloader/db.py"
       ],
       "bulk_downloader/cookie_quality.py": [
