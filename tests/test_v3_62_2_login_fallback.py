@@ -16,7 +16,7 @@ import time
 from unittest import mock
 
 os.environ.setdefault("BD_DISABLE_KEEPALIVE", "1")
-from bulk_downloader.db import db_init
+from bulk_downloader.db import db_conn, db_init
 from bulk_downloader.runner import SiteRunner
 
 
@@ -66,6 +66,26 @@ def test_failed_templated_login_falls_back_to_manual():
     # the template-skip is recovered: manual login was opened
     assert m_manual.called
     assert "manually" in r._login_status.lower()
+
+
+def test_failed_templated_login_persists_observable_fallback_event():
+    r = _runner(with_template=True)
+    with mock.patch("bulk_downloader.runner_auth.do_login",
+                    return_value=(False, "page load timeout", [])), \
+         mock.patch.object(r, "start_manual_login",
+                           return_value=(True, "manual window open")):
+        r.login_async(allow_manual=True)
+        _wait_for_thread(r)
+
+    with db_conn() as cx:
+        row = cx.execute(
+            "SELECT event_type, detail FROM session_history "
+            "WHERE site_id = ? ORDER BY ts DESC LIMIT 1",
+            ("testsite",),
+        ).fetchone()
+    assert row is not None
+    assert row["event_type"] == "login_template_fallback"
+    assert "page load timeout" in row["detail"]
 
 
 def test_failed_login_without_template_does_not_fall_back():

@@ -464,20 +464,20 @@ Schema version: 2
 - L0147 `_admit_takeover` `[private]` — MOD-1 C-4: the runtime entry point for the C-2 ladder. Returns
 - L0166 `AuthMixin` `[class]`
   - L0167 `AuthMixin.login_async` — Phase 4.4: by default, allow manual takeover when auto-login
-  - L0289 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
-  - L0356 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
-  - L0382 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
-  - L0490 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
-  - L0534 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
-  - L0739 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
-  - L0789 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
-  - L0794 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
-  - L0809 `AuthMixin.is_awaiting_manual_login`
-  - L0811 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
-  - L0833 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
-  - L0912 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
-  - L0920 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
-  - L0985 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
+  - L0305 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
+  - L0372 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
+  - L0398 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
+  - L0506 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
+  - L0550 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
+  - L0755 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
+  - L0805 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
+  - L0810 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
+  - L0825 `AuthMixin.is_awaiting_manual_login`
+  - L0827 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
+  - L0849 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
+  - L0928 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
+  - L0936 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
+  - L1001 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
 ```
 
 
