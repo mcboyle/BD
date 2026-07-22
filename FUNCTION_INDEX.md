@@ -579,15 +579,15 @@ Schema version: 2
 - L1545 `session_event_record` — Append one row to session_history. event_type is one of:
 - L1565 `session_event_recent` — Return recent session_history rows. Used by the UI event log.
 - L1578 `session_lifetime_observations` — For a given (site, account), find all session lifetimes we've
-- L1622 `db_session_failure_clusters` — F2.1: cluster session_history failure events by (site, event_type)
-- L1713 `_integrity_state_path` `[private]` — Where we record the last successful check timestamp. Lives next to
-- L1720 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
-- L1731 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
-- L1743 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
-- L1805 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
-- L1818 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
-- L1829 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
-- L1849 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
+- L1625 `db_session_failure_clusters` — F2.1: cluster session_history failure events by (site, event_type)
+- L1716 `_integrity_state_path` `[private]` — Where we record the last successful check timestamp. Lives next to
+- L1723 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
+- L1734 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
+- L1746 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
+- L1808 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
+- L1821 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
+- L1832 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
+- L1852 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
 ```
 
 
