@@ -2566,6 +2566,8 @@ def l4_playwright_browsers_installed(ctx):
 # headers/templates instead) — that's a WARN-of-zero-sites, not a
 # FAIL.
 
+_L8_AUTH_HEALTH_MAX_AGE_S = 48 * 60 * 60
+
 @live_test("L8", "cookie-jar-not-empty-on-active-sites", disruptive=False)
 def l8_cookie_jar_not_empty_on_active_sites(ctx):
     """For each site with auth_state=ok, verify its on-disk cookie
@@ -2602,12 +2604,17 @@ def l8_cookie_jar_not_empty_on_active_sites(ctx):
         configured_ids = {
             str(s.get("site_id")) for s in sites if s.get("site_id")
         }
+        import time as _time
+        now = _time.time()
         durable_ids = {
             str(row.get("site_id"))
             for row in durable_sites
             if isinstance(row, dict)
             and str(row.get("status") or "").lower() == "green"
             and str(row.get("site_id")) in configured_ids
+            and isinstance(row.get("last_check_ts"), (int, float))
+            and 0 <= now - float(row.get("last_check_ts"))
+            <= _L8_AUTH_HEALTH_MAX_AGE_S
         }
         if durable_ids:
             active = [{"site_id": sid} for sid in sorted(durable_ids)]

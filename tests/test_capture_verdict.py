@@ -143,6 +143,25 @@ def test_partial_unit_test_records_fail_closed(tmp_path):
     assert "test records are inconsistent" in result.summary
 
 
+def test_zero_unit_tests_and_partial_live_run_fail_closed(tmp_path):
+    unit = tmp_path / "unit.json"
+    live = tmp_path / "live.log"
+    _write_unit(unit, passed=0, failed=0, skipped=0)
+    _write_live(live, passed=2)
+
+    result = assess_capture(
+        unit,
+        live,
+        suite_exit=0,
+        live_exit=0,
+        expected_live_tests=35,
+    )
+
+    assert result.ok is False
+    assert "unit artifact contains zero tests" in result.summary
+    assert "live artifact ran 2 tests; expected 35" in result.summary
+
+
 def test_incoherent_live_run_count_fails_closed(tmp_path):
     unit = tmp_path / "unit.json"
     live = tmp_path / "live.log"
@@ -166,6 +185,7 @@ def test_cli_wires_artifacts_processes_and_stages(tmp_path):
         "--live-log", str(live),
         "--suite-exit", "0",
         "--live-exit", "0",
+        "--expected-live-tests", "3",
         "--stage-exit", "http-smoke=0",
     ])
     failed = main([
@@ -173,6 +193,7 @@ def test_cli_wires_artifacts_processes_and_stages(tmp_path):
         "--live-log", str(live),
         "--suite-exit", "0",
         "--live-exit", "0",
+        "--expected-live-tests", "3",
         "--stage-exit", "http-smoke=7",
     ])
 

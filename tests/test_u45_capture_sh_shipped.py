@@ -238,3 +238,13 @@ class TestCaptureShFinalVerdict:
         assert "tools/capture_verdict.py" in body
         assert '--suite-exit "$SUITE_EXIT"' in body
         assert '--live-exit "$LIVE_EXIT"' in body
+        assert '--expected-live-tests "$EXPECTED_LIVE_TESTS"' in body
+        assert '--stage-exit "service-stopped=$SERVICE_STOP_EXIT"' in body
+        assert '--stage-exit "dev-tools=$DEV_EXIT"' in body
+
+    def test_heartbeat_commands_clean_up_process_groups_on_signal(self):
+        body = _read_capture_sh()
+        assert 'setsid "$@"' in body
+        assert "trap" in body
+        for signal in ("INT", "TERM", "HUP"):
+            assert signal in body

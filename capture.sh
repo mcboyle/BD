@@ -65,6 +65,28 @@ if [ "$WORKERS" -lt 1 ]; then
   echo "FATAL: --workers must be at least 1" >&2
   exit 2
 fi
+if ! command -v setsid >/dev/null 2>&1; then
+  echo "FATAL: setsid is required for safe worker cleanup" >&2
+  exit 2
+fi
+
+_stop_process_group() {
+  local child_pid="$1"
+  local tick=0
+  kill -TERM -- "-$child_pid" 2>/dev/null \
+    || kill -TERM "$child_pid" 2>/dev/null \
+    || true
+  while [ "$tick" -lt 10 ] && kill -0 "$child_pid" 2>/dev/null; do
+    sleep 1
+    tick=$((tick + 1))
+  done
+  if kill -0 "$child_pid" 2>/dev/null; then
+    kill -KILL -- "-$child_pid" 2>/dev/null \
+      || kill -KILL "$child_pid" 2>/dev/null \
+      || true
+  fi
+  wait "$child_pid" 2>/dev/null || true
+}
 
 # Keep long commands quiet while reporting elapsed progress once a minute.
 # Polling here avoids a second monitor process and delays completion by at most
@@ -75,8 +97,11 @@ run_with_heartbeat() {
   shift 2
   local started pid elapsed tick
   started=$(date +%s)
-  "$@" > "$logfile" 2>&1 &
+  setsid "$@" > "$logfile" 2>&1 &
   pid=$!
+  trap '_stop_process_group "$pid"; trap - INT TERM HUP; exit 130' INT
+  trap '_stop_process_group "$pid"; trap - INT TERM HUP; exit 143' TERM
+  trap '_stop_process_group "$pid"; trap - INT TERM HUP; exit 129' HUP
   while kill -0 "$pid" 2>/dev/null; do
     tick=0
     while [ "$tick" -lt 60 ] && kill -0 "$pid" 2>/dev/null; do
@@ -89,6 +114,9 @@ run_with_heartbeat() {
     fi
   done
   wait "$pid"
+  local command_exit=$?
+  trap - INT TERM HUP
+  return "$command_exit"
 }
 
 # Private WACZ/JSON evidence is intentionally outside the release. Validate
@@ -151,6 +179,13 @@ echo "  done"
 # ── [2/9] Full suite (service must NOT be running) ────────────────
 echo "=== [2/9] Full test suite (5-15 min) ==="
 sudo systemctl stop bulkdownloader 2>/dev/null
+STOP_REQUEST_EXIT=$?
+if systemctl is-active --quiet bulkdownloader 2>/dev/null; then
+  SERVICE_STOP_EXIT=1
+else
+  SERVICE_STOP_EXIT=0
+fi
+echo "  service stop request exit=$STOP_REQUEST_EXIT; inactive=$((1 - SERVICE_STOP_EXIT))"
 sleep 1
 run_with_heartbeat "full test suite" "$OUT/02_suite_run.log" \
    env BD_DISABLE_KEEPALIVE=1 venv/bin/python run_tests.py \
@@ -253,6 +288,7 @@ echo "  done"
 #
 echo "=== [6/9] Live-test suite ==="
 LIVE_IDS="L1,L2,L3,L4,L5,L6,L7,L8,L9,L10,L11,L12,L13,L14,L15,L16,L17,L18,L19,L20,L21,L22,L23,L24,L25,L26,L27,L28,L29,L30,L31,L32,L33,L34,L35"
+EXPECTED_LIVE_TESTS=$(printf '%s\n' "$LIVE_IDS" | awk -F, '{print NF}')
 run_with_heartbeat "live-test suite" "$OUT/06_live_tests.log" \
    env BD_DISABLE_KEEPALIVE=1 venv/bin/python -u -m live_tests.run \
    --only "$LIVE_IDS" \
@@ -264,6 +300,7 @@ echo "  exit=$LIVE_EXIT"
 
 # ── [7/9] Dev-tool routes against the live app ───────────────────
 echo "=== [7/9] Dev-tool routes ==="
+DEV_EXIT=0
 {
  for route in enabled test_timing dead_css storage_tier_status \
               maintenance_mode i18n_coverage model_pull_check \
@@ -271,8 +308,14 @@ echo "=== [7/9] Dev-tool routes ==="
               login_flows mem_audit threads leak_scan routes \
               sse_status; do
    echo "--- /api/dev/$route ---"
-   curl -sS --max-time 30 "http://localhost:5555/api/dev/$route" 2>&1 \
-       | head -40
+   response=$(curl -fsS --max-time 30 \
+       "http://localhost:5555/api/dev/$route" 2>&1)
+   route_exit=$?
+   printf '%s\n' "$response" | head -40
+   if [ "$route_exit" -ne 0 ]; then
+     DEV_EXIT=1
+     echo "ERROR: route probe exit=$route_exit"
+   fi
    echo
  done
 } > "$OUT/07_dev_tools.log" 2>&1
@@ -311,10 +354,13 @@ venv/bin/python tools/capture_verdict.py \
   --live-log "$OUT/06_live_tests.log" \
   --suite-exit "$SUITE_EXIT" \
   --live-exit "$LIVE_EXIT" \
+  --expected-live-tests "$EXPECTED_LIVE_TESTS" \
   --stage-exit "graph=$GRAPH_EXIT" \
+  --stage-exit "service-stopped=$SERVICE_STOP_EXIT" \
   --stage-exit "csrf=$CSRF_EXIT" \
   --stage-exit "service-install=$INSTALL_EXIT" \
   --stage-exit "service-active=$SERVICE_EXIT" \
+  --stage-exit "dev-tools=$DEV_EXIT" \
   --stage-exit "goldens=$T51_EXIT" \
   --stage-exit "http-smoke=$SMOKE_EXIT" \
   > "$OUT/10_VERDICT.txt" 2>&1

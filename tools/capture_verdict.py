@@ -82,6 +82,7 @@ def assess_capture(
     suite_exit: int,
     live_exit: int,
     stage_exits: Iterable[tuple[str, int]] = (),
+    expected_live_tests: int | None = None,
 ) -> CaptureVerdict:
     """Assess process statuses and artifacts; ambiguity is always a failure."""
     reasons: list[str] = []
@@ -95,6 +96,14 @@ def assess_capture(
         live_counts = _read_live(Path(live_log))
     except ValueError as exc:
         reasons.append(str(exc))
+    if unit_counts is not None and unit_counts[3] == 0:
+        reasons.append("unit artifact contains zero tests")
+    if (live_counts is not None and expected_live_tests is not None
+            and live_counts[3] != expected_live_tests):
+        reasons.append(
+            f"live artifact ran {live_counts[3]} tests; "
+            f"expected {expected_live_tests}"
+        )
     if suite_exit:
         reasons.append(f"suite process exit={suite_exit}")
     if live_exit:
@@ -144,6 +153,7 @@ def main(argv=None) -> int:
     parser.add_argument("--live-log", required=True)
     parser.add_argument("--suite-exit", required=True, type=int)
     parser.add_argument("--live-exit", required=True, type=int)
+    parser.add_argument("--expected-live-tests", required=True, type=int)
     parser.add_argument(
         "--stage-exit", action="append", default=[], type=_stage_exit,
         help="additional required stage in NAME=CODE form (repeatable)",
@@ -155,6 +165,7 @@ def main(argv=None) -> int:
         suite_exit=args.suite_exit,
         live_exit=args.live_exit,
         stage_exits=args.stage_exit,
+        expected_live_tests=args.expected_live_tests,
     )
     print(result.summary)
     return result.exit_code

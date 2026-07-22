@@ -10,6 +10,7 @@ degradation, and L7's session_history logic against a sandbox DB.
 import live_tests.checks as checks  # noqa: F401 (registers the checks)
 import live_tests.harness as h
 from bulk_downloader import db
+import time
 
 
 _LEVELS = (h.PASS, h.WARN, h.FAIL)
@@ -146,9 +147,10 @@ def test_l6_l7_run_via_harness(tmp_path):
 
 
 class _CookieJarContext:
-    def __init__(self, cookie_file, *, durable_site="s1"):
+    def __init__(self, cookie_file, *, durable_site="s1", checked_at=None):
         self.cookie_file = str(cookie_file)
         self.durable_site = durable_site
+        self.checked_at = time.time() if checked_at is None else checked_at
         self.messages = []
 
     def get(self, path, timeout=15):
@@ -158,7 +160,11 @@ class _CookieJarContext:
             }, 1.0
         if path == "/api/auth_health/status":
             return True, 200, {
-                "sites": [{"site_id": self.durable_site, "status": "green"}],
+                "sites": [{
+                    "site_id": self.durable_site,
+                    "status": "green",
+                    "last_check_ts": self.checked_at,
+                }],
             }, 1.0
         if path == "/api/status":
             return True, 200, {
@@ -202,3 +208,14 @@ def test_l8_durable_auth_still_rejects_empty_cookie_file(tmp_path):
 
     assert level == h.FAIL
     assert "empty" in detail
+
+
+def test_l8_ignores_stale_durable_auth_health(tmp_path):
+    jar = tmp_path / "cookies.json"
+    jar.write_text('[{"name":"session","value":"fixture"}]', encoding="utf-8")
+    ctx = _CookieJarContext(jar, checked_at=time.time() - (3 * 86400))
+
+    level, detail = _get_test("L8").fn(ctx)
+
+    assert level == h.WARN
+    assert "none report auth_state=ok" in detail
