@@ -19,7 +19,7 @@ CLI:
     python3 tools/template_inventory.py [--root .] [--json]
 Exit 0 always (it is a report, not a gate) unless --strict is given, in which
 case exit 1 if any dir-level sanity violation is found (e.g. a draft marked
-enabled, or a reviewed template not enabled).
+enabled, or a reviewed template with an unsupported status).
 """
 import argparse
 import json
@@ -41,10 +41,11 @@ except Exception:  # pragma: no cover - defensive; gate is authoritative
 # line 292) and "draft_review_required" (the draft's top-level status + not-ready
 # candidates) — a real status-string inconsistency, logged as a conflict. We accept
 # both for drafts rather than emit noise. The safety-critical rules are enforced
-# separately below: nothing outside reviewed/enabled may be `enabled`, and
-# reviewed/enabled templates MUST be `enabled` (else the registry won't load them).
+# separately below: nothing outside reviewed/enabled may be `enabled`, the
+# enabled directory is enabled-only, and reviewed templates may be intentionally
+# disabled while their evidence remains available to the Template Manager.
 DIR_ALLOWED_STATUS = {
-    "reviewed": {"enabled"},
+    "reviewed": {"enabled", "disabled"},
     "enabled": {"enabled"},
     "drafts": {"draft_requires_review", "draft_review_required"},
     "review_candidates": {"review_ready", "draft_review_required"},
@@ -159,11 +160,16 @@ def scan(root="."):
                     out["sanity"].append(
                         f"{name}/{fn}: status=enabled in a non-reviewed dir "
                         "(drafts/candidates must NEVER be enabled)")
-                # HARD: reviewed/enabled must be enabled or the registry skips them
-                elif name in ("reviewed", "enabled") and st != "enabled":
+                # HARD: enabled/ is enabled-only; reviewed/ may retain an
+                # intentionally disabled template for later OPV completion.
+                elif name == "enabled" and st != "enabled":
                     out["sanity"].append(
                         f"{name}/{fn}: status={st!r} but {name}/ templates must be "
                         "'enabled' (registry loads only enabled)")
+                elif name == "reviewed" and st not in allowed:
+                    out["sanity"].append(
+                        f"{name}/{fn}: status={st!r} but reviewed/ templates must be "
+                        "'enabled' or 'disabled'")
                 # SOFT: unexpected status string (informational, not a violation)
                 elif st not in allowed:
                     out["sanity"].append(

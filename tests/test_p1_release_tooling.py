@@ -99,6 +99,18 @@ def test_scan_flags_reviewed_not_enabled():
         shutil.rmtree(root, ignore_errors=True)
 
 
+def test_scan_accepts_disabled_reviewed_template():
+    root = _make_tree()
+    try:
+        t = _complete_template(); t["status"] = "disabled"
+        with open(os.path.join(root, "templates", "reviewed", "x.json"), "w") as fh:
+            json.dump(t, fh)
+        data = TI.scan(root)
+        assert data["sanity"] == [], data["sanity"]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def test_scan_accepts_both_draft_status_spellings():
     root = _make_tree()
     try:

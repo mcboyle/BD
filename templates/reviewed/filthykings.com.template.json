@@ -1,7 +1,7 @@
 {
   "schema": "bulk_downloader.template.review_candidate.v1",
   "normalized_from": "bulk_downloader.template_draft.v2",
-  "status": "enabled",
+  "status": "disabled",
   "host": "www.filthykings.com",
   "confidence": "high",
   "match": {
