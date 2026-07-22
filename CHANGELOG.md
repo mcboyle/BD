@@ -4,6 +4,19 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. For pre-v3.46 history
 see [CHANGELOG_archive.md](CHANGELOG_archive.md).
 
+## v3.66.817 - Dependency audit and deployment graph pin hardening
+
+- Upgraded React Router, Vite, Vitest, esbuild, and form-data to secure
+  Node 18 compatible releases. Production npm audit is clean; the only
+  remaining advisory is the documented low-severity Babel 7 issue.
+- Replaced the optional persistent graph database check with an ephemeral
+  source-graph comparison against a root-owned deployment pin outside the
+  release tree. Required certification now fails on missing, unreadable, or
+  mismatched pins and removes its temporary SQLite database on every exit.
+- Added dependency-floor, graph-drift, cleanup, release-exclusion, and GUI
+  parity regressions. Graph databases, sidecars, and pins cannot enter release
+  archives.
+
 ## v3.66.816 -- Promote validated Filthykings template and enforce exact probe cap
 
 ## v3.66.815 - AI GPU boot readiness
