@@ -1,6 +1,6 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-07-22T21:10:23+00:00",
+ "generated": "2026-07-22T22:26:09+00:00",
  "version_context": "v3.66.817",
  "file_count": 369,
  "files": {
@@ -253,8 +253,8 @@
    "bytes": 20126
   },
   "REACHABILITY_DEFERRALS.json": {
-   "sha256": "9f8475f0bd86118bb16cd25a8cacd986a1d52d941f43216eb7091dea114e936c",
-   "bytes": 1390
+   "sha256": "4ff75f70bb8eaa07a9c41ad3d67de6d427d18e433ad66be76593174f623d683b",
+   "bytes": 2617
   },
   "README.md": {
    "sha256": "204fab5fe35c53d8c76c34337cf6bc10aa7743c598cf9948f890f9c2014de948",

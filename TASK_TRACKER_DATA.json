@@ -1,20 +1,20 @@
 {
   "meta": {
     "title": "BulkDownloader — unified task tracker",
-    "generated_note": "Recovered 2026-07-21 from the complete v3.66.539 canonical pack and reconciled against v3.66.811 OPV evidence available on 2026-07-21. TASK_TRACKER_DATA.json is canonical; TASK_TRACKER.md and TASK_TRACKER.xlsx are generated from it.",
-    "live_on_stash": "Observed 2026-07-21: v3.66.811 with /api/health ok=true, db_ok=true, build.sha=33f7e5a463bc. Volatile queue/worker counters are intentionally omitted. b60f58f0d25cbfb5d3bda07b81ee113e10650218 is the last fully validated deployed source commit (12,610 total / 12,537 passed / 0 failed / 73 gated skips)",
-    "gate_line": "At the 2026-07-21 acceptance snapshot, pre-documentation PR head 51c63341de697bb3f585055ba73f84e03fe8658b contained the v3.66.811 runtime reconciliation and passed compatibility/CI but had not been deployed; later documentation commits do not change that runtime baseline",
-    "priority_note": "Reachability deferrals and time-, infrastructure-, or operator-bound observations remain open in their own rows. Corpus disposition is manual review debt, not an OPV failure.",
-    "metadata_snapshot_date": "2026-07-21",
-    "live_version_observed_2026_07_21": "3.66.811",
-    "last_updated": "v3.66.811 OPV reconciliation (2026-07-21 pre-merge snapshot)",
-    "recovery_source": "v3.66.539 canonical pack; historical denominator preserved: 0 incomplete, 266 completed, 25 awaiting operator, 11 decided against",
-    "last_fully_validated_deployed_version": "3.66.811 live artifact",
-    "last_fully_validated_deployed_sha": "b60f58f0d25cbfb5d3bda07b81ee113e10650218",
-    "live_health_build_sha_observed_2026_07_21": "33f7e5a463bc",
-    "acceptance_snapshot_pr_version": "3.66.811",
-    "acceptance_snapshot_pr_head_sha": "51c63341de697bb3f585055ba73f84e03fe8658b",
-    "acceptance_snapshot_pr_head_context": "Pre-documentation implementation head observed on 2026-07-21; later documentation commits do not change runtime behavior"
+    "generated_note": "Recovered 2026-07-21 from the complete v3.66.539 canonical pack and reconciled on 2026-07-22 against the merged v3.66.817 source, live stash health, and supported OPV evidence. TASK_TRACKER_DATA.json is canonical; TASK_TRACKER.md and TASK_TRACKER.xlsx are generated from it.",
+    "live_on_stash": "Observed 2026-07-22: v3.66.817 with /api/health ok=true, db_ok=true, build.sha=9b2d82700341 and service active. Fresh supported verification: 12,715 total / 12,642 passed / 0 failed / 73 gated skips; live suite 35 passed / 0 warned / 0 failed. Volatile queue/worker counters are intentionally omitted. The merged certified source baseline is 6e3be6df16bbd814f9b5a7ffbfcdc01a95edafa9.",
+    "gate_line": "v3.66.817 is merged to main, deployed on stash, and covered by the supported capture/OPV certification. The three inherited reachability deferrals were already fixed in v3.66.543, v3.66.548, and v3.66.590 and are closed here after cross-subsystem tracing plus 19 dedicated regression tests.",
+    "priority_note": "Time-, infrastructure-, or operator-bound observations remain open in their own rows. Four duplicate F1.3/F1.4/F3.1/F3.2 operator rows were consolidated without changing their remaining live/soak requirements. Corpus disposition is manual review debt, not an OPV failure.",
+    "metadata_snapshot_date": "2026-07-22",
+    "live_version_observed_2026_07_22": "3.66.817",
+    "last_updated": "v3.66.817 roadmap, reachability, and OPV reconciliation (2026-07-22)",
+    "recovery_source": "v3.66.539 canonical pack; v3.66.817 reconciliation closes 3 stale reachability rows and consolidates 4 duplicate operator rows",
+    "last_fully_validated_deployed_version": "3.66.817 live artifact",
+    "last_fully_validated_deployed_sha": "6e3be6df16bbd814f9b5a7ffbfcdc01a95edafa9",
+    "live_health_build_sha_observed_2026_07_22": "9b2d82700341",
+    "acceptance_snapshot_version": "3.66.817",
+    "acceptance_snapshot_main_sha": "6e3be6df16bbd814f9b5a7ffbfcdc01a95edafa9",
+    "acceptance_snapshot_context": "Merged main and deployed stash state observed on 2026-07-22; supported full-suite verification is recorded in the release and OPV evidence."
   },
   "columns": {
     "incomplete": [
@@ -54,39 +54,32 @@
       "Notes"
     ]
   },
-  "incomplete": [
+  "incomplete": [],
+  "completed": [
     {
       "ID": "F-RUN01-02",
-      "Category": "Reachability deferral (injection)",
-      "Item / scope": "Determine whether the yt-dlp fallback option-injection boundary is reachable through an accepted job URL.",
-      "Status": "OPEN (confirmed boundary defect; reachability probable, exploitability not established)",
-      "Tier": "High",
-      "Sandbox-able?": "Yes (source review)",
-      "Blocked by": "APP + CORE_BD reachability derivation",
-      "Next action / notes": "Source: project-knowledge/REACHABILITY_DEFERRALS.json. Derive both gates before assigning practical severity: use_ytdlp_fallback must be enabled and an accepted job URL must be able to begin with '-'."
+      "Category": "Security / reachability (injection)",
+      "Item / scope": "Trace and close the yt-dlp fallback option-injection boundary.",
+      "Version": "3.66.543; reconciled 3.66.817",
+      "State": "COMPLETED",
+      "Notes": "Cross-subsystem trace confirmed the fallback is opt-in and receives the runner job URL. A leading-dash value was therefore a valid defense-in-depth boundary even where normal HTTP enqueue paths reject it. _build_ytdlp_cmd has placed a bare -- immediately before the URL since v3.66.543, so yt-dlp always treats the value as positional. Dedicated argv tests pass, including --exec-style input."
     },
     {
       "ID": "F-CAP01-01",
-      "Category": "Reachability deferral (SSRF)",
-      "Item / scope": "Determine APP-route exposure and auth posture for watch() site/room overrides.",
-      "Status": "OPEN (confirmed at boundary; caller exposure unresolved)",
-      "Tier": "Medium",
-      "Sandbox-able?": "Yes (source review)",
-      "Blocked by": "APP route and input-flow derivation",
-      "Next action / notes": "Source: project-knowledge/REACHABILITY_DEFERRALS.json. Confirm the calling route is operator-auth-gated and whether site_override or room_override is exposed before characterizing exploitability."
+      "Category": "Security / reachability (SSRF)",
+      "Item / scope": "Trace and close APP exposure of live-recorder site/room overrides.",
+      "Version": "3.66.590; reconciled 3.66.817",
+      "State": "COMPLETED",
+      "Notes": "POST /api/live/watch directly exposes site_override and room_override and is covered by the app-wide token/session and CSRF hooks when authentication is configured; deployments without a configured auth token intentionally allow API access. Since v3.66.590, the override path enforces the same _SITE_PATTERNS host allowlist as parse_live_url, so arbitrary internal, private, and link-local targets are rejected before recording creation. The dedicated non-cam-host regression passes."
     },
     {
       "ID": "F-RUN01-03",
-      "Category": "Reachability deferral (type handling)",
-      "Item / scope": "Determine whether the affected operator configuration fields pass through settings validation or a direct global-config load.",
-      "Status": "OPEN (probable defect; validation path unresolved)",
-      "Tier": "Low",
-      "Sandbox-able?": "Yes (source review)",
-      "Blocked by": "SETTINGS input-flow derivation",
-      "Next action / notes": "Source: project-knowledge/REACHABILITY_DEFERRALS.json. Trace the two fields through the I0004 site-editor/settings-center validator versus global_config direct load; do not infer exploitability from the boundary finding alone."
-    }
-  ],
-  "completed": [
+      "Category": "Security / reachability (type handling)",
+      "Item / scope": "Trace and close non-finite disk/bandwidth configuration handling.",
+      "Version": "3.66.548; reconciled 3.66.817",
+      "State": "COMPLETED",
+      "Notes": "disk_threshold_gb is range/finite-validated by the site-editor and direct-PUT numeric backstop; bandwidth_target_mbps is accepted as a per-site field but is not in that validator table, and hand-edited configuration can bypass both. Since v3.66.548, runner consumers use _finite_config_float so NaN/inf/non-numeric values fall back safely at the enforcement boundary. Dedicated finite-number and low-disk tests pass."
+    },
     {
       "ID": "GUI-CFG-BUCKET3",
       "Category": "CLI->GUI config parity",
@@ -2275,41 +2268,41 @@
       "ID": "OPV-F1.3",
       "Category": "Operator verify",
       "Item / scope": "F1.3 cookie_admission_enabled — lapsed jar -> cookies_expired (no spawn) + self-resolve",
-      "Status": "PENDING",
-      "Tier": "-",
-      "Sandbox-able?": "No",
-      "Blocked by": "-",
-      "Next action / notes": "Needs a login-gated site WITH a cookie jar so the jar can be aged to lapse. reptyle (0b60f1ec) now qualifies once a cookie_file is set (POST /api/sites/<sid>/cookies/import). Mechanism confirmed in source: opt-in cookie_admission_enabled; admission.admission_hold -> 'cookies_expired' state HOLDS new pickups (runner.py:769) -- distinct from the cookie_file login-bypass lever. Set cookie_file + cookie_admission_enabled, expire the jar, confirm no spawn + self-resolve on refresh. | @539 SANDBOX-VERIFIED: bd-opv OPV-F1.3 drives real admission.admission_hold cookie-expiry boundary GREEN. Operator live-verify (aged jar on login-gated site) remains."
+      "Status": "AWAITING OPERATOR (live enablement check)",
+      "Tier": "C",
+      "Sandbox-able?": "No (live jar)",
+      "Blocked by": "login-gated site with an aged cookie jar",
+      "Next action / notes": "LIVE @217 and sandbox-verified @539. On stash, set cookie_file + cookie_admission_enabled for a sanctioned login-gated site, fully lapse the jar, confirm cookies_expired prevents a worker spawn, then refresh the jar and confirm self-resolution. Consolidates former duplicate F1.3-EN."
     },
     {
       "ID": "OPV-F1.4",
       "Category": "Operator verify",
       "Item / scope": "F1.4 predictive_relogin on a churn-prone site -> relogin at ~0.8*median",
-      "Status": "PENDING",
-      "Tier": "-",
-      "Sandbox-able?": "No",
-      "Blocked by": "-",
-      "Next action / notes": "Shipped @218 | @539 SANDBOX-VERIFIED: bd-opv OPV-F1.4 drives real relogin_predict.predictive_relogin_due (~0.8*median proactive) GREEN. Operator live-verify (churn site, learned median) remains."
+      "Status": "AWAITING OPERATOR (live enablement check)",
+      "Tier": "C",
+      "Sandbox-able?": "No (live churn site)",
+      "Blocked by": "sanctioned churn-prone site with at least 3 observations",
+      "Next action / notes": "LIVE @218 and sandbox-verified @539. Enable predictive_relogin_enabled on a sanctioned churn-prone site with >=3 observations and confirm relogin occurs at approximately 0.8 * learned median rather than the fixed 168-hour age. Consolidates former duplicate F1.4-EN."
     },
     {
       "ID": "OPV-F3.1",
       "Category": "Operator verify",
       "Item / scope": "F3.1 enqueue lane — saved search action=enqueue -> cap+gates+dedup over a week",
-      "Status": "PENDING",
-      "Tier": "-",
-      "Sandbox-able?": "No",
-      "Blocked by": "-",
-      "Next action / notes": "Shipped @223. Live bg_scheduler blocker (BUG-1 _capture_enqueue NameError) CLEARED @461 -> scheduler starts; enqueue lane can now fire. Remaining: the week-long cap+gates+dedup soak (temporal, operator-side). | @539: OPV-SOAK proves leak-freedom + freezegun time-warp in-sandbox; the >=1-week unattended run remains operator-gated."
+      "Status": "AWAITING OPERATOR (week-long live verify)",
+      "Tier": "C",
+      "Sandbox-able?": "No (live week)",
+      "Blocked by": "operator stash and elapsed time",
+      "Next action / notes": "LIVE @223; scheduler blocker cleared @461; time-warp/leak-freedom sandbox proof completed @539. Create a saved-search enqueue rule and confirm caps, gates, and dedup over an uninterrupted week. The deferred SPA action-picker tail remains part of this row. Consolidates former duplicate F3.1-WK."
     },
     {
       "ID": "OPV-F3.2",
       "Category": "Operator verify",
       "Item / scope": "F3.2 drift->AI repair — wire stash dom_provider; enable; confirm a drift -> draft_review_required",
-      "Status": "PENDING",
-      "Tier": "-",
-      "Sandbox-able?": "No",
-      "Blocked by": "stash dom_provider wiring",
-      "Next action / notes": "Shipped @224; sweep skips until provider wired | Needs dom_provider wired (drift->AI repair path). reptyle now provides a rich live draft to drift against once enabled. | @539 SANDBOX-VERIFIED: bd-opv OPV-F3.2 drives real drift_repair.propose_repairs->pin_candidate (review-only) GREEN. Operator step: wire stash dom_provider + live drift."
+      "Status": "AWAITING OPERATOR (live daily-run verify)",
+      "Tier": "B",
+      "Sandbox-able?": "No (stash/live AI)",
+      "Blocked by": "sanctioned live stale site plus live AI provider",
+      "Next action / notes": "Shipped @224; review-only proposal path sandbox-verified @539. The v3.66.817 safe OPV exercised enable/revert and preserved the last-run record, but a real scheduled daily repair remains. Enable automation.drift_repair_enabled (or Run-now with force) against a sanctioned stale site, confirm a draft_review_required repair and persisted last-run update. Consolidates former duplicate F3.2-LIVE."
     },
     {
       "ID": "CAP-ROBUST",
@@ -2420,46 +2413,6 @@
       "Sandbox-able?": "No (stash/live)",
       "Blocked by": "live reptyle DOM",
       "Next action / notes": "Box has app.reptyle.com.candidate.json + auth.reptyle.com.template-draft.json but NOT app.reptyle.com.template-draft.json. Re-capture as part of OPV-B2."
-    },
-    {
-      "ID": "F3.2-LIVE",
-      "Category": "Automation (drift repair)",
-      "Item / scope": "F3.2 drift-repair real daily run -- against live stale sites + live AI.",
-      "Status": "AWAITING OPERATOR (live verify)",
-      "Tier": "B",
-      "Sandbox-able?": "No (stash/live AI)",
-      "Blocked by": "live stale sites + AI",
-      "Next action / notes": "Surface + force shipped @518. Flip automation.drift_repair_enabled (or Run-now with force), confirm a real review-only repair draft lands + the persisted last-run record updates."
-    },
-    {
-      "ID": "F1.3-EN",
-      "Category": "Admission (F1)",
-      "Item / scope": "F1.3 cookie-expiry admission enablement check.",
-      "Status": "AWAITING OPERATOR (enablement check)",
-      "Tier": "C",
-      "Sandbox-able?": "No (live jar)",
-      "Blocked by": "operator stash enablement",
-      "Next action / notes": "LIVE @217 (opt-in, fail-open). Set cookie_admission_enabled, a fully-lapsed jar -> cookies_expired (no spawn) + self-resolve."
-    },
-    {
-      "ID": "F1.4-EN",
-      "Category": "Admission (F1)",
-      "Item / scope": "F1.4 predictive relogin enablement check.",
-      "Status": "AWAITING OPERATOR (enablement check)",
-      "Tier": "C",
-      "Sandbox-able?": "No (live churn site)",
-      "Blocked by": "operator stash enablement",
-      "Next action / notes": "LIVE @218 (opt-in, default off = byte-identical fixed-age). Set predictive_relogin_enabled on a churn-prone site (>=3 obs) -> relogin at ~0.8*median not fixed 168h."
-    },
-    {
-      "ID": "F3.1-WK",
-      "Category": "Watch rules (F3)",
-      "Item / scope": "F3.1 saved-search enqueue lane week-long verify.",
-      "Status": "AWAITING OPERATOR (week verify)",
-      "Tier": "C",
-      "Sandbox-able?": "No (live week)",
-      "Blocked by": "operator stash, time",
-      "Next action / notes": "LIVE @223. Create a saved search action=enqueue (e.g. failed-alphas->requeue), confirm cap + gates + dedup over a week. [DEFERRED SPA tail: PATCH /api/saved_searches/<id> + action picker + distinct enqueue-rule marking.]"
     },
     {
       "ID": "OPV-VPNKILL-LIVE",

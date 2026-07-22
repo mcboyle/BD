@@ -5,37 +5,43 @@
    "from_batch": "CAP-01",
    "severity": "medium",
    "category": "ssrf",
-   "confidence": "confirmed-at-boundary",
+   "confidence": "confirmed-reachable-and-fixed",
    "resolved_by_subsys": [
     "APP"
    ],
-   "note": "Reachability + true severity depend on the APP-layer route that calls watch(): (a) is it behind the operator auth gate, and (b) are site_override/room_override exposed to that caller? That wiring is i",
-   "status": "open"
+   "note": "Resolved by cross-subsystem trace on 2026-07-22. POST /api/live/watch directly exposes site_override and room_override. The route is covered by the app-wide token/session and CSRF hooks when authentication is configured; auth-unconfigured deployments intentionally allow API access. The original SSRF boundary was therefore reachable. Since v3.66.590, watch() applies _host_on_cam_allowlist to the override path before creating a recording; private, link-local, and arbitrary non-cam hosts are rejected. Regression: tests/test_cap01_watch_override_host.py.",
+   "status": "resolved",
+   "resolved_in": "3.66.590",
+   "reconciled_in": "3.66.817"
   },
   "F-RUN01-02": {
    "finding": "F-RUN01-02",
    "from_batch": "RUN-01",
    "severity": "high",
    "category": "injection",
-   "confidence": "confirmed-defect / probable-reachability",
+   "confidence": "confirmed-boundary-and-fixed",
    "resolved_by_subsys": [
     "APP",
     "CORE_BD"
    ],
-   "note": "Two gates: (1) config['use_ytdlp_fallback'] must be on (opt-in, default False, per-site); (2) the job URL must be able to begin with '-'. Some enqueue paths validate startswith('http') (app.py:1881, :",
-   "status": "open"
+   "note": "Resolved by cross-subsystem trace on 2026-07-22. use_ytdlp_fallback is an opt-in per-site field and the fallback consumes the runner job URL. Normal HTTP enqueue paths reduce practical reachability of a leading-dash value, but source/plugin/config ingestion makes the subprocess boundary worth defending independently. Since v3.66.543, _build_ytdlp_cmd inserts a bare -- immediately before the URL, preventing every value from entering yt-dlp's option surface. Regression: tests/test_run01_ytdlp_argv_sep.py.",
+   "status": "resolved",
+   "resolved_in": "3.66.543",
+   "reconciled_in": "3.66.817"
   },
   "F-RUN01-03": {
    "finding": "F-RUN01-03",
    "from_batch": "RUN-01",
    "severity": "low",
    "category": "type_none",
-   "confidence": "probable",
+   "confidence": "confirmed-config-reachable-and-fixed",
    "resolved_by_subsys": [
     "SETTINGS"
    ],
-   "note": "Operator-config fields; may be validated upstream by the I0004 site_editor/settings-center validator - whether THESE two fields flow through that validator (vs global_config direct load) is owned by t",
-   "status": "open"
+   "note": "Resolved by SETTINGS trace on 2026-07-22. disk_threshold_gb is covered by site_editor.NUMERIC_RANGES and the direct-PUT numeric backstop. bandwidth_target_mbps is a permitted per-site field but is not in that validator table, while hand-edited configuration can bypass route validation entirely. Since v3.66.548, the runner enforcement boundary uses _finite_config_float for both fields so NaN, infinity, and non-numeric values fall back safely. Regressions: tests/test_run01_numeric_nan_gate.py and tests/test_isfinite_numeric_backstop.py.",
+   "status": "resolved",
+   "resolved_in": "3.66.548",
+   "reconciled_in": "3.66.817"
   }
  }
 }
