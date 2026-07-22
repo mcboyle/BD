@@ -1100,12 +1100,16 @@ def l14_stash_dedup_skip(ctx):
                 "WHERE status = 'done' AND "
                 "(message LIKE '%dedup%' OR message LIKE '%skip%' "
                 "OR message LIKE '%already%')").fetchone()[0]
+            queue_skipped = cx.execute(
+                "SELECT COUNT(*) FROM queue "
+                "WHERE status = 'skipped_duplicate'").fetchone()[0]
         finally:
             cx.close()
     except Exception as e:
         return FAIL, f"could not read history for dedup check: {e}"
+    skipped += queue_skipped
     ctx.log(f"history: {done} done, {len(rows)} filename(s) appearing "
-            f"more than once, {skipped} row(s) marked dedup/skip")
+            f"more than once, {skipped} dedup skip(s) across history/queue")
     if done == 0:
         return WARN, ("no completed downloads in history — dedup not "
                       "exercisable; run L11 first")
