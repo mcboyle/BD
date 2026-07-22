@@ -122,6 +122,20 @@ def test_l14_passes_when_a_dedup_skip_is_recorded(clean_workdir):
     assert "dedup-skipped" in detail
 
 
+def test_l14_passes_for_real_skipped_duplicate_queue_state(clean_workdir):
+    db.db_init()
+    db.db_log("s1", "Site", "https://example.com/v1", "done",
+              filename="movie.mp4", message="ok")
+    db.queue_upsert(
+        "s1", "https://example.com/v1", status="skipped_duplicate",
+        message="Duplicate of history #1 (movie.mp4)")
+    ctx = h.Context("http://localhost:1", str(clean_workdir),
+                    disruptive=True)
+    level, detail = _get_test("L14").fn(ctx)
+    assert level == h.PASS
+    assert "dedup-skipped" in detail
+
+
 def test_l14_warns_when_downloads_exist_but_no_dedup_skip(clean_workdir):
     db.db_init()
     db.db_log("s1", "Site", "https://example.com/v2", "done",
