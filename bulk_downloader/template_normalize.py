@@ -32,7 +32,7 @@ from . import selector_lint as sl
 # row selector considered safe enough to keep without manual review.
 _MODAL_RE = re.compile(
     r'\[role=["\']?dialog|\baria-modal|\.modal\b|\.ant-modal|\.MuiDialog|'
-    r'\.drawer\b|\.popover\b|\.dialog\b',
+    r'[#.][\w-]*[-_]modal\b|\.drawer\b|\.popover\b|\.dialog\b',
     re.I,
 )
 

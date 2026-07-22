@@ -1,7 +1,7 @@
 {
   "schema": "bulk_downloader.template.review_candidate.v1",
   "normalized_from": "bulk_downloader.template_draft.v2",
-  "status": "disabled",
+  "status": "enabled",
   "host": "www.filthykings.com",
   "confidence": "high",
   "match": {
@@ -20,6 +20,9 @@
     },
     "download": {
       "trigger": "[title*=\"Download\" i]",
+      "row_selectors": [
+        ".VideoJSPlayer-Modal .VideoJSPlayer-DownloadOption-Link"
+      ],
       "api_template": "https://service.gammaapis.com/user/history/download/filthykings/{filthyking_id}"
     }
   },
@@ -27,14 +30,14 @@
     "/user/history/download/filthykings/{filthyking_id}"
   ],
   "resolutions": [
-    2160,
-    1080,
-    720,
-    576,
-    540,
-    480,
+    160,
+    240,
     360,
-    240
+    480,
+    540,
+    720,
+    1080,
+    2160
   ],
   "source": {
     "capture_file": "filthykings.com_026255e0_20260721_003033_62b2.wacz",
@@ -78,7 +81,8 @@
       "action_count": 4,
       "checks": [
         "play captured",
-        "download captured"
+        "download modal captured",
+        "capped row-href probe passed"
       ],
       "gap_count": 0,
       "tier": "ready",
@@ -93,16 +97,14 @@
     "Ignore captcha/turnstile selectors when generating login templates."
   ],
   "warnings": [
-    "dropped row selector (not modal-scoped or unsafe): a.Link.Link.VideoJSPlayer-DownloadOption-Link.VideoJSPlayer-DownloadOption-Link.styles_rQ2d8EqJoa.styles_rQ2d8EqJoa",
-    "no modal-scoped row selectors derived \u2014 add them during manual review (the download trigger only opens the modal)",
-    "API patterns kept relative \u2014 no explicit API host in the draft; set a concrete api{base} during review (the API may live on a different subdomain than the page) \u2014 download-resolution calls were observed on: service.gammaapis.com; set api{base} accordingly"
+    "API host and paths are observed evidence only; response schema is not persisted or used directly."
   ],
   "rejected_patterns": [],
   "review_notes": [
     "Normalized from a rich WACZ-builder draft into the runtime reviewed shape.",
-    "Add the concrete api{base, paths} and modal-scoped row_selectors during review.",
     "download.trigger is a click target (may open a modal), not a final row.",
-    "Never auto-enabled; promote explicitly after review."
+    "Live review observed exactly eight anchor rows in ascending resolution order; scene identifier and hrefs are intentionally omitted.",
+    "Enabled only after a capped site-provided row probe passed."
   ],
-  "promoted_at": 1784595201
+  "promoted_at": 1784745751
 }
