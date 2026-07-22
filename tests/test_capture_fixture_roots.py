@@ -97,7 +97,10 @@ def test_capture_script_inherits_fixture_roots_without_promoting_test_settings()
         encoding="utf-8"
     )
 
-    suite_prefix = 'BD_DISABLE_KEEPALIVE=1 \\\nvenv/bin/python run_tests.py'
+    suite_prefix = (
+        'run_with_heartbeat "full test suite" "$OUT/02_suite_run.log" \\\n'
+        '   env BD_DISABLE_KEEPALIVE=1 venv/bin/python run_tests.py'
+    )
     assert suite_prefix in source
     assert "BD_TEST_CAPTURE_ROOT" not in source
     assert "BD_TEST_STRICT_CAPTURE_ROOT" not in source

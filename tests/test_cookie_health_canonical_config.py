@@ -33,6 +33,8 @@ def test_check_all_sites_includes_canonical_cookie_file(monkeypatch):
 
 
 def test_check_site_accepts_canonical_json_cookie_jar(tmp_path, monkeypatch):
+    import httpx
+
     from bulk_downloader import cookie_health, cookies
 
     jar_path = tmp_path / "cookies.json"
@@ -64,7 +66,7 @@ def test_check_site_accepts_canonical_json_cookie_jar(tmp_path, monkeypatch):
         def get(self, _url):
             return _Response()
 
-    monkeypatch.setattr("httpx.Client", _Client)
+    monkeypatch.setattr(httpx, "Client", _Client)
     monkeypatch.setattr(cookie_health, "_record", lambda *_a, **_k: None)
 
     result = cookie_health.check_site("s1", {

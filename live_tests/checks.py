@@ -2566,6 +2566,8 @@ def l4_playwright_browsers_installed(ctx):
 # headers/templates instead) — that's a WARN-of-zero-sites, not a
 # FAIL.
 
+_L8_AUTH_HEALTH_MAX_AGE_S = 48 * 60 * 60
+
 @live_test("L8", "cookie-jar-not-empty-on-active-sites", disruptive=False)
 def l8_cookie_jar_not_empty_on_active_sites(ctx):
     """For each site with auth_state=ok, verify its on-disk cookie
@@ -2591,6 +2593,35 @@ def l8_cookie_jar_not_empty_on_active_sites(ctx):
     active = [s for s in sites if s.get("auth_state") == "ok"]
     ctx.log(f"{len(sites)} site(s) total; {len(active)} reporting "
             f"auth_state=ok")
+    if not active:
+        # A restart clears runner-local auth_state, but auth-health evidence is
+        # durable. Accept only green records for site IDs still configured, and
+        # continue into the same on-disk cookie-file verification below.
+        aok, _astatus, abody, _ = ctx.get(
+            "/api/auth_health/status", timeout=10)
+        durable_sites = (abody.get("sites") or []) if (
+            aok and isinstance(abody, dict)) else []
+        configured_ids = {
+            str(s.get("site_id")) for s in sites if s.get("site_id")
+        }
+        import time as _time
+        now = _time.time()
+        durable_ids = {
+            str(row.get("site_id"))
+            for row in durable_sites
+            if isinstance(row, dict)
+            and str(row.get("status") or "").lower() == "green"
+            and str(row.get("site_id")) in configured_ids
+            and isinstance(row.get("last_check_ts"), (int, float))
+            and 0 <= now - float(row.get("last_check_ts"))
+            <= _L8_AUTH_HEALTH_MAX_AGE_S
+        }
+        if durable_ids:
+            active = [{"site_id": sid} for sid in sorted(durable_ids)]
+            ctx.log(
+                f"using {len(active)} durable green auth-health record(s) "
+                "after runner auth state reset"
+            )
     if not active:
         return WARN, (f"{len(sites)} site(s) configured but none "
                       f"report auth_state=ok — nothing to verify")

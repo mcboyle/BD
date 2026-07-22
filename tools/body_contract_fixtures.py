@@ -450,6 +450,16 @@ class Fixtures:
         },
     }
 
+    # Fixture probes must never launch detached operator workloads. These
+    # values are both ADDED to empty comparator bodies and OVERRIDE generated
+    # samples. Keep them separate from PATH_VALUES, whose entries only replace
+    # keys already present in a type-directed sample.
+    PROBE_SAFETY_VALUES = {
+        "/api/sites/${}/template_onboard": {
+            "run": False,
+        },
+    }
+
     def resolve(self, sample, path=""):
         """Fill a type-directed sample body with REAL values where we have them.
 
@@ -463,9 +473,15 @@ class Fixtures:
         for prefix, vals in self.PATH_VALUES.items():
             if path.startswith(prefix):
                 over.update(vals)
-        body, missing = {}, set()
+        safety = {}
+        for prefix, vals in self.PROBE_SAFETY_VALUES.items():
+            if path.startswith(prefix):
+                safety.update(vals)
+        body, missing = dict(safety), set()
         for k, v in sample.items():
-            if k in over:
+            if k in safety:
+                body[k] = safety[k]
+            elif k in over:
                 body[k] = over[k]
             elif k in self.values:
                 body[k] = self.values[k]
