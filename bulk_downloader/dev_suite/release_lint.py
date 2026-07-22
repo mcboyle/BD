@@ -393,6 +393,11 @@ _MANIFEST_EXCLUDE_NAMES = {"downloader_history.db",
 #     re-seeds app_config.json on a fresh first run when absent, so
 #     dropping it from the manifest is safe (same posture as the overlay).
 _MANIFEST_EXCLUDE_PATHS = {"app_config.json",
+                           # The baseline diff gate treats every .env-shaped
+                           # file as sensitive.  This tracked example contains
+                           # placeholders only, but it is documentation rather
+                           # than runtime input and does not belong in a release.
+                           ".env.example",
                            # v3.66.798 (BUILD-HYG): plugins.py::
                            # _quarantine_state_path() anchors plugin
                            # quarantine state at _plugin_dir()/

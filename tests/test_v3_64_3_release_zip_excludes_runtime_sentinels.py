@@ -18,6 +18,10 @@ from __future__ import annotations
 
 
 class TestRuntimeSentinelsExcluded:
+    def test_root_env_example_is_excluded(self):
+        from bulk_downloader.dev_suite import _manifest_excluded
+        assert _manifest_excluded(".env.example") is True
+
     def test_integrity_last_run_excluded(self):
         from bulk_downloader.dev_suite import _manifest_excluded
         assert _manifest_excluded(".integrity_last_run") is True
