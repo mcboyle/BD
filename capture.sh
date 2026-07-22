@@ -15,6 +15,9 @@
 #   - --workers=N is now parsed and forwarded to step [2] run_tests.py
 #     (was hardcoded --workers=4, so `./capture.sh --workers=90` was a no-op);
 #     unknown args (e.g. a bare --summary) are accepted and ignored
+#   - private capture fixtures remain opt-in. Callers can export absolute
+#     BD_TEST_CAPTURE_ROOT / BD_TEST_STRICT_CAPTURE_ROOT directories; step [2]
+#     forwards them explicitly to run_tests.py. No private path is autodetected.
 #
 # Updated for v3.63.6:
 #   - capture.sh now ships in the release zip (was previously stash-local,
@@ -54,6 +57,30 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+# Private WACZ/JSON evidence is intentionally outside the release.  Validate
+# opt-in roots once, before the long run, so a typo cannot silently turn the
+# integration lane back into dozens of skips. Example:
+#   BD_TEST_CAPTURE_ROOT=/absolute/corpus \
+#   BD_TEST_STRICT_CAPTURE_ROOT=/absolute/strict-corpus \
+#     ./capture.sh --workers=60
+validate_fixture_root() {
+  local env_name="$1"
+  local root="$2"
+  [ -z "$root" ] && return 0
+  case "$root" in
+    /*) ;;
+    *) echo "FATAL: $env_name must be an absolute directory: $root" >&2; exit 2 ;;
+  esac
+  [ -d "$root" ] || {
+    echo "FATAL: $env_name directory not found: $root" >&2
+    exit 2
+  }
+}
+
+validate_fixture_root "BD_TEST_CAPTURE_ROOT" "${BD_TEST_CAPTURE_ROOT:-}"
+validate_fixture_root "BD_TEST_STRICT_CAPTURE_ROOT" \
+  "${BD_TEST_STRICT_CAPTURE_ROOT:-}"
 
 rm -rf "$OUT" "$ARCHIVE"
 mkdir -p "$OUT"
@@ -99,7 +126,10 @@ echo "  done"
 echo "=== [2/9] Full test suite (5-15 min) ==="
 sudo systemctl stop bulkdownloader 2>/dev/null
 sleep 1
-BD_DISABLE_KEEPALIVE=1 venv/bin/python run_tests.py \
+BD_DISABLE_KEEPALIVE=1 \
+BD_TEST_CAPTURE_ROOT="${BD_TEST_CAPTURE_ROOT:-}" \
+BD_TEST_STRICT_CAPTURE_ROOT="${BD_TEST_STRICT_CAPTURE_ROOT:-}" \
+venv/bin/python run_tests.py \
    --workers="$WORKERS" \
    --summary="$OUT/02_SUMMARY.txt" \
    --json="$OUT/02_test_results.json" \

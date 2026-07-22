@@ -80,3 +80,30 @@ def test_capture_modules_do_not_embed_legacy_private_roots():
         assert "/mnt/user-data/uploads" not in source, name
         assert "/home/claude/corpus/wacz" not in source, name
         assert "capture_fixture_lane" in source, name
+
+
+def test_capture_script_forwards_only_explicit_fixture_roots_to_suite():
+    source = (Path(__file__).resolve().parent.parent / "capture.sh").read_text(
+        encoding="utf-8"
+    )
+
+    suite_prefix = (
+        'BD_DISABLE_KEEPALIVE=1 \\\n'
+        'BD_TEST_CAPTURE_ROOT="${BD_TEST_CAPTURE_ROOT:-}" \\\n'
+        'BD_TEST_STRICT_CAPTURE_ROOT="${BD_TEST_STRICT_CAPTURE_ROOT:-}" \\\n'
+        "venv/bin/python run_tests.py"
+    )
+    assert suite_prefix in source
+    assert ".wacz-stage" not in source
+
+
+def test_capture_script_rejects_invalid_opt_in_fixture_roots_up_front():
+    source = (Path(__file__).resolve().parent.parent / "capture.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "validate_fixture_root()" in source
+    assert 'validate_fixture_root "BD_TEST_CAPTURE_ROOT"' in source
+    assert 'validate_fixture_root "BD_TEST_STRICT_CAPTURE_ROOT"' in source
+    assert "must be an absolute directory" in source
+    assert "directory not found" in source

@@ -3,35 +3,64 @@ from __future__ import annotations
 import threading
 import time
 from collections import deque
+from datetime import datetime, timezone
 
 
-def _seed_widget_db(monkeypatch, tmp_path):
+_FIXED_NOW = datetime(2030, 1, 2, 12, tzinfo=timezone.utc).timestamp()
+
+
+class _FixedUtcClock:
+    def __init__(self, now):
+        self._now = now
+
+    def time(self):
+        return self._now
+
+    @staticmethod
+    def gmtime(value=None):
+        return time.gmtime(value)
+
+    @staticmethod
+    def strftime(fmt, value):
+        return time.strftime(fmt, value)
+
+
+def _seed_widget_db(monkeypatch, tmp_path, *, now=None):
     from bulk_downloader import db, migrations
+
+    now = time.time() if now is None else now
+
+    def iso_utc(seconds_ago):
+        return time.strftime(
+            "%Y-%m-%dT%H:%M:%S", time.gmtime(now - seconds_ago))
 
     monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "widgets.db"))
     db.db_init()
     with db.db_conn() as cx:
         migrations._m3(cx)
-        cx.executescript(
+        cx.executemany(
             """
             INSERT INTO history(site_id,site_name,url,status,file_size,ts)
-              VALUES ('alpha','Alpha','a1','done',1000,strftime('%Y-%m-%dT%H:%M:%S','now','-10 minutes'));
-            INSERT INTO history(site_id,site_name,url,status,file_size,ts)
-              VALUES ('alpha','Alpha','a2','done',2000,strftime('%Y-%m-%dT%H:%M:%S','now','-2 hours'));
-            INSERT INTO history(site_id,site_name,url,status,file_size,ts)
-              VALUES ('alpha','Alpha','a3','failed',0,strftime('%Y-%m-%dT%H:%M:%S','now','-20 minutes'));
-            INSERT INTO history(site_id,site_name,url,status,file_size,ts)
-              VALUES ('other','Other','o1','done',9000,strftime('%Y-%m-%dT%H:%M:%S','now','-5 minutes'));
-            INSERT INTO library(site_id,file_path,file_size,watched,rating,
-                                resolution,studio,added_at,file_exists)
-              VALUES ('alpha','/a/1.mp4',1000,1,5,'1080p','Studio A',strftime('%s','now'),1);
-            INSERT INTO library(site_id,file_path,file_size,watched,rating,
-                                resolution,studio,added_at,file_exists)
-              VALUES ('alpha','/a/2.mp4',2000,0,NULL,'1080p','Studio A',strftime('%s','now'),1);
-            INSERT INTO library(site_id,file_path,file_size,watched,rating,
-                                resolution,studio,added_at,file_exists)
-              VALUES ('other','/o/1.mp4',9000,0,NULL,'2160p','Studio O',strftime('%s','now'),0);
+              VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ("alpha", "Alpha", "a1", "done", 1000, iso_utc(10 * 60)),
+                ("alpha", "Alpha", "a2", "done", 2000, iso_utc(2 * 3600)),
+                ("alpha", "Alpha", "a3", "failed", 0, iso_utc(20 * 60)),
+                ("other", "Other", "o1", "done", 9000, iso_utc(5 * 60)),
+            ],
+        )
+        cx.executemany(
             """
+            INSERT INTO library(site_id,file_path,file_size,watched,rating,
+                                resolution,studio,added_at,file_exists)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ("alpha", "/a/1.mp4", 1000, 1, 5, "1080p", "Studio A", now, 1),
+                ("alpha", "/a/2.mp4", 2000, 0, None, "1080p", "Studio A", now, 1),
+                ("other", "/o/1.mp4", 9000, 0, None, "2160p", "Studio O", now, 0),
+            ],
         )
     return db
 
@@ -40,7 +69,8 @@ def test_history_and_library_primaries_are_real_and_site_scoped(
         monkeypatch, tmp_path):
     from bulk_downloader import app_state, app_widgets_api, library
 
-    _seed_widget_db(monkeypatch, tmp_path)
+    _seed_widget_db(monkeypatch, tmp_path, now=_FIXED_NOW)
+    monkeypatch.setattr(app_widgets_api, "time", _FixedUtcClock(_FIXED_NOW))
     monkeypatch.setattr(app_state, "runners", {})
     monkeypatch.setattr(app_state, "s_cfg", {
         "alpha": {"name": "Alpha"}, "other": {"name": "Other"},

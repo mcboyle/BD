@@ -119,7 +119,9 @@ def _src_loc(view_fn, root: Path):
         mod = getattr(fn, "__module__", None)
         return (f"<{mod}>" if mod else "<external>"), None
     try:
-        return str(fp.relative_to(root_r)), line
+        # ROUTE_INDEX stores repository identifiers.  Native Windows
+        # separators would make an otherwise identical Linux regen drift.
+        return fp.relative_to(root_r).as_posix(), line
     except ValueError:
         mod = getattr(fn, "__module__", None)
         return (f"<{mod}>" if mod else "<external>"), None

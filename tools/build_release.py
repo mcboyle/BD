@@ -274,6 +274,7 @@ def _build_zip(root: Path, files: list[Path], dest: Path,
                         or rel.endswith(".py") and (p.stat().st_mode
                                                     & stat.S_IXUSR)):
                     mode = 0o755
+                info.create_system = 3
                 info.external_attr = (mode << 16)
                 if rel == "STATE.json":
                     # F0.2: stamp STATE in its natural sorted position (no
