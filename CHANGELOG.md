@@ -4,6 +4,8 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. For pre-v3.46 history
 see [CHANGELOG_archive.md](CHANGELOG_archive.md).
 
+## v3.66.816 -- Promote validated Filthykings template and enforce exact probe cap
+
 ## v3.66.815 - AI GPU boot readiness
 
 - Add an independent systemd companion that warms the configured Ollama text
