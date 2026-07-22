@@ -3,6 +3,7 @@
 #
 # Removes:
 #   - the bulkdownloader systemd service (stops, disables, removes unit)
+#   - the independent AI readiness companion service
 #   - $APP_DIR/tools/deployed_version.txt (PT11 marker)
 #
 # With --purge:
@@ -52,6 +53,8 @@ done
 APP_DIR="$(dirname "$(readlink -f "$0")")"
 SERVICE_NAME="bulkdownloader"
 UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
+AI_SERVICE_NAME="bulkdownloader-ai-ready"
+AI_UNIT_PATH="/etc/systemd/system/${AI_SERVICE_NAME}.service"
 # Drop-in dir created by install_remote_teach.sh -- this uninstaller
 # only removes the bulkdownloader unit; the drop-in is removed by
 # uninstall_remote_teach.sh. We do mention it in the summary so the
@@ -110,8 +113,15 @@ if [ "$HAS_SYSTEMCTL" = "yes" ]; then
     if systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
         ACTIONS+=("sudo systemctl disable $SERVICE_NAME")
     fi
+    if systemctl is-active --quiet "$AI_SERVICE_NAME" 2>/dev/null; then
+        ACTIONS+=("sudo systemctl stop $AI_SERVICE_NAME")
+    fi
+    if systemctl is-enabled --quiet "$AI_SERVICE_NAME" 2>/dev/null; then
+        ACTIONS+=("sudo systemctl disable $AI_SERVICE_NAME")
+    fi
 fi
 [ -f "$UNIT_PATH" ]                              && ACTIONS+=("sudo rm -f $UNIT_PATH")
+[ -f "$AI_UNIT_PATH" ]                           && ACTIONS+=("sudo rm -f $AI_UNIT_PATH")
 [ -f "$APP_DIR/tools/deployed_version.txt" ]     && ACTIONS+=("rm -f $APP_DIR/tools/deployed_version.txt")
 if [ "$PURGE" = "yes" ] && [ -d "$BD_HOME_RESOLVED" ]; then
     ACTIONS+=("rm -rf $BD_HOME_RESOLVED  # ALL USER DATA")
@@ -164,6 +174,12 @@ if [ "$HAS_SYSTEMCTL" = "yes" ]; then
     if systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
         run_ok sudo systemctl disable "$SERVICE_NAME"
     fi
+    if systemctl is-active --quiet "$AI_SERVICE_NAME" 2>/dev/null; then
+        run_ok sudo systemctl stop "$AI_SERVICE_NAME"
+    fi
+    if systemctl is-enabled --quiet "$AI_SERVICE_NAME" 2>/dev/null; then
+        run_ok sudo systemctl disable "$AI_SERVICE_NAME"
+    fi
 fi
 
 # Remove the unit file BEFORE daemon-reload so systemd notices the
@@ -171,6 +187,9 @@ fi
 # state until the next reload.
 if [ -f "$UNIT_PATH" ]; then
     run sudo rm -f "$UNIT_PATH"
+fi
+if [ -f "$AI_UNIT_PATH" ]; then
+    run sudo rm -f "$AI_UNIT_PATH"
 fi
 
 if [ "$HAS_SYSTEMCTL" = "yes" ] && [ "$DRY_RUN" = "no" ]; then
@@ -180,6 +199,7 @@ if [ "$HAS_SYSTEMCTL" = "yes" ] && [ "$DRY_RUN" = "no" ]; then
     # `systemctl status bulkdownloader` keeps showing the old failure
     # forever even after the unit is gone.
     run_ok sudo systemctl reset-failed "$SERVICE_NAME"
+    run_ok sudo systemctl reset-failed "$AI_SERVICE_NAME"
 fi
 
 if [ -f "$APP_DIR/tools/deployed_version.txt" ]; then

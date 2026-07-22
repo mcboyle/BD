@@ -87,6 +87,8 @@ esac
 
 SERVICE_NAME="bulkdownloader"
 UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
+AI_SERVICE_NAME="bulkdownloader-ai-ready"
+AI_UNIT_PATH="/etc/systemd/system/${AI_SERVICE_NAME}.service"
 
 echo " ================================================================"
 echo "  BulkDownloader - systemd service install"
@@ -196,14 +198,14 @@ fi
 
 # Build the unit. WorkingDirectory MUST be the app dir: the SQLite DB
 # and sites_config.json are resolved relative to the working directory.
-# Wants/After ollama.service so the AI backend is up first (harmless if
-# Ollama is not installed - it is just an ordering hint).
+# Only the independent AI readiness companion is ordered after Ollama;
+# the main app remains available regardless of AI backend readiness.
 echo
 echo "  Writing $UNIT_PATH (needs sudo)..."
 if ! sudo tee "$UNIT_PATH" >/dev/null <<UNIT
 [Unit]
 Description=BulkDownloader (Flask + Playwright video downloader)
-After=network-online.target ollama.service
+After=network-online.target
 Wants=network-online.target
 
 [Service]
@@ -253,6 +255,36 @@ if [ ! -s "$UNIT_PATH" ]; then
     exit 1
 fi
 
+echo "  Writing $AI_UNIT_PATH (needs sudo)..."
+if ! sudo tee "$AI_UNIT_PATH" >/dev/null <<UNIT
+[Unit]
+Description=BulkDownloader AI GPU boot readiness
+After=network-online.target ollama.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=${RUN_USER}
+WorkingDirectory=${APP_DIR}
+EnvironmentFile=-${APP_DIR}/.env
+ExecStart=${PYEXE} -m bulk_downloader.ai_boot_readiness
+Restart=on-failure
+RestartSec=60
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+then
+    echo "  ERROR: failed to write $AI_UNIT_PATH"
+    exit 1
+fi
+if [ ! -s "$AI_UNIT_PATH" ]; then
+    echo "  ERROR: $AI_UNIT_PATH is missing or empty after sudo tee."
+    exit 1
+fi
+
 echo "  Reloading systemd..."
 sudo systemctl daemon-reload \
     || { echo "  ERROR: systemctl daemon-reload failed"; exit 1; }
@@ -269,9 +301,21 @@ if ! sudo systemctl enable "${SERVICE_NAME}" 2>"${_svc_enable_err}"; then
 fi
 rm -f "${_svc_enable_err}"
 
+echo "  Enabling ${AI_SERVICE_NAME} (start on boot)..."
+if ! sudo systemctl enable "${AI_SERVICE_NAME}"; then
+    echo "  ERROR: systemctl enable ${AI_SERVICE_NAME} failed"
+    exit 1
+fi
+
 echo "  Starting ${SERVICE_NAME}..."
 sudo systemctl restart "${SERVICE_NAME}" \
     || { echo "  ERROR: initial restart failed; check journalctl"; exit 1; }
+
+echo "  Starting ${AI_SERVICE_NAME} in the background..."
+if ! sudo systemctl restart "${AI_SERVICE_NAME}"; then
+    echo "  WARNING: ${AI_SERVICE_NAME} did not become ready."
+    echo "  AI readiness will retry after boot; BulkDownloader remains available."
+fi
 
 # Poll up to 15s for the service to settle. Flask + Playwright +
 # Ollama-probe on cold start can easily take 5-10s; the previous
