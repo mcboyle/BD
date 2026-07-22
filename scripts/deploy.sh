@@ -127,7 +127,10 @@ if [ "$SKIP_BACKEND" -eq 1 ]; then
   note "skipping resolve_backend() check (--skip-backend-check)"
 else
   [ -x "$VENV_PY" ] || die "venv python not executable: $VENV_PY (use --skip-backend-check off-host)"
-  backend="$("$VENV_PY" -c 'from bulk_downloader import cloak; print(cloak.resolve_backend())' 2>/dev/null || true)"
+  if ! backend="$(cd "$DIR" && "$VENV_PY" -c \
+    'from bulk_downloader import cloak; print(cloak.resolve_backend())' 2>/dev/null)"; then
+    die "resolve_backend() probe execution failed"
+  fi
   [ "$backend" = "cloakbrowser" ] \
     || die "resolve_backend()=='${backend:-<none>}', expected 'cloakbrowser' (venv missing cloakbrowser?)"
   note "resolve_backend()==cloakbrowser confirmed"
