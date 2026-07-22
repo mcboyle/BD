@@ -4,7 +4,12 @@ import time
 from pathlib import Path
 from typing import Any, Mapping
 
-from .ai_boot_status import STATE_PATH, load_effective_config, write_status
+from .ai_boot_status import (
+    STATE_PATH,
+    load_effective_config,
+    sanitize_endpoint,
+    write_status,
+)
 from .aiassist import validate_endpoint
 from .llm_readiness import model_present
 from .ollama_boot_probe import KEEP_ALIVE, OllamaBootProbe, ProbeFailure
@@ -33,7 +38,7 @@ def _base(cfg: Mapping[str, Any], attempt: int, gpu: dict | None = None) -> dict
     return {
         "attempt": attempt,
         "provider": cfg["provider"],
-        "endpoint": cfg["endpoint"],
+        "endpoint": sanitize_endpoint(str(cfg["endpoint"])),
         "keep_alive": KEEP_ALIVE,
         "gpu": gpu or {"available": False, "devices": []},
         "models": {
@@ -134,6 +139,7 @@ def run(config: Mapping[str, Any] | None = None, *, state_path: Path = STATE_PAT
         return 1
     probe = probe_factory(cfg["endpoint"], timeout=REQUEST_TIMEOUT)
     delays = tuple(retry_delays)
+    last_text_ready = None
     for index in range(len(delays) + 1):
         attempt = index + 1
         try:
@@ -141,8 +147,15 @@ def run(config: Mapping[str, Any] | None = None, *, state_path: Path = STATE_PAT
             _persist(ready, state_path, now, boot_id)
             return 0
         except ProbeFailure as exc:
-            partial = getattr(exc, "partial_status", _base(cfg, attempt))
             final = index == len(delays)
+            partial = getattr(exc, "partial_status", None)
+            if (partial is not None
+                    and partial.get("models", {}).get("text", {}).get("state") == "ready"):
+                last_text_ready = partial
+            elif final and last_text_ready is not None:
+                partial = last_text_ready
+            if partial is None:
+                partial = _base(cfg, attempt)
             failed = {
                 **partial,
                 "state": "degraded" if final else "retrying",

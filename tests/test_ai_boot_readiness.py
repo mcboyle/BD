@@ -106,6 +106,31 @@ def test_retry_exhaustion_persists_degraded(tmp_path):
     assert body["error_code"] == "ollama_unreachable"
 
 
+def test_retry_exhaustion_preserves_earlier_text_ready_fallback(tmp_path):
+    probe = ScriptedProbe(fail_vision=True)
+    list_calls = 0
+
+    def list_then_fail():
+        nonlocal list_calls
+        probe.events.append("list")
+        list_calls += 1
+        if list_calls == 2:
+            raise readiness.ProbeFailure("ollama_unreachable", "booting")
+        return ["text:latest", "vision:latest"]
+
+    probe.list_models = list_then_fail
+    path = tmp_path / "fallback-exhausted.json"
+    code = readiness.run(CFG, state_path=path, probe_factory=_factory(probe),
+                         retry_delays=(1,), sleep=lambda seconds: None,
+                         now=lambda: 1_000.0, boot_id="boot-a")
+    body = json.loads(path.read_text())
+    assert code == 1
+    assert body["state"] == "degraded"
+    assert body["attempt"] == 2
+    assert body["error_code"] == "ollama_unreachable"
+    assert body["models"]["text"]["state"] == "ready"
+
+
 def test_missing_vision_model_is_marked_missing(tmp_path):
     probe = ScriptedProbe()
     probe.list_models = lambda: ["text:latest"]
@@ -179,3 +204,40 @@ def test_invalid_config_is_persisted_without_constructing_probe(tmp_path):
     )
     assert code == 1
     assert json.loads(path.read_text())["error_code"] == "invalid_config"
+
+
+def test_early_exit_statuses_strip_endpoint_credentials(tmp_path):
+    http_endpoint = (
+        "http://credential-user:credential-pass@localhost:11434/private"
+        "?token=credential-query"
+    )
+    file_endpoint = (
+        "file://credential-user:credential-pass@localhost/private"
+        "?token=credential-query"
+    )
+    cases = (
+        ({**CFG, "enabled": False, "endpoint": http_endpoint}, 0,
+         "http://localhost:11434/private"),
+        ({**CFG, "provider": "openai", "endpoint": http_endpoint}, 0,
+         "http://localhost:11434/private"),
+        ({**CFG, "endpoint": file_endpoint}, 1, "file://localhost/private"),
+    )
+
+    for index, (cfg, expected_code, expected_endpoint) in enumerate(cases):
+        path = tmp_path / f"early-exit-{index}.json"
+        code = readiness.run(
+            cfg,
+            state_path=path,
+            probe_factory=lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("probe must not be constructed")
+            ),
+            retry_delays=(),
+            now=lambda: 1_000.0,
+            boot_id="boot-a",
+        )
+        document = path.read_text()
+        body = json.loads(document)
+        assert code == expected_code
+        assert body["endpoint"] == expected_endpoint
+        for secret in ("credential-user", "credential-pass", "credential-query"):
+            assert secret not in document
