@@ -39,3 +39,12 @@ def test_uninstaller_stops_disables_removes_and_resets_companion():
         'systemctl reset-failed "$AI_SERVICE_NAME"',
     ):
         assert expected in UNINSTALL
+
+
+def test_uninstaller_dry_run_summary_includes_systemd_cleanup():
+    for expected in (
+        'ACTIONS+=("sudo systemctl daemon-reload")',
+        'ACTIONS+=("sudo systemctl reset-failed $SERVICE_NAME")',
+        'ACTIONS+=("sudo systemctl reset-failed $AI_SERVICE_NAME")',
+    ):
+        assert expected in UNINSTALL

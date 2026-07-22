@@ -106,22 +106,38 @@ HAS_SYSTEMCTL="no"
 if command -v systemctl >/dev/null 2>&1; then HAS_SYSTEMCTL="yes"; fi
 
 ACTIONS=()
+SYSTEMD_CHANGE_PLANNED="no"
 if [ "$HAS_SYSTEMCTL" = "yes" ]; then
     if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
         ACTIONS+=("sudo systemctl stop $SERVICE_NAME")
+        SYSTEMD_CHANGE_PLANNED="yes"
     fi
     if systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
         ACTIONS+=("sudo systemctl disable $SERVICE_NAME")
+        SYSTEMD_CHANGE_PLANNED="yes"
     fi
     if systemctl is-active --quiet "$AI_SERVICE_NAME" 2>/dev/null; then
         ACTIONS+=("sudo systemctl stop $AI_SERVICE_NAME")
+        SYSTEMD_CHANGE_PLANNED="yes"
     fi
     if systemctl is-enabled --quiet "$AI_SERVICE_NAME" 2>/dev/null; then
         ACTIONS+=("sudo systemctl disable $AI_SERVICE_NAME")
+        SYSTEMD_CHANGE_PLANNED="yes"
     fi
 fi
-[ -f "$UNIT_PATH" ]                              && ACTIONS+=("sudo rm -f $UNIT_PATH")
-[ -f "$AI_UNIT_PATH" ]                           && ACTIONS+=("sudo rm -f $AI_UNIT_PATH")
+if [ -f "$UNIT_PATH" ]; then
+    ACTIONS+=("sudo rm -f $UNIT_PATH")
+    SYSTEMD_CHANGE_PLANNED="yes"
+fi
+if [ -f "$AI_UNIT_PATH" ]; then
+    ACTIONS+=("sudo rm -f $AI_UNIT_PATH")
+    SYSTEMD_CHANGE_PLANNED="yes"
+fi
+if [ "$HAS_SYSTEMCTL" = "yes" ] && [ "$SYSTEMD_CHANGE_PLANNED" = "yes" ]; then
+    ACTIONS+=("sudo systemctl daemon-reload")
+    ACTIONS+=("sudo systemctl reset-failed $SERVICE_NAME")
+    ACTIONS+=("sudo systemctl reset-failed $AI_SERVICE_NAME")
+fi
 [ -f "$APP_DIR/tools/deployed_version.txt" ]     && ACTIONS+=("rm -f $APP_DIR/tools/deployed_version.txt")
 if [ "$PURGE" = "yes" ] && [ -d "$BD_HOME_RESOLVED" ]; then
     ACTIONS+=("rm -rf $BD_HOME_RESOLVED  # ALL USER DATA")
@@ -192,7 +208,7 @@ if [ -f "$AI_UNIT_PATH" ]; then
     run sudo rm -f "$AI_UNIT_PATH"
 fi
 
-if [ "$HAS_SYSTEMCTL" = "yes" ] && [ "$DRY_RUN" = "no" ]; then
+if [ "$HAS_SYSTEMCTL" = "yes" ] && [ "$SYSTEMD_CHANGE_PLANNED" = "yes" ] && [ "$DRY_RUN" = "no" ]; then
     # daemon-reload is cheap and safe even when nothing changed.
     run_ok sudo systemctl daemon-reload
     # reset-failed clears any leftover failed-unit state; otherwise
