@@ -6,15 +6,15 @@
 
 **Deployment target:** `stash` — `/home/mboyle/BulkDownloader`
 
-**Validated deployed commit:** `b60f58f0d25cbfb5d3bda07b81ee113e10650218`
+**Validated deployed commit:** `a68a6427cd612464e109cf78b1ab91f9858d1e1f`
 
-**GitHub PR head at acceptance snapshot:** `51c63341de697bb3f585055ba73f84e03fe8658b`
+**Validated build stamp:** `206687984e0e`
 
-**Pull request state at acceptance snapshot:** `mcboyle/BD#7` — draft, CLEAN, MERGEABLE
+**Release archive SHA-256:** `8D8EC2FB0171FA755900C579D4DE4D7D39C7F25A5B7FDD6A00575F8D86B99E29`
 
-> The deployed commit is the fully validated live OPV deployment. The later PR
-> head merges the current GitHub `main` into the OPV branch. That merge passed
-> local compatibility checks and GitHub CI but has not been deployed to `stash`.
+> The deployed archive is built from the exact merged revision above. PRs #7
+> through #12 are merged; the final release was installed on `stash` and
+> validated against the running service.
 
 ## Executive result
 
@@ -28,8 +28,8 @@ findings remained at handoff.
 
 | Validation | Result |
 |---|---:|
-| Authoritative deployed capture | **12,610 total / 12,537 passed / 0 failed / 73 gated skips** |
-| Live acceptance lane | **21 passed / 14 environment warnings / 0 failed** |
+| Authoritative deployed capture (60 workers) | **12,628 total / 12,624 passed / 0 failed / 4 intentional skips** |
+| Final live acceptance lane | **22 passed / 13 environment warnings / 0 failed** |
 | Explicit private-corpus lane | **110 passed / 0 failed / 0 skipped** |
 | Disposable PostgreSQL integration lane | **38 passed** |
 | Post-merge backend compatibility set | **287 passed** |
@@ -40,21 +40,41 @@ findings remained at handoff.
 
 ## Live deployment proof
 
-- `bulkdownloader.service`: active.
-- `bd-filthykings-quota.service`: active and enabled.
+- `bulkdownloader.service`: active and enabled.
+- `ollama.service`: active.
 - Health API: `ok=true`, `db_ok=true`.
-- Site `026255e0`: running.
-- Queue: 963 pending, one active download.
-- Workers: 1 active / 1 available.
-- Sites: 1 active / 1 configured.
-- Observed transfer rate: 620,849.6 bytes/second during final sampling.
-- The same active `.part` file grew **10,531,878 bytes in 20 seconds**.
+- Queue after final reboot: 962 pending, zero active downloads.
+- Sites loaded: 1.
+- Earlier operator download proof observed 620,849.6 bytes/second, with the
+  same active `.part` file growing **10,531,878 bytes in 20 seconds**.
 - Hung workers: none.
 - Protocol errors: zero.
 - Action-required, stuck, retry, and captcha widget counts were zero at final
   sampling.
-- The site was restarted through `POST /api/sites/026255e0/start`; the export
-  was intentionally left running.
+- The queue survived the live L28 service restart: 200 sampled URLs were
+  preserved.
+- Final live catalog: 35 checks, 22 pass, 13 environment warnings, 0 failures.
+
+## Ollama and L19 GPU validation
+
+The original L19 failure was an infrastructure issue: the Tesla T4 was not
+visible in the guest, so `qwen2.5:7b` ran on CPU at about 0.745 output tokens
+per second and hit the classifier's 15-second provider timeout. After restoring
+VMware PCI passthrough:
+
+- Tesla T4 detected with 15,360 MiB VRAM and NVIDIA driver 580.159.03.
+- Ollama selected CUDA compute 7.5 and reported `100% GPU` offload.
+- Configured `qwen2.5:7b` produced about 29.8 output tokens/second after load.
+- `/api/ai/classify` returned HTTP 200 with `submit_btn`, confidence 100.
+- Focused L19 passed in 1.654 seconds; the final full-catalog run passed L19 in
+  1.726 seconds.
+
+All six installed models were exercised with the same JSON classification
+prompt and a 60-second wall-clock cap. `qwen2.5:7b`, `qwen2.5vl:7b`, Qwythos
+Q6_K, and Qwythos Q4_K_M returned valid JSON. The larger Qwythos MTP Q5_K_M
+and Q8_0 variants exceeded the cold-load cap. The configured model remains
+`qwen2.5:7b`; no smaller model was installed and no AI configuration was
+changed.
 
 ## Chrome and widget verification
 
@@ -94,17 +114,18 @@ The private fixture lane was isolated behind explicit absolute-root variables,
 sources were remapped through the canonical project redactor and unchanged
 privacy floor, and the final result was **110/110 passed**.
 
-## Why 73 tests remain skipped by default
+## Why 4 tests remain skipped
 
-The skips are opt-in environment and privacy gates, not permanently disabled
-coverage:
+The final release-tree run has only four intentional environment gates:
 
-- 54 private-corpus cases run in the explicit 110-test private lane.
-- PostgreSQL-specific cases run in the disposable database lane, which passed
-  38 tests.
-- Raw development inspection routes are intentionally absent from release
-  builds.
-- A real network-namespace test requires root privileges and `iproute2`.
+- Three raw-capture development checks are inapplicable because raw capture
+  artifacts are deliberately absent from release archives.
+- One real network-namespace check requires root privileges and `iproute2`.
+
+Private-corpus coverage ran explicitly from owner-only regular and strict
+fixture roots, and PostgreSQL coverage ran against the dedicated local
+`postgres:16-alpine` lane; neither remains hidden behind default skips in the
+reported acceptance totals.
 
 ## Main fixes that produced the passing result
 
@@ -126,15 +147,21 @@ coverage:
    roots, and a real PostgreSQL CI service.
 10. Made the PIN index path format platform-independent and regenerated the
     endpoint, function, route, PIN, and dependency artifacts from source.
+11. Preserved Unix executable modes in release ZIPs and excluded the root
+    `.env.example` from production archives.
+12. Hardened high-concurrency session and telemetry behavior, then refreshed
+    the generated function index.
+13. Restored Tesla T4 passthrough to the guest, enabling CUDA offload and
+    turning the L19 AI text roundtrip from a timeout into a sub-two-second pass.
 
 ## Git and recovery state
 
-- OPV implementation/deployment checkpoint: `b60f58f0d25cbfb5d3bda07b81ee113e10650218`.
-- Conflict-resolution merge commit: `51c63341de697bb3f585055ba73f84e03fe8658b`.
-- Remote branch: `codex/template-host-aliases`.
-- Draft PR: https://github.com/mcboyle/BD/pull/7
-- PR state at final verification: CLEAN and MERGEABLE.
-- Local and remote branch SHAs matched.
+- Final deployed merge: `a68a6427cd612464e109cf78b1ab91f9858d1e1f`.
+- Merged PRs: #7, #8, #9, #10, #11, and #12.
+- Final archive: `BulkDownloader_v3_66_811.zip`.
+- Remote rollback archive:
+  `/home/mboyle/BulkDownloader/BulkDownloader_v3_66_811.zip.pre-a68a642`.
+- GitHub `gates` and `postgres-integration` checks passed on the merged work.
 - Tracked worktree changes were clean; operational review artifacts remained
   intentionally untracked.
 
@@ -155,8 +182,8 @@ totals. This combined report supersedes it.
 
 **OPV operator validation: COMPLETE.**
 
-**Live export: RUNNING.**
+**Live service: HEALTHY; queue preserved; no active transfer at final sample.**
 
 **GitHub preservation: COMPLETE.**
 
-**PR conflict resolution: COMPLETE; CI GREEN; PR remains draft and unmerged.**
+**PR integration: COMPLETE; CI GREEN; changes merged through PR #12.**
