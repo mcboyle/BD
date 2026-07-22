@@ -43,8 +43,8 @@ class OllamaBootProbe:
                  error_code: str = "ollama_unreachable") -> dict:
         try:
             return self._request_json(method, self.endpoint + path, payload, self.timeout)
-        except Exception as exc:
-            raise ProbeFailure(error_code, f"{type(exc).__name__}: {exc}"[:300]) from exc
+        except Exception:
+            raise ProbeFailure(error_code, "Ollama request failed") from None
 
     def list_models(self) -> list[str]:
         data = self._request("GET", "/api/tags")
@@ -90,9 +90,9 @@ class OllamaBootProbe:
                 [executable, "--query-gpu=name", "--format=csv,noheader,nounits"],
                 capture_output=True, text=True, timeout=5, check=False,
             )
-        except Exception as exc:
-            return {"available": False, "devices": [], "error": f"{type(exc).__name__}: {exc}"[:300]}
+        except Exception:
+            return {"available": False, "devices": [], "error": "nvidia-smi execution failed"}
         devices = [line.strip() for line in result.stdout.splitlines() if line.strip()]
         if result.returncode != 0 or not devices:
-            return {"available": False, "devices": [], "error": (result.stderr.strip() or "no NVIDIA devices")[:300]}
+            return {"available": False, "devices": [], "error": "no NVIDIA devices"}
         return {"available": True, "devices": devices}

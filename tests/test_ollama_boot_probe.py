@@ -97,3 +97,22 @@ def test_operation_failures_use_stable_codes():
             assert exc.code == expected
         else:
             raise AssertionError(f"{operation.__name__} did not fail")
+
+
+def test_operation_failure_hides_transport_credentials_and_content():
+    secret = "https://operator:api-key@example.test/api?token=secret user-content"
+
+    def broken(method, url, payload, timeout):
+        raise RuntimeError(secret)
+
+    probe = OllamaBootProbe("http://localhost:11434", request_json=broken)
+    try:
+        probe.list_models()
+    except Exception as exc:
+        message = str(exc)
+        assert "operator" not in message
+        assert "api-key" not in message
+        assert "secret" not in message
+        assert "user-content" not in message
+    else:
+        raise AssertionError("list_models did not fail")
