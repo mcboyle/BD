@@ -7,7 +7,7 @@ conditional soft-import blocks in this unit). Cycle rule: nothing from .runner.
 """
 import math, sys, threading, time
 
-from .db import db_log
+from .db import db_log, session_event_record
 from .login import do_login
 from .cookies import cookies_expiry_info
 from .constants import RL_RE, BLOCK_HINTS, AUTH_HINTS, AUTH_BODY_RE
@@ -273,9 +273,25 @@ class AuthMixin:
                     f"  login: templated auto-login failed for "
                     f"{self.site_id} ({msg}) — falling back to manual "
                     f"login takeover\n")
-                self.log_event("login_template_fallback",
-                               f"templated login failed ({msg}); "
-                               f"opened manual login")
+                fallback_detail = (f"templated login failed ({msg}); "
+                                   f"opened manual login")
+                self.log_event("login_template_fallback", fallback_detail)
+                # Persist the same lifecycle event that the live L7
+                # contract reads.  log_event() intentionally owns only the
+                # bounded in-memory/SSE stream, so without this write a real
+                # fallback vanished at restart and could never become durable
+                # OPV evidence.
+                try:
+                    session_event_record(
+                        self.site_id,
+                        getattr(self, "_active_account_idx", None),
+                        "login_template_fallback",
+                        fallback_detail,
+                    )
+                except Exception as _e:
+                    sys.stderr.write(
+                        f"  login: could not persist fallback event for "
+                        f"{self.site_id}: {_e}\n")
                 m_ok, m_msg = self.start_manual_login()
                 self._login_status = (
                     f"⏳ Auto-login failed ({msg}) — finish login "

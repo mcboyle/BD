@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. For pre-v3.46 history
 see [CHANGELOG_archive.md](CHANGELOG_archive.md).
 
+## v3.66.813 - Persist Phase-B login fallback telemetry
+
+- Persist real `login_template_fallback` lifecycle events to
+  `session_history` as well as the in-memory event stream, so the recovery
+  path remains observable after restart and OPV L7 can verify genuine use.
+
 ## v3.66.812 - OPV live-warning contract and runtime fixes
 
 - Normalize deployed live API shapes for site, extractor, auth-health, vision,
