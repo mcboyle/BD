@@ -156,10 +156,33 @@ export function useJsonapiProbe() {
   });
 }
 
+export interface AiBootModelStatus {
+  name?: string;
+  state?: string;
+  resident?: boolean;
+  size?: number;
+  size_vram?: number;
+  gpu_ratio?: number;
+}
+
+export interface AiBootReadiness {
+  state?: string;
+  error_code?: string;
+  models?: {
+    text?: AiBootModelStatus;
+    vision?: AiBootModelStatus;
+  };
+}
+
+export interface AiStatus extends Record<string, unknown> {
+  enabled?: boolean;
+  boot_readiness?: AiBootReadiness;
+}
+
 export function useAiStatus() {
-  return useQuery<Record<string, unknown>, Error>({
+  return useQuery<AiStatus, Error>({
     queryKey: ["ai", "status"],
-    queryFn: ({ signal }) => apiGet<Record<string, unknown>>("/api/ai/status", signal),
+    queryFn: ({ signal }) => apiGet<AiStatus>("/api/ai/status", signal),
   });
 }
 
