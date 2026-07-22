@@ -39,6 +39,12 @@ SECTIONS = [
     ("Decided against",   "Decided against",   "## decided against"),
 ]
 _MD_HEADINGS = [(h, name) for name, _sh, h in SECTIONS]
+_DEFAULT_RENDERED_HEADINGS = {
+    "Incomplete": "## Incomplete (running)",
+    "Awaiting operator": "## Awaiting operator (built — live-verify or operator action on stash)",
+    "Completed": "## Completed (running)",
+    "Decided against": "## Decided against (closed by decision — the reason IS the artifact)",
+}
 
 
 def xlsx_ids(path):
@@ -139,26 +145,41 @@ def _md_table(header, data):
 
 
 def regen(d):
-    """Rewrite TASK_TRACKER.md's two tables from the xlsx (sole source),
+    """Rewrite every TASK_TRACKER.md table from the xlsx (sole source),
     preserving everything before the '## Incomplete' heading."""
     xp = os.path.join(d, "TASK_TRACKER.xlsx")
     mp = os.path.join(d, "TASK_TRACKER.md")
     if not os.path.isfile(xp):
         sys.exit(f"tasktracker_sync: missing {xp}")
-    ih, idata = _rows(xp, "Incomplete")
-    ch, cdata = _rows(xp, "Completed")
+    rendered_sections = []
+    for name, sheet, _heading_prefix in SECTIONS:
+        header, data = _rows(xp, sheet)
+        rendered_sections.append((name, header, data))
     preamble = ""
+    existing_headings = {}
     if os.path.isfile(mp):
-        txt = open(mp, encoding="utf-8").read()
+        with open(mp, encoding="utf-8") as fh:
+            txt = fh.read()
         idx = txt.lower().find("## incomplete")
         preamble = txt[:idx] if idx != -1 else txt
+        for line in txt.splitlines():
+            low = line.lower()
+            for name, _sheet, heading_prefix in SECTIONS:
+                if low.startswith(heading_prefix):
+                    existing_headings[name] = line.strip()
+                    break
     if not preamble.strip():
         preamble = "# BulkDownloader — unified task tracker\n\n"
-    body = (preamble.rstrip() + "\n\n"
-            + "## Incomplete (running)\n\n" + _md_table(ih, idata) + "\n\n"
-            + "## Completed (running)\n\n" + _md_table(ch, cdata) + "\n")
-    open(mp, "w", encoding="utf-8").write(body)
-    print(f"  regenerated {mp}: {len(idata)} incomplete, {len(cdata)} completed rows")
+    blocks = []
+    counts = []
+    for name, header, data in rendered_sections:
+        heading = existing_headings.get(name, _DEFAULT_RENDERED_HEADINGS[name])
+        blocks.append(heading + "\n\n" + _md_table(header, data))
+        counts.append(f"{len(data)} {name.lower()}")
+    body = preamble.rstrip() + "\n\n" + "\n\n".join(blocks) + "\n"
+    with open(mp, "w", encoding="utf-8") as fh:
+        fh.write(body)
+    print(f"  regenerated {mp}: {', '.join(counts)} rows")
     return 0
 
 
