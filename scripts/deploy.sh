@@ -111,7 +111,8 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
   # extract "version":"x.y.z" without a JSON parser (coreutils only)
   got_version="$(printf '%s' "$body" \
       | grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' \
-      | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
+      | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')" \
+    || got_version=""
   if [ "$got_version" = "$EXPECT" ]; then
     note "/api/health version==$EXPECT confirmed"
     break
