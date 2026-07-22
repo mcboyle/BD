@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 1358,
+  "edge_count": 1365,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -12,6 +12,15 @@
       "bulk_downloader/cookies.py",
       "bulk_downloader/download_window.py",
       "bulk_downloader/runner.py"
+    ],
+    "bulk_downloader/ai_boot_readiness.py": [
+      "bulk_downloader/ai_boot_status.py",
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/llm_readiness.py",
+      "bulk_downloader/ollama_boot_probe.py"
+    ],
+    "bulk_downloader/ai_boot_status.py": [
+      "bulk_downloader/global_config.py"
     ],
     "bulk_downloader/ai_chat.py": [
       "bulk_downloader/aiassist.py",
@@ -274,6 +283,7 @@
       "bulk_downloader/db.py"
     ],
     "bulk_downloader/app_ai.py": [
+      "bulk_downloader/ai_boot_status.py",
       "bulk_downloader/ai_chat.py",
       "bulk_downloader/aiassist.py"
     ],
@@ -1354,6 +1364,9 @@
     "bulk_downloader/oidc.py": [
       "bulk_downloader/global_config.py",
       "bulk_downloader/user_accounts.py"
+    ],
+    "bulk_downloader/ollama_boot_probe.py": [
+      "bulk_downloader/llm_readiness.py"
     ],
     "bulk_downloader/pattern_hygiene.py": [
       "bulk_downloader/bad_terms.py"

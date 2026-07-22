@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. For pre-v3.46 history
 see [CHANGELOG_archive.md](CHANGELOG_archive.md).
 
+## v3.66.815 - AI GPU boot readiness
+
+- Add an independent systemd companion that warms the configured Ollama text
+  and vision models after boot without blocking BulkDownloader startup.
+- Verify live model GPU residency through Ollama, retry transient failures,
+  and retain text-only readiness when vision warming fails.
+- Persist boot-scoped readiness and surface ready, warming, degraded, and stale
+  states through the AI status API and Integrations widget.
+
 ## v3.66.814 - Fail-closed capture certification
 
 - Make `capture.sh` preserve its complete diagnostic bundle while returning a
