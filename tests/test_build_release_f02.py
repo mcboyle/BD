@@ -10,6 +10,7 @@ two-pass STATE edit.
 import importlib.util
 import json
 import os
+import stat
 import tempfile
 import zipfile
 from pathlib import Path
@@ -144,3 +145,21 @@ def test_build_is_deterministic_with_stamp():
     b1 = (root / "out1" / "rel.zip").read_bytes()
     b2 = (root / "out2" / "rel.zip").read_bytes()
     assert b1 == b2, "F0.2 stamp broke deterministic build"
+
+
+def test_build_marks_shell_scripts_as_unix_executables():
+    """Linux unzip must recognize the executable mode stored in the ZIP."""
+    m = _load()
+    root = _make_tree(None)
+    script = root / "install_service.sh"
+    script.write_text("#!/bin/sh\nexit 0\n")
+    files = _files(m, root)
+    dest = root / "out" / "release.zip"
+
+    m._build_zip(root, files, dest, "3.66.215")
+
+    with zipfile.ZipFile(dest) as zf:
+        info = zf.getinfo("install_service.sh")
+
+    assert info.create_system == 3, "ZIP member is not marked as Unix"
+    assert stat.S_IMODE(info.external_attr >> 16) == 0o755

@@ -129,7 +129,7 @@ jobs:
             "bulk_downloader/dom_recorder.py":"1657d0a0e39917ae",
             "bulk_downloader/capture_bodies.py":"6c7f5c9a87510cca",
             "tools/capture_session.py":"27be68b965689317",
-            "tools/build_release.py":"f7c220d279fcfbee",
+            "tools/build_release.py":"be25241eb867b85a",
           }
           bad=[]
           for f,want in GUARDS.items():

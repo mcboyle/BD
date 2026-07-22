@@ -75,6 +75,26 @@ def test_graph_version_pinned():
         "graph schema version changed — bump intentionally and update this pin.")
 
 
+def test_graph_node_ids_use_posix_separators():
+    """Generated node IDs are repository IDs, not host filesystem paths.
+
+    A graph cut on Windows must compare byte-for-byte with one regenerated on
+    Linux, and the canonical IDs already used by import targets are POSIX-style.
+    """
+    package = _G["package"]
+    node_ids = set(package["out"]) | set(package["in"])
+    for edges in package["out"].values():
+        node_ids.update(edges)
+    for edges in package["in"].values():
+        node_ids.update(edges)
+    assert all("\\" not in node_id for node_id in node_ids), (
+        "dependency graph node IDs must use '/' on every host")
+    assert _G["tool"]["with_edges"], (
+        "canonical tools/... IDs must join to package.out keys")
+    assert _G["tool"]["tool_to_pkg"], (
+        "tool-to-package edges must not disappear on Windows")
+
+
 # ── correctness teeth (the reason the tool replaces the naive graph) ──
 
 def _expected_blueprint_count():

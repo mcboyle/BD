@@ -77,7 +77,7 @@ been wrong. Every figure obtained by *running the tool* was right.
    | `bulk_downloader/dom_recorder.py` | `1657d0a0e39917ae` |
    | `bulk_downloader/capture_bodies.py` | `6c7f5c9a87510cca` |
    | `tools/capture_session.py` | `27be68b965689317` |
-   | `tools/build_release.py` | `f7c220d279fcfbee` |
+   | `tools/build_release.py` | `be25241eb867b85a` |
 
    *(Pinned at v3.66.805. Re-derive with `bd-guardcheck`; do not trust this table
    after the next cut.)*

@@ -145,7 +145,9 @@ def build(root: Path | None = None) -> dict:
         tree = _parse(p)
         if tree is None:
             continue
-        rp = str(p.relative_to(root))
+        # Graph node IDs are repository identifiers, not native filesystem
+        # paths.  Keep their representation byte-stable across Windows/Linux.
+        rp = p.relative_to(root).as_posix()
 
         # package/tool edges
         imps = _internal_imports(tree, bd_mods, tool_stems)

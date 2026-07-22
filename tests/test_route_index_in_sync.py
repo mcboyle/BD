@@ -137,3 +137,14 @@ def test_external_file_detection_is_venv_layout_independent():
     assert bri._is_external(
         Path("/home/claude/work/bulk_downloader/app.py"),
         Path("/home/claude/work")) is False
+
+
+def test_source_locations_use_posix_separators_on_every_host():
+    """ROUTE_INDEX file fields are stable repository IDs, not native paths."""
+    import importlib
+    import tools.build_route_index as bri
+    importlib.reload(bri)
+    file_rel, line = bri._src_loc(
+        test_source_locations_use_posix_separators_on_every_host, ROOT)
+    assert file_rel == "tests/test_route_index_in_sync.py"
+    assert isinstance(line, int) and line > 0
