@@ -65,3 +65,12 @@ def capture_fixture_lane(*, strict: bool = False) -> CaptureFixtureLane:
     if not root.is_absolute():
         raise ValueError(f"{env_name} must be an absolute path")
     return CaptureFixtureLane(env_name=env_name, root=root.resolve(strict=False))
+
+
+def validate_capture_fixture_roots() -> None:
+    """Fail early when an explicitly configured fixture root is unusable."""
+
+    for strict in (False, True):
+        lane = capture_fixture_lane(strict=strict)
+        if lane.enabled and not lane.root.is_dir():
+            raise ValueError(f"{lane.env_name} directory not found: {lane.root}")

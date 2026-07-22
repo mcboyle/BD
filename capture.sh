@@ -15,9 +15,9 @@
 #   - --workers=N is now parsed and forwarded to step [2] run_tests.py
 #     (was hardcoded --workers=4, so `./capture.sh --workers=90` was a no-op);
 #     unknown args (e.g. a bare --summary) are accepted and ignored
-#   - private capture fixtures remain opt-in. Callers can export absolute
-#     BD_TEST_CAPTURE_ROOT / BD_TEST_STRICT_CAPTURE_ROOT directories; step [2]
-#     forwards them explicitly to run_tests.py. No private path is autodetected.
+#   - private capture fixtures remain opt-in. Callers can export the absolute
+#     roots documented by capture_test_fixtures.py; step [2] inherits them.
+#     No private path is autodetected.
 #
 # Updated for v3.63.6:
 #   - capture.sh now ships in the release zip (was previously stash-local,
@@ -58,34 +58,27 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-# Private WACZ/JSON evidence is intentionally outside the release.  Validate
+# Private WACZ/JSON evidence is intentionally outside the release. Validate
 # opt-in roots once, before the long run, so a typo cannot silently turn the
-# integration lane back into dozens of skips. Example:
-#   BD_TEST_CAPTURE_ROOT=/absolute/corpus \
-#   BD_TEST_STRICT_CAPTURE_ROOT=/absolute/strict-corpus \
-#     ./capture.sh --workers=60
-validate_fixture_root() {
-  local env_name="$1"
-  local root="$2"
-  [ -z "$root" ] && return 0
-  case "$root" in
-    /*) ;;
-    *) echo "FATAL: $env_name must be an absolute directory: $root" >&2; exit 2 ;;
-  esac
-  [ -d "$root" ] || {
-    echo "FATAL: $env_name directory not found: $root" >&2
-    exit 2
-  }
-}
+# integration lane back into dozens of skips. The helper owns these test-only
+# settings; they are not operator-facing service configuration.
+cd "$BD_HOME" || { echo "FATAL: $BD_HOME not found"; exit 2; }
+if ! venv/bin/python - <<'PY'
+import sys
+from capture_test_fixtures import validate_capture_fixture_roots
 
-validate_fixture_root "BD_TEST_CAPTURE_ROOT" "${BD_TEST_CAPTURE_ROOT:-}"
-validate_fixture_root "BD_TEST_STRICT_CAPTURE_ROOT" \
-  "${BD_TEST_STRICT_CAPTURE_ROOT:-}"
+try:
+    validate_capture_fixture_roots()
+except ValueError as exc:
+    print(f"FATAL: {exc}", file=sys.stderr)
+    raise SystemExit(2)
+PY
+then
+  exit 2
+fi
 
 rm -rf "$OUT" "$ARCHIVE"
 mkdir -p "$OUT"
-
-cd "$BD_HOME" || { echo "FATAL: $BD_HOME not found"; exit 2; }
 
 # Clear stale bytecode BEFORE any step runs. An overlaid .py with an mtime
 # older than an existing __pycache__/*.pyc makes CPython run the STALE
@@ -127,8 +120,6 @@ echo "=== [2/9] Full test suite (5-15 min) ==="
 sudo systemctl stop bulkdownloader 2>/dev/null
 sleep 1
 BD_DISABLE_KEEPALIVE=1 \
-BD_TEST_CAPTURE_ROOT="${BD_TEST_CAPTURE_ROOT:-}" \
-BD_TEST_STRICT_CAPTURE_ROOT="${BD_TEST_STRICT_CAPTURE_ROOT:-}" \
 venv/bin/python run_tests.py \
    --workers="$WORKERS" \
    --summary="$OUT/02_SUMMARY.txt" \

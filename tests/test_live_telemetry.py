@@ -1057,19 +1057,26 @@ def test_bulk_pause_after_worker_claim_is_after_processing_began(monkeypatch):
 
     def blocked_process(*args, **kwargs):
         process_entered.set()
-        assert process_release.wait(2.0)
+        process_release.wait()
 
     runner._process_one = blocked_process
     worker = threading.Thread(
         target=lambda: result.append(runner._process_worker_url(
             3, object(), url, run_generation=1)))
     worker.start()
-    assert process_entered.wait(2.0)
+    try:
+        # Thread dispatch can be delayed when the acceptance harness runs 60
+        # CPU-heavy test processes.  The assertion still requires processing
+        # to begin; the longer bound only removes scheduler-speed dependence.
+        assert process_entered.wait(10.0)
 
-    assert runner.jobs[url]["status"] == "running"
-    assert runner.bulk_pause([url]) == 0
-    process_release.set()
-    worker.join(2.0)
+        assert runner.jobs[url]["status"] == "running"
+        assert runner.bulk_pause([url]) == 0
+    finally:
+        # Always release/join, including on an assertion failure, so this test
+        # cannot leak a blocked thread into later tests in the same file.
+        process_release.set()
+        worker.join(10.0)
 
     assert not worker.is_alive()
     assert result == [runner._WORKER_CLAIM_PROCESSED]
