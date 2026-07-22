@@ -16,8 +16,10 @@ def api_ai_status():
     """Reachability + model-installed check. Used by the global config
     UI to show a live status indicator and by the teach panel's 🪄
     button to decide whether to enable itself."""
-    from . import aiassist
-    return jsonify(aiassist.ai_status())
+    from . import ai_boot_status, aiassist
+    payload = dict(aiassist.ai_status())
+    payload["boot_readiness"] = ai_boot_status.read_status()
+    return jsonify(payload)
 @ai_bp.route("/api/ai/health")
 def api_ai_health():
     """Rolling call stats (counts + recent latencies)."""

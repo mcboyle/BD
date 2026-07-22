@@ -2,6 +2,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
+import { AiBootReadinessStatus } from "@/components/ui/AiBootReadinessStatus";
 import { Button } from "@/components/ui/button";
 import { GatedWriteBanner } from "@/components/ui/GatedWriteBanner";
 import { routeRisk } from "@/lib/routeRisk";
@@ -367,7 +368,7 @@ export function Integrations() {
         {aiStatus.isLoading ? (
           <Skeleton className="h-8 w-full" />
         ) : (
-          <p className="text-sm text-ink-3">status: {JSON.stringify(aiStatus.data ?? {})}</p>
+          <AiBootReadinessStatus value={aiStatus.data?.boot_readiness} />
         )}
         <div className="mt-2 flex items-center gap-2">
           <Button

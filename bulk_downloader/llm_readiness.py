@@ -17,8 +17,9 @@ from typing import Any, Dict, List, Optional
 PROBE_PROMPT = "Reply with the single word: ok"
 VISION_PROBE_PROMPT = "Reply with the single word: ok"
 # 1x1 transparent PNG -- a content-free vision probe.
-_TINY_PNG = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQ"
-             "DwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+TINY_PNG = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQ"
+            "DwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+_TINY_PNG = TINY_PNG
 
 
 def _add(checks: List[Dict[str, Any]], name: str, status: str,

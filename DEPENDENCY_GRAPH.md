@@ -10,21 +10,21 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1358**
+- internal import edges: **1365**
 - tools: 219 · with internal edge: 102 · with tool→package edge: 49
 - blueprints: 160 · config stores: 5
 
 ## Most-imported modules (coupling hotspots)
 
 - `bulk_downloader/db.py`: 106
-- `bulk_downloader/global_config.py`: 36
+- `bulk_downloader/global_config.py`: 37
 - `bulk_downloader/constants.py`: 31
 - `bulk_downloader/cookies.py`: 19
 - `bulk_downloader/plugins.py`: 17
 - `bulk_downloader/app.py`: 15
 - `bulk_downloader/runner.py`: 15
+- `bulk_downloader/aiassist.py`: 14
 - `bulk_downloader/capture_artifact_redact.py`: 14
-- `bulk_downloader/aiassist.py`: 13
 - `tools/report_core.py`: 13
 - `bulk_downloader/app_dev.py`: 12
 - `bulk_downloader/capture_ingest.py`: 12
@@ -43,7 +43,7 @@ Graph version: 1
 - **account_pool** (`app_account_pool.py`) — routes 1, providers 0
 - **accounts** (`app_accounts.py`) — routes 1, providers 1
 - **activity** (`app_activity.py`) — routes 3, providers 1
-- **ai** (`app_ai.py`) — routes 8, providers 2
+- **ai** (`app_ai.py`) — routes 8, providers 3
 - **alerts** (`app_alerts.py`) — routes 4, providers 1
 - **analyzer** (`app_analyzer.py`) — routes 5, providers 3
 - **api_tokens** (`app_api_tokens.py`) — routes 2, providers 1
@@ -203,7 +203,7 @@ Graph version: 1
 ## Config stores → reader / writer modules
 
 - **app_settings_center** — readers 8, writers 0
-- **global_config** — readers 68, writers 1
+- **global_config** — readers 69, writers 1
 - **site_editor** — readers 24, writers 0
 - **vpn_config** — readers 16, writers 1
 - **widgets_config** — readers 4, writers 1
