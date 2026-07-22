@@ -1,8 +1,8 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-07-19T20:46:38+00:00",
- "version_context": "3.66.805",
- "file_count": 364,
+ "generated": "2026-07-22T21:10:23+00:00",
+ "version_context": "v3.66.817",
+ "file_count": 369,
  "files": {
   "0_INDEX.md": {
    "sha256": "b6e7c92a16e6f6b728564dd7ae738279c283713e315c49ab86b1c72b5be38eca",
@@ -57,8 +57,8 @@
    "bytes": 18544
   },
   "AUTOMATION_PROGRAM_PLAN.md": {
-   "sha256": "d7460c3da4f1fd91595a89ee3900033156576cdf93bde107813442b60def6fa8",
-   "bytes": 19930
+   "sha256": "a48a2936274317f542bd31910ed6b874f078face35fb4d5fb46a9cbbcfa2b46a",
+   "bytes": 20369
   },
   "BDSUITE_CHANGELOG.md": {
    "sha256": "e674f9f6730938ac19ba0afbbe938733ca236b27a7ec9874cb3b29b386e319ed",
@@ -184,9 +184,17 @@
    "sha256": "e3425f575da47de1f7a68bd3da7a51f7eb9cf10e2f09dc90a92e6f2f4f7f32b1",
    "bytes": 5373
   },
+  "LESSONS_LEARNED_v3_66_811.md": {
+   "sha256": "04a28604666ad63c32ac3300003c3d0cb485b9c1f85b0fbcfceb2e14b200c956",
+   "bytes": 6089
+  },
+  "NEXT_SESSION_BOOTSTRAP.md": {
+   "sha256": "cfff55ec37ac6f55f0bdd04eaf9cb6def880f1f483dc5a3ae50f2e861036006b",
+   "bytes": 4893
+  },
   "OPERATOR_POLICY_DECISIONS.md": {
-   "sha256": "d8a3021cdac077c45ddc0c5404b1cfdbaa7ee8c921501c220ee17676630e66f6",
-   "bytes": 7557
+   "sha256": "b2bfc7e911fa88683e1b6551bc12a5ba7fc58eed166b257606e06c9785b74683",
+   "bytes": 9036
   },
   "OPERATOR_VERIFICATION_GUIDE.md": {
    "sha256": "5adbc515794b60aae073ff8c7817cf66f82e294eeb76cadde1c60adfbc014191",
@@ -200,13 +208,25 @@
    "sha256": "78bca4cab532c35a9337bdb1f408875906b41998c1ed0f29eb05ef1230f89e53",
    "bytes": 5328
   },
+  "OPV_COMPLETION_GUIDE_v3_66_810.md": {
+   "sha256": "ebfb549ffa20666212606829825732352458feb8f47edd6c39f1e9c11daeb8af",
+   "bytes": 33351
+  },
+  "OPV_COWORK_EXECUTION_PROMPT.txt": {
+   "sha256": "840f45329aa9830e694335ba174b4f6fd8111f39931017b1ebcb0393a432998d",
+   "bytes": 5157
+  },
+  "OPV_EXECUTION_PROMPT_CODEX.txt": {
+   "sha256": "2b310166313dbf8c24537da3a97d20dd95512ba53463d4bb2eda074ac0cebd10",
+   "bytes": 6267
+  },
   "OPV_OPERATOR_RUNBOOK_v3_66_266.md": {
    "sha256": "d3f8978696a6da9af5ad3bcaee06545541e28925ae40821ec690cd22d317536f",
    "bytes": 27795
   },
   "PHASE_C_HARDENING_PLAN.md": {
-   "sha256": "b92520e7f70416767f203133b99c24269d1d9319f8d5d963e49e2665810fa8a9",
-   "bytes": 10158
+   "sha256": "6daecd32eb71a78e15d3430b2fc6e7cab85e12db32a181b4bf123c18ee0be41e",
+   "bytes": 10532
   },
   "PLUGIN_V3_PLAN.md": {
    "sha256": "19bfd2c1f0e536aa910e4de86fefc44b06cc82c81d6f895fe7d26f9470610c58",
@@ -1445,8 +1465,8 @@
    "bytes": 2226
   },
   "tasktracker_gen.py": {
-   "sha256": "aaa5096df643f295ae288a2f3f143ade9cd901f53bba29c3dd5314cb08104450",
-   "bytes": 27334
+   "sha256": "42d68d1609c88363de2ad92021564d6b9c5c3e48b0599d79cf813cc10fd7d778",
+   "bytes": 27819
   },
   "test_bd_kb_sync.py": {
    "sha256": "2c1e1762c4376eac61ae0cf75fa4f28e47cec578a3a805ffa60cc4a2a147114c",
