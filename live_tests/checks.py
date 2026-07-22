@@ -2592,6 +2592,30 @@ def l8_cookie_jar_not_empty_on_active_sites(ctx):
     ctx.log(f"{len(sites)} site(s) total; {len(active)} reporting "
             f"auth_state=ok")
     if not active:
+        # A restart clears runner-local auth_state, but auth-health evidence is
+        # durable. Accept only green records for site IDs still configured, and
+        # continue into the same on-disk cookie-file verification below.
+        aok, _astatus, abody, _ = ctx.get(
+            "/api/auth_health/status", timeout=10)
+        durable_sites = (abody.get("sites") or []) if (
+            aok and isinstance(abody, dict)) else []
+        configured_ids = {
+            str(s.get("site_id")) for s in sites if s.get("site_id")
+        }
+        durable_ids = {
+            str(row.get("site_id"))
+            for row in durable_sites
+            if isinstance(row, dict)
+            and str(row.get("status") or "").lower() == "green"
+            and str(row.get("site_id")) in configured_ids
+        }
+        if durable_ids:
+            active = [{"site_id": sid} for sid in sorted(durable_ids)]
+            ctx.log(
+                f"using {len(active)} durable green auth-health record(s) "
+                "after runner auth state reset"
+            )
+    if not active:
         return WARN, (f"{len(sites)} site(s) configured but none "
                       f"report auth_state=ok — nothing to verify")
     # Need cookie_file paths — /api/sites/v2 doesn't carry them.

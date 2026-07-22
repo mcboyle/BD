@@ -4,6 +4,18 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. For pre-v3.46 history
 see [CHANGELOG_archive.md](CHANGELOG_archive.md).
 
+## v3.66.814 - Fail-closed capture certification
+
+- Make `capture.sh` preserve its complete diagnostic bundle while returning a
+  nonzero verdict for unit failures, live warnings/failures, malformed evidence,
+  or failed required stages; add minute-by-minute progress heartbeats.
+- Keep body-contract probes inert by forcing template onboarding into no-run
+  mode, preventing detached browser captures from escaping the test harness.
+- Let OPV L8 use durable green auth-health evidence after a service restart,
+  while still requiring a real non-empty configured cookie jar on disk.
+- Repair two tests that used unsupported dotted-string monkeypatch syntax in the
+  repository's custom runner.
+
 ## v3.66.813 - Persist Phase-B login fallback telemetry
 
 - Persist real `login_template_fallback` lifecycle events to

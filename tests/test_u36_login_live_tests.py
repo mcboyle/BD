@@ -143,3 +143,62 @@ def test_l6_l7_run_via_harness(tmp_path):
     assert code == 0
     assert (rdir / "L6.log").is_file()
     assert (rdir / "L7.log").is_file()
+
+
+class _CookieJarContext:
+    def __init__(self, cookie_file, *, durable_site="s1"):
+        self.cookie_file = str(cookie_file)
+        self.durable_site = durable_site
+        self.messages = []
+
+    def get(self, path, timeout=15):
+        if path == "/api/sites/v2":
+            return True, 200, {
+                "sites": [{"site_id": "s1", "auth_state": "idle"}],
+            }, 1.0
+        if path == "/api/auth_health/status":
+            return True, 200, {
+                "sites": [{"site_id": self.durable_site, "status": "green"}],
+            }, 1.0
+        if path == "/api/status":
+            return True, 200, {
+                "s1": {"config": {"cookie_file": self.cookie_file}},
+            }, 1.0
+        return False, 404, {}, 1.0
+
+    def log(self, message):
+        self.messages.append(message)
+
+
+def test_l8_uses_durable_green_auth_after_service_restart(tmp_path):
+    jar = tmp_path / "cookies.json"
+    jar.write_text('[{"name":"session","value":"fixture"}]', encoding="utf-8")
+    ctx = _CookieJarContext(jar)
+
+    level, detail = _get_test("L8").fn(ctx)
+
+    assert level == h.PASS
+    assert "non-empty cookies" in detail
+    assert any("durable" in message for message in ctx.messages)
+
+
+def test_l8_ignores_durable_auth_for_removed_site(tmp_path):
+    jar = tmp_path / "cookies.json"
+    jar.write_text('[{"name":"session","value":"fixture"}]', encoding="utf-8")
+    ctx = _CookieJarContext(jar, durable_site="removed")
+
+    level, detail = _get_test("L8").fn(ctx)
+
+    assert level == h.WARN
+    assert "none report auth_state=ok" in detail
+
+
+def test_l8_durable_auth_still_rejects_empty_cookie_file(tmp_path):
+    jar = tmp_path / "cookies.json"
+    jar.write_text("", encoding="utf-8")
+    ctx = _CookieJarContext(jar)
+
+    level, detail = _get_test("L8").fn(ctx)
+
+    assert level == h.FAIL
+    assert "empty" in detail

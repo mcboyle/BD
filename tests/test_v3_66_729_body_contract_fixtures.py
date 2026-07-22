@@ -230,6 +230,32 @@ def test_the_fixture_gate_can_actually_fail():
         % (res[0]["verdict"], res[0]["why"]))
 
 
+def test_template_onboard_probe_never_launches_a_capture(monkeypatch):
+    """Contract probes are inert even when generated input asks to run."""
+    from tools import body_contract as bc
+    from tools import onboard_site_template
+
+    def _unexpected_launch(*_args, **_kwargs):
+        raise AssertionError("body-contract probe launched a real capture")
+
+    monkeypatch.setattr(
+        onboard_site_template, "run_capture_flow", _unexpected_launch
+    )
+    injected = [{
+        "file": "tests/INJECTED.tsx",
+        "fn": "apiPost",
+        "path": "/api/sites/${}/template_onboard",
+        "sample": {"run": True},
+        "keys": ["run"],
+        "unknownType": False,
+    }]
+
+    result = bc.probe_fixtures(ROOT, injected)
+
+    assert result
+    assert result[0]["verdict"] == "OK"
+
+
 def test_a_resource_complaint_is_never_reported_as_dead():
     """THE SOUNDNESS GUARD, asserted directly.
 

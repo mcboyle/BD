@@ -81,6 +81,11 @@ class TestCaptureShShipped:
             # used by other environment-coupled tests (see tests/_env.py).
             # On any real Linux deployment bash is present.
             return
+        if os.name == "nt" and "system32" in bash.lower():
+            # Windows' system32/bash.exe is the WSL bridge. It cannot consume
+            # this native C:\\ path directly, so it is not a usable syntax
+            # checker for a file in the Windows worktree.
+            return
         result = subprocess.run(
             [bash, "-n", CAPTURE_SH],
             capture_output=True,
@@ -205,3 +210,31 @@ class TestCaptureShStep6LiveTests:
                 f"T55 contains the wedge at this wall; tightening below "
                 f"90s re-introduces the fail-on-budget pattern."
             )
+
+
+class TestCaptureShFinalVerdict:
+    """The diagnostic stays observable and cannot report false success."""
+
+    def test_full_suite_and_live_suite_have_periodic_heartbeats(self):
+        body = _read_capture_sh()
+        assert body.count('run_with_heartbeat ') >= 2
+        assert 'run_with_heartbeat "full test suite"' in body
+        assert 'run_with_heartbeat "live-test suite"' in body
+
+    def test_verdict_is_written_before_archive_creation(self):
+        body = _read_capture_sh()
+        verdict = body.index('10_VERDICT.txt')
+        archive = body.index('tar czf "$ARCHIVE"')
+        assert verdict < archive
+
+    def test_archive_is_attempted_before_final_exit(self):
+        body = _read_capture_sh()
+        archive = body.index('tar czf "$ARCHIVE"')
+        final_exit = body.rindex('exit "$FINAL_EXIT"')
+        assert archive < final_exit
+
+    def test_capture_invokes_fail_closed_verdict_helper(self):
+        body = _read_capture_sh()
+        assert "tools/capture_verdict.py" in body
+        assert '--suite-exit "$SUITE_EXIT"' in body
+        assert '--live-exit "$LIVE_EXIT"' in body

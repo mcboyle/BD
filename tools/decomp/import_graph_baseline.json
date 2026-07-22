@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 1356,
+  "edge_count": 1358,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -256,6 +256,7 @@
       "bulk_downloader/templates.py",
       "bulk_downloader/tg_bot.py",
       "bulk_downloader/thumbnail_gen.py",
+      "bulk_downloader/vpn_runtime.py",
       "bulk_downloader/watch_folder.py",
       "bulk_downloader/webhooks.py",
       "bulk_downloader/yt_dlp_archive.py",
@@ -1006,6 +1007,7 @@
       "bulk_downloader/db.py"
     ],
     "bulk_downloader/cookie_health.py": [
+      "bulk_downloader/cookies.py",
       "bulk_downloader/db.py"
     ],
     "bulk_downloader/cookie_quality.py": [

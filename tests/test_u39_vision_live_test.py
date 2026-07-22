@@ -7,6 +7,7 @@ is registration, the embedded image payload's validity, and graceful
 degradation when the AI backend is unreachable/disabled.
 """
 import base64
+import urllib.request
 
 import live_tests.checks as checks  # noqa: F401 (registers the checks)
 import live_tests.harness as h
@@ -115,7 +116,7 @@ def test_l18_accepts_deployed_top_level_status_schema(monkeypatch):
             "/api/sites/site-a/ai/detect_login")
         return _Response()
 
-    monkeypatch.setattr("urllib.request.urlopen", _urlopen)
+    monkeypatch.setattr(urllib.request, "urlopen", _urlopen)
     level, detail = _get_test("L18").fn(_TopLevelSiteContext({
         "enabled": True,
         "ok": True,
