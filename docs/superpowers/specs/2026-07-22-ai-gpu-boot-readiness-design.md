@@ -50,8 +50,9 @@ The generated `bulkdownloader-ai-ready.service` will run the command as the
 same non-root user and from the same working directory as BulkDownloader. It
 will use the same optional `.env` file and the persisted `app_config.json`.
 The unit is independently enabled at boot and ordered after the network and
-Ollama, but `bulkdownloader.service` will not `Require`, `Wants`, or wait for
-it.
+Ollama. The installer will remove the existing `After=ollama.service` ordering
+from `bulkdownloader.service`; the main service will not `Require`, `Wants`,
+order itself after, or otherwise wait for Ollama or the companion.
 
 The companion unit will be `Type=simple` with `Restart=on-failure`. One command
 invocation performs a bounded retry cycle and exits successfully only for a
