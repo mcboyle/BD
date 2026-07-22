@@ -1391,6 +1391,33 @@ def _load_sites_config():
 _load_sites_config()
 
 
+try:
+    from . import vpn_runtime
+
+    def _vpn_pause_site(site_id):
+        runner = runners.get(site_id)
+        if runner is not None:
+            runner.pause()
+
+    def _vpn_resume_site(site_id):
+        runner = runners.get(site_id)
+        if runner is not None:
+            runner.resume()
+
+    _vpn_runtime_status = vpn_runtime.init(
+        s_cfg,
+        siterunner_pauser=_vpn_pause_site,
+        siterunner_resumer=_vpn_resume_site,
+    )
+    if _vpn_runtime_status.get("tunnel_register_errors"):
+        sys.stderr.write(
+            "  ! VPN runtime registration errors: "
+            f"{_vpn_runtime_status['tunnel_register_errors']}\n")
+except Exception as _vpn_runtime_err:
+    sys.stderr.write(
+        f"  ! VPN runtime initialization failed: {_vpn_runtime_err}\n")
+
+
 # v3.43.16: spawn session keep-alive threads for sites that have a
 # password configured + keep_alive_enabled (default True).
 #
@@ -1456,7 +1483,11 @@ def _start_session_keepers():
             # Spawn one keeper per account
             for idx in range(len(accounts)):
                 if accounts[idx].get("password"):
-                    _sk.start_keeper(sid, idx, cfg, _do_login_for_keeper)
+                    keeper_cfg = dict(cfg)
+                    keeper_cfg["username"] = accounts[idx].get("username", "")
+                    keeper_cfg["password"] = accounts[idx].get("password", "")
+                    _sk.start_keeper(
+                        sid, idx, keeper_cfg, _do_login_for_keeper)
         elif cfg.get("password"):
             _sk.start_keeper(sid, 0, cfg, _do_login_for_keeper)
 

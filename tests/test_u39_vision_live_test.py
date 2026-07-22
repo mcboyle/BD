@@ -39,6 +39,13 @@ class _StubContext(h.Context):
         return False, None, "unreachable", 1.0
 
 
+class _TopLevelSiteContext(_StubContext):
+    def get(self, path, timeout=15):
+        if path == "/api/status":
+            return True, 200, {"site-a": {"state": "idle"}}, 1.0
+        return super().get(path, timeout=timeout)
+
+
 # ── registration ───────────────────────────────────────────────────
 
 def test_l18_is_registered():
@@ -90,6 +97,32 @@ def test_l18_no_site_is_warn():
                       "installed_models": ["qwen2.5vl:7b"]}))
     assert level == h.WARN
     assert "no site" in detail
+
+
+def test_l18_accepts_deployed_top_level_status_schema(monkeypatch):
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"ok": true, "selectors": {}}'
+
+    def _urlopen(request, timeout=90):
+        assert request.full_url.endswith(
+            "/api/sites/site-a/ai/detect_login")
+        return _Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", _urlopen)
+    level, detail = _get_test("L18").fn(_TopLevelSiteContext({
+        "enabled": True,
+        "ok": True,
+        "installed_models": ["qwen2.5vl:7b"],
+    }))
+    assert level == h.PASS
+    assert "structured response" in detail
 
 
 def test_l18_returns_a_valid_tuple():

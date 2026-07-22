@@ -35,6 +35,23 @@ class _StubContext(h.Context):
         super().__init__("http://localhost:1", "/tmp")
 
 
+class _ServiceStateContext(_StubContext):
+    def get(self, path, timeout=15):
+        assert path == "/api/vpn/kill_switch/state"
+        return True, 200, {
+            "ok": True,
+            "states": [{"tunnel_id": "service-tun", "killed": True}],
+            "auto_recover": False,
+        }, 1.0
+
+
+def test_l29_reads_running_service_state_not_test_process_module():
+    with _patch_kill_switch(list_states=[], auto_recover=True):
+        level, detail = _get_test("L29").fn(_ServiceStateContext())
+    assert level == h.FAIL
+    assert "service-tun" in detail
+
+
 @contextlib.contextmanager
 def _patch_kill_switch(*, list_states=None, auto_recover=None,
                         list_raises=False, auto_raises=False):

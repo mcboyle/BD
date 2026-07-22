@@ -48,6 +48,34 @@ def test_l6_unreachable_is_warn():
     assert "not testable" in detail or "unreachable" in detail
 
 
+class _AuthHealthContext:
+    def __init__(self, auth_sites, configured_sites=None, db_path=None):
+        self.auth_sites = auth_sites
+        self.configured_sites = configured_sites or {"s1": {"state": "idle"}}
+        self.db_path = db_path
+
+    def get(self, path, timeout=15):
+        if path == "/api/auth_health/status":
+            return True, 200, {"sites": self.auth_sites}, 1.0
+        if path == "/api/status":
+            return True, 200, self.configured_sites, 1.0
+        return False, 404, {}, 1.0
+
+    def log(self, _message):
+        pass
+
+    def ro_db(self):
+        import sqlite3
+        return sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
+
+
+def test_l6_accepts_auth_health_list_and_green_status():
+    ctx = _AuthHealthContext([{"site_id": "s1", "status": "green"}])
+    level, detail = _get_test("L6").fn(ctx)
+    assert level == h.PASS
+    assert "healthy authenticated" in detail
+
+
 def test_l7_no_db_is_warn():
     level, detail = _get_test("L7").fn(_dead_ctx())
     assert level == h.WARN
@@ -90,6 +118,18 @@ def test_l7_warns_with_logins_but_no_fallback(clean_workdir):
     level, detail = _get_test("L7").fn(ctx)
     # never fired is not a failure — the templates may all just work
     assert level == h.WARN
+
+
+def test_l7_ignores_fallbacks_from_removed_sites(clean_workdir):
+    db.db_init()
+    db.session_event_record("removed", None, "login_template_fallback",
+                            "orphaned site event")
+    db.session_event_record("current", None, "login", "ok")
+    ctx = _AuthHealthContext([], {"current": {"state": "idle"}},
+                             clean_workdir / "downloader_history.db")
+    level, detail = _get_test("L7").fn(ctx)
+    assert level == h.WARN
+    assert "no Phase B fallback" in detail
 
 
 # ── harness integration ────────────────────────────────────────────

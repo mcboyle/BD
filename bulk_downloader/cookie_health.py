@@ -49,6 +49,50 @@ _LOGOUT_SIGNALS = (
 )
 
 
+def _cookie_file(site_cfg: dict) -> str:
+    """Return the canonical cookie path, accepting the legacy alias."""
+    cfg = site_cfg or {}
+    return str(cfg.get("cookie_file") or cfg.get("cookies_file") or "")
+
+
+def _load_cookie_jar(cookies_path: Path):
+    """Load the app's JSON jar, with Netscape format compatibility."""
+    import http.cookiejar
+    try:
+        from .cookies import load_cookies_from_file
+        items = load_cookies_from_file(str(cookies_path))
+    except Exception:
+        jar = http.cookiejar.MozillaCookieJar(str(cookies_path))
+        jar.load(ignore_discard=True, ignore_expires=True)
+        return jar
+
+    jar = http.cookiejar.CookieJar()
+    for item in items:
+        domain = str(item.get("domain") or "")
+        path = str(item.get("path") or "/")
+        expires = item.get("expires") or item.get("expirationDate")
+        jar.set_cookie(http.cookiejar.Cookie(
+            version=0,
+            name=str(item.get("name") or ""),
+            value=str(item.get("value") or ""),
+            port=None,
+            port_specified=False,
+            domain=domain,
+            domain_specified=bool(domain),
+            domain_initial_dot=domain.startswith("."),
+            path=path,
+            path_specified=True,
+            secure=bool(item.get("secure")),
+            expires=int(expires) if expires else None,
+            discard=not bool(expires),
+            comment=None,
+            comment_url=None,
+            rest={"HttpOnly": bool(item.get("httpOnly"))},
+            rfc2109=False,
+        ))
+    return jar
+
+
 def _ensure_table():
     global _TABLE_READY
     if _TABLE_READY:
@@ -153,7 +197,7 @@ def check_site(site_id: str, site_cfg: dict) -> dict:
                 "note": "no auth_check_url, success_url, or login_url"}
 
     # Cookies file
-    cookies_file = (site_cfg or {}).get("cookies_file", "")
+    cookies_file = _cookie_file(site_cfg)
     if not cookies_file:
         _record(site_id, status="red", note="no cookies_file configured")
         return {"site_id": site_id, "status": "red",
@@ -165,11 +209,9 @@ def check_site(site_id: str, site_cfg: dict) -> dict:
         return {"site_id": site_id, "status": "red",
                 "note": "cookies file missing or empty"}
 
-    # Load Netscape-format cookies; build a cookies dict for httpx
+    # Load the canonical app JSON jar (or a legacy Netscape jar).
     try:
-        import http.cookiejar
-        cj = http.cookiejar.MozillaCookieJar(str(cookies_path))
-        cj.load(ignore_discard=True, ignore_expires=True)
+        cj = _load_cookie_jar(cookies_path)
     except Exception as e:
         _record(site_id, status="red",
                 note=f"can't parse cookies: {str(e)[:100]}")
@@ -192,10 +234,11 @@ def check_site(site_id: str, site_cfg: dict) -> dict:
         with httpx.Client(
                 timeout=_DEFAULT_TIMEOUT_S,
                 follow_redirects=True,
+                cookies=cj,
                 headers={"User-Agent":
                     "Mozilla/5.0 BD-cookie-health-check/1.0"},
         ) as client:
-            r = client.get(check_url, cookies=cj)
+            r = client.get(check_url)
             http_code = r.status_code
             final_url = str(r.url)
             body_head = r.content[:_MAX_BODY_READ_BYTES]
@@ -239,7 +282,7 @@ def check_all_sites(s_cfg: dict, *, only_if_stale: bool = False) -> dict:
         fresh = set()
 
     for sid, cfg in (s_cfg or {}).items():
-        if not (cfg or {}).get("cookies_file"):
+        if not _cookie_file(cfg):
             skipped.append({"site_id": sid, "reason": "no cookies_file"})
             continue
         if sid in fresh:

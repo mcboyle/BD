@@ -939,6 +939,29 @@ def l21_wal_checkpoint_under_load(ctx):
 # (cannot run here) rather than FAIL.
 
 
+def _status_site_map(body):
+    """Normalize supported ``/api/status`` response shapes.
+
+    Older deployments nested runners under ``sites`` or ``runners``;
+    current deployments return the site-id mapping at the top level.
+    """
+    if not isinstance(body, dict):
+        return {}
+    nested = body.get("sites") or body.get("runners")
+    if isinstance(nested, dict):
+        return nested
+    if isinstance(nested, list):
+        return {str(site.get("site_id")): site for site in nested
+                if isinstance(site, dict) and site.get("site_id")}
+    return {
+        str(site_id): site
+        for site_id, site in body.items()
+        if isinstance(site, dict)
+        and any(key in site for key in
+                ("state", "config", "site_id", "queue"))
+    }
+
+
 def _pipeline_setup(ctx):
     """Find a site to drive the pipeline tests. Returns (site_id,
     info_dict) or (None, reason). Prefers a site whose URL points at
@@ -946,7 +969,7 @@ def _pipeline_setup(ctx):
     ok, status, body, _ = ctx.get("/api/status", timeout=10)
     if not ok or not isinstance(body, dict):
         return None, f"/api/status unreachable (status={status})"
-    sites = body.get("sites") or body.get("runners") or {}
+    sites = _status_site_map(body)
     if not sites:
         return None, "no sites configured on the deployment"
     # prefer a fixture-backed site (localhost:8899) if present
@@ -1032,9 +1055,11 @@ def l13_library_extractor_fast_path(ctx):
     if not ok or not isinstance(body, dict):
         return WARN, (f"/api/dev/extractor_matrix unreachable "
                       f"(dev mode off?) — cannot verify the fast path")
-    matrix = body.get("matrix") or body.get("sites") or []
+    matrix = (body.get("matrix") or body.get("sites")
+              or body.get("extractors") or [])
     eligible = [m for m in matrix
-                if m.get("installed") or m.get("library")]
+                if (m.get("installed") or m.get("library")
+                    or m.get("library_installed"))]
     ctx.log(f"extractor matrix: {len(matrix)} site rows, "
             f"{len(eligible)} with a library/extractor")
     if not matrix:
@@ -1222,9 +1247,7 @@ def _login_sites(ctx):
     site ids, or [] if the app is unreachable. Read-only."""
     ok, _, sbody, _ = ctx.get("/api/status", timeout=10)
     if ok and isinstance(sbody, dict):
-        sites = sbody.get("sites") or sbody.get("runners") or {}
-        if isinstance(sites, dict):
-            return list(sites.keys())
+        return list(_status_site_map(sbody).keys())
     return []
 
 
@@ -1248,15 +1271,19 @@ def l6_real_templated_auto_login(ctx):
     if not sites:
         return WARN, ("no sites have auth-health state — no templated "
                       "login to verify; configure a site and log in")
+    if isinstance(sites, list):
+        sites = {str(st.get("site_id")): st for st in sites
+                 if isinstance(st, dict) and st.get("site_id")}
     healthy, unhealthy = [], []
     for sid, st in (sites.items() if isinstance(sites, dict)
                     else []):
         cls = str((st or {}).get("status")
                   or (st or {}).get("classification") or "").lower()
         ctx.log(f"  {sid}: auth status = {cls or '?'}")
-        if cls in ("ok", "healthy", "authenticated", "valid"):
+        if cls in ("ok", "healthy", "authenticated", "valid", "green"):
             healthy.append(sid)
-        elif cls in ("expired", "failed", "unauthenticated", "dead"):
+        elif cls in ("expired", "failed", "unauthenticated", "dead",
+                     "yellow", "red"):
             unhealthy.append(sid)
     ctx.log(f"{len(healthy)} healthy, {len(unhealthy)} unhealthy of "
             f"{len(sites)} site(s) with auth state")
@@ -1288,22 +1315,30 @@ def l7_phase_b_fallback(ctx):
     """
     if not ctx.db_path.exists():
         return WARN, f"no DB at {ctx.db_path} — fallback not testable"
+    configured = _login_sites(ctx)
+    where = ""
+    params = ()
+    if configured:
+        markers = ",".join("?" for _ in configured)
+        where = f" AND site_id IN ({markers})"
+        params = tuple(configured)
     try:
         cx = ctx.ro_db()
         try:
             # session_history records login lifecycle events
             fb = cx.execute(
                 "SELECT COUNT(*) FROM session_history "
-                "WHERE event_type = 'login_template_fallback'"
-            ).fetchone()[0]
+                "WHERE event_type = 'login_template_fallback'" + where,
+                params).fetchone()[0]
             total_login = cx.execute(
                 "SELECT COUNT(*) FROM session_history "
-                "WHERE event_type LIKE 'login%' "
-                "OR event_type LIKE '%login%'").fetchone()[0]
+                "WHERE (event_type LIKE 'login%' "
+                "OR event_type LIKE '%login%')" + where,
+                params).fetchone()[0]
             recent = cx.execute(
                 "SELECT site_id, detail FROM session_history "
-                "WHERE event_type = 'login_template_fallback' "
-                "ORDER BY ts DESC LIMIT 3").fetchall()
+                "WHERE event_type = 'login_template_fallback'" + where
+                + " ORDER BY ts DESC LIMIT 3", params).fetchall()
         finally:
             cx.close()
     except Exception as e:
@@ -1625,8 +1660,8 @@ def l18_vision_call_roundtrip(ctx):
     sok, _, sbody, _ = ctx.get("/api/status", timeout=10)
     site_id = None
     if sok and isinstance(sbody, dict):
-        sites = sbody.get("sites") or sbody.get("runners") or {}
-        if isinstance(sites, dict) and sites:
+        sites = _status_site_map(sbody)
+        if sites:
             site_id = next(iter(sites.keys()))
     if not site_id:
         return WARN, ("AI is ready but no site is configured — the "
@@ -2360,7 +2395,14 @@ def l29_vpn_kill_switch_config_check(ctx):
            service has an unresolved VPN problem). Both deserve
            operator attention.
     """
-    # Subsystem load
+    # Prefer the running service's state. Importing the module in this
+    # separate live-test process would otherwise inspect a fresh module.
+    service_ok, _, service_body, _ = ctx.get(
+        "/api/vpn/kill_switch/state", timeout=10)
+    service_state = (service_body if service_ok
+                     and isinstance(service_body, dict) else None)
+
+    # Subsystem load (fallback for older deployments without the API).
     try:
         from bulk_downloader import vpn_kill_switch as _ks
     except Exception as e:
@@ -2372,7 +2414,9 @@ def l29_vpn_kill_switch_config_check(ctx):
     # If it raises, the subsystem is broken in a way the operator
     # needs to see.
     try:
-        states = _ks.list_kill_states()
+        states = (service_state.get("states")
+                  if service_state is not None
+                  else _ks.list_kill_states())
     except Exception as e:
         ctx.log(f"list_kill_states raised: {e}")
         return FAIL, (f"list_kill_states() raised {type(e).__name__}: "
@@ -2384,7 +2428,9 @@ def l29_vpn_kill_switch_config_check(ctx):
                       f"contract is broken")
     # auto_recover toggle — read-only check it's introspectable
     try:
-        auto = _ks.get_auto_recover()
+        auto = (service_state.get("auto_recover")
+                if service_state is not None
+                else _ks.get_auto_recover())
     except Exception as e:
         ctx.log(f"get_auto_recover raised: {e}")
         return WARN, (f"get_auto_recover() raised {type(e).__name__}; "
@@ -2937,6 +2983,15 @@ def l30_vpn_tunnel_inventory_consistent(ctx):
     if not tunnels:
         return WARN, ("no VPN tunnels configured — nothing to verify")
     ctx.log(f"{len(tunnels)} VPN tunnel(s) reported by /api/dev/vpn_config")
+    unregistered = [
+        str(t.get("tunnel_id") or t.get("id") or t.get("name") or "?")
+        for t in tunnels
+        if isinstance(t, dict) and t.get("registered_live") is False
+    ]
+    if unregistered:
+        return FAIL, (f"{len(unregistered)} configured tunnel(s) are not "
+                      f"registered live: {', '.join(unregistered)}")
+
     # ID coherence: every tunnel should have a stable identifier.
     ids: list = []
     no_id: int = 0
