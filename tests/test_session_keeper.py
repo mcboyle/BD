@@ -31,17 +31,30 @@ def _isolated_cwd():
     and use ignore_cleanup_errors so a stuck file degrades to a
     harmless leftover instead of failing the test."""
     import logging
+    from bulk_downloader import db as db_mod
+    from bulk_downloader import session_keeper as sk
     orig = os.getcwd()
+    orig_db_path = db_mod.DB_PATH
     try:
         td_ctx = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
     except TypeError:
         td_ctx = tempfile.TemporaryDirectory()  # Python < 3.10
     with td_ctx as td:
+        # run_tests.py gives each file a BD_HOME, but these tests need a
+        # fresh database per test.  Pin DB_PATH explicitly because keeper
+        # threads may otherwise keep using the file-level database after the
+        # cwd has moved on to the next test.
+        db_mod.DB_PATH = str(Path(td) / "downloader_history.db")
         os.chdir(td)
         try:
             yield Path(td)
         finally:
+            # A keeper owns a browser thread.  Join it before restoring cwd or
+            # deleting its profile directory so it cannot write into the next
+            # test's database/profile while teardown is running.
+            sk.stop_all()
             os.chdir(orig)
+            db_mod.DB_PATH = orig_db_path
             for name in [""] + [n for n in
                                 list(logging.Logger.manager.loggerDict)
                                 if n == "bulk_downloader"
@@ -61,12 +74,14 @@ def _isolated_cwd():
 def _reset_module_state():
     """Clear keepers + takeover locks between tests."""
     from bulk_downloader import session_keeper as sk
+    sk.stop_all()
     with sk._state_lock:
-        for k in list(sk._keepers.values()):
-            k._stop.set()
-            k._wake.set()
-        sk._keepers.clear()
         sk._takeover_locks.clear()
+
+
+def _keeper_config():
+    """Config for lifecycle/API tests that must not launch a real browser."""
+    return {"password": "p", "keep_alive_enabled": False}
 
 
 # ─── session_history DB ───────────────────────────────────────────
@@ -114,7 +129,26 @@ def test_lifetime_observations_multiple_cycles():
             time.sleep(0.02)
             db.session_event_record("wow", 0, "heartbeat_fail", "")
         lifetimes = db.session_lifetime_observations("wow", 0)
-        assert len(lifetimes) == 3
+        assert len(lifetimes) == 3, f"expected 3 lifetimes, got {lifetimes!r}"
+
+
+def test_lifetime_observations_preserve_order_when_timestamps_tie():
+    """Insertion order disambiguates a failure and next login at one tick."""
+    from bulk_downloader import db
+    with _isolated_cwd():
+        db.db_init()
+        for event_type in ("login", "heartbeat_fail", "login",
+                           "heartbeat_fail"):
+            db.session_event_record("wow", 0, event_type, "")
+        with db.db_conn() as cx:
+            rows = cx.execute(
+                "SELECT id FROM session_history ORDER BY id").fetchall()
+            for row, timestamp in zip(rows, (100.0, 200.0, 200.0, 300.0)):
+                cx.execute("UPDATE session_history SET ts=? WHERE id=?",
+                           (timestamp, row["id"]))
+
+        assert db.session_lifetime_observations(
+            "wow", 0, lookback_days=100000) == [100.0, 100.0]
 
 
 def test_lifetime_observations_ignores_heartbeat_ok_for_close():
@@ -178,14 +212,14 @@ def test_start_and_stop_keeper():
         from bulk_downloader import db
         db.db_init()
         _reset_module_state()
-        # Use a callback that always succeeds. The thread will check
-        # immediately, hit the no-cookies path (returns "no cookies"),
-        # try relogin (which our callback handles synchronously).
+        # The lifecycle test deliberately disables heartbeats: browser/login
+        # behavior has separate coverage and would make teardown depend on a
+        # real Chromium process.
         called = []
         def cb(sid, idx, cfg):
             called.append((sid, idx))
             return True, "test login ok"
-        keeper = sk.start_keeper("wow", 0, {"password": "p"}, cb)
+        keeper = sk.start_keeper("wow", 0, _keeper_config(), cb)
         # Wait briefly for the thread to do its first iteration
         time.sleep(0.5)
         # Status should exist now
@@ -204,7 +238,7 @@ def test_force_check_returns_true_when_keeper_exists():
         db.db_init()
         _reset_module_state()
         cb = lambda *_: (True, "")
-        sk.start_keeper("wow", 0, {"password": "p"}, cb)
+        sk.start_keeper("wow", 0, _keeper_config(), cb)
         time.sleep(0.1)
         assert sk.force_check("wow", 0) is True
         assert sk.force_check("nosuchsite", 0) is False
@@ -249,7 +283,7 @@ def test_predict_returns_zero_when_no_login():
         _reset_module_state()
         # Use a callback that fails so the keeper never sets last_login_ts
         cb = lambda *_: (False, "fake fail")
-        sk.start_keeper("wow", 0, {"password": "p"}, cb)
+        sk.start_keeper("wow", 0, _keeper_config(), cb)
         time.sleep(0.3)
         pred = sk.predict_next_expiry("wow", 0)
         assert pred == 0.0
@@ -265,7 +299,7 @@ def test_predict_uses_default_when_no_history():
         db.db_init()
         _reset_module_state()
         cb = lambda *_: (True, "")
-        sk.start_keeper("wow", 0, {"password": "p"}, cb)
+        sk.start_keeper("wow", 0, _keeper_config(), cb)
         time.sleep(0.1)
         # Force last_login_ts
         keeper = sk._keepers[("wow", 0)]
@@ -306,7 +340,7 @@ def test_predict_uses_median_of_observed_lifetimes():
         # Now spin up a keeper with a fail-callback (so it doesn't
         # overwrite our seeded last_login_ts via auto-relogin)
         cb = lambda *_: (False, "test no-op")
-        sk.start_keeper("wow", 0, {"password": "p"}, cb)
+        sk.start_keeper("wow", 0, _keeper_config(), cb)
         time.sleep(0.1)
         # Manually set last_login_ts to "now" so the prediction relative
         # to current time is what we expect
@@ -325,21 +359,16 @@ def _api_client():
     """Test client with a fresh app + isolated tmpdir."""
     from bulk_downloader import app as A
     from bulk_downloader.db import db_init
-    orig = os.getcwd()
-    with tempfile.TemporaryDirectory() as td:
-        os.chdir(td)
+    with _isolated_cwd() as td:
         Path(td, "screenshots").mkdir(exist_ok=True)
-        try:
-            db_init()
-            _reset_module_state()
-            c = A.app.test_client()
-            r = c.get('/api/pair'); token = r.get_json()['token']
-            r = c.post('/api/pair/redeem', json={'token': token})
-            csrf = r.get_json()['csrf_token']
-            H = {'X-CSRF-Token': csrf}
-            yield c, H, A
-        finally:
-            os.chdir(orig)
+        db_init()
+        _reset_module_state()
+        c = A.app.test_client()
+        r = c.get('/api/pair'); token = r.get_json()['token']
+        r = c.post('/api/pair/redeem', json={'token': token})
+        csrf = r.get_json()['csrf_token']
+        H = {'X-CSRF-Token': csrf}
+        yield c, H, A
 
 
 def test_session_status_endpoint_empty():
@@ -358,7 +387,7 @@ def test_session_status_with_active_keeper():
     with _api_client() as (c, H, A):
         from bulk_downloader import session_keeper as sk
         cb = lambda *_: (True, "")
-        sk.start_keeper("wow", 0, {"password": "p"}, cb)
+        sk.start_keeper("wow", 0, _keeper_config(), cb)
         time.sleep(0.2)
         r = c.get('/api/session_status', headers=H)
         d = r.get_json()
@@ -399,7 +428,7 @@ def test_reconnect_triggers_check():
         # Start a keeper for it
         from bulk_downloader import session_keeper as sk
         cb = lambda *_: (True, "")
-        sk.start_keeper(sid, 0, {"password": "p"}, cb)
+        sk.start_keeper(sid, 0, _keeper_config(), cb)
         time.sleep(0.1)
         # Hit reconnect
         r2 = c.post(f'/api/sites/{sid}/reconnect', json={}, headers=H)

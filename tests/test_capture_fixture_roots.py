@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+import capture_test_fixtures
 from capture_test_fixtures import capture_fixture_lane
 
 
@@ -64,6 +65,15 @@ def test_relative_root_is_rejected(monkeypatch):
         capture_fixture_lane()
 
 
+def test_capture_root_validation_rejects_a_missing_directory(monkeypatch, tmp_path):
+    missing = tmp_path / "missing-corpus"
+    monkeypatch.setenv("BD_TEST_CAPTURE_ROOT", str(missing))
+    monkeypatch.delenv("BD_TEST_STRICT_CAPTURE_ROOT", raising=False)
+
+    with pytest.raises(ValueError, match="BD_TEST_CAPTURE_ROOT.*directory not found"):
+        capture_test_fixtures.validate_capture_fixture_roots()
+
+
 def test_artifact_name_cannot_escape_explicit_root(monkeypatch, tmp_path):
     monkeypatch.setenv("BD_TEST_CAPTURE_ROOT", str(tmp_path))
     lane = capture_fixture_lane()
@@ -82,18 +92,15 @@ def test_capture_modules_do_not_embed_legacy_private_roots():
         assert "capture_fixture_lane" in source, name
 
 
-def test_capture_script_forwards_only_explicit_fixture_roots_to_suite():
+def test_capture_script_inherits_fixture_roots_without_promoting_test_settings():
     source = (Path(__file__).resolve().parent.parent / "capture.sh").read_text(
         encoding="utf-8"
     )
 
-    suite_prefix = (
-        'BD_DISABLE_KEEPALIVE=1 \\\n'
-        'BD_TEST_CAPTURE_ROOT="${BD_TEST_CAPTURE_ROOT:-}" \\\n'
-        'BD_TEST_STRICT_CAPTURE_ROOT="${BD_TEST_STRICT_CAPTURE_ROOT:-}" \\\n'
-        "venv/bin/python run_tests.py"
-    )
+    suite_prefix = 'BD_DISABLE_KEEPALIVE=1 \\\nvenv/bin/python run_tests.py'
     assert suite_prefix in source
+    assert "BD_TEST_CAPTURE_ROOT" not in source
+    assert "BD_TEST_STRICT_CAPTURE_ROOT" not in source
     assert ".wacz-stage" not in source
 
 
@@ -102,8 +109,5 @@ def test_capture_script_rejects_invalid_opt_in_fixture_roots_up_front():
         encoding="utf-8"
     )
 
-    assert "validate_fixture_root()" in source
-    assert 'validate_fixture_root "BD_TEST_CAPTURE_ROOT"' in source
-    assert 'validate_fixture_root "BD_TEST_STRICT_CAPTURE_ROOT"' in source
-    assert "must be an absolute directory" in source
-    assert "directory not found" in source
+    assert "validate_capture_fixture_roots" in source
+    assert source.index("validate_capture_fixture_roots") < source.index('rm -rf "$OUT"')

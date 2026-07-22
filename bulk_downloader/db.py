@@ -1593,12 +1593,15 @@ def session_lifetime_observations(site_id, account_idx=None, lookback_days=30):
     import time
     cutoff = time.time() - lookback_days * 86400
     with db_conn() as cx:
-        sql = ("SELECT ts, event_type FROM session_history "
+        sql = ("SELECT id, ts, event_type FROM session_history "
                "WHERE site_id=? AND ts >= ?")
         params = [site_id, cutoff]
         if account_idx is not None:
             sql += " AND account_idx=?"; params.append(account_idx)
-        sql += " ORDER BY ts ASC"
+        # Adjacent events can share a timestamp on coarse-resolution clocks.
+        # Preserve their causal insertion order so a next-cycle login cannot
+        # sort ahead of the failure that closed the previous cycle.
+        sql += " ORDER BY ts ASC, id ASC"
         rows = cx.execute(sql, params).fetchall()
     lifetimes = []
     start = None  # ts of the last 'login' or 'auto_relogin_ok' we saw
