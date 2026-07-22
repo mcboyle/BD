@@ -13,6 +13,11 @@ playwright>=1.61,<2.0
 # If unavailable, the worker falls back to Playwright's save_as.
 httpx>=0.25,<1.0
 
+# Template discovery and deep-detection paths parse captured HTML with
+# BeautifulSoup. These paths fail open when bs4 is absent, but that silently
+# disables selector fitness scoring on a clean install.
+beautifulsoup4>=4.12,<5.0
+
 # Phase 15.4: TLS fingerprint impersonation. Optional — falls back to httpx
 # if not installed. Provides a drop-in `requests`-style API that mimics real
 # Chrome's TLS handshake (JA3, ALPN, HTTP/2 SETTINGS) at the wire level —
