@@ -25,7 +25,7 @@ start(tunnel):
 stop(tunnel):
   - Stop the SOCKS5 proxy thread
   - Windows: wireguard.exe /uninstalltunnelservice <iface>
-    POSIX:   wg-quick down <iface>
+    POSIX:   wg-quick down <explicit-conf-path>
   - Remove the temp .conf
 
 is_running(tunnel):
@@ -216,7 +216,7 @@ def start(tunnel: Tunnel) -> bool:
     bind_ip = address.split("/")[0].strip() if address else ""
     if not bind_ip:
         tunnel.last_error = "no address in wg config"
-        _wg_down_quiet(iface)
+        _wg_down_quiet(iface, conf_path)
         _safe_unlink(conf_path)
         return False
 
@@ -224,7 +224,7 @@ def start(tunnel: Tunnel) -> bool:
     # rather than spin up SOCKS that won't be able to bind.
     if not _iface_has_ip(iface, bind_ip):
         tunnel.last_error = f"wg iface {iface} did not come up with {bind_ip}"
-        _wg_down_quiet(iface)
+        _wg_down_quiet(iface, conf_path)
         _safe_unlink(conf_path)
         return False
 
@@ -238,7 +238,7 @@ def start(tunnel: Tunnel) -> bool:
         proxy.start()
     except OSError as e:
         tunnel.last_error = f"socks proxy bind failed: {e}"
-        _wg_down_quiet(iface)
+        _wg_down_quiet(iface, conf_path)
         _safe_unlink(conf_path)
         return False
 
@@ -270,11 +270,11 @@ def stop(tunnel: Tunnel) -> bool:
         except Exception as e:
             sys.stderr.write(f"[vpn-wg] socks stop error: {e}\n")
 
+    conf_path = handle.get("conf_path")
     iface = handle.get("iface")
     if iface:
-        _wg_down_quiet(iface)
+        _wg_down_quiet(iface, conf_path)
 
-    conf_path = handle.get("conf_path")
     if conf_path is not None:
         _safe_unlink(conf_path)
 
@@ -411,13 +411,37 @@ def _wg_up(conf_path: Path, iface: str) -> None:
         raise RuntimeError(f"wg up exit={result.returncode}: {stderr[:400]}")
 
 
-def _wg_down_quiet(iface: str) -> None:
-    """Try wg down. Log on failure, never raise."""
+def _is_safe_link_delete_iface(iface: str) -> bool:
+    """Allow direct link deletion only for names produced by this backend."""
+    suffix = iface[3:] if iface.startswith("wg-") else ""
+    return (
+        bool(suffix)
+        and len(iface) <= 15
+        and suffix.isascii()
+        and suffix.isalnum()
+    )
+
+
+def _wg_down_quiet(iface: str, conf_path: Path | str | None = None) -> None:
+    """Try to tear down WireGuard. Log on failure, never raise."""
     try:
         if IS_WINDOWS:
             cmd = [_WG_BINARY, "/uninstalltunnelservice", iface]
         else:
-            cmd = [_WG_BINARY, "down", iface]
+            explicit_conf = Path(conf_path) if conf_path is not None else None
+            if explicit_conf is not None and explicit_conf.is_file():
+                cmd = [_WG_BINARY, "down", str(explicit_conf)]
+            elif IS_LINUX and _is_safe_link_delete_iface(iface):
+                # wg-quick cannot resolve our temp config by interface name.
+                # If the exact config disappeared, delete only an interface
+                # whose name matches the backend's tightly bounded namespace.
+                cmd = ["ip", "link", "delete", "dev", iface]
+            else:
+                sys.stderr.write(
+                    f"[vpn-wg] down {iface} refused: explicit config missing "
+                    "and no guarded link-delete fallback is available\n"
+                )
+                return
         result = subprocess.run(
             cmd,
             capture_output=True,

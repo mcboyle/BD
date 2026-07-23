@@ -105,6 +105,35 @@ def test_site_health_worst_first_and_labels():
             assert s["health_label"] == "ok"
 
 
+def test_site_health_unchecked_site_cannot_outrank_dominant_failure_cluster():
+    _fresh_db()
+    # Reproduce the live F2a mismatch: an unchecked red site scores 40 while a
+    # site with a dominant failure cluster scores 50.  Numeric score alone must
+    # not let the no-data site become the report's "worst site".
+    with db.db_conn() as cx:
+        cx.execute(
+            "CREATE TABLE IF NOT EXISTS auth_health ("
+            "site_id TEXT PRIMARY KEY, status TEXT NOT NULL, last_check_ts REAL, "
+            "last_green_ts REAL, last_http_code INTEGER, note TEXT DEFAULT '', "
+            "response_url TEXT DEFAULT '')")
+        cx.execute(
+            "INSERT OR REPLACE INTO auth_health(site_id, status, last_check_ts) "
+            "VALUES(?,?,?)", ("unchecked", "red", None))
+    for _ in range(93):
+        db.session_event_record("dominant_failure", 0, "heartbeat_fail", "")
+
+    out = D.collect_site_health(lookback_days=7)
+    sites = {site["site_id"]: site for site in out["sites"]}
+
+    assert sites["unchecked"]["health_score"] == 40
+    assert sites["unchecked"]["failures"] == 0
+    assert sites["unchecked"]["last_check_age_sec"] is None
+    assert sites["dominant_failure"]["health_score"] == 50
+    assert sites["dominant_failure"]["failures"] == 93
+    assert out["clusters"][0]["site_id"] == "dominant_failure"
+    assert out["sites"][0]["site_id"] == "dominant_failure"
+
+
 def test_site_health_score_clamped_and_deterministic():
     _fresh_db()
     # A genuinely critical site: red auth-health AND failures. The 4-input

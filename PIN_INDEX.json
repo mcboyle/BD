@@ -17,14 +17,15 @@
     ]
   },
   "counts": {
-    "total": 32,
+    "total": 33,
     "version": 1,
-    "count_dict": 31,
-    "test_files_scanned": 1102,
+    "count_dict": 32,
+    "test_files_scanned": 1104,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_config_snapshot_diff.py": 1,
       "tests/test_contracts.py": 1,
+      "tests/test_corpus_disposition_buckets.py": 1,
       "tests/test_daily_digest.py": 2,
       "tests/test_dom_analyzer.py": 1,
       "tests/test_kb_golden_questions.py": 1,
@@ -84,6 +85,20 @@
         "x": 1
       },
       "gates_what": "test_contract_maybe_json_handles_all_arg_shapes — _maybe_json must never raise regardless of the args object."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_corpus_disposition_buckets.py",
+      "line": 51,
+      "value": {
+        "auto_promotions": 0,
+        "bucket_count": 3,
+        "media_or_network_review": 1,
+        "resolution_review": 1,
+        "review_required": 3,
+        "selector_review": 2
+      },
+      "gates_what": "test_generator_buckets_only_review_required_rows_without_source_paths"
     },
     {
       "form": "count_dict",

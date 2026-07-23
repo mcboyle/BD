@@ -2231,6 +2231,94 @@
       "Version": "v3.66.811 OPV",
       "State": "COMPLETED (live configuration verified)",
       "Notes": "Live /cockpit/api/novnc returned resize=scale&autoconnect=true&reconnect=true&reconnect_delay=2000, and both active systemd BD_NOVNC_URL declarations use the scale/autoconnect URL. The suspected higher-priority unscaled override is not present in the measured configuration."
+    },
+    {
+      "ID": "F0.4",
+      "Category": "Track-F",
+      "Item / scope": "Production WSGI swap to waitress with SSE-compatible response headers and explicit thread sizing",
+      "Version": "v3.66.794; live-verified on v3.66.817",
+      "State": "COMPLETED / LIVE",
+      "Notes": "SHIPPED @794: downloader_ui._serve_wsgi selects waitress in production, retains werkzeug for debug/fail-open fallback, and sizes the pool with BD_WSGI_THREADS (default 30); waitress>=3.0,<4.0 is declared and the SSE hop-by-hop Connection header was removed. LIVE @817 on stash: installed the offline waitress 3.0.2 wheel, restarted successfully, /api/health remained ok, the response header reported Server: waitress, tests/test_v3_66_794_waitress_swap.py passed 7/7, and live L35 SSE passed 1/1 with zero warnings/failures. No systemd ExecStart rewrite was required because the production entry point invokes _serve_wsgi directly."
+    },
+    {
+      "ID": "HUD",
+      "Category": "Capture frontier",
+      "Item / scope": "Live Capture Overlay (F2.7) live mount: default-ON, persistent, CSP-immune real-time HUD during capture",
+      "Version": "v3.66.229-239; reconciled on v3.66.817",
+      "State": "COMPLETED / LIVE",
+      "Notes": "The stale NAV/guard gate was dissolved @229 and the guarded live call site shipped. @230 made the HUD default-ON, persistent across navigation, CSP-immune via page.evaluate, fail-open, and operator-toggleable; current capture_session mounts it from _pump_dom and re-mounts every tick. Actual on-stash WowGirls render confirmations are recorded @235-239, including cross-origin persistence, click/action feedback, internal scrolling, and direct-media READY parity. The measured stash service also carries BD_HUD_OVERLAY=1. No further guard approval or live-mount cut remains."
+    },
+    {
+      "ID": "NAV",
+      "Category": "Capture frontier",
+      "Item / scope": "Capture navigation-blocker re-test on a genuine heavy-SPA target",
+      "Version": "v3.66.817 OPV",
+      "State": "COMPLETED (live CloakBrowser re-test)",
+      "Notes": "The operator tail completed on stash against https://app.reptyle.com/ using nav_probe.probe with the configured CloakBrowser backend and the recorder attached. Result: backend=cloakbrowser, recorder_attached=true, verdict=LOAD_OK, exit 0. Per the probe contract, load reached a usable DOM, so navigation is not the blocker and no capture_session wait_until guard change is warranted. The earlier reptyle blocker was already root-caused @228-229 as stale enabled-template drift rather than page.goto behavior."
+    },
+    {
+      "ID": "NEXT-2",
+      "Category": "Operator verify",
+      "Item / scope": "Re-promote wowgirls cleanly through normalize_template_draft.py -> promote_template.py and verify the runtime-shape golden",
+      "Version": "v3.66.817 OPV",
+      "State": "COMPLETED (reviewed, not enabled)",
+      "Notes": "Completed on stash from the preserved raw draft/review candidate with pre-change backups. The normalized candidate produced reviewed/auth.wowgirls.com.template.json with status=reviewed_not_enabled, two safe templated network patterns, and resolutions [4320, 2160, 540, 480, 360, 240]. scan_artifact_secrets returned 0 findings; tools/wow_promote_golden.py --check reported no drift; tools/validate_templates.py --root templates/reviewed returned VERDICT ok. Final template SHA-256: 3b42cca86fc993c272f3551c5a68e92626382738e2eb197cf4326641e1c53f47."
+    },
+    {
+      "ID": "F2-HYG",
+      "Category": "Operator F2",
+      "Item / scope": "Share-archive and Tiny4k WACZ hygiene: retain only canonically redacted artifacts and quarantine raw twins",
+      "Version": "v3.66.817 OPV",
+      "State": "COMPLETED (operator-data hygiene verified)",
+      "Notes": "A full Z: filename search found no redacted_captures_keep.zip, so the stale seven-raw-twins target is absent. out.zip was backed up and rebuilt through the canonical redactor with 12 redacted-only members; every member passed both artifact-secret and redaction-floor scans with 0 findings, and the rebuilt target SHA-256 is e174b2dc15da8759b569e6161ef516784035c697733098625bd39b0ab70cfa8e. Tiny4k1.redacted.wacz and Tiny4k2.redacted.wacz each passed canonical artifact/floor scans with 0 findings, and their raw twins were moved into quarantine rather than shared or deleted."
+    },
+    {
+      "ID": "OPV-F1.4",
+      "Category": "Operator verify",
+      "Item / scope": "F1.4 predictive_relogin on a churn-prone site -> relogin at approximately 0.8 * learned median",
+      "Version": "v3.66.817 OPV",
+      "State": "COMPLETED (live predictive relogin observed)",
+      "Notes": "Live stash verification used four sanctioned churn observations with a learned median of 217.854 seconds, producing the expected 0.8 target of 174.283 seconds. One preemptive relogin occurred within the scheduler's 60-second poll cadence, reset the observed age, and did not wait for the fixed 168-hour fallback. The predictive_relogin_enabled flag was restored OFF after the measurement."
+    },
+    {
+      "ID": "OPV-F1.3",
+      "Category": "Operator verify",
+      "Item / scope": "F1.3 cookie admission: an expired jar blocks worker spawn and a fresh jar self-resolves",
+      "Version": "v3.66.817 OPV",
+      "State": "COMPLETED (live expired/fresh jar transition verified)",
+      "Notes": "Live evidence is preserved at /home/mboyle/.bd21-backups/F1X-20260722T234808Z/evidence.json. With a deliberately expired dated cookie jar, admission reached cookies_expired in 1 second, retained a pending unique job, and spawned zero new browser PIDs. Restoring the original/fresh jar self-resolved the same lane to running in 2 seconds. Cleanup restored the exact pre-test config and cookie hashes and preserved queue depth 962."
+    },
+    {
+      "ID": "OPV-F2A-LIVE-CORRELATION",
+      "Category": "Operator verify / live data",
+      "Item / scope": "F2a non-empty failure-history proof: worst-site ranking correlates with the top failure cluster",
+      "Version": "v3.66.817 live hot-patch / OPV",
+      "State": "COMPLETED (live non-empty correlation verified)",
+      "Notes": "The deployed ranking fix was applied only after the remote preimage matched the local base. Focused verification passed 94 local tests and 14 dedicated on-stash tests; the service remained active under Waitress and /api/health stayed ok. The live API ranked site 48c4ddc3 first with failures=99 and score=50, while the top failure cluster named the same site with count=52; correlated=true. This closes the distinct non-empty-history observation while preserving the earlier completed empty-state/render mechanism evidence."
+    },
+    {
+      "ID": "OPV-VPNKILL-LIVE",
+      "Category": "Operator verify / infrastructure",
+      "Item / scope": "Real WireGuard tunnel fail-closed acceptance: tunnel-down blocks clear-interface egress and tunnel-up permits expected proxied egress",
+      "Version": "v3.66.817 OPV",
+      "State": "COMPLETED (isolated real WireGuard acceptance)",
+      "Notes": "Evidence is preserved at /home/mboyle/.bd21-backups/VPNKILL-LIVE-20260723T000017Z/evidence.json. The isolated bd-opv-local-wg tunnel completed a real WireGuard handshake and passed SOCKS/echo traffic. Killing it produced the expected killed state and exactly one callback; an idempotent repeat did not duplicate the callback. With the tunnel down, destination-scoped fail-closed nft enforcement blocked egress and its counter advanced by exactly +1. Both watchdog and manual rollback paths restored the original routes, IP state, and rules exactly. SSH and the BulkDownloader service remained available; Waitress and /api/health reported v3.66.817 healthy with queue_depth=962 and active=0. The separate API-stop link-cleanup defect was not claimed by this acceptance; it is independently closed under OPV-VPNKILL-CLEANUP."
+    },
+    {
+      "ID": "OPV-VPNKILL-CLEANUP",
+      "Category": "Operator verify / infrastructure hardening",
+      "Item / scope": "API stop teardown must remove the isolated WireGuard link after releasing runtime state and SOCKS resources",
+      "Version": "v3.66.817 live hot-patch / OPV",
+      "State": "COMPLETED (normal API-stop ownership-scoped cleanup verified)",
+      "Notes": "Evidence is preserved at /home/mboyle/.bd21-backups/VPNKILL-CLEANUP-VERIFY-20260723T001742Z/evidence.json; the deployed patch backup is /home/mboyle/.bd21-backups/VPNKILL-CLEANUP-PATCH-20260723T001550Z. Focused verification passed 113/113 tests. A normal service restart returned active/running under Waitress with /api/health ok. The isolated WireGuard start produced a nonzero handshake and successful SOCKS echo round trip. Normal API stop then removed the owned wg-bdopvlocalw link without manual deletion, closed/refused the SOCKS listener, reported state down with port 0, and removed the temporary config. Final IP addresses, routes, rules, tunnel-config SHA, and iptables/nft structure (ignoring live counters/timestamps) matched exactly; the default/LAN routes were untouched. The independent watchdog was disarmed without firing. Fresh SSH, active service, Waitress, healthy API, queue_depth=962, and active=0 confirmed the final state."
+    },
+    {
+      "ID": "OPV-F3.2",
+      "Category": "Operator verify",
+      "Item / scope": "F3.2 live drift-to-AI repair produces a disabled draft_review_required proposal and persists the run record",
+      "Version": "v3.66.817 OPV",
+      "State": "COMPLETED (live real-Ollama repair verified)",
+      "Notes": "Evidence and rollback backups are preserved at /home/mboyle/.bd21-backups/F3.2-live-20260723T000646Z. A forced API run against real Ollama qwen2.5:7b returned considered=1, repaired=1, skipped=0. The proposal had status=draft_review_required, review_required=true, enabled=false, source_capture=drift_repair:f32-opv.invalid, selector #download-video, and 0 artifact-secret findings. Draft evidence SHA-256: 9382a3030dea52d8fff56ad5655f2532c675d13dcc0a00b6e2def5ce08cb3476; persisted last-run evidence SHA-256: a22792a0fba38e97a434ccfd9d472e2e79adc0bf5c6bf5c91dba02a134603ff6. Exact rollback removed the temporary site, reset drift, removed temporary captures/draft, and restored the prior last-run record. Final state: site_count=2, temp site absent, automation disabled, drafts=8, and /api/health ok on v3.66.817 with queue_depth=962 and active=0."
     }
   ],
   "awaiting_operator": [
@@ -2241,48 +2329,8 @@
       "Status": "OPEN",
       "Tier": "-",
       "Sandbox-able?": "No (operator)",
-      "Blocked by": "P4",
-      "Next action / notes": "Calendar/operator-bound"
-    },
-    {
-      "ID": "F0.4",
-      "Category": "Track-F",
-      "Item / scope": "WSGI fact-check -> swap to waitress (systemd ExecStart edit)",
-      "Status": "OPEN",
-      "Tier": "-",
-      "Sandbox-able?": "No (operator)",
-      "Blocked by": "SSE --threads sizing Q",
-      "Next action / notes": "Pure systemd edit + offline waitress wheel; confirm /api/stream long-poll threads fit --threads first"
-    },
-    {
-      "ID": "F2-HYG",
-      "Category": "Operator F2",
-      "Item / scope": "Remove raw .wacz twins before sharing (7 in redacted_captures_keep.zip + the out.zip RAW set); re-scrub tiny4k SigV4 twins; ~15 x-forwarded-for files",
-      "Status": "OPEN",
-      "Tier": "-",
-      "Sandbox-able?": "No (operator)",
-      "Blocked by": "-",
-      "Next action / notes": "Local-only F2 hygiene; not retroactive via code"
-    },
-    {
-      "ID": "OPV-F1.3",
-      "Category": "Operator verify",
-      "Item / scope": "F1.3 cookie_admission_enabled — lapsed jar -> cookies_expired (no spawn) + self-resolve",
-      "Status": "AWAITING OPERATOR (live enablement check)",
-      "Tier": "C",
-      "Sandbox-able?": "No (live jar)",
-      "Blocked by": "login-gated site with an aged cookie jar",
-      "Next action / notes": "LIVE @217 and sandbox-verified @539. On stash, set cookie_file + cookie_admission_enabled for a sanctioned login-gated site, fully lapse the jar, confirm cookies_expired prevents a worker spawn, then refresh the jar and confirm self-resolution. Consolidates former duplicate F1.3-EN."
-    },
-    {
-      "ID": "OPV-F1.4",
-      "Category": "Operator verify",
-      "Item / scope": "F1.4 predictive_relogin on a churn-prone site -> relogin at ~0.8*median",
-      "Status": "AWAITING OPERATOR (live enablement check)",
-      "Tier": "C",
-      "Sandbox-able?": "No (live churn site)",
-      "Blocked by": "sanctioned churn-prone site with at least 3 observations",
-      "Next action / notes": "LIVE @218 and sandbox-verified @539. Enable predictive_relogin_enabled on a sanctioned churn-prone site with >=3 observations and confirm relogin occurs at approximately 0.8 * learned median rather than the fixed 168-hour age. Consolidates former duplicate F1.4-EN."
+      "Blocked by": "Operator-owned MOD3 target/DSN + live shadow observability + cutover + >=2-week soak",
+      "Next action / notes": "The MOD3 cutover/rollback mechanism is complete @804, but it is default-OFF and tests explicitly preserve this real exit criterion. Read-only readiness audit 2026-07-22: stash has a non-empty 23-row SQLite source, psycopg, and running candidate Postgres containers, but the service has no MOD3 DSN, shadow-read, or cutover enabled; neither container is yet operator-authorized. Live shadow counters are process-local and no in-process status surface currently exposes the comparison denominator, so a separate Python preflight would not attest the running service. No clock started. Select/provision the target, add secret-free in-process stats/preflight evidence, pass rehearsal and live preflight, perform the authorized cutover, run the full on-stash suite green post-cutover, then retain >=336 hours of operator-soak evidence. Exact preflight, rollback, and soak checklist: reports/OPV_EXIT3_F31_READINESS_AUDIT_2026-07-22.md."
     },
     {
       "ID": "OPV-F3.1",
@@ -2291,28 +2339,18 @@
       "Status": "AWAITING OPERATOR (week-long live verify)",
       "Tier": "C",
       "Sandbox-able?": "No (live week)",
-      "Blocked by": "operator stash and elapsed time",
-      "Next action / notes": "LIVE @223; scheduler blocker cleared @461; time-warp/leak-freedom sandbox proof completed @539. Create a saved-search enqueue rule and confirm caps, gates, and dedup over an uninterrupted week. The deferred SPA action-picker tail remains part of this row. Consolidates former duplicate F3.1-WK."
-    },
-    {
-      "ID": "OPV-F3.2",
-      "Category": "Operator verify",
-      "Item / scope": "F3.2 drift->AI repair — wire stash dom_provider; enable; confirm a drift -> draft_review_required",
-      "Status": "AWAITING OPERATOR (live daily-run verify)",
-      "Tier": "B",
-      "Sandbox-able?": "No (stash/live AI)",
-      "Blocked by": "sanctioned live stale site plus live AI provider",
-      "Next action / notes": "Shipped @224; review-only proposal path sandbox-verified @539. The v3.66.817 safe OPV exercised enable/revert and preserved the last-run record, but a real scheduled daily repair remains. Enable automation.drift_repair_enabled (or Run-now with force) against a sanctioned stale site, confirm a draft_review_required repair and persisted last-run update. Consolidates former duplicate F3.2-LIVE."
+      "Blocked by": "Operator-approved sanctioned rule + seven uninterrupted days",
+      "Next action / notes": "LIVE @223; scheduler blocker cleared @461; time-warp/leak-freedom sandbox proof completed @539. Read-only readiness audit 2026-07-22 found the scheduler healthy (`saved_searches.run_due` enabled, 300-second task interval, last status ok) but zero saved-search rules, so no seven-day clock started. Operator must approve a bounded action=enqueue rule (hourly recommended), then preserve >=168 hours of cap, downstream-gate, dedup, scheduler, and queue evidence. Exact rule fields and observation checklist: reports/OPV_EXIT3_F31_READINESS_AUDIT_2026-07-22.md. The deferred SPA action-picker tail remains part of this row. Consolidates former duplicate F3.1-WK."
     },
     {
       "ID": "CAP-ROBUST",
       "Category": "Capture core (held-open) — anti-bot resilience",
       "Item / scope": "Held-open capture died on anti-bot sites before the operator could act, and a login redirect dropped the deep URL onto home. A) page-death recovery; B) 'Go to my URL' re-nav; C) challenge settle.",
-      "Status": "BUILT @293 (live-verify pending)",
+      "Status": "LIVE A/B PASSED; challenge C pending",
       "Tier": "B (DECLARED guard change: tools/capture_session.py)",
       "Sandbox-able?": "Partial (decision logic sandbox-tested; live reopen/re-nav/challenge-wait stash-only)",
-      "Blocked by": "-",
-      "Next action / notes": "DONE in sandbox @293: A=per-tick reopen+re-nav-to-start_url when no live page; B=GOTO sentinel + cockpit_core.goto_capture + POST /cockpit/api/captures/goto + SPA 'Go to my URL'; C=_settle_through_challenge (BD_CHALLENGE_WAIT_S default 20, zero-cost on normal sites). GUARD capture_session.py declared fff3e972->707dcd2b; other 6 byte-identical. RED-first test_capture_robustness 12/12 + test_capture_goto_renav 4/4. Live behavior stash-only."
+      "Blocked by": "real live challenge settle/resume acceptance",
+      "Next action / notes": "BUILT @293 with RED-first test_capture_robustness 12/12 + test_capture_goto_renav 4/4. LIVE @817: A passed when closing the active page caused the held-open runner to recover by opening a replacement page; B passed when the GOTO sentinel was consumed and navigation returned from the IANA page to example.com. These observations validate page-death recovery and operator re-navigation on stash. C remains open: exercise the challenge settle/handoff path through detector-gated resume before closure."
     },
     {
       "ID": "JW-TMPL",
@@ -2338,21 +2376,11 @@
       "ID": "P3-T12-CALLSITE",
       "Category": "Migration Phase 3-4 / capture frontier",
       "Item / scope": "Held-open runner call-site swap (capture_session.py) to invoke the @389 challenge seam, + on-stash live real-challenge validation before any ratchet",
-      "Status": "BUILT + DEPLOYED @458 (live real-challenge acceptance pending)",
+      "Status": "LIVE detect/pause/handoff observed; detector-gated resume pending",
       "Tier": "A",
       "Sandbox-able?": "No (build+deploy DONE @458; live real-challenge on stash)",
-      "Blocked by": "-",
-      "Next action / notes": "SHIPPED @3.66.458 (guard cut): tools/capture_session.py held-open settle call site swapped _settle_through_challenge(page) -> new _settle_challenge_handoff(page), which routes through the canonical seam bulk_downloader.session_capture.handle_challenge_on_page with passive_budget_s=_challenge_wait_seconds() (budget parity) + secret-free stderr log_fn + operator_instructions() surfaced on operator_action_required. Old local poller retired; detection/passive-self-clear/manual-handoff only (no-solving static guard). GUARD SHA declared f634104a -> 430f5070; other 6 byte-identical. RED-first test_p3_t12_callsite.py 5/5; build_release added=1 changed=6 removed=0 forbidden_new=0; band from extracted zip under real pytest 84 passed; verify_release --zip PASS. DEPLOYED + on-stash GREEN (10348/10289/0/59, /api/health 3.66.458). REMAINING (operator-side, not sandbox-testable): live real-challenge validation (detect->pause->handoff->detector-gated resume; solved stays False) before any ratchet."
-    },
-    {
-      "ID": "NAV",
-      "Category": "Capture frontier",
-      "Item / scope": "Capture navigation-blocker re-test on a genuine heavy-SPA target",
-      "Status": "DIAGNOSTIC READY -- awaiting operator stash re-test",
-      "Tier": "-",
-      "Sandbox-able?": "No (stash browser)",
-      "Blocked by": "-",
-      "Next action / notes": "nav_probe.py 10/10 ready (built, sandbox-complete). ONLY remaining: operator runs the navigation-blocker re-test on a genuine heavy-SPA target on stash. CONDITIONAL follow-up (new item if triggered): if the probe shows N1/N3, request guard-change approval for capture_session.py and ship that fix ALONE. Nothing sandbox-buildable remains for this item itself."
+      "Blocked by": "human clears a real challenge so detector-gated resume can be observed",
+      "Next action / notes": "SHIPPED @458: the held-open runner routes challenge settle through bulk_downloader.session_capture.handle_challenge_on_page with passive-budget parity, secret-free logging, operator instructions, and no solving. LIVE @817 on the real Reptyle Cloudflare login wall: the detector recognized the challenge, paused capture, routed to operator handoff, and retained solved=false. This proves the real detect->pause->handoff half. Keep the row open until a human clears a real challenge and the detector observes it gone before resume; never infer solved from the handoff itself."
     },
     {
       "ID": "RPTYL",
@@ -2361,18 +2389,8 @@
       "Status": "AWAITING OPERATOR -- real-Chrome stash capture (no sandbox build)",
       "Tier": "M",
       "Sandbox-able?": "No (real Chrome on stash)",
-      "Blocked by": "HUD",
-      "Next action / notes": "First real-site capture; HUD turns it from blind to guided | No sandbox-buildable content: this is a real-site authenticated-profile capture run on stash (success = api_patterns >= 1). HUD is a soft enabler (guided vs blind), not a hard prerequisite."
-    },
-    {
-      "ID": "HUD",
-      "Category": "Capture frontier",
-      "Item / scope": "Live Capture Overlay (F2.7) live-mount half (real-time HUD during capture)",
-      "Status": "AWAITING OPERATOR -- gated on NAV re-test + guard-SHA approval before the live-mount cut",
-      "Tier": "A",
-      "Sandbox-able?": "No (stash page-wiring)",
-      "Blocked by": "NAV re-test + guard-SHA approval",
-      "Next action / notes": "Pure half LIVE; single call site in capture_session.py (guard), default-off, fail-open. THE corpus unblocker | The live-mount guard-cut cannot honestly start in-sandbox until (a) the NAV heavy-SPA re-test determines whether a nav fix bundles in, and (b) the operator approves the capture_session.py guard-SHA change. Pure HUD half already LIVE."
+      "Blocked by": "-",
+      "Next action / notes": "Run the authenticated-profile capture on stash and require api_patterns >= 1. The default-ON live HUD is complete and available for guided capture, so it is no longer a blocker; this row remains open solely for the real authenticated Reptyle capture and evidence review."
     },
     {
       "ID": "FR-A6.2",
@@ -2382,7 +2400,7 @@
       "Tier": "M",
       "Sandbox-able?": "Yes",
       "Blocked by": "corpus breadth",
-      "Next action / notes": "Recognition already broad; remaining breadth is guided-capture-bound | Enumerated family backlog (from the v3.66.318 KB corpus-expansion note, previously un-listed in any row): radiant_media_player, clappr, dashjs, youtube, jplayer, mux_hosted, brid_tv -- recognizer-coverage candidates for this slice / FR-A6.3 remainder. | Recognition already broad; the remaining families (radiant_media_player, clappr, dashjs, youtube, jplayer, mux_hosted, brid_tv) need operator guided captures before any recognizer breadth can be built."
+      "Next action / notes": "The recognizers already implement radiant_media_player, clappr, dashjs, youtube, jplayer, mux_hosted, and brid_tv, with synthetic detection tests; v3.66.681 also added synthetic corpus fixtures for clappr and dashjs. What remains is real guided-capture corpus evidence and builder/template enrichment for these families, not first-time recognizer implementation. Capture representative sanctioned pages with the now-complete HUD, scrub the WACZ artifacts, pin real verdicts, then resume the builder slice."
     },
     {
       "ID": "FR-A6.3",
@@ -2392,17 +2410,7 @@
       "Tier": "M",
       "Sandbox-able?": "Partial",
       "Blocked by": "corpus breadth",
-      "Next action / notes": "258 added dom_log passive trigger derivation. ~6 no-rrweb-click families need guided pick (HUD); increment-2b REJECTED | ~6 no-rrweb-click families need guided pick (HUD) on stash; the passive-trigger build half shipped @258."
-    },
-    {
-      "ID": "NEXT-2",
-      "Category": "Operator verify",
-      "Item / scope": "Re-promote wowgirls cleanly via normalize_template_draft.py -> promote_template.py",
-      "Status": "SANDBOX PART DONE @459 (runtime-shape gold landed; gui_parity reconciled @460) -- operator re-promote remains",
-      "Tier": "S",
-      "Sandbox-able?": "No",
-      "Blocked by": "-",
-      "Next action / notes": "Runtime-shape GOLD shipped: tools/wow_promote_golden.py + tests/golden/wow_promote.golden.json + tests/test_wow_promote_runtime_shape.py (RED-first; the normalized candidate clears promote_gate_errors + carries the top-level resolutions ladder the raw template lacked; F2-clean). OPERATOR (on stash): re-promote wowgirls cleanly via normalize_template_draft.py -> promote_template.py, then run tools/wow_promote_golden.py --check to confirm the runtime shape matches the gold. 459+460 deployed + on-stash GREEN (10355/10296/0/59)."
+      "Next action / notes": "The passive dom_log trigger-derivation half shipped @258; increment-2b remains rejected. Approximately six no-rrweb-click families still need real guided picks on stash, followed by scrubbed-corpus review and builder work. The default-ON live HUD is complete and available, so HUD is no longer a dependency; only real capture breadth remains."
     },
     {
       "ID": "2c-DATA",
@@ -2415,34 +2423,14 @@
       "Next action / notes": "Box has app.reptyle.com.candidate.json + auth.reptyle.com.template-draft.json but NOT app.reptyle.com.template-draft.json. Re-capture as part of OPV-B2."
     },
     {
-      "ID": "OPV-VPNKILL-LIVE",
-      "Category": "Operator verify / infrastructure",
-      "Item / scope": "Real WireGuard tunnel fail-closed test: tunnel-down must block clear-interface egress and tunnel-up must permit expected egress.",
-      "Status": "AWAITING OPERATOR (infrastructure-bound)",
-      "Tier": "A",
-      "Sandbox-able?": "No (real tunnel on stash)",
-      "Blocked by": "WireGuard kernel module absent on stash; real tunnel required",
-      "Next action / notes": "Keep distinct from completed OPV-VPNKILL, which proves only the sandbox/netns mechanism without a real tunnel or credentials. The July 20 OPV measurement remains BLOCKED; do not claim this live arm complete."
-    },
-    {
       "ID": "CORPUS-DISPOSITION",
       "Category": "Corpus review",
-      "Item / scope": "Manual disposition of 181 review-ready drafts, 445 draft-review-required items, 3 invalid WACZ archives, and 2 JSON parse failures retained for review.",
-      "Status": "AWAITING OPERATOR (manual disposition; not an OPV failure)",
+      "Item / scope": "Manual semantic disposition of 445 draft-review-required corpus items",
+      "Status": "AWAITING OPERATOR (445 semantic reviews remain; not an OPV failure)",
       "Tier": "-",
       "Sandbox-able?": "No (operator review)",
-      "Blocked by": "Manual corpus classification and archive disposition",
-      "Next action / notes": "Source: reports/OPV_VALIDATION_REPORT_2026-07-21.md. Builder and normalization processing completed 626/626; originals were not modified. These retained review populations are corpus debt, not a failed OPV acceptance lane."
-    },
-    {
-      "ID": "OPV-F2A-LIVE-CORRELATION",
-      "Category": "Operator verify / live data",
-      "Item / scope": "F2a non-empty failure-history proof: the site-health worst-site result must correlate with the top failure cluster.",
-      "Status": "AWAITING OPERATOR (non-empty live history required)",
-      "Tier": "C",
-      "Sandbox-able?": "No (live failure history)",
-      "Blocked by": "stash needs sanctioned, non-empty site failure history",
-      "Next action / notes": "Keep the historical OPV-F2a completed render/empty-state mechanism row intact. This distinct observation remains unexercised because the July 20 live measurement returned 0 clusters and 0 per-site rows; after sanctioned failures exist, verify the highest failure-count site appears at or near the top cluster and document any tie/recovery exception."
+      "Blocked by": "Manual semantic classification of 445 review-required drafts",
+      "Next action / notes": "The technical anomaly tails are disposed safely: the three invalid WACZ entries were non-unique/sidecar cases rather than lost unique captures, and the two JSON parse anomalies were missing-tool stderr artifacts rather than corpus records. The 181 review-ready preflight rows were technically processed, but that processing is not represented as semantic approval. Operator-ready deterministic review artifacts now exist at .superpowers/sdd/corpus-disposition-review-buckets.json and .superpowers/sdd/corpus-disposition-review-buckets.md, generated by tools/corpus_disposition_buckets.py and covered by tests/test_corpus_disposition_buckets.py. They index exactly 445 unique capture-SHA rows into 8 exact gate-error buckets: 378 require selector review, 204 media/network review, and 73 resolution review (dimensions overlap). Safety posture is explicit: 0 auto-promotions, 0 artifact-secret findings, and no source paths, URLs, or queries in the artifacts. Artifact SHA-256 values: JSON 4777132e44f7466e08d803165e58d3efaf69dc2e33925eb8aaea77de62f70ed3; Markdown ff5d6730ae9b3c0d7717b00cab210b37e39ee5d2864d8e87b9340dff6afcb044. Validation passed 65 focused tests, then 103 parity/index/corpus tests after the required generated-artifact regeneration. Remaining blocker: a human must resolve each capture SHA against the private source manifest and record an explicit semantic accept/reject decision; deterministic bucketing is not semantic approval. This remains corpus debt, not a failed OPV lane."
     }
   ],
   "decided_against": [

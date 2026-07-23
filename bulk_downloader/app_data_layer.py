@@ -451,8 +451,11 @@ def collect_site_health(lookback_days=7):
             "health_score": score,
             "health_label": label,
         })
-    # worst (lowest score) first so the cockpit leads with the urgent site
-    sites.sort(key=lambda s: (s["health_score"], -s["failures"]))
+    # Lead with observed failures so an unchecked/no-data auth-health row cannot
+    # outrank the failure cluster the F2a report is meant to correlate with.
+    # Preserve the existing score/count ordering within each evidence group.
+    sites.sort(key=lambda s: (
+        s["failures"] == 0, s["health_score"], -s["failures"]))
     return {
         "lookback_days": int(lookback_days),
         "site_count": len(sites),
