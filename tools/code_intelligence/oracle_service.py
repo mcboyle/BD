@@ -32,6 +32,7 @@ _COMPARISON_FIELDS = frozenset(
     }
 )
 _CONTROL_BYTES = 1024
+_POST_PAYLOAD_EXIT_GRACE = 0.25
 _MAX_RESULT_TEXT = 4096
 
 WireValue: TypeAlias = (
@@ -212,6 +213,12 @@ def _cleanup_worker_group(process: multiprocessing.Process) -> None:
         return
     for action in (signal.SIGTERM, signal.SIGKILL):
         _signal_worker_session(process.pid, action)
+
+
+def _join_after_payload(process: multiprocessing.Process) -> bool:
+    """Allow a worker that delivered a valid payload a bounded clean exit."""
+    process.join(_POST_PAYLOAD_EXIT_GRACE)
+    return not process.is_alive()
 
 
 def _decode_payload(raw: bytes) -> dict[str, object]:
@@ -423,8 +430,7 @@ def run_oracle_adapter(
     finally:
         receiving.close()
 
-    process.join(max(0.0, deadline - time.monotonic()))
-    if process.is_alive():
+    if not _join_after_payload(process):
         _terminate_worker(process)
         return (
             CheckResult(

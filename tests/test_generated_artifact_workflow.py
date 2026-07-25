@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+import os
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -42,16 +44,62 @@ def test_canonical_chain_and_location_interfaces_select_the_real_tree(tmp_path):
     python = tmp_path / ".venv" / "bin" / "python"
     python.parent.mkdir(parents=True)
     python.touch()
+    python.chmod(0o755)
     assert regen.python_for(str(tmp_path)) == str(python)
 
     python.unlink()
     venv_python = tmp_path / "venv" / "bin" / "python"
     venv_python.parent.mkdir(parents=True)
     venv_python.touch()
+    venv_python.chmod(0o755)
     assert regen.python_for(str(tmp_path)) == str(venv_python)
 
     venv_python.unlink()
     assert regen.python_for(str(tmp_path)) == regen.sys.executable
+
+
+def test_python_selection_skips_nonexecutable_environment(tmp_path):
+    regen = _load_regen_tool()
+    python = tmp_path / ".venv" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.touch()
+    python.chmod(0o644)
+
+    assert not os.access(python, os.X_OK)
+    assert regen.python_for(str(tmp_path)) == regen.sys.executable
+
+
+@pytest.mark.parametrize("missing_kind", ["generator", "verifier", "reachability"])
+def test_regeneration_fails_closed_when_required_subject_is_missing(
+    tmp_path, monkeypatch, missing_kind
+):
+    regen = _load_regen_tool()
+    monkeypatch.setattr(sys, "argv", ["bd-regen-order", "--work", str(tmp_path)])
+    monkeypatch.setattr(regen, "CHAIN", [])
+    monkeypatch.setattr(regen, "VERIFY", [])
+    monkeypatch.setattr(regen, "check_reach", lambda _work: (True, "in sync"))
+
+    if missing_kind == "generator":
+        regen.CHAIN = [("missing generator", ["tools/missing-generator.py"], "required")]
+    elif missing_kind == "verifier":
+        regen.VERIFY = [("missing verifier", ["tools/missing-verifier.py"], "required")]
+    else:
+        monkeypatch.setattr(
+            regen,
+            "check_reach",
+            lambda _work: (None, "endpoint_reachability not present"),
+        )
+
+    assert regen.main() == 1
+
+
+def test_regeneration_rejects_missing_worktree(tmp_path, monkeypatch, capsys):
+    regen = _load_regen_tool()
+    missing = tmp_path / "missing-worktree"
+    monkeypatch.setattr(sys, "argv", ["bd-regen-order", "--work", str(missing)])
+
+    assert regen.main() == 1
+    assert "work tree not found" in capsys.readouterr().out
 
 
 def test_ci_installs_runtime_dependencies_before_canonical_regeneration():
@@ -63,8 +111,12 @@ def test_ci_installs_runtime_dependencies_before_canonical_regeneration():
     assert install in ci
     assert regenerate in ci
     assert ci.index(install) < ci.index(regenerate)
-    assert "git diff --exit-code --" in ci
-    assert "ROUTE_INDEX.json ENDPOINT_CATALOG.md DEPENDENCY_GRAPH.json" in ci
+    assert "git ls-files --error-unmatch" in ci
+    assert "git status --porcelain --untracked-files=all" in ci
+    assert 'test -f "$artifact"' in ci
+    assert "ROUTE_INDEX.json" in ci
+    assert "ENDPOINT_CATALOG.md" in ci
+    assert "DEPENDENCY_GRAPH.json" in ci
 
 
 def test_release_preserves_legacy_packaging_before_canonical_regeneration():
@@ -75,6 +127,17 @@ def test_release_preserves_legacy_packaging_before_canonical_regeneration():
     assert 'Z=/mnt/user-data/uploads/BulkDownloader_v3_66_137.zip' in release
     assert "STAGE=/home/claude/release_148" in release
     assert release.index("bd-regen-order") < release.index("Z=")
+
+
+def test_operator_release_cut_uses_repository_regenerator_and_fails_closed():
+    release = (REPO_ROOT / "project-knowledge" / "bd-cut").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'os.path.join(work, "toolchain", "bin", "bd-regen-order")' in release
+    assert "shutil.which(\"bd-regen-order\")" not in release
+    assert "bd-regen-order missing from release work tree" in release
+    assert "derived docs may be stale" not in release
 
 
 def test_policy_requires_canonical_regeneration_before_review():

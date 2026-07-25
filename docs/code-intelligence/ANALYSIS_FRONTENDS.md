@@ -92,7 +92,6 @@ python3 tools/fuzz_harness.py \
   --root . \
   --adapter redaction \
   --adapter path-guard \
-  --corpus /path/to/fuzz-corpus.json \
   --seed 42 \
   --timeout 10 \
   --reproducer-dir /path/to/reproducers \
@@ -101,6 +100,9 @@ python3 tools/fuzz_harness.py \
 ```
 
 The standard-library replay runner is always available. `--generator hypothesis` is optional and belongs in the isolated audit environment. Importing the module does not execute fuzzing. Standard-library execution works without `hypothesis`.
+Built-in adapters own their internal corpora and reject `--corpus`. The
+`--corpus` option is reserved for externally registered adapters that consume
+the supplied versioned corpus through the shared adapter context.
 
 ## Optional-dependency compatibility
 

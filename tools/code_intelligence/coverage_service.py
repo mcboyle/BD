@@ -447,16 +447,34 @@ def _load_test_catalog(value: JsonValue | None) -> dict[str, list[str]]:
     result: dict[str, list[str]] = {}
     for module_name, evidence in mapped.items():
         normalized_module = _normalize_report_path(module_name, "catalog")
-        module_key = PurePosixPath(normalized_module).name
-        if module_key in result or not isinstance(evidence, list):
+        if normalized_module in result or not isinstance(evidence, list):
             raise _InputError("catalog")
         normalized_evidence = [
             _normalize_report_path(item, "catalog") for item in evidence
         ]
         if len(normalized_evidence) != len(set(normalized_evidence)):
             raise _InputError("catalog")
-        result[module_key] = sorted(normalized_evidence)
+        result[normalized_module] = sorted(normalized_evidence)
     return result
+
+
+def _catalog_evidence(
+    catalog: Mapping[str, list[str]],
+    module_path: str,
+    module_paths: set[str],
+) -> list[str]:
+    exact = catalog.get(module_path)
+    if exact is not None:
+        return exact
+    basename = PurePosixPath(module_path).name
+    legacy = catalog.get(basename)
+    if legacy is None:
+        return []
+    matching_modules = sum(
+        PurePosixPath(candidate).name == basename
+        for candidate in module_paths
+    )
+    return legacy if matching_modules == 1 else []
 
 
 def _sqlite_read_only(path: Path) -> sqlite3.Connection:
@@ -553,7 +571,10 @@ def _validated_meta(raw: object) -> dict[str, JsonValue]:
 
 def _spans(
     graph_path: Path,
-) -> list[tuple[str, str, int, int, dict[str, JsonValue]]]:
+) -> tuple[
+    list[tuple[str, str, int, int, dict[str, JsonValue]]],
+    set[str],
+]:
     database = _sqlite_read_only(graph_path)
     try:
         rows = database.execute(
@@ -619,7 +640,7 @@ def _spans(
         result.append((file_path, qualname, start, end, meta))
     if not function_paths.issubset(module_paths):
         raise _InputError("graph")
-    return result
+    return result, module_paths
 
 
 def _score_from_reports(
@@ -675,7 +696,7 @@ def _build_coverage_content_from_values(
     radon_value: JsonValue | None,
     test_catalog_value: JsonValue | None,
 ) -> tuple[CheckResult, dict[str, JsonValue]]:
-    spans = _spans(graph_path)
+    spans, module_paths = _spans(graph_path)
     radon_report = _load_radon(radon_value)
     test_catalog = _load_test_catalog(test_catalog_value)
     if coverage_value is None:
@@ -761,7 +782,6 @@ def _build_coverage_content_from_values(
     by_module: dict[str, dict[str, JsonValue]] = {}
     for function in functions:
         file_path = str(function["path"])
-        module_name = PurePosixPath(file_path).name
         record = by_module.setdefault(
             file_path,
             {
@@ -769,7 +789,11 @@ def _build_coverage_content_from_values(
                 "gap_count": 0,
                 "max_uncovered_fraction": 0.0,
                 "risk": risk[file_path],
-                "test_evidence": test_catalog.get(module_name, []),
+                "test_evidence": _catalog_evidence(
+                    test_catalog,
+                    file_path,
+                    module_paths,
+                ),
             },
         )
         record["gap_count"] = int(record["gap_count"]) + 1

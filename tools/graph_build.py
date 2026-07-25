@@ -1323,9 +1323,15 @@ def main(argv=None):
         default=None,
         help="projection directory (default: <root>/artifacts)",
     )
-    ap.add_argument("--hash-pin",
-                    default="/home/claude/review/artifacts/KNOWLEDGE_GRAPH.db.sha256",
-                    help="content-hash pin file for --check-hash/--write-hash")
+    ap.add_argument(
+        "--hash-pin",
+        type=Path,
+        default=None,
+        help=(
+            "content-hash pin file for --check-hash/--write-hash "
+            "(default: <database>.sha256)"
+        ),
+    )
     ap.add_argument(
         "--check",
         action="store_true",
@@ -1347,15 +1353,20 @@ def main(argv=None):
         if a.db is not None
         else root / "artifacts" / "KNOWLEDGE_GRAPH.db"
     )
+    hash_pin = (
+        a.hash_pin.expanduser().resolve()
+        if a.hash_pin is not None
+        else database.with_suffix(database.suffix + ".sha256")
+    )
     outdir = (
         a.outdir.expanduser().resolve()
         if a.outdir is not None
         else root / "artifacts" if projection_mode else None
     )
     if a.check_hash:
-        return check_hash(database, a.hash_pin)
+        return check_hash(database, hash_pin)
     if a.write_hash:
-        return write_hash(database, a.hash_pin)
+        return write_hash(database, hash_pin)
     if a.check:
         assert outdir is not None
         return check_projections(database, outdir)

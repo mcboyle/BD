@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
 import os
 import signal
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +24,8 @@ from tools.code_intelligence.oracle_adapters import (
     BUILTIN_ORACLE_COMMANDS,
     CommandOracleAdapter,
 )
+import tools.code_intelligence.oracle_adapters as oracle_adapters
+import tools.code_intelligence.oracle_service as oracle_service
 from tools.code_intelligence.oracle_service import run_oracle_adapter
 from tools.code_intelligence.results import CheckResult, ResultState
 from tools.differential_oracle import main
@@ -74,6 +78,27 @@ class PairAdapter:
                 "reason": "fixture policy",
             },
         )
+
+
+def _brief_child_exit() -> None:
+    time.sleep(0.05)
+
+
+def test_valid_payload_gets_bounded_worker_exit_grace() -> None:
+    context = multiprocessing.get_context("spawn")
+    process = context.Process(target=_brief_child_exit)
+    process.start()
+
+    assert oracle_service._join_after_payload(process)
+    assert process.exitcode == 0
+
+
+def test_completed_wrapper_gets_bounded_reader_drain_grace() -> None:
+    reader = threading.Thread(target=time.sleep, args=(0.05,))
+    reader.start()
+
+    assert oracle_adapters._readers_finished_after_grace((reader,))
+    assert not reader.is_alive()
 
 
 def _context(tmp_path, timeout=1.0):

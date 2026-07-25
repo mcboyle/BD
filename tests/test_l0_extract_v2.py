@@ -309,6 +309,50 @@ else:
     ]
 
 
+def test_same_named_methods_include_their_class_scope(tmp_path):
+    source = '''\
+class A:
+    def run(self):
+        return "a"
+
+class B:
+    def run(self):
+        return "b"
+'''
+    db = build_fixture_graph(tmp_path, source)
+
+    with sqlite3.connect(db) as connection:
+        rows = connection.execute(
+            "SELECT id, qualname FROM nodes "
+            "WHERE kind = 'function' ORDER BY qualname"
+        ).fetchall()
+    assert rows == [
+        ("bulk_downloader/sample.py::A.run", "A.run"),
+        ("bulk_downloader/sample.py::B.run", "B.run"),
+    ]
+
+
+def test_methods_include_all_nested_class_scopes(tmp_path):
+    source = '''\
+class Outer:
+    class Inner:
+        def run(self):
+            return "nested"
+'''
+    db = build_fixture_graph(tmp_path, source)
+
+    with sqlite3.connect(db) as connection:
+        rows = connection.execute(
+            "SELECT id, qualname FROM nodes WHERE kind = 'function'"
+        ).fetchall()
+    assert rows == [
+        (
+            "bulk_downloader/sample.py::Outer.Inner.run",
+            "Outer.Inner.run",
+        ),
+    ]
+
+
 def test_typescript_facts_remain_compatible(tmp_path):
     root = _make_repo(tmp_path, "def python_only():\n    return 1\n")
     frontend = root / "frontend" / "src" / "sample.tsx"

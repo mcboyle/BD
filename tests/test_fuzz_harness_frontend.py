@@ -28,6 +28,7 @@ from tools.code_intelligence.fuzz_service import (
     load_corpus,
     run_fuzz_adapter,
     run_hypothesis_adapter,
+    validate_fuzz_reproducer,
 )
 from tools.code_intelligence.results import CheckResult, ResultState, exit_code
 import tools.fuzz_harness as fuzz_harness
@@ -458,14 +459,29 @@ def test_timeout_is_reported_as_a_replay_finding(tmp_path: Path) -> None:
 
 
 def test_timeout_reaps_worker_descendants(tmp_path: Path) -> None:
-    result, findings = run_fuzz_adapter(
-        DescendantFuzzer(), _context(tmp_path, timeout=2.0), reproducer_dir=tmp_path / "repro"
-    )
+    child_pid: int | None = None
+    child_stopped = False
+    try:
+        result, findings = run_fuzz_adapter(
+            DescendantFuzzer(),
+            _context(tmp_path, timeout=2.0),
+            reproducer_dir=tmp_path / "repro",
+        )
+        child_pid = int(
+            (tmp_path / "descendant.pid").read_text(encoding="utf-8")
+        )
+        child_stopped = _wait_until_dead(child_pid)
+    finally:
+        if child_pid is not None and not child_stopped:
+            try:
+                os.kill(child_pid, 9)
+            except ProcessLookupError:
+                pass
+            _wait_until_dead(child_pid)
 
-    child_pid = int((tmp_path / "descendant.pid").read_text(encoding="utf-8"))
     assert result.state is ResultState.FAIL
     assert findings[0].state == "timeout"
-    assert _wait_until_dead(child_pid)
+    assert child_stopped
 
 
 def test_case_enumeration_is_bounded_by_the_same_timeout(tmp_path: Path) -> None:
@@ -533,6 +549,28 @@ def test_reproducer_is_a_versioned_provenance_envelope(tmp_path: Path) -> None:
     assert payload["case_id"] == "crash"
 
 
+@pytest.mark.parametrize("field", ["adapter", "case_id"])
+def test_reproducer_rejects_non_string_safe_components_as_validation_errors(
+    field: str,
+) -> None:
+    payload = {
+        "schema_name": "bd.fuzz-reproducer",
+        "schema_version": 1,
+        "source_sha": "a" * 64,
+        "tool_version": "1",
+        "input_hashes": {"case_payload": "b" * 64},
+        "generated_at": "2026-07-25T00:00:00Z",
+        "adapter": "fixture",
+        "case_id": "case",
+        "seed": 42,
+        "payload": {},
+    }
+    payload[field] = 7
+
+    with pytest.raises(ValueError, match="fuzz reproducer invalid"):
+        validate_fuzz_reproducer(payload)
+
+
 def test_cli_same_path_check_does_not_overwrite_stale_baseline(tmp_path: Path) -> None:
     register_builtin_fuzzers()
     baseline = tmp_path / "baseline.json"
@@ -546,6 +584,35 @@ def test_cli_same_path_check_does_not_overwrite_stale_baseline(tmp_path: Path) -
 
     assert fuzz_harness.run_fuzz_cli(args) == 1
     assert baseline.read_text(encoding="utf-8") == '{"stale":true}\n'
+
+
+def test_cli_same_path_corpus_does_not_overwrite_input(tmp_path: Path) -> None:
+    register_builtin_fuzzers()
+    corpus = tmp_path / "corpus.json"
+    original = '{"schema":1,"cases":[{"id":"safe","payload":{}}]}\n'
+    corpus.write_text(original, encoding="utf-8")
+    args = _cli_args(tmp_path, "url-guard", out=corpus)
+    args.corpus = corpus
+
+    assert fuzz_harness.run_fuzz_cli(args) == 1
+    assert corpus.read_text(encoding="utf-8") == original
+
+
+def test_cli_rejects_explicit_corpus_for_builtin_internal_corpus_adapter(
+    tmp_path: Path,
+) -> None:
+    register_builtin_fuzzers()
+    corpus = tmp_path / "corpus.json"
+    corpus.write_text(
+        '{"schema":1,"cases":[{"id":"safe","payload":{}}]}\n',
+        encoding="utf-8",
+    )
+    output = tmp_path / "output.json"
+    args = _cli_args(tmp_path, "url-guard", out=output)
+    args.corpus = corpus
+
+    assert fuzz_harness.run_fuzz_cli(args) == 1
+    assert not output.exists()
 
 
 def test_hypothesis_generation_is_seeded_bounded_and_payload_sensitive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

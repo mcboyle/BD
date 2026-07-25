@@ -16,6 +16,8 @@ import pytest
 import tools.code_intelligence.coverage_service as coverage_service_module
 from tools.code_intelligence.artifacts import artifact_hash
 from tools.code_intelligence.coverage_service import (
+    _catalog_evidence,
+    _load_test_catalog,
     build_coverage_content,
     run_coverage_map,
     sha256_path,
@@ -140,6 +142,60 @@ def _cli(*arguments: object, cwd: Path = ROOT) -> subprocess.CompletedProcess[st
         capture_output=True,
         text=True,
     )
+
+
+def test_catalog_keeps_same_basename_modules_distinct() -> None:
+    module_paths = {
+        "package_a/worker.py",
+        "package_b/worker.py",
+    }
+    catalog = _load_test_catalog(
+        {
+            "mapped": {
+                "package_a/worker.py": ["tests/test_package_a_worker.py"],
+                "package_b/worker.py": ["tests/test_package_b_worker.py"],
+            }
+        }
+    )
+
+    assert _catalog_evidence(catalog, "package_a/worker.py", module_paths) == [
+        "tests/test_package_a_worker.py"
+    ]
+    assert _catalog_evidence(catalog, "package_b/worker.py", module_paths) == [
+        "tests/test_package_b_worker.py"
+    ]
+
+
+def test_catalog_does_not_cross_assign_full_path_evidence() -> None:
+    module_paths = {
+        "package_a/worker.py",
+        "package_b/worker.py",
+    }
+    catalog = _load_test_catalog(
+        {
+            "mapped": {
+                "package_a/worker.py": ["tests/test_package_a_worker.py"],
+            }
+        }
+    )
+
+    assert _catalog_evidence(catalog, "package_b/worker.py", module_paths) == []
+
+
+def test_legacy_catalog_basename_requires_unique_graph_module() -> None:
+    evidence = ["tests/test_worker.py"]
+    catalog = _load_test_catalog({"mapped": {"worker.py": evidence}})
+
+    assert _catalog_evidence(
+        catalog,
+        "package_a/worker.py",
+        {"package_a/worker.py", "package_b/worker.py"},
+    ) == []
+    assert _catalog_evidence(
+        catalog,
+        "package_a/worker.py",
+        {"package_a/worker.py"},
+    ) == evidence
 
 
 def test_generates_valid_deterministic_function_and_module_coverage(

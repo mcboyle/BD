@@ -67,7 +67,7 @@ def python_for(work: str) -> str:
     """Prefer the work tree's Python environment, then the running interpreter."""
     for environment in (".venv", "venv"):
         python = os.path.join(work, environment, "bin", "python")
-        if os.path.isfile(python):
+        if os.path.isfile(python) and os.access(python, os.X_OK):
             return python
     return sys.executable
 
@@ -264,11 +264,15 @@ def main():
 
     work = os.path.abspath(a.work)
     print("%s== bd-regen-order :: %s ==%s" % (BOLD, work, RST))
+    if not os.path.isdir(work):
+        print("  %sXX%s %-18s work tree not found" % (R, RST, "work"))
+        return 1
     failed = []
     for label, argv, _why in CHAIN:
         script = os.path.join(work, argv[0])
         if not os.path.isfile(script):
-            print("  %s--%s %-18s (absent, skipped)" % (Y, RST, label))
+            print("  %sXX%s %-18s required generator absent" % (R, RST, label))
+            failed.append(label)
             continue
         rc, out = _run(work, argv)
         if rc == 0:
@@ -305,7 +309,8 @@ def main():
     else:
         good, msg = check_reach(work)
         if good is None:
-            print("  %s--%s %-18s %s" % (Y, RST, "reachability", msg))
+            print("  %sXX%s %-18s %s" % (R, RST, "reachability", msg))
+            failed.append("reachability")
         else:
             print("  %s %-18s %s" % ((G + "OK" + RST) if good else (R + "XX" + RST),
                                      "reachability", msg))
@@ -314,6 +319,8 @@ def main():
 
     for label, argv, _why in VERIFY:
         if not os.path.isfile(os.path.join(work, argv[0])):
+            print("  %sXX%s %-18s required verifier absent" % (R, RST, label))
+            failed.append(label)
             continue
         rc, out = _run(work, argv)
         tail = out.strip().splitlines()[-1] if out.strip() else ""

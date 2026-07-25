@@ -608,10 +608,7 @@ def test_check_mode_missing_target_uses_normal_temp_without_creating_parents(
     )
 
     assert result == 1
-    assert capsys.readouterr().out.splitlines() == [
-        f"{filename}: missing"
-        for filename in sorted(graph_build.PROJECTION_FILENAMES)
-    ]
+    assert capsys.readouterr().out.splitlines() == ["right: unverifiable"]
     assert attempted_roots == [normal_temp.resolve()]
     assert not absent_root.exists()
     assert _graph_check_temporaries(normal_temp) == []
@@ -789,6 +786,23 @@ def test_gitless_help_and_fully_explicit_modes_skip_repository_discovery(
         "--check-hash",
         environment=gitless,
     )
+    assert check_result.returncode == 0, (
+        check_result.stdout + check_result.stderr
+    )
+
+
+def test_hash_pin_defaults_next_to_explicit_database(graph_cli_fixture):
+    default_pin = graph_cli_fixture.database.with_suffix(
+        graph_cli_fixture.database.suffix + ".sha256"
+    )
+
+    write_result = graph_cli_fixture.run("--write-hash")
+
+    assert write_result.returncode == 0, (
+        write_result.stdout + write_result.stderr
+    )
+    assert default_pin.is_file()
+    check_result = graph_cli_fixture.run("--check-hash")
     assert check_result.returncode == 0, (
         check_result.stdout + check_result.stderr
     )

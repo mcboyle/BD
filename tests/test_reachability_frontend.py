@@ -14,6 +14,8 @@ import pytest
 from tools.code_intelligence.artifacts import artifact_hash
 from tools.code_intelligence.reachability_service import (
     ProbeObservation,
+    _call_paths,
+    _load_deferrals,
     analyze_reachability,
     classify_route,
     run_reachability_cli,
@@ -112,6 +114,41 @@ def test_probe_exception_is_unknown() -> None:
 
     assert row["classification"] == "unknown"
     assert row["confidence"] == "low"
+
+
+def test_call_paths_never_exceed_artifact_node_limit() -> None:
+    nodes = ["fixture.py::endpoint", *(f"fixture.py::step_{index}" for index in range(1, 10))]
+    call_graph = {
+        "nodes": nodes,
+        "edges": [
+            {"from": source, "to": target}
+            for source, target in zip(nodes[:-1], nodes[1:], strict=True)
+        ],
+    }
+
+    paths = _call_paths(call_graph, "endpoint")
+
+    assert max(map(len, paths)) == 8
+    assert all(len(path) <= 8 for path in paths)
+
+
+def test_duplicate_normalized_deferrals_are_emitted_once(tmp_path: Path) -> None:
+    source = tmp_path / "deferrals.json"
+    source.write_text(
+        json.dumps(
+            {
+                "deferrals": {
+                    "D-1": {"finding": "same", "status": "deferred"},
+                    "D-2": {"finding": "same", "status": "deferred"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    _loaded, summaries = _load_deferrals(source)
+
+    assert summaries == [{"finding": "same", "status": "deferred"}]
 
 
 def test_cli_help_is_lazy_and_portable_outside_repository(tmp_path: Path) -> None:

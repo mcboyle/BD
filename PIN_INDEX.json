@@ -105,7 +105,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_coverage_map_frontend.py",
-      "line": 176,
+      "line": 232,
       "value": {
         "functions_with_gaps": 2,
         "modules_with_gaps": 1
@@ -115,7 +115,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_coverage_map_frontend.py",
-      "line": 241,
+      "line": 297,
       "value": {
         "functions_with_gaps": 0,
         "modules_with_gaps": 0
@@ -144,7 +144,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_differential_oracle_frontend.py",
-      "line": 159,
+      "line": 184,
       "value": {
         "cases": 11
       },
@@ -153,7 +153,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_differential_oracle_frontend.py",
-      "line": 180,
+      "line": 205,
       "value": {
         "exitcode": 7
       },
@@ -162,7 +162,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_differential_oracle_frontend.py",
-      "line": 710,
+      "line": 735,
       "value": {
         "comparisons": 0,
         "forbidden": 0

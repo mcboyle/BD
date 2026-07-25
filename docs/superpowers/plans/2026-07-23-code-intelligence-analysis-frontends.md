@@ -2092,13 +2092,16 @@ python tools/fuzz_harness.py \
   --root . \
   --adapter redaction \
   --adapter path-guard \
-  --corpus /path/to/fuzz-corpus.json \
   --seed 42 \
   --timeout 10 \
   --reproducer-dir /path/to/reproducers \
   --out /path/to/FUZZ_RESULTS.json \
   --json
 ```
+
+Built-in adapters own their internal corpora and reject `--corpus`. External
+registered adapters may consume a supplied versioned corpus through the shared
+adapter context.
 
 The standard-library replay runner is always available. `--generator hypothesis`
 is optional and belongs in the isolated audit environment. Importing the module

@@ -290,6 +290,15 @@ def _terminate(process: subprocess.Popen[bytes]) -> None:
             pass
 
 
+def _readers_finished_after_grace(
+    readers: Sequence[threading.Thread],
+) -> bool:
+    """Give completed wrappers a bounded window to drain buffered output."""
+    for reader in readers:
+        reader.join(timeout=0.25)
+    return not any(reader.is_alive() for reader in readers)
+
+
 def _run_bounded(
     command: Sequence[str],
     context: AdapterContext,
@@ -366,9 +375,7 @@ def _run_bounded(
             _terminate(process)
             break
     _cleanup_command_group(process.pid)
-    for reader in readers:
-        reader.join(timeout=max(0.0, deadline - time.monotonic()))
-    if any(reader.is_alive() for reader in readers):
+    if not _readers_finished_after_grace(readers):
         timed_out = True
         _terminate(process)
     return _CommandOutput(

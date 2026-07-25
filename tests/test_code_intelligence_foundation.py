@@ -254,6 +254,29 @@ def test_artifact_compare_cli_returns_nonzero_and_prints_differences(tmp_path: P
     assert different.stdout == "malformed A.json\n"
 
 
+@pytest.mark.parametrize("invalid_kind", ["missing", "file"])
+def test_artifact_compare_rejects_invalid_directory_subjects(
+    tmp_path: Path, invalid_kind: str
+) -> None:
+    left = tmp_path / "left"
+    right = tmp_path / "right"
+    right.mkdir()
+    if invalid_kind == "file":
+        left.write_text("not a directory\n", encoding="utf-8")
+
+    assert compare_artifact_dirs(left, right) == (
+        ArtifactDifference("unverifiable", "left"),
+    )
+    result = run_module(
+        "tools.code_intelligence.artifacts",
+        "compare",
+        "--left", left,
+        "--right", right,
+    )
+    assert result.returncode == 1
+    assert result.stdout == "unverifiable left\n"
+
+
 def test_snapshot_hash_changes_with_tracked_dirty_bytes(git_repo: Path) -> None:
     target = git_repo / "bulk_downloader" / "sample.py"
     target.parent.mkdir()
@@ -266,6 +289,28 @@ def test_snapshot_hash_changes_with_tracked_dirty_bytes(git_repo: Path) -> None:
 
     assert first.source_sha != second.source_sha
     assert second.files[0].path == "bulk_downloader/sample.py"
+
+
+def test_snapshot_reports_tracked_file_read_failure_without_traceback(
+    git_repo: Path,
+) -> None:
+    target = git_repo / "vanished.py"
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "vanished.py"], cwd=git_repo, check=True)
+    target.unlink()
+
+    with pytest.raises(ValueError, match="snapshot read failed: vanished.py"):
+        build_snapshot(git_repo)
+
+    result = run_module(
+        "tools.code_intelligence.snapshot",
+        "--root", git_repo,
+        "--scope", "tracked",
+        "--out", git_repo / "snapshot.json",
+    )
+    assert result.returncode == 1
+    assert "snapshot build failed: snapshot read failed: vanished.py" in result.stdout
+    assert "Traceback" not in result.stderr
 
 
 def test_normalize_repo_path_rejects_escape(git_repo: Path, tmp_path: Path) -> None:

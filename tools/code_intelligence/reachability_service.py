@@ -450,7 +450,12 @@ def _load_deferrals(path: Path | None) -> tuple[_JsonInput | None, list[dict[str
         ):
             raise _InputError("deferrals")
         summaries.append({"finding": finding, "status": status_value})
-    summaries.sort(key=lambda row: (row["finding"], row["status"]))
+    summaries = [
+        {"finding": finding, "status": status}
+        for finding, status in sorted(
+            {(row["finding"], row["status"]) for row in summaries}
+        )
+    ]
     return loaded, summaries
 
 
@@ -820,8 +825,10 @@ def _call_paths(
             path = frontier.popleft()
             for target in adjacency.get(path[-1], []):
                 candidate = (*path, target)
+                if len(candidate) > 8:
+                    continue
                 paths.append(candidate)
-                if target not in visited and len(candidate) < 9:
+                if target not in visited and len(candidate) < 8:
                     visited.add(target)
                     frontier.append(candidate)
     return tuple(sorted(paths))

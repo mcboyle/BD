@@ -108,6 +108,13 @@ def compare_artifact_dirs(
     ignore_generation_time: bool = True,
 ) -> tuple[ArtifactDifference, ...]:
     """Compare JSON artifact members, retaining only actionable differences."""
+    invalid_subjects = tuple(
+        ArtifactDifference("unverifiable", label)
+        for label, directory in (("left", left), ("right", right))
+        if not directory.is_dir()
+    )
+    if invalid_subjects:
+        return invalid_subjects
     left_members = _artifact_members(left)
     right_members = _artifact_members(right)
     differences: list[ArtifactDifference] = []

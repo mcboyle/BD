@@ -41,6 +41,7 @@ def test_every_public_frontend_help_exposes_json_and_gate() -> None:
             cwd=ROOT,
             capture_output=True,
             text=True,
+            timeout=30,
         )
 
         assert run.returncode == 0, (frontend, run.stderr)
@@ -95,6 +96,7 @@ def test_documentation_locks_standalone_and_analyzer_boundaries() -> None:
         "Operator wiring, navigation, auth probes, graph paths, and deferrals remain separate evidence fields.",
         "Allowed divergences remain visible and do not hide forbidden divergences.",
         "The standard-library replay runner is always available.",
+        "Built-in adapters own their internal corpora and reject `--corpus`.",
         "`--generator hypothesis` is optional",
         "Importing the module does not execute fuzzing.",
         "Standard-library execution works without `libcst`, `hypothesis`, or `radon`.",
@@ -108,7 +110,7 @@ def test_documentation_locks_safe_corpus_paths_and_secret_redaction() -> None:
 
     assert "/path/to/oracle-corpus" in text
     assert "/path/to/oracle-cases.json" not in text
-    assert "/path/to/fuzz-corpus.json" in text
+    assert "/path/to/fuzz-corpus.json" not in text
     assert "normalized relative paths" in text
     for prohibited in (
         "credentials",

@@ -798,6 +798,11 @@ class PyVisitor(ast.NodeVisitor):
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         self._handle_fn(node)
 
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self.scope.append(node.name)
+        self.generic_visit(node)
+        self.scope.pop()
+
 
 def _without_ts_strings(source: str) -> str:
     return re.sub(

@@ -46,6 +46,15 @@ _RESULT_STATES = frozenset(state.value for state in ResultState)
 _FINDING_STATES = frozenset({"fail", "timeout", "error"})
 
 
+def _paths_alias(first: Path, second: Path) -> bool:
+    if first.resolve() == second.resolve():
+        return True
+    try:
+        return first.samefile(second)
+    except OSError:
+        return False
+
+
 def _finding_record(finding: FuzzFinding) -> dict[str, object]:
     return {
         "adapter": finding.adapter,
@@ -311,10 +320,17 @@ def run_fuzz_cli(args: argparse.Namespace) -> int:
     try:
         root = discover_repo_root(args.root if args.root is not None else Path.cwd())
         corpus = args.corpus.resolve() if args.corpus is not None else None
+        output = (root / args.out).resolve() if not args.out.is_absolute() else args.out.resolve()
+        selected = tuple(sorted(set(args.adapters)))
         if corpus is not None:
             load_corpus(corpus, max_cases=args.max_cases)
+            if _paths_alias(corpus, output):
+                return 1
+            if any(name in BUILTIN_FUZZ_COMMANDS for name in selected):
+                raise ValueError(
+                    "explicit corpus is unsupported by builtin-corpus adapters"
+                )
         context = AdapterContext(root, root / ".code-intelligence", corpus.parent if corpus is not None else root, args.seed, AdapterBudget(args.timeout, args.max_cases, args.max_output_bytes))
-        selected = tuple(sorted(set(args.adapters)))
         results: list[CheckResult] = []
         findings: list[FuzzFinding] = []
         for name in selected:
@@ -347,7 +363,6 @@ def run_fuzz_cli(args: argparse.Namespace) -> int:
                     results.append(generated)
                     findings.extend(generated_findings)
         findings.sort(key=lambda finding: (finding.adapter, finding.case_id, finding.fingerprint))
-        output = (root / args.out).resolve() if not args.out.is_absolute() else args.out
         expected: object | None = None
         if args.check is not None:
             check_path = args.check.resolve()
@@ -375,7 +390,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--root", type=Path)
     parser.add_argument("--adapter", action="append", dest="adapters")
     parser.add_argument("--list-adapters", action="store_true")
-    parser.add_argument("--corpus", type=Path)
+    parser.add_argument(
+        "--corpus",
+        type=Path,
+        help=(
+            "versioned corpus for external registered adapters; built-in "
+            "adapters own internal corpora and reject this option"
+        ),
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--timeout", type=float, default=10.0)
     parser.add_argument("--max-cases", type=int, default=1000)

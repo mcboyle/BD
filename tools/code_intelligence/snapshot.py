@@ -61,7 +61,12 @@ def build_snapshot(
         if include is not None and not include(tracked_path):
             continue
         normalize_repo_path(repository, repository / tracked_path)
-        raw = (repository / tracked_path).read_bytes()
+        try:
+            raw = (repository / tracked_path).read_bytes()
+        except OSError:
+            raise ValueError(
+                f"snapshot read failed: {tracked_path}"
+            ) from None
         facts.append(FileFact(
             tracked_path,
             hashlib.sha256(raw).hexdigest(),
@@ -159,9 +164,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     target.add_argument("--check", type=Path)
     args = parser.parse_args(argv)
 
-    repository = discover_repo_root(args.root)
-    include = _production_predicate(repository) if args.scope == "production" else None
-    snapshot = build_snapshot(repository, include)
+    try:
+        repository = discover_repo_root(args.root)
+        include = (
+            _production_predicate(repository)
+            if args.scope == "production"
+            else None
+        )
+        snapshot = build_snapshot(repository, include)
+    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        print(f"snapshot build failed: {error}")
+        return 1
     envelope = make_envelope(
         SNAPSHOT_SCHEMA,
         SNAPSHOT_VERSION,

@@ -83,9 +83,15 @@ jobs:
         run: |
           python -m pip install -r requirements.txt
           python toolchain/bin/bd-regen-order --work "$GITHUB_WORKSPACE"
-          git diff --exit-code -- \
-            ROUTE_INDEX.json ENDPOINT_CATALOG.md DEPENDENCY_GRAPH.json \
+          generated=(
+            ROUTE_INDEX.json ENDPOINT_CATALOG.md DEPENDENCY_GRAPH.json
             DEPENDENCY_GRAPH.md FUNCTION_INDEX.md PIN_INDEX.json
+          )
+          for artifact in "${generated[@]}"; do
+            test -f "$artifact"
+            git ls-files --error-unmatch -- "$artifact" >/dev/null
+          done
+          test -z "$(git status --porcelain --untracked-files=all -- "${generated[@]}")"
 
       - name: Every .py file must parse
         run: python -m compileall -q bulk_downloader tools tests

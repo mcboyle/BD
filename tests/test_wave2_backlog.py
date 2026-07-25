@@ -129,6 +129,10 @@ def test_test_inventory():
 def test_coverage_catalog():
     d = TCC.catalog(_ROOT)
     assert d["modules"] > 0
+    assert all(
+        module.startswith("bulk_downloader/")
+        for module in d["mapped"]
+    )
 
 
 # ── H/I/L/M/N ──────────────────────────────────────────────────────

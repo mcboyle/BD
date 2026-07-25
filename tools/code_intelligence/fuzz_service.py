@@ -472,9 +472,16 @@ def validate_fuzz_reproducer(payload: object) -> None:
         raise ValueError("fuzz reproducer invalid")
     if type(payload["seed"]) is not int or set(payload["input_hashes"]) != {"case_payload"}:
         raise ValueError("fuzz reproducer invalid")
-    if not _SAFE_COMPONENT.fullmatch(payload["adapter"]) or not _SAFE_COMPONENT.fullmatch(payload["case_id"]):
+    adapter = payload["adapter"]
+    case_id = payload["case_id"]
+    if (
+        type(adapter) is not str
+        or type(case_id) is not str
+        or not _SAFE_COMPONENT.fullmatch(adapter)
+        or not _SAFE_COMPONENT.fullmatch(case_id)
+    ):
         raise ValueError("fuzz reproducer invalid")
-    AdapterCase(payload["case_id"], payload["payload"])
+    AdapterCase(case_id, payload["payload"])
 
 
 def _stage_reproducer(
