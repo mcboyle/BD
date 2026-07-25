@@ -21,6 +21,7 @@ import os
 import re
 
 _LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+_FENCE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})(.*)$")
 _WORD = re.compile(r"[a-z0-9]{4,}")
 _VER = re.compile(r"v?(\d+\.\d+\.\d+)")
 _PATS = ["*.md", "docs/*.md", "docs/**/*.md"]
@@ -39,12 +40,37 @@ def collect(root="."):
     return {"root": root, "files": files, "texts": texts}
 
 
+def _without_fenced_code(text):
+    """Remove CommonMark-style fenced blocks before scanning prose links."""
+    visible = []
+    fence_char = None
+    fence_len = 0
+    for line in text.splitlines(keepends=True):
+        match = _FENCE.match(line)
+        if fence_char is None:
+            if match:
+                marker = match.group(1)
+                fence_char = marker[0]
+                fence_len = len(marker)
+            else:
+                visible.append(line)
+            continue
+        if match:
+            marker = match.group(1)
+            if (marker[0] == fence_char and len(marker) >= fence_len
+                    and not match.group(2).strip()):
+                fence_char = None
+                fence_len = 0
+    return "".join(visible)
+
+
 def links(collected):
     root = collected["root"]
     broken, checked = [], 0
     for f in collected["files"]:
         rel = os.path.relpath(f, root)
-        for target in _LINK.findall(collected["texts"].get(f, "")):
+        text = _without_fenced_code(collected["texts"].get(f, ""))
+        for target in _LINK.findall(text):
             t = target.strip().split()[0]
             if t.startswith(("http://", "https://", "#", "mailto:")):
                 continue

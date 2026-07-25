@@ -1,4 +1,4 @@
-<!-- verified-against: v3.66.470 (top-of-headroom posture + boundaries); state-table labels carried from v3.66.185 except rows marked [re-verified @470] -- re-confirm the unmarked rows against source before trusting them. Auth-as-authorization: an authenticated operator session is the access signal; the floor restricts only circumventing a control or leaking a secret, never the operator's legitimate access. -->
+<!-- verified-against: v3.66.817; implementation labels re-derived from lifecycle_automation, lifecycle_drift, template_keystone, auto_onboard, auto_promote, auto_ci, automation_controller, global_config, and their tests. -->
 # BulkDownloader — Automation Policy
 
 **Canonical automation doc.** The charter, goals, and operating instructions reference this file;
@@ -17,7 +17,8 @@ carries its **current implementation state**:
 
 **Anything not yet proven in source/tests is PLANNED, not current behavior.** But PLANNED is an
 invitation, not a wall: automate the preparation, evidence, validation, and review queue around it,
-and build toward the item landing. The sequenced build plan lives in `BD_FORWARD_ROADMAP.md`.
+and build toward the item landing. Current work and completion state live in
+`TASK_TRACKER_DATA.json` and its generated tracker views.
 
 ## Posture (the maximalist default)
 
@@ -76,9 +77,9 @@ policy, route the result to review with logs and evidence instead of guessing.
   host. **[IMPLEMENTED]**
 - Unknown / new hosts may be fully prepared by automation into a draft / review candidate; runtime
   enable requires explicit approval. **[IMPLEMENTED]** for the non-enabled state handling.
-- The **write-side lifecycle** (auto-backup → drift-gate → refresh/repair → quarantine → promote) is
-  the roadmap; the keystone (guaranteed gold-backup-with-restore) gates the autonomous writes. See
-  `BD_FORWARD_ROADMAP.md`.
+- The **write-side lifecycle** (auto-backup → drift-gate → refresh/repair → quarantine → promote)
+  and supervised controller are **implemented, default OFF**. Download-affecting actions remain
+  keystone-gated; the master off-switch dominates every controller run.
 
 ## Allowed automation (with current state)
 
@@ -90,17 +91,17 @@ policy, route the result to review with logs and evidence instead of guessing.
 | Auto-run selector lint + credential/signed-URL scrub | **IMPLEMENTED** | run inside `normalize_draft`; `promote_template` credential-fragment gate (`bad_terms.py` — see hard floor) |
 | Auto-run WACZ build + normalization into drafts/candidates | **IMPLEMENTED** | chain CLIs + cockpit `POST /api/captures/normalize` (tested, 158) |
 | Auto-generate capture commands/scripts | **IMPLEMENTED** | cockpit builds capture invocations; operator-initiated |
-| Auto-stage review bundles with evidence and recommendations | **SUPPORTED / PLANNED** | the intended **default** for new hosts and drift results — automation stages the full bundle so the operator just confirms; label current code honestly per implementation |
-| Auto-run drift checks | **PARTIAL** | `app_selector_drift.py` is a dedicated module; not yet wired into a scheduled gate (roadmap A1) |
-| Auto-run template onboarding after site create/update | **PARTIAL** | `POST /api/sites/<sid>/template_onboard` exists but is operator-triggered, not auto-on-create (roadmap A4) |
+| Auto-stage review bundles with evidence and recommendations | **IMPLEMENTED** | drift and promote boundary failures stage evidence for review; onboarding stages capture intent/candidates without enabling them |
+| Auto-run drift checks | **IMPLEMENTED** | `lifecycle_drift.scheduled_sweep` is scheduler-wired and gated by `automation.drift_sweep_enabled` (default OFF) |
+| Auto-run template onboarding after site create/update | **IMPLEMENTED** | `auto_onboard.auto_onboard_on_site_change`; prep-only, default OFF, and never enables a template |
 | Auto-sync authenticated profile state after manual login | **PARTIAL** | `profile_sync.sync_manual_to_runtime` triggered; has a timestamped move-aside backup w/ restore |
 | Auto-package offline dependencies | **PARTIAL** | offline / kit build process (on stash); not a one-button in-tree flow |
-| Auto-run regression tests + produce release snapshots | **PARTIAL** | `run_tests.py` + build scripts exist; manual invocation, no CI (roadmap A6) |
-| Auto-backup gold before overwrite / staging swap | **PARTIAL** `[re-verified @470]` | `promote_draft` does a *best-effort* backup; `profile_sync` has a real timestamped move-aside+restore. The guaranteed **gold-backup-with-restore** that gates autonomous writes is roadmap A0 (KEYSTONE) |
-| Auto-refresh a previously approved template when gates pass | **PLANNED** | roadmap A2 (headline); gated on A0 backup — no checkpoint for an approved host when all gates pass |
-| Auto-disable / quarantine a template on drift or risky content | **PLANNED** `[re-verified @470]` | manual `template_manager.disable_reviewed` exists; auto-on-drift + a real `quarantined` runtime state are roadmap A3 |
-| Auto-promote a reviewed candidate to enabled | **PLANNED** | roadmap A5; after A0 backup + staged-diff; for a host under an authenticated session, auto + notify/undo (blocking confirm only for a no-session host) |
-| Supervised-autonomy controller (operator sets policy once; loop runs unattended) | **PLANNED** | roadmap A9 (capstone); requires the master off-switch + full reversibility proven first |
+| Auto-run regression tests + produce release snapshots | **IMPLEMENTED** | `auto_ci.auto_ci_if_enabled`; snapshot/regression/rollback-artifact loop, default OFF; deployed-host binding gate remains separate |
+| Auto-backup gold before overwrite / staging swap | **IMPLEMENTED** | `template_keystone` provides verified backup + restore; download-affecting lifecycle actions refuse to arm without it |
+| Auto-refresh a previously approved template when gates pass | **IMPLEMENTED** | `lifecycle_drift.self_heal_refresh`; drift/full-gate/rollback protected, default OFF |
+| Auto-disable / quarantine a template on drift or risky content | **IMPLEMENTED** | `lifecycle_drift` persists the `quarantined` state and evidence; automatic path is toggle- and keystone-gated |
+| Auto-promote a reviewed candidate to enabled | **IMPLEMENTED** | `auto_promote.auto_promote_if_clean`; clean known-host diff only, default OFF and keystone-gated; trust-boundary cases stage for review |
+| Supervised-autonomy controller (operator sets policy once; loop runs unattended) | **IMPLEMENTED** | `automation_controller.run_once`; controller default OFF, master off-switch checked first, sub-actions retain their own gates |
 
 ## The checkpoint set (now mostly notify + undo, not blocking)
 
@@ -163,23 +164,13 @@ every artifact**; no autonomy setting turns them off.
 > boundary, that is a *separate* deliberate decision — this doc does not claim `bad_terms.py`
 > provides it.
 
-> **`bad_terms.py` clarification:** it is **template hygiene + credential scrub**, not a content /
-> CSAM classifier (no content classifier of that kind exists in source today). Its bare-word
-> noise-hygiene half (`comments`, `votes`, `experiments`, `banners`, CDN/telemetry hosts) is a
-> *correctness/cleanliness* filter matched as a case-insensitive substring of the full URL, which
-> false-positives on legitimate media paths — it is **relaxed** to a precise advisory auto-drop at
-> normalize time, not a hard promote-blocker. The credential-fragment half is the real safety floor
-> and is kept. If a genuine content-safety check is ever wanted at an autonomous auto-promote
-> boundary, that is a *separate* deliberate decision — this doc does not claim `bad_terms.py`
-> provides it.
-
 ## Master controls (required by the maximalist posture)
 
 The aggressiveness of this policy is only licensed alongside all of:
 
 - **Instant master off-switch** — one operator action reverts the entire system to manual
   immediately. Always available; not gated behind any state.
-- **Full reversibility** — every autonomous write is restorable (gold-backup, roadmap A0) or
+- **Full reversibility** — every autonomous write is restorable through the gold-backup keystone or
   rollback-able; nothing autonomous is irreversible.
 - **Complete audit trail** — every autonomous action logs what / why / evidence and is replayable.
 - **Operator-set policy, once** — drift tolerance, resolution floor, content rules, and the
@@ -216,31 +207,28 @@ scope (hard floor).
 - `reviewed_not_enabled` — human-reviewed but not active (`promote_template` without `--enable`).
   **[IMPLEMENTED]**
 - `enabled` — approved runtime template; the only status the runtime loads. **[IMPLEMENTED]**
-- `disabled` — intentionally inactive. **[PARTIAL]** — `disable_reviewed` can set it, but the runtime
-  gate is binary (anything ≠ `enabled` is simply not loaded), so `disabled` currently behaves like
-  "not enabled."
-- `quarantined` — blocked by drift / risk checks. **[PLANNED]** — no distinct quarantine state yet
-  (roadmap A3); would behave like "not enabled" until code distinguishes it.
+- `disabled` — intentionally inactive. **[IMPLEMENTED]** — `disable_reviewed` persists it and the
+  runtime's enabled-only gate excludes it.
+- `quarantined` — blocked by drift / risk checks with evidence and recovery metadata.
+  **[IMPLEMENTED]** — automatic quarantine is default OFF and keystone-gated.
 
 ## Default behavior
 
-- **Known approved host:** apply the reviewed (enabled) template first, then safe fallbacks; on a
-  passing re-capture + successful gold-backup, **auto-refresh in place with no checkpoint** (roadmap
-  A2). **[IMPLEMENTED]** for apply; **[PLANNED]** for autonomous refresh.
-- **Unknown host *with* an authenticated operator session:** automate capture / build / normalize /
-  lint / test / stage **and auto-enable**, with notify + one-click undo (the session is the
-  authorization). **Unknown host with *no* session:** stage into a draft / review candidate and
-  require explicit approval before runtime enable. **[IMPLEMENTED]** for non-enabled state
-  handling; auto-onboard-on-create is **PARTIAL** (roadmap A4).
+- **Known approved host:** apply the enabled template first, then safe fallbacks. When explicitly
+  armed, a passing re-capture may auto-refresh through the full gate and verified backup/restore.
+  **[IMPLEMENTED, default OFF]** for the autonomous write.
+- **Unknown / first-time host:** auto-onboarding may prepare capture intent and a non-enabled
+  candidate. The current auto-promote implementation treats first-time hosts as a trust boundary
+  and stages them for review; it does not implement the policy's authenticated-session
+  auto-enable ideal. **[PARTIAL against the policy ideal; safe staging IMPLEMENTED]**.
 - **Uncertain detection / failed drift:** fail into review with evidence. **[IMPLEMENTED]** for
-  nav/selector rejection; drift-triggered review is **PARTIAL** (roadmap A1).
+  navigation/selector rejection and drift/promotion boundary failures.
 
 ---
 
 *Verify states against source:* `bulk_downloader/template_registry.py`, `template_assist.py`,
 `candidate_filter.py`, `runner.py` (`gate_candidate_url`), `template_normalize.py`,
 `tools/promote_template.py`, `template_manager.py`, `profile_sync.py`, `app_selector_drift.py`,
-`bad_terms.py`. **Re-label here when an item lands in source + tests.** The state-table labels not
-marked `[re-verified @470]` were carried from the prior revision (v3.66.185) — re-confirm them
-against source before trusting them (stale-copy-of-derived-fact applies). The build sequence for the
-PLANNED items is `BD_FORWARD_ROADMAP.md`.
+`bad_terms.py`, `template_keystone.py`, `lifecycle_automation.py`, `lifecycle_drift.py`,
+`auto_onboard.py`, `auto_promote.py`, `auto_ci.py`, and `automation_controller.py`.
+**Re-label here only after re-deriving an item from source + tests.**

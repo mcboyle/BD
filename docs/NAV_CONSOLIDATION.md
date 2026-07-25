@@ -1,27 +1,34 @@
-# NAV_CONSOLIDATION — information architecture for BulkDownloader's UI surfaces
+# NAV_CONSOLIDATION — historical information-architecture consolidation
 
-Status: v3.66.200 (wiring pass shipped). This document was referenced by
+Status: **SHIPPED; refreshed against v3.66.817.** This document was referenced by
 `app_cockpit_home.py` since the center pages first shipped but never existed —
 the consolidation pass it described was deferred wave after wave. The
 v3.66.199 MAX audit (`FINDING_orphaned_pages_v3_66_199.md`) found the result:
 from `/`, exactly one page was reachable — `/` itself. Every other surface
 (the entire D3 SPA, the cockpit console, all 23 center pages, framework,
 fleet) was typed-URL only, and 13 of 26 D3 routes had no inbound link even
-inside the SPA.
+inside the SPA. The sections describing the v3.66.200 wiring pass are retained
+as history; the current disposition is summarized below.
 
-## The three frontends (unchanged by this pass)
+## Current surfaces
 
 | Surface | Path | Role |
 |---|---|---|
-| Legacy shell | `/` | Primary day-to-day downloader UI (default root) |
-| D3 SPA | `/m2/` | React successor UI; `/m`, `/m/ops` 302 here |
+| D3 SPA | `/` | Primary day-to-day downloader UI; root-flipped at v3.66.203 |
+| Compatibility shims | `/m`, `/m/ops`, `/m2/*` | Deep-link-preserving redirects to the root SPA |
 | Cockpit console | `/cockpit` | Single-page operator console (capture / report / autopilot workflows) |
-| Center pages | `/cockpit/home`, `/cockpit/actions`, `/cockpit/settings`, `/cockpit/reports`, `/cockpit/monitoring`, `/cockpit/template-manager` | Server-rendered, mostly read-only or confirm-gated operator pages |
+| Center pages | `/cockpit/settings`, `/cockpit/reports`, `/cockpit/template-manager`, and related routes | Server-rendered, mostly read-only or confirm-gated operator pages; the old `/cockpit/home` landing is retired while `/api/cockpit/nav` remains the navigation source |
 | Framework / Fleet | `/framework/`, `/fleet/` | Read-only report dashboards |
 
-## The hub model (this pass)
+The legacy shell and `/legacy` route are retired. `/legacy` is deliberately
+reserved so it returns 404 rather than falling through to SPA HTML.
 
-One rule: **every page must be reachable by clicks from `/`.**
+## The hub model (v3.66.200 pass; historical)
+
+The original rule was: **every page must be reachable by clicks from `/`.**
+After the root flip, React navigation owns SPA reachability. The current
+external-console contract is explicit in `frontend/src/lib/navGroups.ts`:
+`/framework`, `/fleet`, and `/cockpit` must remain `external: true` anchors.
 
 - `/` (legacy shell) gained a normal-flow **Consoles footer**: → `/m2/`,
   `/cockpit/home`, `/cockpit`, `/framework/`, `/fleet/`.
@@ -68,17 +75,14 @@ deferred consolidation that never ran; a parity metric (`spa_wired`) that
 measures endpoint fetch literals rather than page reachability; three
 frontends with zero cross-links; a frozen tab bar with no overflow surface.
 
-## Deferred — Plan 3 (maximalist, on the Roadmap)
+## Former Plan 3 disposition
 
-Not in scope here, recorded for a future attended slice:
+The root flip and legacy retirement listed here have shipped. The remaining
+items are independent design choices, not unfinished prerequisites of this
+historical consolidation:
 
-1. **Root flip**: `/` serves the D3 SPA, legacy moves to `/legacy` —
-   completes the stalled D4 retirement. Requires verifying the CSRF
-   bootstrap currently living in the legacy `index()` handler, full in-sync
-   regen (endpoint catalog, parity inventory, dependency graph, G12, pin
-   sweep), and operator click-through.
-2. **Shared cockpit chrome** module across console + centers.
-3. **Dedup duplicate surfaces**: server `/cockpit/template-manager` vs SPA
+1. **Shared cockpit chrome** module across console + centers.
+2. **Dedup duplicate surfaces**: server `/cockpit/template-manager` vs SPA
    `/templates`; cockpit actions pages vs SPA parity pages — pick canonical,
    redirect the other.
-4. Fold framework / fleet into cockpit home groups.
+3. Fold framework / fleet into cockpit home groups.

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 1365,
+  "edge_count": 1366,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2045,6 +2045,9 @@
     "tools/cockpit_templates.py": [
       "bulk_downloader/heuristic_scoring.py",
       "tools/cockpit_core.py"
+    ],
+    "tools/code_intelligence/snapshot.py": [
+      "tools/l0_extract.py"
     ],
     "tools/compat_shim_audit.py": [
       "tools/report_core.py"

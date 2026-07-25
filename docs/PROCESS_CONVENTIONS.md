@@ -36,7 +36,8 @@ once lived in the xlsx but not the md and was caught only by an ad-hoc diff;
 the generator gates make that class of drift impossible to miss.
 
 ## 4. Canonical plans travel in the pack or land in-tree
-A doc referenced as canonical (e.g. Backlog named `PHASE4_RETIREMENT_PLAN.md` as
+A doc referenced as canonical at the time (for example, the historical backlog named
+`docs/archive/2026-07-22-doc-hygiene/docs/PHASE4_RETIREMENT_PLAN.md` as
 THE Phase-4 plan) must be reachable at bootstrap — either shipped in-tree under
 `docs/` or carried in the session `version.zip`. A canonical doc that lives
 nowhere the bootstrap can find it is a latent gap. Plans anchor code references on

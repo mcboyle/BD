@@ -1,8 +1,8 @@
 # Changelog
 
 Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
-phase number. Notes here cover recent releases. For pre-v3.46 history
-see [CHANGELOG_archive.md](CHANGELOG_archive.md).
+phase number. Notes here cover recent releases. The former pre-v3.46
+archive is not present in this repository; consult source-control history.
 
 ## v3.66.817 - Dependency audit and deployment graph pin hardening
 
@@ -19279,4 +19279,5 @@ Phases 175–183. See archive for full notes.
 
 ---
 
-For full history before v3.46, see [CHANGELOG_archive.md](CHANGELOG_archive.md).
+For full history before v3.46, consult source-control history; the former
+`CHANGELOG_archive.md` is not present in this repository.

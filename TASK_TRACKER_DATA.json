@@ -2329,18 +2329,18 @@
       "Status": "OPEN",
       "Tier": "-",
       "Sandbox-able?": "No (operator)",
-      "Blocked by": "Operator-owned MOD3 target/DSN + live shadow observability + cutover + >=2-week soak",
-      "Next action / notes": "The MOD3 cutover/rollback mechanism is complete @804, but it is default-OFF and tests explicitly preserve this real exit criterion. Read-only readiness audit 2026-07-22: stash has a non-empty 23-row SQLite source, psycopg, and running candidate Postgres containers, but the service has no MOD3 DSN, shadow-read, or cutover enabled; neither container is yet operator-authorized. Live shadow counters are process-local and no in-process status surface currently exposes the comparison denominator, so a separate Python preflight would not attest the running service. No clock started. Select/provision the target, add secret-free in-process stats/preflight evidence, pass rehearsal and live preflight, perform the authorized cutover, run the full on-stash suite green post-cutover, then retain >=336 hours of operator-soak evidence. Exact preflight, rollback, and soak checklist: reports/OPV_EXIT3_F31_READINESS_AUDIT_2026-07-22.md."
+      "Blocked by": "Schema/data parity + production ownership/least-privilege + durable shadow evidence + cutover + >=2-week soak",
+      "Next action / notes": "Production target selection is complete: dedicated PostgreSQL 16 container bd-opv-postgres on loopback port 55432; the unrelated pump-tracker database was not used or changed. A rollback-safe 2026-07-23 audit preserved SQLite and target backups, proved the target dump restores, passed the isolated MOD3 suite (38 tests), and passed a bounded 23/23 history-projection rehearsal. Cutover remains correctly blocked: the source has 59 non-sqlite_% tables and 2,196 rows while the target model has six user tables and two rows; overlapping table shapes differ; live shadow recorded one divergence; preflight_cutover returned ok=false; cutover_engaged=false. No service environment, restart, production mutation, cutover, or two-week soak clock occurred. Evidence: /home/mboyle/.bd21-backups/20260723T012708Z-exit3-postgres/EXIT3_EVIDENCE_REPORT.md (SHA-256 81cb9fa1fde9a8d7b2beb7dd68ba21d15a06fb299d4e34d965418af52fa36362). Next: define the migration boundary, version the complete schema/backfill/parity gates, provision a non-superuser production-owned target, persist representative shadow evidence, then cut over only after every fail-closed gate passes and retain >=336 hours of soak."
     },
     {
       "ID": "OPV-F3.1",
       "Category": "Operator verify",
       "Item / scope": "F3.1 enqueue lane — saved search action=enqueue -> cap+gates+dedup over a week",
-      "Status": "AWAITING OPERATOR (week-long live verify)",
+      "Status": "LIVE OBSERVATION (7-day clock started 2026-07-23T01:37:15Z)",
       "Tier": "C",
       "Sandbox-able?": "No (live week)",
-      "Blocked by": "Operator-approved sanctioned rule + seven uninterrupted days",
-      "Next action / notes": "LIVE @223; scheduler blocker cleared @461; time-warp/leak-freedom sandbox proof completed @539. Read-only readiness audit 2026-07-22 found the scheduler healthy (`saved_searches.run_due` enabled, 300-second task interval, last status ok) but zero saved-search rules, so no seven-day clock started. Operator must approve a bounded action=enqueue rule (hourly recommended), then preserve >=168 hours of cap, downstream-gate, dedup, scheduler, and queue evidence. Exact rule fields and observation checklist: reports/OPV_EXIT3_F31_READINESS_AUDIT_2026-07-22.md. The deferred SPA action-picker tail remains part of this row. Consolidates former duplicate F3.1-WK."
+      "Blocked by": "Seven uninterrupted days of bounded live evidence through 2026-07-30T01:37:15Z",
+      "Next action / notes": "LIVE @223; scheduler blocker cleared @461; time-warp/leak-freedom sandbox proof completed @539. The seven-day clock started at 2026-07-23T01:37:15Z using rule id 7, opv-f31-wk-fixture-20260723: fixture site only, action=enqueue, schedule=daily, daily_cap=1, notifications empty. Its first natural scheduler run at 01:39:10Z produced one new match and one enqueue from source history 26; downstream dedup finished skipped_duplicate and wrote 0 bytes. Scheduler/service/health were good, configs did not drift, and the FilthyKings queue stayed untouched at 962. Evidence: /home/mboyle/.bd21-backups/opv-f31-20260723T012540Z/RESULT.json (SHA-256 1d74f3338c78bb73754ddb3a8a4c44153b1ee4674042e60c5a86ee18d9e80d02). Keep the bounded rule unchanged and preserve daily cap, dedup, scheduler, queue, and health evidence for >=168 uninterrupted hours. The deferred SPA action-picker tail remains part of this row. Consolidates former duplicate F3.1-WK."
     },
     {
       "ID": "CAP-ROBUST",
@@ -2376,21 +2376,21 @@
       "ID": "P3-T12-CALLSITE",
       "Category": "Migration Phase 3-4 / capture frontier",
       "Item / scope": "Held-open runner call-site swap (capture_session.py) to invoke the @389 challenge seam, + on-stash live real-challenge validation before any ratchet",
-      "Status": "LIVE detect/pause/handoff observed; detector-gated resume pending",
+      "Status": "LIVE detect/pause/handoff + human CAPTCHA/login observed; detector-gated resume evidence pending",
       "Tier": "A",
       "Sandbox-able?": "No (build+deploy DONE @458; live real-challenge on stash)",
-      "Blocked by": "human clears a real challenge so detector-gated resume can be observed",
-      "Next action / notes": "SHIPPED @458: the held-open runner routes challenge settle through bulk_downloader.session_capture.handle_challenge_on_page with passive-budget parity, secret-free logging, operator instructions, and no solving. LIVE @817 on the real Reptyle Cloudflare login wall: the detector recognized the challenge, paused capture, routed to operator handoff, and retained solved=false. This proves the real detect->pause->handoff half. Keep the row open until a human clears a real challenge and the detector observes it gone before resume; never infer solved from the handoff itself."
+      "Blocked by": "an explicit detector-cleared/resume event from a real challenge run",
+      "Next action / notes": "SHIPPED @458: the held-open runner routes challenge settle through bulk_downloader.session_capture.handle_challenge_on_page with passive-budget parity, secret-free logging, operator instructions, and no solving. LIVE @817 on the real Reptyle Cloudflare login wall: the detector recognized the challenge, paused capture, routed to operator handoff, and retained solved=false. On 2026-07-23 the human completed the CAPTCHA and login, and the same Cloak session then captured authenticated play/download evidence. The journal preserves challenge_present and operator_action_required but no explicit detector-cleared/resume event, so this row remains open rather than inferring resume from later authenticated activity. Capture evidence: /home/mboyle/.bd21-backups/RPTYL-auth-20260723T012112Z/evidence.json."
     },
     {
       "ID": "RPTYL",
       "Category": "Capture frontier",
-      "Item / scope": "reptyle real-Chrome authenticated-profile capture (success = api_patterns >= 1)",
-      "Status": "AWAITING OPERATOR -- real-Chrome stash capture (no sandbox build)",
+      "Item / scope": "Reptyle authenticated-profile runtime-browser capture (legacy success criterion = api_patterns >= 1)",
+      "Status": "AUTHENTICATED CLOAK CAPTURE COMPLETE; legacy api_patterns>=1 criterion unmet",
       "Tier": "M",
-      "Sandbox-able?": "No (real Chrome on stash)",
-      "Blocked by": "-",
-      "Next action / notes": "Run the authenticated-profile capture on stash and require api_patterns >= 1. The default-ON live HUD is complete and available for guided capture, so it is no longer a blocker; this row remains open solely for the real authenticated Reptyle capture and evidence review."
+      "Sandbox-able?": "No (persistent Cloak on stash)",
+      "Blocked by": "api_patterns=0 under the row's legacy close criterion",
+      "Next action / notes": "Authenticated persistent-Cloak capture completed on stash: authenticated home verified, play captured, download captured, and verify tier ready. The canonical redacted WACZ is 4,191,695 bytes with two resources, zero residual secret findings, and SHA-256 c9c4a59455808798d4b7687b0c7e97f0cf66eec54d3fa1cb62a8a98fdf6be723. The high-confidence hls_manifest draft is disabled/review-only with selectors for download, login, player, quality, and settings; draft SHA-256 8d4ea97cd5e29d4fb18a28ed95750d796911ac0728f69af6d2ccd6a136360fb7. Because api_pattern_count=0, do not falsely close this legacy api_patterns>=1 row. Evidence: /home/mboyle/.bd21-backups/RPTYL-auth-20260723T012112Z. Raw capture remains quarantine-only; no template was enabled or promoted."
     },
     {
       "ID": "FR-A6.2",
@@ -2416,21 +2416,21 @@
       "ID": "2c-DATA",
       "Category": "OPV / capture frontier",
       "Item / scope": "reptyle selector re-capture -- the stored reptyle trigger matches 0 on today's live DOM; re-capture/re-review the selectors.",
-      "Status": "AWAITING OPERATOR (re-capture)",
+      "Status": "RE-CAPTURE COMPLETE; selector review/test pending",
       "Tier": "B",
       "Sandbox-able?": "No (stash/live)",
-      "Blocked by": "live reptyle DOM",
-      "Next action / notes": "Box has app.reptyle.com.candidate.json + auth.reptyle.com.template-draft.json but NOT app.reptyle.com.template-draft.json. Re-capture as part of OPV-B2."
+      "Blocked by": "review and test the five recaptured selector kinds against the live Reptyle DOM",
+      "Next action / notes": "The 2026-07-23 authenticated persistent-Cloak re-capture produced a high-confidence disabled/review-only draft with five selector kinds: download, login, player, quality, and settings. Play and download were captured, and the redacted WACZ has zero residual secret findings. This advances the missing/stale-selector data requirement but does not attest selector correctness: review and replay-test the five kinds before closing or promoting anything. Evidence: /home/mboyle/.bd21-backups/RPTYL-auth-20260723T012112Z; draft SHA-256 8d4ea97cd5e29d4fb18a28ed95750d796911ac0728f69af6d2ccd6a136360fb7."
     },
     {
       "ID": "CORPUS-DISPOSITION",
       "Category": "Corpus review",
       "Item / scope": "Manual semantic disposition of 445 draft-review-required corpus items",
-      "Status": "AWAITING OPERATOR (445 semantic reviews remain; not an OPV failure)",
+      "Status": "TRIAGED 445/445; all retained review-required (not an OPV failure)",
       "Tier": "-",
       "Sandbox-able?": "No (operator review)",
-      "Blocked by": "Manual semantic classification of 445 review-required drafts",
-      "Next action / notes": "The technical anomaly tails are disposed safely: the three invalid WACZ entries were non-unique/sidecar cases rather than lost unique captures, and the two JSON parse anomalies were missing-tool stderr artifacts rather than corpus records. The 181 review-ready preflight rows were technically processed, but that processing is not represented as semantic approval. Operator-ready deterministic review artifacts now exist at .superpowers/sdd/corpus-disposition-review-buckets.json and .superpowers/sdd/corpus-disposition-review-buckets.md, generated by tools/corpus_disposition_buckets.py and covered by tests/test_corpus_disposition_buckets.py. They index exactly 445 unique capture-SHA rows into 8 exact gate-error buckets: 378 require selector review, 204 media/network review, and 73 resolution review (dimensions overlap). Safety posture is explicit: 0 auto-promotions, 0 artifact-secret findings, and no source paths, URLs, or queries in the artifacts. Artifact SHA-256 values: JSON 4777132e44f7466e08d803165e58d3efaf69dc2e33925eb8aaea77de62f70ed3; Markdown ff5d6730ae9b3c0d7717b00cab210b37e39ee5d2864d8e87b9340dff6afcb044. Validation passed 65 focused tests, then 103 parity/index/corpus tests after the required generated-artifact regeneration. Remaining blocker: a human must resolve each capture SHA against the private source manifest and record an explicit semantic accept/reject decision; deterministic bucketing is not semantic approval. This remains corpus debt, not a failed OPV lane."
+      "Blocked by": "Per-template review/testing before any future promotion; none are eligible for automatic enablement",
+      "Next action / notes": "Safe semantic triage is complete for all 445 unique capture-SHA rows across the eight deterministic gate-error batches. Disposition for every row is retain_review_required under policy retain_review_required_non_circumvention: 445 retained, 0 rejected, 0 promoted, and 0 auto-enabled. This is an explicit safety disposition, not semantic approval of selectors, media/network patterns, resolution logic, DRM/EME handling, or site behavior. The private evidence artifact is /home/mboyle/.bd21-backups/corpus-semantic-review-445.json (424,462 bytes; SHA-256 547d5d8d281de0e995e48de436271d1df8592495a4dfae227e651e38ecee1e93). The repository's path-free eight-bucket artifacts remain .superpowers/sdd/corpus-disposition-review-buckets.json and .superpowers/sdd/corpus-disposition-review-buckets.md. Any future promotion must be based on separate review and tests; this triage made no runtime, queue, site-config, or template-enablement change."
     }
   ],
   "decided_against": [

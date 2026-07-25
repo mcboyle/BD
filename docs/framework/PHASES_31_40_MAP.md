@@ -51,5 +51,5 @@ read-only view that *reads* these existing artifacts — not a reimplementation 
 
 ## Posture
 All four new subcommands fail closed on a posture scan, keep the corpus and debt read-only
-(verified unchanged at 34 entries, debt 0/0/2), and change nothing. Recognition-only,
+(measured at 35 entries on 2026-07-22, debt 0/0/2), and change nothing. Recognition-only,
 human-gated, no replay, no new detector behavior.

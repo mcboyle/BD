@@ -48,7 +48,31 @@ import sys
 
 G, R, Y, DIM, BOLD, RST = ("\033[32m", "\033[31m", "\033[33m",
                            "\033[2m", "\033[1m", "\033[0m")
-WORK = "/home/claude/work"
+
+
+def repo_root(script_file: str) -> str:
+    """Find the repository containing either canonical or documented command copy."""
+    here = os.path.dirname(os.path.abspath(script_file))
+    while True:
+        if (os.path.isdir(os.path.join(here, "bulk_downloader")) and
+                os.path.isdir(os.path.join(here, "tools"))):
+            return here
+        parent = os.path.dirname(here)
+        if parent == here:
+            raise RuntimeError("could not find repository root from %s" % script_file)
+        here = parent
+
+
+def python_for(work: str) -> str:
+    """Prefer the work tree's Python environment, then the running interpreter."""
+    for environment in (".venv", "venv"):
+        python = os.path.join(work, environment, "bin", "python")
+        if os.path.isfile(python):
+            return python
+    return sys.executable
+
+
+WORK = repo_root(__file__)
 
 # (label, argv, why-this-position). Order is the contract.
 CHAIN = [
@@ -75,9 +99,9 @@ _BASELINE_SHA_RE = re.compile(r'_BASELINE_SHA = "([a-f0-9]{64})"')
 
 
 def _run_venv(work, argv):
-    """Run under the SERVICE VENV, with PYTHONPATH stripped.
+    """Run under the selected work-tree interpreter, with PYTHONPATH stripped.
 
-    This matters and is not a style choice. `_run` above uses sys.executable plus
+    This matters and is not a style choice. `_run` uses the selected interpreter plus
     PYTHONPATH=/tmp/prestaged_site_packages, which does NOT have httpx -- so
     app_scrape_listing fails to register, its route never enters url_map, and the
     endpoint DISAPPEARS FROM THE DENOMINATOR. The reachability ledger then counts it as
@@ -85,13 +109,9 @@ def _run_venv(work, argv):
     and the ratchet goes RED on stash having been green in the sandbox. (Observed, 724.)
 
     A denominator that silently shrinks when a module fails to import is the same bug this
-    whole ratchet exists to catch. So: venv, or say you couldn't.
+    whole ratchet exists to catch. The selected interpreter is therefore explicit.
     """
-    py = os.path.join(work, "venv", "bin", "python")
-    if not os.path.isfile(py):
-        return None, ("service venv missing (work/venv) -- CANNOT compute reachability. "
-                      "Re-run bd-venv. Refusing to fall back to a python whose missing "
-                      "imports would silently shrink the denominator.")
+    py = python_for(work)
     e = dict(os.environ)
     e.pop("PYTHONPATH", None)
     e.setdefault("BD_HOME", "/tmp/bd_regen_home")
@@ -146,7 +166,7 @@ def _run(work, argv, env=None):
     if env:
         e.update(env)
     os.makedirs(e["BD_HOME"], exist_ok=True)
-    r = subprocess.run([sys.executable] + argv, cwd=work, capture_output=True,
+    r = subprocess.run([python_for(work)] + argv, cwd=work, capture_output=True,
                        text=True, timeout=300, env=e)
     return r.returncode, (r.stdout or "") + (r.stderr or "")
 
@@ -163,7 +183,7 @@ def declare_surface(work):
     # NOTE: PYTHONPATH must carry the WORK TREE. `env -u PYTHONPATH` strips it and the
     # snapshot comes out EMPTY, silently overwriting the baseline with nothing.
     e["PYTHONPATH"] = work + ":/tmp/prestaged_site_packages"
-    r = subprocess.run([sys.executable, snap], cwd=work, capture_output=True,
+    r = subprocess.run([python_for(work), snap], cwd=work, capture_output=True,
                        text=True, timeout=300, env=e)
     if r.returncode != 0 or not r.stdout.strip():
         return False, "snapshot produced nothing (PYTHONPATH must include the work tree)"
@@ -242,14 +262,15 @@ def main():
               "--declare-edges)%s" % (DIM, RST))
         return 0
 
-    print("%s== bd-regen-order :: %s ==%s" % (BOLD, a.work, RST))
+    work = os.path.abspath(a.work)
+    print("%s== bd-regen-order :: %s ==%s" % (BOLD, work, RST))
     failed = []
     for label, argv, _why in CHAIN:
-        script = os.path.join(a.work, argv[0])
+        script = os.path.join(work, argv[0])
         if not os.path.isfile(script):
             print("  %s--%s %-18s (absent, skipped)" % (Y, RST, label))
             continue
-        rc, out = _run(a.work, argv)
+        rc, out = _run(work, argv)
         if rc == 0:
             print("  %sOK%s %-18s" % (G, RST, label))
         else:
@@ -257,14 +278,14 @@ def main():
             failed.append(label)
 
     if a.declare_surface:
-        good, msg = declare_surface(a.work)
+        good, msg = declare_surface(work)
         print("  %s %-18s %s" % ((G + "OK" + RST) if good else (R + "XX" + RST),
                                  "route_map (declared)", msg))
         if not good:
             failed.append("route_map")
 
     if a.declare_edges:
-        good, msg = declare_edges(a.work)
+        good, msg = declare_edges(work)
         print("  %s %-18s %s" % ((G + "OK" + RST) if good else (R + "XX" + RST),
                                  "import_graph (declared)", msg))
         if not good:
@@ -276,13 +297,13 @@ def main():
     # sandbox, RED on stash. A ratchet nobody regenerates is a ratchet that only ever fires
     # in the place it costs the most.
     if a.declare_reach:
-        good, msg = declare_reach(a.work)
+        good, msg = declare_reach(work)
         print("  %s %-18s %s" % ((G + "OK" + RST) if good else (R + "XX" + RST),
                                  "reachability (declared)", msg))
         if not good:
             failed.append("reachability")
     else:
-        good, msg = check_reach(a.work)
+        good, msg = check_reach(work)
         if good is None:
             print("  %s--%s %-18s %s" % (Y, RST, "reachability", msg))
         else:
@@ -292,9 +313,9 @@ def main():
                 failed.append("reachability")
 
     for label, argv, _why in VERIFY:
-        if not os.path.isfile(os.path.join(a.work, argv[0])):
+        if not os.path.isfile(os.path.join(work, argv[0])):
             continue
-        rc, out = _run(a.work, argv)
+        rc, out = _run(work, argv)
         tail = out.strip().splitlines()[-1] if out.strip() else ""
         print("  %s %-18s %s" % ((G + "OK" + RST) if rc == 0 else (R + "XX" + RST),
                                  "route counts", tail[:90]))
