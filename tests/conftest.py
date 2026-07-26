@@ -73,7 +73,7 @@ def _canonicalize_package_children(package_name, modules=None):
             continue
         parent_name, _, child_attr = child_name.rpartition(".")
         parent = package_modules.get(parent_name)
-        if parent is not None:
+        if parent is not None and child_attr not in vars(parent):
             setattr(parent, child_attr, child)
 
 
