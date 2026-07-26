@@ -10,10 +10,13 @@ import sys
 import subprocess
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_phase_scripts", "test_phases25_30.py")
+_TESTS = os.path.dirname(os.path.abspath(__file__))
+_MODULE = "_phase_scripts.phases25_30"
 
 
 def test_phase_boundaries():
-    r = subprocess.run([sys.executable, _SRC], cwd=_REPO,
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, (_TESTS, env.get("PYTHONPATH"))))
+    r = subprocess.run([sys.executable, "-m", _MODULE], cwd=_REPO, env=env,
                        capture_output=True, text=True)
     assert r.returncode == 0, "phase test failed:\n" + r.stdout + "\n" + r.stderr
