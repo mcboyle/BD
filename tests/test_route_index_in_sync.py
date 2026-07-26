@@ -22,7 +22,10 @@ import os
 os.environ.setdefault("BD_DISABLE_KEEPALIVE", "1")
 
 import json
+import subprocess
+import sys
 from pathlib import Path
+
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -46,10 +49,28 @@ def _load_committed():
 @pytest.fixture
 def generated_parity_path(tmp_path):
     """Materialize the ignored parity input without mutating the source tree."""
-    import tools.gui_parity_inventory as parity
-
+    saved_path = list(sys.path)
     outdir = tmp_path / "reports"
-    assert parity.main(["--root", str(ROOT), "--outdir", str(outdir)]) == 0
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "tools" / "gui_parity_inventory.py"),
+            "--root",
+            str(ROOT),
+            "--outdir",
+            str(outdir),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, (
+        f"parity generator exited {result.returncode}\n"
+        f"stdout:\n{result.stdout}\n"
+        f"stderr:\n{result.stderr}"
+    )
+    assert sys.path == saved_path, "parity generation leaked import paths"
     path = outdir / "gui_parity_inventory.json"
     assert path.is_file()
     return path

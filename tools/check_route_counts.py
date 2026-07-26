@@ -6,8 +6,12 @@ the full on-stash suite *after* deploy: a blueprint gains routes, but a
 version-coupled count pin (and/or the parity inventory) is not updated in the
 same change, so the focused release band passes while the real suite goes red.
 
-This gate cross-checks THREE independent sources and fails the build if any of
-them disagree:
+Before the count checks, the gate regenerates the full GUI-parity inventory in
+an isolated child process and requires the shipped and live item-name sets to
+match. This catches drift in non-route items such as CLI tools as well as routes.
+
+The gate then cross-checks THREE independent sources and fails the build if any
+of them disagree:
 
   1. SOURCE (ground truth) — the number of `@<bp>.route(...)` decorators in
      the blueprint module, and the length of the report-center SECTIONS list.
@@ -37,7 +41,9 @@ from __future__ import annotations
 import ast
 import json
 import re
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -92,6 +98,42 @@ def _inventory_counts(inv_path: Path) -> dict[str, int]:
             if name.startswith(pfx):
                 out[pfx] += 1
     return out
+
+
+def _inventory_names(data: dict) -> set[str]:
+    return {
+        str(item.get("name", ""))
+        for item in data.get("items", [])
+        if item.get("name")
+    }
+
+
+def _live_inventory(root: Path) -> dict:
+    """Generate the current inventory in a child process without tree writes."""
+    with tempfile.TemporaryDirectory(prefix="bd_gui_parity_check_") as tmp:
+        outdir = Path(tmp)
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(root / "tools" / "gui_parity_inventory.py"),
+                "--root",
+                str(root),
+                "--outdir",
+                str(outdir),
+            ],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"gui parity generator exited {result.returncode}: "
+                f"{result.stderr[-1000:]}"
+            )
+        return json.loads(
+            (outdir / "gui_parity_inventory.json").read_text(encoding="utf-8")
+        )
 
 
 def _test_pins(test_path: Path) -> dict[str, int]:
@@ -155,6 +197,28 @@ def run(root: Path) -> int:
     if missing:
         for p in missing:
             print(f"check_route_counts: MISSING required file: {p}", file=sys.stderr)
+        return 1
+
+    try:
+        shipped_inventory = json.loads(inv.read_text(encoding="utf-8"))
+        live_inventory = _live_inventory(root)
+    except Exception as exc:
+        print(
+            f"GUI-PARITY GATE FAIL: could not compare shipped inventory: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+    shipped_names = _inventory_names(shipped_inventory)
+    live_names = _inventory_names(live_inventory)
+    only_shipped = sorted(shipped_names - live_names)
+    only_live = sorted(live_names - shipped_names)
+    if only_shipped or only_live:
+        print(
+            "GUI-PARITY GATE FAIL: shipped item-set differs from live generator.",
+            file=sys.stderr,
+        )
+        print(f"  only shipped: {only_shipped}", file=sys.stderr)
+        print(f"  only live: {only_live}", file=sys.stderr)
         return 1
 
     src_data = _count_route_decorators(data_mod, "data_layer_bp")

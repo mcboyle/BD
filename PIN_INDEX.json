@@ -20,7 +20,7 @@
     "total": 39,
     "version": 1,
     "count_dict": 38,
-    "test_files_scanned": 1123,
+    "test_files_scanned": 1125,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -318,13 +318,13 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_302_gui_parity_reconcile.py",
-      "line": 94,
+      "line": 102,
       "value": {
         "data_layer.": 15,
         "report_center.": 9,
         "actions_center.": 0
       },
-      "gates_what": "test_gated_blueprint_counts_unchanged — G12 invariant: the 3 write-blueprint counts must be unchanged by the"
+      "gates_what": "test_generated_blueprint_counts_unchanged — G12 invariant: the 3 write-blueprint counts must be unchanged by the"
     },
     {
       "form": "count_dict",

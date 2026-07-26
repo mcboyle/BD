@@ -1,25 +1,24 @@
-"""v3.66.302 — GUI-parity inventory drift reconciliation.
+"""v3.66.302 — GUI-parity generator and release-artifact reconciliation.
 
-The shipped reports/gui_parity_inventory.json had been deliberately frozen at the
-292 baseline (1098 items) to avoid leaking a standing CLI-census drift on
-no-route cuts. The standing drift is now reconciled: the 7 real tools that exist
-in tools/ but were absent from the pinned inventory, plus the 2 new routes added
-@293, must now appear in the SHIPPED inventory.
+The inventory generator must contain the 7 real tools that were absent from the
+292 baseline and the 2 routes added at 293. When a release artifact is present,
+it must also match a fresh generator run. Clean source trees do not carry the
+ignored reports artifact; the release gate requires it before packaging.
 
-This pins the RECONCILIATION (the 9 specific previously-phantom items are present)
-WITHOUT pinning the total — so a future tool/route addition isn't gated into a
-brittle full-census equality (G12 already gates the 3 write-blueprints' counts).
+The specific reconciliation remains pinned without pinning a brittle total.
 """
 import json
+import subprocess
 import sys
 from pathlib import Path
+
 import pytest
 
 _REPO = Path(__file__).resolve().parent.parent
-# THB-1 (v3.66.528): the tools/ + repo sys.path inserts used to live here at module
-# scope and were never restored -> any later test that imported a name colliding with
-# a tools/*.py module got silently shadowed. They are now scoped + restored inside the
-# one function that needs them (test_shipped_inventory_matches_live_regen_itemset).
+_SHIPPED_INVENTORY = _REPO / "reports" / "gui_parity_inventory.json"
+# The generator runs in a child process because importing it mutates sys.path.
+# Keeping that mutation out of pytest prevents later bare imports from resolving
+# against an unrelated tools/*.py module.
 
 # the 7 tools that existed in tools/ but were missing from the frozen baseline
 _PHANTOM_TOOLS = {
@@ -33,13 +32,26 @@ _NEW_293_ROUTES = {"sites.api_template_capture_cancel", "cockpit.api_capture_got
 @pytest.fixture
 def generated_inventory_path(tmp_path):
     """Materialize the ignored parity report in an isolated output directory."""
-    saved_path = list(sys.path)
-    try:
-        import tools.gui_parity_inventory as parity
-        outdir = tmp_path / "reports"
-        assert parity.main(["--root", str(_REPO), "--outdir", str(outdir)]) == 0
-    finally:
-        sys.path[:] = saved_path
+    outdir = tmp_path / "reports"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_REPO / "tools" / "gui_parity_inventory.py"),
+            "--root",
+            str(_REPO),
+            "--outdir",
+            str(outdir),
+        ],
+        cwd=_REPO,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, (
+        f"parity generator exited {result.returncode}\n"
+        f"stdout:\n{result.stdout}\n"
+        f"stderr:\n{result.stderr}"
+    )
     path = outdir / "gui_parity_inventory.json"
     assert path.is_file()
     return path
@@ -50,38 +62,34 @@ def _shipped_names(path):
     return {it["name"] for it in d["items"]}, d
 
 
-def test_shipped_inventory_includes_reconciled_tools(generated_inventory_path):
+def test_generated_inventory_includes_reconciled_tools(generated_inventory_path):
     names, _ = _shipped_names(generated_inventory_path)
     missing = sorted(_PHANTOM_TOOLS - names)
-    assert not missing, f"shipped inventory still missing reconciled tools: {missing}"
+    assert not missing, f"generated inventory missing reconciled tools: {missing}"
 
 
-def test_shipped_inventory_includes_new_293_routes(generated_inventory_path):
+def test_generated_inventory_includes_new_293_routes(generated_inventory_path):
     names, _ = _shipped_names(generated_inventory_path)
     missing = sorted(_NEW_293_ROUTES - names)
-    assert not missing, f"shipped inventory still missing 293 routes: {missing}"
+    assert not missing, f"generated inventory missing 293 routes: {missing}"
 
 
 def test_shipped_inventory_matches_live_regen_itemset(generated_inventory_path):
-    """No drift: the shipped json's item-set equals a fresh regen's item-set.
-    (Item-set identity, not a brittle count pin — proves the artifact is truthful
-    at cut time.)"""
-    names, _ = _shipped_names(generated_inventory_path)
-    _saved_path = list(sys.path)
-    sys.path.insert(0, str(_REPO / "tools"))
-    sys.path.insert(0, str(_REPO))
-    try:
-        import gui_parity_inventory as P1  # noqa: E402
-        regen = {it["name"] for it in P1.build(str(_REPO))["items"]}
-    finally:
-        sys.path[:] = _saved_path
-    only_shipped = sorted(names - regen)
-    only_regen = sorted(regen - names)
+    """A present release artifact must match a fresh generator item-set."""
+    if not _SHIPPED_INVENTORY.is_file():
+        pytest.skip(
+            "release parity artifact absent; packaging requires it via "
+            "tools/check_route_counts.py"
+        )
+    shipped, _ = _shipped_names(_SHIPPED_INVENTORY)
+    regen, _ = _shipped_names(generated_inventory_path)
+    only_shipped = sorted(shipped - regen)
+    only_regen = sorted(regen - shipped)
     assert not only_shipped and not only_regen, (
         f"inventory drift — only-shipped={only_shipped} only-regen={only_regen}")
 
 
-def test_gated_blueprint_counts_unchanged(generated_inventory_path):
+def test_generated_blueprint_counts_unchanged(generated_inventory_path):
     """G12 invariant: the 3 write-blueprint counts must be unchanged by the
     reconciliation (the 9 new items are NOT on data_layer/report_center/
     actions_center, so G12 stays green)."""
