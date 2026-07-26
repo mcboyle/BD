@@ -177,10 +177,67 @@ class Container:
     values = [item for item in [nested for nested in getattr(missing_name, "items", [])]]
 '''
 
+    exec(source, {})
     findings = scanner.scan_file("nested_class_comprehension.py", source, only={"DP-06"})
 
     assert not any(finding["precision"] == "error" for finding in findings)
     assert findings == []
+
+
+def test_dp06_nested_comprehension_element_uses_isolated_scope(scanner):
+    source = '''\
+class Container:
+    missing_name = object()
+    values = [
+        item
+        for item in [
+            getattr(missing_name, "value", None)
+            for nested in [None]
+        ]
+    ]
+'''
+
+    with pytest.raises(NameError):
+        exec(source, {})
+    _assert_one_dp06_candidate(scanner, "nested_comprehension_element.py", source)
+
+
+def test_dp06_nested_comprehension_filter_uses_isolated_scope(scanner):
+    source = '''\
+class Container:
+    missing_name = object()
+    values = [
+        item
+        for item in [
+            nested
+            for nested in [None]
+            if getattr(missing_name, "value", False)
+        ]
+    ]
+'''
+
+    with pytest.raises(NameError):
+        exec(source, {})
+    _assert_one_dp06_candidate(scanner, "nested_comprehension_filter.py", source)
+
+
+def test_dp06_nested_comprehension_later_iterator_uses_isolated_scope(scanner):
+    source = '''\
+class Container:
+    missing_name = object()
+    values = [
+        item
+        for item in [
+            second
+            for first in [None]
+            for second in getattr(missing_name, "value", [])
+        ]
+    ]
+'''
+
+    with pytest.raises(NameError):
+        exec(source, {})
+    _assert_one_dp06_candidate(scanner, "nested_comprehension_later_iterator.py", source)
 
 
 @pytest.mark.parametrize(("relative", "recovery_lines"), [

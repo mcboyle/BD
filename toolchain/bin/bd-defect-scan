@@ -293,15 +293,41 @@ def _scope_header_node_ids(scope):
     return _expression_node_ids(expressions)
 
 
-def _outermost_iterator_contexts(scopes, parents):
-    """Map outermost leftmost-iterator nodes to their enclosing scope."""
+def _comprehension_evaluation_contexts(scopes, parents):
+    """Map comprehension expressions to the scopes that evaluate them."""
     contexts = {}
+    comprehension_types = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+
+    def visit_expression(node, context):
+        contexts.setdefault(id(node), context)
+        if isinstance(node, comprehension_types):
+            visit_comprehension(node, context)
+        elif not isinstance(node, _LEXICAL_SCOPE_TYPES):
+            for child in ast.iter_child_nodes(node):
+                visit_expression(child, context)
+
+    def visit_comprehension(scope, inherited_context):
+        contexts.setdefault(id(scope), inherited_context)
+        first_generator = scope.generators[0]
+        visit_expression(first_generator.iter, inherited_context)
+        visit_expression(first_generator.target, scope)
+        for condition in first_generator.ifs:
+            visit_expression(condition, scope)
+        for generator in scope.generators[1:]:
+            visit_expression(generator.iter, scope)
+            visit_expression(generator.target, scope)
+            for condition in generator.ifs:
+                visit_expression(condition, scope)
+        if isinstance(scope, ast.DictComp):
+            visit_expression(scope.key, scope)
+            visit_expression(scope.value, scope)
+        else:
+            visit_expression(scope.elt, scope)
+
     for scope in scopes:
-        if not isinstance(scope, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)) \
-                or not scope.generators:
-            continue
-        for node in ast.walk(scope.generators[0].iter):
-            contexts.setdefault(id(node), parents[scope])
+        if isinstance(scope, comprehension_types) and scope.generators:
+            inherited_context = contexts.get(id(scope), parents[scope])
+            visit_comprehension(scope, inherited_context)
     return contexts
 
 
@@ -343,7 +369,7 @@ def dp06(path, src, tree):
         globals_[scope] = declared_global
         nonlocals[scope] = declared_nonlocal
     header_node_ids = {scope: _scope_header_node_ids(scope) for scope in scopes}
-    outermost_iterator_contexts = _outermost_iterator_contexts(scopes, parents)
+    comprehension_contexts = _comprehension_evaluation_contexts(scopes, parents)
     for scope in scopes:
         if scope is module:
             continue
@@ -358,7 +384,7 @@ def dp06(path, src, tree):
                     and node.func.id in ("hasattr", "getattr") and node.args \
                     and isinstance(node.args[0], ast.Name):
                 name = node.args[0].id
-                resolution_scope = outermost_iterator_contexts.get(
+                resolution_scope = comprehension_contexts.get(
                     id(node),
                     parents[scope] if id(node) in header_node_ids[scope] else scope,
                 )
