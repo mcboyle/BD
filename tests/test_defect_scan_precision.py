@@ -240,6 +240,68 @@ class Container:
     _assert_one_dp06_candidate(scanner, "nested_comprehension_later_iterator.py", source)
 
 
+def test_dp06_lambda_default_in_first_iterator_uses_class_scope(scanner):
+    source = '''\
+class Container:
+    missing_name = object()
+    values = [
+        item
+        for item in (
+            lambda default=getattr(missing_name, "items", []): default
+        )()
+    ]
+'''
+
+    exec(source, {})
+    findings = scanner.scan_file("lambda_default.py", source, only={"DP-06"})
+
+    assert not any(finding["precision"] == "error" for finding in findings)
+    assert findings == []
+
+
+def test_dp06_lambda_body_in_first_iterator_uses_isolated_scope(scanner):
+    source = '''\
+class Container:
+    missing_name = object()
+    values = [
+        item
+        for item in (lambda: getattr(missing_name, "items", []))()
+    ]
+'''
+
+    with pytest.raises(NameError):
+        exec(source, {})
+    _assert_one_dp06_candidate(scanner, "lambda_body.py", source)
+
+
+def test_dp06_nested_comprehension_in_lambda_default_preserves_boundaries(scanner):
+    source = '''\
+class Container:
+    default_iterable = [None]
+    body_value = object()
+    values = [
+        item
+        for item in (
+            lambda *, default=[
+                getattr(body_value, "value", None)
+                for nested in getattr(default_iterable, "__iter__")()
+            ]: default
+        )()
+    ]
+'''
+
+    with pytest.raises(NameError):
+        exec(source, {})
+    findings = scanner.scan_file(
+        "lambda_default_comprehension.py", source, only={"DP-06"}
+    )
+
+    assert len(findings) == 1
+    assert findings[0]["dp"] == "DP-06"
+    assert findings[0]["precision"] != "error"
+    assert "'body_value'" in findings[0]["title"]
+
+
 @pytest.mark.parametrize(("relative", "recovery_lines"), [
     pytest.param("tools/code_intelligence/fuzz_adapters.py", (63,), id="fuzz-adapters"),
     pytest.param("tools/code_intelligence/fuzz_service.py", (258, 311), id="fuzz-service"),
