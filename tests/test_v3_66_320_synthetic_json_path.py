@@ -17,6 +17,7 @@ This is the sandbox half of OPV-F3.3 — pure offline replay, no network. The
 test runner chdirs to a temp dir, so the repo root is derived from __file__.
 """
 import json
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -49,13 +50,20 @@ def _fixture_sources(capture_root, site):
     )
 
 
+def _symlink_or_copy(source, destination):
+    try:
+        destination.symlink_to(source)
+    except (NotImplementedError, OSError):
+        shutil.copyfile(source, destination)
+
+
 def _merge_fixture_tree(capture_root, merged_root):
     for site in _FIXTURE_SITES:
         site_root = merged_root / site
         site_root.mkdir(parents=True)
         har, assertions = _fixture_sources(capture_root, site)
-        (site_root / "canary.har").symlink_to(har)
-        (site_root / "canary.assertions.json").symlink_to(assertions)
+        _symlink_or_copy(har, site_root / "canary.har")
+        _symlink_or_copy(assertions, site_root / "canary.assertions.json")
     return merged_root
 
 
@@ -133,24 +141,50 @@ def test_capture_root_requires_only_external_hars(tmp_path):
     assert _capture_root(lane) == capture_root
 
 
-def test_merged_fixture_tree_symlinks_hars_and_tracked_assertions(tmp_path):
+def test_merged_fixture_tree_preserves_har_and_tracked_assertion_content(tmp_path):
     capture_root = tmp_path / "external" / "fixtures"
-    external_har = capture_root / "fixturesite2_api" / "canary.har"
-    external_har.parent.mkdir(parents=True)
-    external_har.write_bytes(b"private capture stand-in")
+    site = "fixturesite2_api"
+    for fixture_site in _FIXTURE_SITES:
+        har = capture_root / fixture_site / "canary.har"
+        har.parent.mkdir(parents=True)
+        har.write_bytes(f"private capture stand-in: {fixture_site}".encode())
+    external_har = capture_root / site / "canary.har"
+    external_assertions = capture_root / site / "canary.assertions.json"
+    external_assertions.write_text('{"source": "external"}', encoding="utf-8")
 
     merged = _merge_fixture_tree(capture_root, tmp_path / "merged")
 
-    merged_har = merged / "fixturesite2_api" / "canary.har"
-    merged_assertions = (
-        merged / "fixturesite2_api" / "canary.assertions.json"
-    )
-    assert merged_har.is_symlink()
-    assert merged_har.resolve() == external_har
-    assert merged_assertions.is_symlink()
-    assert merged_assertions.resolve() == (
-        _ROOT / "fixtures" / "fixturesite2_api" / "canary.assertions.json"
-    )
+    merged_har = merged / site / "canary.har"
+    merged_assertions = merged / site / "canary.assertions.json"
+    tracked_assertions = _ROOT / "fixtures" / site / "canary.assertions.json"
+    assert merged_har.read_bytes() == external_har.read_bytes()
+    assert merged_assertions.read_bytes() == tracked_assertions.read_bytes()
+    assert merged_assertions.read_bytes() != external_assertions.read_bytes()
+
+
+def test_merged_fixture_tree_copies_when_symlinks_are_unavailable(
+    tmp_path, monkeypatch
+):
+    capture_root = tmp_path / "external" / "fixtures"
+    expected_hars = {}
+    for site in _FIXTURE_SITES:
+        har = capture_root / site / "canary.har"
+        har.parent.mkdir(parents=True)
+        payload = f"private capture stand-in: {site}".encode()
+        har.write_bytes(payload)
+        expected_hars[site] = payload
+
+    def deny_symlink(*args, **kwargs):
+        raise PermissionError("symlink privilege unavailable")
+
+    monkeypatch.setattr(Path, "symlink_to", deny_symlink)
+    merged = _merge_fixture_tree(capture_root, tmp_path / "merged")
+
+    for site in _FIXTURE_SITES:
+        merged_site = merged / site
+        tracked = _ROOT / "fixtures" / site / "canary.assertions.json"
+        assert (merged_site / "canary.har").read_bytes() == expected_hars[site]
+        assert (merged_site / "canary.assertions.json").read_bytes() == tracked.read_bytes()
 
 
 # ---------------------------------------------------------------- evaluator ---
