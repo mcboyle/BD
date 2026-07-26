@@ -17,6 +17,7 @@ Or:
 import os
 import shutil
 import sys
+from types import ModuleType
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,55 @@ from capture_lanes import classify_capture_path
 # Make sure the package is importable regardless of where pytest is invoked
 PKG_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PKG_ROOT))
+
+
+def _canonicalize_package_children(package_name, modules=None):
+    """Make direct package-child attributes agree with the module table.
+
+    Python publishes ``package.child`` both in ``sys.modules`` and as a
+    ``child`` attribute on the parent package. Removing only the table entry
+    leaves a stale attribute that ``from package import child`` can return
+    without importing or registering a replacement.
+
+    Only attributes whose module ``__name__`` exactly matches the expected
+    direct child are touched. Other module-valued package attributes are
+    imports or aliases and remain unchanged.
+    """
+    module_table = sys.modules if modules is None else modules
+    prefix = package_name + "."
+    package_modules = {
+        name: module
+        for name, module in tuple(module_table.items())
+        if (
+            (name == package_name or name.startswith(prefix))
+            and isinstance(module, ModuleType)
+        )
+    }
+
+    for parent_name, parent in package_modules.items():
+        for child_attr, current in tuple(vars(parent).items()):
+            if not isinstance(current, ModuleType):
+                continue
+            child_name = f"{parent_name}.{child_attr}"
+            if current.__name__ != child_name:
+                continue
+            canonical = package_modules.get(child_name)
+            if canonical is None:
+                delattr(parent, child_attr)
+            elif canonical is not current:
+                setattr(parent, child_attr, canonical)
+
+    # Import machinery normally creates these bindings. Rebuild any missing
+    # ones as well so a restored nested package graph is fully canonical.
+    for child_name, child in sorted(
+        package_modules.items(), key=lambda item: item[0].count(".")
+    ):
+        if child_name == package_name:
+            continue
+        parent_name, _, child_attr = child_name.rpartition(".")
+        parent = package_modules.get(parent_name)
+        if parent is not None:
+            setattr(parent, child_attr, child)
 
 
 # v3.66.13: canonical `isolated_bd_home` fixture. Replaces 45 copy-pasted
@@ -114,6 +164,10 @@ def isolated_bd_home(request, tmp_path):
     saved_env = {k: os.environ.get(k) for k in _ENV_KEYS}
     saved_cwd = os.getcwd()
 
+    # Repair attr/table splits left by a previous test before this test can
+    # resolve a stale child via ``from bulk_downloader import child``.
+    _canonicalize_package_children("bulk_downloader")
+
     # Wipe any leftover state from a prior test sharing this tmp_path
     # (Anthropic-sandbox custom-runner quirk; harmless elsewhere).
     for child in Path(tmp_path).iterdir():
@@ -157,6 +211,10 @@ def isolated_bd_home(request, tmp_path):
                             if _m.startswith("bulk_downloader")]:
                 del sys.modules[_bd_mod]
             sys.modules.update(saved_modules)
+        # Keep the two representations of imported children in lockstep.
+        # This is required even for unmarked tests: a test can directly pop a
+        # child from sys.modules and otherwise poison the next test.
+        _canonicalize_package_children("bulk_downloader")
 
 
 @pytest.fixture
