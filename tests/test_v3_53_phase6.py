@@ -25,9 +25,10 @@ memory and contradictory env, producing flakes only on serial runs
 The v3.66.6 `test_extension_live.py` fix established the right
 pattern: use `werkzeug.serving.make_server` with `port=0` (kernel-
 picks-port at bind, no TOCTOU window), keep a reference to the server
-object, and `.shutdown()` it from a session-scoped teardown. We do
-the same here, plus a session-scoped fixture that captures and
-restores the env vars + module snapshot the boot mutated.
+object, and `.shutdown()` it from a module-scoped teardown. We do the
+same here, snapshotting the complete execution-time module graph immediately
+before server boot and restoring that exact graph after shutdown so modules
+collected later cannot be orphaned.
 """
 import json
 import os
@@ -42,22 +43,6 @@ import urllib.request
 import pytest
 
 
-# v3.66.21: pre-import bulk_downloader modules at file load so the
-# _BD_MODULES_AT_IMPORT snapshot below captures them. Without this,
-# the snapshot misses modules that downstream test files (e.g.
-# test_v3_62_2_login_fallback.py) import during collection — after
-# this file's import, but before this file's _get_server() wipes
-# sys.modules. The teardown then deletes those modules without
-# restoring them, leaving the downstream test's `from
-# bulk_downloader.X import Y` bindings pointing at orphaned
-# classes/functions that no `mock.patch("bulk_downloader.X.Y")`
-# can reach. Pre-importing makes the snapshot complete.
-import bulk_downloader.app  # noqa: F401, E402
-import bulk_downloader.runner  # noqa: F401, E402
-import bulk_downloader.login  # noqa: F401, E402
-import bulk_downloader.db  # noqa: F401, E402
-
-
 _BDCTL = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bdctl.py")
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -70,6 +55,7 @@ _SERVER_OBJ = None   # v3.66.7: werkzeug BaseWSGIServer instance, so the
                      # let the daemon thread exit cleanly before any
                      # sys.modules restoration.
 _SERVER_THREAD = None
+_SERVER_MODULES = None
 
 
 def _free_port():
@@ -87,7 +73,7 @@ def _free_port():
 
 def _get_server():
     """Boot the Flask server once; return its base URL. Idempotent."""
-    global _SERVER_BASE, _SERVER_HOME, _SERVER_OBJ, _SERVER_THREAD
+    global _SERVER_BASE, _SERVER_HOME, _SERVER_OBJ, _SERVER_THREAD, _SERVER_MODULES
     if _SERVER_BASE is not None:
         _pin_cwd()
         return _SERVER_BASE
@@ -96,8 +82,9 @@ def _get_server():
     os.environ["BD_HOME"] = tmp
     os.environ["BD_DISABLE_KEEPALIVE"] = "1"
     os.chdir(tmp)
-    saved_modules = {k: v for k, v in sys.modules.items()
-                     if k.startswith("bulk_downloader")}
+    if _SERVER_MODULES is None:
+        _SERVER_MODULES = {k: v for k, v in sys.modules.items()
+                           if k.startswith("bulk_downloader")}
     for mod in list(sys.modules):
         if mod.startswith("bulk_downloader"):
             del sys.modules[mod]
@@ -134,10 +121,6 @@ _ENV_KEYS_TO_ISOLATE = ("BD_HOME", "BD_URL", "BD_DISABLE_KEEPALIVE",
 _ENV_SNAPSHOT_AT_IMPORT = {
     k: os.environ.get(k) for k in _ENV_KEYS_TO_ISOLATE
 }
-_BD_MODULES_AT_IMPORT = {
-    m: sys.modules[m] for m in list(sys.modules)
-    if m.startswith("bulk_downloader")
-}
 _CWD_AT_IMPORT = os.getcwd()
 
 
@@ -164,7 +147,7 @@ def _cleanup_singleton_server():
     would hold a stale module instance.
     """
     yield
-    global _SERVER_OBJ, _SERVER_THREAD, _SERVER_BASE, _SERVER_HOME
+    global _SERVER_OBJ, _SERVER_THREAD, _SERVER_BASE, _SERVER_HOME, _SERVER_MODULES
     if _SERVER_OBJ is not None:
         try:
             _SERVER_OBJ.shutdown()
@@ -183,12 +166,12 @@ def _cleanup_singleton_server():
         else:
             os.environ[k] = v
     # Restore sys.modules: drop anything new under bulk_downloader,
-    # put back what was there at import time (if anything).
-    for m in [m for m in list(sys.modules)
-              if m.startswith("bulk_downloader")]:
-        del sys.modules[m]
-    for m, mod in _BD_MODULES_AT_IMPORT.items():
-        sys.modules[m] = mod
+    # put back the complete graph captured immediately before server boot.
+    if _SERVER_MODULES is not None:
+        for m in [m for m in list(sys.modules) if m.startswith("bulk_downloader")]:
+            del sys.modules[m]
+        sys.modules.update(_SERVER_MODULES)
+        _SERVER_MODULES = None
     # Restore cwd
     try:
         os.chdir(_CWD_AT_IMPORT)

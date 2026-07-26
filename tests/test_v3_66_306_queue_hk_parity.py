@@ -5,22 +5,17 @@ RED-first against the 305 tree: getters read os.environ only (a store write has 
 effect), the schema lacks the queue_hk_* keys, and Settings.tsx/api-types.ts don't
 reference them -> these fail. After the promotion + SPA control -> GREEN.
 
-Sandbox: tools+bulk_downloader; zero-arg fns; root from __file__; tempfile not
-tmp_path; module globals restored in try/finally (monkeypatch unreliable here).
+Sandbox: tools+bulk_downloader; zero-arg fns; canonical package imports;
+tempfile not tmp_path; module globals restored in try/finally.
 """
 import os
-import sys
 import json
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-TOOLS = ROOT / "tools"
-for p in (str(ROOT), str(TOOLS)):
-    if p not in sys.path:
-        sys.path.insert(0, p)
 
-import autonomy_queue_hk as qh  # noqa: E402
+from tools import autonomy_queue_hk as qh  # noqa: E402
 from bulk_downloader import global_config as gc  # noqa: E402
 
 _ENV = ("BD_QUEUE_HK_GC_AGE_DAYS", "BD_QUEUE_HK_ABANDON",
