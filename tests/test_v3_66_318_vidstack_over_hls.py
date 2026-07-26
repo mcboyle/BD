@@ -28,18 +28,37 @@ import re
 import sys
 import json
 import zipfile
-from pathlib import Path
+
+import pytest
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_REPO, "tools"))
 import player_recognition as pr  # noqa: E402
 import build_template_from_wacz as btw  # noqa: E402
+from capture_test_fixtures import capture_fixture_lane  # noqa: E402
 
-_FIX = Path(_REPO) / "tests" / "fixtures" / "vidstack"
-_WACZ = {
-    "miruro": _FIX / "miruro.redacted.wacz",
-    "mirurow": _FIX / "mirurow.redacted.wacz",
+_CAPTURE_FIXTURES = capture_fixture_lane()
+_WACZ_NAMES = {
+    "miruro": "miruro.redacted.wacz",
+    "mirurow": "mirurow.redacted.wacz",
 }
+
+
+def _wacz_paths():
+    if not _CAPTURE_FIXTURES.enabled:
+        pytest.skip("vidstack capture artifacts not enabled")
+    fixture_dir = (
+        _CAPTURE_FIXTURES.root / "tests" / "fixtures" / "vidstack"
+    )
+    paths = {name: fixture_dir / filename
+             for name, filename in _WACZ_NAMES.items()}
+    missing = [path.name for path in paths.values() if not path.is_file()]
+    if missing:
+        pytest.skip(
+            "vidstack capture artifacts not present under "
+            f"{_CAPTURE_FIXTURES.env_name}: {', '.join(missing)}"
+        )
+    return paths
 
 
 def _inputs(wacz_path):
@@ -66,8 +85,7 @@ def _inputs(wacz_path):
 
 
 def test_fixtures_present():
-    for name, p in _WACZ.items():
-        assert p.exists(), f"missing fixture {name}: {p}"
+    assert len(_wacz_paths()) == 2
 
 
 def test_vds_player_storage_confirms_vidstack():
@@ -85,7 +103,7 @@ def test_vds_player_storage_confirms_vidstack():
 
 
 def test_miruro_classifies_vidstack_over_hls():
-    for name, wacz in _WACZ.items():
+    for name, wacz in _wacz_paths().items():
         html, sc, ifr, net, sk = _inputs(wacz)
         # the real-world vidstack-over-hls shape: default layout, no element.
         assert "<media-player" not in html, \
@@ -107,7 +125,7 @@ def test_miruro_classifies_vidstack_over_hls():
 
 def test_miruro_pipeline_path_agrees():
     # The full production build_template path must agree with detect().
-    for name, wacz in _WACZ.items():
+    for name, wacz in _wacz_paths().items():
         draft = btw.build_template(wacz)
         fam = (draft.get("recognition") or {}).get("player_family")
         assert fam == "vidstack", \

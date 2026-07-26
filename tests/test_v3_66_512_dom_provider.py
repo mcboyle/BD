@@ -14,20 +14,39 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from bulk_downloader import drift_repair as dr
+import pytest
 
-FIX = Path(__file__).resolve().parent / "fixtures" / "vidstack" / "miruro.redacted.wacz"
+from bulk_downloader import drift_repair as dr
+from capture_test_fixtures import capture_fixture_lane
+
+_CAPTURE_FIXTURES = capture_fixture_lane()
 
 # www.miruro.tv DOM: 'a' matches (working), 'button' matches 0 (broken).
 CFG = {"start_url": "https://www.miruro.tv/",
        "trigger_selector": "a", "dl_selector": "button"}
 
 
+def _fixture():
+    if not _CAPTURE_FIXTURES.enabled:
+        pytest.skip("vidstack capture artifact not enabled")
+    fixture = (
+        _CAPTURE_FIXTURES.root / "tests" / "fixtures" / "vidstack"
+        / "miruro.redacted.wacz"
+    )
+    if not fixture.is_file():
+        pytest.skip(
+            "vidstack capture artifact not present under "
+            f"{_CAPTURE_FIXTURES.env_name}: {fixture.name}"
+        )
+    return fixture
+
+
 def _captures_root():
+    fixture = _fixture()
     root = Path(tempfile.mkdtemp(prefix="dompv_"))
     capdir = root / "captures"
     capdir.mkdir(parents=True)
-    shutil.copy(FIX, capdir / FIX.name)
+    shutil.copy(fixture, capdir / fixture.name)
     return root
 
 

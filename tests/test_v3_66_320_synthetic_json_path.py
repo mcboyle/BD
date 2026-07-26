@@ -20,21 +20,42 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
+
 # repo root = <root>/tests/this_file.py -> parents[1]
 _ROOT = Path(__file__).resolve().parent.parent
-_FIX = _ROOT / "fixtures"
 
 import sys
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from bulk_downloader import synthetic_tests as st  # noqa: E402
+from capture_test_fixtures import capture_fixture_lane  # noqa: E402
 
 # s_cfg the HTML fixtures need (title comes from the run cfg, not the .har)
 _S_CFG = {
     "fixturesite2_scene": {"title_selector": "title"},
     "fixturesite2_infinite": {"title_selector": "title"},
 }
+_CAPTURE_FIXTURES = capture_fixture_lane()
+
+
+def _fixture_root():
+    if not _CAPTURE_FIXTURES.enabled:
+        pytest.skip("synthetic HAR capture artifacts not enabled")
+    root = _CAPTURE_FIXTURES.root / "fixtures"
+    required = [
+        root / site / filename
+        for site in _S_CFG | {"fixturesite2_api": {}, "fixturesite2_spa": {}}
+        for filename in ("canary.har", "canary.assertions.json")
+    ]
+    missing = [str(path.relative_to(root)) for path in required if not path.is_file()]
+    if missing:
+        pytest.skip(
+            "synthetic HAR capture artifacts not present under "
+            f"{_CAPTURE_FIXTURES.env_name}: {', '.join(missing)}"
+        )
+    return root
 
 
 def _have_lxml():
@@ -78,8 +99,9 @@ def test_json_path_evaluator_unresolved_raises():
 def test_run_fixture_json_path_populates_extracted_and_passes():
     if not _have_lxml():
         return  # selector dep is for HTML; JSON path is dep-free, but keep parity
-    har = _FIX / "fixturesite2_api" / "canary.har"
-    ass = _FIX / "fixturesite2_api" / "canary.assertions.json"
+    root = _fixture_root()
+    har = root / "fixturesite2_api" / "canary.har"
+    ass = root / "fixturesite2_api" / "canary.assertions.json"
     r = st.run_fixture(har, ass, site_cfg=None)
     ex = r.get("extracted") or {}
     # json_path resolved the three keys off the JSON body
@@ -92,7 +114,8 @@ def test_run_fixture_json_path_populates_extracted_and_passes():
 
 def test_run_fixture_json_path_drift_flags_not_ok():
     # an assertions file whose json_path no longer resolves must yield ok=False
-    har = _FIX / "fixturesite2_api" / "canary.har"
+    root = _fixture_root()
+    har = root / "fixturesite2_api" / "canary.har"
     broken = {
         "json_path": {"gone": "items[*].does_not_exist"},
         "expects": {"gone_count": 10},
@@ -108,7 +131,7 @@ def test_run_fixture_json_path_drift_flags_not_ok():
 def test_run_all_accepts_root_kwarg_and_passes_all():
     if not _have_lxml():
         return
-    res = st.run_all(root=_FIX, s_cfg=_S_CFG)
+    res = st.run_all(root=_fixture_root(), s_cfg=_S_CFG)
     assert res["total"] == 4, res
     assert res["failed"] == 0, res
     assert res["passed"] == res["total"], res
@@ -121,5 +144,5 @@ def test_run_all_root_drift_detected():
         return
     bad_cfg = dict(_S_CFG)
     bad_cfg["fixturesite2_scene"] = {"title_selector": ".gone-xyz-not-in-dom"}
-    res = st.run_all(root=_FIX, s_cfg=bad_cfg)
+    res = st.run_all(root=_fixture_root(), s_cfg=bad_cfg)
     assert res["failed"] >= 1, res

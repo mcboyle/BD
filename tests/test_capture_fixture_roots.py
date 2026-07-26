@@ -19,6 +19,9 @@ _CAPTURE_MODULES = (
     "test_v3_66_89_offline_capture_ingest.py",
     "test_v3_66_101_cockpit_wave3.py",
     "test_v3_66_249_aylo_api_recognizer.py",
+    "test_v3_66_318_vidstack_over_hls.py",
+    "test_v3_66_320_synthetic_json_path.py",
+    "test_v3_66_512_dom_provider.py",
 )
 
 
