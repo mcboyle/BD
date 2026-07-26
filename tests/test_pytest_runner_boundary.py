@@ -1,0 +1,175 @@
+"""Regression tests for the custom runner's boundary with real pytest.
+
+Every probe runs in a child interpreter so a broken runner cannot replace the
+pytest module that is executing this test file.
+"""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import subprocess
+import sys
+import textwrap
+
+
+REPO = Path(__file__).resolve().parent.parent
+
+
+def _python(source: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-c", textwrap.dedent(source)],
+        cwd=REPO,
+        env={**os.environ, "BD_DISABLE_KEEPALIVE": "1"},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+
+def _assert_ok(result: subprocess.CompletedProcess[str]) -> None:
+    assert result.returncode == 0, (
+        f"child exited {result.returncode}\n"
+        f"stdout:\n{result.stdout}\n"
+        f"stderr:\n{result.stderr}"
+    )
+
+
+def test_importing_runner_modules_preserves_real_pytest_identity():
+    result = _python(
+        """
+        import sys
+        import pytest
+
+        real_pytest = pytest
+        import run_tests
+
+        assert sys.modules["pytest"] is real_pytest
+        assert pytest is real_pytest
+        import run_tests_core
+        """
+    )
+    _assert_ok(result)
+
+
+def test_explicit_activation_refuses_loaded_real_pytest_without_mutation():
+    result = _python(
+        """
+        import sys
+        import pytest
+        import run_tests_core
+
+        real_pytest = pytest
+        try:
+            with run_tests_core.activated_pytest_stub():
+                raise AssertionError("activation unexpectedly entered")
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("activation accepted real pytest")
+        assert sys.modules["pytest"] is real_pytest
+        """
+    )
+    _assert_ok(result)
+
+
+def test_explicit_activation_is_nestable_and_restores_an_absent_binding():
+    result = _python(
+        """
+        import sys
+        import run_tests_core
+
+        prior = sys.modules.pop("pytest", None)
+        try:
+            with run_tests_core.activated_pytest_stub() as outer:
+                assert sys.modules["pytest"] is outer
+                with run_tests_core.activated_pytest_stub() as inner:
+                    assert inner is outer
+                    assert sys.modules["pytest"] is outer
+                assert sys.modules["pytest"] is outer
+            assert "pytest" not in sys.modules
+        finally:
+            if prior is not None:
+                sys.modules["pytest"] = prior
+        """
+    )
+    _assert_ok(result)
+
+
+def test_standalone_entrypoint_scopes_stub_on_normal_return():
+    result = _python(
+        """
+        import runpy
+        import sys
+        import run_tests_core
+
+        prior = sys.modules.pop("pytest", None)
+        try:
+            def main():
+                assert isinstance(sys.modules.get("pytest"),
+                                  run_tests_core._PytestStub)
+            run_tests_core.main = main
+            runpy.run_path("run_tests.py", run_name="__main__")
+            assert "pytest" not in sys.modules
+        finally:
+            if prior is not None:
+                sys.modules["pytest"] = prior
+        """
+    )
+    _assert_ok(result)
+
+
+def test_standalone_entrypoint_restores_binding_on_exception():
+    result = _python(
+        """
+        import runpy
+        import sys
+        import run_tests_core
+
+        class Boom(Exception):
+            pass
+
+        prior = sys.modules.pop("pytest", None)
+        try:
+            def main():
+                assert isinstance(sys.modules.get("pytest"),
+                                  run_tests_core._PytestStub)
+                raise Boom("expected")
+            run_tests_core.main = main
+            try:
+                runpy.run_path("run_tests.py", run_name="__main__")
+            except Boom:
+                pass
+            else:
+                raise AssertionError("entrypoint swallowed exception")
+            assert "pytest" not in sys.modules
+        finally:
+            if prior is not None:
+                sys.modules["pytest"] = prior
+        """
+    )
+    _assert_ok(result)
+
+
+def test_contract_and_budget_pair_collects_with_real_pytest():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "--collect-only",
+            "-q",
+            "tests/test_contracts.py",
+            "tests/test_c4_timeout_budget.py",
+        ],
+        cwd=REPO,
+        env={**os.environ, "BD_DISABLE_KEEPALIVE": "1"},
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, (
+        f"collection exited {result.returncode}\n"
+        f"stdout:\n{result.stdout}\n"
+        f"stderr:\n{result.stderr}"
+    )
+    assert "error during collection" not in result.stdout.lower()

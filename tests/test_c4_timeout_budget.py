@@ -9,7 +9,7 @@ visible long before it hits the hard kill. It never changes pass/fail.
 The budget math is a pure helper (_files_over_budget) tested directly here.
 RED on pristine 3.66.618: run_tests has no _files_over_budget / _FILE_BUDGET_S.
 """
-import run_tests
+import run_tests_core as run_tests
 
 
 def test_helper_exists():
