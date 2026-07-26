@@ -68,6 +68,24 @@ suppress annotation-position/DI/`in globals()` hits via `bd-triage`), cross-chec
 against the import graph for a true missing binding. The 1 true positive of 31 was
 F0001. **Sev:** medium–high (crash on the untested path).
 
+#### Semantic evaluator-parentage correction — post-v3.66.818
+
+v3.66.818 shipped with an explicitly documented analyzer limitation: syntactic
+AST-parent lookup could leak a comprehension target into a lambda created in
+that comprehension's leftmost iterator. Python evaluates the iterator before
+the comprehension scope exists, so the lambda raises `NameError`; the scanner
+incorrectly treated the target as bound and emitted no DP-06 candidate.
+
+The correction keeps syntactic parents for AST traversal but derives a separate
+semantic parent map for scope-body name resolution from each scope's runtime
+evaluator context. The RED-first Stash regression now emits exactly one
+non-error DP-06 candidate for the undefined target, while the valid inherited
+first-iterator lambda-default lookup remains silent.
+
+Product runtime impact: none. This correction affects the development scanner,
+not BulkDownloader runtime behavior. The v3.66.818 release deferral remains part
+of the historical record; it did not waive the requirement to repair DP-06.
+
 ---
 
 ## P-class — secrets / redaction
