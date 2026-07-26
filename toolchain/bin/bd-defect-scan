@@ -44,6 +44,15 @@ def _find(dp, sev, prec, line, title, snippet=""):
             "title": title, "snippet": snippet[:120]}
 
 
+def _scope_nodes(node):
+    """Yield nodes owned by a scope, excluding nested scopes."""
+    yield node
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            continue
+        yield from _scope_nodes(child)
+
+
 # DP-01 -- get_json(silent=True) or {} then .get without isinstance dict guard
 def dp01(path, src, tree):
     out = []
@@ -92,29 +101,35 @@ def dp03(path, src, tree):
         return out
     for fn in [n for n in ast.walk(tree)
                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
-        floated = {}
-        for node in ast.walk(fn):
+        nodes = list(_scope_nodes(fn))
+        floated = []
+        for node in nodes:
             if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call) \
                     and isinstance(node.value.func, ast.Name) and node.value.func.id == "float" \
                     and node.targets and isinstance(node.targets[0], ast.Name):
-                floated[node.targets[0].id] = node.lineno
+                floated.append((node.targets[0].id, node.lineno))
         if not floated:
             continue
-        has_isfinite = any(
-            isinstance(n, ast.Call) and (
-                (isinstance(n.func, ast.Attribute) and n.func.attr in ("isfinite", "isnan", "isinf"))
-                or (isinstance(n.func, ast.Name) and n.func.id in ("isfinite", "isnan", "isinf")))
-            for n in ast.walk(fn))
-        cmped = set()
-        for node in ast.walk(fn):
-            if isinstance(node, ast.Compare):
-                for sub in [node.left, *node.comparators]:
-                    if isinstance(sub, ast.Name) and sub.id in floated:
-                        cmped.add(sub.id)
-        for name in sorted(cmped):
-            if not has_isfinite:
-                out.append(_find("DP-03", "medium", HIGH, floated[name],
-                                 f"float({name}) feeds a bounds check with no math.isfinite guard (NaN/inf evades)"))
+        for name, converted_line in floated:
+            comparisons = [node for node in nodes if isinstance(node, ast.Compare)
+                           and node.lineno > converted_line
+                           and any(isinstance(op, (ast.Lt, ast.LtE, ast.Gt, ast.GtE))
+                                   for op in node.ops)
+                           and any(isinstance(sub, ast.Name) and sub.id == name
+                                   for sub in [node.left, *node.comparators])]
+            for comparison in comparisons:
+                guarded = any(
+                    isinstance(node, ast.Call) and node.lineno < comparison.lineno
+                    and ((isinstance(node.func, ast.Attribute)
+                          and node.func.attr in ("isfinite", "isnan", "isinf"))
+                         or (isinstance(node.func, ast.Name)
+                             and node.func.id in ("isfinite", "isnan", "isinf")))
+                    and any(isinstance(arg, ast.Name) and arg.id == name for arg in node.args)
+                    for node in nodes)
+                if not guarded:
+                    out.append(_find("DP-03", "medium", HIGH, converted_line,
+                                     f"float({name}) feeds a bounds check with no math.isfinite guard (NaN/inf evades)"))
+                    break
     return out
 
 
@@ -203,25 +218,35 @@ def dp08(path, src, tree):
     out = []
     if tree is None or not REDACT_NAME.search(path) and "redact" not in src.lower():
         # only meaningful where redaction keyword sets live
-        pass
+        return out
     kw_sets = {}
-    for node in ast.walk(tree) if tree else []:
+    for node in tree.body:
         if isinstance(node, ast.Assign) and node.targets \
                 and isinstance(node.targets[0], ast.Name) \
                 and re.search(r"SECRET|KV.*KEY|KEYWORD", node.targets[0].id, re.I):
             members = _literal_str_set(node.value)
-            if members is not None:
-                kw_sets[node.targets[0].id] = (members, node.lineno)
+            surface = _redaction_surface(node.targets[0].id)
+            if members is not None and surface is not None:
+                kw_sets[node.targets[0].id] = (members, node.lineno, surface)
     names = sorted(kw_sets)
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
-            a, la = kw_sets[names[i]]
-            b, lb = kw_sets[names[j]]
-            if a != b and (a & b):  # overlapping but not equal -> divergence
+            a, la, surface_a = kw_sets[names[i]]
+            b, lb, surface_b = kw_sets[names[j]]
+            if surface_a != surface_b and a != b and (a & b):
                 missing = (a | b) - (a & b)
                 out.append(_find("DP-08", "medium", HIGH, lb,
                                  f"secret-keyword sets {names[i]} vs {names[j]} diverge (missing in one: {sorted(missing)[:5]})"))
     return out
+
+
+def _redaction_surface(name):
+    upper = name.upper()
+    if "QUERY" in upper or "URL" in upper:
+        return "query"
+    if any(token in upper for token in ("KV", "BARE", "FRAGMENT")):
+        return "kv"
+    return None
 
 
 def _literal_str_set(node):
@@ -260,6 +285,13 @@ def dp09(path, src, tree):
 
 
 # DP-10 -- f-string SQL with an UNGUARDED interpolated identifier
+def _joinedstr_skeleton(node):
+    return "".join(
+        part.value if isinstance(part, ast.Constant) and isinstance(part.value, str)
+        else "__BD_EXPR__" if isinstance(part, ast.FormattedValue) else ""
+        for part in node.values)
+
+
 def _interpolated_names(joinedstr):
     names = set()
     for p in joinedstr.values:
@@ -273,7 +305,7 @@ def _interpolated_names(joinedstr):
 def _allowlisted_names(fn_node):
     """Names membership-tested against a set/frozenset/collection -> allowlisted."""
     guarded = set()
-    for n in ast.walk(fn_node):
+    for n in _scope_nodes(fn_node):
         if isinstance(n, ast.Compare) and any(
                 isinstance(op, (ast.In, ast.NotIn)) for op in n.ops):
             if isinstance(n.left, ast.Name):
@@ -290,18 +322,28 @@ def dp10(path, src, tree):
            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
     for fn in fns:
         guarded = _allowlisted_names(fn)
-        for node in ast.walk(fn):
+        for node in _scope_nodes(fn):
             if isinstance(node, ast.JoinedStr):
-                txt = "".join(p.value for p in node.values
-                              if isinstance(p, ast.Constant) and isinstance(p.value, str))
-                if re.search(r"\b(FROM|INTO|UPDATE|TABLE|JOIN)\b", txt, re.I) and any(
-                        isinstance(p, ast.FormattedValue) for p in node.values):
-                    names = _interpolated_names(node)
-                    if names and names <= guarded:
+                skeleton = _joinedstr_skeleton(node)
+                if not re.search(r"\b(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b",
+                                 skeleton, re.I):
+                    continue
+                names = set()
+                offset = 0
+                for part in node.values:
+                    if isinstance(part, ast.FormattedValue):
+                        if re.search(r"\b(FROM|INTO|UPDATE|TABLE|JOIN)\b\s*$",
+                                     skeleton[:offset], re.I):
+                            names.update(_interpolated_names(ast.JoinedStr(values=[part])))
+                        offset += len("__BD_EXPR__")
+                    elif isinstance(part, ast.Constant) and isinstance(part.value, str):
+                        offset += len(part.value)
+                if names:
+                    if names <= guarded:
                         continue  # every interpolated id is allowlist-checked -> mitigated
                     out.append(_find("DP-10", "medium", HIGH, node.lineno,
                                      "f-string SQL with unguarded interpolated identifier (whitelist the table/column)",
-                                     txt.strip()))
+                                     skeleton.strip()))
     return out
 
 
