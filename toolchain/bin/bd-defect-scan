@@ -326,6 +326,14 @@ def _expression_evaluation_contexts(scopes, parents):
     return contexts
 
 
+def _semantic_scope_parents(scopes, syntactic_parents, expression_contexts):
+    """Return the runtime lexical parent for each scope body."""
+    return {
+        scope: expression_contexts.get(id(scope), syntactic_parents[scope])
+        for scope in scopes
+    }
+
+
 def _lexically_bound(name, scope, module, parents, bindings, globals_, nonlocals, builtins):
     """Resolve a name through its lexical parents, honoring global/nonlocal."""
     if name in builtins:
@@ -353,7 +361,7 @@ def dp06(path, src, tree):
     out = []
     if tree is None:
         return out
-    scopes, parents = _lexical_scopes(tree)
+    scopes, syntactic_parents = _lexical_scopes(tree)
     module = tree
     bindings = {}
     globals_ = {}
@@ -363,7 +371,10 @@ def dp06(path, src, tree):
         bindings[scope] = local
         globals_[scope] = declared_global
         nonlocals[scope] = declared_nonlocal
-    expression_contexts = _expression_evaluation_contexts(scopes, parents)
+    expression_contexts = _expression_evaluation_contexts(scopes, syntactic_parents)
+    semantic_parents = _semantic_scope_parents(
+        scopes, syntactic_parents, expression_contexts
+    )
     for scope in scopes:
         if scope is module:
             continue
@@ -379,8 +390,9 @@ def dp06(path, src, tree):
                     and isinstance(node.args[0], ast.Name):
                 name = node.args[0].id
                 resolution_scope = expression_contexts.get(id(node), scope)
-                if not _lexically_bound(name, resolution_scope, module, parents, bindings,
-                                        globals_, nonlocals, builtins):
+                if not _lexically_bound(
+                        name, resolution_scope, module, semantic_parents, bindings,
+                        globals_, nonlocals, builtins):
                     out.append(_find(
                         "DP-06", "medium", TRIAGE, node.lineno,
                         f"hasattr/getattr on possibly-undefined name '{name}' (NameError not caught)"))

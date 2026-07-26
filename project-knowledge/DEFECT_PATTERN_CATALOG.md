@@ -68,30 +68,23 @@ suppress annotation-position/DI/`in globals()` hits via `bd-triage`), cross-chec
 against the import graph for a true missing binding. The 1 true positive of 31 was
 F0001. **Sev:** medium–high (crash on the untested path).
 
-#### Deferred analyzer limitation — v3.66.818
+#### Semantic evaluator-parentage correction — post-v3.66.818
 
-The lexical DP-06 analyzer still has a semantic-parentage defect: syntactic
-AST-parent lookup can leak lambda/comprehension bindings into an expression's
-runtime evaluator scope and suppress a real undefined-name finding. The exact
-nested lambda/comprehension fixture reproduces as `NameError` on Stash with
-Python 3.12.3.
+v3.66.818 shipped with an explicitly documented analyzer limitation: syntactic
+AST-parent lookup could leak a comprehension target into a lambda created in
+that comprehension's leftmost iterator. Python evaluates the iterator before
+the comprehension scope exists, so the lambda raises `NameError`; the scanner
+incorrectly treated the target as bound and emitted no DP-06 candidate.
 
-Product runtime impact: none known. This affects the development scanner, not
-BulkDownloader runtime behavior. Gate impact: DP-06 is not corpus-gated, so
-the detector self-check and defect-total ratchet can remain green while this
-candidate is missed.
+The correction keeps syntactic parents for AST traversal but derives a separate
+semantic parent map for scope-body name resolution from each scope's runtime
+evaluator context. The RED-first Stash regression now emits exactly one
+non-error DP-06 candidate for the undefined target, while the valid inherited
+first-iterator lambda-default lookup remains silent.
 
-Release disposition: the operator explicitly approved cutting and transferring
-v3.66.818 before this analyzer limitation is fixed. This is a release-specific
-deferral, not acceptance of the DP-06 precision work.
-
-Acceptance: add a RED-first regression in
-`tests/test_defect_scan_precision.py` for the Stash fixture which executes to
-`NameError`, emits exactly one non-error DP-06 candidate at the isolated nested
-evaluator reference, and remains silent for the valid inherited
-first-iterator/default lookup. Replace syntactic-parent context selection with
-semantic evaluator-parentage, then run focused DP-06 tests and the release
-ratchet/gates.
+Product runtime impact: none. This correction affects the development scanner,
+not BulkDownloader runtime behavior. The v3.66.818 release deferral remains part
+of the historical record; it did not waive the requirement to repair DP-06.
 
 ---
 

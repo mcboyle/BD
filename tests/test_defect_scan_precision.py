@@ -274,6 +274,27 @@ class Container:
     _assert_one_dp06_candidate(scanner, "lambda_body.py", source)
 
 
+def test_dp06_lambda_in_first_iterator_does_not_inherit_comprehension_target(scanner):
+    source = '''\
+class Container:
+    values = [
+        item
+        for item in (lambda: getattr(item, "items", []))()
+    ]
+'''
+
+    with pytest.raises(NameError):
+        exec(source, {})
+    findings = scanner.scan_file(
+        "lambda_first_iterator_parentage.py", source, only={"DP-06"}
+    )
+
+    assert len(findings) == 1
+    assert findings[0]["dp"] == "DP-06"
+    assert findings[0]["precision"] != "error"
+    assert "'item'" in findings[0]["title"]
+
+
 def test_dp06_nested_comprehension_in_lambda_default_preserves_boundaries(scanner):
     source = '''\
 class Container:
