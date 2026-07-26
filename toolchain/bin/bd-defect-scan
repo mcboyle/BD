@@ -146,36 +146,165 @@ def dp04(path, src, tree):
     return out  # folded into DP-03; kept as a no-op placeholder for catalog completeness
 
 
-# DP-06 -- bare undefined name reached at runtime (module-level resolution)
+# DP-06 -- bare undefined name reached at runtime (lexical resolution)
+_LEXICAL_SCOPE_TYPES = (
+    ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda,
+    ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp,
+)
+
+
+def _lexical_scope_nodes(node):
+    """Yield nodes owned by one lexical scope, excluding child scopes."""
+    yield node
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, _LEXICAL_SCOPE_TYPES):
+            continue
+        yield from _lexical_scope_nodes(child)
+
+
+def _target_names(target):
+    """Return the names bound by one assignment-like target."""
+    if isinstance(target, ast.Name):
+        return {target.id}
+    if isinstance(target, (ast.Tuple, ast.List)):
+        names = set()
+        for item in target.elts:
+            names.update(_target_names(item))
+        return names
+    if isinstance(target, ast.Starred):
+        return _target_names(target.value)
+    return set()
+
+
+def _function_argument_names(scope):
+    if not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        return set()
+    arguments = scope.args
+    names = {arg.arg for arg in (*arguments.posonlyargs, *arguments.args,
+                                 *arguments.kwonlyargs)}
+    if arguments.vararg is not None:
+        names.add(arguments.vararg.arg)
+    if arguments.kwarg is not None:
+        names.add(arguments.kwarg.arg)
+    return names
+
+
+def _owned_bindings(scope):
+    """Collect bindings and declarations owned by exactly one lexical scope."""
+    bindings = _function_argument_names(scope)
+    globals_ = set()
+    nonlocals = set()
+
+    def visit(node, root=False):
+        if not root and isinstance(node, _LEXICAL_SCOPE_TYPES):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                bindings.add(node.name)
+            return
+        if isinstance(node, ast.Global):
+            globals_.update(node.names)
+        elif isinstance(node, ast.Nonlocal):
+            nonlocals.update(node.names)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                bindings.add((alias.asname or alias.name).split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                bindings.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                bindings.update(_target_names(target))
+        elif isinstance(node, ast.AnnAssign):
+            bindings.update(_target_names(node.target))
+        elif isinstance(node, ast.AugAssign):
+            bindings.update(_target_names(node.target))
+        elif isinstance(node, ast.NamedExpr):
+            bindings.update(_target_names(node.target))
+        elif isinstance(node, (ast.For, ast.AsyncFor)):
+            bindings.update(_target_names(node.target))
+        elif isinstance(node, ast.comprehension):
+            bindings.update(_target_names(node.target))
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            for item in node.items:
+                if item.optional_vars is not None:
+                    bindings.update(_target_names(item.optional_vars))
+        elif isinstance(node, ast.ExceptHandler) and isinstance(node.name, str):
+            bindings.add(node.name)
+        for child in ast.iter_child_nodes(node):
+            visit(child)
+
+    visit(scope, root=True)
+    return bindings, globals_, nonlocals
+
+
+def _lexical_scopes(tree):
+    """Return every scope and its parent without treating siblings as parents."""
+    scopes = [tree]
+    parents = {tree: None}
+
+    def visit(node, current, root=False):
+        if not root and isinstance(node, _LEXICAL_SCOPE_TYPES):
+            parents[node] = current
+            scopes.append(node)
+            current = node
+        for child in ast.iter_child_nodes(node):
+            visit(child, current)
+
+    visit(tree, tree, root=True)
+    return scopes, parents
+
+
+def _lexically_bound(name, scope, module, parents, bindings, globals_, nonlocals, builtins):
+    """Resolve a name through its lexical parents, honoring global/nonlocal."""
+    if name in builtins:
+        return True
+    current = scope
+    while current is not None:
+        if current is not module and name in globals_[current]:
+            current = module
+            continue
+        if current is not module and name in nonlocals[current]:
+            current = parents[current]
+            continue
+        if name in bindings[current]:
+            return True
+        current = parents[current]
+    return False
+
+
 def dp06(path, src, tree):
     out = []
     if tree is None:
         return out
-    bound = set(dir(__builtins__) if isinstance(__builtins__, type)
-                else vars(__builtins__).keys())
-    # module-level defs/imports/assigns
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            bound.add(node.name)
-        elif isinstance(node, ast.Import):
-            for a in node.names:
-                bound.add((a.asname or a.name).split(".")[0])
-        elif isinstance(node, ast.ImportFrom):
-            for a in node.names:
-                bound.add(a.asname or a.name)
-        elif isinstance(node, ast.Assign):
-            for t in node.targets:
-                if isinstance(t, ast.Name):
-                    bound.add(t.id)
-    # only flag names used in hasattr/getattr(<bare>, ...) -- the F0001 shape
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
-                and node.func.id in ("hasattr", "getattr") and node.args \
-                and isinstance(node.args[0], ast.Name):
-            nm = node.args[0].id
-            if nm not in bound and nm not in ("self", "cls"):
-                out.append(_find("DP-06", "medium", TRIAGE, node.lineno,
-                                 f"hasattr/getattr on possibly-undefined name '{nm}' (NameError not caught)"))
+    scopes, parents = _lexical_scopes(tree)
+    module = tree
+    bindings = {}
+    globals_ = {}
+    nonlocals = {}
+    for scope in scopes:
+        local, declared_global, declared_nonlocal = _owned_bindings(scope)
+        bindings[scope] = local
+        globals_[scope] = declared_global
+        nonlocals[scope] = declared_nonlocal
+    for scope in scopes:
+        if scope is module:
+            continue
+        bindings[module].update(bindings[scope] & globals_[scope])
+        bindings[scope].difference_update(globals_[scope] | nonlocals[scope])
+    builtin_source = __builtins__
+    builtins = set(builtin_source if isinstance(builtin_source, dict)
+                   else vars(builtin_source))
+    # Only flag names used in hasattr/getattr(<bare>, ...) -- the F0001 shape.
+    for scope in scopes:
+        for node in _lexical_scope_nodes(scope):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
+                    and node.func.id in ("hasattr", "getattr") and node.args \
+                    and isinstance(node.args[0], ast.Name):
+                name = node.args[0].id
+                if not _lexically_bound(name, scope, module, parents, bindings,
+                                        globals_, nonlocals, builtins):
+                    out.append(_find(
+                        "DP-06", "medium", TRIAGE, node.lineno,
+                        f"hasattr/getattr on possibly-undefined name '{name}' (NameError not caught)"))
     return out
 
 
@@ -388,19 +517,41 @@ def dp12(path, src, tree):
 
 
 # DP-13 -- swallowed-exception cluster (try/except: log/pass)
+_LOG_METHODS = {"debug", "info", "warning", "warn", "error", "exception", "critical"}
+
+
+def _is_logging_expression(statement):
+    if not (isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call)):
+        return False
+    func = statement.value.func
+    if not (isinstance(func, ast.Attribute) and func.attr in _LOG_METHODS):
+        return False
+    receiver = func.value
+    receiver_name = receiver.id if isinstance(receiver, ast.Name) else (
+        receiver.attr if isinstance(receiver, ast.Attribute) else "")
+    return receiver_name in {"logging", "log", "logger", "_logger"} or \
+        receiver_name.endswith("logger")
+
+
+def _try_else_returns_or_raises(node):
+    return any(isinstance(statement, (ast.Return, ast.Raise)) for statement in node.orelse)
+
+
 def dp13(path, src, tree):
     out = []
     if tree is None:
         return out
     for node in ast.walk(tree):
-        if isinstance(node, ast.ExceptHandler):
-            body = node.body
-            only_passlog = all(
-                isinstance(s, ast.Pass)
-                or (isinstance(s, ast.Expr) and isinstance(s.value, ast.Call))
-                for s in body) and body
-            if only_passlog:
-                out.append(_find("DP-13", "medium", TRIAGE, node.lineno,
+        if not isinstance(node, ast.Try):
+            continue
+        for handler in node.handlers:
+            body = handler.body
+            pass_only = body and all(isinstance(statement, ast.Pass) for statement in body)
+            only_passlog = body and all(
+                isinstance(statement, ast.Pass) or _is_logging_expression(statement)
+                for statement in body)
+            if only_passlog and not (pass_only and _try_else_returns_or_raises(node)):
+                out.append(_find("DP-13", "medium", TRIAGE, handler.lineno,
                                  "exception swallowed (pass/log only) -- dead feature if body always raises"))
     return out[:200]
 

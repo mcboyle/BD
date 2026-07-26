@@ -78,3 +78,67 @@ def query(connection, table):
 """
 
     assert scanner.scan_file("query.py", source, only={"DP-10"}) == []
+
+
+@pytest.mark.parametrize("relative", [
+    "tools/code_intelligence/fuzz_service.py",
+    "tools/code_intelligence/oracle_adapters.py",
+    "tools/code_intelligence/reachability_service.py",
+    "tools/code_intelligence/semantic_service.py",
+])
+def test_dp06_resolves_actual_file_lexical_bindings(scanner, relative):
+    assert _hits(scanner, relative, "DP-06") == []
+
+
+def test_dp06_reports_an_unbound_getattr_receiver(scanner):
+    source = '''\
+def broken():
+    return getattr(missing_name, "value", None)
+'''
+
+    assert len(scanner.scan_file("broken.py", source, only={"DP-06"})) == 1
+
+
+def test_dp06_does_not_treat_a_sibling_binding_as_lexical(scanner):
+    source = '''\
+def sibling():
+    missing_name = object()
+    return missing_name
+
+def broken():
+    return getattr(missing_name, "value", None)
+'''
+
+    assert len(scanner.scan_file("siblings.py", source, only={"DP-06"})) == 1
+
+
+@pytest.mark.parametrize(("relative", "recovery_lines"), [
+    pytest.param("tools/code_intelligence/fuzz_adapters.py", (63,), id="fuzz-adapters"),
+    pytest.param("tools/code_intelligence/fuzz_service.py", (258, 311), id="fuzz-service"),
+    pytest.param("tools/code_intelligence/oracle_service.py", (141,), id="oracle-service"),
+    pytest.param("tools/code_intelligence/reachability_service.py", (675,), id="reachability-service"),
+    pytest.param("tools/code_intelligence/schemas.py", (995,), id="schemas"),
+    pytest.param("tools/graph_build.py", (1166,), id="graph-build"),
+])
+def test_dp13_ignores_actual_handlers_with_recovery_actions(scanner, relative, recovery_lines):
+    hit_lines = {hit["line"] for hit in _hits(scanner, relative, "DP-13")}
+
+    assert hit_lines.isdisjoint(recovery_lines)
+
+
+@pytest.mark.parametrize("source", [
+    '''\
+try:
+    feature()
+except Exception:
+    pass
+''',
+    '''\
+try:
+    feature()
+except Exception:
+    logger.exception("feature failed")
+''',
+])
+def test_dp13_keeps_pass_and_logger_only_handlers_as_candidates(scanner, source):
+    assert len(scanner.scan_file("handler.py", source, only={"DP-13"})) == 1
