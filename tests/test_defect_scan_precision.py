@@ -170,6 +170,19 @@ class Container:
     assert findings == []
 
 
+def test_dp06_nested_class_comprehension_iterator_uses_class_scope(scanner):
+    source = '''\
+class Container:
+    missing_name = []
+    values = [item for item in [nested for nested in getattr(missing_name, "items", [])]]
+'''
+
+    findings = scanner.scan_file("nested_class_comprehension.py", source, only={"DP-06"})
+
+    assert not any(finding["precision"] == "error" for finding in findings)
+    assert findings == []
+
+
 @pytest.mark.parametrize(("relative", "recovery_lines"), [
     pytest.param("tools/code_intelligence/fuzz_adapters.py", (63,), id="fuzz-adapters"),
     pytest.param("tools/code_intelligence/fuzz_service.py", (258, 311), id="fuzz-service"),
