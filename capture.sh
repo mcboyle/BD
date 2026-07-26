@@ -12,7 +12,7 @@
 #   - step [7] probe `sse_smoke` corrected to `sse_status` — `sse_smoke` is
 #     not a registered route, so it returned {"error":"endpoint not found"}
 #     on every run; the real dev SSE diagnostic is /api/dev/sse_status
-#   - --workers=N is now parsed and forwarded to step [2] run_tests.py
+#   - --workers=N is parsed and forwarded to real pytest via pytest-xdist
 #     (was hardcoded --workers=4, so `./capture.sh --workers=90` was a no-op);
 #     unknown args (e.g. a bare --summary) are accepted and ignored
 #   - private capture fixtures remain opt-in. Callers can export the absolute
@@ -46,7 +46,7 @@ ARCHIVE="/tmp/bd_capture.tar.gz"
 # ── Arg parsing ──────────────────────────────────────────────────
 # Before this edit capture.sh ignored ALL args, so `./capture.sh
 # --workers=90` silently ran the hardcoded --workers=4. Now --workers
-# is forwarded to step [2]'s run_tests.py. Unknown flags (e.g. a bare
+# is forwarded to step [2]'s pytest-xdist run. Unknown flags (e.g. a bare
 # --summary) are accepted and ignored for backward compatibility.
 WORKERS=4
 while [ $# -gt 0 ]; do
@@ -138,6 +138,18 @@ then
   exit 2
 fi
 
+# The Flask root and real-browser tests require the built SPA, and packaging
+# declares this directory as required runtime data. A clean source checkout
+# intentionally ignores frontend/dist, so fail before stopping services or
+# running thousands of tests with misleading 503s. Build it explicitly from
+# the checked-in lockfile first: `(cd frontend && npm ci && npm run build)`.
+if [ ! -f "$BD_HOME/frontend/dist/index.html" ]; then
+  echo "FATAL: frontend/dist/index.html is missing." >&2
+  echo "Build the SPA before capture:" >&2
+  echo "  (cd \"$BD_HOME/frontend\" && npm ci && npm run build)" >&2
+  exit 2
+fi
+
 rm -rf "$OUT" "$ARCHIVE"
 mkdir -p "$OUT"
 
@@ -187,12 +199,41 @@ else
 fi
 echo "  service stop request exit=$STOP_REQUEST_EXIT; inactive=$((1 - SERVICE_STOP_EXIT))"
 sleep 1
-run_with_heartbeat "full test suite" "$OUT/02_suite_run.log" \
-   env BD_DISABLE_KEEPALIVE=1 venv/bin/python run_tests.py \
-   --workers="$WORKERS" \
-   --summary="$OUT/02_SUMMARY.txt" \
-   --json="$OUT/02_test_results.json"
-SUITE_EXIT=$?
+run_with_heartbeat "parallel-safe pytest lane" "$OUT/02_pytest_parallel.log" \
+   env BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest \
+   -q tests --tb=short \
+   -m capture_parallel \
+   -n "$WORKERS" --dist loadfile \
+   --junitxml="$OUT/02_pytest_parallel.xml"
+PARALLEL_EXIT=$?
+run_with_heartbeat "serial pytest lane" "$OUT/02_pytest_serial.log" \
+   env BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest \
+   -q tests --tb=short \
+   -m capture_serial \
+   -n 0 \
+   --junitxml="$OUT/02_pytest_serial.xml"
+SERIAL_EXIT=$?
+{
+  echo "=== parallel-safe pytest lane (exit=$PARALLEL_EXIT, workers=$WORKERS) ==="
+  cat "$OUT/02_pytest_parallel.log"
+  echo
+  echo "=== serial pytest lane (exit=$SERIAL_EXIT, workers=0) ==="
+  cat "$OUT/02_pytest_serial.log"
+} > "$OUT/02_suite_run.log"
+venv/bin/python tools/pytest_capture_results.py \
+   --junit "$OUT/02_pytest_parallel.xml" \
+   --junit "$OUT/02_pytest_serial.xml" \
+   --json "$OUT/02_test_results.json" \
+   --summary "$OUT/02_SUMMARY.txt" \
+   >> "$OUT/02_suite_run.log" 2>&1
+RESULTS_EXIT=$?
+if [ "$RESULTS_EXIT" -ne 0 ]; then
+  SUITE_EXIT=$RESULTS_EXIT
+elif [ "$PARALLEL_EXIT" -ne 0 ]; then
+  SUITE_EXIT=$PARALLEL_EXIT
+else
+  SUITE_EXIT=$SERIAL_EXIT
+fi
 echo "  --- tail of suite run ---"
 tail -25 "$OUT/02_suite_run.log"
 echo "  Summary written: $OUT/02_SUMMARY.txt"

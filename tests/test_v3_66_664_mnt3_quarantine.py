@@ -17,7 +17,7 @@ coverage is preserved on stash):
 """
 import importlib
 
-rt = importlib.import_module("run_tests")
+rt = importlib.import_module("run_tests_core")
 
 
 # ---- Tier 1: _quarantine_files ----

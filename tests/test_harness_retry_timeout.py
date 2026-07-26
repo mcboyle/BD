@@ -23,11 +23,10 @@ if str(_REPO) not in sys.path:
 
 
 def _load_run_tests(timeout_s):
-    """Import a fresh copy of run_tests with BD_TEST_FILE_TIMEOUT set, so the
-    module-level _FILE_TIMEOUT_S picks it up."""
+    """Fresh-load the core with BD_TEST_FILE_TIMEOUT set for its constants."""
     os.environ["BD_TEST_FILE_TIMEOUT"] = str(timeout_s)
     spec = importlib.util.spec_from_file_location(
-        f"run_tests_t{timeout_s}", _REPO / "run_tests.py")
+        f"run_tests_core_t{timeout_s}", _REPO / "run_tests_core.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -52,7 +51,7 @@ def test_subprocess_runner_times_out_a_wedged_file():
 def test_serial_retry_uses_the_timed_subprocess_path():
     # Static guard: the retry must call _run_one_file_subprocess, never the
     # untimed in-process discover_and_run (the wedge regression).
-    src = (_REPO / "run_tests.py").read_text(encoding="utf-8")
+    src = (_REPO / "run_tests_core.py").read_text(encoding="utf-8")
     start = src.index("def _retry_failures_serial")
     end = src.index("\ndef ", start + 10)
     body = src[start:end]

@@ -3,20 +3,20 @@
 Boots a real BD instance + Chromium and drives the actual UI to catch
 regressions unit tests miss (JS errors, CSP violations, render races).
 
-Run via:
+Run directly via:
   $ pip install playwright
   $ python3 -m playwright install chromium
   $ python3 -m unittest tests.test_e2e_smoke._RealE2ESmoke
 
-The class name starts with `_` so the project's run_tests.py — which
-runs unconditionally on every push — won't pick it up. E2E runs on a
-separate slower job that explicitly invokes the class.
+The canonical pytest suite also collects this class and keeps the file in
+the serial lane.  The class name starts with `_` only for compatibility
+with the legacy project runner, whose narrower discovery contract predates
+the canonical pytest entrypoint.
 
 Common waits use `domcontentloaded` instead of `networkidle` because
 BD's main page keeps SSE streams open continuously and never goes
-idle. We assert on specific DOM markers (#qtb for queue table,
-#cmdp-overlay for command palette, etc) rather than blanket network
-quiet.
+idle. We assert on observable React roles, labels, and rendered shell
+markers rather than blanket network quiet or legacy window globals.
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ import unittest
 
 
 try:
-    from playwright.sync_api import sync_playwright, Page, TimeoutError as PWTimeout
+    from playwright.sync_api import sync_playwright, Page
     _PLAYWRIGHT = True
 except ImportError:
     _PLAYWRIGHT = False
@@ -125,8 +125,8 @@ if not _PLAYWRIGHT:
         "python3 -m playwright install chromium`.")
 
 
-# Underscore prefix → run_tests.py skips automatically; only explicit
-# `python -m unittest tests.test_e2e_smoke._RealE2ESmoke` picks it up.
+# The canonical pytest suite collects this unittest class.  Its underscore
+# prefix only preserves compatibility with the legacy project runner.
 class _RealE2ESmoke(unittest.TestCase):
     """Critical-path smoke tests. Each test should take under 5s on a
     modern machine."""
@@ -156,7 +156,10 @@ class _RealE2ESmoke(unittest.TestCase):
             body = _json.dumps({
                 "name": "E2E Test Site",
                 "max_concurrent": 1, "wait": 2, "delay": 1,
-                "download_dir": cls.harness.install_dir,
+                # Empty means "use the configured default".  Pointing this
+                # at the isolated install root conflicts with the fresh
+                # install's independently seeded download-path allowlist.
+                "download_dir": "",
             }).encode()
             add_req = urllib.request.Request(
                 f"{cls.harness.base_url}/api/sites",
@@ -203,54 +206,23 @@ class _RealE2ESmoke(unittest.TestCase):
         # SSE / lazy-script issues with domcontentloaded.
         self.page.goto(self.harness.base_url,
                        wait_until="commit", timeout=10000)
-        # Wait for the header to be present
-        self.page.wait_for_selector("header", timeout=5000)
-        # Wait until app.js has finished bootstrap (cmdpOpen is defined
-        # AFTER the keyboard listener is bound). This avoids races where
-        # a test fires keys before listeners are wired.
+        # Web-first readiness for the current React shell. The legacy shell
+        # exposed cmdpOpen/swTab globals; the module-bundled SPA intentionally
+        # does not. Wait for its observable root/header contract instead.
+        root = self.page.locator("#root")
+        root.wait_for(state="visible", timeout=5000)
+        header = self.page.locator("header")
+        header.wait_for(state="visible", timeout=5000)
         self.page.wait_for_function(
-            "() => typeof cmdpOpen === 'function' "
-            "&& typeof swTab === 'function'",
+            "() => document.readyState === 'complete' "
+            "&& document.querySelector('#root')?.children.length > 0",
             timeout=5000)
+        self.assertIn("BulkDL", header.inner_text())
 
     def tearDown(self):
         self.page.close()
 
     # ─── critical flows ──────────────────────────────────────────────
-
-    def _select_test_site(self):
-        """Click the e2e test site so #det panel + tabs become visible.
-        Helper for tab/panel tests. Idempotent: safe to call after a
-        site is already selected.
-
-        Sites are populated async via /api/status polling, so we may
-        need to wait a few seconds after page load before the row
-        appears. We trigger an immediate poll() (the page's status
-        fetcher) to avoid waiting for the next interval."""
-        sid = type(self).test_site_id
-        if not sid:
-            self.skipTest("setUpClass site bootstrap failed; "
-                          "test_site_id was never set")
-        # Force an immediate status fetch — page may not have refreshed
-        # since the site was added
-        self.page.evaluate(
-            "() => { if (typeof poll === 'function') poll(); }")
-        site_row = self.page.locator(f'[data-sid="{sid}"]').first
-        try:
-            site_row.wait_for(state="visible", timeout=6000)
-        except PWTimeout:
-            raise AssertionError(
-                f"site row [data-sid={sid!r}] never appeared. "
-                f"Page may not have polled /api/status yet.")
-        site_row.click()
-        # Wait for the detail panel's name field to populate. selSite()
-        # sets #d-name via renderDet() — that's the last DOM write in
-        # the click handler. After that, tabs are visible/clickable.
-        self.page.wait_for_function(
-            "() => { const t = document.getElementById('d-name'); "
-            "  return t && t.textContent "
-            "          && t.textContent.length > 0; }",
-            timeout=3000)
 
     def test_root_page_loads(self):
         """Smoke: the index page renders without JS errors."""
@@ -264,97 +236,82 @@ class _RealE2ESmoke(unittest.TestCase):
             "header should be present")
 
     def test_command_palette_opens(self):
-        """Ctrl+K opens the command palette overlay."""
+        """Ctrl+K opens the current cmdk dialog and focuses its search."""
         self.page.locator("body").click()
         self.page.keyboard.press("Control+k")
-        ov = self.page.locator("#cmdp-overlay")
-        ov.wait_for(state="visible", timeout=2000)
-        self.assertTrue(
-            self.page.locator("#cmdp-q").is_visible(),
+        dialog = self.page.get_by_role("dialog")
+        dialog.wait_for(state="visible", timeout=2000)
+        search = dialog.get_by_placeholder(
+            "Type a command or search sites…")
+        search.wait_for(state="visible", timeout=2000)
+        self.assertTrue(search.is_visible(),
             "palette search input should be visible after Ctrl+K")
         self.page.keyboard.press("Escape")
-        ov.wait_for(state="detached", timeout=1000)
+        dialog.wait_for(state="hidden", timeout=2000)
         self.assertEqual(self.errors, [],
             f"JS errors during palette open: {self.errors}")
 
     def test_add_site_modal_opens(self):
-        """The + button (.addbtn) opens the add-site modal (#modal)."""
-        add = self.page.locator(".addbtn").first
+        """The Sites route's Add button opens the current add-site dialog."""
+        self.page.goto(f"{self.harness.base_url}/sites",
+                       wait_until="commit", timeout=10000)
+        add = self.page.get_by_role(
+            "button", name="Add site", exact=True).first
         add.wait_for(state="visible", timeout=2000)
         add.click()
-        # openAdd() sets #modal.style.display='flex' — wait for that
-        # state. Using is_visible() rather than wait_for(state='visible')
-        # because the element is permanently in the DOM with display:none
-        # toggling, which Playwright's visibility check handles correctly.
-        modal = self.page.locator("#modal")
-        modal.wait_for(state="visible", timeout=2000)
-        self.assertTrue(modal.is_visible(),
-            "#modal should be visible after clicking .addbtn")
-        # Title should read "Add Site"
-        title = self.page.locator("#mtitle").text_content()
-        self.assertIn("Add", title or "",
-            f"modal title should mention 'Add', got {title!r}")
+        dialog = self.page.get_by_role("dialog")
+        dialog.wait_for(state="visible", timeout=2000)
+        title = dialog.get_by_role(
+            "heading", name="Add site", exact=True)
+        title.wait_for(state="visible", timeout=2000)
+        self.assertTrue(dialog.is_visible(),
+            "Add site dialog should be visible after clicking Add")
         self.assertEqual(self.errors, [],
             f"JS errors during add-site modal open: {self.errors}")
 
     def test_history_tab_loads(self):
-        """Clicking History tab activates #tp-history and renders #htb."""
-        self._select_test_site()
-        # Use the tab's onclick attribute since text-based selector
-        # may match the section header inside the modal
-        history_tab = self.page.locator(
-            '.tab[onclick*="history"]').first
+        """The History route renders its default History & Search tab."""
+        self.page.goto(f"{self.harness.base_url}/history",
+                       wait_until="commit", timeout=10000)
+        heading = self.page.get_by_role(
+            "heading", name="History · Logs · Search", exact=True)
+        heading.wait_for(state="visible", timeout=3000)
+        history_tab = self.page.get_by_role(
+            "tab", name="History & Search", exact=True)
         history_tab.wait_for(state="visible", timeout=2000)
-        history_tab.click()
-        panel = self.page.locator("#tp-history")
-        panel.wait_for(state="visible", timeout=2000)
-        # #htb is a <tbody> — when empty, Playwright considers it
-        # "hidden" (zero height). Just assert it exists in the DOM,
-        # which is what we actually care about for the smoke test.
-        self.assertGreater(self.page.locator("#htb").count(), 0,
-            "history table body #htb should be present")
+        self.assertEqual(history_tab.get_attribute("aria-selected"), "true")
+        search = self.page.get_by_placeholder(
+            "Search history (FTS) — leave empty for recent")
+        search.wait_for(state="visible", timeout=3000)
         self.assertEqual(self.errors, [],
             f"JS errors during history tab load: {self.errors}")
 
-    def test_review_tab_renders_sections(self):
-        """The Review tab's sections render (Phase 188 added capacity
-        forecast). Hitting the tab and waiting for rv-summary to
-        update proves loadReview() ran."""
-        self._select_test_site()
-        # Review tab is added dynamically via addEventListener, not
-        # via an onclick= attribute, so we have to match by text. The
-        # `.tab` element with textContent='Review' is the one.
-        review = self.page.locator('.tab', has_text='Review').first
-        review.wait_for(state="visible", timeout=2000)
-        review.click()
-        try:
-            self.page.wait_for_function(
-                """() => {
-                    const el = document.getElementById('rv-summary');
-                    return el && el.textContent
-                        && !el.textContent.includes('Refreshing');
-                }""",
-                timeout=5000)
-        except PWTimeout:
-            # Acceptable — rv-summary may update async; section
-            # presence is what matters
-            pass
-        for sec_id in ("rv-alerts", "rv-capacity"):
-            self.assertGreater(
-                self.page.locator(f"#{sec_id}").count(), 0,
-                f"Review section #{sec_id} should be present")
+    def test_needs_review_route_renders(self):
+        """The current global Needs review route renders its queue state."""
+        self.page.goto(f"{self.harness.base_url}/needs-review",
+                       wait_until="commit", timeout=10000)
+        heading = self.page.get_by_role(
+            "heading", name="Needs review", exact=True)
+        heading.wait_for(state="visible", timeout=3000)
+        # The harness DB has no queued jobs, so the stable empty-state marker
+        # proves the route's query completed and its main content rendered.
+        empty = self.page.get_by_text("No review items", exact=True)
+        empty.wait_for(state="visible", timeout=3000)
         self.assertEqual(self.errors, [],
-            f"JS errors during review tab load: {self.errors}")
+            f"JS errors during needs-review load: {self.errors}")
 
     def test_blocklist_refuses_url(self):
         """Phase 194 end-to-end: POST a URL to /api/rights/block_url
         via the page's fetch, verify it appears in the GET listing."""
         result = self.page.evaluate("""
             async () => {
-                const meta = document.querySelector(
-                    'meta[name="csrf-token"]');
-                const csrf = (meta && meta.content)
-                    || window._csrfToken || '';
+                const csrfResponse = await fetch('/api/csrf', {
+                    credentials: 'same-origin',
+                });
+                const csrfData = await csrfResponse.json();
+                const csrf = csrfData.csrf_token
+                    || csrfData.csrf || csrfData.token || '';
+                const pattern = 'e2e-test-block-' + Date.now();
                 const r1 = await fetch('/api/rights/block_url', {
                     method: 'POST',
                     credentials: 'same-origin',
@@ -363,7 +320,7 @@ class _RealE2ESmoke(unittest.TestCase):
                         'X-CSRF-Token': csrf,
                     },
                     body: JSON.stringify({
-                        pattern: 'e2e-test-block-' + Date.now(),
+                        pattern,
                         reason: 'e2e smoke test',
                     }),
                 });
@@ -371,13 +328,23 @@ class _RealE2ESmoke(unittest.TestCase):
                 const r2 = await fetch('/api/rights/blocklist',
                     {credentials: 'same-origin'});
                 const d2 = await r2.json();
-                return {add: d1, list: d2};
+                return {
+                    csrfStatus: csrfResponse.status,
+                    addStatus: r1.status,
+                    pattern,
+                    add: d1,
+                    list: d2,
+                };
             }
         """)
+        self.assertEqual(result["csrfStatus"], 200)
+        self.assertEqual(result["addStatus"], 200)
         self.assertTrue(result["add"].get("ok"),
             f"block_url POST should succeed: {result['add']}")
-        self.assertGreater(len(result["list"].get("blocks", [])), 0,
-            "blocklist should now have at least one entry")
+        self.assertTrue(
+            any(block.get("pattern") == result["pattern"]
+                for block in result["list"].get("blocks", [])),
+            "blocklist should contain the pattern added by this test")
 
 
 if __name__ == "__main__":

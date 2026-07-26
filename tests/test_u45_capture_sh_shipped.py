@@ -217,8 +217,9 @@ class TestCaptureShFinalVerdict:
 
     def test_full_suite_and_live_suite_have_periodic_heartbeats(self):
         body = _read_capture_sh()
-        assert body.count('run_with_heartbeat ') >= 2
-        assert 'run_with_heartbeat "full test suite"' in body
+        assert body.count('run_with_heartbeat ') >= 3
+        assert 'run_with_heartbeat "parallel-safe pytest lane"' in body
+        assert 'run_with_heartbeat "serial pytest lane"' in body
         assert 'run_with_heartbeat "live-test suite"' in body
 
     def test_verdict_is_written_before_archive_creation(self):

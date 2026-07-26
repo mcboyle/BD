@@ -31,7 +31,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-import run_tests as RT  # noqa: E402
+import run_tests_core as RT  # noqa: E402
 
 _729 = "test_v3_66_729_body_contract_fixtures.py"
 

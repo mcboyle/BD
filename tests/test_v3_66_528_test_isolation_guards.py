@@ -14,23 +14,25 @@ pollution leaking into later tests. It now saves with a ``_MISSING`` sentinel
 (copying when present, since allowlist_add mutates the list in place) and
 restores-to-absent (pop).
 
-THB-4 was investigated and CLEARED as a false finding: test_v3_66_135's
-``_install_fake_db`` rebinds ``qhk._q_load/_delete/_upsert/_mark`` and every
-internal caller resolves those by bare name at call-time through the registered
-apply-hooks (apply_for_kind reads the db ONLY via those hooks), and
-test_v3_66_306 injects config via ``gc.set_config`` which ``_cfg`` reads from the
-same store -- both inject exactly where the reader reads. No bypass, no fix.
+THB-4: tests/test_v3_66_306_queue_hk_parity.py loaded
+tools/autonomy_queue_hk.py as top-level ``autonomy_queue_hk``. Its import-time
+registration replaced the canonical apply hooks with closures bound to the
+alias module, bypassing the fake queue installed by test_v3_66_135. The parity
+test now imports ``tools.autonomy_queue_hk`` canonically.
 
-These guards are SOURCE-STRUCTURAL (deterministic, leak-proof themselves) plus
-one behavioral check of the restore-to-absent contract against the shipped
-helpers. Zero-arg fns; stdlib only; runs under the custom runner and pytest.
+These guards combine structural checks with behavioral module-identity,
+subprocess-isolation, and restore-to-absent checks against shipped helpers.
+Zero-arg fns; stdlib only; runs under the custom runner and pytest.
 """
 import ast
 import importlib.util
+import sys
+import tempfile
 from pathlib import Path
 
 _TESTS = Path(__file__).resolve().parent
 _302 = _TESTS / "test_v3_66_302_gui_parity_reconcile.py"
+_306 = _TESTS / "test_v3_66_306_queue_hk_parity.py"
 _337 = _TESTS / "test_v3_66_337_guided_capture_cut1.py"
 
 
@@ -75,9 +77,24 @@ def test_thb1_no_module_level_syspath_insert_in_302():
 
 
 def test_thb1_302_scopes_and_restores_syspath():
-    src = _302.read_text(encoding="utf-8")
-    assert "_saved_path = list(sys.path)" in src and "sys.path[:] = _saved_path" in src, (
-        "expected the scoped insert to snapshot + restore sys.path")
+    before = list(sys.path)
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            mod = _load(_302, "t302_thb1_guard")
+            generated = mod.generated_inventory_path.__wrapped__(Path(tmp))
+            assert generated.is_file()
+        after = list(sys.path)
+    finally:
+        sys.path[:] = before
+    assert after == before, "parity generation changed the parent sys.path"
+
+
+def test_thb4_queue_parity_uses_canonical_module_identity():
+    from tools import autonomy_queue_hk as canonical
+
+    mod = _load(_306, "t306_thb4_guard")
+    assert mod.qh is canonical, (
+        "queue parity loaded tools/autonomy_queue_hk.py under a second module name")
 
 
 # ───────────────────────────── THB-3 ─────────────────────────────

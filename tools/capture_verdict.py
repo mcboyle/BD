@@ -31,7 +31,7 @@ def _count(value, name: str) -> int:
     return value
 
 
-def _read_unit(path: Path) -> tuple[int, int, int, int]:
+def _read_unit(path: Path) -> tuple[int, int, int, int, int]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
@@ -43,10 +43,11 @@ def _read_unit(path: Path) -> tuple[int, int, int, int]:
     total = _count(payload.get("total"), "total")
     passed = _count(payload.get("passed"), "passed")
     failed = _count(payload.get("failed"), "failed")
+    errors = _count(payload.get("errors"), "errors")
     skipped = _count(payload.get("skipped"), "skipped")
-    if passed + failed + skipped != total:
+    if passed + failed + errors + skipped != total:
         raise ValueError("unit artifact counts are inconsistent")
-    if payload.get("ok") is not (failed == 0):
+    if payload.get("ok") is not (failed == 0 and errors == 0):
         raise ValueError("unit artifact ok flag is inconsistent")
     tests = payload.get("tests")
     if not isinstance(tests, list):
@@ -54,11 +55,16 @@ def _read_unit(path: Path) -> tuple[int, int, int, int]:
     statuses = [
         row.get("status") if isinstance(row, dict) else None for row in tests
     ]
-    expected = {"pass": passed, "fail": failed, "skip": skipped}
+    expected = {
+        "pass": passed,
+        "fail": failed,
+        "error": errors,
+        "skip": skipped,
+    }
     actual = {status: statuses.count(status) for status in expected}
     if len(tests) != total or actual != expected:
         raise ValueError("unit artifact test records are inconsistent")
-    return passed, failed, skipped, total
+    return passed, failed, errors, skipped, total
 
 
 def _read_live(path: Path) -> tuple[int, int, int, int]:
@@ -96,7 +102,7 @@ def assess_capture(
         live_counts = _read_live(Path(live_log))
     except ValueError as exc:
         reasons.append(str(exc))
-    if unit_counts is not None and unit_counts[3] == 0:
+    if unit_counts is not None and unit_counts[4] == 0:
         reasons.append("unit artifact contains zero tests")
     if (live_counts is not None and expected_live_tests is not None
             and live_counts[3] != expected_live_tests):
@@ -113,6 +119,8 @@ def assess_capture(
             reasons.append(f"{name} exit={exit_code}")
     if unit_counts is not None and unit_counts[1]:
         reasons.append(f"unit failures={unit_counts[1]}")
+    if unit_counts is not None and unit_counts[2]:
+        reasons.append(f"unit errors={unit_counts[2]}")
     if live_counts is not None:
         if live_counts[1]:
             reasons.append(f"live warnings={live_counts[1]}")
@@ -122,7 +130,7 @@ def assess_capture(
     if unit_counts is not None:
         counts.append(
             f"unit {unit_counts[0]} pass/{unit_counts[1]} fail/"
-            f"{unit_counts[2]} skip"
+            f"{unit_counts[2]} error/{unit_counts[3]} skip"
         )
     if live_counts is not None:
         counts.append(

@@ -19,6 +19,9 @@ _CAPTURE_MODULES = (
     "test_v3_66_89_offline_capture_ingest.py",
     "test_v3_66_101_cockpit_wave3.py",
     "test_v3_66_249_aylo_api_recognizer.py",
+    "test_v3_66_318_vidstack_over_hls.py",
+    "test_v3_66_320_synthetic_json_path.py",
+    "test_v3_66_512_dom_provider.py",
 )
 
 
@@ -99,9 +102,21 @@ def test_capture_script_inherits_fixture_roots_without_promoting_test_settings()
 
     suite_prefix = (
         'run_with_heartbeat "full test suite" "$OUT/02_suite_run.log" \\\n'
-        '   env BD_DISABLE_KEEPALIVE=1 venv/bin/python run_tests.py'
+        '   env BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest'
     )
-    assert suite_prefix in source
+    assert suite_prefix not in source
+    assert 'run_with_heartbeat "parallel-safe pytest lane"' in source
+    assert '"$OUT/02_pytest_parallel.log"' in source
+    assert 'run_with_heartbeat "serial pytest lane"' in source
+    assert '"$OUT/02_pytest_serial.log"' in source
+    assert '-n "$WORKERS"' in source
+    assert "--dist loadfile" in source
+    assert "-m capture_parallel" in source
+    assert '--junitxml="$OUT/02_pytest_parallel.xml"' in source
+    assert "-m capture_serial" in source
+    assert "-n 0" in source
+    assert '--junitxml="$OUT/02_pytest_serial.xml"' in source
+    assert "tools/pytest_capture_results.py" in source
     assert "BD_TEST_CAPTURE_ROOT" not in source
     assert "BD_TEST_STRICT_CAPTURE_ROOT" not in source
     assert ".wacz-stage" not in source

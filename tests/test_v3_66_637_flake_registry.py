@@ -18,7 +18,7 @@ RED on pristine 3.66.636: run_tests has no _update_flake_registry / _chronic_fla
 import os
 import tempfile
 
-import run_tests
+import run_tests_core as run_tests
 
 
 def test_helpers_exist():

@@ -359,9 +359,7 @@ class TestB15ChangePassword:
         with _client(monkeypatch) as (c, H, A, b):
             b.set("k", "v")
 
-            def _boom(self, data):  # noqa: ARG001
-                return False
-            monkeypatch.setattr(ss.MasterPasswordBackend, "_save", _boom)
+            monkeypatch.setattr(b, "_save", lambda: False)
             r = c.post("/api/secrets/change_password",
                        json={"old_password": "masterpw", "new_password": "newlongpw"},
                        headers=H)

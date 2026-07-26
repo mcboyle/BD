@@ -24,7 +24,7 @@ REPO = Path(__file__).resolve().parent.parent
 def test_replay_file_is_serial_pinned():
     """#17 must run in the serial lane so deep_detect has no parallel contention."""
     sys.path.insert(0, str(REPO))
-    import run_tests as RT  # noqa: E402
+    import run_tests_core as RT  # noqa: E402
     assert "test_v3_66_13_phase2_p2_snapshot_replay.py" in RT._PINNED_TOGETHER, (
         "the deep_detect replay file is not pinned to the serial lane; it flakes "
         "under parallel load")

@@ -11,7 +11,7 @@ route gate) was already enforced by test_nav_reachability.
 """
 import importlib
 
-rt = importlib.import_module("run_tests")
+rt = importlib.import_module("run_tests_core")
 
 
 def test_prune_drops_stale_entries():

@@ -152,8 +152,23 @@ def test_duplicate_normalized_deferrals_are_emitted_once(tmp_path: Path) -> None
 
 
 def test_cli_help_is_lazy_and_portable_outside_repository(tmp_path: Path) -> None:
+    probe = (
+        "import runpy, sys\n"
+        f"script = {str(SCRIPT)!r}\n"
+        "sys.argv = [script, '--help']\n"
+        "try:\n"
+        "    runpy.run_path(script, run_name='__main__')\n"
+        "except SystemExit as exc:\n"
+        "    code = exc.code\n"
+        "else:\n"
+        "    code = 0\n"
+        "if 'bulk_downloader.app' in sys.modules:\n"
+        "    print('bulk_downloader.app imported by --help', file=sys.stderr)\n"
+        "    raise SystemExit(97)\n"
+        "raise SystemExit(code)\n"
+    )
     run = subprocess.run(
-        [sys.executable, str(SCRIPT), "--help"],
+        [sys.executable, "-c", probe],
         cwd=tmp_path,
         capture_output=True,
         text=True,
@@ -174,7 +189,6 @@ def test_cli_help_is_lazy_and_portable_outside_repository(tmp_path: Path) -> Non
     ):
         assert option in run.stdout
     assert run.stderr == ""
-    assert "bulk_downloader.app" not in sys.modules
 
 
 def _projection(path: Path, name: str, **fields: object) -> None:

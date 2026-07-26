@@ -53,7 +53,7 @@ class FixtureFuzzer:
         if case.case_id == "crash":
             raise RuntimeError("fixture crash")
         if case.case_id == "sleep":
-            time.sleep(1.0)
+            time.sleep(5.0)
         return CheckResult(self.name, ResultState.PASS, case.case_id, {"case_id": case.case_id})
 
 
@@ -451,7 +451,7 @@ def test_timeout_is_reported_as_a_replay_finding(tmp_path: Path) -> None:
     )
 
     result, findings = run_fuzz_adapter(
-        FixtureFuzzer(), _context(tmp_path, timeout=0.5), reproducer_dir=tmp_path / "repro"
+        FixtureFuzzer(), _context(tmp_path, timeout=2.0), reproducer_dir=tmp_path / "repro"
     )
 
     assert result.state is ResultState.FAIL
