@@ -28,6 +28,11 @@ from pathlib import Path
 
 import pytest
 
+
+# build_index imports the Flask app under this test's temporary BD_HOME. Restore
+# the prior module graph afterward so its seeded config cannot poison consumers.
+pytestmark = pytest.mark.bd_module_wipe
+
 ROOT = Path(__file__).resolve().parent.parent
 ROUTE_INDEX = ROOT / "ROUTE_INDEX.json"
 

@@ -32,18 +32,26 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
+import pytest
+
+
+# The backend guards require app initialization against the current test's
+# BD_HOME/cwd, regardless of which earlier suite first imported the Flask app.
+pytestmark = pytest.mark.bd_module_wipe
+
 
 # ─── backend contract guard: setup_site persists download_dir ────────────
 @contextmanager
 def _client():
-    from bulk_downloader import app as A
-    from bulk_downloader.db import db_init
-    from bulk_downloader import secrets_store as ss
     orig_cwd = os.getcwd()
     with tempfile.TemporaryDirectory() as td:
         os.chdir(td)
         Path(td, "screenshots").mkdir(exist_ok=True)
         try:
+            from bulk_downloader import app as A
+            from bulk_downloader.db import db_init
+            from bulk_downloader import secrets_store as ss
+
             db_init()
             c = A.app.test_client()
             tok = c.get("/api/pair").get_json()["token"]
@@ -60,8 +68,8 @@ def test_setup_site_persists_download_dir():
     autonomous Test has a real save target (kills the 'no dl dir' false-pass)."""
     with _client() as (c, H, A):
         # download_dir must be under the path allowlist (_create_site validates
-        # it); BD_HOME is seeded into the allowlist on first run.
-        base = os.environ.get("BD_HOME") or "/home/claude/bd_home"
+        # it); BD_HOME (or the isolated client cwd) is seeded on first run.
+        base = os.environ.get("BD_HOME") or os.getcwd()
         dl = os.path.join(base, "bd_dl_target_test")
         os.makedirs(dl, exist_ok=True)
         r = c.post("/api/captures/setup_site",
