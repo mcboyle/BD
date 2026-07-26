@@ -253,6 +253,21 @@ def _lexical_scopes(tree):
     return scopes, parents
 
 
+def _expression_node_ids(expressions):
+    """Return nodes in expressions without crossing into nested scopes."""
+    node_ids = set()
+
+    def visit(node):
+        node_ids.add(id(node))
+        for child in ast.iter_child_nodes(node):
+            if not isinstance(child, _LEXICAL_SCOPE_TYPES):
+                visit(child)
+
+    for expression in expressions:
+        visit(expression)
+    return node_ids
+
+
 def _scope_header_node_ids(scope):
     """Return nodes evaluated by the scope's enclosing runtime context."""
     expressions = []
@@ -275,17 +290,15 @@ def _scope_header_node_ids(scope):
         expressions.extend(scope.decorator_list)
         expressions.extend(scope.bases)
         expressions.extend(keyword.value for keyword in scope.keywords)
-    node_ids = set()
+    return _expression_node_ids(expressions)
 
-    def visit(node):
-        node_ids.add(id(node))
-        for child in ast.iter_child_nodes(node):
-            if not isinstance(child, _LEXICAL_SCOPE_TYPES):
-                visit(child)
 
-    for expression in expressions:
-        visit(expression)
-    return node_ids
+def _leftmost_comprehension_iterator_node_ids(scope):
+    """Return the first comprehension iterator, evaluated by its parent scope."""
+    if isinstance(scope, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)) \
+            and scope.generators:
+        return _expression_node_ids((scope.generators[0].iter,))
+    return set()
 
 
 def _lexically_bound(name, scope, module, parents, bindings, globals_, nonlocals, builtins):
@@ -326,6 +339,9 @@ def dp06(path, src, tree):
         globals_[scope] = declared_global
         nonlocals[scope] = declared_nonlocal
     header_node_ids = {scope: _scope_header_node_ids(scope) for scope in scopes}
+    outer_iterator_node_ids = {
+        scope: _leftmost_comprehension_iterator_node_ids(scope) for scope in scopes
+    }
     for scope in scopes:
         if scope is module:
             continue
@@ -340,8 +356,10 @@ def dp06(path, src, tree):
                     and node.func.id in ("hasattr", "getattr") and node.args \
                     and isinstance(node.args[0], ast.Name):
                 name = node.args[0].id
-                resolution_scope = parents[scope] if id(node) in header_node_ids[scope] \
-                    else scope
+                resolution_scope = parents[scope] if (
+                    id(node) in header_node_ids[scope]
+                    or id(node) in outer_iterator_node_ids[scope]
+                ) else scope
                 if not _lexically_bound(name, resolution_scope, module, parents, bindings,
                                         globals_, nonlocals, builtins):
                     out.append(_find(

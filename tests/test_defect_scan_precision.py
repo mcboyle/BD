@@ -157,6 +157,19 @@ def broken(missing_name=getattr(missing_name, "value", None)):
     _assert_one_dp06_candidate(scanner, "default_scope.py", source)
 
 
+def test_dp06_class_comprehension_leftmost_iterator_uses_class_scope(scanner):
+    source = '''\
+class Container:
+    missing_name = []
+    values = [item for item in getattr(missing_name, "items", [])]
+'''
+
+    findings = scanner.scan_file("class_comprehension.py", source, only={"DP-06"})
+
+    assert not any(finding["precision"] == "error" for finding in findings)
+    assert findings == []
+
+
 @pytest.mark.parametrize(("relative", "recovery_lines"), [
     pytest.param("tools/code_intelligence/fuzz_adapters.py", (63,), id="fuzz-adapters"),
     pytest.param("tools/code_intelligence/fuzz_service.py", (258, 311), id="fuzz-service"),
