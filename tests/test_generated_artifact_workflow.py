@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 
 import pytest
@@ -13,6 +15,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TOOL_PATH = REPO_ROOT / "toolchain" / "bin" / "bd-regen-order"
 DOCUMENTED_TOOL_PATH = REPO_ROOT / "project-knowledge" / "bd-regen-order"
+REACHABILITY_LEDGER = REPO_ROOT / "reports" / "endpoint_reachability.json"
 
 
 def _load_regen_tool():
@@ -100,6 +103,26 @@ def test_regeneration_rejects_missing_worktree(tmp_path, monkeypatch, capsys):
 
     assert regen.main() == 1
     assert "work tree not found" in capsys.readouterr().out
+
+
+def test_reachability_ledger_is_tracked_for_clean_checkout_regeneration():
+    tracked = subprocess.run(
+        [
+            "git",
+            "ls-files",
+            "--error-unmatch",
+            "--",
+            str(REACHABILITY_LEDGER.relative_to(REPO_ROOT)),
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(REACHABILITY_LEDGER.read_text(encoding="utf-8"))
+
+    assert tracked.returncode == 0, tracked.stderr
+    assert type(payload["dark_count"]) is int
+    assert set(payload["dark"]).issubset(payload["classified"])
 
 
 def test_ci_installs_runtime_dependencies_before_canonical_regeneration():

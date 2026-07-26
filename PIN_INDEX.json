@@ -144,7 +144,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_differential_oracle_frontend.py",
-      "line": 184,
+      "line": 187,
       "value": {
         "cases": 11
       },
@@ -153,7 +153,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_differential_oracle_frontend.py",
-      "line": 205,
+      "line": 208,
       "value": {
         "exitcode": 7
       },
@@ -162,7 +162,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_differential_oracle_frontend.py",
-      "line": 735,
+      "line": 738,
       "value": {
         "comparisons": 0,
         "forbidden": 0

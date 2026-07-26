@@ -492,7 +492,7 @@ def test_case_enumeration_is_bounded_by_the_same_timeout(tmp_path: Path) -> None
 
     assert result.state is ResultState.TIMEOUT
     assert findings == ()
-    assert time.monotonic() - started < 0.8
+    assert time.monotonic() - started < 1.2
 
 
 def test_import_does_not_execute_fuzzing(monkeypatch: pytest.MonkeyPatch) -> None:

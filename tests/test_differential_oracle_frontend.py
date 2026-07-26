@@ -80,15 +80,18 @@ class PairAdapter:
         )
 
 
-def _brief_child_exit() -> None:
+def _brief_child_exit(ready) -> None:
+    ready.set()
     time.sleep(0.05)
 
 
 def test_valid_payload_gets_bounded_worker_exit_grace() -> None:
     context = multiprocessing.get_context("spawn")
-    process = context.Process(target=_brief_child_exit)
+    ready = context.Event()
+    process = context.Process(target=_brief_child_exit, args=(ready,))
     process.start()
 
+    assert ready.wait(5.0)
     assert oracle_service._join_after_payload(process)
     assert process.exitcode == 0
 
