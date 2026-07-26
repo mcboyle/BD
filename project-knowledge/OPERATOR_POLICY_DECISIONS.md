@@ -22,7 +22,7 @@ L2 "act" = an autonomous write, and the standing rule is *every autonomous write
 backed-up-and-restorable first*. A0 is currently PARTIAL, so **L2 is the target but not yet safe to
 run**; BD operates effectively at L1 (stage + confirm) until A0 lands.
 
-- `AUTOMATION_PROGRAM_PLAN.md` updated: added the L0–L4 autonomy dial (set to L2), and A0 is the
+- The archived `../docs/archive/2026-07-22-doc-hygiene/project-knowledge/AUTOMATION_PROGRAM_PLAN.md` was updated: added the L0–L4 autonomy dial (set to L2), and A0 is the
   explicit unlock for L2. A2 (auto-refresh) / A5 (auto-promote) are the L2 actions, already A0-gated.
 - **Action:** build **A0+ verified backup** (restore-and-assert into scratch before the write) first.
   Nothing at L2 runs before it.
@@ -86,10 +86,12 @@ What this preserves (the compensating guardrails that must stay firm at broader 
   cached capture) — recommend a small `delete_archived()` to guarantee it; (b) a non-negotiable floor:
   unlawful/non-consensual content is deleted promptly regardless of the keep-forever default.
 - **Autonomy guardrails (AR4 blast/rate limits, AA5 graceful off-switch)** — not policy dials; they
-  are build-items already captured in `AUTOMATION_PROGRAM_PLAN.md` §6, and AR4 is now called out as
+  were build-items captured in the archived
+  `../docs/archive/2026-07-22-doc-hygiene/project-knowledge/AUTOMATION_PROGRAM_PLAN.md` §6, and AR4 is now called out as
   mandatory alongside A-DISCO (§7) given the level-4 enumeration scope.
 - **Plugin supply-chain governance** — only relevant if the plugin marketplace / self-update is ever
-  built; captured as a risk flag in `PLUGIN_V3_PLAN.md` §6 (signing + operator-pinned key, never
+  built; captured as a risk flag in the archived
+  `../docs/archive/2026-07-22-doc-hygiene/project-knowledge/PLUGIN_V3_PLAN.md` §6 (signing + operator-pinned key, never
   auto-apply). Deferred until/unless that track is chosen.
 
 ---

@@ -1,17 +1,22 @@
 # LEGACY_MIGRATION_PLAN — full migration of the legacy shell into the D3 SPA
 
-> **LIVE STATUS lives in TASK_TRACKER, not here.** This doc is a v3.66.201 *schedule*, not a tracker; phases/tranches it lists as future may already be LIVE (e.g. T1–T11 shipped by v3.66.264). Re-derive status from canonical `TASK_TRACKER_DATA.json` (with `TASK_TRACKER.md`/`.xlsx` as generated views) + `tools/legacy_parity.py`. Anchor any code reference on a SYMBOL, never a line number (they drift). Remaining live items: T12, P4, EXIT-1/3/4.
+> **HISTORICAL PLAN -- COMPLETED.** This document is the v3.66.201 migration
+> schedule, not a current queue. The root flipped to the SPA at v3.66.203 and
+> the legacy shell and `/legacy` route were removed at v3.66.334. Current work
+> lives in canonical `TASK_TRACKER_DATA.json` (with `TASK_TRACKER.md`/`.xlsx`
+> as generated views). Anchor code references on symbols, never old line
+> numbers.
 
-> **Current status (re-derived 2026-07-21):**
+> **Current status (re-derived 2026-07-22):**
 > `python tools/legacy_parity.py --json` reports `legacy_total=0`,
 > `spa_total=358`, `legacy_only_count=0`, and `family_count=0`. That live tool
-> output is authoritative for endpoint parity; it does not waive the separate
-> operator soak/deletion exit criteria. Use the canonical tracker for those
-> remaining disposition steps.
+> output is authoritative for endpoint parity. `tools/nav_reachability.py`
+> now crawls `/` as the sole SPA root; `/m`, `/m/ops`, and `/m2` are redirect
+> shims, and `/legacy` is reserved to return 404 rather than SPA HTML.
 
-Status: PLAN, cut at v3.66.201 alongside the ratchet gate. **Every tranche below is per-task
-authorized** — this document schedules nothing; it sequences. Source is ground truth; re-derive
-the numbers with `python3 tools/legacy_parity.py` before starting any tranche.
+Status: **HISTORICAL COMPLETED PLAN**, cut at v3.66.201 alongside the ratchet
+gate. The sequencing below is retained as design history. Source is ground
+truth; re-derive parity with `python3 tools/legacy_parity.py`.
 
 ## Goal / non-goals / exit criteria
 
@@ -23,7 +28,7 @@ the numbers with `python3 tools/legacy_parity.py` before starting any tranche.
 visual redesign, backend/API changes (the API surface is the contract; we move callers only),
 and anything touching the 7 release guards.
 
-**Exit criteria (all required):**
+**Historical exit criteria (completed by the shipped retirement):**
 1. `tools/legacy_parity.py --check` green with an **empty baseline** (`legacy_only == 0`).
 2. `tools/nav_reachability.py --check` green with the crawl **re-rooted at the SPA**.
 3. Full on-stash suite green post-cutover + an operator **soak period** (recommend ≥ 2 weeks

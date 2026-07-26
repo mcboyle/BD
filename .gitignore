@@ -52,6 +52,7 @@ screenshots/
 # baselines explicitly -- they were silently dropped from git by the old blanket
 # `reports/` rule, which is why the parity gates could not find them.
 reports/*
+!reports/endpoint_reachability.json
 !reports/config_gui_manifest.json
 !reports/config_parity_baseline.json
 !reports/legacy_parity_baseline.json

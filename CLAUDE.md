@@ -87,6 +87,16 @@ been wrong. Every figure obtained by *running the tool* was right.
    environment — never explain it away. It has caught real design regressions
    that the feature's own test could not see.
 
+Before packaging a change for review, regenerate all tracked artifacts from the
+repository root and keep the resulting diffs in the review package:
+
+```bash
+.venv/bin/python toolchain/bin/bd-regen-order --work "$PWD"
+```
+
+This command does not re-freeze intent baselines; declaration flags remain
+explicit operator decisions.
+
 ---
 
 ## 3 | Version bump = three edits, together

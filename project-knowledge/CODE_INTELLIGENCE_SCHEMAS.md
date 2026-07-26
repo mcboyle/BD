@@ -1,156 +1,200 @@
 <!-- version-agnostic; re-derive every count/SHA/version from source each session -->
-<!-- verified-against: v3.66.805 -->
+<!-- verified-against: v3.66.817 -->
 # Code-Intelligence Schemas
 
-Every artifact's schema and the gate it carries. All are projections of
-`KNOWLEDGE_GRAPH.db` (see `CODE_INTELLIGENCE_ARCHITECTURE.md`) except
-`REVIEW_STATE.json` (the ledger, authored by the review flow). JSON unless noted;
-all generators stdlib-first, deterministic (sorted keys), offline.
+This document records the implemented foundation contract for deterministic,
+offline graph extraction. `tools/l0_extract.py` produces `KNOWLEDGE_GRAPH.db`;
+`tools/graph_build.py` produces the nine JSON projections below and validates
+each one before writing it.
 
-> Convention: every artifact has a `generated_against` version, a `schema` int, and
-> a regenerator with `--check` (drift gate, rc≠0 on mismatch) and `--update`.
->
-> **CONVENTION NOT MET BY THE SHIPPED ARTIFACTS — measured v3.66.805.** Of the three
-> artifacts that exist in the static PK today: `INVARIANTS.json` has `schema: 1` but
-> **no** `generated_against`; `CONTRACTS.json` and `COVERAGE_GAPS.json` have **neither**.
-> All three instead carry a `_meta` block, and `CONTRACTS.json` nests under a
-> `contracts` key rather than the flat `{"schema":1, "C0003": {...}}` shape shown in §8.
-> So this line states an intended convention, not the observed one. Treat the schemas
-> below as the DESIGN; read the artifact before assuming its shape, and do not write a
-> `--check` that assumes `generated_against` exists — it does not.
+> Implemented foundation scope: deterministic graph extraction and nine
+> schema-validated projections. Runtime analysis, review dispositions, and
+> external static-KB synchronization require their named downstream gates and
+> are not implied by successful graph generation.
 
----
+## Shared projection envelope
 
-## 1. `REVIEW_STATE.json` — the ledger (volatile, in `version.zip`)
-The resumable, compaction-survivable spine. STATE.json-analog. (Full design in
-`CODE_REVIEW_METHODOLOGY.md` §4 — restated here for one-stop reference.)
+Every generated projection carries these required envelope fields:
+
 ```json
-{ "schema":1, "generated_against":"vX.Y.Z",
-  "files": { "<path>": {
-     "sha256":"<hash>", "lines":0,
-     "status":"unreviewed|in_progress|reviewed",
-     "reviewed_at_sha":"<hash>", "rubric":{ "auth":"ok|finding|na", "...":"" },
-     "finding_ids":["F0001"], "invariant_ids":["I0007"], "catalog":true } },
-  "findings": { "F0001": {
-     "file":"", "line_range":[0,0],
-     "category":"crash|security|resource-leak|logic|dead-code|type|concurrency",
-     "severity":"low|medium|high|critical",
-     "confidence":"confirmed|probable|triage",
-     "title":"", "detail":"", "fix":"", "repro_test":"tests/...::test_...",
-     "status":"open|fixed|wontfix|duplicate",
-     "source":"manual|ruff:S608|radon|semgrep:<id>|eslint:react-hooks/exhaustive-deps" } } }
+{
+  "schema": 1,
+  "schema_name": "call_graph",
+  "schema_version": 1,
+  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "tool_version": "graph-build-2",
+  "input_hashes": {
+    "bulk_downloader/a.py": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "generated_at": "2026-07-23T00:00:00Z"
+}
 ```
-**Gate:** a file whose `sha256 != tree` auto-flips to `unreviewed`. Renders
-`REVIEW_DASHBOARD.md` for humans.
 
-## 2. `COVERAGE_LEDGER.json` — audit-coverage attestation
-Either folded into `REVIEW_STATE.files` or standalone. Asserts each production file
-appears exactly once, `lines` matches the live file, and flags any file whose SHA
-changed after `reviewed_at_sha` (audit staleness).
+`schema_name`, `schema_version`, `source_sha`, `tool_version`,
+`input_hashes`, and `generated_at` are the shared validator-required fields.
+`source_sha` and every `input_hashes` value are lowercase 64-character SHA-256
+hex strings. `generated_at` is a timezone-aware timestamp. The writer also
+emits `schema: 1` for the current graph projections. A legacy all-zero
+`source_sha` is only valid with `source_binding: "unbound_legacy"`.
+
+The projections are deterministic for the same source graph and inputs apart
+from `generated_at`; `--check` compares the generated projection set while
+ignoring that timestamp only.
+
+## Implemented projections
+
+The filenames and `schema_name` values are fixed by
+`tools.graph_build.PROJECTION_SCHEMAS`.
+
+### `CALL_GRAPH.json` (`call_graph`)
+
 ```json
-{ "schema":1, "files":{ "<path>":{ "audited_by":"sessionX", "audited_at_sha":"",
-  "lines":0, "note_ref":"AUDIT_<batch>.md#<path>" } },
-  "totals":{ "production_files":0, "audited":0, "stale":0 } }
+{
+  "nodes": ["bulk_downloader/a.py::caller"],
+  "edges": [{"from": "bulk_downloader/a.py::caller", "to": "bulk_downloader/b.py::target", "kind": "call"}],
+  "unresolved": [{"from": "bulk_downloader/a.py::caller", "name": "dynamic_target", "reason": "missing", "confidence": 0.0}]
+}
 ```
-**Gate `--check`:** `audited == production_files && stale == 0`.
 
-## 3. `MODULE_CATALOG.json` — knowledge-as-data (renders the advanced PK)
+This is the resolved intra-repository call inventory plus unresolved call
+details; it is not a runtime reachability result.
+
+### `CONFIG_LINEAGE.json` (`config_lineage`)
+
 ```json
-{ "schema":1, "modules": { "<path>": {
-   "purpose":"<L2: one-paragraph intent>",
-   "public_api":[{"name":"","signature":"","raises":[],"returns":"","contract_id":"C0003"}],
-   "invariants":["I0007"], "depends_on":[], "depended_by":[],
-   "sinks":["S..."], "secrets":["password","cookie_file"],
-   "risk_score":0.0, "complexity_max":0, "coverage":0.0,
-   "data_flow":"<L2: what flows in/through/out>" } } }
+{
+  "settings": {
+    "LIMIT": {
+      "readers": ["bulk_downloader/a.py::sample"],
+      "writers": ["bulk_downloader/a.py::sample"],
+      "effect": null,
+      "gui_exposure": null,
+      "runtime_tunable": null,
+      "confidence": 0.5,
+      "field_confidence": {"effect": 0.0, "gui_exposure": 0.0, "runtime_tunable": 0.0},
+      "provenance": {
+        "method": "l0_static_analysis",
+        "read_sites": [{"key": "LIMIT", "at": 4, "path": "bulk_downloader/a.py", "function": "bulk_downloader/a.py::sample", "call_site": {"path": "bulk_downloader/a.py", "line": 4}, "source": {"key": "LIMIT", "at": 4, "path": "bulk_downloader/a.py", "function": "bulk_downloader/a.py::sample"}}],
+        "write_sites": [{"key": "LIMIT", "at": 5, "path": "bulk_downloader/a.py", "function": "bulk_downloader/a.py::sample", "call_site": {"path": "bulk_downloader/a.py", "line": 5}, "source": {"key": "LIMIT", "at": 5, "path": "bulk_downloader/a.py", "function": "bulk_downloader/a.py::sample"}}],
+        "unknown_fields": {"effect": 0.0, "gui_exposure": 0.0, "runtime_tunable": 0.0}
+      }
+    }
+  }
+}
 ```
-**Gate:** mechanical fields (signature/raises/depends_on/sinks/complexity) regen
-from source and must match; `purpose`/`invariants`/`data_flow` are L2 (human),
-checked only for presence.
 
-## 4. `CALL_GRAPH.json` — function-level edges
+The three L2 fields remain null with zero confidence in the implemented
+foundation; readers, writers, and their L0 provenance are structural facts.
+
+### `CONCURRENCY_MAP.json` (`concurrency_map`)
+
 ```json
-{ "schema":1, "nodes":["mod:qualname"], "edges":[{"from":"","to":"","kind":"call"}],
-  "unresolved":[{"from":"","name":"","reason":"dynamic|missing"}] }
+{
+  "shared_state": [],
+  "locks": [],
+  "operations": []
+}
 ```
-**Gate:** regen must equal committed (proves no untracked call edge).
 
-## 5. `TAINT_MAP.json` — source→sink flows
+Lock records are also operations. This is bounded L0 evidence, not a conclusion
+about concurrency safety or shared-state completeness.
+
+### `DEAD_CODE.json` (`dead_code`)
+
 ```json
-{ "schema":1, "sources":[{"id":"","kind":"request_body|capture|provider_id|url","at":""}],
-  "sinks":[{"id":"","kind":"sql|path|subprocess|redaction|template|fetch","at":""}],
-  "paths":[{"source":"","sink":"","via":["mod:qualname"],"sanitized_by":null,"severity":""}] }
+{
+  "uncalled": [{"fn": "bulk_downloader/a.py::candidate", "confidence": 0.5, "reason": "no_resolved_intra_repo_caller", "excluded_evidence": ["dynamic_dispatch", "framework_registration", "route_or_cli_entrypoint"], "path": "bulk_downloader/a.py", "qualname": "candidate"}],
+  "uncalled_total": 1,
+  "unreachable_routes": []
+}
 ```
-**Gate:** any `paths[].sanitized_by == null` is a candidate finding; `--check` fails
-if a previously-sanitized path lost its sanitizer.
 
-## 6. `SECURITY_SURFACE.json` — auth × secret × sink
+`uncalled` records a static candidate with stated exclusions; it does not prove
+dead code or route reachability.
+
+### `ERROR_CATALOG.json` (`error_catalog`)
+
 ```json
-{ "schema":1, "auth_gates":[{"name":"_check_csrf","guards":["route"],"reachable":"pre_auth|post_auth|internal"}],
-  "secret_sites":[{"field":"","op":"read|write|mask|log","at":"","masked":true}],
-  "sql_sites":[{"at":"","parametrized":true,"table_user_controlled":false}],
-  "subprocess_sites":[{"at":"","shell":false,"arg_is_list":true}],
-  "path_sinks":[{"at":"","allowlisted":true}] }
+{
+  "handlers": [{"at": "bulk_downloader/a.py:[1, 4]", "fn": "caller", "raises": ["ValueError"], "maps_to": null, "expected": null, "ok": null, "path": "bulk_downloader/a.py", "function": "bulk_downloader/a.py::caller", "provenance": {"method": "l0_static_analysis", "node_id": "bulk_downloader/a.py::caller", "path": "bulk_downloader/a.py"}}]
+}
 ```
-**Gate:** flags `masked:false` secret reads on read-endpoints, `shell:true`,
-`table_user_controlled:true`, non-allowlisted path sinks (the verify-pass classes).
 
-## 7. `INVARIANTS.json` — gated, executable rules
+The foundation inventories statically observed raises. HTTP mapping and expected
+status assessment remain downstream work.
+
+### `METRICS_CATALOG.json` (`metrics_catalog`)
+
 ```json
-{ "schema":1, "invariants":{ "I0007": {
-   "statement":"resume_site_keepers must never exist",
-   "at":"bulk_downloader/runner.py", "why":"nested-playwright deadlock",
-   "guard_test":"tests/...::test_no_resume","status":"GUARDED|UNGUARDED",
-   "probe":"<expr asserted against live app>" } } }
+{
+  "metrics": [{"name": "sample.calls", "operation": "increment", "containing_function": "bulk_downloader/a.py::sample", "at": 4, "method": "name_substring", "confidence": 0.6, "path": "bulk_downloader/a.py", "function": "bulk_downloader/a.py::sample", "call_site": {"path": "bulk_downloader/a.py", "line": 4}, "source": {"name": "sample.calls", "operation": "increment", "at": 4, "method": "name_substring", "confidence": 0.6, "path": "bulk_downloader/a.py", "function": "bulk_downloader/a.py::sample"}}]
+}
 ```
-**Gate:** every `UNGUARDED` emits a RED-test stub via `bd-finding`; `bd-audit-gate`
-runs each `probe`.
 
-## 8. `CONTRACTS.json` — pre/postconditions (deepest L2 output)
+The catalog normalizes metric-emission sites from bounded L0 evidence; it does
+not establish production telemetry delivery or coverage.
+
+### `MODULE_CATALOG.json` (`module_catalog`)
+
 ```json
-{ "schema":1, "C0003": { "fn":"mod:qualname",
-   "pre":["max_concurrent is finite int in [1,32]"],
-   "post":["returns {} on all-valid, else {field:reason}"],
-   "raises":["ValueError on non-dict body"], "checked_by":"tests/...::..." } }
+{
+  "modules": {
+    "bulk_downloader/a.py": {
+      "purpose": null,
+      "data_flow": null,
+      "public_api": [{"name": "caller", "signature": "()", "raises": ["ValueError"]}],
+      "invariants": [],
+      "depends_on": ["bulk_downloader/b.py"],
+      "depended_by": [],
+      "sinks": ["path", "sql_fstring", "subprocess"],
+      "secrets": [],
+      "function_count": 1,
+      "provenance": {"method": "l0_static_analysis", "node_id": "bulk_downloader/a.py", "path": "bulk_downloader/a.py", "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+    }
+  }
+}
 ```
-**Gate:** runtime contract-check harness (`[PLANNED]`) asserts pre/post on the
-covered call sites.
 
-## 9. `ERROR_CATALOG.json` — raise→status consistency
+`purpose` and `data_flow` are deliberately null in this L0 projection. L2/L3
+interpretation, reviewed invariants, and advanced project knowledge are not
+completed by this catalog.
+
+### `SECURITY_SURFACE.json` (`security_surface`)
+
 ```json
-{ "schema":1, "handlers":[{"at":"","raises":"AttributeError","maps_to":500,"expected":400,"ok":false}] }
+{
+  "auth_gates": [],
+  "secret_sites": [],
+  "sql_sites": [],
+  "subprocess_sites": [],
+  "path_sinks": [],
+  "totals": {"auth_gates": 0, "secret_sites": 0, "sql_sites": 0, "sql_fstring": 0, "subprocess_sites": 0, "shell_true": 0, "path_sinks": 0}
+}
 ```
-**Gate:** flags `ok:false` (the "should be 400, returns 500" class).
 
-## 10. `CONFIG_LINEAGE.json` — setting → effect
+This is a static inventory of bounded auth, secret-name, and sink facts. It is
+not a security finding, exploit analysis, or governance disposition.
+
+### `TAINT_MAP.json` (`taint_map`)
+
 ```json
-{ "schema":1, "settings":{ "<key>":{ "readers":[""],"writers":[""],"effect":"",
-   "gui_exposure":"full|display_only","runtime_tunable":true } } }
+{
+  "sources": [],
+  "sinks": [],
+  "paths": [],
+  "note": "sink inventory; source->sink paths are emitted only from explicit path evidence"
+}
 ```
-**Gate:** extends the CLI↔GUI ratchet down to runtime; flags a writer with no reader
-or a runtime-tunable with no GUI exposure.
 
-## 11. `CONCURRENCY_MAP.json` — shared state + locks
-```json
-{ "schema":1, "shared_state":[{"name":"","guarded_by":"lock|none","at":""}],
-  "locks":[{"name":"","reentrant":false,"protects":[]}],
-  "rules":["keeper pauses nested playwright","WAL isolation note"] }
-```
-**Gate:** flags shared state with `guarded_by:none` mutated from >1 path.
+Paths are emitted only from explicit L0 path evidence and are labeled
+heuristic, not proved data-flow analysis.
 
-## 12. `DEAD_CODE.json`
-```json
-{ "schema":1, "uncalled":[{"fn":"","confidence":0}], "unreachable_routes":[{"route":"","reason":""}] }
-```
-**Gate:** vulture ≥90 + route-registration-vs-reachability cross-check.
+## Downstream boundaries
 
-## 13. `audit_metrics.json` + `regression_corpus/`
-`{ "schema":1, "by_module":{ "<path>":{ "findings":0,"density":0.0,"audited_at":"" } } }`
-plus a frozen seed (fuzz/lint input) per confirmed bug so it can never silently
-return. **Gate:** the corpus is replayed by `fuzz_harness` + `defect_patterns` each cut.
-
-## 14. `KNOWLEDGE_GRAPH.db` (SQLite) — the canonical store
-Tables: `nodes(id, kind, path, qualname, span, meta_json)`,
-`edges(src, dst, kind, meta_json)`, plus views materializing §3–§12. All other
-artifacts are `SELECT … → json`. **Gate:** rebuilt deterministically from source;
-a content hash of the rebuilt DB is pinned and `--check`ed.
+Successful validation or generation of these nine projections does not complete
+runtime analysis, reachability, L2/L3 review, governance, contract execution,
+audit completion, advanced knowledge, or external knowledge-base promotion.
+Those activities remain governed by their sibling plans and their own named
+gates. In particular, no projection grants a review disposition, proves a
+contract at runtime, certifies an audit, or synchronizes content to an external
+static KB.

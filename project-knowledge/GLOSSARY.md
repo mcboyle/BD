@@ -103,7 +103,9 @@ in `TASK_TRACKER`, not here.
   (`TASK_TRACKER_DATA.json` -> `tasktracker_gen.py`). Buckets: incomplete / completed /
   awaiting_operator / decided_against.
 - **OPV (OPV-*)** -- Operator Verification: tasks that need live on-stash operator action with
-  screenshot proof (`OPERATOR_VERIFICATION_GUIDE.md`); they sit in awaiting_operator.
+  screenshot proof (historical guide archived at
+  `../docs/archive/2026-07-22-doc-hygiene/project-knowledge/OPERATOR_VERIFICATION_GUIDE.md`);
+  they sit in awaiting_operator.
 - **PHC-1 / Phase C** -- the F2 capture-hardening overlay (VPN control, secrets lifecycle, AI
   editor): the designated LAST sandbox-buildable feature item.
 - **Track-K** -- the VPN egress program (vpn_config / vpn_api; the T5/T6 bind decision is open).

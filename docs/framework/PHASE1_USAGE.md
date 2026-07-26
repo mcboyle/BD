@@ -41,7 +41,8 @@ with `token=`/`expires=`/`sig=` values produce artifacts containing none of thos
 
 ## Selectors are Phase 2
 This pass does NOT extract selectors. It only REPORTS whether the captures carry a usable
-DOM/rrweb log (the Phase-2 gate). See `PHASE2_SELECTOR_DESIGN.md` for the scoped design of
+DOM/rrweb log (the Phase-2 gate). See the archived
+`docs/archive/2026-07-22-doc-hygiene/docs/framework/PHASE2_SELECTOR_DESIGN.md` for the scoped design of
 the DOM-log-to-selector extractor and what must be enabled if DOM logs are absent.
 
 ## Tying into the capture tooling

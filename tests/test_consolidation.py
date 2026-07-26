@@ -66,6 +66,21 @@ def test_kb_wrappers_equal_core():
     assert KL.validate(_ROOT) == KC.links(c)
     assert KD.detect(_ROOT) == KC.duplicates(c)
 
+
+def test_kb_link_validator_ignores_fenced_code_links():
+    with tempfile.TemporaryDirectory(prefix="kb-links-") as root:
+        Path(root, "README.md").write_text(
+            "[live](missing-live.md)\n"
+            "```markdown\n[example](missing-example.md)\n```\n"
+            "~~~text\n[tilde example](missing-tilde.md)\n~~~~\n",
+            encoding="utf-8",
+        )
+        result = KL.validate(root)
+    assert result["links_checked"] == 1
+    assert result["broken"] == [
+        {"doc": "README.md", "target": "missing-live.md"}
+    ]
+
 def test_kb_audit_single_walk():
     calls = {"n": 0}
     orig = KC.collect

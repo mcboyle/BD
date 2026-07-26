@@ -1,8 +1,8 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-07-22T22:26:09+00:00",
+ "generated": "2026-07-23T01:48:57+00:00",
  "version_context": "v3.66.817",
- "file_count": 369,
+ "file_count": 363,
  "files": {
   "0_INDEX.md": {
    "sha256": "b6e7c92a16e6f6b728564dd7ae738279c283713e315c49ab86b1c72b5be38eca",
@@ -41,24 +41,20 @@
    "bytes": 2483
   },
   "ADVANCED_PROJECT_KNOWLEDGE.md": {
-   "sha256": "64a091ce55323320ddbd1424dfe57408b110b07fe20561b43fbf9f5e2164df76",
-   "bytes": 22548
+   "sha256": "4354da8978a4c022948f93d31b95d991dc4076b70bc13bd5230eb42eff337edb",
+   "bytes": 22681
   },
   "ARCHITECTURE_MAP.md": {
-   "sha256": "5d7397595cbbc56af49dcb1a5b0cbbbf3aac2bbf91a97384328e9d910ce298af",
-   "bytes": 6574
+   "sha256": "7d60217065bd02a431524773766d976607ecea4d1174afcf572b04a554db109b",
+   "bytes": 6828
   },
   "AUDIT_PLAN_v3_66_539.md": {
    "sha256": "af72915386ff15b9a5466e63ed23ae89f2cd1acb975cd0d59786278223c05a25",
    "bytes": 12025
   },
   "AUTOMATION_POLICY.md": {
-   "sha256": "50d647fa44399b97793eb2d9fc38d9125bd72e3e703a3cc8116ffcb7a59a3a31",
-   "bytes": 18544
-  },
-  "AUTOMATION_PROGRAM_PLAN.md": {
-   "sha256": "a48a2936274317f542bd31910ed6b874f078face35fb4d5fb46a9cbbcfa2b46a",
-   "bytes": 20369
+   "sha256": "affba4b601fb6f1ff6448e931a0b245de5d5f19024fc55be5930195933b44972",
+   "bytes": 17277
   },
   "BDSUITE_CHANGELOG.md": {
    "sha256": "e674f9f6730938ac19ba0afbbe938733ca236b27a7ec9874cb3b29b386e319ed",
@@ -71,10 +67,6 @@
   "BD_IMPROVEMENT_PROGRAM_PLAN.md": {
    "sha256": "0d838108a6647c8516485b7f0703a4938cd8734133ff06dd45aea475b44b0b77",
    "bytes": 13905
-  },
-  "BD_SYSTEM_DEEP_DIVE_30_PHASES.md": {
-   "sha256": "bea5b674a5ecdca45df1543af28f8fdf19292be7089d553d496f422b5dc60d12",
-   "bytes": 17307
   },
   "BD_TOOLCHAIN_REFERENCE.md": {
    "sha256": "6608c468a5e0aad984b28e1623f7fbca8d82ba29257e6a4f374661cb507eab47",
@@ -89,8 +81,8 @@
    "bytes": 4352
   },
   "CHANGELOG_RECENT.md": {
-   "sha256": "7e2fd369c8c6976d4a444c493ed59bc6c494c8a5ed8401c92778e84524df76c1",
-   "bytes": 40418
+   "sha256": "7c6caf55153feeadd38edebd8f4eb85a01b03e84ce2bdd97bbbc0a03361ce3b8",
+   "bytes": 24729
   },
   "CODE_INTELLIGENCE_ARCHITECTURE.md": {
    "sha256": "0002959042990a382af65326cbfe948d5f90123d0de4006a0ccbaa1d5999d8b3",
@@ -129,8 +121,8 @@
    "bytes": 15679
   },
   "DECOMPOSITION_PROGRAM_ROADMAP.md": {
-   "sha256": "9ad7732f893c548f0dd28c564fdc5048c6a11759b864d47bbc1380ab21ab82f5",
-   "bytes": 11367
+   "sha256": "7ea9ddf55b345e0ccbdbadfadcd24a923d5bc6adea4b63d2fa60d97f2f6ef491",
+   "bytes": 502
   },
   "DECOMP_HAZARD_REGISTER.md": {
    "sha256": "fc7b96eae165c7e35efeacd4f5ee7cd0e4fd79846cb02aff991a602e1616d3cc",
@@ -157,8 +149,8 @@
    "bytes": 5237
   },
   "GLOSSARY.md": {
-   "sha256": "a9ca6382a9f1b77f6c400e0148e5984497963e11e3994dd73d2f9915bc6a8a03",
-   "bytes": 8474
+   "sha256": "4d6f6f41f6a3d7e5fa7f94bd1ab8ebcd1a83353c17d793dc6aa400ba5feaf6d4",
+   "bytes": 8564
   },
   "INVARIANTS.json": {
    "sha256": "3e45bdd0751b7f3616b9aa6893e338e379a24411df7e45e43c10d71b3f7ae50b",
@@ -193,16 +185,8 @@
    "bytes": 4893
   },
   "OPERATOR_POLICY_DECISIONS.md": {
-   "sha256": "b2bfc7e911fa88683e1b6551bc12a5ba7fc58eed166b257606e06c9785b74683",
-   "bytes": 9036
-  },
-  "OPERATOR_VERIFICATION_GUIDE.md": {
-   "sha256": "5adbc515794b60aae073ff8c7817cf66f82e294eeb76cadde1c60adfbc014191",
-   "bytes": 20789
-  },
-  "OPV_AUDIT_AND_GUIDE_v3_66_267.md": {
-   "sha256": "07fc459ad8fb75e108c28518c2dd1e76473cfb902e4623f181e85d184cc24b66",
-   "bytes": 19503
+   "sha256": "40dc8c5e80d63c22d267c20318d9f9ef4012561895fab5d9c7fc6f79b7d08db4",
+   "bytes": 9247
   },
   "OPV_CHECK_REFERENCE.md": {
    "sha256": "78bca4cab532c35a9337bdb1f408875906b41998c1ed0f29eb05ef1230f89e53",
@@ -220,17 +204,9 @@
    "sha256": "2b310166313dbf8c24537da3a97d20dd95512ba53463d4bb2eda074ac0cebd10",
    "bytes": 6267
   },
-  "OPV_OPERATOR_RUNBOOK_v3_66_266.md": {
-   "sha256": "d3f8978696a6da9af5ad3bcaee06545541e28925ae40821ec690cd22d317536f",
-   "bytes": 27795
-  },
   "PHASE_C_HARDENING_PLAN.md": {
    "sha256": "6daecd32eb71a78e15d3430b2fc6e7cab85e12db32a181b4bf123c18ee0be41e",
    "bytes": 10532
-  },
-  "PLUGIN_V3_PLAN.md": {
-   "sha256": "19bfd2c1f0e536aa910e4de86fefc44b06cc82c81d6f895fe7d26f9470610c58",
-   "bytes": 15214
   },
   "PRESTAGE_GUIDE.md": {
    "sha256": "c1721ae6da2860e88a2289af93928a6ae7b15eb0adc84aaf368f7d8e5bf84a71",

@@ -260,11 +260,12 @@ def regen_order(work):
     the gates that exist to make an accidental surface/edge change impossible.
     """
     step(0.5, "regen derived docs (bd-regen-order)")
-    exe = shutil.which("bd-regen-order") or "/home/claude/bin/bd-regen-order"
+    exe = os.path.join(work, "toolchain", "bin", "bd-regen-order")
     if not os.path.isfile(exe):
-        print(f"  {Y}bd-regen-order not found -- skipping (derived docs may be stale){RST}")
-        return
-    r = run([sys.executable, exe, "--work", work])
+        die("bd-regen-order missing from release work tree (NO-CUT)")
+    venv_python = os.path.join(work, ".venv", "bin", "python")
+    python = venv_python if os.access(venv_python, os.X_OK) else sys.executable
+    r = run([python, exe, "--work", work])
     out = (r.stdout or "") + (r.stderr or "")
     for line in out.strip().splitlines():
         print("  " + line)

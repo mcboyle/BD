@@ -71,6 +71,61 @@ def _assert_graph_tmp_clean(temp_parent: Path) -> None:
         "capture graph check leaked its temporary SQLite directory")
 
 
+def test_explicit_hash_cli_invocations_remain_compatible(tmp_path):
+    source = _make_source_tree(tmp_path)
+    database = tmp_path / "explicit.db"
+    pin = tmp_path / "external" / "explicit.content.sha256"
+    pin.parent.mkdir()
+    extract = subprocess.run(
+        [
+            sys.executable,
+            "tools/l0_extract.py",
+            "--root",
+            str(source),
+            "--db",
+            str(database),
+        ],
+        cwd=source,
+        capture_output=True,
+        text=True,
+    )
+    assert extract.returncode == 0, extract.stdout + extract.stderr
+
+    write = subprocess.run(
+        [
+            sys.executable,
+            "tools/graph_build.py",
+            "--db",
+            str(database),
+            "--hash-pin",
+            str(pin),
+            "--write-hash",
+        ],
+        cwd=source,
+        capture_output=True,
+        text=True,
+    )
+    assert write.returncode == 0, write.stdout + write.stderr
+    assert "graph write-hash: wrote" in write.stdout
+
+    check = subprocess.run(
+        [
+            sys.executable,
+            "tools/graph_build.py",
+            "--db",
+            str(database),
+            "--hash-pin",
+            str(pin),
+            "--check-hash",
+        ],
+        cwd=source,
+        capture_output=True,
+        text=True,
+    )
+    assert check.returncode == 0, check.stdout + check.stderr
+    assert "graph check-hash: OK" in check.stdout
+
+
 def test_matching_external_source_pin_succeeds_and_cleans_temp_db(tmp_path):
     source = _make_source_tree(tmp_path)
     pin = tmp_path / "external" / "KNOWLEDGE_GRAPH.content.sha256"

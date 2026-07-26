@@ -14,6 +14,8 @@ measured risk instead of SLOC proxy -> BATCH_ORDER.json + a readable summary.
 Usage: python3 risk_score.py [--db DB] [--root TREE] [--manifests DIR]
                               [--radon ~/rev/bin/radon] [--outdir DIR]
 """
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -22,6 +24,14 @@ import sqlite3
 import subprocess
 import sys
 from collections import defaultdict
+from collections.abc import Mapping
+from pathlib import Path
+from typing import TypeAlias
+
+
+JsonValue: TypeAlias = (
+    bool | int | float | str | None | list["JsonValue"] | dict[str, "JsonValue"]
+)
 
 SCHEMA = 1
 
@@ -89,6 +99,57 @@ def norm(v, lo, hi):
     if hi <= lo:
         return 0.0
     return max(0.0, min(1.0, (v - lo) / (hi - lo)))
+
+
+def score_from_reports(
+    *,
+    graph_path: Path,
+    radon_report: Mapping[str, JsonValue] | None,
+) -> dict[str, dict[str, JsonValue]]:
+    """Return deterministic per-module risk from already-loaded reports."""
+    sink_weight, secret_count, lines = load_facts(str(graph_path))
+    complexity = {}
+    for path, blocks in (radon_report or {}).items():
+        complexity[path] = max(
+            (
+                int(block.get("complexity", 0))
+                for block in blocks
+                if isinstance(block, dict)
+            ),
+            default=0,
+        )
+    max_cc = max(complexity.values(), default=1)
+    max_sink = max(sink_weight.values(), default=1)
+    result = {}
+    for path in sorted(lines):
+        line_count = max(1, int(lines[path]))
+        parts = {
+            "complexity": norm(complexity.get(path, 0), 0, max_cc),
+            "sink": norm(sink_weight.get(path, 0), 0, max_sink),
+            "secret": norm(
+                secret_count.get(path, 0) / line_count * 100, 0, 5
+            ),
+            "taint_proxy": norm(
+                sink_weight.get(path, 0) / line_count * 100, 0, 10
+            ),
+            "prior_defect": prior(path),
+        }
+        value = round(
+            WEIGHTS["cc"] * parts["complexity"]
+            + WEIGHTS["sink"] * parts["sink"]
+            + WEIGHTS["secret"] * parts["secret"]
+            + WEIGHTS["taint"] * parts["taint_proxy"]
+            + WEIGHTS["prior"] * parts["prior_defect"],
+            4,
+        )
+        result[path] = {
+            "score": value,
+            "complexity_max": complexity.get(path, 0),
+            "sink_weight": sink_weight.get(path, 0),
+            "secret_count": secret_count.get(path, 0),
+            "components": parts,
+        }
+    return result
 
 
 def score(db, root, radon):

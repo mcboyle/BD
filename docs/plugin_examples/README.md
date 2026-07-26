@@ -56,10 +56,12 @@ order (see `plugins.json.example`). With no `plugins.json`, every non-`_`
 
 ## Manifest + API version
 
-Each plugin declares a `PLUGIN` dict with `api_version` (currently **2**) and
-`capabilities`. A plugin whose `api_version` does not match the running BD is
-**skipped** at load (surfaced on the status page), so a stale plugin can't break
-silently when an event payload changes.
+Each plugin declares a `PLUGIN` dict with `capabilities` and either a scalar
+`api_version` or a `min_api` / `max_api` range. The host currently supports API
+majors **2 through 8**; a plugin loads when its declared range overlaps that
+host range. An incompatible plugin is **skipped** at load and surfaced on the
+status page. Hook payload compatibility is tracked separately from the API
+major, so additive payload evolution does not silently eject older plugins.
 
 ## Full-access — read before enabling
 

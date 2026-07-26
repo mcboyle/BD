@@ -1,5 +1,6 @@
 set +e
 cd /home/claude/work
+python toolchain/bin/bd-regen-order --work "$PWD" || exit $?
 Z=/mnt/user-data/uploads/BulkDownloader_v3_66_137.zip
 STAGE=/home/claude/release_148
 OUT=/mnt/user-data/outputs/BulkDownloader_v3_66_148.zip

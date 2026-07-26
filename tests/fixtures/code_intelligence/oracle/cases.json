@@ -1,0 +1,1 @@
+{"cases": [{"id": "equal", "left": {"value": 1}, "right": {"value": 1}}, {"id": "different", "left": 1, "right": 2}]}

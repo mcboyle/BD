@@ -93,7 +93,7 @@ structural-drift responses (always human review), and release readiness (section
 
 Goal: keep the corpus the source of truth, changed only deliberately.
 
-- The corpus (`validation_corpus.jsonl`, 34 entries) is read-only to every tool. The only
+- The corpus (`validation_corpus.jsonl`, 35 entries, measured 2026-07-22) is read-only to every tool. The only
   way an entry changes is a human appending or editing it after review.
 - A proposed entry arrives as a draft (from intake) with no id and `outcome: untested`.
 - The reviewer assigns the id, sets the date/version, scopes the observation, and records

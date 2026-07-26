@@ -2310,7 +2310,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1365,
+    "edge_count": 1366,
     "in": {
       "bulk_downloader/_envfile.py": [
         "bulk_downloader/__init__.py",
@@ -4613,6 +4613,9 @@
         "tools/kb_link_validator.py",
         "tools/kb_staleness_report.py"
       ],
+      "tools/l0_extract.py": [
+        "tools/code_intelligence/snapshot.py"
+      ],
       "tools/module_inventory.py": [
         "tools/dependency_inventory.py"
       ],
@@ -6747,6 +6750,9 @@
         "bulk_downloader/heuristic_scoring.py",
         "tools/cockpit_core.py"
       ],
+      "tools/code_intelligence/snapshot.py": [
+        "tools/l0_extract.py"
+      ],
       "tools/compat_shim_audit.py": [
         "tools/report_core.py"
       ],
@@ -7044,7 +7050,7 @@
       "tools/workflow_diagnostic.py",
       "tools/wow_promote_golden.py"
     ],
-    "total": 220,
+    "total": 224,
     "with_edges": [
       "tools/_probe_lib.py",
       "tools/adversarial_probe.py",

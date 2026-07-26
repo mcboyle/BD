@@ -23,9 +23,18 @@ def catalog(root="."):
         mt = _tokens(n[:-3])
         hits = [t for t, tk in test_tokens.items() if mt & tk]
         if hits:
-            mapped[n] = hits
+            module_path = os.path.relpath(
+                os.path.join(src_base, n),
+                root,
+            ).replace(os.sep, "/")
+            mapped[module_path] = hits
         else:
-            gaps.append(n)
+            gaps.append(
+                os.path.relpath(
+                    os.path.join(src_base, n),
+                    root,
+                ).replace(os.sep, "/")
+            )
     return {"modules": len(mapped) + len(gaps), "with_test_match": len(mapped),
             "gap_candidates": gaps, "mapped": mapped}
 

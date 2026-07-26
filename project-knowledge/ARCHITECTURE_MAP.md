@@ -3,8 +3,11 @@
 
 Where things live and how a capture becomes a download, as of @464 (decomposition CLOSED, so
 this topology is now stable). Navigation aid -- the authoritative source is always the tree;
-re-derive counts before trusting them. Pairs with `CROSS_MONOLITH_IMPORT_GRAPH.md` (import edges)
-and `DANGER_MAPv2.md` (load-bearing invariants in this topology).
+re-derive counts before trusting them. The completed-program import graph is archived at
+`../docs/archive/2026-07-22-doc-hygiene/kb/decomp/CROSS_MONOLITH_IMPORT_GRAPH.md`. It is a
+historical completion snapshot only, not current architecture evidence; regenerate evidence from
+the current tree before making architecture decisions. `DANGER_MAPv2.md` remains the active map
+of load-bearing invariants in this topology.
 
 ## The pipeline: capture -> template -> download
 

@@ -17,16 +17,18 @@
     ]
   },
   "counts": {
-    "total": 33,
+    "total": 38,
     "version": 1,
-    "count_dict": 32,
-    "test_files_scanned": 1104,
+    "count_dict": 37,
+    "test_files_scanned": 1115,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_config_snapshot_diff.py": 1,
       "tests/test_contracts.py": 1,
       "tests/test_corpus_disposition_buckets.py": 1,
+      "tests/test_coverage_map_frontend.py": 2,
       "tests/test_daily_digest.py": 2,
+      "tests/test_differential_oracle_frontend.py": 3,
       "tests/test_dom_analyzer.py": 1,
       "tests/test_kb_golden_questions.py": 1,
       "tests/test_settings_center_slice4.py": 1,
@@ -102,6 +104,26 @@
     },
     {
       "form": "count_dict",
+      "file": "tests/test_coverage_map_frontend.py",
+      "line": 232,
+      "value": {
+        "functions_with_gaps": 2,
+        "modules_with_gaps": 1
+      },
+      "gates_what": "test_generates_valid_deterministic_function_and_module_coverage"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_coverage_map_frontend.py",
+      "line": 297,
+      "value": {
+        "functions_with_gaps": 0,
+        "modules_with_gaps": 0
+      },
+      "gates_what": "test_missing_coverage_is_unknown_and_gate_is_fail"
+    },
+    {
+      "form": "count_dict",
       "file": "tests/test_daily_digest.py",
       "line": 96,
       "value": {
@@ -118,6 +140,34 @@
         "x": 3
       },
       "gates_what": "test_compute_delta_and_zero_detection"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_differential_oracle_frontend.py",
+      "line": 187,
+      "value": {
+        "cases": 11
+      },
+      "gates_what": "test_case_count_is_bounded_before_adapter_execution"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_differential_oracle_frontend.py",
+      "line": 208,
+      "value": {
+        "exitcode": 7
+      },
+      "gates_what": "test_child_crash_is_an_error_with_content_free_evidence"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_differential_oracle_frontend.py",
+      "line": 738,
+      "value": {
+        "comparisons": 0,
+        "forbidden": 0
+      },
+      "gates_what": "test_cli_durably_records_timeout_as_blocking_state"
     },
     {
       "form": "count_dict",

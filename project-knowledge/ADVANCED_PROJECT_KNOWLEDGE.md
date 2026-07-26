@@ -300,7 +300,8 @@ cycles. All validated live @464 (`runner.py`, `db.py`, `app.py`, 14 `runner_*.py
   rename/relocate it blindly.
 - **A leaf blueprint imports flask/stdlib, NEVER `app`.** Shared state
   (`from bulk_downloader.app import s_cfg`) is imported INSIDE the function body, never at
-  module top -- a top-level import creates a cycle (see `CROSS_MONOLITH_IMPORT_GRAPH`).
+  module top -- a top-level import creates a cycle (see the archived
+  `../docs/archive/2026-07-22-doc-hygiene/kb/decomp/CROSS_MONOLITH_IMPORT_GRAPH.md`).
   Blueprints reference routes by URL, never by function name, and never register an
   app-wide hook.
 
@@ -315,7 +316,7 @@ cycles. All validated live @464 (`runner.py`, `db.py`, `app.py`, 14 `runner_*.py
 | F Automation posture | `AUTOMATION_POLICY.md` |
 | G Tracker method | `KB_JUDGMENT.md` section 3 |
 | H Capture/redaction | `KNOWN_FOOTGUNS.md`, `9_SETTINGS_CENTER_SAFETY_SPEC.md` |
-| I Runner/db/blueprint invariants | `DANGER_MAPv2` (full registry), `DECOMP_HAZARD_REGISTER.md`, `CROSS_MONOLITH_IMPORT_GRAPH.md` |
+| I Runner/db/blueprint invariants | `DANGER_MAPv2` (full registry), `DECOMP_HAZARD_REGISTER.md`, and the archived `../docs/archive/2026-07-22-doc-hygiene/kb/decomp/CROSS_MONOLITH_IMPORT_GRAPH.md` |
 
 *Provenance: consolidated from this session's direct observations + the historical
 recovery passes (parts 1-3) mined from the dropped archive corpus, all re-validated

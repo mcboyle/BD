@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """kb_link_validator.py — validate markdown links/file refs in docs (D). Read-only.
-Scans *.md across the tree for [text](path) links + `file.md` style references and
-reports relative targets that don't exist (skips http(s) and #anchors). --json"""
+Scans *.md across the tree for [text](path) links and reports relative targets
+that don't exist (skips fenced code, http(s), and #anchors). --json"""
 import argparse, glob, json, os, re, sys
 from pathlib import Path as _Path
 import sys as _sys
 _sys.path.insert(0, str(_Path(__file__).resolve().parent))
 import kb_core as _KC  # type: ignore
 
-_LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 _DOCS = ["*.md", "docs/*.md", "docs/**/*.md"]
 
 

@@ -52,7 +52,7 @@ next highest-ROI phase).
 ## Boundaries (enforced)
 Each tool runs a posture scan over its output and fails closed on any signing value. None
 emits executable/replay content, promotes selectors, writes the corpus, or retires debt.
-Corpus access in Phase 6 is read-only. Verified: corpus unchanged at 34 entries.
+Corpus access in Phase 6 is read-only. Measured 2026-07-22: 35 entries.
 
 ## Tests
 `test_phases456.py` proves: drift history accumulates across runs (one-off→repeated),
