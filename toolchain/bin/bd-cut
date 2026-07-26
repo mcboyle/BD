@@ -603,7 +603,7 @@ def band(zippath, suites, work):
     # result must be read differentially.
     _runner_src = ""
     try:
-        with open(os.path.join(d, "run_tests.py"), encoding="utf-8") as fh:
+        with open(os.path.join(d, "run_tests_core.py"), encoding="utf-8") as fh:
             _runner_src = fh.read()
     except OSError:
         pass

@@ -82,6 +82,21 @@ def test_classifier_serializes_unscoped_state_and_external_io_signals() -> None:
         assert lanes.classify_capture_file(path, source=source) == "serial", path
 
 
+def test_allowlisted_file_cannot_bypass_dynamic_runner_import_risk() -> None:
+    lanes = _load_lanes_module()
+    allowlisted = "tests/test_validators.py"
+
+    for source in (
+        'import importlib\nimportlib.import_module("run_tests")',
+        'from importlib import import_module as load\nload("run_tests_core")',
+        '__import__("run_tests")',
+    ):
+        assert (
+            lanes.classify_capture_file(allowlisted, source=source)
+            == "serial"
+        )
+
+
 def test_classifier_defaults_unreviewed_files_to_serial() -> None:
     lanes = _load_lanes_module()
 

@@ -138,6 +138,18 @@ then
   exit 2
 fi
 
+# The Flask root and real-browser tests require the built SPA, and packaging
+# declares this directory as required runtime data. A clean source checkout
+# intentionally ignores frontend/dist, so fail before stopping services or
+# running thousands of tests with misleading 503s. Build it explicitly from
+# the checked-in lockfile first: `(cd frontend && npm ci && npm run build)`.
+if [ ! -f "$BD_HOME/frontend/dist/index.html" ]; then
+  echo "FATAL: frontend/dist/index.html is missing." >&2
+  echo "Build the SPA before capture:" >&2
+  echo "  (cd \"$BD_HOME/frontend\" && npm ci && npm run build)" >&2
+  exit 2
+fi
+
 rm -rf "$OUT" "$ARCHIVE"
 mkdir -p "$OUT"
 

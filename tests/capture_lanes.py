@@ -88,6 +88,7 @@ SERIAL_SOURCE_PATTERNS = (
         r"^\s*(?:from\s+socket\s+import|import\s+socket\b)",
         re.IGNORECASE | re.MULTILINE,
     ),
+    re.compile(r"""["']run_tests(?:_core)?["']""", re.IGNORECASE),
 )
 
 

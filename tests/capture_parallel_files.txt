@@ -143,11 +143,9 @@ test_v3_66_646_backup_integrity.py
 test_v3_66_654_redaction_dial_report.py
 test_v3_66_658_obs2_route_timing.py
 test_v3_66_659_pos4_winbat.py
-test_v3_66_660_mnt3_flake_expiry.py
 test_v3_66_661_healthcheck_ytdlp_shape.py
 test_v3_66_662_obs3_storage_tiers.py
 test_v3_66_663_pos1_backup_scope.py
-test_v3_66_664_mnt3_quarantine.py
 test_v3_66_670_ai4_cost_tokens.py
 test_v3_66_672_run3_budget.py
 test_v3_66_677_plugin_scaffold.py

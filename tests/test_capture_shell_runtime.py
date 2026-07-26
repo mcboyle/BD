@@ -52,6 +52,7 @@ def _run_probe(
     parallel_exit: int = 0,
     serial_exit: int = 0,
     results_exit: int = 0,
+    frontend_ready: bool = True,
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, int], list[list[str]]]:
     fake_home = tmp_path / "BulkDownloader"
     fake_bin = tmp_path / "bin"
@@ -66,6 +67,12 @@ def _run_probe(
         "# capture probe\n",
         encoding="utf-8",
     )
+    if frontend_ready:
+        (fake_home / "frontend" / "dist").mkdir(parents=True)
+        (fake_home / "frontend" / "dist" / "index.html").write_text(
+            "<!doctype html><title>capture probe</title>\n",
+            encoding="utf-8",
+        )
 
     python_log = tmp_path / "python.jsonl"
     fake_python = r'''#!/usr/bin/env python3
@@ -149,13 +156,15 @@ exit 0
         text=True,
         timeout=30,
     )
-    exits = {
-        key: int(value)
-        for key, value in (
-            line.split("=", 1)
-            for line in result_path.read_text(encoding="utf-8").splitlines()
-        )
-    }
+    exits = {}
+    if result_path.is_file():
+        exits = {
+            key: int(value)
+            for key, value in (
+                line.split("=", 1)
+                for line in result_path.read_text(encoding="utf-8").splitlines()
+            )
+        }
     calls = [
         json.loads(line)
         for line in python_log.read_text(encoding="utf-8").splitlines()
@@ -193,6 +202,19 @@ def test_capture_runtime_parses_workers_and_routes_only_parallel(tmp_path) -> No
         "RESULTS_EXIT": 0,
         "SUITE_EXIT": 0,
     }
+
+
+def test_capture_runtime_fails_before_pytest_when_spa_build_missing(
+    tmp_path,
+) -> None:
+    completed, exits, calls = _run_probe(tmp_path, frontend_ready=False)
+
+    assert completed.returncode == 2
+    assert "frontend/dist/index.html is missing" in (
+        completed.stdout + completed.stderr
+    )
+    assert exits == {}
+    assert not any(call[:2] == ["-m", "pytest"] for call in calls)
 
 
 @pytest.mark.parametrize(

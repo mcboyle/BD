@@ -5,6 +5,7 @@ pytest module that is executing this test file.
 """
 from __future__ import annotations
 
+import ast
 import os
 from pathlib import Path
 import subprocess
@@ -173,3 +174,54 @@ def test_contract_and_budget_pair_collects_with_real_pytest():
         f"stderr:\n{result.stderr}"
     )
     assert "error during collection" not in result.stdout.lower()
+
+
+def test_runner_helper_consumers_target_import_safe_core():
+    violations = []
+    for path in sorted((REPO / "tests").glob("test*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                if any(alias.name == "run_tests" for alias in node.names):
+                    violations.append(f"{path.name}:{node.lineno}: import")
+            elif isinstance(node, ast.ImportFrom) and node.module == "run_tests":
+                violations.append(f"{path.name}:{node.lineno}: from-import")
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "importlib"
+                and node.func.attr == "import_module"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and node.args[0].value == "run_tests"
+            ):
+                violations.append(
+                    f"{path.name}:{node.lineno}: dynamic-import"
+                )
+    assert violations == []
+
+    harness = (REPO / "tests" / "test_harness_retry_timeout.py").read_text(
+        encoding="utf-8"
+    )
+    assert '_REPO / "run_tests_core.py"' in harness
+    for relative in ("project-knowledge/bd-cut", "toolchain/bin/bd-cut"):
+        source = (REPO / relative).read_text(encoding="utf-8")
+        assert 'os.path.join(d, "run_tests_core.py")' in source, relative
+
+
+def test_dynamic_runner_helper_consumers_bind_core_under_real_pytest():
+    result = _python(
+        """
+        import runpy
+        import run_tests_core
+
+        for path in (
+            "tests/test_v3_66_660_mnt3_flake_expiry.py",
+            "tests/test_v3_66_664_mnt3_quarantine.py",
+        ):
+            namespace = runpy.run_path(path)
+            assert namespace["rt"] is run_tests_core, path
+        """
+    )
+    _assert_ok(result)
