@@ -41,6 +41,7 @@ def test_convert_junit_writes_capture_schema_and_summary(tmp_path) -> None:
     assert payload["total"] == 3
     assert payload["passed"] == 1
     assert payload["failed"] == 1
+    assert payload["errors"] == 0
     assert payload["skipped"] == 1
     assert payload["ok"] is False
     assert [row["status"] for row in payload["tests"]] == [
@@ -51,12 +52,13 @@ def test_convert_junit_writes_capture_schema_and_summary(tmp_path) -> None:
     assert payload["failures"][0]["test"] == "test_fail"
     assert payload["skips"][0]["reason"] == "fixture unavailable"
     assert json.loads(json_path.read_text(encoding="utf-8")) == payload
-    assert "3 total | 1 passed | 1 failed | 1 skipped" in summary_path.read_text(
-        encoding="utf-8"
+    assert (
+        "3 total | 1 passed | 1 failed | 0 errors | 1 skipped"
+        in summary_path.read_text(encoding="utf-8")
     )
 
 
-def test_convert_junit_treats_collection_errors_as_failures(tmp_path) -> None:
+def test_convert_junit_preserves_collection_errors(tmp_path) -> None:
     junit = tmp_path / "pytest.xml"
     json_path = tmp_path / "results.json"
     summary_path = tmp_path / "SUMMARY.txt"
@@ -73,9 +75,10 @@ def test_convert_junit_treats_collection_errors_as_failures(tmp_path) -> None:
     payload = convert_junit(junit, json_path, summary_path, version="unknown")
 
     assert payload["total"] == 1
-    assert payload["failed"] == 1
+    assert payload["failed"] == 0
+    assert payload["errors"] == 1
     assert payload["ok"] is False
-    assert payload["tests"][0]["status"] == "fail"
+    assert payload["tests"][0]["status"] == "error"
     assert "ImportError" in payload["tests"][0]["error"]
 
 
@@ -95,10 +98,10 @@ def test_convert_junit_aggregates_parallel_and_serial_lanes(tmp_path) -> None:
         encoding="utf-8",
     )
     serial.write_text(
-        """<testsuite name="serial" tests="2" failures="1" errors="0" skipped="0">
+        """<testsuite name="serial" tests="2" failures="0" errors="1" skipped="0">
   <testcase classname="tests.test_global" name="test_serial_pass" time="0.3" />
-  <testcase classname="tests.test_global" name="test_serial_fail" time="0.4">
-    <failure message="serial failure">AssertionError: serial failure</failure>
+  <testcase classname="tests.test_global" name="test_serial_error" time="0.4">
+    <error message="serial error">ImportError: serial error</error>
   </testcase>
 </testsuite>
 """,
@@ -114,15 +117,17 @@ def test_convert_junit_aggregates_parallel_and_serial_lanes(tmp_path) -> None:
 
     assert payload["total"] == 4
     assert payload["passed"] == 2
-    assert payload["failed"] == 1
+    assert payload["failed"] == 0
+    assert payload["errors"] == 1
     assert payload["skipped"] == 1
     assert payload["ok"] is False
     assert {row["test"] for row in payload["tests"]} == {
         "test_pass",
         "test_skip",
         "test_serial_pass",
-        "test_serial_fail",
+        "test_serial_error",
     }
-    assert "4 total | 2 passed | 1 failed | 1 skipped" in summary_path.read_text(
-        encoding="utf-8"
+    assert (
+        "4 total | 2 passed | 0 failed | 1 errors | 1 skipped"
+        in summary_path.read_text(encoding="utf-8")
     )

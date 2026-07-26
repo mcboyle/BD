@@ -5,17 +5,19 @@ import json
 from tools.capture_verdict import assess_capture, main
 
 
-def _write_unit(path, *, passed=2, failed=0, skipped=1, ok=True):
+def _write_unit(path, *, passed=2, failed=0, errors=0, skipped=1, ok=True):
     tests = (
         [{"status": "pass"} for _ in range(passed)]
         + [{"status": "fail"} for _ in range(failed)]
+        + [{"status": "error"} for _ in range(errors)]
         + [{"status": "skip"} for _ in range(skipped)]
     )
     payload = {
         "schema_version": 2,
-        "total": passed + failed + skipped,
+        "total": passed + failed + errors + skipped,
         "passed": passed,
         "failed": failed,
+        "errors": errors,
         "skipped": skipped,
         "ok": ok,
         "tests": tests,
@@ -56,6 +58,19 @@ def test_unit_failure_fails_even_if_suite_exit_is_zero(tmp_path):
     assert result.ok is False
     assert result.exit_code != 0
     assert "unit failures=1" in result.summary
+
+
+def test_unit_error_fails_even_if_suite_exit_is_zero(tmp_path):
+    unit = tmp_path / "unit.json"
+    live = tmp_path / "live.log"
+    _write_unit(unit, passed=1, errors=1, skipped=0, ok=False)
+    _write_live(live)
+
+    result = assess_capture(unit, live, suite_exit=0, live_exit=0)
+
+    assert result.ok is False
+    assert result.exit_code != 0
+    assert "unit errors=1" in result.summary
 
 
 def test_live_warning_fails_even_if_live_exit_is_zero(tmp_path):

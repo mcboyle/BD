@@ -82,6 +82,48 @@ def test_classifier_serializes_unscoped_state_and_external_io_signals() -> None:
         assert lanes.classify_capture_file(path, source=source) == "serial", path
 
 
+def test_classifier_defaults_unreviewed_files_to_serial() -> None:
+    lanes = _load_lanes_module()
+
+    assert (
+        lanes.classify_capture_file(
+            "tests/test_unreviewed_probe.py",
+            source="def test_pure_looking_but_unreviewed(): assert True",
+        )
+        == "serial"
+    )
+    assert (
+        lanes.classify_capture_file(
+            REPO_ROOT / "tests" / "test_validators.py",
+        )
+        == "parallel"
+    )
+    for risky in (
+        "test_v3_43_21_jd_bridge.py",
+        "test_v3_66_446_scrape_listing_httpx.py",
+    ):
+        assert (
+            lanes.classify_capture_file(REPO_ROOT / "tests" / risky)
+            == "serial"
+        ), risky
+
+
+def test_parallel_manifest_is_explicit_complete_and_risk_free() -> None:
+    lanes = _load_lanes_module()
+    tests_root = REPO_ROOT / "tests"
+    allowlist = lanes.parallel_allowlist()
+
+    assert allowlist
+    for relative in sorted(allowlist):
+        path = tests_root / relative
+        assert path.is_file(), f"stale parallel allowlist entry: {relative}"
+        assert lanes.classify_capture_file(path) == "parallel", relative
+
+    for path in tests_root.rglob("test*.py"):
+        if lanes.classify_capture_file(path) == "parallel":
+            assert path.relative_to(tests_root).as_posix() in allowlist
+
+
 def test_real_pytest_collection_selects_safe_and_serial_lanes() -> None:
     parallel = _collect("capture_parallel", "tests/test_validators.py")
     assert parallel.returncode == 0, parallel.stdout + parallel.stderr

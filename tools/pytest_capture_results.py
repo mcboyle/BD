@@ -40,8 +40,7 @@ def _record(testcase: ET.Element) -> dict:
         duration = 0.0
 
     failure = testcase.find("failure")
-    if failure is None:
-        failure = testcase.find("error")
+    error = testcase.find("error")
     skipped = testcase.find("skipped")
 
     record = {
@@ -53,6 +52,9 @@ def _record(testcase: ET.Element) -> dict:
     if failure is not None:
         record["status"] = "fail"
         record["error"] = _detail(failure)
+    elif error is not None:
+        record["status"] = "error"
+        record["error"] = _detail(error)
     elif skipped is not None:
         record["status"] = "skip"
         record["reason"] = _detail(skipped)
@@ -80,6 +82,7 @@ def convert_junit(
         records.extend(_record(node) for node in root.iter("testcase"))
     passed = sum(row["status"] == "pass" for row in records)
     failed = sum(row["status"] == "fail" for row in records)
+    errors = sum(row["status"] == "error" for row in records)
     skipped = sum(row["status"] == "skip" for row in records)
 
     if version is None:
@@ -90,6 +93,11 @@ def convert_junit(
         {"file": row["file"], "test": row["test"], "error": row["error"]}
         for row in records
         if row["status"] == "fail"
+    ]
+    error_details = [
+        {"file": row["file"], "test": row["test"], "error": row["error"]}
+        for row in records
+        if row["status"] == "error"
     ]
     skips = [
         {"file": row["file"], "test": row["test"], "reason": row["reason"]}
@@ -103,10 +111,12 @@ def convert_junit(
         "total": len(records),
         "passed": passed,
         "failed": failed,
+        "errors": errors,
         "skipped": skipped,
-        "ok": failed == 0,
+        "ok": failed == 0 and errors == 0,
         "tests": records,
         "failures": failures,
+        "error_details": error_details,
         "skips": skips,
         "budget": {"threshold_s": 0, "over": []},
     }
@@ -119,7 +129,7 @@ def convert_junit(
         f"version : {version}",
         f"run at  : {stamp}",
         f"result  : {len(records)} total | {passed} passed | "
-        f"{failed} failed | {skipped} skipped",
+        f"{failed} failed | {errors} errors | {skipped} skipped",
         "",
     ]
     if failures:
@@ -130,6 +140,13 @@ def convert_junit(
             )
             for error_line in failure["error"].splitlines()[-3:]:
                 lines.append(f"       {error_line}")
+        lines.append("")
+    if error_details:
+        lines.append(f"ERRORS ({len(error_details)}):")
+        for error in error_details:
+            lines.append(f"  ERROR {error['file']} :: {error['test']}")
+            for error_line in error["error"].splitlines()[-3:]:
+                lines.append(f"        {error_line}")
         lines.append("")
     Path(summary_path).write_text("\n".join(lines), encoding="utf-8")
     return payload
@@ -153,6 +170,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         "pytest artifacts: "
         f"{payload['passed']} pass/{payload['failed']} fail/"
+        f"{payload['errors']} error/"
         f"{payload['skipped']} skip"
     )
     return 0

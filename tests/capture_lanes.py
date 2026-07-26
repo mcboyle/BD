@@ -1,15 +1,18 @@
-"""Deterministic pytest lane classification used by ``capture.sh``.
+"""Fail-closed pytest lane classification used by ``capture.sh``.
 
-The parallel lane is the default only for files without a reviewed risk signal.
-Risky files are selected into a separate serial pytest invocation, so they never
-overlap the xdist workload or one another.
+Only files in the checked-in, reviewed allowlist can enter the xdist lane.
+Unlisted, unreadable, malformed, and risk-matching paths default to serial.
 """
 
 from __future__ import annotations
 
 import re
 from functools import lru_cache
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+
+
+TESTS_ROOT = Path(__file__).resolve().parent
+PARALLEL_ALLOWLIST_PATH = TESTS_ROOT / "capture_parallel_files.txt"
 
 
 SERIAL_EXACT_BASENAMES = frozenset(
@@ -88,12 +91,52 @@ SERIAL_SOURCE_PATTERNS = (
 )
 
 
+@lru_cache(maxsize=1)
+def parallel_allowlist() -> frozenset[str]:
+    """Return validated test paths relative to ``tests/``; missing is empty."""
+    try:
+        lines = PARALLEL_ALLOWLIST_PATH.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return frozenset()
+
+    entries: set[str] = set()
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        normalized = line.replace("\\", "/")
+        relative = PurePosixPath(normalized)
+        if relative.is_absolute() or ".." in relative.parts:
+            continue
+        if not relative.parts or relative.parts[0] == "tests":
+            continue
+        entries.add(relative.as_posix())
+    return frozenset(entries)
+
+
+def _capture_test_key(candidate: Path) -> str | None:
+    """Normalize a collected path to a safe path relative to ``tests/``."""
+    if candidate.is_absolute():
+        try:
+            relative = candidate.resolve().relative_to(TESTS_ROOT)
+        except (OSError, ValueError):
+            return None
+        parts = relative.parts
+    else:
+        parts = PurePosixPath(candidate.as_posix().replace("\\", "/")).parts
+        if parts and parts[0] == "tests":
+            parts = parts[1:]
+    if not parts or ".." in parts:
+        return None
+    return PurePosixPath(*parts).as_posix()
+
+
 def classify_capture_file(
     path: str | Path,
     *,
     source: str | None = None,
 ) -> str:
-    """Return ``serial`` for reviewed risk signals, otherwise ``parallel``."""
+    """Return ``parallel`` only for reviewed, allowlisted, risk-free files."""
     candidate = Path(path)
     basename = candidate.name.lower()
     if basename in SERIAL_EXACT_BASENAMES:
@@ -111,6 +154,9 @@ def classify_capture_file(
     if any(snippet in lowered for snippet in SERIAL_SOURCE_SNIPPETS):
         return "serial"
     if any(pattern.search(source) for pattern in SERIAL_SOURCE_PATTERNS):
+        return "serial"
+    key = _capture_test_key(candidate)
+    if key is None or key not in parallel_allowlist():
         return "serial"
     return "parallel"
 
