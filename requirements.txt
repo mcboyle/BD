@@ -78,3 +78,9 @@ psutil>=5.9,<7.0
 # Size the pool with BD_WSGI_THREADS (default 30): each long-lived /api/stream
 # SSE connection pins one worker thread for its life.
 waitress>=3.0,<4.0
+
+# Capture and validation must use the real pytest runner on every supported
+# install, including production/test-box deployments that install only this
+# core manifest.
+pytest>=7.0,<9.0
+pytest-xdist>=3.6,<4.0

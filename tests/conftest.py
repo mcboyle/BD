@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from capture_lanes import classify_capture_path
 
 # Make sure the package is importable regardless of where pytest is invoked
 PKG_ROOT = Path(__file__).resolve().parent.parent
@@ -74,6 +75,31 @@ def pytest_configure(config):
         "sys.modules around the test (used by tests that need the "
         "package to re-read env vars on import).",
     )
+    config.addinivalue_line(
+        "markers",
+        "capture_serial: run this file in capture.sh's isolated serial lane.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "capture_parallel: run this reviewed-safe file in capture.sh's xdist lane.",
+    )
+
+
+def pytest_collection_modifyitems(items):
+    """Apply exactly one capture lane marker to every collected test item.
+
+    Classification is file-level so xdist ``--dist loadfile`` cannot split a
+    module across execution lanes. An explicit serial marker is always kept;
+    otherwise the repository classifier decides conservatively from the path
+    and source.
+    """
+    for item in items:
+        if item.get_closest_marker("capture_serial") is not None:
+            item.add_marker(pytest.mark.capture_serial)
+            continue
+        item_path = getattr(item, "path", None) or item.fspath
+        lane = classify_capture_path(str(item_path))
+        item.add_marker(getattr(pytest.mark, f"capture_{lane}"))
 
 
 @pytest.fixture(autouse=True)
