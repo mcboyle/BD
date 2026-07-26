@@ -253,6 +253,41 @@ def _lexical_scopes(tree):
     return scopes, parents
 
 
+def _scope_header_node_ids(scope):
+    """Return nodes evaluated by the scope's enclosing runtime context."""
+    expressions = []
+    if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        expressions.extend(scope.args.defaults)
+        expressions.extend(default for default in scope.args.kw_defaults if default is not None)
+        for argument in (*scope.args.posonlyargs, *scope.args.args,
+                         *scope.args.kwonlyargs):
+            if argument.annotation is not None:
+                expressions.append(argument.annotation)
+        if scope.args.vararg is not None and scope.args.vararg.annotation is not None:
+            expressions.append(scope.args.vararg.annotation)
+        if scope.args.kwarg is not None and scope.args.kwarg.annotation is not None:
+            expressions.append(scope.args.kwarg.annotation)
+        if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            expressions.extend(scope.decorator_list)
+            if scope.returns is not None:
+                expressions.append(scope.returns)
+    elif isinstance(scope, ast.ClassDef):
+        expressions.extend(scope.decorator_list)
+        expressions.extend(scope.bases)
+        expressions.extend(keyword.value for keyword in scope.keywords)
+    node_ids = set()
+
+    def visit(node):
+        node_ids.add(id(node))
+        for child in ast.iter_child_nodes(node):
+            if not isinstance(child, _LEXICAL_SCOPE_TYPES):
+                visit(child)
+
+    for expression in expressions:
+        visit(expression)
+    return node_ids
+
+
 def _lexically_bound(name, scope, module, parents, bindings, globals_, nonlocals, builtins):
     """Resolve a name through its lexical parents, honoring global/nonlocal."""
     if name in builtins:
@@ -267,7 +302,12 @@ def _lexically_bound(name, scope, module, parents, bindings, globals_, nonlocals
             continue
         if name in bindings[current]:
             return True
-        current = parents[current]
+        parent = parents[current]
+        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda,
+                                ast.ListComp, ast.SetComp, ast.DictComp,
+                                ast.GeneratorExp)) and isinstance(parent, ast.ClassDef):
+            parent = parents[parent]
+        current = parent
     return False
 
 
@@ -285,10 +325,10 @@ def dp06(path, src, tree):
         bindings[scope] = local
         globals_[scope] = declared_global
         nonlocals[scope] = declared_nonlocal
+    header_node_ids = {scope: _scope_header_node_ids(scope) for scope in scopes}
     for scope in scopes:
         if scope is module:
             continue
-        bindings[module].update(bindings[scope] & globals_[scope])
         bindings[scope].difference_update(globals_[scope] | nonlocals[scope])
     builtin_source = __builtins__
     builtins = set(builtin_source if isinstance(builtin_source, dict)
@@ -300,7 +340,9 @@ def dp06(path, src, tree):
                     and node.func.id in ("hasattr", "getattr") and node.args \
                     and isinstance(node.args[0], ast.Name):
                 name = node.args[0].id
-                if not _lexically_bound(name, scope, module, parents, bindings,
+                resolution_scope = parents[scope] if id(node) in header_node_ids[scope] \
+                    else scope
+                if not _lexically_bound(name, resolution_scope, module, parents, bindings,
                                         globals_, nonlocals, builtins):
                     out.append(_find(
                         "DP-06", "medium", TRIAGE, node.lineno,

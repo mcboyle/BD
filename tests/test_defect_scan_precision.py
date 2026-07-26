@@ -87,7 +87,18 @@ def query(connection, table):
     "tools/code_intelligence/semantic_service.py",
 ])
 def test_dp06_resolves_actual_file_lexical_bindings(scanner, relative):
-    assert _hits(scanner, relative, "DP-06") == []
+    findings = _hits(scanner, relative, "DP-06")
+
+    assert not any(finding["precision"] == "error" for finding in findings)
+    assert findings == []
+
+
+def _assert_one_dp06_candidate(scanner, relative, source):
+    findings = scanner.scan_file(relative, source, only={"DP-06"})
+
+    assert len(findings) == 1
+    assert findings[0]["dp"] == "DP-06"
+    assert findings[0]["precision"] != "error"
 
 
 def test_dp06_reports_an_unbound_getattr_receiver(scanner):
@@ -96,7 +107,7 @@ def broken():
     return getattr(missing_name, "value", None)
 '''
 
-    assert len(scanner.scan_file("broken.py", source, only={"DP-06"})) == 1
+    _assert_one_dp06_candidate(scanner, "broken.py", source)
 
 
 def test_dp06_does_not_treat_a_sibling_binding_as_lexical(scanner):
@@ -109,7 +120,41 @@ def broken():
     return getattr(missing_name, "value", None)
 '''
 
-    assert len(scanner.scan_file("siblings.py", source, only={"DP-06"})) == 1
+    _assert_one_dp06_candidate(scanner, "siblings.py", source)
+
+
+def test_dp06_does_not_promote_global_assignment_from_an_uncalled_sibling(scanner):
+    source = '''\
+def sibling():
+    global missing_name
+    missing_name = object()
+
+def broken():
+    return getattr(missing_name, "value", None)
+'''
+
+    _assert_one_dp06_candidate(scanner, "global_sibling.py", source)
+
+
+def test_dp06_method_does_not_close_over_a_class_local(scanner):
+    source = '''\
+class Container:
+    missing_name = object()
+
+    def broken(self):
+        return getattr(missing_name, "value", None)
+'''
+
+    _assert_one_dp06_candidate(scanner, "class_scope.py", source)
+
+
+def test_dp06_function_default_is_evaluated_in_the_enclosing_scope(scanner):
+    source = '''\
+def broken(missing_name=getattr(missing_name, "value", None)):
+    return missing_name
+'''
+
+    _assert_one_dp06_candidate(scanner, "default_scope.py", source)
 
 
 @pytest.mark.parametrize(("relative", "recovery_lines"), [
