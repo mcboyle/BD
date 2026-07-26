@@ -67,6 +67,21 @@ def test_classifier_routes_each_risky_category_to_serial() -> None:
     )
 
 
+def test_classifier_serializes_unscoped_state_and_external_io_signals() -> None:
+    lanes = _load_lanes_module()
+
+    cases = [
+        ("tests/test_state_probe.py", 'sys.modules["probe"] = object()'),
+        ("tests/test_env_probe.py", 'os.environ["PROBE"] = "dirty"'),
+        ("tests/test_cwd_probe.py", 'os.chdir("/tmp")'),
+        ("tests/test_client_probe.py", 'import httpx\nhttpx.get("https://example")'),
+        ("tests/test_transport_probe.py", "import socket\nsocket.create_connection(addr)"),
+        ("tests/test_index_sync.py", 'Path("PIN_INDEX.json").read_text()'),
+    ]
+    for path, source in cases:
+        assert lanes.classify_capture_file(path, source=source) == "serial", path
+
+
 def test_real_pytest_collection_selects_safe_and_serial_lanes() -> None:
     parallel = _collect("capture_parallel", "tests/test_validators.py")
     assert parallel.returncode == 0, parallel.stdout + parallel.stderr

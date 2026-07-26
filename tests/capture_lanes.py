@@ -7,6 +7,7 @@ overlap the xdist workload or one another.
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -57,6 +58,33 @@ SERIAL_SOURCE_SNIPPETS = (
     "urllib.request",
     "systemctl",
     "regenerate_goldens",
+    "pin_index.json",
+    "function_index.md",
+    "endpoint_catalog",
+    "route_index",
+)
+
+SERIAL_SOURCE_PATTERNS = (
+    re.compile(r"\bsys\.modules\b", re.IGNORECASE),
+    re.compile(
+        r"\bos\.environ\s*(?:"
+        r"\[[^\]]+\]\s*=|"
+        r"\.pop\s*\(|"
+        r"\.clear\s*\(|"
+        r"\.update\s*\(|"
+        r"\.setdefault\s*\()",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bos\.(?:chdir|putenv|unsetenv)\s*\(", re.IGNORECASE),
+    re.compile(
+        r"\b(?:requests|httpx)\."
+        r"(?:request|get|post|put|patch|delete|stream)\s*\(",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^\s*(?:from\s+socket\s+import|import\s+socket\b)",
+        re.IGNORECASE | re.MULTILINE,
+    ),
 )
 
 
@@ -81,6 +109,8 @@ def classify_capture_file(
             return "serial"
     lowered = source.lower()
     if any(snippet in lowered for snippet in SERIAL_SOURCE_SNIPPETS):
+        return "serial"
+    if any(pattern.search(source) for pattern in SERIAL_SOURCE_PATTERNS):
         return "serial"
     return "parallel"
 
