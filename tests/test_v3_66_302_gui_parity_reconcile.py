@@ -13,6 +13,7 @@ brittle full-census equality (G12 already gates the 3 write-blueprints' counts).
 import json
 import sys
 from pathlib import Path
+import pytest
 
 _REPO = Path(__file__).resolve().parent.parent
 # THB-1 (v3.66.528): the tools/ + repo sys.path inserts used to live here at module
@@ -29,29 +30,43 @@ _PHANTOM_TOOLS = {
 _NEW_293_ROUTES = {"sites.api_template_capture_cancel", "cockpit.api_capture_goto"}
 
 
-def _shipped_names():
-    p = _REPO / "reports" / "gui_parity_inventory.json"
-    d = json.load(open(p))
+@pytest.fixture
+def generated_inventory_path(tmp_path):
+    """Materialize the ignored parity report in an isolated output directory."""
+    saved_path = list(sys.path)
+    try:
+        import tools.gui_parity_inventory as parity
+        outdir = tmp_path / "reports"
+        assert parity.main(["--root", str(_REPO), "--outdir", str(outdir)]) == 0
+    finally:
+        sys.path[:] = saved_path
+    path = outdir / "gui_parity_inventory.json"
+    assert path.is_file()
+    return path
+
+
+def _shipped_names(path):
+    d = json.loads(path.read_text(encoding="utf-8"))
     return {it["name"] for it in d["items"]}, d
 
 
-def test_shipped_inventory_includes_reconciled_tools():
-    names, _ = _shipped_names()
+def test_shipped_inventory_includes_reconciled_tools(generated_inventory_path):
+    names, _ = _shipped_names(generated_inventory_path)
     missing = sorted(_PHANTOM_TOOLS - names)
     assert not missing, f"shipped inventory still missing reconciled tools: {missing}"
 
 
-def test_shipped_inventory_includes_new_293_routes():
-    names, _ = _shipped_names()
+def test_shipped_inventory_includes_new_293_routes(generated_inventory_path):
+    names, _ = _shipped_names(generated_inventory_path)
     missing = sorted(_NEW_293_ROUTES - names)
     assert not missing, f"shipped inventory still missing 293 routes: {missing}"
 
 
-def test_shipped_inventory_matches_live_regen_itemset():
+def test_shipped_inventory_matches_live_regen_itemset(generated_inventory_path):
     """No drift: the shipped json's item-set equals a fresh regen's item-set.
     (Item-set identity, not a brittle count pin — proves the artifact is truthful
     at cut time.)"""
-    names, _ = _shipped_names()
+    names, _ = _shipped_names(generated_inventory_path)
     _saved_path = list(sys.path)
     sys.path.insert(0, str(_REPO / "tools"))
     sys.path.insert(0, str(_REPO))
@@ -66,11 +81,11 @@ def test_shipped_inventory_matches_live_regen_itemset():
         f"inventory drift — only-shipped={only_shipped} only-regen={only_regen}")
 
 
-def test_gated_blueprint_counts_unchanged():
+def test_gated_blueprint_counts_unchanged(generated_inventory_path):
     """G12 invariant: the 3 write-blueprint counts must be unchanged by the
     reconciliation (the 9 new items are NOT on data_layer/report_center/
     actions_center, so G12 stays green)."""
-    names, _ = _shipped_names()
+    names, _ = _shipped_names(generated_inventory_path)
     c = {"data_layer.": 0, "report_center.": 0, "actions_center.": 0}
     for n in names:
         for k in c:

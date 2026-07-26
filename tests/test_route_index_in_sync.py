@@ -23,10 +23,10 @@ os.environ.setdefault("BD_DISABLE_KEEPALIVE", "1")
 
 import json
 from pathlib import Path
+import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 ROUTE_INDEX = ROOT / "ROUTE_INDEX.json"
-PARITY = ROOT / "reports" / "gui_parity_inventory.json"
 
 # Fields gated for equality (the stable projection — `line` deliberately excluded).
 _STABLE = ("method", "path", "blueprint", "endpoint", "file", "csrf",
@@ -43,11 +43,23 @@ def _load_committed():
     return json.loads(ROUTE_INDEX.read_text(encoding="utf-8"))
 
 
-def _regen():
+@pytest.fixture
+def generated_parity_path(tmp_path):
+    """Materialize the ignored parity input without mutating the source tree."""
+    import tools.gui_parity_inventory as parity
+
+    outdir = tmp_path / "reports"
+    assert parity.main(["--root", str(ROOT), "--outdir", str(outdir)]) == 0
+    path = outdir / "gui_parity_inventory.json"
+    assert path.is_file()
+    return path
+
+
+def _regen(parity_path):
     import importlib
     import tools.build_route_index as bri
     importlib.reload(bri)
-    return bri.build_index()
+    return bri.build_index(parity_path=parity_path)
 
 
 def test_route_index_exists_and_parses():
@@ -56,10 +68,10 @@ def test_route_index_exists_and_parses():
     assert d.get("schema_version"), "ROUTE_INDEX.json must carry a schema_version"
 
 
-def test_route_index_in_sync():
+def test_route_index_in_sync(generated_parity_path):
     """Regenerate in-process; the STABLE projection must match the committed file."""
     committed = _load_committed()
-    regen = _regen()
+    regen = _regen(generated_parity_path)
     assert _stable_projection(regen["routes"]) == _stable_projection(committed["routes"]), (
         "ROUTE_INDEX.json is stale — regenerate with `python tools/build_route_index.py` "
         "(a route was added/removed/renamed/re-blueprinted or its spa_wiring flipped)"
@@ -83,7 +95,7 @@ def test_identity_is_unique_method_path():
         seen.add(key)
 
 
-def test_spa_wired_join_is_faithful():
+def test_spa_wired_join_is_faithful(generated_parity_path):
     """The join must neither drop nor invent rows: ROUTE_INDEX's spa_wired
     (method,path) set must equal the gui_parity items' spa_wired set expanded
     per-method. (This is grain-correct — parity's `spa_wired_total` *field* is an
@@ -91,7 +103,7 @@ def test_spa_wired_join_is_faithful():
     differs from the (method,path) grain by the number of multi-method wired routes;
     set equality is the real faithfulness invariant.)"""
     d = _load_committed()
-    parity = json.loads(PARITY.read_text(encoding="utf-8"))
+    parity = json.loads(generated_parity_path.read_text(encoding="utf-8"))
     parity_wired = set()
     for it in parity.get("items", []):
         if it.get("kind") in ("cockpit_api", "gui_api", "cockpit_page", "gui_page") \

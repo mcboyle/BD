@@ -48,13 +48,15 @@ _AUTO_METHODS = frozenset({"HEAD", "OPTIONS"})
 _ROUTE_KINDS = frozenset({"cockpit_api", "gui_api", "cockpit_page", "gui_page"})
 
 
-def _parity_path() -> Path:
+def _parity_path(parity_path: str | Path | None = None) -> Path:
+    if parity_path is not None:
+        return Path(parity_path)
     return _repo_root() / "reports" / "gui_parity_inventory.json"
 
 
-def _load_parity_join():
+def _load_parity_join(parity_path: str | Path | None = None):
     """{(method, path): {spa_wired, operator_facing, kind}} from gui_parity items."""
-    p = _parity_path()
+    p = _parity_path(parity_path)
     join = {}
     if not p.exists():
         return join
@@ -142,11 +144,11 @@ def _blueprint_for(endpoint: str) -> str:
     return endpoint.rsplit(".", 1)[0] if "." in endpoint else "(app)"
 
 
-def build_index() -> dict:
+def build_index(*, parity_path: str | Path | None = None) -> dict:
     """Walk url_map, join parity, return the ROUTE_INDEX dict (sorted, deterministic)."""
     root = _repo_root()
     app = _import_app()
-    join = _load_parity_join()
+    join = _load_parity_join(parity_path)
 
     routes = []
     for rule in app.url_map.iter_rules():
