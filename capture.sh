@@ -472,6 +472,95 @@ echo "=== [5/9] Ollama status ==="
 } > "$OUT/05_ollama.log" 2>&1
 echo "  done"
 
+# ── [5a/9] Seed synthetic input for the live checks ──────────────
+#
+# Several live checks WARN because nothing has exercised them: no queued
+# URLs, no completed downloads. Those warnings are honest, and since
+# v3.66.818 they no longer fail the verdict — but on a capture host they
+# are permanently unactionable, because only a human queueing real work
+# clears them. tools/live_seed.py supplies that work.
+#
+# WHAT IS AND IS NOT BEING CLAIMED: the seed is INPUT, never OUTPUT. It
+# queues marked URLs pointing at the LOCAL fixture origin; BD still has to
+# accept, persist, rehydrate and report every one of them, and all of that
+# is BD's own work. A check that went green because the seeder handed it
+# the answer would be vacuous — worse than the warning it replaced — so
+# the seeder writes only through the app's HTTP API and marks everything
+# it creates. See tools/live_seed.py for the full contract.
+#
+# The seeder refuses to run on a host that already holds real work, and
+# refuses when it cannot tell, so pointing capture.sh at a live box does
+# not quietly mix synthetic rows into real ones.
+#
+# ENTIRELY NON-FATAL: any failure here degrades to the live checks' own
+# existing WARNs. Aborting the capture because an optional convenience
+# failed would be strictly worse than the warning it was meant to remove.
+echo "=== [5a/9] Seed synthetic live-check input ==="
+FIXTURE_PID=""
+SEEDED=0
+
+# Teardown must run whether the live suite passed, failed, or the operator
+# pressed Ctrl-C. Synthetic state left behind is read as REAL work by the
+# next run — including by the seeder's own preflight, which refuses a host
+# holding real entries — so one interrupted capture would otherwise wedge
+# every later one. Idempotent: safe to call twice.
+cleanup_live_seed() {
+  if [ "$SEEDED" = "1" ]; then
+    SEEDED=0
+    venv/bin/python tools/live_seed.py --teardown \
+      >> "$OUT/05a_live_seed.log" 2>&1 \
+      || echo "  WARNING: seed teardown failed — synthetic rows may remain;" \
+              "run: venv/bin/python tools/live_seed.py --teardown" >&2
+  fi
+  if [ -n "$FIXTURE_PID" ]; then
+    _stop_process_group "$FIXTURE_PID"
+    FIXTURE_PID=""
+  fi
+}
+# NOTE: run_graph_hash_gate defines its own `trap cleanup_graph_tmp EXIT`,
+# but it is a SUBSHELL function — `run_graph_hash_gate() (` with parens —
+# so that trap is scoped to the subshell and this global one does not
+# collide with it. bash keeps only one EXIT trap per shell; converting
+# that function to braces would silently disable one of the two.
+trap cleanup_live_seed EXIT
+
+if [ -f "$BD_HOME/tools/live_seed.py" ] && [ -f "$BD_HOME/tools/fixture_site.py" ]; then
+  # The seeded URLs point at the local fixture origin, so it has to be
+  # serving before anything is queued. setsid detaches it into its own
+  # process group so _stop_process_group can take the whole tree down.
+  setsid venv/bin/python tools/fixture_site.py --port 8899 \
+    > "$OUT/05a_fixture_site.log" 2>&1 &
+  FIXTURE_PID=$!
+  _fixture_up=0
+  _tries=0
+  while [ "$_tries" -lt 20 ]; do
+    if curl -sSf -o /dev/null "http://127.0.0.1:8899/" 2>/dev/null; then
+      _fixture_up=1
+      break
+    fi
+    sleep 0.25
+    _tries=$((_tries + 1))
+  done
+  if [ "$_fixture_up" = "1" ]; then
+    echo "  fixture site up on :8899 (pid $FIXTURE_PID)"
+    if venv/bin/python tools/live_seed.py --seed --count 3 \
+         > "$OUT/05a_live_seed.log" 2>&1; then
+      SEEDED=1
+      echo "  seeded 3 marked URLs — queue-dependent checks are exercising"
+      echo "  SYNTHETIC input; see $OUT/05a_live_seed.log"
+    else
+      echo "  seeding declined or failed (not a capture failure):"
+      tail -3 "$OUT/05a_live_seed.log" 2>/dev/null | sed 's/^/    /'
+    fi
+  else
+    echo "  fixture site did not come up on :8899 — skipping seed"
+    _stop_process_group "$FIXTURE_PID"
+    FIXTURE_PID=""
+  fi
+else
+  echo "  tools/live_seed.py or tools/fixture_site.py absent — skipping seed"
+fi
+
 # ── [5b/9] Display for the headed-browser check ──────────────────
 #
 # L2 (headed-browser-launch) opens a VISIBLE Chromium — headless=False is a
@@ -545,6 +634,13 @@ LIVE_EXIT=$?
 echo "  --- tail of live tests ---"
 tail -10 "$OUT/06_live_tests.log"
 echo "  exit=$LIVE_EXIT"
+
+# Remove the synthetic state now that the checks that needed it have run, so
+# the remaining steps and the operator see the box as they found it. The EXIT
+# trap is the backstop for an interrupt; this is the normal path, and running
+# it here means the state is gone before steps 7-9 inspect anything.
+# cleanup_live_seed is idempotent, so the trap firing later is harmless.
+cleanup_live_seed
 
 # ── [7/9] Dev-tool routes against the live app ───────────────────
 echo "=== [7/9] Dev-tool routes ==="
