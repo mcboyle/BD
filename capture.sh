@@ -472,6 +472,152 @@ echo "=== [5/9] Ollama status ==="
 } > "$OUT/05_ollama.log" 2>&1
 echo "  done"
 
+# ── [5a/9] Seed synthetic input for the live checks ──────────────
+#
+# Several live checks WARN because nothing has exercised them: no queued
+# URLs, no completed downloads. Those warnings are honest, and since
+# v3.66.818 they no longer fail the verdict — but on a capture host they
+# are permanently unactionable, because only a human queueing real work
+# clears them. tools/live_seed.py supplies that work.
+#
+# WHAT IS AND IS NOT BEING CLAIMED: the seed is INPUT, never OUTPUT. It
+# queues marked URLs pointing at the LOCAL fixture origin; BD still has to
+# accept, persist, rehydrate and report every one of them, and all of that
+# is BD's own work. A check that went green because the seeder handed it
+# the answer would be vacuous — worse than the warning it replaced — so
+# the seeder writes only through the app's HTTP API and marks everything
+# it creates. See tools/live_seed.py for the full contract.
+#
+# The seeder refuses to run on a host that already holds real work, and
+# refuses when it cannot tell, so pointing capture.sh at a live box does
+# not quietly mix synthetic rows into real ones.
+#
+# ENTIRELY NON-FATAL: any failure here degrades to the live checks' own
+# existing WARNs. Aborting the capture because an optional convenience
+# failed would be strictly worse than the warning it was meant to remove.
+echo "=== [5a/9] Seed synthetic live-check input ==="
+FIXTURE_PID=""
+SEEDED=0
+
+# Teardown must run whether the live suite passed, failed, or the operator
+# pressed Ctrl-C. Synthetic state left behind is read as REAL work by the
+# next run — including by the seeder's own preflight, which refuses a host
+# holding real entries — so one interrupted capture would otherwise wedge
+# every later one. Idempotent: safe to call twice.
+cleanup_live_seed() {
+  if [ "$SEEDED" = "1" ]; then
+    SEEDED=0
+    venv/bin/python tools/live_seed.py --teardown \
+      >> "$OUT/05a_live_seed.log" 2>&1 \
+      || echo "  WARNING: seed teardown failed — synthetic rows may remain;" \
+              "run: venv/bin/python tools/live_seed.py --teardown" >&2
+  fi
+  if [ -n "$FIXTURE_PID" ]; then
+    _stop_process_group "$FIXTURE_PID"
+    FIXTURE_PID=""
+  fi
+}
+# NOTE: run_graph_hash_gate defines its own `trap cleanup_graph_tmp EXIT`,
+# but it is a SUBSHELL function — `run_graph_hash_gate() (` with parens —
+# so that trap is scoped to the subshell and this global one does not
+# collide with it. bash keeps only one EXIT trap per shell; converting
+# that function to braces would silently disable one of the two.
+trap cleanup_live_seed EXIT
+
+if [ -f "$BD_HOME/tools/live_seed.py" ] && [ -f "$BD_HOME/tools/fixture_site.py" ]; then
+  # The seeded URLs point at the local fixture origin, so it has to be
+  # serving before anything is queued. setsid detaches it into its own
+  # process group so _stop_process_group can take the whole tree down.
+  setsid venv/bin/python tools/fixture_site.py --port 8899 \
+    > "$OUT/05a_fixture_site.log" 2>&1 &
+  FIXTURE_PID=$!
+  _fixture_up=0
+  _tries=0
+  while [ "$_tries" -lt 20 ]; do
+    if curl -sSf -o /dev/null "http://127.0.0.1:8899/" 2>/dev/null; then
+      _fixture_up=1
+      break
+    fi
+    sleep 0.25
+    _tries=$((_tries + 1))
+  done
+  if [ "$_fixture_up" = "1" ]; then
+    echo "  fixture site up on :8899 (pid $FIXTURE_PID)"
+    # --login is best-effort on top of --seed: it needs an unlocked, encrypted
+    # secrets backend to store the fixture password, and refuses cleanly when
+    # that precondition is absent. SEEDED is set either way so teardown always
+    # runs against whatever did get created.
+    if venv/bin/python tools/live_seed.py --seed --login --count 3 \
+         > "$OUT/05a_live_seed.log" 2>&1; then
+      SEEDED=1
+      echo "  seeded 3 marked URLs + fixture login — queue and auth checks are"
+      echo "  exercising SYNTHETIC input; see $OUT/05a_live_seed.log"
+    else
+      # A refusal can still have created something before it stopped, so mark
+      # the run as seeded regardless -- teardown is idempotent and removing
+      # nothing is cheaper than stranding marked state on the box.
+      SEEDED=1
+      echo "  seeding declined or failed (not a capture failure):"
+      tail -3 "$OUT/05a_live_seed.log" 2>/dev/null | sed 's/^/    /'
+    fi
+  else
+    echo "  fixture site did not come up on :8899 — skipping seed"
+    _stop_process_group "$FIXTURE_PID"
+    FIXTURE_PID=""
+  fi
+else
+  echo "  tools/live_seed.py or tools/fixture_site.py absent — skipping seed"
+fi
+
+# ── [5b/9] Display for the headed-browser check ──────────────────
+#
+# L2 (headed-browser-launch) opens a VISIBLE Chromium — headless=False is a
+# DANGER_MAP invariant, so the check exists to prove the interactive-login
+# path works on this deployment. Without an X server it WARNs, which is
+# honest but permanently unactionable.
+#
+# WHY THIS EXISTS: scripts/provision_test_host.sh already starts Xvfb and
+# exports DISPLAY — but that export dies with the provisioner's process.
+# capture.sh runs later, in a different shell, and had no DISPLAY of its
+# own, so L2 warned even on a correctly provisioned box unless the operator
+# had exported DISPLAY by hand. The capability was provisioned and then
+# never handed over. This closes that handoff.
+#
+# This is PROVISION, not seeding: it supplies a real X server so a real
+# headed browser really launches. L2's assertion is untouched — if the
+# browser cannot start, L2 still fails.
+#
+# NON-FATAL BY DESIGN: a headless box with no Xvfb is a legitimate
+# deployment. Absence degrades to L2's existing WARN (informational since
+# the capture verdict stopped gating on warnings); it must never abort the
+# capture, which would turn an honest warning into a broken run.
+#
+# bd_start_display comes from the shared fragment so the launch, the
+# idempotency and the "is this display actually served" probing all live in
+# one place. Re-implementing an Xvfb launch here would recreate the
+# three-copies-that-drift problem the fragment was built to end.
+echo "=== [5b/9] Display for headed-browser check ==="
+if [ -n "${DISPLAY:-}" ]; then
+  echo "  DISPLAY already set to '$DISPLAY' — leaving it alone"
+elif [ -r "$BD_HOME/scripts/lib/system_deps.sh" ]; then
+  # shellcheck source=scripts/lib/system_deps.sh
+  . "$BD_HOME/scripts/lib/system_deps.sh" 2>/dev/null || true
+  if declare -F bd_start_display >/dev/null 2>&1; then
+    if _cap_display="$(bd_start_display :99 2>/tmp/bd_display.err)"; then
+      export DISPLAY="$_cap_display"
+      echo "  DISPLAY=$DISPLAY (headed-browser checks can run)"
+    else
+      echo "  no display available — L2 will WARN (not a failure):"
+      sed 's/^/    /' /tmp/bd_display.err 2>/dev/null | tail -3
+    fi
+    rm -f /tmp/bd_display.err
+  else
+    echo "  system_deps.sh sourced but bd_start_display undefined — L2 will WARN"
+  fi
+else
+  echo "  scripts/lib/system_deps.sh not readable — L2 will WARN"
+fi
+
 # ── [6/9] Live-test suite (running app) ──────────────────────────
 #
 # v3.63.6: L3 (mv3-extension-service-worker) is back in LIVE_IDS.
@@ -496,6 +642,13 @@ LIVE_EXIT=$?
 echo "  --- tail of live tests ---"
 tail -10 "$OUT/06_live_tests.log"
 echo "  exit=$LIVE_EXIT"
+
+# Remove the synthetic state now that the checks that needed it have run, so
+# the remaining steps and the operator see the box as they found it. The EXIT
+# trap is the backstop for an interrupt; this is the normal path, and running
+# it here means the state is gone before steps 7-9 inspect anything.
+# cleanup_live_seed is idempotent, so the trap firing later is harmless.
+cleanup_live_seed
 
 # ── [7/9] Dev-tool routes against the live app ───────────────────
 echo "=== [7/9] Dev-tool routes ==="

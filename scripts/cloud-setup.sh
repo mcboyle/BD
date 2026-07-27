@@ -256,7 +256,26 @@ else
   step "audit venv"    optional python3 -m venv audit-venv
   step "audit wheels"  optional ./audit-venv/bin/pip install -q semgrep bandit vulture \
                                     radon detect-secrets libcst hypothesis coverage
-  step "fd+shellcheck" optional apt_i fd-find shellcheck
+  # The lint tooling comes from the shared fragment (group `lint`) rather than
+  # being named inline: it is now a fragment-owned package, and a second copy
+  # here is exactly the drift the fragment exists to end. fd-find is NOT
+  # fragment-owned -- nothing else installs it -- so it stays local to this step.
+  # (Do not begin this comment with the linter's own name; a comment whose first
+  # word after "# " is that name parses as a malformed directive and aborts the
+  # whole file -- the SC1073/SC1072 regression this branch already fixed once.)
+  if [ "$HAVE_SYSDEPS" = 1 ]; then
+    LINT_PKGS="$(bd_system_pkgs lint)" || LINT_PKGS=""
+  else
+    LINT_PKGS=""
+  fi
+  if [ -n "$LINT_PKGS" ]; then
+    # Word splitting is the point: one arg per package.
+    # shellcheck disable=SC2086
+    step "fd+lint tools" optional apt_i fd-find $LINT_PKGS
+  else
+    step "fd" optional apt_i fd-find
+    row "lint tools" "WARN" "bd_system_pkgs lint unavailable -- shellcheck not installed, so the suite's parse gates will report themselves unrunnable"
+  fi
   # Ubuntu names the fd binary 'fdfind'; tools expect 'fd'.
   command -v fdfind >/dev/null 2>&1 && ln -sf "$(command -v fdfind)" "$BIN/fd"
   step "jscpd"         optional npm install -g --silent jscpd

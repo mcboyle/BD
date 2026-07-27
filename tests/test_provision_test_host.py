@@ -117,9 +117,16 @@ EXPECTED_GROUPS: dict[str, tuple[str, ...]] = {
         "libgirepository-1.0-1",
         "x11-utils",
     ),
+    # `shellcheck` is in its own group because it is neither runtime nor
+    # display: it is what the suite's own parse gates need in order to RUN.
+    # Without it those gates SKIP with BD-GATE-UNRUNNABLE -- honest, but it
+    # means five shell files go unverified on a freshly provisioned box, which
+    # is the gap this group closes. Measured on the operator's host: 129 passed
+    # / 7 skipped before installing it, 136 passed / 0 skipped after.
+    "lint": ("shellcheck",),
 }
 
-GROUP_ORDER = ("core", "node", "gtk")
+GROUP_ORDER = ("core", "node", "gtk", "lint")
 
 ALL_PACKAGES = frozenset(
     name for names in EXPECTED_GROUPS.values() for name in names
@@ -145,13 +152,14 @@ DISCRIMINATING_PACKAGES = (
 )
 
 # Deliberately NOT absence-checked: each is also a command or an ordinary word
-# in these files (`git`, `python3.12` and `npm` are all invoked as programs).
+# in these files (`git`, `python3.12`, `npm` and `shellcheck` are all invoked as
+# programs -- `command -v shellcheck` guards several gates).
 # Asserting their absence would cry wolf, so
 # `test_no_consumer_hardcodes_an_apt_package_list` covers them by checking apt
 # argument positions instead. The two predicates together contain every package
 # name in ALL_PACKAGES -- that is the denominator check, asserted in
 # `test_anti_drift_predicates_cover_every_package_name`.
-AMBIGUOUS_PACKAGES = ("git", "python3.12", "npm")
+AMBIGUOUS_PACKAGES = ("git", "python3.12", "npm", "shellcheck")
 
 # Files that must never carry their own copy of the package lists.
 CONSUMERS = (CLOUD_SETUP, INSTALL_LINUX, PROVISIONER)
@@ -494,6 +502,105 @@ def _tool_invocations(path: Path, tool: str) -> list[int]:
             _strip_shell_comments(source), _strip_shell_comments(source, blank_quoted=True)
         )
         if pattern.search(code_line) and tool in unquoted_line
+    ]
+
+
+def _blank_inert_quotes(code: str) -> str:
+    """Blank the contents of quoted strings that cannot contain a command.
+
+    ``_strip_shell_comments(blank_quoted=True)`` blanks EVERY quoted run, which
+    is right for "is this package name an argv element" but wrong here: the one
+    shape a shell helper is actually called in,
+    ``VALUE="$(bd_start_display :99)"``, lives inside double quotes. Blanking it
+    would delete the subject and leave only the guard and the diagnostics --
+    the same denominator error one level down.
+
+    So a quoted run is blanked only when it contains no command substitution.
+    Length (and therefore line numbering) is preserved exactly, so the result
+    can be paired with the code view.
+    """
+    out: list[str] = []
+    index = 0
+    length = len(code)
+    while index < length:
+        char = code[index]
+        if char not in "'\"":
+            out.append(char)
+            index += 1
+            continue
+        end = index + 1
+        while end < length:
+            if char == '"' and code[end] == "\\":
+                end += 2
+                continue
+            if code[end] == char:
+                break
+            end += 1
+        if end >= length:
+            # Unterminated in this view: leave the remainder untouched rather
+            # than guess, so nothing is silently deleted.
+            out.append(code[index:])
+            break
+        inner = code[index + 1 : end]
+        if "$(" in inner or "`" in inner:
+            out.append(char + inner + char)
+        else:
+            out.append(
+                char
+                + "".join(" " if ch != "\n" else "\n" for ch in inner)
+                + char
+            )
+        index = end + 1
+    return "".join(out)
+
+
+# A shell name is INVOKED when it sits in command position: at the head of a
+# logical line, or immediately after a separator, a command substitution, a
+# pipeline/list operator, or a reserved word that introduces a command. The
+# optional prefix run covers the wrappers that keep the callee in command
+# position (`sudo bd_start_display`, `exec ...`, `env ... `).
+_COMMAND_POSITION = (
+    r"(?:^|[;&|(){}\n]|\$\(|`|\bthen\b|\belse\b|\belif\b|\bif\b|\bdo\b|"
+    r"\bwhile\b|\buntil\b)\s*(?:!\s*)?"
+    r"(?:\b(?:command|exec|builtin|time|nohup|sudo|env)\s+)*"
+)
+
+
+def _shell_invocations(path: Path, name: str) -> list[int]:
+    """File line numbers where ``name`` is CALLED, not merely mentioned.
+
+    THE PREDICATE THIS REPLACES certified its own subject's obituary. It was
+    ``re.search(r"\\bbd_start_display\\b", code)`` over the whole
+    comment-stripped file, and the provisioner mentions the name three more
+    times in CODE that is not a call:
+
+        239:   || ! declare -F bd_start_display >/dev/null 2>&1; then
+        241:    echo "  bd_start_display are undefined. ..." >&2
+        245: record "system_deps fragment" "OK" "sourced; ... bd_start_display defined"
+
+    Line 239 alone keeps it green. Measured: deleting the [6/8] call site and
+    recording the display OK unconditionally left
+    ``test_display_consumers_call_the_shared_helper`` at 2 passed.
+
+    Command position excludes all three: 239 puts the name in ARGUMENT position
+    of ``declare``, and 241/245 put it inside quoted strings with no command
+    substitution, which ``_blank_inert_quotes`` erases.
+
+    RESIDUE, stated rather than claimed away, and it is the same residue
+    ``_tool_invocations`` declares: this proves the call is WRITTEN, not that
+    the branch containing it is ever reached. For the provisioner that residue
+    is closed behaviourally in section I3, which observes the helper logging its
+    own invocation during a real run. For scripts/cloud-setup.sh it is not --
+    that script has no probe here, and saying so is cheaper than pretending.
+    """
+    pattern = re.compile(_COMMAND_POSITION + re.escape(name) + r"\b")
+    code = _code(path)
+    return [
+        number
+        for number, _code_line, inert_blanked in _logical_pairs(
+            code, _blank_inert_quotes(code)
+        )
+        if pattern.search(inert_blanked)
     ]
 
 
@@ -1701,17 +1808,88 @@ def test_display_consumers_call_the_shared_helper(consumer: Path) -> None:
     Both scripts previously decided for themselves whether :99 was up, using
     `pgrep -x Xvfb` -- the wrong denominator in both directions, and the direct
     cause of "Fatal server error: Server is already active for display 99".
+
+    THE FIRST ASSERTION USED TO BE ``re.search(r"\\bbd_start_display\\b", code)``
+    over the whole comment-stripped file, and it certified its own subject's
+    obituary. Measured: deleting the provisioner's [6/8] call site and recording
+    the display OK unconditionally left this test at 2 passed, because the token
+    still occurs in the [2/8] ``declare -F`` guard (code, not a comment) and in
+    two diagnostic strings. Whole-file token presence is a denominator that
+    structurally excludes a CALL SITE.
+
+    ``_shell_invocations`` requires command position, so the guard (argument
+    position of ``declare``) and the strings (no command substitution, therefore
+    blanked) are correctly not calls. What it still cannot prove is that the
+    branch holding the call is reached -- section I3 closes that for the
+    provisioner by watching the helper log its own invocation during a real run.
+    Nothing closes it for scripts/cloud-setup.sh, which has no probe here.
     """
     code = _code(consumer)
+    calls = _shell_invocations(consumer, "bd_start_display")
 
-    assert re.search(r"\bbd_start_display\b", code), (
-        f"{consumer.name} no longer calls bd_start_display -- a second copy of "
-        "the display logic is a second thing that can disagree"
+    assert calls, (
+        f"{consumer.name} no longer CALLS bd_start_display -- a second copy of "
+        "the display logic is a second thing that can disagree. Every code "
+        "line that names it: "
+        f"{_tool_mentions(consumer, 'bd_start_display')}"
     )
     assert not re.search(r"\bpgrep\b[^\n]*Xvfb", code), (
         f"{consumer.name} decides display liveness with pgrep again; that "
         "tests a PROCESS NAME while the subject is a DISPLAY"
     )
+
+
+def test_shell_invocation_predicate_self_check(tmp_path: Path) -> None:
+    """The instrument before the measurement (CLAUDE.md 1).
+
+    Every positive is a form the call could legitimately be rewritten into, and
+    every negative is a real non-call that lives in these two files today. The
+    negatives are the half that matters: each of them is what made the previous
+    token predicate report OK about a deleted call site.
+    """
+    positives = (
+        'if VALUE="$(bd_start_display :99)"; then',
+        "VALUE=$(bd_start_display :99)",
+        "bd_start_display :99 || record 'X display' WARN ''",
+        "  bd_start_display :99 >/dev/null",
+        "if bd_start_display :99; then :; fi",
+        "command -v foo >/dev/null && bd_start_display :99",
+        "sudo bd_start_display :99",
+        "VALUE=`bd_start_display :99`",
+    )
+    negatives = (
+        "if ! declare -F bd_start_display >/dev/null 2>&1; then",
+        "   || ! declare -F bd_start_display >/dev/null 2>&1; then",
+        'echo "  bd_start_display are undefined. The fragment is broken;" >&2',
+        'record "system_deps fragment" "OK" "sourced; bd_system_pkgs and'
+        ' bd_start_display defined"',
+        'row "Xvfb :99" "WARN" "unavailable -- bd_start_display undefined;'
+        ' no display started"',
+        "# bd_start_display is called DIRECTLY, never through run_step",
+    )
+
+    for index, line in enumerate(positives):
+        sample = tmp_path / f"positive_{index}.sh"
+        sample.write_text(line + "\n", encoding="utf-8")
+        assert _shell_invocations(sample, "bd_start_display"), (
+            f"the invocation predicate missed a real call: {line!r}"
+        )
+    for index, line in enumerate(negatives):
+        sample = tmp_path / f"negative_{index}.sh"
+        sample.write_text(line + "\n", encoding="utf-8")
+        assert not _shell_invocations(sample, "bd_start_display"), (
+            f"the invocation predicate cried wolf on a non-call: {line!r}"
+        )
+
+    # And on the real files: exactly one call site each, so a duplicated copy of
+    # the display logic is visible too.
+    for consumer in (PROVISIONER, CLOUD_SETUP):
+        hits = _shell_invocations(consumer, "bd_start_display")
+        assert len(hits) == 1, (
+            f"{consumer.name} has {len(hits)} bd_start_display call sites "
+            f"(lines {hits}); the contract is exactly one. Every code line "
+            f"that names it: {_tool_mentions(consumer, 'bd_start_display')}"
+        )
 
 
 # --- F2. the provisioner's package phase, BEHAVIOURALLY ----------------------
@@ -1761,6 +1939,10 @@ EXPECTED_GROUP_KINDS: dict[str, str] = {
     "core": "core",
     "node": "core",
     "gtk": "optional",
+    # optional: a box without shellcheck still captures cleanly. The parse
+    # gates announce themselves unrunnable rather than reporting OK, so the
+    # failure mode is a visible absence, not a false pass.
+    "lint": "optional",
 }
 
 # The trailing \S excludes the DEFINITION line `install_group() {`.
@@ -2590,6 +2772,15 @@ with open(os.environ["PROBE_ORDER_LOG"], "a", encoding="utf-8") as stream:
 # obvious slice is off by one and makes the probe read the program itself as its
 # own argument.
 if args[:1] == ["-c"]:
+    # A real `python -c` puts the CURRENT DIRECTORY on sys.path. This stub is
+    # invoked as a script, so python puts the STUB's own directory there
+    # instead -- which is a venv/bin inside a fake repo and contains nothing
+    # importable. The provisioner's [8/8] import check runs
+    # `import bulk_downloader` through here, so without this line that check
+    # records UNKNOWN in EVERY scenario and the verdict tests below would be
+    # measuring the fixture rather than their subject. Restoring the real
+    # interpreter's behaviour is the fix; special-casing the import is not.
+    sys.path.insert(0, os.getcwd())
     sys.argv = ["-c"] + args[2:]
     exec(compile(args[1], "<capture-probe -c>", "exec"), {"__name__": "__main__"})
     raise SystemExit(0)
@@ -3000,6 +3191,750 @@ def test_provisioner_verifies_the_inventory_route_source(
         "missing row means the read-back was deleted; the generator exits 0 "
         "either way, so exit 0 alone does not prove the inventory is "
         f"app-derived. Rows: {rows}"
+    )
+
+
+# --- I3. the provisioner's VERDICT, executed end to end ----------------------
+#
+# WHAT WAS UNGATED, measured on this branch rather than assumed. Each of these
+# single-file mutations left the suite at 90 passed, exit 0:
+#
+#   N3  `FAIL|UNKNOWN) BLOCKING=1 ;;` -> `FAIL) BLOCKING=1 ;;`. UNKNOWN stops
+#       blocking, so the four-state design collapses to three and the state this
+#       file RESERVES for "a load-bearing step could not be EVALUATED" certifies
+#       the host instead. Measured end to end on a host with no venv and nothing
+#       installed: INCOMPLETE/exit 1 -> READY/exit 0.
+#   N4  the closing `if [ "$BLOCKING" -eq 1 ]; then exit 1; fi` -> `exit 0`. The
+#       script PRINTS "VERDICT: INCOMPLETE" and exits 0. The exit status IS the
+#       documented contract ("the script's own exit status is the verdict"), so
+#       every automated caller reads a green host off a red console.
+#   N6  step [6/8] stops calling bd_start_display and records the display OK
+#       unconditionally. It survived because the only gate matched the TOKEN
+#       `bd_start_display` ANYWHERE in the file, and the token still occurs in
+#       the [2/8] `declare -F` guard and in two diagnostic strings -- a
+#       denominator (whole-file token presence) that structurally excludes its
+#       subject (the call site).
+#   N3+N14 composed (N14 = deleting the [2/8] `declare -F` hard exit): a host
+#       whose scripts/lib/system_deps.sh PARSES but defines NO functions, with
+#       nothing installed, no venv and no display, went from `exit 2` + FATAL to
+#       `VERDICT: READY  (0s, 2 warning(s))`, exit 0.
+#
+# WHY THE TWO EXISTING PROBES CANNOT SEE ANY OF IT, and why this one is built
+# differently. `_build_package_phase_probe` and `_build_provisioner_probe` both
+# TRUNCATE the script and then APPEND `printf ... > $PROVISION_TEST_ROWS` and
+# `exit 0`. That appended exit is precisely the byte that puts the verdict
+# machinery outside their denominator: measured by generating both probes and
+# searching them, NEITHER contains `verdict_report`, `VERDICT: READY`,
+# `VERDICT: INCOMPLETE` or `if [ "$BLOCKING" -eq 1 ]`. Extending either one
+# would inherit the exact blindness being fixed.
+#
+# THE PROBE HERE IS THE WHOLE FILE: no truncation, no splicing, NOTHING
+# APPENDED, and exactly one substitution -- the LOGDIR literal, asserted to
+# occur once so the probe cannot clobber the operator's real /tmp/bd_provision,
+# which on a provisioned box holds their real 00_VERDICT.txt.
+#
+# ASSERTIONS ARE MADE OVER WHAT THE OPERATOR SEES: the printed verdict table,
+# the VERDICT line, and the PROCESS EXIT CODE. Reading `$ROWS` back would need
+# code appended after the exit, which is the blindness itself.
+#
+# THE ANTI-OVER-SENSITIVITY ARMS ARE LOAD-BEARING, not padding (CLAUDE.md 0,
+# inverse). `clean-host` pins READY/exit 0, and `warn-only-no-display` pins that
+# a WARN still reaches READY/exit 0. Without both, a mutant that answered
+# INCOMPLETE to everything would satisfy every other assertion in this section.
+#
+# WHAT IS DELIBERATELY NOT PINNED, so this gate cannot fire on a harmless edit:
+# no row LABEL, no log SLUG, no step count, no absolute warning count, no
+# artifact filename and no comment or message text. A scenario is identified by
+# the RESULT it forces, and expectations are stated as "at least one row reads
+# X" plus "no row reads Y" -- both stable under adding, renaming or rewording a
+# step. The display grading is asserted as a DELTA between two runs for the same
+# reason.
+#
+# THE STUB FRAGMENT IS INPUT, NOT THE SUBJECT. Faking bd_system_pkgs and
+# bd_start_display here is legitimate because the subject is
+# record()/run_step()/verdict_report()/the final exit, and the fragment is what
+# feeds them. The fragment's OWN behaviour is covered against the real file in
+# section D. If a future test's subject IS the fragment, it must not reuse this
+# stub -- that is the `_display_stub_dir` mistake documented above, which made
+# two thirds of `_bd_display_active` unreachable.
+
+# bd_start_display LOGS ITS OWN INVOCATION. That log is the predicate which can
+# see N6; whole-file token presence cannot.
+_VERDICT_STUB_FRAGMENT = r'''
+bd_system_pkgs() {
+    case "${1:-}" in
+        core) printf '%s\n' "${PROBE_PKGS_CORE-probe-core-a probe-core-b}" ;;
+        node) printf '%s\n' "${PROBE_PKGS_NODE-probe-node-a}" ;;
+        gtk)  printf '%s\n' "${PROBE_PKGS_GTK-probe-gtk-a}" ;;
+        lint) printf '%s\n' "${PROBE_PKGS_LINT-probe-lint-a}" ;;
+        all)  printf '%s\n' "probe-core-a probe-core-b probe-node-a probe-gtk-a probe-lint-a" ;;
+        *)    return 2 ;;
+    esac
+}
+
+bd_start_display() {
+    printf 'bd_start_display %s\n' "$*" >> "$PROBE_ORDER_LOG"
+    [ "${PROBE_DISPLAY_OK-1}" = "1" ] || return 1
+    printf '%s\n' "${1:-:99}"
+}
+:
+'''
+
+_VERDICT_FAKE_INSTALL_LINUX = r'''#!/bin/sh
+printf 'install_linux.sh %s\n' "$*" >> "$PROBE_ORDER_LOG"
+echo "  (probe stand-in for install_linux.sh)"
+exit "${PROBE_INSTALL_RC-0}"
+'''
+
+# The four states record() knows, and the line it prints for each one:
+#     printf '  [%-7s] %s%s\n' "$result" "$label" "${detail:+  -- $detail}"
+# The brackets are a delimiter no label length can overrun, which is why the
+# rows are read from here rather than from the fixed-width verdict table.
+_RESULT_STATES = frozenset({"OK", "WARN", "FAIL", "UNKNOWN"})
+_RECORD_ECHO_RE = re.compile(
+    r"^\s*\[(?P<result>OK|WARN|FAIL|UNKNOWN)\s*\]\s+(?P<rest>\S.*)$"
+)
+
+_VERDICT_LINE_RE = re.compile(
+    r"^VERDICT:\s+(?P<state>[A-Z]+)\s+\(\s*(?P<elapsed>\d+)s,\s*(?P<warns>\d+)\s+"
+    r"warning\(s\)\)\s*$"
+)
+
+
+def _build_verdict_probe(path: Path) -> None:
+    """The real provisioner, WHOLE, with only the LOGDIR literal redirected.
+
+    Nothing is appended, and that omission is the point -- see the section
+    comment. The line-count assertion is an instrument self-check: a probe that
+    silently lost the tail would report OK about a script it never ran to the
+    end, which is the failure mode this whole section exists to close.
+    """
+    source = _read(PROVISIONER)
+    assert source.count(_PROVISION_LOGDIR_LITERAL) == 1, (
+        f"UNKNOWN: expected exactly one {_PROVISION_LOGDIR_LITERAL!r} to "
+        "redirect; without it the probe writes into the operator's real "
+        "/tmp/bd_provision and overwrites their 00_VERDICT.txt"
+    )
+    probe = source.replace(
+        _PROVISION_LOGDIR_LITERAL, 'LOGDIR="${PROVISION_TEST_LOGDIR:?}"'
+    )
+    assert len(probe.splitlines()) == len(source.splitlines()), (
+        "UNKNOWN: the verdict probe is not the whole file any more -- it must "
+        "be byte-for-byte the provisioner apart from the LOGDIR literal, or "
+        "the final exit block falls outside what is measured"
+    )
+    _write_stub(path, probe)
+
+    parsed = subprocess.run(
+        [_BASH, "-n", str(path)], capture_output=True, text=True, timeout=60
+    )
+    assert parsed.returncode == 0, (
+        "UNKNOWN: the verdict probe does not parse, so nothing below could be "
+        f"measured. bash -n said:\n{parsed.stderr}"
+    )
+
+
+def _run_verdict_probe(
+    tmp_path: Path,
+    *,
+    fragment_body: str | None = None,
+    provisioned: bool = True,
+    **overrides: str,
+) -> tuple[subprocess.CompletedProcess[str], list[str], str]:
+    """Run the whole provisioner against a fake repo. Nothing real is touched.
+
+    ``provisioned=False`` models the honest shape of "the installer reported
+    success and installed nothing": install_linux.sh ran and exited 0, and
+    afterwards there is still no venv interpreter.
+
+    Every external is faked: apt-get and sudo through PATH, install_linux.sh and
+    venv/bin/python inside the fake repo, and bd_system_pkgs/bd_start_display
+    inside the stub fragment. No X server is started, no package is installed
+    and no root is required.
+    """
+    work = tmp_path / f"verdict-{len(list(tmp_path.iterdir()))}"
+    repo = work / "fake-repo"
+    (repo / "bulk_downloader").mkdir(parents=True)
+    (repo / "tools").mkdir(parents=True)
+    (repo / "scripts" / "lib").mkdir(parents=True)
+    (repo / "venv" / "bin").mkdir(parents=True)
+    (repo / "bulk_downloader" / "__init__.py").write_text(
+        '__version__ = "9.9.9"\n', encoding="utf-8"
+    )
+    (repo / "tools" / "gui_parity_inventory.py").write_text(
+        "# verdict probe stand-in for the real generator\n", encoding="utf-8"
+    )
+    (repo / "scripts" / "lib" / "system_deps.sh").write_text(
+        _VERDICT_STUB_FRAGMENT if fragment_body is None else fragment_body,
+        encoding="utf-8",
+    )
+    _write_stub(repo / "install_linux.sh", _VERDICT_FAKE_INSTALL_LINUX)
+    if provisioned:
+        _write_stub(repo / "venv" / "bin" / "python", _FAKE_PYTHON)
+    else:
+        shutil.rmtree(repo / "venv")
+
+    stub_bin = work / "bin"
+    stub_bin.mkdir()
+    _write_stub(stub_bin / "apt-get", _FAKE_APT_GET)
+    _write_stub(stub_bin / "sudo", _FAKE_SUDO)
+
+    order_log = work / "order.log"
+    logdir = work / "provision-logs"
+    probe = work / "verdict-probe.sh"
+    _build_verdict_probe(probe)
+
+    env = dict(os.environ)
+    env.update(
+        {
+            "PATH": f"{stub_bin}{os.pathsep}{env['PATH']}",
+            "PROVISION_APT_LOG": str(work / "apt-calls.log"),
+            "PROVISION_APT_FAIL_NAMES": "",
+            "PROBE_ORDER_LOG": str(order_log),
+            "PROBE_ROUTE_SOURCE": "live url_map",
+            "PROVISION_TEST_LOGDIR": str(logdir),
+        }
+    )
+    env.update(overrides)
+
+    # The repo is ALWAYS named explicitly: the probe lives in tmp_path, so
+    # find_repo's implicit candidates would miss the marker and hard-exit 2
+    # before reaching the subject.
+    completed = subprocess.run(
+        [_BASH, str(probe), str(repo)],
+        cwd=str(work),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    entries = (
+        order_log.read_text(encoding="utf-8").splitlines()
+        if order_log.is_file()
+        else []
+    )
+    written = ""
+    if logdir.is_dir():
+        for candidate in sorted(logdir.iterdir()):
+            if not candidate.is_file():
+                continue
+            text = candidate.read_text(encoding="utf-8", errors="replace")
+            if "VERDICT:" in text:
+                written += text
+    return completed, entries, written
+
+
+def _verdict_rows(text: str) -> dict[str, str]:
+    """``{label: RESULT}``, read off the line ``record()`` prints per step.
+
+    NOT off the verdict table, and that choice was forced by a measurement.
+    The table is emitted with ``printf '  %-26s %-8s %s\\n'``, so a label longer
+    than its column runs into the RESULT field and any column-based parse loses
+    the row. Adding a step whose label happens to be 29 characters is a HARMLESS
+    edit, and a gate that fails on it is a gate crying wolf -- which CLAUDE.md 0
+    calls a soundness bug in its own right. Measured: with a column parse, one
+    added long-labelled step failed six tests in this file.
+
+    ``record()`` is the only writer of both the echo and ``$ROWS``, so the echo
+    carries exactly the same four-state verdict with a delimiter that cannot be
+    overrun. The table is not left unexamined -- ``_verdict_table_size`` below
+    asserts it lists the same number of rows, which is what a dropped or
+    unprinted row would change.
+    """
+    rows: dict[str, str] = {}
+    for line in text.splitlines():
+        match = _RECORD_ECHO_RE.match(line)
+        if match is None:
+            continue
+        rows[match.group("rest").split("  -- ", 1)[0].strip()] = match.group("result")
+    return rows
+
+
+def _verdict_table_size(text: str) -> int:
+    """How many rows the printed verdict TABLE lists.
+
+    Counted rather than parsed, for the reason in ``_verdict_rows``: the count
+    is what a dropped row, a table that never prints, or a ``$ROWS`` split that
+    loses a field would change, and none of that depends on label width.
+    """
+    count = 0
+    started = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not started:
+            started = stripped.startswith("-----")
+            continue
+        if not stripped or stripped.startswith("VERDICT:"):
+            break
+        count += 1
+    return count
+
+
+def _verdict_line(text: str) -> re.Match[str] | None:
+    for line in text.splitlines():
+        match = _VERDICT_LINE_RE.match(line.strip())
+        if match is not None:
+            return match
+    return None
+
+
+def _assert_verdict_probe_reached(
+    completed: subprocess.CompletedProcess[str],
+) -> tuple[dict[str, str], re.Match[str]]:
+    """Rows and the VERDICT line, or a distinct UNKNOWN for "never got there"."""
+    rows = _verdict_rows(completed.stdout)
+    assert rows, (
+        "UNKNOWN: the whole-file verdict probe recorded no step outcomes at "
+        "all, so it never reached its subject and nothing below means "
+        f"anything. rc={completed.returncode} stdout={completed.stdout[-3000:]!r} "
+        f"stderr={completed.stderr[-2000:]!r}"
+    )
+    table_size = _verdict_table_size(completed.stdout)
+    assert table_size == len(rows), (
+        f"{len(rows)} step(s) were recorded but the verdict table lists "
+        f"{table_size}. Every recorded outcome has to reach the table the "
+        "operator reads and the artifact it is teed into -- a row that exists "
+        f"only in the running console is a row nobody keeps. Rows: {rows}"
+    )
+    match = _verdict_line(completed.stdout)
+    assert match is not None, (
+        "UNKNOWN: the probe printed a verdict TABLE but no VERDICT line, so "
+        "the state under test was never announced. stdout tail: "
+        f"{completed.stdout[-3000:]!r}"
+    )
+    return rows, match
+
+
+_VERDICT_SCENARIOS = (
+    pytest.param({}, "READY", 0, None, ("FAIL", "UNKNOWN"), id="clean-host"),
+    pytest.param(
+        {"PROBE_DISPLAY_OK": "0"},
+        "READY",
+        0,
+        "WARN",
+        ("FAIL", "UNKNOWN"),
+        id="warn-only-no-display",
+    ),
+    pytest.param(
+        {"PROBE_PKGS_CORE": ""},
+        "INCOMPLETE",
+        1,
+        "UNKNOWN",
+        ("FAIL",),
+        id="unknown-empty-package-list",
+    ),
+    pytest.param(
+        {"PROBE_ROUTE_SOURCE": "endpoint catalog"},
+        "INCOMPLETE",
+        1,
+        "UNKNOWN",
+        ("FAIL",),
+        id="unknown-inventory-route-source",
+    ),
+    pytest.param(
+        {"PROBE_INSTALL_RC": "7"},
+        "INCOMPLETE",
+        1,
+        "FAIL",
+        (),
+        id="fail-repo-install",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "state", "exit_code", "required", "forbidden"),
+    _VERDICT_SCENARIOS,
+)
+def test_the_verdict_text_and_the_process_exit_code_agree(
+    tmp_path: Path,
+    overrides: dict[str, str],
+    state: str,
+    exit_code: int,
+    required: str | None,
+    forbidden: tuple[str, ...],
+) -> None:
+    """KILLS N3 (UNKNOWN stops blocking) and N4 (the final exit collapsed to 0).
+
+    Two independent UNKNOWN producers are parametrised on purpose -- the empty
+    package list at install_group and the inventory route_source read-back --
+    because a gate hung on one of them would certify the other. Both are real
+    branches the provisioner reserves for "could not be EVALUATED", and both
+    must block.
+
+    The exit-code assertion is the half that kills N4: with the closing `if`
+    collapsed to `exit 0`, the script still PRINTS "VERDICT: INCOMPLETE" and
+    every text-only assertion here would still pass. The status is the
+    contract -- an automated caller never reads the console.
+
+    The two READY arms are the inverse guard. A mutant that blocked on
+    everything would be a gate crying wolf, which CLAUDE.md 0 calls a soundness
+    bug in its own right, and without those arms nothing here would notice.
+    """
+    completed, _entries, written = _run_verdict_probe(tmp_path, **overrides)
+    rows, match = _assert_verdict_probe_reached(completed)
+
+    if required is not None:
+        assert required in rows.values(), (
+            f"no step recorded {required!r} in the scenario built to force one "
+            f"({overrides}), so the verdict below is about the wrong thing. "
+            f"Rows: {rows}"
+        )
+    for banned in forbidden:
+        offenders = sorted(
+            label for label, result in rows.items() if result == banned
+        )
+        assert not offenders, (
+            f"{offenders} recorded {banned!r} on a fake host that models a "
+            f"HEALTHY box for scenario {overrides}. Either a step was added "
+            "that this fixture cannot satisfy -- extend the fixture, this is a "
+            "fixture-completeness failure, not a finding -- or the grading "
+            f"changed. Rows: {rows}"
+        )
+
+    assert match.group("state") == state, (
+        f"scenario {overrides} printed 'VERDICT: {match.group('state')}', "
+        f"expected {state!r}. Rows: {rows}"
+    )
+    assert completed.returncode == exit_code, (
+        f"scenario {overrides} printed 'VERDICT: {match.group('state')}' and "
+        f"exited {completed.returncode}, expected {exit_code}. The script's own "
+        "exit status IS the verdict -- a console that says INCOMPLETE while the "
+        "process says 0 hands every automated caller a green host. "
+        f"stderr tail: {completed.stderr[-1500:]!r}"
+    )
+
+    warn_rows = sum(1 for result in rows.values() if result == "WARN")
+    assert int(match.group("warns")) == warn_rows, (
+        f"the verdict line claims {match.group('warns')} warning(s) but the "
+        f"table shows {warn_rows} WARN row(s). A WARN that is not counted is a "
+        f"capability the host lacks and nobody is told about. Rows: {rows}"
+    )
+
+    assert _verdict_line(written) is not None, (
+        "the verdict was printed to the console but no file under the log "
+        "directory contains it. The operator's durable record of this run is "
+        "gone, so a verdict nobody was watching for is a verdict nobody has."
+    )
+    assert _verdict_line(written).group("state") == state, (
+        "the verdict written to the log directory disagrees with the one "
+        f"printed: file says {_verdict_line(written).group('state')!r}, "
+        f"console says {state!r}"
+    )
+
+
+def test_a_fragment_that_defines_nothing_hard_exits_before_any_verdict(
+    tmp_path: Path,
+) -> None:
+    """KILLS N14, and the composed N3+N14 worst case.
+
+    The host: scripts/lib/system_deps.sh PARSES but defines nothing, nothing is
+    installed, there is no venv and no display. Sourcing cleanly proves NOTHING
+    about what was defined -- `.` returns the status of the last command it ran
+    -- so [2/8] resolves the NAMES and hard-exits 2 when they are missing.
+
+    With that hard exit deleted AND N3 applied, this exact host was measured
+    reporting `VERDICT: READY  (0s, 2 warning(s))`, exit 0: three package groups
+    UNKNOWN, the inventory UNKNOWN and the import check UNKNOWN, every one of
+    them silently demoted to non-blocking. That is the worst outcome the file's
+    four-state design exists to prevent, and nothing could see it.
+
+    The assertion is that NO verdict is reached at all. A refusal that still
+    printed a verdict would be a refusal the operator can misread.
+    """
+    completed, entries, written = _run_verdict_probe(
+        tmp_path,
+        fragment_body="# parses fine, defines nothing at all\n:\n",
+        provisioned=False,
+    )
+
+    assert completed.returncode == 2, (
+        "a fragment that defines neither bd_system_pkgs nor bd_start_display "
+        f"must be a hard stop (exit 2); the run exited {completed.returncode}. "
+        "Continuing means provisioning against an unknown package denominator "
+        f"and grading the result. stdout tail: {completed.stdout[-3000:]!r}"
+    )
+    assert _verdict_line(completed.stdout) is None, (
+        "the run printed a VERDICT line despite being unable to resolve the "
+        "fragment's functions. There is no verdict to give about a host whose "
+        f"package denominator is unknown. stdout: {completed.stdout[-3000:]!r}"
+    )
+    assert _verdict_table_size(completed.stdout) == 0, (
+        "the run printed a verdict TABLE after refusing to continue. Rows "
+        "recorded before the refusal (repo root, at minimum) are expected -- a "
+        "TABLE is not, because printing one implies a verdict was reached. "
+        f"stdout: {completed.stdout[-3000:]!r}"
+    )
+    assert not written, (
+        "a verdict artifact was written for a run that never produced a "
+        f"verdict: {written[:1000]!r}"
+    )
+    assert not entries, (
+        "the run reached the installer, the interpreter or the display helper "
+        f"after refusing to continue at [2/8]: {entries}"
+    )
+
+
+def test_the_display_step_grades_what_the_shared_helper_actually_answered(
+    tmp_path: Path,
+) -> None:
+    """KILLS N6, which a whole-file token check structurally cannot see.
+
+    N6 deletes the [6/8] call site and records the display OK unconditionally.
+    `re.search(r"\\bbd_start_display\\b", code)` still passes, because the token
+    survives in the [2/8] `declare -F` guard (code, not a comment) and in two
+    diagnostic strings. Measured: with N6 applied,
+    `test_display_consumers_call_the_shared_helper` reported 2 passed.
+
+    Three independent signals move here, and all three are observations of a
+    RUN rather than of the text:
+
+    * the helper's own invocation log entry disappears;
+    * the recorded row stops tracking the helper's answer;
+    * the verdict's warning count stops moving with it.
+
+    THE GRADING ASSERTION IS A DELTA between the two runs, deliberately. Pinning
+    "exactly one WARN when the display is absent" would fire the day someone
+    adds an unrelated optional step -- a gate that cries wolf gets switched off.
+    The delta is stable under adding, renaming or rewording any step.
+
+    The display is OPTIONAL, so both runs must still reach READY and exit 0.
+    That is the same inverse guard as elsewhere in this section: a mutant that
+    graded a missing display as blocking would fail a host that has a perfectly
+    good X server from somewhere else.
+    """
+    up_completed, up_entries, _ = _run_verdict_probe(
+        tmp_path, PROBE_DISPLAY_OK="1"
+    )
+    down_completed, down_entries, _ = _run_verdict_probe(
+        tmp_path, PROBE_DISPLAY_OK="0"
+    )
+
+    up_rows, up_match = _assert_verdict_probe_reached(up_completed)
+    down_rows, down_match = _assert_verdict_probe_reached(down_completed)
+
+    up_calls = [entry for entry in up_entries if entry.startswith("bd_start_display")]
+    down_calls = [
+        entry for entry in down_entries if entry.startswith("bd_start_display")
+    ]
+    assert up_calls and down_calls, (
+        "step [6/8] never invoked bd_start_display. The display state was "
+        "decided somewhere else, which means a second copy of the idempotence "
+        "logic and a second thing that can disagree -- and it is exactly what a "
+        "whole-file token check cannot see, because the name still occurs in "
+        f"the [2/8] guard. Invocations up={up_calls} down={down_calls}. "
+        f"Everything the run invoked: up={up_entries} down={down_entries}"
+    )
+
+    up_warns = sum(1 for result in up_rows.values() if result == "WARN")
+    down_warns = sum(1 for result in down_rows.values() if result == "WARN")
+    assert down_warns == up_warns + 1, (
+        "the recorded display row did not track what bd_start_display "
+        f"answered: {up_warns} WARN row(s) when the helper succeeded and "
+        f"{down_warns} when it failed, expected exactly one more. A row that "
+        "reads OK whatever the helper said is a step reporting a capability it "
+        f"never checked. Rows up={up_rows} down={down_rows}"
+    )
+    assert int(down_match.group("warns")) == int(up_match.group("warns")) + 1, (
+        "the verdict's warning count did not move with the display row: "
+        f"{up_match.group('warns')} -> {down_match.group('warns')}"
+    )
+
+    for label, completed_run, match in (
+        ("with a display", up_completed, up_match),
+        ("without a display", down_completed, down_match),
+    ):
+        assert match.group("state") == "READY", (
+            f"{label}, the verdict was {match.group('state')!r}. The display is "
+            "graded optional because the capability is probed BY DOING -- a "
+            "host with an X server from elsewhere is fully capable, and "
+            "blocking on this step would be a gate firing on identity."
+        )
+        assert completed_run.returncode == 0, (
+            f"{label}, the run exited {completed_run.returncode}; a WARN is "
+            "visible, never blocking."
+        )
+
+
+# --- I4. install_linux.sh's empty-package-list refusal, executed -------------
+#
+# The refusal at install_linux.sh's system tier carries six lines of comment
+# saying why it exists, and NOTHING read it. Measured on this branch: deleting
+# the `if [ -z "$_sys_pkgs" ]` branch (and promoting the following `elif` to
+# `if`) left the four-file band at 125 passed, exit 0.
+#
+# The failure mode it prevents is real and was measured on this host, not
+# reasoned about:
+#
+#     $ apt-get -s install -y            # ZERO package arguments
+#     exit=0 ... 0 upgraded, 0 newly installed, 0 to remove
+#
+# Command substitution DISCARDS bd_system_pkgs' exit status, so an unchecked
+# `apt-get install -y $(bd_system_pkgs all)` installs nothing and reports
+# success -- an empty denominator reading as OK, which is the exact failure the
+# shared fragment exists to prevent.
+#
+# BOTH SPELLINGS OF "no list" are parametrised because they are different code
+# paths: a lookup that FAILS (status 1) and one that SUCCEEDS while printing
+# nothing (status 0). The second is the dangerous one -- `|| _sys_pkgs=""` never
+# fires for it. `tests/test_provision_test_host.py` already parametrises exactly
+# this pair for the provisioner's install_group; install_linux.sh had no
+# equivalent.
+#
+# THE `real-list` ARM IS NOT PADDING. Asserting only "apt install was not
+# called" would be satisfied by a mutant that deleted the system tier outright,
+# or that never called apt at all. The scan therefore has both directions:
+# a real list MUST reach apt as exactly those names, an empty one MUST NOT reach
+# it at all.
+#
+# THE PROBE is install_linux.sh truncated at the code anchor
+# `PYTHON_CMD="${PYTHON_CMD:-}"`, asserted unique, so only the system-package
+# tier runs: no venv, no pip, no playwright, no network. Same shape as
+# `_build_package_phase_probe` above -- and legitimate here, unlike for the
+# verdict, because the subject IS inside the truncation.
+
+_INSTALL_LINUX_SYSTEM_TIER_ANCHOR = 'PYTHON_CMD="${PYTHON_CMD:-}"'
+
+
+def _build_install_linux_system_tier_probe(path: Path) -> None:
+    source = _read(INSTALL_LINUX)
+    assert source.count(_INSTALL_LINUX_SYSTEM_TIER_ANCHOR) == 1, (
+        f"UNKNOWN: {_INSTALL_LINUX_SYSTEM_TIER_ANCHOR!r} is not a unique "
+        "anchor in install_linux.sh, so this probe cannot decide where the "
+        "system-package tier ends. Move the anchor rather than widening it."
+    )
+    _write_stub(path, source.split(_INSTALL_LINUX_SYSTEM_TIER_ANCHOR, 1)[0])
+
+    parsed = subprocess.run(
+        [_BASH, "-n", str(path)], capture_output=True, text=True, timeout=60
+    )
+    assert parsed.returncode == 0, (
+        "UNKNOWN: the generated install_linux.sh system-tier probe does not "
+        "parse, so nothing below could be measured. The tier has probably been "
+        "moved inside a compound command, which leaves the truncation "
+        f"unterminated. bash -n said:\n{parsed.stderr}"
+    )
+
+
+def _run_install_linux_system_tier(
+    tmp_path: Path, *, fragment_body: str
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """Run install_linux.sh's system tier with a stub fragment and a fake apt.
+
+    install_linux.sh cds to its own directory and derives INSTALL_DIR from it,
+    so the probe has to LIVE in the fake repo next to scripts/lib/system_deps.sh
+    rather than be pointed at it.
+    """
+    work = tmp_path / f"install-linux-{len(list(tmp_path.iterdir()))}"
+    (work / "scripts" / "lib").mkdir(parents=True)
+    (work / "scripts" / "lib" / "system_deps.sh").write_text(
+        fragment_body, encoding="utf-8"
+    )
+
+    stub_bin = work / "bin"
+    stub_bin.mkdir()
+    _write_stub(stub_bin / "apt-get", _FAKE_APT_GET)
+    _write_stub(stub_bin / "sudo", _FAKE_SUDO)
+
+    apt_log = work / "apt-calls.log"
+    probe = work / "install_linux.sh"
+    _build_install_linux_system_tier_probe(probe)
+
+    env = dict(os.environ)
+    env.update(
+        {
+            "PATH": f"{stub_bin}{os.pathsep}{env['PATH']}",
+            "PROVISION_APT_LOG": str(apt_log),
+            "PROVISION_APT_FAIL_NAMES": "",
+        }
+    )
+    env.pop("BD_SKIP_SYSTEM_DEPS", None)
+    completed = subprocess.run(
+        [_BASH, str(probe)],
+        cwd=str(work),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    apt_calls = (
+        apt_log.read_text(encoding="utf-8").splitlines() if apt_log.is_file() else []
+    )
+    return completed, apt_calls
+
+
+def _fragment_stub(body: str) -> str:
+    return f"bd_system_pkgs() {{ {body} }}\nbd_start_display() {{ return 0; }}\n:\n"
+
+
+def test_install_linux_hands_apt_exactly_the_list_the_fragment_returned(
+    tmp_path: Path,
+) -> None:
+    """The direction that stops the refusal gate from being satisfied by silence.
+
+    Without this arm, ``test_install_linux_refuses_...`` below would be equally
+    happy with an install_linux.sh that deleted its system tier, never sourced
+    the fragment, or never called apt at all -- a gate that cannot tell "refused
+    correctly" from "does nothing" is not a gate.
+
+    Membership is compared with ``==``: apt is all-or-nothing, so an EXTRA name
+    installs nothing at all, and a superset assertion cannot see one.
+    """
+    completed, apt_calls = _run_install_linux_system_tier(
+        tmp_path,
+        fragment_body=_fragment_stub('printf "%s\\n" "probe-a probe-b";'),
+    )
+    transactions = _install_transactions(apt_calls)
+
+    assert transactions == [frozenset({"probe-a", "probe-b"})], (
+        "install_linux.sh did not hand apt exactly the list bd_system_pkgs "
+        f"returned; transactions={[sorted(t) for t in transactions]}. apt "
+        f"calls: {apt_calls}. rc={completed.returncode} "
+        f"stdout tail={completed.stdout[-2000:]!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        pytest.param('printf "%s\\n" "";', id="returns-0-prints-nothing"),
+        pytest.param("return 1;", id="returns-1"),
+    ),
+)
+def test_install_linux_refuses_to_run_apt_on_an_empty_package_list(
+    tmp_path: Path, body: str
+) -> None:
+    """KILLS: deleting install_linux.sh's empty-list refusal.
+
+    `apt-get install -y` with zero package arguments exits 0 having installed
+    nothing -- measured on this host -- so the mutant does not merely skip a
+    step, it manufactures a successful-looking install of nothing. That is the
+    precise transaction the code comment says the branch exists to prevent, and
+    it was ungated.
+
+    The assertion is over INSTALL transactions, not over the printed wording:
+    the behaviour is the subject, and pinning the message text would make
+    rewording an operator hint a build failure.
+
+    install_linux.sh's contract is that this tier is NEVER fatal, so the run is
+    also required not to abort -- the rest of the install has to continue for an
+    unprivileged operator with no sudo rights.
+    """
+    completed, apt_calls = _run_install_linux_system_tier(
+        tmp_path, fragment_body=_fragment_stub(body)
+    )
+    transactions = _install_transactions(apt_calls)
+
+    assert transactions == [], (
+        "install_linux.sh invoked the installer with an empty package list. "
+        "`apt-get install -y` with no package arguments exits 0 having "
+        "installed nothing, so this is exactly how an installer reports "
+        f"success while installing nothing. apt calls: {apt_calls}"
+    )
+    assert completed.returncode == 0, (
+        "the system-package tier aborted the install; it is best-effort by "
+        "contract and must degrade to a hint. "
+        f"rc={completed.returncode} stderr={completed.stderr[-2000:]!r}"
     )
 
 

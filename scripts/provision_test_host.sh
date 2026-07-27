@@ -360,6 +360,10 @@ install_group() {
 install_group 03b_pkgs_core "system packages (core)" core core     || true
 install_group 03c_pkgs_node "system packages (node)" node core     || true
 install_group 03d_pkgs_gtk  "system packages (gtk)"  gtk  optional || true
+# optional: a box without shellcheck still captures cleanly -- the suite's
+# parse gates announce themselves unrunnable rather than reporting OK, so the
+# failure mode is a visible absence rather than a false pass.
+install_group 03e_pkgs_lint "system packages (lint)" lint optional || true
 
 # ------------------------------------------------------ [4/8] repo install
 echo
