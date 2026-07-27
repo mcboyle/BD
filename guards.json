@@ -1,0 +1,16 @@
+{
+  "schema": "bd-guards/1",
+  "_comment": "SINGLE SOURCE OF TRUTH for the 7 release-guard SHAs (CLAUDE.md section 2). bd-guardcheck reads this file by default; the sha256 values below are FULL 64-hex digests of the files as they exist in this repository, derived by hashing the files -- never transcribed from the truncated 16-char table in CLAUDE.md, which is documentation and goes stale. To change a pin you must declare it: bd-guard-declare --apply --reason '...', then update this file. Git history is not authorization.",
+  "_fields": {
+    "guards": "relative path (from the tree root) -> full lowercase sha256 hex of the file bytes"
+  },
+  "guards": {
+    "bulk_downloader/extraction_core.py": "5b6248a5c9e664abdb0cfd27ad1d2e311f4563d450bc20531c4b21ad8a2ceac9",
+    "bulk_downloader/session_capture.py": "547d70c95cde93779e161540df59a4f59f926c4c86865ff9b3a6b61bb74680be",
+    "bulk_downloader/dom_capture.py": "0559903d0b15916295c2c7f991b7dd02900e096ea485cd078e3f2bd6dcf04879",
+    "bulk_downloader/dom_recorder.py": "1657d0a0e39917ae26ba7aa1629ff3d2672efea84e9a881ec090c292f1cddce5",
+    "bulk_downloader/capture_bodies.py": "6c7f5c9a87510ccaa79e8babfd57ccbb9cadd92186ef0dd266341c3963d3048a",
+    "tools/capture_session.py": "27be68b9656893175d5c99e02f83cb101af94b35b97dbbe8597b4fe319941b15",
+    "tools/build_release.py": "be25241eb867b85aaebeb3c84a2ebf390e4cb51d4feccb6ae439dc09035492b5"
+  }
+}
