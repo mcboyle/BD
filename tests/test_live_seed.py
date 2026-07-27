@@ -63,6 +63,10 @@ class FakeClient:
         self.calls.append(("POST", path, payload))
         return self._responses.get(("POST", path), {"ok": True})
 
+    def delete(self, path):
+        self.calls.append(("DELETE", path, None))
+        return self._responses.get(("DELETE", path), {"ok": True})
+
     def posted(self):
         return [(p, body) for method, p, body in self.calls if method == "POST"]
 
@@ -214,6 +218,79 @@ def test_dry_run_issues_no_state_changing_request():
     seed.seed_queue(client, count=3, dry_run=True)
     assert not client.posted(), (
         f"dry-run issued {len(client.posted())} POST(s); it must not mutate"
+    )
+
+
+# ── the seeder must own its site, never borrow the operator's ───────────────
+
+def test_seeding_never_enqueues_against_an_unmarked_site():
+    """Synthetic URLs must never land in a real site's queue.
+
+    The first version picked whichever site happened to be configured, which
+    on a working deployment is the operator's REAL site. That mixes synthetic
+    rows into real work: the operator sees jobs they did not queue, and
+    teardown becomes ambiguous because the site itself is not ours to remove.
+    The seeder must use a site it created and marked.
+    """
+    seed = _load()
+    real_sid = "aabbccdd"
+    client = FakeClient({
+        ("GET", "/api/status"): {
+            real_sid: {"name": "My Real Site", "config": {}},
+        },
+        ("POST", "/api/sites"): {"id": "11223344"},
+    })
+    seed.seed_queue(client, count=1)
+    enqueued = [
+        body for path, body in client.posted()
+        if path.endswith("/add_url") and isinstance(body, dict)
+    ]
+    assert enqueued, "no URL was enqueued"
+    for body in enqueued:
+        assert body.get("site_id") != real_sid, (
+            f"seeded against the operator's real site {real_sid!r}; the seeder "
+            f"must create and use its own marked site"
+        )
+
+
+def test_an_existing_marked_site_is_reused_rather_than_duplicated():
+    """Re-running the seeder must not accumulate sites."""
+    seed = _load()
+    marked_sid = "99887766"
+    client = FakeClient({
+        ("GET", "/api/status"): {
+            marked_sid: {"name": f"{seed.SEED_MARKER} fixture", "config": {}},
+        },
+    })
+    seed.seed_queue(client, count=1)
+    created = [p for p, _b in client.posted() if p == "/api/sites"]
+    assert not created, (
+        "a marked site already existed but the seeder created another; "
+        "repeated capture runs would accumulate sites"
+    )
+    enqueued = [b for p, b in client.posted() if p.endswith("/add_url")]
+    assert enqueued and all(b.get("site_id") == marked_sid for b in enqueued)
+
+
+def test_teardown_removes_marked_sites_but_never_unmarked_ones():
+    """Teardown must leave the operator's sites untouched."""
+    seed = _load()
+    client = FakeClient({
+        ("GET", "/api/queue/v2"): {
+            "ok": True, "running": [], "waiting": [], "done_today_count": 0,
+        },
+        ("GET", "/api/status"): {
+            "deadbeef": {"name": f"{seed.SEED_MARKER} fixture", "config": {}},
+            "aabbccdd": {"name": "My Real Site", "config": {}},
+        },
+    })
+    seed.teardown(client)
+    deleted = [p for method, p, _b in client.calls if method == "DELETE"]
+    assert any("deadbeef" in p for p in deleted), (
+        "teardown left its own marked site behind"
+    )
+    assert not any("aabbccdd" in p for p in deleted), (
+        "teardown deleted the operator's real site"
     )
 
 

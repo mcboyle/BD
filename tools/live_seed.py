@@ -128,6 +128,9 @@ class Client:
     def post(self, path: str, payload):
         return self._request("POST", path, payload)
 
+    def delete(self, path: str):
+        return self._request("DELETE", path)
+
 
 def _queue_snapshot(client):
     """Read the queue, or raise SeedRefused if it cannot be read.
@@ -184,17 +187,55 @@ def seeded_url(index: int) -> str:
     return f"{FIXTURE_ORIGIN}/{SEED_MARKER}/clip{index}.mp4"
 
 
-def _first_site_id(client):
+SEED_SITE_NAME = f"{SEED_MARKER} fixture site"
+
+
+def _marked_site_ids(client) -> list:
+    """Site ids whose display name carries the marker.
+
+    /api/status returns {sid: {name, config, ...}}, so the name is the
+    discriminator. Anything unmarked belongs to the operator and is off limits
+    for both seeding and teardown.
+    """
     body = client.get("/api/status")
-    if isinstance(body, dict):
-        sites = body.get("sites")
-        if isinstance(sites, dict) and sites:
-            return sorted(sites)[0]
-        if isinstance(sites, list) and sites:
-            first = sites[0]
-            if isinstance(first, dict):
-                return first.get("site_id") or first.get("id")
-    return None
+    if not isinstance(body, dict):
+        return []
+    found = []
+    for sid, meta in body.items():
+        if not isinstance(meta, dict):
+            continue
+        if SEED_MARKER in str(meta.get("name", "")):
+            found.append(sid)
+    return sorted(found)
+
+
+def ensure_seed_site(client, *, dry_run: bool = False):
+    """Return a site id the seeder OWNS, creating one if needed.
+
+    Deliberately never borrows an existing unmarked site. On a working
+    deployment the configured site is the operator's REAL one; enqueueing
+    synthetic URLs there would show them jobs they did not queue and would make
+    teardown ambiguous, because the site itself is not ours to remove. Reusing
+    an already-marked site keeps repeated capture runs from accumulating sites.
+    """
+    existing = _marked_site_ids(client)
+    if existing:
+        return existing[0]
+    if dry_run:
+        return None
+    created = client.post("/api/sites", {
+        "name": SEED_SITE_NAME,
+        # download_dir is left to the app's own default; _create_site fills
+        # unset fields from DEFAULTS and validates paths before creating
+        # anything, so a bad value cannot leave half-initialised state.
+    })
+    sid = (created or {}).get("id") if isinstance(created, dict) else None
+    if not sid:
+        raise SeedRefused(
+            f"could not create the {SEED_MARKER} fixture site "
+            f"(response: {str(created)[:200]})"
+        )
+    return sid
 
 
 def seed_queue(client, count: int = 3, *, site_id: str | None = None,
@@ -211,13 +252,7 @@ def seed_queue(client, count: int = 3, *, site_id: str | None = None,
     if dry_run:
         planned["dry_run"] = True
         return planned
-    sid = site_id or _first_site_id(client)
-    if not sid:
-        raise SeedRefused(
-            "no configured site to enqueue against. /api/queue/v2/add_url "
-            "requires a site_id that exists in the runner map; configure a "
-            "site first, or pass --site-id."
-        )
+    sid = site_id or ensure_seed_site(client)
     results = []
     for url in urls:
         results.append(client.post("/api/queue/v2/add_url",
@@ -241,11 +276,20 @@ def teardown(client, *, dry_run: bool = False) -> dict:
         if isinstance(entry, dict) and _is_seeded(entry)
     ]
     ids = [entry.get("id") for entry in victims if entry.get("id") is not None]
-    plan = {"action": "teardown", "marker": SEED_MARKER, "ids": ids}
-    if dry_run or not ids:
-        plan["dry_run"] = bool(dry_run)
+    sites = _marked_site_ids(client)
+    plan = {"action": "teardown", "marker": SEED_MARKER,
+            "ids": ids, "sites": sites}
+    if dry_run:
+        plan["dry_run"] = True
         return plan
-    plan["result"] = client.post("/api/queue/v2/bulk_cancel", {"ids": ids})
+    if ids:
+        plan["cancelled"] = client.post("/api/queue/v2/bulk_cancel", {"ids": ids})
+    # Delete only sites we created. An unmarked site is the operator's and is
+    # never touched -- the predicate is the marker, never recency or position.
+    removed = []
+    for sid in sites:
+        removed.append({"site_id": sid, "result": client.delete(f"/api/sites/{sid}")})
+    plan["removed_sites"] = removed
     return plan
 
 
