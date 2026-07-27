@@ -321,7 +321,8 @@ else
   if [ "$HAVE_SYSDEPS" = 1 ]; then
     GTK_PKGS="$(bd_system_pkgs gtk)" || GTK_PKGS=""
     if [ -n "$GTK_PKGS" ]; then
-      # shellcheck disable=SC2086 -- word splitting is the point: one arg per package
+      # Word splitting is the point: one arg per package.
+      # shellcheck disable=SC2086
       step "GTK + Xvfb" optional apt_i $GTK_PKGS
     else
       row "GTK + Xvfb" "WARN" "bd_system_pkgs gtk returned nothing -- refusing to run apt on an empty package list"

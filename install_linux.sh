@@ -72,15 +72,17 @@ else
             echo "  Installing system packages (root) ..."
             apt-get update -qq \
                 || echo "  (apt-get update failed - using the cached lists)"
-            # shellcheck disable=SC2086 -- word splitting is the point: the
-            # fragment returns one space-separated list, apt wants one arg each.
+            # Word splitting is the point: the fragment returns one
+            # space-separated list, apt wants one arg each.
+            # shellcheck disable=SC2086
             apt-get install -y $_sys_pkgs \
                 || echo "  (system package install failed - continuing)"
         elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
             echo "  Installing system packages (sudo) ..."
             sudo -n apt-get update -qq \
                 || echo "  (apt-get update failed - using the cached lists)"
-            # shellcheck disable=SC2086 -- word splitting is the point here too.
+            # Word splitting is the point here too.
+            # shellcheck disable=SC2086
             sudo -n apt-get install -y $_sys_pkgs \
                 || echo "  (system package install failed - continuing)"
         else
@@ -563,8 +565,26 @@ if [ -x "$VPYTHON" ] && [ -f "$INSTALL_DIR/tools/gui_parity_inventory.py" ]; the
         if [ -s "$_parity_err" ]; then
             tail -5 "$_parity_err" | sed 's/^/    /'
         fi
-    elif grep -q '"route_source": "live url_map"' \
-            "$INSTALL_DIR/reports/gui_parity_inventory.json" 2>/dev/null; then
+    # ONE spelling of this predicate now, in capture.sh, install_linux.sh and
+    # scripts/provision_test_host.sh: PARSE the JSON, never grep for the
+    # substring '"route_source": "live url_map"'. The substring form is hostage
+    # to how tools/gui_parity_inventory.py serialises (json.dumps(...,
+    # indent=2)) - change the indent or the key separator and the grep starts
+    # calling a perfectly good inventory degraded, which is a gate firing on
+    # identity. This file carried the STRICT LITERAL (no whitespace tolerance at
+    # all) and capture.sh a whitespace-tolerant regex; they agreed by luck, and
+    # this one would have gone wrong first. A parse cannot be wrong about
+    # formatting. A file that will not parse is NOT a pass: json.load raising
+    # exits non-zero and lands in the same branch as a wrong route_source,
+    # because both mean "not proven app-derived".
+    elif "$VPYTHON" -c 'import json, sys
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception as exc:
+    print("gui_parity_inventory.json will not parse: %s" % exc, file=sys.stderr)
+    raise SystemExit(1)
+raise SystemExit(0 if d.get("route_source") == "live url_map" else 1)' \
+            "$INSTALL_DIR/reports/gui_parity_inventory.json"; then
         echo "  GUI-parity inventory regenerated from the live route map."
     else
         echo "  WARNING: the GUI-parity inventory was rebuilt WITHOUT the live"

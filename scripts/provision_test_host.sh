@@ -72,8 +72,11 @@ sudo), the repo install, headless chromium system libraries, an X display,
 and the gui-parity inventory regen. Prints a verdict and exits non-zero if a
 load-bearing step failed or could not be evaluated.
 
-REPO_PATH is optional; by default the repo is found from this script's own
-location and confirmed by the marker bulk_downloader/__init__.py.
+REPO_PATH is optional. With no argument the repo is derived from this script's
+own location, then from the current directory, and either way it is confirmed
+by the marker bulk_downloader/__init__.py. When you DO pass it, it is an
+ASSERTION rather than a hint: a path without that marker is fatal, never a
+reason to fall back to some other checkout that happens to be nearby.
 USAGE
 }
 
@@ -94,12 +97,39 @@ esac
 # panel, so it genuinely has no idea where the repo is. This one SHIPS INSIDE
 # the repo, so ${BASH_SOURCE[0]} is a real location in the tree and the search
 # would only add a way to provision the wrong checkout.
+#
+# An explicitly passed REPO_PATH is NOT one of the candidates. It is the
+# operator naming the subject, so it is checked alone and a miss is fatal --
+# see find_repo below for the measured reason.
 MARKER="bulk_downloader/__init__.py"
 
 find_repo() {
-    local candidate here
+    local candidate here explicit="${1:-}"
+
+    # An explicit REPO_PATH is an ASSERTION, not a candidate. This loop used to
+    # take it as the FIRST of three guesses, so a path WITHOUT the marker fell
+    # through to the script's own location and the run went on to provision a
+    # DIFFERENT tree while row 1 still read "repo root OK". Measured on the
+    # pre-fix function, run rather than reasoned about:
+    #     find_repo /nope/xyz       -> rc=0  stdout='/home/user/BD'
+    #     find_repo /also/not/here  -> rc=0  stdout='/home/user/BD'
+    # The subject the operator stated was never examined and the row said the
+    # opposite -- a check whose denominator excludes its subject reports OK.
+    #
+    # Exit 3 is reserved for this case so the caller can name the path it
+    # REJECTED. The generic "no checkout found" advice would be actively
+    # misleading here: it sends the operator hunting for a missing tree when the
+    # tree is fine and the argument they typed is what is wrong.
+    if [ -n "$explicit" ]; then
+        if [ -f "$explicit/$MARKER" ]; then
+            (cd "$explicit" && pwd)
+            return 0
+        fi
+        return 3
+    fi
+
     here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." 2>/dev/null && pwd)" || here=""
-    for candidate in "${1:-}" "$here" "$PWD"; do
+    for candidate in "$here" "$PWD"; do
         if [ -n "$candidate" ] && [ -f "$candidate/$MARKER" ]; then
             (cd "$candidate" && pwd)
             return 0
@@ -108,7 +138,23 @@ find_repo() {
     return 1
 }
 
-REPO="$(find_repo "${1:-}")" || REPO=""
+# `find_repo_rc` is lowercase on purpose (design rule 4) and is initialised
+# before use because this file runs under `set -u`: an unset read here would
+# abort at the very first step and destroy the verdict the script exists to
+# print. Capturing the code at all depends on there being no `set -e`
+# (design rule 1); the assignment is on the `||` side, so it survives either way.
+REPO=""
+find_repo_rc=0
+REPO="$(find_repo "${1:-}")" || find_repo_rc=$?
+if [ "$find_repo_rc" -eq 3 ]; then
+    echo "FATAL: '${1:-}' is not a BulkDownloader checkout." >&2
+    echo "  You named that path explicitly, so it is an assertion and not a" >&2
+    echo "  hint: there is no $MARKER under it." >&2
+    echo "  Refusing to quietly fall back to another tree that happens to be" >&2
+    echo "  nearby -- that provisions one checkout and reports on a different" >&2
+    echo "  one, which is the failure mode this check exists to prevent." >&2
+    exit 2
+fi
 if [ -z "$REPO" ]; then
     echo "FATAL: no BulkDownloader checkout found." >&2
     echo "  Looked for the marker $MARKER next to this script," >&2
@@ -222,27 +268,98 @@ else
 fi
 export DEBIAN_FRONTEND=noninteractive
 
-# Capture the list into a variable and refuse an empty one. Writing the call as
-# an inline $(...) argument would throw the function's non-zero exit away, and
-# `apt-get install -y` with ZERO package arguments exits 0 -- so a hard-failed
-# lookup would install nothing and report success. That is an empty denominator
-# reading as OK, the exact failure this project is organised around.
-SYSTEM_PKGS=""
-if ! SYSTEM_PKGS="$(bd_system_pkgs all)"; then
-    SYSTEM_PKGS=""
-fi
+# Index refresh is optional: a stale-but-present index can still satisfy the
+# installs, and when it cannot, the group steps below fail and say so.
+# shellcheck disable=SC2086  # $SUDO is empty when already root
+run_step 03a_apt_update "package index refresh" optional $SUDO apt-get update || true
 
-if [ -z "$SYSTEM_PKGS" ]; then
-    record "system packages" "UNKNOWN" "bd_system_pkgs all returned nothing; refusing to run the installer with an empty list"
-else
-    echo "  packages: $SYSTEM_PKGS"
-    # Index refresh is optional: a stale-but-present index can still satisfy the
-    # install, and when it cannot, the install below fails and says so.
-    # shellcheck disable=SC2086  # $SUDO is empty when already root
-    run_step 03a_apt_update "package index refresh" optional $SUDO apt-get update || true
-    # shellcheck disable=SC2086  # word splitting is the point: one arg per package
-    run_step 03b_system_packages "system packages" core $SUDO apt-get install -y $SYSTEM_PKGS || true
-fi
+# install_group <slug> <label> <core|node|gtk> <core|optional>
+#
+# ONE transaction PER GROUP, never one transaction for `all`.
+#
+# WHY. The installer is ALL-OR-NOTHING, measured on this host rather than
+# assumed: a simulate run (-s, which installs nothing) of one available name
+# plus one nonexistent name exits 100 with "E: Unable to locate package ..." and
+# plans ZERO Inst lines, while the same simulate of the available name ALONE
+# exits 0 and plans seven. The available name is not installed either. So
+# handing over the `all` list -- 13 names when this was measured, and a count
+# nobody should quote without re-running bd_system_pkgs -- meant ONE unavailable
+# name installed NOTHING: no interpreter, no package manager for the SPA
+# toolchain, no display libraries. And the run reported that as a single failed
+# row that could not say which name was to blame. Both ways of hitting it are
+# real rather than hypothetical: the t64 library renames make some of these
+# names wrong on 22.04, and the pinned interpreter needs a PPA on older
+# releases. scripts/cloud-setup.sh has always kept its "GTK + Xvfb" step in a
+# transaction of its own; this restores that granularity here instead of
+# regressing it.
+#
+# CRITICALITY IS PER GROUP, and each choice is load-bearing:
+#
+#   core  -> `core`.     Every step from [4/8] to [8/8] gates on
+#                        venv/bin/python, and the venv cannot be built without
+#                        the interpreter and its own package manager. Nothing
+#                        downstream of a failure here is meaningful.
+#
+#   node  -> `core`.     capture.sh exits 2 with "FATAL:
+#                        frontend/dist/index.html is missing" BEFORE it collects
+#                        a single test, and that file is produced by the SPA
+#                        toolchain this group installs. A host that cannot build
+#                        the SPA cannot reach the green ./capture.sh this script
+#                        promises, so a failure is not a missing extra.
+#
+#   gtk   -> `optional`. Mirrors scripts/cloud-setup.sh, which grades its
+#                        equivalent step optional deliberately. Two reasons, and
+#                        they are inverses of each other. The capability is
+#                        probed BY DOING at step [6/8] -- bd_start_display tests
+#                        the DISPLAY, not the installer -- so a host that
+#                        already has a usable X server and the typelibs from
+#                        elsewhere is fully capable even when this step fails,
+#                        and blocking the verdict on it would be a gate firing
+#                        on identity, which CLAUDE.md 0 calls a soundness bug in
+#                        its own right. And what it costs is bounded and already
+#                        named: tests/test_v3_43_80_modules::test_all_modules_import
+#                        false-fails, which CLAUDE.md 5 classifies as
+#                        environmental. A WARN row is still a capability this
+#                        host does NOT have, never a step that passed.
+#
+# AN EMPTY OR FAILED LOOKUP BLOCKS, FOR EVERY GROUP INCLUDING gtk. Command
+# substitution DISCARDS the function's exit status, and the installer given zero
+# package arguments exits 0 -- measured here: exit 0, "0 newly installed". So
+# the obvious one-liner installs nothing and records OK, which is exactly how an
+# installer reports success while installing nothing. Capture first, then refuse.
+#
+# The grading of that refusal deliberately does NOT follow the group's install
+# criticality, because what failed is the DENOMINATOR and not the capability:
+# the script does not know what this group's deps ARE, which is a different
+# statement from "this host lacks them". Step [2/8] has already hard-exited
+# unless the fragment sourced AND both of its functions resolved, so no benign
+# explanation is left for a group that answers empty. UNKNOWN is the state this
+# file reserves for a step that could not be EVALUATED, and it blocks.
+# (cloud-setup.sh records WARN for its own empty-list case because it has no
+# such hard exit and genuinely runs on hosts where the fragment is absent.)
+install_group() {
+    local slug="$1" label="$2" group="$3" kind="$4"
+    local pkgs=""
+
+    if ! pkgs="$(bd_system_pkgs "$group")"; then
+        pkgs=""
+    fi
+    if [ -z "$pkgs" ]; then
+        record "$label" "UNKNOWN" "bd_system_pkgs $group returned nothing, so this group's package list is unknown; refusing to run the installer on an empty list because that exits 0 having installed nothing"
+        return 1
+    fi
+
+    echo "  $group: $pkgs"
+    # Two intentional word splits: $SUDO is empty when already root, and $pkgs
+    # must arrive as one argument per package.
+    # shellcheck disable=SC2086
+    run_step "$slug" "$label" "$kind" $SUDO apt-get install -y $pkgs || true
+    return 0
+}
+
+install_group 03b_pkgs_core "system packages (core)" core core     || true
+install_group 03c_pkgs_node "system packages (node)" node core     || true
+install_group 03d_pkgs_gtk  "system packages (gtk)"  gtk  optional || true
 
 # ------------------------------------------------------ [4/8] repo install
 echo
