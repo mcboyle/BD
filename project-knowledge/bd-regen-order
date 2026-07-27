@@ -203,7 +203,13 @@ def declare_edges(work):
     gate = os.path.join(work, "tools", "decomp", "import_graph_gate.py")
     if not os.path.isfile(gate):
         return False, "import_graph_gate.py not found"
-    rc, out = _run(work, ["tools/decomp/import_graph_gate.py", "--update"])
+    # --shrink is passed because THIS ENTRY POINT IS THE DECLARATION. The gate
+    # refuses a baseline shrink by default so that a silently dropped edge
+    # cannot be frozen in; but --declare-edges is the operator saying, in as
+    # many words, that the edge change is intended -- and this function's own
+    # docstring covers a REMOVED edge. Without the passthrough the documented
+    # use case fails with "re-run with --shrink" and no way to supply it.
+    rc, out = _run(work, ["tools/decomp/import_graph_gate.py", "--update", "--shrink"])
     return rc == 0, out.strip().splitlines()[-1] if out.strip() else "re-frozen"
 
 

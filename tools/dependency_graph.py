@@ -25,11 +25,23 @@ dependency_inventory.py undercounts internal edges ~2.6x by missing #2):
         from . import vpn_config as VC ; VC.update_tunnel_config(...)
       -> resolve aliases, AST-match Call <alias>.<verb|verb_*>(...).
 
+Fail-closed contract (CLAUDE.md 0). A file the parser cannot read contributes
+*no edges*, so a graph built over it is a graph of a tree that is not the tree.
+`_parse()` used to swallow SyntaxError/OSError and `build()` skipped the file,
+and every mode below still reported success over that silently shortened
+denominator — truthfully and uselessly. Now `build()` collects every file it
+could not parse and raises `UnparseableSourceError` naming the count and the
+files; `main()` turns that into exit 2 and writes nothing. The checked set is
+the builder's own walk (`_py_files`), so the denominator contains the subject by
+construction rather than by assertion. Unknown is a third state and it fails.
+
 Usage:
     python tools/dependency_graph.py            # regen both artifacts at repo root
     python tools/dependency_graph.py --check     # diff regen vs on-disk; exit 1 on drift
     python tools/dependency_graph.py --json       # print JSON to stdout
     python tools/dependency_graph.py --selftest   # P1/P2/P3 + reconciliation assertions
+
+Exit codes: 0 ok · 1 drift / selftest failure · 2 unparseable source (refused).
 """
 from __future__ import annotations
 
@@ -73,11 +85,33 @@ def _node(stem: str, bd_mods, tool_stems):
     return None
 
 
+class UnparseableSourceError(RuntimeError):
+    """Raised when a file inside the graph's own walk will not parse.
+
+    Such a file contributes no import edges, no blueprint and no config
+    reader/writer, so every number derived from the graph is quietly wrong.
+    Refuse rather than report."""
+
+    def __init__(self, failures):
+        self.failures = [(f, r) for f, r in failures]
+        self.files = [f for f, _r in self.failures]
+        super().__init__(
+            f"{len(self.files)} file(s) unparseable -- refusing to build the "
+            "dependency graph; their edges would be silently missing:\n  "
+            + "\n  ".join(f"{f}: {r}" for f, r in self.failures)
+        )
+
+
 def _parse(p: Path):
+    """Return (tree, None) on success, or (None, reason) — never a silent skip.
+
+    The reason is *returned* so the caller owns the policy; `build()` collects
+    every one of them and refuses. ValueError covers embedded NUL bytes, which
+    `ast.parse` rejects without raising SyntaxError."""
     try:
-        return ast.parse(p.read_text(encoding="utf-8", errors="replace"))
-    except (OSError, SyntaxError):
-        return None
+        return ast.parse(p.read_text(encoding="utf-8", errors="replace")), None
+    except (OSError, SyntaxError, ValueError) as e:
+        return None, f"{type(e).__name__}: {e}"
 
 
 def _unwrap(v):
@@ -133,17 +167,35 @@ def _py_files(root: Path):
                     yield Path(dp) / nm
 
 
+def unparseable_sources(root: Path | None = None) -> list[tuple[str, str]]:
+    """[(repo-relative path, reason)] for every walked file that will not parse.
+
+    The denominator is `_py_files` — the exact set `build()` walks — so this
+    cannot report clean over files the builder would have parsed, and cannot
+    fire over files it never looks at."""
+    root = root or _root()
+    bad = [(p.relative_to(root).as_posix(), r)
+           for p in _py_files(root)
+           if (r := _parse(p)[1]) is not None]
+    return sorted(bad)
+
+
 def build(root: Path | None = None) -> dict:
+    """Build the graph, or raise UnparseableSourceError if any walked file
+    will not parse. There is deliberately no opt-out: a partial graph that
+    reports success is the defect this tool exists to avoid."""
     root = root or _root()
     bd_mods, tool_stems = _bd_mods(root), _tool_stems(root)
 
     out_e, in_e = defaultdict(set), defaultdict(set)
     blueprints = {}
     config = {s: {"readers": set(), "writers": set()} for s in _CONFIG_STORES}
+    unparseable: list[tuple[str, str]] = []
 
     for p in _py_files(root):
-        tree = _parse(p)
+        tree, reason = _parse(p)
         if tree is None:
+            unparseable.append((p.relative_to(root).as_posix(), reason))
             continue
         # Graph node IDs are repository identifiers, not native filesystem
         # paths.  Keep their representation byte-stable across Windows/Linux.
@@ -209,6 +261,9 @@ def build(root: Path | None = None) -> dict:
                         n.func.attr == m or n.func.attr.startswith(m + "_")
                         for m in _MUT):
                     config[local_for[base]]["writers"].add(rp)
+
+    if unparseable:
+        raise UnparseableSourceError(sorted(unparseable))
 
     tool_files = [f"tools/{p.name}" for p in sorted((root / "tools").glob("*.py"))]
     return {
@@ -332,7 +387,15 @@ def main(argv=None) -> int:
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args(argv)
     root = _root()
-    g = build(root)
+    try:
+        # Every mode funnels through this one call, so --check, --json,
+        # --selftest and the default regen all inherit the refusal.
+        g = build(root)
+    except UnparseableSourceError as e:
+        print(f"FAIL: {e}", file=sys.stderr)
+        print("Nothing regenerated, nothing checked. Fix the file(s) above.",
+              file=sys.stderr)
+        return 2
 
     if a.selftest:
         ok = True
