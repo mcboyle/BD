@@ -17,14 +17,17 @@ set -uo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_DIR"
 
-# Locate python (prefer venv)
+# Locate python via the SHARED ladder. This script used to probe only
+# "$REPO_DIR/.venv/bin/python" -- absent in this repo -- and fall through to
+# bare python3, which is 3.11 without the project dependencies. See
+# scripts/lib/python_resolve.sh.
 PY=""
-if [ -x "$REPO_DIR/.venv/bin/python" ]; then
-    PY="$REPO_DIR/.venv/bin/python"
-elif command -v python3 >/dev/null 2>&1; then
-    PY="$(command -v python3)"
-elif command -v python >/dev/null 2>&1; then
-    PY="$(command -v python)"
+# shellcheck source=scripts/lib/python_resolve.sh
+if [ -r "$REPO_DIR/scripts/lib/python_resolve.sh" ]; then
+    . "$REPO_DIR/scripts/lib/python_resolve.sh"
+    if bd_resolve_python "$REPO_DIR"; then
+        PY="$BD_PYTHON_RESOLVED"
+    fi
 fi
 if [ -z "$PY" ]; then
     echo "[sast] ERROR: no Python found. Activate venv or install Python 3.10+."
