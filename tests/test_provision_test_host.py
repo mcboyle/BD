@@ -124,9 +124,15 @@ EXPECTED_GROUPS: dict[str, tuple[str, ...]] = {
     # is the gap this group closes. Measured on the operator's host: 129 passed
     # / 7 skipped before installing it, 136 passed / 0 skipped after.
     "lint": ("shellcheck",),
+    # ffmpeg ships ffprobe, which bulk_downloader/integrity.py shells out to.
+    # No provisioning path installed it before v3.66.818, because
+    # docs/repo/ENVIRONMENT_PROVISIONING.md asserted it was already in the base
+    # image -- false here, and never re-derived. Its own group because it is
+    # runtime capability, not build tooling or display.
+    "media": ("ffmpeg",),
 }
 
-GROUP_ORDER = ("core", "node", "gtk", "lint")
+GROUP_ORDER = ("core", "node", "gtk", "lint", "media")
 
 ALL_PACKAGES = frozenset(
     name for names in EXPECTED_GROUPS.values() for name in names
@@ -159,7 +165,7 @@ DISCRIMINATING_PACKAGES = (
 # argument positions instead. The two predicates together contain every package
 # name in ALL_PACKAGES -- that is the denominator check, asserted in
 # `test_anti_drift_predicates_cover_every_package_name`.
-AMBIGUOUS_PACKAGES = ("git", "python3.12", "npm", "shellcheck")
+AMBIGUOUS_PACKAGES = ("git", "python3.12", "npm", "shellcheck", "ffmpeg")
 
 # Files that must never carry their own copy of the package lists.
 CONSUMERS = (CLOUD_SETUP, INSTALL_LINUX, PROVISIONER)
@@ -1943,6 +1949,11 @@ EXPECTED_GROUP_KINDS: dict[str, str] = {
     # gates announce themselves unrunnable rather than reporting OK, so the
     # failure mode is a visible absence, not a false pass.
     "lint": "optional",
+    # optional: a box without ffmpeg still captures. integrity.py's ffprobe
+    # path is documented fail-open, so its absence degrades verification
+    # rather than breaking the run -- but it must be VISIBLE, which is why it
+    # is provisioned and probed rather than assumed present.
+    "media": "optional",
 }
 
 # The trailing \S excludes the DEFINITION line `install_group() {`.
@@ -3267,7 +3278,8 @@ bd_system_pkgs() {
         node) printf '%s\n' "${PROBE_PKGS_NODE-probe-node-a}" ;;
         gtk)  printf '%s\n' "${PROBE_PKGS_GTK-probe-gtk-a}" ;;
         lint) printf '%s\n' "${PROBE_PKGS_LINT-probe-lint-a}" ;;
-        all)  printf '%s\n' "probe-core-a probe-core-b probe-node-a probe-gtk-a probe-lint-a" ;;
+        media) printf '%s\n' "${PROBE_PKGS_MEDIA-probe-media-a}" ;;
+        all)  printf '%s\n' "probe-core-a probe-core-b probe-node-a probe-gtk-a probe-lint-a probe-media-a" ;;
         *)    return 2 ;;
     esac
 }
@@ -4317,4 +4329,11 @@ def test_claude_md_keeps_the_canonical_regen_command() -> None:
     so documenting the provisioner cannot break it."""
     source = _read(CLAUDE_MD)
 
-    assert '.venv/bin/python toolchain/bin/bd-regen-order --work "$PWD"' in source
+    assert 'venv/bin/python toolchain/bin/bd-regen-order --work "$PWD"' in source
+    # `venv/bin/python` is a substring of `.venv/bin/python`, so the presence
+    # check above cannot by itself see a regression back to the dotted path.
+    assert ".venv/bin/python" not in source, (
+        "CLAUDE.md names `.venv/bin/python`; the cloud environment builds "
+        "`venv`, so that command exits 127 and the caller silently falls back "
+        "to bare python3 (3.11, no project deps)"
+    )

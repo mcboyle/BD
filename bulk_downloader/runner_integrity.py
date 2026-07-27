@@ -234,7 +234,17 @@ class IntegrityMixin:
         path."""
         ok, reason = verify_media_integrity(final_path)
         if ok:
-            return True, False, ""
+            # Propagate the reason on the OK path. verify_media_integrity fails
+            # OPEN when ffprobe is absent -- it returns (True, "ffprobe not
+            # installed") -- and returning "" here discarded the only evidence
+            # that no check actually ran. The caller then rendered a
+            # verification checkmark, reporting every download as verified on a
+            # host where nothing could be verified.
+            #
+            # Failing open is a decision about whether to PROCEED. It is not a
+            # licence to claim the check passed; those are different claims and
+            # only the first was ever made.
+            return True, False, reason
         # Phase 72 (v3.41.0): smart-retry on corruption. Before
         # quarantining and giving up, optionally retry the
         # download from scratch ONCE — corruption is often a

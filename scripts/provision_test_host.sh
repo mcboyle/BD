@@ -364,6 +364,7 @@ install_group 03d_pkgs_gtk  "system packages (gtk)"  gtk  optional || true
 # parse gates announce themselves unrunnable rather than reporting OK, so the
 # failure mode is a visible absence rather than a false pass.
 install_group 03e_pkgs_lint "system packages (lint)" lint optional || true
+install_group 03f_pkgs_media "system packages (media)" media optional || true
 
 # ------------------------------------------------------ [4/8] repo install
 echo

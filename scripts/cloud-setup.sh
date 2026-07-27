@@ -271,7 +271,18 @@ fi
 
 # ================================================================ 2. browsers
 if skip BROWSERS; then
-  row "browsers" "WARN" "skipped via BD_SKIP_BROWSERS — capture/recognizer/e2e CANNOT run"
+  # Say which is true, rather than assuming the worst. The old text asserted
+  # "capture/recognizer/e2e CANNOT run" for every skip -- false on a host where
+  # the browsers are preinstalled, which is the normal case here
+  # (PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers, populated). A WARN that
+  # overstates is how a reader learns to skim WARNs; over-sensitivity is a
+  # soundness bug, not a safe default.
+  if [ -n "${PLAYWRIGHT_BROWSERS_PATH:-}" ] && [ -d "${PLAYWRIGHT_BROWSERS_PATH:-/nonexistent}" ] \
+     && [ -n "$(ls -A "${PLAYWRIGHT_BROWSERS_PATH}" 2>/dev/null)" ]; then
+    row "browsers" "OK" "skipped via BD_SKIP_BROWSERS; preinstalled at $PLAYWRIGHT_BROWSERS_PATH"
+  else
+    row "browsers" "WARN" "skipped via BD_SKIP_BROWSERS and no preinstalled pool found -- capture/recognizer/e2e CANNOT run"
+  fi
 else
   if [ "$HAVE_REPO" = 1 ]; then
     step "playwright chromium" optional ./venv/bin/python -m playwright install --with-deps chromium
