@@ -287,10 +287,27 @@ def test_operator_release_cut_rejects_a_degraded_parity_inventory(relative, tmp_
 
 
 def test_policy_requires_canonical_regeneration_before_review():
-    """Review packaging must use the same canonical command as CI and release."""
+    """Review packaging must name the canonical regeneration command.
+
+    The interpreter is `venv/`, not `.venv/`. CLAUDE.md said `.venv` while the
+    cloud environment builds `venv`, so the documented command exited 127 and
+    the caller fell back to bare `python3` -- which is 3.11 without the project
+    dependencies. A whole test band was measured on the wrong interpreter as a
+    result. (CODEX_HANDOFF.md's `.venv` is a DIFFERENT machine, the WSL Codex
+    box, and is correct there.)
+
+    The absence assertion is load-bearing: `venv/bin/python` is a SUBSTRING of
+    `.venv/bin/python`, so a presence check alone would still pass if the
+    leading dot came back -- a gate whose predicate cannot exclude the very
+    thing it exists to forbid.
+    """
     policy = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
 
-    assert ".venv/bin/python toolchain/bin/bd-regen-order --work \"$PWD\"" in policy
+    assert 'venv/bin/python toolchain/bin/bd-regen-order --work "$PWD"' in policy
+    assert ".venv/bin/python" not in policy, (
+        "CLAUDE.md names `.venv/bin/python`, which does not exist in the cloud "
+        "environment; the canonical interpreter is `venv/bin/python`"
+    )
 
 
 def test_documented_toolchain_copy_is_byte_identical_to_canonical_tool():

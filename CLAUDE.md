@@ -79,8 +79,15 @@ been wrong. Every figure obtained by *running the tool* was right.
    | `tools/capture_session.py` | `27be68b965689317` |
    | `tools/build_release.py` | `be25241eb867b85a` |
 
-   *(Pinned at v3.66.805. Re-derive with `bd-guardcheck`; do not trust this table
-   after the next cut.)*
+   *(Pinned at v3.66.805. Re-derive with `bd-guardcheck`, which reads
+   `guards.json` — the single source of truth, hashed from the files. A
+   `BD-GATE-UNRUNNABLE` message or exit 2 means the pins were **not** verified;
+   do not proceed on it. Do not trust this table after the next cut.)*
+
+   Until v3.66.818 `bd-guardcheck` reported `0 ok, 0 drifted, 7 missing` and
+   **exited 0** on a clean tree — it could not see the files it certifies, and
+   said so with a success code. A zero-in-every-bucket summary is a failure
+   signal, not a pass.
 3. **One feature per cut.** Clean blast radius beats a convenient batch.
 4. **No speculative code** before reading the relevant source.
 5. **The band is absolute.** A band failure means fix the tree or fix the
@@ -91,7 +98,7 @@ Before packaging a change for review, regenerate all tracked artifacts from the
 repository root and keep the resulting diffs in the review package:
 
 ```bash
-.venv/bin/python toolchain/bin/bd-regen-order --work "$PWD"
+venv/bin/python toolchain/bin/bd-regen-order --work "$PWD"
 ```
 
 This command does not re-freeze intent baselines; declaration flags remain
@@ -108,7 +115,7 @@ Never bump one without the others:
 3. `CHANGELOG.md` → **ASCII-only** entry, prepended, anchored on the *previous*
    `## v…` header
 
-Then regenerate `PIN_INDEX` (`python3 tools/build_pin_index.py`) and
+Then regenerate `PIN_INDEX` (`venv/bin/python tools/build_pin_index.py`) and
 `grep -rnE '__version__ *== *"3\.66\.' tests/` — do not assume the pin list has
 stayed at one entry.
 
@@ -131,7 +138,7 @@ guess.
 - Wiring a frontend control **is** a `ROUTE_INDEX` change (`spa_wired` flips).
   Regen order is **gui_parity before ROUTE_INDEX**.
 - Any **new import edge** requires re-freezing the import-graph baseline in the
-  **same** cut: `python3 tools/decomp/import_graph_gate.py --update`, and band
+  **same** cut: `venv/bin/python tools/decomp/import_graph_gate.py --update`, and band
   `tests/test_import_graph_no_new_edges.py`. This is separate from regenerating
   `DEPENDENCY_GRAPH.json`.
 - A `data_layer` route add must update **both** `test_wave2_backlog` **and**
@@ -165,6 +172,23 @@ with `test_cut8_schedules`.
   Piping masks the exit code, and this bites even when you know about it.
 - `pgrep -f "<cmd>"` **matches its own wrapper**. Never read it as "still
   running" — check `/proc/<pid>` or a written exit marker.
+- **The interpreter is `venv/bin/python`, never bare `python3`.** In the cloud
+  container `/usr/local/bin/python3` is **3.11 without the project
+  dependencies**, while `venv` is 3.12 (the box/CI interpreter). There is no
+  `.venv` here — a command naming it exits 127 and the caller silently falls
+  back to 3.11. That happened: a full test band was measured on 3.11 and
+  reported seven failures that did not exist.
+- **The Claude Code panel runs a thin bootstrap, not the provisioner.**
+  `scripts/cloud-bootstrap.sh` is the text pasted into the panel; it locates the
+  checkout and `exec`s `scripts/cloud-setup.sh` from it, so every fix to the
+  provisioner reaches the next session with nothing to re-paste. Before this,
+  the panel held a private copy that had forked three commits and 91 lines while
+  13 tests certified the repo copy that never executed. If the env report's step
+  labels do not match `scripts/cloud-setup.sh`, the panel has forked again.
+- **`pip check` cannot see an uninstalled requirement.** Its denominator is what
+  *is* installed. `runtime deps OK` was reported with `beautifulsoup4` and
+  `pytest-xdist` both absent. To ask whether requirements are satisfied, parse
+  `requirements.txt` and resolve each name.
 
 **Provisioning a test host.** `scripts/provision_test_host.sh` is the one command
 that takes a fresh Ubuntu 24.04 box to a green `./capture.sh`: system tier,
@@ -215,6 +239,12 @@ tarballs), bisecting a regression, and reviewing a cut before it ships.
   otherwise-green 13389-pass run. The durable fix is to **regenerate, not
   delete** -- `install_linux.sh`, `capture.sh` and
   `scripts/provision_test_host.sh` all regenerate it now.
+- **`.claude-env-report.md` is in this class**, and it is worse because its own
+  header instructs the reader to trust it. It is gitignored, survives
+  `git clean -fd`, and is written once per provisioning run — one was found
+  seven days old asserting v3.66.811 against a v3.66.818 tree. Check its
+  `generated_against_version` / `generated_against_commit` header before
+  believing any row in it. UNKNOWN provenance is not the same as current.
 - **Band derivation is still required.** Tests are not derivable from a diff;
   blast radius follows the denominator.
 - **The guard SHAs still apply.** Git history is not authorization.
