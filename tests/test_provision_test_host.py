@@ -62,12 +62,15 @@ repository test file declares an explicit ``capture_serial`` pytestmark.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
+import warnings
 
 import pytest
 
@@ -161,6 +164,11 @@ _FUNCTION_UNDEFINED = 98
 # looking the shell itself up through that PATH would fail with a
 # FileNotFoundError that says nothing about the subject.
 _BASH = shutil.which("bash") or "/bin/bash"
+# Same reason, for the two externals the isolated probe toolbox has to provide:
+# grep (probe 2's pipeline needs it) and sleep (copied to make a process whose
+# /proc comm looks like an X server). Resolved at import for the same reason.
+_GREP = shutil.which("grep")
+_SLEEP = shutil.which("sleep")
 
 # Matches `apt install`, `apt-get install`, `apt-get -y install`,
 # `apt-get --yes install` and the cloud-setup helper `apt_i`.
@@ -182,10 +190,19 @@ _VAR_REF_RE = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
 _SHELLCHECK_DIRECTIVE_KEYS = frozenset(
     {"shell", "enable", "source", "source-path", "disable", "external-sources"}
 )
-_SHELLCHECK_COMMENT_RE = re.compile(r"^\s*#\s*shellcheck\b(?P<rest>.*)$")
-_SHELLCHECK_DIRECTIVE_RE = re.compile(
-    r"^\s+(?P<key>[a-z-]+)=(?P<value>\S+)"
-)
+# No `\b` after "shellcheck", and that is not an oversight: shellcheck matches
+# the literal prefix, case-sensitively, with no word boundary. Measured against
+# shellcheck 0.9.0 -- `# shellcheckery is not a word` and `# shellcheck-ish note`
+# BOTH abort with SC1072/SC1073, while `# SHELLCHECK disable=SC2086` does not.
+# The `\s*` after `#` matches its tolerance too: `#shellcheck prose` and
+# `#   shellcheck prose` both abort.
+_SHELLCHECK_COMMENT_RE = re.compile(r"^\s*#\s*shellcheck(?P<rest>.*)$")
+# A directive is a sequence of `key=value` tokens. The old predicate matched
+# only the HEAD of the rest of the line, so `disable=SC2086 -- prose` parsed as
+# key='disable' and was certified valid -- which is precisely the form that
+# aborted install_linux.sh, scripts/cloud-setup.sh and the provisioner in this
+# branch while the backstop reported clean.
+_SHELLCHECK_TOKEN_RE = re.compile(r"^(?P<key>[a-z][a-z-]*)=(?P<value>\S+)$")
 
 # shellcheck codes that mean "this file (or a file it sources) did not parse".
 # These are the D5 signature and none of them may ever appear again.
@@ -281,7 +298,7 @@ _HEREDOC_START_RE = re.compile(
 )
 
 
-def _strip_shell_comments(source: str) -> str:
+def _strip_shell_comments(source: str, *, blank_quoted: bool = False) -> str:
     """Blank out shell comments, keeping line numbering and everything else.
 
     Why this exists, in both directions (CLAUDE.md 0):
@@ -297,6 +314,20 @@ def _strip_shell_comments(source: str) -> str:
     ACROSS lines (capture.sh embeds a multi-line single-quoted python program),
     backslash escapes, and heredoc bodies -- which are kept verbatim, because a
     heredoc body is content a consumer emits, not a comment.
+
+    ``blank_quoted=True`` additionally replaces the CONTENTS of every quoted
+    string with spaces, keeping the quote characters and every column position.
+    The rationale is the same one that justifies stripping comments: a package
+    name inside a quoted string cannot be word-split into separate apt
+    arguments (``apt-get install -y "xvfb libgtk-3-0t64"`` is ONE bogus
+    argument, not a package list), and a tool path inside a quoted string is
+    being *named*, not executed. Quoted text is therefore prose by
+    construction, exactly like a comment. Both views are built in the same
+    pass, and -- load-bearing -- the heredoc bookkeeping is driven from the
+    CODE view only: blanking ``<<'USAGE'`` to ``<<'     '`` would hide the
+    heredoc opener, the USAGE body would be parsed as code, and the first
+    apostrophe in it desynchronises quote state for the rest of the file. That
+    was measured on scripts/provision_test_host.sh.
 
     What it does not handle: ``$'...'`` ANSI-C quoting and ``((...))``
     arithmetic containing ``#``. Neither occurs in the files scanned here; if
@@ -317,37 +348,43 @@ def _strip_shell_comments(source: str) -> str:
             continue
 
         kept: list[str] = []
+        blanked: list[str] = []
         index = 0
         escaped = False
         while index < len(raw):
             char = raw[index]
             if escaped:
                 kept.append(char)
+                blanked.append(" " if quote is not None else char)
                 escaped = False
                 index += 1
                 continue
             if char == "\\" and quote != "'":
                 kept.append(char)
+                blanked.append(" " if quote is not None else char)
                 escaped = True
                 index += 1
                 continue
             if quote is None and char in "'\"":
                 quote = char
                 kept.append(char)
+                blanked.append(char)
                 index += 1
                 continue
             if quote is not None and char == quote:
                 quote = None
                 kept.append(char)
+                blanked.append(char)
                 index += 1
                 continue
             if quote is None and char == "#" and (index == 0 or raw[index - 1] in " \t"):
                 break
             kept.append(char)
+            blanked.append(" " if quote is not None else char)
             index += 1
 
         line = "".join(kept)
-        kept_lines.append(line)
+        kept_lines.append("".join(blanked) if blank_quoted else line)
 
         if quote is None:
             match = _HEREDOC_START_RE.search(line)
@@ -362,9 +399,114 @@ def _code(path: Path) -> str:
     return _strip_shell_comments(_read(path))
 
 
+def _unquoted_code(path: Path) -> str:
+    """Comment-stripped code with quoted string CONTENTS blanked out too."""
+    return _strip_shell_comments(_read(path), blank_quoted=True)
+
+
 def _logical_lines(source: str) -> list[str]:
     """Join backslash continuations so a wrapped apt list stays one line."""
     return source.replace("\\\n", " ").splitlines()
+
+
+def _logical_pairs(code: str, unquoted: str) -> list[tuple[int, str, str]]:
+    """``(physical line number, joined code, joined unquoted)`` per logical line.
+
+    Two properties this has and ``_logical_lines`` does not, both learned by
+    getting it wrong first:
+
+    * the continuation structure is derived from the CODE view ONLY and applied
+      to both. Deriving it twice skews the views by one line the moment a ``\\``
+      continuation sits inside a quoted string, because the blanked view no
+      longer ends in a backslash -- scripts/provision_test_host.sh's
+      ``DECLARED="$(grep -oE '...' ... \\`` does exactly that;
+    * the number returned is the REAL 1-based file line the logical line starts
+      on, so a failure message points at the file rather than at a post-join
+      index nobody can locate.
+    """
+    code_lines = code.splitlines()
+    unquoted_lines = unquoted.splitlines()
+    assert len(code_lines) == len(unquoted_lines), (
+        "UNKNOWN: the code and quote-blanked views disagree on line count "
+        f"({len(code_lines)} vs {len(unquoted_lines)}) -- the instrument is "
+        "broken, so nothing measured with it means anything"
+    )
+
+    pairs: list[tuple[int, str, str]] = []
+    start: int | None = None
+    acc_code = ""
+    acc_unquoted = ""
+    for number, (code_line, unquoted_line) in enumerate(
+        zip(code_lines, unquoted_lines), start=1
+    ):
+        if start is None:
+            start, acc_code, acc_unquoted = number, "", ""
+        if code_line.endswith("\\"):
+            acc_code += code_line[:-1] + " "
+            acc_unquoted += unquoted_line[:-1] + " "
+            continue
+        pairs.append((start, acc_code + code_line, acc_unquoted + unquoted_line))
+        start = None
+    if start is not None:
+        pairs.append((start, acc_code, acc_unquoted))
+    return pairs
+
+
+# An interpreter token immediately in front of a script path: `$VPYTHON`,
+# `"$VPYTHON"`, `${PY}`, `venv/bin/python`, `./venv/bin/python`, `python3.12`.
+_INTERP = r'(?:"?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?"?|\S*python[0-9.]*)'
+
+
+def _tool_invocations(path: Path, tool: str) -> list[int]:
+    """File line numbers where ``tool`` is EXECUTED, not merely mentioned.
+
+    ``tool in line`` -- what every one of these checks used to be -- cannot
+    tell an invocation from a defensive existence guard, a diagnostic string,
+    or a comment. Measured: neutering install_linux.sh's regen to
+    ``if ! true; then`` left the substring alive in the guard
+    ``[ -f "$INSTALL_DIR/tools/gui_parity_inventory.py" ]`` two lines above, so
+    the gate reported OK over dead code. In the other direction, ADDING that
+    same defensive guard to capture.sh made a correct file fail an "exactly one
+    invocation" count -- the same predicate crying wolf.
+
+    Two conditions, and both are required:
+
+    1. an interpreter-ish token sits immediately in front of the tool path on
+       the joined logical line (optionally with flags between), which is what
+       ``exec``, ``env VAR=1``, ``sudo``, ``nohup`` and ``run_step`` wrappers
+       all still look like;
+    2. the tool token survives quote-blanking, i.e. it is a bare word rather
+       than text inside a string.
+
+    RESIDUE, stated rather than claimed away: this proves the tool is in
+    ARGUMENT POSITION OF AN INTERPRETER, not that the enclosing branch is ever
+    reached. A regen moved into a function nobody calls would still count. For
+    capture.sh that residue is closed by the execution probe in section I; for
+    install_linux.sh and the provisioner it is not.
+    """
+    source = _read(path)
+    pattern = re.compile(
+        r"(?:^|\s)" + _INTERP + r"(?:\s+-[A-Za-z]\S*)*\s+" + re.escape(tool) + r"\b"
+    )
+    return [
+        number
+        for number, code_line, unquoted_line in _logical_pairs(
+            _strip_shell_comments(source), _strip_shell_comments(source, blank_quoted=True)
+        )
+        if pattern.search(code_line) and tool in unquoted_line
+    ]
+
+
+def _tool_mentions(path: Path, tool: str) -> list[str]:
+    """Every CODE line naming ``tool``, for a failure message that explains."""
+    return [
+        f"{number}: {code_line.strip()}"
+        for number, code_line, _ in _logical_pairs(
+            _strip_shell_comments(_read(path)),
+            _strip_shell_comments(_read(path), blank_quoted=True),
+        )
+        if tool in code_line
+    ]
 
 
 def _tokens(line: str) -> set[str]:
@@ -446,21 +588,95 @@ def test_comment_stripper_self_check() -> None:
     ), "the stripper must preserve line numbering"
 
 
+def test_comment_stripper_blank_quoted_self_check() -> None:
+    """The instrument for the quote-blanked view, before it is measured with.
+
+    ``blank_quoted=True`` is what stops
+    ``test_consumers_do_not_restate_package_names`` firing on an operator hint
+    in an ``echo`` and what stops ``_tool_invocations`` counting a defensive
+    ``[ -f "$DIR/tools/gui_parity_inventory.py" ]`` as an invocation. Both of
+    those are absence assertions, so a stripper that silently over-blanked
+    would make them pass over nothing at all.
+    """
+    source = (
+        'echo "you may need libgtk-3-0 instead"  # advice\n'
+        'apt-get install -y xvfb libcairo2\n'
+        "cat <<'USAGE'\n"
+        "it's a heredoc body with an apostrophe and xvfb in it\n"
+        "USAGE\n"
+        'if [ -f "$DIR/tools/gui_parity_inventory.py" ]; then\n'
+        '  "$PY" tools/gui_parity_inventory.py\n'
+        "fi\n"
+        'DECLARED="$(grep -oE \'__version__ *= *"[^"]+"\' file \\\n'
+        "            | head -1)\"\n"
+    )
+    code = _strip_shell_comments(source)
+    unquoted = _strip_shell_comments(source, blank_quoted=True)
+    code_lines = code.splitlines()
+    unquoted_lines = unquoted.splitlines()
+
+    assert len(code_lines) == len(unquoted_lines) == len(source.splitlines()), (
+        "blank_quoted must preserve line numbering exactly like the code view"
+    )
+    for index, (left, right) in enumerate(zip(code_lines, unquoted_lines)):
+        assert len(left) == len(right), (
+            f"blank_quoted changed column positions on line {index + 1}: "
+            f"{left!r} vs {right!r}"
+        )
+
+    assert "libgtk-3-0" not in unquoted, "quoted echo prose was not blanked"
+    assert "xvfb" in unquoted_lines[1], (
+        "a BARE apt argument must survive quote-blanking -- blanking it would "
+        "make the anti-drift scan assert over nothing"
+    )
+    assert "libcairo2" in unquoted_lines[1]
+    assert "xvfb" in unquoted_lines[3], (
+        "heredoc bodies are kept verbatim in BOTH views: a heredoc body can be "
+        "a generated script that really does run apt, so blanking it would be "
+        "a blind spot rather than a prose exemption"
+    )
+    assert "gui_parity_inventory" not in unquoted_lines[5], (
+        "a quoted path inside a [ -f ... ] guard must be blanked"
+    )
+    assert "tools/gui_parity_inventory.py" in unquoted_lines[6], (
+        "a bare tool path in argument position must survive"
+    )
+
+    pairs = _logical_pairs(code, unquoted)
+    numbers = [number for number, _, _ in pairs]
+    assert numbers == [1, 2, 3, 4, 5, 6, 7, 8, 9], (
+        "the continuation inside the double-quoted $(...) must be joined in "
+        f"BOTH views from the CODE view's boundaries, got {numbers}"
+    )
+
+
 def test_comment_stripper_reaches_capture_sh_real_anchors() -> None:
     """The stripper is only useful if it changes the answer on the real file.
 
-    capture.sh mentions ``sudo systemctl stop bulkdownloader`` in BOTH a comment
-    and the command itself. If this ever stopped being true the ordering test
-    below would still pass, but it would have stopped being a test of anything
-    -- so the premise is asserted, not assumed.
+    ANTI-VACUITY, not prose coupling. The previous version of this test also
+    asserted ``raw.count("systemctl stop bulkdownloader") >= 2`` on the premise
+    that without a comment mentioning the stop, the ordering test "would still
+    pass but stop being a test of anything". That premise was MEASURED AND IS
+    FALSE: with the comment reworded so it no longer quotes the command, and
+    the regen then hoisted above the service stop,
+    ``test_capture_regen_is_ordered_against_every_prerequisite`` still fails.
+    Its teeth come from ``code.count(...) == 1`` and from ``_code_line_index``
+    locating its anchors in CODE, not from a comment existing anywhere. So the
+    assertion was buying nothing and charging a build failure for rewording a
+    comment -- a gate firing on identity, which CLAUDE.md 0 calls a soundness
+    bug in its own right.
+
+    What remains is the property the ordering test genuinely depends on: the
+    stripper is not inert on capture.sh, and exactly one service-stop COMMAND
+    survives it.
     """
     raw = _read(CAPTURE_SH)
     code = _code(CAPTURE_SH)
 
-    assert raw.count("systemctl stop bulkdownloader") >= 2, (
-        "capture.sh no longer mentions the service stop in a comment as well "
-        "as in code; re-derive whether the comment-stripped ordering check "
-        "still has a subject"
+    assert code != raw, (
+        "_strip_shell_comments is inert on capture.sh -- it removed nothing, "
+        "so every assertion made over the 'comment-stripped' file is really "
+        "being made over the raw text"
     )
     assert code.count("systemctl stop bulkdownloader") == 1, (
         "comment-stripped capture.sh should hold exactly one service-stop "
@@ -866,6 +1082,461 @@ def test_bd_start_display_rejects_an_invalid_display(
     _assert_no_real_display_state()
 
 
+# --- D2. _bd_display_active's SECOND and THIRD probes ------------------------
+#
+# WHY THIS SECTION EXISTS, AND WHY IT DOES NOT REUSE `_display_stub_dir`.
+#
+# `_display_stub_dir` writes a stub `xdpyinfo` UNCONDITIONALLY, and `_run_display`
+# puts that directory FIRST on PATH. Every one of the four call sites above
+# passes "active", "inactive" or "marker" -- never None. So `_bd_display_active`'s
+# probe 1 always finds xdpyinfo and always answers, probe 2 (`ss`) is reached
+# only when probe 1 says no (and then resolves to the HOST's real ss, whose
+# answer nobody controls), and probe 3 (the lock file) requires `competent -eq 0`,
+# which no test above ever arranges. The denominator -- the PATH those tests
+# build -- structurally excludes two thirds of the subject.
+#
+# Measured consequence, before this section existed: TWELVE distinct mutations of
+# probes 2 and 3 all reported "54 passed", exit 0. Among them the verbatim revert
+# of the D2 fix to its original dead code
+# (`grep -q "[[:space:]]/tmp/.X11-unix/X${num}$"`, which matches ZERO rows because
+# the path is followed by an inode and two peer columns), deleting probe 2
+# outright, deleting probe 3's body, dropping the `@?` so an abstract-only socket
+# is invisible, unescaping the `.`, dropping either boundary, and inverting the
+# probe-precedence guard so a stale lock file overrides a competent "no" --
+# restoring a false positive the fragment's own comment records as MEASURED.
+#
+# THE FIX IS THE TOOLBOX, not more stubs. `_probe_toolbox` builds a PATH holding
+# EXACTLY the probe tools a case is meant to exercise and nothing else, so the
+# probe under test is the only one that can answer. It never contains Xvfb, so a
+# case whose expected answer is "not active" cannot spawn anything. Two
+# properties follow that the PATH-PREFIX design cannot claim: the verdict does
+# not depend on what the host happens to have installed (verified by re-running
+# these cases with an always-yes xdpyinfo, an always-yes ss and a logging Xvfb
+# prepended to the host PATH -- no case changed answer), and adding a FOURTH
+# probe to the fragment cannot flip any case, because its tool is not in the box.
+#
+# THE OBSERVABLE IS ALWAYS `bd_start_display`, the public contract -- never
+# `_bd_display_active`. Naming the private helper would be easier and would turn
+# a routine rename into a red suite. Verified: renaming `_bd_display_active` at
+# all five of its sites leaves this section green.
+
+
+# Recorded VERBATIM from `ss -lx` (iproute2) while a real
+# `Xvfb :77 -screen 0 1024x768x24` was serving :77:
+#
+#   Netid State  Recv-Q Send-Q       Local Address:Port   Peer Address:PortProcess
+#   u_str LISTEN 0      0      @/tmp/.X11-unix/X77 121390            * 0
+#   u_str LISTEN 0      0       /tmp/.X11-unix/X77 121391            * 0
+#
+# BOTH rows are always emitted: the kernel publishes the abstract ('@'-prefixed)
+# socket and the filesystem one. Only the socket path is substituted below; the
+# column shape -- crucially, the inode and two peer columns AFTER the path -- is
+# the recorded one, which is what makes an end-anchored pattern provably dead.
+_SS_HEADER = (
+    "Netid State  Recv-Q Send-Q       Local Address:Port   Peer Address:PortProcess"
+)
+_SS_ABSTRACT = "u_str LISTEN 0      0      @{path} 121390            * 0          "
+_SS_FILESYSTEM = "u_str LISTEN 0      0       {path} 121391            * 0          "
+
+# Disjoint from PROBE_DISPLAY_NUM (9021) on purpose: probe 3 needs a REAL
+# /tmp/.X<n>-lock (the path is hardcoded in the fragment and cannot be
+# redirected), so a leak from this range can never poison the tests above.
+_LOCK_RANGE = range(9100, 9200)
+
+
+def _x_socket_path(num: str) -> str:
+    return f"/tmp/.X11-unix/X{num}"
+
+
+def _probe_toolbox(
+    tmp_path: Path,
+    *,
+    ss_rows: tuple[str, ...] | None,
+    xdpyinfo: str | None = None,
+) -> Path:
+    """A PATH holding exactly the probe tools this case is meant to exercise.
+
+    ``printf`` rather than ``cat`` in the stubs: it is a ``/bin/sh`` builtin, so
+    the stub needs nothing on PATH itself. The only external the whole probe
+    path needs is ``grep`` (probe 2 pipes into it); probe 3 and both
+    ``bd_start_display`` exits are pure builtins. That is measured, not assumed
+    -- every case here runs with the toolbox as the ENTIRE PATH.
+    """
+    box = tmp_path / "probebin"
+    box.mkdir(exist_ok=True)
+    assert _GREP, (
+        "UNKNOWN: no grep on PATH at import time, so probe 2's pipeline cannot "
+        "run and these cases would be measuring the harness"
+    )
+    with contextlib.suppress(FileExistsError):
+        os.symlink(_GREP, box / "grep")
+
+    if ss_rows is not None:
+        quoted = " ".join(
+            "'" + row.replace("'", "'\\''") + "'" for row in ss_rows
+        )
+        _write_stub(box / "ss", f"#!/bin/sh\nprintf '%s\\n' {quoted}\nexit 0\n")
+
+    if xdpyinfo == "inactive":
+        _write_stub(box / "xdpyinfo", "#!/bin/sh\nexit 1\n")
+
+    return box
+
+
+def _assert_display_reported_active(
+    result: subprocess.CompletedProcess[str], display: str, why: str
+) -> None:
+    _assert_fragment_was_reached(result, "bd_start_display")
+    assert result.returncode == 0, (
+        f"{why}: bd_start_display {display} returned {result.returncode} for a "
+        f"display that IS being served. stderr={result.stderr!r}"
+    )
+    assert result.stdout == f"{display}\n", (
+        f"{why}: stdout must be exactly the display value: {result.stdout!r}"
+    )
+
+
+def _assert_display_reported_inactive(
+    result: subprocess.CompletedProcess[str], display: str, why: str
+) -> None:
+    _assert_fragment_was_reached(result, "bd_start_display")
+    assert result.returncode != 0, (
+        f"{why}: bd_start_display {display} reported SUCCESS for a display "
+        "nobody is serving, so the caller would export a DISPLAY that answers "
+        "nothing"
+    )
+    assert result.stdout == "", (
+        f"{why}: a failed bd_start_display must echo nothing: {result.stdout!r}"
+    )
+    # THE ANTI-VACUITY GUARD. A bash error, a missing fragment or a typo in the
+    # harness also gives a non-zero exit with empty stdout, so without this a
+    # broken probe would "prove" not-active for every case. The function's own
+    # name-prefixed diagnostic is the fragment's rule 3 and is structural; the
+    # WORDING of the message deliberately is not asserted, so rephrasing the
+    # Xvfb-absent diagnostic does not fail this.
+    assert "bd_start_display:" in result.stderr, (
+        f"{why}: non-zero with empty stdout, but the failure did not come from "
+        "bd_start_display's own failure path -- this case proved nothing about "
+        f"the probe. stderr={result.stderr!r}"
+    )
+
+
+_SS_PROBE_CASES = [
+    pytest.param(
+        (_SS_FILESYSTEM.format(path=_x_socket_path(PROBE_DISPLAY_NUM)),),
+        PROBE_DISPLAY,
+        True,
+        id="filesystem-socket-active",
+    ),
+    pytest.param(
+        (_SS_ABSTRACT.format(path=_x_socket_path(PROBE_DISPLAY_NUM)),),
+        PROBE_DISPLAY,
+        True,
+        id="abstract-socket-only-active",
+    ),
+    pytest.param(
+        (
+            _SS_ABSTRACT.format(path=_x_socket_path(PROBE_DISPLAY_NUM)),
+            _SS_FILESYSTEM.format(path=_x_socket_path(PROBE_DISPLAY_NUM)),
+        ),
+        PROBE_DISPLAY,
+        True,
+        id="both-sockets-active",
+    ),
+    pytest.param(
+        (
+            _SS_ABSTRACT.format(path=_x_socket_path(PROBE_DISPLAY_NUM)),
+            _SS_FILESYSTEM.format(path=_x_socket_path(PROBE_DISPLAY_NUM)),
+        ),
+        ":902",
+        False,
+        id="longer-display-number-not-active",
+    ),
+    pytest.param(
+        (_SS_FILESYSTEM.format(path=f"/tmp/XX11-unix/X{PROBE_DISPLAY_NUM}"),),
+        PROBE_DISPLAY,
+        False,
+        id="decoy-unescaped-dot-not-active",
+    ),
+    pytest.param(
+        (
+            _SS_FILESYSTEM.format(
+                path=f"/run/user/1000/container/tmp/.X11-unix/X{PROBE_DISPLAY_NUM}"
+            ),
+        ),
+        PROBE_DISPLAY,
+        False,
+        id="decoy-nested-path-not-active",
+    ),
+    pytest.param((), PROBE_DISPLAY, False, id="no-listener-not-active"),
+]
+
+
+@pytest.mark.parametrize(("rows", "display", "expect_active"), _SS_PROBE_CASES)
+def test_display_socket_probe_reads_a_real_ss_listing(
+    tmp_path: Path, rows: tuple[str, ...], display: str, expect_active: bool
+) -> None:
+    """KILLS six probe-2 mutations, one case each. All six survive the old suite.
+
+    * ``filesystem-socket-active`` / ``abstract-socket-only-active`` /
+      ``both-sockets-active`` kill the D2 REVERT -- ``grep -q
+      "[[:space:]]/tmp/.X11-unix/X${num}$"``. The recorded rows carry an inode
+      and two peer columns after the path, so an end-anchored pattern matches
+      zero rows and the probe is dead code that silently falls through to
+      ``return 1``. They also kill deleting probe 2 outright.
+    * ``abstract-socket-only-active`` kills dropping the ``@?``: the character
+      before ``/tmp/`` is ``@``, so a pattern without it goes blind exactly
+      where only the abstract socket is published.
+    * ``decoy-unescaped-dot-not-active`` kills unescaping the ``.`` -- ``.``
+      then matches the second ``X`` of ``/tmp/XX11-unix/X9021``.
+    * ``longer-display-number-not-active`` kills dropping the TRAILING
+      boundary: a question about :902 must not be answered by a live X9021.
+    * ``decoy-nested-path-not-active`` kills dropping the LEADING boundary. Not
+      hypothetical: a bind-mounted X socket inside a container appears in the
+      host's ``ss -lx`` under its full host path and must not answer for ours.
+    * ``no-listener-not-active`` is the control -- without it every "active"
+      case would be satisfied by a probe that says yes to everything.
+
+    The toolbox holds ss and grep and NOTHING else, so probe 1 cannot answer,
+    probe 3 cannot answer, and no server can be spawned.
+    """
+    _assert_no_real_display_state()
+    box = _probe_toolbox(tmp_path, ss_rows=(_SS_HEADER,) + tuple(rows))
+    assert not (box / "xdpyinfo").exists(), (
+        "probe 1 must not be able to answer, or this case is not about probe 2"
+    )
+    assert not (box / "Xvfb").exists(), "nothing may be spawned by these cases"
+
+    result = _run_display(
+        f"bd_start_display {display}", tmp_path, box, isolate_path=True
+    )
+
+    if expect_active:
+        _assert_display_reported_active(result, display, "socket probe")
+    else:
+        _assert_display_reported_inactive(result, display, "socket probe")
+    _assert_no_real_display_state()
+
+
+@contextlib.contextmanager
+def _reserved_display_lock():
+    """Reserve a display number nothing else owns, and give back its lock path.
+
+    ``/tmp/.X<n>-lock`` is hardcoded in the fragment and cannot be redirected,
+    so probe 3 can only be reached with a real file at a real path. The
+    reservation is DERIVED rather than asserted: walk a range disjoint from
+    PROBE_DISPLAY_NUM, skip any number whose socket exists, and take the first
+    whose lock can be created with ``O_CREAT|O_EXCL`` -- so two concurrent runs
+    cannot collide. An exhausted range is UNKNOWN and fails; it is not a reason
+    to guess a number.
+    """
+    for num in _LOCK_RANGE:
+        if Path(_x_socket_path(str(num))).exists():
+            continue
+        lock = Path(f"/tmp/.X{num}-lock")
+        try:
+            handle = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            continue
+        os.close(handle)
+        try:
+            yield str(num), lock
+        finally:
+            lock.unlink(missing_ok=True)
+        return
+    raise AssertionError(
+        f"UNKNOWN: no free display number in {_LOCK_RANGE} -- probe 3 could "
+        "not be reached, so this check examined nothing"
+    )
+
+
+@contextlib.contextmanager
+def _lock_holding_process(tmp_path: Path, name: str):
+    """A live process whose ``/proc/<pid>/comm`` is ``name``, without an X server.
+
+    ``/bin/sleep`` is COPIED to the wanted name, so comm reports that name and
+    the fragment's ``X*`` case can be exercised with no X server anywhere. The
+    name deliberately does not contain "Xvfb", so ``pgrep -a Xvfb`` is
+    unchanged by this suite. The comm is READ BACK and a mismatch is UNKNOWN,
+    because a trick that silently stopped working would make these cases pass
+    over the wrong process.
+    """
+    assert _SLEEP, "UNKNOWN: no sleep binary to build a lock-holding stand-in from"
+    executable = tmp_path / name
+    shutil.copy2(_SLEEP, executable)
+    process = subprocess.Popen([str(executable), "30"])
+    try:
+        comm = Path(f"/proc/{process.pid}/comm").read_text(encoding="utf-8").strip()
+        assert comm == name, (
+            f"UNKNOWN: the stand-in's /proc comm is {comm!r}, expected {name!r} "
+            "-- probe 3's comm case would be exercised against the wrong shape"
+        )
+        yield process.pid
+    finally:
+        process.kill()
+        process.wait()
+
+
+def _pid_that_is_never_live() -> int:
+    """``pid_max`` is one past the last assignable pid, so it is never a process."""
+    pid_max = int(Path("/proc/sys/kernel/pid_max").read_text(encoding="utf-8").strip())
+    assert not Path(f"/proc/{pid_max}").exists(), (
+        f"UNKNOWN: /proc/{pid_max} exists, so pid_max is not a reliably dead "
+        "pid on this host and the dead-pid case would be testing nothing"
+    )
+    return pid_max
+
+
+def _lock_probe_result(
+    tmp_path: Path, num: str, contents: str
+) -> subprocess.CompletedProcess[str]:
+    Path(f"/tmp/.X{num}-lock").write_text(contents, encoding="utf-8")
+    box = _probe_toolbox(tmp_path, ss_rows=None)
+    assert not (box / "ss").exists() and not (box / "xdpyinfo").exists(), (
+        "probe 3 is only reachable when NO competent probe is available"
+    )
+    return _run_display(f"bd_start_display :{num}", tmp_path, box, isolate_path=True)
+
+
+# The recorded on-disk format: Xvfb writes `printf '%10d\n' <pid>` -- five
+# leading spaces for a five-digit pid, eleven bytes. `od -c /tmp/.X77-lock`
+# against a real server: "           2   3   3   9   2  \n".
+def _lock_body(pid: int) -> str:
+    return f"{pid:10d}\n"
+
+
+def test_display_lock_probe_answers_for_a_live_x_server(tmp_path: Path) -> None:
+    """KILLS: deleting probe 3's body (e.g. wrapping it in ``if false``).
+
+    Probe 3 is the ONLY thing that can answer here -- the toolbox holds neither
+    ss nor xdpyinfo, so ``competent`` stays 0. Measured: this mutation reported
+    54 passed against the old suite, because no test ever arranged a PATH where
+    probe 3 was reachable at all.
+    """
+    with _reserved_display_lock() as (num, lock):
+        with _lock_holding_process(tmp_path, "Xprobe-standin") as pid:
+            result = _lock_probe_result(tmp_path, num, _lock_body(pid))
+            _assert_display_reported_active(result, f":{num}", "lock fallback")
+        assert lock.exists(), "the reservation vanished mid-test"
+
+
+def test_display_lock_probe_ignores_a_live_non_x_process(tmp_path: Path) -> None:
+    """KILLS: widening probe 3's comm case from ``''|X*`` to ``*``.
+
+    Pids are recycled, so "the lock names a live pid" certifies nothing on its
+    own; the process has to look like an X server. Measured: accepting any comm
+    reported 54 passed.
+
+    NOTE for a future tightening: the stand-in is named ``Xprobe-standin`` so
+    that narrowing ``X*`` to an explicit ``Xvfb|Xorg|Xvnc|Xwayland|Xprobe*``
+    list keeps passing. Narrowing it with NO wildcard fails
+    ``test_display_lock_probe_answers_for_a_live_x_server`` -- that is the one
+    designed-in coupling, it is a genuine behaviour change (the fragment's
+    comment says the ``X*`` shape is deliberate), and this is where it is
+    written down.
+    """
+    with _reserved_display_lock() as (num, _lock):
+        with _lock_holding_process(tmp_path, "notanxserver") as pid:
+            result = _lock_probe_result(tmp_path, num, _lock_body(pid))
+            _assert_display_reported_inactive(
+                result, f":{num}", "lock fallback, non-X comm"
+            )
+
+
+def test_display_lock_probe_ignores_a_dead_pid(tmp_path: Path) -> None:
+    """KILLS: dropping probe 3's liveness check (``[ -d /proc/$pid ] || kill -0``).
+
+    A killed server leaves its lock behind, which is why the lock is evidence
+    of a CLAIM and never of service. Without the liveness check the unreadable
+    ``/proc/<dead>/comm`` reads as the empty string and the ``''`` arm returns
+    0 -- so a stale lock would report the display active and bd_start_display
+    would hand back a DISPLAY nothing serves. Measured: 54 passed.
+    """
+    with _reserved_display_lock() as (num, _lock):
+        result = _lock_probe_result(
+            tmp_path, num, _lock_body(_pid_that_is_never_live())
+        )
+        _assert_display_reported_inactive(
+            result, f":{num}", "lock fallback, dead pid"
+        )
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param("not-a-pid\n", id="not-a-number"),
+        pytest.param(f"{-1:10d}\n", id="negative-one"),
+    ],
+)
+def test_display_lock_probe_ignores_a_non_numeric_lock(
+    tmp_path: Path, body: str
+) -> None:
+    """KILLS: dropping probe 3's numeric validation of the lock's contents.
+
+    The pid is read straight out of a file anything can write, and the two
+    cases are not equivalent -- which is why both are here rather than only the
+    obvious one:
+
+    * ``not-a-pid`` is inert either way (``/proc/not-a-pid`` is absent and
+      ``kill -0 not-a-pid`` errors), so on its own it does NOT kill the
+      mutation. Kept as the control it always was;
+    * ``-1`` is the case that has teeth, measured rather than reasoned about:
+      ``kill -0 -1`` SUCCEEDS -- it signals every process the caller may signal
+      -- so without the ``*[!0-9]*`` rejection the probe treats the lock as
+      live, then fails to read ``/proc/-1/comm``, gets the empty string, and
+      the ``''`` arm returns 0. A stale lock holding ``-1`` would report the
+      display active and bd_start_display would hand back a DISPLAY nothing
+      serves.
+    """
+    with _reserved_display_lock() as (num, _lock):
+        result = _lock_probe_result(tmp_path, num, body)
+        _assert_display_reported_inactive(
+            result, f":{num}", "lock fallback, non-numeric pid"
+        )
+
+
+@pytest.mark.parametrize(
+    ("use_ss", "use_xdpyinfo"),
+    [
+        pytest.param(True, False, id="ss-says-no"),
+        pytest.param(False, True, id="xdpyinfo-says-no"),
+        pytest.param(True, True, id="both-say-no"),
+    ],
+)
+def test_display_stale_lock_never_overrides_a_competent_no(
+    tmp_path: Path, use_ss: bool, use_xdpyinfo: bool
+) -> None:
+    """KILLS: three mutations of the probe-PRECEDENCE guard, behaviourally.
+
+    The arrangement is the false positive the fragment's own comment records as
+    MEASURED: a live process holding ``/tmp/.X<n>-lock`` while listening on
+    nothing. If the lock is allowed to answer, ``bd_start_display`` reports
+    success for a display nobody serves.
+
+    * ``[ "$competent" -eq 0 ]`` weakened to ``-ge 0`` -- all three cases;
+    * the guard deleted outright -- all three cases. The old suite caught this
+      one only INCIDENTALLY (a lint-adjacent test noticed ``competent`` became
+      unused), which is why ``-ge 0``, which keeps the variable, survived;
+    * probe 2 no longer setting ``competent=1`` -- ``ss-says-no`` only, which
+      is exactly right: under that mutation xdpyinfo still sets the flag, so
+      ``xdpyinfo-says-no`` MUST stay green.
+    """
+    with _reserved_display_lock() as (num, lock):
+        with _lock_holding_process(tmp_path, "Xprobe-standin") as pid:
+            lock.write_text(_lock_body(pid), encoding="utf-8")
+            box = _probe_toolbox(
+                tmp_path,
+                ss_rows=(_SS_HEADER,) if use_ss else None,
+                xdpyinfo="inactive" if use_xdpyinfo else None,
+            )
+            result = _run_display(
+                f"bd_start_display :{num}", tmp_path, box, isolate_path=True
+            )
+            _assert_display_reported_inactive(
+                result, f":{num}", "probe precedence"
+            )
+
+
 # --- E. the fragment must not leak shell options into its consumers ----------
 
 
@@ -1043,6 +1714,431 @@ def test_display_consumers_call_the_shared_helper(consumer: Path) -> None:
     )
 
 
+# --- F2. the provisioner's package phase, BEHAVIOURALLY ----------------------
+#
+# `grep -rn "install_group" tests/` and `grep -rn "run_step" tests/` both
+# returned NOTHING before this section existed. The per-group apt split is
+# correct in source and carries sixty lines of rationale, and no test in the
+# repository read its call sites, drove install_group, or observed a single apt
+# invocation. Measured consequence: TWELVE mutations reported "54 passed",
+# exit 0 -- including the verbatim D4 defect (collapsing the three per-group
+# calls into one `install_group 03b_pkgs_all "..." all core`), regrading gtk
+# from optional to core, deleting a call site, hardcoding the criticality in
+# either direction, swallowing an apt failure with a bare `record ... "OK"`,
+# never invoking apt at all, and turning the empty-list branch into a silent
+# `return 0`.
+#
+# THE PROBE. The REAL scripts/provision_test_host.sh, truncated after its LAST
+# install_group call site, with LOGDIR redirected into tmp_path and a fake
+# apt-get and sudo first on PATH. It installs nothing, needs no root, and never
+# reaches step [4/8]. Anchoring the cut on the call sites themselves rather than
+# on the "[3/8]" step header means renumbering the eight steps or editing the
+# rationale cannot break it.
+#
+# WHAT IS PINNED HERE AND WHAT IS READ FROM SOURCE, deliberately asymmetric:
+#
+#   * LABELS are read from the call sites. They are cosmetic, so hardcoding
+#     them would make rewording one a build failure.
+#   * SLUGS are never referenced at all.
+#   * The group -> CRITICALITY map is PINNED in this file and verified
+#     BEHAVIOURALLY. Reading criticality back out of the file under test would
+#     make the gate blind to exactly the regrade mutation it exists to catch.
+#
+# ONE CLAIMED DEFECT IS DELIBERATELY NOT GATED. Appending `|| true; return 0`
+# to install_group is BEHAVIOUR-PRESERVING: run_step calls record() before its
+# own `return "$rc"`, and all three call sites already end in `|| true`, so the
+# return value is discarded either way. It was applied and the FULL observable
+# output -- every apt argv and every verdict row -- diffed against pristine
+# across all five scenarios: identical in all five. A gate that fired on it
+# would be a tripwire on an identity transform, which CLAUDE.md 0 calls a
+# soundness bug. The real property behind the request -- "an apt failure is
+# RECORDED" -- is gate B, which does kill the mutations that genuinely stop the
+# recording or downgrade its severity.
+
+# Which apt transaction each group is entitled to, and how badly it matters.
+# PINNED, never derived from the file under test. See the block comment above.
+EXPECTED_GROUP_KINDS: dict[str, str] = {
+    "core": "core",
+    "node": "core",
+    "gtk": "optional",
+}
+
+# The trailing \S excludes the DEFINITION line `install_group() {`.
+_INSTALL_GROUP_CALL_RE = re.compile(r"^\s*install_group\s+\S")
+_PROVISION_LOGDIR_LITERAL = 'LOGDIR="/tmp/bd_provision"'
+
+# Logs its whole argv, then behaves like apt-get: anything that is not an
+# `install` exits 0, and an `install` whose argument list contains a name in
+# $PROVISION_APT_FAIL_NAMES exits 100 the way a real unavailable package does.
+_FAKE_APT_GET = r'''#!/bin/sh
+printf '%s\n' "$*" >> "$PROVISION_APT_LOG"
+_verb=""
+for _arg in "$@"; do
+    case "$_arg" in
+        -*) continue ;;
+    esac
+    _verb="$_arg"
+    break
+done
+[ "$_verb" = "install" ] || exit 0
+for _arg in "$@"; do
+    for _bad in ${PROVISION_APT_FAIL_NAMES:-}; do
+        if [ "$_arg" = "$_bad" ]; then
+            echo "E: Unable to locate package $_arg" >&2
+            exit 100
+        fi
+    done
+done
+exit 0
+'''
+
+_FAKE_SUDO = r'''#!/bin/sh
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -*) shift ;;
+        *) break ;;
+    esac
+done
+exec "$@"
+'''
+
+
+def _package_phase_call_sites() -> dict[str, str]:
+    """``{group: label}`` for every ``install_group`` call in the provisioner."""
+    sites: dict[str, str] = {}
+    for line in _code(PROVISIONER).splitlines():
+        if not _INSTALL_GROUP_CALL_RE.match(line):
+            continue
+        tokens = shlex.split(line.split("||", 1)[0])
+        if len(tokens) >= 5:
+            sites[tokens[3]] = tokens[2]
+    return sites
+
+
+def _build_package_phase_probe(path: Path) -> None:
+    """The real provisioner, cut after its last install_group call site.
+
+    MAINTENANCE COST, documented rather than discovered: if the three call
+    sites are ever refactored into a loop or an ``if``, truncating after the
+    last one leaves an unterminated compound. That does NOT report OK -- the
+    generated probe is run through ``bash -n`` and the gate fails with an
+    explicit UNKNOWN naming the cause.
+    """
+    raw_lines = _read(PROVISIONER).splitlines()
+    code_lines = _code(PROVISIONER).splitlines()
+    call_sites = [
+        index
+        for index, line in enumerate(code_lines)
+        if _INSTALL_GROUP_CALL_RE.match(line)
+    ]
+    assert call_sites, (
+        "UNKNOWN: scripts/provision_test_host.sh has no install_group call "
+        "site, so this probe cannot locate its subject. Either the package "
+        "phase was removed -- which is a defect -- or it was refactored and "
+        "this probe needs a new anchor."
+    )
+
+    probe = "\n".join(raw_lines[: call_sites[-1] + 1])
+    assert probe.count(_PROVISION_LOGDIR_LITERAL) == 1, (
+        f"UNKNOWN: expected exactly one {_PROVISION_LOGDIR_LITERAL!r} to "
+        "redirect; without it the probe writes into the operator's real "
+        "/tmp/bd_provision"
+    )
+    probe = probe.replace(
+        _PROVISION_LOGDIR_LITERAL, 'LOGDIR="${PROVISION_TEST_LOGDIR:?}"'
+    )
+    probe += '\nprintf "%s" "$ROWS" > "${PROVISION_TEST_ROWS:?}"\nexit 0\n'
+    _write_stub(path, probe)
+
+    parsed = subprocess.run(
+        [_BASH, "-n", str(path)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert parsed.returncode == 0, (
+        "UNKNOWN: the generated package-phase probe does not parse, so nothing "
+        "below could be measured. The install_group call sites have probably "
+        "moved inside a compound command (a loop or an `if`), which leaves the "
+        f"truncation unterminated. bash -n said:\n{parsed.stderr}"
+    )
+
+
+def _run_package_phase(
+    tmp_path: Path,
+    *,
+    fail_names: tuple[str, ...] = (),
+    fragment_body: str | None = None,
+) -> tuple[subprocess.CompletedProcess[str], list[str], dict[str, str]]:
+    """Run the probe and return ``(completed, apt argv lines, {label: result})``.
+
+    ``fragment_body`` is the ONLY fault injection, and it is used by the
+    empty-list case alone: it builds a throwaway repo whose fragment is a stub.
+    Every other case sources the REAL scripts/lib/system_deps.sh. That
+    asymmetry is deliberate -- a stub installed for every test is how
+    ``_display_stub_dir`` made two thirds of ``_bd_display_active``
+    unreachable.
+    """
+    stub_bin = tmp_path / "aptbin"
+    stub_bin.mkdir(exist_ok=True)
+    _write_stub(stub_bin / "apt-get", _FAKE_APT_GET)
+    _write_stub(stub_bin / "sudo", _FAKE_SUDO)
+
+    apt_log = tmp_path / "apt-calls.log"
+    rows_file = tmp_path / "rows.txt"
+    logdir = tmp_path / "provision-logs"
+
+    if fragment_body is None:
+        repo = REPO_ROOT
+    else:
+        repo = tmp_path / "fake-repo"
+        (repo / "bulk_downloader").mkdir(parents=True, exist_ok=True)
+        (repo / "bulk_downloader" / "__init__.py").write_text(
+            '__version__ = "package-phase-probe"\n', encoding="utf-8"
+        )
+        (repo / "scripts" / "lib").mkdir(parents=True, exist_ok=True)
+        (repo / "scripts" / "lib" / "system_deps.sh").write_text(
+            fragment_body, encoding="utf-8"
+        )
+
+    probe = tmp_path / "package-phase-probe.sh"
+    _build_package_phase_probe(probe)
+
+    env = dict(os.environ)
+    env.update(
+        {
+            "PATH": f"{stub_bin}{os.pathsep}{env['PATH']}",
+            "PROVISION_APT_LOG": str(apt_log),
+            "PROVISION_APT_FAIL_NAMES": " ".join(fail_names),
+            "PROVISION_TEST_LOGDIR": str(logdir),
+            "PROVISION_TEST_ROWS": str(rows_file),
+        }
+    )
+    # The repo is ALWAYS named explicitly: the probe lives in tmp_path, so
+    # find_repo's implicit candidates would miss the marker and hard-exit 2
+    # before reaching the subject.
+    completed = subprocess.run(
+        [_BASH, str(probe), str(repo)],
+        cwd=str(tmp_path),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+
+    apt_calls = (
+        apt_log.read_text(encoding="utf-8").splitlines() if apt_log.is_file() else []
+    )
+    rows: dict[str, str] = {}
+    if rows_file.is_file():
+        for line in rows_file.read_text(encoding="utf-8").splitlines():
+            fields = line.split("|")
+            if len(fields) >= 2:
+                rows[fields[0]] = fields[1]
+    return completed, apt_calls, rows
+
+
+def _install_transactions(apt_calls: list[str]) -> list[frozenset[str]]:
+    """The package set of every apt INSTALL transaction, flags discarded."""
+    transactions: list[frozenset[str]] = []
+    for call in apt_calls:
+        tokens = call.split()
+        if "install" not in tokens:
+            continue
+        arguments = tokens[tokens.index("install") + 1 :]
+        transactions.append(
+            frozenset(token for token in arguments if not token.startswith("-"))
+        )
+    return transactions
+
+
+def _assert_package_phase_reached(
+    completed: subprocess.CompletedProcess[str], rows: dict[str, str]
+) -> dict[str, str]:
+    """Rows and call sites, or a distinct UNKNOWN for "it never got there"."""
+    assert rows, (
+        "UNKNOWN: the package-phase probe recorded no verdict rows at all, so "
+        "it never reached its subject and nothing below means anything. "
+        f"rc={completed.returncode} stdout={completed.stdout[-2000:]!r} "
+        f"stderr={completed.stderr[-2000:]!r}"
+    )
+    sites = _package_phase_call_sites()
+    missing = [group for group in GROUP_ORDER if group not in sites]
+    assert not missing, (
+        f"UNKNOWN: scripts/provision_test_host.sh has no install_group call "
+        f"site for {missing}, so those groups' verdict rows cannot be "
+        f"identified. Call sites found: {sites}"
+    )
+    return sites
+
+
+def test_package_phase_issues_one_partitioned_transaction_per_group(
+    tmp_path: Path,
+) -> None:
+    """KILLS the D4 collapse, group mixing, a deleted call site, and both regrades.
+
+    Run with the whole gtk list unavailable, which is the case the design
+    exists for: apt is ALL-OR-NOTHING, so one bad name in a combined list
+    installs NOTHING -- no interpreter, no SPA toolchain, no display libraries
+    -- and reports it as a single failed row that cannot say which name was to
+    blame. Per-group transactions turn that into "gtk is absent, core and node
+    are installed", which is the difference between a provisioned host and a
+    bare one.
+
+    Measured, each of these reported 54 passed before this gate existed:
+
+    * the verbatim D4 defect, ``install_group 03b_pkgs_all "..." all core``;
+    * ``install_group`` always asking ``bd_system_pkgs all`` (names mixed
+      across transactions);
+    * a call site passing the wrong group;
+    * the gtk call site deleted;
+    * gtk regraded core (the WARN becomes a blocking FAIL) and, in the other
+      direction, the kind hardcoded so a core failure downgrades to WARN;
+    * ``run_step`` replaced by a bare apt call plus ``record "$label" "OK"``,
+      and apt never actually invoked.
+
+    Transaction membership is compared with ``==``, never ``issubset``: a
+    superset assertion cannot see an added or mixed name, which is the same
+    blindness that let a bogus package into the gtk list unnoticed.
+    """
+    live = {group: set(_packages(group)) for group in GROUP_ORDER}
+    drift = {
+        group: sorted(live[group])
+        for group in GROUP_ORDER
+        if live[group] != set(EXPECTED_GROUPS[group])
+    }
+    assert not drift, (
+        f"UNKNOWN: the fragment's package lists have drifted from "
+        f"EXPECTED_GROUPS ({drift}) -- fix that pin first (see "
+        "test_bd_system_pkgs_returns_exactly_the_contracted_packages). "
+        "Partitioning cannot be judged against a stale denominator."
+    )
+
+    completed, apt_calls, rows = _run_package_phase(
+        tmp_path, fail_names=EXPECTED_GROUPS["gtk"]
+    )
+    transactions = _install_transactions(apt_calls)
+
+    assert len(transactions) >= len(GROUP_ORDER), (
+        f"expected one apt install transaction per group ({len(GROUP_ORDER)}), "
+        f"got {len(transactions)}. apt was called with: {apt_calls}"
+    )
+    expected_sets = {
+        group: frozenset(EXPECTED_GROUPS[group]) for group in GROUP_ORDER
+    }
+    matched: list[str] = []
+    for transaction in transactions:
+        names = [
+            group for group, names_ in expected_sets.items() if transaction == names_
+        ]
+        assert names, (
+            f"an apt install transaction carried {sorted(transaction)}, which "
+            "is not EXACTLY one package group. One transaction per group is "
+            "the whole design: apt is all-or-nothing, so a mixed or combined "
+            f"list makes one bad name install nothing. apt calls: {apt_calls}"
+        )
+        matched.append(names[0])
+    assert sorted(matched) == sorted(GROUP_ORDER), (
+        f"the apt transactions covered {sorted(matched)}, expected exactly one "
+        f"each of {sorted(GROUP_ORDER)}. apt calls: {apt_calls}"
+    )
+
+    sites = _assert_package_phase_reached(completed, rows)
+    for group in ("core", "node"):
+        assert rows.get(sites[group]) == "OK", (
+            f"the {group} group did not get its own successful transaction "
+            f"while gtk was failing: row {rows.get(sites[group])!r}, expected "
+            f"'OK'. That is the all-or-nothing collapse this split prevents. "
+            f"Rows: {rows}"
+        )
+    assert rows.get(sites["gtk"]) == "WARN", (
+        f"gtk's apt failure was recorded {rows.get(sites['gtk'])!r}, expected "
+        "'WARN'. gtk is graded 'optional' because the capability is probed BY "
+        "DOING at step [6/8] -- 'FAIL' means it was regraded core and a host "
+        "with a working display from elsewhere now fails the verdict; 'OK' "
+        f"means the failure was swallowed. Rows: {rows}"
+    )
+
+
+def test_a_core_tier_apt_failure_is_recorded_as_blocking(tmp_path: Path) -> None:
+    """KILLS: hardcoding the criticality to ``optional``, and any swallowed failure.
+
+    ``core`` is graded core because every step from [4/8] to [8/8] gates on
+    venv/bin/python, and the venv cannot be built without the interpreter and
+    its own package manager. A WARN there would let the verdict certify a host
+    on which nothing downstream is meaningful.
+
+    The other half is contagion: node and gtk must still read OK, which is only
+    possible because they got their OWN transactions.
+    """
+    completed, apt_calls, rows = _run_package_phase(
+        tmp_path, fail_names=EXPECTED_GROUPS["core"]
+    )
+    sites = _assert_package_phase_reached(completed, rows)
+
+    assert rows.get(sites["core"]) == "FAIL", (
+        f"apt exited 100 for the core group and the row read "
+        f"{rows.get(sites['core'])!r}, expected 'FAIL'. 'WARN' means the "
+        "criticality was downgraded; 'OK' means the failure never reached the "
+        f"verdict at all. Rows: {rows}. apt calls: {apt_calls}"
+    )
+    for group in ("node", "gtk"):
+        assert rows.get(sites[group]) == "OK", (
+            f"the {group} group read {rows.get(sites[group])!r} while only "
+            "core's packages were unavailable -- the groups are sharing a "
+            f"transaction. Rows: {rows}. apt calls: {apt_calls}"
+        )
+
+
+@pytest.mark.parametrize("status", (0, 1), ids=("returns-0-prints-nothing", "returns-1"))
+def test_an_empty_package_list_blocks_and_runs_no_installer(
+    tmp_path: Path, status: int
+) -> None:
+    """KILLS: the empty-list branch turned into a silent ``return 0``, or ``OK``.
+
+    THE DECISIVE HALF IS THE FIRST ASSERTION. ``apt-get install -y`` with ZERO
+    package arguments exits 0 having installed nothing -- measured on this host
+    -- so an installer handed an empty list reports success while installing
+    nothing, and command substitution DISCARDS bd_system_pkgs' non-zero exit,
+    which is how the empty list gets there in the first place. Asserting only
+    on the recorded row would miss a variant that runs apt and then records
+    UNKNOWN anyway.
+
+    Both spellings of "no list" are covered because they are different code
+    paths: a lookup that fails (status 1) and one that succeeds while printing
+    nothing (status 0). The second is the dangerous one -- ``if ! pkgs="$(...)"``
+    never fires for it.
+
+    UNKNOWN rather than FAIL is the contract: what failed is the DENOMINATOR,
+    not the capability. The script does not know what this group's deps ARE,
+    which is a different statement from "this host lacks them". Both block.
+    """
+    completed, apt_calls, rows = _run_package_phase(
+        tmp_path,
+        fragment_body=(
+            f"bd_system_pkgs() {{ return {status}; }}\n"
+            "bd_start_display() { return 0; }\n"
+            ":\n"
+        ),
+    )
+    sites = _assert_package_phase_reached(completed, rows)
+
+    assert _install_transactions(apt_calls) == [], (
+        "the installer was invoked despite an empty package list. `apt-get "
+        "install -y` with no package arguments exits 0 having installed "
+        "nothing, so this is exactly how a provisioner reports success while "
+        f"provisioning nothing. apt calls: {apt_calls}"
+    )
+    for group in GROUP_ORDER:
+        assert rows.get(sites[group]) == "UNKNOWN", (
+            f"bd_system_pkgs {group} returned nothing and the row read "
+            f"{rows.get(sites[group])!r}, expected 'UNKNOWN'. A step that "
+            "could not be EVALUATED has to say so and block -- reporting OK "
+            f"because nothing was examined is worse than having no step. "
+            f"Rows: {rows}"
+        )
+
+
 # --- G. anti-drift: the package names live in exactly one file ---------------
 
 
@@ -1075,14 +2171,41 @@ def _package_bearing_variables(code: str) -> dict[str, list[str]]:
 def test_consumers_do_not_restate_package_names(consumer: Path) -> None:
     """The point of the fragment: three scripts cannot disagree about deps.
 
-    Scanned over CODE, not raw text. The previous version scanned the whole
-    file, so a maintainer writing "installs the GTK typelibs (python3-gi)" in a
-    comment failed the build. Over-sensitivity is a soundness bug in its own
-    right (CLAUDE.md 0): a gate that cries wolf gets switched off, and a switched
-    -off gate sees nothing. A package name in prose cannot be handed to apt.
+    Scanned over UNQUOTED CODE. Two rounds of over-sensitivity were measured
+    off this one assertion, and both were gates firing on identity:
+
+    * the original scanned the whole raw file, so writing "installs the GTK
+      typelibs (python3-gi)" in a COMMENT failed the build. Fixed by stripping
+      comments;
+    * the comment-stripped version still failed on an operator hint --
+      ``echo "(on 22.04 you may need libgtk-3-0 instead of libgtk-3-0t64)"`` --
+      because ``_strip_shell_comments`` blanks ``#`` comments and not echo
+      prose. Reproduced before it was fixed.
+
+    A package name inside a quoted string cannot be word-split into separate
+    apt arguments: ``apt-get install -y "xvfb libgtk-3-0t64"`` is ONE bogus
+    argument, not a package list. Quoted text is therefore prose by
+    construction, exactly like a comment, so the scan runs over
+    ``_unquoted_code``.
+
+    TEETH RETAINED, and each was measured on the mutation rather than argued:
+
+    * ``apt-get install -y xvfb libgtk-3-0t64`` (bare arguments) is still
+      caught here;
+    * ``PKGLIST=xvfb`` (bare assignment) is still caught here;
+    * ``PKGS="xvfb libgtk-3-0t64"`` followed by ``apt_i $PKGS`` is caught by
+      ``test_no_consumer_hardcodes_an_apt_package_list``, whose
+      ``_package_bearing_variables`` deliberately keeps reading ``_code`` with
+      quotes INTACT. Quote-blanking that helper too would lose the case.
+
+    NEW BLIND SPOT, declared rather than papered over: a discriminating package
+    name inside a quoted string that is neither an assignment value nor an apt
+    argument is now invisible here. It is also inert -- it cannot become an
+    argv element. A name inside a HEREDOC BODY is still caught, deliberately: a
+    heredoc body can be a generated script that really does run apt.
     """
     assert consumer.is_file(), f"{consumer.name} is missing"
-    code = _code(consumer)
+    code = _unquoted_code(consumer)
 
     restated = [name for name in DISCRIMINATING_PACKAGES if name in code]
     assert not restated, (
@@ -1208,13 +2331,48 @@ def test_apt_install_predicate_self_check() -> None:
 # --- H. the gui-parity inventory is regenerated where it matters -------------
 
 
-def test_install_linux_regenerates_the_gui_parity_inventory() -> None:
-    code = _code(INSTALL_LINUX)
+def test_install_linux_actually_invokes_the_gui_parity_regen() -> None:
+    """KILLS: neutering the regen to ``if ! true; then``.
 
-    assert INVENTORY_TOOL in code, (
-        "install_linux.sh must run " + INVENTORY_TOOL + ": reports/ is "
-        "gitignored and build-time generated, so a stale unzip-overlay copy "
-        "survives `git clean -fd` and reads as inventory drift"
+    The previous version of this test was ``INVENTORY_TOOL in _code(...)`` --
+    a substring grep. Measured: replacing install_linux.sh's real invocation
+    ``if ! "$VPYTHON" tools/gui_parity_inventory.py >"$_parity_err" 2>&1; then``
+    with ``if ! true; then`` left the whole suite at 54 passed, exit 0, because
+    the string still occurs eight lines above in the guard
+    ``[ -f "$INSTALL_DIR/tools/gui_parity_inventory.py" ]``. The gate was
+    certifying its own subject's obituary.
+
+    ``_tool_invocations`` requires the tool to sit in argument position of an
+    interpreter AND to survive quote-blanking, so a guard, a diagnostic string
+    and a comment are all correctly not invocations. See its docstring for what
+    it does NOT prove (branch reachability).
+
+    reports/ is gitignored and build-time generated, so a stale unzip-overlay
+    copy survives ``git clean -fd`` and reads as inventory drift.
+    """
+    hits = _tool_invocations(INSTALL_LINUX, INVENTORY_TOOL)
+
+    assert len(hits) == 1, (
+        f"install_linux.sh must EXECUTE {INVENTORY_TOOL} exactly once; found "
+        f"{len(hits)} invocations (lines {hits}). Every code line that names "
+        f"it: {_tool_mentions(INSTALL_LINUX, INVENTORY_TOOL)}"
+    )
+
+
+def test_provisioner_actually_invokes_the_gui_parity_regen() -> None:
+    """KILLS: deleting or neutering the provisioner's step [7/8] regen.
+
+    Same substring hole as install_linux.sh, and the provisioner has THREE
+    non-invoking mentions of the tool (an ``[ ! -f ... ]`` guard and an UNKNOWN
+    diagnostic string as well as the real ``run_step`` line), so a grep here
+    was even further from its subject.
+    """
+    hits = _tool_invocations(PROVISIONER, INVENTORY_TOOL)
+
+    assert len(hits) == 1, (
+        f"scripts/provision_test_host.sh must EXECUTE {INVENTORY_TOOL} exactly "
+        f"once; found {len(hits)} invocations (lines {hits}). Every code line "
+        f"that names it: {_tool_mentions(PROVISIONER, INVENTORY_TOOL)}"
     )
 
 
@@ -1240,20 +2398,23 @@ def test_capture_regen_is_ordered_against_every_prerequisite() -> None:
       process integrity-checking and scheduling against the same BD_HOME
       database;
     * the parallel lane -- a regen after the suite proves nothing.
+
+    The "exactly one" count is over ``_tool_invocations``, not over
+    ``INVENTORY_TOOL in line``. The substring form cried wolf: adding the same
+    defensive ``[ ! -f "$BD_HOME/tools/gui_parity_inventory.py" ]`` guard that
+    install_linux.sh already carries made the count read 2 and failed a
+    correct file. Measured before and after -- the invocation count stays 1.
     """
     code = _code(CAPTURE_SH)
 
-    regen_lines = [
-        index
-        for index, line in enumerate(code.splitlines())
-        if INVENTORY_TOOL in line
-    ]
+    regen_lines = _tool_invocations(CAPTURE_SH, INVENTORY_TOOL)
     assert len(regen_lines) == 1, (
         f"expected exactly one {INVENTORY_TOOL} invocation in capture.sh code, "
-        f"found {len(regen_lines)} (lines {[n + 1 for n in regen_lines]}) -- "
-        "with more than one, 'the regen' is not a single thing to order"
+        f"found {len(regen_lines)} (lines {regen_lines}) -- with more than "
+        "one, 'the regen' is not a single thing to order. Every code line that "
+        f"names it: {_tool_mentions(CAPTURE_SH, INVENTORY_TOOL)}"
     )
-    regen = regen_lines[0]
+    regen = regen_lines[0] - 1
 
     anchors = {
         'cd "$BD_HOME"': _code_line_index(
@@ -1288,6 +2449,96 @@ def test_capture_regen_is_ordered_against_every_prerequisite() -> None:
     )
 
 
+_EXIT_ASSIGN_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*_EXIT)=")
+
+
+def _capture_verdict_command(code: str) -> str:
+    """The whole joined ``tools/capture_verdict.py`` command line, or a loud
+    failure. An absent command must not read as "every stage is wired"."""
+    for _, joined, _unused in _logical_pairs(code, code):
+        if "tools/capture_verdict.py" in joined:
+            return joined
+    raise AssertionError(
+        "UNKNOWN: capture.sh has no tools/capture_verdict.py command line, so "
+        "the stage-exit wiring check has no subject. An absent verdict call is "
+        "not a satisfied wiring."
+    )
+
+
+def _parity_block_exit_vars(code: str) -> list[str]:
+    """Every ``*_EXIT`` variable ASSIGNED inside the [2a/9] parity block.
+
+    Both boundaries are located explicitly and fail loudly when absent: an
+    empty variable set would otherwise certify the wiring vacuously, which is
+    the exact shape of a gate whose denominator excludes its subject.
+    """
+    lines = code.splitlines()
+    start = _code_line_index(
+        code, r"^\s*PARITY_JSON=", "the [2a/9] parity block start (PARITY_JSON=)"
+    )
+    end = None
+    for index in range(start, len(lines)):
+        if re.search(r"\brun_with_heartbeat\b", lines[index]):
+            end = index
+            break
+    assert end is not None, (
+        "UNKNOWN: no run_with_heartbeat after the [2a/9] parity block, so the "
+        "block has no end boundary and the stage-exit scan has no denominator"
+    )
+
+    names: list[str] = []
+    for line in lines[start:end]:
+        match = _EXIT_ASSIGN_RE.match(line)
+        if match is not None and match.group(1) not in names:
+            names.append(match.group(1))
+    return names
+
+
+def test_capture_feeds_every_parity_stage_exit_to_the_verdict() -> None:
+    """KILLS: deleting ``--stage-exit "parity-inventory=$PARITY_EXIT"``.
+
+    Measured: with that flag removed the whole suite still reported 54 passed,
+    exit 0. The regen could then skip, fail, write nothing, or degrade to the
+    ENDPOINT_CATALOG.md fallback, and the capture would still certify green --
+    PARITY_EXIT would be computed with care and thrown away.
+
+    The wiring is DERIVED, not grepped for: the variables come from what the
+    [2a/9] block actually assigns and the flags from the verdict command line
+    actually written, so renaming PARITY_EXIT, reordering the flags or adding
+    a second parity stage exit all behave correctly instead of crying wolf.
+
+    SCOPE, deliberately narrow: the denominator is the [2a/9] block this cut
+    owns, NOT every ``*_EXIT`` in capture.sh. A whole-file rule would fire
+    immediately on STOP_REQUEST_EXIT, which is assigned and only echoed --
+    genuinely diagnostic, not a stage verdict. Adding a NEW ``*_EXIT`` inside
+    [2a/9] without wiring it does fail here, and that is a correct finding: a
+    new stage exit needs a verdict decision.
+
+    This is a STATEMENT-level check. It proves the wiring exists in source, not
+    that the verdict ran -- capture.sh's verdict call is far past the [2b/9]
+    sentinel the execution probe truncates at.
+    """
+    code = _code(CAPTURE_SH)
+    verdict = _capture_verdict_command(code)
+    variables = _parity_block_exit_vars(code)
+
+    assert variables, (
+        "UNKNOWN: the [2a/9] parity block assigns no *_EXIT variable at all, "
+        "so this check has nothing to trace to the verdict"
+    )
+    unwired = [
+        name
+        for name in variables
+        if f"${name}" not in verdict and "${%s}" % name not in verdict
+    ]
+    assert not unwired, (
+        f"capture.sh computes {unwired} in the [2a/9] gui-parity block and "
+        "never hands them to tools/capture_verdict.py, so the capture can "
+        "certify green with an inventory that was skipped, failed, or built "
+        f"from the ENDPOINT_CATALOG.md fallback. Verdict command: {verdict!r}"
+    )
+
+
 # --- I. capture.sh EXECUTION order, not text order ---------------------------
 #
 # Statement order is necessary, not sufficient: the assertions above would still
@@ -1318,6 +2569,11 @@ def _build_capture_probe(path: Path) -> None:
     _write_stub(path, probe)
 
 
+# One fake interpreter, shared by the capture.sh probe and the provisioner
+# probe below, because both scripts run the SAME gui-parity regen and the SAME
+# read-back of `route_source`. Two copies would be two things that can disagree
+# about what the generator does -- which is the drift this whole cut exists to
+# stop.
 _FAKE_PYTHON = r'''#!/usr/bin/env python3
 import json
 import os
@@ -1325,8 +2581,32 @@ from pathlib import Path
 import sys
 
 args = sys.argv[1:]
-with open(os.environ["CAPTURE_ORDER_LOG"], "a", encoding="utf-8") as stream:
+with open(os.environ["PROBE_ORDER_LOG"], "a", encoding="utf-8") as stream:
     stream.write("python " + json.dumps(args) + "\n")
+
+# `-c <program> <args...>`: RUN capture.sh's own program rather than opining on
+# what it would have decided. sys.argv[0] is "-c" for a real `python -c`, so the
+# program's sys.argv[1] must be the FIRST argument after the program text -- the
+# obvious slice is off by one and makes the probe read the program itself as its
+# own argument.
+if args[:1] == ["-c"]:
+    sys.argv = ["-c"] + args[2:]
+    exec(compile(args[1], "<capture-probe -c>", "exec"), {"__name__": "__main__"})
+    raise SystemExit(0)
+
+# The gui-parity regen. The real tool writes reports/gui_parity_inventory.json
+# and records which route source it used; capture.sh reads that field back
+# because the tool exits 0 even when the app import failed and it fell back to
+# ENDPOINT_CATALOG.md. A probe that never wrote the file could not reach that
+# branch at all -- which is exactly how deleting the check went unnoticed.
+if any(arg.endswith("tools/gui_parity_inventory.py") for arg in args):
+    report = Path("reports/gui_parity_inventory.json")
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(
+        json.dumps({"route_source": os.environ["PROBE_ROUTE_SOURCE"]}),
+        encoding="utf-8",
+    )
+    raise SystemExit(0)
 
 if args[:2] == ["-m", "pytest"]:
     marker = next(
@@ -1347,14 +2627,27 @@ raise SystemExit(0)
 
 
 def _run_capture_probe(
-    tmp_path: Path, *, service_stays_active: bool
+    tmp_path: Path,
+    *,
+    service_stays_active: bool,
+    route_source: str = "live url_map",
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     fake_home = tmp_path / "BulkDownloader"
     fake_bin = tmp_path / "bin"
     (fake_home / "bulk_downloader").mkdir(parents=True)
     (fake_home / "venv" / "bin").mkdir(parents=True)
     (fake_home / "frontend" / "dist").mkdir(parents=True)
+    # The fake home must model a HEALTHY box, not a broken one. Without
+    # tools/gui_parity_inventory.py a defensive existence guard in capture.sh
+    # would correctly skip the regen and this probe would report "never
+    # executed" -- a fixture-completeness failure indistinguishable from the
+    # defect it is looking for. Measured: adding that guard to capture.sh with
+    # the old fixture produced exactly that false failure.
+    (fake_home / "tools").mkdir(parents=True)
     fake_bin.mkdir()
+    (fake_home / "tools" / "gui_parity_inventory.py").write_text(
+        "# capture probe stand-in for the real generator\n", encoding="utf-8"
+    )
     (fake_home / "bulk_downloader" / "__init__.py").write_text(
         '__version__ = "capture-probe"\n', encoding="utf-8"
     )
@@ -1386,7 +2679,8 @@ def _run_capture_probe(
             "BD_HOME": str(fake_home),
             "CAPTURE_TEST_OUT": str(tmp_path / "capture-out"),
             "CAPTURE_TEST_ARCHIVE": str(tmp_path / "capture.tar.gz"),
-            "CAPTURE_ORDER_LOG": str(order_log),
+            "PROBE_ORDER_LOG": str(order_log),
+            "PROBE_ROUTE_SOURCE": route_source,
             "PATH": f"{fake_bin}{os.pathsep}{env['PATH']}",
         }
     )
@@ -1479,6 +2773,236 @@ def test_capture_skips_the_regen_when_the_service_is_still_active(
     )
 
 
+def test_capture_route_source_check_passes_a_live_url_map_inventory(
+    tmp_path: Path,
+) -> None:
+    """The healthy half of the route_source verification, RUN not read.
+
+    ``exit=0`` here is only meaningful because the sibling test below gets
+    ``exit=3`` from the same probe: a check that answers "fine" to everything
+    answers nothing. Both cases execute capture.sh's OWN ``-c`` predicate
+    against a JSON file the fake generator really wrote, so the branch logic
+    under test is capture.sh's rather than a stub's opinion of it.
+    """
+    completed, entries = _run_capture_probe(
+        tmp_path, service_stays_active=False, route_source="live url_map"
+    )
+
+    assert entries, (
+        f"the capture probe recorded no calls. stderr={completed.stderr[-2000:]!r}"
+    )
+    assert any("route_source" in entry for entry in entries), (
+        "capture.sh never executed the route_source verification -- the "
+        f"inventory regen exited 0 and nothing read the result back: {entries}"
+    )
+    assert "  exit=0" in completed.stdout, (
+        "an app-derived inventory must leave PARITY_EXIT at 0. stdout tail: "
+        f"{completed.stdout[-2000:]!r}"
+    )
+
+
+def test_capture_route_source_check_degrades_a_catalog_derived_inventory(
+    tmp_path: Path,
+) -> None:
+    """KILLS: deleting capture.sh's route_source ``elif`` branch.
+
+    Measured: with that branch removed the whole suite still reported 54
+    passed, exit 0. tools/gui_parity_inventory.py wraps its
+    ``import bulk_downloader.app`` in a bare except, falls back to parsing
+    ENDPOINT_CATALOG.md, writes a DIFFERENT item set and STILL EXITS 0 -- so
+    exit 0 alone certifies a confidently-wrong artifact, and the box goes on
+    failing the same reconcile gate the block exists to fix.
+
+    The assertion is on the verdict capture.sh publishes (``exit=3``, which is
+    what feeds ``--stage-exit "parity-inventory=$PARITY_EXIT"``), never on the
+    ABSENCE of something -- with the branch deleted the value is 0, and an
+    absence assertion would have been satisfied by the mutant.
+    """
+    completed, entries = _run_capture_probe(
+        tmp_path, service_stays_active=False, route_source="endpoint catalog"
+    )
+
+    assert entries, (
+        f"the capture probe recorded no calls. stderr={completed.stderr[-2000:]!r}"
+    )
+    assert any("route_source" in entry for entry in entries), (
+        "capture.sh never executed the route_source verification, so a "
+        f"catalog-derived inventory would have passed unexamined: {entries}"
+    )
+    assert "  exit=3" in completed.stdout, (
+        "a catalog-derived inventory must set PARITY_EXIT=3; capture.sh "
+        "reported something else, so a silently degraded regen reaches the "
+        f"verdict as a pass. stdout tail: {completed.stdout[-2000:]!r}"
+    )
+    assert "ENDPOINT_CATALOG.md fallback" in completed.stderr, (
+        "the degradation was not explained on stderr: "
+        f"{completed.stderr[-2000:]!r}"
+    )
+
+
+# --- I2. the provisioner's step [7/8], EXECUTED ------------------------------
+#
+# Same hole, same shape, different file: nothing ran the provisioner's
+# route_source verification either, so deleting the whole `ROUTE_SOURCE=...` +
+# `case` block reported 54 passed. The probe splices the provisioner's PRELUDE
+# (which is `set -uo pipefail`, usage(), find_repo(), the cd, the LOGDIR mkdir
+# and the record()/run_step() definitions -- no apt, no sudo, nothing
+# elevated) onto step [7/8] alone.
+
+PROVISIONER_PRELUDE_SENTINEL = (
+    "# ------------------------------------------------------------ [2/8] fragment"
+)
+PROVISIONER_STEP7_SENTINEL = (
+    "# ------------------------------------------------- [7/8] gui-parity inventory"
+)
+PROVISIONER_STEP8_SENTINEL = (
+    "# ------------------------------------------------------------- [8/8] verdict"
+)
+
+
+def _build_provisioner_probe(path: Path) -> None:
+    source = _read(PROVISIONER)
+    for sentinel in (
+        PROVISIONER_PRELUDE_SENTINEL,
+        PROVISIONER_STEP7_SENTINEL,
+        PROVISIONER_STEP8_SENTINEL,
+    ):
+        assert source.count(sentinel) == 1, (
+            f"scripts/provision_test_host.sh must contain exactly one "
+            f"{sentinel!r}; the probe splices the script there. If the step "
+            "banners were reflowed, move the sentinel -- this is a loud "
+            "failure on a structural edit, not a finding about the code."
+        )
+
+    probe = (
+        source.split(PROVISIONER_PRELUDE_SENTINEL, 1)[0]
+        + source.split(PROVISIONER_STEP7_SENTINEL, 1)[1].split(
+            PROVISIONER_STEP8_SENTINEL, 1
+        )[0]
+    )
+    assert probe.count(_PROVISION_LOGDIR_LITERAL) == 1, (
+        f"UNKNOWN: expected exactly one {_PROVISION_LOGDIR_LITERAL!r} to "
+        "redirect; without it the probe writes into the operator's real "
+        "/tmp/bd_provision"
+    )
+    probe = probe.replace(
+        _PROVISION_LOGDIR_LITERAL, 'LOGDIR="${PROVISION_TEST_LOGDIR:?}"'
+    )
+    probe += '\nprintf "%s" "$ROWS" > "${PROVISION_TEST_ROWS:?}"\nexit 0\n'
+    _write_stub(path, probe)
+
+    parsed = subprocess.run(
+        [_BASH, "-n", str(path)], capture_output=True, text=True, timeout=60
+    )
+    assert parsed.returncode == 0, (
+        "UNKNOWN: the spliced provisioner probe does not parse, so nothing "
+        f"below could be measured. bash -n said:\n{parsed.stderr}"
+    )
+
+
+def _run_provisioner_inventory_step(
+    tmp_path: Path, *, route_source: str
+) -> tuple[subprocess.CompletedProcess[str], list[str], dict[str, str]]:
+    repo = tmp_path / "fake-repo"
+    (repo / "bulk_downloader").mkdir(parents=True)
+    (repo / "tools").mkdir(parents=True)
+    (repo / "venv" / "bin").mkdir(parents=True)
+    (repo / "bulk_downloader" / "__init__.py").write_text(
+        '__version__ = "provisioner-probe"\n', encoding="utf-8"
+    )
+    (repo / "tools" / "gui_parity_inventory.py").write_text(
+        "# provisioner probe stand-in for the real generator\n", encoding="utf-8"
+    )
+    _write_stub(repo / "venv" / "bin" / "python", _FAKE_PYTHON)
+
+    order_log = tmp_path / "order.log"
+    rows_file = tmp_path / "rows.txt"
+    probe = tmp_path / "provisioner-inventory-probe.sh"
+    _build_provisioner_probe(probe)
+
+    env = dict(os.environ)
+    env.update(
+        {
+            "PROBE_ORDER_LOG": str(order_log),
+            "PROBE_ROUTE_SOURCE": route_source,
+            "PROVISION_TEST_LOGDIR": str(tmp_path / "provision-logs"),
+            "PROVISION_TEST_ROWS": str(rows_file),
+        }
+    )
+    completed = subprocess.run(
+        [_BASH, str(probe), str(repo)],
+        cwd=str(tmp_path),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+
+    entries = (
+        order_log.read_text(encoding="utf-8").splitlines()
+        if order_log.is_file()
+        else []
+    )
+    rows: dict[str, str] = {}
+    if rows_file.is_file():
+        for line in rows_file.read_text(encoding="utf-8").splitlines():
+            fields = line.split("|")
+            if len(fields) >= 2:
+                rows[fields[0]] = fields[1]
+    return completed, entries, rows
+
+
+@pytest.mark.parametrize(
+    ("route_source", "expected"),
+    [
+        pytest.param("live url_map", "OK", id="live-url-map"),
+        pytest.param("endpoint catalog", "UNKNOWN", id="endpoint-catalog-fallback"),
+    ],
+)
+def test_provisioner_verifies_the_inventory_route_source(
+    tmp_path: Path, route_source: str, expected: str
+) -> None:
+    """KILLS: deleting the provisioner's ``ROUTE_SOURCE=`` + ``case`` block.
+
+    Measured: with that block removed the suite still reported 54 passed, exit
+    0. tools/gui_parity_inventory.py wraps its ``import bulk_downloader.app``
+    in a bare except, falls back to ENDPOINT_CATALOG.md, writes a different
+    item set and STILL EXITS 0 -- so ``run_step ... || true`` records OK for a
+    confidently-wrong artifact and the box keeps failing the very reconcile
+    gate step [7/8] exists to fix.
+
+    The assertion is that the row EXISTS with the expected verdict, never that
+    some row is absent: with the block deleted the row DISAPPEARS entirely, and
+    a ``not any(... "OK" ...)`` form would have been satisfied by the mutant.
+
+    Both directions are parametrised for the same reason: a check that answers
+    OK to everything answers nothing.
+    """
+    completed, entries, rows = _run_provisioner_inventory_step(
+        tmp_path, route_source=route_source
+    )
+
+    assert entries, (
+        "the provisioner probe never invoked venv/bin/python, so step [7/8] "
+        f"did not run at all. rc={completed.returncode} "
+        f"stdout={completed.stdout[-2000:]!r} stderr={completed.stderr[-2000:]!r}"
+    )
+    assert any(INVENTORY_TOOL in entry for entry in entries), (
+        f"the probe never ran {INVENTORY_TOOL}: {entries}"
+    )
+    assert rows.get("gui-parity inventory") == "OK", (
+        "the regen itself did not record OK, so the route_source verdict below "
+        f"would be about the wrong thing. Rows: {rows}"
+    )
+    assert rows.get("inventory route source") == expected, (
+        f"with route_source={route_source!r} the provisioner recorded "
+        f"{rows.get('inventory route source')!r}, expected {expected!r}. A "
+        "missing row means the read-back was deleted; the generator exits 0 "
+        "either way, so exit 0 alone does not prove the inventory is "
+        f"app-derived. Rows: {rows}"
+    )
+
+
 # --- J. every shell file we touch parses -------------------------------------
 
 
@@ -1505,28 +3029,252 @@ def test_shell_files_parse(shell_file: Path) -> None:
 # --- K. shellcheck can actually see the single source of truth ---------------
 
 
-def test_fragment_has_no_prose_comment_shaped_like_a_shellcheck_directive() -> None:
-    """The tool-free half of the D5 guard, so an absent linter is not a hole.
+def _shellcheck_directive_offenders(path: Path) -> list[str]:
+    """Comments shaped like a shellcheck directive that shellcheck will reject.
 
-    shellcheck parses the first word after ``# `` as a directive KEY and aborts
-    the WHOLE FILE when it does not parse (SC1073/SC1072). A comment that merely
-    began with the word "shellcheck" as prose therefore left the single source
-    of truth with ZERO lint coverage, while consumers reported SC1094 "parsing
-    of sourced file failed" and silently dropped it -- or, if they failed to
-    parse for their own reasons, reported nothing at all.
+    The comment TEXT is derived from the existing instrument -- the raw line
+    minus the same-index ``_strip_shell_comments`` line -- rather than
+    re-parsed. That is exact (the stripper keeps everything before the ``#``
+    and preserves line numbering) and it buys three properties for free, all
+    checked against real shellcheck 0.9.0:
+
+    * a directive inside a quoted string is not a directive
+      (``echo "# shellcheck disable=SC2086 -- prose"`` is fine, both here and
+      in shellcheck);
+    * a heredoc body is not a directive;
+    * an INLINE directive is detectable -- when the code part of the line is
+      non-empty the comment follows a command, which is SC1126 *and* SC1073,
+      fatal even when the directive itself is well formed.
+
+    RESIDUE, on purpose: directive VALUES are not validated.
+    ``# shellcheck disable=notacode`` aborts under real shellcheck and passes
+    here. Guessing shellcheck's value grammar is how a gate starts crying wolf;
+    ``test_no_shell_file_fails_to_parse_under_shellcheck`` is the layer that
+    owns values.
+
+    ONE KNOWING DIVERGENCE TOWARD STRICTNESS: an unknown KEY
+    (``# shellcheck bogus=value``) is flagged although shellcheck only
+    info-warns (SC1107). A directive that silently does nothing is a real
+    defect, so this stays -- and the message names the key, so a genuinely new
+    shellcheck directive is a one-line fix to
+    ``_SHELLCHECK_DIRECTIVE_KEYS`` rather than a mystery.
     """
+    raw_lines = _read(path).splitlines()
+    code_lines = _code(path).splitlines()
+    assert len(raw_lines) == len(code_lines), (
+        f"UNKNOWN: the comment stripper changed {path.name}'s line count "
+        f"({len(raw_lines)} raw vs {len(code_lines)} code) -- the comment "
+        "extraction below would then be reading the wrong lines"
+    )
+
     offenders: list[str] = []
-    for number, line in enumerate(_read(FRAGMENT).splitlines(), start=1):
-        match = _SHELLCHECK_COMMENT_RE.match(line)
+    for number, (raw, code) in enumerate(zip(raw_lines, code_lines), start=1):
+        comment = raw[len(code) :]
+        match = _SHELLCHECK_COMMENT_RE.match(comment)
         if match is None:
             continue
-        directive = _SHELLCHECK_DIRECTIVE_RE.match(match.group("rest"))
-        if directive is None or directive.group("key") not in _SHELLCHECK_DIRECTIVE_KEYS:
-            offenders.append(f"{FRAGMENT_REL}:{number}: {line.strip()}")
+        where = f"{path.name}:{number}"
+        if code.strip():
+            offenders.append(
+                f"{where}: a directive may only precede a command, never "
+                f"follow one (SC1126 + SC1073): {raw.strip()}"
+            )
+            continue
+        # A trailing `# ...` after the directive is legal -- the tree uses that
+        # form twice -- so only the text before it is the directive.
+        tokens = match.group("rest").split("#", 1)[0].split()
+        if not tokens:
+            offenders.append(
+                f"{where}: bare 'shellcheck' comment with no key=value: "
+                f"{raw.strip()}"
+            )
+            continue
+        for token in tokens:
+            parsed = _SHELLCHECK_TOKEN_RE.match(token)
+            if parsed is None:
+                offenders.append(
+                    f"{where}: {token!r} is not a key=value directive token "
+                    f"(put prose on its own comment line above): {raw.strip()}"
+                )
+                break
+            if parsed.group("key") not in _SHELLCHECK_DIRECTIVE_KEYS:
+                offenders.append(
+                    f"{where}: {parsed.group('key')!r} is not a shellcheck "
+                    "directive key; if shellcheck now supports it, add it to "
+                    f"_SHELLCHECK_DIRECTIVE_KEYS: {raw.strip()}"
+                )
+                break
+    return offenders
+
+
+def test_shellcheck_directive_predicate_self_check(tmp_path: Path) -> None:
+    """The instrument before the measurement, calibrated against the real tool.
+
+    Every case below was written to a file and linted with shellcheck 0.9.0 in
+    this sandbox; the expectations are what it ACTUALLY did, not what the
+    documentation implies. The two deliberate divergences are asserted here as
+    well, so they stay deliberate instead of decaying into surprises.
+    """
+    aborts = (
+        "# shellcheck disable=SC2086 -- word splitting is the point",
+        "# shellcheck disable=SC2086 word splitting is the point",
+        "# shellcheck can parse the single source of truth",
+        "# shellcheck: prose here",
+        "# shellcheck",
+        "# shellcheckery is not a word",
+        "# shellcheck-ish note about linting",
+        "# shellcheck disable = SC2086",
+        "#shellcheck prose here",
+        "echo hi  # shellcheck disable=SC2086",
+    )
+    accepts = (
+        "# shellcheck disable=SC2086",
+        "# shellcheck disable=SC2086  # $SUDO is empty when already root",
+        "# shellcheck disable=SC2086,SC2154",
+        "# shellcheck source=scripts/lib/system_deps.sh",
+        "# shellcheck shell=bash",
+        "# shellcheck enable=require-variable-braces",
+        "# shellcheck external-sources=true",
+        "# SHELLCHECK disable=SC2086",
+        '# word "shellcheck" unless it really is a directive.',
+        "# `# shellcheck disable=SC2086`, and that suppression was two defects",
+        'echo "# shellcheck disable=SC2086 -- prose in a string"',
+        "echo '# shellcheck disable=SC2086 -- prose in a string'",
+    )
+
+    scratch = tmp_path / "directive-selfcheck.sh"
+
+    def _offenders(line: str) -> list[str]:
+        scratch.write_text(
+            f'#!/bin/sh\nfoo=1\n{line}\necho "$foo"\n', encoding="utf-8"
+        )
+        return _shellcheck_directive_offenders(scratch)
+
+    for line in aborts:
+        assert _offenders(line), (
+            f"the predicate misses {line!r}, which shellcheck 0.9.0 rejects "
+            "with SC1072/SC1073 -- and a parse abort silently deletes every "
+            "other finding in the file"
+        )
+    for line in accepts:
+        assert not _offenders(line), (
+            f"the predicate cries wolf on {line!r}, which shellcheck 0.9.0 "
+            "accepts. Over-sensitivity is a soundness bug: a gate that fires "
+            "on a harmless comment gets switched off."
+        )
+    # The two knowing divergences, asserted so they cannot drift silently.
+    assert _offenders("# shellcheck bogus=value"), (
+        "STRICTER than shellcheck on purpose: an unknown directive key is "
+        "silently inert, which is a defect worth naming"
+    )
+    assert not _offenders("# shellcheck disable=notacode"), (
+        "LOOSER than shellcheck on purpose: directive VALUES are shellcheck's "
+        "job. If this ever starts flagging, the residue documented in "
+        "_shellcheck_directive_offenders is stale"
+    )
+
+
+@pytest.mark.parametrize("shell_file", SHELL_FILES, ids=lambda path: path.name)
+def test_no_shell_file_has_a_comment_shaped_like_a_broken_shellcheck_directive(
+    shell_file: Path,
+) -> None:
+    """KILLS: reverting any of the three ``disable=SC2086 -- prose`` lines.
+
+    THE DENOMINATOR WAS THE HOLE. This check used to read the fragment and
+    nothing else, and its predicate matched only the HEAD of the line, so
+    ``# shellcheck disable=SC2086 -- word splitting is the point: ...`` parsed
+    as key='disable' and was certified valid. That exact line was introduced by
+    this branch at install_linux.sh:75, install_linux.sh:83 and
+    scripts/cloud-setup.sh:324, real shellcheck 0.9.0 rejected all three with
+    SC1072/SC1073, and the suite reported 54 passed. Two failures at once: the
+    subject was outside the denominator AND outside the predicate.
+
+    A parse abort is not one lost finding, it is ALL of them. Measured on a
+    four-line file: with the directive malformed shellcheck reports SC1072 and
+    SC1073 and nothing else; with the prose moved to its own line above a bare
+    ``# shellcheck disable=SC2086`` the same file reports SC2006, SC2116 and
+    SC2086. Three real findings vanish while the directive is broken.
+
+    This half needs no binary, which is the point: neither install_linux.sh nor
+    scripts/provision_test_host.sh installs shellcheck (only cloud-setup.sh
+    does), so on the operator's box -- which CLAUDE.md 7 calls the gate -- the
+    tool-based half below skips and this is the only thing standing.
+    """
+    offenders = _shellcheck_directive_offenders(shell_file)
 
     assert not offenders, (
-        "these comments open with the word 'shellcheck' but are not valid "
-        f"directives, so shellcheck aborts the file: {offenders}"
+        f"{shell_file.name} has comments that open with the word 'shellcheck' "
+        "but are not valid directives, so shellcheck ABORTS the whole file and "
+        f"every other finding in it disappears: {offenders}"
+    )
+
+
+def _require_shellcheck(what: str) -> None:
+    """Skip LOUDLY when the linter is absent.
+
+    A silent skip is indistinguishable from a pass in a capture log. The
+    warning is emitted before the skip because pytest prints its warnings
+    summary even under ``-q``, and this file classifies to capture.sh's SERIAL
+    lane, which runs ``-n 0`` -- so the line lands in
+    ``$OUT/02_pytest_serial.log`` where an operator reading a green capture can
+    still see that this gate did not run. (Behaviour under real xdist workers
+    is not verified: pytest-xdist is not installed in the sandbox where this
+    was written.)
+
+    Absence is deliberately NOT a failure. A host without a linter is not a
+    broken host, and a hard failure here would be the cry-wolf mode CLAUDE.md 0
+    warns about. The coverage that does not depend on the binary is
+    ``test_no_shell_file_has_a_comment_shaped_like_a_broken_shellcheck_directive``,
+    which runs over all five files with no tool at all.
+    """
+    if shutil.which("shellcheck") is not None:
+        return
+    warnings.warn(
+        f"BD-GATE-UNRUNNABLE: shellcheck is not installed, so {what} could not "
+        "reach its subject and reports nothing rather than reporting OK. "
+        "scripts/cloud-setup.sh installs it; install_linux.sh and "
+        "scripts/provision_test_host.sh do not.",
+        UserWarning,
+        stacklevel=2,
+    )
+    pytest.skip(f"shellcheck not installed -- {what} could not reach its subject")
+
+
+@pytest.mark.parametrize("shell_file", SHELL_FILES, ids=lambda path: path.name)
+def test_no_shell_file_fails_to_parse_under_shellcheck(shell_file: Path) -> None:
+    """KILLS: reverting any ``disable=SC2086 -- prose`` line, with the real tool.
+
+    The tool-free predicate above models shellcheck's directive grammar; this
+    one asks shellcheck. Both are needed: the predicate runs on a box with no
+    linter, and shellcheck catches the value-level forms the predicate
+    deliberately does not guess at (``disable=notacode``).
+
+    ONLY the parse codes are asserted -- never the exit code, never the
+    severity. install_linux.sh, capture.sh and scripts/cloud-setup.sh all emit
+    ordinary style findings today, so pinning exit 0 would fail them forever,
+    which is the over-sensitivity half of the same rule. Measured on this tree:
+    all five files report ZERO parse errors, so admitting all five is honest
+    rather than aspirational.
+
+    This corrects a claim the old docstring made and the tree has outgrown:
+    install_linux.sh and scripts/cloud-setup.sh do NOT currently abort on parse
+    errors of their own. They used to; that is why they were excluded.
+    """
+    _require_shellcheck(f"the parse gate for {shell_file.name}")
+
+    result = subprocess.run(
+        ["shellcheck", "--format=gcc", str(shell_file)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    parse_failures = [code for code in _PARSE_FAILURE_CODES if code in result.stdout]
+
+    assert not parse_failures, (
+        f"{shell_file.name} does not parse under shellcheck ({parse_failures}). "
+        "A parse abort is not one lost finding, it is every finding in the "
+        f"file, and any consumer that sources it loses it too:\n{result.stdout}"
     )
 
 
@@ -1540,15 +3288,15 @@ def test_fragment_is_shellcheck_parseable() -> None:
     for the double-source guard's ``return 0 2>/dev/null || true`` -- a genuine
     false positive, and a gate that fires on identity gets switched off.
 
+    The fragment alone is held to this stricter bar: it is the single source of
+    truth, it is the only one of the five that is lint-clean at warning
+    severity today, and pinning the other four there would be a promise about
+    files this cut does not own.
+
     An absent shellcheck SKIPS with a reason. A check that cannot reach its
     subject must not report OK.
     """
-    if shutil.which("shellcheck") is None:
-        pytest.skip(
-            "shellcheck not installed -- this gate could not reach its "
-            "subject, so it reports nothing rather than reporting OK. Install "
-            "shellcheck (scripts/cloud-setup.sh installs it) and re-run."
-        )
+    _require_shellcheck("the fragment's shellcheck gate")
 
     strict = subprocess.run(
         ["shellcheck", "--severity=warning", str(FRAGMENT)],
@@ -1592,16 +3340,15 @@ def test_consumer_shellcheck_can_follow_the_sourced_fragment(consumer: Path) -> 
     over-sensitivity half of the same rule.
 
     The provisioner is the subject because it is the one consumer that carries
-    a ``# shellcheck source=`` directive; install_linux.sh and
-    scripts/cloud-setup.sh currently abort on parse errors of their own, so
-    their SC1094 count is zero for the wrong reason -- blindness, not health.
-    Adding them here without fixing those first would be a check whose
-    denominator excludes its subject.
+    a ``# shellcheck source=`` directive that shellcheck can FOLLOW without
+    being told where the file is. install_linux.sh and scripts/cloud-setup.sh
+    also carry one, and both parse cleanly today (measured -- the old docstring
+    here claimed the opposite, and that claim is now stale), but they compute
+    the sourced path from a variable, so ``-x`` cannot resolve it and SC1094
+    would be absent for the wrong reason. Their parse health is asserted by
+    ``test_no_shell_file_fails_to_parse_under_shellcheck`` instead.
     """
-    if shutil.which("shellcheck") is None:
-        pytest.skip(
-            "shellcheck not installed -- this gate could not reach its subject"
-        )
+    _require_shellcheck(f"the sourced-fragment gate for {consumer.name}")
 
     result = subprocess.run(
         ["shellcheck", "-x", "--format=gcc", str(consumer)],
