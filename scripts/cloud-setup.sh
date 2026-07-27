@@ -118,6 +118,40 @@ skip(){
 SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo"
 apt_i(){ $SUDO apt-get install -y -qq "$@"; }
 
+# --- single source of truth for system packages -------------------------------
+# scripts/lib/system_deps.sh is a SOURCEABLE fragment (no main, no side effects)
+# shared by this script, install_linux.sh and scripts/provision_test_host.sh so
+# the three can never disagree about what "the system deps" ARE. Three private
+# copies of a package list is a denominator that drifts: each script then answers
+# "are the deps present?" over its own idea of what they are, and every one can
+# report OK while the host is missing something another considers mandatory
+# (CLAUDE.md 0). The names are therefore deliberately NOT repeated below.
+#
+# It lives IN the repo, so it exists only when find_repo() succeeded, and it
+# reaches an already-deployed host only on the next overlay. A missing or broken
+# fragment must record a WARN and continue: this script deliberately runs without
+# `set -e`, and dying here would destroy the report that is its whole point.
+HAVE_SYSDEPS=0
+if [ "$HAVE_REPO" != 1 ]; then
+  row "system_deps fragment" "WARN" "no repo at setup time -- shared package groups unavailable"
+elif [ ! -r "$REPO/scripts/lib/system_deps.sh" ]; then
+  row "system_deps fragment" "WARN" "scripts/lib/system_deps.sh absent or unreadable -- shared package groups unavailable"
+else
+  # shellcheck source=scripts/lib/system_deps.sh
+  . "$REPO/scripts/lib/system_deps.sh"
+  # Sourcing cleanly proves NOTHING about what the file defined: `.` returns the
+  # status of the last command it ran, and a file that parses fine while defining
+  # nothing sources with exit 0 (CLAUDE.md 6 -- parsing is not name resolution).
+  # Check the names, both of them, before trusting either.
+  if declare -F bd_system_pkgs >/dev/null 2>&1 \
+     && declare -F bd_start_display >/dev/null 2>&1; then
+    HAVE_SYSDEPS=1
+    row "system_deps fragment" "OK" "sourced scripts/lib/system_deps.sh (single dep denominator)"
+  else
+    row "system_deps fragment" "WARN" "sourced but bd_system_pkgs/bd_start_display undefined -- shared package groups unavailable"
+  fi
+fi
+
 if [ "${BD_REPO_CANDIDATES:-1}" -gt 1 ] 2>/dev/null; then
   row "repo discovery" "WARN" "$BD_REPO_CANDIDATES checkouts found; chose the shallowest: $REPO. Set BD_REPO to be explicit."
 fi
@@ -278,8 +312,23 @@ if skip EXTRAS; then
 else
   # GTK: test_v3_43_80_modules::test_all_modules_import false-fails without
   # typelibs AND a display. Environmental, never a code regression.
-  step "GTK + Xvfb"   optional apt_i xvfb libgtk-3-0t64 gir1.2-gtk-3.0 python3-gi \
-                                     libcairo2 libgirepository-1.0-1
+  #
+  # The list is bd_system_pkgs' to own; naming it again here would make this file
+  # a second opinion. Capture into a variable and refuse an empty one: command
+  # substitution DISCARDS the function's non-zero exit, and `apt-get install`
+  # with zero package arguments exits 0 -- so the obvious one-liner would install
+  # nothing after a failed lookup and step() would record OK (CLAUDE.md 0).
+  if [ "$HAVE_SYSDEPS" = 1 ]; then
+    GTK_PKGS="$(bd_system_pkgs gtk)" || GTK_PKGS=""
+    if [ -n "$GTK_PKGS" ]; then
+      # shellcheck disable=SC2086 -- word splitting is the point: one arg per package
+      step "GTK + Xvfb" optional apt_i $GTK_PKGS
+    else
+      row "GTK + Xvfb" "WARN" "bd_system_pkgs gtk returned nothing -- refusing to run apt on an empty package list"
+    fi
+  else
+    row "GTK + Xvfb" "WARN" "system_deps fragment unavailable -- the GTK/display packages are named only there, so they were NOT installed; the module-import gate cannot run"
+  fi
   step "misc tooling" optional apt_i pypy3 caddy postgresql-client patchelf
   step "profiling"    optional ./venv/bin/pip install -q py-spy
 fi
@@ -318,10 +367,25 @@ mkdir -p "${BD_HOME:-/tmp/bd_home}" 2>/dev/null \
   && row "BD_HOME" "OK" "${BD_HOME:-/tmp/bd_home} (outside the repo, as required)" \
   || row "BD_HOME" "WARN" "could not create ${BD_HOME:-/tmp/bd_home}"
 
-if command -v Xvfb >/dev/null 2>&1; then
-  pgrep -x Xvfb >/dev/null 2>&1 || (Xvfb :99 -screen 0 1024x768x24 >/dev/null 2>&1 &)
-  sleep 2
-  row "Xvfb :99" "OK" "started — export DISPLAY=:99 for the GTK gate"
+# Idempotency lives in bd_start_display, in one place, for the same reason the
+# package list does. The check this replaces was `pgrep -x Xvfb`, which tests a
+# PROCESS NAME while the subject is a DISPLAY -- wrong in both directions: an X
+# server on :0 made it report ":99 is up" when nothing held :99, and a non-Xvfb
+# server on :99 (kasmvnc, installed in 7b above) made it report ":99 is free"
+# when it was not, which is how "Fatal server error: Server is already active
+# for display 99" happens. The old row was also unconditional: `(cmd &)` inside
+# `||` reports the fork, never the server, so it wrote OK for a display that
+# might not exist. Called DIRECTLY, never through step(): step() redirects
+# stdout into a temp log and would swallow the DISPLAY value it echoes.
+if [ "$HAVE_SYSDEPS" = 1 ]; then
+  if DISPLAY_VALUE="$(bd_start_display :99)"; then
+    export DISPLAY="$DISPLAY_VALUE"
+    row "Xvfb :99" "OK" "display $DISPLAY_VALUE active — export DISPLAY=$DISPLAY_VALUE for the GTK gate"
+  else
+    row "Xvfb :99" "WARN" "no X display could be provided — test_v3_43_80_modules::test_all_modules_import WILL false-fail"
+  fi
+else
+  row "Xvfb :99" "WARN" "system_deps fragment unavailable -- bd_start_display undefined; no display started"
 fi
 
 # =========================================================== 9. verification

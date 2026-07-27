@@ -18,6 +18,13 @@
 #   - private capture fixtures remain opt-in. Callers can export the absolute
 #     roots documented by capture_test_fixtures.py; step [2] inherits them.
 #     No private path is autodetected.
+#   - new step [1b] regenerates reports/gui_parity_inventory.{json,md} before
+#     the pytest lanes. That file is gitignored yet SHIPS in the zip, so a
+#     stale copy from an earlier overlay deploy outlives `git clean -fd`
+#     (ignored files need -x) and the reconcile gate read it as inventory
+#     drift, failing the whole suite. Regenerating first makes the gate
+#     compare fresh-vs-fresh. The step is never fatal: it records
+#     PARITY_EXIT, warns loudly, and hands the code to the verdict.
 #
 # Updated for v3.63.6:
 #   - capture.sh now ships in the release zip (was previously stash-local,
@@ -187,6 +194,55 @@ echo "=== [1/9] System fingerprint ==="
  head -10 CHANGELOG.md
 } > "$OUT/01_sysinfo.log" 2>&1
 echo "  done"
+
+# ── [1b/9] GUI-parity inventory regen (before the suite) ──────────
+#
+# WHY THIS EXISTS: reports/gui_parity_inventory.json is BUILD-TIME GENERATED
+# and GITIGNORED (.gitignore `reports/*`), yet it ships inside the release zip.
+# The deploy path is an overlay — `unzip -o` overwrites and adds but never
+# deletes — and `git clean -fd` cannot remove an ignored file (that needs -x).
+# So a copy generated on a build host whose tree differed from this box can sit
+# here indefinitely with nothing able to evict it. The suite's reconcile gate
+# (tests/test_v3_66_302_gui_parity_reconcile.py) diffs the on-disk inventory
+# against a live regen, so that stale copy reads as inventory drift and fails
+# the entire capture — observed on the box as
+# "only-shipped=[] only-regen=['pytest_capture_results']".
+#
+# Regenerating HERE puts the gate on fresh-vs-fresh. The position is
+# load-bearing on both sides: AFTER the __pycache__ purge above (the tool
+# imports bulk_downloader.app, so an earlier regen would read stale bytecode)
+# and BEFORE the pytest lanes below (a regen after them proves nothing).
+#
+# Exit 0 is NOT sufficient evidence of a good regen: the generator falls back
+# to ENDPOINT_CATALOG.md when the app import raises, writes a
+# catalog-derived item set, and still returns 0. The written JSON is therefore
+# read back for `"route_source": "live url_map"`; missing file or any other
+# source is UNKNOWN, and unknown is a third state that fails. Never fatal —
+# every remaining step still runs and PARITY_EXIT goes to the verdict.
+echo "=== [1b/9] GUI-parity inventory regen ==="
+PARITY_JSON="$BD_HOME/reports/gui_parity_inventory.json"
+PARITY_EXIT=0
+venv/bin/python tools/gui_parity_inventory.py \
+   > "$OUT/01b_gui_parity_inventory.log" 2>&1
+PARITY_EXIT=$?
+if [ "$PARITY_EXIT" -ne 0 ]; then
+  echo "  WARNING: gui-parity inventory regen FAILED (exit=$PARITY_EXIT)." >&2
+  echo "  reports/gui_parity_inventory.json was not refreshed, so the parity" >&2
+  echo "  reconcile gate may report inventory drift against a stale copy and" >&2
+  echo "  fail the suite. See $OUT/01b_gui_parity_inventory.log" >&2
+elif [ ! -f "$PARITY_JSON" ]; then
+  echo "  WARNING: regen reported success but $PARITY_JSON is missing." >&2
+  echo "  UNKNOWN state: the parity reconcile gate may report inventory drift." >&2
+  PARITY_EXIT=2
+elif ! grep -q '"route_source"[[:space:]]*:[[:space:]]*"live url_map"' \
+     "$PARITY_JSON"; then
+  echo "  WARNING: inventory was built from the ENDPOINT_CATALOG.md fallback," >&2
+  echo "  not the live url_map — the app import degraded silently and the tool" >&2
+  echo "  still exited 0. The item set is catalog-derived, so the parity" >&2
+  echo "  reconcile gate may report inventory drift." >&2
+  PARITY_EXIT=3
+fi
+echo "  exit=$PARITY_EXIT"
 
 # ── [2/9] Full suite (service must NOT be running) ────────────────
 echo "=== [2/9] Full test suite (5-15 min) ==="
@@ -436,6 +492,7 @@ venv/bin/python tools/capture_verdict.py \
   --suite-exit "$SUITE_EXIT" \
   --live-exit "$LIVE_EXIT" \
   --expected-live-tests "$EXPECTED_LIVE_TESTS" \
+  --stage-exit "parity-inventory=$PARITY_EXIT" \
   --stage-exit "graph=$GRAPH_EXIT" \
   --stage-exit "service-stopped=$SERVICE_STOP_EXIT" \
   --stage-exit "csrf=$CSRF_EXIT" \
