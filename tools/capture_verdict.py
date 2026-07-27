@@ -122,8 +122,17 @@ def assess_capture(
     if unit_counts is not None and unit_counts[2]:
         reasons.append(f"unit errors={unit_counts[2]}")
     if live_counts is not None:
-        if live_counts[1]:
-            reasons.append(f"live warnings={live_counts[1]}")
+        # Live WARNs are INFORMATIONAL and deliberately do NOT fail the verdict.
+        # A warn means "capability not exercisable", not "capability broken":
+        # no completed downloads yet, no VPN tunnels configured, AI assist off.
+        # live_tests itself exits 0 ("all clear") on a warn-only run, so gating
+        # here made this tool stricter than the suite it reads, and reported
+        # FAIL on a healthy box that no code change could ever turn green --
+        # only real usage can. CLAUDE.md 0 counts that over-sensitivity as a
+        # soundness bug: a gate that cries wolf gets switched off, and a
+        # verdict the operator has learned to ignore protects nothing.
+        # The count is still carried in `counts` below, on PASS and FAIL alike,
+        # so an absent capability stays visible without blocking the run.
         if live_counts[2]:
             reasons.append(f"live failures={live_counts[2]}")
     counts = []
