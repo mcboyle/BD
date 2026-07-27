@@ -1,5 +1,5 @@
 <!-- version-agnostic; re-derive every count/SHA/version from source each session -->
-<!-- verified-against: v3.66.817 -->
+<!-- verified-against: v3.66.818 -->
 # Code-Intelligence Schemas
 
 This document records the implemented foundation contract for deterministic,

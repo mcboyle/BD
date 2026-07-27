@@ -4,6 +4,18 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.818 - DP-06 semantic parentage fix and pytest isolation hardening
+
+- Corrected DP-06 defect-analyzer semantic parentage: lexical scope
+  resolution, nested and class comprehension iterators, and lambda default
+  evaluation context now resolve by lexical semantics.
+- Hardened the custom pytest runner: made it import-safe, split capture into
+  safe execution lanes, kept global state out of the parallel lane, isolated
+  route-index and app-state and phase-helper modules, and canonicalized the
+  pytest module graph for reliable full-suite runs.
+- Refreshed the dependency graph for the runner core and regenerated the PIN
+  index for the capture contract.
+
 ## v3.66.817 - Dependency audit and deployment graph pin hardening
 
 - Upgraded React Router, Vite, Vitest, esbuild, and form-data to secure
