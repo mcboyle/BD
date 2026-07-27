@@ -543,12 +543,20 @@ if [ -f "$BD_HOME/tools/live_seed.py" ] && [ -f "$BD_HOME/tools/fixture_site.py"
   done
   if [ "$_fixture_up" = "1" ]; then
     echo "  fixture site up on :8899 (pid $FIXTURE_PID)"
-    if venv/bin/python tools/live_seed.py --seed --count 3 \
+    # --login is best-effort on top of --seed: it needs an unlocked, encrypted
+    # secrets backend to store the fixture password, and refuses cleanly when
+    # that precondition is absent. SEEDED is set either way so teardown always
+    # runs against whatever did get created.
+    if venv/bin/python tools/live_seed.py --seed --login --count 3 \
          > "$OUT/05a_live_seed.log" 2>&1; then
       SEEDED=1
-      echo "  seeded 3 marked URLs — queue-dependent checks are exercising"
-      echo "  SYNTHETIC input; see $OUT/05a_live_seed.log"
+      echo "  seeded 3 marked URLs + fixture login — queue and auth checks are"
+      echo "  exercising SYNTHETIC input; see $OUT/05a_live_seed.log"
     else
+      # A refusal can still have created something before it stopped, so mark
+      # the run as seeded regardless -- teardown is idempotent and removing
+      # nothing is cheaper than stranding marked state on the box.
+      SEEDED=1
       echo "  seeding declined or failed (not a capture failure):"
       tail -3 "$OUT/05a_live_seed.log" 2>/dev/null | sed 's/^/    /'
     fi

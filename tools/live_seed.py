@@ -57,6 +57,7 @@ import argparse
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -262,6 +263,107 @@ def seed_queue(client, count: int = 3, *, site_id: str | None = None,
     return planned
 
 
+SEED_LOGIN_SITE_NAME = f"{SEED_MARKER} fixture login"
+
+# The fixture site's own documented test credentials. These are NOT secrets:
+# tools/fixture_site.py publishes them in its module docstring ("CREDENTIALS
+# (all login prefixes) username: tester password: fixturepass") and validates
+# against them in-process. They authenticate against 127.0.0.1 only. No real
+# credential is ever read, written or transmitted by this tool.
+FIXTURE_USERNAME = "tester"
+FIXTURE_PASSWORD = "fixturepass"
+
+
+def login_site_config() -> dict:
+    """Config for a site whose login target is the LOCAL fixture.
+
+    The selectors mirror tools/fixture_site.py's /formauth/login markup. On
+    success the fixture sets a `fixture_session` cookie and redirects to
+    /formauth/members, so a real login produces a real cookie for BD to
+    persist.
+    """
+    return {
+        "name": SEED_LOGIN_SITE_NAME,
+        "login_url": f"{FIXTURE_ORIGIN}/formauth/login",
+        "username": FIXTURE_USERNAME,
+        "password": FIXTURE_PASSWORD,
+        "user_field": "#login-username",
+        "pass_field": "#login-password",
+        "submit_btn": "button[type=submit]",
+        "success_url": f"{FIXTURE_ORIGIN}/formauth/members",
+        # BD writes this file during login. The seeder never touches it -- if
+        # it did, L8 and L9 would be checking the fixture's output rather than
+        # BD's credential persistence, which is the vacuous PASS this design
+        # exists to prevent.
+        "cookie_file": f"cookies/{SEED_MARKER}_fixture.json",
+    }
+
+
+def seed_login(client, *, poll_seconds: float = 30.0, dry_run: bool = False) -> dict:
+    """Create a fixture-login site and trigger BD's REAL login against it.
+
+    What is synthetic: the site config and the decision to log in now. What is
+    NOT synthetic, and is exactly what L6/L8/L9 assert on: BD driving a browser
+    to the fixture's form, submitting it, receiving the cookie, persisting the
+    jar and recording auth health. The seeder supplies the trigger and nothing
+    downstream of it.
+    """
+    cfg = login_site_config()
+    plan = {"action": "seed_login", "marker": SEED_MARKER,
+            "login_url": cfg["login_url"]}
+    if dry_run:
+        plan["dry_run"] = True
+        return plan
+
+    created = client.post("/api/sites", cfg)
+    if not isinstance(created, dict) or not created.get("id"):
+        raise SeedRefused(
+            f"could not create the fixture login site "
+            f"(response: {str(created)[:200]})"
+        )
+    sid = created["id"]
+    plan["site_id"] = sid
+
+    # POST /api/sites routes the password to the encrypted secrets vault. On a
+    # plaintext or locked backend the SITE is created but NO password is stored
+    # -- so the login would fail for a reason that says nothing about BD's
+    # login path, and a half-configured marked site would be left behind.
+    # Refuse loudly and name the precondition instead.
+    if not created.get("cred_stored"):
+        reason = "the secrets backend did not accept the password"
+        if created.get("secrets_locked"):
+            reason = "the secrets vault is LOCKED (unlock it, then re-run)"
+        elif created.get("secrets_plaintext"):
+            reason = ("the secrets backend is PLAINTEXT; BD refuses to store a "
+                      "credential there (switch to an encrypted backend)")
+        client.delete(f"/api/sites/{sid}")  # do not strand a useless site
+        raise SeedRefused(
+            f"cannot seed a login: {reason}. The site was created without a "
+            f"password, so a login could not succeed and L6/L8/L9 would fail "
+            f"for an unrelated reason. Removed the site again."
+        )
+
+    plan["login_triggered"] = client.post(f"/api/sites/{sid}/login", {})
+
+    # login_async() returns immediately; poll for the outcome so the caller
+    # learns whether a real session was actually established rather than just
+    # that a request was accepted.
+    deadline = time.time() + poll_seconds
+    plan["auth_state"] = "unknown"
+    while time.time() < deadline:
+        status = client.get("/api/status")
+        if isinstance(status, dict):
+            meta = status.get(sid)
+            if isinstance(meta, dict):
+                state = str(meta.get("auth_state", ""))
+                if state:
+                    plan["auth_state"] = state
+                if state == "ok":
+                    break
+        time.sleep(1.0)
+    return plan
+
+
 def teardown(client, *, dry_run: bool = False) -> dict:
     """Cancel exactly the queue entries this tool created.
 
@@ -298,6 +400,8 @@ def main(argv=None) -> int:
         description="Seed synthetic INPUT for the live checks (marked, reversible).")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--seed", action="store_true", help="enqueue marked fixture URLs")
+    parser.add_argument("--login", action="store_true",
+                        help="create a fixture-login site and trigger BD's real login")
     parser.add_argument("--teardown", action="store_true", help="remove marked entries")
     parser.add_argument("--count", type=int, default=3)
     parser.add_argument("--site-id", default=None)
@@ -307,19 +411,23 @@ def main(argv=None) -> int:
                         help="seed even if the host already holds real work")
     args = parser.parse_args(argv)
 
-    if not args.seed and not args.teardown:
-        parser.error("choose --seed or --teardown")
+    if not args.seed and not args.teardown and not args.login:
+        parser.error("choose --seed, --login or --teardown")
 
     client = Client(args.base_url)
     try:
         if args.teardown:
             print(json.dumps(teardown(client, dry_run=args.dry_run), indent=2))
-        else:
+        elif args.seed or args.login:
             if not args.dry_run:
                 preflight(client, force=args.force)
-            plan = seed_queue(client, args.count, site_id=args.site_id,
-                              dry_run=args.dry_run)
-            print(json.dumps(plan, indent=2))
+            plans = []
+            if args.seed:
+                plans.append(seed_queue(client, args.count, site_id=args.site_id,
+                                        dry_run=args.dry_run))
+            if args.login:
+                plans.append(seed_login(client, dry_run=args.dry_run))
+            print(json.dumps(plans if len(plans) > 1 else plans[0], indent=2))
             # Rule 3: make the synthetic state impossible to mistake for real.
             # Only after a real seed -- a dry run changed nothing, and claiming
             # synthetic state is present would be its own small false report.

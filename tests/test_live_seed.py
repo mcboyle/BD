@@ -294,6 +294,102 @@ def test_teardown_removes_marked_sites_but_never_unmarked_ones():
     )
 
 
+# ── the login seed (L6 / L8 / L9) ───────────────────────────────────────────
+
+def test_the_seeder_never_writes_a_cookie_jar_itself():
+    """THE anti-vacuity assertion for the login seed.
+
+    L8 asserts that every site reporting auth_state=ok has a NON-EMPTY cookie
+    file on disk -- it is checking BD's own credential persistence. If the
+    seeder wrote that file, L8 would be verifying the fixture's handiwork and
+    would pass just as happily with BD's persistence completely broken. That is
+    the vacuous PASS this whole design exists to prevent, and it would be worse
+    than the honest WARN it replaced.
+
+    So the seeder supplies the site config and TRIGGERS a real login; BD drives
+    the browser, receives the cookie and writes the jar. AST, not grep: the
+    predicate is "a call to open(...) in write mode", which a string search for
+    'cookie' would miss entirely and a search for 'open(' would over-match.
+    """
+    tree = ast.parse(SEED_PATH.read_text(encoding="utf-8"), filename=str(SEED_PATH))
+    writes = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        target = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+        if target not in ("open", "write_text", "write_bytes"):
+            continue
+        if target in ("write_text", "write_bytes"):
+            writes.append(node.lineno)
+            continue
+        for arg in node.args[1:]:
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                if any(m in arg.value for m in ("w", "a", "x", "+")):
+                    writes.append(node.lineno)
+    assert not writes, (
+        f"tools/live_seed.py writes files at line(s) {writes}; the login seed "
+        f"must TRIGGER a real login and let BD persist the cookie jar, or L8 "
+        f"and L9 verify the fixture's own output instead of BD's"
+    )
+
+
+def test_login_seed_refuses_when_the_password_cannot_be_vaulted():
+    """A site created without a password is a site that cannot log in.
+
+    POST /api/sites routes the password to the encrypted secrets vault. When
+    the backend is plaintext or locked the SITE is still created but NO
+    password is stored -- the response says so via secrets_plaintext /
+    secrets_locked / cred_stored=false. Proceeding would leave a half-configured
+    marked site behind and make L6 fail for a reason that has nothing to do with
+    BD's login path. Refuse, and say which precondition failed.
+    """
+    seed = _load()
+    for flag in ({"id": "abc123", "cred_stored": False, "secrets_locked": True},
+                 {"id": "abc123", "cred_stored": False, "secrets_plaintext": True},
+                 {"id": "abc123", "cred_stored": False}):
+        client = FakeClient({("POST", "/api/sites"): flag})
+        with pytest.raises(seed.SeedRefused) as excinfo:
+            seed.seed_login(client)
+        msg = str(excinfo.value).lower()
+        assert "password" in msg or "vault" in msg or "secret" in msg, (
+            f"refusal did not explain the vault precondition: {excinfo.value}"
+        )
+
+
+def test_login_seed_points_at_the_local_fixture_origin_only():
+    """A seeded login must never reach a third-party site."""
+    seed = _load()
+    client = FakeClient({("POST", "/api/sites"): {"id": "abc123", "cred_stored": True}})
+    try:
+        # poll_seconds=0 so the readiness loop does not burn its real 30s
+        # budget against a fake that will never report auth_state=ok.
+        seed.seed_login(client, poll_seconds=0)
+    except seed.SeedRefused:
+        pass  # polling may refuse without a live app; the config is the subject
+    created = [b for p, b in client.posted() if p == "/api/sites" and isinstance(b, dict)]
+    assert created, "no site was created"
+    cfg = created[0]
+    login_url = str(cfg.get("login_url", ""))
+    assert login_url.startswith(seed.FIXTURE_ORIGIN), (
+        f"login_url {login_url!r} does not point at the local fixture origin; "
+        f"a seeded login must never touch a real site"
+    )
+
+
+def test_login_seed_triggers_the_real_login_endpoint():
+    """The login itself must be BD's, not a simulation."""
+    seed = _load()
+    client = FakeClient({("POST", "/api/sites"): {"id": "abc123", "cred_stored": True}})
+    try:
+        seed.seed_login(client, poll_seconds=0)
+    except seed.SeedRefused:
+        pass
+    assert any(p.endswith("/login") for p, _b in client.posted()), (
+        "the seeder never POSTed to /api/sites/<sid>/login; it must trigger "
+        "BD's own login path rather than fabricate the resulting state"
+    )
+
+
 def test_a_dry_run_does_not_claim_synthetic_state_is_present(tmp_path):
     """A dry run changed nothing, so it must not announce synthetic state.
 
