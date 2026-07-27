@@ -67,8 +67,23 @@ if template_path.exists():
     raw = template_path.read_bytes()
     print(f"  size bytes               : {len(raw)}")
     print(f"  sha256                   : {hashlib.sha256(raw).hexdigest()}")
+    # Hoisted out of the f-string expression part: Python 3.11 rejects a
+    # backslash there ("f-string expression part cannot include a
+    # backslash"); PEP 701 only relaxed that in 3.12. Every AST tool in this
+    # repo swallows per-file SyntaxErrors, so under 3.11 this whole module
+    # was silently dropped from their denominators.
+    #
+    # This probe used to compare against b'\\xef\\xbb\\xbf' -- DOUBLED
+    # backslashes, i.e. the twelve ASCII characters "\xef\xbb\xbf", not the
+    # three-byte UTF-8 BOM. Measured both ways before changing it:
+    #   real UTF-8 BOM              -> "no"   (the case it exists to catch)
+    #   literal backslash-xef text  -> "YES"  (a case nobody cares about)
+    # So a diagnostic written to test the BOM hypothesis in its own docstring
+    # could never answer it: the predicate structurally excluded the subject,
+    # and reported clean truthfully and uselessly (CLAUDE.md 0).
+    bom_probe = b"\xef\xbb\xbf"
     print(f"  has BOM (\\xef\\xbb\\xbf)  : "
-          f"{'YES' if raw.startswith(b'\\xef\\xbb\\xbf') else 'no'}")
+          f"{'YES' if raw.startswith(bom_probe) else 'no'}")
     text = raw.decode("utf-8", "replace")
     has_marker = "<!--CSRF_META-->" in text
     print(f"  contains '<!--CSRF_META-->': {has_marker}")
