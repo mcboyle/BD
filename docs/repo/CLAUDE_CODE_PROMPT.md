@@ -152,6 +152,14 @@ resolve is information about the dependency set, not an obstacle to route around
 writes `.claude-env-report.md`. Read that report first — a `WARN` row is an
 ABSENT capability, not a passing one.
 
+**Date the report before believing it.** It is gitignored, survives
+`git clean -fd`, and is written once per provisioning run, so it outlives the
+tree it describes: one was found seven days old asserting v3.66.811 against a
+v3.66.818 tree while a session read its rows as current. Run
+`venv/bin/python toolchain/bin/bd-env-report-check` — `FRESH` (0), `STALE` (1),
+`UNKNOWN` (2). UNKNOWN is not a soft pass: a report that cannot be dated is
+indistinguishable from one written against a different tree.
+
 Do **not** run the whole `tests/` directory. Known long runners:
 `test_perf_lab.py`, `test_v3_66_146_nav_guard`.
 

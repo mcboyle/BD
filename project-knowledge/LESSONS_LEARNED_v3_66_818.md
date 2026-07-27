@@ -180,6 +180,106 @@ burst. Measured: 11 agents took ~48 minutes; 10 agents took ~42 minutes.
 Fan-out on this host buys INDEPENDENCE (separate context, adversarial review),
 not speed. Choose it for the former and budget for the latter.
 
+## 13a. A presence assertion cannot see a substring regression
+
+CLAUDE.md's canonical command moved from `.venv/bin/python` to
+`venv/bin/python`. The obvious pin is `assert "venv/bin/python ..." in text` --
+and it is VACUOUS, because `venv/bin/python` is a SUBSTRING of
+`.venv/bin/python`. The assertion passes just as happily with the dot back.
+
+Both pins therefore carry an ABSENCE assertion as well:
+
+    assert 'venv/bin/python toolchain/bin/bd-regen-order --work "$PWD"' in text
+    assert ".venv/bin/python" not in text
+
+Whenever the forbidden form CONTAINS the required form (or vice versa), a
+presence check alone is a predicate that cannot exclude the thing it exists to
+forbid. Mutation-verified in both directions.
+
+## 13b. `object()` is always truthy, so a sentinel makes a useless guard
+
+`bulk_downloader/integrity.py` has `_UNSET = object()` and `_FFPROBE = _UNSET`
+as a test seam. Two tests guarded on `if not integrity._FFPROBE: pytest.skip()`.
+`object()` is truthy, so `not _FFPROBE` was NEVER true. The guard never fired.
+
+The consequence is worse than a missing skip: on a host without ffprobe the
+tests RAN and FAILED (`assert True is False`), so an ABSENT CAPABILITY read as a
+CODE REGRESSION. Someone would eventually have "fixed" working code to satisfy
+it.
+
+Interrogate the RESOLVER (`integrity._ffprobe()` returns None when absent), not
+the seam. A skip guard that cannot observe the condition it names is the same
+blind-denominator bug pointed at the test suite instead of the product.
+
+## 13c. Failing open is a decision to PROCEED, not a licence to report PASSED
+
+`verify_media_integrity` returns `(True, "ffprobe not installed")` when ffprobe
+is missing. That fail-open is deliberate and pinned. But the caller returned
+`(True, False, "")` -- discarding the reason -- and the UI then printed an
+unconditional verification checkmark. Every download on every host without
+ffprobe (which was every host this repo provisioned) was reported to the
+operator as integrity-verified when nothing had been checked.
+
+Two different claims live in one boolean: "should we continue?" and "did the
+check pass?". Only the first was ever decided. When a function fails open, the
+REASON is the load-bearing return value -- propagate it, and make any success
+marker conditional on it being empty.
+
+## 13d. A resolver must not answer a different question than the one asked
+
+The shared interpreter resolver originally ended its ladder with
+`command -v python3.12`. That found a SYSTEM 3.12 -- correct version, none of
+the project's dependencies. It is not a worse answer to "which interpreter
+belongs to this work tree"; it is an answer to "is there a 3.12 anywhere".
+
+Accepting it would have reproduced the original bug in a subtler form:
+AST-only tools would appear to work and anything importing flask would fail
+somewhere far from the resolver. The system rung is gone; `$BD_PYTHON` is the
+escape hatch, and a miss REFUSES.
+
+## 13e. Environment claims in documents are the ones that rot hardest
+
+`docs/repo/ENVIRONMENT_PROVISIONING.md` stated `ffmpeg 6.1.1` was "already
+present in the base image". Measured: ffmpeg and ffprobe were both ABSENT. Because
+the document said otherwise, no provisioning path installed them, and the
+integrity check failed open on every host.
+
+A claim about CODE gets falsified by a test. A claim about the ENVIRONMENT has
+no such gate -- it just sits there being believed. Treat every "X is already
+present" sentence in a doc as unverified until a probe says otherwise, and put
+the probe in the capability block so the answer is re-derived each run.
+
+## 13f. Dead config does not merely fail; it DISPLACES the live name
+
+`.env.example` set `BD_INSTALL_BROWSERS=0`. Nothing read that name. The name the
+code reads is `BD_SKIP_BROWSERS`, with INVERTED polarity. So the operator's
+panel had been requesting "do not install browsers" in a language nothing spoke,
+and ~150MB were reinstalled every session while the config looked deliberate.
+
+`tests/test_env_example_matches_the_ledger.py` now joins `.env.example` to the
+399-entry ledger `tools/config_surface_inventory.py` builds. Direction matters:
+the DOCUMENTED set must be a subset of the REAL one, not the reverse -- plenty
+of internal knobs are deliberately undocumented, and asserting the other
+direction would cry wolf on every one of them.
+
+Related, same file: `GIT_AUTHOR_NAME` / `GIT_COMMITTER_NAME` in the environment
+OUTRANK `git config`, so they silently overrode the identity cloud-setup.sh
+installs for the verified-commit hook, producing a human name on the
+automation's email on every commit.
+
+## 13g. Adding a group means teaching every stub that models it
+
+Adding the `media` package group meant editing FIVE places, and the anti-drift
+gates found each one: `system_deps.sh` (the list, the case arm, `all`, and both
+error strings), `EXPECTED_GROUPS`, `GROUP_ORDER`, `EXPECTED_GROUP_KINDS`, the
+provisioner call site, and the test harness's `_VERDICT_STUB_FRAGMENT` -- which
+returns exit 2 for an unknown group, so an untaught stub makes `install_group`
+record UNKNOWN and flips the verdict to INCOMPLETE.
+
+That is the gates working, not friction. The same sequence happened for `lint`
+one phase earlier, which is the tell that the shape is structural rather than a
+one-off.
+
 ## 13. Over-sensitive gates train you to ignore them
 
 Two fired repeatedly on correct states this session: a verified-commit hook that
