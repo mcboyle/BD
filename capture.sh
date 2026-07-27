@@ -18,6 +18,19 @@
 #   - private capture fixtures remain opt-in. Callers can export the absolute
 #     roots documented by capture_test_fixtures.py; step [2] inherits them.
 #     No private path is autodetected.
+#   - new step [2a] regenerates reports/gui_parity_inventory.{json,md} AFTER
+#     the systemd service is stopped and confirmed inactive, and BEFORE the
+#     pytest lanes. That file is gitignored yet SHIPS in the zip, so a stale
+#     copy from an earlier overlay deploy outlives `git clean -fd` (ignored
+#     files need -x) and the reconcile gate read it as inventory drift,
+#     failing the whole suite. Regenerating makes the gate compare
+#     fresh-vs-fresh. The ordering against the service stop is not cosmetic:
+#     the generator does `import bulk_downloader.app`, whose module body
+#     unconditionally runs db_init(), db_integrity_check() and five
+#     scheduler/thread starters, so run before the stop it put a second
+#     process on the live BD_HOME database. It is never fatal: it records
+#     PARITY_EXIT (4 = skipped because the service was still up), warns
+#     loudly, and hands the code to the verdict.
 #
 # Updated for v3.63.6:
 #   - capture.sh now ships in the release zip (was previously stash-local,
@@ -199,6 +212,111 @@ else
 fi
 echo "  service stop request exit=$STOP_REQUEST_EXIT; inactive=$((1 - SERVICE_STOP_EXIT))"
 sleep 1
+
+# ── [2a/9] GUI-parity inventory regen (service down) ──────────────
+#
+# WHY THIS EXISTS: reports/gui_parity_inventory.json is BUILD-TIME GENERATED
+# and GITIGNORED (.gitignore `reports/*`), yet it ships inside the release zip.
+# The deploy path is an overlay — `unzip -o` overwrites and adds but never
+# deletes — and `git clean -fd` cannot remove an ignored file (that needs -x).
+# So a copy generated on a build host whose tree differed from this box can sit
+# here indefinitely with nothing able to evict it. The suite's reconcile gate
+# (tests/test_v3_66_302_gui_parity_reconcile.py) diffs the on-disk inventory
+# against a live regen, so that stale copy reads as inventory drift and fails
+# the entire capture — observed on the box as
+# "only-shipped=[] only-regen=['pytest_capture_results']".
+#
+# Regenerating HERE puts the gate on fresh-vs-fresh. THE POSITION IS
+# LOAD-BEARING ON THREE SIDES. If you came here to tidy the ordering, this is
+# the paragraph you need:
+#
+#   * AFTER the __pycache__ purge above. The tool imports bulk_downloader.app,
+#     so a regen placed earlier would read stale bytecode.
+#
+#   * AFTER `sudo systemctl stop bulkdownloader` AND after the is-active
+#     confirmation above. THIS IS THE ONE THAT LOOKS LIKE COSMETICS AND IS NOT.
+#     tools/gui_parity_inventory.py does `import bulk_downloader.app` (inside
+#     _routes_from_app, the "live url_map" path this block demands below), and
+#     that module's TOP LEVEL runs, unconditionally, on import:
+#         db_init()                        app.py L80
+#         db_integrity_check()             app.py L89
+#         _start_session_keepers()         app.py L1494
+#         _start_watch_folder_threads()    app.py L1569
+#         _start_window_scheduler()        app.py L1638
+#         _start_storage_tier_scheduler()  app.py L1658
+#         _start_watcher()                 app.py L2062
+#     Run while the service is live, that is a SECOND process running a SQLite
+#     integrity check and starting five scheduler/thread groups against the
+#     same BD_HOME database the service is serving. BD_DISABLE_KEEPALIVE=1
+#     (which the tool sets for itself) suppresses ONE of those subsystems, not
+#     the other six. Until this cut the block sat 24 lines ABOVE the stop and
+#     did exactly that on every capture.
+#
+#   * BEFORE the pytest lanes below — a regen after them proves nothing.
+#
+# If the stop did not take, the regen is SKIPPED rather than run anyway: the
+# collision above is the whole reason for this position, so "the service is
+# still active" makes the inventory UNKNOWN (PARITY_EXIT=4), not
+# stale-or-fresh. Unknown is a third state and it fails. That costs nothing in
+# verdict terms — SERVICE_STOP_EXIT is already a --stage-exit, so a box whose
+# service would not stop was failing the capture regardless.
+#
+# Exit 0 is NOT sufficient evidence of a good regen: the generator falls back
+# to ENDPOINT_CATALOG.md when the app import raises, writes a
+# catalog-derived item set, and still returns 0. The written JSON is therefore
+# read back for `"route_source": "live url_map"`; missing file or any other
+# source is UNKNOWN, and unknown is a third state that fails. Never fatal —
+# every remaining step still runs and PARITY_EXIT goes to the verdict.
+echo "=== [2a/9] GUI-parity inventory regen ==="
+PARITY_JSON="$BD_HOME/reports/gui_parity_inventory.json"
+PARITY_EXIT=0
+if [ "$SERVICE_STOP_EXIT" -ne 0 ]; then
+  echo "  SKIPPED: bulkdownloader is still active. Importing the app now would" >&2
+  echo "  run a second db_integrity_check and start five scheduler groups" >&2
+  echo "  against the live database. The inventory is therefore UNKNOWN, not" >&2
+  echo "  stale-or-fresh." >&2
+  PARITY_EXIT=4
+else
+  venv/bin/python tools/gui_parity_inventory.py \
+     > "$OUT/02a_gui_parity_inventory.log" 2>&1
+  PARITY_EXIT=$?
+  if [ "$PARITY_EXIT" -ne 0 ]; then
+    echo "  WARNING: gui-parity inventory regen FAILED (exit=$PARITY_EXIT)." >&2
+    echo "  reports/gui_parity_inventory.json was not refreshed, so the parity" >&2
+    echo "  reconcile gate may report inventory drift against a stale copy and" >&2
+    echo "  fail the suite. See $OUT/02a_gui_parity_inventory.log" >&2
+  elif [ ! -f "$PARITY_JSON" ]; then
+    echo "  WARNING: regen reported success but $PARITY_JSON is missing." >&2
+    echo "  UNKNOWN state: the parity reconcile gate may report inventory drift." >&2
+    PARITY_EXIT=2
+  # ONE spelling of this predicate now, in capture.sh, install_linux.sh and
+  # scripts/provision_test_host.sh: PARSE the JSON, never grep for the
+  # substring `"route_source": "live url_map"`. The substring form is hostage
+  # to how tools/gui_parity_inventory.py serialises (json.dumps(...,
+  # indent=2)) — change the indent or the key separator and the grep starts
+  # calling a perfectly good inventory degraded, which is a gate firing on
+  # identity. install_linux.sh carried the strict literal and this file a
+  # whitespace-tolerant regex; they agreed by luck, and the strict one would
+  # have gone wrong first. A parse cannot be wrong about formatting. A file
+  # that will not parse is NOT a pass: json.load raising exits non-zero and
+  # lands in the same branch as a wrong route_source, because both mean "not
+  # proven app-derived".
+  elif ! venv/bin/python -c 'import json, sys
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception as exc:
+    print("gui_parity_inventory.json will not parse: %s" % exc, file=sys.stderr)
+    raise SystemExit(1)
+raise SystemExit(0 if d.get("route_source") == "live url_map" else 1)' "$PARITY_JSON"; then
+    echo "  WARNING: inventory was built from the ENDPOINT_CATALOG.md fallback," >&2
+    echo "  not the live url_map — the app import degraded silently and the tool" >&2
+    echo "  still exited 0. The item set is catalog-derived, so the parity" >&2
+    echo "  reconcile gate may report inventory drift." >&2
+    PARITY_EXIT=3
+  fi
+fi
+echo "  exit=$PARITY_EXIT"
+
 run_with_heartbeat "parallel-safe pytest lane" "$OUT/02_pytest_parallel.log" \
    env BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest \
    -q tests --tb=short \
@@ -436,8 +554,9 @@ venv/bin/python tools/capture_verdict.py \
   --suite-exit "$SUITE_EXIT" \
   --live-exit "$LIVE_EXIT" \
   --expected-live-tests "$EXPECTED_LIVE_TESTS" \
-  --stage-exit "graph=$GRAPH_EXIT" \
   --stage-exit "service-stopped=$SERVICE_STOP_EXIT" \
+  --stage-exit "parity-inventory=$PARITY_EXIT" \
+  --stage-exit "graph=$GRAPH_EXIT" \
   --stage-exit "csrf=$CSRF_EXIT" \
   --stage-exit "service-install=$INSTALL_EXIT" \
   --stage-exit "service-active=$SERVICE_EXIT" \

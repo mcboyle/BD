@@ -5,6 +5,12 @@
 # line so a dead optional package degrades gracefully), and installs
 # the Playwright Chromium browser. Run from the project folder:
 #     chmod +x install_linux.sh && ./install_linux.sh
+#
+# It also makes a BEST-EFFORT attempt at the system (apt) package tier, using
+# the shared list in scripts/lib/system_deps.sh. That tier is never fatal and
+# never required: an unprivileged operator with no sudo rights gets a printed
+# hint and the install continues. Opt out entirely with:
+#     BD_SKIP_SYSTEM_DEPS=1 ./install_linux.sh
 set -u
 set -o pipefail
 cd "$(dirname "$(readlink -f "$0")")" || {
@@ -17,6 +23,80 @@ VENV_DIR="$INSTALL_DIR/venv"
 echo " ================================================================"
 echo "  BulkDownloader - Linux install"
 echo " ================================================================"
+
+# ── System packages (best-effort; never fatal) ───────────────────────────────
+# BD's system-level package lists live in exactly ONE place -
+# scripts/lib/system_deps.sh - so this script, scripts/provision_test_host.sh
+# and scripts/cloud-setup.sh cannot drift apart about what "the system deps"
+# are. Three private copies of a list is three different answers to "are the
+# deps present?", and every one of them can report OK while the host is missing
+# something another script considers mandatory.
+#
+# This tier deliberately runs BEFORE the interpreter detection below: apt is
+# often what installs the Python this script then looks for.
+#
+# EVERY path here is non-fatal. This script must stay runnable by an ordinary
+# unprivileged user with no sudo rights - the same contract install_windows.bat
+# honors - so a missing package degrades to a copy-pasteable hint and the
+# install continues. Opt out with BD_SKIP_SYSTEM_DEPS=1.
+_sys_pkgs=""
+if [ "${BD_SKIP_SYSTEM_DEPS:-0}" = "1" ]; then
+    echo "  (system packages skipped: BD_SKIP_SYSTEM_DEPS=1)"
+elif [ ! -r "$INSTALL_DIR/scripts/lib/system_deps.sh" ]; then
+    echo "  (system packages skipped: scripts/lib/system_deps.sh not present)"
+    echo "  This tree predates the shared dependency fragment. The deploy path"
+    echo "  is an overlay that never deletes, so an older install can lack it;"
+    echo "  the rest of this install is unaffected."
+else
+    # shellcheck source=scripts/lib/system_deps.sh
+    . "$INSTALL_DIR/scripts/lib/system_deps.sh"
+    # Sourcing cleanly proves nothing about what the file DEFINED - a fragment
+    # that parses fine can still define no functions - so resolve the name.
+    if ! declare -F bd_system_pkgs >/dev/null 2>&1; then
+        echo "  WARNING: scripts/lib/system_deps.sh defined no bd_system_pkgs;"
+        echo "  skipping the system package step. If a step below fails for a"
+        echo "  missing library, install BD's system dependencies by hand."
+    else
+        # Capture FIRST, then refuse to run apt on an empty list. Command
+        # substitution discards the non-zero exit, and apt-get install with
+        # zero package arguments exits 0 - so an unchecked
+        # `apt-get install -y $(bd_system_pkgs all)` would install nothing and
+        # report success. An empty denominator reading as OK is the exact
+        # failure this fragment exists to prevent.
+        _sys_pkgs="$(bd_system_pkgs all)" || _sys_pkgs=""
+        if [ -z "$_sys_pkgs" ]; then
+            echo "  WARNING: bd_system_pkgs returned no packages; refusing to"
+            echo "  run apt with an empty list. Skipping the system package"
+            echo "  step - the rest of the install continues."
+        elif [ "$(id -u)" = "0" ]; then
+            echo "  Installing system packages (root) ..."
+            apt-get update -qq \
+                || echo "  (apt-get update failed - using the cached lists)"
+            # Word splitting is the point: the fragment returns one
+            # space-separated list, apt wants one arg each.
+            # shellcheck disable=SC2086
+            apt-get install -y $_sys_pkgs \
+                || echo "  (system package install failed - continuing)"
+        elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+            echo "  Installing system packages (sudo) ..."
+            sudo -n apt-get update -qq \
+                || echo "  (apt-get update failed - using the cached lists)"
+            # Word splitting is the point here too.
+            # shellcheck disable=SC2086
+            sudo -n apt-get install -y $_sys_pkgs \
+                || echo "  (system package install failed - continuing)"
+        else
+            # Not root, and sudo is either absent or would prompt. Prompting
+            # here would hang an unattended install, so state the remedy and
+            # move on.
+            echo "  (system packages skipped: not root, and sudo is not"
+            echo "  available non-interactively)"
+            echo "  If a step below fails for a missing system library, run:"
+            echo "    sudo apt-get install -y $_sys_pkgs"
+            echo "  The rest of the install continues either way."
+        fi
+    fi
+fi
 
 # locate a Python interpreter
 # Allow the operator to force a specific interpreter via env var, e.g.
@@ -72,14 +152,15 @@ else
     echo "  Creating virtual environment at $VENV_DIR ..."
     "$PYTHON_CMD" -m venv "$VENV_DIR" || {
         echo "  ERROR: failed to create venv. On Debian/Ubuntu install"
-        echo "  the venv + pip packages first:"
-        echo "    sudo apt install -y python3-venv python3-pip"
+        echo "  the venv + pip packages first. The names come from the shared"
+        echo "  fragment, so this command cannot drift out of date:"
+        echo "    sudo apt-get install -y \$(. scripts/lib/system_deps.sh; bd_system_pkgs core)"
         exit 1
     }
     if ! _venv_ok; then
         echo "  ERROR: the new venv still has no pip. Install the"
         echo "  Ubuntu packages and re-run:"
-        echo "    sudo apt install -y python3-venv python3-pip"
+        echo "    sudo apt-get install -y \$(. scripts/lib/system_deps.sh; bd_system_pkgs core)"
         exit 1
     fi
 fi
@@ -453,6 +534,65 @@ if [ -d "$INSTALL_DIR/frontend" ]; then
         echo "  until you install Node 18+ and re-run this script. The"
         echo "  existing UIs at / and /m are unaffected."
     fi
+fi
+
+# ── GUI-parity inventory regen ──────────────────────────────────────────────
+# reports/gui_parity_inventory.json is GITIGNORED (.gitignore `reports/*`) AND
+# build-time generated. Two consequences that bite together:
+#   * no git operation ever delivers a fresh one, and `git clean -fd` cannot
+#     remove a stale one (that needs -x);
+#   * the deploy path is an unzip overlay - it overwrites and adds but never
+#     deletes - so a copy built against a different tree survives on the box.
+# tests/test_v3_66_302_gui_parity_reconcile.py compares the SHIPPED inventory
+# against a fresh regen, so that stale copy reads as inventory drift and fails
+# the whole suite. That is the operator's actual observed failure:
+#   "inventory drift - only-shipped=[] only-regen=['pytest_capture_results']"
+# Regenerating here, in the deploy venv, makes shipped-vs-regen match by
+# construction. Mirrors scripts/cloud-setup.sh section 7c.
+#
+# Non-fatal: the app runs fine without the report; only the parity gate reads it.
+if [ -x "$VPYTHON" ] && [ -f "$INSTALL_DIR/tools/gui_parity_inventory.py" ]; then
+    echo
+    echo "  Regenerating the GUI-parity inventory ..."
+    # The generator wraps its `import bulk_downloader.app` in a bare except and
+    # SILENTLY falls back to ENDPOINT_CATALOG.md, still exiting 0 - so exit 0
+    # alone does not mean the inventory came from the live route map. Read the
+    # route_source field back; a degraded inventory is an unknown, not a pass.
+    _parity_err=/tmp/bd_gui_parity_inventory.err
+    if ! "$VPYTHON" tools/gui_parity_inventory.py >"$_parity_err" 2>&1; then
+        echo "  WARNING: GUI-parity inventory regen failed; any stale copy on"
+        echo "  disk is still there and will read as drift in the test suite."
+        if [ -s "$_parity_err" ]; then
+            tail -5 "$_parity_err" | sed 's/^/    /'
+        fi
+    # ONE spelling of this predicate now, in capture.sh, install_linux.sh and
+    # scripts/provision_test_host.sh: PARSE the JSON, never grep for the
+    # substring '"route_source": "live url_map"'. The substring form is hostage
+    # to how tools/gui_parity_inventory.py serialises (json.dumps(...,
+    # indent=2)) - change the indent or the key separator and the grep starts
+    # calling a perfectly good inventory degraded, which is a gate firing on
+    # identity. This file carried the STRICT LITERAL (no whitespace tolerance at
+    # all) and capture.sh a whitespace-tolerant regex; they agreed by luck, and
+    # this one would have gone wrong first. A parse cannot be wrong about
+    # formatting. A file that will not parse is NOT a pass: json.load raising
+    # exits non-zero and lands in the same branch as a wrong route_source,
+    # because both mean "not proven app-derived".
+    elif "$VPYTHON" -c 'import json, sys
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception as exc:
+    print("gui_parity_inventory.json will not parse: %s" % exc, file=sys.stderr)
+    raise SystemExit(1)
+raise SystemExit(0 if d.get("route_source") == "live url_map" else 1)' \
+            "$INSTALL_DIR/reports/gui_parity_inventory.json"; then
+        echo "  GUI-parity inventory regenerated from the live route map."
+    else
+        echo "  WARNING: the GUI-parity inventory was rebuilt WITHOUT the live"
+        echo "  route map (the app import failed and it fell back to the"
+        echo "  endpoint catalog). The parity gate would compare against a"
+        echo "  degraded inventory - re-run this script once the app imports."
+    fi
+    rm -f "$_parity_err"
 fi
 
 echo

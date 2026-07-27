@@ -88,6 +88,7 @@
     "BD_SKIP_EXTRAS": "display-only",
     "BD_SKIP_NET": "display-only",
     "BD_SKIP_SECTOOLS": "display-only",
+    "BD_SKIP_SYSTEM_DEPS": "display-only",
     "BD_SLOW_QUERY_LOG": "full",
     "BD_SLOW_QUERY_MS": "full",
     "BD_TEST_MODE": "full",

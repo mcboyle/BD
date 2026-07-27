@@ -151,7 +151,8 @@ with `test_cut8_schedules`.
 - **`test_v3_43_80_modules::test_all_modules_import` is environmental, not a
   regression.** It false-fails a bare band with `tray_app: Namespace Gtk not
   available`; it passes 49/49 with GTK typelibs and `DISPLAY=:99`. Fix the
-  environment, then re-band — do not chase it as a code defect.
+  environment (`scripts/provision_test_host.sh`, below), then re-band — do not
+  chase it as a code defect.
 - Three Python resolution paths exist (system / prestaged / service venv) and
   they carry **different playwright versions**. `import playwright` succeeding at
   a bare prompt proves nothing about what BD runs.
@@ -164,6 +165,17 @@ with `test_cut8_schedules`.
   Piping masks the exit code, and this bites even when you know about it.
 - `pgrep -f "<cmd>"` **matches its own wrapper**. Never read it as "still
   running" — check `/proc/<pid>` or a written exit marker.
+
+**Provisioning a test host.** `scripts/provision_test_host.sh` is the one command
+that takes a fresh Ubuntu 24.04 box to a green `./capture.sh`: system tier,
+`install_linux.sh`, Xvfb on `:99`, parity-inventory regen. Run it instead of
+hand-installing typelibs.
+
+`scripts/lib/system_deps.sh` is the **single source of truth** for system
+packages; `install_linux.sh`, `scripts/provision_test_host.sh` and
+`scripts/cloud-setup.sh` all source it. Never inline a package list again --
+three copies is a denominator that drifts, and the copy nobody updated is the one
+the box runs (S0/S8).
 
 ---
 
@@ -195,6 +207,14 @@ tarballs), bisecting a regression, and reviewing a cut before it ships.
   gates glob the disk, so the orphan trips the baseline. On any cut that deletes
   a file, run the deploy-manifest step *before* the overlay. Git tracking the
   deletion does not delete it on the target.
+- **Gitignored generated artifacts still go stale, and `git clean -fd` will not
+  remove them** -- that needs `-x`. `reports/gui_parity_inventory.json` is
+  gitignored and build-time generated, so a stale copy left by an earlier overlay
+  reads as parity drift and fails the **entire** suite: observed at v3.66.818 as
+  a single failure, `only-regen=['pytest_capture_results']`, on an
+  otherwise-green 13389-pass run. The durable fix is to **regenerate, not
+  delete** -- `install_linux.sh`, `capture.sh` and
+  `scripts/provision_test_host.sh` all regenerate it now.
 - **Band derivation is still required.** Tests are not derivable from a diff;
   blast radius follows the denominator.
 - **The guard SHAs still apply.** Git history is not authorization.
