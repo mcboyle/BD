@@ -47,7 +47,16 @@ cd /home/user/BD 2>/dev/null || cd "$(git rev-parse --show-toplevel 2>/dev/null)
   echo "branch : $(git branch --show-current)  head: $(git rev-parse --short HEAD)"
   git fetch -q origin main 2>/dev/null && echo "behind main by: $(git rev-list --count HEAD..origin/main 2>/dev/null) commits"
   echo "== env report from cloud-setup.sh =="
-  [ -f .claude-env-report.md ] && grep -E "VERDICT|FAIL|WARN" .claude-env-report.md | head || echo "(no .claude-env-report.md -- cloud-setup may not have run)"
+  # Date the report BEFORE reading it. It is gitignored, survives `git clean
+  # -fd`, and is written once per provisioning run -- one was found seven days
+  # old asserting v3.66.811 against a v3.66.818 tree while its rows were being
+  # read as current. FRESH=0, STALE=1, UNKNOWN=2 (and unknown is not a pass).
+  venv/bin/python toolchain/bin/bd-env-report-check --tree "$PWD"
+  if [ $? -eq 0 ]; then
+    grep -E "VERDICT|FAIL|WARN" .claude-env-report.md | head
+  else
+    echo "(report not current for this tree -- rows above are NOT evidence about it)"
+  fi
 } 2>&1
 ```
 

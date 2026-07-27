@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+"""bd-env-report-check -- is .claude-env-report.md still describing THIS tree?
+
+The provisioning report opens by telling its reader to trust it before reading
+any test result. That makes staleness a correctness problem, not a cosmetic one.
+One was found on a live container seven days old, asserting v3.66.811 against a
+v3.66.818 tree, while a session read its rows as current.
+
+The report carries provenance since v3.66.818:
+
+    generated_at=...
+    generated_against_version=3.66.818
+    generated_against_commit=<sha>
+
+This compares that against the tree and answers with exactly one of:
+
+    FRESH    provenance matches the tree; rows describe what you are standing in
+    STALE    provenance names a different version or commit
+    UNKNOWN  no report, no provenance block, or the tree cannot be read
+
+UNKNOWN is not a soft pass. A report whose provenance cannot be established is
+indistinguishable from one written against another tree, so it exits non-zero
+alongside STALE. Unknown is a third state and it FAILS -- the whole point is to
+stop a session inheriting rows it cannot date.
+
+Exit codes:  0 FRESH   1 STALE   2 UNKNOWN
+
+Usage: bd-env-report-check [--tree DIR] [--report PATH] [--quiet]
+"""
+from __future__ import annotations
+
+import argparse
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+FRESH, STALE, UNKNOWN = 0, 1, 2
+
+_PROV = re.compile(
+    r"^(generated_at|generated_against_version|generated_against_commit)=(.*)$",
+    re.M,
+)
+
+
+def read_provenance(text: str) -> dict[str, str]:
+    return {m.group(1): m.group(2).strip() for m in _PROV.finditer(text)}
+
+
+def tree_version(tree: Path) -> str | None:
+    init = tree / "bulk_downloader" / "__init__.py"
+    try:
+        source = init.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    m = re.search(r'__version__\s*=\s*"([^"]+)"', source)
+    return m.group(1) if m else None
+
+
+def tree_commit(tree: Path) -> str | None:
+    try:
+        proc = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(tree),
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+def evaluate(tree: Path, report: Path) -> tuple[int, str]:
+    if not report.is_file():
+        return UNKNOWN, (
+            f"no report at {report}. Provisioning may not have run in this "
+            f"container; nothing here describes the environment you are in."
+        )
+
+    prov = read_provenance(report.read_text(encoding="utf-8", errors="replace"))
+    got_version = prov.get("generated_against_version")
+    got_commit = prov.get("generated_against_commit")
+
+    if not got_version and not got_commit:
+        return UNKNOWN, (
+            "the report carries no provenance block, so it predates v3.66.818 "
+            "or was written by a forked script. It cannot be dated against this "
+            "tree, which is not the same as being current."
+        )
+    if got_version in (None, "", "UNKNOWN") and got_commit in (None, "", "UNKNOWN"):
+        return UNKNOWN, (
+            "the report records provenance as UNKNOWN, meaning the provisioner "
+            "could not determine what it was building against."
+        )
+
+    want_version = tree_version(tree)
+    want_commit = tree_commit(tree)
+    if want_version is None:
+        return UNKNOWN, f"cannot read the tree version under {tree}"
+
+    problems = []
+    if got_version and got_version != "UNKNOWN" and got_version != want_version:
+        problems.append(f"version {got_version} != tree {want_version}")
+    # Commit is advisory: a clean checkout of the same version at a different
+    # commit is common mid-branch and is NOT by itself stale enough to block.
+    # Reported, never decisive -- a gate that fires on every commit would be
+    # switched off, and then the version check goes with it.
+    note = ""
+    if got_commit and want_commit and got_commit != want_commit:
+        note = f" (commit differs: {got_commit[:12]} vs {want_commit[:12]})"
+
+    if problems:
+        return STALE, "; ".join(problems) + note
+    return FRESH, f"version {want_version}{note}"
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--tree", default=".")
+    ap.add_argument("--report", default=None)
+    ap.add_argument("--quiet", action="store_true")
+    args = ap.parse_args(argv)
+
+    tree = Path(args.tree).resolve()
+    report = Path(args.report) if args.report else tree / ".claude-env-report.md"
+
+    code, detail = evaluate(tree, report)
+    label = {FRESH: "FRESH", STALE: "STALE", UNKNOWN: "UNKNOWN"}[code]
+    if not args.quiet:
+        print(f"{label}: {detail}")
+        if code != FRESH:
+            print(
+                "Do not read rows from this report as current. Re-run "
+                "provisioning, or treat every capability claim in it as "
+                "unverified.",
+                file=sys.stderr,
+            )
+    return code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
