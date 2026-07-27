@@ -248,6 +248,12 @@ bd_system_pkgs() {
         libgirepository-1.0-1
         x11-utils
     )
+    # Neither runtime nor display: this is what the test suite's own shellcheck
+    # parse gates need in order to RUN. Without it they SKIP with
+    # BD-GATE-UNRUNNABLE -- honest, but five shell files then go unverified on a
+    # freshly provisioned box. Measured on the operator's host: 129 passed /
+    # 7 skipped before installing it, 136 passed / 0 skipped after.
+    local lint=(shellcheck)
 
     # "${arr[*]}" joins on the FIRST character of IFS, so pin IFS locally: the
     # contract is a space-separated list regardless of what the caller left set.
@@ -255,7 +261,7 @@ bd_system_pkgs() {
     local IFS=' '
 
     if [ "$#" -eq 0 ]; then
-        printf 'bd_system_pkgs: no package group given (expected one of: core node gtk all)\n' >&2
+        printf 'bd_system_pkgs: no package group given (expected one of: core node gtk lint all)\n' >&2
         return 1
     fi
 
@@ -263,9 +269,10 @@ bd_system_pkgs() {
         core) printf '%s\n' "${core[*]}" ;;
         node) printf '%s\n' "${node[*]}" ;;
         gtk)  printf '%s\n' "${gtk[*]}" ;;
-        all)  _bd_dedup "${core[@]}" "${node[@]}" "${gtk[@]}" ;;
+        lint) printf '%s\n' "${lint[*]}" ;;
+        all)  _bd_dedup "${core[@]}" "${node[@]}" "${gtk[@]}" "${lint[@]}" ;;
         *)
-            printf 'bd_system_pkgs: unknown package group %s (expected one of: core node gtk all)\n' \
+            printf 'bd_system_pkgs: unknown package group %s (expected one of: core node gtk lint all)\n' \
                 "'$1'" >&2
             return 1
             ;;

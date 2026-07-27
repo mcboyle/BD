@@ -117,9 +117,16 @@ EXPECTED_GROUPS: dict[str, tuple[str, ...]] = {
         "libgirepository-1.0-1",
         "x11-utils",
     ),
+    # `shellcheck` is in its own group because it is neither runtime nor
+    # display: it is what the suite's own parse gates need in order to RUN.
+    # Without it those gates SKIP with BD-GATE-UNRUNNABLE -- honest, but it
+    # means five shell files go unverified on a freshly provisioned box, which
+    # is the gap this group closes. Measured on the operator's host: 129 passed
+    # / 7 skipped before installing it, 136 passed / 0 skipped after.
+    "lint": ("shellcheck",),
 }
 
-GROUP_ORDER = ("core", "node", "gtk")
+GROUP_ORDER = ("core", "node", "gtk", "lint")
 
 ALL_PACKAGES = frozenset(
     name for names in EXPECTED_GROUPS.values() for name in names
@@ -145,13 +152,14 @@ DISCRIMINATING_PACKAGES = (
 )
 
 # Deliberately NOT absence-checked: each is also a command or an ordinary word
-# in these files (`git`, `python3.12` and `npm` are all invoked as programs).
+# in these files (`git`, `python3.12`, `npm` and `shellcheck` are all invoked as
+# programs -- `command -v shellcheck` guards several gates).
 # Asserting their absence would cry wolf, so
 # `test_no_consumer_hardcodes_an_apt_package_list` covers them by checking apt
 # argument positions instead. The two predicates together contain every package
 # name in ALL_PACKAGES -- that is the denominator check, asserted in
 # `test_anti_drift_predicates_cover_every_package_name`.
-AMBIGUOUS_PACKAGES = ("git", "python3.12", "npm")
+AMBIGUOUS_PACKAGES = ("git", "python3.12", "npm", "shellcheck")
 
 # Files that must never carry their own copy of the package lists.
 CONSUMERS = (CLOUD_SETUP, INSTALL_LINUX, PROVISIONER)
@@ -1931,6 +1939,10 @@ EXPECTED_GROUP_KINDS: dict[str, str] = {
     "core": "core",
     "node": "core",
     "gtk": "optional",
+    # optional: a box without shellcheck still captures cleanly. The parse
+    # gates announce themselves unrunnable rather than reporting OK, so the
+    # failure mode is a visible absence, not a false pass.
+    "lint": "optional",
 }
 
 # The trailing \S excludes the DEFINITION line `install_group() {`.
@@ -3254,7 +3266,8 @@ bd_system_pkgs() {
         core) printf '%s\n' "${PROBE_PKGS_CORE-probe-core-a probe-core-b}" ;;
         node) printf '%s\n' "${PROBE_PKGS_NODE-probe-node-a}" ;;
         gtk)  printf '%s\n' "${PROBE_PKGS_GTK-probe-gtk-a}" ;;
-        all)  printf '%s\n' "probe-core-a probe-core-b probe-node-a probe-gtk-a" ;;
+        lint) printf '%s\n' "${PROBE_PKGS_LINT-probe-lint-a}" ;;
+        all)  printf '%s\n' "probe-core-a probe-core-b probe-node-a probe-gtk-a probe-lint-a" ;;
         *)    return 2 ;;
     esac
 }
