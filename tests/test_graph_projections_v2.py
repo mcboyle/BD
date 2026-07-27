@@ -39,7 +39,7 @@ def test_schema_document_matches_implemented_projection_set():
         assert f"`{name}`" in text
     assert "`schema_name`" in text
     assert "`source_sha`" in text
-    assert "verified-against: v3.66.817" in text
+    assert "verified-against: v3.66.818" in text
 
 
 class GraphFixture(dict[str, dict[str, object]]):
