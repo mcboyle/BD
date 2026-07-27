@@ -142,7 +142,12 @@ class TestVerifyMediaIntegrity:
         """If ffprobe IS installed (rare in CI), nonexistent paths should
         produce a non-OK result. Skip the test if ffprobe isn't available."""
         from bulk_downloader import integrity
-        if not integrity._FFPROBE:
+        # Interrogate the RESOLVER, not the seam. `_FFPROBE` starts as
+        # `_UNSET = object()`, which is always truthy, so `not _FFPROBE` was
+        # never true and these tests never skipped -- they ran on a host with
+        # no ffprobe and FAILED, which reads as a code regression rather than
+        # an absent capability. `_ffprobe()` returns None when it is absent.
+        if not integrity._ffprobe():
             pytest.skip("ffprobe not installed in this environment")
         ok, reason = integrity.verify_media_integrity("/tmp/nonexistent_xyz.mp4")
         assert ok is False
@@ -151,7 +156,12 @@ class TestVerifyMediaIntegrity:
     def test_returns_failure_on_timeout(self):
         """Simulate ffprobe timeout via a stubbed subprocess.run."""
         from bulk_downloader import integrity
-        if not integrity._FFPROBE:
+        # Interrogate the RESOLVER, not the seam. `_FFPROBE` starts as
+        # `_UNSET = object()`, which is always truthy, so `not _FFPROBE` was
+        # never true and these tests never skipped -- they ran on a host with
+        # no ffprobe and FAILED, which reads as a code regression rather than
+        # an absent capability. `_ffprobe()` returns None when it is absent.
+        if not integrity._ffprobe():
             pytest.skip("ffprobe not installed; this test mocks subprocess")
         import subprocess as sp
         orig_run = sp.run

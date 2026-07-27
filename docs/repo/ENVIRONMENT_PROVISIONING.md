@@ -102,9 +102,20 @@ build fails with an error that does not name the cause. Note that
 `npm ci --dry-run` does *not* reveal this — the dry run installed the dev
 dependency under both settings and only a real install exposed the omission.
 
-Media tooling (`pack_C` media kit) is already present in the base image —
-`ffmpeg 6.1.1` at `/usr/bin/ffmpeg`. Do not install a static build over it; the
-static ffmpeg is precisely what segfaults on HLS+HTTPS.
+Media tooling (`pack_C` media kit) — **verify, do not assume.** This paragraph
+previously stated that `ffmpeg 6.1.1` was already present at `/usr/bin/ffmpeg`.
+That was measured false on the Claude cloud container on 2026-07-27: `ffmpeg`
+and `ffprobe` were both **absent**, and because this document said otherwise, no
+provisioning path installed them. `bulk_downloader/integrity.py` shells out to
+`ffprobe`, and its absence makes media verification fail open.
+
+`ffmpeg` is now in the `media` group of `scripts/lib/system_deps.sh`, so all
+three provisioning paths install it, and both `ffmpeg` and `ffprobe` are probed
+separately in the capability block (probing only `ffmpeg` answers a question
+nobody asked — `ffprobe` is the binary the integrity path actually invokes).
+
+When a distribution ffmpeg IS present, do not install a static build over it:
+the static ffmpeg is precisely what segfaults on HLS+HTTPS.
 
 ---
 
