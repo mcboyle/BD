@@ -27,29 +27,41 @@ set -uo pipefail   # deliberately NOT -e: a failed step must be RECORDED, not
 # avoid. Find the repo by its MARKER instead, and if it is genuinely not present
 # yet, say so loudly rather than provisioning against "/".
 MARKER="bulk_downloader/__init__.py"
+
+# NAMED PROBES ONLY -- there is deliberately no filesystem search.
+#
+# A `find / -maxdepth 6` fallback used to rank candidates by path depth and take
+# the shallowest. On any host that has run the test suite, /tmp fills with two-
+# and three-file pytest fixtures containing bulk_downloader/__init__.py, and
+# those are SHALLOWER than the real checkout. Measured on a working container:
+# 70 candidates, and the winner was a 3-file fixture directory. Provisioning
+# against a fixture is not a degraded success -- every later step then reports
+# OK about the wrong tree.
+#
+# Sets REPO and REPO_VIA directly rather than echoing. The old version was
+# invoked as `REPO="$(find_repo)"`, so anything it assigned (notably the
+# candidate count) died with the command-substitution subshell and the
+# ambiguity WARN that read it could never fire.
+REPO=""
+REPO_VIA=""
 find_repo() {
-  local c
-  for c in "${BD_REPO:-}" "${CLAUDE_PROJECT_DIR:-}" "$PWD" \
-           /workspace /repo /src /app "$HOME/bulkdownloader" "$HOME/repo"; do
-    [ -n "$c" ] && [ -f "$c/$MARKER" ] && { (cd "$c" && pwd); return 0; }
+  local name path
+  for name in BD_REPO CLAUDE_PROJECT_DIR PWD; do
+    path="${!name:-}"
+    if [ -n "$path" ] && [ -f "$path/$MARKER" ]; then
+      REPO="$(cd "$path" && pwd)"; REPO_VIA="\$$name"; return 0
+    fi
   done
-  # bounded search. Collect ALL matches: taking the first silently picks a stale
-  # clone when more than one exists. Choose the shallowest deterministically and
-  # record the ambiguity rather than hiding it.
-  local hits
-  hits="$(find / -maxdepth 6 -type f -path "*/bulk_downloader/__init__.py" \
-        -not -path "/proc/*" -not -path "/sys/*" -not -path "*/venv/*" \
-        -not -path "*/site-packages/*" -not -path "*/node_modules/*" 2>/dev/null \
-        | awk '{print gsub(/\//,"/"), $0}' | sort -n | cut -d" " -f2-)"
-  [ -z "$hits" ] && return 1
-  BD_REPO_CANDIDATES="$(echo "$hits" | wc -l)"
-  c="$(echo "$hits" | head -1)"
-  (cd "$(dirname "$(dirname "$c")")" && pwd); return 0
+  for path in /workspace /repo /src /app "$HOME/bulkdownloader" "$HOME/repo"; do
+    if [ -f "$path/$MARKER" ]; then
+      REPO="$(cd "$path" && pwd)"; REPO_VIA="$path"; return 0
+    fi
+  done
+  return 1
 }
 
-REPO="$(find_repo)" || REPO=""
+find_repo || true
 if [ -n "$REPO" ]; then cd "$REPO"; HAVE_REPO=1; else HAVE_REPO=0; fi
-BD_REPO_CANDIDATES="${BD_REPO_CANDIDATES:-1}"
 
 # Report lives in HOME so it survives not knowing where the repo is; copied into
 # the repo at the end when there is one.
@@ -62,10 +74,38 @@ CORE_FAILED=0
 START=$(date +%s)
 
 : > "$REPORT"
+
+# Provenance. A wall-clock timestamp cannot answer "is this still true?" -- and
+# this report tells its reader, in its own header, to trust it. One was found
+# seven days stale on a live container, asserting a version the tree had long
+# since moved past, while a session read it as current. So the report records
+# the TREE it was generated against, not merely when. Content, not bytes: a
+# reader compares version+commit, and re-running on an unchanged tree produces
+# the same provenance rather than a spurious diff.
+if [ "$HAVE_REPO" = 1 ]; then
+  GEN_VERSION="$(grep -oE '__version__ *= *"[^"]+"' bulk_downloader/__init__.py 2>/dev/null \
+                 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)"
+  GEN_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)"
+else
+  GEN_VERSION=""
+  GEN_COMMIT=""
+fi
+
 {
   echo "# Environment provisioning report"
   echo
   echo "\`scripts/cloud-setup.sh\` — $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo
+  echo '```'
+  echo "generated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "generated_against_version=${GEN_VERSION:-UNKNOWN}"
+  echo "generated_against_commit=${GEN_COMMIT:-UNKNOWN}"
+  echo '```'
+  echo
+  echo "If \`generated_against_version\`/\`generated_against_commit\` do not match"
+  echo "the tree you are reading this in, every row below describes a DIFFERENT"
+  echo "tree. Re-run the provisioner rather than trusting it. UNKNOWN means the"
+  echo "provenance could not be determined, which is not the same as current."
   echo
   echo "**Read this before trusting any test result.** A WARN row is a capability"
   echo "that is ABSENT, not one that passed. A suite depending on it will skip or"
@@ -90,7 +130,13 @@ step(){                       # step <label> <core|optional> <command...>
       echo "[FAIL] $label (exit $rc)"; sed 's/^/       /' "$log" | tail -n 12
       CORE_FAILED=1
     else
-      row "$label" "WARN" "exit $rc — absent; dependent work cannot run"
+      # Report what the command SAID, exactly as the core branch does. The old
+      # text was the fixed sentence "absent; dependent work cannot run", which
+      # is true for an uninstalled package and false for everything else -- a
+      # drifted guard, a syntax error, an HTTP 403. Naming the wrong cause in
+      # the one document a session is told to trust is worse than naming none,
+      # because it ends the investigation.
+      row "$label" "WARN" "exit $rc — $(tail -n3 "$log" | tr '\n' ' ' | tr '|' '/' | cut -c1-80)"
       echo "[warn] $label (exit $rc)"
     fi
   fi
@@ -152,9 +198,15 @@ else
   fi
 fi
 
-if [ "${BD_REPO_CANDIDATES:-1}" -gt 1 ] 2>/dev/null; then
-  row "repo discovery" "WARN" "$BD_REPO_CANDIDATES checkouts found; chose the shallowest: $REPO. Set BD_REPO to be explicit."
+# Which checkout was provisioned, and how it was chosen. Without this a reader
+# has to infer the tree from incidental evidence (a stack trace, a path in a log
+# tail) -- and every row below is a claim ABOUT that tree.
+if [ "$HAVE_REPO" = 1 ]; then
+  row "repo location" "OK" "$REPO (located via ${REPO_VIA:-unknown})"
+else
+  row "repo location" "**FAILED**" "no checkout found; probed \$BD_REPO, \$CLAUDE_PROJECT_DIR, \$PWD and the conventional paths"
 fi
+
 echo "=== BulkDownloader provisioning (full upstream install) ==="
 if [ "$HAVE_REPO" = 1 ]; then
   echo "repo: $REPO"
@@ -428,11 +480,53 @@ G={"bulk_downloader/extraction_core.py":"5b6248a5c9e664ab",
    "bulk_downloader/dom_recorder.py":"1657d0a0e39917ae",
    "bulk_downloader/capture_bodies.py":"6c7f5c9a87510cca",
    "tools/capture_session.py":"27be68b965689317",
-   "tools/build_release.py":"f7c220d279fcfbee"}
+   "tools/build_release.py":"be25241eb867b85a"}
 bad=[f for f,w in G.items() if hashlib.sha256(open(f,'rb').read()).hexdigest()[:16]!=w]
 print(f"{len(G)-len(bad)}/{len(G)} guard files match")
 sys.exit(1 if bad else 0)
 PY2
+
+  # `pip install -r` exiting 0 is not proof that every requirement is present:
+  # this container reported "runtime deps OK" while beautifulsoup4 and
+  # pytest-xdist were both absent, and pytest-xdist is what capture.sh's
+  # --workers lane needs. `pip check` cannot see this -- its denominator is the
+  # set of INSTALLED packages, which structurally excludes an uninstalled
+  # requirement. Parse the requirements file and ask for each name.
+  REQ_MISSING="$(./venv/bin/python - <<'PY3' 2>/dev/null
+import re, sys
+from importlib.metadata import version, PackageNotFoundError
+try:
+    lines = open("requirements.txt", encoding="utf-8").read().splitlines()
+except OSError:
+    print("UNKNOWN"); sys.exit(0)
+missing = []
+for raw in lines:
+    line = raw.split("#")[0].strip()
+    if not line or line.startswith("-"):
+        continue
+    name = re.split(r"[<>=!~\[; ]", line, 1)[0].strip()
+    if not name:
+        continue
+    try:
+        version(name)
+    except PackageNotFoundError:
+        missing.append(name)
+print(" ".join(missing))
+PY3
+)" || REQ_MISSING="UNKNOWN"
+
+  if [ "$REQ_MISSING" = "UNKNOWN" ]; then
+    # Unknown is a third state and it fails. "Could not evaluate" must never be
+    # rendered as "satisfied".
+    row "requirements satisfied" "**FAILED**" "could not evaluate requirements.txt -- treat as NOT satisfied"
+    echo "[FAIL] requirements satisfied (unevaluable)"; CORE_FAILED=1
+  elif [ -n "$REQ_MISSING" ]; then
+    row "requirements satisfied" "**FAILED**" "MISSING: $(echo "$REQ_MISSING" | cut -c1-70)"
+    echo "[FAIL] requirements missing: $REQ_MISSING"; CORE_FAILED=1
+  else
+    row "requirements satisfied" "OK" "every requirements.txt entry resolves in the venv"
+    echo "[ ok ] requirements satisfied"
+  fi
 else
   row "import check" "**DEFERRED**" "no repo at setup time"
 fi
@@ -455,6 +549,9 @@ fi
   printf '%-15s %s\n' "outbound 443"  "$(curl -sI -o /dev/null -w %{http_code} https://pypi.org 2>/dev/null)"
   printf '%-15s %s\n' "node"          "$(node -v 2>/dev/null || echo absent)"
   printf '%-15s %s\n' "ffmpeg"        "$(ffmpeg -version 2>/dev/null | head -1 | cut -d' ' -f3 || echo absent)"
+  # ffprobe is a SEPARATE binary and is what the media-integrity path actually
+  # shells out to. Probing only ffmpeg answers a question nobody asked.
+  printf '%-15s %s\n' "ffprobe"       "$(ffprobe -version 2>/dev/null | head -1 | cut -d' ' -f3 || echo absent)"
   printf '%-15s %s\n' "nuclei"        "$(nuclei -version 2>&1 | grep -oE 'v[0-9.]+' | head -1 || echo absent)"
   printf '%-15s %s\n' "semgrep"       "$(./audit-venv/bin/semgrep --version 2>/dev/null || echo absent)"
   echo '```'
@@ -518,8 +615,11 @@ ELAPSED=$(( $(date +%s) - START ))
   fi
   echo
   echo "Not attempted, by design: the test suite (the operator's gate, on the"
-  echo "host), and the \`bd-*\` toolchain -- 155 of 249 tools hardcode sandbox"
-  echo "paths and need porting, which no amount of provisioning fixes."
+  echo "host), and the \`bd-*\` toolchain -- a substantial share of those tools"
+  echo "hardcode sandbox paths and need porting, which no amount of provisioning"
+  echo "fixes. (Deliberately unquantified: the previous text carried a hardcoded"
+  echo "'155 of 249' that matched no measurable count and had no way to stay true."
+  echo "Measure it at decision time.)"
 } >> "$REPORT"
 
 # surface the report inside the repo when there is one
@@ -532,6 +632,14 @@ elif [ "$HAVE_REPO" = 0 ]; then
 else
   echo "=== READY in ${ELAPSED}s -- report: $REPORT ==="
 fi
-# Exit 0 when only the repo was missing: provisioning did its job, and failing
-# the session start over a checkout that had not happened yet is wrong.
-exit "$CORE_FAILED"
+# A run that found no checkout installed no venv, no deps and no browsers. It is
+# NOT a success, and it must not share an exit code with one -- the caller has
+# only the code to go on, and the "APP DEFERRED" explanation is prose no machine
+# reads. Distinct code 3 so a wrapper can tell "nothing to provision against"
+# from "provisioned, and it worked".
+if [ "$CORE_FAILED" -eq 1 ]; then
+  exit 1
+elif [ "$HAVE_REPO" = 0 ]; then
+  exit 3
+fi
+exit 0
