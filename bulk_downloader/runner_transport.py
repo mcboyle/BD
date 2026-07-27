@@ -920,7 +920,11 @@ class TransportMixin:
                 return  # job re-queued by helper
             if not ok:
                 return  # quarantined
-            verify_msg=" ✓"
+            # The checkmark is EARNED, not automatic. An empty reason means
+            # ffprobe ran and was satisfied. A non-empty reason on the ok path
+            # means the check failed open (e.g. "ffprobe not installed"), so
+            # say that instead of claiming a verification that never happened.
+            verify_msg=" ✓" if not reason else f" (unverified: {reason})"
         # Clear the force_download flag on success so a future retry
         # doesn't keep bypassing the threshold silently.
         with self._lock:
