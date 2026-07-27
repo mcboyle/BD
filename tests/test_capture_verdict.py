@@ -73,7 +73,20 @@ def test_unit_error_fails_even_if_suite_exit_is_zero(tmp_path):
     assert "unit errors=1" in result.summary
 
 
-def test_live_warning_fails_even_if_live_exit_is_zero(tmp_path):
+def test_live_warning_is_informational_and_does_not_fail_the_verdict(tmp_path):
+    """A live WARN is an unexercised capability, not a defect.
+
+    live_tests itself exits 0 ("all clear") on a warn-only run, so failing the
+    verdict here made capture_verdict stricter than the suite it reads. On a
+    healthy box the warnings are empty-state -- no completed downloads yet, no
+    VPN tunnels configured, AI assist off -- and no code change can clear them;
+    only real usage can. A verdict that reports FAIL on a healthy box trains
+    the operator to ignore verdicts, and CLAUDE.md 0 counts that
+    over-sensitivity as a soundness bug in its own right: a gate that cries
+    wolf gets switched off.
+
+    Kills the mutation that restores `reasons.append(f"live warnings=...")`.
+    """
     unit = tmp_path / "unit.json"
     live = tmp_path / "live.log"
     _write_unit(unit)
@@ -81,8 +94,53 @@ def test_live_warning_fails_even_if_live_exit_is_zero(tmp_path):
 
     result = assess_capture(unit, live, suite_exit=0, live_exit=0)
 
+    assert result.ok is True
+    assert result.exit_code == 0
+    assert "PASS" in result.summary
+
+
+def test_live_warning_count_stays_visible_in_every_verdict(tmp_path):
+    """Informational must not mean invisible.
+
+    Downgrading a warning from fail-reason to silence would be the opposite
+    S0 error -- a gate that cannot see its subject. The count must still be
+    reported on BOTH a passing and a failing verdict, so the operator can see
+    an absent capability without it blocking the run.
+
+    Kills a mutation that drops the warn field from the counts string.
+    """
+    unit = tmp_path / "unit.json"
+    live = tmp_path / "live.log"
+    _write_unit(unit)
+    _write_live(live, passed=2, warned=14)
+
+    passing = assess_capture(unit, live, suite_exit=0, live_exit=0)
+    assert passing.ok is True
+    assert "live 2 pass/14 warn/0 fail" in passing.summary
+
+    # and on a genuinely failing run the warn count is still carried
+    failing = assess_capture(unit, live, suite_exit=1, live_exit=0)
+    assert failing.ok is False
+    assert "live 2 pass/14 warn/0 fail" in failing.summary
+
+
+def test_live_failure_still_fails_when_warnings_are_present(tmp_path):
+    """Making warnings informational must not disarm real live failures.
+
+    The risk in this change is over-correction: a run with both warnings and
+    a genuine failure must still FAIL, and must name the failure rather than
+    the warnings.
+    """
+    unit = tmp_path / "unit.json"
+    live = tmp_path / "live.log"
+    _write_unit(unit)
+    _write_live(live, passed=2, warned=5, failed=1)
+
+    result = assess_capture(unit, live, suite_exit=0, live_exit=0)
+
     assert result.ok is False
-    assert "live warnings=1" in result.summary
+    assert "live failures=1" in result.summary
+    assert "live warnings" not in result.summary
 
 
 def test_live_failure_fails(tmp_path):
