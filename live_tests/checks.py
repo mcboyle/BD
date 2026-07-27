@@ -2907,10 +2907,19 @@ def l28_service_restart_preserves_queue(ctx):
                       f"(status={status}) — cannot baseline")
     running_before = len(body.get("running") or [])
     waiting_before = len(body.get("waiting") or [])
-    done_before = len(body.get("done") or [])
+    # `done_today_count` is an INT, not a list -- /api/queue/v2 emits no
+    # "done" key at all. This read used to be len(body.get("done") or []),
+    # which is len([]) is 0 on every run, so the third term of the total was
+    # never measured. That was not merely under-counting: the invariant below
+    # is that running+waiting+done is CONSERVED across the restart, because a
+    # job finishing moves a URL from running to done. With done pinned at 0 a
+    # completing job made the totals differ and the check reported "queue lost
+    # 1 URL" -- a latent false FAIL, masked only because an empty queue WARNs
+    # out first.
+    done_before = int(body.get("done_today_count") or 0)
     total_before = running_before + waiting_before + done_before
     ctx.log(f"BEFORE restart: running={running_before} "
-            f"waiting={waiting_before} done={done_before} "
+            f"waiting={waiting_before} done_today={done_before} "
             f"(total={total_before})")
     if total_before == 0:
         return WARN, ("queue is empty — nothing to preserve, restart "
@@ -2946,10 +2955,10 @@ def l28_service_restart_preserves_queue(ctx):
                       f"(status={status2}) — queue may be lost")
     running_after = len(body2.get("running") or [])
     waiting_after = len(body2.get("waiting") or [])
-    done_after = len(body2.get("done") or [])
+    done_after = int(body2.get("done_today_count") or 0)
     total_after = running_after + waiting_after + done_after
     ctx.log(f"AFTER restart:  running={running_after} "
-            f"waiting={waiting_after} done={done_after} "
+            f"waiting={waiting_after} done_today={done_after} "
             f"(total={total_after})")
     if total_after != total_before:
         lost = total_before - total_after
@@ -2957,7 +2966,7 @@ def l28_service_restart_preserves_queue(ctx):
                       f"total {total_before} -> {total_after} "
                       f"(running {running_before}->{running_after}, "
                       f"waiting {waiting_before}->{waiting_after}, "
-                      f"done {done_before}->{done_after})")
+                      f"done_today {done_before}->{done_after})")
     return PASS, (f"queue intact across service restart: "
                   f"{total_before} URL(s) preserved "
                   f"(running={running_before}->{running_after} "
