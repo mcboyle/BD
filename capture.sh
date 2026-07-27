@@ -472,6 +472,55 @@ echo "=== [5/9] Ollama status ==="
 } > "$OUT/05_ollama.log" 2>&1
 echo "  done"
 
+# ── [5b/9] Display for the headed-browser check ──────────────────
+#
+# L2 (headed-browser-launch) opens a VISIBLE Chromium — headless=False is a
+# DANGER_MAP invariant, so the check exists to prove the interactive-login
+# path works on this deployment. Without an X server it WARNs, which is
+# honest but permanently unactionable.
+#
+# WHY THIS EXISTS: scripts/provision_test_host.sh already starts Xvfb and
+# exports DISPLAY — but that export dies with the provisioner's process.
+# capture.sh runs later, in a different shell, and had no DISPLAY of its
+# own, so L2 warned even on a correctly provisioned box unless the operator
+# had exported DISPLAY by hand. The capability was provisioned and then
+# never handed over. This closes that handoff.
+#
+# This is PROVISION, not seeding: it supplies a real X server so a real
+# headed browser really launches. L2's assertion is untouched — if the
+# browser cannot start, L2 still fails.
+#
+# NON-FATAL BY DESIGN: a headless box with no Xvfb is a legitimate
+# deployment. Absence degrades to L2's existing WARN (informational since
+# the capture verdict stopped gating on warnings); it must never abort the
+# capture, which would turn an honest warning into a broken run.
+#
+# bd_start_display comes from the shared fragment so the launch, the
+# idempotency and the "is this display actually served" probing all live in
+# one place. Re-implementing an Xvfb launch here would recreate the
+# three-copies-that-drift problem the fragment was built to end.
+echo "=== [5b/9] Display for headed-browser check ==="
+if [ -n "${DISPLAY:-}" ]; then
+  echo "  DISPLAY already set to '$DISPLAY' — leaving it alone"
+elif [ -r "$BD_HOME/scripts/lib/system_deps.sh" ]; then
+  # shellcheck source=scripts/lib/system_deps.sh
+  . "$BD_HOME/scripts/lib/system_deps.sh" 2>/dev/null || true
+  if declare -F bd_start_display >/dev/null 2>&1; then
+    if _cap_display="$(bd_start_display :99 2>/tmp/bd_display.err)"; then
+      export DISPLAY="$_cap_display"
+      echo "  DISPLAY=$DISPLAY (headed-browser checks can run)"
+    else
+      echo "  no display available — L2 will WARN (not a failure):"
+      sed 's/^/    /' /tmp/bd_display.err 2>/dev/null | tail -3
+    fi
+    rm -f /tmp/bd_display.err
+  else
+    echo "  system_deps.sh sourced but bd_start_display undefined — L2 will WARN"
+  fi
+else
+  echo "  scripts/lib/system_deps.sh not readable — L2 will WARN"
+fi
+
 # ── [6/9] Live-test suite (running app) ──────────────────────────
 #
 # v3.63.6: L3 (mv3-extension-service-worker) is back in LIVE_IDS.
