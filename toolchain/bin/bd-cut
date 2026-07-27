@@ -112,6 +112,32 @@ def step(n, msg):
     print(f"\n{G}== step {n} =={RST} {msg}  {DIM}[+{time.monotonic()-_T0:.0f}s]{RST}")
 
 
+def python_for(work):
+    """Resolve the interpreter that actually carries BD's dependencies.
+
+    NOT `python3`. Bare python3 resolves to the system 3.11 here, which has no
+    flask -- so tools/gui_parity_inventory.py cannot import the app, silently
+    degrades to the ENDPOINT_CATALOG.md fallback, and EXITS 0. That is how a
+    1248-route parity inventory got overwritten with 252 routes on a cut that
+    looked green: the returncode gate could not see the degradation.
+
+    Same resolver shape as bd-regen-order.python_for -- deliberately one idea and
+    not two -- with a $BD_PYTHON operator override in front, and the work tree's
+    own environment ahead of whatever launched bd-cut. `os.access(X_OK)` matters:
+    a present-but-not-executable venv/bin/python must be skipped, not selected.
+    """
+    candidates = []
+    override = os.environ.get("BD_PYTHON")
+    if override:
+        candidates.append(override)
+    for environment in ("venv", ".venv"):
+        candidates.append(os.path.join(work, environment, "bin", "python"))
+    for candidate in candidates:
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return sys.executable
+
+
 def run(cmd, cwd=None, env=None, timeout=None):
     # timeout bounds the hang-prone steps (vitest / vite / build_release / band /
     # verify). On expiry we return a synthetic rc=124 result carrying the partial
@@ -260,11 +286,14 @@ def regen_order(work):
     the gates that exist to make an accidental surface/edge change impossible.
     """
     step(0.5, "regen derived docs (bd-regen-order)")
-    exe = shutil.which("bd-regen-order") or "/home/claude/bin/bd-regen-order"
+    # Resolve the regenerator FROM THE WORK TREE being cut -- not from PATH, and not
+    # from a /home/claude/bin fallback that does not exist on this host. A PATH hit
+    # can be a different checkout's copy; a miss used to print a warning and RETURN,
+    # so a release cut with stale derived docs and nothing failed. Absent is NO-CUT.
+    exe = os.path.join(work, "toolchain", "bin", "bd-regen-order")
     if not os.path.isfile(exe):
-        print(f"  {Y}bd-regen-order not found -- skipping (derived docs may be stale){RST}")
-        return
-    r = run([sys.executable, exe, "--work", work])
+        die("bd-regen-order missing from release work tree (NO-CUT): " + exe)
+    r = run([python_for(work), exe, "--work", work])
     out = (r.stdout or "") + (r.stderr or "")
     for line in out.strip().splitlines():
         print("  " + line)
@@ -347,11 +376,47 @@ def _inv_counts(path_or_zip, member=None):
     return d["counts"]["gui_gated_endpoints"]
 
 
+_LIVE_ROUTE_SOURCE = "live url_map"
+
+
+def assert_live_inventory(work):
+    """READ THE REGENERATED INVENTORY BACK; refuse a degraded one.
+
+    tools/gui_parity_inventory.py records route_source == "live url_map" when it
+    walked the real Flask url_map, and "ENDPOINT_CATALOG.md (fallback)" when it
+    could not import the app. The fallback path EXITS 0, so the regen step's
+    returncode structurally cannot see it -- the gate could not see its own
+    subject, and reported OK while writing a drastically reduced route set over a
+    good one. The only way to know which happened is to read the file.
+
+    Unreadable, absent, or unlabelled is UNKNOWN, and UNKNOWN is NO-CUT.
+    """
+    import json
+    path = os.path.join(work, "reports", "gui_parity_inventory.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            src = json.load(fh).get("route_source")
+    except Exception as e:  # why: absent/truncated/not-JSON -- all UNKNOWN, none OK
+        die(f"parity inventory unreadable after regen ({path}: {e}) -- route_source "
+            f"cannot be confirmed, and UNKNOWN is not OK (NO-CUT)")
+        return
+    if src != _LIVE_ROUTE_SOURCE:
+        die(f"parity inventory regenerated with route_source={src!r}, expected "
+            f"{_LIVE_ROUTE_SOURCE!r} -- the interpreter could not import the app, so "
+            f"the route set is DEGRADED and would overwrite the good one (NO-CUT).\n"
+            f"      interpreter used: {python_for(work)}\n"
+            f"      fix the environment (set $BD_PYTHON, or provision "
+            f"{os.path.join(work, 'venv', 'bin', 'python')}) and re-run.")
+        return
+    print(f"  route_source={src} (live)")
+
+
 def regen_inventory(work, baseline):
     step(3, "regen gui_parity_inventory + spa_wired delta")
-    r = run(["python3", "tools/gui_parity_inventory.py", "--root", "."], cwd=work)
+    r = run([python_for(work), "tools/gui_parity_inventory.py", "--root", "."], cwd=work)
     if r.returncode != 0:
         die("inventory regen failed:\n" + r.stderr[-800:])
+    assert_live_inventory(work)
     new = _inv_counts(os.path.join(work, "reports/gui_parity_inventory.json"))
     old = None
     if baseline:
@@ -435,7 +500,7 @@ def regen_version_indexes(work):
     step("4b", "regen PIN_INDEX + ROUTE_INDEX (post-bump)")
     for tool, art in (("tools/build_pin_index.py", "PIN_INDEX.json"),
                       ("tools/build_route_index.py", "ROUTE_INDEX.json")):
-        r = run(["python3", tool], cwd=work)
+        r = run([python_for(work), tool], cwd=work)
         if r.returncode != 0:
             die(f"{tool} failed -- {art} not regenerated (NO-CUT)\n{r.stderr.strip()}")
         print(f"  {r.stdout.strip() or (art + ' regenerated')}")
@@ -491,7 +556,7 @@ def build_release(work, out, baseline):
     for p in approved:
         print(f"  approve: {p}")
     step(6, "build_release --skip-tests")
-    cmd = ["python3", "tools/build_release.py", "--out", out, "--skip-tests"]
+    cmd = [python_for(work), "tools/build_release.py", "--out", out, "--skip-tests"]
     if baseline:
         cmd += ["--baseline", baseline]
     if approved:
@@ -627,7 +692,10 @@ def band(zippath, suites, work):
     env.update(BD_HOME=tempfile.mkdtemp(), BD_DISABLE_KEEPALIVE="1",
                PYTHONPATH="/tmp/prestaged_site_packages",
                PLAYWRIGHT_BROWSERS_PATH="/home/claude/.cache/ms-playwright")
-    r = run(["python3", "run_tests.py", *_band_args], cwd=d, env=env,
+    # The band runs the EXTRACTED ZIP's tests, but under the WORK TREE's interpreter:
+    # the zip carries no venv, and bare python3 has no deps -- the band would collapse
+    # into import errors that read as source failures.
+    r = run([python_for(work), "run_tests.py", *_band_args], cwd=d, env=env,
             timeout=_band_timeout)
     out = r.stdout + r.stderr
     # Echo per-suite headers, the final total, and every FAIL line for triage.
@@ -645,7 +713,8 @@ def band(zippath, suites, work):
 
 def verify(work, zippath):
     step(9, "verify_release --zip (gate on true $?)")
-    r = run(["python3", "tools/verify_release.py", "--zip", zippath], cwd=work, timeout=300)
+    r = run([python_for(work), "tools/verify_release.py", "--zip", zippath],
+            cwd=work, timeout=300)
     print(r.stdout[-900:])
     if r.returncode != 0:
         die(f"verify_release exit {r.returncode} -- NO-CUT")
