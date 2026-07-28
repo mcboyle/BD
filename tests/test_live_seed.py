@@ -585,3 +585,105 @@ def test_the_seed_marker_survives_in_every_seeded_url():
         "the deliberate duplicate is no longer byte-identical to index 0, so "
         f"L14 has nothing to recognise as a repeat:\n  {urls[0]!r}\n  {urls[2]!r}"
     )
+
+
+# ── the seeded login must submit, and its outcome must be observable ─────────
+#
+# Both defects below were found on test4 on 2026-07-28 and are recorded here
+# because neither is visible from the seeder's own output. The fixture site's
+# counters settled it: BD issued exactly one GET to /formauth/login and never
+# a POST, with logins_ok == logins_failed == 0, so the form was loaded and
+# never submitted. The journal named the branch verbatim.
+
+RUNNER_AUTH_PATH = REPO_ROOT / "bulk_downloader" / "runner_auth.py"
+
+
+def _login_async_still_diverts_on_auto_teach() -> bool:
+    """True while runner_auth.login_async carries the auto-teach divert.
+
+    The test below encodes that branch's CONDITION rather than its effect,
+    because the effect (a browser parked waiting for a human) is not reachable
+    from a unit test. If BD ever drops or renames the flag, the condition is
+    about nothing -- so the premise is asserted separately and fails loudly
+    instead of letting the test pass over a predicate that no longer exists.
+    AST, not grep: a string search would also match the explanatory comment.
+    """
+    tree = ast.parse(RUNNER_AUTH_PATH.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "login_async":
+            literals = {n.value for n in ast.walk(node)
+                        if isinstance(n, ast.Constant)
+                        and isinstance(n.value, str)}
+            return {"auto_teach_first_run", "learned"} <= literals
+    return False
+
+
+def test_the_seeded_login_site_does_not_park_in_manual_takeover():
+    """A seeded login must reach do_login, not divert to a human.
+
+    runner_auth.login_async returns early into start_manual_login when
+    auto_teach_first_run is on AND config['learned']['login'] carries none of
+    the three selector keys AND login_url is http. The seeder sets its
+    selectors at the TOP level and never writes 'learned', so every seeded
+    login site satisfied all three and parked in manual takeover -- which
+    navigates to the form and waits for a click that never comes.
+    """
+    assert _login_async_still_diverts_on_auto_teach(), (
+        "runner_auth.login_async no longer carries the auto_teach_first_run "
+        "divert; this test's premise is gone. Re-derive the branch before "
+        "trusting this file's login assertions again."
+    )
+    seed = _load()
+    cfg = seed.login_site_config()
+    learned = (cfg.get("learned") or {}).get("login") or {}
+    has_learned = any(learned.get(key) for key in
+                      ("user_field", "pass_field", "submit_btn"))
+    diverts = (bool(cfg.get("auto_teach_first_run", True))
+               and not has_learned
+               and str(cfg.get("login_url", "")).startswith("http"))
+    assert not diverts, (
+        "the seeded login site trips login_async's auto-teach divert, so "
+        "do_login never runs and the form is never submitted. Observed on "
+        "test4: 'GET /formauth/login 200' with logins_ok=0 and "
+        "logins_failed=0 on the fixture's own counters. Either set "
+        "auto_teach_first_run False (the seeder already knows the selectors) "
+        "or populate config['learned']['login']."
+    )
+
+
+def test_the_seeder_reads_auth_state_from_an_endpoint_that_reports_it():
+    """The login poll must watch an endpoint that carries auth_state.
+
+    /api/status builds its rows from runner.get_status(), which emits
+    login_status and 36 other keys but never auth_state (verified by AST over
+    every get_status in the tree). auth_state is produced only by the
+    /api/sites/v2 builder at app_sites_id_core.py:322 -- the same field L8
+    gates on. Polling /api/status for it means the loop reads '' on every
+    iteration, never breaks early, burns its full window, and reports
+    'unknown' identically whether the login succeeded or failed.
+
+    The FakeClient below models both real shapes: /api/status WITHOUT the key
+    and /api/sites/v2 WITH it. A seeder that reports 'ok' here is reading the
+    endpoint that actually knows.
+    """
+    seed = _load()
+    sid = "abc123"
+    client = FakeClient({
+        ("POST", "/api/sites"): {"id": sid, "cred_stored": True},
+        # production shape: rows come from runner.get_status(), no auth_state
+        ("GET", "/api/status"): {sid: {"login_status": "ok", "state": "idle"}},
+        # production shape: app_sites_id_core.py:340 envelope
+        ("GET", "/api/sites/v2"): {
+            "ok": True,
+            "sites": [{"site_id": sid, "name": "bdseed fixture login",
+                       "auth_state": "ok", "state": "idle"}],
+            "count": 1,
+        },
+    })
+    plan = seed.seed_login(client, poll_seconds=2.0)
+    assert plan["auth_state"] == "ok", (
+        f"the seeder reported auth_state={plan['auth_state']!r} while an "
+        f"endpoint in reach reported 'ok'. It is polling a resource that does "
+        f"not carry the field, so 'unknown' is structural: it means the same "
+        f"thing on success and on failure. Poll /api/sites/v2."
+    )
