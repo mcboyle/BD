@@ -67,14 +67,38 @@ def test_nothing_still_calls_the_retired_tool():
     not survive is an executable reference: a shell line or a python import.
     """
     import ast
+    import subprocess
+
+    # Denominator: files GIT TRACKS in this repository. Not an rglob with a
+    # hand-written blocklist -- that shipped and failed on the box, which has
+    # sibling git worktrees (.worktrees/current-main-142cebb,
+    # .worktrees/pytest-architecture-repair) each holding an older checkout
+    # that still contains the deleted tool. The walk found those and reported
+    # this repo as still calling something it had removed.
+    #
+    # A blocklist is a guess about what to exclude and is wrong the moment
+    # somebody adds a directory nobody thought of. `git ls-files` answers the
+    # question actually being asked -- what is IN this repository -- so
+    # worktrees, venv, node_modules and untracked scratch are excluded because
+    # they are not tracked here, not because they were enumerated.
+    proc = subprocess.run(
+        ["git", "ls-files", "-z", "--", "*.py", "*.sh"],
+        cwd=str(REPO_ROOT), capture_output=True, timeout=120,
+    )
+    if proc.returncode != 0:
+        pytest.skip("git ls-files unavailable; cannot establish the denominator")
+    tracked = [p for p in proc.stdout.decode("utf-8", "replace").split("\0") if p]
+    assert len(tracked) > 100, (
+        f"git ls-files returned only {len(tracked)} source files -- the "
+        f"denominator collapsed and a pass below would mean nothing."
+    )
 
     offenders = []
-    for path in REPO_ROOT.rglob("*"):
-        if not path.is_file() or path.suffix not in {".py", ".sh"}:
+    for rel in tracked:
+        path = REPO_ROOT / rel
+        if not path.is_file():
             continue
-        rel = path.relative_to(REPO_ROOT).as_posix()
-        if any(rel.startswith(p) for p in
-               ("venv/", "audit-venv/", "node_modules/", "docs/archive/", ".git/")):
+        if rel.startswith("docs/archive/"):
             continue
         if rel == "tests/test_deploy_manifest_stays_retired.py":
             continue
