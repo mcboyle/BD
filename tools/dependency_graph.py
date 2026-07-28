@@ -106,8 +106,16 @@ def _parse(p: Path):
     """Return (tree, None) on success, or (None, reason) — never a silent skip.
 
     The reason is *returned* so the caller owns the policy; `build()` collects
-    every one of them and refuses. ValueError covers embedded NUL bytes, which
-    `ast.parse` rejects without raising SyntaxError."""
+    every one of them and refuses.
+
+    ValueError is kept, but NOT for the reason previously recorded here. That
+    comment said `ast.parse` rejects embedded NUL bytes "without raising
+    SyntaxError"; measured on this project's interpreter (3.12.3) it raises
+    SyntaxError for both embedded and leading NULs, so the arm is unreachable
+    by that route and a mutation removing it survives. It stays as a cheap
+    guard against a reader-dependent ValueError on some other input, and
+    because catching an impossible exception costs nothing -- but do not
+    believe it is load-bearing, and do not write a test asserting it fires."""
     try:
         return ast.parse(p.read_text(encoding="utf-8", errors="replace")), None
     except (OSError, SyntaxError, ValueError) as e:

@@ -26,9 +26,37 @@ def _ver(cmd):
     except Exception:  # why: input unavailable/unreadable; return empty so the caller uses its fallback, not a wrong value
         return None
 
+def browser_pool():
+    """Where Playwright keeps its browsers, and how we concluded that.
+
+    Returns (path_or_None, reason). PLAYWRIGHT_BROWSERS_PATH wins because it is
+    what playwright itself honours -- if it is set, that IS the pool, and any
+    other guess is about a directory nobody uses.
+
+    This was hardcoded to /home/claude/.cache/ms-playwright. The trap in fixing
+    it: /home/claude often EXISTS while the .cache/ms-playwright leaf beneath it
+    does not, so guarding on the home dir returns True and changes nothing. HOME
+    may also be a different user entirely (it is /root in the cloud container),
+    so expanduser does not find the pool either. Only the env var does.
+
+    None means "no pool located" -- a distinct answer from "a pool with nothing
+    in it", and callers must not collapse the two.
+    """
+    env=os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if env: return (env, "PLAYWRIGHT_BROWSERS_PATH") if os.path.isdir(env) else (None, "PLAYWRIGHT_BROWSERS_PATH=%s is not a directory"%env)
+    for cand,why in ((os.path.join(os.path.expanduser("~"),".cache","ms-playwright"),"HOME"),
+                     ("/opt/pw-browsers","conventional")):
+        if os.path.isdir(cand): return cand,why
+    return None,"no pool found (PLAYWRIGHT_BROWSERS_PATH unset, no cache under HOME)"
+
 def snapshot():
-    home="/home/claude"; cache=os.path.join(home,".cache","ms-playwright")
+    cache,_why=browser_pool()
     import glob as _g
+    if cache is None:
+        # No pool located. Report every engine False -- but see selftest(),
+        # which refuses to call that a PASS. False here means "not found";
+        # it does not mean "checked a real pool and it was empty".
+        cache=os.devnull
     return {"python":sys.version.split()[0],
             "node":_ver(["node","--version"]),
             "ffmpeg":_ver(["ffmpeg","-version"]),
@@ -62,12 +90,29 @@ def selftest():
     d2=diff(base,s)
     print(("PASS" if any(x["cap"]=="node" for x in d2) else "FAIL")+"  version skew detected")
     ok=ok and any(x["cap"]=="node" for x in d2)
+    # The browser denominator. Everything above is true whatever snapshot()
+    # found -- diff(s,s) is empty by construction and the node skew is
+    # synthetic -- so without this the selftest passes on a host where the
+    # pool was never located. A zero-in-every-bucket result is a failure
+    # signal, not a pass.
+    pool,why=browser_pool()
+    if pool is None:
+        print("UNKNOWN  browser pool not located: %s"%why)
+        print("         browsers.* below are 'not found', NOT 'checked and absent'")
+        ok=False
+    else:
+        print("PASS  browser pool located at %s (via %s)"%(pool,why))
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
     return 0 if ok else 1
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--write",action="store_true"); ap.add_argument("--out",default="/home/claude/env_baseline.json")
+    # --out defaulted to /home/claude/env_baseline.json. On a host without that
+    # directory --write raised FileNotFoundError; on a host WITH it, it wrote a
+    # baseline outside the repo where it rotted and was later read as authority.
+    # Default beside the tree instead, and let BD_ENV_BASELINE override.
+    ap.add_argument("--write",action="store_true")
+    ap.add_argument("--out",default=os.environ.get("BD_ENV_BASELINE") or os.path.join(os.getcwd(),"env_baseline.json"))
     ap.add_argument("--baseline",default=None)
     ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
     a=ap.parse_args()

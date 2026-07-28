@@ -295,7 +295,18 @@ def login_site_config() -> dict:
         # it did, L8 and L9 would be checking the fixture's output rather than
         # BD's credential persistence, which is the vacuous PASS this design
         # exists to prevent.
-        "cookie_file": f"cookies/{SEED_MARKER}_fixture.json",
+        #
+        # Left EMPTY on purpose, and it must stay that way. BD requires an
+        # absolute path (app.py:3954) and derives one itself when the field is
+        # blank (app.py:3941 returns early on empty; _save_sites_config at
+        # app.py:1197-1218 fills in BD_HOME/cookies/<site_id>.json). This
+        # seeder is an HTTP client -- --base-url may point at a service on
+        # another machine, with a different BD_HOME and cwd -- so any absolute
+        # path computed HERE is a guess about somebody else's filesystem.
+        # A relative path shipped here for months and the create call 400'd on
+        # every run; the suite stayed green because it drove a FakeClient that
+        # validated nothing.
+        "cookie_file": "",
     }
 
 
