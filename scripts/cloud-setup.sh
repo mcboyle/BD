@@ -61,8 +61,8 @@ find_repo() {
   # Both markers are required, not just $MARKER: these rungs now include globs,
   # and /tmp-style two-file fixtures carry bulk_downloader/__init__.py alone.
   for path in /workspace /repo /src /app \
-              "$HOME/BD" "$HOME/bulkdownloader" "$HOME/repo" \
-              /home/*/BD /home/*/bulkdownloader; do
+              "$HOME/BD" "$HOME/BulkDownloader" "$HOME/bulkdownloader" "$HOME/repo" \
+              /home/*/BD /home/*/BulkDownloader /home/*/bulkdownloader; do
     if [ -f "$path/$MARKER" ] && [ -f "$path/scripts/cloud-setup.sh" ]; then
       REPO="$(cd "$path" && pwd)"; REPO_VIA="$path"; return 0
     fi

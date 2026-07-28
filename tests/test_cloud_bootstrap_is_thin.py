@@ -272,6 +272,75 @@ def test_the_probe_list_finds_THIS_checkout():
     )
 
 
+@pytest.mark.parametrize(
+    "home_rel, repo_rel, label",
+    [
+        ("home/mboyle", "home/mboyle/BulkDownloader", "deploy box (test4)"),
+        ("root", "home/user/BD", "cloud container"),
+    ],
+)
+def test_the_probe_list_covers_known_host_layouts(tmp_path, home_rel, repo_rel, label):
+    """The layouts of the hosts that actually run this, asserted from anywhere.
+
+    test_the_probe_list_finds_THIS_checkout can only ever see the tree it is
+    running in. On the cloud container that is /home/user/BD and it passes; the
+    deploy box's /home/mboyle/BulkDownloader was outside its reach, so the list
+    shipped blind to it and the box was the first thing to notice -- one failure
+    in a 13651-pass capture:
+
+        the shipped probe list does not locate this checkout
+        (/home/mboyle/BulkDownloader) with BD_REPO unset, HOME=/home/mboyle
+
+    The miss was case. The list carried `bulkdownloader`, the directory is
+    `BulkDownloader`, and Linux does not care that they read the same.
+
+    This parametrises the real layouts into a sandbox so both are inside the
+    denominator from either host. Adding a host means adding a row here, not
+    waiting for a capture to fail.
+    """
+    sandbox = tmp_path / "root"
+    home = sandbox / home_rel
+    repo = sandbox / repo_rel
+    (repo / "scripts").mkdir(parents=True)
+    (repo / "bulk_downloader").mkdir(parents=True)
+    (repo / "bulk_downloader" / "__init__.py").write_text('__version__ = "0.0.0"\n')
+    (repo / "scripts" / "cloud-setup.sh").write_text("#!/bin/bash\nexit 0\n")
+    home.mkdir(parents=True, exist_ok=True)
+
+    text = BOOTSTRAP.read_text(encoding="utf-8")
+    match = re.search(r"for candidate in (.*?); do", text, re.S)
+    assert match, "could not find the probe list in cloud-bootstrap.sh"
+    candidates = match.group(1)
+    for absolute in ("/workspace", "/repo", "/src", "/app", "/home/*"):
+        candidates = candidates.replace(f" {absolute}", f" {sandbox}{absolute}")
+    assert str(sandbox) in candidates, "the rewrite did not take"
+
+    script = (
+        'MARKER="bulk_downloader/__init__.py"\nREPO=""\n'
+        f"for candidate in {candidates}; do\n"
+        '  if [ -n "$candidate" ] && [ -f "$candidate/$MARKER" ] \\\n'
+        '     && [ -f "$candidate/scripts/cloud-setup.sh" ]; then\n'
+        '    REPO="$candidate"; break\n  fi\ndone\n'
+        'printf "%s" "$REPO"\n'
+    )
+    proc = subprocess.run(
+        ["bash", "-c", script],
+        capture_output=True, text=True, cwd=str(tmp_path),
+        env={"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": str(home)},
+        timeout=60,
+    )
+    found = proc.stdout.strip()
+    assert found, (
+        f"the probe list does not locate the {label} layout: repo at "
+        f"{repo}, HOME={home}, BD_REPO unset, cwd elsewhere.\n"
+        f"A host whose layout is missing here provisions nothing and says so "
+        f"only once someone runs a capture on it."
+    )
+    assert Path(found).resolve() == repo.resolve(), (
+        f"the probe found {found}, not the {label} checkout at {repo}"
+    )
+
+
 def _probe_rungs(text: str, header: str) -> list[str]:
     """The literal path rungs of a probe loop, env-var rungs excluded.
 

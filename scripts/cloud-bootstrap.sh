@@ -7,10 +7,9 @@
 #
 # Why it is this small: the panel used to hold a full copy of
 # scripts/cloud-setup.sh. Pasted copies do not receive commits, so it forked --
-# measured at three commits and 91 lines behind, still carrying a guard pin the
-# tree had moved past and a GTK package list missing x11-utils. Every gate in
-# the suite asserted over the repo copy, which never ran. Thirteen tests
-# reported green about a file with no bearing on the environment they ran in.
+# three commits and 91 lines behind, carrying a stale guard pin and a GTK list
+# missing x11-utils, while thirteen tests reported green about the repo copy
+# that never ran.
 #
 # So: locate the checkout, hand over, and do nothing else. Any install verb
 # added below is a line that will drift out of the repo's sight again --
@@ -29,13 +28,14 @@ MARKER="bulk_downloader/__init__.py"
 # candidates, winner a 3-file fixture); both markers below shut that out.
 # No hardcoded absolute either -- one made the "no checkout" branch unreachable
 # on the machine it protected, and a fallback that always succeeds is not one.
-# `$HOME/BD` alone missed too: $HOME is /root while the checkout lives under
-# /home/<user>/, so a real session died finding nothing. `/home/*/BD` covers it.
+# `$HOME/BD` alone missed too ($HOME is /root, the checkout is under /home/<user>/),
+# and case is load-bearing: the deploy box is /home/mboyle/BulkDownloader, which
+# `bulkdownloader` does not match and Linux will not forgive. Spell all three.
 REPO=""
 for candidate in "${BD_REPO:-}" "${CLAUDE_PROJECT_DIR:-}" "$PWD" \
                  /workspace /repo /src /app \
-                 "$HOME/BD" "$HOME/bulkdownloader" \
-                 /home/*/BD /home/*/bulkdownloader; do
+                 "$HOME/BD" "$HOME/BulkDownloader" "$HOME/bulkdownloader" \
+                 /home/*/BD /home/*/BulkDownloader /home/*/bulkdownloader; do
   if [ -n "$candidate" ] && [ -f "$candidate/$MARKER" ] \
      && [ -f "$candidate/scripts/cloud-setup.sh" ]; then
     REPO="$candidate"
@@ -61,7 +61,7 @@ if [ -z "$REPO" ]; then
     echo "No checkout containing both bulk_downloader/__init__.py and"
     echo "scripts/cloud-setup.sh was found. Probed: \$BD_REPO,"
     echo "\$CLAUDE_PROJECT_DIR, \$PWD, /workspace, /repo, /src, /app,"
-    echo "\$HOME/{BD,bulkdownloader}, /home/*/{BD,bulkdownloader}."
+    echo "\$HOME and /home/* each x {BD,BulkDownloader,bulkdownloader}."
     echo
     echo "NOTHING WAS PROVISIONED. There is no venv and no system tooling from"
     echo "this run. Do not read any test result from this environment as"
