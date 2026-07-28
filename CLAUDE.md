@@ -320,6 +320,16 @@ find tests -name 'test_*.py' | wc -l
 ls toolchain/bin/bd-* | wc -l
 ```
 
+**`CODEX_HANDOFF.md` is a second agent-facing doc, and this file outranks it.**
+It records a parallel Codex agent's 34-task program — a task ledger, design
+decisions, and where Analysis Task 4 paused. It states no environment facts by
+design: interpreter, deploy model, band rules and guard pins live here, and
+`tests/test_codex_handoff_defers_to_claude_md.py` fails if it starts restating
+them. It once shipped 14 commands against a dot-prefixed `venv` that does not
+exist here, while this file said otherwise, and a session followed the wrong
+one and reported seven failures that were not real.
+Treat its task statuses as a register — re-derive before acting.
+
 **Two populations share the word "tools":** `tools/**/*.py` and the
 `toolchain/bin` bd-* suite. They are **disjoint** populations with different
 members, and several checks disagree only because they count different ones —

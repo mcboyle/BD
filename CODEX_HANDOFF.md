@@ -11,15 +11,26 @@ else is as the original author left it and has not been re-measured — historic
 about half of a stale register is already done or mis-scoped, and three figures in
 this very file had moved by the time anyone looked.
 
-The environment sections of the original were removed on 2026-07-28: they named a
-WSL checkout at `/root/BulkDownloader-main`, a HEAD ~50 commits behind, a
-`.venv/bin/python` that does not exist here (a command naming it exits 127), and a
-standing instruction **not to reset, checkout, or stage** — written to protect a
-git index that is long gone, in a repository whose deploy is now
-`git reset --hard`. Recover them from history if ever needed:
-`git log --diff-filter=M -- CODEX_HANDOFF.md`.
+---
 
-The interpreter in this tree is `venv/bin/python`.
+## Environment — `CLAUDE.md` is authoritative, this file defers to it
+
+**Read `CLAUDE.md` for the interpreter, the deploy model, the band rules, and
+the guard pins. Do not take any of them from here.** This file deliberately
+states none of those facts, because two documents asserting the same thing is
+two documents that can disagree — and the one nobody updated is the one the next
+agent reads. `tests/test_codex_handoff_defers_to_claude_md.py` enforces it.
+
+Both agents work the same tree under the same contract. Where this record and
+`CLAUDE.md` appear to conflict, `CLAUDE.md` wins and this file is stale.
+
+The original's environment sections were removed on 2026-07-28: they named a WSL
+checkout at `/root/BulkDownloader-main`, a HEAD ~50 commits behind, a
+`.venv/bin/python` that does not exist here (a command naming it exits 127), and
+a standing instruction **not to reset, checkout, or stage** — written to protect
+a git index that is long gone, in a repository whose deploy is now git. Recover
+them from history if ever needed:
+`git log --diff-filter=M -- CODEX_HANDOFF.md`.
 
 ---
 
