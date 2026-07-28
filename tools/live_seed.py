@@ -183,9 +183,43 @@ def preflight(client, *, force: bool = False) -> dict:
     return body
 
 
+# The seed set, chosen so each live check it feeds is actually exercisable.
+# These are routes tools/fixture_site.py DEFINES -- verify against its url_map,
+# not against this list, if you change either.
+#
+#   [0] /direct/media/0.mp4   a plain download            -> L11 end-to-end
+#   [1] /hls/scene/0.m3u8     a segmented manifest        -> L12 hls/dash
+#   [2] /direct/media/0.mp4   deliberately repeats [0]    -> L14 dedup-skip
+#
+# The repeat is not a mistake: L14 asserts BD SKIPS a URL it already has, so
+# the seed set has to contain one. Three distinct URLs left it unexercisable.
+_SEED_PATHS = (
+    "/direct/media/0.mp4",
+    "/hls/scene/0.m3u8",
+    "/direct/media/0.mp4",
+)
+
+
 def seeded_url(index: int) -> str:
-    """A fixture URL that carries the marker in its path."""
-    return f"{FIXTURE_ORIGIN}/{SEED_MARKER}/clip{index}.mp4"
+    """A fixture URL the fixture actually serves.
+
+    This used to return f"{FIXTURE_ORIGIN}/{SEED_MARKER}/clipN.mp4", putting
+    the marker in the path. fixture_site.py has no /bdseed/ route -- the string
+    appears in it zero times -- so every seeded download 404'd and L11, L12 and
+    L14 reported "no completed downloads" forever. That reads as BD failing to
+    download; BD was never handed a URL that resolves.
+
+    The marker MUST stay in the URL. `_is_seeded()` is
+    `SEED_MARKER in entry["url"]`, and both teardown and preflight depend on
+    it: without the marker teardown orphans every seeded row, and preflight
+    reads seeded work as the operator's real work and refuses the next run.
+    So it moves from the PATH -- where it broke routing -- into the QUERY,
+    which Flask ignores when matching and which `_is_seeded` still sees.
+
+    The duplicate at index 2 must stay byte-identical to index 0, query
+    included, or L14 has nothing to recognise as a repeat.
+    """
+    return f"{FIXTURE_ORIGIN}{_SEED_PATHS[index % len(_SEED_PATHS)]}?{SEED_MARKER}=1"
 
 
 SEED_SITE_NAME = f"{SEED_MARKER} fixture site"
