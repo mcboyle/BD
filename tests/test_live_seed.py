@@ -806,3 +806,186 @@ def test_the_auth_health_probe_resolves_against_the_apps_own_route_map():
         "a normal dict, so nothing downstream notices and L6 keeps warning:\n"
         "  " + "\n  ".join(unroutable)
     )
+
+
+# ── the synthetic VPN tunnel (L30) ───────────────────────────────────────────
+#
+# L30 asks "are the configured tunnels and the live tunnel state 1:1?". With
+# zero tunnels configured it WARNs, truthfully and uselessly. The seeder gives
+# it a SUBJECT -- one marked tunnel -- without giving it an ANSWER: BD still
+# has to persist the config, register it live, and render both sides in
+# agreement. If BD's persist path and its register path diverged, the seeded
+# tunnel would appear with registered_live=False and L30 would FAIL. That is
+# the check doing its job, which is exactly what "input, never output" means.
+#
+# The tunnel must be INERT with respect to egress. It is created and never
+# started: vpn.Tunnel.state defaults to "down", vpn._run_health_pass targets
+# only ("up", "failing") and vpn_leak_tests._monitor_loop only "up", so no
+# probe touches it. No SOCKS port is allocated until start_tunnel(). And
+# vpn_runtime routes a site to a tunnel only via _site_to_tunnel (built from
+# sites_config's per-site `vpn` field) or _global_tunnel_id (from
+# `global_vpn`) -- neither of which is derived from tunnels.json. A tunnel no
+# site references can therefore never carry traffic.
+
+def test_the_vpn_tunnel_seed_goes_through_the_http_api():
+    """Rule 2: never a raw write to tunnels.json."""
+    seed = _load()
+    client = FakeClient({
+        ("GET", "/api/vpn/status"): {"ok": True, "tunnels": [],
+                                     "config_load_errors": []},
+        ("POST", "/api/vpn/tunnels"): {"ok": True, "tunnel_id": "tun-x"},
+    })
+    seed.seed_vpn_tunnel(client)
+    created = [p for p, _b in client.posted() if p == "/api/vpn/tunnels"]
+    assert created, (
+        f"no POST to /api/vpn/tunnels; calls were {client.calls}"
+    )
+
+
+def test_the_seeded_tunnel_carries_the_marker():
+    """Rule 3: teardown needs an exact predicate, not a heuristic."""
+    seed = _load()
+    client = FakeClient({
+        ("GET", "/api/vpn/status"): {"ok": True, "tunnels": [],
+                                     "config_load_errors": []},
+        ("POST", "/api/vpn/tunnels"): {"ok": True, "tunnel_id": "tun-x"},
+    })
+    seed.seed_vpn_tunnel(client)
+    body = [b for p, b in client.posted() if p == "/api/vpn/tunnels"][0]
+    assert seed.SEED_MARKER in str(body.get("name", "")), (
+        f"the seeded tunnel's name {body.get('name')!r} does not carry "
+        f"{seed.SEED_MARKER!r}; an unmarked tunnel is indistinguishable from "
+        f"the operator's own and teardown cannot find it"
+    )
+
+
+def test_the_seeded_tunnel_is_never_started():
+    """Inert means inert: creating it must not bring an interface up.
+
+    start_tunnel() allocates a SOCKS port and calls backend.start(), which is
+    real egress machinery. The seeder must never touch it.
+    """
+    seed = _load()
+    client = FakeClient({
+        ("GET", "/api/vpn/status"): {"ok": True, "tunnels": [],
+                                     "config_load_errors": []},
+        ("POST", "/api/vpn/tunnels"): {"ok": True, "tunnel_id": "tun-x"},
+    })
+    seed.seed_vpn_tunnel(client)
+    started = [p for p, _b in client.posted()
+               if p.endswith("/start") or p.endswith("/cycle")]
+    assert not started, f"the seeder started a tunnel: {started}"
+    # It must also never arm the system (iptables) kill switch.
+    armed = [p for p, _b in client.posted() if "system_killswitch" in p]
+    assert not armed, f"the seeder touched the system kill switch: {armed}"
+
+
+def test_seeding_a_tunnel_refuses_when_the_stored_config_failed_to_load():
+    """The data-destruction guard, and the reason this cut exists.
+
+    vpn_config.save() serialises the in-memory tunnel list. When load() has
+    failed, that list is EMPTY -- so creating a tunnel would write a file
+    containing ONLY the synthetic one and silently delete every tunnel the
+    operator had. Reproduced against the real modules before this guard
+    existed: two operator tunnels in, one bdseed tunnel out.
+    """
+    seed = _load()
+    client = FakeClient({
+        ("GET", "/api/vpn/status"): {
+            "ok": True, "tunnels": [],
+            "config_load_errors": [
+                {"tunnel_id": "tun-operator", "index": 1,
+                 "error": "tunnel config missing required field: name",
+                 "path": "/home/mboyle/.config/bulk-downloader/vpn/tunnels.json"},
+            ],
+        },
+    })
+    with pytest.raises(seed.SeedRefused) as excinfo:
+        seed.seed_vpn_tunnel(client)
+    assert not [p for p, _b in client.posted() if p == "/api/vpn/tunnels"], (
+        "the seeder created a tunnel despite refusing"
+    )
+    msg = str(excinfo.value)
+    assert "tun-operator" in msg, (
+        f"the refusal must name the record blocking it so the operator can "
+        f"fix it; got {msg!r}"
+    )
+
+
+def test_seeding_a_tunnel_refuses_when_it_cannot_tell():
+    """Unknown is a third state and it FAILS (CLAUDE.md 0).
+
+    A deployment whose /api/vpn/status omits config_load_errors cannot tell
+    the seeder whether the stored config loaded. Treating the absent key as
+    "no errors" is the gate-that-cannot-see-its-subject failure, and here it
+    would destroy operator config.
+    """
+    seed = _load()
+    for body in ({"ok": True, "tunnels": []},          # key absent
+                 {"ok": False, "error": "boom"},        # unreachable
+                 None, "not-a-dict"):
+        client = FakeClient({("GET", "/api/vpn/status"): body})
+        with pytest.raises(seed.SeedRefused):
+            seed.seed_vpn_tunnel(client)
+        assert not [p for p, _b in client.posted() if p == "/api/vpn/tunnels"]
+
+
+def test_a_dry_run_creates_no_tunnel():
+    seed = _load()
+    client = FakeClient({
+        ("GET", "/api/vpn/status"): {"ok": True, "tunnels": [],
+                                     "config_load_errors": []},
+    })
+    plan = seed.seed_vpn_tunnel(client, dry_run=True)
+    assert plan.get("dry_run") is True
+    assert not client.posted(), f"dry-run mutated: {client.posted()}"
+
+
+def test_teardown_removes_marked_tunnels_but_never_unmarked_ones():
+    """The operator's real tunnel must survive teardown.
+
+    Deleting a real tunnel would take the operator's egress protection with
+    it -- the worst outcome this whole tool could produce.
+    """
+    seed = _load()
+    client = FakeClient({
+        ("GET", "/api/queue/v2"): {"ok": True, "running": [], "waiting": [],
+                                   "done_today_count": 0},
+        ("GET", "/api/status"): {},
+        ("GET", "/api/vpn/status"): {
+            "ok": True,
+            "config_load_errors": [],
+            "tunnels": [
+                {"tunnel_id": "tun-real", "name": "Mullvad NYC"},
+                {"tunnel_id": "tun-seed",
+                 "name": f"{seed.SEED_MARKER} synthetic tunnel"},
+            ],
+        },
+    })
+    seed.teardown(client)
+    deleted = [p for m, p, _b in client.calls if m == "DELETE"]
+    assert "/api/vpn/tunnels/tun-seed" in deleted, (
+        f"teardown left the seeded tunnel behind; deletes were {deleted}"
+    )
+    assert "/api/vpn/tunnels/tun-real" not in deleted, (
+        f"teardown deleted the OPERATOR'S tunnel; deletes were {deleted}"
+    )
+
+
+def test_teardown_reports_the_tunnels_it_removed():
+    """A teardown that cannot say what it did cannot be verified."""
+    seed = _load()
+    client = FakeClient({
+        ("GET", "/api/queue/v2"): {"ok": True, "running": [], "waiting": [],
+                                   "done_today_count": 0},
+        ("GET", "/api/status"): {},
+        ("GET", "/api/vpn/status"): {
+            "ok": True, "config_load_errors": [],
+            "tunnels": [{"tunnel_id": "tun-seed",
+                         "name": f"{seed.SEED_MARKER} synthetic tunnel"}],
+        },
+    })
+    plan = seed.teardown(client)
+    assert "tun-seed" in str(plan.get("removed_tunnels")), (
+        f"teardown plan does not record the removed tunnel: {plan}"
+    )

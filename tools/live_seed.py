@@ -50,6 +50,7 @@ USAGE
     python3 tools/live_seed.py --seed --count 3
     python3 tools/live_seed.py --seed --start       # ...and run the queue
     python3 tools/live_seed.py --seed --dry-run     # report intent, change nothing
+    python3 tools/live_seed.py --vpn-tunnel         # give L30 a subject (inert)
     python3 tools/live_seed.py --teardown
 """
 from __future__ import annotations
@@ -772,6 +773,140 @@ def _seeded_history(client):
     return sum(1 for row in rows
                if isinstance(row, dict)
                and SEED_MARKER in str(row.get("url", ""))), True
+SEED_TUNNEL_NAME = f"{SEED_MARKER} synthetic tunnel"
+
+
+def vpn_tunnel_config() -> dict:
+    """The synthetic tunnel L30 gets to cross-check.
+
+    INERT BY CONSTRUCTION. It is registered and never started, and nothing
+    routes to it:
+
+      * vpn.Tunnel.state defaults to "down". vpn._run_health_pass() targets
+        only tunnels in ("up", "failing") and vpn_leak_tests._monitor_loop()
+        only "up", so neither background thread ever touches this one.
+      * No SOCKS port is allocated until vpn.start_tunnel(), which the seeder
+        never calls.
+      * vpn_runtime.get_socks_url_for_site() reaches a tunnel only through
+        _site_to_tunnel (built from each site's `vpn` field in
+        sites_config.json) or _global_tunnel_id (from `global_vpn`). NEITHER
+        is derived from tunnels.json, so a tunnel that no site names cannot
+        carry, block or divert any download's traffic.
+      * The system (iptables) kill switch is armed only by an explicit call to
+        /api/vpn/system_killswitch/<id>/apply. Registering a tunnel does not
+        arm it, and the seeder never calls it.
+
+    `enabled` must stay True: vpn_config.register_loaded_tunnels() skips
+    disabled tunnels, so a disabled one would be present in the stored config
+    but absent from the live registry -- which is precisely the divergence L30
+    FAILs on, and the seeder would be manufacturing it.
+
+    `config` is deliberately empty. There is no key, endpoint or credential to
+    start with, so even an accidental start_tunnel() fails immediately instead
+    of establishing a real link.
+    """
+    return {
+        "name": SEED_TUNNEL_NAME,
+        "provider": "generic",
+        "backend": "wireguard",
+        "location": "",
+        "enabled": True,
+        "config": {},
+        "extra": {},
+    }
+
+
+def _vpn_status(client):
+    """Read /api/vpn/status, or raise SeedRefused if the answer is unusable."""
+    body = client.get("/api/vpn/status")
+    if not isinstance(body, dict) or not body.get("ok"):
+        raise SeedRefused(
+            "cannot read /api/vpn/status, so this host's VPN state is UNKNOWN "
+            f"and tunnel seeding is refused (response: {str(body)[:200]})."
+        )
+    return body
+
+
+def _marked_tunnel_ids(client) -> list:
+    """Tunnel ids whose NAME carries the marker.
+
+    The name is the discriminator, exactly as it is for sites: BD generates
+    tunnel_ids, so the seeder cannot recognise its own by id alone. Anything
+    unmarked is the operator's and is never touched.
+    """
+    body = client.get("/api/vpn/status")
+    if not isinstance(body, dict):
+        return []
+    found = []
+    for t in body.get("tunnels") or []:
+        if not isinstance(t, dict):
+            continue
+        if SEED_MARKER in str(t.get("name", "")):
+            tid = t.get("tunnel_id") or t.get("id")
+            if tid:
+                found.append(str(tid))
+    return sorted(found)
+
+
+def seed_vpn_tunnel(client, *, dry_run: bool = False) -> dict:
+    """Create one marked, inert VPN tunnel so L30 has a subject.
+
+    This is INPUT, not output. L30 asks whether the stored config and the live
+    registry agree; the seeder supplies a tunnel and BD still has to persist
+    it, register it, and render both sides consistently. If BD's persist path
+    and its register path diverged, the seeded tunnel would show
+    registered_live=False and L30 would FAIL -- the check still decides.
+
+    REFUSES when the stored VPN config has quarantined records. That guard is
+    not defensive padding, it is the reason this is safe at all:
+    vpn_config.save() serialises the in-memory tunnel list, and before the
+    quarantine fix a failed load left that list EMPTY -- so creating one
+    tunnel rewrote tunnels.json with ONLY the synthetic one and silently
+    destroyed every tunnel the operator had. Reproduced against the real
+    modules: two operator tunnels in, one bdseed tunnel out.
+    """
+    status = _vpn_status(client)
+    errors = status.get("config_load_errors")
+    if not isinstance(errors, list):
+        raise SeedRefused(
+            "/api/vpn/status does not report config_load_errors, so the "
+            "seeder cannot tell whether this host's tunnels.json loaded "
+            "cleanly or failed to parse -- both render as an empty tunnel "
+            "list. Writing a tunnel blind could overwrite the operator's VPN "
+            "config. Unknown is a third state and it fails; refusing. "
+            "(Deploy a build that reports the field, then re-run.)"
+        )
+    if errors:
+        named = ", ".join(
+            str(e.get("tunnel_id") or f"#{e.get('index')}")
+            for e in errors if isinstance(e, dict)
+        )
+        raise SeedRefused(
+            f"the stored VPN config has {len(errors)} quarantined record(s) "
+            f"({named}). Refusing to add a tunnel on top of a config that did "
+            f"not fully load. Fix those records first -- "
+            f"GET /api/settings/store-raw?store=vpn shows the file, and "
+            f"/api/vpn/status lists the exact errors."
+        )
+
+    plan = {"action": "seed_vpn_tunnel", "marker": SEED_MARKER,
+            "name": SEED_TUNNEL_NAME}
+    existing = _marked_tunnel_ids(client)
+    if existing:
+        # Re-running a capture must not accumulate tunnels, same rule as sites.
+        plan["reused"] = existing[0]
+        return plan
+    if dry_run:
+        plan["dry_run"] = True
+        return plan
+    created = client.post("/api/vpn/tunnels", vpn_tunnel_config())
+    if not isinstance(created, dict) or not created.get("tunnel_id"):
+        raise SeedRefused(
+            f"could not create the {SEED_MARKER} tunnel "
+            f"(response: {str(created)[:200]})"
+        )
+    plan["tunnel_id"] = created["tunnel_id"]
+    return plan
 
 
 def teardown(client, *, dry_run: bool = False) -> dict:
@@ -796,8 +931,9 @@ def teardown(client, *, dry_run: bool = False) -> dict:
     ids = [entry.get("id") for entry in victims if entry.get("id") is not None]
     sites = _marked_site_ids(client)
     history_rows, history_readable = _seeded_history(client)
+    tunnels = _marked_tunnel_ids(client)
     plan = {"action": "teardown", "marker": SEED_MARKER,
-            "ids": ids, "sites": sites,
+            "ids": ids, "sites": sites, "tunnels": tunnels,
             "residue": {"history_rows": history_rows,
                         "readable": history_readable,
                         "note": RESIDUE_NOTE}}
@@ -812,6 +948,23 @@ def teardown(client, *, dry_run: bool = False) -> dict:
     for sid in sites:
         removed.append({"site_id": sid, "result": client.delete(f"/api/sites/{sid}")})
     plan["removed_sites"] = removed
+    # Same predicate for tunnels. Deleting an unmarked tunnel would remove the
+    # operator's egress protection, which is the worst thing this tool could
+    # do, so the marker is checked on the NAME and nothing else is eligible.
+    #
+    # DELETE /api/vpn/tunnels/<id> 404s when the tunnel is not registered LIVE
+    # (app_vpn_api.vpn_tunnel_delete returns early on vpn.get_tunnel() is
+    # None) even though the stored config row still exists. A seeded tunnel is
+    # created enabled, so register_loaded_tunnels() re-registers it on every
+    # boot and it stays reachable -- but a tunnel that was disabled, or whose
+    # registration failed, would be strandable in the stored config with no
+    # HTTP route able to remove it. teardown reports what it removed so that
+    # case is visible rather than assumed.
+    removed_tunnels = []
+    for tid in tunnels:
+        removed_tunnels.append({"tunnel_id": tid,
+                                "result": client.delete(f"/api/vpn/tunnels/{tid}")})
+    plan["removed_tunnels"] = removed_tunnels
     return plan
 
 
@@ -840,6 +993,10 @@ def main(argv=None) -> int:
     parser.add_argument("--seed", action="store_true", help="enqueue marked fixture URLs")
     parser.add_argument("--login", action="store_true",
                         help="create a fixture-login site and trigger BD's real login")
+    parser.add_argument("--vpn-tunnel", action="store_true",
+                        help="create one marked, inert VPN tunnel so L30 has "
+                             "a config/state pair to cross-check (never "
+                             "started; carries no traffic)")
     parser.add_argument("--teardown", action="store_true", help="remove marked entries")
     # OPT-IN, NOT DEFAULT-ON, and the reasoning is the reason it is written
     # here rather than assumed. --seed's documented contract is "place URLs";
@@ -865,8 +1022,9 @@ def main(argv=None) -> int:
                         help="seed even if the host already holds real work")
     args = parser.parse_args(argv)
 
-    if not args.seed and not args.teardown and not args.login:
-        parser.error("choose --seed, --login or --teardown")
+    if not args.seed and not args.teardown and not args.login \
+            and not args.vpn_tunnel:
+        parser.error("choose --seed, --login, --vpn-tunnel or --teardown")
 
     client = Client(args.base_url)
     unsettled = None
@@ -875,7 +1033,7 @@ def main(argv=None) -> int:
             plan = teardown(client, dry_run=args.dry_run)
             print(json.dumps(plan, indent=2))
             _report_residue(plan)
-        elif args.seed or args.login:
+        elif args.seed or args.login or args.vpn_tunnel:
             if not args.dry_run:
                 preflight(client, force=args.force)
             # Emitted in a `finally` so a LATER refusal cannot discard an
@@ -909,6 +1067,8 @@ def main(argv=None) -> int:
                             unsettled = settle
                 if args.login:
                     plans.append(seed_login(client, dry_run=args.dry_run))
+                if args.vpn_tunnel:
+                    plans.append(seed_vpn_tunnel(client, dry_run=args.dry_run))
             finally:
                 if plans:
                     print(json.dumps(plans if len(plans) > 1 else plans[0], indent=2))

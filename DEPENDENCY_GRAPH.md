@@ -205,5 +205,5 @@ Graph version: 1
 - **app_settings_center** — readers 8, writers 0
 - **global_config** — readers 69, writers 1
 - **site_editor** — readers 24, writers 0
-- **vpn_config** — readers 16, writers 1
+- **vpn_config** — readers 17, writers 1
 - **widgets_config** — readers 4, writers 1
