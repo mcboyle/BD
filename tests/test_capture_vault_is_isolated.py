@@ -36,6 +36,8 @@ A hardcoded default would mean every install shipped a known unlock.
 from __future__ import annotations
 
 import os
+import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -421,4 +423,339 @@ def test_the_exit_trap_is_armed_before_the_dropin_is_written():
         f"EXIT trap is not armed until {trap_at}. Every interrupt in that "
         f"window strands the drop-in, and the operator's BD restarts on the "
         f"capture vault -- their real credentials look like they vanished."
+    )
+
+
+# ── the restart must leave a SERVING app behind ──────────────────────────────
+#
+# `systemctl restart` returns once systemd has STARTED the unit, not once the
+# app has bound its port. waitress needs roughly three more seconds: a boot
+# journal shows "Started bulkdownloader.service" at 19:00:17 and "[waitress]
+# Serving on http://0.0.0.0:5555" at 19:00:20. Steps [7] and [9] curl :5555
+# immediately after cleanup_capture_vault returns, so with no wait they meet a
+# refused connection -- observed on a real capture as
+#   curl: (7) Failed to connect to localhost port 5555 after 0 ms
+# on BOTH steps ("after 0 ms" is a refusal, not a timeout), turning an
+# otherwise-clean run into dev-tools exit=1; http-smoke exit=1 and
+# CAPTURE VERDICT: FAIL.
+#
+# Two of these gates RUN the teardown rather than reading it. A text gate
+# cannot tell a bounded wait from `while true`, and boundedness is the property
+# that keeps a failed restart from becoming a hang -- which would be strictly
+# worse than the failure it replaced.
+
+REPO_ROOT = CAPTURE_SH.parent
+TRAP_ANCHOR = "trap cleanup_all EXIT"
+PROBE_MARK = "__READINESS_WAIT_STARTS_HERE__"
+
+
+def _functions(code: str) -> dict[str, str]:
+    """Brace-form shell function bodies, keyed by name.
+
+    run_graph_hash_gate is invisible here on purpose: it is declared with
+    PARENTHESES (a subshell function), and it is no part of this teardown.
+    """
+    return {
+        match.group(1): match.group(2)
+        for match in re.finditer(r"^(\w+)\(\)\s*\{\n(.*?)^\}", code,
+                                 re.M | re.S)
+    }
+
+
+def _teardown_tail(code: str) -> str:
+    """Everything cleanup_capture_vault does from the restart onwards."""
+    body = _functions(code).get("cleanup_capture_vault")
+    assert body is not None, "capture.sh defines no cleanup_capture_vault"
+    at = body.find("restart bulkdownloader")
+    assert at != -1, (
+        f"cleanup_capture_vault no longer restarts the service; this gate's "
+        f"anchor is stale:\n{body}"
+    )
+    return body[at:]
+
+
+def _expand(text: str, code: str) -> str:
+    """Substitute capture.sh's top-level assignments into `text`.
+
+    The probe URL is a VARIABLE, so reading the polling code literally cannot
+    see the port it polls -- the same trap
+    test_the_capture_vault_never_lands_in_the_shared_bundle hit, and it cost
+    that gate a mutation it should have caught. Resolve the chain instead, so
+    the denominator contains the subject. Bounded: a self-referential
+    assignment must not hang the suite.
+    """
+    assigns = {
+        match.group(1): match.group(2).strip().strip("\"'")
+        for match in re.finditer(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", code, re.M)
+    }
+    for _ in range(4):
+        grown = re.sub(
+            r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?",
+            lambda m: assigns.get(m.group(1), m.group(0)),
+            text,
+        )
+        if grown == text:
+            break
+        text = grown
+    return text
+
+
+def _polls_the_app(text: str) -> bool:
+    return bool(
+        "5555" in text
+        and "curl" in text
+        and re.search(r"\b(while|until)\b", text)
+    )
+
+
+def _readiness_wait(code: str) -> tuple[str, str]:
+    """(name to invoke, the resolved text that must do the polling).
+
+    Resolves ONE level of call, the way the EXIT-trap gate above does: the wait
+    may sit inline in the teardown or be factored into a helper the teardown
+    calls. Both are legitimate, and a gate that accepted only one would fail on
+    a refactor while the property it pins still held (CLAUDE.md 0 counts that
+    over-sensitivity as a soundness bug).
+    """
+    tail = _teardown_tail(code)
+    if _polls_the_app(_expand(tail, code)):
+        return "cleanup_capture_vault", _expand(tail, code)
+    for name, body in _functions(code).items():
+        if name == "cleanup_capture_vault":
+            continue
+        if re.search(rf"^\s*{re.escape(name)}\b", tail, re.M) \
+                and _polls_the_app(_expand(body, code)):
+            return name, _expand(body, code)
+    raise AssertionError(
+        "cleanup_capture_vault restarts bulkdownloader and returns without "
+        "waiting for the app to be SERVING again. `systemctl restart` returns "
+        "as soon as systemd has started the unit; waitress needs ~3s more to "
+        "bind :5555. Steps [7] and [9] curl that port immediately afterwards "
+        "and got `curl: (7) ... after 0 ms` on a real capture -- dev-tools "
+        "exit=1, http-smoke exit=1, CAPTURE VERDICT: FAIL.\n"
+        f"teardown from the restart onwards:\n{tail}"
+    )
+
+
+def _stub(path: Path, body: str) -> None:
+    path.write_text(body, encoding="utf-8")
+    path.chmod(0o755)
+
+
+def _probe_script(tmp_path: Path, call: str, vault: str) -> Path:
+    """capture.sh's real head, cut at the trap, plus a driver.
+
+    The head is the actual script -- assignments, the TTY-guarded prompt (which
+    skips itself with stdin closed), the teardown definitions and the trap. It
+    performs no I/O, so running it is safe; running a hand-written copy of the
+    function would test the copy.
+    """
+    raw = CAPTURE_SH.read_text(encoding="utf-8")
+    at = raw.find(TRAP_ANCHOR)
+    assert at != -1, "capture.sh no longer arms the aggregate EXIT trap"
+    head = raw[: raw.index("\n", at) + 1]
+    probe = tmp_path / "probe.sh"
+    probe.write_text(
+        head
+        + "\n".join(
+            [
+                "trap - EXIT",
+                f'CAPTURE_VAULT="{vault}"',
+                f'CAPTURE_VAULT_DIR="{tmp_path / "vault"}"',
+                'CAPTURE_VAULT_FILE="$CAPTURE_VAULT_DIR/secrets.json"',
+                f'CAPTURE_VAULT_DROPIN="{tmp_path / "dropin.conf"}"',
+                # Mark BOTH streams, so a gate asking what the wait said reads
+                # only what the wait said. Without this the head's own banner
+                # ("...L6/L8 will WARN as before") sits in the denominator, and
+                # a mutation that silenced the timeout entirely passed 28/28 --
+                # the gate matched a string from a line it was never about.
+                f'echo "{PROBE_MARK}"',
+                f'echo "{PROBE_MARK}" >&2',
+                call,
+                'echo "probe_rc=$?"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return probe
+
+
+def _run_probe(tmp_path: Path, *, call: str, vault: str = "1",
+               curl_exit: int = 7, timeout: int = 45):
+    """Run `call` out of capture.sh's own head with the world stubbed out.
+
+    sleep is a no-op stub, so a bounded wait finishes instantly while an
+    unbounded one hangs and is reported as such. That does pin the shape: a
+    wall-clock-deadline loop would also hang here. Deliberate -- a capture step
+    whose length is decided by the clock rather than by counted attempts cannot
+    be read back off the log, and this suite must not take 30 real seconds to
+    ask one question.
+    """
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    log = tmp_path / "calls.log"
+    _stub(stub_bin / "curl",
+          f'#!/usr/bin/env bash\necho "curl" >> "{log}"\nexit {curl_exit}\n')
+    _stub(stub_bin / "sleep",
+          f'#!/usr/bin/env bash\necho "sleep ${{1:-0}}" >> "{log}"\nexit 0\n')
+    _stub(stub_bin / "sudo",
+          f'#!/usr/bin/env bash\necho "sudo $*" >> "{log}"\nexit 0\n')
+    _stub(stub_bin / "systemctl",
+          f'#!/usr/bin/env bash\necho "systemctl $*" >> "{log}"\nexit 0\n')
+
+    probe = _probe_script(tmp_path, call, vault)
+    env = dict(os.environ)
+    env["PATH"] = f"{stub_bin}{os.pathsep}{env['PATH']}"
+    try:
+        completed = subprocess.run(
+            ["bash", str(probe)],
+            cwd=str(REPO_ROOT),
+            env=env,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AssertionError(
+            f"{call} did not return within {timeout}s against a service that "
+            f"never answers, with sleep stubbed to a no-op. The readiness wait "
+            f"is unbounded: it converts a failed restart into a hung capture, "
+            f"which is worse than the failed steps it was meant to prevent."
+        ) from exc
+    calls = log.read_text(encoding="utf-8").splitlines() if log.is_file() else []
+    return completed, calls
+
+
+def _said_by_the_wait(completed) -> str:
+    """Only the output produced from the call onwards, on both streams."""
+    spoken = []
+    for stream in (completed.stdout, completed.stderr):
+        assert PROBE_MARK in stream, (
+            f"the probe marker never reached one of the streams, so this gate "
+            f"cannot tell the wait's output from capture.sh's own. Unknown is "
+            f"a third state and it fails.\n{stream}"
+        )
+        spoken.append(stream.split(PROBE_MARK, 1)[1])
+    return "".join(spoken)
+
+
+def test_the_teardown_waits_for_the_app_to_serve_before_steps_7_to_9():
+    """The restart must be followed by a readiness wait, not by nothing."""
+    name, text = _readiness_wait(_capture_body())
+    assert name and text
+
+
+def test_the_readiness_probe_uses_the_origin_the_guarded_steps_use():
+    """Probing a different origin certifies a socket the steps never reach.
+
+    Step [7] talks to localhost:5555. A wait that polled 127.0.0.1 would go
+    green on a box whose localhost resolves to ::1 first, while every probe it
+    was supposed to protect still failed -- a gate whose denominator is not its
+    subject.
+    """
+    body = _capture_body()
+    match = re.search(r"https?://([A-Za-z0-9_.\-]+:\d+)/api/dev/", body)
+    assert match, "capture.sh no longer probes /api/dev/* -- anchor stale"
+    origin = match.group(1)
+    _name, text = _readiness_wait(body)
+    assert origin in text, (
+        f"steps [7]/[9] probe {origin} but the readiness wait does not; it "
+        f"would certify an origin those steps never use.\n{text}"
+    )
+
+
+def test_the_readiness_wait_is_bounded_and_says_so_when_it_times_out(tmp_path):
+    """Bounded, and never silent about giving up.
+
+    An unbounded wait turns a failed restart into a hang. A bounded wait that
+    returned quietly would be worse than none at all: the capture would carry
+    on into steps [7]-[9] reporting nothing about an app it never saw serving.
+    Unknown is a third state, and it fails (CLAUDE.md 0).
+    """
+    name, _text = _readiness_wait(_capture_body())
+    completed, calls = _run_probe(tmp_path, call=name, curl_exit=7)
+
+    attempts = [line for line in calls if line.startswith("curl")]
+    sleeps = [float(line.split()[1]) for line in calls
+              if line.startswith("sleep")]
+    assert len(attempts) >= 2, (
+        f"the readiness wait made {len(attempts)} probe(s) against a service "
+        f"that never answered; it is not polling. calls={calls}"
+    )
+    budget = sum(sleeps)
+    assert 0 < budget <= 120, (
+        f"the readiness wait's total sleep budget is {budget}s over "
+        f"{len(attempts)} attempts. Zero means it never waits between probes; "
+        f"more than 120s means a stalled restart holds the capture far longer "
+        f"than the ~3s waitress actually needs."
+    )
+    spoken = _said_by_the_wait(completed)
+    assert re.search(r"(?i)warn|timed out|timeout|did not|no answer|never|"
+                     r"not ready|not known", spoken), (
+        f"the readiness wait gave up silently after {len(attempts)} attempts. "
+        f"Steps [7]-[9] then run against an app nothing has seen serving, and "
+        f"the operator gets `curl: (7)` with no explanation.\n"
+        f"--- everything the wait said ---\n{spoken!r}"
+    )
+
+
+def test_the_readiness_wait_returns_as_soon_as_the_app_answers(tmp_path):
+    """A fixed `sleep 5` would pass the gate above and waste the difference."""
+    name, _text = _readiness_wait(_capture_body())
+    completed, calls = _run_probe(tmp_path, call=name, curl_exit=0)
+
+    attempts = [line for line in calls if line.startswith("curl")]
+    sleeps = [line for line in calls if line.startswith("sleep")]
+    assert len(attempts) == 1, (
+        f"an app answering on the first probe was asked {len(attempts)} "
+        f"times. calls={calls}"
+    )
+    assert not sleeps, (
+        f"the readiness wait slept even though the app answered immediately: "
+        f"{sleeps}. That is a fixed delay wearing a poll's clothes.\n"
+        f"{completed.stdout}"
+    )
+
+
+def test_a_capture_that_never_enabled_the_vault_waits_for_nothing(tmp_path):
+    """No password, or no TTY, means no drop-in, no restart -- and no delay.
+
+    cleanup_capture_vault is a no-op in that case, so a readiness wait reached
+    from anywhere other than inside its restart branch would add up to the full
+    ceiling to every unattended capture, for a service it never touched.
+    """
+    _completed, calls = _run_probe(
+        tmp_path, call="cleanup_capture_vault", vault="0", curl_exit=7)
+    assert calls == [], (
+        f"cleanup_capture_vault did work with CAPTURE_VAULT=0: {calls}. "
+        f"Nothing was restarted, so nothing may be waited on."
+    )
+
+
+def test_a_readiness_timeout_reaches_the_verdict():
+    """Saying it on stderr is not enough; the verdict has to see it.
+
+    capture.sh deliberately never aborts mid-run (`don't set -e: we want all 9
+    steps to run even if one errors`), so the only way an unknown can fail is
+    by reaching tools/capture_verdict.py as a stage exit. A run whose service
+    never came back must not be able to print PASS.
+    """
+    body = _capture_body()
+    _name, text = _readiness_wait(body)
+    assigned = set(re.findall(r"^\s*([A-Za-z_][A-Za-z0-9_]*)=", text, re.M))
+    verdict_at = body.find("tools/capture_verdict.py")
+    assert verdict_at != -1, "capture.sh no longer calls capture_verdict.py"
+    stages = re.findall(r'--stage-exit\s+"([^"]+)"', body[verdict_at:])
+    referenced = {
+        name
+        for stage in stages
+        for name in re.findall(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)", stage)
+    }
+    assert assigned & referenced, (
+        f"the readiness wait sets {sorted(assigned)} but the verdict only "
+        f"reads {sorted(referenced)}. A timeout would warn on stderr and the "
+        f"capture could still print CAPTURE VERDICT: PASS -- the one place the "
+        f"operator actually reads."
     )
