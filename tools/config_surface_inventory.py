@@ -738,6 +738,14 @@ _IMPORT_TIME = {
     # reader (the substantive knob is the store key vpn.leak_test_interval_s,
     # already a full Vpn.tsx control) -> a separate control would wire to nothing.
     "BD_DISABLE_VPN_RUNTIME", "BD_VPN_LEAK_INTERVAL_S",
+    # v3.66.818: the capture-vault pair. secrets_store.py binds
+    # `SECRETS_FILE, SECRETS_META_FILE = _resolve_vault_paths()` at MODULE level,
+    # so both are read exactly once, before any request handler exists. A live
+    # GUI write could not move an already-opened vault, and a control that
+    # appeared to would be worse than none. capture.sh sets them via a systemd
+    # drop-in and the service restarts to pick them up -- which is the whole
+    # mechanism, not an incidental detail.
+    "BD_SECRETS_FILE", "BD_CAPTURE_VAULT",
 }
 # v3.66.312 (Phase 4.3): widgets STORE-METADATA keys — written by the widgets_config
 # store on save (timestamp / schema version), never a user-set control. The dashboard
