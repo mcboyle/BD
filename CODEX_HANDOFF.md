@@ -44,12 +44,33 @@ plans under `docs/superpowers/plans/` *(11 plan files present, re-derived
 | --- | --- |
 | Foundation / graph, Tasks 1-8 | complete |
 | Analysis frontend, Tasks 1-3 | complete |
-| Analysis Task 4 (`reachability.py`) | paused at a safe checkpoint — one reviewed P2 remains |
+| Analysis Task 4 (`reachability.py`) | code complete and gated; re-freeze + review outstanding *(re-derived 2026-07-28)* |
 | Analysis Tasks 5-7 | pending |
 | Governance / gate, Tasks 1-8 | pending |
 | Audit / knowledge / hygiene / static-KB, Tasks 1-11 | pending |
 
-Eleven of 34 task groups complete. Task 4 is implemented but **not** complete.
+Eleven of 34 task groups complete. Task 4's **code** is done; what remains is
+process — re-freeze, independent review, final report.
+
+**Task 4's "one reviewed P2" was recorded as open long after it was closed.** It
+was re-derived on 2026-07-28 and the sanitiser is present and gated:
+`_SAFE_EXCEPTION_NAMES` (16 entries) at `tools/code_intelligence/
+reachability_service.py:48`, `_safe_exception_name` at `:485`, and four tests in
+`tests/test_reachability_frontend.py` covering the sensitive-name, child-exception
+and spoofed-`str`-subclass cases.
+
+Because the fix was already merged a natural RED was impossible, so both
+properties were mutation-tested instead, one mutation per property, to prove each
+gate covers its own subject rather than riding on the other:
+
+- allowlist fallback (`.get(value, value)`) → the two sensitive-name tests fail,
+  the spoof test **passes**
+- strict type check (`isinstance` for `type(value) is str`) → only the spoof test
+  fails, returning `'RuntimeError'` — a misclassification, not a leak
+
+The file was restored and confirmed by sha256 after each. This is section 1 of
+`CLAUDE.md` applied to this document: a register is not evidence, and roughly
+half of a stale one's "open" items are already closed.
 
 ## Files the completed tasks touched
 
@@ -152,13 +173,22 @@ These were never accepted as passes.
 
 ### Resume and finish Analysis Task 4
 
-1. Add a RED regression using a custom sensitive exception class name such as
-   `Bearer_ultra_private_value`.
-2. Route exception types through a small bounded allowlist / sanitiser.
-3. Emit a generic `ProbeError` for unknown, invalid, or sensitive exception
-   class names in artifacts and `CheckResult` evidence.
-4. Rerun the focused suite, controller, compilation, CLI help, graph checks,
-   secret/path/resource probes, and scoped whitespace checks.
+Steps 1-4 are **DONE** *(re-derived 2026-07-28, by running them)*. Do not
+re-implement them; confirm and move on.
+
+1. ~~RED regression using a sensitive exception class name~~ — present as
+   `test_sensitive_custom_route_exception_name_is_sanitized`, which uses exactly
+   the `Bearer_ultra_private_value` name this list proposed, plus a child-exception
+   and a spoofed-`str`-subclass variant.
+2. ~~Bounded allowlist / sanitiser~~ — `_SAFE_EXCEPTION_NAMES`, 16 entries.
+3. ~~Generic `ProbeError` for unknown, invalid or sensitive names~~ —
+   `_safe_exception_name` returns it for anything unlisted, and for any value
+   whose type is not exactly `str`.
+4. ~~Rerun the focused suite and graph checks~~ — 32 passed; dependency graph in
+   sync at 1366 edges; import-graph baseline holds at 1366.
+
+What actually remains, none of it code:
+
 5. **Re-freeze** both Task 4 packages — the originals are gone, so this is a
    fresh freeze, not a hash comparison.
 6. Obtain an independent review of the exact final packages.
@@ -176,10 +206,20 @@ These were never accepted as passes.
 
 The original "exact next command" was a PowerShell/WSL invocation against the
 retired checkout, verifying package hashes that no longer exist. It is removed.
-Start instead by establishing where Task 4 actually stands:
+Start by establishing where Task 4 actually stands:
 
 ```bash
 venv/bin/python -m pytest tests/test_reachability_frontend.py -q
 venv/bin/python tools/dependency_graph.py --check
 venv/bin/python tools/decomp/import_graph_gate.py --check
 ```
+
+On 2026-07-28 those returned `32 passed`, `OK: dependency graph in sync
+(edges=1366)`, and `PASS: no new import edges (baseline holds, 1366 edges)`. Run
+them anyway rather than believing this paragraph — that is the entire point of
+the rule, and the numbers move.
+
+Green there means Task 4 needs no code, only steps 5-7 above. It does **not**
+mean the wider program is unblocked: Analysis Tasks 5-7 and everything below
+them are untouched, and every status in this file is a register entry, not
+evidence. Re-derive before working any of them.
