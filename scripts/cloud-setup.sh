@@ -52,8 +52,18 @@ find_repo() {
       REPO="$(cd "$path" && pwd)"; REPO_VIA="\$$name"; return 0
     fi
   done
-  for path in /workspace /repo /src /app "$HOME/bulkdownloader" "$HOME/repo"; do
-    if [ -f "$path/$MARKER" ]; then
+  # This list must cover every rung scripts/cloud-bootstrap.sh is willing to
+  # hand over; tests/test_cloud_bootstrap_is_thin.py asserts the containment.
+  # When `/home/*/BD` was added there and not here, a checkout the bootstrap
+  # could resolve was invisible to this function -- and the failure is silent,
+  # because HAVE_REPO=0 still provisions the system half and still reports.
+  #
+  # Both markers are required, not just $MARKER: these rungs now include globs,
+  # and /tmp-style two-file fixtures carry bulk_downloader/__init__.py alone.
+  for path in /workspace /repo /src /app \
+              "$HOME/BD" "$HOME/bulkdownloader" "$HOME/repo" \
+              /home/*/BD /home/*/bulkdownloader; do
+    if [ -f "$path/$MARKER" ] && [ -f "$path/scripts/cloud-setup.sh" ]; then
       REPO="$(cd "$path" && pwd)"; REPO_VIA="$path"; return 0
     fi
   done

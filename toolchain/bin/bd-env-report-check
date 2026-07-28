@@ -14,9 +14,19 @@ The report carries provenance since v3.66.818:
 
 This compares that against the tree and answers with exactly one of:
 
-    FRESH    provenance matches the tree; rows describe what you are standing in
-    STALE    provenance names a different version or commit
+    FRESH    the recorded version matches the tree; rows describe what you are
+             standing in. A differing COMMIT is reported in the message but
+             still exits 0 -- see below.
+    STALE    provenance names a different version
     UNKNOWN  no report, no provenance block, or the tree cannot be read
+
+VERSION IS DECISIVE, COMMIT IS ADVISORY. A clean checkout of the same version at
+a different commit is normal mid-branch, and a gate that fired on every commit
+would be switched off -- taking the version check with it. So a commit mismatch
+appends "(commit differs: X vs Y)" to the FRESH line and never changes the exit
+code. Do not read exit 0 as "the report was written against this commit"; read
+the message. This paragraph exists because the line above used to say "a
+different version or commit", which promised an enforcement that is not here.
 
 UNKNOWN is not a soft pass. A report whose provenance cannot be established is
 indistinguishable from one written against another tree, so it exits non-zero

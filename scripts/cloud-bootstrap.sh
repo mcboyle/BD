@@ -25,16 +25,12 @@ REPORT="$HOME/.claude-env-report.md"
 MARKER="bulk_downloader/__init__.py"
 
 # Named probes and ONE bounded glob. No filesystem search: a depth-ranked
-# `find /` prefers shallow two-file pytest fixtures under /tmp over the real
-# checkout -- 70 candidates, winner a 3-file fixture. Both markers are required
-# below, so a fixture cannot win here either.
-#
-# No absolute path to a live checkout, either: an earlier draft hardcoded one,
-# which made the "no checkout" branch unreachable on the very machine it
-# protected. A fallback that always succeeds is not a fallback. But `$HOME/BD`
-# alone was not enough: $HOME is /root here while the checkout lives under
-# /home/<user>/, so a real session died with "no checkout found" on a container
-# that had one. `/home/*/BD` is one level deep -- covers it, no search.
+# `find /` prefers shallow /tmp pytest fixtures over the real checkout (70
+# candidates, winner a 3-file fixture); both markers below shut that out.
+# No hardcoded absolute either -- one made the "no checkout" branch unreachable
+# on the machine it protected, and a fallback that always succeeds is not one.
+# `$HOME/BD` alone missed too: $HOME is /root while the checkout lives under
+# /home/<user>/, so a real session died finding nothing. `/home/*/BD` covers it.
 REPO=""
 for candidate in "${BD_REPO:-}" "${CLAUDE_PROJECT_DIR:-}" "$PWD" \
                  /workspace /repo /src /app \
@@ -75,5 +71,9 @@ if [ -z "$REPO" ]; then
   exit 1
 fi
 
-# The only line that does work, and it does it by handing over.
+# Hand the location over rather than letting cloud-setup.sh re-derive it: its
+# own path list is narrower than this one, and a checkout found here but missed
+# there provisions as HAVE_REPO=0 -- a READY verdict about a tree never located.
+export BD_REPO="$REPO"
+cd "$REPO" || { echo "FATAL: cannot enter $REPO" >&2; exit 1; }
 exec bash "$REPO/scripts/cloud-setup.sh"
