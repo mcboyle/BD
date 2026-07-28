@@ -43,6 +43,74 @@ def _app__app_boot_time():
     return getattr(importlib.import_module("bulk_downloader.app"), "_app_boot_time")
 
 
+_BUILD_IDENTITY_CACHE: dict[str, dict] = {}
+
+
+def build_identity(install_dir: str | os.PathLike) -> dict:
+    """What build is actually running here, and how we know.
+
+    Returns ``{"sha", "built_at", "source"}`` where source is ``git``,
+    ``build_info.json`` or ``unknown``.
+
+    WHY GIT FIRST. ``build_info.json`` is written by exactly one thing --
+    ``tools/build_release.py``, during a zip build. The box no longer builds
+    zips; it deploys with ``git reset --hard`` + restart, and nothing on that
+    path touches the file. So it holds whatever the last zip build left. The
+    value found on the live box was ``a8881d9d471c`` from 2026-07-19, which
+    ``git cat-file`` cannot resolve at all -- it is a release-zip digest, not
+    a commit. Three documents tell the reader to confirm /api/health before
+    trusting a post-deploy test run, so the endpoint they are told to trust was
+    reporting an identity frozen in the past and not addressable in the
+    present.
+
+    A checkout knows its own commit, so derive rather than re-stamp: a derived
+    answer cannot go stale, and re-stamping would only move the staleness to
+    whoever forgets to run the stamper.
+
+    ``source`` is not decoration. A fallback to a recorded file is
+    indistinguishable from a live read unless it says so, and that
+    indistinguishability is precisely how the stale value went unnoticed.
+
+    Cached per install dir: the deployed commit changes only on a deploy, and
+    a deploy restarts the service, which clears this.
+    """
+    root = str(install_dir)
+    cached = _BUILD_IDENTITY_CACHE.get(root)
+    if cached is not None:
+        return cached
+
+    result = {"sha": None, "built_at": None, "source": "unknown"}
+    try:
+        import subprocess
+        proc = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root,
+                              capture_output=True, text=True, timeout=10)
+        if proc.returncode == 0 and proc.stdout.strip():
+            sha = proc.stdout.strip()
+            when = subprocess.run(["git", "log", "-1", "--format=%cI"], cwd=root,
+                                  capture_output=True, text=True, timeout=10)
+            result = {"sha": sha[:12],
+                      "built_at": when.stdout.strip() or None,
+                      "source": "git"}
+    except Exception:  # why: git absent or not a work tree; fall through to the file
+        pass
+
+    if result["source"] == "unknown":
+        try:
+            path = os.path.join(root, "build_info.json")
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as fh:
+                    data = json.load(fh)
+                if isinstance(data, dict) and data.get("sha"):
+                    result = {"sha": data.get("sha"),
+                              "built_at": data.get("built_at"),
+                              "source": "build_info.json"}
+        except Exception:  # why: unreadable/malformed file is not evidence; stay unknown
+            pass
+
+    _BUILD_IDENTITY_CACHE[root] = result
+    return result
+
+
 def _runner_queue_counts(status: dict) -> tuple[int, int]:
     """Return pending/running counts from current or legacy runner status."""
     counts = status.get("counts")
@@ -105,13 +173,9 @@ def api_health():
     # or a pre-B1.3 build). Never fails the probe.
     try:
         _bi_dir = os.environ.get("BD_INSTALL_DIR") or os.path.dirname(os.path.dirname(__file__))
-        _bi_path = os.path.join(_bi_dir, "build_info.json")
-        if os.path.exists(_bi_path):
-            with open(_bi_path, encoding="utf-8") as _bf:
-                _bi = json.load(_bf)
-            if isinstance(_bi, dict) and _bi.get("sha"):
-                payload["build"] = {"sha": _bi.get("sha"),
-                                    "built_at": _bi.get("built_at")}
+        _build = build_identity(_bi_dir)
+        if _build.get("sha"):
+            payload["build"] = _build
     except Exception:
         pass  # build identity is advisory — never break the health probe
     return jsonify(payload), (200 if payload["ok"] else 503)

@@ -8,7 +8,7 @@ critical check fails (warnings alone don't fail).
 
 Usage:
     bd-doctor
-    bd-doctor --work /home/claude/work
+    bd-doctor --work /path/to/checkout      # defaults to $PWD
 """
 import argparse
 import glob
@@ -23,6 +23,25 @@ G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 
 CRIT = "crit"
 WARN = "warn"
+
+
+def browser_pool():
+    """Where Playwright actually keeps its browsers, and how we know.
+
+    PLAYWRIGHT_BROWSERS_PATH wins: it is what playwright itself honours.
+    Previously every pool lookup here globbed /home/claude/.cache/ms-playwright
+    directly. The trap: /home/claude often EXISTS while that leaf does not, and
+    HOME may be another user entirely, so neither an isdir() guard on the home
+    dir nor expanduser finds the real pool. Only the env var does.
+    """
+    env = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if env and os.path.isdir(env):
+        return env
+    for cand in (os.path.join(os.path.expanduser("~"), ".cache", "ms-playwright"),
+                 "/opt/pw-browsers"):
+        if os.path.isdir(cand):
+            return cand
+    return None
 
 
 def line(status, label, detail=""):
@@ -50,7 +69,11 @@ def selftest():
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="bd-doctor")
-    ap.add_argument("--work","--tree", default="/home/claude/work")
+    # Default to the tree we are standing in. The old default,
+    # /home/claude/work, is the retired sandbox path -- it does not exist,
+    # so every row derived from it reported on nothing.
+    ap.add_argument("--work","--tree",
+                    default=os.environ.get("BD_REPO") or os.getcwd())
     ap.add_argument("--selftest",action="store_true")
     a = ap.parse_args(argv)
     if a.selftest:
@@ -96,13 +119,18 @@ def main(argv=None):
     line("ok" if os.path.isdir(fe_nm) else WARN, "frontend/node_modules",
          "" if os.path.isdir(fe_nm) else "absent -- tsc/vitest/vite will fail")
 
-    print("-- prestaged env")
-    pp = "/tmp/prestaged_site_packages"
-    has_flask = os.path.isdir(os.path.join(pp, "flask"))
-    line("ok" if has_flask else WARN, "prestaged_site_packages",
-         "flask present" if has_flask else f"no flask under {pp} (test client may fail)")
-    pw = glob.glob("/home/claude/.cache/ms-playwright/chromium*")
-    line("ok" if pw else WARN, "Playwright chromium", "" if pw else "not cached")
+    # The prestaged_site_packages row is gone: that staging layer belonged to
+    # the retired sandbox and exists on no current host, so the row could only
+    # ever WARN about the absence of something nobody installs. Dependencies
+    # now come from the work tree venv.
+    print("-- python deps")
+    _venv_py = os.path.join(a.work, "venv", "bin", "python")
+    line("ok" if os.path.isfile(_venv_py) else WARN, "work-tree venv",
+         _venv_py if os.path.isfile(_venv_py) else f"no venv under {a.work}")
+    _pool = browser_pool()
+    pw = glob.glob(os.path.join(_pool, "chromium*")) if _pool else []
+    line("ok" if pw else WARN, "Playwright chromium",
+         f"pool {_pool}" if pw else ("no pool located" if not _pool else f"none under {_pool}"))
 
     print("-- STATE.json")
     cands = []
@@ -161,26 +189,71 @@ def main(argv=None):
     else:
         line(WARN, "audit venv", "absent -- run bd-rev to provision (live or wheels)")
     # playwright chromium present
-    pw_cached = bool(glob.glob("/home/claude/.cache/ms-playwright/chromium*"))
+    _pool2 = browser_pool()
+    pw_cached = bool(glob.glob(os.path.join(_pool2, "chromium*"))) if _pool2 else False
     # can it actually DRIVE a headless browser? (only test if cached + egress)
     pw_live = False
+    pw_backend = "unknown"
     if pw_cached:
-        probe = ("from playwright.sync_api import sync_playwright\n"
-                 "with sync_playwright() as p:\n"
-                 "    b=p.chromium.launch(headless=True); b.close()\n"
-                 "print('ok')\n")
-        env = dict(os.environ,
-                   PLAYWRIGHT_BROWSERS_PATH="/home/claude/.cache/ms-playwright",
-                   PYTHONPATH="/tmp/prestaged_site_packages")
+        # Probe the backend BD is actually configured to run. cloak.py's
+        # resolve_backend() is the single source of truth for that choice;
+        # launching Playwright unconditionally answers about a backend the box
+        # may not use -- a friendlier wrong answer, but the same wrong
+        # denominator as the paths below. cloakbrowser owns its own binary and
+        # never reads PLAYWRIGHT_BROWSERS_PATH, so the two cases genuinely
+        # differ. Falls back to a plain Playwright probe when the app is not
+        # importable, and says so rather than implying it tested the real one.
+        probe = (
+            "try:\n"
+            "    from bulk_downloader.cloak import resolve_backend, CLOAKBROWSER\n"
+            "    backend = resolve_backend()\n"
+            "except Exception:\n"
+            "    backend = 'playwright'; CLOAKBROWSER = 'cloakbrowser'\n"
+            "if backend == CLOAKBROWSER:\n"
+            "    from bulk_downloader import cloak as _c\n"
+            "    _r = _c.launch_browser(headless=True)\n"
+            "    _b = _r[0] if isinstance(_r, tuple) else _r\n"
+            "    _b.close()\n"
+            "else:\n"
+            "    from playwright.sync_api import sync_playwright\n"
+            "    with sync_playwright() as p:\n"
+            "        b = p.chromium.launch(headless=True); b.close()\n"
+            "print('ok ' + backend)\n"
+        )
+        # Inherit the caller's environment. The previous version FORCED
+        # PLAYWRIGHT_BROWSERS_PATH=/home/claude/.cache/ms-playwright and
+        # PYTHONPATH=/tmp/prestaged_site_packages -- both retired sandbox
+        # paths that no longer exist. Measured: with that env the probe exits 1
+        # with Playwright's "browser not found" banner on a host where it
+        # exits 0. The row reported the browser broken while it worked, which
+        # is the inverse failure -- a gate firing on nothing gets switched off,
+        # and takes the real signal with it. PYTHONPATH in particular is
+        # REPLACED, not appended, so forcing it also removed whatever the
+        # caller had arranged.
+        env = dict(os.environ)
+        env.setdefault("PYTHONPATH", a.work)
+        if not env.get("PLAYWRIGHT_BROWSERS_PATH"):
+            for _cand in (os.path.join(os.path.expanduser("~"), ".cache", "ms-playwright"),
+                          "/opt/pw-browsers"):
+                if os.path.isdir(_cand):
+                    env["PLAYWRIGHT_BROWSERS_PATH"] = _cand
+                    break
         try:
             r = subprocess.run([sys.executable, "-c", probe],
                                capture_output=True, text=True, timeout=40, env=env)
             pw_live = (r.returncode == 0 and "ok" in r.stdout)
+            # The probe prints "ok <backend>". Carry the name into the row: a
+            # verdict about "the headless browser" that does not say WHICH
+            # backend it launched is answering a question the reader did not
+            # ask, since only one of the two uses a Playwright pool at all.
+            if pw_live:
+                _parts = r.stdout.strip().split()
+                pw_backend = _parts[1] if len(_parts) > 1 else "unknown"
         except Exception:  # why: handled failure is non-fatal here; proceed with the value left unset
             pass
     if pw_live:
-        line("ok", "headless browser",
-             "chromium launches -- headless-vs-real-sites IS testable in-sandbox")
+        line("ok", f"headless browser ({pw_backend})",
+             "launches -- headless-vs-real-sites IS testable here")
     elif pw_cached:
         line(WARN, "headless browser",
              "chromium cached but launch probe failed (run under `bd`)")
@@ -202,10 +275,11 @@ def main(argv=None):
     # version against the IMPORTED one; they must agree.
     try:
         import re as _re, subprocess as _sp
-        _w = "/home/claude/work"
+        _w = a.work
         _src = _re.search(r'__version__\s*=\s*"([^"]+)"',
                           open(os.path.join(_w, "bulk_downloader", "__init__.py")).read()).group(1)
-        _imp = _sp.run(["python3", "-c",
+        _vpy = os.path.join(_w, "venv", "bin", "python")
+        _imp = _sp.run([_vpy if os.path.isfile(_vpy) else sys.executable, "-c",
                         "import sys;sys.path.insert(0,'.');import bulk_downloader as b;"
                         "print(b.__version__)"],
                        cwd=_w, capture_output=True, text=True).stdout.strip()

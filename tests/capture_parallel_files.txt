@@ -162,7 +162,6 @@ test_v3_66_714_endpoint_reachability.py
 test_v3_66_719_tools_control.py
 test_v3_66_720_oidc_and_ffmpeg.py
 test_v3_66_721_tasktracker_audit.py
-test_v3_66_722_deploy_manifest_ships.py
 test_v3_66_732_cockpit_reachability.py
 test_v3_66_754_tracker_decided_against.py
 test_v3_66_758_takeover_driver.py
