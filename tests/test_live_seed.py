@@ -495,3 +495,93 @@ def test_a_later_refusal_does_not_swallow_an_earlier_success(capsys, monkeypatch
     assert seed.SEED_MARKER in out.out, (
         f"stdout does not describe the queue seed that ran:\n{out.out}"
     )
+
+
+def _fixture_app():
+    """The real fixture Flask app, so the denominator is its actual url_map.
+
+    Not a grep for @app.route strings: the routes carry converters
+    (`<int:sid>`), so only Werkzeug's own matcher can answer whether a concrete
+    seeded path resolves. Deriving reachability beats asserting it.
+    """
+    loader = importlib.machinery.SourceFileLoader(
+        "bd_fixture_site", str(REPO_ROOT / "tools" / "fixture_site.py")
+    )
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module.make_app()
+
+
+def test_every_seeded_url_resolves_against_the_fixtures_route_map():
+    """The seeded URLs must be servable by the fixture, or the seed is a no-op.
+
+    THE DEFECT THIS GATE COVERS, WHICH NOTHING COVERED BEFORE. seeded_url once
+    returned `{origin}/bdseed/clipN.mp4`, putting the marker in the PATH.
+    fixture_site.py has no /bdseed/ route, so every seeded download 404'd and
+    L11, L12 and L14 reported "no completed downloads" forever. That reads as
+    BD failing to download; BD was never handed a URL that resolved. The fix
+    moved the marker into the QUERY, which Flask ignores when matching.
+
+    Twenty tests already cover this seeder -- markers, teardown, preflight,
+    refusals -- and not one of them asked whether the URL it queues can be
+    served. The seeder's own comment says to verify against fixture_site's
+    url_map rather than against its local list; this is that check.
+
+    DENOMINATOR: every rule in the fixture's Flask url_map, matched by Werkzeug.
+    SUBJECT: every URL seeded_url() emits, read from the shipped _SEED_PATHS so
+    the set cannot drift out from under the assertion.
+    """
+    from urllib.parse import urlsplit
+
+    from werkzeug.exceptions import HTTPException
+
+    seed = _load()
+    adapter = _fixture_app().url_map.bind("127.0.0.1")
+
+    urls = [seed.seeded_url(i) for i in range(len(seed._SEED_PATHS))]
+    assert urls, "the seed set is empty; this gate would examine nothing"
+
+    unroutable = []
+    for url in urls:
+        path = urlsplit(url).path
+        try:
+            adapter.match(path, method="GET")
+        except HTTPException as exc:
+            unroutable.append(f"{url}  (path {path!r} -> {type(exc).__name__})")
+
+    assert not unroutable, (
+        "the seeder queues URLs the fixture does not serve, so every seeded "
+        "download 404s and the live checks it feeds report 'no completed "
+        "downloads' -- which reads as a BD failure rather than a seeding "
+        "one:\n  " + "\n  ".join(unroutable)
+    )
+
+
+def test_the_seed_marker_survives_in_every_seeded_url():
+    """Routable is not sufficient: the marker is what makes cleanup possible.
+
+    `_is_seeded` is `SEED_MARKER in entry["url"]`. Both teardown and preflight
+    depend on it -- without the marker teardown orphans every seeded row, and
+    preflight reads seeded work as the operator's real work and refuses the
+    next run. So a "fix" that made the URLs routable by dropping the marker
+    would satisfy the route gate above and break the seeder in a quieter way.
+
+    The duplicate is asserted here too. seeded_url(2) must be byte-identical to
+    seeded_url(0), query included, because L14 asserts BD SKIPS a URL it
+    already holds and needs a repeat to recognise.
+    """
+    seed = _load()
+    urls = [seed.seeded_url(i) for i in range(len(seed._SEED_PATHS))]
+
+    unmarked = [u for u in urls if seed.SEED_MARKER not in u]
+    assert not unmarked, (
+        "seeded URLs carry no marker, so _is_seeded() cannot recognise them. "
+        "Teardown will orphan these rows and the next preflight will read them "
+        f"as the operator's real work:\n  " + "\n  ".join(unmarked)
+    )
+
+    assert urls[2] == urls[0], (
+        "the deliberate duplicate is no longer byte-identical to index 0, so "
+        f"L14 has nothing to recognise as a repeat:\n  {urls[0]!r}\n  {urls[2]!r}"
+    )

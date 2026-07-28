@@ -201,6 +201,25 @@ def test_find_repo_refuses_rather_than_searching_the_filesystem(tmp_path):
     cwd = tmp_path / "elsewhere"
     cwd.mkdir()
 
+    # WHY THE ABSOLUTE RUNGS ARE RE-POINTED INTO A SANDBOX. find_repo's path
+    # list gained `/home/*/BD` so that it covers every rung cloud-bootstrap.sh
+    # is willing to hand over. On any host that HAS a checkout under /home --
+    # this one does, at /home/user/BD -- that rung matches regardless of what
+    # the caller intended, so "no named probe matched" becomes unreachable and
+    # the refusal this test exists to assert is never exercised. Pointing the
+    # absolutes at an empty sandbox restores the condition; every other line of
+    # the shipped function, including the whole branch under test, is verbatim.
+    # Same remedy as tests/test_cloud_bootstrap_is_thin.py.
+    sandbox = tmp_path / "root"
+    sandbox.mkdir()
+    find_repo_src = _extract_function("find_repo")
+    for absolute in ("/workspace", "/repo", "/src", "/app", "/home/*"):
+        find_repo_src = find_repo_src.replace(f" {absolute}", f" {sandbox}{absolute}")
+    assert str(sandbox) in find_repo_src, (
+        "the rewrite did not take, so this test would probe real absolute "
+        "paths and could pass or fail on what happens to exist on the host"
+    )
+
     harness = textwrap.dedent(
         """
         set -uo pipefail
@@ -212,7 +231,7 @@ def test_find_repo_refuses_rather_than_searching_the_filesystem(tmp_path):
           echo "REFUSED"
         fi
         """
-    ) % _extract_function("find_repo")
+    ) % find_repo_src
 
     env = {
         "PATH": "/usr/local/bin:/usr/bin:/bin",

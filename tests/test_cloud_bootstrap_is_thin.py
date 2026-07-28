@@ -270,3 +270,194 @@ def test_the_probe_list_finds_THIS_checkout():
         f"that resolves to some OTHER tree is worse than one that finds "
         f"nothing: provisioning would run against it silently."
     )
+
+
+@pytest.mark.parametrize(
+    "home_rel, repo_rel, label",
+    [
+        ("home/mboyle", "home/mboyle/BulkDownloader", "deploy box (test4)"),
+        ("root", "home/user/BD", "cloud container"),
+    ],
+)
+def test_the_probe_list_covers_known_host_layouts(tmp_path, home_rel, repo_rel, label):
+    """The layouts of the hosts that actually run this, asserted from anywhere.
+
+    test_the_probe_list_finds_THIS_checkout can only ever see the tree it is
+    running in. On the cloud container that is /home/user/BD and it passes; the
+    deploy box's /home/mboyle/BulkDownloader was outside its reach, so the list
+    shipped blind to it and the box was the first thing to notice -- one failure
+    in a 13651-pass capture:
+
+        the shipped probe list does not locate this checkout
+        (/home/mboyle/BulkDownloader) with BD_REPO unset, HOME=/home/mboyle
+
+    The miss was case. The list carried `bulkdownloader`, the directory is
+    `BulkDownloader`, and Linux does not care that they read the same.
+
+    This parametrises the real layouts into a sandbox so both are inside the
+    denominator from either host. Adding a host means adding a row here, not
+    waiting for a capture to fail.
+    """
+    sandbox = tmp_path / "root"
+    home = sandbox / home_rel
+    repo = sandbox / repo_rel
+    (repo / "scripts").mkdir(parents=True)
+    (repo / "bulk_downloader").mkdir(parents=True)
+    (repo / "bulk_downloader" / "__init__.py").write_text('__version__ = "0.0.0"\n')
+    (repo / "scripts" / "cloud-setup.sh").write_text("#!/bin/bash\nexit 0\n")
+    home.mkdir(parents=True, exist_ok=True)
+
+    text = BOOTSTRAP.read_text(encoding="utf-8")
+    match = re.search(r"for candidate in (.*?); do", text, re.S)
+    assert match, "could not find the probe list in cloud-bootstrap.sh"
+    candidates = match.group(1)
+    for absolute in ("/workspace", "/repo", "/src", "/app", "/home/*"):
+        candidates = candidates.replace(f" {absolute}", f" {sandbox}{absolute}")
+    assert str(sandbox) in candidates, "the rewrite did not take"
+
+    script = (
+        'MARKER="bulk_downloader/__init__.py"\nREPO=""\n'
+        f"for candidate in {candidates}; do\n"
+        '  if [ -n "$candidate" ] && [ -f "$candidate/$MARKER" ] \\\n'
+        '     && [ -f "$candidate/scripts/cloud-setup.sh" ]; then\n'
+        '    REPO="$candidate"; break\n  fi\ndone\n'
+        'printf "%s" "$REPO"\n'
+    )
+    proc = subprocess.run(
+        ["bash", "-c", script],
+        capture_output=True, text=True, cwd=str(tmp_path),
+        env={"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": str(home)},
+        timeout=60,
+    )
+    found = proc.stdout.strip()
+    assert found, (
+        f"the probe list does not locate the {label} layout: repo at "
+        f"{repo}, HOME={home}, BD_REPO unset, cwd elsewhere.\n"
+        f"A host whose layout is missing here provisions nothing and says so "
+        f"only once someone runs a capture on it."
+    )
+    assert Path(found).resolve() == repo.resolve(), (
+        f"the probe found {found}, not the {label} checkout at {repo}"
+    )
+
+
+def _probe_rungs(text: str, header: str) -> list[str]:
+    """The literal path rungs of a probe loop, env-var rungs excluded.
+
+    Returns only rungs that name a location (absolute or glob). A BARE variable
+    reference -- `${BD_REPO:-}`, `$PWD` -- is dropped: those are channels the
+    caller fills, and cloud-setup.sh consumes them through a separate
+    `for name in BD_REPO CLAUDE_PROJECT_DIR PWD` loop rather than as paths, so
+    counting them as places reports a gap that is not there. `$HOME/BD` is kept:
+    the variable is a prefix, the rung is still a place.
+    """
+    match = re.search(rf"for {header} in (.*?); do", text, re.S)
+    assert match, f"could not find a `for {header} in ...` probe loop"
+    rungs = []
+    for raw in match.group(1).split():
+        rung = raw.strip("\\").strip().strip('"').strip("'")
+        if not rung or re.fullmatch(r"\$\{?\w+(:-)?\}?", rung):
+            continue
+        rungs.append(rung)
+    return rungs
+
+
+def test_cloud_setup_probe_list_covers_the_bootstrap_list():
+    """The two halves of provisioning must not disagree about where repos live.
+
+    The bootstrap finds the checkout and `exec`s cloud-setup.sh, which then
+    locates the repo AGAIN from its own list. So there are two denominators for
+    one question, and only the second one decides what gets provisioned. When
+    `/home/*/BD` was added to the bootstrap in #44 it was not added here, so the
+    bootstrap could resolve a checkout that cloud-setup.sh then could not see --
+    and cloud-setup.sh's failure mode is not a loud exit, it is HAVE_REPO=0,
+    which provisions the system half and reports OK about a tree it never found.
+
+    Containment is the invariant, not equality: cloud-setup.sh may know extra
+    locations, but it must know every location the bootstrap is willing to hand
+    it. Widening the bootstrap alone must fail here.
+    """
+    boot = _probe_rungs(_source(), "candidate")
+    setup = _probe_rungs(CLOUD_SETUP.read_text(encoding="utf-8"), "path")
+
+    missing = [rung for rung in boot if rung not in setup]
+    assert not missing, (
+        f"cloud-setup.sh cannot see {missing}, which the bootstrap will hand "
+        f"it.\nbootstrap rungs: {boot}\ncloud-setup rungs: {setup}\n"
+        f"A checkout found by the first and missed by the second is provisioned "
+        f"as HAVE_REPO=0 -- the report says READY about a tree it never located."
+    )
+
+
+def test_the_handoff_carries_the_located_repo(tmp_path):
+    """Finding the checkout is worthless if the location dies at the `exec`.
+
+    `test_bootstrap_hands_off_to_the_repo_when_one_is_present` sets BD_REPO, so
+    the handed-off process inherits the answer no matter what the bootstrap
+    does -- the loss this test is about is structurally outside its denominator,
+    exactly like the `$HOME/BD` rung was outside the old probe test's.
+
+    Here the checkout is reachable ONLY through the `/home/*/BD` glob: BD_REPO
+    and CLAUDE_PROJECT_DIR are unset and the cwd holds no marker. That is the
+    real panel condition. cloud-setup.sh reads BD_REPO, CLAUDE_PROJECT_DIR and
+    PWD before any path rung, so the bootstrap must deliver its answer through
+    one of those three or the work of finding it is thrown away.
+    """
+    _source()
+    home = tmp_path / "home"
+    home.mkdir()
+    sandbox = tmp_path / "root"
+    sandbox.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    fake = sandbox / "home" / "someuser" / "BD"
+    (fake / "scripts").mkdir(parents=True)
+    (fake / "bulk_downloader").mkdir()
+    (fake / "bulk_downloader" / "__init__.py").write_text('__version__ = "0.0.0"\n')
+
+    seen = tmp_path / "seen.txt"
+    (fake / "scripts" / "cloud-setup.sh").write_text(
+        "#!/bin/bash\n"
+        "{\n"
+        '  echo "BD_REPO=${BD_REPO:-}"\n'
+        '  echo "CLAUDE_PROJECT_DIR=${CLAUDE_PROJECT_DIR:-}"\n'
+        '  echo "PWD=$PWD"\n'
+        f'}} > "{seen}"\n'
+        "exit 0\n"
+    )
+
+    text = BOOTSTRAP.read_text(encoding="utf-8")
+    for absolute in ("/workspace", "/repo", "/src", "/app", "/home/*"):
+        text = text.replace(f" {absolute}", f" {sandbox}{absolute}")
+    rewritten = tmp_path / "bootstrap-sandboxed.sh"
+    rewritten.write_text(text, encoding="utf-8")
+    assert str(sandbox) in text, "the rewrite did not take; the probes still point at real paths"
+
+    env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": str(home)}
+    proc = subprocess.run(
+        ["bash", str(rewritten)],
+        capture_output=True, text=True, cwd=str(elsewhere), env=env, timeout=60,
+    )
+    assert seen.is_file(), (
+        "the bootstrap never reached the checkout's cloud-setup.sh via the "
+        f"/home/*/BD rung.\nexit={proc.returncode}\nstdout:\n{proc.stdout}\n"
+        f"stderr:\n{proc.stderr}"
+    )
+
+    channels = dict(
+        line.split("=", 1) for line in seen.read_text().splitlines() if "=" in line
+    )
+    reachable = [
+        name
+        for name, value in channels.items()
+        if value and Path(value).resolve() == fake.resolve()
+    ]
+    assert reachable, (
+        "the bootstrap located the checkout and then lost it across the exec. "
+        "cloud-setup.sh re-derives the repo from BD_REPO, CLAUDE_PROJECT_DIR "
+        "and PWD before any path rung, and the handed-off process saw "
+        f"{channels} -- none of which names {fake}.\n"
+        "It will fall through to its own path list and, if that list misses "
+        "too, provision with HAVE_REPO=0 and report OK about nothing."
+    )
