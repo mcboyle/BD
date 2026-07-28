@@ -139,6 +139,18 @@ _state: dict[str, Any] = {
 _lock = threading.RLock()
 _loaded = False
 
+# Records load() could not validate, kept as (original_index, raw_dict) so
+# save() can write them back exactly where they were. They are deliberately
+# NOT in _state["tunnels"]: nothing registers, starts or routes them. They
+# exist only so BD never silently deletes a record the operator wrote.
+_quarantined: list[tuple[int, Any]] = []
+
+# One dict per quarantined record: {index, tunnel_id, error, path}. Surfaced
+# by load_errors(), by register_loaded_tunnels() (so app.py prints it at boot)
+# and by /api/vpn/status (so the fault is visible over HTTP rather than only
+# in a single boot-time stderr line).
+_load_errors: list[dict] = []
+
 
 # ─── Public API ─────────────────────────────────────────────────────
 
@@ -150,12 +162,27 @@ def load() -> dict:
     with vpn.py here — call register_loaded_tunnels() for that, so
     the caller controls when registration happens (e.g. only after the
     backends and providers are loaded).
+
+    A record that fails validation is QUARANTINED, not fatal. This used to be
+    a list comprehension, so the first bad record aborted the whole file: one
+    tunnel missing `name` made every other tunnel invisible, left _state
+    half-mutated (global_settings assigned, tunnels not) and left _loaded
+    False. Worse, vpn_runtime.init() calls load() before
+    vpn_kill_switch.set_auto_recover(), so the raise silently discarded the
+    operator's kill-switch preference too.
+
+    Quarantine is deliberately NOT repair. BD does not invent a missing
+    `name` — that would be silently rewriting operator config — and it does
+    not drop the record either, since save() writes quarantined entries back
+    verbatim. It isolates the record and reports it via load_errors().
     """
     global _loaded
     path = _config_path()
     with _lock:
         if not path.exists():
             _loaded = True
+            _quarantined.clear()
+            _load_errors.clear()
             return dict(_state)
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -171,20 +198,76 @@ def load() -> dict:
             merged[k] = v
         _state["global_settings"] = merged
         tunnels = data.get("tunnels", []) or []
-        _state["tunnels"] = [_validate_tunnel_dict(t) for t in tunnels if isinstance(t, dict)]
+        good: list[dict] = []
+        bad: list[tuple[int, Any]] = []
+        errors: list[dict] = []
+        for index, raw in enumerate(tunnels):
+            if not isinstance(raw, dict):
+                bad.append((index, raw))
+                errors.append({
+                    "index": index, "tunnel_id": None, "path": str(path),
+                    "error": f"tunnel entry is {type(raw).__name__}, expected object",
+                })
+                continue
+            try:
+                good.append(_validate_tunnel_dict(raw))
+            except ValueError as e:
+                bad.append((index, raw))
+                # Name the record and the file. The old message said only
+                # "tunnel config missing required field: name", which told the
+                # operator neither which tunnel nor which file to edit.
+                errors.append({
+                    "index": index,
+                    "tunnel_id": raw.get("tunnel_id"),
+                    "path": str(path),
+                    "error": str(e),
+                })
+        _state["tunnels"] = good
+        _quarantined[:] = bad
+        _load_errors[:] = errors
+        for err in errors:
+            sys.stderr.write(
+                f"[vpn-config] quarantined tunnel #{err['index']} "
+                f"({err['tunnel_id'] or 'no tunnel_id'}) in {path}: "
+                f"{err['error']} -- it is left on disk untouched and is NOT "
+                f"registered; fix it in the raw store editor\n")
         _loaded = True
         return dict(_state)
 
 
+def load_errors() -> list[dict]:
+    """Records the last load() could not validate, as
+    [{index, tunnel_id, path, error}, ...]. Empty when the stored config is
+    clean.
+
+    Callers use this to distinguish "no tunnels configured" from "the tunnel
+    config did not load" — two states that were previously indistinguishable
+    from outside the process, which is why a broken tunnels.json read as an
+    empty one.
+    """
+    with _lock:
+        return [dict(e) for e in _load_errors]
+
+
 def save() -> None:
-    """Write current state to tunnels.json atomically."""
+    """Write current state to tunnels.json atomically.
+
+    Quarantined records are re-emitted verbatim at their original index.
+    Without that, the first save() after a quarantining load() would write a
+    tunnel list that silently omits them — BD deleting operator config it
+    merely failed to parse. Quarantine only holds a record back from being
+    REGISTERED; it never removes it from disk.
+    """
     path = _config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     with _lock:
+        tunnels = list(_state["tunnels"])
+        for index, raw in _quarantined:
+            tunnels.insert(min(index, len(tunnels)), raw)
         snapshot = {
             "schema_version": _state["schema_version"],
             "global_settings": dict(_state["global_settings"]),
-            "tunnels": list(_state["tunnels"]),
+            "tunnels": tunnels,
             "_saved_at": time.time(),
         }
     tmp = path.with_suffix(".json.tmp")
@@ -494,7 +577,15 @@ def register_loaded_tunnels() -> tuple[int, list[str]]:
     Returns (count_registered, errors). Errors are formatted strings.
     """
     from . import vpn
+    # Load faults come first: app.py prints this list at boot, and a
+    # quarantined record that never reached registration would otherwise be
+    # invisible there.
     errors: list[str] = []
+    for e in load_errors():
+        who = e["tunnel_id"] or "tunnel #{}".format(e["index"])
+        errors.append(
+            "{}: {} (quarantined from {}; not registered)".format(
+                who, e["error"], e["path"]))
     count = 0
     with _lock:
         tunnels = list(_state["tunnels"])
@@ -541,12 +632,14 @@ def _reset_for_tests() -> None:
         _state["schema_version"] = SCHEMA_VERSION
         _state["global_settings"] = dict(_DEFAULT_GLOBAL_SETTINGS)
         _state["tunnels"] = []
+        _quarantined.clear()
+        _load_errors.clear()
     _loaded = False
 
 
 __all__ = [
     "SCHEMA_VERSION",
-    "load", "save",
+    "load", "save", "load_errors",
     "list_tunnel_configs", "get_tunnel_config",
     "add_tunnel_config", "remove_tunnel_config", "update_tunnel_config",
     "get_global_settings", "update_global_settings",

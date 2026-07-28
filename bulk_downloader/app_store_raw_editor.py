@@ -80,9 +80,25 @@ def _validate_shape(store: str, data) -> str | None:
         tunnels = data.get("tunnels", [])
         if not isinstance(tunnels, list) or not all(isinstance(t, dict) for t in tunnels):
             return "vpn: 'tunnels' must be a list of objects"
-        for t in tunnels:
+        # The write gate must reject exactly what the LOAD gate cannot read.
+        # This check used to require only a string tunnel_id, while
+        # vpn_config._validate_tunnel_dict requires four fields -- so the
+        # editor happily wrote a file BD could not load, then failed on the
+        # reload and reported "write failed" even though the write had already
+        # landed. The deployment was then broken at every subsequent boot with
+        # "[vpn-runtime] load/register failed: tunnel config missing required
+        # field: name", and the operator had been told the save failed.
+        # Delegating to the loader's own validator makes the two gates share a
+        # denominator by construction, so they cannot drift apart again.
+        mods = _store_modules()
+        for i, t in enumerate(tunnels):
             if "tunnel_id" not in t or not isinstance(t.get("tunnel_id"), str):
                 return "vpn: every tunnel needs a string tunnel_id"
+            try:
+                mods["vpn"]._validate_tunnel_dict(t)
+            except ValueError as e:
+                return (f"vpn: tunnel[{i}] ({t.get('tunnel_id')}): {e}. "
+                        f"No write performed -- the file is unchanged.")
     if store == "widgets":
         g = data.get("global")
         if g is not None and not isinstance(g, list):
