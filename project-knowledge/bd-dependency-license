@@ -59,7 +59,7 @@ def selftest():
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--work","--tree",default="/home/claude/work"); ap.add_argument("--home",default="/home/claude")
+    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK); ap.add_argument("--home",default="/home/claude")
     ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
     a=ap.parse_args()
     if a.selftest: return selftest()

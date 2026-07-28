@@ -60,7 +60,7 @@ import bdtools_sec as sec  # noqa: E402
 
 G, Y, R, DIM, RST = "\033[32m", "\033[33m", "\033[31m", "\033[2m", "\033[0m"
 
-DEFAULT_BIN = "/home/claude/bin"
+DEFAULT_BIN = os.path.dirname(os.path.realpath(__file__))  # the toolchain bin dir (this file's dir)
 GHOST = "/home/claude/BD_SWEEP_GHOST_DIR_DOES_NOT_EXIST"
 
 # Never execute these, whatever their imports say. They mutate the sandbox, the
