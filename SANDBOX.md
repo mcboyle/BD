@@ -1,26 +1,55 @@
 # BulkDL Claude Sandbox — canonical reference
 
-The single source of truth for working in the BulkDL sandbox.
-Supersedes `SANDBOX_NOTES.md`, `SANDBOX_ENVIRONMENT_MAP.md`, and the
-"Sandbox runtime" section of every handoff doc. Those become
-pointers to this file.
+> **RETIRED ENVIRONMENT - HISTORICAL RECORD. DO NOT PASTE COMMANDS FROM
+> SECTIONS 0-10.**
+>
+> This file documents the pre-git Claude.ai kit sandbox: uploaded zips,
+> `/mnt/project`, `/mnt/user-data/uploads`, `/mnt/transcripts`,
+> `/home/claude/work`, `/tmp/prestaged_site_packages`, and the 20-kit
+> installer. Those paths do not exist any more, and neither do
+> `install_bulkdl_kits.sh` or `build_bulkdl_kits.sh`. It is kept because
+> sections 11.1-11.2 and section 12 still describe real pipeline behaviour and
+> real capture footguns. It is NOT a source of truth for the environment, and
+> it is no longer "the single source of truth" for anything.
+>
+> For the CURRENT environment read, in order:
+>
+> - `CLAUDE.md` section 5 ("Environment traps") - interpreters, browser pools,
+>   provisioning, and the traps that still bite. The interpreter is
+>   `venv/bin/python` (3.12); bare `python3` in the cloud container is 3.11
+>   without project deps, and `.venv` does not exist (a command naming it
+>   exits 127).
+> - `docs/repo/SANDBOX_SPEC_AND_LAYOUT_v3_66_805.md` - layout and spec. Layout
+>   counts move; re-derive them, do not quote them.
+> - `docs/repo/ENVIRONMENT_PROVISIONING.md` and
+>   `scripts/provision_test_host.sh` - the one command that takes a fresh
+>   Ubuntu 24.04 box to green. The cloud panel path is
+>   `scripts/cloud-bootstrap.sh` -> `scripts/cloud-setup.sh`.
+> - `TASK_TRACKER.md` (generated from `TASK_TRACKER_DATA.json`) - what is open.
+> - `CLAUDE.md` sections 2 and 3 - release discipline, the guard SHAs, and what
+>   a version bump actually requires.
+>
+> Sections 9, 11.3 and 11.4 have been corrected in place because they were
+> giving live instructions. Everything else below this banner is a record of
+> how the retired sandbox worked, not an instruction.
 
-Last verified: v3.66.159 (deploy label 159.1; version string stays 3.66.159 per the
-semver contract). The live work is the template pipeline (151–158) + its cockpit
-integration (158), the Reptyle first-enable (now DONE/validated), and the 159.1
-additive slice (cockpit capture UX, GUI-parity Phase 3, extraction_core
-characterization). See §12 for v3.66.159 capture/diagnostic footguns. Targeted suites
-green via the `run_tests.py` harness; the full `tests/` run still HANGS at
-`test_perf_lab.py` in-sandbox (perf/threading; unrelated). See §11 for the current
-architecture, the pipeline,
-the release/build workflow, and the footguns. For where session context comes
-from see §0.5 "Continuity"; for current project state read
-`KB_HANDOFF_v3_66_158.md`; for how to work here read
-`PROJECT_OPERATING_INSTRUCTIONS.md`.
+Historical provenance: last verified against v3.66.159 (deploy label 159.1). The
+live work at that time was the template pipeline (151-158) plus its cockpit
+integration (158), the Reptyle first-enable, and the 159.1 additive slice
+(cockpit capture UX, GUI-parity Phase 3, extraction_core characterization). See
+section 12 for the capture/diagnostic footguns recorded then - those are still
+worth reading before any live capture work.
 
 ---
 
-## 0. The 30-second bootstrap
+## 0. The 30-second bootstrap (RETIRED - historical, do not paste)
+
+*Everything in sections 0 through 10 describes the retired kit sandbox. The
+paths, the kits, the `python3` invocations and the `/tmp/prestaged_site_packages`
+`PYTHONPATH` no longer exist. The live bootstrap is
+`scripts/provision_test_host.sh` (box) or `scripts/cloud-bootstrap.sh` ->
+`scripts/cloud-setup.sh` (cloud panel), and the interpreter is
+`venv/bin/python`.*
 
 **Convenience layer (preferred):** the bdkit ships three wrappers on `$PATH`
 (`/usr/local/bin` → `/home/claude/bin`): **`bd-install`** (bootstraps kits +
@@ -60,7 +89,12 @@ easy copy-paste.
 
 ---
 
-## 0.5 Continuity — where session context comes from
+## 0.5 Continuity — where session context comes from (RETIRED - historical)
+
+*The transcript/journal system and the per-release `KB_HANDOFF_*.md` files
+described below no longer exist in this repo. Continuity now comes from git
+history, `CHANGELOG.md`, `TASK_TRACKER.md`, and `project-knowledge/`.*
+
 
 Long sessions are compacted; the **transcript + journal** system is the record,
 not per-release handoff docs (the old `v*_handoff.md` convention is retired —
@@ -246,8 +280,7 @@ does **not** inject pytest builtins: no `tmp_path` (use `tempfile.mkdtemp` +
 Flask, so the Flask test client works in-harness. **`run_tests.py tests/` (whole
 dir) HANGS at `test_perf_lab.py`** — run targeted files in small batches, and
 don't `pkill -9 run_tests` (broad pattern can take the tool shell down).
-`test_v3_66_146_nav_guard` times out (>200s) in-sandbox (known, not a
-regression). Network is off → live browser/noVNC launches aren't runtime-testable
+Network is off → live browser/noVNC launches aren't runtime-testable
 here.
 
 For a **full-suite** sweep, partition with pytest (cross-file pollution is real):
@@ -379,25 +412,35 @@ When something breaks, this maps the symptom to the cause:
 
 ## 9. Where things are documented
 
+Re-derived against the tree; several targets moved into `project-knowledge/`,
+and the kit-build rows are gone with the kits.
+
 | Topic | Authority |
 |---|---|
-| Env vars (this doc), partitioning, footguns | **`SANDBOX.md` (this file)** |
-| Template pipeline schemas (draft/candidate/reviewed) | `SCHEMAS.md` |
-| Project scope, ethics, in-code guardrails | `PROJECT_CHARTER.md` |
-| Project goals / direction | `PROJECT_GOALS.md` |
-| Kit build process on stash | `build_bulkdl_kits.sh` source + comments |
-| Per-kit install logic | `install_bulkdl_kits.sh` source + comments |
-| BulkDL invariants and load-bearing lines | `DANGER_MAP.md` + `INV_TAGS.md` + `# INV-` inline tags |
-| What's open / current state | `KB_HANDOFF_v3_66_158.md` + the newest transcript |
-| How to work in the project | `PROJECT_OPERATING_INSTRUCTIONS.md` |
-| Session record / history | `/mnt/transcripts/` + `journal.txt` (see §0.5) |
+| Environment, interpreters, provisioning, live traps | `CLAUDE.md` section 5 + `docs/repo/ENVIRONMENT_PROVISIONING.md` |
+| The retired kit sandbox (this file) | **`SANDBOX.md` - historical only, not current** |
+| Release discipline, guard SHAs, version bumps | `CLAUDE.md` sections 2-3 |
+| Template pipeline schemas (draft/candidate/reviewed) | `project-knowledge/SCHEMAS.md` |
+| Project scope, ethics, in-code guardrails | `project-knowledge/PROJECT_CHARTER.md` |
+| Project goals / direction | `project-knowledge/PROJECT_GOALS.md` |
+| BulkDL invariants and load-bearing lines | `project-knowledge/DANGER_MAPv2.md` + `INV_TAGS.md` + `# INV-` inline tags |
+| Known flaky / environmental test failures | `project-knowledge/KNOWN_FLAKES.md` |
+| What's open / current state | `TASK_TRACKER.md` (generated from `TASK_TRACKER_DATA.json`) |
+| How to work in the project | `CLAUDE.md` + `project-knowledge/PROJECT_OPERATING_INSTRUCTIONS.md` |
+| Session record / history | git history + `CHANGELOG.md` |
 
-The KB handoff describes **what's true now**; it should not re-document setup. If
-a doc re-explains env vars, point it at this file instead.
+Do **not** point a new doc at this file for environment setup - point it at
+`CLAUDE.md` section 5. Re-derive any authority row before trusting it; targets
+move.
 
 ---
 
-## 10. Quick verification after bootstrap
+## 10. Quick verification after bootstrap (RETIRED - historical, do not paste)
+
+*The block below invokes bare `python3` against
+`/tmp/prestaged_site_packages`; in the current environment that interpreter is
+3.11 without project deps, so the first import fails. Use `venv/bin/python` and
+the checks in `docs/repo/ENVIRONMENT_PROVISIONING.md` instead.*
 
 Paste this after the env block:
 
@@ -421,10 +464,14 @@ error map in §7.
 
 ---
 
-## 11. Current architecture + release workflow (v3.66.158)
+## 11. Architecture + release workflow (recorded at v3.66.158)
 
-The live work is the **template pipeline** (151–158) and its **cockpit
-integration** (158). The earlier detection-safety / dry-run / backend stack
+*11.1 and 11.2 are a snapshot of the pipeline as it stood at v3.66.158; verify
+module paths against source before relying on them. 11.3 and 11.4 have been
+corrected in place because they were giving live release/deploy instructions.*
+
+The live work at that time was the **template pipeline** (151-158) and its
+**cockpit integration** (158). The earlier detection-safety / dry-run / backend stack
 (146–148) is still in source (see CHANGELOG for those module APIs).
 
 ### 11.1 The template pipeline (capture → build → normalize → review → promote)
@@ -484,43 +531,57 @@ host-verified, not sandbox-testable.
 
 ### 11.3 Release / build workflow
 
-Per-release build script `/tmp/build_<N>.sh` (copy the previous, `sed
-'s/<prev>/<N>/g'`, adjust STAGE/OUT/verification echoes). It unions the 137 base
-zip path-list with a work-tree walk (`bulk_downloader tests tools docs kb
-live_tests extension frontend/src frontend/dist scripts templates` + root
-`*.md`/`*.txt`; excludes `__pycache__`/`.pyc`/`node_modules`/`venv`); **tree wins**.
-Produces a **flat-layout** zip (~7.9M, ~1078 files; `bulk_downloader/` at top
-level). Expected **3 MISSING** = stale 137 dist hashes (`index-CipdEztE.css`,
-`index-D7fSG1ui.js[.map]`) — the tree ships the live hashes. `run_tests.py` ships
-in the base zip.
+**SUPERSEDED - do not follow a local copy of the release checklist.** Release
+and version discipline are governed by `CLAUDE.md`:
 
-**Release checklist (in order):**
-1. Change + tests green.
-2. Bump `__version__` in `bulk_downloader/__init__.py` (**line 26**).
-3. If you added/renamed a function in `app.py` or `runner.py`, regenerate
-   `FUNCTION_INDEX.md` (`python tools/build_function_index.py`) — it tracks only
-   those two files' line numbers (cockpit/package modules are not tracked).
-4. If you added a Flask route, regenerate `ENDPOINT_CATALOG.md`
-   (`PYTHONPATH=/tmp/prestaged_site_packages python3 tools/build_endpoint_catalog.py`
-   — needs Flask; **does** include cockpit blueprint routes).
-5. Add a `CHANGELOG.md` entry (contract test needs the current version + matching
-   health). Prepending: anchor the `str_replace` on the **previous** version's
-   `##` header and re-emit it (dropped 3× historically).
-6. Build: `sh /tmp/build_<N>.sh`.
-7. **Verify from the EXTRACTED/built zip** (ground truth): version, CHANGELOG top,
-   new test files, any new routes in the catalog, then run the new suite +
-   `test_function_index` + `test_endpoint_catalog` + `test_contracts` + key
-   regression.
+- section 2 - RED-first TDD, the seven SHA-pinned guard files, one feature per
+  cut, and the band rules;
+- section 3 - a version bump is **three edits together**:
+  `bulk_downloader/__init__.py` `__version__` (locate it with
+  `grep -n __version__ bulk_downloader/__init__.py`; do not trust a remembered
+  line number), the `assert __version__ == "..."` pin in
+  `tests/test_settings_center_slice4.py`, and an ASCII-only `CHANGELOG.md` entry
+  prepended and anchored on the **previous** `## v...` header - followed by a
+  `PIN_INDEX` regen and a re-grep for other version pins in `tests/`.
+
+The build is `tools/build_release.py` (one of the SHA-pinned guard files).
+Regenerate tracked artifacts from the repository root with:
+
+```bash
+venv/bin/python toolchain/bin/bd-regen-order --work "$PWD"
+```
+
+The per-release `/tmp/build_<N>.sh` script, the flat-layout ~7.9M zip and its
+"expected 3 MISSING" dist hashes described here historically went away with the
+zip deploy.
 
 ### 11.4 Deploy
 
-- Overlay update: `unzip -o <zip>` over `~/BulkDownloader` + `sudo systemctl
-  restart bulkdownloader.service`. Exclude `tools/cockpit_console.py
-  ENDPOINT_CATALOG.md` if Matt has live cockpit edits. **Matt also overlays files
-  himself** → tree and stash can diverge; report divergence candidly.
-- Fresh install: unzip the full tree + restart. No exclude needed. (158 is being
-  deployed as a fresh install — that's why its cockpit/frontend changes ship in
-  the full tree.)
+- Update: `git fetch origin main && git reset --hard origin/main`, then
+  `sudo systemctl restart bulkdownloader.service`. The box deploys **purely via
+  git** (operator-confirmed 2026-07-27); there is no zip overlay and no zip
+  fallback. Deletions propagate natively, so nothing needs excluding and there
+  is no orphan-removal step - the orphan class the deploy-manifest tools detect
+  cannot occur.
+- **A git deploy moves files; it does not make the running system match them.**
+  Check every condition below that applies after an update. Treat this as a
+  condition set, not a fixed count - none of these were properties of the old
+  overlay, so none of them went away with it, and the set can grow:
+  - `__pycache__` / `*.pyc` are **not** cleared. `git reset --hard` leaves stale
+    bytecode exactly as `unzip -o` did; the v3.66.161 footgun is unchanged.
+    Clear stale bytecode after any app-code change.
+  - Gitignored generated artifacts are **not** refreshed, and `git clean -fd`
+    will not remove them either (that needs `-x`). A stale
+    `reports/gui_parity_inventory.json` reads as parity drift and fails the
+    **entire** suite. Regenerate it, do not delete it.
+  - The service is **not** restarted by the deploy.
+  - `frontend/dist/` is **not delivered at all**: it is gitignored
+    (`frontend/.gitignore:3`) and `git ls-files frontend/dist` returns 0 files.
+    `bulk_downloader/app.py` serves a uniform 503 when the bundle is missing, so
+    a missing or stale bundle is a silent 503 on the SPA. Rebuild with
+    `cd frontend && npm ci && npm run build` whenever SPA source changed.
+- Local edits on the box are discarded by `git reset --hard`. If the box tree
+  has diverged, report the divergence candidly before resetting it.
 
 ### 11.5 Known-deferred (need a real browser / pending input)
 

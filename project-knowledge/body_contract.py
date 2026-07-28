@@ -548,7 +548,11 @@ def _probe_fixtures_inner(work, tcalls, home):
         body, missing = fx.resolve(call["sample"], path=raw)
         a_code, a_err = hit(fn, path, body)
         fx.ensure()                      # A was a MUTATOR; B must see A's world
-        b_code, b_err = hit(fn, path, {})
+        # The empty comparator also receives path-specific inert safety fields.
+        # Some operator endpoints default an omitted key to launching a real,
+        # detached workload, so B must pass through the resolver just like A.
+        b_body, _ = fx.resolve({}, path=raw)
+        b_code, b_err = hit(fn, path, b_body)
 
         resourceish = (not a_err.strip()
                        or any(s in a_err.lower() for s in _RESOURCEISH))

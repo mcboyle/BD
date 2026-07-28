@@ -55,7 +55,9 @@ baseline nobody measured.
 Nothing is opt-in. **Measured: 181 s, ~3.6 GB.**
 
 Opt *out* of a group only when you have a reason, with `BD_SKIP_<GROUP>=1`:
-`BROWSERS`, `AUDIT`, `NET`, `SECTOOLS`, `EXTRAS`, `CLOAK`. Every skip is written
+`BROWSERS`, `AUDIT`, `NET`, `SECTOOLS`, `EXTRAS`, `CLOAK`, `ARCHB`. Re-derive the
+list rather than trusting this one:
+`grep -oE 'BD_SKIP_[A-Z]+' scripts/cloud-setup.sh | sort -u`. Every skip is written
 to the report as a WARN naming what can no longer run, so a skipped capability
 can never be read later as a passing suite.
 
@@ -81,7 +83,8 @@ choose from.
 Replaces: `pack_A` (core/venv kits), `pack_D` (dev kit), `pack_C` frontend kit.
 
 ```bash
-python3 -m venv venv
+python3.12 -m venv venv        # MUST be 3.12 -- bare python3 here is 3.11 without
+                               # the project deps. Verify: ./venv/bin/python --version
 ./venv/bin/pip install -q --upgrade pip
 ./venv/bin/pip install -q -r requirements.txt
 ./venv/bin/pip install -q "pytest>=7.0,<9.0" pyflakes
@@ -261,20 +264,15 @@ down, which is a different and narrower claim.
 bounding set in environments where it is nonetheless unusable. The only honest
 test is to create a namespace and delete it. §11 does exactly that.
 
-### 7.2 A tool that asserts this instead of deriving it
+### 7.2 A tool that used to assert this instead of deriving it
 
-`bd-netns-proof` runs clean against a clone (exit 0) and prints:
-
-> `netns toolchain present: True; creating a netns needs CAP_NET_ADMIN (stash-only)`
-
-**That parenthetical is false here.** Creating a netns succeeded in an
-environment with these capabilities. The tool *declares* the capability
-host-only rather than *deriving* it, so it under-reports what can be tested and
-routes work to the host that does not need to go there. This is the §0 shape in
-its plain form — an assertion standing in for a measurement — and it is a good
-first target for the port-as-you-go work: replace the hardcoded verdict with an
-actual `ip netns add` probe and report three states (works / lacks capability /
-could not determine).
+`bd-netns-proof` once printed a hardcoded `(stash-only)` verdict for netns
+creation -- an assertion standing in for a measurement, the section-0 shape in
+its plain form. It now performs a real `ip netns add` probe and reports three
+states (works / lacks capability / could not determine). Kept here as the worked
+example: when a tool *declares* a capability host-only rather than *deriving*
+it, it under-reports what can be tested and routes work to the host that does not
+need to go there.
 
 ---
 
@@ -401,7 +399,8 @@ r "nft"           "$(command -v nft >/dev/null && echo present || echo absent)"
 r "outbound 443"  "$(curl -sI -o /dev/null -w %{http_code} https://pypi.org 2>/dev/null)"
 r "Xvfb"          "$(command -v Xvfb >/dev/null && echo present || echo absent)"
 r "node"          "$(node -v 2>/dev/null || echo absent)"
-r "ffmpeg"        "$(ffmpeg -version 2>/dev/null | head -1 | cut -d' ' -f3 || echo absent)"
+r "ffmpeg"        "$(command -v ffmpeg  >/dev/null && ffmpeg -version  2>/dev/null | head -1 | cut -d' ' -f3 || echo absent)"
+r "ffprobe"       "$(command -v ffprobe >/dev/null && ffprobe -version 2>/dev/null | head -1 | cut -d' ' -f3 || echo absent)"
 EOF
 bash /tmp/probe.sh
 ```
@@ -417,7 +416,9 @@ egress proof work.
 
 - **Byte-identical reproduction of a historical run.** Upstream moves. If a
   number must match a past measurement, pin the tool version and say which.
-- **A working `bd-*` toolchain.** 155 of 249 tools hardcode sandbox paths and
-  will not run against a clone regardless of what is installed. That is a
-  porting task, not a provisioning one.
+- **A fully portable `bd-*` toolchain.** Many tools still assume the old sandbox
+  layout. `docs/repo/TOOLCHAIN_PORTABILITY.md` is the per-tool ledger of what
+  runs, what runs degraded, and what is still sandbox-bound -- read it rather
+  than a count, and re-run any tool whose verdict you depend on. Porting is a
+  separate task from provisioning.
 - **Anything about the host.** Provisioning here tells you nothing about stash.

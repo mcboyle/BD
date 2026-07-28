@@ -80,27 +80,37 @@ paid GitHub Advanced Security. Only viable if BD is OSI-licensed or GHAS is boug
 
 ## 2. Custom review tooling (extends the existing `tools/*.py` audits)
 
-### Existing-plan tools (from `CODE_REVIEW_METHODOLOGY.md` §5) `[PLANNED]`
-- **`bd-scan`** — runs the whole L0 battery, normalizes every tool's output into
-  ledger findings; diff-aware (only re-emits for changed files).
-- **`bd-review-next`** — emits the next risk-ordered slice: module + import
+### Existing-plan tools (from `CODE_REVIEW_METHODOLOGY.md` §5) -- status measured PER TOOL, not blanket `[PLANNED]`
+
+Markers below were measured against the tree; re-derive with `ls tools/ toolchain/bin/`
+before trusting them. A blanket heading marker was previously wrong for three of seven.
+
+- **`bd-scan`** `[BUILT: tools/bd-scan.py]` — runs the whole L0 battery, normalizes
+  every tool's output into ledger findings; diff-aware (only re-emits for changed files).
+- **`bd-review-next`** `[PLANNED]` — emits the next risk-ordered slice: module + import
   neighborhood + open findings + DANGER_MAP invariants + its test file.
-- **`bd-finding`** — scaffolds a finding into a RED test stub.
-- **`bd-triage`** — encodes the FP-suppression rules (the `F821` 97%-FP class etc.)
-  so the ledger isn't flooded.
-- **`bd-invariant`** — promotes a confirmed bug-class into a permanent AST gate.
-- **`bd-dup`** (wraps jscpd) · **`bd-coverage-map`** (ingests `coverage.json` + radon
-  → the risk score).
+- **`bd-finding`** `[PLANNED]` — scaffolds a finding into a RED test stub.
+- **`bd-triage`** `[BUILT: tools/bd-triage.py, toolchain/bin/bd-triage.py]` — encodes the
+  FP-suppression rules (the `F821` 97%-FP class etc.) so the ledger isn't flooded.
+- **`bd-invariant`** `[PLANNED under this name; the closest BUILT equivalent is
+  toolchain/bin/bd-invariant-engine, a declarative invariant gate]` — promotes a confirmed
+  bug-class into a permanent AST gate.
+- **`bd-dup`** `[PLANNED]` (wraps jscpd) · **`bd-coverage-map`**
+  `[BUILT: toolchain/bin/bd-coverage-map, a launcher for tools/coverage_map.py]`
+  (ingests `coverage.json` + radon → the risk score).
 
-### Code-intelligence additions — **status measured v3.66.805, not blanket `[PLANNED]`**
+### Code-intelligence additions — **status measured per tool (re-measured at v3.66.818), not blanket `[PLANNED]`**
 
-> **BUILT** (present in `work/tools/`, some also in the static PK): `bd-scan.py` (PK+tools),
+> **BUILT** (present in `tools/`, some also in the static PK): `bd-scan.py` (PK+tools),
 > `l0_extract.py` (PK+tools), `graph_build.py`, `defect_patterns.py`, `risk_score.py`,
-> `bd-audit-gate.py` (PK+tools), `bd-triage.py` (PK+tools).
-> **STILL UNBUILT** (verified absent from both PK and `work/tools/`): `semantic_diff.py`,
-> `differential_oracle.py`, `fuzz_harness.py`, `reachability.py`, `invariant_probe.py`.
-> The blanket `[PLANNED]` heading this section previously carried was stale for seven of
-> the twelve tools listed. Re-derive before trusting any marker below.
+> `bd-audit-gate.py` (PK+tools), `bd-triage.py` (PK+tools) -- and, **built since @805**,
+> `semantic_diff.py`, `differential_oracle.py`, `fuzz_harness.py`, `reachability.py`,
+> all four in `tools/` and each backed by a service in `tools/code_intelligence/`
+> (`semantic_service.py`, `oracle_service.py`, `fuzz_service.py`, `reachability_service.py`).
+> **STILL UNBUILT** (verified absent from the whole tree): `invariant_probe.py`.
+> The blanket `[PLANNED]` heading this section previously carried was stale for most of
+> the tools listed, and this block itself then went stale in the other direction --
+> it called four already-built tools missing. Re-derive before trusting any marker below.
 - **`l0_extract`** — the AST pass: per-function facts + sinks + auth gates + secrets
   → upsert into `KNOWLEDGE_GRAPH.db`. stdlib `ast` (+ `libcst` for CST needs).
 - **`graph_build`** — assembles nodes/edges incl. **taint edges**; materializes the

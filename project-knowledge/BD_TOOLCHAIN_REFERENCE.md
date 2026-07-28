@@ -8,10 +8,14 @@ Grouped by lifecycle.
 > It documents **110** tools against **244** `bd-*` in live `bin/` — under half. No
 > documented tool is stale (the only documented-but-absent names are `bd-blast` /
 > `bd-suites` / `bd-touched`, explicitly marked RETIRED at rev-702 below), so what is
-> here is trustworthy; it is simply **not exhaustive**. For the complete live index use
-> `bd-tools` (categorized, generated from `bin/`) or `BD_TOOLCHAIN_WHEN_TO_USE.md`
+> here is trustworthy; it is simply **not exhaustive**. For the complete live index run
+> `venv/bin/python toolchain/bin/bd-tools --bin toolchain/bin` (categorized). **Without
+> `--bin` it defaults to the old sandbox path `/home/claude/bin`, finds nothing, and
+> prints "0 tools total" while exiting 0** -- a zero-in-every-bucket summary with a
+> success code, not a pass. Or read `BD_TOOLCHAIN_WHEN_TO_USE.md`
 > (regenerated @805 via `bd-tools --emit-doc`, 247 tools). Absence from this file is
-> NOT evidence a tool does not exist.
+> NOT evidence a tool does not exist. Any tool count in this file is a snapshot --
+> re-derive with `ls toolchain/bin/bd-* | wc -l` rather than quoting one.
 
 **Where:** `sandbox` = the dev/cut environment; `stash` =
 the headless host (runs with system `python3`, stdlib-only). Every tool is
@@ -20,6 +24,12 @@ the headless host (runs with system `python3`, stdlib-only). Every tool is
 Conventions: tools live on `PATH` (via `setup.sh` → `/usr/local/bin`); run them
 under `bd` so the env + services are loaded, e.g. `bd python3 bd-cut ...` or just
 `bd-band ...`. Exit `0` = success; non-zero = a gate failed (per tool below).
+
+**Sandbox paths below are the tools' own hardcoded defaults, not this checkout.**
+`/home/claude/work` and `/home/claude/bin` do not exist in a git clone (`/home/claude`
+is empty), so a tool run bare will operate on nothing and often still exit 0. Most
+accept `--work` / `--tree` / `--root` / `--bin` to override. See
+`docs/repo/TOOLCHAIN_PORTABILITY.md` for which tools are sandbox-bound.
 
 ---
 
@@ -31,9 +41,29 @@ DEV LOOP  bd-band (run tests)  ·  bd-band-derive (what to band)  ·  bd-snapsho
 CUT       bd-precut (predict) → bd-cut (tsc→vitest→build→bump→release→band→verify)
 CLOSE     bd-ship = bd-precut → bd-cut → bd-handoff (→ bd-pack)   [one command]
           bd-handoff (repin STATE from zip) → bd-pack (lint+zip version.zip)
-DEPLOY    (human: unzip -o + clear pyc + restart)  →  bd-verify-live (confirm live)
+DEPLOY    (human: git fetch origin main + git reset --hard origin/main, then the
+          post-move steps below)  ->  bd-verify-live (confirm live)
 SAFETY    bd-doctor (triage)   ·   bd-rollback   ·   bd-reconcile (tracker hygiene)
 ```
+
+**Deploy is pure git** (operator-confirmed 2026-07-27): `git fetch origin main &&
+git reset --hard origin/main`, then restart. There is no zip overlay and no zip
+fallback, so deletions propagate natively -- the orphan-on-disk class is gone.
+
+**But a git deploy only moves FILES. It does not make the running system match them.**
+None of the following were ever properties of the overlay, so none of them went away.
+Treat this as a condition to satisfy, not a fixed-length checklist:
+
+- `__pycache__/*.pyc` is **not** cleared. `git reset --hard` leaves stale bytecode
+  exactly as `unzip -o` did (the v3.66.161 footgun is unchanged).
+- Gitignored generated artifacts are **not** refreshed, and `git clean -fd` will not
+  remove them either (that needs `-x`). A stale
+  `reports/gui_parity_inventory.json` fails the ENTIRE suite. Regenerate, do not delete.
+- The service is **not** restarted.
+- `frontend/dist/` is **not delivered at all** -- it is gitignored and `git ls-files
+  frontend/dist` returns 0 files. `bulk_downloader/app.py` serves a uniform 503 when it
+  is missing, so a missing or stale bundle is a silent 503 on the SPA. Rebuild with
+  `cd frontend && npm ci && npm run build` whenever SPA source changed.
 
 ---
 
@@ -223,13 +253,20 @@ before first paint; self-boots and tears down its own backend.
 - Subtab state lives in the URL (`useUrlState` → `?status=running`); compare the **pathname**,
   not the full URL, or every subtab is discarded as a navigation.
 
-### `bd-deploy-manifest` — the files an overlay deploy must DELETE *(NEW @718)*
-`unzip -o` overwrites and adds; it **never removes**. A file deleted in a cut keeps living on
-stash, and the graph gates **glob the disk**, so the orphan trips the frozen baseline.
-- `bd-deploy-manifest --zip <release.zip> --script | sh` **before** `unzip -o`, on any cut that
-  deletes a file. Read-only; a `_NEVER_RM` guard refuses to propose deleting runtime data (DB,
-  `.env`, secrets, `sites_config.json`).
-- **Ships in the sandbox bdsuite, NOT on stash** — generate the `rm` lines here and paste them.
+### `bd-deploy-manifest` — the files an overlay deploy must DELETE *(NEW @718; SUPERSEDED by git deploy)*
+> **Superseded now that the box deploys via git.** `git fetch origin main` +
+> `git reset --hard origin/main` deletes tracked files natively, so the orphan class below
+> **cannot occur**. Retained for the archival / zip-restore path only; retiring the tool is a
+> separate operator decision. Historical rationale follows.
+
+`unzip -o` overwrote and added; it **never removed**. A file deleted in a cut kept living on
+stash, and the graph gates **glob the disk**, so the orphan tripped the frozen baseline.
+- *(Legacy / zip-restore path only.)* `bd-deploy-manifest --zip <release.zip> --script` emits
+  the `rm` lines an overlay would need. Under the current git deploy this step is unnecessary
+  -- `git reset --hard origin/main` removes deleted files itself. Read-only; a `_NEVER_RM`
+  guard refuses to propose deleting runtime data (DB, `.env`, secrets, `sites_config.json`).
+  Capture the output and read it; do not pipe it to `sh` (piping masks the exit code).
+- Ships in `toolchain/bin/`, which is git-tracked, so it is present on the box as well as here.
 
 ### `bd-parity-scan` — CLI→GUI parity, derived *(fixed @715)*
 Its tool glob was `tools/*.py` — **non-recursive** — so every tool under a subdirectory
@@ -273,8 +310,11 @@ Runs guards + version + changelog + derived-docs + import-edges and prints
 PASS/FAIL per gate. The "am I safe to `bd-cut`?" command. Never mutates.
 
 ### `bd-guardcheck` — sandbox · guard SHA integrity  *(was `bd-guards`, retired)*
-Live SHA-256 of the 7 pinned guard files vs STATE.json `guards_full_sha256` (baseline
-auto-resolved from the newest version-pack zip). Instant "are my guards byte-intact?"
+Live SHA-256 of the 7 pinned guard files vs `<tree>/guards.json`, the repo-root manifest and
+single source of truth (a STATE.json `guards_full_sha256` baseline is the fallback for the
+version-pack workflow, via `--state`). Instant "are my guards byte-intact?" --
+`bd-guardcheck --tree .`. A `0 ok, 0 drifted, 7 missing` summary or exit 2 means the pins were
+**not** verified; do not read it as a pass.
 
 ### `bd-versync` — sandbox · version consistency  *(was `bd-ver`, retired)*
 `__version__` vs the real `assert __version__ ==` test pin(s) vs CHANGELOG top vs
@@ -300,8 +340,10 @@ same cut (separate from regenerating DEPENDENCY_GRAPH).
 
 ### `bd-since` — sandbox · what changed vs the pinned zip
 Lists MODIFIED / ADDED / REMOVED source files vs `BulkDownloader_v3_66_*.zip`
-(bd-preflight only asserts identity) with per-file band/regen hints — the
-overlay-session blast-radius tool.
+(bd-preflight only asserts identity) with per-file band/regen hints. **Largely redundant now
+that the repo is under git** -- see `docs/repo/TOOLCHAIN_PORTABILITY.md`; prefer
+`git diff --name-status origin/main` for the changed set, and keep bd-since for the per-file
+band/regen hints it adds on top.
 
 ### `bd-sym` — sandbox · grep by SYMBOL not symptom
 Every occurrence site of a symbol/flag grouped by file with a count, so you fix
@@ -367,8 +409,13 @@ secret assigns); test/fixture hits down-weighted. Exit 1 on a high-confidence hi
 Pretty-prints COVERAGE_GAPS.json (under-tested files/functions/spans).
 
 ### `bd-flakes` — hazard/flaky-test reference
-The hard hazards (never full-run tests/; test_perf_lab; nav_guard >200s; don't pkill -9)
+The hard hazards (never full-run tests/; test_perf_lab; don't pkill -9)
 + KNOWN_FLAKES.md. "What will bite my band?"
+- **Known defect in the tool:** `toolchain/bin/bd-flakes` (lines 5 and 14) hardcodes
+  `tests/test_v3_66_146_nav_guard.py`, which **does not exist** -- the real 146 suites are
+  `test_v3_66_146_detection_safety.py` and `test_v3_66_146_runtime_gate.py`, and neither is
+  listed. So bd-flakes warns about a phantom while the real files go unmentioned. Fix the
+  tool in a separate cut; do not band a path it names without confirming the file exists.
 
 ### `bd-kb` — search the PK/KB docs
 `bd-kb <term>` greps /mnt/project/*.md grouped by doc. "Which doc said X?"
@@ -396,9 +443,12 @@ called by `bd-handoff`.
 
 ## Reconciled + new tools (@682 parallel-session merge)
 
-> **`bd-tools` is the live, authoritative index** — run it for the categorized map of
-> all ~81 tools with one-liners (`bd-tools <term>` to filter). The entries below cover
-> what changed in the merge; bd-tools always reflects the installed truth.
+> **`bd-tools` is the live, authoritative index** — run
+> `venv/bin/python toolchain/bin/bd-tools --bin toolchain/bin` for the categorized map with
+> one-liners (add a `<term>` to filter). It covered ~81 tools when this section was written;
+> the tree now carries ~246 `bd-*` -- re-derive rather than quoting either number, and note
+> that **without `--bin` the tool prints "0 tools total" and exits 0**. The entries below
+> cover what changed in the merge; bd-tools always reflects the installed truth.
 
 **Superseded (retired) — a parallel session had fuller equivalents; use the RHS:**
 - `bd-guards` → **`bd-guardcheck`** (7-guard SHA vs STATE; improved with a robust STATE
@@ -1071,8 +1121,10 @@ death (an operator may run a tool by hand) -- review candidates, not a deletion 
 ### bd-deploy-rehearse -- run the gates against the POST-OVERLAY tree  [Deploy / verify]
 718 went RED on stash with a CORRECT release zip: a file deleted at 716 orphaned on disk, and
 the graph gates GLOB THE DISK, so the ghost was scanned as live source. This reconstructs the
-deployed tree, applies the release the way `unzip -o` does (it NEVER deletes), and runs the
-disk-globbing gates on the result. Catches the orphan BEFORE deploy.
+deployed tree, applies the release the way `unzip -o` did (it NEVER deleted), and runs the
+disk-globbing gates on the result. **Superseded under the current git deploy** --
+`git reset --hard origin/main` removes deleted files, so no orphan survives to be caught,
+and this rehearsal no longer models the real deploy.
     bd-deploy-rehearse --new REL.zip [--prev PREV.zip | --deployed-root DIR]
 Exit 3 = would RED on stash. Distinct from bd-deploy-manifest (emits the rm list) and
 bd-deploy-proof (post-hoc).

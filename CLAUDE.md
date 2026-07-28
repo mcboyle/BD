@@ -115,9 +115,18 @@ Never bump one without the others:
 3. `CHANGELOG.md` → **ASCII-only** entry, prepended, anchored on the *previous*
    `## v…` header
 
-Then regenerate `PIN_INDEX` (`venv/bin/python tools/build_pin_index.py`) and
-`grep -rnE '__version__ *== *"3\.66\.' tests/` — do not assume the pin list has
-stayed at one entry.
+Then regenerate `PIN_INDEX` (`venv/bin/python tools/build_pin_index.py`) and read
+the `form == "version"` entries out of `PIN_INDEX.json` — do not assume the pin
+list has stayed at one entry.
+
+Do **not** reach for `grep -rnE '__version__ *== *"3\.66\.' tests/` here. It
+returns five hits of which exactly one is a real pin
+(`tests/test_settings_center_slice4.py:200`); the other four are fixture string
+literals inside `test_release_hygiene_gates.py` and
+`test_scan_version_pins_fixture.py`, plus `__pycache__` binary matches.
+`build_pin_index.py` uses AST precisely so those fixtures are structurally
+invisible to it. This is section 1's rule applied to this file: the instrument
+fixes the denominator, the predicate fixes the subject.
 
 CHANGELOG entries must be **ASCII-only**; an emoji trips a gate on the box.
 
@@ -130,10 +139,23 @@ Band every test touching the changed module — derive it with `grep -rl`, don't
 guess.
 
 - Route change → band **both** `test_route_index_in_sync` **and**
-  `test_route_map_invariant`; re-freeze `route_map_baseline._BASELINE_SHA` via
-  `tools/route_map_snapshot.py` with `PYTHONPATH=tree:/tmp/prestaged`.
-  **Not** `env -u PYTHONPATH` — that strips the work tree from `sys.path`,
-  produces an empty file, and silently overwrites the baseline.
+  `test_route_map_invariant`; re-freeze the baseline, then update
+  `_BASELINE_SHA` at `tests/test_route_map_invariant.py:35` to the new file's
+  sha256:
+
+  ```bash
+  PYTHONPATH="$PWD" venv/bin/python tools/route_map_snapshot.py \
+      > tests/route_map_baseline.txt
+  sha256sum tests/route_map_baseline.txt
+  ```
+
+  The redirect is required — `route_map_snapshot.py` writes to **stdout only**,
+  it does not write the baseline file itself. `_BASELINE_SHA` is a constant in
+  the test module, not an attribute of a `route_map_baseline` module; the `.txt`
+  beside it is plain data. And **not** `env -u PYTHONPATH` — that strips the
+  work tree from `sys.path`, produces an empty file, and silently overwrites the
+  baseline. (Older copies of this rule said `PYTHONPATH=tree:/tmp/prestaged`;
+  `/tmp/prestaged` does not exist here, and `venv` carries the deps.)
 - Deleting a config key → band `grep "<key>" tests/`.
 - Wiring a frontend control **is** a `ROUTE_INDEX` change (`spa_wired` flips).
   Regen order is **gui_parity before ROUTE_INDEX**.
@@ -166,8 +188,12 @@ with `test_cut8_schedules`.
 - Two Playwright browser pools exist with **different chromium revisions**.
   Behaviour differing inside vs outside the env wrapper may be a different
   browser build, not a different code path.
-- Never run the whole `tests/` directory locally — known hangers
-  (`test_perf_lab.py`, `test_v3_66_146_nav_guard`).
+- Never run the whole `tests/` directory locally. `test_perf_lab.py` is the
+  recorded hanger. A second was recorded as `test_v3_66_146_nav_guard` — **no
+  file of that name exists**, in any variant, and both real `146` files
+  (`test_v3_66_146_runtime_gate.py`, `test_v3_66_146_detection_safety.py`) pass
+  in under a second. Treat the second hanger as unidentified until someone
+  re-measures it; do not band or exclude a phantom.
 - Always capture exit codes **unpiped**: `cmd > /tmp/out 2>&1; echo "exit=$?"`.
   Piping masks the exit code, and this bites even when you know about it.
 - `pgrep -f "<cmd>"` **matches its own wrapper**. Never read it as "still
@@ -224,17 +250,33 @@ version control**, where the only reference was the previously shipped zip.
 zip comparison), tracking deletions, checkpointing (branches replace snapshot
 tarballs), bisecting a regression, and reviewing a cut before it ships.
 
+**Changed — the deploy path is now git.** The box updates with
+`git fetch origin main` + `git reset --hard origin/main` + a service restart.
+There is no zip overlay and no zip fallback. Deletions therefore propagate
+natively, and the orphan class that `tools/deploy_manifest.py` and
+`bd-deploy-manifest` exist to detect can no longer occur. Two consequences are
+**not** improvements: `git reset --hard` has no equivalent of `unzip -x`, so it
+discards operator live-edits that the overlay was configured to preserve (see
+`GATE_AUTHORITY.md` section C); and it moves files without making the running
+system match them, which is the first item below.
+
 **Unchanged — do not assume git fixed these:**
 
-- **The deploy path is still an overlay.** `unzip -o` overwrites and adds but
-  **never deletes**. A file deleted in a cut keeps living on the box, and graph
-  gates glob the disk, so the orphan trips the baseline. On any cut that deletes
-  a file, run the deploy-manifest step *before* the overlay. Git tracking the
-  deletion does not delete it on the target.
+- **A deploy moves files. It does not make the running system match them.**
+  Four gaps survive the move from `unzip -o` to `git reset --hard`, because not
+  one of them was ever a property of the overlay: `__pycache__/*.pyc` are not
+  cleared (the v3.66.161 stale-bytecode footgun is unchanged); gitignored
+  generated artifacts are not refreshed; the service is not restarted; and
+  `frontend/dist/` is not delivered **at all** — it holds zero tracked files and
+  is gitignored, so a missing or stale bundle is a silent 503 from
+  `bulk_downloader/app.py`. Rebuild it with `cd frontend && npm ci && npm run
+  build` whenever SPA source changed. Treat this as a condition to re-derive,
+  not a list to memorise: anything generated-and-ignored joins the set.
 - **Gitignored generated artifacts still go stale, and `git clean -fd` will not
   remove them** -- that needs `-x`. `reports/gui_parity_inventory.json` is
-  gitignored and build-time generated, so a stale copy left by an earlier overlay
-  reads as parity drift and fails the **entire** suite: observed at v3.66.818 as
+  gitignored and build-time generated, so a stale copy left by an earlier deploy
+  or provisioning run reads as parity drift and fails the **entire** suite:
+  observed at v3.66.818 as
   a single failure, `only-regen=['pytest_capture_results']`, on an
   otherwise-green 13389-pass run. The durable fix is to **regenerate, not
   delete** -- `install_linux.sh`, `capture.sh` and
@@ -245,6 +287,10 @@ tarballs), bisecting a regression, and reviewing a cut before it ships.
   seven days old asserting v3.66.811 against a v3.66.818 tree. Check its
   `generated_against_version` / `generated_against_commit` header before
   believing any row in it. UNKNOWN provenance is not the same as current.
+  `venv/bin/python toolchain/bin/bd-env-report-check` answers this for you:
+  FRESH (0), STALE (1), UNKNOWN (2). In a container provisioned before
+  v3.66.818 it returns 2, because a report that cannot be dated is
+  indistinguishable from one written against another tree.
 - **Band derivation is still required.** Tests are not derivable from a diff;
   blast radius follows the denominator.
 - **The guard SHAs still apply.** Git history is not authorization.
@@ -255,18 +301,32 @@ tarballs), bisecting a regression, and reviewing a cut before it ships.
 ## 8 | Layout
 
 ```
-bulk_downloader/     561 .py — the application
-tests/               1073 test files (+ corpus/ and fixtures/ assets)
-tools/               216 .py — build, graph, regen, and gate scripts
+bulk_downloader/     the application (.py)
+tests/               test files (+ corpus/ and fixtures/ assets)
+tools/               build, graph, regen, and gate scripts (.py)
 frontend/            React/TS SPA (its own node_modules, not committed)
-toolchain/bin/       ~249 bd-* operator tools (the "bdsuite")
-project-knowledge/   365 durable docs, schemas, and cards
+toolchain/bin/       bd-* operator tools (the "bdsuite")
+project-knowledge/   durable docs, schemas, and cards
 docs/repo/           environment and layout references
 ```
 
-**Two populations share the word "tools":** `tools/*.py` (216) and the
-`toolchain/bin` bd-* suite (~249). Several checks disagree only because they
-count different ones. This is a denominator mismatch, not rot.
+Sizes are deliberately not written here. Every count in this block has been
+wrong at least once, and section 1 applies to this file too: measure at
+decision time.
+
+```bash
+find bulk_downloader tools -name '*.py' | wc -l    # per directory as needed
+find tests -name 'test_*.py' | wc -l
+ls toolchain/bin/bd-* | wc -l
+```
+
+**Two populations share the word "tools":** `tools/**/*.py` and the
+`toolchain/bin` bd-* suite. They are **disjoint** populations with different
+members, and several checks disagree only because they count different ones —
+a denominator mismatch, not rot. Their totals have at times been far apart and
+at other times identical, so never read equal counts as evidence the two sets
+are the same, or unequal counts as evidence something rotted. Re-derive both,
+then ask which one the check in front of you means.
 
 ---
 

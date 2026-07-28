@@ -16,23 +16,45 @@ your first edit; it is the operating contract and it is not optional. Read
 
 ## Where this repository actually stands
 
-Be accurate about this — it is younger than it looks:
+Be accurate about this. Every figure below is a measurement with a date on it,
+not a standing fact -- **re-derive before you quote any of them**:
 
-- **One commit.** The tree is ~2620 files with years of history behind it, but
-  git history begins at the initial import of v3.66.805. There is nothing to
-  bisect and no prior commit to diff against.
-- **CI has never run.** `.github/workflows/ci.yml` was authored and its logic was
-  verified locally against this tree, but no GitHub runner has executed it. Treat
-  a first red as "the workflow is wrong" at least as readily as "the code is wrong".
-- **The `bd-*` toolchain is committed for reference, not as a working CLI.**
-  249 tools in `toolchain/bin/`. 155 hardcode sandbox paths (`/home/claude/...`,
-  `/tmp/prestaged...`, `/mnt/project`) and will not run against a clone.
-  **94 do not — but that number came from grep, and grep is not a denominator.**
-  It is a candidate pool, not a verified set. One (`bd-coupling-meter`) is
-  confirmed to run clean here; the rest are unproven.
-- **Deployment is unchanged.** The production path is still a zip built on the
-  host and applied with `unzip -o`, which **never deletes**. Nothing you do in
-  git reaches the box. Do not write code that assumes a git-based deploy.
+- **The repository has real history.** As of 2026-07-27 (commit `f28c32f`) there
+  are 210 commits on `main` and 3358 tracked files, behind 36 merged PRs. Bisect,
+  `git diff` against a prior commit, and branch checkpoints all work. Re-derive
+  with `git rev-list --count HEAD` and `git ls-files | wc -l`.
+- **CI runs on every push.** `.github/workflows/ci.yml` had executed 132 times as
+  of 2026-07-27, most recently green on both `main` and the active branch. A red
+  is now a real signal about the tree first and the workflow second. Re-derive
+  with `gh run list --workflow ci.yml` before quoting any count.
+- **The `bd-*` toolchain has been measured and partly ported.** `toolchain/bin/`
+  holds 246 `bd-*` tools (plus the `bd` launcher and four `bdtools_*.py` helper
+  libs). `docs/repo/TOOLCHAIN_PORTABILITY.md` is the ledger: a per-tool class
+  (`RUNS` / `RUNS-DEGRADED` / `SANDBOX-BOUND` / `UNKNOWN`), derived by running
+  each tool rather than by grep. Read that ledger instead of re-deriving from
+  scratch -- but re-run any tool whose verdict you are about to rely on, because
+  the ledger is stamped 2026-07-20 and numbers that move must be measured at
+  decision time.
+- **Deployment is git.** The box runs `git fetch origin main` + `git reset --hard
+  origin/main` + a service restart. Operator-confirmed 2026-07-27; there is no
+  zip overlay and no zip fallback. Deletions propagate natively, so the old
+  `unzip -o` overlay-orphan class can no longer occur. Merged `main` IS what runs
+  on the box -- but you still cannot see the box, so never claim a state there.
+- **A git deploy moves files; it does not make the running system match them.**
+  None of the following were ever properties of the overlay, so none of them went
+  away with it. This is a **condition to satisfy, not a fixed-length list** --
+  treat anything else in this class the same way:
+  - `__pycache__/*.pyc` are **not** cleared. `git reset --hard` leaves stale
+    bytecode exactly as `unzip -o` did; the v3.66.161 footgun is unchanged.
+  - Gitignored generated artifacts are **not** refreshed, and `git clean -fd`
+    will not remove them either (that needs `-x`). A stale
+    `reports/gui_parity_inventory.json` fails the **entire** suite.
+  - The service is **not** restarted.
+  - `frontend/dist/` is **not delivered at all** -- it is gitignored
+    (`frontend/.gitignore:3`) and `git ls-files frontend/dist` returns nothing.
+    `bulk_downloader/app.py` serves a uniform 503 when the bundle is missing, so
+    a missing or stale bundle is a silent 503 on the SPA. Rebuild with
+    `cd frontend && npm ci && npm run build` whenever SPA source changed.
 
 ## Division of labour
 
@@ -119,8 +141,8 @@ Lead with the result. Skip preamble and process narration.
 # PART B — first mission: make the repository stand on its own
 
 **Goal:** prove a fresh clone is a working development environment, and turn the
-toolchain's "94 portable candidates" into a measured ledger of what actually
-runs. Nothing here touches `bulk_downloader/` or the host.
+toolchain's portable-candidate pool into a measured ledger of what actually runs.
+Nothing here touches `bulk_downloader/` or the host.
 
 Work in this order. Each phase has acceptance criteria; do not advance until the
 prior phase's criteria are met and shown.
@@ -128,14 +150,20 @@ prior phase's criteria are met and shown.
 ## Phase 1 — reproduce the environment
 
 ```bash
-python3 -m venv venv && ./venv/bin/pip install -r requirements.txt
+python3.12 -m venv venv && ./venv/bin/pip install -r requirements.txt
+# The venv MUST be 3.12 -- that is the box/CI interpreter. Bare `python3` in this
+# container is 3.11 WITHOUT the project dependencies, and a band measured on it
+# once reported seven failures that did not exist. There is no `.venv`; a command
+# naming one exits 127. Verify: ./venv/bin/python --version
 cd frontend && npm ci && cd ..
 ```
 
 **Acceptance:**
 - Both complete, exit 0, output pasted.
 - `./venv/bin/python -c "import bulk_downloader; print(bulk_downloader.__version__)"`
-  prints `3.66.805`.
+  prints the version in `bulk_downloader/__init__.py` (3.66.818 as of 2026-07-27
+  -- read it from the source, do not pin this line).
+- `./venv/bin/python --version` reports 3.12.x.
 - A fast suite runs green:
   `./venv/bin/python -m pytest tests/test_settings_center_slice4.py -q`
 
@@ -160,8 +188,12 @@ v3.66.818 tree while a session read its rows as current. Run
 `UNKNOWN` (2). UNKNOWN is not a soft pass: a report that cannot be dated is
 indistinguishable from one written against a different tree.
 
-Do **not** run the whole `tests/` directory. Known long runners:
-`test_perf_lab.py`, `test_v3_66_146_nav_guard`.
+Do **not** run the whole `tests/` directory. Known long runner:
+`test_perf_lab.py`. (An earlier version of this line also named
+`test_v3_66_146_nav_guard`; verified 2026-07-27 that no such file exists in any
+variant -- the only 146 files are `test_v3_66_146_runtime_gate.py` and
+`test_v3_66_146_detection_safety.py`. If a second hanger exists it is currently
+unnamed, so treat the list as incomplete rather than exhaustive.)
 
 ## Phase 2 — validate the CI logic locally
 
@@ -173,8 +205,11 @@ against this tree and report pass/fail with real output:
 3. pyflakes over `bulk_downloader tools` → advisory; **report the count and the
    top three categories**, do not fix them yet
 4. current CHANGELOG entry is ASCII → expect clean across the entry
-5. version-pin coherence → `__init__.py`, the test pin, and the CHANGELOG header
-   must all say `3.66.805`
+5. version-pin coherence -> `bulk_downloader/__init__.py`, the pin in
+   `tests/test_settings_center_slice4.py`, and the top CHANGELOG header must all
+   agree. Do not hardcode the number here -- read it from `__init__.py`. Note the
+   predicate trap: `grep -rnE '__version__ *== *"3\.66\.' tests/` returns 5 hits
+   and only ONE is a real pin; the rest are fixture string literals.
 6. the seven guard SHAs → expect 7 ok, 0 drifted
 
 **Acceptance:** all six executed, real output shown. If a gate's *logic* is
@@ -189,8 +224,11 @@ secret gate that has never been shown to fire is not a gate. Paste both exits.
 
 This is the substantial piece.
 
-Produce `docs/repo/TOOLCHAIN_PORTABILITY.md`: for each of the 249 tools in
-`toolchain/bin/`, a verdict in one of four classes.
+Produce `docs/repo/TOOLCHAIN_PORTABILITY.md`: for **every** `bd-*` tool in
+`toolchain/bin/`, a verdict in one of four classes. Derive the denominator at
+run time (`ls toolchain/bin/bd-* | wc -l` was 246 on 2026-07-27) rather than
+working to a quoted count -- a ledger that covers fewer tools than exist is the
+empty-denominator failure this document keeps warning about.
 
 | Class | Meaning |
 | --- | --- |
@@ -207,8 +245,10 @@ tree*. Exit 0 on an empty scan is `RUNS-DEGRADED`, every time.
 
 Method notes:
 
-- Start from the 94 with no hardcoded sandbox path, but **re-derive that set
-  yourself** — the number came from grep and is a candidate pool, not a fact.
+- Start from the tools with no hardcoded sandbox path, but **re-derive that set
+  yourself** -- the split came from grep and is a candidate pool, not a fact. The
+  sandbox-marker grep (`/home/claude`, `/tmp/prestaged`, `/mnt/project`) matched
+  151 of 246 on 2026-07-27; both halves move, so measure, do not quote.
 - `bd-coupling-meter` is confirmed `RUNS`; use it to calibrate what good output
   looks like.
 - Many tools take `--work` / `--tree` to point at a tree root. Check argparse
@@ -230,7 +270,8 @@ did, not as a substitute for doing it. Two constraints on that:
   tools were written for. It is the reference for what a port must supply.
 
 **Acceptance:**
-- Every one of the 249 has a class and a one-line justification.
+- Every `bd-*` tool present in `toolchain/bin/` at the time you run has a class
+  and a one-line justification -- state the denominator you enumerated and how.
 - Counts per class, and the method used to derive them, stated at the top.
 - The `RUNS-DEGRADED` list is called out separately as the priority list, with
   what each one silently missed.

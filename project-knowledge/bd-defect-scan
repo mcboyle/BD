@@ -44,6 +44,15 @@ def _find(dp, sev, prec, line, title, snippet=""):
             "title": title, "snippet": snippet[:120]}
 
 
+def _scope_nodes(node):
+    """Yield nodes owned by a scope, excluding nested scopes."""
+    yield node
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            continue
+        yield from _scope_nodes(child)
+
+
 # DP-01 -- get_json(silent=True) or {} then .get without isinstance dict guard
 def dp01(path, src, tree):
     out = []
@@ -92,29 +101,35 @@ def dp03(path, src, tree):
         return out
     for fn in [n for n in ast.walk(tree)
                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
-        floated = {}
-        for node in ast.walk(fn):
+        nodes = list(_scope_nodes(fn))
+        floated = []
+        for node in nodes:
             if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call) \
                     and isinstance(node.value.func, ast.Name) and node.value.func.id == "float" \
                     and node.targets and isinstance(node.targets[0], ast.Name):
-                floated[node.targets[0].id] = node.lineno
+                floated.append((node.targets[0].id, node.lineno))
         if not floated:
             continue
-        has_isfinite = any(
-            isinstance(n, ast.Call) and (
-                (isinstance(n.func, ast.Attribute) and n.func.attr in ("isfinite", "isnan", "isinf"))
-                or (isinstance(n.func, ast.Name) and n.func.id in ("isfinite", "isnan", "isinf")))
-            for n in ast.walk(fn))
-        cmped = set()
-        for node in ast.walk(fn):
-            if isinstance(node, ast.Compare):
-                for sub in [node.left, *node.comparators]:
-                    if isinstance(sub, ast.Name) and sub.id in floated:
-                        cmped.add(sub.id)
-        for name in sorted(cmped):
-            if not has_isfinite:
-                out.append(_find("DP-03", "medium", HIGH, floated[name],
-                                 f"float({name}) feeds a bounds check with no math.isfinite guard (NaN/inf evades)"))
+        for name, converted_line in floated:
+            comparisons = [node for node in nodes if isinstance(node, ast.Compare)
+                           and node.lineno > converted_line
+                           and any(isinstance(op, (ast.Lt, ast.LtE, ast.Gt, ast.GtE))
+                                   for op in node.ops)
+                           and any(isinstance(sub, ast.Name) and sub.id == name
+                                   for sub in [node.left, *node.comparators])]
+            for comparison in comparisons:
+                guarded = any(
+                    isinstance(node, ast.Call) and node.lineno < comparison.lineno
+                    and ((isinstance(node.func, ast.Attribute)
+                          and node.func.attr in ("isfinite", "isnan", "isinf"))
+                         or (isinstance(node.func, ast.Name)
+                             and node.func.id in ("isfinite", "isnan", "isinf")))
+                    and any(isinstance(arg, ast.Name) and arg.id == name for arg in node.args)
+                    for node in nodes)
+                if not guarded:
+                    out.append(_find("DP-03", "medium", HIGH, converted_line,
+                                     f"float({name}) feeds a bounds check with no math.isfinite guard (NaN/inf evades)"))
+                    break
     return out
 
 
@@ -131,36 +146,256 @@ def dp04(path, src, tree):
     return out  # folded into DP-03; kept as a no-op placeholder for catalog completeness
 
 
-# DP-06 -- bare undefined name reached at runtime (module-level resolution)
+# DP-06 -- bare undefined name reached at runtime (lexical resolution)
+_LEXICAL_SCOPE_TYPES = (
+    ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda,
+    ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp,
+)
+
+
+def _lexical_scope_nodes(node):
+    """Yield nodes owned by one lexical scope, excluding child scopes."""
+    yield node
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, _LEXICAL_SCOPE_TYPES):
+            continue
+        yield from _lexical_scope_nodes(child)
+
+
+def _target_names(target):
+    """Return the names bound by one assignment-like target."""
+    if isinstance(target, ast.Name):
+        return {target.id}
+    if isinstance(target, (ast.Tuple, ast.List)):
+        names = set()
+        for item in target.elts:
+            names.update(_target_names(item))
+        return names
+    if isinstance(target, ast.Starred):
+        return _target_names(target.value)
+    return set()
+
+
+def _function_argument_names(scope):
+    if not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        return set()
+    arguments = scope.args
+    names = {arg.arg for arg in (*arguments.posonlyargs, *arguments.args,
+                                 *arguments.kwonlyargs)}
+    if arguments.vararg is not None:
+        names.add(arguments.vararg.arg)
+    if arguments.kwarg is not None:
+        names.add(arguments.kwarg.arg)
+    return names
+
+
+def _owned_bindings(scope):
+    """Collect bindings and declarations owned by exactly one lexical scope."""
+    bindings = _function_argument_names(scope)
+    globals_ = set()
+    nonlocals = set()
+
+    def visit(node, root=False):
+        if not root and isinstance(node, _LEXICAL_SCOPE_TYPES):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                bindings.add(node.name)
+            return
+        if isinstance(node, ast.Global):
+            globals_.update(node.names)
+        elif isinstance(node, ast.Nonlocal):
+            nonlocals.update(node.names)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                bindings.add((alias.asname or alias.name).split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                bindings.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                bindings.update(_target_names(target))
+        elif isinstance(node, ast.AnnAssign):
+            bindings.update(_target_names(node.target))
+        elif isinstance(node, ast.AugAssign):
+            bindings.update(_target_names(node.target))
+        elif isinstance(node, ast.NamedExpr):
+            bindings.update(_target_names(node.target))
+        elif isinstance(node, (ast.For, ast.AsyncFor)):
+            bindings.update(_target_names(node.target))
+        elif isinstance(node, ast.comprehension):
+            bindings.update(_target_names(node.target))
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            for item in node.items:
+                if item.optional_vars is not None:
+                    bindings.update(_target_names(item.optional_vars))
+        elif isinstance(node, ast.ExceptHandler) and isinstance(node.name, str):
+            bindings.add(node.name)
+        for child in ast.iter_child_nodes(node):
+            visit(child)
+
+    visit(scope, root=True)
+    return bindings, globals_, nonlocals
+
+
+def _lexical_scopes(tree):
+    """Return every scope and its parent without treating siblings as parents."""
+    scopes = [tree]
+    parents = {tree: None}
+
+    def visit(node, current, root=False):
+        if not root and isinstance(node, _LEXICAL_SCOPE_TYPES):
+            parents[node] = current
+            scopes.append(node)
+            current = node
+        for child in ast.iter_child_nodes(node):
+            visit(child, current)
+
+    visit(tree, tree, root=True)
+    return scopes, parents
+
+
+def _scope_header_expressions(scope):
+    """Return expressions evaluated while creating one lexical scope."""
+    expressions = []
+    if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        expressions.extend(scope.args.defaults)
+        expressions.extend(default for default in scope.args.kw_defaults if default is not None)
+        for argument in (*scope.args.posonlyargs, *scope.args.args,
+                         *scope.args.kwonlyargs):
+            if argument.annotation is not None:
+                expressions.append(argument.annotation)
+        if scope.args.vararg is not None and scope.args.vararg.annotation is not None:
+            expressions.append(scope.args.vararg.annotation)
+        if scope.args.kwarg is not None and scope.args.kwarg.annotation is not None:
+            expressions.append(scope.args.kwarg.annotation)
+        if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            expressions.extend(scope.decorator_list)
+            if scope.returns is not None:
+                expressions.append(scope.returns)
+    elif isinstance(scope, ast.ClassDef):
+        expressions.extend(scope.decorator_list)
+        expressions.extend(scope.bases)
+        expressions.extend(keyword.value for keyword in scope.keywords)
+    return expressions
+
+
+def _expression_evaluation_contexts(scopes, parents):
+    """Map specially evaluated expressions to their runtime lexical context."""
+    contexts = {}
+    comprehension_types = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+
+    def visit_scope_header(scope, inherited_context):
+        for expression in _scope_header_expressions(scope):
+            visit_expression(expression, inherited_context)
+
+    def visit_expression(node, context):
+        contexts.setdefault(id(node), context)
+        if isinstance(node, comprehension_types):
+            visit_comprehension(node, context)
+        elif isinstance(node, _LEXICAL_SCOPE_TYPES):
+            visit_scope_header(node, context)
+        else:
+            for child in ast.iter_child_nodes(node):
+                visit_expression(child, context)
+
+    def visit_comprehension(scope, inherited_context):
+        contexts.setdefault(id(scope), inherited_context)
+        first_generator = scope.generators[0]
+        visit_expression(first_generator.iter, inherited_context)
+        visit_expression(first_generator.target, scope)
+        for condition in first_generator.ifs:
+            visit_expression(condition, scope)
+        for generator in scope.generators[1:]:
+            visit_expression(generator.iter, scope)
+            visit_expression(generator.target, scope)
+            for condition in generator.ifs:
+                visit_expression(condition, scope)
+        if isinstance(scope, ast.DictComp):
+            visit_expression(scope.key, scope)
+            visit_expression(scope.value, scope)
+        else:
+            visit_expression(scope.elt, scope)
+
+    for scope in scopes:
+        inherited_context = contexts.get(id(scope), parents[scope])
+        if isinstance(scope, comprehension_types):
+            if not scope.generators:
+                continue
+            visit_comprehension(scope, inherited_context)
+        else:
+            visit_scope_header(scope, inherited_context)
+    return contexts
+
+
+def _semantic_scope_parents(scopes, syntactic_parents, expression_contexts):
+    """Return the runtime lexical parent for each scope body."""
+    return {
+        scope: expression_contexts.get(id(scope), syntactic_parents[scope])
+        for scope in scopes
+    }
+
+
+def _lexically_bound(name, scope, module, parents, bindings, globals_, nonlocals, builtins):
+    """Resolve a name through its lexical parents, honoring global/nonlocal."""
+    if name in builtins:
+        return True
+    current = scope
+    while current is not None:
+        if current is not module and name in globals_[current]:
+            current = module
+            continue
+        if current is not module and name in nonlocals[current]:
+            current = parents[current]
+            continue
+        if name in bindings[current]:
+            return True
+        parent = parents[current]
+        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda,
+                                ast.ListComp, ast.SetComp, ast.DictComp,
+                                ast.GeneratorExp)) and isinstance(parent, ast.ClassDef):
+            parent = parents[parent]
+        current = parent
+    return False
+
+
 def dp06(path, src, tree):
     out = []
     if tree is None:
         return out
-    bound = set(dir(__builtins__) if isinstance(__builtins__, type)
-                else vars(__builtins__).keys())
-    # module-level defs/imports/assigns
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            bound.add(node.name)
-        elif isinstance(node, ast.Import):
-            for a in node.names:
-                bound.add((a.asname or a.name).split(".")[0])
-        elif isinstance(node, ast.ImportFrom):
-            for a in node.names:
-                bound.add(a.asname or a.name)
-        elif isinstance(node, ast.Assign):
-            for t in node.targets:
-                if isinstance(t, ast.Name):
-                    bound.add(t.id)
-    # only flag names used in hasattr/getattr(<bare>, ...) -- the F0001 shape
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
-                and node.func.id in ("hasattr", "getattr") and node.args \
-                and isinstance(node.args[0], ast.Name):
-            nm = node.args[0].id
-            if nm not in bound and nm not in ("self", "cls"):
-                out.append(_find("DP-06", "medium", TRIAGE, node.lineno,
-                                 f"hasattr/getattr on possibly-undefined name '{nm}' (NameError not caught)"))
+    scopes, syntactic_parents = _lexical_scopes(tree)
+    module = tree
+    bindings = {}
+    globals_ = {}
+    nonlocals = {}
+    for scope in scopes:
+        local, declared_global, declared_nonlocal = _owned_bindings(scope)
+        bindings[scope] = local
+        globals_[scope] = declared_global
+        nonlocals[scope] = declared_nonlocal
+    expression_contexts = _expression_evaluation_contexts(scopes, syntactic_parents)
+    semantic_parents = _semantic_scope_parents(
+        scopes, syntactic_parents, expression_contexts
+    )
+    for scope in scopes:
+        if scope is module:
+            continue
+        bindings[scope].difference_update(globals_[scope] | nonlocals[scope])
+    builtin_source = __builtins__
+    builtins = set(builtin_source if isinstance(builtin_source, dict)
+                   else vars(builtin_source))
+    # Only flag names used in hasattr/getattr(<bare>, ...) -- the F0001 shape.
+    for scope in scopes:
+        for node in _lexical_scope_nodes(scope):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
+                    and node.func.id in ("hasattr", "getattr") and node.args \
+                    and isinstance(node.args[0], ast.Name):
+                name = node.args[0].id
+                resolution_scope = expression_contexts.get(id(node), scope)
+                if not _lexically_bound(
+                        name, resolution_scope, module, semantic_parents, bindings,
+                        globals_, nonlocals, builtins):
+                    out.append(_find(
+                        "DP-06", "medium", TRIAGE, node.lineno,
+                        f"hasattr/getattr on possibly-undefined name '{name}' (NameError not caught)"))
     return out
 
 
@@ -203,25 +438,35 @@ def dp08(path, src, tree):
     out = []
     if tree is None or not REDACT_NAME.search(path) and "redact" not in src.lower():
         # only meaningful where redaction keyword sets live
-        pass
+        return out
     kw_sets = {}
-    for node in ast.walk(tree) if tree else []:
+    for node in tree.body:
         if isinstance(node, ast.Assign) and node.targets \
                 and isinstance(node.targets[0], ast.Name) \
                 and re.search(r"SECRET|KV.*KEY|KEYWORD", node.targets[0].id, re.I):
             members = _literal_str_set(node.value)
-            if members is not None:
-                kw_sets[node.targets[0].id] = (members, node.lineno)
+            surface = _redaction_surface(node.targets[0].id)
+            if members is not None and surface is not None:
+                kw_sets[node.targets[0].id] = (members, node.lineno, surface)
     names = sorted(kw_sets)
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
-            a, la = kw_sets[names[i]]
-            b, lb = kw_sets[names[j]]
-            if a != b and (a & b):  # overlapping but not equal -> divergence
+            a, la, surface_a = kw_sets[names[i]]
+            b, lb, surface_b = kw_sets[names[j]]
+            if surface_a != surface_b and a != b and (a & b):
                 missing = (a | b) - (a & b)
                 out.append(_find("DP-08", "medium", HIGH, lb,
                                  f"secret-keyword sets {names[i]} vs {names[j]} diverge (missing in one: {sorted(missing)[:5]})"))
     return out
+
+
+def _redaction_surface(name):
+    upper = name.upper()
+    if "QUERY" in upper or "URL" in upper:
+        return "query"
+    if any(token in upper for token in ("KV", "BARE", "FRAGMENT")):
+        return "kv"
+    return None
 
 
 def _literal_str_set(node):
@@ -260,6 +505,13 @@ def dp09(path, src, tree):
 
 
 # DP-10 -- f-string SQL with an UNGUARDED interpolated identifier
+def _joinedstr_skeleton(node):
+    return "".join(
+        part.value if isinstance(part, ast.Constant) and isinstance(part.value, str)
+        else "__BD_EXPR__" if isinstance(part, ast.FormattedValue) else ""
+        for part in node.values)
+
+
 def _interpolated_names(joinedstr):
     names = set()
     for p in joinedstr.values:
@@ -273,7 +525,7 @@ def _interpolated_names(joinedstr):
 def _allowlisted_names(fn_node):
     """Names membership-tested against a set/frozenset/collection -> allowlisted."""
     guarded = set()
-    for n in ast.walk(fn_node):
+    for n in _scope_nodes(fn_node):
         if isinstance(n, ast.Compare) and any(
                 isinstance(op, (ast.In, ast.NotIn)) for op in n.ops):
             if isinstance(n.left, ast.Name):
@@ -290,18 +542,28 @@ def dp10(path, src, tree):
            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
     for fn in fns:
         guarded = _allowlisted_names(fn)
-        for node in ast.walk(fn):
+        for node in _scope_nodes(fn):
             if isinstance(node, ast.JoinedStr):
-                txt = "".join(p.value for p in node.values
-                              if isinstance(p, ast.Constant) and isinstance(p.value, str))
-                if re.search(r"\b(FROM|INTO|UPDATE|TABLE|JOIN)\b", txt, re.I) and any(
-                        isinstance(p, ast.FormattedValue) for p in node.values):
-                    names = _interpolated_names(node)
-                    if names and names <= guarded:
+                skeleton = _joinedstr_skeleton(node)
+                if not re.search(r"\b(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b",
+                                 skeleton, re.I):
+                    continue
+                names = set()
+                offset = 0
+                for part in node.values:
+                    if isinstance(part, ast.FormattedValue):
+                        if re.search(r"\b(FROM|INTO|UPDATE|TABLE|JOIN)\b\s*$",
+                                     skeleton[:offset], re.I):
+                            names.update(_interpolated_names(ast.JoinedStr(values=[part])))
+                        offset += len("__BD_EXPR__")
+                    elif isinstance(part, ast.Constant) and isinstance(part.value, str):
+                        offset += len(part.value)
+                if names:
+                    if names <= guarded:
                         continue  # every interpolated id is allowlist-checked -> mitigated
                     out.append(_find("DP-10", "medium", HIGH, node.lineno,
                                      "f-string SQL with unguarded interpolated identifier (whitelist the table/column)",
-                                     txt.strip()))
+                                     skeleton.strip()))
     return out
 
 
@@ -346,19 +608,41 @@ def dp12(path, src, tree):
 
 
 # DP-13 -- swallowed-exception cluster (try/except: log/pass)
+_LOG_METHODS = {"debug", "info", "warning", "warn", "error", "exception", "critical"}
+
+
+def _is_logging_expression(statement):
+    if not (isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call)):
+        return False
+    func = statement.value.func
+    if not (isinstance(func, ast.Attribute) and func.attr in _LOG_METHODS):
+        return False
+    receiver = func.value
+    receiver_name = receiver.id if isinstance(receiver, ast.Name) else (
+        receiver.attr if isinstance(receiver, ast.Attribute) else "")
+    return receiver_name in {"logging", "log", "logger", "_logger"} or \
+        receiver_name.endswith("logger")
+
+
+def _try_else_returns_or_raises(node):
+    return any(isinstance(statement, (ast.Return, ast.Raise)) for statement in node.orelse)
+
+
 def dp13(path, src, tree):
     out = []
     if tree is None:
         return out
     for node in ast.walk(tree):
-        if isinstance(node, ast.ExceptHandler):
-            body = node.body
-            only_passlog = all(
-                isinstance(s, ast.Pass)
-                or (isinstance(s, ast.Expr) and isinstance(s.value, ast.Call))
-                for s in body) and body
-            if only_passlog:
-                out.append(_find("DP-13", "medium", TRIAGE, node.lineno,
+        if not isinstance(node, ast.Try):
+            continue
+        for handler in node.handlers:
+            body = handler.body
+            pass_only = body and all(isinstance(statement, ast.Pass) for statement in body)
+            only_passlog = body and all(
+                isinstance(statement, ast.Pass) or _is_logging_expression(statement)
+                for statement in body)
+            if only_passlog and not (pass_only and _try_else_returns_or_raises(node)):
+                out.append(_find("DP-13", "medium", TRIAGE, handler.lineno,
                                  "exception swallowed (pass/log only) -- dead feature if body always raises"))
     return out[:200]
 

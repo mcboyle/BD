@@ -12,24 +12,29 @@ Single-operator deployment to a headless host.
 
 | Path | Contents |
 | --- | --- |
-| `bulk_downloader/` | 561 `.py` — the application |
-| `tests/` | 1073 test files, plus `corpus/` and `fixtures/` capture assets |
-| `tools/` | 216 `.py` — build, graph, regeneration, and gate scripts |
-| `frontend/` | React/TS SPA (own `node_modules`, not tracked) |
-| `toolchain/bin/` | ~249 `bd-*` operator tools ("bdsuite") |
+| `bulk_downloader/` | 565 `.py` — the application |
+| `tests/` | 1139 tracked `test_*.py` files, plus `corpus/` and `fixtures/` capture assets |
+| `tools/` | 246 `.py` — build, graph, regeneration, and gate scripts |
+| `frontend/` | React/TS SPA (own `node_modules`, not tracked; `dist/` is gitignored) |
+| `toolchain/bin/` | 246 `bd-*` operator tools ("bdsuite") |
 | `project-knowledge/` | 365 durable docs, schemas, and operating cards |
 | `docs/repo/` | environment and layout references |
+
+Counts were measured at v3.66.818 and move every cut -- re-derive before quoting
+them anywhere (`git ls-files bulk_downloader | grep -c '\.py$'`). `tools/*.py`
+and the `toolchain/bin` `bd-*` suite are **disjoint populations** that happen to
+be the same size right now; counting one never answers for the other.
 
 ## Quick start
 
 ```bash
-python3 -m venv venv && ./venv/bin/pip install -r requirements.txt
+python3.12 -m venv venv && ./venv/bin/pip install -r requirements.txt   # 3.12 is the box/CI interpreter; bare python3 may be 3.11
 cd frontend && npm ci && cd ..
 ./venv/bin/python -m pytest tests/test_settings_center_slice4.py   # fast sanity check
 ```
 
 Do **not** run the whole `tests/` directory locally — it contains known long
-runners (`test_perf_lab.py`, `test_v3_66_146_nav_guard`). Run a derived band.
+runners (`test_perf_lab.py`). Run a derived band.
 
 ## Before contributing anything
 
@@ -43,6 +48,14 @@ Three rules that catch newcomers:
    an ASCII-only `CHANGELOG.md` entry. Never one without the others.
 2. **A route change bands two suites**, and requires re-freezing the route-map
    baseline.
-3. **`unzip -o` deploys never delete.** A file removed in a cut keeps living on
-   the target host until the deploy-manifest step removes it. Git tracking the
-   deletion does not delete it there.
+3. **Deploy is `git fetch origin main && git reset --hard origin/main`** -- there
+   is no zip overlay, so deletions propagate natively and there is no
+   orphan-removal step. But moving files is not the same as making the running
+   system match them. `git reset --hard` does not clear `__pycache__`/`.pyc`,
+   does not refresh gitignored generated artifacts (`git clean -fd` will not
+   remove them either -- that needs `-x`), does not restart the service, and
+   does not deliver `frontend/dist/` at all (it is untracked, so a missing or
+   stale SPA bundle is a silent 503). Work the **Deploy** section of
+   [project-knowledge/PROJECT_OPERATING_INSTRUCTIONS.md](project-knowledge/PROJECT_OPERATING_INSTRUCTIONS.md)
+   -- it is the canonical post-deploy checklist, and a second copy of that list
+   here would only drift.

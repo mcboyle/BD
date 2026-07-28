@@ -28,7 +28,9 @@ tags = 33 total.**
 INV-IDs in section headers below correspond to inline tags in
 source. To find the in-source location for an invariant, either
 grep `# INV-NNN` in `bulk_downloader/` or run
-`python tools/explain_invariant.py INV-NNN`. The prior merge's
+`venv/bin/python tools/explain_invariant.py INV-NNN` (always
+`venv/bin/python`, never bare `python`/`python3` -- see CLAUDE.md
+section 5). The prior merge's
 "operator decision pending" prose is retired (see
 `OPEN_THREADS_archive.md` for the resolution narrative).
 
@@ -81,7 +83,10 @@ it is.
 
 ### The dispatch tracer mirrors `_process_one` — keep the two in sync
 
-`dev_suite.py` carries `_DISPATCH_CHAIN`, a hand-maintained mirror of
+`dev_suite` carries `_DISPATCH_CHAIN` (today in
+`bulk_downloader/dev_suite/audit_security.py`, re-exported from the
+package `__init__.py` -- grep for the name rather than trusting the
+path), a hand-maintained mirror of
 the branch order inside `runner.py::_process_one`, plus
 `dispatch_chain()` / `dispatch_dry_run()` tools built on it. A drift
 guard protects the mirror: `dispatch_chain()` re-reads `_process_one`
@@ -186,7 +191,8 @@ during every test import.
 
 ### The dev-tools modules must stay import-clean
 
-The dev-tools modules — `perf_lab.py`, `dev_suite.py`, and (added
+The dev-tools modules — `perf_lab.py`, the `dev_suite/` package
+(every submodule and its `__init__.py`), and (added
 v3.62.6) `dev_metrics.py` and `dev_events.py` — do **no work at
 import**: no thread spawns, no DB access, no network, no file I/O, no
 heavy allocation at module load. `app.py` reaches them by *lazy*
@@ -249,19 +255,29 @@ column named `updated_at` is not mistaken for `UPDATE`. Do not
 names), and do not relax it to allow writes (mutation must go through
 the app’s own code paths, not this console).
 
-### `dev_suite.py` — exactly one definition per public function
+### `dev_suite` — exactly one definition per public function
 
-`dev_suite.py` is built by independent appends across many turns and
-is now ~7,600 lines. Python uses the **last** module-level def of a
+`dev_suite` was built by independent appends across many turns and was
+a ~7,600-line monolith; it is now the package
+`bulk_downloader/dev_suite/` (`_common.py`, `audit_security.py`,
+`capture_diag.py`, `config_tools.py`, `db_tools.py`, `housekeeping.py`,
+`integrations_diag.py`, `introspection.py`, `jobs_runner.py`, `logs.py`,
+`perf_metrics.py`, `release_lint.py`, `test_meta.py`, `vpn_diag.py`,
+plus an `__init__.py` re-export shim -- re-derive the member list with
+`ls bulk_downloader/dev_suite/`). The duplicate-def hazard still applies
+within each submodule and across the `__init__.py` re-export surface.
+Python uses the **last** module-level def of a
 name; a re-introduced duplicate silently makes the earlier one dead
 code, and a route that calls the dead def with the old signature
 returns 500 (or fails open and falsely returns ok=True if the route
 catches it). v3.62.7 cleaned up three live duplicates that had
 slipped in (`filename_template_preview`, `vpn_config_render`,
-`vpn_provider_rotation_view`). **Before appending any function to
-`dev_suite.py`, grep first:**
-`grep -nE "^def [a-z_]+" bulk_downloader/dev_suite.py | awk -F'[: (]' '{print $3}' | sort | uniq -c | sort -rn | head`
-— any count > 1 is a real bug. No contract test currently enforces
+`vpn_provider_rotation_view`). **Before appending any function to a
+`dev_suite` submodule, grep first:**
+`grep -rnE "^def [a-z_]+" bulk_downloader/dev_suite/ | awk -F'[: (]' '{print $4}' | sort | uniq -c | sort -rn | head`
+— any count > 1 within a single submodule is a real bug, and a name
+exported twice through `__init__.py` is the same bug across files.
+No contract test currently enforces
 uniqueness; the grep IS the contract. (Distinct from the duplicate
 *section-number comments* described below — those are cosmetic and
 correctly stay; duplicate *function definitions* are the bug.)
@@ -439,7 +455,9 @@ test. The module-load snapshot is the only correct anchor. Same
 pattern in `test_t55_live_test_harness_timeout.py`. **Also: the
 fixture name must NOT start with underscore** — the custom runner’s
 autouse discovery filters underscore-prefixed names
-(`run_tests.py:393`: `not name.startswith("_")`), so an autouse
+(`run_tests_core.py`: `not name.startswith("_")` in the autouse-
+discovery filter -- grep for it; `run_tests.py` is a 12-line shim and
+the line number moves), so an autouse
 fixture renamed to `_restore_live_registry` silently never fires.
 See LESSONS_LEARNED C6 for the transferable rule.
 
@@ -624,7 +642,9 @@ stays the same.
 
 ### `bat_lint()` is now content-correct, not just shape-correct (v3.63.8)
 
-At v3.63.8 `dev_suite.py::bat_lint()` was rewritten to delegate to
+At v3.63.8 `dev_suite`'s `bat_lint()` (today
+`bulk_downloader/dev_suite/release_lint.py::bat_lint`) was rewritten to
+delegate to
 `bulk_downloader/_bat_lint.lint_bytes()` — a paren-aware tokenizer
 with quote awareness, caret escaping, `^`-line-continuation joining,
 REM/`::` comment skipping, and `for ... in (...)` arg recognition.
@@ -931,15 +951,33 @@ not paranoia. The cap is only applied when auto-detecting; manual
 instance “simplifying” the platform branch by removing the cap
 will fail every Windows full-suite run on the verification VM.
 
-### `_PINNED_TOGETHER` carries two entries — fixed-port collisions only (v3.65.0)
+### `_PINNED_TOGETHER` runs its members serially -- two reasons, not one
 
-The set in `run_tests.py` is
-`{"test_fixture_site.py", "test_fixture_site2.py"}` — two entries
-since v3.65.0 B1 retired the CSRF-bootstrap pin. Both remaining
-entries avoid fixed-port collisions (8899 / 8898): the fixture sites
-listen on a known port for cross-test harness coordination, and two
-parallel workers would clash. Removing either resurfaces port-bind
-EADDRINUSE failures under `--workers`.
+The set lives in `run_tests_core.py` (line ~1095; `run_tests.py` is a
+12-line shim, so do not look for it there). Re-derive the membership
+before relying on it -- `grep -n "_PINNED_TOGETHER" run_tests_core.py`.
+As measured at v3.66.818 it carries FOUR entries:
+`{"test_fixture_site.py", "test_fixture_site2.py",
+"test_v3_66_729_body_contract_fixtures.py",
+"test_v3_66_13_phase2_p2_snapshot_replay.py"}`.
+
+The set is NOT "fixed-port collisions only" -- that was true when it
+held two entries, and stopped being true when the flake pins landed:
+
+- `test_fixture_site.py` / `test_fixture_site2.py` avoid fixed-port
+  collisions (8899 / 8898): the fixture sites listen on a known port
+  for cross-test harness coordination, and two parallel workers would
+  clash. Removing either resurfaces port-bind EADDRINUSE failures
+  under `--workers`.
+- `test_v3_66_729_body_contract_fixtures.py` and
+  `test_v3_66_13_phase2_p2_snapshot_replay.py` are flake/isolation
+  pins added at v3.66.754 and v3.66.772, pinned by
+  `tests/test_v3_66_754_flake729_serial_pin.py` and
+  `tests/test_v3_66_772_flake_hardening.py`.
+
+Do not drop an entry as "unexplained" because it has no fixed port --
+check the pinning test for that entry first. Membership grows; treat
+any count in this document as stale by default.
 
 **Historical context — the retired third pin.** Pre-v3.65.0 the set
 also carried `test_v3_43_55_csrf_bootstrap.py`. It papered over a
@@ -1029,8 +1067,11 @@ the placeholder by value.
 - FAIL — ONLY when no source is readable at all (the edge case)
 
 WARN-not-FAIL on mismatch is **deliberate**. A version mismatch
-means the system is incoherent (post-`unzip -o` before
-`systemctl restart`; a half-done deploy; a forgot-to-restart) but
+means the system is incoherent (files landed but the service was not
+restarted -- the box deploys with `git fetch origin main` +
+`git reset --hard origin/main` + restart, and moving the files does
+NOT restart the service; a half-done deploy; stale `__pycache__`
+`.pyc` that `git reset --hard` does not clear) but
 the system is still SERVING. A release-gate test should not block
 on operator-side post-deploy bookkeeping. **Correct handling:**
 do not “fix” L37 by promoting WARN to FAIL on mismatch. If a hard
@@ -1123,7 +1164,7 @@ The shipped baseline is `0` — a placeholder. The gate either
 passes trivially (current Skipped count is 0, matching the
 placeholder) or fails noisily (Skipped > 0 → investigate). On
 first deploy after v3.63.9 the operator runs
-`python3 tools/check_skip_baseline.py --update` to record the
+`venv/bin/python tools/check_skip_baseline.py --update` to record the
 real number. **Correct handling:** never bump the baseline
 silently inside a feature session. Any uptick in Skipped count
 should be investigated before raising the baseline; the
@@ -1166,9 +1207,13 @@ library isn’t installed).
 The parser deliberately accepts two formats:
 
 - `N skipped` (lowercase, count BEFORE the word — what
-  `SUMMARY.txt` contains, written at line ~934 of `run_tests.py`)
+  `SUMMARY.txt` contains, written by `run_tests_core.py`)
 - `Skipped: N` (capital + colon — what the runner prints to
-  stdout, written at line ~857 of `run_tests.py`)
+  stdout, also from `run_tests_core.py`)
+
+(Both writers live in `run_tests_core.py`, not `run_tests.py` -- the
+latter is a 12-line shim. Grep `skipped` in `run_tests_core.py`;
+the line numbers move.)
 
 A fresh instance may “simplify” this to one regex thinking the
 other is unreachable. **Both are reachable.** SUMMARY.txt
@@ -1404,9 +1449,10 @@ back to System). 5 contract tests in `tests/test_themes_catalog.py`.
 Activity (4), Performance (5), Capacity (4), Health (4), System
 (5), Collection (8), Diagnostics (6). Each is a declarative
 `spec(data) => KPISpec` function. `ALL_WIDGET_IDS` is the
-canonical set; `DEFAULT_WIDGET_IDS` is the four-widget default
-matching the legacy `/` UI (done_today, throughput, queue_depth,
-action_req). `useWidgetSelection` reconciles persisted IDs
+canonical set; `DEFAULT_WIDGET_IDS` is the five-widget default
+(done_today, throughput, queue_depth, action_req, disk_free -- it was
+four, matching the legacy `/` UI, before `disk_free` was added in the
+V2 redesign). `useWidgetSelection` reconciles persisted IDs
 against `ALL_WIDGET_IDS` on read — unknown IDs are dropped, not
 crashed. Adding a widget is a catalog edit + a KPICard test;
 removing one requires reconciliation across persisted selections
@@ -1433,7 +1479,9 @@ consistency."
 read/write `global_config.sound_on_complete` (synced) or
 `localStorage["bd-sound-on-complete"]` (per-device, default).
 Both POST keys `sound_sync_enabled` and `sound_on_complete` are
-in the `/api/global_config` allowlist at `app.py:3089-3092`,
+in the `/api/global_config` allowlist in
+`bulk_downloader/app_global_config.py` (allowlist entry ~line 85,
+branch handling ~lines 218-228 -- NOT in `app.py`),
 accepted independently. The hook keeps localStorage in sync as a
 side effect of the synced path, so flipping sync OFF preserves
 the current value. Flipping sync ON adopts the current
@@ -1460,7 +1508,8 @@ correct; the test needed updating, not the code.
 
 ### `_MANIFEST_EXCLUDE_NAMES` is pinned to `db.py`'s source-of-truth constants (v3.64.3)
 
-`bulk_downloader/dev_suite.py:_MANIFEST_EXCLUDE_NAMES` (~line 804)
+`bulk_downloader/dev_suite/release_lint.py::_MANIFEST_EXCLUDE_NAMES`
+(line ~285 -- grep the name, line numbers move)
 lists filenames the release-zip builder excludes. It must stay in
 sync with the runtime sentinels `db.py` writes:
 
@@ -1684,8 +1733,12 @@ visible in `app.py`'s `/m2` handler.
 
 ### Release-zip `_MANIFEST_EXCLUDE_*` triple — names, dirs, suffixes (v3.65.1 B4 + B5)
 
-`bulk_downloader/dev_suite.py` carries three exclusion mechanisms in
-the manifest verifier:
+The `bulk_downloader/dev_suite/` package carries three exclusion
+mechanisms in the manifest verifier -- `_MANIFEST_EXCLUDE_DIRS` in
+`_common.py`, `_MANIFEST_EXCLUDE_NAMES` / `_MANIFEST_EXCLUDE_SUFFIXES`
+/ `_MANIFEST_EXCLUDE_PATHS` in `release_lint.py`, all re-exported from
+the package `__init__.py` (grep the constant names; do not trust the
+file split to have stayed put):
 
 - `_MANIFEST_EXCLUDE_NAMES`: bare filenames matched exactly. Includes
   `downloader_history.db*`, `.integrity_*`, `.fts_optimize_last`,
@@ -1795,8 +1848,9 @@ which surface kind each existing site sits on.
     you couldn't opt out from a single device).
   - When the device has opted in, the hook reads/writes
     `global_config.sound_on_complete` (via the two new POST
-    allowlist keys `sound_sync_enabled` and `sound_on_complete` at
-    `bulk_downloader/app.py:3089-3092`) instead of localStorage.
+    allowlist keys `sound_sync_enabled` and `sound_on_complete` in
+    `bulk_downloader/app_global_config.py`, ~line 85) instead of
+    localStorage.
   - localStorage is kept in sync as a side effect, so flipping
     sync OFF preserves the current value. Flipping sync ON adopts
     the current localStorage value (so a sound-on user sees no
@@ -1812,7 +1866,9 @@ which surface kind each existing site sits on.
   `# INV-NNN` comment additions shifted function-def line
   numbers; the AST walker emits the new line numbers; the
   drift test fires). The fix
-  (`python tools/build_function_index.py`) was applied in-place
+  (`tools/build_function_index.py`, invoked today as
+  `venv/bin/python tools/build_function_index.py` -- never bare
+  `python`/`python3`) was applied in-place
   to the v3.64.4 zip, then the cleaner accounting was to call
   the fixed state v3.64.5. A fresh instance that diffs the two
   zips and finds no functional source delta is correct; the
@@ -1978,12 +2034,14 @@ which surface kind each existing site sits on.
   `if (!dot) return;` early return is gone on purpose. Do not
   reintroduce an early return that gates the state update on a DOM
   element existing.
-- **`dev_suite.py` has repeated `# ── N. name ──` section numbers** —
-  the file was built by many independent appends, so the section-header
-  comments carry duplicate numbers (e.g. two `33`s). This is purely
+- **`dev_suite` has repeated `# ── N. name ──` section numbers** —
+  the code was built by many independent appends (as one ~7,600-line
+  module, now split into the `bulk_downloader/dev_suite/` package), so
+  the section-header comments carry duplicate numbers (e.g. two `33`s),
+  and the split spread them across submodules. This is purely
   cosmetic — every *function name* is unique and Python resolves them
   correctly. Do not do a blanket “renumber the sections” pass: it
-  touches a ~7,600-line live file for zero behavioural gain. (Genuine
+  touches live files for zero behavioural gain. (Genuine
   *duplicate function definitions* — where Python silently keeps the
   last — ARE a real bug, distinct from this; see the load-bearing
   invariant above.)
@@ -2184,8 +2242,9 @@ The operator’s fresh-machine `capture.sh` on stash runs in this order:
 tests, [8] dev tools, [9] T51 dry-run. **Step [2] runs before step
 [4].** So at suite time, the bulkdownloader systemd unit does NOT
 exist yet; `_env.HAS_BULKDOWNLOADER_UNIT` is `False` even on a
-“correctly provisioned” stash. The script is operator-owned (lives on
-stash, not the repo) and the order is deliberate — the suite is
+“correctly provisioned” stash. The script ships in the repo at the
+root (`capture.sh`, pinned by `tests/test_u45_capture_sh_shipped.py`)
+and the order is deliberate — the suite is
 “static” (must work without a running service) and the live tests in
 [7] are “dynamic” (need it running). The implication: any
 environment-coupled test must tolerate the
@@ -2215,7 +2274,8 @@ check and FTS optimizer, which write `.fts_optimize_last`,
 working dir. Any test run that touches `app.py` creates them. They
 are legitimate operator state on a deployment but **must not enter a
 release zip** — they leak host state into the artifact and would
-overwrite the operator’s real timestamps on `unzip -o`. Strip them
+overwrite the operator’s real timestamps when the deploy lands. Strip
+them
 (and other runtime files like `downloader_history.db`,
 `app_config.json`, `logs/*`, `live_recordings/*`) before building.
 The reliable check is a file-list diff against the previous release
@@ -2404,8 +2464,17 @@ systems via `classify_bot_defenses`) and `fingerprinting` (via
 `detect_fingerprinting_signals`). These feed operator warnings and the
 `do_not_auto_submit` gate.
 
-The live observer (`runner._install_event_listeners`, config
-`detect_fingerprinting`, **
+**TRUNCATED ENTRY.** The paragraph that followed here was cut off
+mid-sentence in the source document ("The live observer
+(`runner._install_event_listeners`, config `detect_fingerprinting`,
+**"), and it is NOT recoverable from git history -- this repository
+has a single initial-import commit, so no earlier revision of this
+file exists. Do not read the absence as "no invariant here".
+Re-derive from source: the live observer is
+`bulk_downloader/runner_telemetry.py::_install_event_listeners`
+(called from `runner.py`), gated on the config key
+`detect_fingerprinting` (read at `runner_telemetry.py` ~lines 171 and
+212), with the classifier in `bulk_downloader/fp_detect.py`.
 
 ### Session resilience: `_check_redirect` AUTH_BODY_RE — reused invariant surface (v3.66.46)
 
@@ -2417,4 +2486,12 @@ preserve that precision or it will loop on working pages. The retry
 cap is the existing `_handle_auth_required` accounting — do NOT add a
 second uncapped re-drive.
 
-### `
+-----
+
+**END OF FILE -- TRUNCATED.** The document originally continued past
+this point: the last bytes were a bare `### ` heading opened with a
+backtick and no title or body. Whatever invariant was being recorded
+is lost, and it is NOT recoverable from git history (this repository
+has a single initial-import commit). The empty heading has been
+removed so it does not read as a section a reader merely failed to
+find. Treat this file's coverage as ending here, not as complete.

@@ -2,14 +2,41 @@
 """bd-guardcheck -- the 7 release-guard files must stay byte-identical unless a new
 SHA is explicitly declared. An accidental edit is catastrophic (on-stash guard gate
 + the merge-not-overlay deploy trap). This hashes the guards in the work tree and
-compares to STATE's pinned SHAs -> catches an unintended guard edit BEFORE the cut.
+compares them to the pinned SHAs -> catches an unintended guard edit BEFORE the cut.
 
 Usage:
-  bd-guardcheck [--tree DIR] [--state STATE.json]
-Exit 1 if any guard drifted (declare a new SHA via bd-guard-declare, or revert), else 0.
+  bd-guardcheck [--tree DIR] [--guards guards.json] [--state STATE.json]
+
+Guards baseline, in order of precedence:
+  --guards PATH   an explicit manifest.  If it is absent or malformed this is a
+                  HARD ERROR -- never a silent fallback.
+  --state PATH    an explicit STATE.json (version-pack workflow).
+  <tree>/guards.json   the repo-root manifest.  This is the default and the
+                  single source of truth for a git checkout.
+  legacy STATE discovery (/home/claude/nextsess, work_pack, newest version zip).
+
+Exit codes:
+  0  every guard resolved and matched.
+  1  at least one guard DRIFTED -> declare a new SHA (bd-guard-declare) or revert.
+  2  UNKNOWN: no guards baseline at all, a guard file missing/unreadable, a guard
+     with no pin, or a summary whose buckets do not account for every guard.
+
+CLAUDE.md 0 -- why exit 2 exists at all.  This tool used to default --tree to
+/home/claude/work.  Run from a git checkout that path does not exist, so all 7
+guards read as FILE MISSING; and `if drift: return 1` was the only non-zero path,
+so the gate printed "0 ok, 0 drifted, 7 missing." and exited 0.  It certified a
+tree it had never read.  A gate that cannot see its subject reports OK, and that
+is worse than no gate: unknown is a THIRD STATE and it FAILS.
+
+The inverse rule binds just as hard: on an intact tree this must exit 0 and
+report every guard ok.  A gate that cries wolf gets switched off.
 """
 import argparse, glob, hashlib, json, os, re, sys, zipfile
 import sys
+
+MANIFEST_NAME = "guards.json"
+UNRUNNABLE = 2
+DRIFTED = 1
 
 
 def _bd_pick_newest(paths):
@@ -54,6 +81,87 @@ if "--selftest" in sys.argv:
     sys.exit(_selftest_via_coretest())
 
 
+# The fallback guard list, used when the baseline is a STATE.json (which carries
+# pins but not the roster).  guards.json carries its OWN roster and wins over this.
+GUARDS = [
+    "bulk_downloader/extraction_core.py", "bulk_downloader/session_capture.py",
+    "bulk_downloader/dom_capture.py", "bulk_downloader/dom_recorder.py",
+    "bulk_downloader/capture_bodies.py", "tools/capture_session.py", "tools/build_release.py",
+]
+
+_HEX64 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def unrunnable(reason, *hints):
+    """The gate cannot answer the question it was asked. Say so, loudly, and FAIL.
+
+    Historically the failure mode was the opposite: print a clean-looking table
+    over an empty denominator and exit 0. Never do that again.
+    """
+    print(f"\nBD-GATE-UNRUNNABLE: {reason}")
+    for h in hints:
+        print(f"  {h}")
+    print("  (unknown is a third state, and it FAILS -- see CLAUDE.md section 0)")
+    return UNRUNNABLE
+
+
+def _upward(start):
+    """start and every ancestor directory, nearest first."""
+    d = os.path.abspath(start)
+    seen = []
+    while True:
+        seen.append(d)
+        parent = os.path.dirname(d)
+        if parent == d:
+            return seen
+        d = parent
+
+
+def resolve_tree(explicit):
+    """Find the tree whose guards we are checking.
+
+    Explicit --tree always wins (that is the version-pack / fault-injection path).
+    Otherwise: walk up from CWD for a guards.json, then the repo root implied by
+    this script's own location, then the legacy /home/claude/work.
+
+    The old code hardcoded /home/claude/work as the default, which is why a run
+    from a git checkout hashed nothing at all.
+    """
+    if explicit:
+        return os.path.abspath(explicit), "--tree"
+    for d in _upward(os.getcwd()):
+        if os.path.isfile(os.path.join(d, MANIFEST_NAME)):
+            return d, f"{MANIFEST_NAME} found above cwd"
+    # this file lives at <root>/toolchain/bin/bd-guardcheck
+    script_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+    if os.path.isfile(os.path.join(script_root, MANIFEST_NAME)):
+        return script_root, "repo root of this script"
+    for d in _upward(os.getcwd()) + [script_root]:
+        if all(os.path.isfile(os.path.join(d, g)) for g in GUARDS):
+            return d, "guard files found on disk"
+    return "/home/claude/work", "legacy default"
+
+
+def load_manifest(path):
+    """Read guards.json -> (guard_list, full_pins). Raises ValueError if unusable.
+
+    A malformed manifest is an UNKNOWN, not an empty pin map: an empty pin map
+    would make every guard 'unpinned' and, in the old code, silently ok.
+    """
+    with open(path) as fh:
+        doc = json.load(fh)
+    if not isinstance(doc, dict):
+        raise ValueError("top level is not an object")
+    guards = doc.get("guards")
+    if not isinstance(guards, dict) or not guards:
+        raise ValueError("no non-empty 'guards' object")
+    pins = {}
+    for rel, sha_hex in guards.items():
+        if not isinstance(sha_hex, str) or not _HEX64.match(sha_hex.strip().lower()):
+            raise ValueError(f"{rel}: pin is not a full 64-hex sha256 ({sha_hex!r})")
+        pins[rel] = sha_hex.strip().lower()
+    return list(guards.keys()), pins
+
 
 def resolve_state(explicit):
     """Find STATE.json: --state, common pack dirs, or newest version-pack zip."""
@@ -73,11 +181,35 @@ def resolve_state(explicit):
             continue
     return None, None
 
-GUARDS = [
-    "bulk_downloader/extraction_core.py", "bulk_downloader/session_capture.py",
-    "bulk_downloader/dom_capture.py", "bulk_downloader/dom_recorder.py",
-    "bulk_downloader/capture_bodies.py", "tools/capture_session.py", "tools/build_release.py",
-]
+
+def resolve_baseline(a, tree):
+    """Return (guard_list, full_pins, short_pins, source_label) or (None, ...) on
+    an unrunnable baseline. The caller turns None into exit 2."""
+    if a.guards:
+        if not os.path.isfile(a.guards):
+            return None, None, None, f"--guards {a.guards}: no such file"
+        try:
+            names, pins = load_manifest(a.guards)
+        except Exception as ex:
+            return None, None, None, f"--guards {a.guards}: {type(ex).__name__}: {ex}"
+        return names, pins, {}, a.guards
+    if a.state:
+        d, src = resolve_state(a.state)
+        if not d:
+            return None, None, None, f"--state {a.state}: unreadable or not found"
+        return list(GUARDS), d.get("guards_full_sha256") or {}, d.get("guards") or {}, src
+    local = os.path.join(tree, MANIFEST_NAME)
+    if os.path.isfile(local):
+        try:
+            names, pins = load_manifest(local)
+        except Exception as ex:
+            return None, None, None, f"{local}: {type(ex).__name__}: {ex}"
+        return names, pins, {}, local
+    d, src = resolve_state(None)
+    if d:
+        return list(GUARDS), d.get("guards_full_sha256") or {}, d.get("guards") or {}, src
+    return None, None, None, "no guards.json in the tree and no STATE.json anywhere"
+
 
 def sha(path):
     try:
@@ -85,39 +217,75 @@ def sha(path):
     except Exception:  # why: file absent/unreadable; None so the caller reports a MISSING guard, not a wrong sha
         return None
 
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tree","--work", default="/home/claude/work")
-    ap.add_argument("--state", default=None)
+    ap.add_argument("--tree", "--work", default=None,
+                    help="tree to hash (default: discovered from cwd / this script)")
+    ap.add_argument("--guards", default=None,
+                    help="explicit guards.json manifest (absent/malformed => exit 2)")
+    ap.add_argument("--state", default=None,
+                    help="explicit STATE.json baseline (version-pack workflow)")
     a = ap.parse_args()
-    d, src = resolve_state(a.state)
-    pinned_full = {}; pinned_short = {}
-    if d:
-        pinned_full = d.get("guards_full_sha256", {}) or {}
-        pinned_short = d.get("guards", {}) or {}
-        print(f"(baseline: {os.path.basename(src)})")
-    else:
-        print("warn: no STATE.json found (pass --state or upload a version pack)")
-    drift = 0; ok = 0; miss = 0
+
+    tree, how = resolve_tree(a.tree)
+    names, pinned_full, pinned_short, src = resolve_baseline(a, tree)
+    print(f"(tree: {tree}  [{how}])")
+    if names is None:
+        return unrunnable(
+            f"no guards baseline: {src}",
+            "the 7 guard SHAs could not be loaded, so NOTHING was verified",
+            f"fix: create {MANIFEST_NAME} at the tree root, or pass --guards/--state",
+        )
+    print(f"(baseline: {src})")
+
+    total = len(names)
+    ok = drift = miss = unpinned = 0
     print(f"{'guard':<40} {'status'}")
-    for g in GUARDS:
-        h = sha(os.path.join(a.tree, g))
+    for g in names:
+        h = sha(os.path.join(tree, g))
         if h is None:
             print(f"  {g:<38} FILE MISSING"); miss += 1; continue
         pf = pinned_full.get(g); ps = pinned_short.get(g)
         if pf:
-            if h == pf: print(f"  {g:<38} ok ({h[:8]})"); ok += 1
-            else: print(f"  {g:<38} DRIFT  tree {h[:8]} != pinned {pf[:8]}"); drift += 1
+            if h == pf:
+                print(f"  {g:<38} ok ({h[:8]})"); ok += 1
+            else:
+                print(f"  {g:<38} DRIFT  tree {h[:8]} != pinned {pf[:8]}"); drift += 1
         elif ps:
-            if h.startswith(ps) or ps.startswith(h[:len(ps)]): print(f"  {g:<38} ok (short {h[:8]})"); ok += 1
-            else: print(f"  {g:<38} DRIFT  tree {h[:8]} != pinned {ps[:8]}"); drift += 1
+            if h.startswith(ps) or ps.startswith(h[:len(ps)]):
+                print(f"  {g:<38} ok (short {h[:8]})"); ok += 1
+            else:
+                print(f"  {g:<38} DRIFT  tree {h[:8]} != pinned {ps[:8]}"); drift += 1
         else:
-            print(f"  {g:<38} no pin in STATE (tree {h[:8]})")
-    print(f"\n{ok} ok, {drift} drifted, {miss} missing.")
+            print(f"  {g:<38} NO PIN (tree {h[:8]}) -- unverifiable"); unpinned += 1
+
+    print(f"\n{ok} ok, {drift} drifted, {miss} missing, {unpinned} unpinned.")
+
+    # A summary whose buckets do not account for every guard is a denominator lie.
+    if ok + drift + miss + unpinned != total:
+        return unrunnable(
+            f"summary buckets ({ok}+{drift}+{miss}+{unpinned}) do not sum to the "
+            f"{total} guards checked",
+            "refusing to report a verdict over a denominator that lost rows",
+        )
+
+    if miss or unpinned:
+        bits = []
+        if miss:
+            bits.append(f"{miss} guard file(s) missing/unreadable under {tree}")
+        if unpinned:
+            bits.append(f"{unpinned} guard(s) have no pin in {os.path.basename(str(src))}")
+        rc = unrunnable("; ".join(bits),
+                        "the gate could not verify every guard, so it cannot report OK")
+        if drift:
+            print("=> and at least one guard DRIFTED as well.")
+        return rc
     if drift:
         print("=> a guard changed. If intentional: bd-guard-declare + bump the pinned SHA. If not: REVERT before cutting.")
-        return 1
+        return DRIFTED
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -8,8 +8,10 @@ when judgment changes — never on a routine release.*
 **Decay convention.** Numbers, line-numbers, and SHAs named below are **illustrative anchors,
 not live facts** — treat any bare number as *decaying*. Once the Tier-A indexes (ROUTE_INDEX,
 PIN_INDEX) land, factual anchors here should transclude (`{{pin:X}}`/`{{route:X}}`) and resolve
-at read-time. Until then: STATE.json + the newest KB_HANDOFF are the truth for version /
-counts / guard SHAs; this doc is the *reasoning*. **Last reviewed @v3.66.805.**
+at read-time. Until then: `bulk_downloader/__init__.py::__version__` is the version, `guards.json`
+(via `bd-guardcheck`) is the guard-SHA truth, and counts are measured at decision time from the
+tree -- never quoted. This doc is the *reasoning*. (STATE.json and the KB_HANDOFF series were the
+pre-git session-pack channel and no longer exist in this repo.) **Last reviewed @v3.66.805.**
 
 Pairs with: `PROJECT_OPERATING_INSTRUCTIONS` (workflow + release checklist), `AUTOMATION_POLICY`
 (what may be automated + the gated-approval model), `SANDBOX.md` (env footguns). This doc is the
@@ -75,14 +77,19 @@ is · canonical instance · the smell · the fix.**
   that returns 200 and changes no behaviour. *Fix:* delete the decoy; make an unknown key **400**.
   Fix the *contract* before the schema — a discarded write reporting **success** is what let this
   live for 200+ cuts under clean gates.
-- **overlay-deploy-never-deletes** *(bit @718)* — deploy is `unzip -o`: it overwrites and adds, it
-  **never removes**. A file deleted in a cut keeps living on stash, and the graph gates
+- **overlay-deploy-never-deletes** *(bit @718; RETIRED 2026-07-27 -- see the Fix clause)* — deploy
+  was `unzip -o`: it overwrote and added, it **never removed**. A file deleted in a cut kept living
+  on stash, and the graph gates
   (`dependency_graph`, `import_graph_gate`) **glob the disk**, so the orphan is scanned as live
   source and its stale edge trips the frozen baseline. *Instance:* `app_sched_exports.py`, deleted
   @716 — the release zip was **correct** and the sandbox tree **green**, and stash still went RED on
   three suites because of one ghost file. *Smell:* a stash failure naming a module that is not in the
-  zip. *Fix:* `bd-deploy-manifest --zip <rel> --script | sh` **before** `unzip -o` on any cut that
-  deletes a file. (It ships in the *sandbox* bdsuite, not on stash — generate the `rm` lines here.)
+  zip. *Historical fix (pre-git deploy):* `bd-deploy-manifest --zip <rel> --script | sh` before the
+  `unzip -o` overlay on any cut that deleted a file. **Retired 2026-07-27:** the box now deploys via
+  `git fetch origin main` + `git reset --hard origin/main`, which removes deleted files natively, so
+  this orphan class can no longer occur and the manifest step is no longer required. *But a git
+  deploy only moves FILES -- it does not make the running system match them:* see
+  `git-deploy-moves-files-not-state` in section 2 for what still has to be done by hand.
 - **wiring-a-control-IS-a-route-change** *(bit @714)* — `ROUTE_INDEX` records a `spa_wired` flag per
   (method, path), so adding a **caller** flips the index even though `url_map` is untouched.
   *Instance:* the VPN kill-switch controls landed, ROUTE_INDEX was not regenerated, and the full
@@ -121,12 +128,14 @@ is · canonical instance · the smell · the fix.**
   the v3.66.161 pyc-shadow (on-disk 161, health 160); the @354 deploy where the suite ran against
   the *old* `cockpit_console.py`. *Fix:* confirm `/api/health` flipped before trusting any
   post-deploy run; clear pycache every deploy.
-- **merge-not-overlay deploy gap** *(fresh @354)* — a deploy-excluded file (`tools/cockpit_console.py`)
-  ships its **test** but not its **change** under the canonical `unzip -o … -x tools/cockpit_console.py`
-  → on-stash `capture.sh` fails against the old file (the signature: the *new* test fails, the
-  other ~9800 stay green). *Fix:* for a `cockpit_console.py`-only cut, deploy it as a **targeted
-  single-file overlay** (`unzip -o <zip> tools/cockpit_console.py`, no `-x`); the exclude exists
-  only to protect live operator edits — when there are none, overlay it explicitly.
+- **merge-not-overlay deploy gap** *(@354; HISTORICAL -- the mechanism required the retired
+  `unzip -o ... -x` overlay deploy and cannot occur under `git reset --hard`)* — a deploy-excluded
+  file (`tools/cockpit_console.py`) shipped its **test** but not its **change**
+  → on-stash `capture.sh` failed against the old file (the signature: the *new* test fails, the
+  other ~9800 stay green). *Historical fix:* deploy that one file as a targeted single-file overlay
+  with no `-x`; the exclude existed only to protect live operator edits. **Retired 2026-07-27:**
+  `git reset --hard origin/main` has no exclusion list, so no file can ship its test without its
+  change.
 - **equality-pin-whack-a-mole** — `== N` magnitude pins re-break on every subsequent tranche.
   *Fix:* convert legacy_parity `== N` to `<= N` ceilings the *same* cut a tranche moves the ratchet.
 - **fixture-looks-like-a-pin** — a synthetic version/SHA string inside a test fixture gets matched
@@ -374,18 +383,40 @@ assertions written to pin it — all in one session. Assume it is in whatever yo
 The durable models that, once internalized, prevent a class of mistakes. (Anchors decay; the
 *model* doesn't.)
 
-- **overlay-can't-delete.** `unzip -o` overlays files, never removes them; a deletion cut needs a
-  physical `rm` on stash (or `rsync --delete`). The empty `app_actions_center`/`app_monitoring`
-  modules @353 needed an operator `rm`.
+- **overlay-can't-delete (RETIRED 2026-07-27).** Under the pre-git `unzip -o` model the deploy
+  overlaid files and never removed them, so a deletion cut needed a physical `rm` on stash or
+  `rsync --delete` (the empty `app_actions_center`/`app_monitoring` modules @353 needed an operator
+  `rm`). The box now deploys via `git fetch origin main` + `git reset --hard origin/main`, which
+  deletes natively -- so that orphan class, and the `bd-deploy-manifest` ceremony that detected it,
+  are gone.
+- **git-deploy-moves-files-not-state.** A git deploy makes the *files* match origin/main. It does
+  **not** make the running system match them, and none of the following were ever properties of the
+  overlay, so none of them went away when the overlay did. Ask each one every deploy:
+  1. **`__pycache__/*.pyc` is not cleared.** `git reset --hard` leaves stale bytecode exactly as
+     `unzip -o` did -- see the next entry; the 161 footgun is unchanged.
+  2. **Gitignored generated artifacts are not refreshed**, and `git clean -fd` will not remove them
+     either (that needs `-x`). A stale `reports/gui_parity_inventory.json` reads as parity drift and
+     fails the ENTIRE suite; `.claude-env-report.md` is the same class and worse, because its own
+     header tells the reader to trust it.
+  3. **The service is not restarted** -- confirm `/api/health` flipped before trusting any
+     post-deploy run.
+  4. **`frontend/dist/` is not delivered at all.** `git ls-files frontend/dist` returns 0 files and
+     `frontend/.gitignore` ignores `dist/`; `bulk_downloader/app.py` serves a uniform 503 when the
+     bundle is missing, so a missing or stale bundle is a silent 503 on the SPA. Rebuild with
+     `cd frontend && npm ci && npm run build` whenever SPA source changed.
+  This is a **condition to re-derive, not a count to memorise** -- if you find a fifth, add it here
+  rather than trusting the length of the list.
 - **pyc-shadow-on-older-mtime.** An overlaid `.py` whose mtime is *older* than an existing
   `__pycache__/*.pyc` makes CPython run the **stale** bytecode → clear caches every deploy (the
   161 incident).
 - **`venv/` ≠ `.venv/`.** The service venv is `venv/`; system `python3` (python-is-python3)
   resolves but lacks Flask/cloakbrowser → backend/import checks **must** use `venv/bin/python`, or
   `resolve_backend()` falsely reports `playwright`.
-- **live ≠ built when cuts stack.** STATE.json `live_version` legitimately lags `built_version`
-  on an undeployed cut; `bd-handoff` mechanically sets `live := built` and must be corrected back
-  to the actually-deployed version before `bd-pack`.
+- **live ≠ built when cuts stack.** What is *built* (committed to origin/main) legitimately runs
+  ahead of what is *live* (what the box last reset to and restarted on) whenever cuts stack
+  undeployed. Confirm the deployed version from `/api/health`, never from the tree. (The STATE.json
+  `live_version`/`built_version` pins that `bd-handoff`/`bd-pack` maintained no longer exist in this
+  repo -- the file is gone; the model is not.)
 - **band from the extracted zip, never the work tree.** Work-tree pyc lies; always band the
   extracted/built zip and gate `verify_release --zip` on the **true `$?`**, not a piped `tail`.
 - **the import gate tracks function-local imports too** *(@582).* `dependency_graph.py::_internal_imports`
@@ -439,9 +470,10 @@ The recurring decisions and how to make them. (The *rule*; the operating mechani
   move does — and converts its equality pins to ceilings the same cut. **Pure motion (F5.1) is
   never batched with a feature.** When in doubt, smaller and reversible.
 - **deliverable shape.** Standalone artifact the operator keeps/ships (release zip, plan doc) →
-  file in `/mnt/user-data/outputs` + `present_files`. A strategy/summary/analysis they'll read now
-  → inline. Prefer markdown/inline over heavyweight formats unless a downloadable doc is clearly
-  wanted. One consolidated release per slice of work (bump once, one zip).
+  a file in the repo (or the session scratchpad for throwaways), surfaced explicitly. A
+  strategy/summary/analysis they'll read now → inline. Prefer markdown/inline over heavyweight
+  formats unless a downloadable doc is clearly wanted. One consolidated release per slice of work
+  (bump once, one zip).
 - **fact vs judgment (the KB's own rule).** If a script can extract it (route, count, SHA,
   version), it's a **fact** → generate + gate + transclude, never hand-copy. If it's a why/how/criterion,
   it's **judgment** → this doc, decay-tagged. A confident number in prose with no generator behind
@@ -458,9 +490,9 @@ The judgment view of the working relationship (operating facts: `PROJECT_OPERATI
   full authorization — execute immediately, lead with results, no preamble. A pasted terminal
   block = deployment confirmation (read it as ground truth about what landed).
 - **Session-close docs are minimal — heavy regeneration annoys Matt.** Update only the *changed*
-  STATE.json fields, ~1 line each (it's a machine pin, not a narrative); one short KB_HANDOFF (fold
-  any kickoff into the top), not three overlapping docs; don't re-read/regenerate carried-forward
-  docs to "mirror format," and don't write multi-paragraph reconciliation/validation essays — state
+  fields, ~1 line each (a machine pin is not a narrative); one short close-out summary, not three
+  overlapping docs; don't re-read/regenerate carried-forward docs to "mirror format," and don't
+  write multi-paragraph reconciliation/validation essays — state
   the outcome in a line or two. **Docs only:** the release *gates* stay intact (RED-first, band from
   the extracted zip, `verify_release --zip` PASS, guard-SHA declaration).
 - **Honest over optimistic — always.** Never claim something passed/shipped without verifying it
@@ -468,14 +500,19 @@ The judgment view of the working relationship (operating facts: `PROJECT_OPERATI
   (live browser/noVNC, cockpit click-throughs). A correct refusal/limit beats a confident wrong
   "done."
 - **Stop on "hold"/"wait."** Respect the interrupt immediately.
-- **The tree and stash diverge.** Matt overlays files on stash himself, so the work tree is not
-  always authoritative — report divergence candidly rather than assuming the tree is right.
+- **The tree is not automatically what the box runs.** The box is `git reset --hard origin/main`,
+  so committed source matches by construction -- but your local tree may hold uncommitted work, and
+  gitignored generated artifacts (`reports/gui_parity_inventory.json`, `__pycache__`,
+  `.claude-env-report.md`) survive a reset and go stale independently, as does an unbuilt
+  `frontend/dist/`. Report divergence candidly; never claim a state on the box you have not been
+  told.
 - **Duplicate user message = compaction tell.** Compaction can drop the tail of a turn (e.g. a
   `present_files`); on a duplicate, re-verify what *actually* landed (does the file exist? was it
   presented?) and complete only the missing step — don't blindly redo the whole turn.
-- **Read order in a fresh session:** STATE.json (machine truth) → newest KB_HANDOFF → this
-  judgment layer → `KB_ACTIVE_INDEX` for the rest. Source code is the final ground truth over any
-  doc.
+- **Read order in a fresh session:** `CLAUDE.md` -> this judgment layer -> `KB_ACTIVE_INDEX` for the
+  rest, re-deriving any figure from the tree at decision time. Source code is the final ground
+  truth over any doc. (STATE.json and the KB_HANDOFF series no longer exist in this repo -- do not
+  send a session to either.)
 
 ---
 
