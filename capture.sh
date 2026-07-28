@@ -122,11 +122,70 @@ else
   echo "  no TTY: capture vault skipped -- L6/L8 will WARN as before"
 fi
 
+# `systemctl restart` returns once systemd has STARTED the unit, NOT once the
+# app is serving: waitress needs roughly three more seconds to bind :5555. A
+# boot journal shows "Started bulkdownloader.service" at 19:00:17 and
+# "[waitress] Serving on http://0.0.0.0:5555" at 19:00:20. Steps [7] and [9]
+# curl that port as soon as the teardown below returns, so with no wait they
+# meet a REFUSED connection -- seen on a real capture as
+#   curl: (7) Failed to connect to localhost port 5555 after 0 ms
+# on BOTH ("after 0 ms" is a refusal, not a timeout), which turned an otherwise
+# fine run into dev-tools exit=1; http-smoke exit=1 and CAPTURE VERDICT: FAIL.
+#
+# BOUNDED, deliberately: an unbounded wait would convert a restart that never
+# comes back into a hung capture, which is strictly worse than the two failed
+# steps it replaces. 40 attempts x 0.5s is ~20s of waiting against the ~3s
+# actually needed; each probe is itself capped by --max-time 2, so even if the
+# port accepts and then stalls on every attempt the loop cannot run past ~100s.
+#
+# AND NEVER SILENT: on timeout it warns and leaves SERVICE_READY_EXIT=1, which
+# the verdict reads as a stage exit. A probe that never saw the app serving
+# does not know that it is, and capture.sh does not abort mid-run by design --
+# so the verdict is the only place an unknown can fail (CLAUDE.md 0).
+#
+# The probe uses the SAME origin steps [7] and [9] use. Polling 127.0.0.1 while
+# they use localhost would certify a socket they may never reach.
+CAPTURE_READY_URL="http://localhost:5555/api/health"
+CAPTURE_READY_TRIES=40
+SERVICE_READY_EXIT=0
+wait_for_service_ready() {
+  local tries=0
+  local started
+  started=$(date +%s)
+  while [ "$tries" -lt "$CAPTURE_READY_TRIES" ]; do
+    if curl -sSf -o /dev/null --max-time 2 "$CAPTURE_READY_URL" 2>/dev/null
+    then
+      SERVICE_READY_EXIT=0
+      echo "  service serving again after $(( $(date +%s) - started ))s"
+      return 0
+    fi
+    sleep 0.5
+    tries=$((tries + 1))
+  done
+  SERVICE_READY_EXIT=1
+  echo "  WARNING: no answer from $CAPTURE_READY_URL after" \
+       "$CAPTURE_READY_TRIES attempts over $(( $(date +%s) - started ))s;" \
+       "steps [7]-[9] are about to probe an app that is not known to be" \
+       "serving" >&2
+  return 1
+}
+
 # Removing the drop-in is NOT enough: systemd passes Environment= at start, so
 # the RUNNING service keeps the capture vault until something restarts it. Skip
 # the restart and the operator's BD would keep reporting an empty credential
 # store -- their real passwords would look like they had vanished. Idempotent,
 # because it is reached both explicitly after [6] and from the EXIT trap.
+#
+# The readiness wait lives INSIDE this branch, not beside the call site after
+# [6]: a capture with a blank password or no TTY never wrote a drop-in and
+# never restarts anything, so it must not pay for a wait. Keeping the two
+# together makes it impossible to restart without waiting, or to wait without
+# having restarted -- reachability derived rather than asserted.
+#
+# It therefore also runs on the EXIT-trap path, where nothing later needs the
+# app. That is wanted, not tolerated: an interrupt is exactly when the operator
+# most needs to know their BD came back off the capture vault, and the wait
+# ends the moment it answers.
 cleanup_capture_vault() {
   if [ "$CAPTURE_VAULT" = "1" ]; then
     CAPTURE_VAULT=0
@@ -136,6 +195,7 @@ cleanup_capture_vault() {
     sudo systemctl restart bulkdownloader 2>/dev/null || true
     rm -rf "$CAPTURE_VAULT_DIR"
     echo "  capture vault removed; service restarted on the operator vault"
+    wait_for_service_ready || true
   fi
 }
 
@@ -863,6 +923,7 @@ venv/bin/python tools/capture_verdict.py \
   --stage-exit "csrf=$CSRF_EXIT" \
   --stage-exit "service-install=$INSTALL_EXIT" \
   --stage-exit "service-active=$SERVICE_EXIT" \
+  --stage-exit "service-ready=$SERVICE_READY_EXIT" \
   --stage-exit "dev-tools=$DEV_EXIT" \
   --stage-exit "goldens=$T51_EXIT" \
   --stage-exit "http-smoke=$SMOKE_EXIT" \
