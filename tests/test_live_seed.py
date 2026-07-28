@@ -449,3 +449,49 @@ def test_the_module_is_a_standalone_tool_not_a_live_tests_import():
             for alias in node.names:
                 if alias.name.startswith("live_tests"):
                     pytest.fail("live_seed must not import live_tests")
+
+
+def test_a_later_refusal_does_not_swallow_an_earlier_success(capsys, monkeypatch):
+    """seed_queue's result must survive seed_login raising.
+
+    main() collected both plans and printed them only AFTER both had run:
+
+        plans = []
+        if args.seed:  plans.append(seed_queue(...))   # succeeds
+        if args.login: plans.append(seed_login(...))   # raises SeedRefused
+        print(json.dumps(plans ...))                   # never reached
+
+    So on a host where the queue seeded fine and the login could not -- a
+    locked vault, say -- the log showed the refusal and nothing else. Observed
+    exactly that on the box: 05a_live_seed.log read as though nothing had
+    happened while three URLs had in fact been queued, which made it impossible
+    to tell whether a separate fix to the seeded URLs was working.
+
+    A partial success reported as total silence is a false negative about the
+    tool's own behaviour: the same shape as a gate reporting OK over nothing,
+    inverted.
+    """
+    seed = _load()
+    client = FakeClient()
+    monkeypatch.setattr(seed, "Client", lambda base_url: client)
+    monkeypatch.setattr(seed, "preflight", lambda c, force=False: {"ok": True})
+
+    def _vault_locked(c, dry_run=False):
+        raise seed.SeedRefused("the secrets vault is LOCKED")
+
+    monkeypatch.setattr(seed, "seed_login", _vault_locked)
+
+    rc = seed.main(["--seed", "--login", "--count", "2",
+                    "--site-id", "fixture-site"])
+    out = capsys.readouterr()
+
+    assert rc != 0, "a refused login must still be a non-zero exit"
+    assert "LOCKED" in out.err, f"the refusal was not reported:\n{out.err}"
+    assert out.out.strip(), (
+        "seed_queue succeeded and its plan was never printed. stdout is empty, "
+        "so the operator cannot tell a partial seed from no seed at all.\n"
+        f"stderr was:\n{out.err}"
+    )
+    assert seed.SEED_MARKER in out.out, (
+        f"stdout does not describe the queue seed that ran:\n{out.out}"
+    )
