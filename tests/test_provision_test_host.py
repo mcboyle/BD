@@ -954,6 +954,7 @@ def _display_stub_dir(
     spawn_log: Path,
     marker: Path | None = None,
     xvfb_creates_marker: bool = False,
+    xvfb_stderr: str | None = None,
 ) -> Path:
     """Build a stub bin dir for the bd_start_display probes.
 
@@ -981,9 +982,21 @@ def _display_stub_dir(
 
     if xvfb:
         create = f': > "{marker}"\n' if (xvfb_creates_marker and marker) else ""
+        complain = ""
+        if xvfb_stderr:
+            # Written to the stub's OWN stderr, which is where a real Xvfb puts
+            # its fatal diagnostics. bd_start_display redirects the server's
+            # 2>&1 into its scratch log, so this is the only way to exercise
+            # the capture: every other stub in this file is silent, and a
+            # silent Xvfb cannot distinguish a working capture from /dev/null.
+            complain = "".join(
+                f"printf '%s\\n' {shlex.quote(line)} >&2\n"
+                for line in xvfb_stderr.splitlines()
+            )
         _write_stub(
             stub_dir / "Xvfb",
-            f'#!/bin/sh\nprintf \'%s\\n\' "$*" >> "{spawn_log}"\n{create}exit 0\n',
+            f'#!/bin/sh\nprintf \'%s\\n\' "$*" >> "{spawn_log}"\n'
+            f'{complain}{create}exit 0\n',
         )
 
     return stub_dir
@@ -1191,6 +1204,89 @@ def test_bd_start_display_rejects_an_invalid_display(
     assert not spawn_log.exists(), (
         f"bd_start_display ({label}) spawned a server for an invalid display: "
         f"{spawn_log.read_text(encoding='utf-8')!r}"
+    )
+    _assert_no_real_display_state()
+
+
+def test_a_failing_xvfb_gets_its_own_explanation_replayed(tmp_path: Path) -> None:
+    """When Xvfb refuses to start, its reason must reach the operator.
+
+    `bd_start_display` captures the server's output to a scratch log
+    (system_deps.sh:357-360) and, on timeout, replays the tail of it to fd 2
+    (:420-425). That capture had NO gate. Deleting it -- sink stays /dev/null,
+    replay arm removed -- left the whole derived band at 126 passed, exit 0.
+
+    It was invisible for a precise reason worth recording: the only assertion
+    in this file that mentions the scratch log asserts it is CLEANED UP
+    (`assert not list(tmp_path.glob("bd-xvfb-*"))`). Remove the capture and the
+    glob is empty, so that assertion passes *harder*. The subject's absence was
+    being scored as success. And every Xvfb stub here is silent, so no test
+    could ever have observed the difference between a working capture and
+    /dev/null.
+
+    What the operator loses without it -- measured, not imagined:
+
+        with capture:     "did not bring up :N within 5s"
+                          "last 10 lines of Xvfb output follow --"
+                          "_XSERVTransMakeAllCOTSServerListeners: server
+                           already running"
+                          "Fatal server error: (EE) Cannot establish any
+                           listening sockets"
+        without capture:  "did not bring up :N within 5s"
+
+    That is the difference between "another X server owns this display" (use it,
+    or pick another) and "Xvfb is broken" (reinstall, check permissions). It
+    surfaces downstream as test_v3_43_80_modules false-failing with "Namespace
+    Gtk not available" -- the environmental false-failure CLAUDE.md section 5
+    exists to stop people chasing as a code defect. Neither the provisioner row
+    nor the cloud-setup row carries the cause; this replay is the only channel
+    by which it reaches a human.
+    """
+    _assert_no_real_display_state()
+    spawn_log = tmp_path / "spawns.log"
+    fatal = (
+        "_XSERVTransMakeAllCOTSServerListeners: server already running\n"
+        "Fatal server error:\n"
+        "(EE) Cannot establish any listening sockets"
+    )
+    stub_dir = _display_stub_dir(
+        tmp_path,
+        xdpyinfo="inactive",   # the display never comes up -> the timeout arm
+        xvfb=True,
+        spawn_log=spawn_log,
+        xvfb_stderr=fatal,
+    )
+
+    result = _run_display(
+        f"bd_start_display {PROBE_DISPLAY}", tmp_path, stub_dir, isolate_path=False
+    )
+    _assert_fragment_was_reached(result, "bd_start_display")
+
+    assert result.returncode != 0, (
+        "bd_start_display reported success for a display that never came up:\n"
+        f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    assert spawn_log.is_file(), (
+        "Xvfb was never spawned, so this test proved nothing about the capture"
+    )
+
+    missing = [ln for ln in fatal.splitlines() if ln and ln not in result.stderr]
+    assert not missing, (
+        "bd_start_display did not replay Xvfb's own diagnosis.\n\n"
+        f"missing from stderr: {missing}\n\n"
+        f"actual stderr:\n{result.stderr}\n"
+        "The scratch-log capture (system_deps.sh:357-360) or the replay arm "
+        "(:420-425) has been removed. Without it the operator is told only "
+        "that the display did not appear, never why -- and the cause is not "
+        "reported anywhere else."
+    )
+    assert "output follow" in result.stderr, (
+        "the replay banner is gone; the Xvfb lines are unlabelled in stderr:\n"
+        f"{result.stderr}"
+    )
+    assert not list(tmp_path.glob("bd-xvfb-*")), (
+        "the scratch log survived the failure path: "
+        f"{[p.name for p in tmp_path.glob('bd-xvfb-*')]}"
     )
     _assert_no_real_display_state()
 
