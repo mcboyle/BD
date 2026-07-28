@@ -2,7 +2,18 @@
 
 You are working on **BulkDownloader (BD)**: a self-hosted Flask + Playwright +
 React/TypeScript SPA batch video downloader. Single developer/operator (Matt),
-single deployment target (headless host `stash`).
+single deployment target: headless host **`test4`** — verified from `uname` and
+the `mboyle@test4` prompt in a capture, deploying to
+`/home/mboyle/BulkDownloader`.
+
+Older prose here, in `project-knowledge/`, and in the SDD reports calls that box
+`stash`. That is a saved PuTTY session name, not a hostname
+(`.superpowers/sdd/wacz-processing-report.md` records the session alongside the
+same `mboyle` user). **Same machine — there is no second box.** Two sessions
+have now spent time treating this as an open question; it is not one. Nothing in
+any `.py` or `.sh` resolves, connects to, or branches on a hostname, so the name
+is documentation only: the deploy is `git fetch` + `git reset --hard` run *on*
+the box.
 
 Read this file fully before your first edit. It encodes rules that were learned
 by breaking things, not by preference. Where a rule looks arbitrary, it is
