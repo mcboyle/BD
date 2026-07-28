@@ -253,20 +253,30 @@ before first paint; self-boots and tears down its own backend.
 - Subtab state lives in the URL (`useUrlState` → `?status=running`); compare the **pathname**,
   not the full URL, or every subtab is discarded as a navigation.
 
-### `bd-deploy-manifest` — the files an overlay deploy must DELETE *(NEW @718; SUPERSEDED by git deploy)*
-> **Superseded now that the box deploys via git.** `git fetch origin main` +
-> `git reset --hard origin/main` deletes tracked files natively, so the orphan class below
-> **cannot occur**. Retained for the archival / zip-restore path only; retiring the tool is a
-> separate operator decision. Historical rationale follows.
+### `bd-deploy-manifest` — RETIRED 2026-07-28 *(added @718, removed once deploy became git)*
 
-`unzip -o` overwrote and added; it **never removed**. A file deleted in a cut kept living on
-stash, and the graph gates **glob the disk**, so the orphan tripped the frozen baseline.
-- *(Legacy / zip-restore path only.)* `bd-deploy-manifest --zip <release.zip> --script` emits
-  the `rm` lines an overlay would need. Under the current git deploy this step is unnecessary
-  -- `git reset --hard origin/main` removes deleted files itself. Read-only; a `_NEVER_RM`
-  guard refuses to propose deleting runtime data (DB, `.env`, secrets, `sites_config.json`).
-  Capture the output and read it; do not pipe it to `sh` (piping masks the exit code).
-- Ships in `toolchain/bin/`, which is git-tracked, so it is present on the box as well as here.
+**The tool is gone. Do not re-add it; the failure class it detected cannot occur.**
+
+Removed in the same cut: `toolchain/bin/bd-deploy-manifest`,
+`tools/deploy_manifest.py`, `project-knowledge/deploy_manifest.py` and
+`tests/test_v3_66_722_deploy_manifest_ships.py`.
+
+*Why it existed.* `unzip -o` overwrote and added; it **never removed**. A file deleted in a
+cut kept living on stash, and the graph gates **glob the disk**, so the orphan tripped the
+frozen baseline — observed at v3.66.718, when `app_sched_exports.py` (deleted at 716) stayed
+on disk and turned three suites RED against a correct release. The tool emitted the `rm`
+lines an overlay could not produce for itself, behind a `_NEVER_RM` guard that refused to
+propose deleting runtime data (DB, `.env`, secrets, `sites_config.json`).
+
+*Why it is gone.* The box deploys with `git fetch origin main` + `git reset --hard
+origin/main` + a restart. That deletes tracked files natively, so a deleted file cannot
+survive a deploy and there is no orphan to enumerate. Keeping the tool would have meant
+keeping a gate whose subject no longer exists — and a gate that cannot encounter its
+subject reports clean, which is worse than not having it.
+
+*If you ever restore a zip-based deploy*, recover the tool from git history
+(`git log --diff-filter=D -- tools/deploy_manifest.py`) rather than rewriting it; the
+`_NEVER_RM` list was derived from real incidents and is easy to under-specify from memory.
 
 ### `bd-parity-scan` — CLI→GUI parity, derived *(fixed @715)*
 Its tool glob was `tools/*.py` — **non-recursive** — so every tool under a subdirectory
