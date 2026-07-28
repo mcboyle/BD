@@ -166,3 +166,144 @@ def test_pipeline_tests_run_when_named_explicitly(tmp_path):
     assert code == 0
     for tid in ("L11", "L13", "L14"):
         assert (rdir / f"{tid}.log").is_file()
+
+
+# ── the seeded site must be the one under test ─────────────────────
+#
+# Found on test4 2026-07-28. With a seeded fixture site present and its
+# queue populated, L11 still reported on '08c75e90' -- an operator site --
+# because _pipeline_setup returns site_ids[0] despite a docstring promising
+# it "Prefers a site whose URL points at the local fixture site". The check
+# was answering about a subject it had not selected.
+
+import ast
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_CHECKS_PATH = _REPO_ROOT / "live_tests" / "checks.py"
+_HARNESS_PATH = _REPO_ROOT / "live_tests" / "harness.py"
+_SEED_PATH = _REPO_ROOT / "tools" / "live_seed.py"
+
+
+class _StubCtx:
+    """Stand-in exposing only what _pipeline_setup consumes: a GET."""
+
+    def __init__(self, body):
+        self._body = body
+        self.logs = []
+
+    def get(self, path, timeout=15):
+        return True, 200, self._body, 1.0
+
+    def log(self, msg):
+        self.logs.append(msg)
+
+
+def test_pipeline_setup_prefers_the_seeded_site_over_an_operator_site():
+    """The seeded site is the subject; an operator site is not.
+
+    Ordering matters here: the seeded site is deliberately NOT first, because
+    returning site_ids[0] is exactly the defect. Picking an operator site is
+    also the unsafe direction -- these checks are disruptive=True, and the
+    fixture exists so no real site is touched.
+    """
+    body = {
+        "aaa11111": {"name": "Real Operator Site", "state": "idle",
+                     "config": {}},
+        "bbb22222": {"name": "bdseed fixture site", "state": "idle",
+                     "config": {}},
+    }
+    sid, _info = checks._pipeline_setup(_StubCtx(body))
+    assert sid == "bbb22222", (
+        f"_pipeline_setup chose {sid!r}, an unmarked operator site, while a "
+        f"seeded fixture site was configured. Observed on test4: L11 reported "
+        f"'site 08c75e90 has no completed downloads' while the seeder had "
+        f"just populated its own site. A check that selects the wrong subject "
+        f"reports truthfully about the wrong thing."
+    )
+
+
+def test_pipeline_setup_still_degrades_when_nothing_is_seeded():
+    """No fixture site is a fallback, not a crash."""
+    body = {"aaa11111": {"name": "Real Operator Site", "state": "idle",
+                         "config": {}}}
+    sid, _info = checks._pipeline_setup(_StubCtx(body))
+    assert sid == "aaa11111", (
+        "with no seeded site present the previous behaviour must stand; "
+        f"got {sid!r}"
+    )
+
+
+def test_the_seed_marker_agrees_with_the_seeders_own():
+    """checks.py cannot import the seeder, so its marker copy is pinned here.
+
+    live_tests must stay read-only, so it may not import tools/live_seed.py
+    (pinned by test_live_seed.py). That forces a second copy of the marker,
+    and section 5's rule applies: the copy nobody updated is the one that
+    runs. AST, not grep -- the string appears in prose in both files.
+    """
+    def _marker(path, name):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == name:
+                        return node.value.value
+        return None
+
+    seeder = _marker(_SEED_PATH, "SEED_MARKER")
+    mirror = _marker(_CHECKS_PATH, "SEED_MARKER")
+    assert seeder is not None, "tools/live_seed.py no longer defines SEED_MARKER"
+    assert mirror == seeder, (
+        f"live_tests/checks.py pins SEED_MARKER={mirror!r} but the seeder "
+        f"writes {seeder!r}; the checks would stop recognising seeded sites "
+        f"silently, and every seeded PASS would quietly become a WARN."
+    )
+
+
+# ── no helper may advertise a capability the suite cannot have ─────
+
+def test_no_private_helper_is_defined_but_never_referenced():
+    """A dead helper documents a capability the package does not have.
+
+    _await_job sat here unused beneath a header claiming these tests "QUEUE A
+    REAL JOB and let it run". They cannot: Context exposes get/log/ro_db and
+    no write verb at all, which is the safety property that makes the suite
+    safe to point at production. The dead helper and the docstring together
+    cost a session's investigation before the source said otherwise.
+    """
+    tree = ast.parse(_CHECKS_PATH.read_text(encoding="utf-8"))
+    defined = {n.name for n in tree.body
+               if isinstance(n, ast.FunctionDef) and n.name.startswith("_")}
+    used = {n.id for n in ast.walk(tree)
+            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+    dead = sorted(defined - used)
+    assert not dead, (
+        f"defined but never referenced in live_tests/checks.py: {dead}. "
+        f"Either wire it to a caller or delete it -- an unused helper reads "
+        f"as a capability the suite has."
+    )
+
+
+def test_the_live_context_exposes_no_write_verb():
+    """The read-only invariant, pinned.
+
+    This is what makes the seeder live in tools/ and what makes it impossible
+    for a check to start a download itself. If a write verb is ever added here
+    it must be a deliberate, reviewed decision -- not a quiet consequence of
+    making one check more capable.
+    """
+    tree = ast.parse(_HARNESS_PATH.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == "Context":
+            methods = {n.name for n in node.body
+                       if isinstance(n, ast.FunctionDef)}
+            break
+    else:
+        raise AssertionError("live_tests.harness no longer defines Context")
+    writes = methods & {"post", "put", "patch", "delete"}
+    assert not writes, (
+        f"Context grew {sorted(writes)}; the live suite is no longer "
+        f"structurally read-only and is no longer safe to point at "
+        f"production. tests/test_live_seed.py's rationale depends on this."
+    )
