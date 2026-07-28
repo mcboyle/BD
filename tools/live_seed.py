@@ -466,13 +466,26 @@ def main(argv=None) -> int:
         elif args.seed or args.login:
             if not args.dry_run:
                 preflight(client, force=args.force)
+            # Emitted in a `finally` so a LATER refusal cannot discard an
+            # EARLIER success. Previously both plans were collected and printed
+            # only after both had run, so when seed_login raised -- a locked
+            # vault, say -- the log showed the refusal and nothing else. On the
+            # box that produced an 05a_live_seed.log reading as though nothing
+            # had happened while three URLs had in fact been queued, which made
+            # a separate fix to the seeded URLs unverifiable.
+            #
+            # A partial success reported as total silence is a false negative
+            # about the tool's own behaviour. Whatever ran, say so.
             plans = []
-            if args.seed:
-                plans.append(seed_queue(client, args.count, site_id=args.site_id,
-                                        dry_run=args.dry_run))
-            if args.login:
-                plans.append(seed_login(client, dry_run=args.dry_run))
-            print(json.dumps(plans if len(plans) > 1 else plans[0], indent=2))
+            try:
+                if args.seed:
+                    plans.append(seed_queue(client, args.count, site_id=args.site_id,
+                                            dry_run=args.dry_run))
+                if args.login:
+                    plans.append(seed_login(client, dry_run=args.dry_run))
+            finally:
+                if plans:
+                    print(json.dumps(plans if len(plans) > 1 else plans[0], indent=2))
             # Rule 3: make the synthetic state impossible to mistake for real.
             # Only after a real seed -- a dry run changed nothing, and claiming
             # synthetic state is present would be its own small false report.
