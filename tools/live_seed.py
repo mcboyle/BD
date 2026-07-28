@@ -183,20 +183,50 @@ def preflight(client, *, force: bool = False) -> dict:
     return body
 
 
-# The seed set, chosen so each live check it feeds is actually exercisable.
-# These are routes tools/fixture_site.py DEFINES -- verify against its url_map,
-# not against this list, if you change either.
+# The seed set. These must be routes tools/fixture_site.py DEFINES -- verify
+# against its url_map, not against this list, if you change either.
 #
-#   [0] /direct/media/0.mp4   a plain download            -> L11 end-to-end
-#   [1] /hls/scene/0.m3u8     a segmented manifest        -> L12 hls/dash
-#   [2] /direct/media/0.mp4   deliberately repeats [0]    -> L14 dedup-skip
+#   [0] /scene/2     1080p page, plain .mp4 link      -> L11 end-to-end
+#   [1] /hlspage/2   1080p page, .m3u8 manifest link  -> L12 hls/dash
+#   [2] /scene/2     deliberately repeats [0]         -> L14 dedup-skip
 #
 # The repeat is not a mistake: L14 asserts BD SKIPS a URL it already has, so
-# the seed set has to contain one. Three distinct URLs left it unexercisable.
+# the set has to contain one. It must stay BYTE-IDENTICAL to [0].
+#
+# WHY PAGES AND NOT MEDIA. Until 2026-07-28 this set was /direct/media/0.mp4
+# and /hls/scene/0.m3u8 -- raw media, which BD cannot consume. Measured against
+# the real app:
+#
+#   /direct/media/0.mp4?bdseed=1 -> worker error: Page.goto: Download is starting
+#   /hls/scene/0.m3u8?bdseed=1   -> No download button found
+#
+# BD navigates to a PAGE and scrapes it for a download link; it never fetches
+# media directly. So every seeded job failed, and L11/L12/L14 reported "no
+# completed downloads" for as long as the seeder has existed -- which reads as
+# BD failing to download, when BD was never handed a URL it could consume.
+# test_every_seeded_url_resolves_against_the_fixtures_route_map could not see
+# this: it proves the fixture SERVES a URL, which is a different subject from
+# whether BD can DOWNLOAD it. Both gates now exist.
+#
+# WHY 2 AND 3 SPECIFICALLY. Scene resolution cycles
+# ["480p","720p","1080p","2160p"][sid % 4] and min_resolution defaults to 1080
+# (app_kernel.py). /scene/0 and /scene/1 park at "Best is 480p (below 1080p) --
+# Approve to force" and wait for a human, so they never reach a terminal state.
+#
+# WHY /hlspage AND NOT /hls/scene/2.m3u8 FOR L12. A manifest is not navigable
+# either -- seeding it produced "No download button found". Until now no fixture
+# scene page linked to one: videojs, jwplayer, reslinks, datahref and lazy all
+# point at /direct/media/<sid>.mp4, and the only m3u8 anchor in the fixture was
+# a nav link on "/". fixture_site.py:/hlspage/<sid> is that missing page --
+# identical to /scene/<sid> except its download link is the manifest -- so the
+# seeded job navigates a page, scrapes a link, and exercises the real segmented
+# path. The seeded URL is therefore a PAGE whose LINK is segmented; asserting
+# the seeded URL itself ends in .m3u8 (as the old gate did) asks for something
+# BD can never consume.
 _SEED_PATHS = (
-    "/direct/media/0.mp4",
-    "/hls/scene/0.m3u8",
-    "/direct/media/0.mp4",
+    "/scene/2",
+    "/hlspage/2",
+    "/scene/2",
 )
 
 
