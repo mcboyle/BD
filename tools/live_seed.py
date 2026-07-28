@@ -427,6 +427,35 @@ def seed_login(client, *, poll_seconds: float = 30.0, dry_run: bool = False) -> 
         if state == "ok":
             break
         time.sleep(1.0)
+
+    # L6 does NOT read auth_state. It reads GET /api/auth_health/status, which
+    # serves the `auth_health` TABLE -- a different surface from the v2 listing
+    # L8 gates on, populated by cookie_health.check_site's live HTTP probe.
+    #
+    # Two things write that table, and in a capture neither one covers this
+    # site. bg_scheduler registers `cookie_health.nightly_check` with
+    # last_run=0.0, so it is due on the coordinator's FIRST poll -- service
+    # start, capture.sh step [4] -- and then not again for 86400s; this seeder
+    # runs at step [5a], after that sweep, so the site it creates was never in
+    # the sweep's denominator. And no module on the login path references
+    # cookie_health at all (runner_auth.py, login_impl/*, session_keeper.py:
+    # zero hits). The seeded site therefore had no row of any kind, L6 saw only
+    # the operator's own sites, and it reported "auto-login may be broken"
+    # about a login that had just succeeded -- a verdict about a denominator
+    # that structurally excluded its subject.
+    #
+    # This is a TRIGGER, in the same category as the /api/sites/<sid>/login
+    # POST above, and it obeys the same rule: BD makes the request, BD
+    # classifies the response, BD persists the row. The seeder supplies neither
+    # the verdict nor the evidence for it -- run the identical call against a
+    # jar with no live session and cookie_health records yellow ("200 OK but
+    # landed on login URL"), so this cannot manufacture a green.
+    #
+    # Fired unconditionally, not only when auth_state=='ok': if the login did
+    # not work, the recorded red/yellow names the SEEDED site in L6's output,
+    # which is strictly more informative than the row being absent and L6
+    # blaming the operator's unrelated sites.
+    plan["auth_health"] = client.post(f"/api/auth_health/check/{sid}", {})
     return plan
 
 

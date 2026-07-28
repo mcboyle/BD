@@ -687,3 +687,122 @@ def test_the_seeder_reads_auth_state_from_an_endpoint_that_reports_it():
         f"not carry the field, so 'unknown' is structural: it means the same "
         f"thing on success and on failure. Poll /api/sites/v2."
     )
+
+
+# ── L6 reads a different surface than L8, and nothing wrote to it ───────────
+
+
+def test_the_seeded_login_asks_bd_to_record_the_auth_health_l6_reads():
+    """The seed must trigger the auth-health probe, not just the login.
+
+    THE DEFECT THIS GATE COVERS. L8 reads auth_state off /api/sites/v2, which
+    the login itself updates. L6 reads GET /api/auth_health/status, and that
+    serves the `auth_health` TABLE, which is written by exactly two things:
+    cookie_health.check_site (reached via POST /api/auth_health/check/<sid>)
+    and bg_scheduler's `cookie_health.nightly_check`. The nightly task is
+    registered with last_run=0.0, so it is due on the coordinator's FIRST poll
+    -- i.e. at service start, capture.sh step [4] -- and then not again for
+    86400s. The seeder runs at step [5a], after that sweep. The site it creates
+    was therefore never in the sweep's denominator, and no login-path module
+    writes the table either. The seeded site had NO ROW AT ALL, so L6 could
+    only ever see the operator's own sites and reported "auto-login may be
+    broken" about a login that had just succeeded.
+
+    This is a trigger, not a verdict, and it is exactly the same category as
+    the /api/sites/<sid>/login POST above: BD performs the probe, BD classifies
+    the response, BD persists the row. A jar without a live session makes the
+    same call record yellow, so firing it cannot manufacture a green.
+    """
+    seed = _load()
+    sid = "abc123"
+    client = FakeClient({
+        ("POST", "/api/sites"): {"id": sid, "cred_stored": True},
+        ("GET", "/api/sites/v2"): {
+            "ok": True,
+            "sites": [{"site_id": sid, "auth_state": "ok"}],
+        },
+    })
+    seed.seed_login(client, poll_seconds=2.0)
+
+    posted = client.posted()
+    probes = [p for p, _b in posted if p.startswith("/api/auth_health/")]
+    assert probes, (
+        "the seeder never asked BD to record auth health for the site it just "
+        "logged in. L6 reads /api/auth_health/status, which serves the "
+        "auth_health table; the only in-capture writer of that table fires at "
+        "service start, BEFORE this site exists. Without this POST the seeded "
+        "site has no row and L6 reports on the operator's sites alone.\n"
+        f"  posted: {[p for p, _b in posted]}"
+    )
+    assert f"/api/auth_health/check/{sid}" in probes, (
+        f"the seeder probed {probes} but the site it created is {sid!r}; a "
+        f"probe of any other site is not evidence about this login"
+    )
+
+    # Ordering is load-bearing: probing before the login lands would classify
+    # a jar that does not exist yet.
+    paths = [p for p, _b in posted]
+    assert paths.index(f"/api/sites/{sid}/login") < paths.index(
+        f"/api/auth_health/check/{sid}"), (
+        f"the auth-health probe runs before the login it is meant to measure: "
+        f"{paths}"
+    )
+
+
+def test_the_auth_health_probe_resolves_against_the_apps_own_route_map():
+    """The path the seeder posts must be a route BD actually serves.
+
+    WHY THIS EXISTS ALONGSIDE THE TEST ABOVE. FakeClient records what the
+    seeder SENDS; it cannot tell a live route from a typo. Client._request
+    swallows HTTPError and returns the error body as an ordinary dict, so a
+    404 from a renamed endpoint would be indistinguishable from success and
+    the gate above would stay green over a seeder that writes nothing. That is
+    CLAUDE.md 0 exactly: a check whose denominator excludes its subject.
+
+    DENOMINATOR: the running app's Werkzeug url_map -- every rule actually
+    registered, not a grep for @route strings and not ROUTE_INDEX.json (a
+    generated register, which is the class of artifact that goes stale). The
+    concrete path is matched by Werkzeug itself, so the <sid> converter is
+    resolved rather than assumed.
+
+    UNKNOWN IS A THIRD STATE: if the app cannot be imported, this fails rather
+    than skipping. A route check that cannot see the route map has not passed.
+    """
+    seed = _load()
+    sid = "abc123"
+    client = FakeClient({
+        ("POST", "/api/sites"): {"id": sid, "cred_stored": True},
+        ("GET", "/api/sites/v2"): {
+            "ok": True,
+            "sites": [{"site_id": sid, "auth_state": "ok"}],
+        },
+    })
+    seed.seed_login(client, poll_seconds=2.0)
+    probes = [p for p, _b in client.posted()
+              if p.startswith("/api/auth_health/")]
+    assert probes, "the seeder issued no auth-health probe to resolve"
+
+    try:
+        from bulk_downloader.app import app as bd_app
+    except Exception as exc:  # pragma: no cover - environment failure
+        raise AssertionError(
+            f"could not import the app to derive its route map, so whether "
+            f"the seeder's auth-health probe resolves is UNKNOWN -- which is "
+            f"not the same as fine: {type(exc).__name__}: {exc}"
+        )
+
+    from werkzeug.exceptions import HTTPException
+
+    adapter = bd_app.url_map.bind("127.0.0.1")
+    unroutable = []
+    for path in probes:
+        try:
+            adapter.match(path, method="POST")
+        except HTTPException as exc:
+            unroutable.append(f"{path}  (POST -> {type(exc).__name__})")
+    assert not unroutable, (
+        "the seeder POSTs to an auth-health path the app does not serve, so "
+        "the write silently 404s -- Client._request returns the error body as "
+        "a normal dict, so nothing downstream notices and L6 keeps warning:\n"
+        "  " + "\n  ".join(unroutable)
+    )

@@ -1288,6 +1288,29 @@ def l6_real_templated_auto_login(ctx):
     if isinstance(sites, list):
         sites = {str(st.get("site_id")): st for st in sites
                  if isinstance(st, dict) and st.get("site_id")}
+    # auth_health rows OUTLIVE the sites they describe. DELETE /api/sites/<sid>
+    # stops the runner, drops the account pool, clears the queue and removes
+    # the site from s_cfg -- and leaves the row. Nothing anywhere in
+    # bulk_downloader/ or tools/ prunes that table. Site ids are
+    # uuid4().hex[:8], so the id is never reused and the row is orphaned for
+    # good. Without this filter, one green row from a site deleted weeks ago
+    # satisfies the `if healthy` branch below forever and L6 can never fail
+    # again -- the failure mode this check exists to detect would become
+    # invisible to it.
+    configured = set(_login_sites(ctx))
+    if not configured:
+        return WARN, ("configured sites are not readable from /api/status, so "
+                      "a stored auth-health row cannot be told apart from an "
+                      "orphan left by a deleted site — auto-login not testable")
+    orphans = sorted(sid for sid in sites if sid not in configured)
+    if orphans:
+        ctx.log(f"ignoring {len(orphans)} auth-health row(s) for site(s) that "
+                f"no longer exist: {orphans[:5]}")
+    sites = {sid: st for sid, st in sites.items() if sid in configured}
+    if not sites:
+        return WARN, (f"every auth-health row belongs to a site that no longer "
+                      f"exists ({len(orphans)} orphan(s)); no current site has "
+                      f"auth state — configure a site and log in")
     healthy, unhealthy = [], []
     for sid, st in (sites.items() if isinstance(sites, dict)
                     else []):
