@@ -58,6 +58,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import secrets as _stdlib_secrets
 import sys
 import threading
@@ -67,8 +68,64 @@ from typing import Any
 
 # Files used by the master-password backend. Stored next to
 # sites_config.json so backups capture them together.
-SECRETS_FILE = Path("secrets.json")
-SECRETS_META_FILE = Path("secrets_meta.json")
+_DEFAULT_SECRETS_NAME = "secrets.json"
+_DEFAULT_META_NAME = "secrets_meta.json"
+
+
+def _resolve_vault_paths() -> tuple[Path, Path]:
+    """Return (secrets_file, meta_file), honouring the capture-vault override.
+
+    capture.sh stops the service and starts a fresh process, and the master key
+    is in-memory only -- so the vault is necessarily LOCKED when the seeder runs
+    and an operator unlocking beforehand cannot survive the restart. The capture
+    therefore points BD at its OWN vault, holding only the fixture's published
+    test credential, and never opens the operator's.
+
+    TWO KEYS, DELIBERATELY. Every other BD_* path override in the tree takes a
+    single variable; this one does not, because none of the others can silently
+    produce a working-looking empty vault. unlock() accepts ANY password when a
+    vault holds no ciphertexts, stamping it as the verifier on the first set().
+    So a stray BD_SECRETS_FILE that redirected the vault would not error -- it
+    would hand back an empty, trivially-unlockable credential store that reports
+    healthy. Requiring an explicit BD_CAPTURE_VAULT=1 alongside the path means a
+    single misplaced variable is inert.
+
+    The password itself is never read here and never defaulted anywhere in the
+    tree: capture.sh supplies it at runtime via /api/secrets/unlock. A constant
+    would ship every install a known unlock.
+    """
+    default = (Path(_DEFAULT_SECRETS_NAME), Path(_DEFAULT_META_NAME))
+    override = os.environ.get("BD_SECRETS_FILE", "").strip()
+    opted_in = os.environ.get("BD_CAPTURE_VAULT", "") == "1"
+    if not override:
+        return default
+    if not opted_in:
+        # Loud, because the alternative is a silent near-miss: the operator
+        # believes the capture is isolated and it is running on the real vault.
+        sys.stderr.write(
+            "  secrets: BD_SECRETS_FILE is set but BD_CAPTURE_VAULT is not '1' "
+            "-- ignoring the override and using the operator vault\n")
+        return default
+    target = Path(override)
+    if target == Path(_DEFAULT_SECRETS_NAME):
+        # Aliasing the real vault would unlock the operator's credentials with
+        # a throwaway password -- the exact outcome this design prevents.
+        sys.stderr.write(
+            "  secrets: BD_SECRETS_FILE names the operator vault; refusing to "
+            "treat it as a capture vault\n")
+        return default
+    sys.stderr.write(
+        f"  secrets: CAPTURE VAULT active -> {target} "
+        f"(the operator vault is not opened)\n")
+    return target, target.with_name(f"{target.stem}_meta.json")
+
+
+# Bound at import, the way app.py:33 binds BD_SITES_CONFIG_PATH -- the capture
+# sets the environment before the service starts, so import time is the right
+# moment. It must stay an assigned module ATTRIBUTE rather than a call-time
+# getter: seven test files monkeypatch ss.SECRETS_FILE, and a getter would leave
+# every one of those patches silently inert.
+SECRETS_FILE, SECRETS_META_FILE = _resolve_vault_paths()
 
 # Prefix that marks an encrypted-reference in sites_config.json.
 CRED_PREFIX = "@cred:"
