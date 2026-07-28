@@ -79,6 +79,7 @@
     "BD_SECRETS_AUDIT_FILE": "full",
     "BD_SECRETS_AUDIT_MAX_BYTES": "full",
     "BD_SECRETS_AUDIT_SINK": "full",
+    "BD_SEED_FORCE": "display-only",
     "BD_SESSION_KEEPER_USE_CLOAKBROWSER": "full",
     "BD_SITES_CONFIG_PATH": "display-only",
     "BD_SKIP_ARCHB": "display-only",
