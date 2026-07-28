@@ -77,3 +77,8 @@ audit-venv/
 audit_venv/
 .claude-env-report.md
 .worktrees/
+
+# Ephemeral git worktrees created by isolated subagents. These are working
+# copies of THIS repo nested inside it -- never commit them. Distinct from the
+# `.worktrees/` entry above, which that pattern does not match.
+.claude/worktrees/
