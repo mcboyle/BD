@@ -3449,17 +3449,47 @@ def _m2_site_drain_eta(pending_total, per_min):
 def _m2_auth_state(runner, cfg) -> str:
     """Bucket the runner's auth state into ok/expired/unknown.
     Reads cookie expiry info; doesn't probe (probing is the v1
-    /api/sites/<sid>/health endpoint's job, much slower)."""
+    /api/sites/<sid>/health endpoint's job, much slower).
+
+    Buckets from the WHOLE cookies_expiry_info result, not from
+    `earliest` alone. `earliest` is a lossy projection of it: that
+    function assigns `earliest` only inside branches guarded by
+    `not (exp < now)`, so a jar of session cookies (no Expires and no
+    Max-Age -- the default for Flask, Django, PHP and Rails sessions)
+    and a jar whose every cookie has already expired BOTH report
+    `earliest=None`. Reading it alone mapped a live login and a dead
+    one onto the same "unknown", and left "expired" unreachable across
+    the entire input space -- so `_m2_attention_for_site`'s
+    login_expired banner and this endpoint's issue-first sort key both
+    hung off a branch that could not fire.
+
+      ok       at least one usable cookie: dated and still in date, or
+               a session cookie (live for as long as the context is).
+               runner_auth._check_cookies_or_relogin already reads a
+               session cookie this way -- `ei["session"] != 0` means do
+               NOT re-login -- and the two must not disagree.
+      expired  the jar is non-empty and NOTHING in it is usable: every
+               cookie is dated and past.
+      unknown  no jar at all, or the info could not be read. Never
+               asserted as healthy: L8 verifies an on-disk cookie file
+               for every auth_state=ok site, so "ok" has to mean a
+               cookie exists, not that we could not tell.
+    """
     try:
         from .cookies import cookies_expiry_info
-        ei = cookies_expiry_info(runner.cookies or [])
-        earliest = ei.get("earliest") or 0
-        if earliest <= 0:
+        jar = runner.cookies or []
+        if not jar:
             return "unknown"
+        ei = cookies_expiry_info(jar)
+        earliest = ei.get("earliest") or 0
         import time as _t
-        if earliest < _t.time():
+        if earliest > 0 and earliest >= _t.time():
+            return "ok"
+        if int(ei.get("session") or 0) > 0:
+            return "ok"
+        if int(ei.get("expired") or 0) > 0 or earliest > 0:
             return "expired"
-        return "ok"
+        return "unknown"
     except Exception:
         return "unknown"
 
