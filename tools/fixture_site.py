@@ -585,6 +585,42 @@ def make_app(throttle_after: int = 3, slow_delay: float = 2.0) -> Flask:
                      f"href='/direct/media/{sid}.mp4'>"
                      f"Download {s['resolution']}</a>")
 
+    @app.route("/hlspage/<int:sid>")
+    def hls_scene_page(sid):
+        """A scene PAGE whose download link is a manifest, not an .mp4.
+
+        Every other scene variant (/scene, /videojs, /jwplayer, /reslinks,
+        /datahref, /lazy) links to /direct/media/<sid>.mp4, and the only m3u8
+        anchor in the fixture was a nav link on "/". So L12
+        (hls-dash-segmented-download) had nothing to exercise: seeding the raw
+        /hls/scene/<sid>.m3u8 gives BD a manifest it cannot NAVIGATE to
+        ("No download button found"), because BD scrapes a page for a link
+        rather than fetching media directly.
+
+        This is that page. Identical to /scene/<sid> except the download link
+        points at the HLS manifest, so the seeded job exercises the real
+        segmented path end to end.
+        """
+        count(f"/hlspage/{sid}")
+        if not 0 <= sid < _TOTAL:
+            return "Not found", 404
+        s = _scene(sid)
+        return _page(s["title"],
+                     f"<div class='player' style='{_thumb_style(sid)}'>"
+                     f"<span class='tag'>SYNTHETIC PREVIEW</span>"
+                     f"<span class='play'></span></div>"
+                     f"<h1 class='scene-title'>{s['title']}</h1>"
+                     f"<div class='meta' data-studio='{s['studio']}' "
+                     f"data-performer='{s['performer']}' "
+                     f"data-resolution='{s['resolution']}'></div>"
+                     f"<div class='meta-display'>"
+                     f"<span>Studio: {s['studio']}</span>"
+                     f"<span>{s['resolution']}</span>"
+                     f"<span>{s['duration']}</span></div>"
+                     f"<a class='download-link' "
+                     f"href='/hls/scene/{sid}.m3u8'>"
+                     f"Download {s['resolution']} (HLS)</a>")
+
     # ── LOGIN: /formauth ────────────────────────────────────────────
     @app.route("/formauth/login", methods=["GET"])
     def formauth_form():

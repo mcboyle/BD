@@ -30,6 +30,7 @@ denominator: it would keep passing after someone renamed a fixture route.
 """
 from __future__ import annotations
 
+import re
 import importlib.machinery
 import importlib.util
 from pathlib import Path
@@ -100,11 +101,15 @@ def test_every_seeded_url_matches_a_real_fixture_route(seeder, fixture_app):
     )
 
 
-def test_the_seed_set_includes_a_segmented_url(seeder):
-    """L12 needs an .m3u8 or .mpd or it can never be exercised.
+def test_no_seeded_url_is_a_bare_manifest(seeder):
+    """A manifest is not navigable, so seeding one exercises nothing.
 
-    The fixture serves one at /hls/scene/<n>.m3u8; the old seeder queued three
-    .mp4s, so L12 was unreachable even once the 404s were fixed.
+    RENAMED 2026-07-28, from test_the_seed_set_includes_a_segmented_url, which
+    asserted the exact opposite of what it now checks. L12's requirement did not
+    change -- it still needs a segmented download -- but the way to give it one
+    did: see test_a_seeded_page_offers_a_segmented_download_link below, which
+    checks the download link on the seeded PAGE. A test whose name contradicts
+    its assertion is its own defect, so the name moved with the predicate.
     """
     urls = _seeded_urls(seeder)
     # Test the PATH, not the whole URL: the seed marker rides in the query
@@ -113,9 +118,16 @@ def test_the_seed_set_includes_a_segmented_url(seeder):
     # at all. Checking the wrong span of the string is how the tool under test
     # got here in the first place.
     paths = [urlparse(u).path for u in urls]
-    assert any(p.endswith(".m3u8") or p.endswith(".mpd") for p in paths), (
-        f"no segmented URL among {paths}. L12 (hls-dash-segmented-download) "
-        f"cannot be exercised without one."
+    # CORRECTED 2026-07-28. This used to require a seeded PATH ending in .m3u8,
+    # which asks for something BD can never consume: a manifest is not
+    # navigable, and seeding one produced "No download button found". BD
+    # navigates a PAGE and scrapes it for a link, so what L12 actually needs is
+    # a seeded page whose DOWNLOAD LINK is segmented. Same error as the seed set
+    # itself had -- right subject, wrong span.
+    assert not any(p.endswith((".m3u8", ".mpd")) for p in paths), (
+        f"a seeded URL is a bare manifest: {paths}. BD cannot navigate to one "
+        f"-- measured as 'No download button found'. Seed the PAGE that links "
+        f"to the manifest instead."
     )
 
 
@@ -140,3 +152,122 @@ def test_the_marker_still_identifies_seeded_work(seeder):
         f"discriminates on the name; without it teardown cannot identify what "
         f"it created and must not delete anything."
     )
+
+
+# ── the seeded URL must be one BD can CONSUME, not merely one served ─────────
+#
+# test_every_seeded_url_resolves_against_the_fixtures_route_map above proves the
+# fixture SERVES each seeded URL. Whether BD can DOWNLOAD it is a different
+# subject, and the gap was invisible for as long as the seed set has existed.
+# Measured against the real app on 2026-07-28:
+#
+#   /direct/media/0.mp4?bdseed=1 -> worker error: Page.goto: Download is starting
+#   /hls/scene/0.m3u8?bdseed=1   -> No download button found
+#
+# BD navigates to a PAGE and scrapes it for a download link. Handed raw media it
+# cannot navigate at all. So the route-map gate passed on three URLs none of
+# which could ever complete, and L11/L12/L14 reported "no completed downloads"
+# forever -- which reads as BD failing to download, when BD was never handed a
+# URL it could consume. The instrument fixed the denominator (real url_map, not
+# grep); it took the wrong predicate (served, not consumable).
+
+_MIN_RESOLUTION_DEFAULT = 1080
+
+
+def _seeded_paths(seeder):
+    return [urlparse(u).path for u in _seeded_urls(seeder, len(seeder._SEED_PATHS))]
+
+
+def test_every_seeded_url_is_a_page_bd_can_scrape_not_raw_media(seeder, fixture_app):
+    """Raw media is unnavigable -- Playwright reports 'Download is starting'.
+
+    The predicate is the response BD would actually receive, not the file
+    extension: a page can be served from any path, and '.mp4' is not itself
+    what breaks it. Asking the fixture is the only instrument that answers for
+    the URL actually seeded.
+    """
+    client = fixture_app.test_client()
+    offenders = [f"{p} -> {client.get(p).mimetype}"
+                 for p in _seeded_paths(seeder)
+                 if client.get(p).mimetype != "text/html"]
+    assert not offenders, (
+        "seeded URL(s) do not serve an HTML page, so BD cannot navigate to them "
+        "and no download can ever complete: " + "; ".join(offenders)
+        + ". BD scrapes a page for a download link; it never fetches media direct."
+    )
+
+
+def test_every_seeded_page_offers_a_download_link(seeder, fixture_app):
+    """A page BD can reach but which offers nothing is equally unusable."""
+    client = fixture_app.test_client()
+    linkless = [p for p in _seeded_paths(seeder)
+                if "download-link" not in client.get(p).get_data(as_text=True)]
+    assert not linkless, (
+        f"seeded page(s) carry no download link, so BD reaches them and finds "
+        f"nothing to fetch: {linkless}"
+    )
+
+
+def test_every_seeded_page_clears_the_default_minimum_resolution(seeder, fixture_app):
+    """Below the floor BD parks at needs_review, which is not 'done'.
+
+    min_resolution defaults to 1080 (app_kernel.py). A 480p or 720p scene stops
+    at "Best is 480p (below 1080p) -- Approve to force" and waits for a human,
+    so it never reaches the terminal state L11 counts. Measured on the real app:
+    /scene/0 and /scene/1 park; /scene/2 and /scene/3 do not.
+    """
+    client = fixture_app.test_client()
+    too_low = []
+    for path in _seeded_paths(seeder):
+        html = client.get(path).get_data(as_text=True)
+        found = re.search(r"data-resolution='(\d+)p'", html)
+        if not found:
+            too_low.append(f"{path} (advertises no resolution)")
+        elif int(found.group(1)) < _MIN_RESOLUTION_DEFAULT:
+            too_low.append(f"{path} ({found.group(1)}p < {_MIN_RESOLUTION_DEFAULT}p)")
+    assert not too_low, (
+        f"seeded page(s) advertise a resolution below the default "
+        f"min_resolution ({_MIN_RESOLUTION_DEFAULT}p); BD parks these at "
+        f"needs_review awaiting operator approval, so they never complete: "
+        + "; ".join(too_low)
+    )
+
+
+def test_a_seeded_page_offers_a_segmented_download_link(seeder, fixture_app):
+    """L12 needs a manifest REACHABLE FROM a seeded page.
+
+    The replacement for the old ends-with-.m3u8 assertion. It checks what BD
+    would actually follow -- the download link on the page it navigates to --
+    rather than the shape of the URL handed to the queue.
+    """
+    client = fixture_app.test_client()
+    segmented = []
+    for path in _seeded_paths(seeder):
+        html = client.get(path).get_data(as_text=True)
+        for href in re.findall(r"class='download-link'\s+href='([^']+)'", html):
+            if href.endswith((".m3u8", ".mpd")):
+                segmented.append(f"{path} -> {href}")
+    assert segmented, (
+        f"no seeded page links to a manifest. L12 "
+        f"(hls-dash-segmented-download) cannot be exercised without one. "
+        f"Seeded pages: {_seeded_paths(seeder)}"
+    )
+
+
+def test_the_segmented_link_actually_serves_a_manifest(seeder, fixture_app):
+    """A link ending .m3u8 that 404s would satisfy the gate above vacuously."""
+    client = fixture_app.test_client()
+    checked = []
+    for path in _seeded_paths(seeder):
+        html = client.get(path).get_data(as_text=True)
+        for href in re.findall(r"class='download-link'\s+href='([^']+)'", html):
+            if href.endswith((".m3u8", ".mpd")):
+                resp = client.get(href)
+                body = resp.get_data(as_text=True)[:16]
+                checked.append((href, resp.status_code, body))
+    assert checked, "no segmented link to verify"
+    for href, status, body in checked:
+        assert status == 200, f"{href} -> HTTP {status}"
+        assert body.startswith("#EXTM3U"), (
+            f"{href} returned {body!r}, not an HLS manifest"
+        )

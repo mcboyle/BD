@@ -77,6 +77,59 @@ def test_l6_accepts_auth_health_list_and_green_status():
     assert "healthy authenticated" in detail
 
 
+def test_l6_ignores_an_auth_health_row_whose_site_no_longer_exists():
+    """A green row outlives its site, and must not carry L6's verdict.
+
+    Nothing prunes the auth_health table. DELETE /api/sites/<sid> stops the
+    runner, drops the account pool, deletes the queue rows and removes the
+    site from s_cfg -- and leaves the auth_health row untouched (driven
+    against the real handler: it answers {'ok': True} while the row survives
+    a subsequent GET /api/auth_health/status). There is no DELETE, prune or
+    sweep of that table anywhere in bulk_downloader/ or tools/.
+
+    Site ids are uuid4().hex[:8], so a site is never re-created under its old
+    id and the row is orphaned permanently. Every capture that probes a
+    seeded fixture-login site therefore leaves ANOTHER green corpse behind.
+    From the second capture onward the first one satisfies L6's
+    `if healthy: PASS` branch before this run's own result is even reached,
+    and L6 can no longer fail -- CLAUDE.md 0, and self-inflicted.
+
+    The denominator must be sites the deployment currently HAS.
+    """
+    ctx = _AuthHealthContext(
+        [{"site_id": "deleted_two_captures_ago", "status": "green"},
+         {"site_id": "s1", "status": "yellow"}],
+        configured_sites={"s1": {"state": "idle"}})
+    level, detail = _get_test("L6").fn(ctx)
+    assert level == h.WARN, (
+        f"L6 returned {level} on a green auth-health row for "
+        f"'deleted_two_captures_ago', a site that is not in /api/status. The "
+        f"only current site reports yellow. A verdict carried by a deleted "
+        f"site's corpse can never fail: {detail}"
+    )
+
+
+def test_l6_will_not_pass_when_it_cannot_tell_live_sites_from_orphans():
+    """Unknown is a third state, and it fails.
+
+    If the configured-site list cannot be read, every stored row is
+    indistinguishable from an orphan, so a PASS would be an assertion about a
+    denominator L6 could not see.
+    """
+    class _NoStatus(_AuthHealthContext):
+        def get(self, path, timeout=15):
+            if path == "/api/status":
+                return False, 500, None, 1.0
+            return super().get(path, timeout)
+
+    ctx = _NoStatus([{"site_id": "s1", "status": "green"}])
+    level, detail = _get_test("L6").fn(ctx)
+    assert level == h.WARN, (
+        f"L6 returned {level} while it could not enumerate configured sites, "
+        f"so it could not tell a live row from an orphan: {detail}"
+    )
+
+
 def test_l7_no_db_is_warn():
     level, detail = _get_test("L7").fn(_dead_ctx())
     assert level == h.WARN

@@ -48,7 +48,9 @@ operator (or capture.sh) invokes deliberately.
 
 USAGE
     python3 tools/live_seed.py --seed --count 3
+    python3 tools/live_seed.py --seed --start       # ...and run the queue
     python3 tools/live_seed.py --seed --dry-run     # report intent, change nothing
+    python3 tools/live_seed.py --vpn-tunnel         # give L30 a subject (inert)
     python3 tools/live_seed.py --teardown
 """
 from __future__ import annotations
@@ -74,6 +76,39 @@ SEED_MARKER = "bdseed"
 FIXTURE_ORIGIN = "http://127.0.0.1:8899"
 
 DEFAULT_BASE_URL = "http://127.0.0.1:5555"
+
+# How long --start will wait for the seeded queue to reach terminal states
+# before giving up and SAYING it gave up. Bounded on purpose: capture.sh runs
+# unattended, and an unbounded wait turns one stuck job into a hung capture.
+# The fixture serves 4-16 KB files, so the normal path settles in seconds; this
+# budget exists for the abnormal one.
+DEFAULT_SETTLE_TIMEOUT = 180.0
+DEFAULT_SETTLE_INTERVAL = 2.0
+
+# Terminal QUEUE statuses, derived from what the runner actually writes:
+# _update_job() is called with running/needs_review/done/pending/failed/
+# dead_letter/stopped/skipped_duplicate, and runner.py's own _RUN_TERMINAL adds
+# error and cancelled. The complement -- {pending, running} -- is the work that
+# is still owed.
+#
+# Enumerating the TERMINAL side rather than the pending side is deliberate. If
+# BD ever grows a status this tool has not heard of, an unrecognised value here
+# leaves the URL unresolved: the wait spends its budget and reports the unknown
+# status by name. Enumerating the pending side instead would make the same
+# unknown read as "finished", which is the silent direction (CLAUDE.md 0).
+#
+# skipped_duplicate is terminal and that is load-bearing for L14: it is the
+# exact outcome the seed set's deliberate repeat exists to produce, so treating
+# it as unfinished would burn the whole budget on a success.
+TERMINAL_QUEUE_STATUSES = frozenset({
+    "done", "failed", "error", "needs_review", "stopped",
+    "cancelled", "skipped_duplicate", "dead_letter",
+})
+
+# Page sizes for the two read-only listings this tool polls. Both endpoints cap
+# server-side; these are well above anything the seed set can produce.
+_QUEUE_PAGE = 500
+_HISTORY_PAGE = 500
 
 
 class SeedRefused(RuntimeError):
@@ -176,6 +211,29 @@ def preflight(client, *, force: bool = False) -> dict:
         )
     done_today = int(body.get("done_today_count") or 0)
     if done_today:
+        # Until --start existed, a seeded download never COMPLETED, so nothing
+        # this tool created could reach this counter and calling the total
+        # "real" was sound. A seeder that finishes downloads makes that
+        # sentence false: the next --seed on the same host would refuse while
+        # naming the seeder's own completions as the operator's work.
+        #
+        # done_today_count is a bare integer built from runner job state
+        # (app_queue.py's api_queue_v2 counts jobs whose ts starts with
+        # today's date); it carries no URL, so unlike the running/waiting
+        # check above there is nothing for _is_seeded() to match on. The
+        # refusal stays -- erring toward refusing is the right direction --
+        # but it must not assert an attribution it cannot make.
+        marked = _marked_site_ids(client)
+        if marked:
+            raise SeedRefused(
+                f"{done_today} download(s) completed today on this host, and "
+                f"{len(marked)} {SEED_MARKER}-marked site(s) are still "
+                f"present. done_today_count is a bare integer with no per-URL "
+                f"detail, so it cannot be attributed to a marker: some or all "
+                f"of these may be this tool's own from an earlier run. "
+                f"Refusing rather than guessing -- run --teardown first, or "
+                f"pass --force."
+            )
         raise SeedRefused(
             f"{done_today} real download(s) completed today on this host. "
             "Refusing to seed on top of real work; pass --force to override."
@@ -183,20 +241,50 @@ def preflight(client, *, force: bool = False) -> dict:
     return body
 
 
-# The seed set, chosen so each live check it feeds is actually exercisable.
-# These are routes tools/fixture_site.py DEFINES -- verify against its url_map,
-# not against this list, if you change either.
+# The seed set. These must be routes tools/fixture_site.py DEFINES -- verify
+# against its url_map, not against this list, if you change either.
 #
-#   [0] /direct/media/0.mp4   a plain download            -> L11 end-to-end
-#   [1] /hls/scene/0.m3u8     a segmented manifest        -> L12 hls/dash
-#   [2] /direct/media/0.mp4   deliberately repeats [0]    -> L14 dedup-skip
+#   [0] /scene/2     1080p page, plain .mp4 link      -> L11 end-to-end
+#   [1] /hlspage/2   1080p page, .m3u8 manifest link  -> L12 hls/dash
+#   [2] /scene/2     deliberately repeats [0]         -> L14 dedup-skip
 #
 # The repeat is not a mistake: L14 asserts BD SKIPS a URL it already has, so
-# the seed set has to contain one. Three distinct URLs left it unexercisable.
+# the set has to contain one. It must stay BYTE-IDENTICAL to [0].
+#
+# WHY PAGES AND NOT MEDIA. Until 2026-07-28 this set was /direct/media/0.mp4
+# and /hls/scene/0.m3u8 -- raw media, which BD cannot consume. Measured against
+# the real app:
+#
+#   /direct/media/0.mp4?bdseed=1 -> worker error: Page.goto: Download is starting
+#   /hls/scene/0.m3u8?bdseed=1   -> No download button found
+#
+# BD navigates to a PAGE and scrapes it for a download link; it never fetches
+# media directly. So every seeded job failed, and L11/L12/L14 reported "no
+# completed downloads" for as long as the seeder has existed -- which reads as
+# BD failing to download, when BD was never handed a URL it could consume.
+# test_every_seeded_url_resolves_against_the_fixtures_route_map could not see
+# this: it proves the fixture SERVES a URL, which is a different subject from
+# whether BD can DOWNLOAD it. Both gates now exist.
+#
+# WHY 2 AND 3 SPECIFICALLY. Scene resolution cycles
+# ["480p","720p","1080p","2160p"][sid % 4] and min_resolution defaults to 1080
+# (app_kernel.py). /scene/0 and /scene/1 park at "Best is 480p (below 1080p) --
+# Approve to force" and wait for a human, so they never reach a terminal state.
+#
+# WHY /hlspage AND NOT /hls/scene/2.m3u8 FOR L12. A manifest is not navigable
+# either -- seeding it produced "No download button found". Until now no fixture
+# scene page linked to one: videojs, jwplayer, reslinks, datahref and lazy all
+# point at /direct/media/<sid>.mp4, and the only m3u8 anchor in the fixture was
+# a nav link on "/". fixture_site.py:/hlspage/<sid> is that missing page --
+# identical to /scene/<sid> except its download link is the manifest -- so the
+# seeded job navigates a page, scrapes a link, and exercises the real segmented
+# path. The seeded URL is therefore a PAGE whose LINK is segmented; asserting
+# the seeded URL itself ends in .m3u8 (as the old gate did) asks for something
+# BD can never consume.
 _SEED_PATHS = (
-    "/direct/media/0.mp4",
-    "/hls/scene/0.m3u8",
-    "/direct/media/0.mp4",
+    "/scene/2",
+    "/hlspage/2",
+    "/scene/2",
 )
 
 
@@ -223,6 +311,40 @@ def seeded_url(index: int) -> str:
 
 
 SEED_SITE_NAME = f"{SEED_MARKER} fixture site"
+
+
+def queue_site_config() -> dict:
+    """Config for the site the seeded queue runs on.
+
+    download_dir is deliberately absent: _create_site fills unset fields from
+    DEFAULTS and validates paths before creating anything, and this tool is an
+    HTTP client -- --base-url may point at a service with a different BD_HOME
+    and cwd -- so any path computed HERE is a guess about somebody else's
+    filesystem. Same reasoning as login_site_config's empty cookie_file, and
+    the same test file enforces it.
+
+    auto_teach_first_run is OFF, and that is the whole reason this builder
+    exists rather than a bare {"name": ...}. runner._start_serialized returns
+    BEFORE spawning any worker when the flag is on and the site has neither
+    learned download selectors nor an applied template: it marks the first URL
+    needs_review with "take over to teach download selectors" and leaves the
+    runner idle, waiting for a click in the UI. A capture host has no human, so
+    --start started nothing at all.
+
+    Measured on 2026-07-28 against the real app in a temp BD_INSTALL_DIR with
+    the real fixture on :8899 -- the seeded queue read back
+    `needs_review: "Auto-teach: take over..."` plus one untouched `pending`,
+    with zero workers spawned. With the flag off the same run reached the
+    worker path and produced real download attempts.
+
+    This mirrors login_site_config's identical opt-out for the sibling divert
+    in runner_auth.login_async. It is scoped to the site this tool creates and
+    owns; no operator site is affected.
+    """
+    return {
+        "name": SEED_SITE_NAME,
+        "auto_teach_first_run": False,
+    }
 
 
 def _marked_site_ids(client) -> list:
@@ -258,12 +380,7 @@ def ensure_seed_site(client, *, dry_run: bool = False):
         return existing[0]
     if dry_run:
         return None
-    created = client.post("/api/sites", {
-        "name": SEED_SITE_NAME,
-        # download_dir is left to the app's own default; _create_site fills
-        # unset fields from DEFAULTS and validates paths before creating
-        # anything, so a bad value cannot leave half-initialised state.
-    })
+    created = client.post("/api/sites", queue_site_config())
     sid = (created or {}).get("id") if isinstance(created, dict) else None
     if not sid:
         raise SeedRefused(
@@ -295,6 +412,170 @@ def seed_queue(client, count: int = 3, *, site_id: str | None = None,
     planned["site_id"] = sid
     planned["results"] = results
     return planned
+
+
+def start_seeded_site(client, site_id: str) -> dict:
+    """Start the runner for a site this tool PROVABLY owns.
+
+    A queued URL that is never started is input nothing consumed. L11, L12 and
+    L14 all gate on a COMPLETED download; before this, the seeder placed three
+    URLs and stopped, so all three reported "no completed downloads yet"
+    forever -- which reads as BD failing to download when BD was never asked.
+    live_tests/ cannot ask (Context has get/log/ro_db and no write verb, and
+    that read-only property is what makes the suite safe to point at
+    production), so the ask belongs here, to the writer.
+
+    THE SAFETY PREDICATE IS THE MARKER, exactly as teardown's is. Starting an
+    unmarked site would drain the OPERATOR'S queue -- real media, from real
+    sites, that they did not ask for right now. `_marked_site_ids()` reads
+    /api/status and keeps only names carrying SEED_MARKER; it returns [] for
+    any response it cannot parse, so an unreadable /api/status refuses here
+    rather than proceeding. Unknown is a third state and it fails.
+
+    Refuses rather than waits when the app declines the start, or accepts it
+    and reports `blocked_by` (rate-limited / low disk): in both cases the queue
+    will not drain, and spending the settle budget on a known negative buys
+    nothing but a slower capture.
+    """
+    owned = _marked_site_ids(client)
+    if site_id not in owned:
+        seen = (str(owned) if owned else
+                "none -- /api/status listed no marked site, or could not "
+                "be read")
+        raise SeedRefused(
+            f"refusing to start site {site_id!r}: it is not among the "
+            f"{SEED_MARKER}-marked sites this tool owns ({seen}). Starting "
+            f"an unmarked site would run the operator's own downloads."
+        )
+    resp = client.post(f"/api/sites/{site_id}/start", {})
+    if not isinstance(resp, dict) or not resp.get("ok"):
+        raise SeedRefused(
+            f"the app declined to start seeded site {site_id!r} "
+            f"(response: {str(resp)[:200]})"
+        )
+    blocked = resp.get("blocked_by")
+    if blocked:
+        raise SeedRefused(
+            f"seeded site {site_id!r} started but BD reports it blocked by "
+            f"{blocked!r}, so the queue will not drain. Not waiting on a "
+            f"known negative."
+        )
+    return resp
+
+
+def _queue_states(client, site_id: str, targets):
+    """Per-URL queue rows for `targets`, or None when the queue is unreadable.
+
+    None and {} are DIFFERENT answers and the caller depends on the
+    difference: {} means the queue was read and holds none of these URLs
+    (they are missing -- unknown), None means the question could not be asked
+    at all. Collapsing either into "nothing pending" would report a settled
+    queue over a queue nobody looked at.
+    """
+    body = client.get(f"/api/sites/{site_id}/queue?limit={_QUEUE_PAGE}")
+    rows = body.get("rows") if isinstance(body, dict) else None
+    if not isinstance(rows, list):
+        return None
+    wanted = set(targets)
+    found = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        url = str(row.get("url", ""))
+        if url in wanted:
+            found[url] = {
+                "status": str(row.get("status", "")),
+                "message": str(row.get("message", ""))[:200],
+                "filename": str(row.get("filename", "")),
+            }
+    return found
+
+
+def wait_for_settle(client, site_id: str, urls, *,
+                    timeout: float = DEFAULT_SETTLE_TIMEOUT,
+                    interval: float = DEFAULT_SETTLE_INTERVAL) -> dict:
+    """Poll until every seeded URL is terminal, or the budget runs out.
+
+    Bounded and never silent. The return value states, per URL, the status the
+    queue reported -- including "unknown" for a URL the queue does not hold and
+    for a queue that could not be read at all. A timeout is not swallowed: the
+    caller reports it and exits non-zero.
+
+    DUPLICATES COLLAPSE, and waiting for them would never end. The seed set
+    repeats index 0 at index 2 on purpose (L14 needs a repeat), but
+    runner_queue.load_urls counts a URL already in self.jobs as a `dupe`
+    without creating a second job, and the queue table is keyed by
+    (site_id, url). Three seeded URLs are two queue rows. So the subject here
+    is the DISTINCT set.
+    """
+    targets = list(dict.fromkeys(str(u) for u in urls))
+    budget = max(0.0, float(timeout))
+    started = time.monotonic()
+    deadline = started + budget
+    polls = 0
+    states = {}
+    readable = False
+    while True:
+        polls += 1
+        observed = _queue_states(client, site_id, targets)
+        readable = observed is not None
+        states = observed or {}
+        unresolved = [
+            url for url in targets
+            if states.get(url, {}).get("status") not in TERMINAL_QUEUE_STATUSES
+        ]
+        if not unresolved:
+            break
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(interval, remaining))
+    per_url = {}
+    for url in targets:
+        if url in states:
+            per_url[url] = states[url]
+        else:
+            per_url[url] = {
+                "status": "unknown",
+                "note": ("not present in the site's queue" if readable
+                         else "the site's queue could not be read"),
+            }
+    return {
+        "site_id": site_id,
+        "urls": targets,
+        "settled": not unresolved,
+        "unresolved": unresolved,
+        "per_url": per_url,
+        "queue_readable": readable,
+        "polls": polls,
+        "timeout_seconds": budget,
+        "elapsed_seconds": round(time.monotonic() - started, 3),
+    }
+
+
+def start_and_settle(client, site_id, urls, *,
+                     timeout: float = DEFAULT_SETTLE_TIMEOUT,
+                     interval: float = DEFAULT_SETTLE_INTERVAL,
+                     dry_run: bool = False) -> dict:
+    """Start the seeded site, then wait for its jobs to reach end states."""
+    targets = list(dict.fromkeys(str(u) for u in (urls or [])))
+    plan = {
+        "action": "start_and_settle",
+        "marker": SEED_MARKER,
+        "site_id": site_id,
+        "urls": targets,
+        # Reported rather than hidden: the operator asked for 3 URLs and the
+        # settle report covers 2, and the reason is BD's own intake dedupe.
+        "duplicates_collapsed": len(list(urls or [])) - len(targets),
+        "timeout_seconds": float(timeout),
+    }
+    if dry_run:
+        plan["dry_run"] = True
+        return plan
+    plan["start"] = start_seeded_site(client, site_id)
+    plan["settle"] = wait_for_settle(client, site_id, targets,
+                                     timeout=timeout, interval=interval)
+    return plan
 
 
 SEED_LOGIN_SITE_NAME = f"{SEED_MARKER} fixture login"
@@ -427,6 +708,204 @@ def seed_login(client, *, poll_seconds: float = 30.0, dry_run: bool = False) -> 
         if state == "ok":
             break
         time.sleep(1.0)
+
+    # L6 does NOT read auth_state. It reads GET /api/auth_health/status, which
+    # serves the `auth_health` TABLE -- a different surface from the v2 listing
+    # L8 gates on, populated by cookie_health.check_site's live HTTP probe.
+    #
+    # Two things write that table, and in a capture neither one covers this
+    # site. bg_scheduler registers `cookie_health.nightly_check` with
+    # last_run=0.0, so it is due on the coordinator's FIRST poll -- service
+    # start, capture.sh step [4] -- and then not again for 86400s; this seeder
+    # runs at step [5a], after that sweep, so the site it creates was never in
+    # the sweep's denominator. And no module on the login path references
+    # cookie_health at all (runner_auth.py, login_impl/*, session_keeper.py:
+    # zero hits). The seeded site therefore had no row of any kind, L6 saw only
+    # the operator's own sites, and it reported "auto-login may be broken"
+    # about a login that had just succeeded -- a verdict about a denominator
+    # that structurally excluded its subject.
+    #
+    # This is a TRIGGER, in the same category as the /api/sites/<sid>/login
+    # POST above, and it obeys the same rule: BD makes the request, BD
+    # classifies the response, BD persists the row. The seeder supplies neither
+    # the verdict nor the evidence for it -- run the identical call against a
+    # jar with no live session and cookie_health records yellow ("200 OK but
+    # landed on login URL"), so this cannot manufacture a green.
+    #
+    # Fired unconditionally, not only when auth_state=='ok': if the login did
+    # not work, the recorded red/yellow names the SEEDED site in L6's output,
+    # which is strictly more informative than the row being absent and L6
+    # blaming the operator's unrelated sites.
+    plan["auth_health"] = client.post(f"/api/auth_health/check/{sid}", {})
+    return plan
+
+
+RESIDUE_NOTE = (
+    "history is append-only: db_log() is its only writer and db_prune() -- "
+    "which deletes by AGE, not by marker -- its only deleter, so no "
+    "marker-matched teardown over the HTTP API can remove the row a completed "
+    "seeded download leaves. Its library_record row and the downloaded file "
+    "under the seeded site's download_dir are in the same class. Nothing here "
+    "is removed; it is reported so a later reader does not mistake it for "
+    "organic history."
+)
+
+
+def _seeded_history(client):
+    """(marked history rows, readable). (None, False) when it cannot be read.
+
+    Reads through the app, like every other question this tool asks.
+    /api/history returns a BARE ARRAY by default and a {rows, next_cursor}
+    envelope when paginating, so both shapes are accepted; anything else is
+    UNKNOWN and says so rather than counting as zero.
+    """
+    body = client.get(f"/api/history?q={SEED_MARKER}&limit={_HISTORY_PAGE}")
+    rows = None
+    if isinstance(body, list):
+        rows = body
+    elif isinstance(body, dict) and isinstance(body.get("rows"), list):
+        rows = body["rows"]
+    if rows is None:
+        return None, False
+    # The server-side filter is a LIKE over url/filename/message, so re-check
+    # the marker against the url field here: the subject is a seeded URL, not
+    # any row whose message happens to mention one.
+    return sum(1 for row in rows
+               if isinstance(row, dict)
+               and SEED_MARKER in str(row.get("url", ""))), True
+SEED_TUNNEL_NAME = f"{SEED_MARKER} synthetic tunnel"
+
+
+def vpn_tunnel_config() -> dict:
+    """The synthetic tunnel L30 gets to cross-check.
+
+    INERT BY CONSTRUCTION. It is registered and never started, and nothing
+    routes to it:
+
+      * vpn.Tunnel.state defaults to "down". vpn._run_health_pass() targets
+        only tunnels in ("up", "failing") and vpn_leak_tests._monitor_loop()
+        only "up", so neither background thread ever touches this one.
+      * No SOCKS port is allocated until vpn.start_tunnel(), which the seeder
+        never calls.
+      * vpn_runtime.get_socks_url_for_site() reaches a tunnel only through
+        _site_to_tunnel (built from each site's `vpn` field in
+        sites_config.json) or _global_tunnel_id (from `global_vpn`). NEITHER
+        is derived from tunnels.json, so a tunnel that no site names cannot
+        carry, block or divert any download's traffic.
+      * The system (iptables) kill switch is armed only by an explicit call to
+        /api/vpn/system_killswitch/<id>/apply. Registering a tunnel does not
+        arm it, and the seeder never calls it.
+
+    `enabled` must stay True: vpn_config.register_loaded_tunnels() skips
+    disabled tunnels, so a disabled one would be present in the stored config
+    but absent from the live registry -- which is precisely the divergence L30
+    FAILs on, and the seeder would be manufacturing it.
+
+    `config` is deliberately empty. There is no key, endpoint or credential to
+    start with, so even an accidental start_tunnel() fails immediately instead
+    of establishing a real link.
+    """
+    return {
+        "name": SEED_TUNNEL_NAME,
+        "provider": "generic",
+        "backend": "wireguard",
+        "location": "",
+        "enabled": True,
+        "config": {},
+        "extra": {},
+    }
+
+
+def _vpn_status(client):
+    """Read /api/vpn/status, or raise SeedRefused if the answer is unusable."""
+    body = client.get("/api/vpn/status")
+    if not isinstance(body, dict) or not body.get("ok"):
+        raise SeedRefused(
+            "cannot read /api/vpn/status, so this host's VPN state is UNKNOWN "
+            f"and tunnel seeding is refused (response: {str(body)[:200]})."
+        )
+    return body
+
+
+def _marked_tunnel_ids(client) -> list:
+    """Tunnel ids whose NAME carries the marker.
+
+    The name is the discriminator, exactly as it is for sites: BD generates
+    tunnel_ids, so the seeder cannot recognise its own by id alone. Anything
+    unmarked is the operator's and is never touched.
+    """
+    body = client.get("/api/vpn/status")
+    if not isinstance(body, dict):
+        return []
+    found = []
+    for t in body.get("tunnels") or []:
+        if not isinstance(t, dict):
+            continue
+        if SEED_MARKER in str(t.get("name", "")):
+            tid = t.get("tunnel_id") or t.get("id")
+            if tid:
+                found.append(str(tid))
+    return sorted(found)
+
+
+def seed_vpn_tunnel(client, *, dry_run: bool = False) -> dict:
+    """Create one marked, inert VPN tunnel so L30 has a subject.
+
+    This is INPUT, not output. L30 asks whether the stored config and the live
+    registry agree; the seeder supplies a tunnel and BD still has to persist
+    it, register it, and render both sides consistently. If BD's persist path
+    and its register path diverged, the seeded tunnel would show
+    registered_live=False and L30 would FAIL -- the check still decides.
+
+    REFUSES when the stored VPN config has quarantined records. That guard is
+    not defensive padding, it is the reason this is safe at all:
+    vpn_config.save() serialises the in-memory tunnel list, and before the
+    quarantine fix a failed load left that list EMPTY -- so creating one
+    tunnel rewrote tunnels.json with ONLY the synthetic one and silently
+    destroyed every tunnel the operator had. Reproduced against the real
+    modules: two operator tunnels in, one bdseed tunnel out.
+    """
+    status = _vpn_status(client)
+    errors = status.get("config_load_errors")
+    if not isinstance(errors, list):
+        raise SeedRefused(
+            "/api/vpn/status does not report config_load_errors, so the "
+            "seeder cannot tell whether this host's tunnels.json loaded "
+            "cleanly or failed to parse -- both render as an empty tunnel "
+            "list. Writing a tunnel blind could overwrite the operator's VPN "
+            "config. Unknown is a third state and it fails; refusing. "
+            "(Deploy a build that reports the field, then re-run.)"
+        )
+    if errors:
+        named = ", ".join(
+            str(e.get("tunnel_id") or f"#{e.get('index')}")
+            for e in errors if isinstance(e, dict)
+        )
+        raise SeedRefused(
+            f"the stored VPN config has {len(errors)} quarantined record(s) "
+            f"({named}). Refusing to add a tunnel on top of a config that did "
+            f"not fully load. Fix those records first -- "
+            f"GET /api/settings/store-raw?store=vpn shows the file, and "
+            f"/api/vpn/status lists the exact errors."
+        )
+
+    plan = {"action": "seed_vpn_tunnel", "marker": SEED_MARKER,
+            "name": SEED_TUNNEL_NAME}
+    existing = _marked_tunnel_ids(client)
+    if existing:
+        # Re-running a capture must not accumulate tunnels, same rule as sites.
+        plan["reused"] = existing[0]
+        return plan
+    if dry_run:
+        plan["dry_run"] = True
+        return plan
+    created = client.post("/api/vpn/tunnels", vpn_tunnel_config())
+    if not isinstance(created, dict) or not created.get("tunnel_id"):
+        raise SeedRefused(
+            f"could not create the {SEED_MARKER} tunnel "
+            f"(response: {str(created)[:200]})"
+        )
+    plan["tunnel_id"] = created["tunnel_id"]
     return plan
 
 
@@ -435,6 +914,12 @@ def teardown(client, *, dry_run: bool = False) -> dict:
 
     The predicate is the marker, never position or recency, so a real entry
     queued alongside a seeded one is never touched.
+
+    Deleting the marked site also clears its queue rows (api_delete calls
+    queue_delete_site), so the QUEUE side is clean whatever state the jobs
+    reached -- including 'done'. History is not, and `residue` says so: see
+    RESIDUE_NOTE. Reporting "removed the sites, cancelled the queue" and
+    stopping would imply the box is as it was found.
     """
     body = _queue_snapshot(client)
     victims = [
@@ -445,8 +930,13 @@ def teardown(client, *, dry_run: bool = False) -> dict:
     ]
     ids = [entry.get("id") for entry in victims if entry.get("id") is not None]
     sites = _marked_site_ids(client)
+    history_rows, history_readable = _seeded_history(client)
+    tunnels = _marked_tunnel_ids(client)
     plan = {"action": "teardown", "marker": SEED_MARKER,
-            "ids": ids, "sites": sites}
+            "ids": ids, "sites": sites, "tunnels": tunnels,
+            "residue": {"history_rows": history_rows,
+                        "readable": history_readable,
+                        "note": RESIDUE_NOTE}}
     if dry_run:
         plan["dry_run"] = True
         return plan
@@ -458,7 +948,42 @@ def teardown(client, *, dry_run: bool = False) -> dict:
     for sid in sites:
         removed.append({"site_id": sid, "result": client.delete(f"/api/sites/{sid}")})
     plan["removed_sites"] = removed
+    # Same predicate for tunnels. Deleting an unmarked tunnel would remove the
+    # operator's egress protection, which is the worst thing this tool could
+    # do, so the marker is checked on the NAME and nothing else is eligible.
+    #
+    # DELETE /api/vpn/tunnels/<id> 404s when the tunnel is not registered LIVE
+    # (app_vpn_api.vpn_tunnel_delete returns early on vpn.get_tunnel() is
+    # None) even though the stored config row still exists. A seeded tunnel is
+    # created enabled, so register_loaded_tunnels() re-registers it on every
+    # boot and it stays reachable -- but a tunnel that was disabled, or whose
+    # registration failed, would be strandable in the stored config with no
+    # HTTP route able to remove it. teardown reports what it removed so that
+    # case is visible rather than assumed.
+    removed_tunnels = []
+    for tid in tunnels:
+        removed_tunnels.append({"tunnel_id": tid,
+                                "result": client.delete(f"/api/vpn/tunnels/{tid}")})
+    plan["removed_tunnels"] = removed_tunnels
     return plan
+
+
+def _report_residue(plan) -> None:
+    """Say out loud what teardown could not remove.
+
+    Silent only when the answer is a measured zero. An unreadable history is
+    NOT a clean one and says so; a non-zero count names itself rather than
+    hiding inside the JSON a reader may skim past.
+    """
+    residue = (plan or {}).get("residue") or {}
+    rows = residue.get("history_rows")
+    if rows is None:
+        print(f"live_seed: RESIDUE UNKNOWN - could not read /api/history, so "
+              f"whether this host still holds {SEED_MARKER} history rows is "
+              f"undetermined. {RESIDUE_NOTE}", file=sys.stderr)
+    elif rows:
+        print(f"live_seed: RESIDUE - {rows} {SEED_MARKER} history row(s) "
+              f"remain after teardown. {RESIDUE_NOTE}", file=sys.stderr)
 
 
 def main(argv=None) -> int:
@@ -468,7 +993,27 @@ def main(argv=None) -> int:
     parser.add_argument("--seed", action="store_true", help="enqueue marked fixture URLs")
     parser.add_argument("--login", action="store_true",
                         help="create a fixture-login site and trigger BD's real login")
+    parser.add_argument("--vpn-tunnel", action="store_true",
+                        help="create one marked, inert VPN tunnel so L30 has "
+                             "a config/state pair to cross-check (never "
+                             "started; carries no traffic)")
     parser.add_argument("--teardown", action="store_true", help="remove marked entries")
+    # OPT-IN, NOT DEFAULT-ON, and the reasoning is the reason it is written
+    # here rather than assumed. --seed's documented contract is "place URLs";
+    # an operator hand-running it (and the tests that drive it) would suddenly
+    # be starting real downloads and blocking for up to --start-timeout on a
+    # verb that has never done either. capture.sh is the caller that wants the
+    # queue drained, and it asks for it explicitly, in one greppable place,
+    # visible in 05a_live_seed.log. A flag nobody passes would be a feature
+    # nobody has, so the capture wiring ships in the same cut.
+    parser.add_argument("--start", action="store_true",
+                        help="start the seeded site and wait for its jobs to "
+                             "reach terminal states (modifies --seed)")
+    parser.add_argument("--start-timeout", type=float,
+                        default=DEFAULT_SETTLE_TIMEOUT,
+                        help=f"seconds to wait for the seeded queue to settle "
+                             f"(default {DEFAULT_SETTLE_TIMEOUT:g}); a timeout "
+                             f"is reported per URL and exits non-zero")
     parser.add_argument("--count", type=int, default=3)
     parser.add_argument("--site-id", default=None)
     parser.add_argument("--dry-run", action="store_true",
@@ -477,14 +1022,18 @@ def main(argv=None) -> int:
                         help="seed even if the host already holds real work")
     args = parser.parse_args(argv)
 
-    if not args.seed and not args.teardown and not args.login:
-        parser.error("choose --seed, --login or --teardown")
+    if not args.seed and not args.teardown and not args.login \
+            and not args.vpn_tunnel:
+        parser.error("choose --seed, --login, --vpn-tunnel or --teardown")
 
     client = Client(args.base_url)
+    unsettled = None
     try:
         if args.teardown:
-            print(json.dumps(teardown(client, dry_run=args.dry_run), indent=2))
-        elif args.seed or args.login:
+            plan = teardown(client, dry_run=args.dry_run)
+            print(json.dumps(plan, indent=2))
+            _report_residue(plan)
+        elif args.seed or args.login or args.vpn_tunnel:
             if not args.dry_run:
                 preflight(client, force=args.force)
             # Emitted in a `finally` so a LATER refusal cannot discard an
@@ -500,10 +1049,26 @@ def main(argv=None) -> int:
             plans = []
             try:
                 if args.seed:
-                    plans.append(seed_queue(client, args.count, site_id=args.site_id,
-                                            dry_run=args.dry_run))
+                    seeded = seed_queue(client, args.count, site_id=args.site_id,
+                                        dry_run=args.dry_run)
+                    plans.append(seeded)
+                    if args.start:
+                        # Same `finally` discipline as above: appended BEFORE
+                        # the wait can raise, so a refusal mid-start still
+                        # prints the seed that succeeded.
+                        started = start_and_settle(
+                            client, seeded.get("site_id"),
+                            seeded.get("urls") or [],
+                            timeout=args.start_timeout,
+                            dry_run=args.dry_run)
+                        plans.append(started)
+                        settle = started.get("settle") or {}
+                        if not args.dry_run and not settle.get("settled", False):
+                            unsettled = settle
                 if args.login:
                     plans.append(seed_login(client, dry_run=args.dry_run))
+                if args.vpn_tunnel:
+                    plans.append(seed_vpn_tunnel(client, dry_run=args.dry_run))
             finally:
                 if plans:
                     print(json.dumps(plans if len(plans) > 1 else plans[0], indent=2))
@@ -518,6 +1083,24 @@ def main(argv=None) -> int:
     except SeedRefused as exc:
         print(f"live_seed: REFUSED - {exc}", file=sys.stderr)
         return 2
+    if unsettled is not None:
+        # A timeout reported as success is an unknown laundered into an OK,
+        # and capture.sh reads this exit code. Name every URL and the status
+        # it was last seen in, so the log says what actually happened rather
+        # than that something did not.
+        lines = [
+            f"live_seed: TIMEOUT - the seeded queue did not settle within "
+            f"{unsettled.get('timeout_seconds')}s "
+            f"({unsettled.get('polls')} poll(s), "
+            f"queue_readable={unsettled.get('queue_readable')}). "
+            f"L11/L12/L14 will report on whatever DID complete:"
+        ]
+        for url in unsettled.get("unresolved") or []:
+            state = (unsettled.get("per_url") or {}).get(url) or {}
+            lines.append(f"  {url} -> {state.get('status', '?')} "
+                         f"{state.get('note') or state.get('message') or ''}".rstrip())
+        print("\n".join(lines), file=sys.stderr)
+        return 3
     return 0
 
 

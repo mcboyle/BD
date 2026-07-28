@@ -59,8 +59,19 @@ def _ok(payload=None):
 
 @vpn_bp.route("/api/vpn/status", methods=["GET"]) if vpn_bp else (lambda f: f)
 def vpn_status():
-    """Overall VPN status: tunnels, kill switch state, registered providers."""
-    from . import vpn, vpn_kill_switch, vpn_kill_switch_system, vpn_providers
+    """Overall VPN status: tunnels, kill switch state, registered providers.
+
+    `config_load_errors` reports tunnel records that vpn_config quarantined
+    at load time. Without it, a tunnels.json that failed to parse is
+    indistinguishable over the API from one with no tunnels in it: both show
+    an empty `tunnels` list. That ambiguity is why a broken VPN config read as
+    "nothing configured" everywhere outside the process, and it is why any
+    client that writes tunnels must check this first -- vpn_config.save()
+    serialises the in-memory list, so writing while records are quarantined is
+    safe only because save() re-emits them.
+    """
+    from . import (vpn, vpn_config, vpn_kill_switch, vpn_kill_switch_system,
+                   vpn_providers)
     tunnels = [t.to_dict() for t in vpn.list_tunnels()]
     kill_states = vpn_kill_switch.list_kill_states()
     sys_ok, sys_why = vpn_kill_switch_system.available()
@@ -68,6 +79,7 @@ def vpn_status():
         "ok": True,
         "tunnels": tunnels,
         "kill_states": kill_states,
+        "config_load_errors": vpn_config.load_errors(),
         "providers": vpn_providers.list_providers(),
         "system_killswitch_available": sys_ok,
         "system_killswitch_reason": sys_why,

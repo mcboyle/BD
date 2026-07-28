@@ -352,6 +352,33 @@ def _scan_site_keys(root):
     return items
 
 
+# Names this module's key regex picks out of the store modules that are NOT
+# persisted config keys. The regex is `"<lowercase>"` followed by `:`, which
+# matches three things it does not mean to:
+#
+#   * fields of internal diagnostic records built inside function bodies --
+#     vpn_config.load() reports quarantined tunnels as
+#     {"index", "tunnel_id", "path", "error"}, which is a report shape, not
+#     anything written to tunnels.json;
+#   * a quoted string that merely PRECEDES a colon belonging to some other
+#     construct, e.g. `if getattr(backend, "name", "") != "plaintext":` --
+#     the `:` there ends the `if`, so "plaintext" is not a key at all;
+#   * loop/comprehension locals.
+#
+# This set is deliberately CHECKABLE rather than asserted: every name in it
+# must be absent from a freshly saved store document, which
+# tests/test_vpn_config_load_quarantine.py pins directly. Widening it without
+# that evidence would let a real config key be hidden from the parity ledger --
+# the gate-that-cannot-see-its-subject failure this project keeps re-learning.
+#
+# The durable fix is a predicate that reads real dict keys at module level
+# instead of a regex over the whole file. Measured: that predicate is stable
+# across diffs and keeps every genuine key, but it also drops `_saved_at`
+# (both stores) and `plaintext` (vpn) from the ledger, so it moves the parity
+# baselines and belongs in its own cut.
+_NOT_STORE_KEYS = {"index", "error", "path"}
+
+
 def _scan_other_stores(root):
     """vpn_config + widgets_config — additional config stores (audit finding)."""
     items = []
@@ -362,7 +389,8 @@ def _scan_other_stores(root):
         if not p.is_file():
             continue
         src = open(p, encoding="utf-8", errors="replace").read()
-        keys = sorted(set(re.findall(r'["\']([a-z_]{3,})["\']\s*:', src)))[:40]
+        keys = sorted(set(re.findall(r'["\']([a-z_]{3,})["\']\s*:', src))
+                      - _NOT_STORE_KEYS)[:40]
         for k in keys:
             items.append({
                 "key": f"{store}.{k}", "source_file": f"bulk_downloader/{fname}",

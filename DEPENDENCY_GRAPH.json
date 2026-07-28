@@ -2290,7 +2290,8 @@
         "tools/config_surface_inventory.py",
         "tools/dependency_graph.py",
         "tools/gen_frontend_secret_keys.py",
-        "tools/gui_parity_inventory.py"
+        "tools/gui_parity_inventory.py",
+        "tools/live_seed.py"
       ],
       "writers": [
         "bulk_downloader/app_vpn_api.py"

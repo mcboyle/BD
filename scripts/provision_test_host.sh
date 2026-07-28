@@ -380,18 +380,41 @@ else
     run_step 04_install_linux "install_linux.sh" core bash ./install_linux.sh || true
 fi
 
-# ------------------------------------------- [5/8] headless chromium system libs
+# ------------------------------------------- [5/8] headless browser system libs
 echo
-echo "=== [5/8] headless chromium system libraries ==="
+echo "=== [5/8] headless browser system libraries ==="
 # playwright's own dependency installer. Best effort: on a host where it fails,
 # headed/headless chromium may still run, and the capture will say so far more
 # precisely than this script can. Recorded either way -- never skipped quietly.
+#
+# The engine list is bd_playwright_engines ALL, not chromium. Step [4] above
+# (install_linux.sh) now downloads firefox and webkit too, because live check
+# L4 stats all three; downloading them and then installing only chromium's OS
+# libraries would leave two engines on disk that cannot launch, which is a
+# worse state than not having them -- L4 stats the binary and would report the
+# install complete.
+#
+# The per-engine apt names are NOT restated here or in system_deps.sh:
+# playwright owns that table (78 package names for ubuntu24.04-x64, versioned
+# with playwright itself) and `install-deps` is how it is asked for. A copy in
+# this repo would go stale on the next playwright bump.
+_pw_all=""
+if declare -F bd_playwright_engines >/dev/null 2>&1; then
+    _pw_all="$(bd_playwright_engines all)" || _pw_all=""
+fi
 if [ ! -x "$REPO/venv/bin/python" ]; then
     record "playwright system libs" "WARN" "not attempted: no venv at venv/bin/python (step 4 must succeed first)"
+elif [ -z "$_pw_all" ]; then
+    # An empty list is the dangerous case: `playwright install-deps` with no
+    # engine argument installs the dependencies of EVERY browser it knows,
+    # which is not what this step was asked to do and would report success
+    # either way. Refuse and say so rather than run it blind.
+    record "playwright system libs" "WARN" \
+        "not attempted: bd_playwright_engines is undefined, so the engine list is UNKNOWN"
 else
-    # shellcheck disable=SC2086  # $SUDO is empty when already root
+    # shellcheck disable=SC2086  # $SUDO is empty when already root; $_pw_all is a list
     run_step 05_playwright_deps "playwright system libs" optional \
-        $SUDO ./venv/bin/python -m playwright install-deps chromium || true
+        $SUDO ./venv/bin/python -m playwright install-deps $_pw_all || true
 fi
 
 # ------------------------------------------------------------ [6/8] display

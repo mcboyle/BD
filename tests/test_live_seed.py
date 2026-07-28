@@ -687,3 +687,305 @@ def test_the_seeder_reads_auth_state_from_an_endpoint_that_reports_it():
         f"not carry the field, so 'unknown' is structural: it means the same "
         f"thing on success and on failure. Poll /api/sites/v2."
     )
+
+
+# ── L6 reads a different surface than L8, and nothing wrote to it ───────────
+
+
+def test_the_seeded_login_asks_bd_to_record_the_auth_health_l6_reads():
+    """The seed must trigger the auth-health probe, not just the login.
+
+    THE DEFECT THIS GATE COVERS. L8 reads auth_state off /api/sites/v2, which
+    the login itself updates. L6 reads GET /api/auth_health/status, and that
+    serves the `auth_health` TABLE, which is written by exactly two things:
+    cookie_health.check_site (reached via POST /api/auth_health/check/<sid>)
+    and bg_scheduler's `cookie_health.nightly_check`. The nightly task is
+    registered with last_run=0.0, so it is due on the coordinator's FIRST poll
+    -- i.e. at service start, capture.sh step [4] -- and then not again for
+    86400s. The seeder runs at step [5a], after that sweep. The site it creates
+    was therefore never in the sweep's denominator, and no login-path module
+    writes the table either. The seeded site had NO ROW AT ALL, so L6 could
+    only ever see the operator's own sites and reported "auto-login may be
+    broken" about a login that had just succeeded.
+
+    This is a trigger, not a verdict, and it is exactly the same category as
+    the /api/sites/<sid>/login POST above: BD performs the probe, BD classifies
+    the response, BD persists the row. A jar without a live session makes the
+    same call record yellow, so firing it cannot manufacture a green.
+    """
+    seed = _load()
+    sid = "abc123"
+    client = FakeClient({
+        ("POST", "/api/sites"): {"id": sid, "cred_stored": True},
+        ("GET", "/api/sites/v2"): {
+            "ok": True,
+            "sites": [{"site_id": sid, "auth_state": "ok"}],
+        },
+    })
+    seed.seed_login(client, poll_seconds=2.0)
+
+    posted = client.posted()
+    probes = [p for p, _b in posted if p.startswith("/api/auth_health/")]
+    assert probes, (
+        "the seeder never asked BD to record auth health for the site it just "
+        "logged in. L6 reads /api/auth_health/status, which serves the "
+        "auth_health table; the only in-capture writer of that table fires at "
+        "service start, BEFORE this site exists. Without this POST the seeded "
+        "site has no row and L6 reports on the operator's sites alone.\n"
+        f"  posted: {[p for p, _b in posted]}"
+    )
+    assert f"/api/auth_health/check/{sid}" in probes, (
+        f"the seeder probed {probes} but the site it created is {sid!r}; a "
+        f"probe of any other site is not evidence about this login"
+    )
+
+    # Ordering is load-bearing: probing before the login lands would classify
+    # a jar that does not exist yet.
+    paths = [p for p, _b in posted]
+    assert paths.index(f"/api/sites/{sid}/login") < paths.index(
+        f"/api/auth_health/check/{sid}"), (
+        f"the auth-health probe runs before the login it is meant to measure: "
+        f"{paths}"
+    )
+
+
+def test_the_auth_health_probe_resolves_against_the_apps_own_route_map():
+    """The path the seeder posts must be a route BD actually serves.
+
+    WHY THIS EXISTS ALONGSIDE THE TEST ABOVE. FakeClient records what the
+    seeder SENDS; it cannot tell a live route from a typo. Client._request
+    swallows HTTPError and returns the error body as an ordinary dict, so a
+    404 from a renamed endpoint would be indistinguishable from success and
+    the gate above would stay green over a seeder that writes nothing. That is
+    CLAUDE.md 0 exactly: a check whose denominator excludes its subject.
+
+    DENOMINATOR: the running app's Werkzeug url_map -- every rule actually
+    registered, not a grep for @route strings and not ROUTE_INDEX.json (a
+    generated register, which is the class of artifact that goes stale). The
+    concrete path is matched by Werkzeug itself, so the <sid> converter is
+    resolved rather than assumed.
+
+    UNKNOWN IS A THIRD STATE: if the app cannot be imported, this fails rather
+    than skipping. A route check that cannot see the route map has not passed.
+    """
+    seed = _load()
+    sid = "abc123"
+    client = FakeClient({
+        ("POST", "/api/sites"): {"id": sid, "cred_stored": True},
+        ("GET", "/api/sites/v2"): {
+            "ok": True,
+            "sites": [{"site_id": sid, "auth_state": "ok"}],
+        },
+    })
+    seed.seed_login(client, poll_seconds=2.0)
+    probes = [p for p, _b in client.posted()
+              if p.startswith("/api/auth_health/")]
+    assert probes, "the seeder issued no auth-health probe to resolve"
+
+    try:
+        from bulk_downloader.app import app as bd_app
+    except Exception as exc:  # pragma: no cover - environment failure
+        raise AssertionError(
+            f"could not import the app to derive its route map, so whether "
+            f"the seeder's auth-health probe resolves is UNKNOWN -- which is "
+            f"not the same as fine: {type(exc).__name__}: {exc}"
+        )
+
+    from werkzeug.exceptions import HTTPException
+
+    adapter = bd_app.url_map.bind("127.0.0.1")
+    unroutable = []
+    for path in probes:
+        try:
+            adapter.match(path, method="POST")
+        except HTTPException as exc:
+            unroutable.append(f"{path}  (POST -> {type(exc).__name__})")
+    assert not unroutable, (
+        "the seeder POSTs to an auth-health path the app does not serve, so "
+        "the write silently 404s -- Client._request returns the error body as "
+        "a normal dict, so nothing downstream notices and L6 keeps warning:\n"
+        "  " + "\n  ".join(unroutable)
+    )
+
+
+# ── the synthetic VPN tunnel (L30) ───────────────────────────────────────────
+#
+# L30 asks "are the configured tunnels and the live tunnel state 1:1?". With
+# zero tunnels configured it WARNs, truthfully and uselessly. The seeder gives
+# it a SUBJECT -- one marked tunnel -- without giving it an ANSWER: BD still
+# has to persist the config, register it live, and render both sides in
+# agreement. If BD's persist path and its register path diverged, the seeded
+# tunnel would appear with registered_live=False and L30 would FAIL. That is
+# the check doing its job, which is exactly what "input, never output" means.
+#
+# The tunnel must be INERT with respect to egress. It is created and never
+# started: vpn.Tunnel.state defaults to "down", vpn._run_health_pass targets
+# only ("up", "failing") and vpn_leak_tests._monitor_loop only "up", so no
+# probe touches it. No SOCKS port is allocated until start_tunnel(). And
+# vpn_runtime routes a site to a tunnel only via _site_to_tunnel (built from
+# sites_config's per-site `vpn` field) or _global_tunnel_id (from
+# `global_vpn`) -- neither of which is derived from tunnels.json. A tunnel no
+# site references can therefore never carry traffic.
+
+def test_the_vpn_tunnel_seed_goes_through_the_http_api():
+    """Rule 2: never a raw write to tunnels.json."""
+    seed = _load()
+    client = FakeClient({
+        ("GET", "/api/vpn/status"): {"ok": True, "tunnels": [],
+                                     "config_load_errors": []},
+        ("POST", "/api/vpn/tunnels"): {"ok": True, "tunnel_id": "tun-x"},
+    })
+    seed.seed_vpn_tunnel(client)
+    created = [p for p, _b in client.posted() if p == "/api/vpn/tunnels"]
+    assert created, (
+        f"no POST to /api/vpn/tunnels; calls were {client.calls}"
+    )
+
+
+def test_the_seeded_tunnel_carries_the_marker():
+    """Rule 3: teardown needs an exact predicate, not a heuristic."""
+    seed = _load()
+    client = FakeClient({
+        ("GET", "/api/vpn/status"): {"ok": True, "tunnels": [],
+                                     "config_load_errors": []},
+        ("POST", "/api/vpn/tunnels"): {"ok": True, "tunnel_id": "tun-x"},
+    })
+    seed.seed_vpn_tunnel(client)
+    body = [b for p, b in client.posted() if p == "/api/vpn/tunnels"][0]
+    assert seed.SEED_MARKER in str(body.get("name", "")), (
+        f"the seeded tunnel's name {body.get('name')!r} does not carry "
+        f"{seed.SEED_MARKER!r}; an unmarked tunnel is indistinguishable from "
+        f"the operator's own and teardown cannot find it"
+    )
+
+
+def test_the_seeded_tunnel_is_never_started():
+    """Inert means inert: creating it must not bring an interface up.
+
+    start_tunnel() allocates a SOCKS port and calls backend.start(), which is
+    real egress machinery. The seeder must never touch it.
+    """
+    seed = _load()
+    client = FakeClient({
+        ("GET", "/api/vpn/status"): {"ok": True, "tunnels": [],
+                                     "config_load_errors": []},
+        ("POST", "/api/vpn/tunnels"): {"ok": True, "tunnel_id": "tun-x"},
+    })
+    seed.seed_vpn_tunnel(client)
+    started = [p for p, _b in client.posted()
+               if p.endswith("/start") or p.endswith("/cycle")]
+    assert not started, f"the seeder started a tunnel: {started}"
+    # It must also never arm the system (iptables) kill switch.
+    armed = [p for p, _b in client.posted() if "system_killswitch" in p]
+    assert not armed, f"the seeder touched the system kill switch: {armed}"
+
+
+def test_seeding_a_tunnel_refuses_when_the_stored_config_failed_to_load():
+    """The data-destruction guard, and the reason this cut exists.
+
+    vpn_config.save() serialises the in-memory tunnel list. When load() has
+    failed, that list is EMPTY -- so creating a tunnel would write a file
+    containing ONLY the synthetic one and silently delete every tunnel the
+    operator had. Reproduced against the real modules before this guard
+    existed: two operator tunnels in, one bdseed tunnel out.
+    """
+    seed = _load()
+    client = FakeClient({
+        ("GET", "/api/vpn/status"): {
+            "ok": True, "tunnels": [],
+            "config_load_errors": [
+                {"tunnel_id": "tun-operator", "index": 1,
+                 "error": "tunnel config missing required field: name",
+                 "path": "/home/mboyle/.config/bulk-downloader/vpn/tunnels.json"},
+            ],
+        },
+    })
+    with pytest.raises(seed.SeedRefused) as excinfo:
+        seed.seed_vpn_tunnel(client)
+    assert not [p for p, _b in client.posted() if p == "/api/vpn/tunnels"], (
+        "the seeder created a tunnel despite refusing"
+    )
+    msg = str(excinfo.value)
+    assert "tun-operator" in msg, (
+        f"the refusal must name the record blocking it so the operator can "
+        f"fix it; got {msg!r}"
+    )
+
+
+def test_seeding_a_tunnel_refuses_when_it_cannot_tell():
+    """Unknown is a third state and it FAILS (CLAUDE.md 0).
+
+    A deployment whose /api/vpn/status omits config_load_errors cannot tell
+    the seeder whether the stored config loaded. Treating the absent key as
+    "no errors" is the gate-that-cannot-see-its-subject failure, and here it
+    would destroy operator config.
+    """
+    seed = _load()
+    for body in ({"ok": True, "tunnels": []},          # key absent
+                 {"ok": False, "error": "boom"},        # unreachable
+                 None, "not-a-dict"):
+        client = FakeClient({("GET", "/api/vpn/status"): body})
+        with pytest.raises(seed.SeedRefused):
+            seed.seed_vpn_tunnel(client)
+        assert not [p for p, _b in client.posted() if p == "/api/vpn/tunnels"]
+
+
+def test_a_dry_run_creates_no_tunnel():
+    seed = _load()
+    client = FakeClient({
+        ("GET", "/api/vpn/status"): {"ok": True, "tunnels": [],
+                                     "config_load_errors": []},
+    })
+    plan = seed.seed_vpn_tunnel(client, dry_run=True)
+    assert plan.get("dry_run") is True
+    assert not client.posted(), f"dry-run mutated: {client.posted()}"
+
+
+def test_teardown_removes_marked_tunnels_but_never_unmarked_ones():
+    """The operator's real tunnel must survive teardown.
+
+    Deleting a real tunnel would take the operator's egress protection with
+    it -- the worst outcome this whole tool could produce.
+    """
+    seed = _load()
+    client = FakeClient({
+        ("GET", "/api/queue/v2"): {"ok": True, "running": [], "waiting": [],
+                                   "done_today_count": 0},
+        ("GET", "/api/status"): {},
+        ("GET", "/api/vpn/status"): {
+            "ok": True,
+            "config_load_errors": [],
+            "tunnels": [
+                {"tunnel_id": "tun-real", "name": "Mullvad NYC"},
+                {"tunnel_id": "tun-seed",
+                 "name": f"{seed.SEED_MARKER} synthetic tunnel"},
+            ],
+        },
+    })
+    seed.teardown(client)
+    deleted = [p for m, p, _b in client.calls if m == "DELETE"]
+    assert "/api/vpn/tunnels/tun-seed" in deleted, (
+        f"teardown left the seeded tunnel behind; deletes were {deleted}"
+    )
+    assert "/api/vpn/tunnels/tun-real" not in deleted, (
+        f"teardown deleted the OPERATOR'S tunnel; deletes were {deleted}"
+    )
+
+
+def test_teardown_reports_the_tunnels_it_removed():
+    """A teardown that cannot say what it did cannot be verified."""
+    seed = _load()
+    client = FakeClient({
+        ("GET", "/api/queue/v2"): {"ok": True, "running": [], "waiting": [],
+                                   "done_today_count": 0},
+        ("GET", "/api/status"): {},
+        ("GET", "/api/vpn/status"): {
+            "ok": True, "config_load_errors": [],
+            "tunnels": [{"tunnel_id": "tun-seed",
+                         "name": f"{seed.SEED_MARKER} synthetic tunnel"}],
+        },
+    })
+    plan = seed.teardown(client)
+    assert "tun-seed" in str(plan.get("removed_tunnels")), (
+        f"teardown plan does not record the removed tunnel: {plan}"
+    )
