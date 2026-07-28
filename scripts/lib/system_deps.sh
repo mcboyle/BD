@@ -286,6 +286,88 @@ bd_system_pkgs() {
     esac
 }
 
+# bd_playwright_engines <core|extra|all> -> space-separated engine list on stdout.
+#
+# Returns non-zero and echoes NOTHING for a missing or unknown group, exactly
+# like bd_system_pkgs and for a sharper reason: `playwright install` with ZERO
+# engine arguments does not fail, it installs EVERY default browser. So a
+# silently-empty list here does not even announce itself at the consumer - it
+# quietly changes what gets installed.
+#
+# WHY THIS LIVES IN THIS FILE. It is not an apt list, and the file's title says
+# "system packages" - but the defect is identical one level up. Measured at the
+# time this was added, FIVE shell sites install or dependency-install Playwright
+# browsers, between them carrying FOUR different engine lists:
+#
+#   install_linux.sh                   playwright install chromium
+#   scripts/provision_test_host.sh     playwright install-deps chromium
+#   scripts/cloud-setup.sh (x2)        install --with-deps chromium
+#                                      install firefox webkit
+#   scripts/cloud-setup.sh (bd-provision heredoc)
+#                                      install --with-deps chromium
+#
+# Five copies is five different answers to "which engines does BD install?",
+# and the copy nobody updated is the one the box runs. This file already owns
+# bd_start_display, which is not a package list either; what it really owns is
+# the provisioning facts all three scripts must agree on.
+#
+# WHAT THIS FIXES, concretely. Live check L4 (playwright-browsers-installed)
+# asks playwright for chromium/firefox/webkit executable_path and stats each
+# one. On the operator's box it reported "Chromium installed; 2 other engine(s)
+# missing: firefox, webkit" - a CORRECT and permanently unactionable warning,
+# because no provisioning path in this repo ever installed either engine. The
+# check could see its subject; the installer could not reach it.
+#
+# THE GROUPS ARE NOT COSMETIC.
+#   core  - what bulk_downloader actually launches. Every capture, login and
+#           download is chromium; nothing in the app asks playwright for
+#           firefox or webkit. So a consumer grades this step as REQUIRED.
+#   extra - what L4 audits beyond that. Graded OPTIONAL by every consumer: a
+#           webkit download failing over a flaky mirror must never cost the
+#           operator chromium, which is why this is a separate group rather
+#           than three names in one list.
+#   all   - the union, and the right argument for `install-deps`: firefox and
+#           webkit need OS libraries chromium's set does not contain (measured
+#           against playwright 1.61's own nativeDeps table for ubuntu24.04-x64:
+#           chromium 21 packages, firefox 25, webkit 53 - the webkit set pulls
+#           the entire gstreamer stack plus libgtk-4-1, libenchant, libhyphen
+#           and libwoff1). `install-deps chromium` therefore leaves a
+#           downloaded webkit that cannot launch.
+#
+# THOSE 78 APT NAMES DELIBERATELY DO NOT MOVE INTO bd_system_pkgs. Playwright
+# owns that table and ships it versioned with itself; copying it here would
+# create a second list that goes stale on every playwright bump - which is the
+# defect this file exists to prevent, not an instance of the fix. The engine
+# NAMES are ours to own; the per-engine package names are playwright's, and
+# `playwright install-deps "$(bd_playwright_engines all)"` is how we ask for
+# them without holding a copy.
+bd_playwright_engines() {
+    # Arrays for the same reason bd_system_pkgs uses them: `all` hands
+    # _bd_dedup one argument per engine without an unquoted expansion.
+    local core=(chromium)
+    local extra=(firefox webkit)
+
+    # "${arr[*]}" joins on the FIRST character of IFS, so pin it locally; the
+    # contract is a space-separated list regardless of the caller's IFS.
+    local IFS=' '
+
+    if [ "$#" -eq 0 ]; then
+        printf 'bd_playwright_engines: no engine group given (expected one of: core extra all)\n' >&2
+        return 1
+    fi
+
+    case "$1" in
+        core)  printf '%s\n' "${core[*]}" ;;
+        extra) printf '%s\n' "${extra[*]}" ;;
+        all)   _bd_dedup "${core[@]}" "${extra[@]}" ;;
+        *)
+            printf 'bd_playwright_engines: unknown engine group %s (expected one of: core extra all)\n' \
+                "'$1'" >&2
+            return 1
+            ;;
+    esac
+}
+
 # bd_start_display [display] -> echoes the usable DISPLAY value on stdout.
 #
 # Idempotent by contract: if an X server already owns the display, this does NOT

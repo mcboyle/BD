@@ -295,8 +295,29 @@ if skip BROWSERS; then
   fi
 else
   if [ "$HAVE_REPO" = 1 ]; then
-    step "playwright chromium" optional ./venv/bin/python -m playwright install --with-deps chromium
-    step "playwright ff+wk"    optional ./venv/bin/python -m playwright install firefox webkit
+    # The engine names come from scripts/lib/system_deps.sh, sourced above --
+    # this script, install_linux.sh and scripts/provision_test_host.sh all
+    # install browsers, and a private copy of the list in each is the drift the
+    # fragment exists to stop. The core/extra split is preserved rather than
+    # collapsed into one command: a combined install reports ONE exit status, so
+    # a webkit mirror failure would be graded exactly like losing chromium.
+    _pw_core=""
+    _pw_extra=""
+    if declare -F bd_playwright_engines >/dev/null 2>&1; then
+      _pw_core="$(bd_playwright_engines core)"   || _pw_core=""
+      _pw_extra="$(bd_playwright_engines extra)" || _pw_extra=""
+    fi
+    if [ -z "$_pw_core" ] || [ -z "$_pw_extra" ]; then
+      # UNKNOWN, not "none". `playwright install` with no engine argument
+      # installs every default browser and exits 0, so running it on an empty
+      # list would report a success nobody asked for.
+      row "browsers" "WARN" "bd_playwright_engines undefined -- engine list UNKNOWN, nothing installed"
+    else
+      # shellcheck disable=SC2086  # word splitting is the point: one arg per engine
+      step "playwright core"  optional ./venv/bin/python -m playwright install --with-deps $_pw_core
+      # shellcheck disable=SC2086
+      step "playwright extra" optional ./venv/bin/python -m playwright install $_pw_extra
+    fi
   else
     row "browsers" "**DEFERRED**" "needs the app venv -- bd-provision installs them"
   fi
@@ -598,7 +619,31 @@ echo "python interp: $("$PYBIN" --version 2>&1)"
 ./venv/bin/pip install -q "pytest>=7.0,<9.0" pyflakes
 [ "${NODE_ENV:-}" = "production" ] && { echo "FATAL: NODE_ENV=production omits devDependencies"; exit 1; }
 ( cd frontend && npm ci --no-audit --no-fund ) || echo "WARN: frontend deps failed"
-./venv/bin/python -m playwright install --with-deps chromium || echo "WARN: chromium failed"
+# Browsers. This heredoc body is a STANDALONE script installed into ~/bin, so
+# it sources the fragment itself rather than inheriting it -- but it has just
+# cd'd into the checkout, so the path is known. The engine names are never
+# written here: this file, install_linux.sh and scripts/provision_test_host.sh
+# all install browsers, and a fourth private copy of the list is exactly the
+# drift scripts/lib/system_deps.sh exists to stop.
+_pw_core=""
+_pw_extra=""
+# shellcheck source=/dev/null
+if [ -r "$R/scripts/lib/system_deps.sh" ] && . "$R/scripts/lib/system_deps.sh" \
+   && declare -F bd_playwright_engines >/dev/null 2>&1; then
+  _pw_core="$(bd_playwright_engines core)"   || _pw_core=""
+  _pw_extra="$(bd_playwright_engines extra)" || _pw_extra=""
+fi
+if [ -z "$_pw_core" ]; then
+  # UNKNOWN, and it is named. `playwright install` with no engine argument
+  # installs every default browser and exits 0, so guessing here would report
+  # a success the operator never asked for.
+  echo "WARN: bd_playwright_engines unavailable -- no browser installed"
+else
+  # shellcheck disable=SC2086
+  ./venv/bin/python -m playwright install --with-deps $_pw_core || echo "WARN: $_pw_core failed"
+  # shellcheck disable=SC2086
+  [ -n "$_pw_extra" ] && { ./venv/bin/python -m playwright install $_pw_extra || echo "WARN: $_pw_extra failed (optional; live check L4 will report the install as incomplete)"; }
+fi
 ./venv/bin/pip install -q "cloakbrowser[geoip]>=0.4.5" && ./venv/bin/python -m cloakbrowser install || echo "WARN: cloakbrowser failed"
 V=$(./venv/bin/python -c 'import bulk_downloader;print(bulk_downloader.__version__)' 2>/dev/null)
 echo "import check: ${V:-FAILED}"

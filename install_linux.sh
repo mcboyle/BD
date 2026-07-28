@@ -241,19 +241,84 @@ if [ -f "$INSTALL_DIR/requirements-optional.txt" ]; then
     done < "$INSTALL_DIR/requirements-optional.txt"
 fi
 
-# Playwright browser
-echo "  Installing Playwright Chromium ..."
-if "$VPYTHON" -m playwright install chromium; then
-    echo "  Chromium installed."
-else
-    echo "  WARNING: 'playwright install chromium' failed. The app"
-    echo "  needs Chromium for logins/downloads."
+# ── Playwright browsers ─────────────────────────────────────────────────────
+#
+# The ENGINE NAMES come from scripts/lib/system_deps.sh (bd_playwright_engines),
+# never from a literal here. install_linux.sh, scripts/provision_test_host.sh
+# and scripts/cloud-setup.sh all install browsers; a private copy of the list in
+# each is the same drift that the apt lists above were consolidated to stop.
+#
+# TWO STEPS, and the split is load-bearing:
+#
+#   core (chromium)        REQUIRED. Every capture, login and download BD runs
+#                          is chromium; nothing in the app asks playwright for
+#                          another engine. Its failure gets a loud warning.
+#   extra (firefox/webkit) OPTIONAL. Live check L4 stats all three engines and
+#                          WARNs when any is absent, so an install that stops
+#                          at chromium leaves a correctly provisioned host
+#                          warning forever. But a webkit download failing over
+#                          a flaky mirror must never be graded like losing
+#                          chromium, so it is its own step with its own message.
+#
+# Running them separately is what buys that grading: one combined
+# `playwright install chromium firefox webkit` reports a single exit status, so
+# a webkit failure would be indistinguishable from a chromium failure.
+_pw_core=""
+_pw_extra=""
+if declare -F bd_playwright_engines >/dev/null 2>&1; then
+    # Capture FIRST, then refuse on empty - same reasoning as the apt list
+    # above, only sharper: `playwright install` with no engine arguments does
+    # not fail, it installs every default browser.
+    _pw_core="$(bd_playwright_engines core)" || _pw_core=""
+    _pw_extra="$(bd_playwright_engines extra)" || _pw_extra=""
 fi
+
+if [ -z "$_pw_core" ]; then
+    # UNKNOWN is a third state and it is named rather than papered over. This
+    # branch is reachable on a tree whose fragment predates bd_playwright_engines
+    # and when BD_SKIP_SYSTEM_DEPS=1 skipped the sourcing entirely. Nothing is
+    # installed and nothing is claimed: a second, out-of-date copy of the engine
+    # list here would be the exact drift the fragment exists to prevent, and a
+    # silent skip would let a host reach the end of the install with no browser
+    # and no message saying so.
+    echo "  WARNING: bd_playwright_engines is unavailable (old or unsourced"
+    echo "  scripts/lib/system_deps.sh), so no Playwright browser was"
+    echo "  installed. BD cannot log in or download without one. Fix with:"
+    echo "    $VPYTHON -m playwright install chromium"
+else
+    echo "  Installing Playwright browsers ($_pw_core) ..."
+    # Word splitting is the point: the fragment returns one space-separated
+    # list, playwright wants one argument per engine.
+    # shellcheck disable=SC2086
+    if "$VPYTHON" -m playwright install $_pw_core; then
+        echo "  Installed: $_pw_core"
+    else
+        echo "  WARNING: installing $_pw_core failed. The app needs it"
+        echo "  for logins/downloads."
+    fi
+fi
+
+if [ -n "$_pw_extra" ]; then
+    echo "  Installing additional Playwright engines ($_pw_extra) ..."
+    echo "  (BD does not launch these; live check L4 audits their presence.)"
+    # shellcheck disable=SC2086
+    if "$VPYTHON" -m playwright install $_pw_extra; then
+        echo "  Installed: $_pw_extra"
+    else
+        echo "  (optional: $_pw_extra not installed - BD runs without them;"
+        echo "   live check L4 will report the install as incomplete)"
+    fi
+fi
+
 # Always print the install-deps hint — on a headless Ubuntu Server,
-# the download above succeeds but Chromium fails to launch later with
-# obscure libnss3/libxkbcommon errors. Better to surface it now.
+# the download above succeeds but the browser fails to launch later with
+# obscure libnss3/libxkbcommon errors. Better to surface it now. The hint
+# covers EVERY engine that was installed, not just chromium: firefox and webkit
+# need OS libraries chromium's dependency set does not contain (webkit alone
+# pulls the gstreamer stack), so `install-deps chromium` would leave a
+# downloaded webkit that cannot start.
 echo "  On a headless server you may also need (one-time, as root):"
-echo "    sudo $VPYTHON -m playwright install-deps chromium"
+echo "    sudo $VPYTHON -m playwright install-deps \$(. scripts/lib/system_deps.sh; bd_playwright_engines all)"
 
 # ── CloakBrowser stealth backend (optional; posture-sensitive) ───────────────
 # Finding C (v3.66.162 live census): a from-scratch / rebuilt stash venv had
