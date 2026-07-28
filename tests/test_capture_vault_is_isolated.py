@@ -394,3 +394,31 @@ def test_the_vault_is_unlocked_after_the_service_starts_and_before_seeding():
     assert install < unlock < seed, (
         f"expected install({install}) < unlock({unlock}) < seed({seed})"
     )
+
+
+def test_the_exit_trap_is_armed_before_the_dropin_is_written():
+    """The teardown must be registered BEFORE the thing it tears down exists.
+
+    Found live on test4 2026-07-28, immediately after this feature shipped: the
+    drop-in was written at step [4] while the EXIT trap was not armed until the
+    seed section 109 lines later. An interrupt anywhere in between -- steps [5]
+    and [5a], which include the fixture-site startup and the seeder itself --
+    would strand the drop-in, and BD would come back up on the CAPTURE vault
+    with the operator's real credentials apparently gone.
+
+    The sibling test above passes in that state, because it only asks whether
+    an EXIT trap reaching the vault teardown exists ANYWHERE in the file. A
+    trap that exists but is armed too late is not protection, and "the gate
+    cannot see the ordering it depends on" is the same defect class this whole
+    file is about.
+    """
+    body = _capture_body()
+    dropin_at = _index(body, 'sudo tee "$CAPTURE_VAULT_DROPIN"')
+    trap_at = body.find("trap cleanup_all EXIT")
+    assert trap_at != -1, "capture.sh no longer arms the aggregate EXIT trap"
+    assert trap_at < dropin_at, (
+        f"the capture-vault drop-in is written at offset {dropin_at} but the "
+        f"EXIT trap is not armed until {trap_at}. Every interrupt in that "
+        f"window strands the drop-in, and the operator's BD restarts on the "
+        f"capture vault -- their real credentials look like they vanished."
+    )
