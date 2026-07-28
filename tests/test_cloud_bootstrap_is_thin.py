@@ -18,6 +18,7 @@ started the drift over again, and the growth is what must fail.
 """
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import textwrap
@@ -116,35 +117,44 @@ def test_bootstrap_fails_loudly_when_there_is_no_checkout(tmp_path):
     """No checkout is UNKNOWN, and unknown is a third state that FAILS.
 
     Exiting 0 here would tell the session everything is fine while nothing was
-    provisioned -- the exact false-READY the provisioner's own verdict gates
-    were built to prevent.
+    provisioned -- the exact false-READY the provisioner's verdict gates exist
+    to prevent.
+
+    WHY THIS RUNS A REWRITTEN COPY RATHER THAN THE SCRIPT ITSELF. The probe
+    list contains absolute rungs, including a `/home/*/BD` glob added after a
+    real session failed to find a checkout that was present. On any machine
+    that HAS a checkout under /home, those rungs match no matter what the
+    caller intended, so the no-checkout branch is unreachable and running the
+    real script here execs the real provisioner -- which is how this test
+    previously surfaced as a two-minute hang.
+
+    So the absolute rungs are re-pointed into tmp_path. Every other line of
+    the script, including the whole failure branch being asserted, is the
+    shipped text.
     """
     _source()
     home = tmp_path / "home"
     home.mkdir()
-    elsewhere = tmp_path / "elsewhere"
-    elsewhere.mkdir()
+    sandbox = tmp_path / "root"
+    sandbox.mkdir()
 
-    env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-        "HOME": str(home),
-    }
-    # Short timeout on purpose. If a probe ever matches a real checkout here,
-    # the bootstrap execs the REAL provisioner and starts installing packages.
-    # An earlier draft did exactly that (a hardcoded /home/user/BD in the probe
-    # list), and the failure surfaced as a two-minute hang rather than a clear
-    # verdict. Fail fast and say why.
+    text = BOOTSTRAP.read_text(encoding="utf-8")
+    for absolute in ("/workspace", "/repo", "/src", "/app", "/home/*"):
+        text = text.replace(f" {absolute}", f" {sandbox}{absolute}")
+    rewritten = tmp_path / "bootstrap-sandboxed.sh"
+    rewritten.write_text(text, encoding="utf-8")
+    assert str(sandbox) in text, "the rewrite did not take; the test would run the real prober"
+
+    env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": str(home)}
     try:
         proc = subprocess.run(
-            ["bash", str(BOOTSTRAP)],
-            capture_output=True, text=True, cwd=str(elsewhere), env=env, timeout=20,
+            ["bash", str(rewritten)],
+            capture_output=True, text=True, cwd=str(sandbox), env=env, timeout=20,
         )
     except subprocess.TimeoutExpired:
         pytest.fail(
-            "the bootstrap did not return within 20s from a directory with no "
-            "checkout. It almost certainly matched a real checkout via an "
-            "absolute probe path and exec'd the provisioner -- which means the "
-            "no-checkout branch is unreachable on this machine."
+            "the bootstrap did not return within 20s with every probe pointed "
+            "at an empty sandbox. Some rung still reaches a real checkout."
         )
     assert proc.returncode != 0, (
         "the bootstrap exited 0 with no checkout found; the caller cannot "
@@ -207,4 +217,56 @@ def test_bootstrap_stays_short():
     assert lines < 80, (
         f"the bootstrap is {lines} lines. It is meant to locate a checkout and "
         f"exec; at this size it has begun re-absorbing provisioning logic."
+    )
+
+
+def test_the_probe_list_finds_THIS_checkout():
+    """The question Cut 2 never asked: does the shipped list find the real tree?
+
+    `test_bootstrap_hands_off_to_the_repo_when_one_is_present` sets BD_REPO, so
+    it exercises the FIRST rung and proves delegation. Every other rung was
+    outside its denominator -- and one of them was wrong. In this environment
+    HOME is /root while the checkout is at /home/user/BD, so the `$HOME/BD`
+    rung resolved to a path that does not exist and a real session died with:
+
+        FATAL: no BulkDownloader checkout found
+
+    on a container that had a checkout. The failure was correct behaviour over
+    a wrong list.
+
+    This runs the ACTUAL probe loop from the shipped script, with BD_REPO and
+    CLAUDE_PROJECT_DIR unset and the working directory elsewhere, and requires
+    it to locate this repository. It is the one assertion that cannot pass
+    while the list is blind to where the tree really is.
+    """
+    text = BOOTSTRAP.read_text(encoding="utf-8")
+    match = re.search(r"for candidate in (.*?); do", text, re.S)
+    assert match, "could not find the probe list in cloud-bootstrap.sh"
+    candidates = match.group(1)
+
+    script = (
+        'MARKER="bulk_downloader/__init__.py"\nREPO=""\n'
+        f"for candidate in {candidates}; do\n"
+        '  if [ -n "$candidate" ] && [ -f "$candidate/$MARKER" ] \\\n'
+        '     && [ -f "$candidate/scripts/cloud-setup.sh" ]; then\n'
+        '    REPO="$candidate"; break\n  fi\ndone\n'
+        'printf "%s" "$REPO"\n'
+    )
+    proc = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, cwd="/tmp",
+        env={"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": os.environ.get("HOME", "/root")},
+        timeout=120,
+    )
+    found = proc.stdout.strip()
+    assert found, (
+        f"the shipped probe list does not locate this checkout "
+        f"({REPO_ROOT}) with BD_REPO unset, HOME={os.environ.get('HOME')} and "
+        f"cwd=/tmp.\n\nThat is the exact condition a fresh session runs under, "
+        f"and it is how a real one failed. Add the rung that covers where the "
+        f"tree actually lives -- bounded, never a filesystem-wide search."
+    )
+    assert Path(found).resolve() == REPO_ROOT.resolve(), (
+        f"the probe found {found}, not this repository ({REPO_ROOT}). A list "
+        f"that resolves to some OTHER tree is worse than one that finds "
+        f"nothing: provisioning would run against it silently."
     )

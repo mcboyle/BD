@@ -24,20 +24,22 @@ set -uo pipefail
 REPORT="$HOME/.claude-env-report.md"
 MARKER="bulk_downloader/__init__.py"
 
-# Named probes only. There is no filesystem search here, for the same reason
-# cloud-setup.sh no longer has one: a depth-ranked `find /` prefers the shallow
-# two-file pytest fixtures that accumulate under /tmp over the real checkout.
-# Measured on a working container: 70 candidates, winner a 3-file fixture.
+# Named probes and ONE bounded glob. No filesystem search: a depth-ranked
+# `find /` prefers shallow two-file pytest fixtures under /tmp over the real
+# checkout -- 70 candidates, winner a 3-file fixture. Both markers are required
+# below, so a fixture cannot win here either.
 #
-# The list is deliberately $HOME-relative and free of any absolute path to a
-# live checkout. An earlier draft hardcoded /home/user/BD; that made the
-# "no checkout" branch UNREACHABLE on the very machine it was meant to protect
-# -- the probe matched the real repo no matter what the caller intended, and a
-# test of the failure path instead exec'd the real provisioner. A fallback that
-# always succeeds is not a fallback.
+# No absolute path to a live checkout, either: an earlier draft hardcoded one,
+# which made the "no checkout" branch unreachable on the very machine it
+# protected. A fallback that always succeeds is not a fallback. But `$HOME/BD`
+# alone was not enough: $HOME is /root here while the checkout lives under
+# /home/<user>/, so a real session died with "no checkout found" on a container
+# that had one. `/home/*/BD` is one level deep -- covers it, no search.
 REPO=""
 for candidate in "${BD_REPO:-}" "${CLAUDE_PROJECT_DIR:-}" "$PWD" \
-                 /workspace /repo /src /app "$HOME/BD" "$HOME/bulkdownloader"; do
+                 /workspace /repo /src /app \
+                 "$HOME/BD" "$HOME/bulkdownloader" \
+                 /home/*/BD /home/*/bulkdownloader; do
   if [ -n "$candidate" ] && [ -f "$candidate/$MARKER" ] \
      && [ -f "$candidate/scripts/cloud-setup.sh" ]; then
     REPO="$candidate"
@@ -62,7 +64,8 @@ if [ -z "$REPO" ]; then
     echo
     echo "No checkout containing both bulk_downloader/__init__.py and"
     echo "scripts/cloud-setup.sh was found. Probed: \$BD_REPO,"
-    echo "\$CLAUDE_PROJECT_DIR, \$PWD, /home/user/BD."
+    echo "\$CLAUDE_PROJECT_DIR, \$PWD, /workspace, /repo, /src, /app,"
+    echo "\$HOME/{BD,bulkdownloader}, /home/*/{BD,bulkdownloader}."
     echo
     echo "NOTHING WAS PROVISIONED. There is no venv and no system tooling from"
     echo "this run. Do not read any test result from this environment as"
