@@ -547,7 +547,20 @@ if [ -f "$BD_HOME/tools/live_seed.py" ] && [ -f "$BD_HOME/tools/fixture_site.py"
     # secrets backend to store the fixture password, and refuses cleanly when
     # that precondition is absent. SEEDED is set either way so teardown always
     # runs against whatever did get created.
-    if venv/bin/python tools/live_seed.py --seed --login --count 3 \
+    # BD_SEED_FORCE=1 passes --force through to the seeder's preflight, which
+    # otherwise REFUSES when the queue already holds real work ("seeding could
+    # be mistaken for the operator's own work and teardown would be
+    # ambiguous"). That refusal is correct as a default and it fired on a real
+    # run, leaving the seeded live checks unexercised with no way to ask for
+    # them short of emptying the operator's queue.
+    #
+    # Overriding it is safe because teardown is MARKER-matched, not
+    # queue-wide: `_is_seeded()` is `SEED_MARKER in entry["url"]`, so nothing
+    # without `bdseed` in its URL can be removed. The guard is conservative
+    # about a hazard teardown does not actually have.
+    _seed_force=""
+    [ "${BD_SEED_FORCE:-0}" = "1" ] && _seed_force="--force"
+    if venv/bin/python tools/live_seed.py --seed --login --count 3 $_seed_force \
          > "$OUT/05a_live_seed.log" 2>&1; then
       SEEDED=1
       echo "  seeded 3 marked URLs + fixture login — queue and auth checks are"
