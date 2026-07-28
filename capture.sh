@@ -139,6 +139,29 @@ cleanup_capture_vault() {
   fi
 }
 
+# Armed HERE, not down in the seed section, because the drop-in is written at
+# step [4] and an EXIT trap registered after that leaves a window in which an
+# interrupt strands it -- BD would restart on the CAPTURE vault and the
+# operator's real credentials would look like they had vanished. That window
+# was 109 lines wide and covered steps [5] and [5a]; it was found on the box
+# minutes after this feature shipped, by an interrupt that happened to land
+# before the drop-in was written rather than after.
+#
+# bash keeps ONE EXIT trap per shell, so this aggregate is also how the seed
+# teardown is reached: a second `trap ... EXIT` further down would REPLACE
+# this one rather than add to it. cleanup_live_seed is defined much later, so
+# it is called only once it exists -- an interrupt before that point has no
+# seed state to remove, but may well have a drop-in to clear. Ordering is
+# load-bearing: the seed teardown talks to the app over HTTP, and
+# cleanup_capture_vault restarts the service, so the seed half must go first.
+cleanup_all() {
+  if declare -F cleanup_live_seed >/dev/null 2>&1; then
+    cleanup_live_seed
+  fi
+  cleanup_capture_vault
+}
+trap cleanup_all EXIT
+
 _stop_process_group() {
   local child_pid="$1"
   local tick=0
@@ -627,11 +650,11 @@ cleanup_live_seed() {
 # `trap ... EXIT` would not add a handler, it would REPLACE this one, silently
 # disabling the seed teardown. Both cleanups are idempotent, so the explicit
 # calls after [6] and this backstop can both fire.
-cleanup_all() {
-  cleanup_live_seed
-  cleanup_capture_vault
-}
-trap cleanup_all EXIT
+#
+# cleanup_all is defined and ARMED at the top of this file, next to
+# cleanup_capture_vault -- it has to be, because the drop-in is written at step
+# [4] and a trap armed here would leave steps [4]-[5a] unprotected. It reaches
+# cleanup_live_seed by name once this definition exists.
 
 if [ -f "$BD_HOME/tools/live_seed.py" ] && [ -f "$BD_HOME/tools/fixture_site.py" ]; then
   # The seeded URLs point at the local fixture origin, so it has to be
