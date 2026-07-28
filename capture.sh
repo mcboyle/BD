@@ -83,6 +83,62 @@ if ! command -v setsid >/dev/null 2>&1; then
   exit 2
 fi
 
+# ── capture vault (optional, prompted once) ──────────────────────
+#
+# This step stops the service and step [4] starts a FRESH process, and the
+# master key is in-memory only -- so the vault is necessarily LOCKED when the
+# seeder runs at [5a], and an operator unlocking beforehand cannot survive the
+# restart. L6/L8 were unsatisfiable here no matter what the operator did.
+#
+# So the capture gets its OWN vault, holding only the fixture's published test
+# credential. The operator's secrets.json is never opened. The password is
+# asked for ONCE, here at t=0 rather than 35 minutes in at [5a], so the run
+# stays unattended after a single keystroke.
+#
+# It is deliberately never written down. capture.sh:739 tars the whole of
+# $OUT and the operator ships that bundle to third parties -- so the vault
+# lives OUTSIDE $OUT and the password reaches curl on stdin, never in argv
+# (which /proc publishes to every user on the box).
+#
+# Blank, or no TTY, means skip: L6/L8 then WARN exactly as they do today.
+# A prompt that blocked an unattended run would turn a capture into a hang.
+CAPTURE_VAULT=0
+CAPTURE_VAULT_PW=""
+CAPTURE_VAULT_DIR="/tmp/bd_capture_vault"
+CAPTURE_VAULT_FILE="$CAPTURE_VAULT_DIR/secrets.json"
+CAPTURE_VAULT_DROPIN="/etc/systemd/system/bulkdownloader.service.d/20-capture-vault.conf"
+
+if [ -t 0 ]; then
+  printf 'Capture-vault password (blank = skip the L6/L8 login checks): ' >&2
+  read -rs CAPTURE_VAULT_PW
+  printf '\n' >&2
+  if [ -n "$CAPTURE_VAULT_PW" ]; then
+    CAPTURE_VAULT=1
+    echo "  capture vault ENABLED -- the operator vault is not opened"
+  else
+    echo "  capture vault skipped -- L6/L8 will WARN as before"
+  fi
+else
+  echo "  no TTY: capture vault skipped -- L6/L8 will WARN as before"
+fi
+
+# Removing the drop-in is NOT enough: systemd passes Environment= at start, so
+# the RUNNING service keeps the capture vault until something restarts it. Skip
+# the restart and the operator's BD would keep reporting an empty credential
+# store -- their real passwords would look like they had vanished. Idempotent,
+# because it is reached both explicitly after [6] and from the EXIT trap.
+cleanup_capture_vault() {
+  if [ "$CAPTURE_VAULT" = "1" ]; then
+    CAPTURE_VAULT=0
+    CAPTURE_VAULT_PW=""
+    sudo rm -f "$CAPTURE_VAULT_DROPIN" 2>/dev/null || true
+    sudo systemctl daemon-reload 2>/dev/null || true
+    sudo systemctl restart bulkdownloader 2>/dev/null || true
+    rm -rf "$CAPTURE_VAULT_DIR"
+    echo "  capture vault removed; service restarted on the operator vault"
+  fi
+}
+
 _stop_process_group() {
   local child_pid="$1"
   local tick=0
@@ -449,6 +505,31 @@ echo "  done"
 
 # ── [4/9] Install + start systemd service ─────────────────────────
 echo "=== [4/9] Install + start systemd service ==="
+
+# The drop-in must exist BEFORE install_service.sh, because that is what runs
+# daemon-reload and starts the unit. Written after, it would not reach the
+# running process and the seeder would meet the operator's locked vault
+# exactly as before -- while the capture reported it had set one up.
+#
+# A drop-in rather than .env on purpose: _envfile.py records ".env, not a
+# systemd drop-in" for OPERATOR configuration, which is the GUI editor's
+# persistence target. This is machine-written scaffolding removed inside the
+# same run. The deciding factor is the failure mode -- a stale .env line is
+# invisible to the GUI editor's model, while a stale drop-in is the first
+# thing `systemctl cat bulkdownloader` shows.
+if [ "$CAPTURE_VAULT" = "1" ]; then
+  rm -rf "$CAPTURE_VAULT_DIR"
+  mkdir -p "$CAPTURE_VAULT_DIR"
+  chmod 700 "$CAPTURE_VAULT_DIR"
+  sudo mkdir -p "$(dirname "$CAPTURE_VAULT_DROPIN")"
+  sudo tee "$CAPTURE_VAULT_DROPIN" >/dev/null <<DROPIN
+[Service]
+Environment=BD_SECRETS_FILE=$CAPTURE_VAULT_FILE
+Environment=BD_CAPTURE_VAULT=1
+DROPIN
+  echo "  capture-vault drop-in written -> $CAPTURE_VAULT_DROPIN"
+fi
+
 ./install_service.sh > "$OUT/04_service_install.log" 2>&1
 INSTALL_EXIT=$?
 sleep 3
@@ -457,6 +538,25 @@ journalctl -u bulkdownloader -n 50 --no-pager > "$OUT/04_service_boot.log" 2>&1
 ACTIVE=$(systemctl is-active bulkdownloader 2>&1)
 if [ "$ACTIVE" = "active" ]; then SERVICE_EXIT=0; else SERVICE_EXIT=1; fi
 echo "  service: $ACTIVE"
+
+# Unlock the CAPTURE vault, after the service is up and before [5a] seeds --
+# the seeder refuses on a locked vault, which is the whole reason this exists.
+# The password goes in on stdin (--data-binary @-), never in argv: /proc makes
+# a process's command line readable by every user on the box. Only the HTTP
+# code is recorded; the response body is discarded so nothing about the
+# credential can reach $OUT, which is tarred into the shared bundle.
+if [ "$CAPTURE_VAULT" = "1" ] && [ "$ACTIVE" = "active" ]; then
+  UNLOCK_CODE=$(printf '{"password":"%s"}' "$CAPTURE_VAULT_PW" \
+    | curl -sS -o /dev/null -w '%{http_code}' \
+        -X POST http://127.0.0.1:5555/api/secrets/unlock \
+        -H 'Content-Type: application/json' --data-binary @- 2>/dev/null)
+  echo "  capture-vault unlock: HTTP ${UNLOCK_CODE:-000}" \
+    | tee -a "$OUT/04_service_status.log"
+  if [ "${UNLOCK_CODE:-000}" != "200" ]; then
+    echo "  WARNING: capture vault did not unlock; L6/L8 will WARN and the" \
+         "seeder will refuse the login half" >&2
+  fi
+fi
 
 # ── [5/9] Ollama status ──────────────────────────────────────────
 echo "=== [5/9] Ollama status ==="
@@ -522,7 +622,16 @@ cleanup_live_seed() {
 # so that trap is scoped to the subshell and this global one does not
 # collide with it. bash keeps only one EXIT trap per shell; converting
 # that function to braces would silently disable one of the two.
-trap cleanup_live_seed EXIT
+#
+# The capture vault rides the SAME trap for exactly that reason: a second
+# `trap ... EXIT` would not add a handler, it would REPLACE this one, silently
+# disabling the seed teardown. Both cleanups are idempotent, so the explicit
+# calls after [6] and this backstop can both fire.
+cleanup_all() {
+  cleanup_live_seed
+  cleanup_capture_vault
+}
+trap cleanup_all EXIT
 
 if [ -f "$BD_HOME/tools/live_seed.py" ] && [ -f "$BD_HOME/tools/fixture_site.py" ]; then
   # The seeded URLs point at the local fixture origin, so it has to be
@@ -662,6 +771,11 @@ echo "  exit=$LIVE_EXIT"
 # it here means the state is gone before steps 7-9 inspect anything.
 # cleanup_live_seed is idempotent, so the trap firing later is harmless.
 cleanup_live_seed
+# Restore the operator vault here rather than at EXIT: steps [7]-[9] run
+# against the live app, and they should see the box as the operator keeps it,
+# not as the capture staged it. Idempotent, so the EXIT backstop still covers
+# an interrupt before this point.
+cleanup_capture_vault
 
 # ── [7/9] Dev-tool routes against the live app ───────────────────
 echo "=== [7/9] Dev-tool routes ==="
