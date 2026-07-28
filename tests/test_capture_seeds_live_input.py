@@ -114,9 +114,23 @@ def test_teardown_is_registered_on_exit_so_an_interrupt_cannot_strand_state():
     # gate's own `trap cleanup_graph_tmp EXIT` -- so the test passed while no
     # seed teardown existed at all. A gate that cannot distinguish its subject
     # from an unrelated neighbour is not a gate (CLAUDE.md 0).
-    seed_traps = [t for t in traps if "seed" in t.lower()]
+    # The handler is now allowed to be an aggregate: the capture vault shares
+    # this trap slot deliberately, because a second `trap ... EXIT` would
+    # REPLACE this one rather than add to it. So resolve one level -- a named
+    # handler counts if it performs seed teardown itself or calls something
+    # that does. Matching the handler's NAME alone would have failed the moment
+    # the aggregate landed, while the property it pins still held.
+    def _reaches_seed(handler: str) -> bool:
+        if "seed" in handler.lower():
+            return True
+        body = re.search(
+            rf"^{re.escape(handler.strip())}\(\)\s*\{{(.*?)^\}}",
+            code, re.M | re.S)
+        return bool(body and "seed" in body.group(1).lower())
+
+    seed_traps = [t for t in traps if _reaches_seed(t)]
     assert seed_traps, (
-        f"no EXIT trap performs seed teardown; found only {traps}. "
+        f"no EXIT trap reaches seed teardown; found only {traps}. "
         f"(cleanup_graph_tmp is the graph gate's, not this one's.)"
     )
 

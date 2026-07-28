@@ -7,6 +7,14 @@ service, so a *live* GUI write cannot take effect. The GUI editor persists them 
 ``os.environ.setdefault`` — so the real environment / systemd unit ALWAYS wins and
 the `.env` is only a fallback.
 
+This decision governs where OPERATOR configuration persists -- it is the GUI
+editor's target. It is not a ban on drop-ins as a mechanism: `capture.sh` writes
+`20-capture-vault.conf` for the duration of one run and removes it again, and
+the box already carries `10-display.conf`. The distinction is lifetime and
+authorship, and the deciding factor is the failure mode: a stale `.env` line is
+invisible to this editor's model, while a stale drop-in is the first thing
+`systemctl cat bulkdownloader` shows.
+
 `.env` location (operator decision: `.env`, not a systemd drop-in):
   1. ``$BD_ENVFILE`` if set (explicit override; used by tests + advanced ops).
   2. ``Path.cwd()/.env`` — the systemd unit sets ``WorkingDirectory=APP_DIR`` and
