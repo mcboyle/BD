@@ -926,17 +926,29 @@ def l21_wal_checkpoint_under_load(ctx):
 
 # ── core pipeline live tests (U34: L11 + L13 + L14) ───────────────
 #
-# Three real-media tests of the download pipeline. Unlike the
-# read-only checks, these QUEUE A REAL JOB and let it run — so all
-# three are disruptive=True (they only run with --include-disruptive
-# or an explicit --only). They share _pipeline_setup, which finds a
-# usable site + a downloadable URL, and _await_job, which polls the
-# queue until a job settles.
+# Three tests of the download pipeline. They are disruptive=True
+# because they DEPEND ON real download activity, not because they
+# start any: Context exposes get/log/ro_db and no write verb, so a
+# check structurally cannot queue or run a job. Producing that
+# activity is tools/live_seed.py's job — it lives outside this
+# package precisely so the suite stays safe to point at production.
+#
+# An earlier version of this header claimed these "QUEUE A REAL JOB
+# and let it run", alongside an unused _await_job helper. Both were
+# false, and together they cost a session's investigation before the
+# source settled it. If you need a check to start work, the answer is
+# the seeder, not a write verb on Context.
 #
 # These need: the deployment up, at least one configured site, and a
 # reachable download target — ideally tools/fixture_site.py on :8899
 # so no real site is hit. If no usable site is found the tests WARN
 # (cannot run here) rather than FAIL.
+#
+# SEED_MARKER mirrors tools/live_seed.py's own constant. It must be a
+# copy, because this package may not import the seeder (the seeder is
+# a writer). tests/test_u34_pipeline_live_tests.py pins the two equal
+# so the copy nobody updated cannot become the one that runs.
+SEED_MARKER = "bdseed"
 
 
 def _status_site_map(body):
@@ -964,52 +976,50 @@ def _status_site_map(body):
 
 def _pipeline_setup(ctx):
     """Find a site to drive the pipeline tests. Returns (site_id,
-    info_dict) or (None, reason). Prefers a site whose URL points at
-    the local fixture site so no real site is touched."""
+    info_dict) or (None, reason).
+
+    Prefers a SEEDED site — one whose display name carries the seeder's
+    marker, which is how tools/live_seed.py labels everything it owns.
+    That site is fixture-backed, so no real site is touched, and it is
+    the only one whose queue this suite's own tooling populated.
+
+    This preference used to be promised in the docstring and absent from
+    the code, which returned site_ids[0]. On test4 that meant L11
+    reported 'site 08c75e90 has no completed downloads' while the seeder
+    had just populated its own site: a truthful answer about the wrong
+    subject. Falling back to the first site keeps the old behaviour on a
+    host with nothing seeded.
+    """
     ok, status, body, _ = ctx.get("/api/status", timeout=10)
     if not ok or not isinstance(body, dict):
         return None, f"/api/status unreachable (status={status})"
     sites = _status_site_map(body)
     if not sites:
         return None, "no sites configured on the deployment"
-    # prefer a fixture-backed site (localhost:8899) if present
     site_ids = list(sites.keys()) if isinstance(sites, dict) \
         else [s.get("site_id") for s in sites]
-    return (site_ids[0] if site_ids else None,
-            {"site_count": len(site_ids)}
-            if site_ids else "no usable site id")
-
-
-def _await_job(ctx, sid, url, timeout_s=120):
-    """Poll the site's queue until `url` reaches a terminal status
-    (done / failed / needs_review / stopped) or timeout. Returns the
-    final job dict, or None on timeout. Read-only polling."""
-    import time as _t
-    deadline = _t.time() + timeout_s
-    last = None
-    while _t.time() < deadline:
-        ok, _, body, _ = ctx.get(
-            f"/api/sites/{sid}/queue/search?q=", timeout=10)
-        if ok and isinstance(body, dict):
-            for job in (body.get("results") or body.get("jobs") or []):
-                if job.get("url") == url:
-                    last = job
-                    st = (job.get("status") or "").lower()
-                    if st in ("done", "failed", "needs_review",
-                              "stopped", "error"):
-                        return job
-        _t.sleep(3)
-    return last
+    if not site_ids:
+        return None, "no usable site id"
+    seeded = [sid for sid in site_ids
+              if SEED_MARKER in str((sites.get(sid) or {}).get("name", ""))]
+    chosen = seeded[0] if seeded else site_ids[0]
+    return chosen, {"site_count": len(site_ids),
+                    "seeded": bool(seeded),
+                    "marker": SEED_MARKER}
 
 
 @live_test("L11", "end-to-end-small-download", disruptive=True)
 def l11_end_to_end_small_download(ctx):
-    """A real small file downloads through the full pipeline.
+    """A real small file has downloaded through the full pipeline.
 
-    Queues one URL on a configured site and waits for the job to
-    reach a terminal status. PASS when it completes 'done'. Disruptive
-    — it queues and runs a real job. Best run against a site backed by
-    tools/fixture_site.py so no real site is hit.
+    READ-ONLY: it reads the seeded site's queue counts and PASSes when
+    something has completed. It does NOT queue or run the job — no
+    check can, since Context has no write verb. Producing the work is
+    tools/live_seed.py's job.
+
+    So a WARN here means "nothing has completed yet", which is a
+    statement about the seeder and the queue, not about the pipeline.
+    Disruptive=True because it depends on real download activity.
     """
     sid, info = _pipeline_setup(ctx)
     if sid is None:

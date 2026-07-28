@@ -324,6 +324,17 @@ def login_site_config() -> dict:
         "user_field": "#login-username",
         "pass_field": "#login-password",
         "submit_btn": "button[type=submit]",
+        # runner_auth.login_async returns early into start_manual_login when
+        # this flag is on AND config["learned"]["login"] holds none of the
+        # three selector keys -- and the selectors above are TOP-level, not
+        # learned. Every seeded login therefore parked in manual takeover:
+        # BD navigated to the form, autofilled it, and waited for a human
+        # click that a capture host will never supply. Observed on test4
+        # 2026-07-28 as "GET /formauth/login 200" with logins_ok=0 AND
+        # logins_failed=0 on the fixture's own counters -- loaded, never
+        # submitted. The seeder already knows the selectors, so it has
+        # nothing to learn; opt out and let do_login run its own chain.
+        "auto_teach_first_run": False,
         "success_url": f"{FIXTURE_ORIGIN}/formauth/members",
         # BD writes this file during login. The seeder never touches it -- if
         # it did, L8 and L9 would be checking the fixture's output rather than
@@ -396,15 +407,25 @@ def seed_login(client, *, poll_seconds: float = 30.0, dry_run: bool = False) -> 
     deadline = time.time() + poll_seconds
     plan["auth_state"] = "unknown"
     while time.time() < deadline:
-        status = client.get("/api/status")
-        if isinstance(status, dict):
-            meta = status.get(sid)
-            if isinstance(meta, dict):
-                state = str(meta.get("auth_state", ""))
-                if state:
-                    plan["auth_state"] = state
-                if state == "ok":
+        # /api/sites/v2, NOT /api/status. auth_state is built by the v2
+        # listing at app_sites_id_core.py:322; /api/status serializes
+        # runner.get_status(), which emits login_status and 36 other keys but
+        # never auth_state. Polling /api/status read "" on every iteration, so
+        # this loop never broke early, always burned its whole window, and
+        # reported "unknown" identically on success and on failure -- a report
+        # that cannot distinguish its two outcomes. v2 is also the exact field
+        # L8 gates on, so the seeder and the check now read one source.
+        listing = client.get("/api/sites/v2")
+        state = ""
+        if isinstance(listing, dict):
+            for row in listing.get("sites") or []:
+                if isinstance(row, dict) and str(row.get("site_id")) == sid:
+                    state = str(row.get("auth_state", ""))
                     break
+        if state:
+            plan["auth_state"] = state
+        if state == "ok":
+            break
         time.sleep(1.0)
     return plan
 
