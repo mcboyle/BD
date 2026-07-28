@@ -48,6 +48,7 @@ operator (or capture.sh) invokes deliberately.
 
 USAGE
     python3 tools/live_seed.py --seed --count 3
+    python3 tools/live_seed.py --seed --start       # ...and run the queue
     python3 tools/live_seed.py --seed --dry-run     # report intent, change nothing
     python3 tools/live_seed.py --teardown
 """
@@ -74,6 +75,39 @@ SEED_MARKER = "bdseed"
 FIXTURE_ORIGIN = "http://127.0.0.1:8899"
 
 DEFAULT_BASE_URL = "http://127.0.0.1:5555"
+
+# How long --start will wait for the seeded queue to reach terminal states
+# before giving up and SAYING it gave up. Bounded on purpose: capture.sh runs
+# unattended, and an unbounded wait turns one stuck job into a hung capture.
+# The fixture serves 4-16 KB files, so the normal path settles in seconds; this
+# budget exists for the abnormal one.
+DEFAULT_SETTLE_TIMEOUT = 180.0
+DEFAULT_SETTLE_INTERVAL = 2.0
+
+# Terminal QUEUE statuses, derived from what the runner actually writes:
+# _update_job() is called with running/needs_review/done/pending/failed/
+# dead_letter/stopped/skipped_duplicate, and runner.py's own _RUN_TERMINAL adds
+# error and cancelled. The complement -- {pending, running} -- is the work that
+# is still owed.
+#
+# Enumerating the TERMINAL side rather than the pending side is deliberate. If
+# BD ever grows a status this tool has not heard of, an unrecognised value here
+# leaves the URL unresolved: the wait spends its budget and reports the unknown
+# status by name. Enumerating the pending side instead would make the same
+# unknown read as "finished", which is the silent direction (CLAUDE.md 0).
+#
+# skipped_duplicate is terminal and that is load-bearing for L14: it is the
+# exact outcome the seed set's deliberate repeat exists to produce, so treating
+# it as unfinished would burn the whole budget on a success.
+TERMINAL_QUEUE_STATUSES = frozenset({
+    "done", "failed", "error", "needs_review", "stopped",
+    "cancelled", "skipped_duplicate", "dead_letter",
+})
+
+# Page sizes for the two read-only listings this tool polls. Both endpoints cap
+# server-side; these are well above anything the seed set can produce.
+_QUEUE_PAGE = 500
+_HISTORY_PAGE = 500
 
 
 class SeedRefused(RuntimeError):
@@ -176,6 +210,29 @@ def preflight(client, *, force: bool = False) -> dict:
         )
     done_today = int(body.get("done_today_count") or 0)
     if done_today:
+        # Until --start existed, a seeded download never COMPLETED, so nothing
+        # this tool created could reach this counter and calling the total
+        # "real" was sound. A seeder that finishes downloads makes that
+        # sentence false: the next --seed on the same host would refuse while
+        # naming the seeder's own completions as the operator's work.
+        #
+        # done_today_count is a bare integer built from runner job state
+        # (app_queue.py's api_queue_v2 counts jobs whose ts starts with
+        # today's date); it carries no URL, so unlike the running/waiting
+        # check above there is nothing for _is_seeded() to match on. The
+        # refusal stays -- erring toward refusing is the right direction --
+        # but it must not assert an attribution it cannot make.
+        marked = _marked_site_ids(client)
+        if marked:
+            raise SeedRefused(
+                f"{done_today} download(s) completed today on this host, and "
+                f"{len(marked)} {SEED_MARKER}-marked site(s) are still "
+                f"present. done_today_count is a bare integer with no per-URL "
+                f"detail, so it cannot be attributed to a marker: some or all "
+                f"of these may be this tool's own from an earlier run. "
+                f"Refusing rather than guessing -- run --teardown first, or "
+                f"pass --force."
+            )
         raise SeedRefused(
             f"{done_today} real download(s) completed today on this host. "
             "Refusing to seed on top of real work; pass --force to override."
@@ -255,6 +312,40 @@ def seeded_url(index: int) -> str:
 SEED_SITE_NAME = f"{SEED_MARKER} fixture site"
 
 
+def queue_site_config() -> dict:
+    """Config for the site the seeded queue runs on.
+
+    download_dir is deliberately absent: _create_site fills unset fields from
+    DEFAULTS and validates paths before creating anything, and this tool is an
+    HTTP client -- --base-url may point at a service with a different BD_HOME
+    and cwd -- so any path computed HERE is a guess about somebody else's
+    filesystem. Same reasoning as login_site_config's empty cookie_file, and
+    the same test file enforces it.
+
+    auto_teach_first_run is OFF, and that is the whole reason this builder
+    exists rather than a bare {"name": ...}. runner._start_serialized returns
+    BEFORE spawning any worker when the flag is on and the site has neither
+    learned download selectors nor an applied template: it marks the first URL
+    needs_review with "take over to teach download selectors" and leaves the
+    runner idle, waiting for a click in the UI. A capture host has no human, so
+    --start started nothing at all.
+
+    Measured on 2026-07-28 against the real app in a temp BD_INSTALL_DIR with
+    the real fixture on :8899 -- the seeded queue read back
+    `needs_review: "Auto-teach: take over..."` plus one untouched `pending`,
+    with zero workers spawned. With the flag off the same run reached the
+    worker path and produced real download attempts.
+
+    This mirrors login_site_config's identical opt-out for the sibling divert
+    in runner_auth.login_async. It is scoped to the site this tool creates and
+    owns; no operator site is affected.
+    """
+    return {
+        "name": SEED_SITE_NAME,
+        "auto_teach_first_run": False,
+    }
+
+
 def _marked_site_ids(client) -> list:
     """Site ids whose display name carries the marker.
 
@@ -288,12 +379,7 @@ def ensure_seed_site(client, *, dry_run: bool = False):
         return existing[0]
     if dry_run:
         return None
-    created = client.post("/api/sites", {
-        "name": SEED_SITE_NAME,
-        # download_dir is left to the app's own default; _create_site fills
-        # unset fields from DEFAULTS and validates paths before creating
-        # anything, so a bad value cannot leave half-initialised state.
-    })
+    created = client.post("/api/sites", queue_site_config())
     sid = (created or {}).get("id") if isinstance(created, dict) else None
     if not sid:
         raise SeedRefused(
@@ -325,6 +411,170 @@ def seed_queue(client, count: int = 3, *, site_id: str | None = None,
     planned["site_id"] = sid
     planned["results"] = results
     return planned
+
+
+def start_seeded_site(client, site_id: str) -> dict:
+    """Start the runner for a site this tool PROVABLY owns.
+
+    A queued URL that is never started is input nothing consumed. L11, L12 and
+    L14 all gate on a COMPLETED download; before this, the seeder placed three
+    URLs and stopped, so all three reported "no completed downloads yet"
+    forever -- which reads as BD failing to download when BD was never asked.
+    live_tests/ cannot ask (Context has get/log/ro_db and no write verb, and
+    that read-only property is what makes the suite safe to point at
+    production), so the ask belongs here, to the writer.
+
+    THE SAFETY PREDICATE IS THE MARKER, exactly as teardown's is. Starting an
+    unmarked site would drain the OPERATOR'S queue -- real media, from real
+    sites, that they did not ask for right now. `_marked_site_ids()` reads
+    /api/status and keeps only names carrying SEED_MARKER; it returns [] for
+    any response it cannot parse, so an unreadable /api/status refuses here
+    rather than proceeding. Unknown is a third state and it fails.
+
+    Refuses rather than waits when the app declines the start, or accepts it
+    and reports `blocked_by` (rate-limited / low disk): in both cases the queue
+    will not drain, and spending the settle budget on a known negative buys
+    nothing but a slower capture.
+    """
+    owned = _marked_site_ids(client)
+    if site_id not in owned:
+        seen = (str(owned) if owned else
+                "none -- /api/status listed no marked site, or could not "
+                "be read")
+        raise SeedRefused(
+            f"refusing to start site {site_id!r}: it is not among the "
+            f"{SEED_MARKER}-marked sites this tool owns ({seen}). Starting "
+            f"an unmarked site would run the operator's own downloads."
+        )
+    resp = client.post(f"/api/sites/{site_id}/start", {})
+    if not isinstance(resp, dict) or not resp.get("ok"):
+        raise SeedRefused(
+            f"the app declined to start seeded site {site_id!r} "
+            f"(response: {str(resp)[:200]})"
+        )
+    blocked = resp.get("blocked_by")
+    if blocked:
+        raise SeedRefused(
+            f"seeded site {site_id!r} started but BD reports it blocked by "
+            f"{blocked!r}, so the queue will not drain. Not waiting on a "
+            f"known negative."
+        )
+    return resp
+
+
+def _queue_states(client, site_id: str, targets):
+    """Per-URL queue rows for `targets`, or None when the queue is unreadable.
+
+    None and {} are DIFFERENT answers and the caller depends on the
+    difference: {} means the queue was read and holds none of these URLs
+    (they are missing -- unknown), None means the question could not be asked
+    at all. Collapsing either into "nothing pending" would report a settled
+    queue over a queue nobody looked at.
+    """
+    body = client.get(f"/api/sites/{site_id}/queue?limit={_QUEUE_PAGE}")
+    rows = body.get("rows") if isinstance(body, dict) else None
+    if not isinstance(rows, list):
+        return None
+    wanted = set(targets)
+    found = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        url = str(row.get("url", ""))
+        if url in wanted:
+            found[url] = {
+                "status": str(row.get("status", "")),
+                "message": str(row.get("message", ""))[:200],
+                "filename": str(row.get("filename", "")),
+            }
+    return found
+
+
+def wait_for_settle(client, site_id: str, urls, *,
+                    timeout: float = DEFAULT_SETTLE_TIMEOUT,
+                    interval: float = DEFAULT_SETTLE_INTERVAL) -> dict:
+    """Poll until every seeded URL is terminal, or the budget runs out.
+
+    Bounded and never silent. The return value states, per URL, the status the
+    queue reported -- including "unknown" for a URL the queue does not hold and
+    for a queue that could not be read at all. A timeout is not swallowed: the
+    caller reports it and exits non-zero.
+
+    DUPLICATES COLLAPSE, and waiting for them would never end. The seed set
+    repeats index 0 at index 2 on purpose (L14 needs a repeat), but
+    runner_queue.load_urls counts a URL already in self.jobs as a `dupe`
+    without creating a second job, and the queue table is keyed by
+    (site_id, url). Three seeded URLs are two queue rows. So the subject here
+    is the DISTINCT set.
+    """
+    targets = list(dict.fromkeys(str(u) for u in urls))
+    budget = max(0.0, float(timeout))
+    started = time.monotonic()
+    deadline = started + budget
+    polls = 0
+    states = {}
+    readable = False
+    while True:
+        polls += 1
+        observed = _queue_states(client, site_id, targets)
+        readable = observed is not None
+        states = observed or {}
+        unresolved = [
+            url for url in targets
+            if states.get(url, {}).get("status") not in TERMINAL_QUEUE_STATUSES
+        ]
+        if not unresolved:
+            break
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(interval, remaining))
+    per_url = {}
+    for url in targets:
+        if url in states:
+            per_url[url] = states[url]
+        else:
+            per_url[url] = {
+                "status": "unknown",
+                "note": ("not present in the site's queue" if readable
+                         else "the site's queue could not be read"),
+            }
+    return {
+        "site_id": site_id,
+        "urls": targets,
+        "settled": not unresolved,
+        "unresolved": unresolved,
+        "per_url": per_url,
+        "queue_readable": readable,
+        "polls": polls,
+        "timeout_seconds": budget,
+        "elapsed_seconds": round(time.monotonic() - started, 3),
+    }
+
+
+def start_and_settle(client, site_id, urls, *,
+                     timeout: float = DEFAULT_SETTLE_TIMEOUT,
+                     interval: float = DEFAULT_SETTLE_INTERVAL,
+                     dry_run: bool = False) -> dict:
+    """Start the seeded site, then wait for its jobs to reach end states."""
+    targets = list(dict.fromkeys(str(u) for u in (urls or [])))
+    plan = {
+        "action": "start_and_settle",
+        "marker": SEED_MARKER,
+        "site_id": site_id,
+        "urls": targets,
+        # Reported rather than hidden: the operator asked for 3 URLs and the
+        # settle report covers 2, and the reason is BD's own intake dedupe.
+        "duplicates_collapsed": len(list(urls or [])) - len(targets),
+        "timeout_seconds": float(timeout),
+    }
+    if dry_run:
+        plan["dry_run"] = True
+        return plan
+    plan["start"] = start_seeded_site(client, site_id)
+    plan["settle"] = wait_for_settle(client, site_id, targets,
+                                     timeout=timeout, interval=interval)
+    return plan
 
 
 SEED_LOGIN_SITE_NAME = f"{SEED_MARKER} fixture login"
@@ -489,11 +739,52 @@ def seed_login(client, *, poll_seconds: float = 30.0, dry_run: bool = False) -> 
     return plan
 
 
+RESIDUE_NOTE = (
+    "history is append-only: db_log() is its only writer and db_prune() -- "
+    "which deletes by AGE, not by marker -- its only deleter, so no "
+    "marker-matched teardown over the HTTP API can remove the row a completed "
+    "seeded download leaves. Its library_record row and the downloaded file "
+    "under the seeded site's download_dir are in the same class. Nothing here "
+    "is removed; it is reported so a later reader does not mistake it for "
+    "organic history."
+)
+
+
+def _seeded_history(client):
+    """(marked history rows, readable). (None, False) when it cannot be read.
+
+    Reads through the app, like every other question this tool asks.
+    /api/history returns a BARE ARRAY by default and a {rows, next_cursor}
+    envelope when paginating, so both shapes are accepted; anything else is
+    UNKNOWN and says so rather than counting as zero.
+    """
+    body = client.get(f"/api/history?q={SEED_MARKER}&limit={_HISTORY_PAGE}")
+    rows = None
+    if isinstance(body, list):
+        rows = body
+    elif isinstance(body, dict) and isinstance(body.get("rows"), list):
+        rows = body["rows"]
+    if rows is None:
+        return None, False
+    # The server-side filter is a LIKE over url/filename/message, so re-check
+    # the marker against the url field here: the subject is a seeded URL, not
+    # any row whose message happens to mention one.
+    return sum(1 for row in rows
+               if isinstance(row, dict)
+               and SEED_MARKER in str(row.get("url", ""))), True
+
+
 def teardown(client, *, dry_run: bool = False) -> dict:
     """Cancel exactly the queue entries this tool created.
 
     The predicate is the marker, never position or recency, so a real entry
     queued alongside a seeded one is never touched.
+
+    Deleting the marked site also clears its queue rows (api_delete calls
+    queue_delete_site), so the QUEUE side is clean whatever state the jobs
+    reached -- including 'done'. History is not, and `residue` says so: see
+    RESIDUE_NOTE. Reporting "removed the sites, cancelled the queue" and
+    stopping would imply the box is as it was found.
     """
     body = _queue_snapshot(client)
     victims = [
@@ -504,8 +795,12 @@ def teardown(client, *, dry_run: bool = False) -> dict:
     ]
     ids = [entry.get("id") for entry in victims if entry.get("id") is not None]
     sites = _marked_site_ids(client)
+    history_rows, history_readable = _seeded_history(client)
     plan = {"action": "teardown", "marker": SEED_MARKER,
-            "ids": ids, "sites": sites}
+            "ids": ids, "sites": sites,
+            "residue": {"history_rows": history_rows,
+                        "readable": history_readable,
+                        "note": RESIDUE_NOTE}}
     if dry_run:
         plan["dry_run"] = True
         return plan
@@ -520,6 +815,24 @@ def teardown(client, *, dry_run: bool = False) -> dict:
     return plan
 
 
+def _report_residue(plan) -> None:
+    """Say out loud what teardown could not remove.
+
+    Silent only when the answer is a measured zero. An unreadable history is
+    NOT a clean one and says so; a non-zero count names itself rather than
+    hiding inside the JSON a reader may skim past.
+    """
+    residue = (plan or {}).get("residue") or {}
+    rows = residue.get("history_rows")
+    if rows is None:
+        print(f"live_seed: RESIDUE UNKNOWN - could not read /api/history, so "
+              f"whether this host still holds {SEED_MARKER} history rows is "
+              f"undetermined. {RESIDUE_NOTE}", file=sys.stderr)
+    elif rows:
+        print(f"live_seed: RESIDUE - {rows} {SEED_MARKER} history row(s) "
+              f"remain after teardown. {RESIDUE_NOTE}", file=sys.stderr)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description="Seed synthetic INPUT for the live checks (marked, reversible).")
@@ -528,6 +841,22 @@ def main(argv=None) -> int:
     parser.add_argument("--login", action="store_true",
                         help="create a fixture-login site and trigger BD's real login")
     parser.add_argument("--teardown", action="store_true", help="remove marked entries")
+    # OPT-IN, NOT DEFAULT-ON, and the reasoning is the reason it is written
+    # here rather than assumed. --seed's documented contract is "place URLs";
+    # an operator hand-running it (and the tests that drive it) would suddenly
+    # be starting real downloads and blocking for up to --start-timeout on a
+    # verb that has never done either. capture.sh is the caller that wants the
+    # queue drained, and it asks for it explicitly, in one greppable place,
+    # visible in 05a_live_seed.log. A flag nobody passes would be a feature
+    # nobody has, so the capture wiring ships in the same cut.
+    parser.add_argument("--start", action="store_true",
+                        help="start the seeded site and wait for its jobs to "
+                             "reach terminal states (modifies --seed)")
+    parser.add_argument("--start-timeout", type=float,
+                        default=DEFAULT_SETTLE_TIMEOUT,
+                        help=f"seconds to wait for the seeded queue to settle "
+                             f"(default {DEFAULT_SETTLE_TIMEOUT:g}); a timeout "
+                             f"is reported per URL and exits non-zero")
     parser.add_argument("--count", type=int, default=3)
     parser.add_argument("--site-id", default=None)
     parser.add_argument("--dry-run", action="store_true",
@@ -540,9 +869,12 @@ def main(argv=None) -> int:
         parser.error("choose --seed, --login or --teardown")
 
     client = Client(args.base_url)
+    unsettled = None
     try:
         if args.teardown:
-            print(json.dumps(teardown(client, dry_run=args.dry_run), indent=2))
+            plan = teardown(client, dry_run=args.dry_run)
+            print(json.dumps(plan, indent=2))
+            _report_residue(plan)
         elif args.seed or args.login:
             if not args.dry_run:
                 preflight(client, force=args.force)
@@ -559,8 +891,22 @@ def main(argv=None) -> int:
             plans = []
             try:
                 if args.seed:
-                    plans.append(seed_queue(client, args.count, site_id=args.site_id,
-                                            dry_run=args.dry_run))
+                    seeded = seed_queue(client, args.count, site_id=args.site_id,
+                                        dry_run=args.dry_run)
+                    plans.append(seeded)
+                    if args.start:
+                        # Same `finally` discipline as above: appended BEFORE
+                        # the wait can raise, so a refusal mid-start still
+                        # prints the seed that succeeded.
+                        started = start_and_settle(
+                            client, seeded.get("site_id"),
+                            seeded.get("urls") or [],
+                            timeout=args.start_timeout,
+                            dry_run=args.dry_run)
+                        plans.append(started)
+                        settle = started.get("settle") or {}
+                        if not args.dry_run and not settle.get("settled", False):
+                            unsettled = settle
                 if args.login:
                     plans.append(seed_login(client, dry_run=args.dry_run))
             finally:
@@ -577,6 +923,24 @@ def main(argv=None) -> int:
     except SeedRefused as exc:
         print(f"live_seed: REFUSED - {exc}", file=sys.stderr)
         return 2
+    if unsettled is not None:
+        # A timeout reported as success is an unknown laundered into an OK,
+        # and capture.sh reads this exit code. Name every URL and the status
+        # it was last seen in, so the log says what actually happened rather
+        # than that something did not.
+        lines = [
+            f"live_seed: TIMEOUT - the seeded queue did not settle within "
+            f"{unsettled.get('timeout_seconds')}s "
+            f"({unsettled.get('polls')} poll(s), "
+            f"queue_readable={unsettled.get('queue_readable')}). "
+            f"L11/L12/L14 will report on whatever DID complete:"
+        ]
+        for url in unsettled.get("unresolved") or []:
+            state = (unsettled.get("per_url") or {}).get(url) or {}
+            lines.append(f"  {url} -> {state.get('status', '?')} "
+                         f"{state.get('note') or state.get('message') or ''}".rstrip())
+        print("\n".join(lines), file=sys.stderr)
+        return 3
     return 0
 
 

@@ -752,11 +752,31 @@ if [ -f "$BD_HOME/tools/live_seed.py" ] && [ -f "$BD_HOME/tools/fixture_site.py"
     # about a hazard teardown does not actually have.
     _seed_force=""
     [ "${BD_SEED_FORCE:-0}" = "1" ] && _seed_force="--force"
-    if venv/bin/python tools/live_seed.py --seed --login --count 3 $_seed_force \
+    # --start is what makes L11 / L12 / L14 exercisable AT ALL. They gate on a
+    # COMPLETED download, and until now nothing anywhere started one: the
+    # seeder placed URLs and stopped, so the last capture found them sitting in
+    # `waiting` with `running=0` and all three checks reported "no completed
+    # downloads yet" — which reads as BD failing to download, when BD was never
+    # asked to. live_tests/ structurally cannot ask (Context is read-only by
+    # design), so the seeder does.
+    #
+    # It only ever starts a site whose NAME carries the marker — the same
+    # predicate teardown uses — so an operator site is never drained, and it
+    # refuses outright if it cannot prove ownership.
+    #
+    # --start-timeout is explicit rather than defaulted because THIS is the
+    # unattended caller: the number a reader needs is the one bounding the
+    # capture, and it belongs where they will look for it. The fixture serves
+    # 4-16 KB files, so the normal path settles in seconds; the bound is for
+    # the abnormal one. A timeout exits non-zero and is reported per URL, which
+    # lands in the `else` branch below as a warning, not a capture failure.
+    if venv/bin/python tools/live_seed.py --seed --start --start-timeout 180 \
+         --login --count 3 $_seed_force \
          > "$OUT/05a_live_seed.log" 2>&1; then
       SEEDED=1
-      echo "  seeded 3 marked URLs + fixture login — queue and auth checks are"
-      echo "  exercising SYNTHETIC input; see $OUT/05a_live_seed.log"
+      echo "  seeded 3 marked URLs + started the queue + fixture login — queue"
+      echo "  and auth checks are exercising SYNTHETIC input;"
+      echo "  see $OUT/05a_live_seed.log"
     else
       # A refusal can still have created something before it stopped, so mark
       # the run as seeded regardless -- teardown is idempotent and removing
