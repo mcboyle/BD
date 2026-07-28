@@ -1,4 +1,4 @@
-<!-- verified-against: v3.66.276 -->
+<!-- verified-against: v3.66.818 -->
 # BulkDownloader — Project operating instructions
 
 How to work in this project. Pairs with the newest `KB_HANDOFF_v3_66_*.md` from
@@ -44,26 +44,43 @@ templates · using signed or expiring URLs as reusable patterns.
 
 ## 1. Bootstrap a fresh sandbox
 
+> **Scope note (re-derived 2026-07-28, tree at v3.66.818):** this section
+> describes the pre-git **upload-set** sandbox bootstrap. The project is now a git
+> checkout, and none of `/mnt/project`, `/mnt/user-data`, `/home/claude/work`,
+> `setup.sh`, `STATE.json` or `version.zip` exist in this repository. Re-derive
+> before following any step below; do not paste these paths.
+
 The kit mechanics are proven and unchanged:
 
-1. `bash /mnt/project/setup.sh` (or `/mnt/user-data/uploads/setup.sh`) — picks up
-   the patched `bd-install`.
+1. (RETIRED) The upload-set bootstrap began by running `setup.sh` from the mounted
+   project/uploads directory to pick up the patched `bd-install`. No `setup.sh`
+   ships in this repository and those mounts do not exist; on a git checkout there
+   is nothing to run at this step.
 2. `bd-install` — lands the kits (expect **20/20**) and **REFRESHES** the source
    tree in `/home/claude/work/` from the highest-version uploaded zip every run
    (preserving `frontend/node_modules`). Picks the source zip by **content**
    (looks for `bulk_downloader/__init__.py` inside) and highest embedded version,
    so handoff/runbook zips can sit in uploads without interfering. Auto-unwraps the
-   double-wrapped `bulkdl_bdutils_kit.zip` and handles the BDUTILS chmod issue (see
-   `BDKIT_FIXES.md`). (The old "extract only if work/ absent" guard is gone — it let
+   double-wrapped `bulkdl_bdutils_kit.zip` and handles the BDUTILS chmod issue.
+   (The old "extract only if work/ absent" guard is gone -- it let
    a stale image-staged tree shadow the uploaded zip.)
 3. **`bd-preflight`** — assert the work tree matches the source zip byte-for-byte
    (version, every tracked file, node_modules/package-lock). Run this FIRST after
    bd-install; it hard-fails on a stale `frontend/src`. Add `--determinism` before a cut.
-4. **`bd-state`** — assert the pack's `STATE.json` pin matches the zip: **full-zip sha256** (the binding identity check, added v3.66.276), version, file-count, and the 7 guard SHAs. (A guard/version match on a *sha-mismatched* same-named zip is exactly the off-pin trap the sha gate now catches.)
+4. **`bd-guardcheck`** -- assert the 7 release-guard SHAs against `guards.json`, the
+   repo-root **single source of truth**. It prints the baseline path it used and an
+   `N ok, N drifted, N missing, N unpinned` summary; a zero-in-every-bucket summary
+   is a **failure signal, not a pass** (it could not see the files it certifies).
+   *(Historic: `bd-state` pinned the per-session pack's `STATE.json` against the
+   source zip -- full-zip sha256, version, file-count and the 7 guard SHAs. There is
+   no `STATE.json` in this repository; that check belonged to the pre-git upload-set
+   workflow.)*
 5. `bd-status` — expect 20/20 kits OK, services up.
-6. Version check: `bd -c 'cd /home/claude/work && python3 -c "from
-   bulk_downloader import __version__; print(__version__)"'` — should match the
-   uploaded source zip.
+6. Version check, from the repository root:
+   `venv/bin/python -c "from bulk_downloader import __version__; print(__version__)"`.
+   The interpreter is **`venv/bin/python`** (3.12, project deps installed) -- bare
+   `python3` in the cloud container is 3.11 **without** the project dependencies,
+   and there is no `.venv`.
 
 `bd <cmd>` runs anything with full env + background services (replaces the old
 12-line export block from `SANDBOX.md §0`). `bash_tool` is **`/bin/sh` (dash)** —
@@ -127,7 +144,7 @@ per-session compaction count and record the session total in KB_HANDOFF at close
 Project knowledge holds only **version-agnostic** files (charter, goals,
 automation policy, these operating instructions, sandbox, schemas, the kit
 scripts + bdkit docs, the capture runbook, `README_KB.md`, the version-agnostic
-`bd_starting_message.txt` + `KB_ACTIVE_INDEX.md`, `Manifest.md`, the consolidated
+`bd_starting_message.txt` + `KB_ACTIVE_INDEX.md`, `STATIC_KB_MANIFEST.json`, the consolidated
 `ADVANCED_PROJECT_KNOWLEDGE.md` + its `DANGER_MAPv2.md` invariant registry, and the durable
 reference cards 2/3/4/6/7/8/9/10). It is **set once** and changed only when one of
 those docs genuinely changes — never on a routine release.
@@ -144,7 +161,8 @@ only" is then enforced by *what you attached this session*, not by editing proje
 knowledge — so a stale handoff can't override current state. **Guard:** the
 bootstrap halts if no `KB_HANDOFF_v3_66_*.md` is present in uploads (the
 `version.zip` wasn't attached) — never proceed from static project knowledge
-alone. If packs change, update `Manifest.md` in project knowledge that release.
+alone. If packs change, update `project-knowledge/STATIC_KB_MANIFEST.json` that
+release -- there is no `Manifest.md` in this repository.
 
 ## 3. How Matt works
 
@@ -153,8 +171,13 @@ alone. If packs change, update `Manifest.md` in project knowledge that release.
 - **Honest over optimistic.** Never claim something passed/shipped without
   verifying. Flag limits plainly (e.g. browser/noVNC and cockpit UI
   click-throughs aren't sandbox-testable).
-- **Deploys via `unzip -o` overlay + `sudo systemctl restart`**, NOT git.
-- **Matt also overlays files himself**, so the work tree and stash can diverge —
+- **Deploys via git.** On stash: `git fetch origin main && git reset --hard
+  origin/main`, then the post-deploy steps, then `sudo systemctl restart
+  bulkdownloader`. Deletions propagate natively -- there is **no zip overlay and no
+  zip fallback**, so the `unzip -o` orphan class cannot occur. What git does **not**
+  do for you is in the **Deploy** runbook (section 4) -- that is the canonical list; do not
+  restate it here or it becomes a second denominator that drifts.
+- **Matt also edits files on the box himself**, so the work tree and stash can diverge --
   report divergence candidly rather than assuming the tree is authoritative.
 - **Stash is headless** (no display); the venv has Flask/Playwright, system
   `python3` does not — but the chain CLIs (build/normalize/promote) are
@@ -164,11 +187,16 @@ alone. If packs change, update `Manifest.md` in project knowledge that release.
 ## 4. Release checklist
 
 1. Change + tests green.
-2. Bump version as a **3-part edit landed together** (see reference card #3): `bulk_downloader/__init__.py`
-   **line 26** `__version__` + `CHANGELOG.md` top `## vX.Y.Z` + any version-pinned test (currently
-   `tests/test_settings_center_slice4.py`). `grep -rnE '__version__ *== *"3\.66\.' tests/` each release —
-   don't trust the pin list to stay at one entry.
-3. Regen `FUNCTION_INDEX.md` (`python tools/build_function_index.py`) **only if** a function was added/renamed
+2. Bump version as a **3-part edit landed together** (see reference card #3):
+   `bulk_downloader/__init__.py` `__version__` (locate it **by name** -- the line number
+   moves, so never cite one) + `CHANGELOG.md` top `## vX.Y.Z` + any version-pinned test
+   (currently `tests/test_settings_center_slice4.py`). Re-derive the pin list each
+   release with `grep -rnE '__version__ *== *"3\.66\.' tests/` -- but note the grep
+   **over-matches**: only `tests/test_settings_center_slice4.py` is a real pin; hits
+   inside `test_release_hygiene_gates.py` and `test_scan_version_pins_fixture.py` are
+   fixture **string literals** and must NOT be edited. `bd-versync` applies the
+   allowlist for you.
+3. Regen `FUNCTION_INDEX.md` (`venv/bin/python tools/build_function_index.py`) **only if** a function was added/renamed
    in `app.py` or `runner.py` (it tracks only those two files' line numbers — cockpit/blueprint page funcs are
    NOT tracked, so a new cockpit page usually leaves it unchanged; confirm it stays in-sync).
 4. Regen the other in-sync docs **if a route changed** (a GUI-parity write cut touches all of these):
@@ -187,7 +215,14 @@ alone. If packs change, update `Manifest.md` in project knowledge that release.
    `KB_HANDOFF` (the per-release baseline lives there, not hard-coded here, so a *declared* guard change updates
    the baseline cleanly). NOTE: this is distinct from the **5 ASI-separator checks** that
    `test_dom_recorder_asi.py` exercises (reference card #2) — same word "guard," different, narrower set.
-7. **Verify from the extracted/built zip**, never from the work tree alone: run the band from the extracted
+7. **UNRESOLVED (2026-07-28) -- needs an operator answer before this step is trusted:**
+   the box no longer consumes a release zip (deploy is `git reset --hard`), so
+   "verify from the extracted zip" may now gate an artifact nobody deploys. The zip
+   machinery is still alive in the tree (`tools/build_release.py` is still a pinned
+   guard; `tools/verify_release.py` still exists). Is a zip still produced for
+   archival, or is the git commit now the release? Do not rewrite this step on a
+   guess. As written:
+   **Verify from the extracted/built zip**, never from the work tree alone: run the band from the extracted
    zip AND run `tools/verify_release.py --zip <zip>` and confirm `RESULT: PASS` (banner/version_consistency
    gate — `build_release`'s pin-scan does not catch a stale banner; see reference card #2). It exits 1 on FAIL /
    0 on PASS, so gate on `$?` (not on a piped `tail`/`grep`); benign notes are the reptyle-draft status and
@@ -205,36 +240,72 @@ zip layout = the
 137-base zip path-list ∪ work-tree walk (`bulk_downloader tests tools docs kb
 live_tests extension frontend/src frontend/dist scripts templates` + root
 `*.md`/`*.txt`; excludes `__pycache__`/`.pyc`/`node_modules`/`venv`); **tree
-wins**. Produces ~7.9M / ~1078 files. Expect **3 "missing"** = stale 137 dist
-hashes; the tree ships the live hashes. (Output is the flat-layout zip in
-outputs.)
+wins**. **Measure the size/file-count at build time -- do not quote one.** (The
+former "~7.9M / ~1078 files" figure was current at v3.66.276 and is well below the
+current tree; `tests/` alone now holds more than 1100 `test_*.py`.) Expect **3
+"missing"** = stale 137 dist hashes; the tree ships the live hashes. (Output is the
+flat-layout zip in outputs.)
 
 ### Deploy
-- **Overlay update:** verify the zip's sha256, then `unzip -o <zip>` over
-  `~/BulkDownloader`, **clear bytecode caches**, restart, and **confirm the running
-  version**:
+
+**This is the canonical deploy runbook. Other docs should point here, not restate
+it** -- a second copy of the list below is a second denominator, and the copy nobody
+updated is the one the box runs.
+
+**The deploy is pure git.** `git fetch origin main && git reset --hard origin/main`.
+Deletions propagate natively, so the `unzip -o` orphan class (a file deleted in a
+cut that keeps living on the box and trips the disk-globbing graph gates) **cannot
+occur**, and `bd-deploy-manifest` / `tools/deploy_manifest.py` have no hazard left to
+guard against on this path.
+
+**A git deploy moves files. It does not make the running system match them.** Every
+step below closes a gap between "the checkout changed" and "the process serves the
+change". **None of them was ever a property of the overlay**, so none of them went
+away when the overlay did -- and this list is a **condition set, not a fixed count**:
+if you find another way the running system can lag the tree, add it here.
+
+- **Update:**
   ```
-  # v3.66.718 -- FIRST, if this cut DELETED any file. `unzip -o` NEVER removes, so a
-  # deleted file keeps living on stash; the graph gates GLOB THE DISK, so the orphan is
-  # scanned as live source and trips the frozen baseline. The release zip can be CORRECT
-  # and stash still goes RED (bit @718: app_sched_exports.py, deleted @716 -> 3 failures).
-  # bd-deploy-manifest ships in the SANDBOX bdsuite, not on stash -- generate the rm lines
-  # there and paste them here:
-  #     bd-deploy-manifest --zip <release.zip> --script      # in the sandbox
-  #     <paste the emitted `rm -f ...` lines>                # on stash
-  cd ~/BulkDownloader && unzip -o <zip>
+  cd ~/BulkDownloader && git fetch origin main && git reset --hard origin/main
+
+  # [1] git does NOT clear bytecode. `git reset --hard` leaves stale .pyc exactly
+  #     as `unzip -o` did.
   find ~/BulkDownloader -name '__pycache__' -type d -prune -exec rm -rf {} +
   find ~/BulkDownloader -name '*.pyc' -delete
+
+  # [2] git does NOT refresh GITIGNORED generated artifacts, and `git clean -fd`
+  #     will not remove them either -- that needs -x. A stale
+  #     reports/gui_parity_inventory.json reads as parity drift and fails the
+  #     ENTIRE suite (seen at v3.66.818 on an otherwise-green 13389-pass run).
+  #     REGENERATE, don't delete: install_linux.sh / capture.sh /
+  #     scripts/provision_test_host.sh all regenerate it.
+
+  # [3] git does NOT deliver frontend/dist/ AT ALL. `git ls-files frontend/dist`
+  #     returns zero files and frontend/.gitignore ignores dist/. app.py serves a
+  #     uniform 503 for /m2 when it is missing, so a missing or stale bundle is a
+  #     SILENT 503 on the SPA. Rebuild whenever SPA source changed:
+  cd ~/BulkDownloader/frontend && npm ci && npm run build && cd ~/BulkDownloader
+
+  # [4] git does NOT restart the service.
   sudo systemctl restart bulkdownloader
+
   curl -s localhost:5555/api/health        # CONFIRM "version" flipped to the new release
   ```
-  Exclude `tools/cockpit_console.py ENDPOINT_CATALOG.md` if Matt has live cockpit edits.
-  - **Why the cache clear is load-bearing:** an overlaid `.py` with an mtime *older*
+  - **Why the cache clear is load-bearing:** a `.py` landing with an mtime *older*
     than an existing `__pycache__/*.pyc` makes CPython run the **stale** bytecode.
     Observed at v3.66.161 (on-disk `__init__.py`=161 but `/api/health` reported 160,
     and `changelog_lint` resolved a stale `_read_version()`) until caches were cleared.
-- **Fresh install:** unzip the full tree + clear caches (harmless if none) + restart.
-  No exclude needed.
+  - **Historic (zip-overlay era, retired):** at v3.66.718 `app_sched_exports.py`,
+    deleted at 716, kept living on stash because `unzip -o` never removed it; the
+    graph gates glob the disk and the ghost edge tripped the frozen baseline for 3
+    failures against a release zip that was itself correct. The git deploy removes
+    that failure class. Keep the record; do not re-add the `rm -f` paste step.
+  - If Matt has live cockpit edits on the box, `git reset --hard` will discard them --
+    confirm before resetting (this used to be the `tools/cockpit_console.py
+    ENDPOINT_CATALOG.md` overlay-exclude).
+- **Fresh install:** clone, then run the same four steps (cache clear is harmless if
+  there is nothing to clear; the frontend build is **not** optional -- a fresh clone
+  has no `frontend/dist/`).
 - **Always confirm `/api/health` reports the new version before trusting any
   post-deploy test run.** A green suite against a stale process is worthless.
 - **Service venv is `venv/` (NOT `.venv/`).** `ExecStart` =
@@ -247,28 +318,42 @@ outputs.)
   venv/bin/python -c "from bulk_downloader import cloak; print(cloak.resolve_backend())"   # expect cloakbrowser
   venv/bin/python -m cloakbrowser info
   ```
-- **Rollback:** `python tools/rollback.py --archive <ver> --from <zip>`.
-- Open question to close: does `./capture.sh` clear pycache? If not, add the cache-clear
-  there too so the capture/verify helper can't run against a stale process.
+- **Rollback:** on stash, `git reset --hard <known-good-sha>`, then re-run the same
+  post-reset steps (clear caches, refresh gitignored artifacts, rebuild
+  `frontend/dist/` if the SPA differs at that sha, restart, confirm `/api/health`).
+  (`venv/bin/python tools/rollback.py --archive <ver> --from <zip>` still exists and
+  still accepts those flags, but it presumes the retired zip path -- under a git
+  deploy it is the exception, not the route.)
+- **`./capture.sh` DOES clear pycache** (open question closed): step [0] purges
+  `__pycache__`/`*.pyc` before any other step (`capture.sh` ~L176-177, header comment
+  ~L9-11 citing the v3.66.161 footgun), so the capture/verify helper cannot run
+  against stale bytecode.
 
 ## 5. Sandbox footguns (test + env)
 
 - **Test runner is custom, not pytest CLI:**
   ```
   timeout 90 env BD_HOME=$(mktemp -d) BD_DISABLE_KEEPALIVE=1 \
-    PYTHONPATH=/tmp/prestaged_site_packages \
-    PLAYWRIGHT_BROWSERS_PATH=/home/claude/.cache/ms-playwright \
-    python3 run_tests.py tests/<file>
+    venv/bin/python run_tests.py tests/<file>
   ```
+  The interpreter is **`venv/bin/python`** (3.12, project deps). Bare `python3` here
+  is 3.11 **without** the project dependencies -- a full band was once measured on it
+  and reported seven failures that did not exist. Add `PYTHONPATH` /
+  `PLAYWRIGHT_BROWSERS_PATH` only if the environment you are actually in provides
+  those paths -- `/tmp/prestaged_site_packages` does not exist in the current
+  container. Re-derive; do not paste.
   It **chdirs to a temp dir per run** → tests derive repo root from
   `Path(__file__).resolve().parent.parent`. No pytest builtins injected (no
   `tmp_path` → use `tempfile.mkdtemp`); zero-arg test functions; `monkeypatch`
-  unreliable → restore module globals in `try/finally`. `prestaged_site_packages`
-  **has Flask** (test client works in-runner).
+  unreliable -> restore module globals in `try/finally`. (Historic: the retired
+  `prestaged_site_packages` staging area carried Flask, so the test client worked
+  in-runner; under `venv/bin/python` Flask comes from the venv.)
 - **`run_tests.py tests/` (whole dir) HANGS** at `test_perf_lab.py`. Run targeted
   suites in small batches. Don't `pkill -9 run_tests`.
-- **`test_v3_66_146_nav_guard` times out (>200s) in the sandbox** — known, not a
-  regression.
+  (There is **no** `test_v3_66_146_nav_guard.py` -- the only 146-family files are
+  `test_v3_66_146_detection_safety.py` and `test_v3_66_146_runtime_gate.py`. A
+  previous edition of this list warned off that phantom name; if a 146-family test
+  really does hang, re-derive which one rather than inheriting the name.)
 - **`bash_tool` now HAS outbound internet** (DNS + HTTPS; `pip`/`npm`/`curl` reach
   PyPI/npm/GitHub — verified live). **Headless browser automation is ALSO now
   sandbox-capable** (verified @535): a staged headless chromium drives real pages

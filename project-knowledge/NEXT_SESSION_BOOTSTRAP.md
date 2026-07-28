@@ -18,10 +18,14 @@ ones already paid for. Companion: `LESSONS_LEARNED_v3_66_811.md`.
 > - `./venv` MUST be Python 3.12 (the box/CI interpreter). If it is 3.11,
 >   rebuild it before any graph/parity regen (a 3.12-only f-string silently
 >   drops edges under 3.11).
-> - `reports/gui_parity_inventory.{json,md}` is GENERATED + gitignored. If you
->   add any `tools/*.py`, regenerate it (`./venv/bin/python
->   tools/gui_parity_inventory.py`) before cutting a `.zip` -- the build gate
->   only checks route counts, so a new tool ships stale and fails the box.
+> - `reports/gui_parity_inventory.{json,md}` is GENERATED + gitignored, and
+>   `git clean -fd` will NOT remove a stale copy (that needs `-x`). If you add any
+>   `tools/*.py`, regenerate it: `./venv/bin/python tools/gui_parity_inventory.py`.
+>   `capture.sh`, `install_linux.sh` and `scripts/provision_test_host.sh`
+>   regenerate it too, but a stale copy left in your work tree still reads as
+>   parity drift and fails the ENTIRE suite (observed at v3.66.818 as a single
+>   failure, `only-regen=['pytest_capture_results']`, on an otherwise-green
+>   13389-pass run). Deploy moves files; it does not refresh this artifact.
 > - A merged PR is finished: restart the branch from `origin/main` for
 >   follow-up work; never stack on merged history or rewrite the merge commit.
 > - Sanctioned targets only; DETECT never SOLVE; secret-hygiene; every mutation
@@ -89,7 +93,7 @@ $PY tools/config_surface_inventory.py --check          # open_runtime_tunable mu
 for t in build_endpoint_catalog build_function_index dependency_graph \
          check_route_counts capture_model_golden; do $PY tools/$t.py --check; echo "$t=$?"; done
 
-# regen the gitignored inventory after adding a tools/*.py, THEN rebuild the zip:
+# regen the gitignored inventory after adding a tools/*.py (deploy does NOT refresh it):
 $PY tools/gui_parity_inventory.py
 
 # band a change (derive it, do not guess) -- never run the whole tests/ dir:
@@ -99,7 +103,10 @@ grep -rl "<changed_module>" tests/        # then pytest only those files
 #   start wired service + poll readiness + probe + teardown, all in a single bash block.
 ```
 
-## THINGS THAT ARE ALREADY DONE (do not redo)
+## THINGS THAT WERE ALREADY DONE as of v3.66.811 (do not redo)
+
+This list is a snapshot, NOT current state -- much more has landed since. For what
+is done now, read `CHANGELOG.md` and the merged PR list, not this section.
 
 - `scripts/cloud-setup.sh` installs the lot and now (a) sets the git identity and
   (b) rebuilds `./venv` on 3.12 if a stale 3.11 venv is present.

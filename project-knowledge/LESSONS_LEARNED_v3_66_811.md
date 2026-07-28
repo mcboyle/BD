@@ -25,6 +25,9 @@ box-only failure).
   With `./venv` on 3.12 there is no separate "3.12 venv" to remember --
   `./venv/bin/python` IS the box interpreter. (This session had to use a
   hand-built `/tmp/venv312` only because `./venv` came up 3.11.)
+- (That specific file was fixed at v3.66.818 -- see `LESSONS_LEARNED_v3_66_818.md`
+  sections 3 and 10. The interpreter rule stands: `./venv` is 3.12 and IS the box
+  interpreter; there is no `.venv`, and a command naming one exits 127.)
 
 ## 2. reports/gui_parity_inventory.{json,md} is GENERATED + GITIGNORED
 
@@ -39,11 +42,17 @@ bundled into the release `.zip`.
   test_shipped_inventory_matches_live_regen_itemset` catches it on the box
   (`only-regen=['<newtool>']`). That is exactly how v3.66.811 shipped a `.zip`
   carrying `opv_guide_lint.py` next to a pre-`opv_guide_lint` inventory.
-- FIX, every time you add a `tools/*.py` before a cut:
-  `./venv/bin/python tools/gui_parity_inventory.py` (regenerates json + md), then
-  rebuild the `.zip`. Nothing to commit -- the artifact is gitignored.
-- Diagnose by inspecting the actual `.zip`, not the summary:
-  `unzip -j <zip> '*gui_parity_inventory.json' -d /tmp/x` then check the item-set.
+- FIX, every time you add a `tools/*.py`:
+  `./venv/bin/python tools/gui_parity_inventory.py` (regenerates json + md).
+  Nothing to commit -- the artifact is gitignored, which is exactly why no deploy
+  ever refreshes it.
+- Diagnose by inspecting the actual artifact, not the summary: read the item-set
+  out of the deployed tree's `reports/gui_parity_inventory.json`. (In 2026-07 this
+  meant `unzip -j <zip> '*gui_parity_inventory.json' -d /tmp/x` against the release
+  zip; the box now deploys by `git fetch origin main && git reset --hard
+  origin/main`, operator-confirmed 2026-07-27, so read the file on disk instead.
+  The trap is unchanged either way: `git reset --hard` does not regenerate a
+  gitignored artifact and `git clean -fd` does not remove one -- that needs `-x`.)
 
 ## 3. The render-gap: "full exposure" that renders nothing
 

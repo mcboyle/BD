@@ -73,12 +73,15 @@ in `TASK_TRACKER`, not here.
   source-decorators == inventory == test-pin).
 - **spa_wired / gui_parity** -- whether an endpoint has a SPA caller; `gui_parity_inventory`
   tracks it (and auto-discovers every `tools/*.py`). Wiring must use full `/api/...` literals.
-- **3-part bump** -- a version bump landed together: `__init__.py` line 26 + `CHANGELOG.md` top +
-  any version-pinned test.
+- **3-part bump** -- a version bump landed together: `bulk_downloader/__init__.py::__version__` +
+  `CHANGELOG.md` top + every version-pinned test (`tests/test_settings_center_slice4.py` today --
+  re-derive the pin list with `grep -rnE '__version__ *== *"3\.66\.' tests/`, never assume one).
 - **verify_release / tree==zip** -- the post-build gate; enforces that the zip == the work tree
   (so no build-only side-files). The in-zip `STATE.json` is NON-authoritative.
-- **precut_check / make_overlay** -- tools that forecast the gates before a bump and derive the
-  deploy overlay (so it can't under-deploy).
+- **precut_check / make_overlay** -- `tools/precut_check.py` forecasts the gates before a bump.
+  `tools/make_overlay.py` derived the deploy overlay under the pre-git `unzip -o` model; the box
+  now deploys via `git reset --hard`, so the overlay path is historical -- the file still exists,
+  but nothing in a normal cut needs it.
 
 ## Architecture & decomposition
 
@@ -112,11 +115,22 @@ in `TASK_TRACKER`, not here.
 - **awaiting_operator** -- built + sandbox-green, but needs live-stash verification (not
   sandbox-testable: noVNC click-throughs, capture runs, week-long soaks).
 - **stash** -- the headless production host (mboyle@10.0.70.20) running the systemd
-  `bulkdownloader` service. Deploys via `unzip -o` overlay + cache clear + restart.
+  `bulkdownloader` service. Deploys via git: `git fetch origin main` + `git reset --hard
+  origin/main` + restart. Deletions propagate natively, so there is no zip overlay and no
+  orphan class to reconcile. **Moving the files is not the whole deploy:** anything the
+  checkout does not itself refresh is still yours to do -- `__pycache__/*.pyc` are NOT
+  cleared by `git reset --hard`; gitignored generated artifacts (e.g.
+  `reports/gui_parity_inventory.json`) are NOT refreshed and survive `git clean -fd`
+  (removing them needs `-x`) -- regenerate rather than delete; the service is NOT
+  restarted; and `frontend/dist/` is NOT tracked at all (`git ls-files frontend/dist` ->
+  0 files), so a missing or stale SPA bundle is served as a silent 503 -- rebuild with
+  `cd frontend && npm ci && npm run build` whenever SPA source changed. Treat that as a
+  condition to re-derive, not a fixed-length checklist.
 - **bd-* toolchain** -- the session scripts (`bd-boot`, `bd-install`, `bd-preflight`, `bd-state`,
   `bd-cut`, `bd-band`, `bd-render`, `bd-handoff`, `bd-pack`, ...). `bd <cmd>` runs anything with
   full env + background services.
 - **STATE.json / version.zip / pack** -- the machine-readable pin (`STATE.json`) + the per-session
   bundle of volatile current-state docs (`version.zip` / "the pack"), regenerated at session close.
-- **the work tree** -- `/home/claude/work/`, refreshed from the highest uploaded source zip each
-  bootstrap; Claude stages here and NEVER deploys.
+- **the work tree** -- the git checkout the session works in (this session: `/home/user/BD`;
+  re-derive it, do not assume the path), synced from `origin/main`. Claude stages and commits
+  here and NEVER deploys. There is no uploaded-source-zip bootstrap.

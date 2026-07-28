@@ -146,7 +146,7 @@ stale it, not just `requirements-cloak.txt`) · the source zip · `version.zip`
 | tool | what | key flags |
 |---|---|---|
 | **bd-ready** | 7-gate preflight (aggregates the rest) | — (advisory, never mutates) |
-| bd-guardcheck | 7 guard SHAs vs STATE baseline | `--state` (else auto-resolves from newest version-pack zip) |
+| bd-guardcheck | 7 guard SHAs vs the repo-root `guards.json` baseline | `--guards <path>` to override; `--state` is the legacy version-pack fallback |
 | bd-versync | 3-part version consistency (fixture-aware) | — |
 | bd-changelog | top entry matches version + ASCII + non-empty | — |
 | bd-ascii | non-ASCII/emoji scan (the gate that hit ×3) | `bd-ascii <file>` |
@@ -234,7 +234,8 @@ Use **`bd-bump 3.66.N --title "…"`** (`--check` shows the plan; `--write` appl
 3. `CHANGELOG.md` — prepend `## v3.66.N - …`, **ASCII-only** (the on-stash gate
    rejects emoji/non-ASCII), anchored on the previous `## v…` header.
 
-Then `python3 tools/build_pin_index.py`. Verify with `bd-versync && bd-changelog`.
+Then `venv/bin/python tools/build_pin_index.py`. Verify with
+`bd-versync && bd-changelog`.
 
 > **SPA build note:** for FE-changing cuts, `build_release.py --prebuild-spa --out
 > <dir>` — the `--prebuild-spa` flag runs the full vitest suite internally (it can
@@ -245,23 +246,25 @@ Then `python3 tools/build_pin_index.py`. Verify with `bd-versync && bd-changelog
 
 ## 8. Guard discipline
 
-Seven files are byte-pinned in `STATE.json` `guards_full_sha256` and must stay
-identical unless Matt explicitly declares a new SHA:
+Seven files are byte-pinned in `guards.json` at the repo root (the single source of
+truth, hashed from the files) and must stay identical unless Matt explicitly
+declares a new SHA:
 `bulk_downloader/extraction_core.py`, `session_capture.py`, `dom_capture.py`,
 `dom_recorder.py`, `capture_bodies.py`, `tools/capture_session.py`,
 `tools/build_release.py`.
 
-- **`bd-guardcheck`** — live SHA vs the STATE baseline (a drift is a release
-  blocker). Instant "are my guards intact?"
+- **`bd-guardcheck`** — live SHA vs the `guards.json` baseline (a drift is a release
+  blocker). Instant "are my guards intact?" A summary that is zero in every bucket
+  (`0 ok, 0 drifted, 7 missing`) is a failure signal, not a pass -- the gate could
+  not see the files it certifies.
 - **`bd-guard-declare`** — declare an intentional guard change + bump the pinned SHA.
-- On overlay deploy: **overlay cannot delete** — never `rm` on overlay-only cuts.
 
 ---
 
 ## 9. Test discipline
 
-- **NEVER run the whole `tests/` dir** — it hangs (`test_perf_lab.py`;
-  `test_v3_66_146_nav_guard` > 200s). **Don't `pkill -9`** — let timeouts expire.
+- **NEVER run the whole `tests/` dir** — it hangs (`test_perf_lab.py`).
+  **Don't `pkill -9`** — let timeouts expire.
 - Use targeted suites / the per-cut consumer family in small batches. Pick with
   `bd-band-derive`; validate the list with **`bd-bandcheck`**; run with
   `bd-band`.
@@ -273,7 +276,7 @@ identical unless Matt explicitly declares a new SHA:
     python3 run_tests.py tests/<file>
   ```
 - **Band-naming trap:** `test_spa_wired_join_is_faithful` is a FUNCTION inside
-  `tests/test_route_index_in_sync.py` (~line 86), not a file — passing it as a path
+  `tests/test_route_index_in_sync.py`, not a file — passing it as a path
   makes the runner fall back to a broad run → timeout → abort. Band the FILE.
 - `test_phases_195_199` leaks `BD_INSTALL_DIR` in single-boot bands — don't co-band
   with `test_cut8_schedules`.
@@ -305,7 +308,8 @@ Regenerate (generators support `--check`; `bd-regen` wraps them):
 
 1. **Build + verify + present the release zip.** `verify_release --zip` — gate on
    the **true `$?`, never through a pipe**. `bd-zipcheck <zip>` for a fast local
-   "is it shippable?" (version, 7 guards vs STATE, CHANGELOG) before you hand it over.
+   "is it shippable?" (version, 7 guards vs `guards.json`, CHANGELOG) before you
+   hand it over.
 2. **STOP. Wait for Matt's stash test + deploy confirmation (`capture.sh
    --workers=180` GREEN).** Do not proceed on your own.
 3. **`bd-handoff --version 3.66.N --zip <built.zip>`** — mechanically repins the
@@ -324,9 +328,34 @@ Regenerate (generators support `--check`; `bd-regen` wraps them):
 
 ## 12. Deploy (Matt's side)
 
-Overlay: `unzip -o <release>.zip` over `~/BulkDownloader` + clear `__pycache__` +
-`sudo systemctl restart bulkdownloader.service`. **Overlay cannot delete files** —
-never rely on `rm`. Confirmation = `capture.sh --workers=180` returning GREEN.
+Git: in `~/BulkDownloader`, `git fetch origin main && git reset --hard origin/main`,
+then `sudo systemctl restart bulkdownloader.service`. **Deletions propagate
+natively** -- no `rm` list is needed, and the overlay orphan class (what
+`bd-deploy-manifest` / `tools/deploy_manifest.py` were built to catch) cannot
+occur. Note that `git reset --hard` also discards any uncommitted operator edit
+on the box.
+
+**Moving the files is not the same as making the running system match them.**
+None of the following were ever properties of the overlay, so none of them went
+away with it. Treat this as a condition to check, not a count to memorize -- the
+list can grow:
+
+- `__pycache__` / `*.pyc` are **NOT** cleared. `git reset --hard` leaves stale
+  bytecode exactly as `unzip -o` did, so Python can serve the OLD version of a
+  file that plainly reads the new one on disk (see `FG-STALE-PYCACHE-AFTER-OVERLAY`
+  in section 18). Clear pycache after every deploy.
+- Gitignored generated artifacts are **NOT** refreshed, and `git clean -fd` will
+  not remove them either -- that needs `-x`. A stale
+  `reports/gui_parity_inventory.json` reads as parity drift and fails the ENTIRE
+  suite. The durable fix is to **regenerate, not delete**.
+- The service is **NOT** restarted by the fetch.
+- `frontend/dist/` is **NOT delivered at all**: `git ls-files frontend/dist`
+  returns nothing and `frontend/.gitignore` ignores `dist/`. `bulk_downloader/app.py`
+  serves a uniform 503 when the bundle is missing, so a missing or stale bundle is
+  a **silent 503 on the SPA** rather than a loud failure. Rebuild with
+  `cd frontend && npm ci && npm run build` whenever SPA source changed.
+
+Confirmation = `capture.sh --workers=180` returning GREEN.
 `bd-verify-live` confirms the deploy landed. The version pack may carry a `kit/`
 overlay so tool changes win at boot (if absent, updated tools ride the PK + bdsuite).
 
@@ -399,7 +428,11 @@ through Matt** — but the collisions that actually hurt are preventable:
 
 - `bash_tool` is **`/bin/sh` (dash)**: fresh shell per call, no arrays / brace
   expansion / process substitution — wrap bash-isms in `bd bash -c "…"`.
-- Always call **`python3`** explicitly (never bare `python`).
+- **The interpreter is `venv/bin/python`, never bare `python3` or `python`.** Both
+  resolve to the container's 3.11 without project dependencies; `venv` is 3.12 and
+  is what the box and CI run. There is no `.venv` -- a command naming it exits 127
+  and the caller silently falls back to 3.11. A full test band was once measured on
+  3.11 and reported seven failures that did not exist.
 - Backend/import checks use the SERVICE venv **`venv/bin/python`** (not `.venv`) —
   system python makes `resolve_backend()` falsely report playwright.
 - **`bd` sets `PYTHONPATH=/tmp/prestaged_site_packages`** (which ships pytest), so
@@ -465,7 +498,7 @@ bd-tools
 bd-ready                       # 7-gate preflight
 bd-regen --write               # if derived docs drifted
 bd-imports --update            # if you added an import edge (same cut)
-bd-bump 3.66.N --title "…" --write ; python3 tools/build_pin_index.py
+bd-bump 3.66.N --title "…" --write ; venv/bin/python tools/build_pin_index.py
 
 # cut
 bd-cut [--skip-fe]             # backend-only -> --skip-fe
@@ -487,6 +520,6 @@ bd-parallel claim --version 3.66.N --item "…" ; bd-parallel check *.json
 
 *Authoritative pointers: `KB_JUDGMENT.md` (§1 failure taxonomy) ·
 `PROJECT_OPERATING_INSTRUCTIONS.md` · `BD_TOOLCHAIN_REFERENCE.md` (full per-tool
-reference) · `Manifest.md` (the upload set) · `SANDBOX_CAPABILITY_LAYER.md`
+reference) · `SANDBOX_CAPABILITY_LAYER.md`
 (what the sandbox can/can't do). When any doc disagrees with the source tree,
 the source wins.*
