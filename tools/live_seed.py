@@ -164,17 +164,43 @@ class Client:
             data = json.dumps(payload).encode("utf-8")
             headers["Content-Type"] = "application/json"
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        # v3.66.819 -- THE STATUS CODE IS NOT NOISE.
+        #
+        # This used to read HTTPError's body and discard exc.code. A POST to a
+        # GET-only route (which /api/queue/v2 is -- app_queue.py:170 declares no
+        # methods=) answers 405 with an HTML error page, so json.loads failed and
+        # the caller received {"ok": False, "error": "non-JSON response: <!doctype
+        # html>..."} -- an error wearing the shape of an ordinary return value,
+        # indistinguishable from a route that replied oddly. requeue_for_dedup
+        # then recorded it and waited for a dedup decision that could not come.
+        #
+        # The status is the one fact that separates 405 (wrong route) from 400
+        # (wrong payload) from a refused connection, so it travels with the body.
+        # Added only on failures: a 2xx keeps its exact previous shape, because
+        # every other call site in this file reads the app's own JSON directly.
+        status = None
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 raw = resp.read().decode("utf-8", "replace")
+                status = getattr(resp, "status", None)
         except urllib.error.HTTPError as exc:
+            status = exc.code
             raw = exc.read().decode("utf-8", "replace")
         except Exception as exc:  # unreachable app, DNS, refused connection
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         try:
-            return json.loads(raw)
+            body = json.loads(raw)
         except ValueError:
-            return {"ok": False, "error": f"non-JSON response: {raw[:200]}"}
+            return {"ok": False, "status": status,
+                    "error": (f"HTTP {status}: non-JSON response: "
+                              f"{raw[:200]}")}
+        if isinstance(body, dict) and status is not None and status >= 400:
+            # setdefault, not assignment: the app's own error bodies already say
+            # ok=False and carry the reason, and that reason is more useful than
+            # anything derivable from the code alone.
+            body.setdefault("ok", False)
+            body["status"] = status
+        return body
 
     def get(self, path: str):
         return self._request("GET", path)
@@ -444,17 +470,32 @@ def ensure_seed_site(client, *, dry_run: bool = False):
     per-run key, so a live check reading history scoped to the seeded site
     cannot certify tonight's run with last night's evidence.
     """
+    return _ensure_owned_site(client, SEED_SITE_NAME, queue_site_config(),
+                              dry_run=dry_run)
+
+
+def _ensure_owned_site(client, name: str, config: dict, *,
+                       dry_run: bool = False):
+    """Exact-name select, delete, recreate -- shared by every site this tool owns.
+
+    Factored out when the dedup fixture was added rather than copied, because
+    the selection rule is the load-bearing part: EXACT NAME, never the marker
+    alone. `_marked_site_ids` matches the marker, and this tool now creates
+    three marked sites (queue, login, dedup); selecting on the marker would let
+    any one of them delete the others, which is the same coin-flip defect that
+    once queued the seeded URLs against the login fixture.
+    """
     ours = [sid for sid in _marked_site_ids(client)
-            if _site_name(client, sid) == SEED_SITE_NAME]
+            if _site_name(client, sid) == name]
     if dry_run:
         return None
     for sid in ours:
         client.delete(f"/api/sites/{sid}")
-    created = client.post("/api/sites", queue_site_config())
+    created = client.post("/api/sites", config)
     sid = (created or {}).get("id") if isinstance(created, dict) else None
     if not sid:
         raise SeedRefused(
-            f"could not create the {SEED_MARKER} fixture site "
+            f"could not create the site named {name!r} "
             f"(response: {str(created)[:200]})"
         )
     return sid
@@ -623,34 +664,124 @@ def wait_for_settle(client, site_id: str, urls, *,
     }
 
 
-def requeue_for_dedup(client, site_id, url, *,
+SEED_DEDUP_SITE_NAME = f"{SEED_MARKER} fixture dedup"
+
+
+def dedup_site_config() -> dict:
+    """Config for the SECOND site, the one the duplicate is queued on.
+
+    Same two opt-outs as queue_site_config, for the same reasons, and one of
+    them matters more here: the file is guaranteed to exist already, because the
+    queue fixture just downloaded it. skip_if_exists
+    (runner_transport.py:794, default True) keys on FILESYSTEM state and is a
+    different mechanism from dedup, which keys on DATABASE state. The preflight
+    runs first so dedup should win regardless -- but with the flag left on, a
+    dedup failure would surface as a silent file-existence skip that looks
+    exactly like success. Explicit False means a dedup failure shows up as a
+    real download instead.
+
+    No download_dir, for the same reason as queue_site_config: this is an HTTP
+    client and --base-url may point at a service with a different BD_HOME, so
+    any path computed here is a guess about somebody else's filesystem.
+    """
+    return {
+        "name": SEED_DEDUP_SITE_NAME,
+        "auto_teach_first_run": False,
+        "skip_if_exists": False,
+    }
+
+
+def ensure_dedup_site(client, *, dry_run: bool = False):
+    """A second site the seeder owns, for the duplicate to be queued on.
+
+    Carries the marker, so teardown removes it (teardown -> _marked_site_ids ->
+    DELETE /api/sites/<sid>), and has its own exact name so it and the queue
+    fixture cannot delete each other between runs.
+    """
+    return _ensure_owned_site(client, SEED_DEDUP_SITE_NAME,
+                              dedup_site_config(), dry_run=dry_run)
+
+
+def requeue_for_dedup(client, source_site_id, url, *,
                       timeout: float = DEFAULT_SETTLE_TIMEOUT,
                       dry_run: bool = False) -> dict:
     """Queue an already-completed URL again, so L14 has a real subject.
 
-    L14 (stash-dedup-skip) asks whether BD skipped a duplicate. Two things stop
-    the seed set answering that on its own:
+    L14 (stash-dedup-skip) asks whether BD skipped a duplicate, and reads
+    exactly one thing: `queue.status = 'skipped_duplicate'`, which the dedup
+    path is the only writer of. Three things stopped this function ever
+    producing that row, and the third is why fixing the first two alone would
+    have changed nothing.
 
-      * the deliberate repeat inside one batch is collapsed at INTAKE, before
-        anything is queued (measured: `"dupes": 1` in the seed plan), so the
-        runner never sees it;
-      * the only remaining route to green was a COLLISION with the previous
-        run's history, which the per-run nonce now removes -- and which was
-        never the right evidence anyway. It certified that dedup fired at some
-        point, not that BD skipped the duplicate just handed to it.
+    1. THE ROUTE ANSWERED 405. It POSTed to `/api/queue/v2`, which
+       app_queue.py:170 declares with no `methods=` -- so Flask registers GET
+       only. The enqueue route is `/api/queue/v2/add_url` (app_queue.py:461).
 
-    Queuing the URL again after its first copy has completed produces the
-    genuine same-run decision. A skip here is the assertion L14 wants to make.
+    2. THE PAYLOAD WAS THE WRONG SHAPE. add_url reads `url`, a string; this sent
+       `urls`, a list. Even against the right path that is a 400.
+
+    3. AND THE SAME SITE WOULD HAVE DROPPED IT AT INTAKE. runner_queue.py:257
+       discards a URL already present in that runner's `self.jobs`, counting it
+       in `dupes` -- and a COMPLETED job stays in `self.jobs`. So re-queueing on
+       the site that just finished the download is collapsed before the dedup
+       preflight runs. The old docstring knew this about the batch's internal
+       repeat; it did not notice the same code drops the after-the-fact
+       re-queue too.
+
+    The intake drop is AVOIDED rather than defeated, and the code says how. Both
+    halves of the mechanism are global, not per-site:
+
+        runner_integrity.py:148  _dedup_preflight -> db_find_url_in_history(url)
+                                 (no site scope; dedup_exact_url defaults True)
+        L14                      SELECT COUNT(*) FROM queue
+                                 WHERE status = 'skipped_duplicate'   (no scope)
+
+    So the duplicate goes on a SECOND seeded site. That site's runner has its own
+    `self.jobs` and has never seen the URL, so intake accepts it; the preflight
+    then finds the first site's `done` row in history and writes
+    skipped_duplicate. No eviction route, no runner change -- the mechanism
+    already worked, it was being asked on the one site where intake swallowed
+    the question.
+
+    AND THE ANSWER IS NOW READ. add_url returns
+    `{ok, site_id, url, added, dupes, skipped}`, so `dupes: 1` is defect 3
+    happening, reported by the app itself. Previously the response was assigned
+    to `plan["queued"]` and never inspected, so a 405, a 400 and an unreachable
+    app all ended as `dedup_observed: false` -- which reads as BD declining to
+    dedup rather than as a request that was never accepted. Each is now a
+    refusal that names itself.
     """
     plan = {"action": "requeue_for_dedup", "marker": SEED_MARKER,
-            "site_id": site_id, "url": url}
+            "source_site_id": source_site_id, "url": url}
     if dry_run:
         plan["dry_run"] = True
         return plan
-    plan["queued"] = client.post("/api/queue/v2",
-                                 {"site_id": site_id, "urls": [url]})
-    plan["started"] = start_seeded_site(client, site_id)
-    settle = wait_for_settle(client, site_id, [url], timeout=timeout)
+
+    sid = ensure_dedup_site(client)
+    plan["site_id"] = sid
+    resp = client.post("/api/queue/v2/add_url", {"site_id": sid, "url": url})
+    plan["queued"] = resp
+
+    if not isinstance(resp, dict) or not resp.get("ok"):
+        raise SeedRefused(
+            f"could not queue the duplicate on the {SEED_DEDUP_SITE_NAME!r} "
+            f"site: {str(resp)[:200]}. Nothing was enqueued, so no dedup "
+            f"decision can follow -- this is a broken seeder, not a BD that "
+            f"declined to dedup, and the two must not report the same way."
+        )
+    added = resp.get("added")
+    if not added:
+        raise SeedRefused(
+            f"the duplicate was not accepted at intake: added={added!r}, "
+            f"dupes={resp.get('dupes')!r}, skipped={resp.get('skipped')!r}. A "
+            f"dupes count here means runner_queue.py:257 dropped the URL "
+            f"because it is already in that runner's self.jobs -- so it never "
+            f"reached the dedup preflight, and L14 would have no subject. "
+            f"(response: {str(resp)[:200]})"
+        )
+
+    plan["started"] = start_seeded_site(client, sid)
+    settle = wait_for_settle(client, sid, [url], timeout=timeout)
     plan["settle"] = settle
     entry = (settle.get("per_url") or {}).get(url) or {}
     plan["dedup_observed"] = str(entry.get("status", "")) == "skipped_duplicate"
@@ -1178,9 +1309,43 @@ def main(argv=None) -> int:
                         done_urls = [u for u, e in (settle.get("per_url") or {}).items()
                                      if str((e or {}).get("status", "")) == "done"]
                         if done_urls and not args.dry_run:
-                            plans.append(requeue_for_dedup(
-                                client, seeded.get("site_id"), done_urls[0],
-                                timeout=args.start_timeout))
+                            # NON-FATAL, deliberately, and this is a judgement
+                            # not an omission.
+                            #
+                            # requeue_for_dedup now RAISES on a rejected enqueue
+                            # instead of recording the failure and moving on --
+                            # that strictness is the point of the fix. But
+                            # letting it escape here makes the whole seed run
+                            # exit 2, and capture.sh:804-809 then prints
+                            # "seeding declined or failed" for a run where the
+                            # queue seeding, the start and the settle all
+                            # SUCCEEDED. The dedup pass is an ADDITIONAL subject
+                            # layered on top of a seed that already worked;
+                            # failing the report for it would be a false
+                            # negative about the part that did work.
+                            #
+                            # Not swallowed: the reason lands in the printed
+                            # plan and on stderr, and downstream L14 reports the
+                            # consequence honestly ("no queue row marked
+                            # skipped_duplicate"). What the old code did was
+                            # different -- it recorded a 405 as
+                            # dedup_observed=false with no reason at all, so the
+                            # reader could not tell a broken seeder from a BD
+                            # that declined to dedup.
+                            try:
+                                plans.append(requeue_for_dedup(
+                                    client, seeded.get("site_id"), done_urls[0],
+                                    timeout=args.start_timeout))
+                            except SeedRefused as dedup_exc:
+                                plans.append({
+                                    "action": "requeue_for_dedup",
+                                    "marker": SEED_MARKER,
+                                    "url": done_urls[0],
+                                    "dedup_observed": False,
+                                    "error": str(dedup_exc)})
+                                print(f"[{SEED_MARKER}] the dedup pass could "
+                                      f"not be set up, so L14 will have no "
+                                      f"subject: {dedup_exc}", file=sys.stderr)
                 if args.login:
                     plans.append(seed_login(client, dry_run=args.dry_run))
                 if args.vpn_tunnel:
