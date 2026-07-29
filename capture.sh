@@ -155,8 +155,15 @@ wait_for_service_ready() {
   while [ "$tries" -lt "$CAPTURE_READY_TRIES" ]; do
     if curl -sSf -o /dev/null --max-time 2 "$CAPTURE_READY_URL" 2>/dev/null
     then
-      SERVICE_READY_EXIT=0
-      echo "  service serving again after $(( $(date +%s) - started ))s"
+      # Deliberately does NOT reset to 0. SERVICE_READY_EXIT is plumbed to
+      # the capture verdict as a stage exit, and this helper now has two call
+      # sites -- step [4] before the vault unlock, and the vault restore after
+      # [6]. A plain assignment would let a later success erase an earlier
+      # failure, so the capture would report a clean stage over an unlock that
+      # had fired into a closed socket. Once the service was not known to be
+      # serving at a point where the capture ACTED on it, that is true for the
+      # run.
+      echo "  service serving after $(( $(date +%s) - started ))s"
       return 0
     fi
     sleep 0.5
@@ -615,7 +622,13 @@ fi
 
 ./install_service.sh > "$OUT/04_service_install.log" 2>&1
 INSTALL_EXIT=$?
-sleep 3
+# NOT `sleep 3`. install_service.sh polls `systemctl is-active` and reports
+# RUNNING the moment the unit goes active, but Type=simple means "the process
+# was spawned", not "waitress has bound :5555". A fixed sleep is a guess at that
+# gap, and when the guess is wrong the unlock below POSTs into a closed socket
+# and records HTTP 000 next to `service: active` -- two visible facts that
+# disagree, neither of them wrong. Ask the app instead.
+wait_for_service_ready || true
 systemctl status bulkdownloader --no-pager > "$OUT/04_service_status.log" 2>&1
 journalctl -u bulkdownloader -n 50 --no-pager > "$OUT/04_service_boot.log" 2>&1
 ACTIVE=$(systemctl is-active bulkdownloader 2>&1)
@@ -628,7 +641,10 @@ echo "  service: $ACTIVE"
 # a process's command line readable by every user on the box. Only the HTTP
 # code is recorded; the response body is discarded so nothing about the
 # credential can reach $OUT, which is tarred into the shared bundle.
-if [ "$CAPTURE_VAULT" = "1" ] && [ "$ACTIVE" = "active" ]; then
+# Gated on SERVING, not merely on `is-active`: the unlock is an HTTP POST, so
+# its precondition has to be an HTTP fact.
+if [ "$CAPTURE_VAULT" = "1" ] && [ "$ACTIVE" = "active" ] \
+     && [ "$SERVICE_READY_EXIT" = "0" ]; then
   UNLOCK_CODE=$(printf '{"password":"%s"}' "$CAPTURE_VAULT_PW" \
     | curl -sS -o /dev/null -w '%{http_code}' \
         -X POST http://127.0.0.1:5555/api/secrets/unlock \
