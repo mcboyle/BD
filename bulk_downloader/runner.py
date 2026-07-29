@@ -3617,7 +3617,35 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 return
             dl_dir=self.config.get("download_dir","").strip()
             if not dl_dir:
-                # No dl dir configured — just click and assume browser handles it.
+                # Fall back to the deployment default rather than discarding the
+                # file. A blank per-site download_dir means "the operator has not
+                # chosen one" -- it is load-bearing state that the GCW-4 promote
+                # gate reads -- so it is NOT filled in the config; it is resolved
+                # here, where the file is about to be written.
+                #
+                # Without this the branch below marked the job `done` with a
+                # zero-byte history row. Measured on the box 2026-07-29: every
+                # seeded URL returned `"message": "Clicked (no dl dir)"`,
+                # `"filename": ""`, which left L12 (segmented download) and L14
+                # (dedup skip) unable to clear on a working pipeline.
+                #
+                # Lazy import for the same reason app_queue.py uses one: at
+                # module scope it would close an import cycle with app.
+                try:
+                    import importlib
+                    dl_dir = str(getattr(importlib.import_module(
+                        "bulk_downloader.app"),
+                        "_oi_default_download_dir")() or "").strip()
+                except Exception:
+                    dl_dir = ""
+                if dl_dir:
+                    sys.stderr.write(
+                        f"  download: site has no download_dir; using the "
+                        f"deployment default {dl_dir}\n")
+            if not dl_dir:
+                # No dl dir configured and no default resolvable — click and
+                # assume the browser handles it. Reachable only when the default
+                # resolver itself fails.
                 best["locator"].click(); time.sleep(float(self.config.get("delay",3)))
                 self._update_job(url,"done","Clicked (no dl dir)")
                 db_log(self.site_id,self.config.get("name","?"),url,"done","",0,"")
