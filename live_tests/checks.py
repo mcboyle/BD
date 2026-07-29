@@ -1143,9 +1143,18 @@ def l14_stash_dedup_skip(ctx):
 
     The dedup invariant: db_find_filename_duplicate matches a prior
     successful download by basename so a multi-GB file is not fetched
-    twice. This test confirms history HAS duplicate-eligible rows and
-    that the dedup decision path is observable. Read-only — it reads
-    history, it does not queue a download.
+    twice. Read-only — it reads history and the queue, it does not queue
+    a download.
+
+    OBSERVES queue.status = 'skipped_duplicate', which the dedup path is the
+    only writer of. It used to also count history rows whose MESSAGE contained
+    "dedup", "skip" or "already", which matched runner_transport.py's
+    "already on disk" -- a file-existence skip, an entirely different
+    mechanism -- and so reported dedup working when nothing had deduped.
+
+    The name still says "stash"; the evidence does not. Stash dedup is gated on
+    a per-site flag the seeder never sets, so it is unobservable on a seeded
+    host. Renaming touches five other files and is left for its own cut.
     """
     if not ctx.db_path.exists():
         return WARN, f"no DB at {ctx.db_path} — dedup not testable"
@@ -1159,30 +1168,44 @@ def l14_stash_dedup_skip(ctx):
             done = cx.execute(
                 "SELECT COUNT(*) FROM history "
                 "WHERE status = 'done'").fetchone()[0]
+            # The history half of this count used to match
+            #   message LIKE '%dedup%' OR '%skip%' OR '%already%'
+            # and it was wrong. runner_transport.py:797 writes "already on
+            # disk" when skip_if_exists fires -- a FILESYSTEM-state skip, not
+            # the DATABASE-state dedup decision this check is named for. So the
+            # same row that made L11 falsely certify the pipeline also made
+            # this one falsely certify dedup: measured against the deploy
+            # host's eight-run sequence, PASS "7 download(s) recorded as
+            # dedup-skipped" with zero dedup involved.
+            #
+            # queue.status = 'skipped_duplicate' is written ONLY by the dedup
+            # path (runner.py:2919 via runner_integrity.py:151), so it is a
+            # genuine observation. Matching message prose written 1400 lines
+            # away never was.
             skipped = cx.execute(
-                "SELECT COUNT(*) FROM history "
-                "WHERE status = 'done' AND "
-                "(message LIKE '%dedup%' OR message LIKE '%skip%' "
-                "OR message LIKE '%already%')").fetchone()[0]
-            queue_skipped = cx.execute(
                 "SELECT COUNT(*) FROM queue "
                 "WHERE status = 'skipped_duplicate'").fetchone()[0]
         finally:
             cx.close()
     except Exception as e:
         return FAIL, f"could not read history for dedup check: {e}"
-    skipped += queue_skipped
     ctx.log(f"history: {done} done, {len(rows)} filename(s) appearing "
-            f"more than once, {skipped} dedup skip(s) across history/queue")
+            f"more than once, {skipped} queue row(s) marked "
+            f"skipped_duplicate")
     if done == 0:
         return WARN, ("no completed downloads in history — dedup not "
                       "exercisable; run L11 first")
     if skipped > 0:
-        return PASS, (f"{skipped} download(s) recorded as "
-                      f"dedup-skipped — the stash-dedup path works")
-    return WARN, (f"{done} completed download(s) but none recorded as "
-                  f"dedup-skipped — either no duplicate was ever "
-                  f"queued, or verify the dedup decision is logged")
+        # Generic duplicate skipping, which is what the evidence supports.
+        # STASH dedup specifically is unobservable on a seeded host:
+        # runner_integrations.py:46-49 gates it on stash_dedup_check, which
+        # defaults False and which the seeder never sets. Claiming "the
+        # stash-dedup path works" on this evidence was unearned.
+        return PASS, (f"{skipped} queued download(s) skipped as duplicates "
+                      f"— the duplicate-skip path works")
+    return WARN, (f"{done} completed download(s) but no queue row marked "
+                  f"skipped_duplicate — either no duplicate was ever queued, "
+                  f"or the dedup decision is not reaching the queue")
 
 
 # ── MV3 extension service worker (U35: L3) ────────────────────────
