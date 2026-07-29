@@ -94,11 +94,31 @@ class Context:
     deployment paths, accumulates a per-test log, and offers a
     read-only HTTP GET and a read-only DB connection."""
 
-    def __init__(self, base_url, bd_home, *, disruptive=False):
+    def __init__(self, base_url, bd_home, *, disruptive=False,
+                 per_check_timeout_s=None):
         self.base_url = str(base_url).rstrip("/")
         self.bd_home = Path(bd_home)
         self.db_path = self.bd_home / "downloader_history.db"
         self.disruptive = disruptive
+        # v3.66.819 -- THE TIMEOUT TRAVELS WITH THE CONTEXT.
+        #
+        # A check that paces itself has to know what wall it is being held to,
+        # and until now it could only guess. L34 guessed 90s, because that is
+        # what capture.sh:913 passes -- the only 90 in the tree. Every other
+        # route to the same check takes the 60.0 default above: the systemd unit
+        # tools/install_livecheck_timer.sh:152 installs (which runs the live
+        # checks unattended), a by-hand `-m live_tests.run --only L34`, and any
+        # direct run_all call. So L34's internal 72s
+        # budget sat outside a wall the harness had already withdrawn: it was
+        # killed at 60s and reported "TIMEOUT ... thread leaked" instead of the
+        # verdict it had computed. Four cuts of wall-aware machinery
+        # (v3.66.740/741/744/746) were unreachable on that path.
+        #
+        # None means "the caller did not say", and a check must then assume
+        # DEFAULT_PER_CHECK_TIMEOUT_S -- the value it will in fact be held to.
+        # Never assume the most generous caller.
+        self.per_check_timeout_s = (
+            float(per_check_timeout_s) if per_check_timeout_s else None)
         self._log: list = []
 
     def log(self, msg):
@@ -233,7 +253,8 @@ def run_all(base_url, bd_home, *, include_disruptive=False,
 
     counts = {PASS: 0, WARN: 0, FAIL: 0, NA: 0}
     for t in tests:
-        ctx = Context(base_url, bd_home, disruptive=include_disruptive)
+        ctx = Context(base_url, bd_home, disruptive=include_disruptive,
+                      per_check_timeout_s=per_check_timeout_s)
         ctx.log(f"[{t.id}] {t.name} — start")
         # T55: hard-time-out each check. A wedged check (e.g. L3 on
         # a Chromium build without MV3 service worker support) used
