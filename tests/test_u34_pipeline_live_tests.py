@@ -138,16 +138,31 @@ def test_l14_warns_with_no_completed_downloads(clean_workdir):
     assert "no completed downloads" in detail
 
 
-def test_l14_passes_when_a_dedup_skip_is_recorded(clean_workdir):
+def test_l14_does_not_pass_on_a_message_that_merely_says_skipped(clean_workdir):
+    """INVERTED, and deliberately.
+
+    This asserted that a history message containing "dedup"/"skip" was proof
+    the dedup path worked. It is not: runner_transport.py:797 writes
+    "already on disk" for a skip_if_exists hit -- a FILESYSTEM-state skip --
+    and that matched the same predicate. Measured on the deploy host, seven
+    such rows made L14 report PASS "the stash-dedup path works" with zero
+    dedup involved.
+
+    The real signal is queue.status='skipped_duplicate', written only by the
+    dedup path (runner.py:2919 via runner_integrity.py:151). A message alone
+    must no longer suffice, so this test now pins the opposite.
+    """
     db.db_init()
-    # a completed download whose message records a dedup skip
     db.db_log("s1", "Site", "https://example.com/v1", "done",
               filename="movie.mp4", message="skipped: dedup match")
     ctx = h.Context("http://localhost:1", str(clean_workdir),
                     disruptive=True)
     level, detail = _get_test("L14").fn(ctx)
-    assert level == h.PASS
-    assert "dedup-skipped" in detail
+    assert level == h.WARN, (
+        f"returned {level}: {detail!r}. A history message is prose written "
+        f"elsewhere; it cannot distinguish a dedup skip from a file-existence "
+        f"skip, and treating it as evidence is the defect being removed."
+    )
 
 
 def test_l14_passes_for_real_skipped_duplicate_queue_state(clean_workdir):
@@ -161,7 +176,16 @@ def test_l14_passes_for_real_skipped_duplicate_queue_state(clean_workdir):
                     disruptive=True)
     level, detail = _get_test("L14").fn(ctx)
     assert level == h.PASS
-    assert "dedup-skipped" in detail
+    # Wording moved with the fix: the verdict no longer claims "the stash-dedup
+    # path works", because Stash dedup is gated on a per-site flag the seeder
+    # never sets and so is unobservable here. The evidence is a queue-level
+    # duplicate skip and the text now says so.
+    assert "duplicate" in detail.lower(), (
+        f"verdict text was {detail!r} and does not name what was observed"
+    )
+    assert "stash" not in detail.lower(), (
+        f"verdict text was {detail!r} -- it claims Stash on generic evidence"
+    )
 
 
 def test_l14_warns_when_downloads_exist_but_no_dedup_skip(clean_workdir):
