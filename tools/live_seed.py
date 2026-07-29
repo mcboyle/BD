@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import uuid
 import os
 import sys
 import time
@@ -69,6 +70,23 @@ import urllib.request
 # state from organic state at a glance, and (b) teardown has an exact
 # predicate rather than a heuristic.
 SEED_MARKER = "bdseed"
+
+# Unique per PROCESS, which is per run: capture.sh invokes this file as a fresh
+# process each time. Without it every run seeded byte-identical URLs, so run N+1
+# dedup'd against run N's history rows -- measured on the box as
+#   "status": "skipped_duplicate",
+#   "message": "Duplicate of history #1 (prior download, 2026-07-29T00:23:43)"
+# where that timestamp was the PREVIOUS capture. Nothing downloaded, and L11/L12
+# reported "no completed downloads" as though BD had failed.
+#
+# History is append-only -- db_log() is its only writer, db_prune() (by AGE, not
+# by marker) its only deleter -- and there is no marker-scoped history delete
+# over HTTP, so teardown structurally cannot clear the rows. Not colliding is
+# cheaper and safer than adding a destructive route to the app.
+#
+# It rides in the QUERY, beside the marker, so routing is untouched and
+# _is_seeded() still matches.
+_RUN_NONCE = uuid.uuid4().hex[:8]
 
 # The local fixture origin. tools/fixture_site.py serves deterministic media
 # here, so a seeded download exercises the real fetch path without touching any
@@ -307,7 +325,8 @@ def seeded_url(index: int) -> str:
     The duplicate at index 2 must stay byte-identical to index 0, query
     included, or L14 has nothing to recognise as a repeat.
     """
-    return f"{FIXTURE_ORIGIN}{_SEED_PATHS[index % len(_SEED_PATHS)]}?{SEED_MARKER}=1"
+    return (f"{FIXTURE_ORIGIN}{_SEED_PATHS[index % len(_SEED_PATHS)]}"
+            f"?{SEED_MARKER}=1&run={_RUN_NONCE}")
 
 
 SEED_SITE_NAME = f"{SEED_MARKER} fixture site"
@@ -551,6 +570,40 @@ def wait_for_settle(client, site_id: str, urls, *,
         "timeout_seconds": budget,
         "elapsed_seconds": round(time.monotonic() - started, 3),
     }
+
+
+def requeue_for_dedup(client, site_id, url, *,
+                      timeout: float = DEFAULT_SETTLE_TIMEOUT,
+                      dry_run: bool = False) -> dict:
+    """Queue an already-completed URL again, so L14 has a real subject.
+
+    L14 (stash-dedup-skip) asks whether BD skipped a duplicate. Two things stop
+    the seed set answering that on its own:
+
+      * the deliberate repeat inside one batch is collapsed at INTAKE, before
+        anything is queued (measured: `"dupes": 1` in the seed plan), so the
+        runner never sees it;
+      * the only remaining route to green was a COLLISION with the previous
+        run's history, which the per-run nonce now removes -- and which was
+        never the right evidence anyway. It certified that dedup fired at some
+        point, not that BD skipped the duplicate just handed to it.
+
+    Queuing the URL again after its first copy has completed produces the
+    genuine same-run decision. A skip here is the assertion L14 wants to make.
+    """
+    plan = {"action": "requeue_for_dedup", "marker": SEED_MARKER,
+            "site_id": site_id, "url": url}
+    if dry_run:
+        plan["dry_run"] = True
+        return plan
+    plan["queued"] = client.post("/api/queue/v2",
+                                 {"site_id": site_id, "urls": [url]})
+    plan["started"] = start_seeded_site(client, site_id)
+    settle = wait_for_settle(client, site_id, [url], timeout=timeout)
+    plan["settle"] = settle
+    entry = (settle.get("per_url") or {}).get(url) or {}
+    plan["dedup_observed"] = str(entry.get("status", "")) == "skipped_duplicate"
+    return plan
 
 
 def start_and_settle(client, site_id, urls, *,
@@ -1065,6 +1118,18 @@ def main(argv=None) -> int:
                         settle = started.get("settle") or {}
                         if not args.dry_run and not settle.get("settled", False):
                             unsettled = settle
+                        # Give L14 a real subject. The batch's own repeat is
+                        # collapsed at intake, and the per-run nonce removes the
+                        # cross-run collision that used to stand in for one, so
+                        # the duplicate has to be queued AFTER a copy completed.
+                        # Appended inside the same `finally` discipline: a
+                        # refusal here must not discard the seed that worked.
+                        done_urls = [u for u, e in (settle.get("per_url") or {}).items()
+                                     if str((e or {}).get("status", "")) == "done"]
+                        if done_urls and not args.dry_run:
+                            plans.append(requeue_for_dedup(
+                                client, seeded.get("site_id"), done_urls[0],
+                                timeout=args.start_timeout))
                 if args.login:
                     plans.append(seed_login(client, dry_run=args.dry_run))
                 if args.vpn_tunnel:
