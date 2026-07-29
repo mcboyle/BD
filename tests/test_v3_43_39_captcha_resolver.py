@@ -389,13 +389,29 @@ def test_legacy_turnstile_solve_kept_as_alias():
     assert "_try_captcha_solve" in body
 
 
+def _fn_body(src: str, name: str) -> str:
+    """The FULL source of a function, by AST rather than a character window.
+
+    Three tests in this repo sliced `src[pos:pos + N]` for a magic N, and all
+    three broke when unrelated lines were added above the thing they assert on
+    -- the assertion was right and the denominator shifted. Measured here:
+    `captcha_type=` is present in _handle_captcha_check (grep: 1 occurrence) but
+    sat past `pos + 3000` once two lines were added, so the test failed about a
+    property that had not changed.
+    """
+    import ast as _ast
+    tree = _ast.parse(src)
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.FunctionDef) and node.name == name:
+            return _ast.unparse(node)
+    raise AssertionError(f"function {name!r} not found")
+
+
 def test_handle_captcha_check_tracks_type():
     """_handle_captcha_check must detect the captcha type and pass
     it to _update_job for needs_review jobs."""
-    src = _RUNNER_PY.read_text(encoding="utf-8")
-    pos = src.find("def _handle_captcha_check")
-    assert pos > 0
-    body = src[pos:pos + 3000]
+    body = _fn_body(_RUNNER_PY.read_text(encoding="utf-8"),
+                    "_handle_captcha_check")
     assert "captcha_resolver" in body
     assert "detect_captcha_type" in body
     assert "captcha_type=" in body
