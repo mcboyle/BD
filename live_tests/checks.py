@@ -2383,8 +2383,20 @@ def l33_no_leaked_chromium(ctx):
     Playwright contexts/browsers are not being closed. PASS when the
     orphan count stays at zero (or flat); WARN on growth.
     """
+    # v3.66.819 -- READ THE ORPHAN COUNT, NOT THE PROCESS COUNT.
+    #
+    # This used to fall back to procs["chromium"], which is a substring match on
+    # comm over every process on the box: no parentage, no ownership, no state.
+    # A live browser is a TREE -- 6 processes for one blank page, 22 on the
+    # deploy host during a real download -- so L33 returned "Playwright contexts
+    # may be leaking" about a working fetch, every time. The endpoint now
+    # classifies (see perf_lab._child_process_count) and this reads the
+    # classification.
+    #
+    # The old orphan_* fallback names are kept: they cost nothing and an
+    # endpoint variant may still use them. What is REMOVED is the fallback to
+    # "chromium", because that key answers a different question.
     def _orphans(body):
-        # leak_scan reports orphan processes under a few shapes
         for k in ("orphan_browsers", "orphan_chromium",
                   "orphan_processes", "orphans"):
             v = body.get(k)
@@ -2394,54 +2406,108 @@ def l33_no_leaked_chromium(ctx):
                 return len(v)
         procs = body.get("processes") or body.get("leaks") or {}
         if isinstance(procs, dict):
-            # Preferred name first (orphan_chromium / orphan_browsers)
-            # for any future endpoint variants; then fall back to the
-            # actual current endpoint key, which is plain "chromium"
-            # (from dev_suite.leak_scan: _pl._child_process_count()).
-            # Pre-v3.64.6 this WARN'd on every deploy because none of
-            # the orphan_* keys exist and the chromium key was unread.
-            for k in ("orphan_browsers", "orphan_chromium", "chromium"):
-                if isinstance(procs.get(k), int):
-                    return procs[k]
-            # Windows: _child_process_count walks /proc, which doesn't
-            # exist; the function's except branch returns {} (no
-            # chromium key at all). When the endpoint's own verdict
-            # says no leaks were found AND findings is empty, trust
-            # that and treat as zero orphans — the endpoint is the
-            # source of truth for its own verdict, even if it couldn't
-            # produce a process count on this platform. Without this,
-            # L33 WARN'd on Windows forever because the chromium key
-            # is never present in the response.
-            if not procs:
-                verdict = (body.get("verdict") or "").lower()
-                findings = body.get("findings") or []
-                if (verdict == "no leak signals"
-                        and isinstance(findings, list)
-                        and not findings):
-                    return 0
+            for k in ("chromium_orphan", "orphan_browsers", "orphan_chromium"):
+                if k in procs:
+                    v = procs[k]
+                    # An explicit null is the endpoint saying it could not
+                    # classify. That is UNKNOWN and must stay unknown -- it is
+                    # not zero, and bool-testing it would make it zero.
+                    return v if isinstance(v, int) else None
         return None
+
+    # THREE DISTINCT STATES, and the old code had two of them collapsed into a
+    # PASS. Keeping them apart is the substance of this cut:
+    #
+    #   endpoint UNREACHABLE            -> WARN. The app did not answer. That is
+    #                                      the same signal L31 and L32 give, and
+    #                                      making L33 alone go quiet here would
+    #                                      lose it. NOT a platform property.
+    #   reachable, NO classification,
+    #     endpoint reports no findings  -> NA. Nobody measured orphanhood: either
+    #                                      /proc does not exist (Windows --
+    #                                      _child_process_count returns {}) or the
+    #                                      deploy predates the classification.
+    #                                      Previously this trusted the endpoint's
+    #                                      own "no leak signals" verdict and
+    #                                      returned 0 orphans, certifying the
+    #                                      absence of something it never looked at.
+    #   reachable, NO classification,
+    #     endpoint DOES report findings -> WARN. Cannot classify AND there is
+    #                                      smoke. Reporting NA here would file a
+    #                                      live leak signal under "not
+    #                                      applicable", which is worse than the
+    #                                      false PASS it replaced.
+    # A fourth state, distinct from the three above and easy to miss: the key is
+    # PRESENT but null. That is the endpoint saying it walked /proc and could not
+    # establish parentage -- it measured, and the measurement came back unknown.
+    # Not "no classification available" and not "endpoint down". Treating a
+    # present-but-null key as a classification sends it down the sampling path,
+    # where it produces no samples and reads as an unreachable endpoint.
+    def _classifiable(body):
+        for k in ("orphan_browsers", "orphan_chromium", "orphan_processes",
+                  "orphans"):
+            if k in body:
+                if isinstance(body[k], (int, list)):
+                    return True, ""
+                return False, (f"the endpoint reported {k}=null — it could not "
+                               f"determine process parentage")
+        procs = body.get("processes") or body.get("leaks") or {}
+        if not isinstance(procs, dict) or not procs:
+            return False, ("the endpoint returned no process table at all "
+                           "(/proc unavailable on this platform)")
+        for k in ("chromium_orphan", "orphan_browsers", "orphan_chromium"):
+            if k in procs:
+                if isinstance(procs[k], int):
+                    return True, ""
+                return False, (f"the endpoint reported {k}=null — /proc did not "
+                               f"yield process parentage for every browser it "
+                               f"found, so orphanhood is UNKNOWN rather than zero")
+        return False, (f"the process table carries no orphan classification "
+                       f"(keys: {sorted(procs)[:6]}) — this deploy predates it")
+
+    ok0, st0, body0, _ = ctx.get("/api/dev/leak_scan", timeout=15)
+    if ok0 and isinstance(body0, dict):
+        can, why = _classifiable(body0)
+        if not can:
+            findings = body0.get("findings") or []
+            ctx.log(f"orphan classification unavailable: {why}")
+            if isinstance(findings, list) and findings:
+                return WARN, (
+                    f"orphaned-browser count is UNKNOWN ({why}), and the "
+                    f"endpoint is reporting {len(findings)} leak signal(s): "
+                    f"{[str(f)[:60] for f in findings[:2]]} — cannot classify, "
+                    f"and something is being flagged")
+            return NA, (f"orphaned-browser detection is not exercisable here — "
+                        f"{why}. Unknown is not the same as clean, so this is "
+                        f"reported rather than passed.")
 
     samples, errors = _sample_over_time(ctx, "/api/dev/leak_scan",
                                         _orphans)
-    ctx.log(f"orphan-Chromium samples: {samples}")
+    ctx.log(f"orphaned-browser samples: {samples}")
     for e in errors[:3]:
         ctx.log(f"  {e}")
     if not samples:
-        return WARN, ("could not sample orphan-process count from "
-                      "/api/dev/leak_scan — no-leaked-Chromium not "
-                      "testable here")
+        # Reached only when the endpoint answered the probe above but no sample
+        # could be taken -- overwhelmingly an unreachable/erroring endpoint,
+        # which is the app failing to answer rather than the platform being
+        # unable to. WARN, matching L31 and L32.
+        return WARN, ("could not sample the orphaned-browser count from "
+                      "/api/dev/leak_scan — the endpoint did not answer; "
+                      "no-leaked-browser not testable in this run")
     tr = _trend(samples)
-    ctx.log(f"orphan-Chromium trend: {tr}")
+    ctx.log(f"orphaned-browser trend: {tr}")
     if tr["peak"] == 0:
-        return PASS, (f"zero orphan Chromium processes across "
-                      f"{len(samples)} samples — no browser leak")
+        return PASS, (f"no orphaned browser processes across "
+                      f"{len(samples)} samples — every browser process seen "
+                      f"was either a descendant of the running app (in use) or "
+                      f"a zombie awaiting reap")
     if tr["growth"] > 0:
-        return WARN, (f"orphan Chromium count rose {tr['first']}->"
-                      f"{tr['last']} over {len(samples)} samples — "
-                      f"Playwright contexts may be leaking")
-    return WARN, (f"orphan Chromium processes present but not growing "
-                  f"({tr['peak']} peak) — investigate; they may be "
-                  f"stale from before this run")
+        return WARN, (f"orphaned browser processes rose {tr['first']}->"
+                      f"{tr['last']} over {len(samples)} samples — browsers "
+                      f"are running with no launcher; contexts are leaking")
+    return WARN, (f"{tr['peak']} orphaned browser process(es) present but not "
+                  f"growing — running with no launcher; likely stranded by an "
+                  f"earlier run or an app restart")
 
 
 # ── SSE live-update live test (U43: L35) ──────────────────────────

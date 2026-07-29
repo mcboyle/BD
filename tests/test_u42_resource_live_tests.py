@@ -152,10 +152,14 @@ def test_l32_passes_on_stable_thread_count():
 
 
 def test_l33_passes_with_zero_orphans():
+    # v3.66.819 wording only: the verdict no longer says "no browser leak", it
+    # says what it actually observed -- that every browser process seen was
+    # either in use or a zombie awaiting reap. The top-level orphan_browsers
+    # shape is still honoured and still PASSes at zero.
     clean = [{"orphan_browsers": 0}] * 4
     level, detail = _get_test("L33").fn(_SeriesContext(clean))
     assert level == h.PASS
-    assert "no browser leak" in detail
+    assert "no orphaned browser" in detail, detail
 
 
 def test_l33_warns_on_growing_orphans():
@@ -165,32 +169,48 @@ def test_l33_warns_on_growing_orphans():
     assert level == h.WARN
 
 
-def test_l33_passes_on_windows_shape_empty_procs_with_no_leak_verdict():
-    # On Windows the leak_scan endpoint's _child_process_count walks
-    # /proc which doesn't exist, so it returns {} — the chromium key
-    # is never present. When the endpoint's own verdict says no leaks
-    # were detected AND findings is empty, the helper must trust that
-    # and treat as zero orphans. Pre-this-fix, L33 WARN'd on every
-    # Windows deployment even when the endpoint reported a clean bill.
+def test_l33_is_not_exercisable_on_the_windows_shape_empty_procs():
+    # CORRECTED EXPECTATION, v3.66.819. This test used to be named
+    # ..._passes_on_windows_shape_... and asserted h.PASS. It was pinning a
+    # defect.
+    #
+    # The situation is real: on Windows _child_process_count walks /proc, which
+    # does not exist, so it returns {} and no orphan count is ever produced. The
+    # old behaviour was to trust the ENDPOINT'S OWN "no leak signals" verdict and
+    # report zero orphans -- a PASS asserting the absence of something that was
+    # never measured. That is CLAUDE.md section 0: the denominator (an empty
+    # process table) structurally excludes the subject, so the check reported OK,
+    # truthfully and uselessly.
+    #
+    # NA -- not exercisable here -- is the honest verdict, and it costs nothing
+    # the old PASS provided: run_all's exit code keys on FAIL alone, so a
+    # Windows deploy still exits 0. What changes is that the operator is told
+    # orphan detection did not happen, instead of being told it passed.
     windows_clean = [
         {"processes": {}, "findings": [], "verdict": "no leak signals"}
     ] * 4
     level, detail = _get_test("L33").fn(_SeriesContext(windows_clean))
-    assert level == h.PASS, f"got {level} — {detail}"
-    assert "no browser leak" in detail
+    assert level == h.NA, f"got {level} — {detail}"
+    assert "not exercisable" in detail, detail
+    assert "process table" in detail, detail
 
 
-def test_l33_does_not_pass_on_empty_procs_with_actual_findings():
-    # Belt-and-suspenders: if processes is empty BUT findings reports
-    # an actual leak signal, the verdict-trust path must NOT mask it.
-    # The helper returns None (can't sample) and L33 WARNs honestly.
+def test_l33_warns_on_empty_procs_with_actual_findings():
+    # Unchanged INTENT, corrected mechanism. The belt-and-suspenders property is
+    # preserved: an unclassifiable payload that nevertheless carries leak
+    # findings must NOT be filed as "not applicable", because that would bury a
+    # live signal under a verdict that reads as irrelevant -- worse than the
+    # false PASS this cut removed. So: cannot classify AND there is smoke -> WARN,
+    # and the finding is quoted into the verdict so it is visible in the capture
+    # without opening the artifact.
     suspicious = [
         {"processes": {}, "findings": ["something is leaking"],
          "verdict": "leak detected"}
     ] * 4
     level, detail = _get_test("L33").fn(_SeriesContext(suspicious))
     assert level == h.WARN, f"got {level} — {detail}"
-    assert "could not sample" in detail or "not testable" in detail
+    assert "UNKNOWN" in detail, detail
+    assert "something is leaking" in detail, detail
 
 
 # ── harness integration ────────────────────────────────────────────
