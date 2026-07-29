@@ -42,6 +42,40 @@ vapid_keys.json          # generated web-push PRIVATE key -- must never be commi
 /templates/drafts/
 /templates/review_candidates/
 
+# Generated cache the app rewrites on a 1h TTL. community_scrapers.py:135
+# resolves it as Path(".") / "community_scrapers_cache", and on the deploy host
+# the service's cwd IS the install root IS the work tree -- so it lands here.
+# community_scrapers_index.json was TRACKED, which meant `git reset --hard` on
+# every deploy reverted it, the app overwrote it within the hour, and the box
+# read permanently dirty. Its sibling manifest -- which records what the operator
+# actually installed, i.e. real state -- was never tracked: git was carrying the
+# cache and dropping the state. Derived, not spotted: see
+# tests/test_generated_artifacts_are_not_tracked.py, whose denominator is every
+# directory the app mkdirs at a repo-relative path.
+/community_scrapers_cache/
+
+# Operator state on the deploy host. Measured there 2026-07-29 as `??` in
+# `git status --porcelain` -- untracked AND unignored, which is the worst of both
+# states: `git clean -fd` destroys them (secrets.json is the credential store),
+# and they make the deployed tree read dirty to anything inspecting git status.
+# Ignoring them states the intent and lets test_no_tracked_file_is_gitignored
+# catch a future `git add -f`, which would otherwise start committing credentials
+# with an ignore rule sitting inert beside it.
+# NOTE plugins/: plugins.json is TRACKED (shipped). Only the operator's own
+# registry is ignored -- never the directory.
+/secrets.json
+/secrets_meta.json
+/secrets.json.bak
+/profiles/
+/state/
+/live_tests/results/
+/plugins/plugins.registry.json
+# macro_recorder.py:139 _macro_dir() mkdirs this INSIDE the resolver, so merely
+# asking where macros live creates it. On the box $HOME/BulkDownloader IS the
+# install root, so it lands in the work tree; it was invisible to `git status`
+# only because an empty directory is not reported.
+/macros/
+
 # --- capture output: may contain live session material ---
 captures/
 live_recordings/
