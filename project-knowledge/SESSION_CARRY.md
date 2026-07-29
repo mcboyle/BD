@@ -20,21 +20,26 @@ measured at the time stamped below and will drift.
 
 ## Provenance -- check this before believing any row
 
-    generated            2026-07-29
+    generated            2026-07-29 (refreshed after PR #55)
     against version      3.66.818   (bulk_downloader/__init__.py:33)
-    against branch       claude/bulkdownloader-handoff-68xjky @ 35f09b7
-    against origin/main  d38590d
+    against origin/main  f337bdc
+    live-check registry  37
+    guard pins           7 ok, 0 drifted, 0 missing
     working tree         clean at time of writing
 
-If the tree has moved past `d38590d`, treat every finding below as a claim to
+If the tree has moved past `f337bdc`, treat every finding below as a claim to
 re-derive, not a fact to inherit. A document that cannot be dated is
 indistinguishable from one written against another tree.
+
+Sections 1-9 were written against `d38590d` and describe how the session got
+here; sections 10-13 were added or rewritten at `f337bdc` and supersede them
+wherever they disagree. Section 11 is the current state.
 
 ---
 
 ## 1 | Where the work stands
 
-Five pull requests merged to `main` this session, in order:
+Eight pull requests merged to `main` this session. The first five:
 
 | PR | merge SHA | subject |
 | --- | --- | --- |
@@ -470,3 +475,150 @@ What becomes measurable there and is not measurable from here: `./capture.sh`
 end to end against a real systemd and the real `tunnels.json`; tracked task #3;
 the four deploy gaps in `CLAUDE.md` section 7; which of the two Playwright
 browser pools BD actually runs; and full-suite runs.
+
+---
+
+## 11 | State at `f337bdc` -- this section supersedes the ones above
+
+Three further pull requests merged after `d38590d`:
+
+| PR | merge SHA | subject |
+| --- | --- | --- |
+| #53 | `12340fa` | make three live checks able to observe their subjects, and record what the box showed |
+| #54 | `fac4c89` | L36 asserted a contract the frontend was deliberately re-rooted away from |
+| #55 | `f337bdc` | give the seeded downloads a real video, and give "could not observe it" its own verdict |
+
+### 11.1 | What is now proven ON THE BOX, not just in a sandbox
+
+Everything below was observed running on `test4`, which is what the earlier
+sections could not claim.
+
+- **The capture verdicts PASS.** 13811 unit pass / 0 fail / 85 skip; live
+  **30 pass / 7 warn / 0 fail across 37 checks**, up from 28/7 across 35.
+- **All 37 live checks now run.** `capture.sh` prints
+  `registry reports 37 check(s); requesting 37`, and `06_registry_count.err` is
+  empty. L36 and L37 had never executed in any capture before this.
+- **L36 PASSES** -- `the SPA bundle is served (937 bytes of HTML, 4 asset
+  ref(s); spot-checked /assets/index-C-VpsJOv.js -> 200); /m2/queue -> 302
+  /queue`.
+- **L11 PASSES for the first time ever**, with a real file:
+  `"status": "done", "message": "Saved: scene_002.mp4 [ok]"` and
+  `-rw-r--r-- 9421 scene_002.mp4` in `~/Downloads`. The fixture serves 8192
+  bytes; BD's `_embed_metadata_if_mp4` writes the rest, so the metadata path is
+  exercised too.
+- **L12 reports N/A**, not WARN, and the summary carries the fourth bucket:
+  `1 pass | 0 warn | 0 fail | 1 n/a  (2 run)`.
+- **L30 PASSED once**, in a manual run against a briefly-clean VPN config --
+  `1 VPN tunnel(s) configured; IDs unique` -- proving the Cut A wiring works.
+  It reverts to a WARN whenever the leak in 11.3 puts a bad record back.
+- **The capture vault unlocks**: `capture-vault unlock: HTTP 200`.
+
+### 11.2 | The L11 chain, because the shape matters more than the fix
+
+L11 took five layers, each hiding the next, and not one of them was ever a
+defect in BD's download pipeline:
+
+1. seeded URLs 404'd,
+2. then they were raw media BD cannot navigate to,
+3. then nothing ever started the queue,
+4. then the site had no `download_dir`, so files were clicked and discarded,
+5. then the bytes served were not a decodable video.
+
+Every fix pushed the seeded job further down the real pipeline and revealed the
+next stop. The lesson to carry: when a live check reports "no completed
+downloads", the prior should be that the harness cannot produce one, not that
+the product cannot perform one.
+
+### 11.3 | Open: the test suite writes the operator's real VPN config
+
+Tracked as #10, and the most consequential open item. Confirmed by
+instrumentation -- a pytest plugin wrapping `vpn_config.save()` and recording
+the nodeid whenever the resolved path was the real user config:
+
+    test   : tests/test_v3_66_729_body_contract_fixtures.py::
+             test_no_control_sends_a_body_its_endpoint_refuses
+    path   : ~/.config/bulk-downloader/vpn/tunnels.json
+    env    : BD_VPN_CONFIG_PATH=<unset>
+    tunnels: ['tun-ccc']
+    global : {'leak_test_interval_s': 1, 'kill_switch_auto_recover': False, ...}
+    stack  : app_vpn_api.py:391 vpn_settings_update
+               -> update_global_settings(**data) -> vpn_config.py:435 save()
+
+`PUT /api/vpn/settings` accepts the body-contract probe's synthetic payload and
+persists it. On the box that left `leak_test_interval_s = 1` (default 1800), so
+VPN leak tests run every second rather than every 30 minutes, and
+`kill_switch_auto_recover = false` (default true). `save()` also serialises
+module-global `_state["tunnels"]`, which still held the `tun-ccc` fixture from
+`tests/test_v3_66_507_bucket3b_store_raw.py:221`, so a malformed test tunnel
+(missing `name` and `backend`) is written into the operator's file, quarantines
+on load, and blocks `--vpn-tunnel` seeding on every capture.
+
+**Three targeted reproductions failed before instrumentation** -- the three VPN
+store-raw files, all 19 files importing `vpn_config`, and a bare
+`import bulk_downloader.app`. All reported UNCHANGED. Stopping there would have
+produced a confident "no leak found". The trigger is cross-test: module state
+from one test plus an HTTP write from another. **Do not attempt to reproduce
+this by reading; use the probe.**
+
+### 11.4 | Still open
+
+- **#3** started-not-serving at `install_service.sh` step [4].
+- **#4** the suite writes into the working tree (`plugins/plugins.json` was
+  reverted rather than committed on three separate cuts this session).
+- **#7** seeded history rows survive teardown and dedup-poison the next run.
+  Measured: a second seeded run reported `skipped_duplicate` against the prior
+  capture's rows and downloaded nothing. Manual clear is
+  `DELETE FROM history WHERE url LIKE '%bdseed%'` plus
+  `INSERT INTO history_fts(history_fts) VALUES('rebuild')` -- `history_fts` is
+  external-content and has no triggers.
+- **#10** the VPN config leak above.
+- **capture.sh reporting**: it prints `seeding declined or failed` when only one
+  of three seeding modes declined, then `tail -3` of the log -- which showed
+  `}`, `}`, `]` while the actual reason sat on line 1.
+- **Audit #1** `sites_config.json` leak. Operator chose the real fix in
+  `app.py`. Same class as #10.
+- **Audit #3** cold Ollama: `ai_enabled` is true on the box, `warmup()` warms
+  only the text model, and L18 measures 180.2s cold against a 90s wall. It
+  passed at 4785ms only because the model was warm. The first capture after a
+  reboot fails on a healthy backend.
+- **Audit #23** confirmed live: `graph content pin: MISSING -- UNKNOWN --
+  optional check not armed`, `graph-gate exit: 0`.
+
+## 12 | Mistakes made after `d38590d`
+
+Section 7 covers the earlier ones. These are new, and the first is the one most
+likely to recur.
+
+1. **Committing onto squash-merged history, twice.** After a squash merge the
+   branch's commits are not in `main`'s history, so pushing on top leaves the PR
+   `mergeable_state: "dirty"` and CI never starts. The failure is nasty because
+   `get_check_runs` then returns `total_count: 0`, which is indistinguishable
+   from "CI hasn't started yet" -- I nearly waited on a run that could never
+   exist. **Before any commit following a merge:**
+   `git fetch origin main && git checkout -B <branch> origin/main`.
+   Check `mergeable_state`, not just check runs.
+2. **Adding L36 to `LIVE_IDS` on an inherited description.** The audit called
+   its failure branches the stale-`frontend/dist` class; I did not re-derive
+   that against the source. L36 in fact asserted `/m2/`-prefixed asset paths
+   that v3.66.203 deliberately removed, so it could not pass on any correct
+   deployment. Had it reached a full capture it would have verdicted FAIL on a
+   healthy box. Verify-then-act exists for exactly this.
+3. **A gate of mine that matched prose instead of code**, twice: an invocation
+   reader that matched four comments mentioning the seeder's path, and a
+   branch-order check that matched the comment quoting its own marker.
+4. **A blind gate inside the gate for the N/A cut.** Removing `NA` from
+   `_LEVELS` passed 10/10, because every test called the check directly while
+   the allow-list is enforced in `run_all`. Found by mutation, not by reading.
+5. **An empty-registry probe.** Importing `live_tests.harness` without
+   `live_tests.checks` returned zero registered checks, and would have refuted
+   a correct finding. The decorator registers at import of `checks`.
+
+## 13 | What to do first in a new session
+
+1. Re-derive everything in section 11 -- it is a register, not an authority.
+2. **#10 first.** It is the only open item still changing operator state, and
+   it changes VPN settings and credentials-adjacent config.
+3. Then audit #1, whose fix shape the operator already chose.
+4. Do not start `bd-mutate` before those two: a generic mutator generating
+   shallow mutations would become another gate that cannot fail, and this
+   session found five real ones the hard way.
