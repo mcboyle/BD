@@ -55,13 +55,31 @@ def _build_query(*, table: str = "history",
     (sql, params)."""
     where = []
     params: list = []
-    if id_in:
+    if id_in is not None:
+        # An explicitly supplied selection is authoritative INCLUDING when it is
+        # empty. This was `if id_in:`, which made a supplied-but-empty list
+        # indistinguishable from an absent one: no clause was appended, `where`
+        # stayed empty, and the query degenerated to an unfiltered
+        # `SELECT * FROM history`. Measured over HTTP:
+        #   POST /api/batch/delete {"filter":{"id_in":[]},"dry_run":false}
+        #     -> processed 7, history 7 -> 0, including organic rows.
+        # "Select nothing" and "select everything" are the two most different
+        # answers available, and the falsy test picked the destructive one.
+        # _matching_rows is shared, so the same empty list drove bulk_delete
+        # (DELETE, and os.unlink under delete_files), bulk_retry (re-queue every
+        # row) and bulk_move (relocate every file) alike — which is why the fix
+        # belongs here rather than at any one call site.
+        # An ABSENT id_in still means "unrestricted by id", so whole-table
+        # filters like older_than_days keep working.
         # SQLite IN-list — cap explicit ID lists at 1000 to avoid
         # SQLITE_MAX_VARIABLE_NUMBER issues
         ids = [int(i) for i in id_in[:1000]]
-        placeholders = ",".join("?" * len(ids))
-        where.append(f"id IN ({placeholders})")
-        params.extend(ids)
+        if ids:
+            placeholders = ",".join("?" * len(ids))
+            where.append(f"id IN ({placeholders})")
+            params.extend(ids)
+        else:
+            where.append("1 = 0")
     if site_id:
         where.append("site_id = ?")
         params.append(site_id)
