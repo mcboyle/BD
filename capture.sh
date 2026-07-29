@@ -770,13 +770,21 @@ if [ -f "$BD_HOME/tools/live_seed.py" ] && [ -f "$BD_HOME/tools/fixture_site.py"
     # 4-16 KB files, so the normal path settles in seconds; the bound is for
     # the abnormal one. A timeout exits non-zero and is reported per URL, which
     # lands in the `else` branch below as a warning, not a capture failure.
+    # --vpn-tunnel is what gives L30 (vpn-tunnel-inventory-consistent) a
+    # subject. It is NOT implied by --seed: main() branches on args.vpn_tunnel
+    # separately, so omitting it left L30 reporting "no VPN tunnels configured
+    # — nothing to verify" on the box, truthfully, because nothing had ever
+    # asked for the thing it checks. The tunnel it creates is inert with
+    # respect to egress — state defaults to "down", no SOCKS port is allocated
+    # until start_tunnel() which the seeder never calls, and no site routes to
+    # it — so it is observable without being live.
     if venv/bin/python tools/live_seed.py --seed --start --start-timeout 180 \
-         --login --count 3 $_seed_force \
+         --login --vpn-tunnel --count 3 $_seed_force \
          > "$OUT/05a_live_seed.log" 2>&1; then
       SEEDED=1
-      echo "  seeded 3 marked URLs + started the queue + fixture login — queue"
-      echo "  and auth checks are exercising SYNTHETIC input;"
-      echo "  see $OUT/05a_live_seed.log"
+      echo "  seeded 3 marked URLs + started the queue + fixture login + an"
+      echo "  inert VPN tunnel — queue, auth and VPN checks are exercising"
+      echo "  SYNTHETIC input; see $OUT/05a_live_seed.log"
     else
       # A refusal can still have created something before it stopped, so mark
       # the run as seeded regardless -- teardown is idempotent and removing
