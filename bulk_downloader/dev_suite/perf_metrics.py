@@ -33,9 +33,33 @@ def leak_scan() -> dict:
         from bulk_downloader import perf_lab as _pl
         procs = _pl._child_process_count()
         out["processes"] = procs
-        if procs.get("chromium", 0) > 8:
-            findings.append(f"{procs['chromium']} Chromium processes alive "
-                            "— possible leaked Playwright contexts")
+        # v3.66.819 -- KEY ON ORPHANS, NOT ON THE RAW COUNT.
+        #
+        # This was `procs["chromium"] > 8`. A live browser is a process tree: 6
+        # matching processes for one blank page, 22 on the deploy host during a
+        # real download. So the threshold fired on every healthy fetch and named
+        # it "possible leaked Playwright contexts". 8 was a guess about how many
+        # processes one browser has, and it was wrong by roughly 3x.
+        #
+        # An orphan is now identified structurally (not a descendant of this
+        # process, and not a zombie awaiting reap) rather than by exceeding a
+        # guessed count -- see perf_lab._child_process_count. None means the
+        # classification could not be made; a leak is not reported on an
+        # unknown, and the unknown is surfaced instead.
+        orphans = procs.get("chromium_orphan", "absent")
+        if isinstance(orphans, int) and orphans > 0:
+            udds = [d.get("user_data_dir") for d in (procs.get("orphan_detail")
+                                                    or [])]
+            named = [u for u in udds if u]
+            findings.append(
+                f"{orphans} orphaned browser process(es) — still running with "
+                f"no launcher (not descendants of this app, not zombies)"
+                + (f"; profiles: {named[:3]}" if named else ""))
+        elif orphans is None:
+            findings.append(
+                "orphaned-browser count could not be determined — /proc did "
+                "not yield process parentage, so this is UNKNOWN rather than "
+                "clean")
         if procs.get("ffmpeg", 0) > 4:
             findings.append(f"{procs['ffmpeg']} ffmpeg processes alive "
                             "— possible orphaned segment downloads")

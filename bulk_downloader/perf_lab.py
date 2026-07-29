@@ -55,27 +55,240 @@ def _rss_bytes() -> Optional[int]:
         return None
 
 
-def _child_process_count() -> dict:
-    """Count Chromium/ffmpeg-ish processes — a proxy for leaked
-    Playwright contexts / undead ffmpeg children. Linux /proc walk;
-    returns {} when /proc is not available."""
-    out = {"chromium": 0, "ffmpeg": 0, "total_procs": 0}
+# v3.66.819 -- how many orphans we will name before truncating. The payload is
+# served over HTTP and read by a live check; a runaway leak must not turn it into
+# a thousand-entry dump.
+_ORPHAN_DETAIL_CAP = 20
+
+
+def _proc_parent_and_state(root: str, entry: str):
+    """(ppid, state) from /proc/<pid>/status, or (None, None) if unreadable.
+
+    `status` rather than `stat`: stat's comm field is parenthesised and may
+    itself contain spaces or parentheses, so field-splitting stat is a known way
+    to read the wrong column. status is line-oriented and unambiguous.
+    """
     try:
-        for entry in os.listdir("/proc"):
-            if not entry.isdigit():
-                continue
-            out["total_procs"] += 1
-            try:
-                with open(f"/proc/{entry}/comm", encoding="utf-8") as fh:
-                    comm = fh.read().strip().lower()
-            except Exception:
-                continue
-            if "chrom" in comm or "headless" in comm:
-                out["chromium"] += 1
-            elif "ffmpeg" in comm:
-                out["ffmpeg"] += 1
+        with open(f"{root}/{entry}/status", encoding="utf-8") as fh:
+            body = fh.read()
     except Exception:
+        return None, None
+    ppid = state = None
+    for line in body.splitlines():
+        if line.startswith("PPid:"):
+            try:
+                ppid = int(line.split()[1])
+            except Exception:
+                ppid = None
+        elif line.startswith("State:"):
+            parts = line.split(None, 1)
+            state = parts[1].strip() if len(parts) > 1 else None
+        if ppid is not None and state is not None:
+            break
+    return ppid, state
+
+
+def _descends_from(pid: int, ancestor: int, ppid_of: dict) -> bool:
+    """Is `pid` anywhere below `ancestor` in the process tree?
+
+    A single PPid comparison is not enough: Playwright interposes its node
+    driver, so a browser BD launched has the DRIVER as its parent, not BD. The
+    chain has to be walked. `seen` guards against a cycle -- /proc is sampled
+    non-atomically, so a pid can be recycled between reads and produce one.
+    """
+    seen = set()
+    cur = pid
+    while cur and cur not in seen:
+        if cur == ancestor:
+            return True
+        seen.add(cur)
+        cur = ppid_of.get(cur)
+        if cur in (0, 1, None):
+            return False
+    return False
+
+
+def _parent_is_gone(ppid: int, live_pids: set) -> bool:
+    """Has this process's launcher died?
+
+    True when the parent is init (pid 1 -- the classic reparent) or when the
+    recorded ppid is not in the table at all, which happens if the parent exited
+    between the two reads. Both mean nobody is holding this process.
+
+    False for a browser whose parent is alive and simply is not us: an operator
+    running tools/capture_session.py or tools/nav_probe.py owns those, and they
+    are not a leak.
+    """
+    if ppid is None:
+        return True
+    if ppid <= 1:
+        return True
+    return ppid not in live_pids
+
+
+def _user_data_dir(cmdline: str):
+    """The --user-data-dir a browser was launched with, if it says.
+
+    Reported as DETAIL so the operator can tell WHICH browser leaked. Never used
+    as a filter: BD launches browsers both with a stable BD-owned profile
+    (login_impl/manual.py, login_impl/replay.py) and with plain launch(), whose
+    profile is an ephemeral /tmp/playwright_chromiumdev_profile-XXXXXX -- and
+    renderer children carry no --user-data-dir at all (measured: 1 of 6). A
+    filter on this would miss every orphan from the plain-launch path.
+    """
+    for tok in cmdline.split(" "):
+        if tok.startswith("--user-data-dir="):
+            return tok.split("=", 1)[1] or None
+    return None
+
+
+def _child_process_count(proc_root: str = "/proc",
+                         self_pid: int = None) -> dict:
+    """Classify browser/ffmpeg processes: live, zombie, or actually ORPHANED.
+
+    v3.66.819 -- THIS USED TO BE A SUBSTRING MATCH CALLED AN ORPHAN COUNT.
+    The whole measurement was `"chrom" in comm or "headless" in comm` over every
+    process in /proc. It read no PPid, so nothing established that a process was
+    orphaned, and it was scoped to no process tree, so nothing established that
+    BD launched it -- yet "orphan" and "leaked Playwright contexts" were asserted
+    on it by dev_suite.leak_scan and by live check L33.
+
+    A live Chromium is a TREE. Measured with one real headless browser and a
+    single blank page: 6 matching processes, all descendants of the launching
+    pid. The deploy host measured peak 22 during a real download, so leak_scan's
+    `> 8` threshold fired and L33 reported "Playwright contexts may be leaking"
+    about a working fetch. CLAUDE.md section 0's inverse -- a gate that cries
+    wolf gets switched off.
+
+    ZOMBIES ARE NOT LEAKS, and this is the part that is easy to get wrong.
+    Measured immediately after a CORRECT browser.close(): 2 processes remain at
+    ppid=1 in state Z for ~3 seconds, then vanish. They are not descendants of
+    the app, so the natural definition of orphaned flags them on every healthy
+    close. A zombie holds no browser, no port, no profile lock and no memory
+    beyond its process-table entry. `State: Z` excludes it exactly.
+
+    NOR IS SOMEBODY ELSE'S BROWSER. "Not a descendant of the app" is not the
+    same as "orphaned", and this repo ships two counter-examples:
+    tools/capture_session.py and tools/nav_probe.py are standalone operator CLIs
+    that launch their own browsers. Those are nobody's leak -- their launcher is
+    alive -- but they are not descendants of the Flask app, so a
+    descendant-test-only predicate calls them orphans, and an operator running a
+    capture session by hand while the checks sample would see a phantom leak.
+    They land in `chromium_foreign`.
+
+    So an orphan is: matches a browser comm, is NOT in state Z, is NOT a
+    descendant of the running app, AND its parent is gone -- reparented to init,
+    or pointing at a pid no longer in the table. That last clause is what the
+    word actually means, and it holds regardless of who launched the browser.
+    Browsers stranded by a previous app instance qualify, which is a real leak
+    class the old number could not tell from a busy download.
+
+    The four buckets partition `chromium`: live + zombie + foreign + orphan.
+
+    UNKNOWN IS NOT ZERO. `chromium_orphan` is None -- not 0 -- whenever the
+    classification could not be made: /proc has no status for a confirmed
+    browser, or the app's own pid is not visible in this /proc at all (a
+    different namespace, or an injected root). Both would otherwise make every
+    browser on the box read as an orphan.
+
+    `chromium`, `ffmpeg` and `total_procs` keep their exact old meanings, because
+    perf_lab's own report, dev_suite.leak_scan and the existing tests read them.
+    `chromium` is still the raw comm-match count across every state.
+
+    `proc_root` and `self_pid` exist so the classification can be tested against
+    a posed process table; production calls pass neither.
+    """
+    out = {"chromium": 0, "ffmpeg": 0, "total_procs": 0,
+           "chromium_live": 0, "chromium_zombie": 0,
+           "chromium_foreign": 0, "chromium_orphan": 0, "orphan_detail": []}
+    if self_pid is None:
+        self_pid = os.getpid()
+    root = str(proc_root)
+    try:
+        entries = [e for e in os.listdir(root) if e.isdigit()]
+    except Exception:
+        # Unchanged contract: no /proc at all means nothing was measured, and
+        # {} is what every existing caller already handles. L33 turns this into
+        # NA ("not exercisable here"), never into a PASS.
         return {}
+
+    ppid_of: dict = {}
+    browsers: list = []
+    unclassifiable = False
+    seen_self = False
+    for entry in entries:
+        out["total_procs"] += 1
+        pid = int(entry)
+        if pid == self_pid:
+            seen_self = True
+        try:
+            with open(f"{root}/{entry}/comm", encoding="utf-8") as fh:
+                comm = fh.read().strip().lower()
+        except Exception:
+            # The pid exited between listdir and read. It is gone, so it is not
+            # leaking anything; skipping it is correct, and NOT knowing whether
+            # it was a browser is not the same as failing to classify one.
+            continue
+        ppid, state = _proc_parent_and_state(root, entry)
+        if ppid is not None:
+            ppid_of[pid] = ppid
+        # The original predicate, byte for byte. Note which clause fires: the
+        # measured comm is 'chrome-headless' -- exactly 15 chars, Linux's comm
+        # limit -- so the real executable name (chrome-headless-shell) is
+        # TRUNCATED. Both clauses happen to match it; the cmdline, read below
+        # for detail only, carries the untruncated path.
+        if "chrom" in comm or "headless" in comm:
+            out["chromium"] += 1
+            if ppid is None or state is None:
+                unclassifiable = True
+                continue
+            try:
+                with open(f"{root}/{entry}/cmdline", "rb") as fh:
+                    cmdline = fh.read().replace(b"\0", b" ").decode(
+                        "utf-8", "replace")
+            except Exception:
+                cmdline = ""
+            browsers.append((pid, comm, ppid, state, cmdline))
+        elif "ffmpeg" in comm:
+            out["ffmpeg"] += 1
+
+    live_pids = set(ppid_of) | {p for p, _c, _pp, _s, _cl in browsers}
+    for pid, comm, ppid, state, cmdline in browsers:
+        if state.upper().startswith("Z"):
+            out["chromium_zombie"] += 1
+        elif _descends_from(pid, self_pid, ppid_of):
+            out["chromium_live"] += 1
+        elif not _parent_is_gone(ppid, live_pids):
+            # SOMEBODY ELSE OWNS IT, and it is not orphaned.
+            #
+            # "Not a descendant of the app" is not the same as "orphaned", and
+            # this repo has two shipped counter-examples: tools/capture_session.py
+            # and tools/nav_probe.py are standalone operator CLIs that launch
+            # their own browsers. Those browsers are nobody's leak -- their
+            # launcher is sitting right there, alive -- but they are not
+            # descendants of the Flask app either, so the descendant test alone
+            # calls them orphans. An operator running a capture session by hand
+            # while the live checks sample would have seen a phantom leak.
+            #
+            # An orphan is a process whose PARENT IS GONE: reparented to init
+            # (ppid 1), or pointing at a pid that is no longer in the table.
+            # That is the actual meaning of the word, and it holds regardless of
+            # who launched the browser.
+            out["chromium_foreign"] += 1
+        else:
+            out["chromium_orphan"] += 1
+            if len(out["orphan_detail"]) < _ORPHAN_DETAIL_CAP:
+                out["orphan_detail"].append({
+                    "pid": pid, "comm": comm, "ppid": ppid,
+                    "user_data_dir": _user_data_dir(cmdline)})
+
+    if unclassifiable or (browsers and not seen_self):
+        # Either a confirmed browser had no readable status, or this /proc does
+        # not contain the pid we would measure descent from. In both cases a
+        # count would be manufactured, and every live browser would read as an
+        # orphan. Say unknown.
+        out["chromium_orphan"] = None
+        out["orphan_detail"] = []
     return out
 
 
