@@ -253,23 +253,47 @@ def test_seeding_never_enqueues_against_an_unmarked_site():
         )
 
 
-def test_an_existing_marked_site_is_reused_rather_than_duplicated():
-    """Re-running the seeder must not accumulate sites."""
+def test_an_existing_seed_site_is_replaced_not_duplicated():
+    """Re-running the seeder must not accumulate sites.
+
+    THE MECHANISM CHANGED, THE PROPERTY DID NOT. This used to assert that no
+    site was created, because ensure_seed_site REUSED an existing marked one.
+    Reuse was wrong twice: the seeder's client has no put verb, so a reused
+    site kept whatever config it was created with -- including
+    skip_if_exists=True from before that flag was set, which made the flag
+    inert on exactly the runs following a failed teardown -- and the marker
+    matched the LOGIN fixture as readily as the queue fixture, so which one got
+    the seeded URLs was a coin flip on random uuid4 ids.
+
+    So the seeder now deletes its own site and creates a fresh one. The
+    non-accumulation property this test protects is unchanged and is asserted
+    directly: one delete, one create, still exactly one seeded site.
+    """
     seed = _load()
     marked_sid = "99887766"
     client = FakeClient({
         ("GET", "/api/status"): {
-            marked_sid: {"name": f"{seed.SEED_MARKER} fixture", "config": {}},
+            marked_sid: {"name": seed.SEED_SITE_NAME, "config": {}},
         },
+        ("POST", "/api/sites"): {"id": "fresh001"},
     })
     seed.seed_queue(client, count=1)
+
+    deleted = [p for m, p, _ in client.calls if m == "DELETE"]
     created = [p for p, _b in client.posted() if p == "/api/sites"]
-    assert not created, (
-        "a marked site already existed but the seeder created another; "
-        "repeated capture runs would accumulate sites"
+    assert deleted == [f"/api/sites/{marked_sid}"], (
+        f"the stale seeded site was not deleted. DELETEs: {deleted}. Without "
+        f"this it keeps its old config forever, since the client cannot PUT."
+    )
+    assert len(created) == 1, (
+        f"expected exactly one replacement site, got {len(created)} -- "
+        f"repeated capture runs would accumulate sites."
     )
     enqueued = [b for p, b in client.posted() if p.endswith("/add_url")]
-    assert enqueued and all(b.get("site_id") == marked_sid for b in enqueued)
+    assert enqueued and all(b.get("site_id") == "fresh001" for b in enqueued), (
+        "URLs were queued against something other than the freshly created "
+        "site; a fresh id per run is what makes site_id a per-run key."
+    )
 
 
 def test_teardown_removes_marked_sites_but_never_unmarked_ones():
