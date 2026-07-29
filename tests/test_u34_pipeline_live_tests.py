@@ -51,7 +51,32 @@ def test_l11_unreachable_is_warn():
 
 
 class _TopLevelStatusContext:
-    """Match the deployed /api/status and extractor-matrix schemas."""
+    """Match the deployed /api/status and extractor-matrix schemas.
+
+    v3.66.820: L11 stopped trusting the queue's `done` count -- that count is
+    incremented by paths that cancel the transfer -- and now reads
+    history.bytes_fetched. This double therefore needs a history DB, because a
+    Context without one is a Context the check cannot draw a conclusion from.
+    Its own header already records that the verdict vocabulary broke it once
+    when NA was added; this is the same class of coupling.
+    """
+
+    def __init__(self):
+        import sqlite3, tempfile, pathlib as _pl
+        self.db_path = _pl.Path(tempfile.mkdtemp()) / "history.db"
+        cx = sqlite3.connect(self.db_path)
+        cx.execute("CREATE TABLE history(id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                   " site_id TEXT, status TEXT, filename TEXT, file_size INT,"
+                   " message TEXT, bytes_fetched INTEGER,"
+                   " ts TEXT DEFAULT(strftime('%Y-%m-%dT%H:%M:%S','now')))")
+        cx.execute("INSERT INTO history(site_id,status,filename,file_size,"
+                   "message,bytes_fetched) VALUES('site-a','done','v.mp4',"
+                   "8,'',8)")
+        cx.commit(); cx.close()
+
+    def ro_db(self):
+        import sqlite3
+        return sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
 
     def get(self, path, timeout=15):
         if path == "/api/status":

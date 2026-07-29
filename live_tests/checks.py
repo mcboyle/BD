@@ -949,6 +949,14 @@ def l21_wal_checkpoint_under_load(ctx):
 # a writer). tests/test_u34_pipeline_live_tests.py pins the two equal
 # so the copy nobody updated cannot become the one that runs.
 SEED_MARKER = "bdseed"
+# The seeder creates TWO marked sites -- a queue fixture and a login fixture --
+# and both contain SEED_MARKER. Selecting on the marker alone therefore picked
+# between them by /api/status iteration order: measured on the box across five
+# runs, the queue site 4/5 and the LOGIN site 1/5, and the login site correctly
+# has no completed download, so that run was a false WARN. Pinned equal to the
+# seeder's own constant by tests/test_l11_observes_a_download_not_a_skip.py, for
+# the same reason SEED_MARKER is.
+SEED_QUEUE_SITE_NAME = f"{SEED_MARKER} fixture site"
 
 
 def _status_site_map(body):
@@ -1000,11 +1008,20 @@ def _pipeline_setup(ctx):
         else [s.get("site_id") for s in sites]
     if not site_ids:
         return None, "no usable site id"
-    seeded = [sid for sid in site_ids
-              if SEED_MARKER in str((sites.get(sid) or {}).get("name", ""))]
-    chosen = seeded[0] if seeded else site_ids[0]
+    def _name(sid):
+        return str((sites.get(sid) or {}).get("name", ""))
+    seeded = [sid for sid in site_ids if SEED_MARKER in _name(sid)]
+    # Prefer the site the seeder POPULATES, by exact name. Falling back to any
+    # marked site keeps a host working if the seeder's naming changes, and
+    # falling back to the first site keeps the pre-seeder behaviour on a host
+    # with nothing seeded. Sorting would NOT be enough: the login site sorts
+    # first by both id and name in the case measured on the box.
+    queue_sites = [sid for sid in seeded if _name(sid) == SEED_QUEUE_SITE_NAME]
+    chosen = (queue_sites[0] if queue_sites
+              else seeded[0] if seeded else site_ids[0])
     return chosen, {"site_count": len(site_ids),
                     "seeded": bool(seeded),
+                    "exact_queue_site": bool(queue_sites),
                     "marker": SEED_MARKER}
 
 
@@ -1038,9 +1055,46 @@ def l11_end_to_end_small_download(ctx):
     failed = int(counts.get("failed", 0) or 0)
     ctx.log(f"site '{sid}' queue: done={done} failed={failed} "
             f"counts={counts}")
-    if done > 0:
-        return PASS, (f"site '{sid}' has {done} completed download(s) "
-                      f"— the end-to-end pipeline has worked")
+    # A queue `done` count proves nothing about a download. runner_transport.py
+    # reports done and cancels the transfer when the file already exists, and
+    # four other paths reach done without fetching. Two more (teach and manual)
+    # flip the queue to done and write no history row at all. So the verdict
+    # comes from history.bytes_fetched, which v3.66.819 added precisely because
+    # no existing column could answer the question.
+    if not ctx.db_path.exists():
+        return FAIL, (f"no history DB at {ctx.db_path} — cannot tell a real "
+                      f"download from a skipped one. L22 and L26 already FAIL "
+                      f"on this condition.")
+    try:
+        cx = ctx.ro_db()
+        try:
+            fetched, zero, unknown = cx.execute(
+                "SELECT "
+                " SUM(CASE WHEN bytes_fetched > 0 THEN 1 ELSE 0 END), "
+                " SUM(CASE WHEN bytes_fetched = 0 THEN 1 ELSE 0 END), "
+                " SUM(CASE WHEN bytes_fetched IS NULL THEN 1 ELSE 0 END) "
+                "FROM history WHERE site_id = ? AND status = 'done'",
+                (sid,)).fetchone()
+        finally:
+            cx.close()
+    except Exception as e:
+        return FAIL, (f"could not read history for '{sid}': "
+                      f"{type(e).__name__}: {e}")
+    fetched, zero, unknown = int(fetched or 0), int(zero or 0), int(unknown or 0)
+    ctx.log(f"site '{sid}' completions: {fetched} fetched, {zero} zero-byte, "
+            f"{unknown} unrecorded")
+    if fetched > 0:
+        return PASS, (f"site '{sid}' has {fetched} completed download(s) that "
+                      f"actually transferred bytes — the end-to-end pipeline "
+                      f"has worked")
+    if zero > 0:
+        return WARN, (f"site '{sid}' has {zero} completion(s) that transferred "
+                      f"0 bytes and none that did — the runner reported done "
+                      f"without fetching (file already present, dedup hit, or "
+                      f"no download dir). The pipeline was not exercised.")
+    if unknown > 0:
+        return WARN, (f"site '{sid}' has {unknown} completion(s) that predate "
+                      f"byte accounting — unknown, not proof of a download")
     if failed > 0:
         return WARN, (f"site '{sid}' has {failed} failed and 0 done — "
                       f"pipeline may be unhealthy; inspect history")
