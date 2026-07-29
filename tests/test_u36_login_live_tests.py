@@ -13,7 +13,10 @@ from bulk_downloader import db
 import time
 
 
-_LEVELS = (h.PASS, h.WARN, h.FAIL)
+# Read the harness tuple rather than restating it: a local copy goes stale
+# the moment the verdict vocabulary grows (it did -- h.NA was added and every
+# copy of this line silently began rejecting a valid level).
+_LEVELS = h._LEVELS
 
 
 def _get_test(test_id):

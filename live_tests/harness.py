@@ -43,7 +43,15 @@ import urllib.request
 from pathlib import Path
 
 PASS, WARN, FAIL = "PASS", "WARN", "FAIL"
-_LEVELS = (PASS, WARN, FAIL)
+# A fourth verdict: the check could not observe its subject on this host.
+#
+# Not a pass -- "nothing to look at" is not evidence the thing works. Not a
+# warn -- a permanent, unclearable WARN is a false alarm, and CLAUDE.md
+# section 0's inverse rule says over-sensitivity is a soundness bug, because a
+# gate that cries wolf gets switched off and then the thing it guarded is
+# unguarded. Never gates the deploy: run_all's exit code keys on FAIL alone.
+NA = "N/A"
+_LEVELS = (PASS, WARN, FAIL, NA)
 
 # T55: default per-check hard timeout. Generous enough that the
 # slowest legitimate check (small-download pipeline, ~30s on a busy
@@ -223,7 +231,7 @@ def run_all(base_url, bd_home, *, include_disruptive=False,
                  f"host={platform.node()} | app={version} | "
                  f"target={str(base_url).rstrip('/')} ===\n")
 
-    counts = {PASS: 0, WARN: 0, FAIL: 0}
+    counts = {PASS: 0, WARN: 0, FAIL: 0, NA: 0}
     for t in tests:
         ctx = Context(base_url, bd_home, disruptive=include_disruptive)
         ctx.log(f"[{t.id}] {t.name} — start")
@@ -265,6 +273,10 @@ def run_all(base_url, bd_home, *, include_disruptive=False,
         elif fail_file.exists():
             fail_file.unlink()  # clear a stale failure from a prior run
 
+    # The n/a bucket is printed only when non-zero, so a run without any
+    # unobservable checks emits the historical summary shape verbatim and every
+    # archived bundle keeps parsing.
+    _na = f"| {counts[NA]} n/a " if counts[NA] else ""
     print(f"  {counts[PASS]} pass | {counts[WARN]} warn | "
-          f"{counts[FAIL]} fail  ({len(tests)} run)")
+          f"{counts[FAIL]} fail {_na} ({len(tests)} run)")
     return 1 if counts[FAIL] else 0

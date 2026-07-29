@@ -34,7 +34,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _env  # noqa: E402
 
 
-_LEVELS = (h.PASS, h.WARN, h.FAIL)
+# Read the harness tuple rather than restating it: a local copy goes stale
+# the moment the verdict vocabulary grows (it did -- h.NA was added and every
+# copy of this line silently began rejecting a valid level).
+_LEVELS = h._LEVELS
 
 
 def _get_test(test_id):
@@ -119,7 +122,7 @@ def test_l27_environment_branched_outcome():
     if _env.HAS_BULKDOWNLOADER_UNIT:
         # PASS if active+system-managed; FAIL if inactive (real
         # deploy issue); WARN if it is a user-unit
-        assert level in (h.PASS, h.WARN, h.FAIL)
+        assert level in h._LEVELS
     else:
         # (a) and (b) -> WARN. T56 fix: L27 now gates on
         # _unit_exists BEFORE reading is-active, so a missing unit

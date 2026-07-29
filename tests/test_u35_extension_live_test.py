@@ -10,7 +10,10 @@ import live_tests.checks as checks  # noqa: F401 (registers the checks)
 import live_tests.harness as h
 
 
-_LEVELS = (h.PASS, h.WARN, h.FAIL)
+# Read the harness tuple rather than restating it: a local copy goes stale
+# the moment the verdict vocabulary grows (it did -- h.NA was added and every
+# copy of this line silently began rejecting a valid level).
+_LEVELS = h._LEVELS
 
 
 def _get_test(test_id):
