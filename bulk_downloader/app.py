@@ -1164,7 +1164,45 @@ def serve_m2_spa(subpath: str = ""):
 # in-memory only — making the queue persistence pointless because all sites
 # vanished on restart. This module mirrors the in-memory s_meta dict to
 # `sites_config.json` on every change, and rehydrates SiteRunners on startup.
-SITES_FILE = Path("sites_config.json")
+def _resolve_sites_file() -> Path:
+    """Where the site config lives.
+
+    Absolute under BD_INSTALL_DIR when that is set, and the historical relative
+    path when it is not.
+
+    This used to be a bare `Path("sites_config.json")`, which resolves against
+    the process CWD at use time. tests/test_e2e_smoke.py's harness sets
+    BD_INSTALL_DIR to a temp dir, clears every bulk_downloader module from
+    sys.modules and re-imports, specifically so this kind of state is isolated
+    -- but a relative path never consults INSTALL_DIR at all. So "E2E Test Site"
+    was written into whatever directory pytest happened to be standing in, and
+    tearDownClass never removed it. Measured 2026-07-29: seven such entries on
+    the deploy box and seven in the sandbox. At four or more sites the SPA
+    collapses idle sites by default, so it was already changing what the
+    operator sees.
+
+    Keyed off the ENV VAR rather than constants.INSTALL_DIR on purpose.
+    INSTALL_DIR is frozen at import and falls back to Path.cwd(), so whether it
+    holds the repo or a tmp dir depends on whether that import beat the test
+    suite's chdir -- the same trap that hid the plugins-directory leak. Binding
+    here would PIN the file to the source tree for every ordinary test, where
+    the relative path at least follows the chdir.
+
+    With BD_INSTALL_DIR unset -- which is how the service runs on the box, from
+    its install root -- the result is byte-identical to the old behaviour, so
+    no operator config moves and no migration is needed.
+
+    Stays a module ATTRIBUTE below, not a call-time resolver: ten test files
+    reference SITES_FILE and at least one monkeypatches it with setattr. A
+    resolver would leave every one of those patches inert.
+    """
+    install = os.environ.get("BD_INSTALL_DIR", "").strip()
+    if install:
+        return Path(install).resolve() / "sites_config.json"
+    return Path("sites_config.json")
+
+
+SITES_FILE = _resolve_sites_file()
 
 def _save_sites_config():
     """Write current sites to disk. Called on every add/update/delete.
