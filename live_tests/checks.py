@@ -6,7 +6,8 @@ above; the 7 backfilled at the bottom (L4, L8, L9, L19, L28, L30, L36)
 were operator-driven backlog items resolved in a later session — they
 are read-only by default; L28 is the one disruptive entry.
 """
-from .harness import FAIL, NA, PASS, WARN, live_test
+from .harness import (DEFAULT_PER_CHECK_TIMEOUT_S, FAIL, NA, PASS, WARN,
+                      live_test)
 
 
 @live_test("L22", "live-integrity-check", disruptive=False)
@@ -361,8 +362,70 @@ _L34_TRIAGE_BUDGET_S = 5
 # The check now watches the clock. Phase 2 re-confirms suspects only while
 # budget remains; whatever it could not reach is UNCONFIRMED -- which is UNKNOWN,
 # and unknown FAILS. It never runs past the wall, so it never leaks the thread.
-_L34_WALL_S = 72.0          # of the harness's 90s; the rest is margin
+# v3.66.819 -- THE WALL IS NOW A CEILING, NOT THE BUDGET.
+#
+# This constant said "72.0 # of the harness's 90s". That was true of exactly one
+# caller. capture.sh:913 passes --per-check-timeout 90 and is the only 90 in the
+# tree; run.py's default is harness.DEFAULT_PER_CHECK_TIMEOUT_S == 60.0, and
+# tools/install_livecheck_timer.sh:152 bakes 60 into the systemd unit that runs
+# the live checks unattended on a schedule. So on every path but the capture,
+# 72 > 60: the check paced itself against a wall the harness had already
+# withdrawn, harness.py killed the thread at 60s, and the recorded result was
+# "TIMEOUT ... thread leaked" rather than the verdict it had already
+# computed. Derived worst case is ~71s (39.6s phase-1 deadline + 7s drain, then
+# phase 2 may start a probe with 10s left and spend 8s, then diagnostics may
+# start one with 6s left and spend 5s), so the overrun is what the code is
+# written to spend, not slack.
+#
+# Two literals describing one budget with no relationship between them will
+# drift again, so the wall is now DERIVED from the timeout actually in force --
+# see _l34_wall_s below. This constant is the ceiling: the largest wall L34 has
+# been exercised at.
+_L34_WALL_S = 72.0
+_L34_WALL_FRACTION = 0.8    # of the harness's per-check timeout; rest is margin
 _L34_PHASE2_RESERVE = 0.45  # fraction of the wall held back for re-confirmation
+
+
+def _l34_wall_s(ctx):
+    """The wall L34 may actually spend, given the timeout being enforced.
+
+    `min` in both directions, deliberately:
+
+      * it never grants MORE than _L34_WALL_S, because 72s is the largest wall
+        this check has been exercised at and widening it on a generous
+        `--per-check-timeout 300` would be an untested behaviour change smuggled
+        in as a bug fix;
+      * it never grants more than the harness will allow, which is the defect
+        this exists to close.
+
+    It also keeps `_L34_WALL_S` load-bearing as an override. Thirteen references
+    across tests/test_v3_66_740/741/744/746 steer this check by
+    `monkeypatch.setattr(checks, "_L34_WALL_S", <1.5..8.0>)`; every one of those
+    values is below the 48.0 floor a 60s timeout derives, so `min` returns them
+    unchanged. Had this been an unconditional `limit * fraction`, all thirteen
+    patches would have gone INERT -- still passing, no longer asserting
+    anything, which is the CLAUDE.md section 0 failure reintroduced by the fix
+    for a section 0 failure.
+
+    A clamp is LOGGED. A budget silently reduced is a budget the operator cannot
+    account for when they read the phase-1 UNPROBED list and wonder why it is
+    long. Under capture.sh (90 * 0.8 == 72.0) nothing is clamped and nothing is
+    logged, so the box's L34 log is unchanged.
+    """
+    limit = getattr(ctx, "per_check_timeout_s", None)
+    if not limit or limit <= 0:
+        limit = DEFAULT_PER_CHECK_TIMEOUT_S
+    derived = float(limit) * _L34_WALL_FRACTION
+    if derived < _L34_WALL_S:
+        log = getattr(ctx, "log", None)
+        if callable(log):
+            log(f"wall clamped {_L34_WALL_S:.0f}s -> {derived:.0f}s to fit the "
+                f"{float(limit):.0f}s per-check timeout in force "
+                f"({_L34_WALL_FRACTION:.0%} of it); expect a longer UNPROBED / "
+                f"UNCONFIRMED list than a capture run, which gets the full "
+                f"{_L34_WALL_S:.0f}s")
+        return derived
+    return _L34_WALL_S
 
 
 @live_test("L34", "full-route-smoke", disruptive=False)
@@ -436,9 +499,12 @@ def l34_full_route_smoke(ctx):
     # changes what it measures reports its own load back to you as a finding.
     import time
     t0 = time.monotonic()
+    # Resolved ONCE, before any timing decision, and never re-read: the wall
+    # must not change under the check while it is pacing against it.
+    wall_s = _l34_wall_s(ctx)
 
     def _left():
-        return _L34_WALL_S - (time.monotonic() - t0)
+        return wall_s - (time.monotonic() - t0)
 
     def _probe(r, budget):
         rule = r["rule"] if isinstance(r, dict) else r
@@ -454,7 +520,7 @@ def l34_full_route_smoke(ctx):
     # FAILING, exactly like phase 2's UNCONFIRMED. The deadline stops SUBMITTING
     # and cancels queued work; in-flight probes drain within one route budget,
     # so the overshoot is bounded by a single probe, never by the sweep.
-    phase1_deadline = _L34_WALL_S * (1.0 - _L34_PHASE2_RESERVE)
+    phase1_deadline = wall_s * (1.0 - _L34_PHASE2_RESERVE)
     unprobed = []
     try:
         from concurrent.futures import ThreadPoolExecutor
@@ -493,7 +559,7 @@ def l34_full_route_smoke(ctx):
             probed.append(_probe(r, _L34_TRIAGE_BUDGET_S))
     if unprobed:
         ctx.log(f"  {len(unprobed)} route(s) UNPROBED -- phase-1 deadline "
-                f"({phase1_deadline:.0f}s of the {_L34_WALL_S:.0f}s wall) hit "
+                f"({phase1_deadline:.0f}s of the {wall_s:.0f}s wall) hit "
                 f"before they could be probed at all: {unprobed[:6]}")
 
     def _classify(rule, rok, rstatus, rbody):
