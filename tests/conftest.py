@@ -368,3 +368,90 @@ def _never_write_the_real_vpn_config(tmp_path_factory):
         yield
     finally:
         _vc.save = _real_save
+
+
+# ─── The repository's plugins/ directory is off limits to the whole suite ─────
+#
+# Reproduced 2026-07-29: running the plugin band on a clean tree leaves
+#   ?? plugins/ackgate.py
+#   ?? plugins/handdropped.py
+#   ?? plugins/plugins.registry.json
+# and modifies the TRACKED plugins/plugins.json. install_plugin() stages into
+# plugins._plugin_dir(), which is INSTALL_DIR/"plugins".
+#
+# The trap is that INSTALL_DIR is frozen at IMPORT of constants.py
+# (constants.py:15, Path.cwd() when BD_INSTALL_DIR is unset). Whichever happens
+# first -- this conftest's chdir, or the first import of constants -- decides it
+# for the entire session. Measured both ways in one afternoon: a single-file run
+# imported after the chdir and got a tmp dir; the band imported before it and
+# froze INSTALL_DIR to /home/user/BD. So the leak is import-ORDER dependent,
+# which is why it survives: it does not reproduce when you run the one file you
+# suspect.
+#
+# Setting BD_INSTALL_DIR from a fixture cannot fix it -- by then the value is
+# already computed. The lever has to be _plugin_dir itself.
+#
+# The redirect SEEDS rather than empties: plugins/plugins.json is tracked and is
+# read as load configuration, so a bare tmp directory would change what the
+# loader sees. Copy the tracked contents across, and reads keep working while
+# writes land somewhere disposable.
+@pytest.fixture(autouse=True, scope="session")
+def _never_write_the_repo_plugins_dir(tmp_path_factory):
+    repo_plugins = pathlib.Path(__file__).resolve().parent.parent / "plugins"
+    sandbox = tmp_path_factory.mktemp("plugins_root") / "plugins"
+    sandbox.mkdir(parents=True, exist_ok=True)
+    if repo_plugins.is_dir():
+        for entry in repo_plugins.iterdir():
+            if entry.is_file():
+                try:
+                    shutil.copy2(entry, sandbox / entry.name)
+                except OSError:
+                    pass
+
+    try:
+        from bulk_downloader import plugins as _pl
+    except Exception:
+        yield
+        return
+
+    _real_plugin_dir = _pl._plugin_dir
+
+    def _guarded_plugin_dir():
+        # Divert ONLY the repository case. A blanket override was the first
+        # attempt and the band caught it: test_v3_66_805_plugin_state_bd_home
+        # monkeypatches BD_HOME and asserts the quarantine state follows it out
+        # of the install tree, which a constant sandbox breaks. Tests that
+        # deliberately steer this path must keep steering it; the only thing
+        # forbidden is landing on the source tree.
+        try:
+            target = _real_plugin_dir()
+            if pathlib.Path(target).resolve() == repo_plugins.resolve():
+                return sandbox
+            return target
+        except Exception:
+            return sandbox
+
+    # _quarantine_state_path relocates the state file under BD_HOME only when
+    # _plugin_dir() resolves to the INSTALL-TREE DEFAULT; an explicit override
+    # deliberately keeps its state co-located (the 485 isolation contract). Our
+    # sandbox looks like an override, so without this shim the v3.66.805
+    # invariant -- plugin state lives under BD_HOME, not in the install tree --
+    # would stop holding, and its test fails in a band. Caught by the band, not
+    # by reading. Patching constants.INSTALL_DIR instead was the obvious
+    # alternative and is far worse: 46 call sites across db, _envfile, health
+    # and more would move with it.
+    _real_state_path = _pl._quarantine_state_path
+
+    def _guarded_state_path():
+        home = os.environ.get("BD_HOME")
+        if home and pathlib.Path(_pl._plugin_dir()).resolve() == sandbox.resolve():
+            return pathlib.Path(home).resolve() / ".plugin_state.json"
+        return _real_state_path()
+
+    _pl._plugin_dir = _guarded_plugin_dir
+    _pl._quarantine_state_path = _guarded_state_path
+    try:
+        yield
+    finally:
+        _pl._plugin_dir = _real_plugin_dir
+        _pl._quarantine_state_path = _real_state_path
