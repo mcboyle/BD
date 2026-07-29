@@ -363,6 +363,25 @@ def queue_site_config() -> dict:
     return {
         "name": SEED_SITE_NAME,
         "auto_teach_first_run": False,
+        # runner_transport.py:794 defaults skip_if_exists True, so once
+        # scene_002.mp4 exists the runner reports the job done, calls
+        # dl.cancel() and returns WITHOUT FETCHING. Measured on the deploy
+        # host: eight consecutive seeded runs, seven of them skips, while the
+        # live check certified the pipeline. The seeded site exists to exercise
+        # a download, so it must never skip one.
+        #
+        # Explicit False, not "" or absent: app.py:4218 fills defaults for any
+        # value `in ("", None)`, and False is neither, so it survives -- and
+        # survives a restart via the identical guard at app.py:1335-1338.
+        # Scoped to the site this tool creates and owns; no operator site is
+        # affected, and the flag is read in exactly one place
+        # (runner_transport.py:794, off self.config).
+        #
+        # Consequence, stated because teardown does not clear it: with the skip
+        # off, detect.py's safe_dest appends _1, _2, ... so each capture leaves
+        # another ~8 KB file in the download directory instead of reusing the
+        # one already there.
+        "skip_if_exists": False,
     }
 
 
@@ -385,20 +404,52 @@ def _marked_site_ids(client) -> list:
     return sorted(found)
 
 
+def _site_name(client, sid: str) -> str:
+    """Display name for a site id, from the same /api/status shape
+    _marked_site_ids reads (top-level {sid: {name, ...}})."""
+    body = client.get("/api/status")
+    if not isinstance(body, dict):
+        return ""
+    meta = body.get(sid)
+    return str(meta.get("name", "")) if isinstance(meta, dict) else ""
+
+
 def ensure_seed_site(client, *, dry_run: bool = False):
     """Return a site id the seeder OWNS, creating one if needed.
 
     Deliberately never borrows an existing unmarked site. On a working
     deployment the configured site is the operator's REAL one; enqueueing
     synthetic URLs there would show them jobs they did not queue and would make
-    teardown ambiguous, because the site itself is not ours to remove. Reusing
-    an already-marked site keeps repeated capture runs from accumulating sites.
+    teardown ambiguous, because the site itself is not ours to remove.
+
+    RECREATES rather than reuses. This used to return the first marked site,
+    which was wrong twice over:
+
+      * `_marked_site_ids` matches the MARKER, and the seeder creates two
+        marked sites -- the queue fixture and the login fixture. It returns
+        them sorted, and site ids are uuid4().hex[:8], so a reuse run was a
+        coin flip between them; landing on the login site queues the seeded
+        URLs against a site that never downloads.
+      * This client has no put or patch verb (get/post/delete only), so a
+        reused site keeps whatever config it was created with. A site created
+        before skip_if_exists=False existed would keep skipping forever, which
+        makes the flag inert on exactly the runs where it matters -- the ones
+        following a teardown that failed and left a site behind.
+
+    Deleting is scoped and safe: DELETE /api/sites/<sid> stops the runner,
+    drops the config and queue rows, and never touches the download directory.
+    It is issued only for a site whose name is EXACTLY this tool's own.
+
+    A fresh uuid4 site id per run is a useful side effect: it makes site_id a
+    per-run key, so a live check reading history scoped to the seeded site
+    cannot certify tonight's run with last night's evidence.
     """
-    existing = _marked_site_ids(client)
-    if existing:
-        return existing[0]
+    ours = [sid for sid in _marked_site_ids(client)
+            if _site_name(client, sid) == SEED_SITE_NAME]
     if dry_run:
         return None
+    for sid in ours:
+        client.delete(f"/api/sites/{sid}")
     created = client.post("/api/sites", queue_site_config())
     sid = (created or {}).get("id") if isinstance(created, dict) else None
     if not sid:
