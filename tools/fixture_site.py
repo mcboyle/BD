@@ -64,6 +64,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import base64
 import struct
 import threading
 import time
@@ -324,12 +325,57 @@ def _scene(n: int) -> dict:
     }
 
 
+# A real, decodable MP4 -- 951 bytes, one black 64x64 frame, MPEG-4 Part 2,
+# produced by ffmpeg and embedded rather than generated, so the fixture needs no
+# ffmpeg at runtime and every host serves byte-identical media.
+#
+# The previous synthetic builder emitted only ftyp + free: a container header and
+# padding, with no moov and no mdat. Nothing could decode it. Measured on the box
+# 2026-07-29, that made every seeded download FAIL --
+#   "MP4 file is incomplete (no moov atom). Download interrupted; retrying."
+# which is friendly_error.py translating ffprobe's "moov atom not found", raised
+# by integrity.verify_media_integrity over the saved file. L11 and L14 could
+# therefore never pass, however healthy the pipeline was.
+#
+# These bytes are valid by the same standard that judges them: ffmpeg produced
+# them and BD's own verify_media_integrity returns (True, "") for them. A
+# hand-built moov would only be valid by someone's reading of the spec.
+_REAL_MP4_B64 = (
+    "AAAAHGZ0eXBpc29tAAACAGlzb21pc28ybXA0MQAAA0Ftb292AAAAbG12aGQAAAAAAAAA"
+    "AAAAAAAAAAPoAAAD6AABAAABAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAEAAAAA"
+    "AAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAACa3RyYWsA"
+    "AABcdGtoZAAAAAMAAAAAAAAAAAAAAAEAAAAAAAAD6AAAAAAAAAAAAAAAAAAAAAAAAQAA"
+    "AAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAEAAAAAAQAAAAEAAAAAAACRlZHRzAAAA"
+    "HGVsc3QAAAAAAAAAAQAAA+gAAAAAAAEAAAAAAeNtZGlhAAAAIG1kaGQAAAAAAAAAAAAA"
+    "AAAAAEAAAABAAFXEAAAAAAAtaGRscgAAAAAAAAAAdmlkZQAAAAAAAAAAAAAAAFZpZGVv"
+    "SGFuZGxlcgAAAAGObWluZgAAABR2bWhkAAAAAQAAAAAAAAAAAAAAJGRpbmYAAAAcZHJl"
+    "ZgAAAAAAAAABAAAADHVybCAAAAABAAABTnN0YmwAAADqc3RzZAAAAAAAAAABAAAA2m1w"
+    "NHYAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAQABAAEgAAABIAAAAAAAAAAETTGF2YzYw"
+    "LjMxLjEwMiBtcGVnNAAAAAAAAAAAAAAAAAAY//8AAABgZXNkcwAAAAADgICATwABAASA"
+    "gIBBIBEAAAAAAw1AAAACUAWAgIAvAAABsAEAAAG1iRMAAAEAAAABIADEjYgADQIECBRD"
+    "AAABskxhdmM2MC4zMS4xMDIGgICAAQIAAAAQcGFzcAAAAAEAAAABAAAAFGJ0cnQAAAAA"
+    "AAMNQAAAAlAAAAAYc3R0cwAAAAAAAAABAAAAAQAAQAAAAAAcc3RzYwAAAAAAAAABAAAA"
+    "AQAAAAEAAAABAAAAFHN0c3oAAAAAAAAASgAAAAEAAAAUc3RjbwAAAAAAAAABAAADbQAA"
+    "AGJ1ZHRhAAAAWm1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAA"
+    "AAAALWlsc3QAAAAlqXRvbwAAAB1kYXRhAAAAAQAAAABMYXZmNjAuMTYuMTAwAAAACGZy"
+    "ZWUAAABSbWRhdAAAAbMAEAcAAAG2FgUYI9t/G238bbfxtt+/AACgkYI9t/G238bbfxtt"
+    "+wAAwJGCPbfxtt/G238bbfsAAOCRgj238bbfxtt/G237"
+)
+
+
 def _make_mp4(size_bytes: int = 8192) -> bytes:
-    def box(kind: bytes, payload: bytes) -> bytes:
-        return struct.pack(">I", len(payload) + 8) + kind + payload
-    ftyp = box(b"ftyp", b"isom" + struct.pack(">I", 0x200) + b"isomiso2mp41")
-    pad = max(0, size_bytes - len(ftyp) - 8)
-    return ftyp + box(b"free", b"\x00" * pad)
+    """A decodable MP4, padded to `size_bytes` with a trailing free box.
+
+    `free` is skippable padding, so padding preserves decodability at any target
+    size -- verified at 4096/6144/8192/12288, all integrity True. Per-scene size
+    variation is kept because it is load-bearing: Content-Length differs per
+    scene and the /range routes slice these bytes.
+    """
+    data = base64.b64decode("".join(_REAL_MP4_B64))
+    pad = size_bytes - len(data)
+    if pad < 8:          # a box needs an 8-byte header; below that, leave as is
+        return data
+    return data + struct.pack(">I", pad) + b"free" + b"\x00" * (pad - 8)
 
 
 def _mp4_for(sid: int) -> bytes:
