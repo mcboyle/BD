@@ -16,7 +16,13 @@ import live_tests.harness as h
 from bulk_downloader import db
 
 
-_LEVELS = (h.PASS, h.WARN, h.FAIL)
+# Read the harness's own tuple rather than restating it. This line used to be
+# `(h.PASS, h.WARN, h.FAIL)`, a second denominator that went stale the moment the
+# harness gained a fourth verdict: the N/A cut added h.NA and this copy did not
+# know, so a valid result read as invalid. A copied list is the bd-guardcheck
+# defect in miniature -- one copy gets repaired, the other keeps shipping, and
+# nothing compares them.
+_LEVELS = h._LEVELS
 
 
 def _get_test(test_id):
@@ -45,11 +51,20 @@ def _dead_ctx():
                      disruptive=True)
 
 
-def test_l12_no_db_is_warn():
+def test_l12_no_db_is_not_exercisable():
+    """RENAMED from test_l12_no_db_is_warn: the verdict changed on purpose.
+
+    With no history DB there is nothing to inspect for a segmented download.
+    That is not a warning about the deployment -- it is the absence of evidence,
+    which the harness now reports as N/A. A test whose name contradicts its
+    assertion is its own defect, so the name moved with the predicate.
+    """
     level, detail = _get_test("L12").fn(_dead_ctx())
-    # ffmpeg present in sandbox, but no DB -> WARN
-    assert level in (h.WARN, h.FAIL)
-    if level == h.WARN:
+    assert level in (h.NA, h.FAIL), (
+        f"L12 returned {level} with no DB present; expected N/A "
+        f"(nothing to observe). Detail: {detail}"
+    )
+    if level == h.NA:
         assert "no DB" in detail or "ffmpeg" in detail
 
 

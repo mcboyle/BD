@@ -6,7 +6,7 @@ above; the 7 backfilled at the bottom (L4, L8, L9, L19, L28, L30, L36)
 were operator-driven backlog items resolved in a later session — they
 are read-only by default; L28 is the one disruptive entry.
 """
-from .harness import FAIL, PASS, WARN, live_test
+from .harness import FAIL, NA, PASS, WARN, live_test
 
 
 @live_test("L22", "live-integrity-check", disruptive=False)
@@ -1488,11 +1488,12 @@ def l12_hls_dash_segmented_download(ctx):
     ff = _ffmpeg_present()
     if not ff:
         ctx.log("ffmpeg not on PATH")
-        return WARN, ("ffmpeg not found — the HLS/DASH segmented "
-                      "path is not available on this host")
+        return NA, ("ffmpeg not found — the HLS/DASH segmented path "
+                    "cannot run on this host, so there is nothing to judge")
     ctx.log(f"ffmpeg present at {ff}")
     if not ctx.db_path.exists():
-        return WARN, f"no DB at {ctx.db_path} — no download history"
+        return NA, (f"no DB at {ctx.db_path} — no download history to "
+                    f"inspect")
     try:
         cx = ctx.ro_db()
         try:
@@ -1515,11 +1516,12 @@ def l12_hls_dash_segmented_download(ctx):
         return PASS, (f"{hls} completed download(s) went through the "
                       f"HLS/ffmpeg segmented path — it works")
     if done > 0:
-        return WARN, (f"{done} completed download(s) but none via the "
-                      f"HLS path — queue a real .m3u8 stream to "
-                      f"verify segmented download")
-    return WARN, ("no completed downloads yet — HLS path not "
-                  "exercisable; run a segmented download first")
+        return NA, (f"{done} completed download(s), none segmented. BD's "
+                    f"generic scrape-and-click path has no HLS handling — it "
+                    f"lives only in site-specific extractors — so absence "
+                    f"here is not evidence of a fault")
+    return NA, ("no completed downloads yet — nothing to inspect for a "
+                "segmented path")
 
 
 @live_test("L15", "resume-after-interruption", disruptive=True)

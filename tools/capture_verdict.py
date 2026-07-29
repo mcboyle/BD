@@ -12,8 +12,13 @@ from typing import Iterable
 
 
 _LIVE_SUMMARY = re.compile(
+    # The n/a bucket is OPTIONAL. live_tests prints it only when non-zero, and
+    # every capture bundle written before the N/A verdict existed has no such
+    # column -- an unconditional group would make each of those archives
+    # unparseable, which reads as "live artifact has no parseable final summary"
+    # and fails a verdict that was fine when it was recorded.
     r"^\s*(\d+)\s+pass\s*\|\s*(\d+)\s+warn\s*\|\s*"
-    r"(\d+)\s+fail\s*\(\s*(\d+)\s+run\s*\)\s*$",
+    r"(\d+)\s+fail\s*(?:\|\s*(\d+)\s+n/a\s*)?\s*\(\s*(\d+)\s+run\s*\)\s*$",
     re.MULTILINE,
 )
 
@@ -75,9 +80,17 @@ def _read_live(path: Path) -> tuple[int, int, int, int]:
     matches = _LIVE_SUMMARY.findall(text)
     if not matches:
         raise ValueError("live artifact has no parseable final summary")
-    passed, warned, failed, total = (int(value) for value in matches[-1])
-    if passed + warned + failed != total:
+    raw_pass, raw_warn, raw_fail, raw_na, raw_total = matches[-1]
+    passed, warned, failed, total = (
+        int(raw_pass), int(raw_warn), int(raw_fail), int(raw_total))
+    # Absent on a pre-N/A bundle, and on any run where nothing was unobservable.
+    not_applicable = int(raw_na) if raw_na else 0
+    if passed + warned + failed + not_applicable != total:
         raise ValueError("live artifact counts are inconsistent")
+    # The returned shape stays a 4-tuple with the TOTAL at index 3: callers
+    # index it positionally (live_counts[2] is failures, live_counts[3] is the
+    # count compared against EXPECTED_LIVE_TESTS), and shifting those silently
+    # would compare the wrong number against the registry.
     return passed, warned, failed, total
 
 
