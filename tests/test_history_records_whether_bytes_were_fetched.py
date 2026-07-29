@@ -65,6 +65,35 @@ sys.path.insert(0, str(ROOT))
 
 # ── the denominator: every done-writing call site ────────────────────────────
 
+def _enclosing_function(rel: str, call: ast.Call) -> str:
+    """The name of the function a Call node sits inside, or "" at module level.
+
+    Derived by walking each FunctionDef's subtree and recording ownership, which
+    is exact -- ast has no parent pointers, and a line-range comparison would get
+    nested definitions wrong. Cached per file: this is called once per candidate
+    site and re-parsing each time is needless.
+    """
+    owners = _OWNER_CACHE.get(rel)
+    if owners is None:
+        tree = ast.parse((ROOT / rel).read_text(encoding="utf-8"))
+        defs = [n for n in ast.walk(tree)
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+        owners = {}
+        # Deepest definition first, so a nested function claims its own nodes
+        # before an enclosing one can. Relying on ast.walk's traversal order
+        # would give the OUTER function, which is the wrong answer for a closure
+        # -- and runner_transport is full of them.
+        for fn in sorted(defs, key=lambda f: -f.lineno):
+            for child in ast.walk(fn):
+                if hasattr(child, "lineno"):
+                    owners.setdefault((child.lineno, child.col_offset), fn.name)
+        _OWNER_CACHE[rel] = owners
+    return owners.get((call.lineno, call.col_offset), "")
+
+
+_OWNER_CACHE: dict = {}
+
+
 def _done_call_sites() -> list[tuple[str, int, ast.Call]]:
     """Every db_log(...) whose positional `status` argument is the literal
     'done', across all tracked application source.
@@ -125,33 +154,55 @@ def test_every_done_site_states_whether_bytes_were_fetched():
     )
 
 
-@pytest.mark.parametrize("rel,lineno", [
-    ("bulk_downloader/runner.py", 3651),
-    ("bulk_downloader/runner_integrations.py", 79),
-    ("bulk_downloader/runner_transport.py", 797),
+@pytest.mark.parametrize("rel,func,file_size_arg", [
+    ("bulk_downloader/runner.py", "_process_one", "0"),
+    ("bulk_downloader/runner_integrations.py", "_stash_dedup_check", "0"),
+    # _do_download holds TWO done-writing sites: this skip path, which reports an
+    # ALREADY-PRESENT file's size while having fetched nothing, and the genuine
+    # download, which passes a real count. `existing_size` is what distinguishes
+    # them, and it is the defect shape exactly -- a real file_size beside a zero
+    # transfer. Keying on the function alone matched both and demanded 0 of the
+    # real download too.
+    ("bulk_downloader/runner_transport.py", "_do_download", "existing_size"),
 ])
-def test_the_known_no_fetch_paths_record_zero(rel, lineno):
+def test_the_known_no_fetch_paths_record_zero(rel, func, file_size_arg):
     """Not just present -- truthful.
 
     A fix that passed bytes_fetched=file_size everywhere would satisfy the gate
     above while recording a skip as a transfer, which is the defect restored.
-    These three are the no-fetch paths whose line numbers are stable enough to
-    pin; the others are covered by the denominator test.
+
+    KEYED ON THE ENCLOSING FUNCTION, not on a line number. This was
+    parametrised as (file, lineno) with a +/-25 tolerance and the docstring
+    claimed those lines were "stable enough to pin". They were not: an unrelated
+    change to runner_transport.py added ~50 lines above the target, it moved from
+    797 to 894, fell outside the window, and the test failed about code that was
+    still correct. That is the same magic-number fragility as the fixed-width
+    source windows in test_source_windows_do_not_shift.py -- a coordinate instead
+    of a length -- and it is the reason this file now derives the site.
+
+    A function name can also change, but when it does the test says
+    "no longer exists" rather than silently pointing at whatever code drifted
+    into range, which is the failure mode a tolerance window has.
     """
-    for r, ln, node in _done_call_sites():
-        if r != rel:
-            continue
-        if abs(ln - lineno) > 25:
-            continue
-        kw = {k.arg: k.value for k in node.keywords}
-        got = kw.get("bytes_fetched")
-        assert got is not None, f"{r}:{ln} does not pass bytes_fetched"
-        assert isinstance(got, ast.Constant) and got.value == 0, (
-            f"{r}:{ln} passes bytes_fetched={ast.unparse(got)}, but this path "
-            f"transfers nothing -- it must record 0, not a file size."
-        )
-        return
-    pytest.fail(f"no db_log(..., 'done', ...) found near {rel}:{lineno}")
+    hits = [(r, ln, node) for r, ln, node in _done_call_sites()
+            if r == rel and _enclosing_function(r, node) == func
+            and len(node.args) > 5
+            and ast.unparse(node.args[5]) == file_size_arg]
+    assert len(hits) == 1, (
+        f"expected exactly one db_log(..., 'done', ..., {file_size_arg}) inside "
+        f"{rel}::{func}, found {len(hits)}. Either the no-fetch path moved -- in "
+        f"which case update this parametrisation -- or it stopped recording "
+        f"'done', which is a behaviour change this test must not discover by "
+        f"going quiet. Exactly one, not at-least-one: two matches would mean the "
+        f"discriminator no longer identifies a single path.")
+    r, ln, node = hits[0]
+    kw = {k.arg: k.value for k in node.keywords}
+    got = kw.get("bytes_fetched")
+    assert got is not None, f"{r}:{ln} ({func}) does not pass bytes_fetched"
+    assert isinstance(got, ast.Constant) and got.value == 0, (
+        f"{r}:{ln} ({func}) passes bytes_fetched={ast.unparse(got)}, but this "
+        f"path transfers nothing -- it must record 0, not a file size."
+    )
 
 
 # ── the schema, and the migration that history never had ─────────────────────

@@ -2311,7 +2311,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1366,
+    "edge_count": 1367,
     "in": {
       "bulk_downloader/_envfile.py": [
         "bulk_downloader/__init__.py",
@@ -3649,7 +3649,8 @@
         "tools/cockpit_templates.py"
       ],
       "bulk_downloader/hls_downloader.py": [
-        "bulk_downloader/runner_extractors.py"
+        "bulk_downloader/runner_extractors.py",
+        "bulk_downloader/runner_transport.py"
       ],
       "bulk_downloader/honeypot_score.py": [
         "bulk_downloader/app.py",
@@ -6368,6 +6369,7 @@
         "bulk_downloader/download_egress.py",
         "bulk_downloader/download_supervisor.py",
         "bulk_downloader/fname.py",
+        "bulk_downloader/hls_downloader.py",
         "bulk_downloader/hooks.py",
         "bulk_downloader/jellyfin_deep.py",
         "bulk_downloader/multi_conn.py",

@@ -486,10 +486,52 @@ class TransportMixin:
             return True
         return False
     @staticmethod
+    def _is_streaming_manifest(ctype, head):
+        """Is this response a STREAM INDEX rather than a saveable file?
+
+        v3.66.819. Delegates to hls_downloader, which owns _HLS_EXTS,
+        _DASH_EXTS and the content-type tables. Deliberately NOT a local
+        `endswith('.m3u8')`: that is a second copy of a denominator, and
+        CLAUDE.md section 5 records what three copies of the system package list
+        cost -- the copy nobody updated was the one the box ran.
+
+        Falls back to the magic bytes if the import is unavailable, because this
+        is on the download path and must never raise.
+        """
+        h = head or b""
+        try:
+            from . import hls_downloader as _hls
+            if _hls.is_hls_content_type(ctype or "") or \
+                    _hls.is_dash_content_type(ctype or ""):
+                return True
+        except Exception:
+            pass
+        return h[:7] == b"#EXTM3U"
+
+    @staticmethod
     def _probe_outcome(status, recv, ctype, head):
-        """BP-VH1: map a probe result to one of done | non_media | fail."""
+        """BP-VH1: map a probe result to one of done | streaming | non_media | fail.
+
+        v3.66.819 -- `streaming` is new, and it replaces a `done` that was a lie.
+        Measured against the fixture: a 204-byte HLS manifest
+        (application/vnd.apple.mpegurl, body starting `#EXTM3U`) returned `done`,
+        and since this cut's sibling change bytes_fetched carried the same 204 --
+        so the history row read as a real transfer of a real file. A manifest is
+        an INDEX of segments; nothing in it is video.
+
+        `non_media` would have been its own falsehood. _looks_like_media answers
+        "is this plausibly media", and a manifest IS media -- it is precisely what
+        you hand to ffmpeg -- so that predicate is right to accept it and keeps
+        its meaning unchanged. The verdict that was missing is the true one: this
+        is a stream, and it needs the segmented downloader, not a file save.
+
+        Order matters: the status/bytes check stays FIRST, so a 404 error page
+        served as mpegurl is a failure rather than a stream awaiting download.
+        """
         if not (200 <= status < 300) or recv <= 0:
             return "fail"
+        if TransportMixin._is_streaming_manifest(ctype, head):
+            return "streaming"
         return "done" if TransportMixin._looks_like_media(ctype, head) else "non_media"
     @staticmethod
     def _integrity_size_ok(downloaded, total):
@@ -615,6 +657,25 @@ class TransportMixin:
             # also require one, since this path saves nothing.
             db_log(self.site_id,self.config.get("name","?"),page_url,
                    "done",suggested,recv,note,bytes_fetched=recv)
+        elif outcome == "streaming":
+            # v3.66.819. Without this branch a `streaming` outcome falls to the
+            # else below and is reported "probe failed: status=200" -- false, and
+            # a worse report than the `done` it replaced, because it accuses the
+            # server of failing when the server answered correctly.
+            note = (f"probe: HLS/DASH manifest — {ctype or 'no content-type'} "
+                    f"({fmt_bytes(recv)} of stream index, not a saveable file). "
+                    f"This needs the segmented downloader (ffmpeg via "
+                    f"hls_downloader), which BD's generic scrape-and-click path "
+                    f"does not reach; recording it done would count a segment "
+                    f"index as a finished video.")
+            self._update_job(page_url, "needs_review", note,
+                             filename=suggested, file_size=0)
+            # bytes_fetched deliberately omitted: bytes DID cross the wire, but
+            # they were the index, and a consumer asking "did this row download
+            # anything" must not be told yes. NULL is the honest UNKNOWN here --
+            # see db.py's three-state contract.
+            db_log(self.site_id, self.config.get("name", "?"), page_url,
+                   "needs_review", suggested, 0, note)
         elif outcome == "non_media":
             note = (f"probe: non-media 2xx — {ctype or 'no content-type'} "
                     f"(first {fmt_bytes(recv)} not recognized as media — needs review)")
@@ -727,8 +788,40 @@ class TransportMixin:
                 seen=" | ".join(
                     f"{res_label(c['score'])}({fmt_bytes(c['size']) or '?'}):{c['text'][:30]}"
                     for c in best.get("_all_candidates",[])[:6])
-                hint=("looks like a modal-trigger button — set Trigger Selector"
-                      if best["score"]==0 else "scored ok but no download fired")
+                # v3.66.819 -- SAY WHY, when why is knowable.
+                #
+                # The deploy host recorded six identical rows across four days:
+                #   'no dl event; scored ok but no download fired;
+                #    saw: 1080p(?):Download 1080p (HLS) /hls/scen | ...'
+                # and measured locally, clicking <a href='/hls/scene/2.m3u8'>
+                # NAVIGATES to the manifest and fires no download event at all.
+                # The link was CORRECT -- BD scored it as the 1080p HLS download.
+                # So "scored ok but no download fired" points the operator at
+                # their selectors, and the other hint below literally offers
+                # "set Trigger Selector", which cannot help. The cause is the
+                # link's TYPE, and it is knowable right here from the href.
+                href = ""
+                try:
+                    href = best["locator"].get_attribute("href") or ""
+                except Exception:
+                    href = ""      # a detached locator is not the subject
+                streaming = False
+                if href:
+                    try:
+                        from . import hls_downloader as _hls
+                        streaming = _hls.is_streaming_url(href)
+                    except Exception:
+                        streaming = False
+                if streaming:
+                    hint=(f"the link is a streaming manifest ({href[:80]}) — a "
+                          f"browser NAVIGATES those rather than downloading "
+                          f"them, so no download event can fire. This needs the "
+                          f"segmented downloader (ffmpeg via hls_downloader); "
+                          f"it is not a selector problem")
+                elif best["score"]==0:
+                    hint="looks like a modal-trigger button — set Trigger Selector"
+                else:
+                    hint="scored ok but no download fired"
                 self._update_job(page_url,"needs_review",
                                  f"Clicked but no download started — {hint}. Saw: {seen}",
                                  screenshot=ss)

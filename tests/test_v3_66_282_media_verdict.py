@@ -32,7 +32,19 @@ def test_probe_outcome_gate():
     O = SiteRunner._probe_outcome
     # 2xx + real media -> done
     assert O(200, 8192, "video/mp4", b"\x00\x00\x00\x18ftypisom") == "done"
-    assert O(206, 8192, "application/octet-stream", b"#EXTM3U") == "done"
+    # CORRECTED EXPECTATION, v3.66.819. This line asserted `done` for a manifest
+    # and was pinning a defect: a #EXTM3U body is a segment INDEX, so reporting
+    # it done records a few hundred bytes of text as a finished video download --
+    # and since v3.66.819 bytes_fetched carries the same count, making the row
+    # read as a real transfer of a real file. Measured against the fixture: 204
+    # bytes, content-type application/vnd.apple.mpegurl, outcome `done`.
+    #
+    # BP-VH1's own subject (a 2xx HTML login-wall reported done) is unaffected
+    # and still asserted below -- the manifest case simply was not considered
+    # when this table was written. `streaming` is the third verdict; see
+    # tests/test_a_manifest_is_not_a_finished_download.py for why `non_media`
+    # would have been a different falsehood.
+    assert O(206, 8192, "application/octet-stream", b"#EXTM3U") == "streaming"
     # 2xx but NOT media (HTML login-wall) -> non_media (routes to needs_review)
     assert O(200, 4096, "text/html", b"<html><body>Sign in") == "non_media"
     assert O(200, 4096, "application/json", b'{"x":1}') == "non_media"
