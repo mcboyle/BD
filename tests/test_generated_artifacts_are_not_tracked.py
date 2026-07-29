@@ -167,13 +167,32 @@ def test_app_created_directories_hold_no_tracked_files():
 
 
 def test_app_created_directories_are_gitignored():
-    """Not ignoring them leaves the deployed tree permanently dirty."""
-    unignored = [d for d in sorted(_app_created_dirs())
-                 if subprocess.run(["git", "-C", str(ROOT), "check-ignore", "-q", d]).returncode != 0]
+    """Not ignoring them leaves the deployed tree permanently dirty.
+
+    QUERIES A PATH INSIDE THE DIRECTORY, NOT THE DIRECTORY NAME. A `dir/` rule
+    is directory-only, and `git check-ignore dir` can only match when git can
+    stat `dir` and see it is one. The first version of this test asked for the
+    bare name: it passed in the sandbox where the directory existed and FAILED
+    on the deploy host, where `git reset --hard` had removed it (untracking a
+    file makes the next deploy delete it). A check whose answer depends on the
+    filesystem is not certifying the rule.
+
+    The property that matters is a FILE the app writes into that directory, so
+    that is what gets asked. tests/test_gitignore_rules_actually_match.py
+    ::test_a_directory_rule_matches_by_path_not_by_existence locks the mechanism
+    in a throwaway repository.
+    """
+    unignored = [
+        d for d in sorted(_app_created_dirs())
+        if subprocess.run(
+            ["git", "-C", str(ROOT), "check-ignore", "-q",
+             f"{d}/.probe"]).returncode != 0
+    ]
     assert not unignored, (
-        f"the application creates {unignored} at runtime but they are not "
-        f"gitignored, so the deployed work tree reports dirty forever and any "
-        f"check reading `git status` sees noise it cannot attribute."
+        f"the application creates {unignored} at runtime but files written "
+        f"into them are not gitignored, so the deployed work tree reports "
+        f"dirty forever and any check reading `git status` sees noise it "
+        f"cannot attribute."
     )
 
 
