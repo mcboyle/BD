@@ -25,7 +25,16 @@ app_config.json
 sites_config.json
 cookies/
 *.cookies.json
-vapid_keys.json          # generated web-push PRIVATE key -- must never be committed
+# Generated web-push PRIVATE key -- must never be committed.
+# This comment used to sit at the END of the line below. gitignore has no inline
+# comments, so the pattern was the whole string including this prose and it
+# matched NOTHING: `git check-ignore vapid_keys.json` exited 1 and the key showed
+# as `??` on the deploy host. The line asserting the protection is exactly why
+# nobody checked whether it worked.
+vapid_keys.json
+
+# Written by install_service.sh on every deploy.
+/tools/deployed_version.txt
 
 # DB maintenance markers the app/tests write to CWD (the repo root) at startup --
 # the FTS-optimize and integrity-check timestamps. They are per-run state, not

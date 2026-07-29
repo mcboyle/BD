@@ -60,7 +60,16 @@ def test_frontend_dist_is_not_delivered_by_a_git_deploy():
         "it, and the 'rebuild the frontend' warning in the deploy runbook is "
         "no longer true. Update the runbook in the same cut."
     )
-    ignored = _git("check-ignore", "-v", "frontend/dist").strip()
+    # Queries a path INSIDE the directory. `dist/` (frontend/.gitignore:3) is a
+    # directory-only rule, and `git check-ignore frontend/dist` can only match
+    # when git can stat the path and see it is a directory. This asked for the
+    # bare name, so it failed on any checkout where the SPA has not been built
+    # -- reporting "neither tracked nor gitignored" about a rule that is present
+    # and correct. Same defect, and same fix, as
+    # tests/test_generated_artifacts_are_not_tracked.py; the mechanism is locked
+    # in tests/test_gitignore_rules_actually_match.py
+    # ::test_a_directory_rule_matches_by_path_not_by_existence.
+    ignored = _git("check-ignore", "-v", "frontend/dist/.probe").strip()
     assert ignored, (
         "frontend/dist/ is neither tracked nor gitignored. It is now in an "
         "undefined state -- decide which, and say so in the runbook."
