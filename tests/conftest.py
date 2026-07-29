@@ -15,6 +15,7 @@ Or:
     pytest tests/test_validators.py::test_path_traversal_blocked
 """
 import os
+import pathlib
 import shutil
 import sys
 from types import ModuleType
@@ -287,3 +288,83 @@ def aiassist_module():
     aiassist._health["fail_count"] = 0
     aiassist._health["recent_latencies"] = []
     yield aiassist
+
+
+# ─── The operator's real VPN config is off limits to the whole suite ──────────
+#
+# Caught 2026-07-29 by instrumenting vpn_config.save() and recording the running
+# test's nodeid whenever the resolved path was the real user config:
+#
+#   test : test_v3_66_729_body_contract_fixtures.py::
+#          test_no_control_sends_a_body_its_endpoint_refuses
+#   path : ~/.config/bulk-downloader/vpn/tunnels.json
+#   env  : BD_VPN_CONFIG_PATH=<unset>
+#   stack: app_vpn_api.py:391 vpn_settings_update
+#            -> vpn_config.update_global_settings(**data) -> save()
+#
+# The body-contract probe PUTs synthetic bodies at every endpoint to check they
+# refuse malformed input. PUT /api/vpn/settings accepted one and saved. On the
+# deploy box that replaced the operator's live settings with the probe's payload
+# (leak_test_interval_s 1 against a default of 1800, so VPN leak tests ran every
+# second instead of every 30 minutes) and wrote a malformed test fixture tunnel
+# into their config, where it quarantined on load and blocked --vpn-tunnel
+# seeding on every capture.
+#
+# The VPN tests already set BD_VPN_CONFIG_PATH and restore it in a finally, and
+# that is exactly what fails: vpn_config's state is module-global and outlives
+# the test, the override is popped on the way out, and any later save in the
+# same process resolves to the real path. A protection each test opts into has a
+# denominator that excludes every test which forgot -- and the one that forgot
+# was not a VPN test at all.
+#
+# So: two layers, session-wide, neither opt-in.
+_REAL_VPN_CONFIG = (
+    pathlib.Path(os.path.expanduser("~")) / ".config" / "bulk-downloader"
+    / "vpn" / "tunnels.json"
+)
+
+
+def _is_the_real_vpn_config(path) -> bool:
+    try:
+        return pathlib.Path(path).resolve() == _REAL_VPN_CONFIG.resolve()
+    except Exception:
+        return False
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _never_write_the_real_vpn_config(tmp_path_factory):
+    """Layer 1: point the session somewhere disposable.
+    Layer 2: make a save that still resolves to the real config RAISE.
+
+    Layer 2 is the load-bearing half. Layer 1 is an environment variable, which
+    is precisely the thing a test pops in a finally -- so it cannot be the only
+    protection for the property "no test writes the operator's VPN config".
+    """
+    sandbox = tmp_path_factory.mktemp("vpn_config") / "tunnels.json"
+    os.environ.setdefault("BD_VPN_CONFIG_PATH", str(sandbox))
+
+    try:
+        from bulk_downloader import vpn_config as _vc
+    except Exception:
+        yield
+        return
+
+    _real_save = _vc.save
+
+    def _guarded_save(*a, **k):
+        target = _vc._config_path()
+        if _is_the_real_vpn_config(target):
+            raise RuntimeError(
+                "refusing to write the operator's real VPN config from the test "
+                f"suite: {target}. Set BD_VPN_CONFIG_PATH to a tmp path for this "
+                "test. This guard exists because a body-contract probe once "
+                "reached PUT /api/vpn/settings with no override in force and "
+                "rewrote the deploy box's live VPN settings."
+            )
+        return _real_save(*a, **k)
+
+    _vc.save = _guarded_save
+    try:
+        yield
+    finally:
+        _vc.save = _real_save
