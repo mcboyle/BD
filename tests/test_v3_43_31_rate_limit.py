@@ -420,10 +420,18 @@ def test_runner_releases_slot_in_finally():
     The release lives inside a `finally:` clause at the bottom of
     _http_download's main try block — well past the function header
     so the search window has to be generous."""
+    # AST-derived body, not a fixed character window. This was
+    # src[fn_pos:fn_pos + 22000] -- a magic number already bumped once
+    # ("window bumped 20000->22000"), and any comment added to the function
+    # pushed the release past it and failed a test whose subject was unchanged.
+    # A denominator that shifts when unrelated text is added is not measuring
+    # the property it names.
+    import ast as _ast
     src = _bd_runner_src()
-    fn_pos = src.find("def _http_download(self,page_url,page,ctx,file_url,final_path)")
-    # v3.45.6: window bumped 20000→22000 for Phase 182 + 183 inserts.
-    body = src[fn_pos:fn_pos + 22000]
+    _tree = _ast.parse(src)
+    _fn = next(n for n in _ast.walk(_tree)
+               if isinstance(n, _ast.FunctionDef) and n.name == "_http_download")
+    body = _ast.unparse(_fn)
     assert "_rl_slot.release()" in body
     # Must be wrapped in a try/finally so it runs even on exception
     assert "finally:" in body

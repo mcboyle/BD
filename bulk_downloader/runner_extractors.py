@@ -337,22 +337,32 @@ class ExtractorsMixin:
                 # "[download] Destination: PATH" or "[download] FILENAME has already been downloaded"
                 stdout = r.stdout or ""
                 filename = None
+                # yt-dlp reports two different outcomes on the same happy path,
+                # and the caller could not tell them apart: "Destination:" is a
+                # real transfer, "has already been downloaded" moved nothing.
+                # `size` is os.path.getsize either way, so the old return
+                # asserted "Downloaded via yt-dlp fallback" for a download that
+                # did not happen.
+                fetched = True
                 for line in stdout.splitlines():
                     if "[download] Destination:" in line:
                         filename = line.split("Destination:", 1)[1].strip()
                         break
                     if "has already been downloaded" in line:
                         filename = line.split("[download]", 1)[1].split(" has already")[0].strip()
+                        fetched = False
                         break
                 size = 0
                 if filename and os.path.exists(filename):
                     try: size = os.path.getsize(filename)
                     except Exception: pass
-                return (True, "Downloaded via yt-dlp fallback", filename, size)
+                msg = ("Downloaded via yt-dlp fallback" if fetched
+                       else "Already present (yt-dlp reported no download)")
+                return (True, msg, filename, size, size if fetched else 0)
         except netns_isolation.NetnsRequiredError as e:
             return (False,
                     f"netns isolation required for {self.site_id}, unavailable "
-                    f"-- failing closed (yt-dlp not run): {e}", None, 0)
+                    f"-- failing closed (yt-dlp not run): {e}", None, 0, 0)
 
     def _try_gallerydl_fallback(self, url, fail_reason=""):
         """C6 (8.4): gallery-dl fallback layer. Tried AFTER the yt-dlp fallback
@@ -419,12 +429,12 @@ class ExtractorsMixin:
                     r = subprocess.run(cmd, capture_output=True, text=True,
                                        timeout=600, encoding="utf-8")
                 except subprocess.TimeoutExpired:
-                    return (False, "gallery-dl timed out after 10 minutes", None, 0)
+                    return (False, "gallery-dl timed out after 10 minutes", None, 0, 0)
                 except Exception as e:
-                    return (False, f"gallery-dl exec failed: {e}", None, 0)
+                    return (False, f"gallery-dl exec failed: {e}", None, 0, 0)
                 if r.returncode != 0:
                     err = (r.stderr or r.stdout or "")[-200:]
-                    return (False, f"gallery-dl exit {r.returncode}: {err}", None, 0)
+                    return (False, f"gallery-dl exit {r.returncode}: {err}", None, 0, 0)
                 # Newly-written file (largest new file wins if several -- the media,
                 # not a sidecar .json metadata file).
                 filename = None
@@ -448,8 +458,8 @@ class ExtractorsMixin:
                     # gallery-dl reported success but produced no new file (e.g. an
                     # already-downloaded archive hit). Treat as a soft miss so the
                     # caller keeps its own failure path.
-                    return (False, "gallery-dl produced no new file", None, 0)
-                return (True, "Downloaded via gallery-dl fallback", filename, size)
+                    return (False, "gallery-dl produced no new file", None, 0, 0)
+                return (True, "Downloaded via gallery-dl fallback", filename, size, size)
         except netns_isolation.NetnsRequiredError as e:
             return (False,
                     f"netns isolation required for {self.site_id}, unavailable "
@@ -1078,7 +1088,7 @@ class ExtractorsMixin:
         db_log(self.site_id, self.config.get("name", "?"), url, "done",
                output_filename, downloaded_size,
                f"jsonapi={result.protocol} tier={src.height} "
-               f"avail={result.available_heights}")
+               f"avail={result.available_heights}", bytes_fetched=downloaded_size)
         self.log_event(
             "jsonapi_done",
             f"{src.height}p via {result.protocol} "
@@ -1317,7 +1327,7 @@ class ExtractorsMixin:
         db_log(self.site_id, self.config.get("name", "?"), url, "done",
                output_filename, downloaded_size,
                f"vixen={result.via} tier={upgraded_tier} "
-               f"avail={result.available_tiers}")
+               f"avail={result.available_tiers}", bytes_fetched=downloaded_size)
         self.log_event(
             "vixen_done",
             f"{upgraded_tier}p via {result.via} "
@@ -1536,7 +1546,7 @@ class ExtractorsMixin:
         db_log(self.site_id, self.config.get("name", "?"), url, "done",
                output_filename, downloaded_size,
                f"dl8={result.via} tier={chosen_tier} "
-               f"avail={result.available_tiers}")
+               f"avail={result.available_tiers}", bytes_fetched=downloaded_size)
         self.log_event(
             "dl8_done",
             f"{chosen_tier}p via {result.via} "
@@ -1795,7 +1805,8 @@ class ExtractorsMixin:
         db_log(self.site_id, self.config.get("name", "?"), url, "done",
                output_filename, downloaded_size,
                f"aylo={variant.format} quality={variant.quality}p "
-               f"avail=[{','.join(result.available_qualities[:5])}]")
+               f"avail=[{','.join(result.available_qualities[:5])}]",
+               bytes_fetched=downloaded_size)
         self.log_event(
             "aylo_done",
             f"{variant.quality}p {variant.format} via flashvars "
@@ -2273,7 +2284,8 @@ class ExtractorsMixin:
             db_log(self.site_id, self.config.get("name", "?"), url, "done",
                    output_filename, dl_result.bytes_written,
                    f"library_extractor={result.extractor} hls=1 "
-                   f"quality={result.quality}")
+                   f"quality={result.quality}",
+                   bytes_fetched=dl_result.bytes_written)
             return True
 
         # Direct URL path: reuse the existing _http_download path. It
@@ -2324,5 +2336,11 @@ class ExtractorsMixin:
         db_log(self.site_id, self.config.get("name", "?"), url, "done",
                output_filename, size,
                f"library_extractor={result.extractor} hls=0 "
-               f"quality={result.quality}")
+               f"quality={result.quality}",
+               # UNKNOWN, stated rather than guessed: `size` here is
+               # os.path.getsize of the output, and this path routes through
+               # _do_direct_http_download which returns only a bool. There is
+               # no transfer count to report, so NULL -- which a consumer must
+               # treat as "not proven", never as a download.
+               bytes_fetched=None)
         return True
