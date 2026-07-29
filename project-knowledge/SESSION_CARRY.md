@@ -362,7 +362,101 @@ rewritten in the same cut, or they stay green.
 
 No work has been authorized on any of these.
 
-## 10 | If the operator grants access to the box
+## 10 | The capture from the box, 2026-07-29T00:23Z
+
+**This section supersedes the expectations in section 6.** It is the first
+observation of any of this session's work actually running on `test4`.
+
+    CAPTURE VERDICT: PASS
+    unit  13785 pass / 0 fail / 0 error / 85 skip
+    live  28 pass / 7 warn / 0 fail   (35 of 37 run)
+
+The seven unit failures that #51 was cut to repair are gone.
+
+### 10.1 | Confirmed working on the box
+
+- **`capture-vault unlock: HTTP 200`** (`04_service_status.log:35`), with
+  `20-capture-vault.conf` present in the drop-in list. #49/#50/#51 land.
+- **Cut A.** `start_and_settle` reported `settled: true`, both URLs terminal,
+  **12.1s across 7 polls**. Before this, nothing started the queue at all.
+- **Cut B.** `auth_state: "ok"`, `auth_health.status: "green"`. L6, L8 and L9
+  all PASS.
+- L4 still WARNs on firefox/webkit, correctly -- the provisioning run that
+  installs the extra engines was not re-done.
+
+### 10.2 | Cut D never executed, and my own gate could not see that
+
+`capture.sh:773` invokes the seeder as
+`--seed --start --start-timeout 180 --login --count 3`. There is **no
+`--vpn-tunnel`**, and `--seed` does not imply it (`live_seed.py:1036` branches
+on `args.vpn_tunnel` separately). The synthetic tunnel was therefore never
+created, and L30's `no VPN tunnels configured -- nothing to verify` is
+**truthful and correct**.
+
+`tests/test_l30_seeded_tunnel_integration.py` is 353 lines and 10 tests --
+inertness, restart survival, teardown, quarantine, refusal on a broken config.
+`grep -- "--vpn-tunnel" tests/ capture.sh` returns **nothing**. Not one test
+asserts that anything ever *calls* the seeder.
+
+This is section 0, committed in the same session that wrote section 0 into this
+file. The capability was built and thoroughly gated; the invocation was never
+wired and nothing was watching the wire. **Fix requires both**: add the flag to
+`capture.sh`, and add a gate whose denominator is the invocation rather than the
+function.
+
+### 10.3 | The completed downloads wrote no file
+
+`05a_live_seed.log` records, for both URLs:
+`"status": "done", "message": "Clicked (no dl dir)", "filename": ""`.
+
+`runner.py:3618-3623`: with no `download_dir` the runner clicks the link,
+sleeps, marks the job `done`, and writes a history row with size 0. It never
+fetches. `queue_site_config()` omits `download_dir` deliberately and the
+docstring's reasoning is sound -- the seeder is an HTTP client, `--base-url` may
+name a service with a different BD_HOME, so any path computed in the seeder is a
+guess about another machine's filesystem -- but the default resolves to `None`,
+so the consequence is that **no seeded download can ever produce a file**.
+
+Downstream, and both correct as reported:
+
+- L12 `2 completed download(s) but none via the HLS path` -- no HLS fetch
+  occurred, only a click.
+- L14 `none recorded as dedup-skipped` -- the duplicate was collapsed at intake
+  (`"dupes": 1` in the seed log) and never reached the dedup path.
+
+This was not in the audit. It is the same class as the seed-path defect fixed in
+#52: the URLs became consumable, and the *site* is still not configured to
+consume them.
+
+### 10.4 | The audit's L11 prediction hit on the first run
+
+L11 WARNed on site `25eaca3d`. The seed log shows `seed_login` created
+`25eaca3d` and `seed_queue` created `c32e69fb`. `25eaca3d` sorts before
+`c32e69fb`, so `seeded[0]` selected the login site -- which by construction has
+no queue. Audit finding #7, reproduced on the box, first attempt.
+
+### 10.5 | The four open box questions, now answered
+
+| question | answer | consequence |
+| --- | --- | --- |
+| `E2E Test Site` count in `sites_config.json` | **7** | identical to the sandbox; audit #1 confirmed on the box |
+| `ai_enabled` | **true** | audit #3 is a live risk. L18 passed at 4768ms only because the model was warm; cold measures 180.2s against a 90s wall |
+| `bd-livecheck.service` | **not-found** | audit #2's blast radius is nil |
+| VPN tunnels configured | **zero** (per L30) | the disabled-tunnel FAIL of audit #5 cannot fire yet |
+
+### 10.6 | The seven WARNs, and which are defects
+
+`L4` incomplete engine install (correct, provisioning not re-run). `L7` no Phase
+B fallback ever needed (correct, and expected to stay). `L11` wrong site
+selected (**defect**, audit #7). `L12` no HLS fetch (**defect**, 10.3).
+`L14` no dedup skip (**defect**, 10.3). `L28` queue empty (correct -- `--start`
+drained it, which is the Cut A fix working). `L30` no tunnels (**defect**,
+10.2).
+
+Four defects, none of which fail a capture, all of which make a live check
+report on something other than its subject.
+
+## 11 | If the operator grants access to the box
 
 Raised and deferred this session. `CLAUDE.md` section 9 currently says the
 operator deploys and runs the suite himself and that no state on the box may be
