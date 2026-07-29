@@ -3115,23 +3115,25 @@ def l30_vpn_tunnel_inventory_consistent(ctx):
 
 @live_test("L36", "m2-spa-bundle-served", disruptive=False)
 def l36_m2_spa_bundle_served(ctx):
-    """Verify the /m2 SPA bundle is built and being served.
+    """Verify the SPA bundle is built and being served at the root.
 
-    A correct /m2 deploy returns 200 with HTML at /m2/ and NO
-    X-BD-M2-Status: not-built header. We further verify at least one
+    A correct deploy returns 200 with HTML at `/` and NO
+    X-BD-M2-Status: not-built header. The SPA moved from /m2 to `/`
+    at v3.66.203; /m2 is now a 302 deep-link shim, checked separately
+    below and never deploy-gating. We further verify at least one
     of the hashed asset paths referenced by index.html also returns
     200 — this catches a half-built dist where index.html is fresh
     but the asset manifest is stale.
 
-    PASS:  /m2/ returns 200 HTML and a referenced hashed asset also
+    PASS:  `/` returns 200 HTML and a referenced hashed asset also
            returns 200.
-    WARN:  /m2/ returns 503 with X-BD-M2-Status: not-built — npm
+    WARN:  `/` returns 503 with X-BD-M2-Status: not-built — npm
            build hasn't run; this is environmental, not a defect.
-    FAIL:  /m2/ returns 200 but a referenced hashed asset 404s OR
+    FAIL:  `/` returns 200 but a referenced hashed asset 404s OR
            the response is not HTML — the dist is half-built or
            the route is broken.
     """
-    ok, status, body, _ = ctx.get("/m2/", timeout=10)
+    ok, status, body, _ = ctx.get("/", timeout=10)
     # ctx.get returns (False, code, None, ms) for HTTPError; the body
     # is None on 4xx/5xx. Detect 503 + X-BD-M2-Status header by
     # opening the URL directly so we can read response headers.
@@ -3139,13 +3141,13 @@ def l36_m2_spa_bundle_served(ctx):
     import urllib.error as _ue
     # Quick reachability ping first — if the whole service is down,
     # that's a separate problem (probably visible in L34 / L37), and
-    # this check WARNs rather than FAILs. We only own /m2's verdict.
+    # this check WARNs rather than FAILs. We only own the SPA's verdict.
     hok, hstatus, _, _ = ctx.get("/api/health", timeout=5)
     if not hok and hstatus is None:
         return WARN, ("the target service appears unreachable "
                       "(/api/health did not respond) — /m2 cannot be "
                       "verified separately from the whole service")
-    url = ctx.base_url + "/m2/"
+    url = ctx.base_url + "/"
     try:
         with _u.urlopen(url, timeout=10) as r:
             code = r.status
@@ -3159,42 +3161,70 @@ def l36_m2_spa_bundle_served(ctx):
             html = ""
         hdr = e.headers.get("X-BD-M2-Status", "") if e.headers else ""
     except Exception as e:
-        return FAIL, (f"/m2/ unreachable but /api/health responded: "
-                      f"{type(e).__name__}: {e} — /m2 route is broken "
+        return FAIL, (f"the SPA root unreachable but /api/health responded: "
+                      f"{type(e).__name__}: {e} — the SPA route is broken "
                       f"specifically (not a general outage)")
-    ctx.log(f"GET /m2/ -> {code}; X-BD-M2-Status={hdr!r}; "
+    ctx.log(f"GET / -> {code}; X-BD-M2-Status={hdr!r}; "
             f"body length={len(html)}")
     if code == 503 and hdr == "not-built":
-        return WARN, ("/m2/ returns 503 with X-BD-M2-Status: not-built "
+        return WARN, ("the SPA root returns 503 with X-BD-M2-Status: not-built "
                       "— the SPA hasn't been built (run `npm install && "
                       "npm run build` in frontend/); this is "
                       "environmental, not a defect")
     if code != 200:
-        return FAIL, (f"/m2/ returned {code} (expected 200) — SPA "
-                      f"route is broken; X-BD-M2-Status={hdr!r}")
+        return FAIL, (f"the SPA root returned {code} (expected 200) — "
+                      f"the route is broken; X-BD-M2-Status={hdr!r}")
     if hdr == "not-built":
-        return FAIL, ("/m2/ returned 200 but also "
+        return FAIL, ("the SPA root returned 200 but also "
                       "X-BD-M2-Status: not-built — the handler is "
                       "in an inconsistent state")
-    # Spot-check: index.html should reference at least one /m2/assets/ path
-    # with a hashed filename. Find one and GET it.
+    # Spot-check: index.html should reference at least one hashed asset
+    # path. Find one and GET it -- a fresh index.html over a stale assets/
+    # directory is the half-built case, and only fetching an asset sees it.
+    # The asset prefix is "/", not "/m2/". At v3.66.203 the SPA moved to root
+    # and serve_m2_spa became a 302 deep-link shim: vite base and the router
+    # basename are both "/", so no /m2-prefixed asset URL is ever emitted.
+    # Searching for one FAILED on a correctly built bundle -- measured on the
+    # box 2026-07-29, on this check's first ever run. urlopen followed the 302
+    # above, so `html` is already the root SPA's index.html.
     import re as _re
-    asset_paths = _re.findall(r'["\'](/m2/assets/[^"\']+)["\']', html)
+    asset_paths = _re.findall(r'["\'](/assets/[^"\']+)["\']', html)
     if not asset_paths:
-        # Some Vite configs emit non-/m2/assets/ paths; widen the net.
-        asset_paths = _re.findall(r'["\'](/m2/[^"\']+\.(?:js|css))["\']',
-                                  html)
+        # Widen the net the same way the original did, minus the dead prefix.
+        asset_paths = _re.findall(r'["\'](/[^"\':]+\.(?:js|css))["\']', html)
     if not asset_paths:
-        return FAIL, ("/m2/ returned HTML but no referenced JS/CSS "
-                      "asset under /m2/ — index.html appears not to "
-                      "be a Vite-built bundle")
+        return FAIL, ("the SPA root returned HTML but referenced no JS/CSS "
+                      "asset — index.html appears not to be a Vite-built "
+                      "bundle")
     asset = asset_paths[0]
     aok, astatus, abody, _ = ctx.get(asset, timeout=10)
     ctx.log(f"GET {asset} -> {astatus}")
     if not aok or (astatus and astatus >= 400):
-        return FAIL, (f"/m2/ index references {asset} but that asset "
+        return FAIL, (f"index.html references {asset} but that asset "
                       f"returned {astatus} — dist is half-built or "
                       f"index.html is stale relative to assets/")
-    return PASS, (f"/m2/ serves a built SPA bundle ({len(html)} bytes "
-                  f"of HTML, {len(asset_paths)} asset ref(s); spot-"
-                  f"checked {asset} -> {astatus})")
+    # The /m2 shim is itself a contract: old bookmarks, the legacy shell's
+    # "New UI" link, and any installed-PWA start_url that captured /m2 all
+    # depend on it. Nothing else checks it, so check it here rather than let
+    # it rot silently -- but do NOT fail the deploy on it, since a broken
+    # bookmark path is not a broken bundle.
+    shim = ""
+    try:
+        _req = _u.Request(ctx.base_url + "/m2/queue")
+        class _NoRedirect(_u.HTTPRedirectHandler):
+            def redirect_request(self, *a, **k):
+                return None
+        _op = _u.build_opener(_NoRedirect)
+        try:
+            with _op.open(_req, timeout=5) as r:
+                shim = f"/m2/queue -> {r.status} (expected 302)"
+        except _ue.HTTPError as e:
+            loc = (e.headers or {}).get("Location", "")
+            shim = (f"/m2/queue -> {e.code} {loc}" if e.code == 302
+                    else f"/m2/queue -> {e.code}, not a redirect")
+    except Exception as e:
+        shim = f"/m2 shim unverified ({type(e).__name__})"
+    ctx.log(f"deep-link shim: {shim}")
+    return PASS, (f"the SPA bundle is served ({len(html)} bytes of HTML, "
+                  f"{len(asset_paths)} asset ref(s); spot-checked {asset} "
+                  f"-> {astatus}); {shim}")
