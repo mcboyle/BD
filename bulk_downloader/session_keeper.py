@@ -61,11 +61,50 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import sys
 import threading
 import time
 from pathlib import Path
 from typing import Callable
+
+# ── logout detection ────────────────────────────────────────────────
+#
+# Both predicates below replaced substring tests that missed the common case.
+#
+# The URL test was `"login" in url or "signin" in url`. "sign_in" does not
+# contain "signin" -- the underscore breaks it -- so Devise's /users/sign_in,
+# the most common sign-in route in Rails, read as a healthy session. /auth/ and
+# /session/new were missed for the same reason.
+#
+# The DOM test was `password field AND body text contains "login"`. A page whose
+# button says "Sign in" has the field and not the word, so it was undetectable.
+#
+# WORD BOUNDARIES, NOT SUBSTRINGS, in both. A bare `"sign in" in text` matches
+# "design intent"; `"signin"` matches nothing useful. \b(log|sign)[\s_-]?in\b
+# matches "sign in" / "sign-in" / "sign_in" / "login" and rejects "signed in"
+# (the "ed" breaks it) and "design intent" (no boundary before "sign").
+#
+# THE CONJUNCTION IS LOAD-BEARING AND MUST STAY. A password input on its own is
+# NOT a logout -- a logged-in settings page with a change-password form has one.
+# Dropping the `&&` would pass every positive test and start tearing live
+# sessions down into _auto_relogin. tests/test_heartbeat_detects_a_logged_out_page.py
+# ::test_a_change_password_form_is_not_a_logout is the canary for exactly that.
+_SIGNIN_WORD = r"\b(?:log|sign)[\s_-]?in\b"
+
+_LOGIN_URL_RE = re.compile(
+    _SIGNIN_WORD + r"|/auth(?:/|$)|/sessions?/new\b", re.I)
+
+# The JS carries the SAME pattern, interpolated rather than retyped. When it was
+# a second literal, a mutation had to edit both copies to take effect -- which is
+# the same thing as saying the two could drift apart silently. Python and JS
+# regex syntax agree on every construct used here (\b, non-capturing group,
+# character class), so one constant serves both.
+_LOGIN_FORM_JS = """() => {
+  if (!document.querySelector('input[type=password]')) return false;
+  const t = (document.body ? document.body.textContent : '') || '';
+  return /%s/i.test(t);
+}""" % _SIGNIN_WORD.replace("/", "\\/")
 
 from . import cloak as _cloak
 from . import db
@@ -710,16 +749,13 @@ class SessionKeeper:
             status = resp.status
             final_url = self._page.url
             # Redirect to login → session is dead
-            if "login" in final_url.lower() or "signin" in final_url.lower():
+            if _LOGIN_URL_RE.search(final_url):
                 return False, f"redirected to {final_url[:80]}"
             if status in (401, 403):
                 return False, f"server returned {status}"
             # Check for login form in the rendered DOM
             try:
-                has_login_form = self._page.evaluate(
-                    "() => !!document.querySelector('input[type=password]') "
-                    "&& document.body.textContent.toLowerCase().includes('login')"
-                )
+                has_login_form = self._page.evaluate(_LOGIN_FORM_JS)
                 if has_login_form:
                     return False, "rendered page contains login form"
             except Exception:
