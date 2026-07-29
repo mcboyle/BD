@@ -64,17 +64,19 @@ class ChallengeMixin:
         if not self._has_captcha(page):
             return True
         # Phase 61: yt-dlp CDN fallback before marking needs_review.
-        ok, msg, fn, sz = self._try_ytdlp_fallback(url, "captcha challenge")
+        ok, msg, fn, sz, fetched = self._try_ytdlp_fallback(url, "captcha challenge")
         if ok:
             self._update_job(url, "done", msg, filename=fn or "", file_size=sz)
-            db_log(self.site_id, self.config.get("name","?"), url, "done", fn or "", sz, msg)
+            db_log(self.site_id, self.config.get("name","?"), url, "done", fn or "", sz, msg,
+                   bytes_fetched=fetched)
             return False
         # C6 (8.4): gallery-dl fallback after yt-dlp -- covers sites gallery-dl
         # handles that yt-dlp doesn't. Opt-in per site (use_gallerydl_fallback).
-        ok, msg, fn, sz = self._try_gallerydl_fallback(url, "captcha challenge")
+        ok, msg, fn, sz, fetched = self._try_gallerydl_fallback(url, "captcha challenge")
         if ok:
             self._update_job(url, "done", msg, filename=fn or "", file_size=sz)
-            db_log(self.site_id, self.config.get("name","?"), url, "done", fn or "", sz, msg)
+            db_log(self.site_id, self.config.get("name","?"), url, "done", fn or "", sz, msg,
+                   bytes_fetched=fetched)
             return False
         ss = self._screenshot(page, url)
         # v3.43.39: include the detected captcha type so the queue UI

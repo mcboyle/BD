@@ -1492,10 +1492,19 @@ def test_sequential_resume_progress_reports_absolute_file_size(monkeypatch, tmp_
     slot = type("Slot", (), {"release": lambda self: None})()
     monkeypatch.setattr(rate_limit, "acquire", lambda url: slot)
 
-    size = runner._http_download(
+    # _http_download now returns (size_on_disk, bytes_transferred_this_call).
+    # The second element is the fact history could not previously record: a
+    # resumed or already-complete file renames into place at full size having
+    # moved nothing, so the size alone never proved a download.
+    size, transferred = runner._http_download(
         "https://page.test/v", object(),
         type("Ctx", (), {"cookies": lambda self: []})(),
         "https://cdn.test/v.mp4", final_path)
 
     assert size == 8
+    assert transferred == 4, (
+        f"resumed from 4 bytes to a final 8, so 4 bytes crossed the wire; "
+        f"got {transferred}. Reporting 8 here would be the defect this "
+        f"column exists to prevent."
+    )
     assert updates == [6, 8]

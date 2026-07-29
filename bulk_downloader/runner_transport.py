@@ -609,8 +609,12 @@ class TransportMixin:
                     f"(aborted — no file saved)")
             self._update_job(page_url,"done",note,
                              filename=suggested,file_size=recv)
+            # GCW probe: `recv` bytes really did cross the wire before the
+            # transfer was aborted and the file discarded. Truthful as a
+            # transfer count -- a consumer wanting "a file was produced" must
+            # also require one, since this path saves nothing.
             db_log(self.site_id,self.config.get("name","?"),page_url,
-                   "done",suggested,recv,note)
+                   "done",suggested,recv,note,bytes_fetched=recv)
         elif outcome == "non_media":
             note = (f"probe: non-media 2xx — {ctype or 'no content-type'} "
                     f"(first {fmt_bytes(recv)} not recognized as media — needs review)")
@@ -796,7 +800,8 @@ class TransportMixin:
                              filename=final_path.name,file_size=existing_size)
             db_log(self.site_id,self.config.get("name","?"),page_url,"done",
                    final_path.name,existing_size,"already on disk",
-                   honeypot_score=best.get("_honeypot_score"))  # P5-2b
+                   honeypot_score=best.get("_honeypot_score"),  # P5-2b
+                   bytes_fetched=0)  # skip_if_exists: dl.cancel(), nothing fetched
             try: dl.cancel()
             except Exception: pass
             return
@@ -806,7 +811,11 @@ class TransportMixin:
 
         # ── Download path selection ──────────────────────────────────────
         use_http=self.config.get("use_http_dl",True) and _HTTPX_AVAILABLE
-        downloaded_size=0; filename=final_path.name
+        # bytes_fetched initialised alongside downloaded_size so it is bound on
+        # every path that reaches the db_log below, including the ones that
+        # never call a download helper at all. 0 is the truthful default: no
+        # helper ran, so nothing was transferred.
+        downloaded_size=0; bytes_fetched=0; filename=final_path.name
         if use_http:
             try:
                 file_url=dl.url
@@ -833,8 +842,8 @@ class TransportMixin:
                             self._update_job(page_url, "running",
                                 f"Trying mirror: {self._extract_host(attempt_url)}")
                             self.log_event("mirror", f"Falling back to {attempt_url[:80]}", url=page_url)
-                        downloaded_size = self._http_download(page_url, page, ctx,
-                                                              attempt_url, final_path)
+                        downloaded_size, bytes_fetched = self._http_download(
+                            page_url, page, ctx, attempt_url, final_path)
                         break  # success
                     except _HTTPDownloadFailed as e:
                         last_err = e
@@ -866,9 +875,9 @@ class TransportMixin:
                 except PWTimeout:
                     self._handle_failure(page_url,f"HTTP failed and no fallback download event: {e}")
                     return
-                downloaded_size=self._pw_save(dl,final_path)
+                downloaded_size, bytes_fetched = self._pw_save(dl,final_path)
         else:
-            downloaded_size=self._pw_save(dl,final_path)
+            downloaded_size, bytes_fetched = self._pw_save(dl,final_path)
 
         # ── Phase 17.20: Size sanity check ───────────────────────────────
         # If the page advertised a file size and we got back something
@@ -956,7 +965,8 @@ class TransportMixin:
         self._update_job(page_url,"done",f"Saved: {filename}{verify_msg}",
                          filename=filename,file_size=downloaded_size)
         db_log(self.site_id,self.config.get("name","?"),page_url,"done",filename,downloaded_size,"",
-               honeypot_score=best.get("_honeypot_score"))  # P5-2b: stamp resolve-time score for per-site threshold learning
+               honeypot_score=best.get("_honeypot_score"),  # P5-2b: stamp resolve-time score for per-site threshold learning
+               bytes_fetched=bytes_fetched)
         # Phase 66 (v3.41.0): cross-site filename duplicate detection.
         # Look back through history for a successful download with the
         # same filename + similar size. If found, log + emit event so
@@ -1291,7 +1301,13 @@ class TransportMixin:
                 if resp.status_code==416:
                     # Range not satisfiable — file is already complete on disk
                     if resume_from>0:
-                        tmp_path.rename(final_path); return final_path.stat().st_size
+                        # Zero bytes transferred: the server says the range is
+                        # unsatisfiable because the file was ALREADY complete.
+                        # The rename produces a full-size file from a fetch that
+                        # moved nothing, which is why the size alone cannot be
+                        # read as evidence of a download.
+                        tmp_path.rename(final_path)
+                        return final_path.stat().st_size, 0
                     raise _HTTPDownloadFailed("HTTP 416 with no resume position")
                 if resp.status_code==206:  # partial content — resume worked
                     mode="ab"; downloaded=resume_from
@@ -1516,6 +1532,7 @@ class TransportMixin:
         # Phase 17.19: feed this download's measured throughput into the
         # EWMA so the next download picks a better chunk size. Only count
         # bytes ACTUALLY transferred this call (not resumed bytes).
+        transferred = 0
         try:
             final_size = final_path.stat().st_size
             transferred = final_size - _dl_initial_bytes
@@ -1523,7 +1540,14 @@ class TransportMixin:
             self._observe_throughput(transferred, elapsed)
         except Exception:
             pass
-        return final_path.stat().st_size
+        # Returns (size_on_disk, bytes_transferred_this_call). `transferred`
+        # was already computed here for the throughput EWMA and then thrown
+        # away, while the caller got the stat -- which is why a resumed or
+        # skipped job was indistinguishable from a real fetch in history.
+        # It travels by RETURN, not on self: runner.py:1120 starts one worker
+        # thread per slot against a shared runner instance, so an attribute
+        # would cross-attribute concurrent downloads.
+        return final_path.stat().st_size, max(0, transferred)
     def _probe_size(self, file_url, page_url, ctx):
         """HEAD request to learn Content-Length + Accept-Ranges. Returns
         total size in bytes on success, 0 if size is unknown OR server
@@ -1908,7 +1932,14 @@ class TransportMixin:
         except Exception as e: raise _HTTPDownloadFailed(f"rename failed: {e}")
         # v3.43.27: file is complete; clean up the checkpoint sidecar.
         _resume.cleanup(final_path)
-        return final_path.stat().st_size
+        # (size_on_disk, bytes_transferred_this_call) -- `progress` holds the
+        # per-chunk byte counts fetched by THIS call, excluding whatever
+        # resume_offset already had on disk.
+        try:
+            _transferred = sum(progress)
+        except Exception:
+            _transferred = 0
+        return final_path.stat().st_size, max(0, _transferred)
     def _current_cap_mbps(self):
         """Return the current effective speed cap in MB/s.
 

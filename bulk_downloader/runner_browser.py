@@ -19,10 +19,17 @@ except Exception as _e:
 
 class BrowserMixin:
     def _pw_save(self,dl,final_path):
-        """Fallback: let Playwright stream the download to disk."""
+        """Fallback: let Playwright stream the download to disk.
+
+        Returns (size_on_disk, bytes_transferred_this_call). The browser
+        fetched the whole file, so the two are equal here -- unlike the httpx
+        path, which can rename a resumed or already-complete file into place
+        without moving a byte.
+        """
         dest=safe_dest(final_path)
         dl.save_as(str(dest))
-        return dest.stat().st_size if dest.exists() else 0
+        size = dest.stat().st_size if dest.exists() else 0
+        return size, size
     def _context_options(self, headless=True):
         """Phase 7.1: build browser_context kwargs from the site's
         fingerprint config. Falls back to safe defaults when fields are

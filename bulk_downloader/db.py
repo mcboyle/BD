@@ -46,6 +46,7 @@ def db_init():
             site_id TEXT, site_name TEXT, url TEXT, status TEXT,
             filename TEXT, file_size INTEGER, message TEXT, screenshot TEXT,
             honeypot_score REAL DEFAULT NULL,
+            bytes_fetched INTEGER DEFAULT NULL,
             ts TEXT DEFAULT(strftime('%Y-%m-%dT%H:%M:%S','now')))""")
         # Phase 4: persist the live queue. Any pending/running/stopped/
         # needs_review job is mirrored here so a restart picks up exactly
@@ -81,6 +82,22 @@ def db_init():
             cx.execute("ALTER TABLE queue ADD COLUMN lane TEXT DEFAULT 'default'")
         if "depends_on" not in _qcols:
             cx.execute("ALTER TABLE queue ADD COLUMN depends_on TEXT DEFAULT ''")
+        # history has never had a lazy migration, only `queue` did. Every column
+        # added to its CREATE TABLE since the first deployment is therefore
+        # absent from every live database -- honeypot_score included, which is
+        # why db_log's insert has a fallback path for it. Same treatment, and
+        # derived from the CREATE TABLE above rather than hand-listed, so a
+        # column added later is migrated without anyone remembering to.
+        #
+        # bytes_fetched: bytes BD actually transferred over the network for this
+        # job. 0 means nothing was transferred -- a skip, a dedup hit, a resumed
+        # file that was already complete. NULL means the path does not record
+        # it, which is UNKNOWN and must never be read as proof of a download.
+        _hcols = {r[1] for r in cx.execute("PRAGMA table_info(history)").fetchall()}
+        for _col, _decl in (("honeypot_score", "REAL DEFAULT NULL"),
+                            ("bytes_fetched", "INTEGER DEFAULT NULL")):
+            if _col not in _hcols:
+                cx.execute(f"ALTER TABLE history ADD COLUMN {_col} {_decl}")
         cx.execute("CREATE INDEX IF NOT EXISTS idx_q_status      ON queue(status)")
         # v3.43.80 Phase 92: FTS5 search across history. SQLite's FTS5
         # virtual table indexes url/filename/message/site_name so the
@@ -773,11 +790,37 @@ def db_queue_recovery_summary() -> dict:
     return out
 
 
-def db_log(site_id, site_name, url, status, filename="", file_size=0, message="", screenshot="", honeypot_score=None, best_effort=False):
+def db_log(site_id, site_name, url, status, filename="", file_size=0, message="", screenshot="", honeypot_score=None, best_effort=False, bytes_fetched=None):
     """Append one row to the history table. Called on every job-level
     state transition (done/failed/needs_review). Append-only — the row
-    is never updated or deleted by application code; the only writer
-    is this function, and the only deleter is db_prune.
+    is never updated or deleted by application code.
+
+    ``bytes_fetched`` is how many bytes BD actually transferred over the
+    network for this job:
+
+        >0    a real transfer
+        0     nothing was transferred — a skip_if_exists hit, a Stash dedup
+              hit, a 416 resume of an already-complete file, a yt-dlp
+              "has already been downloaded", a click with no download dir
+        None  this path does not record it — UNKNOWN, and never proof of a
+              download
+
+    It exists because no other column can answer the question. ``file_size``
+    is not a transfer count: both download helpers return an on-disk stat
+    (runner_transport.py:1526, runner_browser.py:25), so a skipped job records
+    the size of the file that was already there. ``message`` is prose that
+    varies per path, and one of the no-fetch paths positively asserts a
+    download that did not happen ("Downloaded via yt-dlp fallback").
+
+    Measured on the deploy host before this existed: eight consecutive seeded
+    runs, seven of them skips, and the live check that reads this table
+    reported "the end-to-end pipeline has worked" for every one.
+
+    NOTE ON THE DELETER. The line this docstring used to carry — "the only
+    deleter is db_prune" — was false. batch_ops.bulk_delete (batch_ops.py:161)
+    issues DELETE FROM history WHERE id = ? and is reachable over HTTP at
+    POST /api/batch/delete. tools/live_seed.py inherited the false claim from
+    here and repeated it in its teardown report.
 
     v3.43.80 Phase 92: also feeds the FTS5 mirror table when present.
     Wrapped in try/except so an FTS write failure (e.g. table dropped
@@ -796,9 +839,9 @@ def db_log(site_id, site_name, url, status, filename="", file_size=0, message=""
     callers."""
     with db_conn() as cx:
         try:
-            cur = cx.execute("INSERT INTO history(site_id,site_name,url,status,filename,file_size,message,screenshot,honeypot_score) "
-                       "VALUES(?,?,?,?,?,?,?,?,?)",
-                       (site_id, site_name, url, status, filename, file_size, message, screenshot, honeypot_score))
+            cur = cx.execute("INSERT INTO history(site_id,site_name,url,status,filename,file_size,message,screenshot,honeypot_score,bytes_fetched) "
+                       "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                       (site_id, site_name, url, status, filename, file_size, message, screenshot, honeypot_score, bytes_fetched))
             history_id = cur.lastrowid
         except Exception as _ins_exc:
             # F3: a 'done' row records a download that already succeeded on

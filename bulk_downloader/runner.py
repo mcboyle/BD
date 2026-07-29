@@ -3648,7 +3648,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 # resolver itself fails.
                 best["locator"].click(); time.sleep(float(self.config.get("delay",3)))
                 self._update_job(url,"done","Clicked (no dl dir)")
-                db_log(self.site_id,self.config.get("name","?"),url,"done","",0,"")
+                # Nothing was fetched: the locator was clicked and the
+                # browser assumed responsible. Measured on the box 2026-07-29
+                # producing done rows with an empty filename and no file.
+                db_log(self.site_id,self.config.get("name","?"),url,"done","",0,"",
+                       bytes_fetched=0)
                 return
             # Phase 20.6: auto-spillover. If `spillover_dirs` is configured,
             # pick the first dir (primary OR spillover) with enough free

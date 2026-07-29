@@ -78,7 +78,8 @@ class IntegrationsMixin:
             from .db import db_log
             db_log(self.site_id, self.config.get("name", "?"),
                    url, "done", path, 0,
-                   f"Skipped (in Stash as scene {scene_id})")
+                   f"Skipped (in Stash as scene {scene_id})",
+                   bytes_fetched=0)  # dedup hit: the file was already in Stash
         except Exception:
             pass
         return True
@@ -565,7 +566,12 @@ class IntegrationsMixin:
                     db_log(self.site_id, self.config.get("name", "?"),
                            url, "done", st["filename"] or "",
                            st["bytes_total"] or st["bytes_done"],
-                           "qBittorrent backend")
+                           "qBittorrent backend",
+                           # An external backend moved these bytes, but they
+                           # genuinely crossed the wire for this job and the
+                           # backend reports the count. bytes_done is what was
+                           # transferred; bytes_total can be the advertised size.
+                           bytes_fetched=st["bytes_done"])
                 except Exception:
                     pass
                 return True, ""
@@ -800,7 +806,12 @@ class IntegrationsMixin:
                     db_log(self.site_id, self.config.get("name","?"),
                            url, "done", st["filename"] or "",
                            st["bytes_total"] or st["bytes_done"],
-                           "JD backend")
+                           "JD backend",
+                           # An external backend moved these bytes, but they
+                           # genuinely crossed the wire for this job and the
+                           # backend reports the count. bytes_done is what was
+                           # transferred; bytes_total can be the advertised size.
+                           bytes_fetched=st["bytes_done"])
                 except Exception:
                     pass
                 return True, ""
