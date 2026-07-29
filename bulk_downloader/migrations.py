@@ -487,3 +487,30 @@ def _m7(cx):
         cx.execute(
             "ALTER TABLE history ADD COLUMN honeypot_score REAL DEFAULT NULL")
 
+
+@migration(version=8, name="add_history_bytes_fetched")
+def _m8(cx):
+    """v3.66.819: record how many bytes BD actually transferred for a job.
+
+    No existing column could answer "did this download anything". file_size is
+    an on-disk stat, so a job that skipped because the file was already present
+    recorded the size of the file that was already there; message is prose that
+    varies by path, and one no-fetch path positively asserts a download that
+    did not happen. Fifteen call sites write status='done' and at least five of
+    them transfer nothing.
+
+    Soft-add: existing rows get NULL, which means "this path does not record
+    it" -- UNKNOWN, and never proof of a download. Consumers must not read NULL
+    as a transfer, or the migration window reopens the hole for the whole
+    existing history.
+
+    #63 originally added this as a bespoke loop in db.db_init(), outside this
+    framework, so the schema_migrations ledger had no record of it. This is that
+    correction; the column is idempotent either way.
+    """
+    cols = {r[1] for r in cx.execute(
+        "PRAGMA table_info(history)").fetchall()}
+    if "bytes_fetched" not in cols:
+        cx.execute(
+            "ALTER TABLE history ADD COLUMN bytes_fetched INTEGER DEFAULT NULL")
+

@@ -82,22 +82,12 @@ def db_init():
             cx.execute("ALTER TABLE queue ADD COLUMN lane TEXT DEFAULT 'default'")
         if "depends_on" not in _qcols:
             cx.execute("ALTER TABLE queue ADD COLUMN depends_on TEXT DEFAULT ''")
-        # history has never had a lazy migration, only `queue` did. Every column
-        # added to its CREATE TABLE since the first deployment is therefore
-        # absent from every live database -- honeypot_score included, which is
-        # why db_log's insert has a fallback path for it. Same treatment, and
-        # derived from the CREATE TABLE above rather than hand-listed, so a
-        # column added later is migrated without anyone remembering to.
-        #
-        # bytes_fetched: bytes BD actually transferred over the network for this
-        # job. 0 means nothing was transferred -- a skip, a dedup hit, a resumed
-        # file that was already complete. NULL means the path does not record
-        # it, which is UNKNOWN and must never be read as proof of a download.
-        _hcols = {r[1] for r in cx.execute("PRAGMA table_info(history)").fetchall()}
-        for _col, _decl in (("honeypot_score", "REAL DEFAULT NULL"),
-                            ("bytes_fetched", "INTEGER DEFAULT NULL")):
-            if _col not in _hcols:
-                cx.execute(f"ALTER TABLE history ADD COLUMN {_col} {_decl}")
+        # history schema changes belong to bulk_downloader/migrations.py, which
+        # is a versioned framework with a schema_migrations ledger and is
+        # applied at app.py:1814. #63 added bytes_fetched here as a bespoke
+        # loop, outside that ledger; migration v8 owns it now. CREATE TABLE
+        # above still carries the column so a FRESH database is born with it,
+        # which is exactly how honeypot_score (v7) is handled.
         cx.execute("CREATE INDEX IF NOT EXISTS idx_q_status      ON queue(status)")
         # v3.43.80 Phase 92: FTS5 search across history. SQLite's FTS5
         # virtual table indexes url/filename/message/site_name so the

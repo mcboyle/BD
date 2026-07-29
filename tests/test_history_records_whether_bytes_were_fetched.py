@@ -178,14 +178,22 @@ def test_db_log_accepts_and_stores_the_count(tmp_path, monkeypatch):
 def test_an_existing_history_table_gains_the_column(tmp_path, monkeypatch):
     """`CREATE TABLE IF NOT EXISTS` never adds a column to a live table.
 
-    The operator's DB predates this cut, so without a migration every existing
-    deployment keeps a history table with no such column and db_log's insert
-    fails. `queue` has had a lazy migration since Phase 2 Cut 2.1
-    (db.py:78-83); `history` has never had one -- which is also why
-    `honeypot_score`, added to history's CREATE TABLE later, is absent from any
-    DB created before it.
+    The operator's DB predates the column, so without a migration every
+    deployed database keeps a history table without it and db_log's insert
+    fails.
+
+    THE OWNER OF THAT MIGRATION CHANGED. #63 added a bespoke loop inside
+    db_init(); it worked, but it sat outside bulk_downloader/migrations.py --
+    a versioned framework with a schema_migrations ledger, applied at
+    app.py:1814, which already owns retry_after (v2), library_id (v5),
+    removed_at (v6) and honeypot_score (v7). bytes_fetched is migration v8 now,
+    so the column arrives through apply_pending() rather than db_init().
+
+    This assertion was rewritten rather than deleted: the property it protects
+    -- an existing database gains the column -- is unchanged and still worth
+    pinning. Only the path changed.
     """
-    from bulk_downloader import db as _db
+    from bulk_downloader import db as _db, migrations as _m
     p = tmp_path / "old.db"
     cx = sqlite3.connect(p)
     cx.execute("CREATE TABLE history(id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -197,18 +205,19 @@ def test_an_existing_history_table_gains_the_column(tmp_path, monkeypatch):
 
     monkeypatch.setattr(_db, "DB_PATH", str(p))
     _db.db_init()
+    _m.apply_pending(backup_first=False)
     with _db.db_conn() as cx:
         cols = {r[1] for r in cx.execute("PRAGMA table_info(history)")}
     assert "bytes_fetched" in cols, (
-        "db_init did not add bytes_fetched to an existing history table. Every "
-        "deployed database predates this cut, so without the migration db_log "
-        "raises on the operator's box while passing in a fresh sandbox."
+        "an existing history table did not gain bytes_fetched. Every deployed "
+        "database predates the column, so without the migration db_log raises "
+        "on the operator's box while passing in a fresh sandbox."
     )
     assert "honeypot_score" in cols, (
-        "history has no lazy migration at all, so honeypot_score is also "
-        "missing from any database created before it was added to the CREATE "
-        "TABLE. The same migration block must cover it."
+        "honeypot_score is migration v7's job and must also reach an existing "
+        "table through the same path."
     )
+
 
 
 # ── the concurrency constraint ───────────────────────────────────────────────
