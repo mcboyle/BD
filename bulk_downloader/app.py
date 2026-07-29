@@ -1211,6 +1211,14 @@ def _save_sites_config():
         # raise "dict changed size during iteration", which the outer
         # try/except swallows, silently dropping the save that triggered it.
         # Same pattern already used at the other save sites in this module.
+        # download_dir is deliberately NOT auto-filled here, unlike cookie_file.
+        # A blank download_dir is meaningful: /api/captures/setup_site leaves it
+        # empty so the operator can choose later, and the GCW-4 gate blocks
+        # promote precisely while it is empty
+        # (tests/test_v3_66_273_gcw_download_gate.py). Filling it at save time
+        # would make that gate unable to see the state it exists to catch.
+        # The default is applied where the file is actually written instead --
+        # see runner.py's download path.
         for _sid, _cfg in list(s_cfg.items()):
             if _cookie_dir is None: break
             if not isinstance(_cfg, dict): continue
@@ -2445,6 +2453,15 @@ def _oi_dir_writable(path):
 
 
 def _oi_default_download_dir():
+    """The directory a site downloads into when it names none of its own.
+
+    Explicit settings win, in order: BD_DOWNLOAD_DIR, then the global config's
+    download_dir. Returning None when neither was set is what made a blank
+    per-site download_dir unrecoverable -- runner.py's no-dl-dir branch clicks
+    the link, marks the job done and discards the file, so a site could complete
+    downloads forever without keeping a byte. ~/Downloads is the last resort so
+    that some real directory always resolves; the runner mkdirs it on first use.
+    """
     import os as _os
     cand = _os.environ.get("BD_DOWNLOAD_DIR")
     if cand:
@@ -2455,7 +2472,9 @@ def _oi_default_download_dir():
             return gc["download_dir"]
     except Exception:
         pass
-    return None
+    # expanduser, not Path("~/Downloads"): the literal form creates a directory
+    # actually named "~" in the cwd, which is the classic version of this bug.
+    return _os.path.expanduser("~/Downloads")
 
 
 def _chk(key, label, status, detail=""):

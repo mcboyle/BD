@@ -770,13 +770,21 @@ if [ -f "$BD_HOME/tools/live_seed.py" ] && [ -f "$BD_HOME/tools/fixture_site.py"
     # 4-16 KB files, so the normal path settles in seconds; the bound is for
     # the abnormal one. A timeout exits non-zero and is reported per URL, which
     # lands in the `else` branch below as a warning, not a capture failure.
+    # --vpn-tunnel is what gives L30 (vpn-tunnel-inventory-consistent) a
+    # subject. It is NOT implied by --seed: main() branches on args.vpn_tunnel
+    # separately, so omitting it left L30 reporting "no VPN tunnels configured
+    # — nothing to verify" on the box, truthfully, because nothing had ever
+    # asked for the thing it checks. The tunnel it creates is inert with
+    # respect to egress — state defaults to "down", no SOCKS port is allocated
+    # until start_tunnel() which the seeder never calls, and no site routes to
+    # it — so it is observable without being live.
     if venv/bin/python tools/live_seed.py --seed --start --start-timeout 180 \
-         --login --count 3 $_seed_force \
+         --login --vpn-tunnel --count 3 $_seed_force \
          > "$OUT/05a_live_seed.log" 2>&1; then
       SEEDED=1
-      echo "  seeded 3 marked URLs + started the queue + fixture login — queue"
-      echo "  and auth checks are exercising SYNTHETIC input;"
-      echo "  see $OUT/05a_live_seed.log"
+      echo "  seeded 3 marked URLs + started the queue + fixture login + an"
+      echo "  inert VPN tunnel — queue, auth and VPN checks are exercising"
+      echo "  SYNTHETIC input; see $OUT/05a_live_seed.log"
     else
       # A refusal can still have created something before it stopped, so mark
       # the run as seeded regardless -- teardown is idempotent and removing
@@ -857,8 +865,32 @@ fi
 # also benefits from the larger budget).
 #
 echo "=== [6/9] Live-test suite ==="
-LIVE_IDS="L1,L2,L3,L4,L5,L6,L7,L8,L9,L10,L11,L12,L13,L14,L15,L16,L17,L18,L19,L20,L21,L22,L23,L24,L25,L26,L27,L28,L29,L30,L31,L32,L33,L34,L35"
-EXPECTED_LIVE_TESTS=$(printf '%s\n' "$LIVE_IDS" | awk -F, '{print NF}')
+LIVE_IDS="L1,L2,L3,L4,L5,L6,L7,L8,L9,L10,L11,L12,L13,L14,L15,L16,L17,L18,L19,L20,L21,L22,L23,L24,L25,L26,L27,L28,L29,L30,L31,L32,L33,L34,L35,L36,L37"
+# EXPECTED_LIVE_TESTS comes from the REGISTRY, never from LIVE_IDS.
+#
+# It used to be `awk -F, NF` over LIVE_IDS itself, which made the completeness
+# gate compare the selection with itself: it caught an ID that was requested and
+# did not run, and could never catch an ID that existed and was never requested.
+# L36 and L37 sat in that gap and had never run in any capture -- and L36 covers
+# the stale-or-half-built frontend/dist/ class that a git deploy silently does
+# not deliver, which no other check sees.
+#
+# Reading the registry gives the verdict an independent denominator, so adding a
+# check to live_tests/checks.py without adding it here now fails the capture
+# instead of passing quietly. Importing `checks` is what registers them; harness
+# alone yields an empty list.
+EXPECTED_LIVE_TESTS=$(venv/bin/python -c \
+  'from live_tests import checks, harness; print(len(harness.registry()))' \
+  2>"$OUT/06_registry_count.err")
+if ! printf '%s' "$EXPECTED_LIVE_TESTS" | grep -qE '^[1-9][0-9]*$'; then
+  # Unknown is a third state and it fails. A blank or zero count here would
+  # otherwise reach capture_verdict.py as a number that cannot be compared,
+  # and the one thing this must never do is let the verdict pass unverified.
+  echo "  BD-GATE-UNRUNNABLE: could not read the live-check registry"
+  echo "  (got '${EXPECTED_LIVE_TESTS:-<empty>}'; see $OUT/06_registry_count.err)"
+  EXPECTED_LIVE_TESTS=-1
+fi
+echo "  registry reports $EXPECTED_LIVE_TESTS check(s); requesting $(printf '%s\n' "$LIVE_IDS" | awk -F, '{print NF}')"
 run_with_heartbeat "live-test suite" "$OUT/06_live_tests.log" \
    env BD_DISABLE_KEEPALIVE=1 venv/bin/python -u -m live_tests.run \
    --only "$LIVE_IDS" \
