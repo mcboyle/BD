@@ -987,7 +987,14 @@ class TransportMixin:
         # never call a download helper at all. 0 is the truthful default: no
         # helper ran, so nothing was transferred.
         downloaded_size=0; bytes_fetched=0; filename=final_path.name
+        # transfer_mode is bound here for the same reason bytes_fetched is: the
+        # db_log at the end of this function is reached by paths that never run
+        # a transfer at all. None is the truthful default -- no arm ran, so
+        # there is no transport to name, and NULL means unrecorded rather than
+        # "not segmented" (db.db_log's docstring states that contract).
+        transfer_mode=None
         if is_stream:
+            transfer_mode="segmented"
             # THE SEGMENTED TRANSFER. hls_downloader drives ffmpeg over the
             # manifest and never raises; bytes_written is what actually crossed
             # the wire, which is the number #63's bytes_fetched contract wants --
@@ -1043,6 +1050,7 @@ class TransportMixin:
         # the _DLStub stand-in (url + suggested_filename + cancel only). Exactly
         # one of these three paths may run, so they are one chain.
         elif use_http:
+            transfer_mode="http"
             try:
                 file_url=dl.url
                 # Cancel Playwright's own download — we'll fetch directly.
@@ -1101,8 +1109,15 @@ class TransportMixin:
                 except PWTimeout:
                     self._handle_failure(page_url,f"HTTP failed and no fallback download event: {e}")
                     return
+                # The httpx attempt failed and the browser moved the bytes, so
+                # the row must say 'browser'. Leaving the 'http' set at the top
+                # of this arm would record the transport that was ATTEMPTED --
+                # a row that names a transfer which did not happen is the same
+                # failure as the message prose this column replaces.
+                transfer_mode="browser"
                 downloaded_size, bytes_fetched = self._pw_save(dl,final_path)
         else:
+            transfer_mode="browser"
             downloaded_size, bytes_fetched = self._pw_save(dl,final_path)
 
         # ── Phase 17.20: Size sanity check ───────────────────────────────
@@ -1192,7 +1207,8 @@ class TransportMixin:
                          filename=filename,file_size=downloaded_size)
         db_log(self.site_id,self.config.get("name","?"),page_url,"done",filename,downloaded_size,"",
                honeypot_score=best.get("_honeypot_score"),  # P5-2b: stamp resolve-time score for per-site threshold learning
-               bytes_fetched=bytes_fetched)
+               bytes_fetched=bytes_fetched,
+               transfer_mode=transfer_mode)  # which arm of the chain above ran
         # Phase 66 (v3.41.0): cross-site filename duplicate detection.
         # Look back through history for a successful download with the
         # same filename + similar size. If found, log + emit event so

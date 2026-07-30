@@ -68,6 +68,7 @@ _PG_SCHEMA = (
         site_id TEXT, site_name TEXT, url TEXT, status TEXT,
         filename TEXT, file_size BIGINT, message TEXT, screenshot TEXT,
         honeypot_score DOUBLE PRECISION DEFAULT NULL,
+        transfer_mode TEXT DEFAULT NULL,
         ts TEXT DEFAULT to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS'))""",
     """CREATE TABLE IF NOT EXISTS queue(
         site_id TEXT NOT NULL,

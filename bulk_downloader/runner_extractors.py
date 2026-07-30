@@ -1006,7 +1006,13 @@ class ExtractorsMixin:
             f"{src.codec or ('HLS' if src.is_hls else 'MP4')}...",
         )
 
+        # This function's two arms converge on ONE `done` db_log, so the
+        # transport has to travel as a variable. A hardcoded "segmented" there
+        # would label every direct-MP4 JsonAPI download as a stream and make
+        # L12 PASS on a transfer that never touched ffmpeg.
+        transfer_mode = None
         if src.is_hls:
+            transfer_mode = "segmented"
             try:
                 from . import hls_downloader as _hls
             except ImportError:
@@ -1046,6 +1052,7 @@ class ExtractorsMixin:
                 return False
             downloaded_size = dl_result.bytes_written
         else:
+            transfer_mode = "http"
             ok = self._do_direct_http_download(
                 page_url=url, file_url=src.url,
                 output_path=output_path, referer=referer,
@@ -1088,7 +1095,8 @@ class ExtractorsMixin:
         db_log(self.site_id, self.config.get("name", "?"), url, "done",
                output_filename, downloaded_size,
                f"jsonapi={result.protocol} tier={src.height} "
-               f"avail={result.available_heights}", bytes_fetched=downloaded_size)
+               f"avail={result.available_heights}", bytes_fetched=downloaded_size,
+               transfer_mode=transfer_mode)
         self.log_event(
             "jsonapi_done",
             f"{src.height}p via {result.protocol} "
@@ -1246,7 +1254,10 @@ class ExtractorsMixin:
             f"{' HLS' if result.is_hls else ' MP4'} (via {result.via})...",
         )
 
+        # Two arms, one `done` db_log -- see the note in _try_jsonapi_extractor.
+        transfer_mode = None
         if result.is_hls:
+            transfer_mode = "segmented"
             try:
                 from . import hls_downloader as _hls
             except ImportError:
@@ -1286,6 +1297,7 @@ class ExtractorsMixin:
                 return False
             downloaded_size = dl_result.bytes_written
         else:
+            transfer_mode = "http"
             ok = self._do_direct_http_download(
                 page_url=url, file_url=upgraded_url,
                 output_path=output_path, referer=referer,
@@ -1327,7 +1339,8 @@ class ExtractorsMixin:
         db_log(self.site_id, self.config.get("name", "?"), url, "done",
                output_filename, downloaded_size,
                f"vixen={result.via} tier={upgraded_tier} "
-               f"avail={result.available_tiers}", bytes_fetched=downloaded_size)
+               f"avail={result.available_tiers}", bytes_fetched=downloaded_size,
+               transfer_mode=transfer_mode)
         self.log_event(
             "vixen_done",
             f"{upgraded_tier}p via {result.via} "
@@ -1718,7 +1731,10 @@ class ExtractorsMixin:
             f"Aylo: downloading {variant.quality}p {variant.format.upper()}...",
         )
 
+        # Two arms, one `done` db_log -- see the note in _try_jsonapi_extractor.
+        transfer_mode = None
         if variant.format == "hls":
+            transfer_mode = "segmented"
             try:
                 from . import hls_downloader as _hls
             except ImportError:
@@ -1760,6 +1776,7 @@ class ExtractorsMixin:
                 return False
             downloaded_size = dl_result.bytes_written
         else:
+            transfer_mode = "http"
             # MP4 direct download. Apply tier-probe in case the user
             # has it enabled (rare on Aylo since the flashvars already
             # gave us the best variant, but harmless).
@@ -1806,7 +1823,8 @@ class ExtractorsMixin:
                output_filename, downloaded_size,
                f"aylo={variant.format} quality={variant.quality}p "
                f"avail=[{','.join(result.available_qualities[:5])}]",
-               bytes_fetched=downloaded_size)
+               bytes_fetched=downloaded_size,
+               transfer_mode=transfer_mode)
         self.log_event(
             "aylo_done",
             f"{variant.quality}p {variant.format} via flashvars "
@@ -2285,7 +2303,11 @@ class ExtractorsMixin:
                    output_filename, dl_result.bytes_written,
                    f"library_extractor={result.extractor} hls=1 "
                    f"quality={result.quality}",
-                   bytes_fetched=dl_result.bytes_written)
+                   bytes_fetched=dl_result.bytes_written,
+                   # A literal is right here, unlike jsonapi/vixen/aylo: this
+                   # arm has its OWN db_log and returns, so the constant cannot
+                   # leak onto the direct-URL row below.
+                   transfer_mode="segmented")
             return True
 
         # Direct URL path: reuse the existing _http_download path. It
@@ -2342,5 +2364,8 @@ class ExtractorsMixin:
                # _do_direct_http_download which returns only a bool. There is
                # no transfer count to report, so NULL -- which a consumer must
                # treat as "not proven", never as a download.
-               bytes_fetched=None)
+               bytes_fetched=None,
+               # The COUNT is unknown here; the TRANSPORT is not. Two separate
+               # facts, and the bool return only loses the first one.
+               transfer_mode="http")
         return True

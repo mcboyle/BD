@@ -514,3 +514,33 @@ def _m8(cx):
         cx.execute(
             "ALTER TABLE history ADD COLUMN bytes_fetched INTEGER DEFAULT NULL")
 
+
+@migration(version=9, name="add_history_transfer_mode")
+def _m9(cx):
+    """Record WHICH transport moved the bytes: 'segmented' | 'http' | 'browser'.
+
+    No existing column could answer "did a segmented download complete". The
+    live check that asks (L12) inferred it from `url LIKE '%.m3u8%'` and
+    `message LIKE '%hls%'`, and both are structurally unable to see it: db_log
+    is passed the PAGE url, so the manifest string never reaches the table, and
+    the done-path message is the empty string. Measured on the deploy host
+    2026-07-30 -- a segmented download completed and L12 reported "none
+    segmented ... no stream was queued".
+
+    Soft-add: existing rows get NULL, which means "this path does not record
+    it". NULL is a lower bound and never a negative -- runner_extractors.
+    _try_plugin_extractor performs a real segmented transfer and logs no row at
+    all, so a consumer may read >0 as proof the path works but must not read 0
+    as proof it does not.
+
+    NO BACKFILL, DELIBERATELY. The obvious one -- set 'segmented' where the url
+    looks like a manifest -- would write this cut's own defect into the table as
+    though it were a recorded fact, which is strictly worse than a NULL that
+    says "unknown". tests/test_l12_sees_the_transfer_that_happened.py pins that.
+    """
+    cols = {r[1] for r in cx.execute(
+        "PRAGMA table_info(history)").fetchall()}
+    if "transfer_mode" not in cols:
+        cx.execute(
+            "ALTER TABLE history ADD COLUMN transfer_mode TEXT DEFAULT NULL")
+
