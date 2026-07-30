@@ -1,68 +1,50 @@
 #!/usr/bin/env python3
-"""bd-versync -- a version bump is a 3-part edit that must land together:
-bulk_downloader/__init__.py __version__ + the test_settings_center_slice4 pin +
-the top CHANGELOG `## v...` header. A partial bump (or a stray `__version__ ==
-"3.66.N"` left in another test) fails the release. This verifies all three agree
-and greps tests/ for any stray version pin that disagrees.
+"""bd-versync fixed."""
+import argparse, importlib.util, os, re, sys
 
-Usage:
-  bd-versync [--tree DIR]
-Exit 1 on any disagreement, else 0.
-"""
-import argparse, glob, os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec
 
-VER = re.compile(r'3\.66\.(\d+)')
+VER = re.compile(r'\d+\.\d+\.\d+')
+
 
 def init_version(tree):
     try:
         t = open(os.path.join(tree, "bulk_downloader/__init__.py"), errors="ignore").read()
         m = re.search(r'__version__\s*=\s*["\']([0-9.]+)["\']', t)
         return m.group(1) if m else None
-    except Exception:  # why: tree __init__ unreadable; None so the caller reports 'no version', not a stale one
+    except Exception:
         return None
+
 
 def changelog_version(tree):
     p = os.path.join(tree, "CHANGELOG.md")
     if not os.path.exists(p):
         return None
     for line in open(p, errors="ignore"):
-        if re.match(r"^#{1,3}\s*v?3\.66\.\d+", line.strip()):
-            return VER.search(line).group(0)
+        if re.match(r"^#{1,3}\s*v?\d+\.\d+\.\d+", line.strip()):
+            m = VER.search(line)
+            return m.group(0) if m else None
     return None
 
-def stray_pins(tree, canonical):
-    """all tests/ lines that assert a 3.66.N version != canonical (excluding known fixtures)."""
-    # the fixture-looks-like-a-pin allowlist: files that CONSTRUCT synthetic version strings
-    FIXTURE_FILES = ("hygiene_gates", "scan_version_pins", "build_release_f02",
-                     "build_session_pack", "precut_check", "gold_backup", "_fixture")
-    SENTINELS = ("_mktree", "body =", "# untouched", "# still untouched", "3.66.999", "root =")
-    out = []
-    for f in glob.glob(os.path.join(tree, "tests/*.py")):
-        base = os.path.basename(f)
-        if any(fx in base for fx in FIXTURE_FILES):
-            continue
-        try:
-            for i, line in enumerate(open(f, errors="ignore"), 1):
-                if "__version__" not in line and "version" not in line.lower():
-                    continue
-                if any(s in line for s in SENTINELS):
-                    continue
-                for m in VER.finditer(line):
-                    v = m.group(0)
-                    if ("==" in line or "assert" in line or "settings_center_slice4" in f) and v != canonical:
-                        out.append((os.path.relpath(f, tree), i, v, line.strip()[:70]))
-                        break
-        except Exception:  # why: this file is unreadable/binary; skip it, the scan continues over the rest
-            continue
-    return out
+
+def _load_pin_index(tree):
+    path = os.path.join(tree, "tools", "build_pin_index.py")
+    if not os.path.isfile(path):
+        return None, "%s absent (no pin-index tool to gate against)" % path
+    try:
+        spec = importlib.util.spec_from_file_location("bd_versync_pin_index", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except Exception as e:
+        return None, "%s failed to load: %s: %s" % (path, type(e).__name__, e)
+    if not (hasattr(mod, "build_index") and hasattr(mod, "unparseable_test_files")):
+        return None, ("%s lacks build_index/unparseable_test_files "
+                      "(too old to gate against)" % path)
+    return mod, None
 
 
 def selftest():
-    """Delegates to bd-coretest --only bd-versync -- the REAL fault-injection case
-    (I-5/C-23). A bespoke smoke selftest here would assert "it runs", which is
-    the ~92%-are-smoke problem bd-coretest exists to fix. If the harness is
-    absent we say so and FAIL: a selftest that cannot verify must not report
-    success."""
     import subprocess as _sp
     ct = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-coretest")
     if not os.path.isfile(ct):
@@ -80,44 +62,73 @@ def selftest():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tree","--work", default="/home/claude/work")
-    ap.add_argument("--selftest", action="store_true",
-                   help="fault-injection selftest (delegates to bd-coretest)")
+    ap.add_argument("--tree", "--work", default=sec.DEFAULT_WORK)
+    ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
     if a.selftest:
         return selftest()
+
+    sec.require_source_tree(a.tree)
+
     iv = init_version(a.tree)
     cv = changelog_version(a.tree)
-    canonical = iv or (cv and cv.replace("3.66.", "3.66."))
     print(f"__init__.py __version__ : {iv or 'NOT FOUND'}")
     print(f"CHANGELOG top entry     : {cv or 'NOT FOUND'}")
+    if iv is None:
+        print("  FAIL: bulk_downloader/__init__.py declares no __version__ "
+              "(no source version for the 3-part bump to agree with).")
+        return sec.EXIT_FINDINGS
+
     rc = 0
-    if iv and cv and iv not in cv:
+    if cv and iv not in cv:
         print(f"  DISAGREE: __init__ {iv} != CHANGELOG {cv}"); rc = 1
-    elif iv and cv:
+    elif cv:
         print(f"  __init__ and CHANGELOG agree ({iv})")
-    # slice4 pin
-    s4 = glob.glob(os.path.join(a.tree, "tests/*settings_center_slice4*.py"))
-    if s4:
-        txt = open(s4[0], errors="ignore").read()
-        vs = set(VER.findall(txt))
-        pin_ok = iv and iv.split(".")[-1] in vs
-        print(f"settings_center_slice4  : versions referenced {sorted('3.66.'+v for v in vs)}"
-              + (f"  (pins {iv}: ok)" if pin_ok else f"  (does NOT pin {iv})"))
-        if iv and not pin_ok:
+    else:
+        print(f"  FAIL: no CHANGELOG '## v{iv}' header found near the top."); rc = 1
+
+    mod, err = _load_pin_index(a.tree)
+    if err:
+        sys.stderr.write("CANNOT-EVALUATE --tree/--work %s: reason=%s (%s)\n"
+                         % (a.tree, sec.REASON_ABSENT, err))
+        return sec.EXIT_CANNOT_EVALUATE
+    bad = mod.unparseable_test_files()
+    if bad:
+        sys.stderr.write("CANNOT-EVALUATE --tree/--work %s: reason=%s "
+                         "(unparseable test file(s): %s)\n"
+                         % (a.tree, sec.REASON_UNREADABLE,
+                            ", ".join("%s [%s]" % (f, k) for f, k in bad)))
+        return sec.EXIT_CANNOT_EVALUATE
+
+    vpins = [p for p in mod.build_index()["pins"] if p["form"] == "version"]
+
+    if not vpins:
+        print("\nFAIL: no version pin found. The 3-part bump has no test pin "
+              "(a tree with no pin used to PASS the old text scan).")
+        rc = 1
+    elif len(vpins) > 1:
+        print(f"\nFAIL: expected exactly ONE version pin (the slice4 pin); "
+              f"found {len(vpins)} that disagree or duplicate:")
+        for p in vpins:
+            print(f"  {p['file']}:{p['line']}  (=={p['value']!r})")
+        rc = 1
+    else:
+        p = vpins[0]
+        if "settings_center_slice4" not in os.path.basename(p["file"]):
+            print(f"\nFAIL: the sole version pin is in {p['file']}, not the "
+                  f"settings_center_slice4 file.")
             rc = 1
-    # stray pins
-    if iv:
-        stray = stray_pins(a.tree, iv)
-        if stray:
-            print(f"\nSTRAY version pins in tests/ that disagree with {iv} ({len(stray)}):")
-            for f, i, v, ctx in stray[:20]:
-                print(f"  {f}:{i}  ({v})  {ctx}")
+        elif p["value"] != iv:
+            print(f"\nFAIL: slice4 pin {p['file']}:{p['line']} == {p['value']!r} "
+                  f"but source __version__ == {iv!r} (incomplete 3-part bump).")
             rc = 1
         else:
-            print(f"\nno stray tests/ version pins disagree with {iv}.")
-    print("\n" + ("VERSION CONSISTENT." if rc == 0 else "=> land the 3-part bump together (bd-cut does this) + clear stray pins."))
+            print(f"\nversion pins: exactly one, {p['file']} == {iv} (ok).")
+
+    print("\n" + ("VERSION CONSISTENT." if rc == 0
+                  else "=> land the 3-part bump together (bd-cut does this) + clear stray pins."))
     return rc
+
 
 if __name__ == "__main__":
     sys.exit(main())

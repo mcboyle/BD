@@ -326,10 +326,19 @@ version-pack workflow, via `--state`). Instant "are my guards byte-intact?" --
 `bd-guardcheck --tree .`. A `0 ok, 0 drifted, 7 missing` summary or exit 2 means the pins were
 **not** verified; do not read it as a pass.
 
-### `bd-versync` — sandbox · version consistency  *(was `bd-ver`, retired)*
-`__version__` vs the real `assert __version__ ==` test pin(s) vs CHANGELOG top vs
-STATE built_version. Fixture version strings are allowlist-excluded (the
-fixture-looks-like-a-pin footgun).
+### `bd-versync` — work tree · version consistency  *(was `bd-ver`, retired)*
+`__version__` vs the sole `assert __version__ ==` test pin vs the CHANGELOG top
+header. `--tree`/`--work` defaults to the work tree (`bdtools_sec.DEFAULT_WORK`),
+not a sandbox path.
+
+Pins come from `tools/build_pin_index.py`'s **AST** index, not a text scan --
+so a version string in a fixture literal or in prose is structurally not a pin
+and needs no allowlist. The old scan-plus-allowlist is retired: it reported
+fixture literals as stray pins (cry-wolf), and its denominator silently
+excluded whole idioms. Exit 2 / `CANNOT-EVALUATE` when the tree, the pin-index
+tool, or any `tests/*.py` cannot be read -- unknown is a third state and it
+fails rather than reporting consistent. Teeth: `tests/test_versync_gate.py`
+and `bd-versync --selftest` (delegates to `bd-coretest --only bd-versync`).
 
 ### `bd-changelog` — sandbox · CHANGELOG entry validity
 Top `## v…` header matches `__version__`, entry is ASCII-only, non-empty (the

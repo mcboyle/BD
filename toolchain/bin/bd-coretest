@@ -258,17 +258,23 @@ def test_versync(BIN):
     exe = os.path.join(BIN, "bd-versync")
     d = _mini_tree()   # declares 3.66.700
     os.makedirs(os.path.join(d, "tests"), exist_ok=True)
-    # clean control: a test pinning the SAME version
-    open(os.path.join(d, "tests", "test_v.py"), "w").write(
+    os.makedirs(os.path.join(d, "tools"), exist_ok=True)
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+    shutil.copy(os.path.join(repo, "tools", "build_pin_index.py"),
+                os.path.join(d, "tools", "build_pin_index.py"))
+    open(os.path.join(d, "CHANGELOG.md"), "w").write("## v3.66.700\nseed\n")
+    # clean control: the real slice4 pin at the SAME version -> exactly one pin
+    open(os.path.join(d, "tests", "test_settings_center_slice4.py"), "w").write(
+        'from bulk_downloader import __version__\n'
         'def test_v():\n    assert __version__ == "3.66.700"\n')
     rc, out = run(exe, "--tree", d)
-    rec("bd-versync", "clean->definite", (rc in (0, 1)),
-        "definite verdict on an in-sync tree (rc=%d)" % rc)
-    # FAULT: a stray pin at a DIFFERENT version must be surfaced
+    rec("bd-versync", "clean->PASS", (rc == 0 and "CONSISTENT" in out),
+        "in-sync tree (slice4 pin == 3.66.700) passes (rc=%d)" % rc)
+    # FAULT: a stray pin at a DIFFERENT version must be surfaced as a 2nd pin
     open(os.path.join(d, "tests", "test_stray.py"), "w").write(
         'def test_stray():\n    assert __version__ == "3.66.688"\n')
     rc, out = run(exe, "--tree", d)
-    rec("bd-versync", "FAULT->stray-pin", ("688" in out),
+    rec("bd-versync", "FAULT->stray-pin", (rc != 0 and "688" in out),
         "stray 688 pin surfaced against a 700 tree (rc=%d)" % rc, kind="FAULT")
     shutil.rmtree(d, ignore_errors=True)
 
