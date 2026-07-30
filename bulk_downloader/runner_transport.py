@@ -509,6 +509,61 @@ class TransportMixin:
         return h[:7] == b"#EXTM3U"
 
     @staticmethod
+    def _stream_route(href, page_url):
+        """(manifest_url, destination_name) if `href` is a stream, else (None, None).
+
+        v3.66.819 -- THE ROUTING DECISION, AS A PURE FUNCTION.
+
+        BD scrapes the right link and then cannot use it. Measured on the deploy
+        host six times over four days, and reproduced locally against the
+        fixture: clicking `<a href='/hls/scene/2.m3u8'>` NAVIGATES to the
+        manifest and fires no download event, so `expect_download(timeout=60000)`
+        waits a full minute per URL to record that nothing happened. The link was
+        never the problem -- BD scored it correctly as the 1080p HLS download --
+        the problem is that a browser does not download a manifest.
+
+        Two things this has to get right, both learned elsewhere in this file:
+
+        RESOLVE THE RELATIVE HREF. The measured value is `/hls/scene/2.m3u8`. A
+        browser resolves that natively on click; ffmpeg receives a string and
+        cannot. Phase 19.fix records the same trap on the direct-URL path
+        ("Request URL is missing scheme", and worse, hitting a wrong host).
+
+        NAME THE DESTINATION .mp4. ffmpeg remuxes the segments into an MP4
+        container, so a `.m3u8` destination would be a lie about the content and
+        would also defeat skip_if_exists on the next run. runner_extractors.py
+        makes the same choice for the extractor HLS paths.
+
+        Pure by design: _do_download is ~500 lines of browser-coupled code whose
+        transfer point sits well below its detection point, so a decision buried
+        in there could only be checked by asserting over source. This takes two
+        strings and returns two.
+        """
+        if not href or not isinstance(href, str):
+            return None, None
+        try:
+            from . import hls_downloader as _hls
+            if not _hls.is_streaming_url(href):
+                return None, None
+        except Exception:
+            return None, None      # never break the download path
+        url = href
+        if not url.startswith(("http://", "https://")):
+            try:
+                from urllib.parse import urljoin
+                url = urljoin(page_url or "", url)
+            except Exception:
+                return None, None  # unresolvable is not routable
+        if not url.startswith(("http://", "https://")):
+            return None, None
+        try:
+            from urllib.parse import urlparse
+            stem = Path(urlparse(url).path).stem or "stream"
+        except Exception:
+            stem = "stream"
+        return url, f"{stem}.mp4"
+
+    @staticmethod
     def _probe_outcome(status, recv, ctype, head):
         """BP-VH1: map a probe result to one of done | streaming | non_media | fail.
 
@@ -775,6 +830,29 @@ class TransportMixin:
                 sys.stderr.write(f"  download: direct URL extracted from [{url_attr}] -> {suggested}\n")
                 _bump_learned_stat(self.config,"direct_extractions")
 
+        # ── v3.66.819: a STREAM is decided before the click, not after 60s ──
+        #
+        # A browser navigates a manifest rather than downloading it, so
+        # expect_download below can never fire for one and pays its full
+        # 60000ms first. Measured on the deploy host: six needs_review rows over
+        # four days, each a wasted minute of the capture. The href is available
+        # right here, so the decision happens here.
+        is_stream = False
+        if not direct_url:
+            try:
+                _href = best["locator"].get_attribute("href") or ""
+            except Exception:
+                _href = ""          # a detached locator is not the subject
+            _surl, _sname = TransportMixin._stream_route(_href, page.url)
+            if _surl:
+                direct_url, suggested, is_stream = _surl, _sname, True
+                sys.stderr.write(
+                    f"  download: streaming manifest -> segmented downloader "
+                    f"({_surl[:90]})\n")
+                self._update_job(page_url, "running",
+                                 "Streaming manifest — downloading segments "
+                                 "with ffmpeg...")
+
         # ── Standard path: click and let Playwright capture the download ──
         if not direct_url:
             try:
@@ -909,6 +987,54 @@ class TransportMixin:
         # never call a download helper at all. 0 is the truthful default: no
         # helper ran, so nothing was transferred.
         downloaded_size=0; bytes_fetched=0; filename=final_path.name
+        if is_stream:
+            # THE SEGMENTED TRANSFER. hls_downloader drives ffmpeg over the
+            # manifest and never raises; bytes_written is what actually crossed
+            # the wire, which is the number #63's bytes_fetched contract wants --
+            # not the manifest's ~204 bytes, and not the muxed file's size.
+            try:
+                from . import hls_downloader as _hls
+            except Exception as e:
+                note = f"hls_downloader unavailable ({e}); cannot fetch a stream"
+                self._update_job(page_url, "needs_review", note,
+                                 filename=final_path.name, file_size=0)
+                db_log(self.site_id, self.config.get("name", "?"), page_url,
+                       "needs_review", final_path.name, 0, note,
+                       bytes_fetched=0)
+                return
+            res = _hls.download(
+                direct_url, str(final_path), referer=page_url,
+                cancel_check=lambda: self._stop.is_set())
+            if not res.ok:
+                # ffmpeg_not_installed is a DISTINCT code and gets a distinct
+                # verdict: a missing dependency is not a broken stream, and an
+                # operator cannot act on the two the same way. ffmpeg IS present
+                # on the deploy host, so this is the honest-unknown branch rather
+                # than the expected one.
+                if res.error == "ffmpeg_not_installed":
+                    note = ("ffmpeg is not installed, so the segmented "
+                            "(HLS/DASH) download path cannot run on this host — "
+                            "this is a missing dependency, not a failed stream")
+                else:
+                    note = (f"segmented download failed: {res.error} — "
+                            f"{str(res.error_detail)[:160]}")
+                try:
+                    if final_path.exists():
+                        final_path.unlink()
+                except Exception:
+                    pass
+                self._update_job(page_url, "needs_review", note,
+                                 filename=final_path.name, file_size=0)
+                db_log(self.site_id, self.config.get("name", "?"), page_url,
+                       "needs_review", final_path.name, 0, note,
+                       bytes_fetched=max(0, int(res.bytes_written or 0)))
+                return
+            try:
+                downloaded_size = final_path.stat().st_size
+            except Exception:
+                downloaded_size = int(res.bytes_written or 0)
+            bytes_fetched = max(0, int(res.bytes_written or 0))
+            use_http = False        # the transfer is done; skip both fallbacks
         if use_http:
             try:
                 file_url=dl.url
