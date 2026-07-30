@@ -251,8 +251,8 @@ def test_the_mutation_engine_selftest_still_passes():
     The engine and its four-state discipline are sound and this cut must not
     disturb them.
     """
-    r = subprocess.run([sys.executable, str(MT), "--selftest"],
-                       cwd=REPO, capture_output=True, text=True, timeout=300)
+    r = _run_tool([sys.executable, str(MT), "--selftest"],
+                  budget_s=300, what="bd-mutation-test", cwd=REPO)
     assert r.returncode == 0, f"selftest exit={r.returncode}\n{r.stdout[-2000:]}"
     assert "SELFTEST PASS" in r.stdout, r.stdout[-2000:]
 
@@ -267,10 +267,10 @@ def test_a_real_gate_row_runs_end_to_end_and_catches_its_mutation():
     notice. This drives one real row all the way through copy -> mutate -> gate
     and requires the four-state engine to return CAUGHT.
     """
-    r = subprocess.run(
+    r = _run_tool(
         [sys.executable, str(MT), "--only", "route_index/spa_wired",
          "--work", str(REPO), "--json"],
-        cwd=REPO, capture_output=True, text=True, timeout=600)
+        budget_s=600, what="bd-mutation-test", cwd=REPO)
     assert r.returncode in (0, 1), f"exit={r.returncode}\n{r.stdout[-3000:]}"
     import json as _json
     # The payload is PRETTY-PRINTED across many lines, so parse from the first
@@ -308,9 +308,8 @@ def test_band_derive_selftest_actually_executes_its_controls():
     false green this test exists to catch.
     """
     env = {**os.environ, "PYTHONPATH": str(BIN)}
-    r = subprocess.run([sys.executable, str(BD), "--selftest"],
-                       cwd=REPO, capture_output=True, text=True,
-                       timeout=600, env=env)
+    r = _run_tool([sys.executable, str(BD), "--selftest"],
+                  budget_s=600, what="bd-band-derive", cwd=REPO, env=env)
     out = r.stdout + r.stderr
     assert "SKIP  no work tree" not in out, (
         "bd-band-derive still skipped its own controls and reported success:\n"
@@ -319,3 +318,131 @@ def test_band_derive_selftest_actually_executes_its_controls():
         "the controls did not run -- SIGNAL 7 is absent:\n" + out[-2000:])
     assert "SELFTEST PASS" in out, out[-2000:]
     assert r.returncode == 0, f"exit={r.returncode}\n{out[-2000:]}"
+
+
+# --- C. the two slow rows must fail LOUDLY, and `slow` must be a real mark ----
+#
+# Measured on the operator's box: this file's own
+# test_a_real_gate_row_runs_end_to_end_and_catches_its_mutation blew its 600s
+# subprocess budget inside a ten-file run and surfaced as a raw
+# subprocess.TimeoutExpired traceback -- no verdict, no next step, and a whole
+# capture graded FAIL on `unit failures=1`.
+#
+# Two separate defects, and the budget is NOT one of them:
+#
+#   * `@pytest.mark.slow` was applied here but never registered, so pytest
+#     warned PytestUnknownMarkWarning and the mark deselected nothing. A marker
+#     that reads as a control and controls nothing is exactly the shape this
+#     file exists to catch. Registered in tests/conftest.py.
+#
+#   * A TimeoutExpired escaping the test body gives the reader a stack trace
+#     from subprocess.py and nothing about WHICH tool, what budget, or what to
+#     run next. `_run_tool` converts it into a verdict that says so.
+#
+# WHY THE BUDGET IS UNCHANGED. Measured runtimes for the two tools:
+# bd-mutation-test 25.8s and bd-band-derive 2.0s in the cloud sandbox; the whole
+# file runs in 52.7s on the box. The failing run exceeded 600s -- roughly 13x
+# the box's standalone figure -- so it hung rather than ran slowly, and a larger
+# number would only make a hang burn more of the capture before failing. The
+# budget stays calibrated to measurement and the message names the ratio, so the
+# next reader can tell "slow" from "stuck" without re-deriving it.
+
+_MEASURED_S = {"bd-mutation-test": 25.8, "bd-band-derive": 2.0}
+
+
+def _run_tool(argv, *, budget_s, what, **kwargs):
+    """Run a whole-tree tool, converting a timeout into a DIAGNOSIS.
+
+    Unknown is a third state and it fails -- this never downgrades a timeout to
+    a skip. It only replaces an opaque traceback with the verdict, the budget,
+    the measured baseline, and the one command that distinguishes a hang from
+    ordinary slowness.
+    """
+    try:
+        return subprocess.run(argv, capture_output=True, text=True,
+                              timeout=budget_s, **kwargs)
+    except subprocess.TimeoutExpired as exc:
+        baseline = _MEASURED_S.get(what)
+        ratio = f" (~{budget_s / baseline:.0f}x its measured {baseline}s)" if baseline else ""
+        printable = " ".join(str(a) for a in argv)
+        pytest.fail(
+            f"{what} did not finish within {budget_s}s{ratio}, so this row "
+            f"produced NO verdict -- it is not a pass and not a fail of the "
+            f"thing under test.\n"
+            f"  command: {printable}\n"
+            f"  next:    run that command by hand. If it completes in about "
+            f"{baseline or '<measured>'}s, the tool is fine and this was a "
+            f"HANG under suite load, not slowness -- raising the budget would "
+            f"only make the next occurrence burn longer before failing.\n"
+            f"  partial stdout: {(exc.stdout or b'')[-1500:]!r}"
+        )
+
+
+def test_the_slow_marker_is_registered():
+    """RED. `@pytest.mark.slow` sits on two tests in this file, but nothing
+    registered it -- pytest warned PytestUnknownMarkWarning and `-m 'not slow'`
+    selected nothing, so the mark was decoration.
+
+    Asserted by asking pytest for its OWN registry rather than grepping
+    conftest: the question is "can a caller deselect these", and only the
+    resolved marker list answers it.
+    """
+    r = subprocess.run([sys.executable, "-m", "pytest", "--markers"],
+                       cwd=REPO, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-2000:]
+    assert "@pytest.mark.slow" in r.stdout, (
+        "the `slow` marker is not registered, so the @pytest.mark.slow on the "
+        "two tool rows in this file deselects nothing and pytest warns on every "
+        "run:\n" + r.stdout[-2000:])
+
+
+def test_a_tool_timeout_reports_a_diagnosis_not_a_bare_traceback():
+    """RED. Before _run_tool the timeout propagated as subprocess.TimeoutExpired
+    straight out of the test body -- the reader got subprocess.py's stack and no
+    statement of which tool, what budget, or what to do next.
+
+    Drives a real timeout with a 1s budget. Asserts the failure is pytest's own
+    (a stated verdict) and that it carries the three things the box run lacked:
+    the tool name, the budget, and a next step. Also asserts it did NOT become a
+    skip -- a timeout is 'could not evaluate', which fails.
+    """
+    with pytest.raises(pytest.fail.Exception) as caught:
+        _run_tool([sys.executable, "-c", "import time; time.sleep(30)"],
+                  budget_s=1, what="bd-mutation-test")
+    message = str(caught.value)
+    assert "bd-mutation-test" in message, message
+    assert "1s" in message, message
+    assert "next:" in message, message
+    assert "NO verdict" in message, message
+
+
+def test_the_tool_rows_go_through_the_diagnosing_runner():
+    """The helper is worthless if a row bypasses it.
+
+    Without this, someone could revert a call site to a bare
+    subprocess.run(..., timeout=...) and the timeout test above would STILL be
+    green -- it exercises _run_tool directly. That is the decoration defect this
+    section exists to remove, one level up.
+
+    AST over this module, scoped to the functions that actually shell out to a
+    tool (they reference MT or BD): those must contain no direct subprocess.run.
+    Structural rather than a substring scan, because `subprocess.run` appears
+    legitimately inside _run_tool itself and in the --markers probe.
+    """
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    offenders = []
+    for fn in [n for n in ast.walk(tree)
+               if isinstance(n, ast.FunctionDef) and n.name != "_run_tool"]:
+        names = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)}
+        if not ({"MT", "BD"} & names):
+            continue
+        for call in [n for n in ast.walk(fn) if isinstance(n, ast.Call)]:
+            f = call.func
+            if (isinstance(f, ast.Attribute) and f.attr == "run"
+                    and isinstance(f.value, ast.Name) and f.value.id == "subprocess"):
+                offenders.append(f"{fn.name}:{call.lineno}")
+    assert not offenders, (
+        "these tool-invoking tests call subprocess.run directly instead of "
+        f"_run_tool, so a timeout there still surfaces as a bare "
+        f"TimeoutExpired traceback with no verdict: {offenders}"
+    )
