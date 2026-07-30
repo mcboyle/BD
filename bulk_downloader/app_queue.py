@@ -225,7 +225,7 @@ def api_queue_v2():
                                 "queued_ts": j.get("queued_ts", 0),
                             })
                         elif s == "done":
-                            ts = j.get("ts", "") or ""
+                            ts = j.get("ts_iso", "") or ""
                             if ts.startswith(today_iso):
                                 done_today += 1
             except Exception:
