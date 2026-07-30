@@ -4,6 +4,83 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.819 - gates that could not see their subjects
+
+Release of 57 commits since v3.66.818. The recurring theme is CLAUDE.md section
+0: a gate that cannot see the thing it is asked about reports OK, and a gate
+that fires on a non-fault gets switched off. Both were found in quantity.
+
+Live checks that could not observe their subject
+- L11 certified the pipeline while the pipeline was cancelled, and passed on a
+  stale file rather than a download; its fixture served an MP4 with no moov
+  atom, so it could never have passed honestly.
+- L12 could never see a successful segmented download: history recorded no
+  transport, so the check had nothing to read. history.transfer_mode added
+  (migration v9, no backfill - NULL is a lower bound, not a negative).
+- L14 reported dedup working when nothing had deduped.
+- L33 called a process count an orphan count, so a healthy download read as a
+  leak, and it could not see a leak the running app was still holding.
+- L34 paced itself against a wall the harness had already withdrawn.
+- L7 returned a permanent unclearable WARN for having nothing to observe. Its
+  three no-evidence states are now N/A; PASS and FAIL are unchanged, and an
+  unreadable session_history still FAILs.
+
+Share-safety and secrets
+- The capture bundle shipped a live bd_session auth cookie in the CSRF
+  diagnostic. Cookie values are now redacted to name plus length plus
+  attribute names.
+- capture_scrub missed key-anchored session cookies: \b never falls inside
+  bd_session because the underscore is a word character, so BD's own auth
+  cookie survived the pre-share scrubber. RE_KV_SECRET gained a key-substring
+  arm; the whole-word arm is unchanged so tokenizer= is not over-masked.
+- The negative-control gate could not represent that leak - bd-secret-fixture
+  only emitted the covered session= shape, so bd-secret-canary reported clean.
+  A low-entropy bd_cookie canary was added; with the corpus widened and the
+  regex still broken the canary reports 9 leaks of 93, and 0 after the fix.
+- Still open and stated rather than implied: bd-log-sanitize's RE_KV lacks
+  session|sid, so bd-share-safe, bd-scrub-proof, bd-capture-risk and
+  bd-artifact-quarantine still pass a bd_session= line as clean.
+
+Data integrity
+- An empty id_in selected every history row instead of none.
+- history could not say whether a done row downloaded anything.
+- bytes_fetched bypassed the migration framework it should have used.
+- done_today_count was structurally always 0: the producer stamped HH:MM:SS
+  and the consumer compared it against a YYYY-MM-DD prefix, which is False for
+  every possible pair of values. A date-comparable ts_iso now carries the day
+  window; ts keeps its display shape. Three dashboard consumers still read the
+  old field and are tracked separately.
+
+Toolchain
+- Two tool verifiers were aimed at a sandbox path that does not exist, so they
+  verified nothing.
+- bd-regen's read-only --check probed generator capability by RUNNING each
+  generator with --help; build_pin_index had no argparse and fell through to
+  writing the artifact, so the check rewrote the drift it was asked to report
+  and then certified clean. Capability is now declared, never discovered.
+- bd-versync text-scanned tests/ for version strings and reported fixture
+  literals as stray pins. Pins now come from the AST pin index, so the
+  hand-maintained fixture allowlist is retired.
+- bd-ready defaulted to a sandbox path and included a member that could only
+  ever return CANNOT-EVALUATE, so it could never report success. It now runs
+  against the work tree, reports READY, and treats a member timeout as UNKNOWN
+  rather than crashing.
+
+Environment and deploy
+- The zip-overlay deploy model was retired in favour of git.
+- The bootstrap could not find a checkout that was there.
+- The provisioner now reports what happened, and the panel copy no longer
+  forks from the repository copy.
+- A shared system-dependency fragment replaced three drifting package lists.
+- Stopped the test suite writing the operator's real VPN config and real
+  sites_config.json.
+
+Test-gate hygiene
+- Fixed-width source windows (src[pos:pos + 3000]) fail whenever unrelated
+  lines are added above the assertion target. Six have now been converted to
+  AST-derived function bodies and a one-directional ratchet holds the
+  remaining population at 115.
+
 ## v3.66.818 - DP-06 semantic parentage fix and pytest isolation hardening
 
 - Corrected DP-06 defect-analyzer semantic parentage: lexical scope
