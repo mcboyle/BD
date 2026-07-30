@@ -2374,6 +2374,56 @@ def l32_no_thread_growth(ctx):
                   f"— no thread leak in this window")
 
 
+# v3.66.819 -- how many samples are needed before a climb can be judged at all.
+# Two cannot separate a download starting from a leak; four give a tail of three.
+_L33_MIN_CLIMB_SAMPLES = 4
+
+
+def _live_still_climbing(samples):
+    """Is the in-use browser count STILL RISING at the end of the window?
+
+    THE SIGNAL THE ORPHAN CLASSIFICATION DROPPED. A browser or context leaked by
+    the still-running app is a DESCENDANT of the app, so it is binned
+    `chromium_live` "in use" and no orphan count can ever see it. Measured by the
+    verification fan-out: live climbed 15 -> 59 across the window with 48 leaked
+    contexts and L33 PASSed throughout -- a leak the replaced `chromium > 8`
+    predicate caught. The level was the wrong signal; the growth was the right
+    one, and both were removed together.
+
+    Three clauses, each validated against a real or measured series before being
+    written:
+
+      [0, 18, 17, 17, 17, 17]  the deploy host, a REAL download  -> False
+      [15, 25, 35, 45, 59]     the measured leak                 -> True
+      [0, 22, 18, 12, 8]       rise then teardown                -> False
+      [17, 17, 17, 17, 17]     steady state                      -> False
+      [0, 8, 16, 22, 22]       workers ramping, then plateau     -> False
+      [0, 8, 16, 22, 30]       a ramp still going up             -> True
+
+    1. THE FIRST SAMPLE IS DROPPED. A download starting IS growth -- the box goes
+       0 -> 18 on its second poll -- so including it makes every healthy fetch a
+       climb.
+    2. The tail must be non-decreasing.
+    3. It must still be rising AT THE END. Without this, staggered worker startup
+       ([0, 8, 16, 22, 22]) reads as a leak, and crying wolf on a healthy run is
+       exactly what this check was just repaired for.
+
+    Returns None when the window is too short to judge -- False would be a claim.
+
+    KNOWN MISS, stated rather than papered over: a leak that dips once
+    ([15, 25, 24, 45, 59]) fails clause 2 and reads False. A genuine leak keeps
+    climbing, so a longer soak catches it -- the operator can raise
+    _SAMPLE_COUNT. Tolerating a dip instead would re-admit ordinary jitter.
+    """
+    if not samples or len(samples) < _L33_MIN_CLIMB_SAMPLES:
+        return None
+    tail = list(samples[1:])
+    non_decreasing = all(b >= a for a, b in zip(tail, tail[1:]))
+    rose_overall = tail[-1] > tail[0]
+    rising_at_end = tail[-1] > tail[-2]
+    return bool(non_decreasing and rose_overall and rising_at_end)
+
+
 @live_test("L33", "no-leaked-chromium", disruptive=False)
 def l33_no_leaked_chromium(ctx):
     """No orphan Chromium processes accumulate.
@@ -2465,27 +2515,62 @@ def l33_no_leaked_chromium(ctx):
         return False, (f"the process table carries no orphan classification "
                        f"(keys: {sorted(procs)[:6]}) — this deploy predates it")
 
-    ok0, st0, body0, _ = ctx.get("/api/dev/leak_scan", timeout=15)
-    if ok0 and isinstance(body0, dict):
-        can, why = _classifiable(body0)
-        if not can:
-            findings = body0.get("findings") or []
-            ctx.log(f"orphan classification unavailable: {why}")
-            if isinstance(findings, list) and findings:
-                return WARN, (
-                    f"orphaned-browser count is UNKNOWN ({why}), and the "
-                    f"endpoint is reporting {len(findings)} leak signal(s): "
-                    f"{[str(f)[:60] for f in findings[:2]]} — cannot classify, "
-                    f"and something is being flagged")
-            return NA, (f"orphaned-browser detection is not exercisable here — "
-                        f"{why}. Unknown is not the same as clean, so this is "
-                        f"reported rather than passed.")
+    def _live(body):
+        procs = body.get("processes") or body.get("leaks") or {}
+        if isinstance(procs, dict) and isinstance(procs.get("chromium_live"), int):
+            return procs["chromium_live"]
+        return None
 
-    samples, errors = _sample_over_time(ctx, "/api/dev/leak_scan",
-                                        _orphans)
-    ctx.log(f"orphaned-browser samples: {samples}")
+    # BOTH SERIES FROM ONE WINDOW. Sampling twice would double the wall clock and
+    # measure two different windows; a tuple per poll keeps them aligned.
+    #
+    # It also closes a second gap: _orphans returning None used to be dropped
+    # into `errors`, which nothing gates on, so a MID-WINDOW transition to
+    # unclassifiable was invisible and the remaining samples decided the verdict.
+    # A tuple is never None, so the unknown now reaches the verdict.
+    # Classifiability is read off the FIRST SAMPLED BODY rather than a separate
+    # one-shot probe. The probe cost an extra HTTP round trip and, worse,
+    # consumed a poll before the window began -- so the first real sample was
+    # discarded and a series starting at 0 appeared to start at its second
+    # value, which silently shortened every trend by one.
+    _first = {}
+
+    def _extract(b):
+        if "can" not in _first:
+            _first["can"], _first["why"] = _classifiable(b)
+            _first["findings"] = b.get("findings") or []
+        return (_orphans(b), _live(b))
+
+    pairs, errors = _sample_over_time(ctx, "/api/dev/leak_scan", _extract)
+    if pairs and not _first.get("can", True):
+        why = _first.get("why", "")
+        findings = _first.get("findings") or []
+        ctx.log(f"orphan classification unavailable: {why}")
+        if isinstance(findings, list) and findings:
+            return WARN, (
+                f"orphaned-browser count is UNKNOWN ({why}), and the endpoint "
+                f"is reporting {len(findings)} leak signal(s): "
+                f"{[str(f)[:60] for f in findings[:2]]} — cannot classify, and "
+                f"something is being flagged")
+        return NA, (f"orphaned-browser detection is not exercisable here — "
+                    f"{why}. Unknown is not the same as clean, so this is "
+                    f"reported rather than passed.")
+    samples = [o for o, _l in pairs if o is not None]
+    unknown_in_window = any(o is None for o, _l in pairs)
+    live_samples = [l for _o, l in pairs if l is not None]
+    ctx.log(f"orphaned-browser samples: {samples}"
+            + (f" (+{sum(1 for o, _ in pairs if o is None)} unclassifiable)"
+               if unknown_in_window else ""))
+    ctx.log(f"in-use browser samples: {live_samples}")
     for e in errors[:3]:
         ctx.log(f"  {e}")
+    if unknown_in_window:
+        return WARN, (
+            f"{sum(1 for o, _ in pairs if o is None)} of {len(pairs)} sample(s) "
+            f"reported chromium_orphan=null — the endpoint could not establish "
+            f"process parentage at that moment, so this window cannot certify "
+            f"the absence of orphans. The other samples do not cover the moment "
+            f"nobody could measure: that is UNKNOWN, not clean.")
     if not samples:
         # Reached only when the endpoint answered the probe above but no sample
         # could be taken -- overwhelmingly an unreachable/erroring endpoint,
@@ -2497,10 +2582,30 @@ def l33_no_leaked_chromium(ctx):
     tr = _trend(samples)
     ctx.log(f"orphaned-browser trend: {tr}")
     if tr["peak"] == 0:
+        # NO ORPHANS IS NOT THE WHOLE QUESTION. Everything the running app still
+        # holds is a descendant of it, so a leak in progress reports zero
+        # orphans. Checked only here, after the concrete finding has been ruled
+        # out, because an actual orphan is the stronger signal and should lead.
+        climbing = _live_still_climbing(live_samples)
+        ctx.log(f"in-use climb verdict: {climbing}")
+        if climbing:
+            ltr = _trend(live_samples)
+            return WARN, (
+                f"no orphans, but the in-use browser count is still CLIMBING at "
+                f"the end of the window: {live_samples} "
+                f"({ltr['first']}->{ltr['last']}). Everything the running app "
+                f"holds is a descendant of it, so a leak in progress reports "
+                f"zero orphans — this is the growth signal, and it cannot tell a "
+                f"leak from workers still ramping up in a "
+                f"{len(live_samples)}-sample window. Investigate; soak longer "
+                f"by raising _SAMPLE_COUNT if it is ambiguous.")
         return PASS, (f"no orphaned browser processes across "
                       f"{len(samples)} samples — every browser process seen "
                       f"was either a descendant of the running app (in use) or "
-                      f"a zombie awaiting reap")
+                      f"a zombie awaiting reap"
+                      + (f"; in-use count {_trend(live_samples)['first']}->"
+                         f"{_trend(live_samples)['last']} is not still climbing"
+                         if live_samples else ""))
     if tr["growth"] > 0:
         return WARN, (f"orphaned browser processes rose {tr['first']}->"
                       f"{tr['last']} over {len(samples)} samples — browsers "

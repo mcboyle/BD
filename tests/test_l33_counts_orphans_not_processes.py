@@ -644,14 +644,48 @@ class _Ctx(harness.Context):
         return True, 200, dict(self._body), 1.0
 
 
+class _SeriesCtx(_Ctx):
+    """Replays a DIFFERENT body per poll, so a series can be posed.
+
+    The existing _Ctx answers every poll with one body, which is why nothing in
+    this file could express a rising count -- and why the growth defect was
+    invisible to it. A flat series is a special case of a series, so this
+    subclasses rather than replaces.
+    """
+
+    def __init__(self, bodies):
+        super().__init__(bodies[0])
+        self._series = list(bodies)
+        self._i = 0
+
+    def get(self, path, timeout=15):
+        body = self._series[min(self._i, len(self._series) - 1)]
+        self._i += 1
+        return True, 200, dict(body), 1.0
+
+
 @pytest.fixture(autouse=True)
-def _no_sampling_sleep(monkeypatch):
-    """L33 samples through _sample_over_time, which sleeps _SAMPLE_GAP_S between
-    polls. The GAP is not the subject here -- the classification is -- so the
-    gap is collapsed while the sample COUNT is left alone, because a
-    single-sample run would hide the growth branch this file also asserts on.
+def _deterministic_sampling(monkeypatch):
+    """Collapse the inter-poll sleep, and PIN THE SAMPLE COUNT.
+
+    The gap is not the subject -- the classification is -- so it goes to zero.
+
+    The COUNT has to be pinned for a reason worth recording:
+    tests/test_u42_resource_live_tests.py:51 does `checks._SAMPLE_COUNT = 4` as a
+    MODULE-LEVEL ASSIGNMENT, not a monkeypatch. Importing that file therefore
+    mutates production module state for the whole pytest process, and whichever
+    test file is imported first decides the window length for every other. The
+    symptom here was a five-body series arriving as a four-sample window, so a
+    growth assertion measured `15->45` instead of `15->59` -- the last sample
+    silently missing, which for a check whose entire subject is "is it STILL
+    rising at the end" is the worst possible element to lose.
+
+    Same class as the BD_INSTALL_DIR leak CLAUDE.md section 4 records as a
+    co-banding trap: ambient state one file sets and another inherits. Pinned
+    explicitly here so this file's results do not depend on collection order.
     """
     monkeypatch.setattr(checks, "_SAMPLE_GAP_S", 0.0)
+    monkeypatch.setattr(checks, "_SAMPLE_COUNT", 5)
 
 
 def _leak_body(**kw):
@@ -830,6 +864,150 @@ def test_the_ways_of_not_knowing_stay_distinct(label, body, want_level,
     assert fragment.lower() in detail.lower(), (
         f"[{label}] the verdict does not say which kind of not-knowing this "
         f"is (looking for {fragment!r}): {detail!r}")
+
+
+# ── the going-blind half: a leak the app is still holding ────────────────────
+#
+# THE SECOND DEFECT THIS CUT'S PREDECESSOR SHIPPED, and the worse one. A browser
+# or context leaked by the STILL-RUNNING app is a descendant of the app pid, so
+# the orphan predicate bins it `chromium_live` "in use" and L33 PASSes while the
+# process count climbs. Measured by the verification fan-out: 15 -> 59 across the
+# window with 48 leaked contexts, PASS throughout -- a leak the replaced
+# `chromium > 8` predicate correctly WARNed on with the identical payload series.
+#
+# I wrote "a leak detector that stops crying wolf by going blind is strictly
+# worse than the noisy one it replaces" in this file's own docstring, and then
+# removed the growth signal along with the level-based false positive. The level
+# was the wrong signal; the growth was the right one.
+#
+# THE PREDICATE, validated against real series before being written:
+#
+#   [0, 18, 17, 17, 17, 17]  box, a REAL download          -> not climbing
+#   [15, 25, 35, 45, 59]     the measured leak             -> CLIMBING
+#   [0, 22, 18, 12, 8]       rise then teardown            -> not climbing
+#   [17, 17, 17, 17, 17]     steady state                  -> not climbing
+#   [0, 8, 16, 22, 22]       workers ramping, then plateau -> not climbing
+#   [0, 8, 16, 22, 30]       a ramp still going up         -> CLIMBING
+#
+# Three clauses, and each earns its place: the first sample is DROPPED because a
+# download starting is growth (the box's 0 -> 18); the tail must be
+# non-decreasing; and it must still be rising AT THE END, which is what separates
+# "workers finished ramping" from "still climbing". Without that third clause the
+# staggered-startup series [0, 8, 16, 22, 22] WARNs, and crying wolf on a healthy
+# run is what this whole cut exists to stop.
+
+_CLIMB_SERIES = [
+    ("box, a real download (measured)", [0, 18, 17, 17, 17, 17], False),
+    ("the measured leak, 48 contexts", [15, 25, 35, 45, 59], True),
+    ("rise then teardown", [0, 22, 18, 12, 8], False),
+    ("steady state", [17, 17, 17, 17, 17], False),
+    ("slow but unrelenting climb", [17, 17, 18, 18, 19], True),
+    ("idle throughout", [0, 0, 0, 0, 0], False),
+    ("workers ramping, then plateau", [0, 8, 16, 22, 22], False),
+    ("a ramp that has not plateaued", [0, 8, 16, 22, 30], True),
+    # These two exist because MUTATIONS SURVIVED without them. Every row above
+    # gives the same answer whether or not the first sample is dropped, and the
+    # same answer whether or not the tail must be non-decreasing -- so both
+    # clauses were unreachable and could be deleted with the suite still green.
+    # Each of these isolates one clause:
+    #   drop-the-first-sample: without it this reads False (5 -> 3 is a decrease)
+    ("a leak beginning after an early dip", [5, 3, 4, 5, 6], True),
+    #   non-decreasing: without it this reads True (19 > 18 twice over)
+    ("late worker jitter, ends rising", [0, 18, 17, 18, 19], False),
+]
+
+
+@pytest.mark.parametrize("label,series,want", _CLIMB_SERIES,
+                         ids=[c[0] for c in _CLIMB_SERIES])
+def test_the_climb_predicate_matches_the_measured_series(label, series, want):
+    """Each row is a real or measured series, not an invented one."""
+    got = checks._live_still_climbing(series)
+    assert got is want, (
+        f"[{label}] _live_still_climbing({series}) returned {got!r}, "
+        f"expected {want!r}")
+
+
+def test_too_few_samples_is_unknown_not_false():
+    """A two-sample window cannot distinguish a ramp from a leak. False would be
+    a claim; None says so, and the caller must not WARN on it."""
+    assert checks._live_still_climbing([0, 18]) is None
+    assert checks._live_still_climbing([]) is None
+
+
+def test_l33_warns_when_the_live_count_keeps_climbing():
+    """THE DEFECT, end to end.
+
+    The app is holding browsers it never closed. Every one is a descendant, so
+    orphan stays 0 and the pre-existing verdict is PASS.
+    """
+    bodies = [_leak_body(chromium=n + 4, chromium_live=n, chromium_orphan=0)
+              for n in (15, 25, 35, 45, 59)]
+    level, detail = checks.l33_no_leaked_chromium(_SeriesCtx(bodies))
+    assert level == harness.WARN, (
+        f"L33 returned {level}: {detail!r} for a live count climbing "
+        f"15->59 with zero orphans. Every leaked browser the running app still "
+        f"holds is a DESCENDANT of it, so the orphan predicate calls them 'in "
+        f"use' -- which is why this needs the growth signal the old "
+        f"`chromium > 8` check had.")
+    assert "59" in detail and "climb" in detail.lower(), (
+        f"the verdict does not report the climb it observed: {detail!r}")
+
+
+def test_the_climb_verdict_does_not_assert_a_cause():
+    """A 12s window cannot separate a leak from workers still starting, and the
+    verdict must not pretend otherwise -- same discipline as L34's EXCEEDED
+    branch, which names no cause. WARN does not gate the deploy."""
+    bodies = [_leak_body(chromium=n + 4, chromium_live=n, chromium_orphan=0)
+              for n in (0, 8, 16, 22, 30)]
+    _, detail = checks.l33_no_leaked_chromium(_SeriesCtx(bodies))
+    low = detail.lower()
+    assert "ramp" in low or "starting" in low or "investigate" in low, (
+        f"the verdict asserts a leak without allowing for workers still "
+        f"ramping up, which this window cannot rule out: {detail!r}")
+
+
+def test_a_real_download_still_passes():
+    """The box's own series. This is the regression guard for the false positive
+    the level-based predicate had."""
+    bodies = [_leak_body(chromium=n + 4, chromium_live=n, chromium_orphan=0)
+              for n in (0, 18, 17, 17, 17)]
+    level, detail = checks.l33_no_leaked_chromium(_SeriesCtx(bodies))
+    assert level == harness.PASS, (
+        f"L33 returned {level}: {detail!r} for the series measured on the "
+        f"deploy host during a real download (live 0,18,17,17,17). That is "
+        f"rise-then-plateau, which is what a working fetch looks like.")
+
+
+def test_an_orphan_outranks_a_climb():
+    """Both signals present: the orphan is the concrete finding and must lead."""
+    bodies = [_leak_body(chromium=n + 7, chromium_live=n, chromium_orphan=3,
+                         orphan_detail=[{"pid": 950, "comm": _BROWSER_COMM,
+                                         "ppid": 1, "user_data_dir": None}])
+              for n in (15, 25, 35, 45, 59)]
+    level, detail = checks.l33_no_leaked_chromium(_SeriesCtx(bodies))
+    assert level in (harness.WARN, harness.FAIL)
+    assert "3" in detail, f"the orphan count is not in the verdict: {detail!r}"
+
+
+def test_an_unknown_inside_the_window_is_not_discarded():
+    """AGENT 9's FINDING. The UNKNOWN third state existed only in the one-shot
+    probe; inside the sampling window `_orphans` returning None was dropped into
+    the never-gated `errors` list, so a mid-window transition to unclassifiable
+    was invisible and the remaining samples decided the verdict.
+    """
+    bodies = [_leak_body(chromium=4, chromium_live=0, chromium_orphan=0),
+              _leak_body(chromium=9, chromium_live=5, chromium_orphan=None),
+              _leak_body(chromium=9, chromium_live=5, chromium_orphan=0),
+              _leak_body(chromium=9, chromium_live=5, chromium_orphan=0),
+              _leak_body(chromium=9, chromium_live=5, chromium_orphan=0)]
+    level, detail = checks.l33_no_leaked_chromium(_SeriesCtx(bodies))
+    assert level != harness.PASS, (
+        f"L33 returned {level}: {detail!r} despite one sample in the window "
+        f"reporting chromium_orphan=null. A window containing an "
+        f"unclassifiable sample cannot certify the absence of orphans -- the "
+        f"other four samples do not cover the moment nobody could measure.")
+    assert "unknown" in detail.lower() or "null" in detail.lower(), (
+        f"the verdict does not say a sample was unclassifiable: {detail!r}")
 
 
 def test_l33_never_reads_the_raw_process_count_as_an_orphan_count():
