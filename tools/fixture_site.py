@@ -363,6 +363,64 @@ _REAL_MP4_B64 = (
 )
 
 
+# A real, decodable MPEG-TS segment -- 1316 bytes (7 packets), one black 64x64
+# H.264 frame, produced by ffmpeg and embedded rather than generated, so the
+# fixture needs no ffmpeg at runtime and every host serves byte-identical media.
+# Same three properties, and the same reasoning, as _REAL_MP4_B64 above.
+#
+# The previous builder emitted (b"\x47" + b"\x00" * 187) * 16: the TS sync byte
+# every 188 bytes and nothing else. That has the SHAPE of a transport stream and
+# none of the substance -- no PAT, no PMT, no PES headers, no codec data -- so
+# ffmpeg refused it:
+#   "Error when loading first segment ... Invalid data found when processing input"
+# Measured 2026-07-30 after v3.66.819 routed a scraped manifest to
+# hls_downloader: the routing was correct, and the download still returned
+# ok=False error='ffmpeg_failed' bytes_written=0 with no file on disk. Exactly
+# the twin of the ftyp+free MP4 that made every seeded download fail before.
+#
+# KEYFRAME-ONLY (keyint=1) because a real HLS segment must be independently
+# decodable: a player joining mid-stream starts at a segment boundary. A segment
+# that decodes only as a continuation of its predecessor would satisfy a
+# whole-playlist mux and fail any partial fetch.
+#
+# Valid by the standard that judges it: four of these mux with -c copy to a
+# 3498-byte MP4 whose header is ftyp isom, ffprobe reports h264/64x64, and BD's
+# own integrity.verify_media_integrity returns (True, "").
+_REAL_TS_B64 = (
+    "R0AREABC8CUAAcEAAP8B/wAB/IAUSBIBBkZGbXBlZwlTZXJ2aWNlMDF3fEPK////////"
+    "////////////////////////////////////////////////////////////////////"
+    "////////////////////////////////////////////////////////////////////"
+    "//////////////////////////////////////////////9HQAAQAACwDQABwQAAAAHw"
+    "ACqxBLL/////////////////////////////////////////////////////////////"
+    "////////////////////////////////////////////////////////////////////"
+    "////////////////////////////////////////////////////////////////////"
+    "/////////////////////////0dQABAAArASAAHBAADhAPAAG+EA8AAVvU1W////////"
+    "////////////////////////////////////////////////////////////////////"
+    "////////////////////////////////////////////////////////////////////"
+    "////////////////////////////////////////////////////////////////////"
+    "////R0EAMAdQAAB7DH4AAAAB4AAAgIAFIQAH2GEAAAABCfAAAAABZ0LACtxCbARAAAAD"
+    "AEAAAAMAg8SJ4AAAAAFozg/IAAABBgX//0/cRem95tlIt5Ys2CDZI+7veDI2NCAtIGNv"
+    "cmUgMTY0IHIzMTA4IDMxZTE5ZjkgLSBILjI2NC9NUEVHLTQgQVZDIGNvZGVjIC0gQ29w"
+    "eWxlZnQgMjAwMy0yMDIzIC0gaHR0cDovL3d3dy52aWRlb2xhbi5HAQARb3JnL3gyNjQu"
+    "aHRtbCAtIG9wdGlvbnM6IGNhYmFjPTAgcmVmPTEgZGVibG9jaz0wOi0zOi0zIGFuYWx5"
+    "c2U9MDowIG1lPWRpYSBzdWJtZT0wIHBzeT0xIHBzeV9yZD0yLjAwOjAuNzAgbWl4ZWRf"
+    "cmVmPTAgbWVfcmFuZ2U9MTYgY2hyb21hX21lPTEgdHJlbGxpcz0wIDh4OGRjdD0wIGNx"
+    "bT0wIGRlYWR6b25lPTIxLDExIGZhc0cBABJ0X3Bza2lwPTEgY2hyb21hX3FwX29mZnNl"
+    "dD0wIHRocmVhZHM9MiBsb29rYWhlYWRfdGhyZWFkcz0xIHNsaWNlZF90aHJlYWRzPTAg"
+    "bnI9MCBkZWNpbWF0ZT0xIGludGVybGFjZWQ9MCBibHVyYXlfY29tcGF0PTAgY29uc3Ry"
+    "YWluZWRfaW50cmE9MCBiZnJhbWVzPTAgd2VpZ2h0cD0wIGtleWludD0xIGtleWludF9t"
+    "aW49MSBzRwEAMzIA////////////////////////////////////////////////////"
+    "/////////////2NlbmVjdXQ9MCBpbnRyYV9yZWZyZXNoPTAgcmM9Y3JmIG1idHJlZT0w"
+    "IGNyZj0yMy4wIHFjb21wPTAuNjAgcXBtaW49MCBxcG1heD02OSBxcHN0ZXA9NCBpcF9y"
+    "YXRpbz0xLjQwIGFxPTAAgAAAAWWIhDomKAAJAsnJyddddddddddddeA="
+)
+
+
+def _make_ts_segment() -> bytes:
+    """One real, decodable MPEG-TS segment. Byte-identical on every host."""
+    return base64.b64decode("".join(_REAL_TS_B64))
+
+
 def _make_mp4(size_bytes: int = 8192) -> bytes:
     """A decodable MP4, padded to `size_bytes` with a trailing free box.
 
@@ -885,8 +943,7 @@ def make_app(throttle_after: int = 3, slow_delay: float = 2.0) -> Flask:
     @app.route("/hls/seg/<int:sid>_<int:idx>.ts")
     def hls_segment(sid, idx):
         count(f"/hls/seg/{sid}_{idx}.ts")
-        return Response((b"\x47" + b"\x00" * 187) * 16,
-                        mimetype="video/mp2t")
+        return Response(_make_ts_segment(), mimetype="video/mp2t")
 
     # ── MARKUP prefixes (match templates.py selector shapes) ────────
     @app.route("/videojs/scene/<int:sid>")
