@@ -1,43 +1,122 @@
 #!/usr/bin/env python3
-"""bd-ready -- one-shot cut-readiness preflight (aggregates the check tools).
+"""bd-ready -- one-shot cut-readiness preflight (an advisory SUBSET of the gates).
 
-Runs the read-only gates that predict an on-stash failure BEFORE you cut:
-guards intact, version consistent, CHANGELOG valid, derived docs in sync,
-no undeclared import edges. Advisory -- never changes anything.
-Usage: bd-ready [--work DIR]   Exit 0 if all green, 1 if any gate would fail.
+Runs a fast, read-only subset of the checks that predict an on-stash failure
+BEFORE you cut: guards intact, version consistent, CHANGELOG valid, derived docs
+in sync (FUNCTION_INDEX / DEPENDENCY_GRAPH / PIN_INDEX / route counts, via
+bd-regen), no undeclared import edges. Advisory -- never changes anything.
+
+SCOPE IS A SUBSET, NOT A GUARANTEE. A green READY here does NOT prove
+tools/build_release.py will pass: build_release additionally enforces the
+endpoint catalog, the capture-model golden, and a frontend `npm run build`,
+none of which are members here (bd-regen's generator list covers neither the
+catalog nor the golden). Read READY as "these fast gates are clean", never as
+"the stash will succeed"; re-derive build_release's own gate set before relying
+on this for a release.
+
+Members are the five fast read-only gates listed in CHECKS. Two bd-* tools are
+deliberately NOT members:
+  * bd-factcheck -- its subject is STATE.json, a pre-git sandbox artifact that
+    is untracked and absent from a git checkout; its default --doc is an
+    ABSOLUTE /home/claude path independent of --tree, so on this tree it can
+    only ever return CANNOT-EVALUATE. Including it would pin bd-ready at a
+    perpetual exit-2 (a gate that always cries wolf gets switched off). Run it
+    by hand against a real STATE.json.
+  * bd-pinscan -- advisory only (exit 0 on both paths, it cannot fail), so as a
+    gate it can never fire; counting its always-PASS would inflate the verdict.
+
+Usage: bd-ready [--work DIR]
+Exit contract (a gate that could not evaluate must never mint a green verdict):
+  0  READY          -- every member ran and returned 0.
+  1  NOT READY      -- at least one member reported a real FAIL (rc 1).
+  2  CANNOT CERTIFY -- no FAIL, but >=1 member could not evaluate: rc 2, an
+     unexpected rc, a member that could not be launched, or one that TIMED OUT.
+     UNKNOWN is a third state; it is not success and it blocks the green verdict.
 """
-import argparse, subprocess, sys
-G,R,Y,BOLD,RST="\033[32m","\033[31m","\033[33m","\033[1m","\033[0m"
-CHECKS=[("guards","bd-guardcheck"),("version","bd-versync"),("changelog","bd-changelog"),
-        ("derived docs","bd-regen"),("import edges","bd-imports"),
-        ("derived-fact counts","bd-factcheck"),("equality pins","bd-pinscan")]
+import argparse, os, re, subprocess, sys
+
+_HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, _HERE)
+import bdtools_sec as sec  # DEFAULT_WORK: resolves the repo root on a git clone
+
+G, R, Y, BOLD, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[1m", "\033[2m", "\033[0m"
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+# Per-member wall-clock budget. Overridable ONLY so the test suite can drive a
+# deliberately-hanging stub without a 150s wait; unset in the tree -> 150.
+_MEMBER_TIMEOUT = int(os.environ.get("BD_READY_MEMBER_TIMEOUT", "150"))
+
+CHECKS = [
+    ("guards", "bd-guardcheck"),
+    ("version", "bd-versync"),
+    ("changelog", "bd-changelog"),
+    ("derived docs", "bd-regen"),
+    ("import edges", "bd-imports"),
+]
+
+
 def selftest():
-    """DELEGATE: wraps bd-coretest. Asserts the target file is present in the tool's own
-    bin dir -- if not, FAIL (a wrapper that cannot find what it wraps is broken;
-    a selftest that cannot verify must not report success)."""
-    import os as _o
-    here = _o.path.dirname(_o.path.realpath(__file__))
-    found = _o.path.isfile(_o.path.join(here, "bd-coretest"))
+    found = os.path.isfile(os.path.join(_HERE, "bd-coretest"))
     print(("PASS" if found else "FAIL") + "  delegation target present: bd-coretest")
     print("SELFTEST PASS" if found else "SELFTEST FAIL")
     return 0 if found else 1
 
 
-def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("--work","--tree",default="/home/claude/work")
-    ap.add_argument("--selftest",action="store_true")
-    a=ap.parse_args()
+def run_member(tool, work):
+    """Run one member by absolute path, forwarding --work. Returns
+    (rc, combined_output); rc is None when the member could not be EVALUATED at
+    all -- missing file, launch failure (OSError), or a timeout -- each of which
+    is CANNOT-EVALUATE (UNKNOWN), never a silent pass and never an uncaught crash."""
+    path = os.path.join(_HERE, tool)
+    if not os.path.isfile(path):
+        return None, "member not found: %s" % path
+    try:
+        r = subprocess.run([path, "--work", work], capture_output=True,
+                           text=True, timeout=_MEMBER_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return None, "member timed out after %ss: %s" % (_MEMBER_TIMEOUT, tool)
+    except OSError as e:
+        return None, "could not launch %s: %s" % (tool, e)
+    return r.returncode, (r.stdout + r.stderr)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args(argv)
     if a.selftest:
-        return selftest(); print(f"{BOLD}== cut-readiness preflight =={RST}"); worst=0
-    for label,tool in CHECKS:
-        r=subprocess.run([tool],capture_output=True,text=True, timeout=150)  # each tool defaults to /home/claude/work
-        ok=r.returncode==0
-        print(f"  {(G+'PASS'+RST) if ok else (R+'FAIL'+RST)}  {label}")
-        if not ok:
-            worst=1
-            tail=[l for l in (r.stdout+r.stderr).splitlines() if l.strip()][-2:]
-            for l in tail: print(f"        {Y}{l.strip()[:90]}{RST}")
-    print((f"{G}READY: all cut gates green{RST}" if not worst
-           else f"{R}NOT READY: fix the FAIL(s) above before bd-cut{RST}"))
-    return worst
-sys.exit(main())
+        return selftest()
+    print(f"{BOLD}== cut-readiness preflight =={RST}  (work: {a.work})")
+    n_pass = n_fail = n_unknown = 0
+    for label, tool in CHECKS:
+        rc, out = run_member(tool, a.work)
+        lines = [l for l in out.splitlines() if l.strip()]
+        if rc == 0:
+            n_pass += 1; verdict = f"{G}PASS   {RST}"
+        elif rc == 1:
+            n_fail += 1; verdict = f"{R}FAIL   {RST}"
+        else:  # rc == 2, an unexpected rc, or None (could-not-launch / timeout)
+            n_unknown += 1; verdict = f"{Y}UNKNOWN{RST}"
+        print(f"  {verdict}  {label}")
+        for l in lines:
+            if _ANSI.sub("", l).lstrip().startswith("??"):
+                print(f"        {Y}{_ANSI.sub('', l).strip()[:100]}{RST}")
+        if rc != 0:
+            for l in lines[-2:]:
+                print(f"        {Y}{_ANSI.sub('', l).strip()[:100]}{RST}")
+    total = len(CHECKS)
+    print(f"  {DIM}members: {n_pass} pass, {n_fail} fail, {n_unknown} unknown "
+          f"of {total}{RST}")
+    if n_fail:
+        print(f"{R}NOT READY: fix the {n_fail} FAIL(s) above before bd-cut{RST}")
+        return 1
+    if n_unknown:
+        print(f"{Y}CANNOT CERTIFY READY: {n_unknown} of {total} gate(s) could not "
+              f"evaluate -- unknown is not green{RST}")
+        return 2
+    print(f"{G}READY: all {n_pass} of {total} cut gates green{RST}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
