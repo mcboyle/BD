@@ -111,8 +111,24 @@ def _scan_file(path: Path, root: Path):
 
         # version: a __version__ Name on one side, a str Constant on the other
         names = [o for o in operands if isinstance(o, ast.Name)]
+        # ATTRIBUTE form too: `assert bulk_downloader.__version__ == "3.66.x"`.
+        # Keying only on ast.Name made that whole idiom structurally invisible --
+        # the denominator excluded a subject the index is asked about, so a stray
+        # pin written that way would have read as "no stray pins".
+        #
+        # Measured, not assumed (AST scan of tests/, this cut): Attribute-form
+        # pins against a string constant = 0 today, which is why PIN_INDEX.json's
+        # pin projection is byte-identical after this change. The adjacent idiom
+        # IS live -- tests/test_contracts.py:111 compares
+        # `health_v == bulk_downloader.__version__` -- it just compares against a
+        # variable, so it is correctly not a pin. This predicate closes the hole
+        # before something lands in it; tests/test_versync_gate.py's
+        # test_attribute_form_stray_pin_is_caught is what keeps it honest.
+        attrs = [o for o in operands if isinstance(o, ast.Attribute)]
         strs = [o for o in operands if _is_str_const(o)]
-        if any(n.id == "__version__" for n in names) and strs:
+        has_version = (any(n.id == "__version__" for n in names)
+                       or any(a.attr == "__version__" for a in attrs))
+        if has_version and strs:
             pins.append({"form": "version", "file": rel, "line": line,
                          "value": strs[0].value, "gates_what": gw})
             continue
@@ -178,6 +194,29 @@ def build_index() -> dict:
         },
         "pins": pins,
     }
+
+
+def unparseable_test_files():
+    """Test files the AST scan CANNOT read, over the SAME denominator build_index
+    uses (tests/*.py minus _FIXTURE_FILES).
+
+    _scan_file swallows SyntaxError and returns no pins, so an unparseable file
+    contributes nothing and is recorded nowhere -- it looks exactly like a file
+    with no pins. A consumer asking "are there stray version pins?" would get a
+    clean answer over a set it could not actually read. Unknown is a third state
+    and the caller must be able to see it.
+    """
+    root = _repo_root()
+    bad = []
+    for path in sorted((root / "tests").glob("*.py")):
+        if path.name in _FIXTURE_FILES:
+            continue
+        try:
+            ast.parse(path.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError) as e:
+            rel = path.resolve().relative_to(root.resolve()).as_posix()
+            bad.append((rel, type(e).__name__))
+    return bad
 
 
 def _serialize(d: dict) -> str:
