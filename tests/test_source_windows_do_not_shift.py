@@ -58,9 +58,11 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-# Measured 2026-07-29 at 118. Lower it whenever a cut converts some; never raise
-# it. Raising it is the switch-it-off move this gate exists to prevent.
-_MAX_WINDOWS = 118
+# Measured 2026-07-29 at 118; re-measured 2026-07-30 at 115 after the
+# done_today_count cut converted the three windows in test_v3_43_23_quick_wins.
+# Lower it whenever a cut converts some; never raise it. Raising it is the
+# switch-it-off move this gate exists to prevent.
+_MAX_WINDOWS = 115
 
 # The specific TEST FUNCTIONS converted so far. Scoped to the function, not the
 # file: only one assertion in each of these files was converted, and claiming
@@ -72,6 +74,16 @@ _CONVERTED = {
      "test_handle_captcha_check_tracks_type"),
     ("tests/test_v3_43_31_rate_limit.py",
      "test_runner_releases_slot_in_finally"),
+    # done_today_count cut: adding ten lines to _update_job_current pushed the
+    # asserted condition to offset 3574, so the 3000-char window reported it
+    # missing on a tree where the line was present and correct. All three
+    # windows in the file were converted, not just the one that fired.
+    ("tests/test_v3_43_23_quick_wins.py",
+     "test_update_job_stamps_last_progress_at_on_status_change"),
+    ("tests/test_v3_43_23_quick_wins.py",
+     "test_load_urls_initializes_last_progress_at"),
+    ("tests/test_v3_43_23_quick_wins.py",
+     "test_retry_one_validates_state"),
 }
 
 
@@ -119,9 +131,9 @@ def test_the_scan_can_see_the_pattern():
     clean."""
     total = sum(len(_fixed_windows(rel)) for rel in _tracked_tests())
     assert total > 0, (
-        "the scan found no fixed-width source windows at all. Three were "
-        "repaired by hand and ~118 were measured, so zero means the AST "
-        "predicate stopped matching -- not that the pattern is gone."
+        "the scan found no fixed-width source windows at all. Six have been "
+        "repaired by hand and ~115 remain, so zero means the AST predicate "
+        "stopped matching -- not that the pattern is gone."
     )
 
 
