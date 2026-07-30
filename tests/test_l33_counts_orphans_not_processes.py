@@ -41,13 +41,23 @@ thing it guarded is unguarded.
 
 TWO FURTHER THINGS THE MEASUREMENT SETTLED, both of which changed this cut.
 
-1. `comm` IS TRUNCATED. The value is exactly `'chrome-headless'` -- 15
-   characters, which is Linux's comm limit (TASK_COMM_LEN 16, including the
-   NUL). The real executable is longer (`chrome-headless-shell`). So `comm` and
-   `cmdline` are different instruments here, and this file says which one each
-   predicate reads. `"headless" in comm` is the clause that matches, not
-   `"chrom"` -- which is the same headless-shell-versus-chromium confusion
-   CLAUDE.md section 0 records a capture check making.
+1. `comm` IS TRUNCATED, AND WHICH CLAUSE MATCHES DEPENDS ON THE BACKEND. An
+   earlier version of this paragraph said `"headless" in comm` is the clause
+   that matches and `"chrom"` is not. That is REVERSED on the backend BD
+   actually resolves. Measured:
+
+     cloakbrowser (the DEFAULT whenever importable)  comm 'chrome'          only "chrom"
+       its crash handler                             comm 'chrome_crashpad' only "chrom"
+     playwright headless-shell, 1228 pool            comm 'chrome-headless' both
+     playwright, 1194 pool                           comm 'headless_shell'  only "headless"
+
+   comm truncates at 15 (TASK_COMM_LEN 16 including the NUL), so 'chrome-headless'
+   and 'chrome_crashpad' are both cut short while 'chrome' is not. comm and
+   cmdline are therefore different instruments, and this file says which one each
+   predicate reads. Asserting one backend's answer generally is the same
+   headless-shell-versus-chromium confusion CLAUDE.md section 0 records a capture
+   check making -- committed here twice, once in the code and once in this
+   explanation of it.
 
 2. A CORRECT CLOSE LEAVES ZOMBIES, AND THE OBVIOUS FIX WOULD FLAG THEM.
    Immediately after `browser.close()` on a browser that was shut down properly:
@@ -66,11 +76,43 @@ TWO FURTHER THINGS THE MEASUREMENT SETTLED, both of which changed this cut.
    beyond its process-table entry; it is not a leak. `State: Z` in
    /proc/<pid>/status excludes it exactly and cheaply.
 
+3. THE CRASH HANDLER IS ALIVE AT ppid=1 BY DESIGN, AND THE FIRST VERSION OF THIS
+   CUT CALLED IT A LEAK. `chrome_crashpad_handler` reparents itself to init and
+   stays in state S for the monitored browser's whole lifetime -- it has to, in
+   order to outlive and report a browser crash. So it satisfies EVERY clause
+   above: browser-ish comm, not a zombie, not a descendant, parent gone.
+
+   REPRODUCED TWICE on the backend BD actually resolves (cloakbrowser 0.5.2, full
+   `chrome` binary):
+
+       BASELINE                 chromium=0                 ORPHAN=0
+       DURING A HEALTHY LAUNCH  chromium=8  live=6         ORPHAN=2
+           pid=18161 comm='chrome_crashpad' ppid=1 state=S
+           pid=18165 comm='chrome_crashpad' ppid=1 state=S
+       (0 -> 2 -> 0 across the launch, so they belong to it)
+
+   This shipped. It is the defect this whole file exists to remove, reintroduced
+   by the removal, and it was missed for a specific and instructive reason: the
+   measurement was taken on the playwright/headless-shell backend, where crashpad
+   appears only as a short-lived ZOMBIE and the state check excluded it
+   correctly. cloakbrowser is the default whenever it is importable. And the gate
+   could not see it: `_BROWSER_COMM` was 'chrome-headless' and the file contained
+   no occurrence of 'crashpad' at all, so the fixture's denominator structurally
+   excluded the subject -- section 0, inside the verification of a section 0 fix.
+
 THE PREDICATE, therefore, and only this:
 
     orphan  =  comm matches a browser
-           AND state is not Z          (not awaiting reap)
-           AND not a descendant of the running app   (its launcher is gone)
+           AND it is not the crash handler   (alive at ppid=1 by design)
+           AND state is not Z                (not awaiting reap)
+           AND not a descendant of the running app
+           AND its parent is gone            (ppid 1, or a pid no longer present)
+
+The last clause exists because "not a descendant" is not the same as "orphaned":
+tools/capture_session.py and tools/nav_probe.py are standalone operator CLIs
+whose browsers have a live owner. Those land in `chromium_foreign`. The five
+buckets -- live, zombie, crashpad, foreign, orphan -- partition the raw count, so
+nothing can fall out of the denominator unnoticed.
 
 The descendant walk is what does the real work: a live download's children are
 descendants by construction, so they are excluded structurally rather than by a
@@ -84,10 +126,11 @@ launched. That was the original design and the measurement refuted it. BD
 launches browsers BOTH ways -- `launch_persistent_context` with a BD-owned
 profile (login_impl/manual.py:249, login_impl/replay.py:251) AND plain
 `launch()` (cloak.py:486), whose profile is an ephemeral
-`/tmp/playwright_chromiumdev_profile-XXXXXX`. Measured: only 1 of the 6 live
-processes carried `--user-data-dir` at all; renderers carry `--type=renderer`
-instead. So requiring a BD-owned profile path would MISS every orphan from the
-plain-launch path -- a false negative, and a leak detector that stops crying
+`/tmp/playwright_chromiumdev_profile-XXXXXX`. How far the flag propagates is
+also backend-dependent: measured 1 of 17 processes on playwright/headless-shell
+(top-level only, renderers carry `--type=renderer` instead) but 8 of 8 on the
+default cloakbrowser backend. So requiring a BD-owned profile path would MISS
+every orphan from the plain-launch path -- a false negative, and a leak detector that stops crying
 wolf by going blind is strictly worse than the noisy one it replaces. The
 profile path is therefore reported as DETAIL to help the operator identify what
 leaked, and is never a filter.
@@ -188,6 +231,49 @@ def _live_browser_tree(children=20):
 def _zombies(n=2):
     """What a CORRECT close leaves for up to ~3s. ppid=1, state Z."""
     return [(900 + i, _BROWSER_COMM, 1, "Z (zombie)", "")
+            for i in range(n)]
+
+
+_CRASHPAD_PID = 820
+
+# MEASURED on BD's DEFAULT backend, which is what this file's first version got
+# wrong. `chrome_crashpad_handler` is 23 characters, so comm truncates to 15.
+_CRASHPAD_COMM = "chrome_crashpad"
+
+
+def _crashpad_handlers(n=2, parent=_BROWSER_PID):
+    """The crash handler a healthy browser launch forks, and it is NOT a leak.
+
+    THE FALSE POSITIVE THIS FILE SHIPPED. `chrome_crashpad_handler` deliberately
+    reparents itself to init and stays ALIVE (state S, ppid 1) for the browser's
+    entire lifetime -- that is its whole purpose: it must outlive a browser crash
+    in order to report it. So it is a browser-comm process, not a zombie, and not
+    a descendant of the app: it satisfies every clause of the orphan predicate
+    while being the opposite of a leak.
+
+    REPRODUCED, twice, on the backend BD actually resolves (cloakbrowser 0.5.2,
+    full `chrome` binary):
+
+        BASELINE                  chromium=0                  ORPHAN=0
+        DURING A HEALTHY LAUNCH   chromium=8  live=6          ORPHAN=2
+            pid=18161 comm='chrome_crashpad' ppid=1 udd=None
+            pid=18165 comm='chrome_crashpad' ppid=1 udd=None
+
+    Baseline 0 -> 2 -> 0 on teardown proves they belong to that launch.
+
+    WHY THE FIRST VERSION MISSED IT: it was measured against the
+    playwright/headless-shell backend, where crashpad appears only as a
+    short-lived ZOMBIE and the state check excluded it correctly. cloakbrowser is
+    the default whenever it is importable, and there the handlers persist. The
+    gate could not see it either -- _BROWSER_COMM was 'chrome-headless' and the
+    file contained no occurrence of 'crashpad' at all, so the fixture's
+    denominator structurally excluded the subject. Section 0, inside the
+    verification of a section 0 fix.
+    """
+    return [(_CRASHPAD_PID + i, _CRASHPAD_COMM, 1, "S",
+             "/root/.cloakbrowser/chromium-146.0.7680.177.5/"
+             "chrome_crashpad_handler --monitor-self "
+             "--monitor-self-annotation=ptype=crashpad-handler")
             for i in range(n)]
 
 
@@ -300,10 +386,41 @@ def test_the_live_count_is_reported_so_the_number_is_explicable(tmp_path):
     assert got.get("chromium_foreign") == 1, f"chromium_foreign: {got!r}"
     assert got.get("chromium_orphan") == 1, f"chromium_orphan: {got!r}"
     assert (got["chromium_live"] + got["chromium_zombie"]
-            + got["chromium_foreign"]
+            + got["chromium_crashpad"] + got["chromium_foreign"]
             + got["chromium_orphan"]) == got["chromium"], (
-        f"the four buckets must partition the raw comm-match count, or a "
+        f"the five buckets must partition the raw comm-match count, or a "
         f"process has silently fallen out of the denominator: {got!r}")
+
+
+def test_a_live_crashpad_handler_is_not_an_orphan(tmp_path):
+    """THE FALSE POSITIVE THIS FILE SHIPPED, and it is the defect this whole cut
+    exists to remove, reintroduced by the cut.
+
+    A healthy launch on BD's default backend produced ORPHAN=2, both
+    chrome_crashpad handlers at ppid=1 in state S. Reproduced twice. The
+    predicate was right about every clause and wrong about the subject: crashpad
+    reparents to init BY DESIGN so it can outlive and report a browser crash.
+    """
+    got = _count(tmp_path, _live_browser_tree(children=6)
+                 + _crashpad_handlers(2))
+    assert got.get("chromium_orphan") == 0, (
+        f"reported {got.get('chromium_orphan')!r} orphans for two crashpad "
+        f"handlers: {got!r}. They are ppid=1 and state S because the crash "
+        f"handler must survive the browser it monitors -- that is the design, "
+        f"not a leak. Measured: a healthy launch went 0 -> 2 -> 0.")
+    assert got.get("chromium_crashpad") == 2, (
+        f"the crashpad handlers must stay VISIBLE in their own bucket, not be "
+        f"dropped: {got!r}. Silently excluding them shrinks the denominator to "
+        f"hide a case instead of classifying it.")
+
+
+def test_a_crashpad_handler_still_counts_in_the_raw_total(tmp_path):
+    """Backwards compatibility. `chromium` is the raw comm-match count and 12
+    files read it; crashpad matched it before this cut and must keep doing so."""
+    got = _count(tmp_path, _live_browser_tree(children=1)
+                 + _crashpad_handlers(2))
+    assert got.get("chromium") == 2 + 2, (
+        f"crashpad dropped out of the raw count: {got!r}")
 
 
 def test_an_operator_cli_browser_is_not_an_orphan(tmp_path):
