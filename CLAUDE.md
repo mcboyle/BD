@@ -229,8 +229,33 @@ with `test_cut8_schedules`.
 
 **Provisioning a test host.** `scripts/provision_test_host.sh` is the one command
 that takes a fresh Ubuntu 24.04 box to a green `./capture.sh`: system tier,
-`install_linux.sh`, Xvfb on `:99`, parity-inventory regen. Run it instead of
-hand-installing typelibs.
+`install_linux.sh`, Xvfb on `:99`, parity-inventory regen, graph content pin.
+Run it instead of hand-installing typelibs.
+
+The graph pin is the newest step and the least obvious. `capture.sh` step [2b]
+compares the rebuilt source graph against a pin under `/var/lib/`, **outside the
+repo** — so `git reset --hard` never delivers it and a fresh box has none. With
+`BD_REQUIRE_GRAPH_HASH` unset (default `0`) the MISSING branch prints
+`UNKNOWN -- optional check not armed` and **returns 0**, so the capture goes
+green with the graph never checked. The provisioner now arms it and then
+re-runs the gate's own `--check-hash` **as the invoking user** — writing a pin
+proves a write, not that `capture.sh` can read and match it.
+
+Re-pin by hand after any source change, or step [2b] reports drift and
+`capture_verdict.py` turns that stage exit into a whole-capture FAIL:
+
+```bash
+GDB=$(mktemp -d)/KNOWLEDGE_GRAPH.db
+venv/bin/python tools/l0_extract.py --root "$PWD" --db "$GDB"
+sudo venv/bin/python tools/graph_build.py --db "$GDB" \
+    --hash-pin /var/lib/bulkdownloader/validation/KNOWLEDGE_GRAPH.content.sha256 \
+    --write-hash
+```
+
+Only the second command takes `sudo`: `--write-hash` sets `projection_mode`
+false and returns before emitting any projection, so it writes the pin and
+nothing else. Running the whole block elevated is the section 5 footgun —
+`l0_extract` would build under `HOME=/root`.
 
 `scripts/lib/system_deps.sh` is the **single source of truth** for system
 packages; `install_linux.sh`, `scripts/provision_test_host.sh` and
