@@ -14,6 +14,7 @@ Or:
     pytest tests/ -v -x          # verbose, stop on first failure
     pytest tests/test_validators.py::test_path_traversal_blocked
 """
+import builtins
 import os
 import pathlib
 import shutil
@@ -378,6 +379,160 @@ def _never_write_the_real_vpn_config(tmp_path_factory):
         yield
     finally:
         _vc.save = _real_save
+
+
+# ─── No test may write the operator's real $HOME config, by ANY route ─────────
+#
+# The VPN guard above wraps the FUNCTION vpn_config.save. That is the wrong
+# denominator: the subject of "no test writes the operator's config" is a PATH.
+# app_store_raw_editor._atomic_write (:129-133) does Path.write_text into a .tmp
+# then os.replace onto the same path and never calls save(), so with the guard
+# provably installed a POST to /api/settings/store-raw still returned 200 and
+# changed the real tunnels.json. widgets_config had no guard at all, and the
+# suite rewrote the operator's real dashboard layout on EVERY capture run --
+# confirmed on the box, where a green capture left widgets.json holding the four
+# DEFAULT_WIDGETS with "per_site": {}.
+#
+# So this layer keys on the RESOLVED DESTINATION of the write primitives. A new
+# store, or an existing store reached by a route nobody wrapped, is covered
+# without anyone remembering to add it.
+#
+# SCOPE IS DELIBERATELY NARROW, because a guard that fires on correct behaviour
+# gets switched off. Only the app's own $HOME config namespace is protected --
+# never $HOME at large. On the deploy box the checkout IS ~/BulkDownloader, so
+# ~/BulkDownloader/macros is guarded ONLY when it resolves outside the repo;
+# inside the repo it is ordinary untracked litter that git already surfaces.
+_BD_CONFIG_DIRNAME = "bulk-downloader"
+_MACRO_DIRNAME = "macros"
+_REPO_ROOT_FOR_GUARD = pathlib.Path(__file__).resolve().parent.parent
+_HOME_GUARD = {"on": True}
+
+
+def _protected_home_roots():
+    """Resolved at CALL time, not frozen at session start.
+
+    Call-time resolution is what lets a test relocate HOME and exercise the real
+    predicate without going anywhere near the operator's files.
+    """
+    home = pathlib.Path(os.path.expanduser("~"))
+    roots = [home / ".config" / _BD_CONFIG_DIRNAME]
+    macros = home / "BulkDownloader" / _MACRO_DIRNAME
+    try:
+        macros.relative_to(_REPO_ROOT_FOR_GUARD)
+    except ValueError:
+        roots.append(macros)          # outside the checkout: operator state
+    return tuple(roots)
+
+
+def _home_store_guard_bypass(fn):
+    """Run fn with the guard suspended. For fixtures that must seed a store."""
+    _HOME_GUARD["on"] = False
+    try:
+        return fn()
+    finally:
+        _HOME_GUARD["on"] = True
+
+
+def _violates_home_store_guard(target) -> bool:
+    if not _HOME_GUARD["on"]:
+        return False
+    try:
+        raw = os.fspath(target)
+    except TypeError:
+        return False
+    text = str(raw)
+    # Cheap pre-filter: every protected root contains one of these two names, so
+    # the expensive normalisation only runs on candidates.
+    if _BD_CONFIG_DIRNAME not in text and _MACRO_DIRNAME not in text:
+        return False
+    candidate = pathlib.Path(text)
+    if not candidate.is_absolute():
+        candidate = pathlib.Path(os.getcwd()) / candidate
+    resolved = os.path.normpath(str(candidate))
+    for root in _protected_home_roots():
+        root_s = str(root)
+        if resolved == root_s or resolved.startswith(root_s + os.sep):
+            return True
+    return False
+
+
+def _home_store_refusal(target):
+    return RuntimeError(
+        "refusing to write the operator's real config from the test suite: "
+        f"{target}. Point the store at a tmp path for this test "
+        "(BD_VPN_CONFIG_PATH / BD_WIDGETS_CONFIG_PATH / BD_INSTALL_DIR). "
+        "This guard keys on the destination PATH, not on any store's save(), "
+        "because the suite rewrote the operator's dashboard layout on every "
+        "capture run through a route that never called save()."
+    )
+
+
+_WRITE_MODES = frozenset("wax+")
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _never_write_the_real_home_config(tmp_path_factory):
+    """Layer 1: redirect the known stores. Layer 2: refuse the path outright.
+
+    Layer 1 is an env var, which is exactly what a test pops in a finally -- so
+    it can never be the only protection. Layer 2 is the load-bearing half.
+    """
+    sandbox = tmp_path_factory.mktemp("home_config")
+    os.environ.setdefault("BD_WIDGETS_CONFIG_PATH", str(sandbox / "widgets.json"))
+    os.environ.setdefault("BD_VPN_CONFIG_PATH", str(sandbox / "vpn" / "tunnels.json"))
+
+    real_write_text = pathlib.Path.write_text
+    real_write_bytes = pathlib.Path.write_bytes
+    real_path_open = pathlib.Path.open
+    real_open = builtins.open
+    real_replace = os.replace
+    real_rename = os.rename
+
+    def _guard_write_text(self, *a, **k):
+        if _violates_home_store_guard(self):
+            raise _home_store_refusal(self)
+        return real_write_text(self, *a, **k)
+
+    def _guard_write_bytes(self, *a, **k):
+        if _violates_home_store_guard(self):
+            raise _home_store_refusal(self)
+        return real_write_bytes(self, *a, **k)
+
+    def _guard_path_open(self, mode="r", *a, **k):
+        if set(mode) & _WRITE_MODES and _violates_home_store_guard(self):
+            raise _home_store_refusal(self)
+        return real_path_open(self, mode, *a, **k)
+
+    def _guard_open(file, mode="r", *a, **k):
+        if set(str(mode)) & _WRITE_MODES and _violates_home_store_guard(file):
+            raise _home_store_refusal(file)
+        return real_open(file, mode, *a, **k)
+
+    def _guard_replace(src, dst, *a, **k):
+        if _violates_home_store_guard(dst):
+            raise _home_store_refusal(dst)
+        return real_replace(src, dst, *a, **k)
+
+    def _guard_rename(src, dst, *a, **k):
+        if _violates_home_store_guard(dst):
+            raise _home_store_refusal(dst)
+        return real_rename(src, dst, *a, **k)
+
+    pathlib.Path.write_text = _guard_write_text
+    pathlib.Path.write_bytes = _guard_write_bytes
+    pathlib.Path.open = _guard_path_open
+    builtins.open = _guard_open
+    os.replace = _guard_replace
+    os.rename = _guard_rename
+    try:
+        yield
+    finally:
+        pathlib.Path.write_text = real_write_text
+        pathlib.Path.write_bytes = real_write_bytes
+        pathlib.Path.open = real_path_open
+        builtins.open = real_open
+        os.replace = real_replace
+        os.rename = real_rename
 
 
 # ─── The repository's plugins/ directory is off limits to the whole suite ─────
