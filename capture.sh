@@ -574,6 +574,17 @@ tail -5 "$OUT/02b_graph_checkhash.log" | sed 's|^|  |'
 # Pre-v3.63.6 capture.sh imported a nonexistent `create_app`, so this
 # step ImportErrored on every run.
 #
+# Cookie redaction: this log is tarred and shipped (capture.sh:1005), and
+# bd_session is the CSRF-bound auth session (app.py:1074) -- its value is a live
+# credential. Step [3] used to print h[:120] of every Set-Cookie, so it shipped
+# one. The diagnostic facts are: a session WAS minted, how many headers, which
+# flags, what TTL -- the value is not one of them, and is replaced by its length
+# (the same rule the capture vault follows: status recorded, body never).
+# Unknown attributes are named but their values omitted -- never emit what this
+# diagnostic does not control. This rationale lives OUT here, not inside the
+# python -c string, because _strip_shell_comments (provisioner regen ordering)
+# asserts no comment line survives inside capture.sh's shell body.
+#
 echo "=== [3/9] CSRF diagnostic ==="
 BD_DISABLE_KEEPALIVE=1 venv/bin/python -c "
 from bulk_downloader.app import app
@@ -584,8 +595,26 @@ with app.test_client() as c:
    print('contains meta tag:', b'<meta name=\"csrf-token\"' in r.data)
    print('contains marker  :', b'{{ csrf_token }}' in r.data)
    print('Set-Cookie headers:', len(r.headers.getlist('Set-Cookie')))
+   _flag_attrs = ('expires', 'max-age', 'domain', 'path', 'secure',
+                  'httponly', 'samesite', 'partitioned', 'priority')
    for h in r.headers.getlist('Set-Cookie'):
-       print(' ', h[:120])
+       name, _, rest = h.partition('=')
+       value, _, attrs = rest.partition(';')
+       shown = []
+       for a in attrs.split(';'):
+           a = a.strip()
+           if not a:
+               continue
+           k, sep, v = a.partition('=')
+           k = k.strip()
+           if not sep:
+               shown.append(k)
+           elif k.lower() in _flag_attrs:
+               shown.append(k + '=' + v.strip())
+           else:
+               shown.append(k + '=<omitted>')
+       print('  cookie:', name.strip(), 'value_len:', len(value.strip()),
+             'attrs:', ','.join(shown) or '(none)')
 print('=' * 60)
 print('END diagnostic')
 print('=' * 60)
