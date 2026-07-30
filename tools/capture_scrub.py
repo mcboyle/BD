@@ -74,9 +74,20 @@ RE_SENS_KEY_SUBSTR = re.compile(
     r"key[-_]?pair|turnstile|captcha|otp|csrf|xsrf)")
 SIGN_WORDS  = re.compile(r"(?i)(expire|sig|signature|token|hmac|policy|secret|"
                          r"dirmatch|key[-_]?pair|credential|auth|md5|sha|st=)")
+# TWO ARMS, deliberately. The whole-word arm keeps \b so `tokenizer=` is NOT
+# masked by `token`. The substring arm has no \b, because \b never falls inside
+# `bd_session` -- `_` is a word char, so the boundary sits before `bd`, and BD's
+# own auth cookie sailed through the pre-share scrubber untouched. Only keys
+# whose leak-shape is affix-prone go in the substring arm; widening every key
+# that way would over-mask and a redactor that cries wolf gets switched off.
+# csrf/xsrf were in RE_SENS_KEY_SUBSTR but absent here entirely.
+# Both added groups are NON-capturing: consumers depend on group(1)=key and
+# group(2)=value (scrub_string:199, scan_residual:260-261).
 RE_KV_SECRET = re.compile(
-    r"(?i)\b(token|auth|sig|signature|secret|password|pwd|jwt|bearer|apikey|"
-    r"api[-_]?key|session|sid|access[-_]?token|key[-_]?pair[-_]?id)\b"
+    r"(?i)\b("
+    r"(?:token|auth|sig|signature|secret|password|pwd|jwt|bearer|apikey|"
+    r"api[-_]?key|access[-_]?token|key[-_]?pair[-_]?id)\b"
+    r"|[\w-]*(?:session|sid|csrf|xsrf)[\w-]*)"
     r"\s*[=:]\s*([^&;,\s\"']{8,})")
 HEXRUN = re.compile(r"^[0-9a-fA-F]{24,}$")
 B64ISH = re.compile(r"^[A-Za-z0-9_\-+/]{24,}={0,2}$")
