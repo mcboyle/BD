@@ -186,6 +186,18 @@ def _serialize(d: dict) -> str:
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
+    # An UNRECOGNIZED argument must never fall through to the write below. It
+    # used to: bd-regen probed each generator's capability by running it with
+    # --help, which landed here, wrote PIN_INDEX.json, and thereby ERASED the
+    # drift the read-only check had been asked to report.
+    known = {"--check", "--stdout"}
+    unknown = [a for a in argv if a not in known]
+    if unknown:
+        sys.stderr.write(
+            "build_pin_index.py: unrecognized argument(s): %s\n"
+            "usage: build_pin_index.py [--check | --stdout]  "
+            "(no args = write PIN_INDEX.json)\n" % " ".join(unknown))
+        return 2
     out = _repo_root() / "PIN_INDEX.json"
     d = build_index()
     text = _serialize(d)
