@@ -108,6 +108,28 @@ def _descends_from(pid: int, ancestor: int, ppid_of: dict) -> bool:
     return False
 
 
+def _is_crashpad(comm: str) -> bool:
+    """Is this the crash handler rather than a browser?
+
+    `chrome_crashpad_handler` reparents itself to init and stays ALIVE for the
+    monitored browser's whole lifetime -- that is its purpose: it must outlive a
+    browser crash in order to report it. So it satisfies every clause of the
+    orphan predicate (browser-ish comm, not a zombie, not a descendant) while
+    being the exact opposite of a leak.
+
+    Measured twice on the backend BD actually resolves (cloakbrowser 0.5.2, full
+    `chrome` binary): a healthy launch went orphan 0 -> 2 -> 0, both
+    `comm='chrome_crashpad'` at ppid=1 state=S. `chrome_crashpad_handler` is 23
+    characters and comm truncates at 15, which is why the match is on the
+    substring rather than the full name.
+
+    On the playwright/headless-shell backend crashpad appears only as a
+    short-lived zombie, which the state check already excluded -- which is
+    precisely why measuring only that backend missed this.
+    """
+    return "crashpad" in (comm or "").lower()
+
+
 def _parent_is_gone(ppid: int, live_pids: set) -> bool:
     """Has this process's launcher died?
 
@@ -133,8 +155,13 @@ def _user_data_dir(cmdline: str):
     as a filter: BD launches browsers both with a stable BD-owned profile
     (login_impl/manual.py, login_impl/replay.py) and with plain launch(), whose
     profile is an ephemeral /tmp/playwright_chromiumdev_profile-XXXXXX -- and
-    renderer children carry no --user-data-dir at all (measured: 1 of 6). A
-    filter on this would miss every orphan from the plain-launch path.
+    and how far it propagates to children is BACKEND-DEPENDENT, which an earlier
+    version of this docstring stated as one number: measured 1 of 17 processes on
+    playwright/headless-shell (top-level only), but 8 of 8 on the default
+    cloakbrowser/full-chrome backend (zygotes, gpu, utility and renderers all
+    carry the full BD profile path). A filter on this would miss every orphan
+    from the plain-launch path on one backend and behave differently on the
+    other.
     """
     for tok in cmdline.split(" "):
         if tok.startswith("--user-data-dir="):
@@ -199,7 +226,7 @@ def _child_process_count(proc_root: str = "/proc",
     a posed process table; production calls pass neither.
     """
     out = {"chromium": 0, "ffmpeg": 0, "total_procs": 0,
-           "chromium_live": 0, "chromium_zombie": 0,
+           "chromium_live": 0, "chromium_zombie": 0, "chromium_crashpad": 0,
            "chromium_foreign": 0, "chromium_orphan": 0, "orphan_detail": []}
     if self_pid is None:
         self_pid = os.getpid()
@@ -232,11 +259,22 @@ def _child_process_count(proc_root: str = "/proc",
         ppid, state = _proc_parent_and_state(root, entry)
         if ppid is not None:
             ppid_of[pid] = ppid
-        # The original predicate, byte for byte. Note which clause fires: the
-        # measured comm is 'chrome-headless' -- exactly 15 chars, Linux's comm
-        # limit -- so the real executable name (chrome-headless-shell) is
-        # TRUNCATED. Both clauses happen to match it; the cmdline, read below
-        # for detail only, carries the untruncated path.
+        # The original predicate, byte for byte. WHICH CLAUSE FIRES DEPENDS ON
+        # THE BACKEND, and an earlier version of this comment asserted one
+        # backend's answer generally:
+        #
+        #   cloakbrowser (BD's DEFAULT whenever importable) -> comm 'chrome'
+        #       (6 chars, not truncated). Only "chrom" matches; "headless" never
+        #       fires, despite --headless being in the cmdline.
+        #   its crash handler -> comm 'chrome_crashpad' (truncated from 23).
+        #       Only "chrom" matches. Classified separately below.
+        #   playwright headless-shell 1228 pool -> comm 'chrome-headless'
+        #       (15 chars, truncated). Both clauses match.
+        #   the 1194 pool -> comm 'headless_shell'. Only "headless" matches.
+        #
+        # comm truncates at 15 (TASK_COMM_LEN 16 including the NUL), so comm and
+        # cmdline are different instruments; the cmdline, read below for detail
+        # only, carries the untruncated path.
         if "chrom" in comm or "headless" in comm:
             out["chromium"] += 1
             if ppid is None or state is None:
@@ -254,7 +292,11 @@ def _child_process_count(proc_root: str = "/proc",
 
     live_pids = set(ppid_of) | {p for p, _c, _pp, _s, _cl in browsers}
     for pid, comm, ppid, state, cmdline in browsers:
-        if state.upper().startswith("Z"):
+        if _is_crashpad(comm):
+            # Checked BEFORE the state and descendant clauses, because it
+            # satisfies both: alive, and reparented to init by design.
+            out["chromium_crashpad"] += 1
+        elif state.upper().startswith("Z"):
             out["chromium_zombie"] += 1
         elif _descends_from(pid, self_pid, ppid_of):
             out["chromium_live"] += 1
