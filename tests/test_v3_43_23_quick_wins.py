@@ -45,6 +45,51 @@ def _APP_SRC():
     return '\n'.join(_parts)
 
 
+def _func_src(src: str, name: str) -> str:
+    """Source of the function `name`, WHOLE -- not a fixed-width window.
+
+    These guards used to read `src[src.find("def foo"): +N]` for a hand-picked
+    N (3000 / 12000 / 2000). That denominator is a byte count, so it silently
+    stops containing its subject the moment the function grows past N, and the
+    guard then fails on a tree where the asserted line is still present and
+    correct. Measured when cut #31 added ten lines to _update_job_current: the
+    asserted condition moved to offset 3574 and the 3000-char window reported
+    it missing -- a gate crying wolf, which CLAUDE.md section 0 calls a
+    soundness bug rather than a safe default.
+
+    Deriving the extent from the AST makes the denominator contain the subject
+    by construction, at any function size.
+
+    Accepts either one source string or an iterable of them. The callers pass a
+    CONCATENATION of whole modules; that parses as a single unit today
+    (measured, both the runner and app aggregates), and passing parts is
+    supported so a caller can stay correct if it ever stops parsing.
+    """
+    import ast as _ast
+    chunks = [src] if isinstance(src, str) else list(src)
+    parsed_any = False
+    for chunk in chunks:
+        try:
+            tree = _ast.parse(chunk)
+        except SyntaxError:
+            # A concatenation of whole modules parses today (measured), but it
+            # would stop parsing if any concatenated module grew a
+            # `from __future__` import. Skip the unparseable chunk rather than
+            # die, and let the not-found path below report an honest failure.
+            continue
+        parsed_any = True
+        for node in _ast.walk(tree):
+            if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)) \
+                    and node.name == name:
+                seg = _ast.get_source_segment(chunk, node)
+                if seg:
+                    return seg
+    raise AssertionError(
+        f"{name} not found as a function definition in the scanned source "
+        f"(parsed_any={parsed_any}) -- the guard cannot see its subject, "
+        "which is a failure, not a pass")
+
+
 def test_update_job_stamps_last_progress_at_on_status_change():
     """When _update_job changes the status, it must stamp
     last_progress_at. Without this, the frontend can't tell stuck
@@ -52,9 +97,7 @@ def test_update_job_stamps_last_progress_at_on_status_change():
     src = _RUNNER_PY.read_text(encoding="utf-8")
     # Generation validation is a small wrapper; the mutation lives in the
     # current-generation implementation.
-    upd_start = src.find("def _update_job_current(self,url,status,message,**extra)")
-    assert upd_start > 0
-    upd_body = src[upd_start:upd_start + 3000]
+    upd_body = _func_src(src, "_update_job_current")
     assert "last_progress_at" in upd_body, (
         "_update_job must stamp last_progress_at"
     )
@@ -69,11 +112,7 @@ def test_load_urls_initializes_last_progress_at():
     """Newly-added URLs must have last_progress_at set or they'd
     immediately read as stuck (Unix epoch 0 = 1970 = obviously old)."""
     src = _RUNNER_PY.read_text(encoding="utf-8")
-    # Find the job-creation block in load_urls. The stamp is ~110 lines
-    # past the def line because the function has a lot of pre-job parsing.
-    lu_start = src.find("def load_urls(self,urls,dedupe=True")
-    assert lu_start > 0
-    lu_body = src[lu_start:lu_start + 12000]
+    lu_body = _func_src(src, "load_urls")
     assert '"last_progress_at": time.time()' in lu_body, (
         "load_urls must stamp last_progress_at at creation"
     )
@@ -100,9 +139,7 @@ def test_retry_one_validates_state():
     can't retry a 'done' (would lose data), 'pending' (no-op),
     or 'running' (worker is still on it)."""
     src = _APP_SRC()
-    rt_start = src.find("def api_retry_one")
-    assert rt_start > 0
-    rt_body = src[rt_start:rt_start + 2000]
+    rt_body = _func_src(src, "api_retry_one")
     # Whitelist exactly the recoverable states
     assert '"failed", "needs_review", "stopped"' in rt_body
 

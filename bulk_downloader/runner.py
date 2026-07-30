@@ -1646,7 +1646,17 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 if not _memory_already_updated:
                     self.jobs[url].update({
                         "status": status, "message": message,
-                        "ts": _ts(), **extra,
+                        "ts": _ts(),
+                        # CUT #31: date-comparable sibling of `ts`. `ts` stays
+                        # HH:MM:SS because that is what the queue UI renders;
+                        # `ts_iso` is a full LOCAL ISO stamp so day-window
+                        # consumers (done_today_count etc.) can filter by date.
+                        # Comparing an HH:MM:SS value against a "%Y-%m-%d"
+                        # prefix is False for every possible pair of values,
+                        # which is how done_today_count came to be
+                        # structurally always 0.
+                        "ts_iso": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                        **extra,
                     })
                     mark_status_changed()
                 # v3.43.23: stamp last_progress_at whenever there's a

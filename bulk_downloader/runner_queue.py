@@ -97,6 +97,13 @@ class QueueMixin:
                 "status": status,
                 "message": r.get("message",""),
                 "ts": "",
+                # CUT #31: carry a date-comparable stamp across restarts, or
+                # every job completed before the last restart silently drops
+                # out of the day-window count. `ts_updated` is the queue
+                # table's ISO completion time (SQLite
+                # strftime('%Y-%m-%dT%H:%M:%S','now'), UTC); "" when the
+                # column is null or missing. Copied verbatim.
+                "ts_iso": r.get("ts_updated", "") or "",
                 "priority": r.get("priority","") or "normal",
                 "retries": r.get("retries",0),
                 "retry_after": r.get("retry_after",0),
