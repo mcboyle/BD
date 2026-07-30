@@ -1482,19 +1482,26 @@ def l6_real_templated_auto_login(ctx):
 
 @live_test("L7", "phase-b-fallback", disruptive=False)
 def l7_phase_b_fallback(ctx):
-    """A failed templated auto-login falls back to manual takeover
-    inside login_async (the v3.62.2 Phase B fallback).
+    """A failed templated auto-login records a login_template_fallback
+    event in session_history (the v3.62.2 Phase B fallback path).
 
-    READ-ONLY: it does NOT break a template to force the fallback.
-    Instead it confirms the fallback is OBSERVABLE — the
-    login_template_fallback event type is recorded in session_history
-    when the fallback fires. A site that has ever needed the fallback
-    will have such an event; its presence proves the path is wired.
-    Absence is a WARN (the path may simply never have been needed),
-    never a FAIL.
+    READ-ONLY: it does NOT break a template to force the fallback. It
+    reports only on the evidence session_history already holds:
+
+      PASS  a login_template_fallback event is present.
+      FAIL  session_history exists but cannot be read.
+      N/A   nothing to observe here — no DB; or login events exist but
+            none is a fallback (nothing to judge); or no login events
+            at all (not exercisable).
+
+    Absence is N/A, never WARN: a permanent, unclearable WARN is a
+    false alarm (CLAUDE.md section 0 inverse), and "no evidence" is not
+    evidence of a fault. This check attests the EVENT was recorded; it
+    makes no claim that the manual-takeover window opens end to end.
     """
     if not ctx.db_path.exists():
-        return WARN, f"no DB at {ctx.db_path} — fallback not testable"
+        return NA, (f"no DB at {ctx.db_path} — session_history is absent, "
+                    f"so the Phase B fallback cannot be observed here")
     configured = _login_sites(ctx)
     where = ""
     params = ()
@@ -1532,12 +1539,12 @@ def l7_phase_b_fallback(ctx):
                       f"recorded — the Phase B manual-takeover "
                       f"fallback is wired and has fired")
     if total_login > 0:
-        return WARN, (f"{total_login} login event(s) but no Phase B "
-                      f"fallback ever recorded — the path may simply "
-                      f"never have been needed (templates all work)")
-    return WARN, ("no login events in session_history yet — Phase B "
-                  "fallback not exercisable; log in to a templated "
-                  "site first")
+        return NA, (f"{total_login} login event(s) recorded, none of them "
+                    f"a login_template_fallback — no templated login has "
+                    f"failed in production, so there is no failure to assess")
+    return NA, ("no login events in session_history yet — the Phase B "
+                "fallback is not exercisable; log in to a templated "
+                "site first")
 
 
 # ── Ollama reachability live test (U37: L17) ──────────────────────
