@@ -300,3 +300,102 @@ def test_l12_no_longer_claims_the_generic_path_has_no_hls_handling():
         "It does now, so that sentence tells the operator a capability is "
         "absent when it is present.")
     assert callable(checks.l12_hls_dash_segmented_download)
+
+
+# ── the crash #75 shipped, and the control-flow property that prevents it ─────
+
+def test_the_stream_branch_and_the_http_branch_are_one_chain():
+    """THE REGRESSION #75 SHIPPED, caught on the box and not by this file.
+
+    Measured on the deploy host, with the routing working exactly as intended:
+
+        download: streaming manifest -> segmented downloader
+                  (http://127.0.0.1:8899/hls/scene/2.m3u8)
+        pending: Retry 1/2 in 10m --
+                 worker error: '_DLStub' object has no attribute 'save_as'
+
+    The route fired, ffmpeg was reached, and then the SUCCESS path fell into the
+    Playwright fallback. The cause was two independent `if`s:
+
+        if is_stream:            # transfer via ffmpeg, then...
+            use_http = False     # ...clear the flag
+        if use_http:             # a SEPARATE if
+            ...
+        else:
+            self._pw_save(dl, final_path)   # <- reached, with dl a _DLStub
+
+    Clearing the flag did not skip the transfer selection, it selected the ELSE.
+    `_pw_save` calls `dl.save_as`, and the stream path's `dl` is the `_DLStub`
+    stand-in (url + suggested_filename + cancel only), so every streamed download
+    crashed after transferring its bytes.
+
+    THE PROPERTY, and it is why this is structural rather than behavioural:
+    exactly one of the three transfer paths may run, which means they must be ONE
+    if/elif/else chain. #75's gate asserted that _stream_route is called and that
+    hls_downloader.download is called -- both true, both insufficient, because
+    neither says anything about what happens AFTER. Control flow through a
+    500-line function is not visible to a presence assertion, and that limitation
+    was written into #75's own PR description before it bit.
+    """
+    fn = _rt_fn("_do_download")
+    assert fn is not None
+
+    stream_if = None
+    for n in ast.walk(fn):
+        if (isinstance(n, ast.If) and isinstance(n.test, ast.Name)
+                and n.test.id == "is_stream"):
+            stream_if = n
+            break
+    assert stream_if is not None, "no `if is_stream:` branch in _do_download"
+
+    def _mentions_use_http(node):
+        return any(isinstance(x, ast.Name) and x.id == "use_http"
+                   for x in ast.walk(node))
+
+    chained = [s for s in stream_if.orelse
+               if isinstance(s, ast.If) and _mentions_use_http(s.test)]
+    assert chained, (
+        "the `if is_stream:` branch does not chain to the use_http branch, so "
+        "they are independent `if`s and the stream path falls through into the "
+        "HTTP selection -- and on success into its `else`, which calls "
+        "_pw_save(dl, ...) with the _DLStub. That is the exact crash the deploy "
+        "host reported: \"'_DLStub' object has no attribute 'save_as'\".")
+
+
+def test_the_stream_branch_does_not_fake_the_skip_with_a_flag():
+    """`use_http = False` inside the stream branch was the broken fix. With a
+    real if/elif chain it is not merely redundant -- it is misleading, because it
+    looks like it prevents something it never prevented."""
+    fn = _rt_fn("_do_download")
+    stream_if = next((n for n in ast.walk(fn)
+                      if isinstance(n, ast.If) and isinstance(n.test, ast.Name)
+                      and n.test.id == "is_stream"), None)
+    assert stream_if is not None
+    assigns = [ast.unparse(s) for s in ast.walk(stream_if)
+               if isinstance(s, ast.Assign)
+               and any(isinstance(t, ast.Name) and t.id == "use_http"
+                       for t in s.targets)]
+    assert not assigns, (
+        f"the stream branch still assigns use_http: {assigns}. Clearing the flag "
+        f"was the broken fix -- it selected the else rather than skipping the "
+        f"chain. The chain structure is what makes the paths exclusive.")
+
+
+def test_pw_save_is_only_reachable_from_the_browser_path():
+    """_pw_save takes a real Playwright Download. The stream path's `dl` is a
+    stub, so any route to _pw_save that a stream can reach is a crash."""
+    fn = _rt_fn("_do_download")
+    stream_if = next((n for n in ast.walk(fn)
+                      if isinstance(n, ast.If) and isinstance(n.test, ast.Name)
+                      and n.test.id == "is_stream"), None)
+    # THE BRANCH'S BODY, not its whole subtree. ast.walk(If) descends into
+    # `orelse` too, and once the fix made these an if/elif/else chain the final
+    # `else: self._pw_save(...)` became a NESTED node of the is_stream If -- so
+    # walking the node found it and the assertion failed about correct code. The
+    # question is what the stream branch EXECUTES, which is `.body`.
+    calls = [n.lineno for stmt in stream_if.body for n in ast.walk(stmt)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+             and n.func.attr == "_pw_save"]
+    assert not calls, (
+        f"_pw_save is called inside the stream branch's body at line(s) "
+        f"{calls}; its `dl` is a _DLStub with no save_as.")

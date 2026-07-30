@@ -499,12 +499,12 @@ Schema version: 2
   - L0602 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
   - L0626 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
   - L0747 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
-  - L1328 `TransportMixin._http_download` `[private]` — Stream the file URL to disk via httpx, with progress updates,
-  - L1770 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
-  - L1817 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
-  - L2162 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
-  - L2195 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
-  - L2219 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
+  - L1335 `TransportMixin._http_download` `[private]` — Stream the file URL to disk via httpx, with progress updates,
+  - L1777 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
+  - L1824 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
+  - L2169 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
+  - L2202 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
+  - L2226 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
 ```
 
 

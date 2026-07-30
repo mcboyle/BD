@@ -1034,8 +1034,15 @@ class TransportMixin:
             except Exception:
                 downloaded_size = int(res.bytes_written or 0)
             bytes_fetched = max(0, int(res.bytes_written or 0))
-            use_http = False        # the transfer is done; skip both fallbacks
-        if use_http:
+        # elif, NOT a second `if`. v3.66.819 shipped these as two independent
+        # ifs with `use_http = False` in the stream branch, and that did not skip
+        # the transfer selection -- it SELECTED THE ELSE. Measured on the deploy
+        # host: the route fired, ffmpeg transferred the bytes, and then
+        #   worker error: '_DLStub' object has no attribute 'save_as'
+        # because the else calls _pw_save(dl, ...) and the stream path's `dl` is
+        # the _DLStub stand-in (url + suggested_filename + cancel only). Exactly
+        # one of these three paths may run, so they are one chain.
+        elif use_http:
             try:
                 file_url=dl.url
                 # Cancel Playwright's own download — we'll fetch directly.
