@@ -319,3 +319,89 @@ def test_missing_repo_does_not_exit_zero():
         "the final exit is CORE_FAILED alone, so a run that found no checkout "
         "and installed nothing exits 0, indistinguishable from success"
     )
+
+
+# ── the frontend bundle: npm ci is not a build, and exit 0 is not an artifact ──
+#
+# frontend/dist is gitignored with ZERO tracked files, so `git reset --hard`
+# never delivers it and a fresh container has none (CLAUDE.md section 7).
+# cloud-setup.sh ran `npm ci`, which installs the toolchain and produces no
+# bundle. Two tests then fail and neither names the cause:
+#
+#   test_v3_66_790_nuitka_config::test_data_dirs_all_exist_in_tree
+#       -> "declared data dir does not exist: frontend/dist"
+#   test_phase1_root_flip::test_missing_asset_is_404_not_spa_html
+#       -> 503, because bulk_downloader/app.py cannot serve an absent bundle
+#
+# Measured in this container: both fail before `npm run build` and pass after,
+# with nothing else changed. They were the last two failures in the whole
+# backlog batch that had to be waved away as "environmental" -- so building the
+# bundle is also what makes a future occurrence real signal instead of noise.
+
+def _frontend_block() -> str:
+    """The lines of cloud-setup.sh that build and verify the bundle."""
+    src = CLOUD_SETUP.read_text(encoding="utf-8")
+    start = src.find("frontend deps")
+    assert start != -1, "the frontend deps step is gone; this gate lost its subject"
+    return src[start:start + 2000]
+
+
+def test_cloud_setup_builds_the_frontend_bundle():
+    """RED. npm ci installs the toolchain; it does not emit frontend/dist."""
+    block = _frontend_block()
+    assert "npm run build" in block, (
+        "cloud-setup.sh installs the frontend toolchain but never builds the "
+        "bundle, so frontend/dist is absent in every provisioned container and "
+        "the SPA cannot be served"
+    )
+
+
+def test_the_frontend_bundle_is_verified_by_reading_the_artifact():
+    """RED, and the half that matters.
+
+    `tsc -b && vite build` exiting 0 is not the property anyone depends on --
+    the property is that the entry point exists. This is the same lesson as
+    step [7]'s route_source read-back and the graph pin's check-hash: a
+    provisioner that trusts an exit code reports a green host for a container
+    that cannot serve a page.
+    """
+    block = _frontend_block()
+    assert "frontend/dist/index.html" in block, (
+        "the build step is graded by its exit code alone. Read the artifact "
+        "back -- vite can exit 0 having written nothing the app can serve"
+    )
+    assert "CORE_FAILED=1" in block, (
+        "a missing bundle is recorded without failing the provision, so the "
+        "report says READY for a container whose asset routes 503"
+    )
+
+
+def test_the_missing_bundle_branch_actually_fails(tmp_path):
+    """BEHAVIOURAL. Execute the verification with the artifact absent and
+    require it to set CORE_FAILED -- an unfailable branch is the sec0 defect
+    this whole file exists to catch."""
+    src = CLOUD_SETUP.read_text(encoding="utf-8")
+    start = src.find("  if [ -f frontend/dist/index.html ]; then")
+    assert start != -1, (
+        "the bundle read-back is not in the shape this gate can execute; if it "
+        "was reworded, move the anchor rather than deleting the assertion"
+    )
+    verify = src[start:src.find("fi", start) + 2]
+
+    harness = textwrap.dedent(
+        """
+        set -uo pipefail
+        REPORT="$PWD/report.md"; : > "$REPORT"
+        CORE_FAILED=0
+        %s
+        %s
+        echo "CORE_FAILED=$CORE_FAILED"
+        """
+    ) % (_extract_function_row(), verify)
+
+    proc = _run_bash(harness, cwd=tmp_path)          # no frontend/dist here
+    assert proc.returncode == 0, f"harness failed: {proc.stderr}"
+    assert "CORE_FAILED=1" in proc.stdout, (
+        "with frontend/dist/index.html absent the provisioner still reported a "
+        f"healthy host.\n{proc.stdout}"
+    )

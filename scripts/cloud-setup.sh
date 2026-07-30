@@ -277,6 +277,34 @@ else
     echo "[FAIL] NODE_ENV=production would strip the frontend toolchain"; CORE_FAILED=1
   fi
   step "frontend deps" core bash -c 'cd frontend && npm ci --no-audit --no-fund'
+
+  # npm ci installs the TOOLCHAIN. It does not produce frontend/dist, and that
+  # directory is gitignored with ZERO tracked files -- so `git reset --hard`
+  # never delivers it and a fresh container has none (CLAUDE.md section 7).
+  # Two tests then fail and neither names the cause:
+  #   test_v3_66_790_nuitka_config::test_data_dirs_all_exist_in_tree
+  #       -> "declared data dir does not exist: frontend/dist"
+  #   test_phase1_root_flip::test_missing_asset_is_404_not_spa_html
+  #       -> 503, because bulk_downloader/app.py cannot serve an absent bundle
+  # Measured here: both fail before this step and pass after it, nothing else
+  # changed. They were the last two failures a session had to wave away as
+  # "environmental", so building the bundle is also what turns a future
+  # occurrence into real signal instead of noise.
+  step "frontend build" core bash -c 'cd frontend && npm run build'
+
+  # Exit 0 is NOT the property. `tsc -b && vite build` can exit 0 having
+  # written nothing the app can serve, and the thing every consumer needs is
+  # the entry point. Read the artifact back -- the same discipline as step
+  # [7]'s route_source read-back and the graph pin's --check-hash. A
+  # provisioner that trusts an exit code reports a green host for a container
+  # whose asset routes 503.
+  if [ -f frontend/dist/index.html ]; then
+    row "frontend bundle" "OK" "frontend/dist/index.html present ($(du -sh frontend/dist 2>/dev/null | cut -f1 | tr -d ' '))"
+  else
+    row "frontend bundle" "**FAILED**" "npm run build exited 0 but frontend/dist/index.html is absent -- the SPA cannot be served and asset routes 503"
+    echo "[FAIL] frontend bundle missing after build"
+    CORE_FAILED=1
+  fi
 fi
 
 # ================================================================ 2. browsers

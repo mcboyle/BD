@@ -208,7 +208,22 @@ with `test_cut8_schedules`.
 - Always capture exit codes **unpiped**: `cmd > /tmp/out 2>&1; echo "exit=$?"`.
   Piping masks the exit code, and this bites even when you know about it.
 - `pgrep -f "<cmd>"` **matches its own wrapper**. Never read it as "still
-  running" — check `/proc/<pid>` or a written exit marker.
+  running" — check `/proc/<pid>` or a written exit marker. This bites hardest
+  inside a **wait loop**: `until ! pgrep -f 'pytest …'; do sleep 10; done` never
+  exits, because the loop's own command line contains the pattern. A session
+  reported a test lane as "running" for ten minutes when it had never started.
+  Reaching for `pkill -f "until ! pgrep"` to clean that up matched *its* own
+  command line and killed the shell. Wait on a **written marker or the job's
+  own exit**, never on a process-table match.
+- **Change one variable at a time, or the comparison is worthless.** To decide
+  whether a failure was yours, run the baseline **in the same directory**.
+  A session ran the pristine lane in a detached `git worktree` and got two
+  spurious signals: a test that "only failed with the change" had in fact never
+  *run* in the worktree (it self-skips when it cannot reach a service worker),
+  and another failed only in the baseline because a probe could not find the
+  real checkout from `/tmp`. The arithmetic gave it away — total collected
+  differed by exactly the new file's test count while skips differed by five.
+  If the totals do not reconcile, you changed more than you think.
 - **The interpreter is `venv/bin/python`, never bare `python3`.** In the cloud
   container `/usr/local/bin/python3` is **3.11 without the project
   dependencies**, while `venv` is 3.12 (the box/CI interpreter). There is no
@@ -222,6 +237,35 @@ with `test_cut8_schedules`.
   the panel held a private copy that had forked three commits and 91 lines while
   13 tests certified the repo copy that never executed. If the env report's step
   labels do not match `scripts/cloud-setup.sh`, the panel has forked again.
+
+  The bootstrap is pinned at **under 80 lines** by
+  `test_bootstrap_stays_short`, and it sits at 79. That is not slack to spend:
+  every line added there is a line that leaves the repo's sight. **Put new
+  provisioning logic in `scripts/cloud-setup.sh`, never in the panel text.**
+
+  The panel's **environment box** carries the session settings. These are not
+  in any file, so they are the one thing a fresh session cannot re-derive —
+  set them there:
+
+  ```
+  BD_HOME=/tmp/bd_home
+  BD_REPO=/home/user/BD
+  BD_SKIP_ARCHB=1
+  BD_SKIP_BROWSERS=1
+  BD_DISABLE_KEEPALIVE=1
+  ```
+
+  `BD_REPO` is the first probe rung, so setting it makes checkout location
+  deterministic instead of relying on the glob. `BD_HOME` keeps app state out
+  of the repo. The two `BD_SKIP_*` flags drop kasmvnc and the browser download
+  — browsers are preinstalled at `PLAYWRIGHT_BROWSERS_PATH`, and the
+  provisioner says which of "skipped but present" and "skipped and absent" is
+  true rather than assuming the worst. `BD_DISABLE_KEEPALIVE` stops background
+  threads outliving a test run.
+
+  Note what these do **not** buy: `BD_HOME` does not protect
+  `~/.config/bulk-downloader`, which resolves from `$HOME`, not `BD_HOME`.
+  That is `tests/conftest.py`'s path-keyed store guard's job.
 - **`pip check` cannot see an uninstalled requirement.** Its denominator is what
   *is* installed. `runtime deps OK` was reported with `beautifulsoup4` and
   `pytest-xdist` both absent. To ask whether requirements are satisfied, parse
@@ -275,6 +319,35 @@ and shipped a `SyntaxError`. Use a lambda replacement instead.
 **`ast.parse` is not name resolution.** A file referencing an undefined name
 parses fine. Check the names too — import the module.
 
+**The applied-check: use length arithmetic.** Every edit or mutation asserts
+`src.count(old) == 1` first — an anchor matching 442 sites and applied with
+`count=1` rewrites whichever site `re.subn` reaches first, and the resulting
+verdict is evidence about a different location. But proving the replacement
+*landed* is where two plausible checks are each wrong half the time:
+
+| check | fails silently when |
+| --- | --- |
+| `new in after` | `new` already occurs elsewhere — trivially true, a no-op reads as applied |
+| `after.count(old) == 0` | **append-style** (`old` is a substring of `new`) |
+| `after.count(new) == count(new) + 1` | **shrink-style** (`new` is a substring of `old`) |
+
+All three were hit, the last two inside a single mutation battery. Use instead:
+
+```python
+assert src.count(old) == 1
+after = src.replace(old, new, 1)
+assert after != src and len(after) == len(src) - len(old) + len(new)
+```
+
+Length arithmetic is exact for one replacement of a unique anchor and cannot be
+fooled by substring overlap in **either** direction.
+
+**A mutant that does not parse is INVALID, not caught, and not escaped.**
+Deleting a line can orphan an `except:` clause; the runner then sees a
+collection error, no named guard flips, and the row reads as an escape. Validate
+the mutant (`ast.parse`, or `bash -n` for shell) *before* judging it, and report
+"invalid" as its own outcome.
+
 ---
 
 ## 7 | What git changes, and what it does not
@@ -308,6 +381,17 @@ system match them, which is the first item below.
   `bulk_downloader/app.py`. Rebuild it with `cd frontend && npm ci && npm run
   build` whenever SPA source changed. Treat this as a condition to re-derive,
   not a list to memorise: anything generated-and-ignored joins the set.
+
+  **On the deploy box this is still yours to do.** In a *cloud container* it is
+  not: `scripts/cloud-setup.sh` now runs `npm run build` and then reads
+  `frontend/dist/index.html` back, failing the provision if the bundle is
+  absent — exit 0 from `vite build` is not the property anyone depends on.
+  Two tests fail without it and neither names the cause:
+  `test_v3_66_790_nuitka_config::test_data_dirs_all_exist_in_tree` ("declared
+  data dir does not exist: frontend/dist") and
+  `test_phase1_root_flip::test_missing_asset_is_404_not_spa_html` (503). They
+  were the last two failures a session had to wave away as environmental, so a
+  future occurrence is now real signal rather than noise.
 - **Gitignored generated artifacts still go stale, and `git clean -fd` will not
   remove them** -- that needs `-x`. `reports/gui_parity_inventory.json` is
   gitignored and build-time generated, so a stale copy left by an earlier deploy
@@ -331,6 +415,39 @@ system match them, which is the first item below.
   blast radius follows the denominator.
 - **The guard SHAs still apply.** Git history is not authorization.
 - **The box is still the gate.** Sandbox green is necessary, not sufficient.
+
+**The squash-merge branch trap.** PRs here merge with **squash**, which writes a
+*new* commit on `main`. Your topic branch does not follow it, so immediately
+after a merge `origin/<branch>` still points at the pre-squash commit and the
+branch and `main` have **no common tip** even though their content is
+identical. The next ordinary push is rejected as non-fast-forward, and the
+tempting reflex — `--force` — is the one that can discard someone else's work.
+
+The safe sequence, every time, is: prove the content is already merged, then
+force **with lease**.
+
+```bash
+git fetch origin main
+git diff --stat origin/main origin/<branch>     # MUST be empty
+git reset --hard origin/main                    # continue from the merged tip
+# ... new work, commit ...
+git push -u origin <branch> --force-with-lease
+```
+
+The two-dot `git diff` is the load-bearing step: empty means the remote branch
+carries nothing `main` lacks, so replacing it loses nothing. **Non-empty means
+stop** — something is on that branch that was never merged, and forcing would
+delete it. `--force-with-lease` is not optional; it refuses if the remote moved
+since your last fetch, which is exactly the case where `--force` would
+overwrite a collaborator.
+
+**GitHub's own merge commits are not yours to re-author.** A squash lands as
+`GitHub <noreply@github.com>`, signed with GitHub's web-flow key — it shows as
+**Verified** on github.com and reports `%G? == E` locally only because that key
+is not in the container's keyring. Never `--amend --reset-author` one: it is
+published history on the default branch, and the deploy host updates with
+`git reset --hard origin/main`, so rewriting it moves the tree under a running
+deployment.
 
 ---
 
