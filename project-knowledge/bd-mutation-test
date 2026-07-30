@@ -46,6 +46,8 @@ G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 CAUGHT, SURVIVED, UNKNOWN, BASELINE_RED = (
     "CAUGHT", "SURVIVED", "UNKNOWN", "BASELINE-RED")
 
+_BIN = os.path.dirname(os.path.realpath(__file__))
+
 
 def _sub(pattern, repl, count=1):
     def apply(text):
@@ -66,15 +68,16 @@ REGISTRY = [
             "subject reports clean -- truthfully and uselessly.",
         target="tools/tasktracker_gen.py",
         mutate=_sub(r', "decided_against"\]', "]", 1),
-        gate="python3 run_tests.py tests/test_v3_66_754_tracker_decided_against.py",
+        gate="{py} run_tests.py tests/test_v3_66_754_tracker_decided_against.py",
     ),
     dict(
         id="route_index/spa_wired",
         why="ROUTE_INDEX records spa_wired per (method,path). Un-wire a live "
             "control in the index; the in-sync gate must scream.",
         target="ROUTE_INDEX.json",
-        mutate=_sub(r'"spa_wired": true', '"spa_wired": false', 1),
-        gate="python3 run_tests.py tests/test_route_index_in_sync.py",
+        mutate=_sub(r'("path": "/api/a11y/plain_language",[\s\S]*?"spa_wired": )true',
+                    r'\g<1>false', 1),
+        gate="{py} run_tests.py tests/test_route_index_in_sync.py",
     ),
     dict(
         id="route_map/invariant",
@@ -82,7 +85,7 @@ REGISTRY = [
             "the baseline; the invariant must scream.",
         target="tests/route_map_baseline.txt",
         mutate=_sub(r"^.+\n", "", 1),
-        gate="python3 run_tests.py tests/test_route_map_invariant.py",
+        gate="{py} run_tests.py tests/test_route_map_invariant.py",
     ),
     dict(
         id="guard-sha/byte-identical",
@@ -118,9 +121,9 @@ REGISTRY = [
         why="A route that blows its budget must FAIL, not WARN with an invented "
             "cause. Downgrade it; the honesty control must scream.",
         target="live_tests/checks.py",
-        mutate=_sub(r"    if exceeded:\n        return FAIL, \(",
-                    "    if exceeded:\n        return WARN, (", 1),
-        gate="python3 run_tests.py tests/test_v3_66_734_l34_route_smoke_honesty.py",
+        mutate=_sub(r'return FAIL, \(" ; "\.join\(bits\)',
+                    'return WARN, (" ; ".join(bits)', 1),
+        gate="{py} run_tests.py tests/test_v3_66_734_l34_route_smoke_honesty.py",
     ),
     dict(
         id="L34/serial-re-confirmation@737",
@@ -129,7 +132,7 @@ REGISTRY = [
         target="live_tests/checks.py",
         mutate=_sub(r'            if verdict == "ok":\n                recovered\.append',
                     '            if False:\n                recovered.append', 1),
-        gate="python3 run_tests.py tests/test_v3_66_737_l34_serial_confirmation.py",
+        gate="{py} run_tests.py tests/test_v3_66_737_l34_serial_confirmation.py",
     ),
     dict(
         id="L34/triage-starvation@744",
@@ -140,7 +143,7 @@ REGISTRY = [
         target="live_tests/checks.py",
         mutate=_sub(r"pool\.submit\(_probe, r, _L34_TRIAGE_BUDGET_S\)",
                     "pool.submit(_probe, r, _L34_ROUTE_BUDGET_S)", 1),
-        gate="python3 run_tests.py tests/test_v3_66_744_l34_triage_budget.py",
+        gate="{py} run_tests.py tests/test_v3_66_744_l34_triage_budget.py",
     ),
     dict(
         id="build_release/no-path-leak@736",
@@ -150,15 +153,16 @@ REGISTRY = [
         mutate=_sub(
             r"        if inserted:\n            try:\n                sys\.path\.remove\(root_s\)\n            except ValueError:\n                pass\n",
             "", 1),
-        gate="python3 run_tests.py tests/test_v3_66_736_build_release_path_leak.py",
+        gate="{py} run_tests.py tests/test_v3_66_736_build_release_path_leak.py",
     ),
     dict(
         id="body_contract/dead-control",
         why="A control must not post a body its endpoint rejects. Point a live "
             "control at a bogus path; the body-contract gate must scream.",
         target="tools/BODY_CONTRACT_CALLS.json",
-        mutate=_sub(r'"/api/', '"/api/zzz_mutant/', 1),
-        gate="python3 run_tests.py tests/test_v3_66_729_body_contract_fixtures.py",
+        mutate=_sub(r'("path": )"/api/batch/delete"',
+                    r'\g<1>"/api/zzz_mutant/batch/delete"', 1),
+        gate="{py} run_tests.py tests/test_v3_66_729_body_contract_fixtures.py",
     ),
     # ---- the named liars --------------------------------------------------
     dict(
@@ -176,7 +180,7 @@ REGISTRY = [
             "bd-guardcheck shipped TWICE NameError-ing on every real invocation "
             "while static lint, --selftest and --help were all clean (@728). "
             "Plant a syntactically-valid tool that crashes on invocation.",
-        src="/home/claude/bin",          # the toolchain, not the work tree
+        src=_BIN,          # the toolchain, not the work tree
         target="__PLANT__:bd-zz-mutant",
         plant="#!/usr/bin/env python3\nundefined_name_boom()\n",
         gate="bd-tool-lint --bin {tree} --gate",
@@ -187,14 +191,14 @@ REGISTRY = [
             "definite verdict 'shares host net namespace' inside the F5 "
             "evidence chain. Replant that laundering; the self-verifying "
             "--logic-only comparator check must scream.",
-        src="/home/claude/bin",
+        src=_BIN,
         target="bd-netns-proof",
         mutate=_sub(
             r'        return \{"confined": None, "verdict": "unknown",\n'
             r'                "reason": "no ns inode readable for the pid -- UNKNOWN, not shared"\}',
             '        return {"confined": False, "verdict": "shared",\n'
             '                "reason": "no ns inode readable"}', 1),
-        gate="python3 {tree}/bd-netns-proof --logic-only",
+        gate="{py} {tree}/bd-netns-proof --logic-only",
     ),
     dict(
         id="bd-evidence/cross-view-consistency@753",
@@ -205,13 +209,13 @@ REGISTRY = [
             "sails through. The self-verifying selftest (which builds its own "
             "bundle + injects a contradicting view as a NEG control) must "
             "scream. Gate-soundness sweep, first of two @753.",
-        src="/home/claude/bin",
+        src=_BIN,
         target="bd-evidence",
         mutate=_sub(
             r"    return \{f: vals for f, vals in seen\.items\(\)\n"
             r"            if sum\(len\(v\) for v in vals\.values\(\)\) > 1\}",
             "    return {}", 1),
-        gate="python3 {tree}/bd-evidence --selftest",
+        gate="{py} {tree}/bd-evidence --selftest",
     ),
     dict(
         id="bd-agent-watchdog/guard-set-folded@753",
@@ -221,12 +225,12 @@ REGISTRY = [
             "correct' but never AND-ed it into ok, so it returned 0 anyway -- "
             "the fail-open this sweep found and fixed. This row is the "
             "regression pin: mutate GUARDS, the selftest must now exit RED.",
-        src="/home/claude/bin",
+        src=_BIN,
         target="bd-agent-watchdog",
         mutate=_sub(
             r'GUARDS=\{"bulk_downloader/extraction_core\.py","bulk_downloader/session_capture\.py",',
             'GUARDS={"bulk_downloader/session_capture.py",', 1),
-        gate="python3 {tree}/bd-agent-watchdog --selftest",
+        gate="{py} {tree}/bd-agent-watchdog --selftest",
     ),
 ]
 
@@ -305,7 +309,7 @@ def check(row, src_tree):
         # PRISTINE tree, comes back green, and this harness would call it a
         # SURVIVOR -- a false finding manufactured by the instrument, which is
         # the exact disease being audited. Rows for such tools MUST carry {tree}.
-        gate = row["gate"].replace("{tree}", tree)
+        gate = row["gate"].replace("{tree}", tree).replace("{py}", sys.executable)
         out = dict(id=row["id"], why=row["why"], gate=gate)
 
         rc0, log0 = _run(gate, cwd)
@@ -415,7 +419,7 @@ def selftest():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--work", "--tree", default="/home/claude/work")
+    ap.add_argument("--work", "--tree", default=os.path.dirname(os.path.dirname(_BIN)))
     ap.add_argument("--only", action="append",
                     help="row-id substring; repeatable. Each --only must match "
                          "at least one row or the run FAILS (no silent 0-row run).")
