@@ -747,7 +747,7 @@ def diff_tree(work, zpath):
 def selftest():
     """Controls that WOULD HAVE CAUGHT the constant-band bug this tool shipped with."""
     ok = True
-    work = "/home/claude/work"
+    work = sec.DEFAULT_WORK
     if not os.path.isdir(os.path.join(work, "tests")):
         print("SKIP  no work tree"); print("SELFTEST PASS"); return 0
     rows = map_rows(find_map(work))
@@ -1076,7 +1076,7 @@ def selftest():
     # gates; a version bump carries the pin-index gate. NEG: a docs-only change
     # carries none -- the cheap way to pass POS is to band the cluster always,
     # which would make every cut drag it along.
-    _w = "/home/claude/work"
+    _w = sec.DEFAULT_WORK
     # Assert on the BAND, not on regen_suites() -- testing the mapping function
     # would pass even with the union removed from derive(), which is a control
     # rigorous about the wrong subject (proven: reverting the union left a
