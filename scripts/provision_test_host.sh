@@ -21,7 +21,7 @@
 # regenerated the gui-parity inventory. The last of those is not cosmetic: it is
 # why a capture failed on
 # tests/test_v3_66_302_gui_parity_reconcile.py::test_shipped_inventory_matches_live_regen_itemset
-# with "only-regen=['pytest_capture_results']". See step [7/8].
+# with "only-regen=['pytest_capture_results']". See step [7/9].
 #
 # DESIGN RULES, each of them load-bearing:
 #
@@ -84,7 +84,7 @@ case "${1:-}" in
     -h|--help) usage; exit 0 ;;
 esac
 
-# ---------------------------------------------------------------- [1/8] repo
+# ---------------------------------------------------------------- [1/9] repo
 # Resolve the repo by its MARKER, never by $0 alone. `dirname "$0"/..` is a
 # guess: invoke this through a symlink, through `bash scripts/...`, or from a
 # copied path and it resolves to something that is not the repo -- historically
@@ -214,9 +214,9 @@ echo "  user   : $(id -un) (uid $(id -u))"
 echo
 record "repo root" "OK" "$REPO (confirmed by $MARKER)"
 
-# ------------------------------------------------------------ [2/8] fragment
+# ------------------------------------------------------------ [2/9] fragment
 echo
-echo "=== [2/8] shared system-dependency fragment ==="
+echo "=== [2/9] shared system-dependency fragment ==="
 if [ ! -r "$REPO/scripts/lib/system_deps.sh" ]; then
     echo "FATAL: $REPO/scripts/lib/system_deps.sh is missing or unreadable." >&2
     echo "  It is the single source of truth for BD's system packages. Without" >&2
@@ -244,9 +244,9 @@ if ! declare -F bd_system_pkgs >/dev/null 2>&1 \
 fi
 record "system_deps fragment" "OK" "sourced; bd_system_pkgs and bd_start_display defined"
 
-# -------------------------------------------------------- [3/8] system tier
+# -------------------------------------------------------- [3/9] system tier
 echo
-echo "=== [3/8] system package tier (needs root) ==="
+echo "=== [3/9] system package tier (needs root) ==="
 # Unlike install_linux.sh, installing the root tier IS this script's job, so a
 # host where it cannot be done is a hard stop rather than a printed hint.
 SUDO=""
@@ -295,7 +295,7 @@ run_step 03a_apt_update "package index refresh" optional $SUDO apt-get update ||
 #
 # CRITICALITY IS PER GROUP, and each choice is load-bearing:
 #
-#   core  -> `core`.     Every step from [4/8] to [8/8] gates on
+#   core  -> `core`.     Every step from [4/9] to [8/9] gates on
 #                        venv/bin/python, and the venv cannot be built without
 #                        the interpreter and its own package manager. Nothing
 #                        downstream of a failure here is meaningful.
@@ -310,7 +310,7 @@ run_step 03a_apt_update "package index refresh" optional $SUDO apt-get update ||
 #   gtk   -> `optional`. Mirrors scripts/cloud-setup.sh, which grades its
 #                        equivalent step optional deliberately. Two reasons, and
 #                        they are inverses of each other. The capability is
-#                        probed BY DOING at step [6/8] -- bd_start_display tests
+#                        probed BY DOING at step [6/9] -- bd_start_display tests
 #                        the DISPLAY, not the installer -- so a host that
 #                        already has a usable X server and the typelibs from
 #                        elsewhere is fully capable even when this step fails,
@@ -331,7 +331,7 @@ run_step 03a_apt_update "package index refresh" optional $SUDO apt-get update ||
 # The grading of that refusal deliberately does NOT follow the group's install
 # criticality, because what failed is the DENOMINATOR and not the capability:
 # the script does not know what this group's deps ARE, which is a different
-# statement from "this host lacks them". Step [2/8] has already hard-exited
+# statement from "this host lacks them". Step [2/9] has already hard-exited
 # unless the fragment sourced AND both of its functions resolved, so no benign
 # explanation is left for a group that answers empty. UNKNOWN is the state this
 # file reserves for a step that could not be EVALUATED, and it blocks.
@@ -366,9 +366,9 @@ install_group 03d_pkgs_gtk  "system packages (gtk)"  gtk  optional || true
 install_group 03e_pkgs_lint "system packages (lint)" lint optional || true
 install_group 03f_pkgs_media "system packages (media)" media optional || true
 
-# ------------------------------------------------------ [4/8] repo install
+# ------------------------------------------------------ [4/9] repo install
 echo
-echo "=== [4/8] repo install (install_linux.sh) ==="
+echo "=== [4/9] repo install (install_linux.sh) ==="
 echo "  venv, requirements (pytest + pytest-xdist), optional reqs, playwright"
 echo "  chromium, cloakbrowser, vendored rrweb/snapdom, SPA build. Minutes, not"
 echo "  seconds."
@@ -380,9 +380,9 @@ else
     run_step 04_install_linux "install_linux.sh" core bash ./install_linux.sh || true
 fi
 
-# ------------------------------------------- [5/8] headless browser system libs
+# ------------------------------------------- [5/9] headless browser system libs
 echo
-echo "=== [5/8] headless browser system libraries ==="
+echo "=== [5/9] headless browser system libraries ==="
 # playwright's own dependency installer. Best effort: on a host where it fails,
 # headed/headless chromium may still run, and the capture will say so far more
 # precisely than this script can. Recorded either way -- never skipped quietly.
@@ -417,9 +417,9 @@ else
         $SUDO ./venv/bin/python -m playwright install-deps $_pw_all || true
 fi
 
-# ------------------------------------------------------------ [6/8] display
+# ------------------------------------------------------------ [6/9] display
 echo
-echo "=== [6/8] X display :99 ==="
+echo "=== [6/9] X display :99 ==="
 # bd_start_display is called DIRECTLY, never through run_step: run_step pipes
 # stdout into tee, which would swallow the value the function echoes. It is
 # idempotent and tests the DISPLAY rather than the process name -- `pgrep -x
@@ -435,9 +435,9 @@ else
     record "X display" "WARN" "no X display; tests/test_v3_43_80_modules::test_all_modules_import will false-fail (environmental, not a code regression)"
 fi
 
-# ------------------------------------------------- [7/8] gui-parity inventory
+# ------------------------------------------------- [7/9] gui-parity inventory
 echo
-echo "=== [7/8] gui-parity inventory regen ==="
+echo "=== [7/9] gui-parity inventory regen ==="
 #
 # THIS IS THE STEP THAT FIXES THE OPERATOR'S FAILING TEST.
 #
@@ -484,9 +484,72 @@ print(d.get("route_source") or "<absent>")' 2>&1)"
     esac
 fi
 
-# ------------------------------------------------------------- [8/8] verdict
+# ---------------------------------------------------- [8/9] graph content pin
 echo
-echo "=== [8/8] VERDICT ==="
+echo "=== [8/9] graph content pin ==="
+#
+# WHY THIS STEP EXISTS. capture.sh step [2b] rebuilds the source graph and
+# compares its content hash to a pin. That pin lives OUTSIDE the repository
+# (/var/lib/...), so `git reset --hard` never delivers it and a freshly
+# provisioned box has none at all.
+#
+# With BD_REQUIRE_GRAPH_HASH unset -- the default is 0 -- capture.sh's MISSING
+# branch prints "UNKNOWN -- optional check not armed" and RETURNS 0. The
+# capture then goes green with the graph check never performed: a gate that
+# cannot see its subject reporting OK. Arming the pin here is what makes a
+# provisioned host come up with that check live rather than silently skipped.
+#
+# The default below MUST match capture.sh's. If the two drift, this step arms a
+# file the gate never reads and BOTH report success -- two green tools and no
+# gate. tests/test_provision_test_host.py pins the shared literal.
+GRAPH_PIN="${BD_GRAPH_HASH_PIN:-/var/lib/bulkdownloader/validation/KNOWLEDGE_GRAPH.content.sha256}"
+if [ ! -x "$REPO/venv/bin/python" ]; then
+    record "graph content pin" "UNKNOWN" "no venv at venv/bin/python; the pin was NOT armed, so capture.sh will skip the graph gate and still exit 0"
+elif [ ! -f "$REPO/tools/l0_extract.py" ] || [ ! -f "$REPO/tools/graph_build.py" ]; then
+    record "graph content pin" "UNKNOWN" "tools/l0_extract.py or tools/graph_build.py is missing; cannot build the graph to pin against"
+else
+    GRAPH_TMP="$(mktemp -d "${TMPDIR:-/tmp}/bd_provision_graph.XXXXXX")" || GRAPH_TMP=""
+    if [ -z "$GRAPH_TMP" ]; then
+        record "graph content pin" "UNKNOWN" "mktemp failed; cannot build the graph to pin against"
+    else
+        # Build into a throwaway DB, exactly as capture.sh's gate does -- the
+        # pin must describe the DEPLOYED tree, and nothing here may leave an
+        # artifact behind in the repo.
+        $SUDO mkdir -p "$(dirname "$GRAPH_PIN")" || true
+        run_step 08a_graph_extract "graph extract (for pin)" core \
+            ./venv/bin/python tools/l0_extract.py \
+            --root "$REPO" --db "$GRAPH_TMP/KNOWLEDGE_GRAPH.db" || true
+        # --write-hash writes ONLY the pin: graph_build.py sets projection_mode
+        # false for it and returns before emitting any projection, so elevating
+        # just this call cannot drop root-owned files into the work tree.
+        run_step 08b_graph_write_pin "graph content pin write" core \
+            $SUDO ./venv/bin/python tools/graph_build.py \
+            --db "$GRAPH_TMP/KNOWLEDGE_GRAPH.db" --hash-pin "$GRAPH_PIN" \
+            --write-hash || true
+        # Root writes with root's umask; at 077 the pin lands 0600.
+        $SUDO chmod 0644 "$GRAPH_PIN" 2>/dev/null || true
+
+        # Exit 0 from --write-hash proves a WRITE happened, not that capture.sh
+        # can read the result. An unreadable pin sends the gate down its
+        # `[ ! -r ]` branch -- "UNKNOWN -- optional check not armed", return 0 --
+        # which is the same silent skip this step exists to remove, now with a
+        # pin that exists. So re-run the gate's own --check-hash AS THE INVOKING
+        # USER (never under $SUDO): that measures readable AND matching in one
+        # go, which is exactly the condition capture.sh will evaluate.
+        if ./venv/bin/python tools/graph_build.py \
+                --db "$GRAPH_TMP/KNOWLEDGE_GRAPH.db" --hash-pin "$GRAPH_PIN" \
+                --check-hash >"$LOGDIR/08_graph_checkhash.log" 2>&1; then
+            record "graph pin readable" "OK" "check-hash matches as $(id -un); capture.sh's graph gate is armed"
+        else
+            record "graph pin readable" "UNKNOWN" "pin written but check-hash did not verify as $(id -un) -- unreadable or mismatched; capture.sh will skip or fail the graph gate. See $LOGDIR/08_graph_checkhash.log"
+        fi
+        rm -rf -- "$GRAPH_TMP"
+    fi
+fi
+
+# ------------------------------------------------------------- [9/9] verdict
+echo
+echo "=== [9/9] VERDICT ==="
 # Installers exiting 0 is not proof that anything imports. Prove it, and prove
 # the thing that imported is the tree in front of us.
 IMPORTED=""

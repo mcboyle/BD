@@ -2878,6 +2878,28 @@ with open(os.environ["PROBE_ORDER_LOG"], "a", encoding="utf-8") as stream:
 # program's sys.argv[1] must be the FIRST argument after the program text -- the
 # obvious slice is off by one and makes the probe read the program itself as its
 # own argument.
+if args and args[0].endswith("l0_extract.py"):
+    _db = Path(args[args.index("--db") + 1])
+    _db.parent.mkdir(parents=True, exist_ok=True)
+    _db.write_text("graph-v1", encoding="utf-8")
+    raise SystemExit(0)
+
+if args and args[0].endswith("graph_build.py"):
+    _db = Path(args[args.index("--db") + 1])
+    _pin = Path(args[args.index("--hash-pin") + 1])
+    _digest = _db.read_text(encoding="utf-8").strip() if _db.is_file() else "<no-db>"
+    if "--write-hash" in args:
+        _pin.parent.mkdir(parents=True, exist_ok=True)
+        _pin.write_text(_digest + "\n", encoding="utf-8")
+        raise SystemExit(0)
+    if "--check-hash" in args:
+        try:
+            _want = _pin.read_text(encoding="utf-8").strip()
+        except OSError:
+            raise SystemExit(1)
+        raise SystemExit(0 if _want == _digest else 1)
+    raise SystemExit(0)
+
 if args[:1] == ["-c"]:
     # A real `python -c` puts the CURRENT DIRECTORY on sys.path. This stub is
     # invoked as a script, so python puts the STUB's own directory there
@@ -3148,13 +3170,13 @@ def test_capture_route_source_check_degrades_a_catalog_derived_inventory(
 # elevated) onto step [7/8] alone.
 
 PROVISIONER_PRELUDE_SENTINEL = (
-    "# ------------------------------------------------------------ [2/8] fragment"
+    "# ------------------------------------------------------------ [2/9] fragment"
 )
 PROVISIONER_STEP7_SENTINEL = (
-    "# ------------------------------------------------- [7/8] gui-parity inventory"
+    "# ------------------------------------------------- [7/9] gui-parity inventory"
 )
-PROVISIONER_STEP8_SENTINEL = (
-    "# ------------------------------------------------------------- [8/8] verdict"
+PROVISIONER_VERDICT_SENTINEL = (
+    "# ------------------------------------------------------------- [9/9] verdict"
 )
 
 
@@ -3163,7 +3185,7 @@ def _build_provisioner_probe(path: Path) -> None:
     for sentinel in (
         PROVISIONER_PRELUDE_SENTINEL,
         PROVISIONER_STEP7_SENTINEL,
-        PROVISIONER_STEP8_SENTINEL,
+        PROVISIONER_VERDICT_SENTINEL,
     ):
         assert source.count(sentinel) == 1, (
             f"scripts/provision_test_host.sh must contain exactly one "
@@ -3175,7 +3197,7 @@ def _build_provisioner_probe(path: Path) -> None:
     probe = (
         source.split(PROVISIONER_PRELUDE_SENTINEL, 1)[0]
         + source.split(PROVISIONER_STEP7_SENTINEL, 1)[1].split(
-            PROVISIONER_STEP8_SENTINEL, 1
+            PROVISIONER_VERDICT_SENTINEL, 1
         )[0]
     )
     assert probe.count(_PROVISION_LOGDIR_LITERAL) == 1, (
@@ -3472,6 +3494,13 @@ def _run_verdict_probe(
     (repo / "tools" / "gui_parity_inventory.py").write_text(
         "# verdict probe stand-in for the real generator\n", encoding="utf-8"
     )
+    # The graph-pin step guards on these two existing; without them a HEALTHY
+    # fake host records UNKNOWN and the no-UNKNOWN arms fail on the fixture
+    # rather than on the subject.
+    for _graph_tool in ("l0_extract.py", "graph_build.py"):
+        (repo / "tools" / _graph_tool).write_text(
+            "# verdict probe stand-in for the graph tools\n", encoding="utf-8"
+        )
     (repo / "scripts" / "lib" / "system_deps.sh").write_text(
         _VERDICT_STUB_FRAGMENT if fragment_body is None else fragment_body,
         encoding="utf-8",
@@ -3501,6 +3530,14 @@ def _run_verdict_probe(
             "PROBE_ORDER_LOG": str(order_log),
             "PROBE_ROUTE_SOURCE": "live url_map",
             "PROVISION_TEST_LOGDIR": str(logdir),
+            # NON-NEGOTIABLE, and it must land in the same edit as the two
+            # graph tools above. Satisfying the step's preconditions makes it
+            # reach `$SUDO mkdir -p "$(dirname "$GRAPH_PIN")"`; unredirected,
+            # that default is /var/lib/bulkdownloader/validation and this suite
+            # runs as root in CI, so the probe would create and write the
+            # operator's real pin path. "Nothing real is touched" is this
+            # fixture's stated contract.
+            "BD_GRAPH_HASH_PIN": str(work / "validation" / "pin.sha256"),
         }
     )
     env.update(overrides)
@@ -4432,4 +4469,347 @@ def test_claude_md_keeps_the_canonical_regen_command() -> None:
         "CLAUDE.md names `.venv/bin/python`; the cloud environment builds "
         "`venv`, so that command exits 127 and the caller silently falls back "
         "to bare python3 (3.11, no project deps)"
+    )
+
+
+# --- M. the provisioner arms capture.sh's graph content pin -------------------
+#
+# THE HOLE. capture.sh step [2b] rebuilds the source graph and compares its
+# content hash to a pin at
+# /var/lib/bulkdownloader/validation/KNOWLEDGE_GRAPH.content.sha256. That path
+# is OUTSIDE the repository, so `git reset --hard` never delivers it and a
+# freshly provisioned box has no pin at all. With BD_REQUIRE_GRAPH_HASH unset
+# (the default is 0) capture.sh's MISSING branch prints
+# "UNKNOWN -- optional check not armed" and RETURNS 0: the capture goes green
+# with the graph check never performed.
+#
+# Nothing in scripts/, install_linux.sh or capture.sh armed it -- measured, a
+# grep for --write-hash / KNOWLEDGE_GRAPH.content / BD_GRAPH_HASH_PIN outside
+# capture.sh's own gate body returned zero hits. So the fix belongs here, in
+# the one command that takes a fresh host to a green ./capture.sh.
+#
+# These tests EXECUTE the step through the same prelude-splice probe the
+# gui-parity tests use, with SUDO="" and BD_GRAPH_HASH_PIN redirected into
+# tmp_path -- they never touch /var/lib and never elevate.
+
+PROVISIONER_STEP8_GRAPH_SENTINEL = (
+    "# ---------------------------------------------------- [8/9] graph content pin"
+)
+
+# A stand-in for the two graph tools. l0_extract writes a DB; graph_build
+# --write-hash writes the DB's "hash" to the pin; --check-hash compares and
+# returns 1 on mismatch, mirroring the real tool's contract (graph_build.py:256
+# returns 1 on drift, :260-266 writes only the pin).
+_GRAPH_FAKE_PYTHON = r'''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+
+args = sys.argv[1:]
+with open(os.environ["PROBE_ORDER_LOG"], "a", encoding="utf-8") as stream:
+    stream.write("python " + json.dumps(args) + "\n")
+
+
+def opt(name, default=None):
+    return args[args.index(name) + 1] if name in args else default
+
+
+if args and args[0].endswith("l0_extract.py"):
+    db = Path(opt("--db"))
+    db.parent.mkdir(parents=True, exist_ok=True)
+    db.write_text(os.environ.get("PROBE_GRAPH_CONTENT", "graph-v1"), encoding="utf-8")
+    raise SystemExit(0)
+
+if args and args[0].endswith("graph_build.py"):
+    db, pin = Path(opt("--db")), Path(opt("--hash-pin"))
+    digest = db.read_text(encoding="utf-8").strip() if db.is_file() else "<no-db>"
+    if "--write-hash" in args:
+        if os.environ.get("PROBE_PIN_WRITE_FAILS") == "1":
+            sys.stderr.write("PermissionError: simulated\n")
+            raise SystemExit(1)
+        pin.parent.mkdir(parents=True, exist_ok=True)
+        pin.write_text(digest + "\n", encoding="utf-8")
+        os.chmod(pin, int(os.environ.get("PROBE_PIN_MODE", "0644"), 8))
+        print("graph write-hash: wrote %s..." % digest)
+        raise SystemExit(0)
+    if "--check-hash" in args:
+        if os.environ.get("PROBE_CHECK_FAILS") == "1":
+            print("graph check-hash: simulated failure")
+            raise SystemExit(1)
+        try:
+            want = pin.read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            sys.stderr.write("cannot read pin: %s\n" % exc)
+            raise SystemExit(1)
+        if want != digest:
+            print("graph check-hash: DRIFT")
+            raise SystemExit(1)
+        print("graph check-hash: OK")
+        raise SystemExit(0)
+    raise SystemExit(0)
+
+# `-c` programs (the [9/9] import check) -- behave like the real interpreter.
+if args[:1] == ["-c"]:
+    sys.path.insert(0, os.getcwd())
+    sys.argv = ["-c"] + args[2:]
+    exec(compile(args[1], "<graph-probe -c>", "exec"), {"__name__": "__main__"})
+    raise SystemExit(0)
+raise SystemExit(0)
+'''
+
+
+def _build_provisioner_graph_probe(path: Path) -> None:
+    """Splice the prelude onto the graph-pin step alone.
+
+    Same technique as _build_provisioner_probe. SUDO is defined at the [3/N]
+    system-tier step, which is BELOW the prelude cut, so the probe defines it
+    empty -- the step must work unelevated when the pin path is writable, and
+    the probe must never invoke sudo.
+    """
+    source = _read(PROVISIONER)
+    for sentinel in (
+        PROVISIONER_PRELUDE_SENTINEL,
+        PROVISIONER_STEP8_GRAPH_SENTINEL,
+        PROVISIONER_VERDICT_SENTINEL,
+    ):
+        assert source.count(sentinel) == 1, (
+            f"scripts/provision_test_host.sh must contain exactly one "
+            f"{sentinel!r}; the probe splices the script there. If the step "
+            "banners were reflowed, move the sentinel -- this is a loud "
+            "failure on a structural edit, not a finding about the code."
+        )
+
+    probe = (
+        source.split(PROVISIONER_PRELUDE_SENTINEL, 1)[0]
+        + '\nSUDO=""\n'
+        + source.split(PROVISIONER_STEP8_GRAPH_SENTINEL, 1)[1].split(
+            PROVISIONER_VERDICT_SENTINEL, 1
+        )[0]
+    )
+    assert probe.count(_PROVISION_LOGDIR_LITERAL) == 1, (
+        f"UNKNOWN: expected exactly one {_PROVISION_LOGDIR_LITERAL!r} to "
+        "redirect; without it the probe writes into the operator's real "
+        "/tmp/bd_provision"
+    )
+    probe = probe.replace(
+        _PROVISION_LOGDIR_LITERAL, 'LOGDIR="${PROVISION_TEST_LOGDIR:?}"'
+    )
+    probe += '\nprintf "%s" "$ROWS" > "${PROVISION_TEST_ROWS:?}"\nexit 0\n'
+    _write_stub(path, probe)
+
+    parsed = subprocess.run(
+        [_BASH, "-n", str(path)], capture_output=True, text=True, timeout=60
+    )
+    assert parsed.returncode == 0, (
+        "UNKNOWN: the spliced graph-pin probe does not parse, so nothing below "
+        f"could be measured. bash -n said:\n{parsed.stderr}"
+    )
+
+
+def _run_provisioner_graph_step(
+    tmp_path: Path, **env_overrides: str
+) -> tuple[subprocess.CompletedProcess[str], list[str], dict[str, str], Path]:
+    repo = tmp_path / "fake-repo"
+    (repo / "bulk_downloader").mkdir(parents=True)
+    (repo / "tools").mkdir(parents=True)
+    (repo / "venv" / "bin").mkdir(parents=True)
+    (repo / "bulk_downloader" / "__init__.py").write_text(
+        '__version__ = "provisioner-probe"\n', encoding="utf-8"
+    )
+    for tool in ("l0_extract.py", "graph_build.py"):
+        (repo / "tools" / tool).write_text(
+            "# provisioner probe stand-in\n", encoding="utf-8"
+        )
+    _write_stub(repo / "venv" / "bin" / "python", _GRAPH_FAKE_PYTHON)
+
+    pin = tmp_path / "validation" / "KNOWLEDGE_GRAPH.content.sha256"
+    order_log = tmp_path / "order.log"
+    rows_file = tmp_path / "rows.txt"
+    probe = tmp_path / "provisioner-graph-probe.sh"
+    _build_provisioner_graph_probe(probe)
+
+    env = dict(os.environ)
+    env.update(
+        {
+            "PROBE_ORDER_LOG": str(order_log),
+            "BD_GRAPH_HASH_PIN": str(pin),
+            "PROVISION_TEST_LOGDIR": str(tmp_path / "provision-logs"),
+            "PROVISION_TEST_ROWS": str(rows_file),
+        }
+    )
+    env.update(env_overrides)
+    completed = subprocess.run(
+        [_BASH, str(probe), str(repo)],
+        cwd=str(tmp_path),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+
+    entries = (
+        order_log.read_text(encoding="utf-8").splitlines()
+        if order_log.is_file()
+        else []
+    )
+    rows: dict[str, str] = {}
+    if rows_file.is_file():
+        for line in rows_file.read_text(encoding="utf-8").splitlines():
+            fields = line.split("|")
+            if len(fields) >= 2:
+                rows[fields[0]] = fields[1]
+    return completed, entries, rows, pin
+
+
+def test_provisioner_arms_the_graph_content_pin(tmp_path: Path) -> None:
+    """RED. A provisioned host must come up with capture.sh's graph gate ARMED.
+
+    Without this step the pin never exists on a fresh box, capture.sh's MISSING
+    branch reports "UNKNOWN -- optional check not armed" and returns 0, and the
+    capture is green with the graph check never performed.
+    """
+    completed, entries, rows, pin = _run_provisioner_graph_step(tmp_path)
+
+    assert entries, (
+        "the probe never invoked venv/bin/python, so the graph-pin step did "
+        f"not run at all. rc={completed.returncode} "
+        f"stdout={completed.stdout[-2000:]!r} stderr={completed.stderr[-2000:]!r}"
+    )
+    assert pin.is_file(), (
+        f"the provisioner did not write the pin at {pin}. Rows: {rows}. "
+        f"stdout={completed.stdout[-2000:]!r}"
+    )
+    assert pin.read_text(encoding="utf-8").strip(), "the pin was written EMPTY"
+
+
+def test_provisioner_does_not_record_ok_when_the_pin_does_not_verify(
+    tmp_path: Path,
+) -> None:
+    """RED, and the part that stops this step becoming its own blind gate.
+
+    Exit 0 from --write-hash proves a WRITE happened, not that capture.sh can
+    read and match the result. Root writes with root's umask; at 077 the pin
+    lands 0600 and capture.sh's `[ ! -r ]` branch degrades to
+    "UNKNOWN -- optional check not armed", return 0 -- the same silent skip
+    this step exists to remove, now with a pin that exists. A mismatched pin
+    fails differently but just as quietly if nobody looks.
+
+    So the step must re-run the gate's own --check-hash as the invoking user
+    and grade THAT. Both directions are asserted, because a check that answers
+    OK to everything answers nothing.
+
+    MEASUREMENT LIMIT, stated rather than papered over: this drives the failure
+    through the stub instead of chmod-ing the pin to 0000. Two reasons, both
+    real -- the test process here runs as uid 0, and root reads a 0000 file
+    regardless; and the step itself chmods the pin to 0644 before verifying, so
+    a mode-based fixture would be repaired before the assertion could see it.
+    What is under test is the branch -- "verification did not pass, so do not
+    record OK" -- which is exactly the contract. Whether the cause was mode or
+    mismatch is capture.sh's business, and it handles both.
+    """
+    _, _, good_rows, _ = _run_provisioner_graph_step(tmp_path / "ok")
+    assert any(
+        result == "OK" for label, result in good_rows.items() if "readab" in label
+    ), f"a readable, matching pin recorded no OK readability row: {good_rows}"
+
+    _, _, bad_rows, _ = _run_provisioner_graph_step(
+        tmp_path / "unverified", PROBE_CHECK_FAILS="1"
+    )
+    readability = {
+        label: result for label, result in bad_rows.items() if "readab" in label
+    }
+    assert readability, (
+        "no readability row at all when check-hash failed -- the step trusted "
+        f"the writer's exit code. Rows: {bad_rows}"
+    )
+    assert "OK" not in readability.values(), (
+        f"a pin that FAILED check-hash was recorded OK: {readability}. "
+        "capture.sh would skip or fail the graph gate while the provisioner "
+        "reported a green host"
+    )
+
+
+def test_provisioner_pin_default_matches_capture_sh(tmp_path: Path) -> None:
+    """RED. The provisioner and the gate must resolve the SAME default path.
+
+    If they drift, the provisioner arms a pin capture.sh never reads and both
+    report success -- two green tools and no gate. Asserted over the literal
+    both files fall back to, not over a runtime value, because the divergence
+    is a source-level one.
+    """
+    default = "/var/lib/bulkdownloader/validation/KNOWLEDGE_GRAPH.content.sha256"
+    provisioner = _strip_shell_comments(_read(PROVISIONER))
+    capture = _strip_shell_comments(_read(CAPTURE_SH))
+
+    assert f'BD_GRAPH_HASH_PIN:-{default}' in provisioner, (
+        "the provisioner does not fall back to capture.sh's default pin path; "
+        "it would arm a pin the graph gate never reads"
+    )
+    assert f'BD_GRAPH_HASH_PIN:-{default}' in capture, (
+        "capture.sh's default pin path changed -- update the provisioner in "
+        "the SAME cut, or the two silently point at different files"
+    )
+
+
+def test_provisioner_records_unknown_when_it_cannot_arm_the_pin(
+    tmp_path: Path,
+) -> None:
+    """A host where the pin CANNOT be armed must say so, not stay silent.
+
+    Unknown is a third state and it fails. If the venv or the graph tools are
+    absent the step cannot arm anything, and the operator has to learn that
+    from the verdict table -- otherwise the box comes up with capture.sh's
+    graph gate silently unarmed and nothing in the provisioning output said so.
+    `record` sets BLOCKING for UNKNOWN, so this also fails the run.
+
+    Asserted as "a row exists and is UNKNOWN", never as "no OK row": with the
+    step deleted entirely the row DISAPPEARS, and a not-any() form would be
+    satisfied by that mutant.
+    """
+    repo = tmp_path / "fake-repo"
+    (repo / "bulk_downloader").mkdir(parents=True)
+    (repo / "tools").mkdir(parents=True)
+    (repo / "bulk_downloader" / "__init__.py").write_text(
+        '__version__ = "provisioner-probe"\n', encoding="utf-8"
+    )
+    for tool in ("l0_extract.py", "graph_build.py"):
+        (repo / "tools" / tool).write_text("# stand-in\n", encoding="utf-8")
+    # deliberately NO venv/bin/python
+
+    rows_file = tmp_path / "rows.txt"
+    probe = tmp_path / "provisioner-graph-probe.sh"
+    _build_provisioner_graph_probe(probe)
+    env = dict(os.environ)
+    env.update(
+        {
+            "PROBE_ORDER_LOG": str(tmp_path / "order.log"),
+            "BD_GRAPH_HASH_PIN": str(tmp_path / "validation" / "pin.sha256"),
+            "PROVISION_TEST_LOGDIR": str(tmp_path / "provision-logs"),
+            "PROVISION_TEST_ROWS": str(rows_file),
+        }
+    )
+    subprocess.run(
+        [_BASH, str(probe), str(repo)],
+        cwd=str(tmp_path),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+
+    rows: dict[str, str] = {}
+    if rows_file.is_file():
+        for line in rows_file.read_text(encoding="utf-8").splitlines():
+            fields = line.split("|")
+            if len(fields) >= 2:
+                rows[fields[0]] = fields[1]
+
+    pin_rows = {
+        label: result for label, result in rows.items() if "graph" in label.lower()
+    }
+    assert pin_rows, (
+        f"no graph-pin row at all on a host with no venv: {rows}. The step "
+        "stayed silent about a gate it could not arm"
+    )
+    assert all(result == "UNKNOWN" for result in pin_rows.values()), (
+        f"expected UNKNOWN for an unarmable pin, got {pin_rows}"
     )
