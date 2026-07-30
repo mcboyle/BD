@@ -1659,10 +1659,20 @@ def l12_hls_dash_segmented_download(ctx):
         return PASS, (f"{hls} completed download(s) went through the "
                       f"HLS/ffmpeg segmented path — it works")
     if done > 0:
-        return NA, (f"{done} completed download(s), none segmented. BD's "
-                    f"generic scrape-and-click path has no HLS handling — it "
-                    f"lives only in site-specific extractors — so absence "
-                    f"here is not evidence of a fault")
+        # v3.66.819 -- THIS TEXT WAS TRUE ONLY WHILE THE PATH WAS BROKEN.
+        #
+        # It used to say the generic scrape-and-click path "has no HLS handling
+        # -- it lives only in site-specific extractors". That was accurate and is
+        # now false: runner_transport._stream_route routes a scraped .m3u8/.mpd
+        # link through hls_downloader instead of clicking it. Leaving the sentence
+        # would have the check assert the absence of a capability that exists,
+        # which is the same stale-claim class #73 had to correct in three comments.
+        return NA, (f"{done} completed download(s), none segmented. The generic "
+                    f"scrape-and-click path CAN now reach the segmented "
+                    f"downloader (a scraped .m3u8/.mpd routes through "
+                    f"hls_downloader rather than being clicked), so this is not "
+                    f"a missing capability — nothing in this history went "
+                    f"through it, which means no stream was queued")
     return NA, ("no completed downloads yet — nothing to inspect for a "
                 "segmented path")
 
