@@ -1637,42 +1637,63 @@ def l12_hls_dash_segmented_download(ctx):
     if not ctx.db_path.exists():
         return NA, (f"no DB at {ctx.db_path} — no download history to "
                     f"inspect")
+    # THIS QUERY USED TO ASK THE WRONG TABLE THE WRONG QUESTION.
+    #
+    # It counted `status='done' AND (url LIKE '%.m3u8%' OR url LIKE '%.mpd%' OR
+    # message LIKE '%hls%' OR '%segment%' OR '%ffmpeg%')`. Every clause is
+    # unsatisfiable for a segmented download that SUCCEEDS on the generic path:
+    # db_log is passed the PAGE url (runner_transport.py:1193), so the manifest
+    # never reaches the table, and that same call writes message="" as a
+    # literal. Where those words do appear is the failure note ("segmented
+    # download failed: ..."), which `status='done'` then excludes.
+    #
+    # Measured on the deploy host 2026-07-30: /hlspage/2 completed through the
+    # segmented downloader (3498 bytes, ffprobe h264,64,64) and this check
+    # printed "none segmented ... which means no stream was queued".
+    #
+    # #75 corrected the PROSE of the message below and left the query keyed on
+    # URL spelling. Fixing the sentence and not the denominator is the same
+    # error as the sentence.
+    #
+    # transfer_mode (migration v9) is the writer stating the fact instead.
     try:
         cx = ctx.ro_db()
         try:
-            # segmented downloads tend to carry an .m3u8/.mpd-derived
-            # origin or a hls/segment marker in the message
+            cols = {r[1] for r in cx.execute("PRAGMA table_info(history)")}
+            if "transfer_mode" not in cols:
+                return NA, (
+                    "this history database has no transfer_mode column, so "
+                    "which transport moved the bytes was never recorded for "
+                    "any row. That is UNKNOWN, not 'no segmented download' — "
+                    "run the pending migrations (v9) and then a download")
             done = cx.execute(
                 "SELECT COUNT(*) FROM history "
                 "WHERE status = 'done'").fetchone()[0]
-            hls = cx.execute(
+            seg = cx.execute(
                 "SELECT COUNT(*) FROM history WHERE status = 'done' "
-                "AND (url LIKE '%.m3u8%' OR url LIKE '%.mpd%' "
-                "OR message LIKE '%hls%' OR message LIKE '%segment%' "
-                "OR message LIKE '%ffmpeg%')").fetchone()[0]
+                "AND transfer_mode = 'segmented'").fetchone()[0]
         finally:
             cx.close()
     except Exception as e:
         return FAIL, f"could not read history: {e}"
-    ctx.log(f"history: {done} done, {hls} via the HLS/segmented path")
-    if hls > 0:
-        return PASS, (f"{hls} completed download(s) went through the "
-                      f"HLS/ffmpeg segmented path — it works")
+    ctx.log(f"history: {done} done, {seg} recording a segmented transport")
+    if seg > 0:
+        return PASS, (f"{seg} completed download(s) record a segmented "
+                      f"(HLS/DASH) transport — hls_downloader drove ffmpeg "
+                      f"over a manifest and the file verified")
     if done > 0:
-        # v3.66.819 -- THIS TEXT WAS TRUE ONLY WHILE THE PATH WAS BROKEN.
-        #
-        # It used to say the generic scrape-and-click path "has no HLS handling
-        # -- it lives only in site-specific extractors". That was accurate and is
-        # now false: runner_transport._stream_route routes a scraped .m3u8/.mpd
-        # link through hls_downloader instead of clicking it. Leaving the sentence
-        # would have the check assert the absence of a capability that exists,
-        # which is the same stale-claim class #73 had to correct in three comments.
-        return NA, (f"{done} completed download(s), none segmented. The generic "
-                    f"scrape-and-click path CAN now reach the segmented "
-                    f"downloader (a scraped .m3u8/.mpd routes through "
-                    f"hls_downloader rather than being clicked), so this is not "
-                    f"a missing capability — nothing in this history went "
-                    f"through it, which means no stream was queued")
+        # A LOWER BOUND, AND THE MESSAGE MUST NOT OVERSTATE IT.
+        # runner_extractors._try_plugin_extractor performs a real segmented
+        # transfer and then `return True`s, logging no history row of its own,
+        # so its downloads are uncountable here. Rows written before v9 are
+        # NULL for the same reason. `seg == 0` therefore means "no row records
+        # one", which is not the same claim as "no stream was fetched" — and
+        # the old text made exactly that leap.
+        return NA, (f"{done} completed download(s), none of which RECORDS a "
+                    f"segmented transport. transfer_mode is stamped by the "
+                    f"paths that call hls_downloader; pre-v9 rows and the "
+                    f"plugin-extractor path (which logs no row) are NULL, so "
+                    f"this is a lower bound — queue a stream to exercise it")
     return NA, ("no completed downloads yet — nothing to inspect for a "
                 "segmented path")
 

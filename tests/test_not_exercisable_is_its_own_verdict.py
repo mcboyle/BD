@@ -10,15 +10,24 @@ about your deployment deserves attention", and the operator's instruction all
 session has been that they want no warnings -- so a WARN that can never be
 cleared is a permanent false alarm sitting in the summary.
 
-And it can never be cleared. Re-derived 2026-07-29:
-`grep -n m3u8 bulk_downloader/runner_transport.py` returns NOTHING. BD's generic
-scrape-and-click transport has no HLS handling at all; it exists only behind
+And at the time it could never be cleared. Derived 2026-07-29:
+`grep -n m3u8 bulk_downloader/runner_transport.py` returned NOTHING. BD's generic
+scrape-and-click transport had no HLS handling at all; it existed only behind
 site-specific extractors (`runner_extractors.py:1185`, "HLS gets remuxed to MP4
-by ffmpeg"). extraction_core.py recognises .m3u8 when CLASSIFYING a candidate,
+by ffmpeg"). extraction_core.py recognised .m3u8 when CLASSIFYING a candidate,
 but classification is not download. So on a host with no HLS-capable extractor
-site, no arrangement of the seed can produce a segmented download, and L12's
-WARN is reporting the absence of a capability as though it were a fault in the
+site, no arrangement of the seed could produce a segmented download, and L12's
+WARN was reporting the absence of a capability as though it were a fault in the
 deployment.
+
+THAT PARAGRAPH IS NOW HISTORY, AND IS LEFT IN THE PAST TENSE ON PURPOSE.
+`runner_transport._stream_route` routes a scraped .m3u8/.mpd through
+hls_downloader instead of clicking it, and on 2026-07-30 a seeded HLS URL
+completed on the deploy host. The N/A verdict this file adds is still right --
+a host that has queued no stream still has nothing to judge -- but the reason
+"it can never be cleared" is gone, and a doc that keeps asserting a resolved
+impossibility is read as authority for it. The same stale claim had to be
+removed from checks.py's own comment.
 
 THE DISTINCTION THIS ADDS. Three outcomes were previously collapsed into two:
 
@@ -95,13 +104,23 @@ class _Ctx:
 
 
 def _history_db(tmp_path, rows):
+    """`rows` are (url, status, message) or (url, status, message, transfer_mode).
+
+    transfer_mode (migration v9) is what L12 reads now. The column is always
+    created here -- a table WITHOUT it is a distinct case (unknown, not absent)
+    and is covered in test_l12_sees_the_transfer_that_happened.py rather than
+    arriving by accident through a helper that predates the column.
+    """
     db = tmp_path / "downloader_history.db"
     cx = sqlite3.connect(db)
     cx.execute("CREATE TABLE history(id INTEGER PRIMARY KEY, site_id TEXT, "
                "site_name TEXT, url TEXT, status TEXT, filename TEXT, "
-               "file_size INTEGER, message TEXT)")
-    cx.executemany("INSERT INTO history(url, status, message) VALUES (?,?,?)",
-                   rows)
+               "file_size INTEGER, message TEXT, "
+               "transfer_mode TEXT DEFAULT NULL)")
+    cx.executemany(
+        "INSERT INTO history(url, status, message, transfer_mode) "
+        "VALUES (?,?,?,?)",
+        [(r[0], r[1], r[2], r[3] if len(r) > 3 else None) for r in rows])
     cx.commit()
     cx.close()
     return db
@@ -218,10 +237,18 @@ def test_l12_reports_not_exercisable_when_no_segmented_job_was_possible(
 
 def test_l12_still_passes_on_real_segmented_evidence(
         checks_mod, harness, tmp_path, monkeypatch):
-    """The PASS path must survive -- this cut must not make L12 unfailable."""
+    """The PASS path must survive -- this cut must not make L12 unfailable.
+
+    THE EVIDENCE MOVED, the property did not. This row used to be
+    ("http://x/stream.m3u8", "done", "hls via ffmpeg") -- a URL spelled like a
+    manifest and a message mentioning ffmpeg -- and L12 PASSed on the strings.
+    Neither is evidence about which code path ran, and on the deploy host the
+    real thing produces neither: history gets the PAGE url and an empty message.
+    So the fixture now carries what the writer records, transfer_mode.
+    """
     monkeypatch.setattr(checks_mod, "_ffmpeg_present", lambda: "/usr/bin/ffmpeg")
     ctx = _Ctx(_history_db(tmp_path, [
-        ("http://x/stream.m3u8", "done", "hls via ffmpeg"),
+        ("http://x/page/1", "done", "", "segmented"),
     ]))
     level, detail = checks_mod.l12_hls_dash_segmented_download(ctx)
     assert level == harness.PASS, (

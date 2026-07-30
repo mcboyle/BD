@@ -47,6 +47,7 @@ def db_init():
             filename TEXT, file_size INTEGER, message TEXT, screenshot TEXT,
             honeypot_score REAL DEFAULT NULL,
             bytes_fetched INTEGER DEFAULT NULL,
+            transfer_mode TEXT DEFAULT NULL,
             ts TEXT DEFAULT(strftime('%Y-%m-%dT%H:%M:%S','now')))""")
         # Phase 4: persist the live queue. Any pending/running/stopped/
         # needs_review job is mirrored here so a restart picks up exactly
@@ -780,7 +781,7 @@ def db_queue_recovery_summary() -> dict:
     return out
 
 
-def db_log(site_id, site_name, url, status, filename="", file_size=0, message="", screenshot="", honeypot_score=None, best_effort=False, bytes_fetched=None):
+def db_log(site_id, site_name, url, status, filename="", file_size=0, message="", screenshot="", honeypot_score=None, best_effort=False, bytes_fetched=None, transfer_mode=None):
     """Append one row to the history table. Called on every job-level
     state transition (done/failed/needs_review). Append-only — the row
     is never updated or deleted by application code.
@@ -822,6 +823,31 @@ def db_log(site_id, site_name, url, status, filename="", file_size=0, message=""
     every completion site in runner.py feeds the library without
     needing N individual call-site edits.
 
+    ``transfer_mode`` is WHICH transport moved the bytes, stated by the branch
+    that performed it:
+
+        'segmented'  hls_downloader drove ffmpeg over an .m3u8/.mpd manifest
+        'http'       the direct httpx path (_http_download)
+        'browser'    Playwright's own download event (_pw_save)
+        None         this path does not record it -- UNKNOWN, and never proof
+                     that the transfer was NOT segmented
+
+    It exists because no other column can answer "did a segmented download
+    complete", and the live check that asks (L12) was inferring it from URL
+    spelling and message prose. Both are structurally unable to see the generic
+    scrape path's segmented downloads: this function is passed the PAGE url, so
+    the manifest never lands in the table, and the done-path message below is
+    the empty string. Measured on the deploy host 2026-07-30: a segmented
+    download completed (3498 bytes, ffprobe h264) and L12 reported "none
+    segmented ... no stream was queued".
+
+    NULL IS A LOWER BOUND, NOT A NEGATIVE. Every pre-v9 row is NULL, and so is
+    every path that does not pass the argument -- including
+    runner_extractors._try_plugin_extractor, which performs a real segmented
+    transfer and then `return True`s without logging a row of its own. A
+    consumer may read >0 'segmented' rows as proof the path works; it may not
+    read 0 as proof it does not.
+
     v3.66.36 (P5-2b): optional ``honeypot_score`` (float in [0,1] or
     None) persists the resolve-time honeypot score onto the row so the
     per-site threshold learner can later quantile-fit confirmed traps.
@@ -829,9 +855,9 @@ def db_log(site_id, site_name, url, status, filename="", file_size=0, message=""
     callers."""
     with db_conn() as cx:
         try:
-            cur = cx.execute("INSERT INTO history(site_id,site_name,url,status,filename,file_size,message,screenshot,honeypot_score,bytes_fetched) "
-                       "VALUES(?,?,?,?,?,?,?,?,?,?)",
-                       (site_id, site_name, url, status, filename, file_size, message, screenshot, honeypot_score, bytes_fetched))
+            cur = cx.execute("INSERT INTO history(site_id,site_name,url,status,filename,file_size,message,screenshot,honeypot_score,bytes_fetched,transfer_mode) "
+                       "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                       (site_id, site_name, url, status, filename, file_size, message, screenshot, honeypot_score, bytes_fetched, transfer_mode))
             history_id = cur.lastrowid
         except Exception as _ins_exc:
             # F3: a 'done' row records a download that already succeeded on
