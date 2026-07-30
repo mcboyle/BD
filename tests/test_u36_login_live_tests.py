@@ -133,9 +133,12 @@ def test_l6_will_not_pass_when_it_cannot_tell_live_sites_from_orphans():
     )
 
 
-def test_l7_no_db_is_warn():
+def test_l7_no_db_is_not_exercisable():
+    # No DB -> the fallback cannot be observed. N/A, not WARN: a missing
+    # DB is already FAILed by L22/L26 (whose subject IS the DB); a second
+    # unclearable WARN here would be a false alarm (CLAUDE.md sec0 inverse).
     level, detail = _get_test("L7").fn(_dead_ctx())
-    assert level == h.WARN
+    assert level == h.NA
     assert "no DB" in detail
 
 
@@ -149,11 +152,11 @@ def test_both_return_valid_tuples():
 
 # ── L7 against a real sandbox DB (read-only over session_history) ──
 
-def test_l7_warns_with_empty_session_history(clean_workdir):
+def test_l7_empty_session_history_is_not_exercisable(clean_workdir):
     db.db_init()
     ctx = h.Context("http://localhost:1", str(clean_workdir))
     level, detail = _get_test("L7").fn(ctx)
-    assert level == h.WARN
+    assert level == h.NA
     assert "no login events" in detail
 
 
@@ -167,14 +170,20 @@ def test_l7_passes_when_a_fallback_event_exists(clean_workdir):
     assert "login_template_fallback" in detail
 
 
-def test_l7_warns_with_logins_but_no_fallback(clean_workdir):
+def test_l7_logins_but_no_fallback_is_observed_na(clean_workdir):
     db.db_init()
     # login activity exists, but the Phase B fallback never fired
     db.session_event_record("s1", None, "login", "ok")
     ctx = h.Context("http://localhost:1", str(clean_workdir))
     level, detail = _get_test("L7").fn(ctx)
-    # never fired is not a failure — the templates may all just work
-    assert level == h.WARN
+    # events exist but none is a fallback -> observed, nothing to judge.
+    # N/A, not WARN (never-fired is not a fault). The message must NOT
+    # claim the takeover "is wired": start_manual_login can never open
+    # from inside login_async's own _run thread, so an event proves
+    # recording, not takeover (runner_auth re-entrancy -- separate cut).
+    assert level == h.NA
+    assert "no failure to assess" in detail
+    assert "wired" not in detail.lower()
 
 
 def test_l7_ignores_fallbacks_from_removed_sites(clean_workdir):
@@ -185,8 +194,58 @@ def test_l7_ignores_fallbacks_from_removed_sites(clean_workdir):
     ctx = _AuthHealthContext([], {"current": {"state": "idle"}},
                              clean_workdir / "downloader_history.db")
     level, detail = _get_test("L7").fn(ctx)
-    assert level == h.WARN
-    assert "no Phase B fallback" in detail
+    # the removed-site fallback is filtered out by the site scope; the
+    # current site shows login activity but no fallback -> observed N/A
+    # (branch D), not WARN. The old "no Phase B fallback" phrase is gone.
+    assert level == h.NA
+    assert "no failure to assess" in detail
+
+
+def test_l7_unreadable_db_is_fail(clean_workdir):
+    # REGRESSION GUARD (passes on pristine): a corrupt session_history is
+    # a real, observable problem -- the ONE L7 state that must stay FAIL.
+    # N/A must not swallow it. Mutation M6 flips it to N/A; this catches it.
+    dbp = clean_workdir / "downloader_history.db"
+    dbp.write_text("not a database")
+    ctx = h.Context("http://localhost:1", str(clean_workdir))
+    level, detail = _get_test("L7").fn(ctx)
+    assert level == h.FAIL
+    assert "could not read session_history" in detail
+
+
+def test_l7_na_messages_are_textually_distinct(clean_workdir):
+    # The three N/A states must not collapse into one message -- collapsing
+    # observed vs not-exercisable was the real defect in the L12 cut.
+    nodb = _get_test("L7").fn(_dead_ctx())              # branch A (no DB)
+
+    db.db_init()
+    empty_ctx = h.Context("http://localhost:1", str(clean_workdir))
+    notexerc = _get_test("L7").fn(empty_ctx)            # branch E (no events)
+
+    db.session_event_record("s1", None, "login", "ok")
+    obs_ctx = h.Context("http://localhost:1", str(clean_workdir))
+    observed = _get_test("L7").fn(obs_ctx)              # branch D (observed)
+
+    assert nodb[0] == notexerc[0] == observed[0] == h.NA
+    details = {nodb[1], notexerc[1], observed[1]}
+    assert len(details) == 3, f"N/A messages collapsed: {sorted(details)}"
+
+
+def test_l7_na_flows_through_run_all_without_failing(tmp_path):
+    # run_all-enforcement lesson: every other L7 test calls the check
+    # directly and never reaches run_all's `if level not in _LEVELS: FAIL`
+    # guard (harness.py:280). If N/A left _LEVELS, L7's N/A would be
+    # rewritten to FAIL on the box while this suite stayed green. This runs
+    # L7 THROUGH the harness (no-DB home -> branch A -> N/A) and asserts the
+    # summary records N/A and the run still exits 0.
+    rdir = tmp_path / "results"
+    home = tmp_path / "empty_home"          # no downloader_history.db here
+    home.mkdir()
+    code = h.run_all("http://localhost:1", str(home),
+                     only=["L7"], results_dir=rdir)
+    assert code == 0
+    summary = (rdir / "SUMMARY.txt").read_text(encoding="utf-8")
+    assert "N/A  L7" in summary, f"run_all did not record L7 N/A:\n{summary}"
 
 
 # ── harness integration ────────────────────────────────────────────
