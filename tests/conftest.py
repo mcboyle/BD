@@ -134,6 +134,16 @@ def pytest_configure(config):
         "markers",
         "capture_parallel: run this reviewed-safe file in capture.sh's xdist lane.",
     )
+    # `slow` was applied in tests/test_desandbox_tool_verifiers.py without ever
+    # being registered, so pytest emitted PytestUnknownMarkWarning and the mark
+    # selected nothing. A marker that reads as a control and controls nothing is
+    # the same defect class this suite exists to catch -- register it so
+    # `-m "not slow"` is a real, usable deselection.
+    config.addinivalue_line(
+        "markers",
+        "slow: shells out to a whole-tree tool (tens of seconds or more). "
+        "Runs by default; deselect with -m 'not slow'.",
+    )
 
 
 def pytest_collection_modifyitems(items):
