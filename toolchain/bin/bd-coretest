@@ -55,13 +55,45 @@ def test_guardcheck(BIN):
     shutil.rmtree(d, ignore_errors=True)
 
 def test_regen(BIN):
-    """FAULT: run --check on a tree with no generators -> must not crash, must report
-    a definite state (0 clean / 1 drift), never a false-green."""
+    """FAULT: bd-regen check mode (the DEFAULT -- there is no literal --check flag)
+    must (1) REPORT drift, (2) NEVER rewrite the artifact during the read-only
+    check, and (3) fail closed on an all-missing tree.
+
+    The old assertion here accepted any of OK/DRIFT/"sync" with rc in (0,1), which
+    the historical bug satisfied perfectly: the --help capability probe triggered
+    build_pin_index's fall-through write, erased the drift, and printed "all
+    derived docs in sync" exit 0. A verdict-shaped answer is not a correct one."""
     exe = os.path.join(BIN, "bd-regen")
-    rc, out = run(exe)  # default --check on the real tree
-    # teeth = it produces a definite OK/DRIFT verdict and a sane exit (0 or 1), not 99/traceback
-    rec("bd-regen", "definite-verdict", (rc in (0, 1) and ("OK" in out or "DRIFT" in out or "sync" in out.lower())),
-        f"rc={rc}, verdict present")
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(BIN)))
+    gen = os.path.join(repo, "tools", "build_pin_index.py")
+    if not os.path.isfile(gen):
+        rec("bd-regen", "harness", False, "tools/build_pin_index.py not found next to BIN")
+        return
+    d = tempfile.mkdtemp(prefix="coretest_regen_")
+    empty = tempfile.mkdtemp(prefix="coretest_regen_empty_")
+    try:
+        os.makedirs(os.path.join(d, "tools"))
+        os.makedirs(os.path.join(d, "tests"))
+        shutil.copy(gen, os.path.join(d, "tools", "build_pin_index.py"))
+        tf = os.path.join(d, "tests", "test_pin.py")
+        open(tf, "w").write('__version__ = "1.0.0"\n\ndef test_v():\n    assert __version__ == "1.0.0"\n')
+        subprocess.run([sys.executable, os.path.join(d, "tools", "build_pin_index.py")],
+                       cwd=d, capture_output=True, text=True)
+        pin = os.path.join(d, "PIN_INDEX.json")
+        before = hashlib.sha256(open(pin, "rb").read()).hexdigest()
+        open(tf, "w").write('__version__ = "2.0.0"\n\ndef test_v():\n    assert __version__ == "2.0.0"\n')
+        rc, out = run(exe, "--work", d)
+        after = hashlib.sha256(open(pin, "rb").read()).hexdigest()
+        rec("bd-regen", "check-is-read-only", (after == before),
+            "read-only check did not rewrite PIN_INDEX.json", kind="FAULT")
+        rec("bd-regen", "check-reports-drift", (rc != 0 and "DRIFT" in out),
+            f"drift surfaced (rc={rc})", kind="FAULT")
+        rc2, out2 = run(exe, "--work", empty)
+        rec("bd-regen", "missing->not-green", (rc2 != 0),
+            f"all-missing tree fails closed (rc={rc2})", kind="FAULT")
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+        shutil.rmtree(empty, ignore_errors=True)
 
 def test_bump(BIN):
     """FAULT: a stray version pin left at the old version must be FOUND by bd-bump

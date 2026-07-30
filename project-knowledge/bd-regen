@@ -50,22 +50,26 @@ GEN = [
     ("FUNCTION_INDEX",  "tools/build_function_index.py", "--check", None),
     ("DEPENDENCY_GRAPH", "tools/dependency_graph.py",    "--check", None),
     ("PIN_INDEX",       "tools/build_pin_index.py",      "--check", None),
-    ("route counts",    "tools/check_route_counts.py",   None,      None),
+    ("route counts",    "tools/check_route_counts.py",   "--check", None),
 ]
 
 
+def python_for(work):
+    """Prefer the work tree's Python environment, then the running interpreter.
+    The container's bare interpreter is 3.11 without the project deps (CLAUDE.md
+    section 5), so the generators must run under <work>/venv."""
+    for environment in (".venv", "venv"):
+        py = os.path.join(work, environment, "bin", "python")
+        if os.path.isfile(py) and os.access(py, os.X_OK):
+            return py
+    return sys.executable
+
+
 def run(work, path, *args):
-    env = {**os.environ, "PYTHONPATH": f"{work}:/tmp/prestaged_site_packages"}
-    r = subprocess.run(["python3", path, *args], cwd=work, capture_output=True,
+    env = {**os.environ, "PYTHONPATH": work}
+    r = subprocess.run([python_for(work), path, *args], cwd=work, capture_output=True,
                        text=True, env=env, timeout=150)
     return r.returncode, (r.stdout + r.stderr)
-
-
-def supports(work, path, flag):
-    if not flag:
-        return False
-    rc, out = run(work, path, "--help")
-    return flag in out
 
 
 def main():
@@ -82,32 +86,43 @@ def main():
             missing += 1
             continue
         if a.write:
-            # regenerate for real: run with no --check (writes), or --write if it has it
-            wflag = [writeflag] if writeflag and supports(a.work, path, writeflag) else []
+            # regenerate for real: bare run writes; a declared --write flag is used as-is.
+            wflag = [writeflag] if writeflag else []
             rc, out = run(a.work, path, *wflag)
             print(f"  {(G+'wrote'+RST) if rc == 0 else (R+'FAIL '+RST)} {label}")
             if rc != 0:
                 print(f"        {DIM}{out.strip()[-160:]}{RST}")
                 drift += 1
             continue
-        # check mode -- MUST stay read-only: only run generators with a real --check
-        if supports(a.work, path, checkflag):
-            rc, out = run(a.work, path, checkflag)
-            if rc == 0:
-                print(f"  {G}OK   {RST}{label}")
-            else:
-                print(f"  {R}DRIFT{RST} {label} {DIM}(regen needed){RST}")
-                drift += 1
+        # check mode -- provably read-only: run each generator ONLY with its DECLARED
+        # read-only check invocation. NEVER probe capability by running --help. That
+        # probe is what broke this: build_pin_index had no argparse and fell through
+        # to out.write_text() on any unrecognized argv, so asking "do you support
+        # --check?" REGENERATED the artifact and erased the very drift this check
+        # exists to report -- then printed "all derived docs in sync", exit 0.
+        if not checkflag:
+            # UNKNOWN is a third state and it FAILS. A generator with no declared
+            # read-only invocation cannot be verified here, and running it blind is
+            # how the artifact got rewritten. Report it and refuse the green verdict.
+            print(f"  {Y}?? {RST}{label} {DIM}(no declared --check; cannot verify){RST}")
+            missing += 1
+            continue
+        rc, out = run(a.work, path, checkflag)
+        if rc == 0:
+            print(f"  {G}OK   {RST}{label}")
         else:
-            # no --check flag: do NOT run (could write). report + defer to --write.
-            print(f"  {Y}?? {RST}{label} {DIM}(no --check flag; verify via `bd-regen --write` "
-                  f"or the tool's own gate){RST}")
+            print(f"  {R}DRIFT{RST} {label} {DIM}(regen needed){RST}")
+            drift += 1
     if a.write:
-        print(f"{G}RESULT: regenerated ({drift} failed){RST}" if not drift
-              else f"{R}RESULT: {drift} generator(s) failed{RST}")
-        return 1 if drift else 0
-    if drift:
-        print(f"{R}RESULT: {drift} derived doc(s) DRIFTED -- `bd-regen --write` before cut{RST}")
+        ok = not (drift or missing)
+        print(f"{G}RESULT: regenerated{RST}" if ok
+              else f"{R}RESULT: {drift} generator(s) failed, {missing} missing{RST}")
+        return 0 if ok else 1
+    # `missing` was previously incremented and never read, so a tree where EVERY
+    # generator was absent printed "all derived docs in sync" and exited 0.
+    if drift or missing:
+        print(f"{R}RESULT: {drift} drifted, {missing} unverifiable/missing "
+              f"-- NOT in sync{RST}")
         return 1
     print(f"{G}RESULT: all derived docs in sync{RST}")
     return 0
