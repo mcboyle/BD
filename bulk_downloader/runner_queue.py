@@ -9,7 +9,7 @@ from .runner.
 import contextlib, queue, sqlite3, sys, threading, time
 from pathlib import Path
 
-from .runner_util import _ts
+from .runner_util import _ts, _ts_iso
 from .db import (
     queue_load, queue_upsert, queue_bulk_upsert, queue_bulk_delete,
     queue_bulk_update, queue_delete_status, queue_reorder, queue_set_priority,
@@ -301,6 +301,9 @@ class QueueMixin:
                     dupes+=1
                     continue
                 self.jobs[u]={"status":status,"message":msg,"ts":_ts() if pre_done else "",
+                              # CUT #41: a pre_done job is already "done"; without
+                              # ts_iso no day-window consumer can ever count it.
+                              "ts_iso":_ts_iso() if pre_done else "",
                               "priority":url_priorities.get(u, "normal"),"retries":0,"retry_after":0,
                               "filename":"","file_size":0,
                               # v3.43.23: stamp creation time so a newly-added URL doesn't

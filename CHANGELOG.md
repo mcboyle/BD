@@ -4,6 +4,50 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.825 - four producers put a job in a counted state with nothing to count it by
+
+- Four day-window consumers count jobs whose status is done, failed or
+  needs_review AND whose ts_iso starts with today's LOCAL date. CUT #31 added
+  ts_iso and CUT #40 repointed the consumers onto it; both fixed the READ side.
+  Four producers still put a job into one of those statuses without ever
+  writing the field, so those jobs were counted by NONE of the consumers:
+
+  - app_sites_queue.py:542  api_jobs_mark       wrote only the display ts
+  - app_sites_queue.py:586  api_jobs_bulk_mark  wrote only the display ts
+  - runner_queue.py:303     load_urls, pre_done wrote only the display ts
+  - runner_teach.py:351     _handle_auto_teach_check
+
+  The fourth was missing from the register this cut came from. It sets ts to ""
+  and then calls _update_job with _memory_already_updated=True -- exactly the
+  flag that SKIPS the central ts_iso stamp at runner.py:1658 -- so the one
+  writer that would have stamped it is deliberately bypassed. The register said
+  three; four independent sweeps (AST over every job-dict mutation form, a
+  runtime trace that instrumented runner.jobs and drove 712 routes, a consumer
+  swallow analysis, and a format/timezone read) each returned four, and every
+  candidate then went to an adversarial verifier. The register's three were all
+  real, so the correction is in one direction only this time.
+
+- Effect was an UNDER-COUNT, not always-0: jobs finished through the normal
+  transport path do carry ts_iso and did count. Do not restate it as always-0 --
+  that was #40a's causal clause and it was never true.
+
+- The value now comes from one helper, runner_util._ts_iso(), rather than a
+  fourth inlined copy; runner.py:1658's inline stamp was repointed at it too.
+  It is LOCAL on purpose, because all four consumers compare a LOCAL date.
+
+- The fix is on the PRODUCER side. The seductive wrong fix is on the consumer
+  side -- j.get("ts_iso","") or today_iso -- which would make every ts_iso-less
+  job, including ones marked done weeks ago, count as completed today forever.
+  test_cut40_dashboard_today_iso's G4 pins that boundary and stays green here;
+  if a later edit makes G4 fail, the fix went in the wrong place.
+
+- Known and deliberately untouched, both separately filed: runner_queue.py:106
+  stamps ts_iso from sqlite ts_updated, which db.py writes UTC while every
+  consumer compares LOCAL, so rehydrated jobs are judged on the wrong clock on
+  a non-UTC host; and the consumers do not share a denominator either --
+  app_dashboard.py:203 counts only done and failed and app_queue.py:229 only
+  done, so needs_review is invisible to two of the four regardless of ts_iso.
+
 ## v3.66.824 - four probes of a contract deleted 490 versions ago
 
 - The /api/library/audit handler docstring was a fourth statement of a contract

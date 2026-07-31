@@ -7,6 +7,8 @@ conditional). Cycle rule: imports nothing from .runner.
 """
 import sys, time
 
+from .runner_util import _ts_iso
+
 
 # scrapling_adapter soft import (moved verbatim from runner.py; flat sibling so
 # `.`=bulk_downloader is unchanged). Provides _scrap + _SCRAPLING_AVAILABLE.
@@ -352,6 +354,12 @@ class TeachMixin:
                         "status": "needs_review",
                         "message": teach_message,
                         "ts": "",
+                        # CUT #41: this path calls _update_job with
+                        # _memory_already_updated=True, which SKIPS the central
+                        # ts_iso stamp at runner.py:1658 -- so it must write its
+                        # own or the job is uncountable. `ts` stays "" on
+                        # purpose: nothing has completed, only been flagged.
+                        "ts_iso": _ts_iso(),
                         "auto_teach_seen": True,
                     })
                     mark_status_changed()

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 1368,
+  "edge_count": 1369,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1642,6 +1642,7 @@
       "bulk_downloader/app.py",
       "bulk_downloader/cookies.py",
       "bulk_downloader/learn.py",
+      "bulk_downloader/runner_util.py",
       "bulk_downloader/scrapling_adapter.py",
       "bulk_downloader/template_manager.py"
     ],

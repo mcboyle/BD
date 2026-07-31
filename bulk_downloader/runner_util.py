@@ -57,6 +57,27 @@ _BD_TO_APPRISE_EVENT: dict = {
 def _ts(): return datetime.now().strftime("%H:%M:%S")
 
 
+def _ts_iso():
+    """The date-comparable sibling of `_ts()`.
+
+    `_ts()` is HH:MM:SS because that is what the queue UI renders; it carries
+    no date, so comparing it against a "%Y-%m-%d" prefix is False for every
+    possible pair of values. Every day-window consumer filters on THIS field
+    instead (app.py:3912, app_dashboard.py:66 and :203, app_queue.py:229).
+
+    LOCAL, deliberately: all four consumers compare against a LOCAL
+    `time.strftime("%Y-%m-%d")`, so a UTC stamp here would land on the wrong
+    day near midnight on a non-UTC host. (runner_queue.py:106 copies sqlite
+    `ts_updated`, which db.py stamps UTC -- that mismatch is a separate,
+    separately-filed item and is NOT what this helper is for.)
+
+    One implementation on purpose: this value was inlined at runner.py:1658 and
+    three more producers wrote none at all. Three copies is a denominator that
+    drifts, and the copy nobody updates is the one that ships.
+    """
+    return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+
 def _resolve_safe(v):
     """NEW-7 (v3.66.43): resolve a credential value, returning "" on any
     failure — NEVER the literal "@cred:..." reference. The runner treats

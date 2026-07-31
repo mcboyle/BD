@@ -15,7 +15,7 @@ from flask import Blueprint, Response, jsonify, request
 from pathlib import Path
 from .constants import SCREENSHOTS_DIR
 from .runner import SiteRunner
-from .runner import _ts
+from .runner import _ts, _ts_iso
 from datetime import datetime
 from .db import db_search
 from .db import queue_upsert
@@ -543,6 +543,9 @@ def api_jobs_mark(sid):
         if message:
             j["message"] = message
         j["ts"] = _ts()
+        # CUT #41: the date-comparable sibling. Without it a manually
+        # marked job is counted by NO day-window consumer.
+        j["ts_iso"] = _ts_iso()
         # When marking failed/done, freeze auto-retry so the scanner doesn't
         # keep re-queueing.
         if status in ("failed", "done"):
@@ -587,6 +590,7 @@ def api_jobs_bulk_mark(sid):
             if message:
                 j["message"] = message
             j["ts"] = _ts()
+            j["ts_iso"] = _ts_iso()   # CUT #41, as above
             if status in ("failed", "done"):
                 j["next_auto_retry_at"] = 0
             affected += 1

@@ -296,7 +296,7 @@ except Exception as _e:
 # --- leaf helpers + shared consts moved to runner_util.py (cut 1: runner decomposition) ---
 # Re-exported here to preserve the bulk_downloader.runner import surface.
 from .runner_util import (  # noqa: F401  -- external re-export surface
-    _ts, _resolve_safe, _check_video_magic_bytes, resolve_url_attribute,
+    _ts, _ts_iso, _resolve_safe, _check_video_magic_bytes, resolve_url_attribute,
     gate_candidate_url, _bump_learned_stat, _bump_per_selector,
     _maybe_demote_selectors, record_bandwidth, get_bandwidth_history,
     _bw_history, DEFAULT_MIN_RESOLUTION, _BD_TO_APPRISE_EVENT,
@@ -1655,7 +1655,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                         # prefix is False for every possible pair of values,
                         # which is how done_today_count came to be
                         # structurally always 0.
-                        "ts_iso": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                        "ts_iso": _ts_iso(),
                         **extra,
                     })
                     mark_status_changed()
