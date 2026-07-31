@@ -742,8 +742,8 @@
       "sha256": "0cad156d925396f636ac0d8b3b83d138a42c91224d9c5b30da063c659d5f6a79"
     },
     "bd-log-sanitize": {
-      "bytes": 3659,
-      "sha256": "d193e157c2374a49fa085303f0e4c474a5368b62f41edc6f4b4da7be2427cb5c"
+      "bytes": 4485,
+      "sha256": "f7c77a6c70144b1a59099dec1fe28bcb0b6182c476a635557f4b724639c563d9"
     },
     "bd-lost-symbol": {
       "bytes": 7998,
@@ -946,8 +946,8 @@
       "sha256": "f062f2df1ce056b09edd11fd92b442eb81b01b65a040847cd1d22a610192adfc"
     },
     "bd-redaction-compiler": {
-      "bytes": 8575,
-      "sha256": "11d468255d064f365f3080664aceb230b36551ed40b68209b818ed1ca263989e"
+      "bytes": 8686,
+      "sha256": "e5396038483e817be283ce2b0a5b28fceb5114a35d7596e982d8e8e039ccde72"
     },
     "bd-redaction-scan": {
       "bytes": 5306,

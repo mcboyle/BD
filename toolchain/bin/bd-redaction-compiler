@@ -39,7 +39,7 @@ RULESET = [
     ("aws_key", r"AKIA[0-9A-Z]{16}",
      "[REDACTED_AWS]", "AKIAIOSFODNN7EXAMPLE", "AKIA123"),
     ("kv_secret",
-     r"(?i)\b(?:api[_-]?key|secret|token|password|csrf[_-]?token)\s*[=:]\s*[A-Za-z0-9_\-\.=/+]{8,}",
+     r"(?i)(?:\b|(?<=[-_]))(?:(?:api[_-]?key|secret|token|password|csrf[_-]?token|xsrf[_-]?token|session[_-]?(?:id|key|token))\b(?=\s*[=:])|(?:session|sid|csrf|xsrf)\b(?=\s*=))\s*[=:]\s*[A-Za-z0-9_\-\.=/+]{8,}",
      r"\g<0>",  # replacement handled specially (mask the value); see _compile
      "api_key=abcdef0123456789", "api_key=x"),
     ("signed_url_param",
