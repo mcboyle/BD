@@ -767,7 +767,7 @@ def _check_csrf():
                 path, sent[:8] if sent else "<missing>", len(sent), sess[:8])
         except Exception: pass
         return jsonify({"error": "csrf token missing or invalid",
-                        "hint": "send X-CSRF-Token header matching the value embedded in the HTML meta tag"}), 403
+                        "hint": "send an X-CSRF-Token header; GET /api/csrf mints and returns the token for this session"}), 403
     return None
 
 
@@ -3909,7 +3909,7 @@ def _dashboard_snapshot():
                 for url, j in runner.jobs.items():
                     s = j.get("status","")
                     if s in totals: totals[s] += 1
-                    ts = j.get("ts","") or ""
+                    ts = j.get("ts_iso","") or ""
                     if ts.startswith(today_iso):
                         if s == "done": today_done += 1
                         elif s == "failed": today_failed += 1

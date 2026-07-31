@@ -585,6 +585,16 @@ tail -5 "$OUT/02b_graph_checkhash.log" | sed 's|^|  |'
 # python -c string, because _strip_shell_comments (provisioner regen ordering)
 # asserts no comment line survives inside capture.sh's shell body.
 #
+# The two "contains meta tag" / "contains marker" probes were deleted. The
+# Jinja shell they probed went at v3.66.334 -- bulk_downloader/templates/ no
+# longer exists and / is served either as the installer 503 or as the static
+# frontend/dist/index.html, so both booleans were structural constants False
+# on BOTH reachable branches. Nothing read them: capture_verdict.py consumes
+# only the stage EXIT code handed to it via --stage-exit "csrf=$CSRF_EXIT",
+# never the log body. Two lines that could not fail and could not pass, in a
+# bundle that is tarred and shipped. The exit code and the redacted cookie
+# facts below are what step [3] genuinely carries.
+#
 echo "=== [3/9] CSRF diagnostic ==="
 BD_DISABLE_KEEPALIVE=1 venv/bin/python -c "
 from bulk_downloader.app import app
@@ -592,8 +602,6 @@ with app.test_client() as c:
    r = c.get('/')
    print('status:', r.status_code)
    print('body length:', len(r.data))
-   print('contains meta tag:', b'<meta name=\"csrf-token\"' in r.data)
-   print('contains marker  :', b'{{ csrf_token }}' in r.data)
    print('Set-Cookie headers:', len(r.headers.getlist('Set-Cookie')))
    _flag_attrs = ('expires', 'max-age', 'domain', 'path', 'secure',
                   'httponly', 'samesite', 'partitioned', 'priority')

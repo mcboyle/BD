@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.820 - six gates and guards that could not reach their subjects
+
+- conftest's $HOME store guard declared ~/BulkDownloader/macros protected but
+  hooked only the write primitives, never os.mkdir, so the directory was still
+  created on every run. os.mkdir is now hooked, and macro_recorder._macro_dir
+  is diverted for the unsteered case so the macros routes do not 5xx on the
+  guard.
+- Three dashboard "today" counters compared a wall-clock display string to a
+  date and were structurally always zero. Repoints three consumers; jobs marked
+  done by hand still will not count (producer gap, filed separately).
+- Deleting a site left its auth_health row behind, so Site Health accumulated
+  permanent phantom sites. The reap now logs rather than swallowing, and cannot
+  fire on queue-replace.
+- history.file_size was stat'd before the metadata atoms were written, so every
+  tagged download under-reported its own size.
+- install_linux.sh downloaded Playwright engines into the installing user's
+  HOME and reported "Installed" from exit status alone. Now forwards
+  PLAYWRIGHT_BROWSERS_PATH through both de-escalation branches and grades the
+  reach verdict on parsed content.
+- Every deleted history row left its terms in the FTS index forever. Both
+  deleters now maintain the index; counters are approximate until the
+  stale-terms-on-UPDATE path is fixed.
+- The CSRF diagnostic probed a contract deleted at v3.66.334 and the 403 body
+  still advertised it. Both retired; the gate is biconditional, so restoring
+  the tag without restoring the probe fails.
+
 ## v3.66.819 - gates that could not see their subjects
 
 Release of 57 commits since v3.66.818. The recurring theme is CLAUDE.md section

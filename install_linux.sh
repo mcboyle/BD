@@ -263,6 +263,100 @@ fi
 # Running them separately is what buys that grading: one combined
 # `playwright install chromium firefox webkit` reports a single exit status, so
 # a webkit failure would be indistinguishable from a chromium failure.
+# ── Per-user browser state: which user's HOME it lands in ────────────────────
+#
+# Playwright and CloakBrowser both keep their downloaded browsers in a PER-USER
+# directory derived from $HOME. Both were read, not assumed:
+#
+#   playwright    venv/lib/python3.12/site-packages/playwright/driver/package/
+#                 lib/coreBundle.js -- defaultCacheDirectory =
+#                 process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache');
+#                 registryDirectory = <that>/ms-playwright, unless
+#                 PLAYWRIGHT_BROWSERS_PATH is set.
+#   cloakbrowser  cloakbrowser/config.py -- Path.home() / ".cloakbrowser"
+#
+# So `sudo ./install_linux.sh` downloaded them into /root/.cache/ms-playwright --
+# mode 0700 on a stock Ubuntu, so the service user cannot even traverse it --
+# while install_service.sh deliberately writes User=${SUDO_USER:-$(whoami)} into
+# the unit, for the reason its own comment gives: "yt-dlp + Playwright running
+# as root is a security smell". The deploy SPLITS the installing user from the
+# service user on purpose, and this script was the half that did not know. It
+# then printed "Installed: chromium" from the download's exit status alone:
+# true about root, and useless about the account that runs the app.
+#
+# Six other tracked .sh files already resolve this same variable the same way
+# (install_service.sh, install_remote_teach.sh and the four uninstallers). This
+# is that variable, not a new policy.
+_bd_run_user="${SUDO_USER:-$(whoami)}"
+
+# Set BEFORE the section, so the closing banner can report it under `set -u`
+# even on the branch where bd_playwright_engines is unavailable and nothing is
+# installed at all. "unknown" is the correct starting value: on that branch
+# nothing was installed and nothing is known.
+_pw_reach="unknown"
+
+# bd_as_run_user <cmd> [args...]
+#
+# Run a per-user browser download as _bd_run_user. A NO-OP when not elevated, or
+# when _bd_run_user is already root, so the unprivileged path -- the one this
+# script's header contract says must keep working with no sudo rights at all --
+# behaves exactly as it did.
+#
+# ENVIRONMENT, NOT JUST IDENTITY. Two variables decide where the engines land,
+# and the two de-escalation tools disagree about BOTH, so neither is left to the
+# host's policy. Both behaviours were MEASURED, not assumed:
+#
+#   XDG_CACHE_HOME            Playwright prefers it over os.homedir(), so
+#                             carrying root's value across the switch would send
+#                             the engines to root's cache ANYWAY -- a fix that
+#                             appears to work and does not. runuser PRESERVES it
+#                             (it resets only HOME/SHELL/USER/LOGNAME); sudo's
+#                             env_reset drops it. `env -u` drops it explicitly so
+#                             the two branches agree. It is dropped ONLY when
+#                             crossing a user boundary: an unprivileged
+#                             operator's own value is theirs and is left alone.
+#   PLAYWRIGHT_BROWSERS_PATH  The OPPOSITE case. When set, the registry is an
+#                             explicit machine-wide pool (scripts/cloud-setup.sh
+#                             provisions exactly that shape), so dropping it
+#                             would move the engines OFF the pool the deployment
+#                             resolves. runuser KEEPS it; sudo's env_reset
+#                             STRIPS it -- so it is RE-STATED on the env(1)
+#                             command line rather than inherited. Without that,
+#                             the sudo branch silently reintroduces the very
+#                             wrong-cache defect this function exists to fix, and
+#                             the reach check below could not see it: it crosses
+#                             the same boundary, so it would resolve the same
+#                             wrong registry and report "ok".
+#
+# UNKNOWN IS A THIRD STATE. Elevated with neither runuser nor sudo present, this
+# cannot de-escalate. It SAYS SO and runs the command as-is rather than quietly
+# filling root's cache under a success message; the verification step below then
+# reports the same run as unreachable, so the operator gets one story, not two.
+bd_as_run_user() {
+    if [ "$(id -u)" != "0" ] || [ "$_bd_run_user" = "root" ]; then
+        "$@"
+        return $?
+    fi
+    # ONE env(1) prefix, used by BOTH branches. A variable forwarded in only one
+    # of them is a fix that works or not depending on which tool the host
+    # happens to have on root's PATH.
+    local _bd_env=(env -u XDG_CACHE_HOME)
+    if [ -n "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
+        _bd_env+=("PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH")
+    fi
+    if command -v runuser >/dev/null 2>&1; then
+        runuser -u "$_bd_run_user" -- "${_bd_env[@]}" "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo -u "$_bd_run_user" -H -- "${_bd_env[@]}" "$@"
+    else
+        echo "  WARNING: running as root with neither runuser nor sudo, so this"
+        echo "  browser download CANNOT be de-escalated to $_bd_run_user. It will"
+        echo "  land in root's cache, which the service user cannot read."
+        echo "  Re-run this script as $_bd_run_user."
+        "$@"
+    fi
+}
+
 _pw_core=""
 _pw_extra=""
 if declare -F bd_playwright_engines >/dev/null 2>&1; then
@@ -290,7 +384,7 @@ else
     # Word splitting is the point: the fragment returns one space-separated
     # list, playwright wants one argument per engine.
     # shellcheck disable=SC2086
-    if "$VPYTHON" -m playwright install $_pw_core; then
+    if bd_as_run_user "$VPYTHON" -m playwright install $_pw_core; then
         echo "  Installed: $_pw_core"
     else
         echo "  WARNING: installing $_pw_core failed. The app needs it"
@@ -302,12 +396,97 @@ if [ -n "$_pw_extra" ]; then
     echo "  Installing additional Playwright engines ($_pw_extra) ..."
     echo "  (BD does not launch these; live check L4 audits their presence.)"
     # shellcheck disable=SC2086
-    if "$VPYTHON" -m playwright install $_pw_extra; then
+    if bd_as_run_user "$VPYTHON" -m playwright install $_pw_extra; then
         echo "  Installed: $_pw_extra"
     else
         echo "  (optional: $_pw_extra not installed - BD runs without them;"
         echo "   live check L4 will report the install as incomplete)"
     fi
+fi
+
+# ── Did the engines land where the SERVICE user looks? ───────────────────────
+#
+# THREE OUTCOMES, and UNKNOWN is one of them.
+#
+# INSTRUMENT: `playwright install --dry-run <engines>`, run as _bd_run_user. It
+# prints one "Install location:" line per artefact, exits 0, touches no network
+# and needs no OS libraries -- and, unlike anything in the Python API, its output
+# CONTAINS THE HEADLESS SHELL. Measured, playwright 1.61.0:
+#
+#   $ HOME=/tmp/x venv/bin/python -m playwright install --dry-run chromium
+#     Install location:    /tmp/x/.cache/ms-playwright/chromium-1228
+#     Install location:    /tmp/x/.cache/ms-playwright/ffmpeg-1011
+#     Install location:    /tmp/x/.cache/ms-playwright/chromium_headless_shell-1228
+#
+# WHY NOT executable_path, WHICH WOULD BE THE OBVIOUS CHOICE. Measured on the
+# same empty HOME, playwright 1.61.0:
+#
+#   p.chromium.executable_path        -> .../chromium-1228/chrome-linux64/chrome
+#   p.chromium.launch(headless=True)  -> "Executable doesn't exist at
+#       .../chromium_headless_shell-1228/chrome-headless-shell-linux64/..."
+#
+# DIFFERENT DIRECTORIES. A check that stats executable_path reports the browser
+# PRESENT on a tree where headless launch cannot start. Live check L4 stats
+# exactly that path, which is why L4 is not a substitute for this step and why
+# this step does not reuse its predicate.
+#
+# WHY NOT LAUNCH. This script PRINTS the `playwright install-deps` hint (just
+# below) but does not run it, and scripts/provision_test_host.sh runs it in a
+# LATER step. So on the fresh headless Ubuntu this is written for, a launch here
+# would routinely fail for a missing libnss3: a real problem, a DIFFERENT one,
+# owned by a later step. Grading that as "the engines are in the wrong cache"
+# would be the gate crying wolf, and a gate that cries wolf gets switched off.
+#
+# CORE ONLY, DELIBERATELY. $_pw_extra is graded optional above, precisely so a
+# webkit download lost to a flaky mirror never costs the operator chromium.
+# Verifying `all` here would report "BD cannot capture, log in or download" on a
+# host that is completely fine.
+#
+# GRADED ON CONTENT, NOT ON $?. MEASURED: `runuser -u <nonexistent>` and
+# `sudo -u <nonexistent>` BOTH exit 1 -- the same status the parser below uses
+# for "missing". Reading the status alone therefore turns "de-escalation never
+# reached the subject" into a DEFINITE missing verdict printed over an EMPTY
+# list, and turns an interpreter that exits 0 saying nothing into a definite OK
+# over an empty list. Both arms below require the output to be NON-EMPTY;
+# everything else is UNKNOWN, which is a failure and not a pass.
+if [ -n "$_pw_core" ]; then
+    _pw_dry="${TMPDIR:-/tmp}/bd_pw_dryrun.$$"
+    # shellcheck disable=SC2086
+    bd_as_run_user "$VPYTHON" -m playwright install --dry-run $_pw_core \
+        >"$_pw_dry" 2>&1 || :
+    _pw_out="$(bd_as_run_user "$VPYTHON" -c 'import os, re, sys
+try:
+    text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+except OSError:
+    raise SystemExit(3)
+locs = [m.group(1) for m in
+        re.finditer(r"^[ \t]*Install location:[ \t]+(/.*\S)[ \t]*$", text, re.M)]
+if not locs:
+    raise SystemExit(3)
+missing = [p for p in locs if not os.path.isdir(p)]
+print("\n".join(missing or locs))
+raise SystemExit(1 if missing else 0)' "$_pw_dry")" && _pw_rc=0 || _pw_rc=$?
+    if [ "$_pw_rc" = "0" ] && [ -n "$_pw_out" ]; then
+        _pw_reach="ok"
+        echo "  Verified: $_bd_run_user's Playwright resolves $_pw_core on disk at"
+        printf '%s\n' "$_pw_out" | sed 's/^/    /'
+    elif [ "$_pw_rc" = "1" ] && [ -n "$_pw_out" ]; then
+        _pw_reach="missing"
+        echo "  ERROR: $_pw_core is NOT on disk where $_bd_run_user's Playwright"
+        echo "  looks for it. Missing:"
+        printf '%s\n' "$_pw_out" | sed 's/^/    /'
+        echo "  BD cannot capture, log in or download until this is fixed."
+        echo "  Re-run this script as $_bd_run_user."
+    else
+        _pw_reach="unknown"
+        echo "  UNKNOWN: could not read an install location out of"
+        echo "  'playwright install --dry-run $_pw_core' as $_bd_run_user, so this"
+        echo "  install is NOT verified. De-escalation to $_bd_run_user may itself"
+        echo "  have failed. Do not read the lines above as proof that"
+        echo "  $_bd_run_user can reach a browser."
+        tail -5 "$_pw_dry" | sed 's/^/    /'
+    fi
+    rm -f "$_pw_dry"
 fi
 
 # Always print the install-deps hint — on a headless Ubuntu Server,
@@ -393,10 +572,10 @@ fi
 # Pre-download the stealth Chromium binary so the first capture does not block
 # on a runtime fetch. Idempotent + non-fatal — CloakBrowser self-provisions on
 # first launch if this is skipped.
-"$VPYTHON" -m cloakbrowser install \
+bd_as_run_user "$VPYTHON" -m cloakbrowser install \
     || echo "  (CloakBrowser browser pre-download skipped — self-provisions on first launch)"
 # Report backend status (informational, non-fatal).
-"$VPYTHON" -m cloakbrowser info \
+bd_as_run_user "$VPYTHON" -m cloakbrowser info \
     || echo "  (cloakbrowser info unavailable)"
 # Explicit availability verdict — never let a failed install be mistaken for
 # success. NOTE: an import check cannot detect a MISSING RUNTIME BROWSER; use
@@ -663,6 +842,19 @@ fi
 echo
 echo " ================================================================"
 echo "  Install complete."
+# The banner is the last thing the operator reads and it used to be
+# unconditional, so it survived a completely browserless install intact. It now
+# REPEATS the browser verdict rather than restating it, so the two cannot
+# disagree. The UNVERIFIED wording deliberately does not point at "the UNKNOWN
+# above": _pw_reach is also "unknown" on the bd_playwright_engines-unavailable
+# path (BD_SKIP_SYSTEM_DEPS=1), where nothing named UNKNOWN was ever printed.
+case "$_pw_reach" in
+    ok)      echo "  Browser engines: reachable by $_bd_run_user." ;;
+    missing) echo "  Browser engines: NOT reachable by $_bd_run_user - see the"
+             echo "                   ERROR above. BD cannot capture or download." ;;
+    *)       echo "  Browser engines: UNVERIFIED - no Playwright engine was"
+             echo "                   installed or checked; see the messages above." ;;
+esac
 echo "  Start the app:  ./start_linux.sh"
 echo "  Run the tests:  ./run_all_tests.sh"
 echo " ================================================================"
