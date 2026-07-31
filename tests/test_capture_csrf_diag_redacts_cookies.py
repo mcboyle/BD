@@ -30,8 +30,10 @@ from __future__ import annotations
 
 import ast
 import io
+import json
 import re
 import sys
+import textwrap
 import types
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -130,7 +132,10 @@ def _run_diagnostic() -> str:
 # tools/diag_csrf_bootstrap.py, printed `c[:120]` of every Set-Cookie header,
 # and tools/adversarial_probe.py emitted `victim_sess[:30]` of a real minted
 # session. Both are the leak four tests removed from capture.sh, alive in
-# siblings the gate could not see.
+# siblings the gate could not see. (diag_csrf_bootstrap.py has since been
+# retired outright -- its premise was the deleted templates/index.html
+# contract -- so do not expect to find it; the lesson about the DENOMINATOR is
+# why this registry still exists.)
 #
 # The population is DERIVED. Each member is then REVIEWED explicitly: a general
 # taint analysis over these files was tried first and rejected -- it fired on
@@ -155,9 +160,11 @@ def _cookie_reading_sources() -> list[Path]:
 # Why each member is safe. A new file reading Set-Cookie fails this gate until
 # someone looks at it and records a reason here.
 REVIEWED_COOKIE_READERS = {
-    "diag_csrf_bootstrap.py":
-        "redacts: prints cookie NAME, value_len and flag attrs (see the "
-        "behavioural test below); never the value",
+    # diag_csrf_bootstrap.py was here until its retirement: it read Set-Cookie
+    # and was reviewed as redacting (name, value_len, flag attrs). The file is
+    # gone -- its whole premise was the deleted templates/index.html contract --
+    # so it is no longer in the derived population, and leaving the entry here
+    # would trip the staleness assertion below.
     "adversarial_probe.py":
         "redacts: reports whether the server minted a fresh id as a BOOLEAN "
         "comparison, never the session value",
@@ -198,6 +205,79 @@ def test_the_review_gate_can_fail():
     assert _unreviewed({"a.py"}, {"a.py": "reason"}) == []
 
 
+# ── a BEHAVIOURAL floor for the one remaining collector ─────────────────────
+#
+# Measured by mutation at v3.66.824: adding
+#   result["set_cookies_raw"] = [c[:120] for c in set_cookies]
+# to diag_d2's embedded probe leaked the bd_session VALUE and BOTH gates in
+# this cut still passed. The registry above certified that file safe with the
+# prose "records only len(set_cookies) and a bd_session-present boolean" -- and
+# prose is not a measurement.
+#
+# That hole is one this cut OPENED. diag_csrf_bootstrap.py's retirement removed
+# the only behavioural cookie tests over a tools/ collector, leaving the
+# registry's whole tools/ population certified by reading alone. This restores
+# a floor for the collector that still exists.
+#
+# The leak path is real, not theoretical: the subprocess emits json.dumps(result)
+# on stdout, and when that line fails to parse the parent stores out[-400:] as
+# "stdout_tail" (diag_d2_fresh_bd_home.py:130) and _print_probe prints it (:234).
+
+def _diag_d2_cookie_block() -> str:
+    """diag_d2's Set-Cookie collection lines, extracted from the embedded program.
+
+    The embedded probe is a STRING literal, so it is reached via AST rather than
+    read off the file -- and sliced on the ASSIGNMENT NAMES it defines, never on
+    a neighbouring comment. The deleted sibling's extractor anchored on a `# 4.`
+    comment, which meant an edit that merely renumbered a comment broke it.
+    """
+    tree = ast.parse((REPO_ROOT / "tools" / "diag_d2_fresh_bd_home.py")
+                     .read_text(encoding="utf-8"))
+    prog = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) \
+                and "set_cookies_have_bd_session" in node.value:
+            prog = node.value
+            break
+    assert prog is not None, (
+        "no embedded probe program in diag_d2_fresh_bd_home.py defines "
+        "set_cookies_have_bd_session -- the anchor moved, so this test would "
+        "certify nothing (UNKNOWN fails)")
+    m = re.search(r"^\s*set_cookies = .*?set_cookies_have_bd_session.*?\)\s*$",
+                  prog, re.S | re.M)
+    assert m, "could not slice the Set-Cookie block out of diag_d2's probe"
+    return textwrap.dedent(m.group(0))
+
+
+def test_diag_d2_collector_never_records_the_cookie_value():
+    """Drive diag_d2's real collector with a known secret; the value must not survive."""
+    block = _diag_d2_cookie_block()
+    assert "set-cookie" in block.lower(), "extracted block does not read Set-Cookie"
+
+    class _Headers:
+        @staticmethod
+        def items():
+            return [("Content-Type", "text/html"), ("Set-Cookie", _COOKIE)]
+
+    ns = {"resp": types.SimpleNamespace(headers=_Headers()), "result": {}}
+    exec(compile(block, "<diag_d2 cookie block>", "exec"), ns)
+    result = ns["result"]
+
+    rendered = json.dumps(result)
+    assert _SECRET not in rendered, (
+        "diag_d2's collector recorded the bd_session VALUE into its result "
+        "dict, which reaches the operator via stdout_tail:\n" + rendered)
+    assert _SECRET[:12] not in rendered, (
+        "a prefix of the cookie value was recorded -- truncation is not "
+        "redaction:\n" + rendered)
+
+    # Redaction that deletes the signal is a different bug.
+    assert result.get("set_cookies_count") == 1, (
+        f"the header count is gone or wrong: {result!r}")
+    assert result.get("set_cookies_have_bd_session") is True, (
+        f"the bd_session-present fact is gone: {result!r}")
+
+
 def test_every_cookie_reading_tool_has_been_reviewed():
     """The denominator must contain the subject, and must stay that way.
 
@@ -219,81 +299,6 @@ def test_every_cookie_reading_tool_has_been_reviewed():
         "REVIEWED_COOKIE_READERS names files that no longer read Set-Cookie; a "
         "registry describing files that are gone is stale authority: "
         + ", ".join(stale))
-
-
-def _run_bootstrap_cookie_block(cookie: str) -> str:
-    """Exec tools/diag_csrf_bootstrap.py's cookie-reporting block in isolation.
-
-    Behavioural, like the capture.sh harness above, and for the same stated
-    reason: a source scan for "c[:120] is absent" is the presence-not-behaviour
-    class this file's docstring already rejects. The block is extracted rather
-    than the whole script because the script imports bulk_downloader and calls
-    db_init() -- running that would test the app, not the redaction.
-    """
-    src = (REPO_ROOT / "tools" / "diag_csrf_bootstrap.py").read_text(encoding="utf-8")
-    m = re.search(r"^set_cookies = .*?(?=\n# 4\.)", src, re.S | re.M)
-    assert m, ("could not locate the Set-Cookie block in "
-               "tools/diag_csrf_bootstrap.py; the anchor moved")
-    block = m.group(0)
-    assert "set-cookie" in block.lower(), "extracted block does not read Set-Cookie"
-
-    class _Headers:
-        @staticmethod
-        def items():
-            return [("Content-Type", "text/html"), ("Set-Cookie", cookie)]
-
-    resp = types.SimpleNamespace(headers=_Headers())
-    buf = io.StringIO()
-    with redirect_stdout(buf):
-        exec(compile(block, "<diag_csrf_bootstrap cookie block>", "exec"),
-             {"resp": resp})
-    return buf.getvalue()
-
-
-def test_the_bootstrap_diagnostic_never_emits_the_cookie_value():
-    """THE SECOND LEAK. tools/diag_csrf_bootstrap.py:128 was print(f"  {c[:120]}").
-
-    RED on pristine: the whole 43-char bd_session value fits in 120 characters,
-    so the diagnostic emitted a live credential. Possessing it lets the holder
-    derive the expected CSRF token (app.py:751) and replay as the operator
-    (app_captures.py:105).
-    """
-    out = _run_bootstrap_cookie_block(_COOKIE)
-    assert _SECRET not in out, (
-        "tools/diag_csrf_bootstrap.py emitted the bd_session cookie VALUE:\n" + out)
-    assert _SECRET[:12] not in out, (
-        "a prefix of the cookie value leaked -- truncation is not redaction:\n" + out)
-
-
-def test_the_bootstrap_diagnostic_keeps_its_diagnostic_facts():
-    """Redaction that deletes the signal is a different bug.
-
-    Same shape capture.sh step [3] settled on: count, name, value length, flags.
-    """
-    out = _run_bootstrap_cookie_block(_COOKIE)
-    assert "1" in out, f"the header count is gone: {out!r}"
-    assert "bd_session" in out, f"the cookie NAME is a fact and it is gone: {out!r}"
-    assert str(len(_SECRET)) in out, (
-        f"the value length -- the approved stand-in for the value -- is gone or "
-        f"wrong; expected {len(_SECRET)}:\n{out}")
-    assert "HttpOnly" in out, f"the HttpOnly flag is gone: {out!r}"
-
-
-def test_the_bootstrap_diagnostic_omits_unknown_attribute_values():
-    """Never emit what the diagnostic does not control.
-
-    Mirrors test_an_unknown_attribute_value_is_omitted_not_echoed, which pinned
-    this for capture.sh only -- the sibling had no such floor, so dropping the
-    omission branch here was invisible.
-    """
-    marker = "FORBIDDEN-attr-value-must-not-leak"
-    out = _run_bootstrap_cookie_block(
-        f"bd_session=abcdefgh; X-Custom={marker}; HttpOnly")
-    assert marker not in out, (
-        f"an unknown cookie attribute's value was echoed; only flag-attribute "
-        f"values may be printed:\n{out}")
-    assert "X-Custom" in out, (
-        f"the unknown attribute's NAME should still be reported: {out!r}")
 
 
 def test_the_adversarial_probe_never_emits_the_minted_session():

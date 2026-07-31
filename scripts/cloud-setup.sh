@@ -245,10 +245,15 @@ if [ "$HAVE_REPO" = 0 ]; then
 else
   # Match the box/CI interpreter (Python 3.12), NOT the sandbox default python3
   # (3.11). This is load-bearing: regenerating graph/parity artifacts or running
-  # the band under 3.11 SILENTLY diverges from the 3.12 box -- a 3.12-only
-  # f-string in tools/diag_csrf_bootstrap.py drops its edges when parsed by 3.11,
-  # which is exactly what read green in the sandbox but FAILED the box on
-  # v3.66.807 (the graph/index/import-graph artifacts came out short). requirements
+  # the band under 3.11 SILENTLY diverges from the 3.12 box. Every AST tool here
+  # swallows per-file SyntaxErrors, so a file that 3.11 cannot parse is dropped
+  # from their denominators without a word -- which is what read green in the
+  # sandbox but FAILED the box on v3.66.807 (the graph/index/import-graph
+  # artifacts came out short). The file that carried the 3.12-only f-string was
+  # retired at v3.66.824 and, measured over all 2097 tracked .py at that cut,
+  # NO file now parses on 3.12 but not 3.11. Do not read that as the rule being
+  # obsolete: it is one 3.12-only syntax away from returning, and it returns
+  # SILENTLY. requirements
   # are already proven on 3.12 (the box runs them), so 3.12 is strictly more
   # faithful. Fall back to python3 only if 3.12 is genuinely absent.
   PYBIN="$(command -v python3.12 || command -v python3)"

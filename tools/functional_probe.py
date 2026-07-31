@@ -37,10 +37,16 @@ client, bd_app, bd_db, BD_HOME = L.make_isolated_client(prefix="bd_func_")
 # ─── F.1: CSRF bootstrap ───────────────────────────────────────────────
 rep.section("F.1 — CSRF bootstrap + index load")
 r = client.get("/")
-if r.status_code == 200 and b"csrf-token" in r.data:
-    rep.F("ok", "GET / returns 200 with csrf-token meta")
+# The token ships via GET /api/csrf (checked immediately below), NOT an HTML
+# meta tag -- the Jinja shell that carried one went at v3.66.334, so / is now
+# either the installer 503 or the static frontend/dist/index.html. Probing for
+# the tag graded EVERY healthy run a bug, and captioned it "GET / failed: HTTP
+# 200", a message its own status code contradicts. The real contract for / is
+# that it serves the SPA shell, so that is what is checked.
+if r.status_code == 200 and b'<div id="root"' in r.data:
+    rep.F("ok", "GET / serves the SPA shell (200)")
 else:
-    rep.F("bug", f"GET / failed: HTTP {r.status_code}",
+    rep.F("bug", f"GET / did not serve the SPA shell: HTTP {r.status_code}",
           f"snippet={r.data[:200]!r}")
 
 r = client.get("/api/csrf")

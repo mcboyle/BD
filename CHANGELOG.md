@@ -4,6 +4,59 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.824 - four probes of a contract deleted 490 versions ago
+
+- The /api/library/audit handler docstring was a fourth statement of a contract
+  that already had three, and the only one no gate could reach. It documented
+  five keys audit() never returns and glossed the orphans int count as "files",
+  which is the invitation to .length-on-an-int that v3.66.823 had to fix in the
+  SPA. The handler now delegates to library_final.audit() and names no keys;
+  the gate accepts a checkable key list or a visible delegation, and fails on a
+  restatement it cannot evaluate, because unknown is a third state. (#43,
+  shipped in PR #100 without a version bump; recorded here.)
+
+- The csrf meta-tag premise outlived its contract in tools/. The Jinja shell
+  that could serve a csrf meta tag went at v3.66.334, so / is now either the
+  installer 503 or the static frontend/dist/index.html. Three tools kept
+  probing for it:
+
+  - tools/diag_csrf_bootstrap.py existed only to test that contract
+    (its own docstring's hypotheses A, B and C are all about
+    templates/index.html and _load_index_html, both deleted). It had no
+    sys.exit and no assert, so it was print-only and exited 0 always,
+    reporting "NO -- code differs!" for a regex anchor that can never match
+    again. RETIRED.
+  - tools/diag_d2_fresh_bd_home.py recorded template_exists,
+    template_has_marker, has_csrf_meta_tag, has_unsubst_marker and
+    csrf_token_value as JSON fields. All constants; the last would have
+    written a live CSRF token into a diagnostic that gets shipped. Removed.
+    Its body_sha256 was also excluded from the structural diff as "expected
+    to differ (random CSRF token in the body)" -- dead for the same reason,
+    so a genuine body difference, the exact D2 asymmetry that tool exists to
+    find, was being filed as cosmetic. body_sha256 is now structural.
+  - tools/functional_probe.py graded a bug unless GET / carried csrf-token.
+    That arm always fired: the sole bug in an otherwise healthy 24-ok run,
+    captioned "GET / failed: HTTP 200" -- a message its own status code
+    contradicts. It now checks the real contract, that / serves the SPA
+    shell, measured to grade ok on a healthy root and bug on the 503 branch.
+
+  The first two could not fail and the third could not pass. Over-sensitivity
+  is a soundness bug here, not a safe default: a gate that fires on healthy
+  code gets switched off. (#35)
+
+- The gate that already proved this contract retired was biconditional against
+  measured reachability, but its denominator was capture.sh alone, which is why
+  three siblings one directory over survived it. The new gate derives its own
+  reachability and covers tools/, and the functional_probe arm is checked
+  BEHAVIOURALLY -- the probe is run against a healthy app -- because that arm
+  tests the fragment csrf-token, legitimate spelling inside the X-CSRF-Token
+  header name, which no literal ban could catch.
+
+- Retiring the diagnostic removed the last tools/ file in the Set-Cookie
+  redaction registry that no longer exists; its entry is gone, and the three
+  behavioural redaction tests that exec'd its cookie block went with it. The
+  registry's derived population and its staleness assertion are unchanged.
+
 ## v3.66.823 - three gates that reported a clean number they could not have computed
 
 - Library audit panel rendered constants, not data. It took .length of an int

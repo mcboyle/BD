@@ -10,10 +10,13 @@ it runs in-process before parallel dispatch with no forced `BD_HOME`,
 which papers over the symptom but leaves the underlying asymmetry
 undiagnosed.
 
-`tools/diag_csrf_bootstrap.py` (v3.62.7) covers package resolution and
-template inspection but boots the app with `os.environ` as-is — it
-does NOT mimic the parallel-runner env (cwd=tempdir, BD_HOME=tempdir,
-fresh process). This diagnostic does.
+The sibling CSRF-bootstrap diagnostic (v3.62.7) booted the app with
+`os.environ` as-is and did NOT mimic the parallel-runner env
+(cwd=tempdir, BD_HOME=tempdir, fresh process). This diagnostic does.
+That sibling was retired at v3.66.824: its whole premise was the
+`templates/index.html` contract deleted at v3.66.334, so it could not
+fail. Do not restore it -- what it covered that mattered (package
+resolution) is measured below.
 
 Run on the Windows VM from ~/BulkDownloader:
 
@@ -180,17 +183,9 @@ try:
     result["pkg_version"] = bulk_downloader.__version__
     from bulk_downloader import app as bd_app
     result["app_file"] = bd_app.__file__
-    # template path the app actually resolves
-    pkg_dir = Path(bd_app.__file__).parent
-    template = pkg_dir / "templates" / "index.html"
-    result["template_path"] = str(template)
-    result["template_exists"] = template.is_file()
-    if template.is_file():
-        raw = template.read_bytes()
-        result["template_sha256"] = hashlib.sha256(raw).hexdigest()
-        result["template_bytes"] = len(raw)
-        text = raw.decode("utf-8", "replace")
-        result["template_has_marker"] = "<!--CSRF_META-->" in text
+    # No template probe: bulk_downloader/templates/ went at v3.66.334, so
+    # template_exists / template_has_marker were structural constants and the
+    # sha/bytes lines they guarded were unreachable.
 
     # init the DB the same way conftest fresh_app does
     from bulk_downloader.db import db_init
@@ -204,13 +199,13 @@ try:
     result["status"] = resp.status_code
     result["body_len"] = len(body)
     result["body_sha256"] = hashlib.sha256(body.encode("utf-8", "replace")).hexdigest()
-    result["has_csrf_meta_tag"] = '<meta name="csrf-token"' in body
-    result["has_unsubst_marker"] = "<!--CSRF_META-->" in body
-    # extract the CSRF token value if present
-    import re
-    m = re.search(r'<meta name="csrf-token" content="([^"]*)"', body)
-    result["csrf_token_value"] = m.group(1) if m else None
-    result["csrf_token_len"] = len(m.group(1)) if m else 0
+    # No meta-tag or token-value probe: / is now the installer 503 or the
+    # static frontend/dist/index.html, neither of which can carry the retired
+    # csrf meta tag (see tests/test_cut35_csrf_meta_premise_retired_in_tools.py
+    # for the literal and the reachability measurement). The token-value field
+    # in particular would have written a live CSRF token into a diagnostic that
+    # gets shipped. The literal is deliberately not repeated here: this file is
+    # inside that gate's denominator, and naming a probe is how it comes back.
     set_cookies = [v for k, v in resp.headers.items()
                    if k.lower() == "set-cookie"]
     result["set_cookies_count"] = len(set_cookies)
@@ -247,19 +242,9 @@ def _print_probe(p: dict) -> None:
     print(f"  repo found          : {p.get('repo')}")
     print(f"  pkg version         : {p.get('pkg_version')}")
     print(f"  pkg file            : {p.get('pkg_file')}")
-    print(f"  template path       : {p.get('template_path')}")
-    print(f"  template exists     : {p.get('template_exists')}")
-    print(f"  template sha256     : {(p.get('template_sha256') or '')[:16]}...")
-    print(f"  template bytes      : {p.get('template_bytes')}")
-    print(f"  template has marker : {p.get('template_has_marker')}")
     print(f"  GET / status        : {p.get('status')}")
     print(f"  body length         : {p.get('body_len')}")
     print(f"  body sha256         : {(p.get('body_sha256') or '')[:16]}...")
-    print(f"  has csrf meta tag   : {p.get('has_csrf_meta_tag')}")
-    print(f"  has unsubst marker  : {p.get('has_unsubst_marker')}")
-    print(f"  csrf token value    : "
-          f"{(p.get('csrf_token_value') or '')[:8] or '(none)'}... "
-          f"len={p.get('csrf_token_len')}")
     print(f"  Set-Cookie count    : {p.get('set_cookies_count')}")
     print(f"  has bd_session cookie: {p.get('set_cookies_have_bd_session')}")
 
@@ -268,15 +253,16 @@ def _diff_probes(a: dict, b: dict) -> None:
     if not a.get("ok") or not b.get("ok"):
         print("  one or both probes failed; see traces above")
         return
-    # body_sha256 is expected to differ (random CSRF token in the body),
-    # so it's NOT in this list. Anything in this list differing means a
-    # genuine structural change.
+    # body_sha256 IS structural now. It used to be excluded as "expected to
+    # differ (random CSRF token in the body)" -- but the Jinja shell that
+    # injected that token went at v3.66.334, and / is now the installer 503 or
+    # the static frontend/dist/index.html, both byte-identical between the two
+    # paths. Keeping the exclusion meant a genuine body difference -- exactly
+    # the D2 asymmetry this tool exists to find -- was filed as cosmetic.
     structural = [
-        "status", "body_len",
-        "has_csrf_meta_tag", "has_unsubst_marker",
-        "csrf_token_len", "set_cookies_count",
+        "status", "body_len", "body_sha256",
+        "set_cookies_count",
         "set_cookies_have_bd_session",
-        "template_sha256", "template_has_marker",
         "pkg_file", "app_file",
     ]
     structural_diffs = []
@@ -285,12 +271,9 @@ def _diff_probes(a: dict, b: dict) -> None:
         if av != bv:
             structural_diffs.append((k, av, bv))
 
-    # body_sha256 differs by design; report it separately so it doesn't
-    # look like a finding.
-    cosmetic_diffs = []
-    for k in ("body_sha256", "csrf_token_value"):
-        if a.get(k) != b.get(k):
-            cosmetic_diffs.append(k)
+    # Nothing is expected-to-differ any more, so this stays empty unless a
+    # future field is deliberately added to it.
+    cosmetic_diffs: list[str] = []
 
     if structural_diffs:
         for k, av, bv in structural_diffs:
