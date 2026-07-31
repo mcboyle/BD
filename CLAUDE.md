@@ -266,6 +266,27 @@ with `test_cut8_schedules`.
   Note what these do **not** buy: `BD_HOME` does not protect
   `~/.config/bulk-downloader`, which resolves from `$HOME`, not `BD_HOME`.
   That is `tests/conftest.py`'s path-keyed store guard's job.
+
+  **`BD_HOME` does not govern the database either — `BD_INSTALL_DIR` does.**
+  `db._resolve_db_path()` resolves at call time in this order: an absolute
+  monkeypatched `DB_PATH` verbatim; else `BD_INSTALL_DIR` joined with the
+  relative `DB_PATH`; else the bare relative `DB_PATH`, which
+  `sqlite3.connect()` resolves **against the current working directory**.
+  `BD_HOME` is never consulted. So an ad-hoc probe that exports `BD_HOME`,
+  imports `bulk_downloader.db` and runs from the repo root writes
+  `downloader_history.db` **into the repo**. It is gitignored, so `git status`
+  stays clean and nothing warns you.
+
+  Rows then accumulate across probe runs, and the next probe reads them. That
+  is not cosmetic: a probe of a *correct* fix returned two matching rows
+  instead of one, which read as the fix over-reindexing — a defect that did not
+  exist, in code that had already shipped. Section 5's rule about changing one
+  variable at a time applies to state as well as to flags.
+
+  `tests/conftest.py`'s `clean_workdir` gets this right and is the model:
+  `monkeypatch.chdir(tmp_path)` **and** `monkeypatch.setenv("BD_INSTALL_DIR", ...)`,
+  belt and braces, "even if subsequent code chdirs away". Hand-rolled probes get
+  neither for free — set `BD_INSTALL_DIR` to a tmpdir, or use the fixture.
 - **`pip check` cannot see an uninstalled requirement.** Its denominator is what
   *is* installed. `runtime deps OK` was reported with `beautifulsoup4` and
   `pytest-xdist` both absent. To ask whether requirements are satisfied, parse

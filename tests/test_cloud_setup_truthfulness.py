@@ -338,18 +338,52 @@ def test_missing_repo_does_not_exit_zero():
 # backlog batch that had to be waved away as "environmental" -- so building the
 # bundle is also what makes a future occurrence real signal instead of noise.
 
+_FRONTEND_START = "frontend deps"
+# The END anchor is the NEXT SECTION's banner, deliberately not one of the
+# strings the tests below assert on. Anchoring on `CORE_FAILED=1` would bound
+# the block by one of its own subjects, making
+# `assert "CORE_FAILED=1" in block` true by construction -- an unfailable
+# assertion, which is the failure mode this repo treats as worse than no test.
+_FRONTEND_END = "2. browsers"
+
+
 def _frontend_block() -> str:
-    """The lines of cloud-setup.sh that build and verify the bundle."""
+    """The lines of cloud-setup.sh that build and verify the bundle.
+
+    Bounded by two CONTENT anchors, not by a fixed width. The original sliced
+    `src[start:start + 2000]`, which is the pattern
+    tests/test_source_windows_do_not_shift.py ratchets against: a window like
+    that silently stops covering its subject the moment unrelated lines are
+    added inside it, and the test then passes over a region that no longer
+    contains what it asserts on. That regression was introduced by #91 -- this
+    file's own cut -- and sat on main for five releases because no band
+    included the meta-test that scans every tracked test file.
+
+    Both anchors are strings this file already asserts on, so if either moves
+    the assertion below fails loudly and names it, rather than the block
+    quietly shrinking past the thing under test.
+    """
     src = CLOUD_SETUP.read_text(encoding="utf-8")
-    start = src.find("frontend deps")
-    assert start != -1, "the frontend deps step is gone; this gate lost its subject"
-    return src[start:start + 2000]
+    start = src.find(_FRONTEND_START)
+    assert start != -1, (
+        f"{_FRONTEND_START!r} is gone from cloud-setup.sh; this gate lost its "
+        f"subject")
+    end = src.find(_FRONTEND_END, start)
+    assert end != -1, (
+        f"{_FRONTEND_END!r} is gone from cloud-setup.sh, so the frontend block "
+        f"has no end anchor and this gate would read to end-of-file")
+    return src[start:end]
 
 
 def test_cloud_setup_builds_the_frontend_bundle():
     """RED. npm ci installs the toolchain; it does not emit frontend/dist."""
     block = _frontend_block()
-    assert "npm run build" in block, (
+    # Assert the STEP, not the substring. `npm run build` also appears inside
+    # the failure-message string below it, so a bare `in block` check is
+    # satisfied by PROSE DESCRIBING the build even when the build itself is
+    # gone -- proven by mutation: replacing the step body with `true` left this
+    # test green. A description of a thing is not the thing.
+    assert re.search(r'step\s+"frontend build".*npm run build', block), (
         "cloud-setup.sh installs the frontend toolchain but never builds the "
         "bundle, so frontend/dist is absent in every provisioned container and "
         "the SPA cannot be served"
