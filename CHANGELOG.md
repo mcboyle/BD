@@ -4,6 +4,29 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.822 - updating an indexed column left the old terms in the search index
+
+- history_fts is FTS5 external-content, so SQLite maintains nothing for it. On
+  UPDATE of an indexed column the application must replay the row's OLD values
+  through the FTS5 delete command and re-insert the new ones. Three paths did
+  not: batch_ops.bulk_move and storage_rebalance.execute_plan rewrite filename,
+  and batch_ops.bulk_retry clears message.
+- Measured, both directions wrong: after a move, searching the OLD path
+  returned the row, and searching its CURRENT path did not find it. After a
+  requeue, the cleared message still matched. These rows are live and the
+  search join finds them, so unlike the delete-side bloat this produced wrong
+  results in the product.
+- db_fts_snapshot and db_fts_resync added. The snapshot is a separate call on
+  purpose: the delete command replays the values the index was built from, so
+  it must run BEFORE the write. Issued afterwards it matches nothing, removes
+  nothing, and reports success while the stale terms stay.
+- Not a trigger, for the reason the delete side already records: delete for a
+  doc the index does not hold raises, and from an AFTER UPDATE trigger that
+  would roll back the whole update, turning a routine rename into a 500 on a
+  desynced database.
+- Rows the index never held are re-indexed rather than skipped. The row is live
+  and searchable by intent, so adding it is a repair.
+
 ## v3.66.821 - the provisioner graded node on apt package identity, not capability
 
 - scripts/provision_test_host.sh asked whether the apt names nodejs and npm

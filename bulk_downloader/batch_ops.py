@@ -135,10 +135,15 @@ def bulk_retry(filter_dict: dict, *, dry_run: bool = True,
         with _db.db_conn() as cx:
             for r in rows:
                 try:
+                    # message is FTS-INDEXED and this clears it. Snapshot
+                    # BEFORE the update: the FTS5 'delete' command replays the
+                    # OLD values, so after the write there is nothing to match.
+                    _old = _db.db_fts_snapshot(cx, [r["id"]])
                     cx.execute("""UPDATE history
                                   SET status = ?, message = ''
                                   WHERE id = ?""",
                                (reset_to_status, r["id"]))
+                    _db.db_fts_resync(cx, _old)
                     out["processed"] += 1
                 except Exception:
                     out["errors"] += 1
@@ -229,8 +234,11 @@ def bulk_move(filter_dict: dict, *, target_dir: str,
             shutil.move(src, dst)
             from . import db as _db
             with _db.db_conn() as cx:
+                # filename is FTS-INDEXED; snapshot before the write.
+                _old = _db.db_fts_snapshot(cx, [r["id"]])
                 cx.execute("UPDATE history SET filename = ? WHERE id = ?",
                            (dst, r["id"]))
+                _db.db_fts_resync(cx, _old)
             out["processed"] += 1
         except Exception as e:
             out["errors"] += 1
