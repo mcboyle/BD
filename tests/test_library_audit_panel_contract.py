@@ -39,6 +39,7 @@ no pytest builtins.
 """
 from __future__ import annotations
 
+import ast
 import os
 import re
 import tempfile
@@ -50,6 +51,7 @@ from bulk_downloader import library_final as lf
 REPO = Path(__file__).resolve().parent.parent
 PANEL = REPO / "frontend" / "src" / "routes" / "Library.tsx"
 API_TYPES = REPO / "frontend" / "src" / "lib" / "api-types.ts"
+HANDLER = REPO / "bulk_downloader" / "app_library.py"
 
 # Keys the 4xx/5xx body may carry that audit() itself never returns.
 _ERROR_KEYS = {"error"}
@@ -70,6 +72,11 @@ _FORMS = re.compile(
 _IFACE = re.compile(r"export interface LibraryAuditResult \{(.*?)\n\}", re.S)
 _FIELD = re.compile(r"^\s*(\w+)\?:\s*([^;]+);", re.M)
 
+# A brace-delimited key list in the handler docstring, e.g. "{orphans, missing}".
+_DOC_KEYLIST = re.compile(r"\{(.+?)\}", re.S)
+# Proof that an unlisted docstring is DELEGATING rather than merely emptied.
+_DOC_DELEGATES = re.compile(r"library_final|\baudit\(\)")
+
 _MISSING = object()
 
 
@@ -77,6 +84,23 @@ def _lit(tok):
     if tok.startswith('"'):
         return tok[1:-1]
     return float(tok) if "." in tok else int(tok)
+
+
+def _handler_docstring():
+    """api_library_audit's docstring, via AST.
+
+    AST, not a text search for `def api_library_audit`: a grep denominator
+    would also match the string inside a comment or a test fixture, and would
+    miss the function if it were ever wrapped or renamed by a decorator.
+    """
+    tree = ast.parse(HANDLER.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                and node.name == "api_library_audit":
+            return ast.get_docstring(node) or ""
+    raise AssertionError(
+        "api_library_audit not found in app_library.py -- the denominator is "
+        "empty, so this test would certify nothing (UNKNOWN fails)")
 
 
 def _panel_refs():
@@ -233,3 +257,55 @@ def test_api_types_declares_the_real_audit_contract():
     assert not mistyped, (
         "api-types.ts declares an array for a scalar audit key (or vice "
         "versa) -- this is what invites `.length` on an int: " + repr(mistyped))
+
+
+def test_handler_docstring_is_not_a_fourth_drifting_contract():
+    """The /api/library/audit handler docstring is the FOURTH statement of a
+    contract that already has three (audit(), api-types.ts, Library.tsx).
+
+    PR #99 fixed the two consumers and left this one standing, and it is the
+    likeliest origin of both: it is where `missing_from_disk`, `total_history`,
+    `total_disk_files`, `missing_nfo` and `missing_thumbs` are written down as
+    though audit() returned them, and where `orphans` is glossed as "files"
+    when it is an int count -- the exact invitation to `.length` on an int.
+
+    It survived PR #99 because no gate's denominator contained it:
+    test_api_types_declares_the_real_audit_contract reads api-types.ts and
+    test_panel_only_reads_keys_audit_actually_returns reads the .tsx. Neither
+    can see a Python docstring. That is CLAUDE.md section 0 exactly, so the fix
+    is to widen the denominator, not merely to rewrite the prose.
+
+    Either the handler restates the key set CHECKABLY (bare identifiers, all
+    real), or it delegates to the single source of truth and names no keys.
+    A docstring that lists keys in prose this test cannot evaluate is UNKNOWN,
+    and unknown fails -- otherwise a future rewrite into an unparsed form would
+    silently restore the vacuum this test exists to close.
+    """
+    rep = _fixture_audit()
+    doc = _handler_docstring()
+    assert doc.strip(), "api_library_audit has no docstring at all"
+
+    m = _DOC_KEYLIST.search(doc)
+    if m is None:
+        # No restatement. The handler must be visibly delegating rather than a
+        # docstring somebody merely emptied -- absent-and-silent is how this
+        # test would come to pass vacuously.
+        assert _DOC_DELEGATES.search(doc), (
+            "api_library_audit's docstring names no audit keys and does not "
+            "point at library_final.audit() either, so nothing states what the "
+            "route returns and nothing can be checked against it")
+        return
+
+    entries = [e.strip() for e in m.group(1).split(",") if e.strip()]
+    assert entries, "empty key list in api_library_audit's docstring"
+    unparsed = [e for e in entries if not re.fullmatch(r"\w+", e)]
+    assert not unparsed, (
+        "api_library_audit's docstring restates the audit contract with prose "
+        "this test cannot evaluate, so the restatement is UNVERIFIED (which "
+        "fails). Use bare key names, or delegate to library_final.audit(). "
+        "Offending entries: " + repr(unparsed))
+
+    phantom = sorted(set(entries) - set(rep) - _ERROR_KEYS)
+    assert not phantom, (
+        f"api_library_audit's docstring documents audit keys audit() never "
+        f"returns: {phantom}; audit() returns {sorted(rep)}")
