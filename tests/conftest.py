@@ -408,19 +408,54 @@ _REPO_ROOT_FOR_GUARD = pathlib.Path(__file__).resolve().parent.parent
 _HOME_GUARD = {"on": True}
 
 
-def _protected_home_roots():
-    """Resolved at CALL time, not frozen at session start.
+def _home_roots_for(home):
+    """The app's own $HOME config namespace under `home`. Never $HOME at large.
 
-    Call-time resolution is what lets a test relocate HOME and exercise the real
-    predicate without going anywhere near the operator's files.
+    The macros exclusion is evaluated here so that BOTH halves of the union
+    below get it: on the deploy box the checkout IS ~/BulkDownloader, and a
+    frozen half that skipped this test would refuse ordinary repo writes for the
+    whole session.
     """
-    home = pathlib.Path(os.path.expanduser("~"))
+    home = pathlib.Path(home)
     roots = [home / ".config" / _BD_CONFIG_DIRNAME]
     macros = home / "BulkDownloader" / _MACRO_DIRNAME
     try:
         macros.relative_to(_REPO_ROOT_FOR_GUARD)
     except ValueError:
         roots.append(macros)          # outside the checkout: operator state
+    return tuple(roots)
+
+
+# Frozen at IMPORT, from the HOME the session started under -- i.e. from the
+# operator's real home, because nothing has had a chance to relocate it yet.
+_SESSION_START_HOME_ROOTS = _home_roots_for(os.path.expanduser("~"))
+
+
+def _protected_home_roots():
+    """The UNION of the session-start roots and the call-time roots.
+
+    Call-time resolution alone was the whole guard, and it is half right: it is
+    what lets a test relocate HOME and exercise the real predicate without going
+    anywhere near the operator's files, which is exactly what the os.mkdir REDs
+    do. But roots that resolve also MOVE. While a test holds HOME at a tmp path
+    the operator's real ~/.config/bulk-downloader belongs to no root at all, so
+    the guard stops defending the one path it exists for -- measured, one
+    absolute path, True before the relocation and False after it.
+
+    Session-start roots alone are the mirror-image bug: they defend the operator
+    and stop following HOME, which turns the relocation-based tests red. A
+    candidate that swapped instead of unioning did precisely that, six tests
+    over.
+
+    So both. The union protects strictly more paths than either half, which is
+    the direction that risks crying wolf, so the extra reach is kept to the same
+    two app-owned namespaces under one additional home -- never $HOME at large,
+    under either half.
+    """
+    roots = list(_SESSION_START_HOME_ROOTS)
+    for root in _home_roots_for(os.path.expanduser("~")):
+        if root not in roots:
+            roots.append(root)
     return tuple(roots)
 
 

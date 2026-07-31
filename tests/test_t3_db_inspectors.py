@@ -161,6 +161,140 @@ def test_fts_inspect_reports_optimize_sentinel_age(clean_workdir):
     assert age >= 0.0
 
 
+# ── D-5 set-derived FTS membership (orphans vs unindexed) ───────
+#
+# A SCALAR difference (history rows minus indexed docs) cannot separate
+# two OPPOSITE error directions. An ORPHANED doc (present in the
+# inverted index, its history row gone) and an UNINDEXED row (present
+# in history, absent from the index) each move that difference by one,
+# in opposite directions -- so K orphans act as standing credit that
+# understates unsearchable rows by exactly K, up to reporting a
+# database with permanently unsearchable rows as healthy.
+
+
+def _build_desynced_db(orphans: int, unindexed: int) -> list:
+    """Desync history and history_fts in BOTH directions.
+
+    Returns the ids of the rows that were turned into orphaned docs.
+    One extra row is always logged normally, so a report that simply
+    returns zeroes cannot pass by accident.
+    """
+    db.db_init()
+    for i in range(orphans + 1):
+        db.db_log("siteA", "Site A", f"https://a.example/ok{i}", "done",
+                  filename=f"f{i}.mp4", message=f"indexed {i}")
+    with db.db_conn() as cx:
+        ids = [r[0] for r in cx.execute(
+            "SELECT id FROM history ORDER BY id").fetchall()]
+        orphan_ids = ids[:orphans]
+        # Deleting the history row WITHOUT db_fts_forget leaves the
+        # terms behind: history_fts is external-content, so SQLite
+        # maintains nothing for it.
+        for rid in orphan_ids:
+            cx.execute("DELETE FROM history WHERE id=?", (rid,))
+        # Rows written straight into history bypass the FTS mirror and
+        # are therefore unsearchable.
+        for j in range(unindexed):
+            cx.execute(
+                "INSERT INTO history(site_id,site_name,url,status,message)"
+                " VALUES('siteA','Site A',?,'done',?)",
+                (f"https://a.example/raw{j}", f"never indexed {j}"))
+    return orphan_ids
+
+
+def test_fts_inspect_orphans_do_not_cancel_unindexed_rows(clean_workdir):
+    _build_desynced_db(orphans=2, unindexed=2)
+    # ground truth, derived from the two sets themselves
+    with db.db_conn() as cx:
+        docs = db._fts_indexed_docs(cx)
+        hist = {r[0] for r in cx.execute("SELECT id FROM history")}
+    assert len(docs - hist) == 2          # orphaned docs
+    assert len(hist - docs) == 2          # unsearchable history rows
+
+    r = ds.fts_index_inspect()
+    # asserted FIRST: this is the defect itself, and it is what a
+    # report driven by the cancelling scalar gets wrong
+    assert "healthy" not in r["verdict"]
+    assert r["orphaned_docs"] == 2
+    assert r["unindexed_rows"] == 2
+    # the scalar difference cancels to zero here -- proof it must not
+    # be what drives the verdict
+    assert r["row_count_drift"] == 0
+    assert r["health"] == "degraded"
+
+
+def test_fts_inspect_reports_orphaned_docs_alone(clean_workdir):
+    _build_desynced_db(orphans=2, unindexed=0)
+    r = ds.fts_index_inspect()
+    assert r["orphaned_docs"] == 2
+    assert r["unindexed_rows"] == 0
+    assert r["health"] == "degraded"
+    assert "orphan" in r["verdict"]
+
+
+def test_fts_inspect_reports_unindexed_rows_alone(clean_workdir):
+    _build_desynced_db(orphans=0, unindexed=3)
+    r = ds.fts_index_inspect()
+    assert r["orphaned_docs"] == 0
+    assert r["unindexed_rows"] == 3
+    # with no orphans the old scalar happens to agree -- that is the
+    # only direction it was ever right in
+    assert r["row_count_drift"] == 3
+    assert r["health"] == "degraded"
+
+
+def test_fts_inspect_healthy_requires_both_directions_clean(clean_workdir):
+    db.db_init()
+    db.db_log("siteA", "Site A", "https://a.example/v1", "done",
+              filename="beach.mp4", message="ok")
+    r = ds.fts_index_inspect()
+    assert r["orphaned_docs"] == 0
+    assert r["unindexed_rows"] == 0
+    assert r["health"] == "healthy"
+    assert "healthy" in r["verdict"]
+
+
+def test_fts_inspect_reuses_the_db_membership_helper(clean_workdir,
+                                                     monkeypatch):
+    """One denominator, not two. db._fts_indexed_docs already reads the
+    docset the inverted index holds (the delete-side maintenance uses
+    it); the inspector must read the same set."""
+    db.db_init()
+    db.db_log("siteA", "Site A", "https://a.example/v1", "done",
+              message="indexed")
+    calls = []
+    real = db._fts_indexed_docs
+
+    def spy(cx):
+        calls.append(1)
+        return real(cx)
+
+    monkeypatch.setattr(db, "_fts_indexed_docs", spy)
+    r = ds.fts_index_inspect()
+    assert calls, ("fts_index_inspect must read membership via "
+                   "db._fts_indexed_docs, not a second denominator")
+    assert r["indexed_doc_count"] == 1
+
+
+def test_fts_inspect_unknown_membership_is_not_healthy(clean_workdir,
+                                                      monkeypatch):
+    """UNKNOWN is a third state and it fails. When the docset cannot be
+    read, every set-derived number is None and the verdict says so --
+    it does not fall back to the cancelling scalar."""
+    db.db_init()
+    db.db_log("siteA", "Site A", "https://a.example/v1", "done",
+              message="indexed")
+    monkeypatch.setattr(db, "_fts_indexed_docs", lambda cx: None)
+    r = ds.fts_index_inspect()
+    assert r["health"] == "unknown"
+    assert r["indexed_doc_count"] is None
+    assert r["orphaned_docs"] is None
+    assert r["unindexed_rows"] is None
+    assert r["row_count_drift"] is None
+    assert "healthy" not in r["verdict"]
+    assert "UNKNOWN" in r["verdict"]
+
+
 # ── dev routes ─────────────────────────────────────────────────────
 
 def test_queue_table_route(fresh_app):
@@ -187,6 +321,21 @@ def test_fts_index_route(fresh_app):
     assert j["ok"] is True
     assert j["tool"] == "fts_index_inspect"
     assert "row_count_drift" in j
+
+
+def test_fts_index_route_exposes_both_membership_counters(fresh_app):
+    """The live consumer of the report is GET /api/dev/fts_index, so the
+    two set-derived numbers have to survive jsonify. The pre-existing
+    keys stay -- this is an additive shape change."""
+    db.db_init()
+    db.db_log("siteA", "Site A", "https://a.example/v1", "done",
+              message="indexed")
+    j = fresh_app.get("/api/dev/fts_index").get_json()
+    assert j["orphaned_docs"] == 0
+    assert j["unindexed_rows"] == 0
+    assert j["health"] == "healthy"
+    assert "row_count_drift" in j
+    assert "indexed_doc_count" in j
 
 
 def test_t3_routes_are_dev_gated():
