@@ -622,3 +622,58 @@ likely to recur.
 4. Do not start `bd-mutate` before those two: a generic mutator generating
    shallow mutations would become another gate that cannot fail, and this
    session found five real ones the hard way.
+
+## 14 | Filed 2026-07-31 -- carries its own provenance
+
+    generated            2026-07-31
+    against version      3.66.824 (this cut)
+    against origin/main  00cf5c3 (PR #100, before this cut)
+    guard pins           7 ok, 0 drifted, 0 missing
+
+Sections 1-13 keep their own (older) stamp and the header's warning still
+applies to them. This section supersedes nothing above; it only adds.
+
+### 14.1 | Open, tracked -- the ts_iso PRODUCER gap
+
+Deliberately filed rather than fixed: it is a different subject from the cut it
+was found in, and CUT #40 scoped it out on purpose.
+
+Three terminal paths drive a job to `done` writing only the **display** `ts`
+(`HH:MM:SS`, from `runner_util._ts()`) and never `ts_iso`:
+
+- `bulk_downloader/app_sites_queue.py:545`   `api_jobs_mark()`
+- `bulk_downloader/app_sites_queue.py:589`   `api_jobs_bulk_mark()`
+- `bulk_downloader/runner_queue.py:303`      `load_urls()`, the `pre_done` arm
+
+All four day-window CONSUMERS filter on `ts_iso` and are correct
+(`app.py:3912`, `app_dashboard.py:66`, `app_dashboard.py:203`,
+`app_queue.py:228`). So a job finished through one of those three paths is
+counted by none of them.
+
+Effect is an **under-count, not always-0**. Do not restate it as "always 0":
+that was #40a's causal clause and it was never true.
+
+**The seductive wrong fix is already guarded.** Writing
+`j.get("ts_iso","") or today_iso` in a consumer would make undated jobs count
+as today's, and `test_cut40_dashboard_today_iso.py::test_job_with_no_ts_iso_counts_zero`
+(G4) fails on exactly that. The fix belongs in the PRODUCERS.
+
+Unmeasured and adjacent, do not fold in without its own derivation: `runner.py`
+stamps `ts_iso` LOCAL while `runner_queue.py` copies SQLite `ts_updated` (UTC),
+and all four consumers compare a LOCAL `%Y-%m-%d`. A rehydrated job can land on
+the wrong day near midnight on a non-UTC host. No test in the tree sees this.
+
+### 14.2 | Closed this session -- do not re-open without re-deriving
+
+- **#36** auth_health orphans: closed at v3.66.820. Both site-delete paths reap
+  (`app_sites_id_core.py:436`, `:923`); the other two `queue_delete_site`
+  callers are queue-REPLACE, where no reap belongs. Section 5 above still lists
+  this as reported-not-fixed -- that row is STALE, this one supersedes it.
+- **#38-F1** installer browser reach: closed at v3.66.820 by `9e46526`.
+  Verified by executing the de-escalation path as an unprivileged user.
+- **#40a** day-window consumers: 0 defective sites. The `HH:MM:SS` field does
+  not exist in any DB table.
+- **#43** audit-route docstring: shipped in PR #100.
+- **#35** csrf meta premise: shipped in this cut, and it was NOT at capture
+  step 3 -- that inline block was already clean. Nothing automated invoked
+  `tools/diag_csrf_bootstrap.py`; it was a manual operator tool.

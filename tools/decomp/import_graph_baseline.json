@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 1369,
+  "edge_count": 1368,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2073,9 +2073,6 @@
     ],
     "tools/dependency_report.py": [
       "tools/environment_report.py"
-    ],
-    "tools/diag_csrf_bootstrap.py": [
-      "bulk_downloader/db.py"
     ],
     "tools/document_schemas.py": [
       "tools/template_inventory.py"

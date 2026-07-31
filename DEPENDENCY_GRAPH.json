@@ -2311,7 +2311,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1369,
+    "edge_count": 1368,
     "in": {
       "bulk_downloader/_envfile.py": [
         "bulk_downloader/__init__.py",
@@ -3377,7 +3377,6 @@
         "tools/body_contract.py",
         "tools/body_contract_fixtures.py",
         "tools/dast_probe.py",
-        "tools/diag_csrf_bootstrap.py",
         "tools/queue_intelligence.py"
       ],
       "bulk_downloader/db_replication.py": [
@@ -6782,9 +6781,6 @@
       "tools/dependency_report.py": [
         "tools/environment_report.py"
       ],
-      "tools/diag_csrf_bootstrap.py": [
-        "bulk_downloader/db.py"
-      ],
       "tools/document_schemas.py": [
         "tools/template_inventory.py"
       ],
@@ -7026,7 +7022,6 @@
       "tools/config_surface_inventory.py",
       "tools/ct1_synth.py",
       "tools/dast_probe.py",
-      "tools/diag_csrf_bootstrap.py",
       "tools/endpoint_reachability.py",
       "tools/evidence_policy.py",
       "tools/gen_frontend_secret_keys.py",
@@ -7057,7 +7052,7 @@
       "tools/workflow_diagnostic.py",
       "tools/wow_promote_golden.py"
     ],
-    "total": 225,
+    "total": 224,
     "with_edges": [
       "tools/_probe_lib.py",
       "tools/adversarial_probe.py",
@@ -7100,7 +7095,6 @@
       "tools/dast_probe.py",
       "tools/dependency_inventory.py",
       "tools/dependency_report.py",
-      "tools/diag_csrf_bootstrap.py",
       "tools/document_schemas.py",
       "tools/endpoint_reachability.py",
       "tools/environment_report.py",
