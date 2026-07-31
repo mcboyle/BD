@@ -410,3 +410,158 @@ def test_mkdir_outside_the_store_root_is_untouched(monkeypatch, tmp_path):
                   tmp_path / ".config" / "bulk-downloader-backup"):
         probe.mkdir(parents=True, exist_ok=True)
         assert probe.is_dir()
+
+
+# ── The relocation window: the operator's FIXED path must not lose cover ──────
+#
+# _protected_home_roots() resolves from expanduser("~") at CALL time. That is
+# right for FOLLOWING a relocated HOME -- it is what lets every RED above
+# exercise the real predicate against a tmp directory instead of the operator's
+# files. But resolution alone also means the roots MOVE: while a test holds HOME
+# at a tmp path, the operator's real ~/.config/bulk-downloader is under NO
+# protected root, and a write landing there during that window is waved through.
+#
+# Measured on pristine source at 2cb520c, one absolute path, two calls:
+#     roots at HOME=A: ['A/.config/bulk-downloader', 'A/BulkDownloader/macros']
+#     predicate(A/.config/bulk-downloader/widgets.json) with HOME=A: True
+#     roots at HOME=B: ['B/.config/bulk-downloader', 'B/BulkDownloader/macros']
+#     predicate(SAME ABSOLUTE PATH)                    with HOME=B: False
+#
+# The fix is a UNION, not a swap. Freezing the roots at session start ALONE
+# would protect the operator and break every call-time RED above -- a prior
+# candidate did exactly that and turned six named tests red, including both
+# mkdir REDs. So both halves are asserted, and the cry-wolf direction is
+# asserted too: conftest is the shared denominator of every band in the suite,
+# and a guard that defends MORE paths has more room to refuse a legitimate
+# write.
+
+
+def _operator_config_root():
+    """~/.config/bulk-downloader as it stood when conftest was IMPORTED.
+
+    Derived from _REAL_VPN_CONFIG, which conftest freezes at import time, so the
+    answer does not move when a test relocates HOME -- including the relocation
+    performed by the test asking the question.
+    """
+    return _ct._REAL_VPN_CONFIG.parent.parent
+
+
+def test_the_operators_config_root_keeps_its_cover_when_home_moves(
+        monkeypatch, tmp_path):
+    """RED. One fixed absolute path, asked either side of the relocation."""
+    fixed = _operator_config_root() / "widgets.json"
+    assert _ct._violates_home_store_guard(fixed), (
+        "precondition: the operator's own config is protected before any test "
+        "has relocated HOME")
+    _fake_home(monkeypatch, tmp_path)
+    assert _ct._violates_home_store_guard(fixed), (
+        f"{fixed} lost its protection the moment HOME moved to {tmp_path}. The "
+        "roots are resolved at call time and nothing remembers where the "
+        "session started, so for the whole of any relocation window a write to "
+        "the operator's real config is waved through.")
+
+
+def test_both_halves_of_the_union_are_live_at_once(monkeypatch, tmp_path):
+    """RED for the frozen half, GREEN for the call-time half -- in one body.
+
+    A snapshot that REPLACED call-time resolution would satisfy the test above
+    while breaking the relocated half, so asserting both here makes that swap
+    impossible to pass.
+    """
+    fixed = _operator_config_root() / "widgets.json"
+    relocated = _fake_home(monkeypatch, tmp_path) / "widgets.json"
+    assert _ct._violates_home_store_guard(fixed), (
+        "the session-start half is not armed: the operator's real config is "
+        "unprotected while HOME points elsewhere")
+    assert _ct._violates_home_store_guard(relocated), (
+        "the call-time half is not armed: a relocated HOME is no longer "
+        "followed, which is what the mkdir REDs above depend on")
+
+
+def test_the_write_primitives_refuse_the_operators_config_while_home_is_moved(
+        monkeypatch, tmp_path):
+    """RED at the WRITE, not at the predicate.
+
+    This file already paid for that distinction once: ~/BulkDownloader/macros
+    was a DECLARED root whose predicate returned True while os.mkdir created the
+    directory anyway, and the gate asserting the predicate reported OK. So the
+    relocation window is asserted through the primitives as well.
+
+    Both probes name a directory that does NOT exist under the operator's real
+    config, so an UNGUARDED run raises FileNotFoundError from the filesystem and
+    creates nothing. The test reproduces the defect without being able to write
+    into the operator's config on any machine -- the refusal it demands is a
+    RuntimeError, and the filesystem's error is reported as the failure.
+    """
+    missing = _operator_config_root() / "__bd_guard_probe_absent__"
+    assert not missing.exists(), (
+        f"{missing} exists; this probe requires an absent directory so that an "
+        "unguarded run cannot create anything")
+    _fake_home(monkeypatch, tmp_path)
+
+    attempts = (
+        ("Path.write_text", lambda: (missing / "x.json").write_text(
+            "{}", encoding="utf-8")),
+        ("os.mkdir", lambda: os.mkdir(str(missing / "deeper"))),
+    )
+    for label, attempt in attempts:
+        with pytest.raises(Exception) as caught:
+            attempt()
+        assert isinstance(caught.value, RuntimeError), (
+            f"{label} was not refused while HOME pointed at {tmp_path}: it "
+            f"failed with {type(caught.value).__name__} from the filesystem, "
+            "which is the only reason nothing was written. On a box where that "
+            "directory exists the write would have landed in the operator's "
+            "real config.")
+    assert not missing.exists()
+
+
+def test_the_union_still_ignores_paths_outside_both_namespaces(
+        monkeypatch, tmp_path):
+    """CRY-WOLF, and it is the dominant risk of this cut.
+
+    The union protects strictly MORE paths than call-time resolution alone, and
+    conftest is the shared denominator of every band in the suite. Writes that
+    were legal must stay legal, and the frozen half must not sweep in the rest
+    of the session-start HOME along with the app's own namespace.
+    """
+    home = _operator_config_root().parents[1]
+    _fake_home(monkeypatch, tmp_path)
+    for probe in (tmp_path / "scratch.json",
+                  tmp_path / "BulkDownloader" / "src" / "thing.py",
+                  tmp_path / ".config" / "something-else" / "c.json",
+                  tmp_path / ".config" / "bulk-downloader-backup" / "c.json"):
+        probe.parent.mkdir(parents=True, exist_ok=True)
+        probe.write_text("ok", encoding="utf-8")
+        assert probe.read_text(encoding="utf-8") == "ok"
+    for sibling in (home / ".config" / "something-else" / "c.json",
+                    home / ".cache" / _ct._BD_CONFIG_DIRNAME / "c.json",
+                    home / ".config" / "bulk-downloader-backup" / "c.json",
+                    home / "Downloads" / "bulk_downloader" / "c.json"):
+        assert not _ct._violates_home_store_guard(sibling), (
+            f"the frozen half over-reached to {sibling}, which is not the "
+            "app's own config namespace")
+
+
+def test_the_frozen_half_applies_the_same_repo_exclusion(monkeypatch, tmp_path):
+    """Both branches of the macros conditional, on the shared root builder.
+
+    STRUCTURAL PIN, not a behavioural RED: on pristine source the helper does
+    not exist. It earns its place by covering the branch no machine can
+    exercise -- the frozen half is computed once at import and cannot follow a
+    monkeypatched _REPO_ROOT_FOR_GUARD, so without this the deploy box's branch
+    (checkout IS ~/BulkDownloader, macros must NOT be guarded) is unverified
+    everywhere, and a frozen half that dropped the exclusion would refuse
+    ordinary repo writes forever.
+    """
+    home = tmp_path / "home"
+    config = home / ".config" / _ct._BD_CONFIG_DIRNAME
+    macros = home / "BulkDownloader" / _ct._MACRO_DIRNAME
+
+    monkeypatch.setattr(_ct, "_REPO_ROOT_FOR_GUARD", tmp_path / "somewhere-else")
+    outside = _ct._home_roots_for(home)
+    assert config in outside and macros in outside
+
+    monkeypatch.setattr(_ct, "_REPO_ROOT_FOR_GUARD", home / "BulkDownloader")
+    inside = _ct._home_roots_for(home)
+    assert config in inside and macros not in inside

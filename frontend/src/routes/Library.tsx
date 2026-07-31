@@ -516,12 +516,12 @@ export function Library() {
         </div>
         {audit.data && (
           <p className="mt-2 text-sm text-muted-foreground">
-            history {String(audit.data.total_history ?? "—")} · disk files{" "}
-            {String(audit.data.total_disk_files ?? "—")} · orphans{" "}
-            {audit.data.orphans?.length ?? 0} · missing from disk{" "}
-            {audit.data.missing_from_disk?.length ?? 0} · missing NFO{" "}
-            {String(audit.data.missing_nfo ?? "—")} · missing thumbs{" "}
-            {String(audit.data.missing_thumbs ?? "—")}
+            orphans {String(audit.data.orphans ?? 0)} · missing from disk{" "}
+            {String(audit.data.missing ?? 0)} · duplicate groups{" "}
+            {String(audit.data.duplicate_groups ?? 0)} · size drift{" "}
+            {String(audit.data.size_drift ?? 0)} · orphan size{" "}
+            {String(audit.data.orphan_size_gb ?? 0)} GB · reclaimable{" "}
+            {String(audit.data.duplicate_reclaimable_gb ?? 0)} GB
           </p>
         )}
         {orphans.data && (

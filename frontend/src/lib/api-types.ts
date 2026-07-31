@@ -1117,15 +1117,23 @@ export interface UiEventsIngestResult {
 
 // ── T3 library/tags tranche types (v3.66.207) — handler-correct ──────
 
-// POST /api/library/audit → library_final.audit(): {orphans, missing_from_disk,
-// total_history, total_disk_files, missing_nfo, missing_thumbs} (error key on 4xx/5xx).
+// POST /api/library/audit → library_final.audit(): counts + capped samples.
+// Handler-correct as of v3.66.822 (verified by calling audit()): orphans,
+// missing, duplicate_groups and size_drift are COUNTS (ints), not lists; the
+// lists are the sample_* fields. Earlier revisions of this interface declared
+// arrays and four keys (total_history, total_disk_files, missing_nfo,
+// missing_thumbs) that audit() has never returned. (error key on 4xx/5xx.)
 export interface LibraryAuditResult {
-  orphans?: unknown[];
-  missing_from_disk?: unknown[];
-  total_history?: number;
-  total_disk_files?: number;
-  missing_nfo?: number;
-  missing_thumbs?: number;
+  orphans?: number;
+  missing?: number;
+  duplicate_groups?: number;
+  duplicate_reclaimable_gb?: number;
+  size_drift?: number;
+  orphan_size_gb?: number;
+  sample_orphans?: unknown[];
+  sample_missing?: unknown[];
+  sample_duplicates?: unknown[];
+  sample_size_drift?: unknown[];
   error?: string;
   [k: string]: unknown;
 }

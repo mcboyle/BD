@@ -265,9 +265,25 @@ def list_size_drift(download_dir: str, *, site_id: Optional[str] = None,
 
 
 def audit(*, download_dir: str, site_id: Optional[str] = None) -> dict:
-    """One-call library-doctor summary for the dashboard. Returns orphans +
-    missing-from-disk (files vs history) plus duplicate candidates (size
-    collisions) and size-drift (recorded vs on-disk size)."""
+    """One-call library-doctor summary for the dashboard.
+
+    Returns COUNTS, not lists -- the lists are the capped sample_* fields.
+    Exact keys (the SPA panel and api-types.ts LibraryAuditResult must agree
+    with this set; tests/test_library_audit_panel_contract.py pins that):
+
+      orphans                  int   files on disk with no history row
+      missing                  int   history rows whose file is gone
+                                     (the key is `missing`, NOT
+                                     `missing_from_disk` -- that name was
+                                     rendered by the SPA for releases and
+                                     never existed here)
+      duplicate_groups         int   size-collision groups (advisory)
+      duplicate_reclaimable_gb float
+      size_drift               int   recorded vs on-disk size mismatches
+      orphan_size_gb           float
+      sample_orphans / sample_missing / sample_duplicates /
+      sample_size_drift        list  first 10 rows of each
+    """
     o = list_orphans(download_dir, site_id=site_id)
     m = list_missing_from_disk(site_id=site_id)
     dupes = list_duplicate_candidates(download_dir)

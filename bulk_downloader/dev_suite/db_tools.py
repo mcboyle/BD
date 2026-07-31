@@ -840,18 +840,37 @@ def fts_index_inspect():
     Reports FTS5 availability, whether the virtual table exists, and
     the age of the .fts_optimize_last sentinel.
 
-    The headline metric is index drift. history_fts is a CONTENT-LESS
-    external-content table (content='history'), so `COUNT(*) FROM
-    history_fts` reads straight through to `history` and ALWAYS equals
-    the content-table count — it can never reveal a desync. The real
-    desync (a `history` row whose text was never added to the inverted
-    index, because a write path skipped the FTS mirror) is found by
-    counting distinct docs in the inverted index itself via an
-    fts5vocab('history_fts','instance') shadow table and comparing
-    that to the `history` count. Caveat: a `history` row with no
-    indexable text in any FTS column would also be absent from the
-    inverted index, so a small positive drift can be benign — the
-    result flags this rather than asserting corruption.
+    The headline metric is index membership, reported as TWO
+    SET-DERIVED numbers. history_fts is a CONTENT-LESS external-content
+    table (content='history'), so `COUNT(*) FROM history_fts` reads
+    straight through to `history` and ALWAYS equals the content-table
+    count — it can never reveal a desync.
+
+    A scalar difference cannot replace it, because it cannot separate
+    two OPPOSITE error directions:
+
+      unindexed_rows   a `history` row absent from the inverted index.
+                       It is UNSEARCHABLE. A write path skipped the FTS
+                       mirror.
+      orphaned_docs    a doc the inverted index still holds with no
+                       `history` row behind it. A delete skipped the
+                       FTS mirror and left its terms.
+
+    Each moves `history_count - indexed_count` by one, in OPPOSITE
+    directions, so K orphans act as standing credit that understates
+    unsearchable rows by exactly K — up to reporting a database with
+    permanently unsearchable rows as healthy. `row_count_drift` is
+    still reported (it is what older readers consume) but it is that
+    cancelling scalar and it does NOT drive the verdict.
+
+    Membership comes from `db._fts_indexed_docs` — the same docset the
+    delete-side maintenance (db_fts_forget) derives membership from, so
+    there is one definition of "indexed" and not two. Caveat carried
+    from that helper: a `history` row with no indexable text in any FTS
+    column contributes no term instances and reads as unindexed, so a
+    small unindexed count can be benign — the result flags this rather
+    than asserting corruption. When the docset cannot be read at all,
+    every set-derived number is None and the verdict says UNKNOWN.
 
     Also runs FTS5's own 'integrity-check' command (read-only). Note
     integrity-check verifies the index's internal structure; it does
@@ -897,33 +916,35 @@ def fts_index_inspect():
             out["fts_count_star"] = cx.execute(
                 "SELECT COUNT(*) FROM history_fts").fetchone()[0]
 
-            # The real indexed-doc count: distinct rowids present in
-            # the inverted index, via an fts5vocab shadow table.
-            # fts5vocab resolves its target table within the schema the
-            # shadow vtable is created in, so this MUST be created in
-            # `main` (not temp) to find history_fts. It is a transient
-            # vtable over the existing index — it writes no data — and
-            # is dropped immediately in a finally, so the tool stays
-            # read-only with respect to stored data.
-            indexed = None
-            try:
-                cx.execute("DROP TABLE IF EXISTS _bd_fts_vocab_probe")
-                cx.execute(
-                    "CREATE VIRTUAL TABLE _bd_fts_vocab_probe "
-                    "USING fts5vocab('history_fts', 'instance')")
-                try:
-                    indexed = cx.execute(
-                        "SELECT COUNT(DISTINCT doc) "
-                        "FROM _bd_fts_vocab_probe").fetchone()[0]
-                finally:
-                    cx.execute("DROP TABLE IF EXISTS _bd_fts_vocab_probe")
-            except Exception as e:
-                out["indexed_doc_count_error"] = str(e)[:120]
-            out["indexed_doc_count"] = indexed
-            # drift = content rows not represented in the inverted
-            # index. None when the vocab probe failed.
-            out["row_count_drift"] = (
-                hist_count - indexed if indexed is not None else None)
+            # Membership, not a count. db._fts_indexed_docs returns the
+            # docset the inverted index actually holds (a transient
+            # fts5vocab shadow vtable over the existing index — it
+            # writes no data and is dropped in a finally, so this stays
+            # read-only). Reused rather than re-probed here: it is the
+            # denominator the delete-side maintenance already uses, and
+            # two definitions of "indexed" would drift apart.
+            #
+            # Then TWO set differences, because collapsing them to
+            # `hist_count - indexed` lets the two directions CANCEL.
+            docs = _db._fts_indexed_docs(cx)
+            if docs is None:
+                out["indexed_doc_count_error"] = (
+                    "fts5vocab probe failed; index membership is UNKNOWN")
+                out["indexed_doc_count"] = None
+                out["orphaned_docs"] = None
+                out["unindexed_rows"] = None
+                out["row_count_drift"] = None
+            else:
+                hist_ids = {r[0] for r in cx.execute(
+                    "SELECT id FROM history").fetchall()}
+                out["indexed_doc_count"] = len(docs)
+                # in the index, no `history` row behind it
+                out["orphaned_docs"] = len(docs - hist_ids)
+                # in `history`, absent from the index: UNSEARCHABLE
+                out["unindexed_rows"] = len(hist_ids - docs)
+                # kept for older readers, and only ever the cancelling
+                # scalar. Not the verdict input.
+                out["row_count_drift"] = hist_count - len(docs)
 
             # FTS5 integrity-check — verifies the index's internal
             # structure (read-only). Does NOT catch a content desync.
@@ -950,27 +971,42 @@ def fts_index_inspect():
     else:
         out["last_optimize_age_hours"] = None
 
-    drift = out.get("row_count_drift")
     integ_ok = out.get("integrity_check") == "ok"
     idx = out.get("indexed_doc_count")
-    if drift is None:
+    orphaned = out.get("orphaned_docs")
+    unindexed = out.get("unindexed_rows")
+    if orphaned is None or unindexed is None:
+        # UNKNOWN is a third state and it FAILS. Reporting health from
+        # a denominator that could not be read is the failure mode this
+        # tool exists to avoid, so it says so instead.
+        out["health"] = "unknown"
         out["verdict"] = (
-            "FTS index present; drift could not be measured "
-            f"(vocab probe failed); integrity={out.get('integrity_check')}")
-    elif drift == 0 and integ_ok:
+            "UNKNOWN: FTS index present but its membership could not "
+            "be derived (fts5vocab probe failed), so unsearchable rows "
+            "and orphaned docs are both unmeasured; integrity="
+            f"{out.get('integrity_check')}")
+    elif orphaned == 0 and unindexed == 0 and integ_ok:
+        out["health"] = "healthy"
         out["verdict"] = (
             f"FTS index healthy: {idx} indexed doc(s), in sync with "
             "history")
-    elif drift > 0 and integ_ok:
+    elif not integ_ok:
+        out["health"] = "degraded"
         out["verdict"] = (
-            f"possible FTS drift: {drift} history row(s) not in the "
-            f"index ({idx} indexed vs {out['history_row_count']} in "
-            "history) — benign if those rows have no indexable text, "
-            "otherwise a write path skipped the FTS mirror")
+            f"FTS index issue: integrity={out.get('integrity_check')}; "
+            f"{unindexed} unsearchable history row(s), {orphaned} "
+            "orphaned doc(s)")
     else:
+        out["health"] = "degraded"
         out["verdict"] = (
-            f"FTS index issue: drift={drift}, "
-            f"integrity={out.get('integrity_check')}")
+            f"FTS index drift: {unindexed} history row(s) absent from "
+            f"the index (UNSEARCHABLE), {orphaned} orphaned doc(s) held "
+            f"by the index with no history row ({idx} indexed vs "
+            f"{out['history_row_count']} in history) — a row whose FTS "
+            "columns are all empty contributes no terms and reads as "
+            "unindexed, so a small unindexed count can be benign; "
+            "orphans are terms left behind by a delete that skipped the "
+            "FTS mirror")
     return out
 
 

@@ -4,6 +4,31 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.823 - three gates that reported a clean number they could not have computed
+
+- Library audit panel rendered constants, not data. It took .length of an int
+  (orphans is a count, not a list) and read missing_from_disk, a key audit()
+  has never returned, so both figures displayed 0 regardless of the library's
+  actual state -- a clean bill of health that no measurement produced.
+  Library.tsx and api-types.ts now read the real audit() keys (orphans,
+  missing, duplicate_groups, size_drift, orphan_size_gb,
+  duplicate_reclaimable_gb), audit()'s docstring states the exact key set, and
+  tests/test_library_audit_panel_contract.py pins the contract-to-consumer
+  agreement by running audit() for real rather than against a hand-written
+  fixture that could restate the same wrong names.
+- dev_suite fts_index_inspect reported healthy over unsearchable rows. It
+  derived one drift scalar by subtraction, so K orphaned docs cancelled K
+  history rows missing from the index and the difference read as zero. It now
+  reports set-derived orphaned_docs and unindexed_rows separately, reuses
+  db._fts_indexed_docs for membership instead of a second copy of that logic,
+  and GET /api/dev/fts_index carries a healthy/degraded/unknown tri-state --
+  unknown is a third state and it is not a pass.
+- The home-config guard stopped defending the operator's real config the
+  moment a test moved HOME: it resolved its protected roots once and a later
+  monkeypatch of HOME moved the subject outside the denominator it checked.
+  It now defends the union of the session-start roots and the call-time roots,
+  so neither ordering leaves a live path unguarded.
+
 ## v3.66.822 - updating an indexed column left the old terms in the search index
 
 - history_fts is FTS5 external-content, so SQLite maintains nothing for it. On
