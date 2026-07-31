@@ -4,6 +4,30 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.821 - the provisioner graded node on apt package identity, not capability
+
+- scripts/provision_test_host.sh asked whether the apt names nodejs and npm
+  install, and graded that core (blocking). Package identity is the wrong
+  denominator in both directions. A host carrying node from nvm, volta,
+  NodeSource or a tarball is invisible to dpkg, so an apt failure blocked a box
+  that builds the SPA fine. And on a host whose node lives outside apt,
+  apt-get install -y nodejs npm exits 0 while planning a second, older
+  toolchain beside the working one, and the row recorded OK for having done it.
+- The row's own comment justified the blocking grade with capture.sh's
+  frontend/dist FATAL, claiming the file is produced by the toolchain this
+  group installs. That was false: the provisioner contains no npm ci, no
+  npm run build, and no read of frontend/dist at all.
+- The node row is now optional and is reached only when node and npm do not
+  already execute here. Capability is probed by running them, never by parsing
+  a version: the repo declares engines >=18.0.0 but the pinned vite requires
+  ^18 or ^20 or >=22, so 19.x and 21.x satisfy the declared floor and vite
+  refuses them.
+- The blocking property is moved, not deleted. New step [4b/9] grades the
+  artifact capture.sh actually exits 2 without, using -f to match capture.sh
+  and install_linux.sh byte-for-byte in predicate.
+- Known and deliberate: [4b/9] reads the provisioned checkout, while capture.sh
+  resolves its own home. They are the same directory on the deploy box.
+
 ## v3.66.820 - six gates and guards that could not reach their subjects
 
 - conftest's $HOME store guard declared ~/BulkDownloader/macros protected but

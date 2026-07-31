@@ -300,12 +300,27 @@ run_step 03a_apt_update "package index refresh" optional $SUDO apt-get update ||
 #                        the interpreter and its own package manager. Nothing
 #                        downstream of a failure here is meaningful.
 #
-#   node  -> `core`.     capture.sh exits 2 with "FATAL:
-#                        frontend/dist/index.html is missing" BEFORE it collects
-#                        a single test, and that file is produced by the SPA
-#                        toolchain this group installs. A host that cannot build
-#                        the SPA cannot reach the green ./capture.sh this script
-#                        promises, so a failure is not a missing extra.
+#   node  -> `optional`, and reached ONLY when the toolchain does not already
+#                        run here. This entry used to read `core`, justified by
+#                        capture.sh exiting 2 on a missing
+#                        frontend/dist/index.html "produced by the SPA toolchain
+#                        this group installs". THE SECOND CLAUSE WAS FALSE: this
+#                        script installs a toolchain and NEVER BUILDS -- it
+#                        contains no npm ci, no npm run build, and no read of
+#                        frontend/dist anywhere -- so installing could not
+#                        produce the file the grade was defending. Worse, the
+#                        row graded apt PACKAGE IDENTITY, which is wrong in both
+#                        directions: a host carrying node from nvm, volta,
+#                        NodeSource or a tarball is invisible to dpkg, so an apt
+#                        failure BLOCKED a box that builds the SPA fine; and on
+#                        a host whose node lives outside apt, `apt-get install
+#                        -y nodejs npm` exits 0 while planning a SECOND, OLDER
+#                        toolchain beside the working one and the row records OK
+#                        for it. provision_node_toolchain below asks the
+#                        capability question instead, by EXECUTING node and npm.
+#                        The blocking property is not deleted, it is MOVED to
+#                        where it is true: step [4b/9] grades the ARTIFACT
+#                        capture.sh actually exits 2 without.
 #
 #   gtk   -> `optional`. Mirrors scripts/cloud-setup.sh, which grades its
 #                        equivalent step optional deliberately. Two reasons, and
@@ -357,8 +372,71 @@ install_group() {
     return 0
 }
 
+# node_toolchain_ok -- can THIS process run the SPA toolchain?
+#
+# Probe by DOING, never by parsing a version. The repo declares
+# frontend/package.json engines ">=18.0.0" but the pinned vite requires
+# "^18 || ^20 || >=22", so 19.x and 21.x satisfy the declared floor and vite
+# refuses them: any version-arithmetic predicate passes hosts the build rejects.
+# Executing the interpreter cannot make that mistake.
+#
+# Echoes a one-line description on stdout. NO `|` in it -- that is record()'s
+# field separator. Exit 0 = this process can run node and npm.
+node_toolchain_ok() {
+    local n p
+    n="$(command -v node 2>/dev/null || true)"
+    p="$(command -v npm 2>/dev/null || true)"
+    if [ -z "$n" ] || [ -z "$p" ]; then
+        echo "node=${n:-<none>} npm=${p:-<none>} -- not both on PATH"
+        return 1
+    fi
+    local nv pv
+    if ! nv="$("$n" --version 2>/dev/null)" || [ -z "$nv" ]; then
+        echo "$n does not execute"
+        return 1
+    fi
+    if ! pv="$("$p" --version 2>/dev/null)" || [ -z "$pv" ]; then
+        echo "$p does not execute"
+        return 1
+    fi
+    # The build is ESM with top-level await; an interpreter old enough to reject
+    # this cannot run the toolchain regardless of what --version claims.
+    if ! "$n" --input-type=module -e 'await import("node:path");' >/dev/null 2>&1; then
+        echo "$n $nv cannot run ESM with top-level await"
+        return 1
+    fi
+    echo "node $nv ($n) + npm $pv ($p), each executed here"
+    return 0
+}
+
+# provision_node_toolchain -- capability first, apt only as a remedy.
+#
+# The apt row keeps its original label so every consumer that looks up
+# "system packages (node)" still resolves; the re-probe gets a DISTINCT label,
+# because apt exiting 0 is a statement about dpkg and not about whether node
+# runs afterwards.
+provision_node_toolchain() {
+    local detail
+    if detail="$(node_toolchain_ok)"; then
+        record "system packages (node)" "OK" "already runs here ($detail); apt not consulted"
+        return 0
+    fi
+
+    echo "  node: not usable here ($detail); falling back to apt"
+    # `|| return 0` preserves install_group's empty-list contract: it records
+    # UNKNOWN and returns 1, and no second row may overwrite that verdict.
+    install_group 03c_pkgs_node "system packages (node)" node optional || return 0
+
+    if detail="$(node_toolchain_ok)"; then
+        record "node toolchain" "OK" "usable after apt ($detail)"
+    else
+        record "node toolchain" "WARN" "this host cannot run the SPA toolchain ($detail); whether that blocks is step [4b/9]'s question, on the bundle itself"
+    fi
+    return 0
+}
+
 install_group 03b_pkgs_core "system packages (core)" core core     || true
-install_group 03c_pkgs_node "system packages (node)" node core     || true
+provision_node_toolchain                                           || true
 install_group 03d_pkgs_gtk  "system packages (gtk)"  gtk  optional || true
 # optional: a box without shellcheck still captures cleanly -- the suite's
 # parse gates announce themselves unrunnable rather than reporting OK, so the
@@ -378,6 +456,31 @@ else
     # Invoked through `bash` rather than as ./install_linux.sh: the deploy path
     # is an unzip overlay and the executable bit does not always survive it.
     run_step 04_install_linux "install_linux.sh" core bash ./install_linux.sh || true
+fi
+
+# ------------------------------------------------------- [4b/9] SPA bundle
+#
+# THIS is the blocking grade the node package row used to pretend to be.
+# capture.sh exits 2 -- before it collects a single test -- when
+# frontend/dist/index.html is missing. That file is built by install_linux.sh
+# (step [4/9] above), whose frontend tier is NON-FATAL by its own contract, so
+# the install can succeed having produced no bundle at all. Nothing between
+# there and ./capture.sh would say so.
+#
+# Predicate is -f, deliberately: capture.sh and install_linux.sh both test -f,
+# so using -s here would fail a tree BOTH consumers accept -- a gate stricter
+# than the thing it guards is a gate that cries wolf.
+#
+# Subject is $REPO, the frame steps [4], [7] and [8] already bind this run to.
+# capture.sh resolves its own home (defaulting to the operator's checkout), and
+# on the deploy box the two are the same directory; this row is a statement
+# about the checkout this script provisioned.
+if [ ! -d "$REPO/frontend" ]; then
+    record "SPA bundle" "UNKNOWN" "$REPO/frontend does not exist, so whether a bundle could be built here cannot be evaluated"
+elif [ -f "$REPO/frontend/dist/index.html" ]; then
+    record "SPA bundle" "OK" "$REPO/frontend/dist/index.html present"
+else
+    record "SPA bundle" "FAIL" "$REPO/frontend/dist/index.html is missing, so ./capture.sh will exit 2 before collecting a test; rebuild with (cd frontend && npm ci && npm run build)"
 fi
 
 # ------------------------------------------- [5/9] headless browser system libs
