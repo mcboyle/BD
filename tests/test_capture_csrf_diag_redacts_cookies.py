@@ -30,8 +30,10 @@ from __future__ import annotations
 
 import ast
 import io
+import json
 import re
 import sys
+import textwrap
 import types
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -201,6 +203,79 @@ def test_the_review_gate_can_fail():
         "the review gate did not flag an unreviewed file; a gate that cannot "
         "fail is worse than no gate")
     assert _unreviewed({"a.py"}, {"a.py": "reason"}) == []
+
+
+# ── a BEHAVIOURAL floor for the one remaining collector ─────────────────────
+#
+# Measured by mutation at v3.66.824: adding
+#   result["set_cookies_raw"] = [c[:120] for c in set_cookies]
+# to diag_d2's embedded probe leaked the bd_session VALUE and BOTH gates in
+# this cut still passed. The registry above certified that file safe with the
+# prose "records only len(set_cookies) and a bd_session-present boolean" -- and
+# prose is not a measurement.
+#
+# That hole is one this cut OPENED. diag_csrf_bootstrap.py's retirement removed
+# the only behavioural cookie tests over a tools/ collector, leaving the
+# registry's whole tools/ population certified by reading alone. This restores
+# a floor for the collector that still exists.
+#
+# The leak path is real, not theoretical: the subprocess emits json.dumps(result)
+# on stdout, and when that line fails to parse the parent stores out[-400:] as
+# "stdout_tail" (diag_d2_fresh_bd_home.py:130) and _print_probe prints it (:234).
+
+def _diag_d2_cookie_block() -> str:
+    """diag_d2's Set-Cookie collection lines, extracted from the embedded program.
+
+    The embedded probe is a STRING literal, so it is reached via AST rather than
+    read off the file -- and sliced on the ASSIGNMENT NAMES it defines, never on
+    a neighbouring comment. The deleted sibling's extractor anchored on a `# 4.`
+    comment, which meant an edit that merely renumbered a comment broke it.
+    """
+    tree = ast.parse((REPO_ROOT / "tools" / "diag_d2_fresh_bd_home.py")
+                     .read_text(encoding="utf-8"))
+    prog = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) \
+                and "set_cookies_have_bd_session" in node.value:
+            prog = node.value
+            break
+    assert prog is not None, (
+        "no embedded probe program in diag_d2_fresh_bd_home.py defines "
+        "set_cookies_have_bd_session -- the anchor moved, so this test would "
+        "certify nothing (UNKNOWN fails)")
+    m = re.search(r"^\s*set_cookies = .*?set_cookies_have_bd_session.*?\)\s*$",
+                  prog, re.S | re.M)
+    assert m, "could not slice the Set-Cookie block out of diag_d2's probe"
+    return textwrap.dedent(m.group(0))
+
+
+def test_diag_d2_collector_never_records_the_cookie_value():
+    """Drive diag_d2's real collector with a known secret; the value must not survive."""
+    block = _diag_d2_cookie_block()
+    assert "set-cookie" in block.lower(), "extracted block does not read Set-Cookie"
+
+    class _Headers:
+        @staticmethod
+        def items():
+            return [("Content-Type", "text/html"), ("Set-Cookie", _COOKIE)]
+
+    ns = {"resp": types.SimpleNamespace(headers=_Headers()), "result": {}}
+    exec(compile(block, "<diag_d2 cookie block>", "exec"), ns)
+    result = ns["result"]
+
+    rendered = json.dumps(result)
+    assert _SECRET not in rendered, (
+        "diag_d2's collector recorded the bd_session VALUE into its result "
+        "dict, which reaches the operator via stdout_tail:\n" + rendered)
+    assert _SECRET[:12] not in rendered, (
+        "a prefix of the cookie value was recorded -- truncation is not "
+        "redaction:\n" + rendered)
+
+    # Redaction that deletes the signal is a different bug.
+    assert result.get("set_cookies_count") == 1, (
+        f"the header count is gone or wrong: {result!r}")
+    assert result.get("set_cookies_have_bd_session") is True, (
+        f"the bd_session-present fact is gone: {result!r}")
 
 
 def test_every_cookie_reading_tool_has_been_reviewed():

@@ -127,10 +127,23 @@ def test_no_tool_probes_a_root_contract_that_cannot_be_served():
     ok, why = _standin_is_faithful()
     assert ok, f"cannot establish what GET / can serve, so UNKNOWN and FAIL: {why}"
 
+    assert RETIRED_PROBES, (
+        "RETIRED_PROBES is empty, so this test checks for nothing at all "
+        "(UNKNOWN fails)")
+
     sources = _tool_sources()
     assert sources, (
         "no sources found under tools/ -- the denominator is empty, so this "
         "test would certify nothing (UNKNOWN fails)")
+    # Non-empty is NOT enough. Narrowing rglob to glob leaves the denominator
+    # populated (measured 244 -> 224 at v3.66.824) while silently dropping every
+    # nested source -- tools/decomp, tools/code_intelligence, tools/audit -- and
+    # an offender planted in one of them became invisible. Emptiness was the only
+    # thing this assertion rejected; reach is the property that matters.
+    assert any(p.parent != TOOLS for p in sources), (
+        "the tools/ denominator contains no source from a SUBDIRECTORY, so the "
+        "walk has stopped descending and every nested probe is invisible "
+        "(UNKNOWN fails)")
 
     bodies = _root_bodies()
     assert bodies, "GET / returned no measurable bodies; reachability is UNKNOWN"
@@ -169,12 +182,29 @@ def test_functional_probe_does_not_cry_wolf_on_a_healthy_root():
     out = r.stdout + r.stderr
 
     header = "F.1 - CSRF bootstrap"
-    start = out.find("F.1")
+    # "=== F.1 " -- the delimiter AND the trailing space are both load-bearing.
+    # The bare substring "F.1" is a PREFIX of the F.10, F.11 and F.12 headers,
+    # so searching for it slid the window onto the diagnostics-bundle section
+    # whenever the real F.1 header was absent, and the UNKNOWN arm below then
+    # never fired: the gate asserted over a window containing none of its
+    # subject. Measured by mutation at v3.66.824, in this very test.
+    start = out.find("=== F.1 ")
     assert start != -1, (
         "functional_probe printed no F.1 section, so its CSRF arm did not run "
         f"and this test would certify nothing (UNKNOWN fails). output:\n{out[:2000]}")
     nxt = out.find("=== F.2", start)
-    section = out[start:nxt if nxt != -1 else len(out)]
+    assert nxt != -1, (
+        "no F.2 section follows F.1, so the window this test asserts over is "
+        "unbounded and would silently swallow every later section (UNKNOWN "
+        f"fails). output:\n{out[:2000]}")
+    section = out[start:nxt]
+
+    # The window must contain F.1's OWN subject. Without this, a mis-sliced or
+    # empty window trivially satisfies the no-bug assertion below -- passing by
+    # examining nothing, which is the failure this whole file exists to close.
+    assert "/api/csrf" in section, (
+        "the F.1 window does not mention /api/csrf, so it is not F.1's output "
+        f"and nothing was actually checked (UNKNOWN fails). window:\n{section}")
 
     graded_bug = [ln for ln in section.splitlines()
                   if re.search(r"\[(bug|crit)\s*\]", ln)]
@@ -183,3 +213,22 @@ def test_functional_probe_does_not_cry_wolf_on_a_healthy_root():
         f"returns 200 and serves the SPA shell; the CSRF token ships via "
         f"GET /api/csrf, not an HTML meta tag. Offending findings:\n  "
         + "\n  ".join(graded_bug))
+
+    # TWO-SIDED. "no bug" alone is satisfied by an arm that grades nothing at
+    # all, or downgrades to warn -- both measured as escapes at v3.66.824. F.1
+    # must positively report the root load as ok.
+    # Scoped to the ROOT-LOAD finding specifically, not to the window. The first
+    # version of this assertion accepted any [ok] line in F.1 -- and F.1 also
+    # grades /api/csrf, so downgrading the root-load arm to info still passed.
+    # The check's subject was the root load; its denominator was the whole
+    # section. That is the same defect this file exists to catch, committed
+    # inside the fix for it, and caught the same way: by mutation.
+    root_findings = [ln for ln in section.splitlines() if "GET /" in ln]
+    assert root_findings, (
+        "F.1 reports no finding about GET / at all, so the root-load arm "
+        f"produced nothing and nothing was checked (UNKNOWN fails). window:\n{section}")
+    assert any("[ok" in ln for ln in root_findings), (
+        "F.1's GET / finding is not graded ok on a healthy root. An arm "
+        "downgraded to info or warn reports nothing actionable on a broken "
+        "root either, so the probe has lost its teeth rather than passed:\n  "
+        + "\n  ".join(root_findings))
