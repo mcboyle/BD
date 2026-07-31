@@ -393,7 +393,7 @@ POST    /api/library/<int:lid>/rating                          CSRF: yes
 POST    /api/library/<int:lid>/tags                            CSRF: yes  — Body: {tag: 'name'} → attach (creating tag if needed).
 DELETE  /api/library/<int:lid>/tags/<path:tag_name>            CSRF: yes
 POST    /api/library/<int:lid>/watched                         CSRF: yes
-POST    /api/library/audit                                     CSRF: yes  — Run a full audit on a download directory. Returns:
+POST    /api/library/audit                                     CSRF: yes  — Run a full audit on a download directory.
 GET     /api/library/browse                                    CSRF: no
 GET     /api/library/integrity                                 CSRF: no   — #69 — file-system integrity / rename detection.
 GET     /api/library/missing                                   CSRF: no

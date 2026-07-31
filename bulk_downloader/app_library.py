@@ -32,9 +32,19 @@ def _app_s_cfg():
 
 @library_bp.route("/api/library/audit", methods=["POST"])
 def api_library_audit():
-    """Run a full audit on a download directory. Returns:
-    {orphans (files w/o history), missing_from_disk, total_history,
-     total_disk_files, missing_nfo, missing_thumbs}."""
+    """Run a full audit on a download directory.
+
+    Body: download_dir (required), site_id (optional).
+
+    Returns library_final.audit()'s payload verbatim; that function's
+    docstring is the single source of truth for the key set. This one
+    deliberately names no keys. It was the fourth statement of a contract
+    that already had three -- audit(), api-types.ts and Library.tsx -- and
+    the only one no gate's denominator could reach, so it drifted: it
+    documented five keys audit() never returned, and glossed the `orphans`
+    int count as "files", which is the invitation to `.length` on an int
+    that PR #99 had to fix in the SPA panel.
+    test_handler_docstring_is_not_a_fourth_drifting_contract now covers it."""
     _check_csrf()
     body = request.json or {}
     download_dir = body.get("download_dir") or ""
