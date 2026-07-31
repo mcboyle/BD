@@ -788,6 +788,69 @@ def _fts_indexed_docs(cx):
         return None
 
 
+_FTS_COLS = ("site_name", "url", "filename", "message", "status")
+
+
+def db_fts_snapshot(cx, ids):
+    """The PRE-UPDATE rows an FTS re-sync will need, on `cx`.
+
+    Call this BEFORE the UPDATE. The FTS5 'delete' command removes a doc by
+    replaying the values the index was built from, so it needs the row as it
+    was; issued with post-update values it matches nothing, removes nothing,
+    and reports success while the stale terms stay. That ordering is the entire
+    difficulty of this fix, which is why the snapshot is a separate call the
+    reader can see rather than something db_fts_resync does for itself.
+
+    Returns a list of sqlite3.Row. Unknown ids simply do not appear.
+    """
+    ids = [int(i) for i in ids]
+    if not ids:
+        return []
+    marks = ",".join("?" * len(ids))
+    return cx.execute(
+        f"SELECT id, {', '.join(_FTS_COLS)} FROM history WHERE id IN ({marks})",
+        ids).fetchall()
+
+
+def db_fts_resync(cx, old_rows) -> dict:
+    """Re-point history_fts at the CURRENT values of `old_rows`, on `cx`.
+
+    Call this AFTER the UPDATE, passing what db_fts_snapshot returned. Removes
+    the old terms, then re-indexes each row from `history` as it now stands.
+
+    NOT A TRIGGER, for the reason db_fts_forget records: 'delete' for a doc the
+    index does not hold raises DatabaseError, and from inside an AFTER UPDATE
+    trigger that would roll the whole UPDATE back -- one unindexed row would
+    turn a routine rename into a 500 on a desynced database.
+
+    Rows the index never held are re-indexed anyway rather than skipped: the
+    row is live and searchable-by-intent, so adding it is a repair, not a
+    surprise. db_fts_forget already reports those as `unindexed`, not an error.
+
+    Returns db_fts_forget's dict plus `reindexed`, the number of rows written
+    back, counted by re-reading the index rather than by "execute() did not
+    raise".
+    """
+    old_rows = list(old_rows)
+    out = db_fts_forget(cx, old_rows)
+    out["reindexed"] = 0
+    if not out.get("present") or not old_rows:
+        return out
+    cols = ", ".join(_FTS_COLS)
+    coalesced = ", ".join(f"COALESCE({c}, '')" for c in _FTS_COLS)
+    for r in old_rows:
+        rid = r["id"] if not isinstance(r, dict) else r.get("id")
+        try:
+            cx.execute(
+                f"INSERT INTO history_fts(rowid, {cols}) "
+                f"SELECT id, {coalesced} FROM history WHERE id = ?", (int(rid),))
+        except Exception:
+            out["failed"] = out.get("failed", 0) + 1
+            continue
+        out["reindexed"] += 1
+    return out
+
+
 def db_fts_forget(cx, rows) -> dict:
     """Drop `rows` from the history_fts inverted index, on `cx`.
 

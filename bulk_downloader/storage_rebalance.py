@@ -223,8 +223,11 @@ def execute_plan(plan: dict, *, dry_run: bool = True) -> dict:
                 shutil.move(src, dst)
             from . import db as _db
             with _db.db_conn() as cx:
+                # filename is FTS-INDEXED; snapshot before the write.
+                _old = _db.db_fts_snapshot(cx, [hid])
                 cx.execute("UPDATE history SET filename = ? WHERE id = ?",
                            (dst, hid))
+                _db.db_fts_resync(cx, _old)
             out["moved"] += 1
             out["total_bytes"] += int(m.get("size_bytes", 0))
         except Exception as e:
