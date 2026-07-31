@@ -63,7 +63,7 @@ def api_dashboard():
                 s = j.get("status","")
                 if s in totals: totals[s] += 1
                 # Today's done / failed / review
-                ts = j.get("ts","") or ""
+                ts = j.get("ts_iso","") or ""
                 if ts.startswith(today_iso):
                     if s == "done": today_done += 1
                     elif s == "failed": today_failed += 1
@@ -200,7 +200,7 @@ def api_dashboard_v2():
                             site_queued += 1
                         elif s == "running":
                             site_running += 1
-                        ts = j.get("ts", "") or ""
+                        ts = j.get("ts_iso", "") or ""
                         if ts.startswith(today_iso):
                             if s == "done":
                                 site_today_done += 1

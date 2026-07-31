@@ -163,6 +163,7 @@ def bulk_delete(filter_dict: dict, *, dry_run: bool = True,
         out["total_size_gb"] = round(
             sum(int(r.get("file_size", 0) or 0) for r in rows) / (1024**3), 2)
         return out
+    deleted = []
     try:
         from . import db as _db
         for r in rows:
@@ -178,8 +179,20 @@ def bulk_delete(filter_dict: dict, *, dry_run: bool = True,
                 with _db.db_conn() as cx:
                     cx.execute("DELETE FROM history WHERE id = ?", (r["id"],))
                 out["processed"] += 1
+                deleted.append(r)
             except Exception:
                 out["errors"] += 1
+        if deleted:
+            # v3.66.820: history_fts is an FTS5 EXTERNAL-CONTENT table,
+            # so SQLite maintains nothing for it and every deleted row
+            # kept its terms in the inverted index forever. Done ONCE
+            # for the batch, and AFTER the row deletes: the 'delete'
+            # command uses the values handed to it and never reads the
+            # content table (measured), while deriving index membership
+            # costs a full fts5vocab scan -- 95ms at 20k docs -- that
+            # must not be paid once per deleted row.
+            with _db.db_conn() as cx:
+                _db.db_fts_forget(cx, deleted)
     except Exception as e:
         out["ok"] = False
         out["error"] = str(e)[:200]

@@ -5,7 +5,7 @@ Mixin: methods reference self.* only; NO __init__. Import block derived by AST
 free-name scan of the moved bodies (the seams doc omitted the dedup +
 mp4_metadata conditionals). Cycle rule: imports nothing from .runner.
 """
-import sys, shutil
+import os, sys, shutil
 
 from .db import db_log
 from .fname import format_duration_for_filename
@@ -393,3 +393,53 @@ class IntegrityMixin:
             except Exception:
                 pass
         return ok
+
+    def _size_on_disk_after_tagging(self, path, fallback: int) -> int:
+        """The file's CURRENT size on disk, for history.file_size.
+
+        WHY THIS EXISTS. `_embed_metadata_if_mp4` above rewrites the file in
+        place (mutagen.mp4 -> mp4_metadata.tag_mp4), so any size captured before
+        it is stale by the size of the atoms written. MEASURED with mutagen
+        1.48.1 on the 1442-byte H.264 MP4 embedded in
+        tests/test_history_file_size_is_the_size_on_disk.py, using that file's
+        own MetadataContext: 1442 -> 2675, +1233 for tags alone (re-tagging the
+        same file is idempotent, delta 0). A cover adds roughly its own byte
+        count on top, bounded by mp4_metadata._COVER_MAX_BYTES (10 MB). Only the
+        figure a reader can re-derive from the fixture next to it is quoted
+        here. db.db_log's docstring and migrations.py migration 8
+        (add_history_bytes_fetched) both declare `file_size` to be an ON-DISK
+        STAT and `bytes_fetched` to be the transfer count, so the pre-tag number
+        is wrong by the project's own definition of the column.
+
+        KNOWN CONSUMER COST, not a free win. `batch_ops.bulk_dedup_scan` pass 1
+        groups history rows on EXACT `file_size`, so two copies of one video
+        tagged for two different sites stop grouping once this number is the
+        post-tag one -- a missed group, a silent false negative in
+        `recoverable_gb`. That loss is pinned by
+        test_tagged_copies_no_longer_group_in_dedup_pass_1 rather than left to
+        be discovered; moving pass 1 onto a content key is a separate item.
+
+        FALLBACK, NOT ZERO. If the stat fails (file quarantined, moved, or
+        removed between the tag and the record) or returns 0 on a job that
+        transferred bytes, this returns `fallback` -- the pre-tag number, which
+        is what the column held before this cut. Recording 0 or a bogus size
+        would hand `library_final.list_size_drift` a fake "truncated or altered
+        download" for a file that is fine: a gate that cries wolf gets switched
+        off, and this producer must not manufacture the alarm.
+
+        NOT clamped upward either. Sizes do not only grow -- re-tagging can
+        REMOVE atoms -- so `max(actual, fallback)` would make this structurally
+        unable to report a genuine truncation.
+
+        NOT a replacement for `bytes_fetched`. Callers must NOT rebind the
+        variable they pass to `bytes_fetched=`; that number is the transfer
+        count (#63) and absorbing the tag bytes into it restores the defect
+        migration 8 was cut to close.
+        """
+        try:
+            actual = int(os.path.getsize(path))
+        except (OSError, TypeError, ValueError):
+            return int(fallback or 0)
+        if actual <= 0:
+            return int(fallback or 0)
+        return actual

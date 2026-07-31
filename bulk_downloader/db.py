@@ -94,9 +94,15 @@ def db_init():
         # virtual table indexes url/filename/message/site_name so the
         # operator can find "that vixen scene from last week with
         # 'beach' in the title" without scrolling the Logs tab. The
-        # table is content-less (external content via rowid → history.id)
-        # so storage cost is only the inverted index, not duplicated
-        # text. Tokenizer: unicode61 with diacritic removal and a
+        # table is EXTERNAL CONTENT (content='history',
+        # content_rowid → history.id) so storage cost is only the
+        # inverted index, not duplicated text. It is NOT
+        # "content-less" -- that is a different FTS5 mode, and the
+        # confusion is load-bearing: external content means SQLite
+        # maintains NOTHING for this index, so a deleted history
+        # row keeps its terms unless the application issues the
+        # FTS5 'delete' command. See db_fts_forget.
+        # Tokenizer: unicode61 with diacritic removal and a
         # custom separator list that splits CamelCase / digit-runs /
         # common URL punctuation — important for filename matching.
         #
@@ -755,6 +761,115 @@ def db_fts_optimize(*, force=False) -> tuple[bool, str]:
         return False, f"failed: {e}"
 
 
+def _fts_indexed_docs(cx):
+    """Rowids the history_fts inverted index actually holds, or None when
+    that set cannot be derived.
+
+    `SELECT count(*) FROM history_fts` reads THROUGH to `history` on an
+    EXTERNAL-CONTENT table, so it can never show a desync -- the same
+    read-through that makes the one-time backfill guard in db_init
+    unsatisfiable. fts5vocab reads the index itself, which is the only
+    denominator that contains the subject.
+
+    Stated rather than hidden: a document whose indexed columns are all
+    empty contributes no term instances and is invisible here, so it
+    reads as unindexed.
+    """
+    try:
+        cx.execute("DROP TABLE IF EXISTS temp._bd_fts_docs")
+        cx.execute("CREATE VIRTUAL TABLE temp._bd_fts_docs "
+                   "USING fts5vocab('main', 'history_fts', 'instance')")
+        try:
+            return {r[0] for r in cx.execute(
+                "SELECT DISTINCT doc FROM temp._bd_fts_docs").fetchall()}
+        finally:
+            cx.execute("DROP TABLE IF EXISTS temp._bd_fts_docs")
+    except sqlite3.DatabaseError:
+        return None
+
+
+def db_fts_forget(cx, rows) -> dict:
+    """Drop `rows` from the history_fts inverted index, on `cx`.
+
+    history_fts is an FTS5 EXTERNAL-CONTENT table (content='history',
+    content_rowid='id'), so SQLite maintains NOTHING for it: a deleted
+    history row keeps its terms forever unless the application issues
+    the FTS5 'delete' command with that row's OLD column values. `rows`
+    are sqlite3.Row/dict records carrying id, site_name, url, filename,
+    message and status.
+
+    NOT A TRIGGER, deliberately. 'delete' for a doc the index does not
+    hold raises DatabaseError, and from inside an AFTER DELETE trigger
+    that aborts and rolls back the whole DELETE -- one unindexed row
+    would turn a prune of a desynced database into a 500.
+
+    Membership is DERIVED from the index, never inferred from an
+    exception class. Measured: the malformed-image error fires on a row
+    that IS indexed (and that is removed correctly) and stays silent on
+    a row whose indexed text was updated in place, so the exception
+    carries no information about which row the index held. Counting it
+    as "not indexed" announces a desync on a healthy database.
+
+    Returns {present, verified, requested, applied, unindexed,
+    remaining, failed}:
+      present    there is an index to maintain at all
+      verified   the counts were re-read from the index afterwards;
+                 False means they are UNKNOWN, not zero
+      applied    docs that actually left the index -- verified by
+                 re-reading, not by "execute() did not raise"
+      unindexed  rows the index did not hold: skipped, not an error
+      remaining  rows that were indexed, were asked to leave, and are
+                 still there -- the index holds terms nobody remembers
+                 because an FTS-indexed column was updated in place
+      failed     'delete' statements that raised; an error count, not
+                 an outcome. `applied` is the outcome.
+    """
+    out = {"present": False, "verified": False, "requested": 0,
+           "applied": 0, "unindexed": 0, "remaining": 0, "failed": 0}
+    rows = list(rows)
+    out["requested"] = len(rows)
+    try:
+        if not cx.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND name='history_fts'").fetchone():
+            return out
+    except sqlite3.DatabaseError:
+        return out
+    out["present"] = True
+    if not rows:
+        out["verified"] = True
+        return out
+    before = _fts_indexed_docs(cx)
+    if before is None:
+        return out
+    targets = [r for r in rows if r["id"] in before]
+    out["unindexed"] = len(rows) - len(targets)
+    for r in targets:
+        try:
+            cx.execute(
+                "INSERT INTO history_fts(history_fts, rowid, site_name, "
+                "url, filename, message, status) "
+                "VALUES('delete', ?, ?, ?, ?, ?, ?)",
+                (r["id"], r["site_name"] or "", r["url"] or "",
+                 r["filename"] or "", r["message"] or "", r["status"] or ""))
+        except sqlite3.OperationalError:
+            # FTS5 gone from under us mid-batch. Nothing further will
+            # work on this index; stop rather than log the same failure
+            # once per row.
+            out["failed"] += 1
+            break
+        except sqlite3.DatabaseError:
+            out["failed"] += 1
+    after = _fts_indexed_docs(cx)
+    if after is None:
+        return out
+    out["verified"] = True
+    ids = [r["id"] for r in targets]
+    out["applied"] = sum(1 for i in ids if i not in after)
+    out["remaining"] = sum(1 for i in ids if i in after)
+    return out
+
+
 def db_queue_recovery_summary() -> dict:
     """v3.48 (#127): on boot, report how many queue rows were recovered.
 
@@ -1158,10 +1273,27 @@ def db_hourly_success_rate(site_id=None, since_days=30):
 def db_prune(days):
     """Delete history rows older than `days` days. Returns the count
     removed. Useful for keeping the DB file small over months of
-    operation — completion history isn't infinitely valuable."""
+    operation — completion history isn't infinitely valuable.
+
+    v3.66.820: also drops the removed rows from the history_fts
+    EXTERNAL-CONTENT index (db_fts_forget). Before this, every
+    pruned row left its terms in the inverted index permanently.
+    Return type is unchanged: POST /api/history/prune puts this
+    int straight in the JSON body."""
     with db_conn() as cx:
-        return cx.execute("DELETE FROM history WHERE ts < datetime('now', ?)",
-                          (f"-{int(days)} days",)).rowcount
+        # v3.66.820: the cutoff is computed ONCE and bound into both
+        # statements. Two separate `datetime('now', ...)` evaluations
+        # can straddle a second boundary and select different row sets,
+        # which would strip a LIVE row from the index -- unsearchable,
+        # the opposite and worse failure.
+        cutoff = cx.execute("SELECT datetime('now', ?)",
+                            (f"-{int(days)} days",)).fetchone()[0]
+        doomed = cx.execute(
+            "SELECT id, site_name, url, filename, message, status "
+            "FROM history WHERE ts < ?", (cutoff,)).fetchall()
+        db_fts_forget(cx, doomed)
+        return cx.execute("DELETE FROM history WHERE ts < ?",
+                          (cutoff,)).rowcount
 
 def db_vacuum():
     """Run SQLite VACUUM to reclaim space from deleted rows. Returns

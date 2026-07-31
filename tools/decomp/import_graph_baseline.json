@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 1367,
+  "edge_count": 1369,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -703,11 +703,13 @@
       "bulk_downloader/audit.py",
       "bulk_downloader/auto_onboard.py",
       "bulk_downloader/constants.py",
+      "bulk_downloader/cookie_health.py",
       "bulk_downloader/db.py",
       "bulk_downloader/download_window.py",
       "bulk_downloader/dry_run.py",
       "bulk_downloader/fname.py",
       "bulk_downloader/learn.py",
+      "bulk_downloader/log.py",
       "bulk_downloader/profile_sync.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/selector_drift.py",

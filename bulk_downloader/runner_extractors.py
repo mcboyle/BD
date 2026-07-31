@@ -1085,15 +1085,18 @@ class ExtractorsMixin:
         except Exception as e:
             sys.stderr.write(f"  jsonapi: metadata embed raised {e}\n")
 
+        file_size_on_disk = self._size_on_disk_after_tagging(
+            output_path, downloaded_size)
+
         # Mark done
         self._update_job(
             url, "done",
             f"JsonAPI {result.protocol} {src.height}p "
             f"({fmt_bytes(downloaded_size)})",
-            filename=output_filename, file_size=downloaded_size,
+            filename=output_filename, file_size=file_size_on_disk,
         )
         db_log(self.site_id, self.config.get("name", "?"), url, "done",
-               output_filename, downloaded_size,
+               output_filename, file_size_on_disk,
                f"jsonapi={result.protocol} tier={src.height} "
                f"avail={result.available_heights}", bytes_fetched=downloaded_size,
                transfer_mode=transfer_mode)
@@ -1329,15 +1332,18 @@ class ExtractorsMixin:
         except Exception as e:
             sys.stderr.write(f"  vixen: metadata embed raised {e}\n")
 
+        file_size_on_disk = self._size_on_disk_after_tagging(
+            output_path, downloaded_size)
+
         # Mark done
         self._update_job(
             url, "done",
             f"Vixen {upgraded_tier}p {'HLS' if result.is_hls else 'MP4'} "
             f"({fmt_bytes(downloaded_size)}) via {result.via}",
-            filename=output_filename, file_size=downloaded_size,
+            filename=output_filename, file_size=file_size_on_disk,
         )
         db_log(self.site_id, self.config.get("name", "?"), url, "done",
-               output_filename, downloaded_size,
+               output_filename, file_size_on_disk,
                f"vixen={result.via} tier={upgraded_tier} "
                f"avail={result.available_tiers}", bytes_fetched=downloaded_size,
                transfer_mode=transfer_mode)
@@ -1549,15 +1555,18 @@ class ExtractorsMixin:
         except Exception as e:
             sys.stderr.write(f"  dl8: metadata embed raised {e}\n")
 
+        file_size_on_disk = self._size_on_disk_after_tagging(
+            output_path, downloaded_size)
+
         # Mark done
         self._update_job(
             url, "done",
             f"dl8 {chosen_tier}p ({fmt_bytes(downloaded_size)}) "
             f"via {result.via}",
-            filename=output_filename, file_size=downloaded_size,
+            filename=output_filename, file_size=file_size_on_disk,
         )
         db_log(self.site_id, self.config.get("name", "?"), url, "done",
-               output_filename, downloaded_size,
+               output_filename, file_size_on_disk,
                f"dl8={result.via} tier={chosen_tier} "
                f"avail={result.available_tiers}", bytes_fetched=downloaded_size)
         self.log_event(
@@ -1812,15 +1821,18 @@ class ExtractorsMixin:
         except Exception as e:
             sys.stderr.write(f"  aylo: metadata embed raised {e}\n")
 
+        file_size_on_disk = self._size_on_disk_after_tagging(
+            output_path, downloaded_size)
+
         # Mark done
         self._update_job(
             url, "done",
             f"Aylo {variant.quality}p {variant.format.upper()} "
             f"({fmt_bytes(downloaded_size)})",
-            filename=output_filename, file_size=downloaded_size,
+            filename=output_filename, file_size=file_size_on_disk,
         )
         db_log(self.site_id, self.config.get("name", "?"), url, "done",
-               output_filename, downloaded_size,
+               output_filename, file_size_on_disk,
                f"aylo={variant.format} quality={variant.quality}p "
                f"avail=[{','.join(result.available_qualities[:5])}]",
                bytes_fetched=downloaded_size,
@@ -2294,13 +2306,15 @@ class ExtractorsMixin:
                 duration_sec=result.duration_sec,
                 extractor_name=result.extractor,
             )
+            file_size_on_disk = self._size_on_disk_after_tagging(
+                output_path, dl_result.bytes_written)
             self._update_job(
                 url, "done",
                 f"Done via {result.extractor} (HLS, {fmt_bytes(dl_result.bytes_written)})",
-                filename=output_filename, file_size=dl_result.bytes_written,
+                filename=output_filename, file_size=file_size_on_disk,
             )
             db_log(self.site_id, self.config.get("name", "?"), url, "done",
-                   output_filename, dl_result.bytes_written,
+                   output_filename, file_size_on_disk,
                    f"library_extractor={result.extractor} hls=1 "
                    f"quality={result.quality}",
                    bytes_fetched=dl_result.bytes_written,
@@ -2350,13 +2364,15 @@ class ExtractorsMixin:
             duration_sec=result.duration_sec,
             extractor_name=result.extractor,
         )
+        file_size_on_disk = self._size_on_disk_after_tagging(
+            output_path, size)
         self._update_job(
             url, "done",
             f"Done via {result.extractor} ({fmt_bytes(size)})",
-            filename=output_filename, file_size=size,
+            filename=output_filename, file_size=file_size_on_disk,
         )
         db_log(self.site_id, self.config.get("name", "?"), url, "done",
-               output_filename, size,
+               output_filename, file_size_on_disk,
                f"library_extractor={result.extractor} hls=0 "
                f"quality={result.quality}",
                # UNKNOWN, stated rather than guessed: `size` here is

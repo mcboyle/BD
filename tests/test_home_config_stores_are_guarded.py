@@ -82,10 +82,14 @@ def _fake_home(monkeypatch, tmp_path):
     near the operator's actual files. Nothing under the real ~ is touched by
     anything in this file.
     """
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    # Build the namespace BEFORE relocating HOME. Once HOME points here the
+    # guard resolves its roots to this directory, and os.mkdir into a protected
+    # root is refused -- the setup would trip the very guard it is setting up.
+    # A fixture that trips the guard is a fixture defect, not a finding.
     root = tmp_path / ".config" / "bulk-downloader"
     root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     return root
 
 
@@ -306,14 +310,103 @@ def test_macros_is_guarded_only_when_it_lands_outside_the_repo(monkeypatch, tmp_
     one unverified on every machine -- the denominator excluding half its own
     subject.
     """
+    # Same ordering rule as _fake_home: both trees exist before HOME moves.
+    (tmp_path / "BulkDownloader" / "macros").mkdir(parents=True, exist_ok=True)
     outside = _fake_home(monkeypatch, tmp_path).parent.parent / "BulkDownloader" / "macros"
-    outside.mkdir(parents=True, exist_ok=True)
     with pytest.raises(RuntimeError):
         (outside / "m.json").write_text("{}", encoding="utf-8")
 
     # now make the SAME logical path resolve inside the repo root
     monkeypatch.setattr(_ct, "_REPO_ROOT_FOR_GUARD", tmp_path / "BulkDownloader")
     inside = tmp_path / "BulkDownloader" / "macros" / "m2.json"
-    inside.parent.mkdir(parents=True, exist_ok=True)
     inside.write_text("{}", encoding="utf-8")
     assert inside.read_text(encoding="utf-8") == "{}"
+
+
+# ── The gap: a DECLARED protected root whose write primitive was not hooked ──
+#
+# At 5e5e9c5 ~/BulkDownloader/macros was already listed by
+# _protected_home_roots() and _violates_home_store_guard() already returned True
+# for it -- and the directory was created anyway on every run, because
+# macro_recorder._macro_dir() reaches it with Path.mkdir(parents=True), which
+# lands on os.mkdir, and none of the six hooked primitives was os.mkdir.
+# Measured in-process with the guard active:
+#     guard predicate says violation: True
+#     exists before: False
+#     _macro_dir() returned: /root/BulkDownloader/macros
+#     exists after: True
+# The gate above reported OK throughout, because it asserts the PREDICATE while
+# the subject is the WRITE. Declaring a root is not protecting it.
+
+def test_mkdir_into_the_store_root_is_refused(monkeypatch, tmp_path):
+    """RED. os.mkdir was the one write primitive nothing hooked."""
+    root = _fake_home(monkeypatch, tmp_path)
+    with pytest.raises(RuntimeError):
+        (root / "vpn").mkdir()
+    assert not (root / "vpn").exists()
+
+
+def test_mkdir_parents_and_makedirs_into_the_store_root_are_refused(
+        monkeypatch, tmp_path):
+    """Path.mkdir(parents=True) recurses through os.mkdir, and os.makedirs is
+    implemented on it too -- measured on CPython 3.12.3, so one hook covers all
+    three. Pinned by behaviour so a future edit cannot hook only the shallow
+    case."""
+    root = _fake_home(monkeypatch, tmp_path)
+    with pytest.raises(RuntimeError):
+        (root / "a" / "b").mkdir(parents=True)
+    with pytest.raises(RuntimeError):
+        os.makedirs(str(root / "c" / "d"))
+    assert not (root / "a").exists() and not (root / "c").exists()
+
+
+def test_macro_dir_does_not_create_the_operators_macro_directory(
+        monkeypatch, tmp_path):
+    """RED, end to end. The store's own resolver, with nothing steering it."""
+    _fake_home(monkeypatch, tmp_path)
+    monkeypatch.delenv("BD_INSTALL_DIR", raising=False)
+    from bulk_downloader import macro_recorder
+    resolved = Path(macro_recorder._macro_dir())
+    operator_macros = tmp_path / "BulkDownloader" / "macros"
+    assert not operator_macros.exists(), (
+        f"macro_recorder._macro_dir() created {operator_macros} -- the path the "
+        f"guard already declared protected")
+    assert not str(resolved).startswith(str(operator_macros)), (
+        f"_macro_dir() resolved to {resolved}, inside the protected root")
+
+
+def test_the_macro_store_lever_is_diverted():
+    """Layer 1 for macros. Not optional: layer 2 alone makes /api/macros/* 5xx,
+    which fails test_v3_66_729_body_contract_fixtures.py::
+    test_the_app_never_5xxs_on_a_well_formed_request -- measured. A guard that
+    turns a silent write into a red unrelated test is a guard that gets
+    switched off."""
+    from bulk_downloader import macro_recorder
+    assert macro_recorder._macro_dir.__name__ == "_guarded_macro_dir", (
+        f"macro_recorder._macro_dir is {macro_recorder._macro_dir!r}; the "
+        f"session redirect is not installed")
+
+
+def test_a_test_that_steers_bd_install_dir_keeps_steering_it(
+        monkeypatch, tmp_path):
+    """CRY-WOLF. The shim must divert only the UNSTEERED case, exactly as
+    _never_write_the_repo_plugins_dir does for _plugin_dir."""
+    steered = tmp_path / "install"
+    (steered / "macros").mkdir(parents=True)
+    monkeypatch.setenv("BD_INSTALL_DIR", str(steered))
+    from bulk_downloader import macro_recorder
+    assert Path(macro_recorder._macro_dir()) == steered / "macros"
+
+
+def test_mkdir_outside_the_store_root_is_untouched(monkeypatch, tmp_path):
+    """CRY-WOLF. Hooking os.mkdir is the broadest hook in the guard -- every
+    tmp dir, every fixture, every artifact directory in the suite goes through
+    it. If it fires on any of these the guard gets switched off."""
+    _fake_home(monkeypatch, tmp_path)
+    for probe in (tmp_path / "scratch",
+                  tmp_path / "Downloads" / "bulk_downloader",
+                  tmp_path / "BulkDownloader" / "src",
+                  tmp_path / ".config" / "something-else",
+                  tmp_path / ".config" / "bulk-downloader-backup"):
+        probe.mkdir(parents=True, exist_ok=True)
+        assert probe.is_dir()

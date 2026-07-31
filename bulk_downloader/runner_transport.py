@@ -1203,9 +1203,11 @@ class TransportMixin:
             )
         except Exception as e:
             sys.stderr.write(f"  metadata (teach): {type(e).__name__}: {e}\n")
+        file_size_on_disk = self._size_on_disk_after_tagging(
+            str(final_path), downloaded_size)
         self._update_job(page_url,"done",f"Saved: {filename}{verify_msg}",
-                         filename=filename,file_size=downloaded_size)
-        db_log(self.site_id,self.config.get("name","?"),page_url,"done",filename,downloaded_size,"",
+                         filename=filename,file_size=file_size_on_disk)
+        db_log(self.site_id,self.config.get("name","?"),page_url,"done",filename,file_size_on_disk,"",
                honeypot_score=best.get("_honeypot_score"),  # P5-2b: stamp resolve-time score for per-site threshold learning
                bytes_fetched=bytes_fetched,
                transfer_mode=transfer_mode)  # which arm of the chain above ran

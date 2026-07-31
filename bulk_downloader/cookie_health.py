@@ -182,6 +182,30 @@ def _record(site_id: str, *, status: str, note: str,
         pass
 
 
+def forget_site(site_id: str) -> int:
+    """Reap this site's auth_health row. Returns the number of rows
+    removed (0 when the site had no row).
+
+    Deliberately does NOT swallow. A swallowed DB failure would return
+    the same 0 as a clean no-op, so the caller could not tell "nothing
+    to reap" from "the reap did not happen". The caller decides what an
+    unverifiable reap means -- and both callers in app_sites_id_core log
+    it, because a delete route must still return 200.
+
+    Scope note: auth_health is a LAST-KNOWN-STATE row read as a CURRENT
+    signal (status_all -> /api/auth_health/status, and
+    app_data_layer.collect_site_health). It is NOT a historical record
+    like history / session_history, which dev_suite.db_tools.orphan_rows
+    (D-7) documents as retained on purpose. That is why this one table
+    gets a reaper and those do not.
+    """
+    _ensure_table()
+    with _db.db_conn() as cx:
+        cur = cx.execute(
+            "DELETE FROM auth_health WHERE site_id = ?", (site_id,))
+        return int(cur.rowcount or 0)
+
+
 def check_site(site_id: str, site_cfg: dict) -> dict:
     """Check one site's auth health. Returns a dict with the
     decision + any data needed by the UI."""

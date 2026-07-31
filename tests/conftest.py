@@ -481,12 +481,46 @@ def _never_write_the_real_home_config(tmp_path_factory):
     os.environ.setdefault("BD_WIDGETS_CONFIG_PATH", str(sandbox / "widgets.json"))
     os.environ.setdefault("BD_VPN_CONFIG_PATH", str(sandbox / "vpn" / "tunnels.json"))
 
+    # macro_recorder has no dedicated env var -- its only lever is
+    # BD_INSTALL_DIR, and setting that session-wide would also move the plugin
+    # dir, sites_config and everything else keyed off the install dir, which
+    # constants.py freezes at IMPORT. So its layer 1 is the resolver itself,
+    # the same shape as _never_write_the_repo_plugins_dir patching _plugin_dir.
+    #
+    # This half is not optional once os.mkdir is intercepted. Without it the
+    # /api/macros/* routes 5xx on the guard and
+    # test_v3_66_729_body_contract_fixtures.py::
+    # test_the_app_never_5xxs_on_a_well_formed_request FAILS -- measured, twice.
+    # Layer 2 alone converts a silent write into a red unrelated test, which is
+    # how a guard gets switched off.
+    #
+    # Divert ONLY the unsteered case: a test that sets BD_INSTALL_DIR is
+    # deliberately steering this path and must keep steering it. _macro_dir()
+    # MKDIRS as a side effect, so the shim must not call the real one merely to
+    # inspect its answer.
+    _macro_sandbox = sandbox / "macros"
+    try:
+        from bulk_downloader import macro_recorder as _mr
+    except Exception:  # noqa: BLE001
+        _mr = None
+    if _mr is not None:
+        _real_macro_dir = _mr._macro_dir
+
+        def _guarded_macro_dir():
+            if os.environ.get("BD_INSTALL_DIR"):
+                return _real_macro_dir()
+            _macro_sandbox.mkdir(parents=True, exist_ok=True)
+            return _macro_sandbox
+
+        _mr._macro_dir = _guarded_macro_dir
+
     real_write_text = pathlib.Path.write_text
     real_write_bytes = pathlib.Path.write_bytes
     real_path_open = pathlib.Path.open
     real_open = builtins.open
     real_replace = os.replace
     real_rename = os.rename
+    real_mkdir = os.mkdir
 
     def _guard_write_text(self, *a, **k):
         if _violates_home_store_guard(self):
@@ -508,6 +542,20 @@ def _never_write_the_real_home_config(tmp_path_factory):
             raise _home_store_refusal(file)
         return real_open(file, mode, *a, **k)
 
+    def _guard_mkdir(path, *a, **k):
+        # ~/BulkDownloader/macros was a DECLARED protected root that nothing
+        # intercepted: macro_recorder._macro_dir() reaches it with
+        # Path.mkdir(parents=True), which lands on os.mkdir and touched none of
+        # the six primitives above. Measured at 5e5e9c5 -- the guard's own
+        # predicate returned True for the path while the directory was created
+        # anyway, and test_home_config_stores_are_guarded.py reported OK because
+        # it asserts the predicate, not the write. os.mkdir is the one hook that
+        # covers Path.mkdir (including parents=True, which recurses through it)
+        # AND os.makedirs, measured on CPython 3.12.3.
+        if _violates_home_store_guard(path):
+            raise _home_store_refusal(path)
+        return real_mkdir(path, *a, **k)
+
     def _guard_replace(src, dst, *a, **k):
         if _violates_home_store_guard(dst):
             raise _home_store_refusal(dst)
@@ -524,6 +572,7 @@ def _never_write_the_real_home_config(tmp_path_factory):
     builtins.open = _guard_open
     os.replace = _guard_replace
     os.rename = _guard_rename
+    os.mkdir = _guard_mkdir
     try:
         yield
     finally:
@@ -533,6 +582,9 @@ def _never_write_the_real_home_config(tmp_path_factory):
         builtins.open = real_open
         os.replace = real_replace
         os.rename = real_rename
+        os.mkdir = real_mkdir
+        if _mr is not None:
+            _mr._macro_dir = _real_macro_dir
 
 
 # ─── The repository's plugins/ directory is off limits to the whole suite ─────

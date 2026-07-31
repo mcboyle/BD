@@ -433,6 +433,19 @@ def api_sites_v2_bulk():
                     from .db import queue_delete_site
                     queue_delete_site(sid)
                 except Exception: pass
+                # v3.66.820 (#36): same reap as api_delete -- this branch
+                # is a second, inlined copy of the whole teardown, so a
+                # reap in only one of them is a half-fix.
+                try:
+                    from .cookie_health import forget_site
+                    forget_site(sid)
+                except Exception as _reap_err:
+                    try:
+                        from .log import get_logger
+                        get_logger(__name__).warning(
+                            "auth_health reap failed for site %s: %s",
+                            sid, _reap_err)
+                    except Exception: pass
             else:
                 method = getattr(runners[sid], action, None)
                 if method is None or not callable(method):
@@ -907,6 +920,24 @@ def api_delete(sid):
         queue_delete_site(sid)
     except Exception:
         pass
+    # v3.66.820 (#36): reap the auth_health row. It is last-known-STATE
+    # read as a CURRENT signal, so a survivor is a permanent phantom site
+    # in /api/data/site_health -- not a retained record like history,
+    # which dev_suite.db_tools.orphan_rows (D-7) keeps by design.
+    try:
+        from .cookie_health import forget_site
+        forget_site(sid)
+    except Exception as _reap_err:
+        # forget_site does not swallow, so the failure lands here. Log it
+        # rather than pass: silence makes "the reap did not happen"
+        # indistinguishable from "there was nothing to reap". The delete
+        # itself still succeeds and still returns 200.
+        try:
+            from .log import get_logger
+            get_logger(__name__).warning(
+                "auth_health reap failed for site %s: %s", sid, _reap_err)
+        except Exception:
+            pass
     _save_sites_config()
     # v3.48 (#25): audit log — record even if the site was already absent
     # (idempotent delete) so the audit trail captures the intent
