@@ -2039,7 +2039,23 @@ def test_shell_invocation_predicate_self_check(tmp_path: Path) -> None:
 # PINNED, never derived from the file under test. See the block comment above.
 EXPECTED_GROUP_KINDS: dict[str, str] = {
     "core": "core",
-    "node": "core",
+    # REGRADED, and now LIVE: this entry is read by
+    # test_a_node_apt_failure_is_graded_by_the_kind_the_test_file_pins below,
+    # which derives its expected row from it. Before that it was a DEAD PIN --
+    # measured, EXPECTED_GROUP_KINDS occurred exactly once in this file, its
+    # own definition -- carrying an elaborate comment while asserting nothing.
+    #
+    # It read `core`, justified in the provisioner by capture.sh's
+    # frontend/dist/index.html FATAL: "that file is produced by the SPA
+    # toolchain this group installs". Measured false against the whole of
+    # scripts/provision_test_host.sh: it runs no build command of any kind, so
+    # installing the toolchain cannot produce that file. Grading an apt
+    # transaction `core` also blocks every host whose toolchain came from nvm,
+    # volta, NodeSource or a tarball -- invisible to dpkg, perfectly able to
+    # build. The capability is now probed BY EXECUTING it, exactly as gtk's is
+    # probed by doing at [6/9], and the blocking grade moved to the ARTIFACT
+    # capture.sh actually reads, at step [4b/9].
+    "node": "optional",
     "gtk": "optional",
     # optional: a box without shellcheck still captures cleanly. The parse
     # gates announce themselves unrunnable rather than reporting OK, so the
@@ -2153,25 +2169,106 @@ def _build_package_phase_probe(path: Path) -> None:
     )
 
 
+# Node/npm stand-ins for the CAPABILITY probe. The provisioner's node row is
+# graded by EXECUTING the toolchain rather than by asking dpkg what is
+# installed, so a stub that refuses to run IS the capability answer -- there is
+# nothing else to fake.
+#
+# WHY STUBS AND NOT THE HOST'S OWN PATH. This container has TWO real node
+# installations (measured: /opt/node22/bin/node v22.22.2, and a second under
+# /usr/local/bin), so any assertion that lets the probe inherit the CI image's
+# PATH is really an assertion about the image. Worse, the direction that
+# matters -- "the toolchain does not run here" -- is UNREACHABLE by
+# inheritance on every host this suite runs on, which makes the obvious test
+# unfailable: it would pass with the whole node handling deleted. The stub dir
+# is already FIRST on PATH for apt-get and sudo, so writing node/npm into it
+# pins the answer in BOTH directions on every host, deterministically.
+_FAKE_NODE = r'''#!/bin/sh
+case "${1:-}" in
+    --version|-v) echo "v22.22.2" ;;
+esac
+exit 0
+'''
+
+_FAKE_NPM = r'''#!/bin/sh
+case "${1:-}" in
+    --version|-v) echo "10.9.7" ;;
+esac
+exit 0
+'''
+
+# 127 is what a shell reports for "command not found", and it is the honest
+# model here: an executable that resolves on PATH and cannot do the job. A
+# probe that asked `command -v` instead would grade presence, which is the
+# identity grading this whole section exists to remove.
+_INCAPABLE_NODE = r'''#!/bin/sh
+echo "$0: cannot execute on this host (probe stub)" >&2
+exit 127
+'''
+
+
+# A node that ANSWERS --version and then cannot run the build's dialect. This
+# is the shape a version-parsing probe is blind to by construction: v10.24.0
+# satisfies no floor anyone would write, but the same trap exists at 19.x and
+# 21.x, which satisfy the repo's declared engines ">=18.0.0" while the pinned
+# vite ("^18 || ^20 || >=22") refuses them. Executing the interpreter is the
+# only predicate that separates these hosts from capable ones.
+_ESM_BLIND_NODE = r'''#!/bin/sh
+case "${1:-}" in
+    --version|-v) echo "v10.24.0"; exit 0 ;;
+    --input-type=module) echo "$0: unexpected token" >&2; exit 1 ;;
+esac
+exit 0
+'''
+
+
+def _write_node_stubs(stub_bin: Path, *, capable: bool, esm_blind: bool = False) -> None:
+    """Pin one probe run's node/npm capability answer, in every direction.
+
+    ``esm_blind`` models the host the probe exists for: node RESOLVES and
+    REPORTS a version, so presence- and version-shaped predicates both pass it,
+    and only executing the build's dialect reveals it cannot run the toolchain.
+    """
+    if esm_blind:
+        _write_stub(stub_bin / "node", _ESM_BLIND_NODE)
+        _write_stub(stub_bin / "npm", _FAKE_NPM)
+        return
+    body = _FAKE_NODE if capable else _INCAPABLE_NODE
+    _write_stub(stub_bin / "node", body)
+    _write_stub(stub_bin / "npm", _FAKE_NPM if capable else _INCAPABLE_NODE)
+
+
 def _run_package_phase(
     tmp_path: Path,
     *,
+    node_capable: bool,
+    node_esm_blind: bool = False,
     fail_names: tuple[str, ...] = (),
     fragment_body: str | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], list[str], dict[str, str]]:
     """Run the probe and return ``(completed, apt argv lines, {label: result})``.
 
-    ``fragment_body`` is the ONLY fault injection, and it is used by the
-    empty-list case alone: it builds a throwaway repo whose fragment is a stub.
-    Every other case sources the REAL scripts/lib/system_deps.sh. That
+    ``node_capable`` is REQUIRED and has no default ON PURPOSE. The node group
+    is the one group whose apt transaction is conditional on what the host can
+    actually do, so every call site here has to state which host it is
+    measuring. A default would let a caller silently inherit the CI image's
+    node and assert over it -- and since every host this suite runs on HAS a
+    node, the incapable branch would then never be exercised at all.
+
+    ``fragment_body`` is the only fault injection into the REPO, and it is used
+    by the empty-list case alone: it builds a throwaway repo whose fragment is
+    a stub. Every other case sources the REAL scripts/lib/system_deps.sh. That
     asymmetry is deliberate -- a stub installed for every test is how
     ``_display_stub_dir`` made two thirds of ``_bd_display_active``
-    unreachable.
+    unreachable. ``node_capable`` is not an exception to it: it fakes the HOST
+    (two binaries on PATH), never the subject, which is the provisioner's own
+    grading of what those binaries answered.
     """
     stub_bin = tmp_path / "aptbin"
     stub_bin.mkdir(exist_ok=True)
     _write_stub(stub_bin / "apt-get", _FAKE_APT_GET)
     _write_stub(stub_bin / "sudo", _FAKE_SUDO)
+    _write_node_stubs(stub_bin, capable=node_capable, esm_blind=node_esm_blind)
 
     apt_log = tmp_path / "apt-calls.log"
     rows_file = tmp_path / "rows.txt"
@@ -2303,8 +2400,13 @@ def test_package_phase_issues_one_partitioned_transaction_per_group(
         "Partitioning cannot be judged against a stale denominator."
     )
 
+    # node_capable=False PINS the branch under measurement: with the toolchain
+    # absent the node group still issues its own apt transaction, so the
+    # one-transaction-per-group invariant below is measured against a fixed
+    # host instead of whatever node the CI image happens to ship. The capable
+    # branch has its own test.
     completed, apt_calls, rows = _run_package_phase(
-        tmp_path, fail_names=EXPECTED_GROUPS["gtk"]
+        tmp_path, fail_names=EXPECTED_GROUPS["gtk"], node_capable=False
     )
     transactions = _install_transactions(apt_calls)
 
@@ -2360,8 +2462,11 @@ def test_a_core_tier_apt_failure_is_recorded_as_blocking(tmp_path: Path) -> None
     The other half is contagion: node and gtk must still read OK, which is only
     possible because they got their OWN transactions.
     """
+    # node_capable=False keeps the node group on its apt path, which is what
+    # makes "node and gtk still read OK" a statement about transaction
+    # partitioning rather than about the CI image's PATH.
     completed, apt_calls, rows = _run_package_phase(
-        tmp_path, fail_names=EXPECTED_GROUPS["core"]
+        tmp_path, fail_names=EXPECTED_GROUPS["core"], node_capable=False
     )
     sites = _assert_package_phase_reached(completed, rows)
 
@@ -2402,8 +2507,13 @@ def test_an_empty_package_list_blocks_and_runs_no_installer(
     not the capability. The script does not know what this group's deps ARE,
     which is a different statement from "this host lacks them". Both block.
     """
+    # node_capable=False is the STRICTER arm for this contract: it drives the
+    # node group down the apt path, so the empty-list refusal has to hold for
+    # node too. A capable host would skip the group entirely and this test
+    # would stop asserting anything about it.
     completed, apt_calls, rows = _run_package_phase(
         tmp_path,
+        node_capable=False,
         fragment_body=(
             f"bd_system_pkgs() {{ return {status}; }}\n"
             "bd_start_display() { return 0; }\n"
@@ -2426,6 +2536,165 @@ def test_an_empty_package_list_blocks_and_runs_no_installer(
             f"because nothing was examined is worse than having no step. "
             f"Rows: {rows}"
         )
+
+
+def test_a_host_that_already_runs_the_toolchain_gets_no_node_apt_transaction(
+    tmp_path: Path,
+) -> None:
+    """KILLS grading the node row on apt package IDENTITY.
+
+    THE DEFECT, measured on this container rather than reasoned about: `dpkg -s
+    nodejs` and `dpkg -s npm` both exit 1 while node v22.22.2 and npm 10.9.7
+    execute from /opt/node22/bin. `apt-get install -s -y nodejs npm` then exits
+    0 planning 449 Inst lines including an OLDER nodejs -- so the pristine row
+    installs a second, older toolchain beside a working one and records OK for
+    having done it. Identity is the wrong denominator in both directions; the
+    capability is whether the toolchain RUNS.
+
+    THIS TEST CANNOT BE SATISFIED BY THE HOST, and that is the point.
+    ``node_capable=True`` injects the answer through PATH-first stubs; its
+    inverse is injected by the two tests below. "Assert no node transaction
+    while inheriting the image's real node" would pass on every host this suite
+    runs on AND pass with the whole node handling deleted -- an unfailable
+    check, which CLAUDE.md 0 calls worse than no check.
+
+    The four other transactions are asserted PRESENT in the same breath: a
+    mutant that suppressed every install would otherwise read as this working.
+    """
+    completed, apt_calls, rows = _run_package_phase(tmp_path, node_capable=True)
+    sites = _assert_package_phase_reached(completed, rows)
+    transactions = _install_transactions(apt_calls)
+
+    assert frozenset(EXPECTED_GROUPS["node"]) not in transactions, (
+        "the provisioner handed apt the node package list on a host whose "
+        "toolchain already executes. On this container that transaction plans "
+        "449 packages and installs an older toolchain beside the working one, "
+        f"then records OK for it. apt calls: {apt_calls}"
+    )
+    for group in ("core", "gtk", "lint", "media"):
+        assert frozenset(EXPECTED_GROUPS[group]) in transactions, (
+            f"the {group} transaction disappeared too. This test is about the "
+            "node group ALONE -- a probe that suppressed every install would "
+            f"otherwise read as the fix working. apt calls: {apt_calls}"
+        )
+    assert rows.get(sites["node"]) == "OK", (
+        f"the node row read {rows.get(sites['node'])!r} on a capable host, "
+        "expected 'OK'. Skipping the transaction must still RECORD the "
+        f"capability -- nothing here is ever skipped silently. Rows: {rows}"
+    )
+
+
+def test_a_node_apt_failure_is_graded_by_the_kind_the_test_file_pins(
+    tmp_path: Path,
+) -> None:
+    """KILLS the `core` grade on the node apt row, and revives a DEAD PIN.
+
+    EXPECTED_GROUP_KINDS above carried `"node": "core"` while being read by
+    NOTHING -- measured, the name occurred exactly once in this file, its own
+    definition. A reviewer asking "is the node group's criticality pinned?"
+    found it, read "PINNED, never derived from the file under test", and
+    concluded yes. This test derives its expectation from that entry, so the
+    entry under change is now a checked fact rather than a comment.
+
+    WHY `optional` IS THE CORRECT GRADE. The written justification for `core`
+    was capture.sh's frontend/dist/index.html FATAL -- "that file is produced
+    by the SPA toolchain this group installs". The provisioner runs no build
+    command of any kind, so installing the toolchain cannot produce that file.
+    The blocking property belongs on the ARTIFACT, which is step [4b/9], not on
+    a dpkg identity that a host with node from nvm, volta, NodeSource or a
+    tarball does not have and does not need.
+
+    The other groups are asserted OK in the same run: a regrade that also
+    swallowed core's failures would be a strictly worse defect.
+    """
+    expected = {"core": "FAIL", "optional": "WARN"}[EXPECTED_GROUP_KINDS["node"]]
+
+    completed, apt_calls, rows = _run_package_phase(
+        tmp_path, fail_names=EXPECTED_GROUPS["node"], node_capable=False
+    )
+    sites = _assert_package_phase_reached(completed, rows)
+
+    assert rows.get(sites["node"]) == expected, (
+        f"apt exited 100 for the node group and the row read "
+        f"{rows.get(sites['node'])!r}. EXPECTED_GROUP_KINDS pins the group "
+        f"{EXPECTED_GROUP_KINDS['node']!r}, so the row must read {expected!r}: "
+        "'FAIL' blocks the whole verdict on an apt transaction a capable host "
+        "does not need, and 'OK' would swallow the failure entirely. "
+        f"Rows: {rows}. apt calls: {apt_calls}"
+    )
+    for group in ("core", "gtk"):
+        assert rows.get(sites[group]) == "OK", (
+            f"the {group} group read {rows.get(sites[group])!r} while only "
+            "node's packages were unavailable -- the groups are sharing a "
+            f"transaction. Rows: {rows}. apt calls: {apt_calls}"
+        )
+
+
+def test_an_apt_success_for_node_is_re_probed_and_not_taken_as_capability(
+    tmp_path: Path,
+) -> None:
+    """KILLS reading apt's exit code as the answer to "can this host build?".
+
+    The fake apt exits 0 for every install it is handed, which is exactly what
+    a real `apt-get install -y` does when it installs a toolchain the host
+    still cannot use -- and what it does on this container, where the package
+    it would install is OLDER than the node already present. dpkg succeeding is
+    a statement about dpkg. So the toolchain is EXECUTED again after the
+    install, and that answer is recorded under its OWN label instead of being
+    folded into the apt row, which would make one row mean two different
+    things.
+
+    The stubs stay incapable across the install because there is no fake apt
+    that can install a real interpreter -- and that IS the modelled host:
+    "apt reported success and node still does not run".
+
+    A distinct label is also what keeps the verdict table's row count matching
+    the recorded rows; reusing 'system packages (node)' would collapse two
+    outcomes into one dictionary key.
+    """
+    completed, apt_calls, rows = _run_package_phase(tmp_path, node_capable=False)
+    _assert_package_phase_reached(completed, rows)
+
+    assert rows.get("node toolchain") == "WARN", (
+        "after an apt install that exited 0, the re-probe row read "
+        f"{rows.get('node toolchain')!r}, expected 'WARN'. None at all means "
+        "there is no re-probe and apt's exit code IS the verdict -- the "
+        "identity grading this cut removes, merely regraded softer. 'OK' means "
+        f"the re-probe cannot fail. Rows: {rows}. apt calls: {apt_calls}"
+    )
+
+
+def test_a_node_that_reports_a_version_but_cannot_run_the_build_is_not_capable(
+    tmp_path: Path,
+) -> None:
+    """The probe must EXECUTE the build's dialect, not trust --version.
+
+    Caught by mutation: removing the ESM check from node_toolchain_ok left every
+    other test in this file green, because the capable stub answers 0 for any
+    argument and the incapable stub answers 127 for all of them -- neither
+    models a node that resolves, reports a version, and then cannot run the
+    toolchain. That host is the entire reason the probe executes rather than
+    parses: 19.x and 21.x satisfy the repo's declared engines ">=18.0.0" while
+    the pinned vite ("^18 || ^20 || >=22") refuses them.
+    """
+    completed, apt_calls, rows = _run_package_phase(
+        tmp_path, node_capable=False, node_esm_blind=True
+    )
+    _assert_package_phase_reached(completed, rows)
+
+    # It reported a version, so a presence- or version-shaped probe would have
+    # called it capable and skipped apt. The execution probe must not.
+    assert frozenset({"nodejs", "npm"}) in [
+        frozenset(c.split()[2:]) for c in apt_calls if c.startswith("install -y")
+    ], (
+        "a node that answers --version but cannot run the build's dialect was "
+        "treated as capable, so the apt remedy was never attempted: "
+        f"apt calls={apt_calls} rows={rows}"
+    )
+    assert rows.get("node toolchain") == "WARN", (
+        "after apt failed to make this host usable the re-probe must WARN, not "
+        f"claim capability: rows={rows}"
+    )
 
 
 # --- G. anti-drift: the package names live in exactly one file ---------------
@@ -3469,6 +3738,9 @@ def _run_verdict_probe(
     *,
     fragment_body: str | None = None,
     provisioned: bool = True,
+    node_capable: bool = True,
+    spa_built: bool = True,
+    spa_index_bytes: str = "<!doctype html>\n",
     **overrides: str,
 ) -> tuple[subprocess.CompletedProcess[str], list[str], str]:
     """Run the whole provisioner against a fake repo. Nothing real is touched.
@@ -3501,6 +3773,18 @@ def _run_verdict_probe(
         (repo / "tools" / _graph_tool).write_text(
             "# verdict probe stand-in for the graph tools\n", encoding="utf-8"
         )
+    # Same duty for the SPA bundle, and it must land in the same edit as the
+    # step that reads it: [4b/9] stats frontend/dist/index.html, so a fixture
+    # that never creates frontend/ makes a HEALTHY fake host record UNKNOWN and
+    # the anti-cry-wolf READY arms fail on the FIXTURE instead of on the
+    # subject. The directory is always created; only the file is optional,
+    # because "no frontend/ at all" and "frontend/ but nothing built" are
+    # different states and the step grades them differently.
+    (repo / "frontend" / "dist").mkdir(parents=True)
+    if spa_built:
+        (repo / "frontend" / "dist" / "index.html").write_text(
+            spa_index_bytes, encoding="utf-8"
+        )
     (repo / "scripts" / "lib" / "system_deps.sh").write_text(
         _VERDICT_STUB_FRAGMENT if fragment_body is None else fragment_body,
         encoding="utf-8",
@@ -3515,6 +3799,8 @@ def _run_verdict_probe(
     stub_bin.mkdir()
     _write_stub(stub_bin / "apt-get", _FAKE_APT_GET)
     _write_stub(stub_bin / "sudo", _FAKE_SUDO)
+
+    _write_node_stubs(stub_bin, capable=node_capable)
 
     order_log = work / "order.log"
     logdir = work / "provision-logs"
@@ -3765,6 +4051,122 @@ def test_the_verdict_text_and_the_process_exit_code_agree(
         "the verdict written to the log directory disagrees with the one "
         f"printed: file says {_verdict_line(written).group('state')!r}, "
         f"console says {state!r}"
+    )
+
+
+def test_a_tree_without_the_spa_bundle_blocks_the_verdict(tmp_path: Path) -> None:
+    """The moved blocking grade, EXERCISED. KILLS deleting or softening [4b/9].
+
+    capture.sh hard-exits 2 with "FATAL: frontend/dist/index.html is missing"
+    BEFORE it collects a single test. Nothing in the provisioner examined that
+    file: install_linux.sh's frontend tier is non-fatal by contract, and
+    frontend/dist is gitignored with zero tracked files, so `git reset --hard`
+    never delivers it. The node apt row CLAIMED to guard this and structurally
+    could not -- it graded package identity, and this script never builds.
+
+    So the blocking property is not deleted by this cut, it is MOVED to the
+    artifact that is actually load-bearing. No bundle, no READY.
+
+    The exit code is asserted alongside the text: a console that says
+    INCOMPLETE while the process exits 0 hands every automated caller a green
+    host.
+    """
+    completed, _entries, written = _run_verdict_probe(tmp_path, spa_built=False)
+    rows, match = _assert_verdict_probe_reached(completed)
+
+    assert rows.get("SPA bundle") == "FAIL", (
+        "a checkout with frontend/ but no frontend/dist/index.html recorded "
+        f"{rows.get('SPA bundle')!r}, expected 'FAIL'. None means no step "
+        "examines the artifact at all -- the state before this cut, in which "
+        "the provisioner promises a green ./capture.sh and hands back a tree "
+        f"capture.sh refuses to run on. Rows: {rows}"
+    )
+    assert match.group("state") == "INCOMPLETE", (
+        f"the verdict was {match.group('state')!r} on a host where capture.sh "
+        f"will exit 2 before collecting a single test. Rows: {rows}"
+    )
+    assert completed.returncode == 1, (
+        f"the run exited {completed.returncode}; the script's own status IS "
+        "the verdict, and an automated caller never reads the console."
+    )
+    assert _verdict_line(written) is not None, (
+        "no file under the log directory carries the verdict for this run, so "
+        "the operator's durable record of the refusal is gone"
+    )
+
+
+def test_an_empty_index_html_is_accepted_exactly_as_capture_sh_accepts_it(
+    tmp_path: Path,
+) -> None:
+    """The predicate pin: `-f`, never `-s`.
+
+    capture.sh tests `[ ! -f "$BD_HOME/frontend/dist/index.html" ]` and
+    install_linux.sh tests `[ -f "$INSTALL_DIR/frontend/dist/index.html" ]` to
+    SKIP its rebuild. Both are `-f`. A zero-byte index.html is therefore a tree
+    BOTH consumers wave through, and a provisioner that blocked on it would be
+    a gate crying wolf about a host neither consumer objects to -- CLAUDE.md 0
+    calls over-sensitivity a soundness bug in its own right, because a gate
+    that cries wolf gets switched off.
+
+    Strengthening to `-s` is a defensible design (an empty bundle is a 503),
+    but it is a DIVERGENCE from both consumers and would have to be argued and
+    written down rather than drifted into. This test is what makes that a
+    decision instead of an accident.
+    """
+    completed, _entries, _written = _run_verdict_probe(
+        tmp_path, spa_built=True, spa_index_bytes=""
+    )
+    rows, match = _assert_verdict_probe_reached(completed)
+
+    assert rows.get("SPA bundle") == "OK", (
+        "a zero-byte frontend/dist/index.html recorded "
+        f"{rows.get('SPA bundle')!r}, expected 'OK'. capture.sh and "
+        "install_linux.sh both use -f, so this row must never be stricter than "
+        f"the consumers it speaks for. Rows: {rows}"
+    )
+    assert match.group("state") == "READY", (
+        f"the verdict was {match.group('state')!r} on a tree capture.sh "
+        f"accepts. Rows: {rows}"
+    )
+    assert completed.returncode == 0, (
+        f"the run exited {completed.returncode} on a tree capture.sh accepts"
+    )
+
+
+def test_a_host_that_cannot_build_but_already_has_the_bundle_stays_ready(
+    tmp_path: Path,
+) -> None:
+    """CRY-WOLF FLOOR. Passes before this cut and must keep passing.
+
+    The dist-included install shape -- tools/build_release.py --prebuild-spa,
+    documented in install_linux.sh's frontend tier -- exists precisely for
+    machines with no node toolchain. Such a host cannot build the SPA and does
+    not need to: the bundle is already there, capture.sh's FATAL will not fire,
+    and nothing in this cut may block it.
+
+    That is the entire argument for moving the blocking grade off the toolchain
+    and onto the artifact. If this test ever fails, the cut re-created the
+    defect it removed, one step to the left.
+    """
+    completed, _entries, _written = _run_verdict_probe(
+        tmp_path, node_capable=False, spa_built=True
+    )
+    rows, match = _assert_verdict_probe_reached(completed)
+
+    blocking = sorted(
+        label for label, result in rows.items() if result in ("FAIL", "UNKNOWN")
+    )
+    assert not blocking, (
+        f"{blocking} blocked a host that cannot build the SPA but already HAS "
+        "the bundle. A toolchain it does not need is not a reason to refuse a "
+        f"host capture.sh would run on. Rows: {rows}"
+    )
+    assert match.group("state") == "READY", (
+        f"the verdict was {match.group('state')!r}. Rows: {rows}"
+    )
+    assert completed.returncode == 0, (
+        f"the run exited {completed.returncode}; a WARN is visible, never "
+        "blocking."
     )
 
 
