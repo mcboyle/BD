@@ -85,8 +85,14 @@ if not victim_sess:
 if victim_sess == ATTACKER_FIXED:
     rep.F("crit", "session pinning: server ACCEPTED attacker-supplied session id")
 elif victim_sess:
+    # Never emit the minted value. ATTACKER_FIXED is our own synthetic input so
+    # it is safe to name, but victim_sess is a REAL server-minted bd_session --
+    # the CSRF-bound auth session. The probe's finding is that the two DIFFER,
+    # and that is a boolean; the value adds nothing a reader needs and this
+    # report is shipped.
     rep.F("ok", f"session pinning blocked: server minted fresh id",
-          f"attacker_id={ATTACKER_FIXED[:30]!r} server_id={victim_sess[:30]!r}")
+          f"attacker_id={ATTACKER_FIXED[:30]!r} "
+          f"server_id=<omitted, len={len(victim_sess)}, differs from attacker_id>")
 else:
     rep.F("info", "no bd_session cookie in response — can't probe pinning")
 

@@ -124,8 +124,32 @@ print(f"contains un-substituted marker   : "
 set_cookies = [v for k, v in resp.headers.items()
                if k.lower() == "set-cookie"]
 print(f"Set-Cookie headers                 : {len(set_cookies)}")
+# Report the FACTS, never the value. bd_session is the CSRF-bound auth session
+# (app.py:1074): possessing its value lets the holder derive the expected CSRF
+# token (app.py:751) and replay as the operator (app_captures.py:105). This
+# output is redirected into diagnostic logs that get shipped, so truncation is
+# not redaction -- the whole 43-char value fits inside 120 characters. Same
+# shape capture.sh step [3] settled on: name, value length, flag attributes.
+_FLAG_ATTRS = ("expires", "max-age", "domain", "path", "secure",
+               "httponly", "samesite", "partitioned", "priority")
 for c in set_cookies:
-    print(f"  {c[:120]}")
+    _name, _, _rest = c.partition("=")
+    _value, _, _attrs = _rest.partition(";")
+    _shown = []
+    for _a in _attrs.split(";"):
+        _a = _a.strip()
+        if not _a:
+            continue
+        _k, _sep, _v = _a.partition("=")
+        _k = _k.strip()
+        if not _sep:
+            _shown.append(_k)
+        elif _k.lower() in _FLAG_ATTRS:
+            _shown.append(f"{_k}={_v.strip()}")
+        else:
+            _shown.append(f"{_k}=<omitted>")
+    print(f"  cookie: {_name.strip()} value_len: {len(_value.strip())} "
+          f"attrs: {','.join(_shown) or '(none)'}")
 
 # 4. If the marker IS in the file but NOT in the response, the
 #    substitution failed for some reason — show the first 800 chars
