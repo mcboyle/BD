@@ -1055,14 +1055,48 @@ Re-derive before believing any row here, including this one.
   marks our authored commits Verified. That needs the signing key registered on
   the account; it cannot be read from a session. Look at any PR's commit list.
   Do not re-derive it from local %G?.
-- 21 REMOTE BRANCHES SHARE NO COMMON ANCESTOR WITH main, each carrying 2-36
-  files main does not have. `git branch --merged` and the GitHub merged badge
-  are both useless here; only a content comparison decides. codex/integrate-all-branches
-  (98 commits) looks like a prior attempt at exactly that reconciliation.
-  DO NOT bulk-delete: an early sweep of mine marked 21 of them "SAFE (adds
-  nothing)" because the three-dot diff ERRORED with "no merge base" and the
-  error output was counted as zero changed files. A measurement that could not
-  run reported clean.
+- THE ORPHAN BRANCHES -- RECONCILED AND DELETED, 2026-08-01. The remote now
+  carries `main` only, verified by ls-remote after the operator ran the
+  deletion (session credentials cannot delete refs: HTTP 403, measured).
+
+  WHAT THE RECONCILIATION FOUND. The 21 no-base branches were not 21
+  independent trees but ONE CONNECTED FAMILY -- they all shared history with
+  each other; only main (the post-zip-migration line) was disjoint. Exactly
+  two tips were maximal (claude/bulkdownloader-env-verify-bdtfic,
+  claude/bulkdownloader-preflight-setup-bh5n4z); all 19 others were ancestors
+  of one of them, verified 19/19 with merge-base --is-ancestor. That collapsed
+  the examination from 21 deep reads to one.
+
+  ALL 22 (the family plus the merged handoff-68xjky, A=0) were verdicted
+  NOTHING_UNIQUE, and every verdict was adversarially attacked and SUSTAINED.
+  The A-files were content main DELIBERATELY REMOVED, proven by blob identity:
+  the generated scrapers cache untracked at #60, and the PRE-security-fix
+  tools/diag_csrf_bootstrap.py blob from before #95's bd_session-leak fix.
+  The M-file residue (all 29 not-in-main-history files read, 708 branch-only
+  lines) was uniformly the DEFECT SIDE of shipped fixes -- the `done > 0` L11,
+  the self-referential capture.sh count, the CWD-relative SITES_FILE, the
+  undecodable ftyp+free mp4 builder. The branches were regression material,
+  not archive.
+
+  RECOVERY: the full family (24 refs incl. main) is in the operator's bundle
+  at ~/bd-orphans-2026-08-01.bundle on the deploy box, `git bundle verify`ed
+  "records a complete history". Deletion was sha-guarded: examined refs ==
+  remote refs == bundle refs, three-way, before the push.
+
+  ONE UNEXAMINED LINE, stated so it is not rediscovered as a mystery:
+  preflight-setup-bh5n4z was force-pushed at some point (test4's stale
+  tracking ref remembered b4f0c80; the examined and bundled tip is 713dc77).
+  The pre-force line was ALREADY unreachable on GitHub before the deletion
+  and exists only in test4's local object store. It was never examined and
+  carries no verdict.
+
+  THE ORIGINAL TRAP, kept because it is the method lesson: an early sweep
+  marked 21 branches "SAFE (adds nothing)" because the three-dot diff ERRORED
+  with "no merge base" and the error output was counted as zero changed
+  files. The reconciliation avoided it by construction -- two-dot tree diffs,
+  every exit code captured unpiped, failed comparison graded UNKNOWN never
+  zero -- and the same rule was re-applied at deletion time (a moved ref
+  would have been skipped, not deleted).
 
 ### 15.5 | The squash-merge trap is CLOSED -- and how that was established
 
