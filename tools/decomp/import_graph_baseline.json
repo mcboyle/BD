@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 1369,
+  "edge_count": 1370,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2035,6 +2035,9 @@
     ],
     "tools/capture_statistics.py": [
       "tools/capture_analytics.py"
+    ],
+    "tools/census_file_size_drift.py": [
+      "bulk_downloader/db.py"
     ],
     "tools/closed_loop_learning.py": [
       "bulk_downloader/capture_ingest.py"

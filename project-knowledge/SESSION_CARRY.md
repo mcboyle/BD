@@ -729,8 +729,37 @@ that re-stats `history.file_size` for done rows whose file resolves on disk,
 --dry-run first, printing a count. Never an automatic migration -- history is
 append-only by design and a deploy must not silently rewrite shipped rows.
 
-UNMEASURED: how many such rows exist on the box. That is the number that
-decides whether this matters at all, and it cannot be seen from a container.
+MEASURED 2026-08-01 on test4 -- the population is ZERO, so (a) is CLOSED as
+not-applicable-on-this-host. Run with `tools/census_file_size_drift.py`
+(v3.66.826; the command previously recorded in 15.2 was wrong -- see there):
+
+    done rows with a recorded size : 31
+    sites in config                : 1
+    rows examined                  : 0 of 31
+    rows whose site_id is not in sites_config : 31
+
+All 23 orphan site_ids are named `bdseed fixture site`. They are
+`tools/live_seed.py` residue, which that tool documents at lines 82-85 as
+structurally unremovable: history is append-only, `db_log()` is its only
+writer and `db_prune()` (by AGE, not by marker) its only deleter, so teardown
+cannot clear the rows. `_RUN_NONCE` gives each capture run a fresh site_id,
+which is why there are 23. The one configured site (`d9f19e92`, "wow") has
+ZERO history rows and its download_dir holds zero files.
+
+READ THE VERDICT PRECISELY, because a wrong closure is permanent. This does
+NOT say the defect is not real: `history.file_size` is still never UPDATEd, so
+a pre-v3.66.820 row on a real library will still surface as positive drift.
+What is measured is that THIS HOST HAS NO SUCH ROWS. No backfill is warranted
+here and no figure is obtainable here. If the operator ever points BD at a
+library with pre-v3.66.820 history, re-run the census -- do not re-derive the
+answer from this entry.
+
+SIDE FINDING, not filed as a defect. `Library.tsx:497` calls the audit with
+`{ download_dir }` and no `site_id`, and `audit()` treats site_id as optional,
+so the panel spans every history row. On this box that means it reports the 31
+fixture rows as `missing` -- correct behaviour (their files are genuinely
+gone), but noise that grows by 1-2 per capture run forever. Derived by reading
+Library.tsx and app_library.py, NOT by running the panel.
 
 **(b) A fifth operator surface still carries raw UTC.**
 
@@ -811,46 +840,40 @@ available, so a skip there is real signal, not noise.
 The serial lane is 36 of the ~40 minutes. Raising `--workers` will not shorten
 it: the serial lane is hardcoded `-n 0` and no flag widens it.
 
-### 15.2 | The legacy file_size census -- READ-ONLY, run on the box
+### 15.2 | The legacy file_size census -- SUPERSEDED, now a tracked tool
 
-Answers the one number blocking section 14.3(a): how much of the drift the
-Library panel now reports is the pre-v3.66.820 atom residue versus a real
-truncation. Uses the REAL `list_size_drift`, so the figures are what the panel
-shows rather than a SQL approximation. Tested against a synthetic library
-before being handed over (correctly separated a -9899 truncation from a +1233
-residue nested in a subdirectory, and excluded the intact file from both).
+    venv/bin/python tools/census_file_size_drift.py
 
-    cd /home/mboyle/BulkDownloader
-    venv/bin/python - <<'PY'
-    import json, os, sys
-    sys.path.insert(0, os.getcwd())
-    from bulk_downloader import library_final as lf
-    import bulk_downloader.db as db
-    cfg = os.environ.get("BD_SITES_CONFIG_PATH", "sites_config.json")
-    sites = (json.load(open(cfg, encoding="utf-8")) or {}).get("sites", {})
-    with db.db_conn() as cx:
-        n = cx.execute("SELECT COUNT(*) FROM history WHERE status='done' "
-                       "AND filename!='' AND file_size>0").fetchone()[0]
-    print("done rows with a recorded size:", n, "| sites:", len(sites))
-    neg, pos, seen = [], [], set()
-    for sid, s in sites.items():
-        dd = (s or {}).get("download_dir") or ""
-        if not dd or dd in seen: continue
-        seen.add(dd)
-        if not os.path.isdir(dd):
-            print(f"  {sid}: download_dir ABSENT -> UNKNOWN, skipped: {dd}"); continue
-        rows = lf.list_size_drift(dd, site_id=sid, limit=100000)
-        for r in rows: (neg if r["delta_bytes"] < 0 else pos).append(r)
-        print(f"  {sid}: drift rows {len(rows)}  dir {dd}")
-    print("TRUNCATIONS  (delta<0):", len(neg))
-    print("ATOM RESIDUE (delta>0):", len(pos))
-    if pos:
-        p = sorted(abs(r["delta_bytes"]) for r in pos)
-        print("  residue bytes min/median/max:", p[0], p[len(p)//2], p[-1])
-        print("  residue over 64KB (NOT atom-shaped):", sum(1 for x in p if x > 65536))
-    for r in sorted(neg, key=lambda r: r["delta_bytes"])[:10]:
-        print("  TRUNC", r["delta_bytes"], r["recorded_bytes"], r["disk_bytes"], r["filename"][:60])
-    PY
+That tool (v3.66.826) replaces the snippet this section used to carry. Run it
+from the install root; it is read-only and refuses rather than guessing.
+
+THE SNIPPET THAT USED TO BE HERE WAS WRONG, and how it passed its own test is
+the part worth keeping. It parsed sites_config.json as
+`json.load(...).get("sites", {})`. The file is a FLAT {site_id: cfg} mapping --
+app.py:1276 writes `{sid: dict(cfg)}` and app.py:1334 iterates `data.items()`
+-- so that lookup could only ever return empty. On the box it exited 2 with
+"contains no sites".
+
+This section claimed it was "tested against a synthetic library before being
+handed over". It was. The synthetic fixture was hand-built in the SAME wrong
+shape, so it confirmed the author's assumption instead of the app's behaviour
+-- section 0 applied to a fixture: the denominator excluded the subject and the
+check reported clean. tests/test_census_file_size_drift.py now writes its
+fixture by driving app.py's own `_save_sites_config`, making the app the oracle
+so this cannot recur.
+
+Three further defects in the old snippet, all fixed in the tool:
+
+  - it deduped sites by download_dir, but `list_size_drift` filters by
+    site_id, so a second site sharing a directory was never examined at all
+  - `list_size_drift` swallows every DB error and returns [], so a failed read
+    reported a clean library; row counts are now taken independently
+  - the row LIMIT could truncate invisibly, because the rows it returns are
+    only the DRIFTING ones -- len(rows) can never reveal that the cap bit
+
+The tool also prints COVERAGE (examined / unknown / orphaned), which is what
+turned the box result from a meaningless "0 truncations, 0 residue" into the
+finding recorded in 14.3(a): 0 of 31 rows examined.
 
 THE SPLIT IS THE DECISION, not the total. delta<0 is a file SMALLER than
 recorded -- a genuine truncation, worth investigating whatever is decided about
