@@ -1213,3 +1213,93 @@ evidence):
 
   PARALLEL PROGRAM, not this queue: CODEX_HANDOFF.md's ledger (paused at its
   Analysis Task 4). Statuses are a register -- re-derive before acting.
+
+### 15.8 | Census coverage counts rows it never examined -- OPEN
+
+Filed 2026-08-01, measured at 922126f (v3.66.833) in the cloud container --
+the probe results below are CONTAINER measurements, not box state.
+
+THE DEFECT, one sentence: `tools/census_file_size_drift.py` counts coverage
+by DB row count (`covered += n` at :226, `n` from `_done_row_counts`,
+:140/:193/:208), not by what `list_size_drift` actually compared -- while
+`bulk_downloader/library_final.py:336-345` silently drops any row whose
+recorded basename does not resolve to exactly one on-disk file (`continue`
+at :341), plus a second uncompared-but-counted drop at :345 when a resolved
+path cannot be stat'ed -- so dropped rows are reported as examined, and the
+whole-history sweep block (:324-336) prints drift counts with no
+examined-of-total figure at all. A section-0 defect: the denominator
+excludes part of its subject and the tool reports clean.
+
+MEASURED, not reasoned -- both are container probes on synthetic data:
+
+  - a 5-row synthetic DB with one unresolvable row printed
+    `COVERAGE  rows examined : 5 of 5` (:305-306) and `complete -- every
+    done row was examined` (:321-322) while the unresolvable row was never
+    compared;
+  - a box-shaped probe printed `SWEEP TRUNCATIONS (delta<0) : 0` and
+    `SWEEP RESIDUE     (delta>0) : 0` (:335-336) over a directory where 0
+    of 5 rows resolved -- indistinguishable from swept-and-clean.
+
+WHY THE REGISTER'S CLOSED ENTRIES DO NOT COVER THIS. 14.3(a) (this file
+:717-719: "Legacy history.file_size rows read as size drift -- MEASURED
+2026-08-01 on test4 at v3.66.831. CLOSED: no action warranted, and the
+figure is reproducible from the tool.") and 15.2 (this file :959: "The
+legacy file_size census -- SUPERSEDED, now a tracked tool") closed the
+question "what does the legacy drift figure mean" -- a different question
+from "does the tool's coverage accounting count rows it never examined".
+Neither entry looked at the resolver's drop path.
+
+STATUS: OPEN, unscheduled. Note for the eventual fix: an honest coverage
+count most likely needs library_final's resolver internals
+(`_basename_index` :173, `_resolve_recorded` :197), which would add a
+tests-visible import edge -- if the fix imports new symbols across modules,
+the import-graph baseline re-freeze belongs in the SAME cut (CLAUDE.md
+section 4).
+
+UNKNOWN, stated as such: box impact. Whether test4's v3.66.831 sweep (27
+residue rows, this file :722-725) examined all rows or silently dropped
+some cannot be answered from the container, because the tool prints no
+examined-of-total figure for the sweep.
+
+### 15.9 | stale_locks warns about a subject BD never writes -- MEASURED
+
+Filed 2026-08-01 at 922126f (v3.66.833). Container measurements plus box
+evidence provided by the operator (GET /api/selftest output from test4,
+2026-08-01). The warn under investigation: "3 stale lock file(s) older
+than 6h (a crashed process may not have released them)".
+
+VERDICT: the check has no real subject. Three independent layers, each
+sufficient on its own:
+
+  - NO PRODUCER. Nothing in bulk_downloader/, tools/, toolchain/ or
+    scripts/ writes a `*.lock` file. Every `.lock` literal in the tree is
+    the check itself (selftest.py:445/:455), the /tmp housekeeping
+    consumers (dev_suite/housekeeping.py:79, app_dev_lint.py:124,
+    app_dev_maint.py:58), a Plex API field (plex_deep.py:316), or a
+    threading.Lock. storage_tier's real lock is an O_EXCL placeholder at
+    dest_path itself (storage_tier.py:209-210), removed within the same
+    move -- never `.lock`-suffixed. housekeeping.py:80's comment (".lock
+    files BD's storage_tier creates as O_EXCL") documents the phantom
+    convention as if real; it is wrong.
+  - WRONG DENOMINATOR. check_stale_locks (selftest.py:444-469) rglobs
+    `*.lock` over download_dirs + captures_root (selftest.py:650-654), and
+    captures_root falls back to PROJECT_ROOT -- the whole install tree,
+    venv/ and node_modules/ included -- whenever the `capture_store_root`
+    app-config key is absent or not an absolute existing dir
+    (dom_analyzer.py:80-94, app.py:57-64). The box's app_config.json
+    carries no capture_store_root (operator-run grep, no match), so the
+    fallback denominator is live there.
+  - THE 3 BOX HITS ARE VENDOR FILES. All three are `yarn.lock` npm
+    manifests -- dependency manifests, not process locks -- under
+    .worktrees/{pytest-architecture-repair,pytest-e2e-diagnostic,
+    release-819}/frontend/node_modules/combined-stream/, i.e. inside
+    stale agent worktrees. tests/test_gitignore_rules_actually_match.py:63
+    names this exact trap ("Ephemeral agent worktrees live under the
+    repository root; rglob descends into them"); the selftest fell into
+    the hole a sibling test had already labeled.
+
+STATUS: verdict complete; FIX OPEN, unscheduled. The fix is a runtime
+change to selftest.py needing its own authorized cut: delete the check,
+or re-point it at an artifact BD actually writes (check_orphan_tempfiles
+already covers BD's real temp artifacts). Operator-side, `git worktree
+remove` of the three stale worktrees quiets the warn with no code change.
