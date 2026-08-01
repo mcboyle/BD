@@ -986,17 +986,36 @@ Re-derive before believing any row here, including this one.
 
 ### 15.4 | Environment defects found, NOT repaired
 
-- COMMIT SIGNING IS SILENTLY BROKEN IN THE CLOUD CONTAINER, and it is the
-  session's own defect class. `commit.gpgsign=true`, `gpg.format=ssh`,
-  `user.signingkey=/home/claude/.ssh/commit_signing_key.pub` -- which is a
-  ZERO-BYTE file with no private key beside it. Git produces no signature and
-  STILL EXITS 0, so every commit from a cloud session is unsigned while the
-  config claims otherwise. A stop hook then flags it and proposes
-  `--amend --reset-author`, which cannot fix it: the author email is already
-  correct and amending does not create a signature. The fix belongs in
-  scripts/cloud-setup.sh -- populate the key, or unset gpgsign so the failure
-  is LOUD instead of silent. ($HOME here is /root; /home/claude is the stale
-  path class section 5 already records.)
+- COMMIT SIGNING -- THIS ENTRY WAS WRONG AND IS WITHDRAWN, 2026-08-01.
+  It claimed "git produces no signature and STILL EXITS 0, so every commit from
+  a cloud session is unsigned", and proposed unsetting gpgsign in
+  scripts/cloud-setup.sh. MEASURED: commits ARE signed. `git cat-file commit`
+  shows a real ed25519 SSH signature. Acting on the entry would have DELETED
+  working signatures.
+
+  What was actually inferred rather than measured: the entry reasoned from
+  `user.signingkey` pointing at a ZERO-BYTE file at /home/claude/... (while
+  $HOME is /root) to the conclusion that signing must fail. It never ran a
+  commit and looked. The missing fact is `gpg.ssh.program=/tmp/code-sign`, a
+  symlink to /opt/env-runner/environment-manager -- the harness's own signing
+  helper. It supplies the key, so the empty .pub is irrelevant and ssh-keygen
+  is not needed (it is NOT INSTALLED here, which is also why local verification
+  cannot work).
+
+  SO A LOCAL `%G?` OF E OR B PROVES NOTHING ABOUT VALIDITY on this host: git's
+  verify path shells out to ssh-keygen, which is absent. CLAUDE.md section 7
+  already says this for GitHub's web-flow key; it is true of our own signatures
+  too, for a different reason.
+
+  WHAT THE STOP HOOK IS ACTUALLY FLAGGING is GitHub's own squash-merge commits
+  (author noreply@github.com). CLAUDE.md section 7 is explicit that those are
+  published history on the default branch and must NEVER be `--amend
+  --reset-author`ed. The hook's suggestion is wrong for that class of commit.
+
+  STILL GENUINELY UNKNOWN, and only the operator can settle it: whether GitHub
+  marks our authored commits Verified. That needs the signing key registered on
+  the account; it cannot be read from a session. Look at any PR's commit list.
+  Do not re-derive it from local %G?.
 - 21 REMOTE BRANCHES SHARE NO COMMON ANCESTOR WITH main, each carrying 2-36
   files main does not have. `git branch --merged` and the GitHub merged badge
   are both useless here; only a content comparison decides. codex/integrate-all-branches
