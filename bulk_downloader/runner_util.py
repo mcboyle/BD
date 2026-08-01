@@ -9,7 +9,7 @@ behavior unchanged from v3.66.396.
 import sys
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 # Canonical creation-time default (paired with DEFAULT_MAX_CONCURRENT, which
@@ -55,6 +55,65 @@ _BD_TO_APPRISE_EVENT: dict = {
 
 
 def _ts(): return datetime.now().strftime("%H:%M:%S")
+
+
+def _ts_iso():
+    """The date-comparable sibling of `_ts()`.
+
+    `_ts()` is HH:MM:SS because that is what the queue UI renders; it carries
+    no date, so comparing it against a "%Y-%m-%d" prefix is False for every
+    possible pair of values. Every day-window consumer filters on THIS field
+    instead (app.py:3912, app_dashboard.py:66 and :203, app_queue.py:229).
+
+    LOCAL, deliberately: all four consumers compare against a LOCAL
+    `time.strftime("%Y-%m-%d")`, so a UTC stamp here would land on the wrong
+    day near midnight on a non-UTC host. (runner_queue.py:106 copies sqlite
+    `ts_updated`, which db.py stamps UTC -- that mismatch is a separate,
+    separately-filed item and is NOT what this helper is for.)
+
+    One implementation on purpose: this value was inlined at runner.py:1658 and
+    three more producers wrote none at all. Three copies is a denominator that
+    drifts, and the copy nobody updates is the one that ships.
+    """
+    return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _utc_iso_to_local_iso(s: str) -> str:
+    """Re-render a UTC "%Y-%m-%dT%H:%M:%S" stamp in LOCAL time, same format.
+
+    The queue table's `ts_updated` is written by SQLite
+    strftime('%Y-%m-%dT%H:%M:%S','now'), which is UTC. Every day-window
+    consumer compares it against a LOCAL time.strftime("%Y-%m-%d"). Copying it
+    verbatim into `ts_iso` on restart therefore compared two different clocks.
+
+    MEASURED, not theoretical: on a host at America/Los_Angeles a job completed
+    17:05 local was rehydrated as 2026-08-01T00:05:02 and tested against
+    today_iso=2026-07-31 -- False. No midnight involved; it simply vanished
+    from the count. Sweeping 24 hourly instants per zone: Tokyo loses 9 of 24,
+    Kiritimati 14, Los_Angeles 7, UTC 0. West-of-UTC zones also gain jobs from
+    "tomorrow"; east-of-UTC only lose.
+
+    Converted HERE and not in db.py on purpose. `ts_updated` has non-day-window
+    consumers that build UTC cutoffs (storage_tier.py:310, cost_economics.py:185)
+    and db.py:1792 uses it as a monotonic cursor, so stamping 'localtime' would
+    give the column mixed semantics and break a DST fall-back. `ts_iso` has
+    exactly four readers and all four want LOCAL.
+
+    Historic rows need no migration: the column has ALWAYS been UTC, so
+    converting on read is correct for old and new rows alike.
+
+    An unparseable value is returned UNCHANGED rather than blanked -- that is a
+    no-op relative to the previous behaviour, so the fix cannot make a row that
+    used to count stop counting. Empty stays empty. Never fall back to today:
+    test_cut40's G4 pins that as the seductive wrong fix.
+    """
+    if not s:
+        return ""
+    try:
+        dt = datetime.strptime(s, "%Y-%m-%dT%H:%M:%S")
+    except (ValueError, TypeError):
+        return s
+    return dt.replace(tzinfo=timezone.utc).astimezone().strftime("%Y-%m-%dT%H:%M:%S")
 
 
 def _resolve_safe(v):

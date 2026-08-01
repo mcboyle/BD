@@ -152,10 +152,15 @@ def test_restart_preserves_done_today(runner_db):
     """RED. _restore_queue rebuilds self.jobs from the queue table. Without
     ts_iso, every job that predates the process restart drops out of the count.
 
-    Asserts EQUALITY with the row's own ts_updated rather than
-    startswith(local today): ts_updated is UTC and time.strftime is LOCAL, so
-    a startswith assertion would false-fail near midnight on a non-UTC host --
-    a cry-wolf in the test itself. Equality tests the edit's real contract.
+    Asserts EQUALITY rather than startswith(local today): a startswith
+    assertion would false-fail near midnight -- a cry-wolf in the test itself.
+
+    CUT #42: the right-hand side is now the LOCAL RENDERING of ts_updated, not
+    the raw column. ts_updated is UTC and every day-window consumer compares a
+    LOCAL date, so the old `== db_ts` pinned the verbatim COPY rather than the
+    contract -- and stayed green in exactly the timezones where the mismatch
+    was maximal (Tokyo lost 9 of 24 hourly instants; this assertion did not
+    notice). Still exact, still not flaky.
     """
     from bulk_downloader.db import queue_upsert, queue_load
     from bulk_downloader.runner import SiteRunner
@@ -166,8 +171,10 @@ def test_restart_preserves_done_today(runner_db):
     db_ts = rows[_URL].get("ts_updated") or ""
     assert db_ts, "queue row has no ts_updated; the fixture, not the fix, is wrong"
     r = SiteRunner(sid, {"name": sid})
-    assert r.jobs[_URL].get("ts_iso") == db_ts, (
-        f"rehydrated ts_iso={r.jobs[_URL].get('ts_iso')!r} != ts_updated={db_ts!r}")
+    from bulk_downloader.runner_util import _utc_iso_to_local_iso
+    assert r.jobs[_URL].get("ts_iso") == _utc_iso_to_local_iso(db_ts), (
+        f"rehydrated ts_iso={r.jobs[_URL].get('ts_iso')!r} != the LOCAL "
+        f"rendering of ts_updated={db_ts!r}")
 
 
 # ── T4: the display value must NOT change (regression guard, green today) ───

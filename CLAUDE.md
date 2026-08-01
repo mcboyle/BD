@@ -495,6 +495,66 @@ system match them, which is the first item below.
   blast radius follows the denominator.
 - **The guard SHAs still apply.** Git history is not authorization.
 - **The box is still the gate.** Sandbox green is necessary, not sufficient.
+  The band lanes an agent runs in a container are evidence *toward* a cut, never
+  evidence the box is green -- and they can differ in **both** directions, not
+  just the optimistic one: `test_v3_43_80_modules` false-FAILS in a container
+  without GTK typelibs and passes 49/49 on the box, so a container result can be
+  pessimistic about real code and optimistic about the environment at once.
+
+**The post-deploy checklist, and the step that keeps getting left off it.**
+A v3.66.824 handoff listed four box actions -- deploy + clear `__pycache__`,
+rebuild `frontend/dist`, restart the service, re-pin the graph hash -- and read
+as complete. It omitted the gate itself, so the session that inherited it
+prepared the box and never verified it. Every item above is **preparation**;
+only the last line is verification:
+
+```bash
+cd ~/BulkDownloader && ./capture.sh --workers=$(nproc) > /tmp/capture.log 2>&1
+echo "exit=$?"          # unpiped, per section 5
+```
+
+`--workers=N` is parsed at `capture.sh:67` and forwarded to `pytest -n N
+--dist loadfile`; it affects **only** the `capture_parallel` lane (measured 176
+files / 1458 tests at v3.66.824 -- ask `--collect-only -m capture_parallel`, not
+grep, because `tests/conftest.py`'s `pytest_collection_modifyitems` assigns a
+lane to every item and the in-file markers are only manual overrides). The
+serial lane is hardcoded `-n 0` and no flag can widen it. Re-pin the graph hash
+**before** running capture, or step [2b] reports drift and `capture_verdict.py`
+turns that stage exit into a whole-capture FAIL.
+
+**Box runtime facts a fresh session will otherwise guess.** Neither is derivable
+from this file or the systemd unit, and both were guessed wrong in one session,
+each producing a convincing failure signal about the wrong subject:
+
+| fact | value | source |
+| --- | --- | --- |
+| service unit | `bulkdownloader` | `install_service.sh:88` |
+| port | **5555** (`BD_PORT`, host `0.0.0.0`) | `downloader_ui.py:224-228` |
+| liveness | `GET /` and `GET /api/health` -> 200 | -- |
+| running version | `tools/deployed_version.txt` | rewritten by `ExecStartPre` on every start, so it reflects the **process**, not the tree |
+| timezone | **`Etc/UTC` (UTC, +0000)**, NTP active | measured on the box 2026-08-01 via `timedatectl` |
+
+The timezone is load-bearing for anything comparing a stored stamp to a local
+date, and it is the reason a whole class of bug stays **dormant here**. The
+queue table's `ts_updated` is UTC (SQLite `strftime(...,'now')`) while the
+day-window consumers compare a LOCAL `%Y-%m-%d`; at `Asia/Tokyo` that loses 9
+of 24 hourly instants and at `Pacific/Kiritimati` 14, but at UTC it loses none.
+v3.66.825 fixed the clash anyway (`runner_util._utc_iso_to_local_iso`), because
+correctness should not depend on the host's zone -- but **do not cite that cut
+as having repaired live miscounting on this box; it did not.** Two sibling
+fixes name the same trap: `bw_chart.py:38-50` and `storage_tier.py:297-304`.
+
+The corollary matters more than the value: a UTC box **cannot reproduce**
+timezone defects, so a green `./capture.sh` here is silent about them. Tests
+for that class must force `TZ` (`os.environ["TZ"]` + `time.tzset()`) and
+exercise both signs, or they prove nothing on this host and fail only somewhere
+else.
+
+There is no `/api/version`. The only version route is `/api/dev/version_check`
+(`app_dev_maint.py:16`) and it is dev-mode gated. A `000` from curl means
+nothing was listening on the port you chose -- check the port before concluding
+the service is down; a `503` is the real failure, and means the SPA bundle was
+not found.
 
 **The squash-merge branch trap.** PRs here merge with **squash**, which writes a
 *new* commit on `main`. Your topic branch does not follow it, so immediately

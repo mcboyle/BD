@@ -677,3 +677,72 @@ the wrong day near midnight on a non-UTC host. No test in the tree sees this.
 - **#35** csrf meta premise: shipped in this cut, and it was NOT at capture
   step 3 -- that inline block was already clean. Nothing automated invoked
   `tools/diag_csrf_bootstrap.py`; it was a manual operator tool.
+
+### 14.3 | Open, filed 2026-08-01 -- decided "file, do not fix yet"
+
+Both were measured during the v3.66.825 day-window work and both are real. The
+operator chose to record rather than cut. Re-derive before acting (section 1);
+neither figure below was measured on the box.
+
+**(a) Legacy history.file_size rows read as size drift.**
+
+Rows written before v3.66.820 recorded a PRE-tag size. The producer half of
+task #25 was fixed at 9e46526 (every path writing MP4 atoms now re-stats after
+tagging, pinned by 12 tests incl. a real mutagen write, 1442 -> 2675, +1233),
+but there is NO backfill anywhere in the tree: `history.file_size` is never
+UPDATEd. Eight `UPDATE history` sites exist -- library_id (x3), filename (x2),
+retention_excluded, status/message, history_tags.tag -- and none touches it.
+`library.record_completion`, named in library.py's own module docstring as the
+forward path, does not exist.
+
+Before v3.66.825 this was invisible because `list_size_drift` could not resolve
+a recorded basename at all and skipped every production row. Now that #25b
+makes resolution work, those legacy rows surface as POSITIVE drift deltas.
+
+Direction is the discriminator and it is load-bearing: a truncated or altered
+download shows a NEGATIVE delta and sorts first; the legacy atom residue is
+POSITIVE and roughly the size of the embedded atoms (~1.2 KB in the measured
+fixture). Do NOT "fix" this with a tolerance -- a tolerance wide enough to hide
+the residue also hides a real truncation of the same magnitude, which blinds
+the check it is meant to protect.
+
+The shape a fix should take, if one is wanted: an OPT-IN bd-* operator tool
+that re-stats `history.file_size` for done rows whose file resolves on disk,
+--dry-run first, printing a count. Never an automatic migration -- history is
+append-only by design and a deploy must not silently rewrite shipped rows.
+
+UNMEASURED: how many such rows exist on the box. That is the number that
+decides whether this matters at all, and it cannot be seen from a container.
+
+**(b) A fifth operator surface still carries raw UTC.**
+
+`bulk_downloader/app_sites_queue.py:883` returns
+`"ts": r.get("ts_updated","") or r.get("ts_added","")` from the paginated queue
+endpoint. It is NOT a `ts_iso` reader, so the v3.66.825 clock fix
+(`runner_util._utc_iso_to_local_iso`, applied at `runner_queue.py`'s restore
+copy) deliberately did not touch it.
+
+Consequence: the same sqlite column now feeds two operator surfaces on two
+clocks. The in-memory job shape fills `ts` with a LOCAL `HH:MM:SS` via `_ts()`;
+this endpoint fills the same key with a raw UTC ISO stamp. They disagree by the
+host's UTC offset on any non-UTC box.
+
+DO NOT fix this by reflex. The denominator investigation in this same programme
+established that a suspected cross-surface inconsistency can be correct per
+surface -- the four day-window consumers count different status sets and every
+one matches its own rendered SPA label, so "making them agree" would have been
+a wasted cut that broke a caption. Establish what the SPA actually renders this
+field as, and whether anything sorts or diffs on it, BEFORE changing it.
+
+**(c) test4's timezone -- MEASURED 2026-08-01, item CLOSED.**
+
+`timedatectl` on the box reports `Etc/UTC (UTC, +0000)`, NTP active. So the
+UTC/LOCAL clock clash fixed at v3.66.825 was DORMANT here and its historical
+impact on this deployment is ZERO. The fix stands on its own merits -- code
+should not depend on the host zone -- but do not credit it with repairing live
+miscounting, because there was none to repair.
+
+Recorded in CLAUDE.md with the other durable box runtime facts; this file is a
+register and that is an environment fact. The durable consequence is there too:
+a UTC box cannot reproduce timezone defects, so a green capture is SILENT about
+that class and its tests must force TZ.
