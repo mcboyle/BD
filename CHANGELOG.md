@@ -4,6 +4,26 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.831 - the honesty check was gated on the population that had nothing
+
+- The census prints two lines that decide what a one-shot re-stat may touch:
+  `residue bytes min/median/max`, and `residue over 64KB (NOT atom-shaped)`.
+  Both were emitted only `if rep["residue"]` -- the PER-SITE list -- while the
+  WHOLE-HISTORY sweep has its own, and the two are different populations by
+  construction. That is the defect v3.66.827 fixed for the counts, left behind
+  in the distribution.
+
+- MEASURED ON THE BOX, which is how it surfaced. The per-site pass examined
+  0 of 31 rows (every row belongs to a site no longer in sites_config), while
+  the sweep found 27 residue rows under the deployment default download dir.
+  So the report printed SWEEP RESIDUE : 27 and then said nothing about their
+  size -- the honesty check structurally unreachable in the only run that had
+  residue to be honest about.
+
+- Both populations now print their own distribution, the sweep's prefixed
+  SWEEP. RED proven against the box's own shape: a fixture whose per-site
+  residue is empty and whose sweep residue is not.
+
 ## v3.66.830 - an empty list was certifying that the scan had stopped looking
 
 - Both verdicts in the cut-35 gate rest on a list being EMPTY -- `not offenders`
