@@ -578,3 +578,43 @@ def test_the_update_history_figure_is_re_derived_not_quoted():
         "no UPDATE history site spans multiple lines any more, so this test "
         "can no longer demonstrate that it reads past the first line; "
         f"re-derive before trusting it: {labels}")
+
+
+def test_the_residue_distribution_is_printed_for_the_population_that_has_residue(lib):
+    """The honesty check was gated on the WRONG population.
+
+    `residue bytes min/median/max` and `residue over 64KB (NOT atom-shaped)`
+    are the two lines that decide whether a positive delta is the ~1-2 KB atom
+    residue a one-shot re-stat may touch, or something larger it must not.
+    Both were emitted only ``if rep["residue"]`` -- the PER-SITE list.
+
+    On the deploy box the per-site pass examined 0 of 31 rows while the
+    whole-history sweep found 27 residue rows, so the two decision lines were
+    structurally unreachable in exactly the case that HAS residue. Section 0,
+    applied to the honesty check itself: the guard could not see its subject.
+
+    The fixture is built so the per-site residue is EMPTY and the sweep
+    residue is not -- the box's own shape. That disagreement is asserted
+    first, because if the two populations ever coincide this test proves
+    nothing.
+    """
+    db, lf, dl = lib
+    rep = cen.census({"Z": {"download_dir": str(dl)}}, db, lf)
+
+    assert not rep["residue"] and rep["sweep_residue"], (
+        "fixture drift: this test is only meaningful while the PER-SITE "
+        "residue is empty and the SWEEP residue is not; got per_site="
+        f"{len(rep['residue'])} sweep={len(rep['sweep_residue'])}")
+
+    text = cen.format_report(rep)
+    sizes = sorted(abs(r["delta_bytes"]) for r in rep["sweep_residue"])
+    expected = "SWEEP residue bytes min/median/max : %d / %d / %d" % (
+        sizes[0], sizes[len(sizes) // 2], sizes[-1])
+
+    assert expected in text, (
+        "the sweep residue distribution was not printed, so an operator "
+        "reading this report cannot tell atom-shaped residue from a large "
+        f"delta a re-stat must not touch:\n{text}")
+    assert "SWEEP residue over 64KB (NOT atom-shaped)" in text, (
+        "the over-64KB honesty check is absent for the sweep population:\n"
+        + text)

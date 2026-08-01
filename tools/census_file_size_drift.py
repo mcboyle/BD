@@ -336,13 +336,20 @@ def format_report(rep: dict) -> str:
     out.append("  SWEEP RESIDUE     (delta>0) : %d" % len(rep["sweep_residue"]))
     out.append("  deployment default download dir : %s  (%s)"
                % (rep["default_dir"] or "-", rep["default_dir_state"]))
-    if rep["residue"]:
-        sizes = sorted(abs(r["delta_bytes"]) for r in rep["residue"])
+    # The distribution is emitted for EACH population that has residue, not
+    # just the per-site one. Gating both lines on rep["residue"] made them
+    # unreachable on the deploy box, where the per-site pass examined 0 of 31
+    # rows and the sweep found 27 -- the honesty check blind in exactly the
+    # case that has something to be honest about.
+    for _label, _rows in (("", rep["residue"]), ("SWEEP ", rep["sweep_residue"])):
+        if not _rows:
+            continue
+        sizes = sorted(abs(r["delta_bytes"]) for r in _rows)
         out.append("")
-        out.append("  residue bytes min/median/max : %d / %d / %d"
-                   % (sizes[0], sizes[len(sizes) // 2], sizes[-1]))
-        out.append("  residue over 64KB (NOT atom-shaped) : %d"
-                   % sum(1 for s in sizes if s > ATOM_CEILING_BYTES))
+        out.append("  %sresidue bytes min/median/max : %d / %d / %d"
+                   % (_label, sizes[0], sizes[len(sizes) // 2], sizes[-1]))
+        out.append("  %sresidue over 64KB (NOT atom-shaped) : %d"
+                   % (_label, sum(1 for s in sizes if s > ATOM_CEILING_BYTES)))
     if rep["truncations"]:
         out.append("")
         out.append("  worst truncations (delta, recorded, disk, filename):")
