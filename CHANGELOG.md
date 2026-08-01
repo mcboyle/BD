@@ -4,6 +4,43 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.829 - the queue ts is a cursor, not a display value; pin it as one
+
+- app_sites_queue.py's paginated queue endpoint returns a RAW UTC ts, while the
+  in-memory job shape fills the same key with a LOCAL HH:MM:SS via _ts(). Filed
+  as a fifth raw-UTC operator surface with an explicit "do not fix by reflex".
+  Investigating it inverted the remedy: the field doubles as the delta-poll
+  cursor for the endpoint's own since parameter, and queue_changed_since
+  (db.py:1792) compares that cursor directly against the UTC ts_updated column
+  with a bare >. Localizing it gives the cursor a different clock than the
+  column it filters -- measured to break the round trip in BOTH directions:
+  over-returning west of UTC, silently dropping rows east of UTC.
+
+- The value is therefore UNCHANGED. This cut adds a comment recording why raw
+  UTC is correct there, and a regression test pinning the round trip under
+  FORCED TZ (os.environ + time.tzset) for one east-of-UTC and one west-of-UTC
+  zone. An unforced test would prove nothing on a UTC box, which is where the
+  suite runs.
+
+- RED proven against the PRODUCTION line, not against the test's own fixture:
+  wrapping the returned value in runner_util._utc_iso_to_local_iso fails the
+  pin in both zones on real value inequality. An earlier draft of this work
+  proved RED by mutating the cursor inside the test, which establishes only the
+  second test's premise and says nothing about whether the pin catches the
+  defect; that proof was discarded and redone.
+
+- One assertion was vacuous and is fixed. The east-of-UTC characterization
+  asserted only that the result differed from an expected row, which PASSES ON
+  AN EMPTY RESULT SET -- and east-of-UTC's failure mode IS the silent drop, so
+  the assertion was satisfied by the very bug it was characterizing. Proven by
+  no-op'ing the row seeder: the test passed with zero rows in the table. It now
+  pins what comes back, and all four parametrizations fail on an empty set.
+
+- STATED PLAINLY: the contract pinned here has NO LIVE CALLER. Nothing in
+  frontend/src, tools/ or toolchain/ calls the endpoint with a since parameter;
+  its only in-repo consumer reads status/message/filename and never ts. This
+  pins a latent contract so a future session does not "fix" the field.
+
 ## v3.66.828 - a field was promoted to structural and nothing tested the promotion
 
 - diag_d2 classifies probe fields as structural or cosmetic. body_sha256 was
