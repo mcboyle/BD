@@ -880,6 +880,16 @@ def api_queue(sid):
             "screenshot": r.get("screenshot",""),
             "priority": r.get("priority","") or "normal",
             "force_download": bool(r.get("force_download")),
+            # RAW UTC on purpose -- do NOT localize this to match the
+            # in-memory job shape's `ts` (runner_util._ts(), local HH:MM:SS).
+            # This field doubles as the `since` query param's delta-poll
+            # cursor a few lines up, and queue_changed_since (db.py:1792)
+            # compares it directly against the UTC `ts_updated` column with
+            # a bare `>`. Converting it to local time gives the cursor a
+            # different clock than the column it filters: verified to break
+            # the round trip in BOTH TZ directions (over-returns west of
+            # UTC, silently drops rows east of UTC). See
+            # tests/test_queue_ts_since_cursor_pin.py.
             "ts": r.get("ts_updated","") or r.get("ts_added",""),
         })
     return jsonify({"rows": out_rows, "total": total, "offset": offset, "limit": limit})
