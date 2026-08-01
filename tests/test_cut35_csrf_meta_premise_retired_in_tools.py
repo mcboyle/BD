@@ -50,6 +50,31 @@ UNKNOWN IS A THIRD STATE: reachability is only established when the standin for
 GET /'s 200 branch is proven faithful; when it cannot be, these tests FAIL
 rather than certify an unmeasured tree.
 
+AN EMPTY LIST IS NOT A CLEAN BILL. Both verdicts here rest on a list being
+empty -- `not offenders` and `not graded_bug` -- and emptiness cannot tell
+"nothing is wrong" from "the scan stopped looking". Two mutations proved that,
+each leaving every arm above passing:
+
+  * inverting the reachability polarity, so no tools/ source was ever scanned;
+  * narrowing the finding pattern to crit-only, so a `bug` grade was invisible.
+
+So each emptiness verdict now runs through a named helper --
+_scan_for_retired_probes and _graded_defect_lines -- and each helper has a
+POSITIVE CONTROL that hands it an input whose correct answer is non-empty by
+construction. The control has to drive the SAME helper the verdict does: with
+the controls in place but the assertions still using their own inline copies,
+both mutations were re-measured and both still escaped. Certifying a copy is
+this file's own subject, one level in.
+
+The controls are not a meta-gate. They assert nothing about this file's text
+and add no layer over the verdict -- they are the ordinary two-sided form the
+gate already uses at the tools/-subdirectory reach check and at the root-load
+`[ok` check, applied to the two arms that lacked it. What they do NOT cover is
+a defect severity nobody thought to plant: if the probe's severity ladder grows
+a new failing grade, _DEFECT_GRADE_RE goes blind and no control here notices.
+Deriving that set from tools/_probe_lib is the fix, and it is a separate cut
+because it adds an import edge.
+
 run_tests.py conventions: repo root from __file__; no pytest builtins.
 """
 from __future__ import annotations
@@ -122,6 +147,61 @@ def _tool_sources() -> list[Path]:
             if "__pycache__" not in p.parts]
 
 
+def _rel(p: Path) -> str:
+    """Repo-relative inside the repo, absolute outside it.
+
+    The positive control plants its offender in a tmpdir, where
+    `relative_to(REPO)` raises. Labelling is not this scan's subject, and a
+    control that died on it would report a failure about the wrong thing.
+    """
+    try:
+        return str(p.relative_to(REPO))
+    except ValueError:
+        return str(p)
+
+
+def _scan_for_retired_probes(bodies: dict[str, bytes],
+                             sources: list[Path]) -> list[str]:
+    """Sources probing a RETIRED_PROBES literal that NO body in `bodies` carries.
+
+    Extracted from the assertion below so that the real gate and the positive
+    control run the SAME code. A control over a re-implementation certifies the
+    copy and leaves the gate itself unmeasured -- which is this file's own
+    subject, one level in. Measured: with the control in place but the gate
+    still scanning through its own inline copy, both mutations below still
+    escaped.
+    """
+    offenders: list[str] = []
+    for probe in RETIRED_PROBES:
+        reachable = [k for k, b in bodies.items() if probe.encode() in b]
+        if reachable:
+            continue  # a real contract again; probing it is legitimate
+        for p in sources:
+            text = p.read_text(encoding="utf-8", errors="replace")
+            if probe in text:
+                offenders.append(f"{_rel(p)} probes {probe!r}")
+    return offenders
+
+
+# `_probe_lib.Report.F` prints `  <sym> [<sev:4>] <name>`, so the severity is
+# padded to four columns and the closing bracket does not sit against the word.
+_DEFECT_GRADE_RE = re.compile(r"\[(bug|crit)\s*\]")
+
+
+def _graded_defect_lines(section: str) -> list[str]:
+    """Lines in a probe section graded a defect (bug or crit).
+
+    Extracted for the same reason as _scan_for_retired_probes: the assertion
+    that no defect was graded and the control proving a defect CAN be seen must
+    share one predicate, or the control certifies a copy.
+
+    `warn` is deliberately not a defect here. The two-sided root-load assertion
+    at the end of the behavioural test is what catches a downgrade to warn; if
+    that responsibility ever moves, move it deliberately, not by widening this.
+    """
+    return [ln for ln in section.splitlines() if _DEFECT_GRADE_RE.search(ln)]
+
+
 def test_no_tool_probes_a_root_contract_that_cannot_be_served():
     """A tools/ probe for the meta contract is allowed IFF a body can carry it."""
     ok, why = _standin_is_faithful()
@@ -148,15 +228,11 @@ def test_no_tool_probes_a_root_contract_that_cannot_be_served():
     bodies = _root_bodies()
     assert bodies, "GET / returned no measurable bodies; reachability is UNKNOWN"
 
-    offenders = []
-    for probe in RETIRED_PROBES:
-        reachable = [k for k, b in bodies.items() if probe.encode() in b]
-        if reachable:
-            continue  # a real contract again; probing it is legitimate
-        for p in sources:
-            text = p.read_text(encoding="utf-8", errors="replace")
-            if probe in text:
-                offenders.append(f"{p.relative_to(REPO)} probes {probe!r}")
+    # Through _scan_for_retired_probes, NOT an inline copy of it. The verdict
+    # below is `assert not offenders`, and test_the_retired_probe_scan_can_see_
+    # a_planted_offender is what makes an empty list mean "clean" rather than
+    # "stopped looking" -- but only for the code that test actually drives.
+    offenders = _scan_for_retired_probes(bodies, sources)
 
     assert not offenders, (
         "these tools/ sources probe a contract no reachable GET / body can "
@@ -206,8 +282,10 @@ def test_functional_probe_does_not_cry_wolf_on_a_healthy_root():
         "the F.1 window does not mention /api/csrf, so it is not F.1's output "
         f"and nothing was actually checked (UNKNOWN fails). window:\n{section}")
 
-    graded_bug = [ln for ln in section.splitlines()
-                  if re.search(r"\[(bug|crit)\s*\]", ln)]
+    # Through _graded_defect_lines, NOT an inline copy of it -- the positive
+    # control at the end of this function drives that helper, and a control
+    # over a second copy of the predicate would certify the copy.
+    graded_bug = _graded_defect_lines(section)
     assert not graded_bug, (
         f"functional_probe grades a healthy root a defect ({header}). GET / "
         f"returns 200 and serves the SPA shell; the CSRF token ships via "
@@ -232,3 +310,69 @@ def test_functional_probe_does_not_cry_wolf_on_a_healthy_root():
         "downgraded to info or warn reports nothing actionable on a broken "
         "root either, so the probe has lost its teeth rather than passed:\n  "
         + "\n  ".join(root_findings))
+
+    # POSITIVE CONTROL for the no-defect assertion above. `assert not
+    # graded_bug` is satisfied by a grader that has gone blind, and an empty
+    # list cannot tell "clean" from "I stopped looking": narrowing the pattern
+    # to crit-only left every arm above passing, measured by mutation.
+    #
+    # The plant is made from a line the probe REALLY printed rather than a
+    # hand-spelled imitation, so the control cannot certify a format the probe
+    # stopped using. If Report.F's spelling ever changes, the re-grade below
+    # produces an unchanged line and this FAILS -- unknown is a third state.
+    ok_line = next(ln for ln in root_findings if "[ok" in ln)
+    for sev in ("bug ", "crit"):
+        forged = ok_line.replace("[ok  ]", f"[{sev}]", 1)
+        assert forged != ok_line, (
+            "could not re-grade a real [ok  ] line, so this control planted "
+            "nothing and the no-defect assertion above stayed unmeasured "
+            f"(UNKNOWN fails). probe printed: {ok_line!r}")
+        assert _graded_defect_lines(forged) == [forged], (
+            f"the defect grader cannot see a [{sev.strip()}] finding in the "
+            "probe's OWN output format, so the no-defect assertion above was "
+            f"vacuous rather than clean. planted line: {forged!r}")
+
+
+def test_the_retired_probe_scan_can_see_a_planted_offender():
+    """POSITIVE CONTROL for test_no_tool_probes_a_root_contract_that_cannot_be_served.
+
+    That test's verdict is `assert not offenders`, and an empty list is
+    ambiguous between "no tools/ source probes a dead contract" and "the scan
+    stopped looking". Inverting the reachability polarity produced the second
+    while reading as the first, and escaped, measured by mutation.
+
+    So the scan is driven over a source whose correct verdict is known by
+    construction, and it is driven BOTH ways: an unreachable probe must be
+    reported, and the same probe must be spared the moment a body can carry it.
+    One-sided would re-admit the polarity flip from the other direction.
+
+    Synthetic bodies, not the measured ones: the subject here is the scan's
+    predicate, so the input has to be known rather than observed. Reachability
+    against the real app is the other test's subject and stays there.
+    """
+    d = Path(tempfile.mkdtemp())
+    planted = d / "planted_offender.py"
+    innocent = d / "innocent.py"
+    innocent.write_text("MARKER = 'no retired probe here'\n", encoding="utf-8")
+    sources = [planted, innocent]
+
+    assert RETIRED_PROBES, "nothing to plant, so this control proves nothing"
+    for probe in RETIRED_PROBES:
+        planted.write_text(f"MARKER = {probe!r}\n", encoding="utf-8")
+
+        unreachable = {"dist-absent-503": b"<h1>installer</h1>"}
+        found = _scan_for_retired_probes(unreachable, sources)
+        assert [f for f in found if "planted_offender.py" in f], (
+            f"the scan did not report a source probing {probe!r} when no body "
+            "can carry it, so `assert not offenders` on the real tree means "
+            f"nothing was looked at. returned: {found}")
+        assert not [f for f in found if "innocent.py" in f], (
+            "the scan reported a source that contains no retired probe, so it "
+            f"fires on identity rather than on its subject. returned: {found}")
+
+        served = {"dist-absent-503": b"<h1>installer</h1>",
+                  "built-dist": probe.encode() + b" is served again"}
+        assert not _scan_for_retired_probes(served, sources), (
+            f"the scan reported {probe!r} as retired while a reachable body "
+            "carries it. The contract is live again, so probing it is exactly "
+            "what a tool should do -- this gate would be banning a spelling.")
