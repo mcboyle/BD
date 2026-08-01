@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.833 - a -1 session cookie was graded EXPIRED and re-logged-in a live login
+
+- Playwright marks a session cookie with `expires: -1`, and the browser
+  extension exporters emit `expirationDate: -1` for the same thing. Two of
+  BD's three producers copied that sentinel through as if it were a real
+  timestamp, because their guard was `if c.get("expirationDate"):` and -1 is
+  truthy. cookies_expiry_info's own test was likewise truthiness-based
+  (`if not exp`), so the sentinel fell past it into `elif exp < now` and a
+  live session cookie was counted EXPIRED.
+- The cost was not a cosmetic miscount. runner_auth._check_cookies_or_relogin
+  keys on exactly that pair -- `if ei["expired"] <= 0 or ei["session"] != 0:
+  return True` -- so a jar of live session cookies failed both guards. With
+  stored credentials that forced a needless re-login; without them it reached
+  _handle_failure("Cookies expired -- re-login needed") and routed the URL to
+  failed on a WORKING login. app._m2_auth_state independently bucketed the
+  same jar "expired", raising the login_expired banner.
+- Why it survived: the one producer with coverage was the clean one. pw_to_json
+  has always guarded the field with `> 0`, and the existing test asserted on
+  that path -- so the denominator excluded the two producers that were wrong.
+- cookies_expiry_info now treats any non-positive expiry as a session cookie.
+  The two duplicate normalisation loops (cookies.load_cookies_from_file and
+  the /api/sites/<sid>/load_cookies endpoint, which were byte-identical and
+  wrong in the same way) are single-sourced as cookies.normalize_stored_cookie,
+  so the endpoint cannot drift from the file loader again.
+- A real, positive expiry is unaffected; the empty jar still reports unknown.
+
 ## v3.66.832 - the gate hardcoded a failing-grade set the probe lib could grow past
 
 - v3.66.830 added positive controls to the cut-35 gate and recorded their honest

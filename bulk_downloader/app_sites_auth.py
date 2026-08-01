@@ -14,6 +14,7 @@ import uuid
 from flask import Blueprint, Response, jsonify, request
 from pathlib import Path
 from .constants import SCREENSHOTS_DIR
+from .cookies import normalize_stored_cookie
 from .runner import SiteRunner
 from .runner import _ts
 from datetime import datetime
@@ -541,13 +542,8 @@ def api_load_cookies(sid):
     try:
         raw=json.loads(request.files["file"].read().decode("utf-8"))
         items=raw if isinstance(raw,list) else sum(raw.values(),[]) if isinstance(raw,dict) else []
-        cookies=[]
-        for c in items:
-            ss=c.get("sameSite","None")
-            if ss not in ("Strict","Lax","None"): ss="None"
-            e={"name":c.get("name",""),"value":c.get("value",""),"domain":c.get("domain",""),
-               "path":c.get("path","/"),"sameSite":ss,"secure":bool(c.get("secure")),"httpOnly":bool(c.get("httpOnly"))}
-            if c.get("expirationDate"): e["expires"]=int(c["expirationDate"])
-            cookies.append(e)
+        # Shared with load_cookies_from_file -- this loop used to be a
+        # byte-identical copy, and it carried the same -1-is-truthy defect.
+        cookies=[normalize_stored_cookie(c) for c in items]
         runners[sid].set_cookies(cookies); return jsonify({"ok":True,"count":len(cookies)})
     except Exception as e: return jsonify({"error":str(e)}),400

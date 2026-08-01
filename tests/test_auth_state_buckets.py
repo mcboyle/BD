@@ -247,3 +247,100 @@ def test_the_fixture_login_cookie_reads_ok_through_bds_own_conversion():
         f"succeeded (302 + session cookie issued), so /api/sites/v2 must not "
         f"report a state that is indistinguishable from never having logged in."
     )
+
+
+# --------------------------------------------------------------------------
+# 4. The -1 session sentinel on the producers that are NOT pw_to_json.
+#
+# The test above proves the pw_to_json path is clean: it drops a non-positive
+# `expires` entirely, so the classifier never sees the sentinel. That is also
+# why this defect survived -- the ONE producer with coverage was the one that
+# normalises. The other two do not.
+#
+#   cookies.load_cookies_from_file:17   `if c.get("expirationDate"):`
+#   app_sites_auth.api_load_cookies:551 the same line, duplicated
+#
+# `-1` is truthy, so both write `expires = -1` into the stored jar, and
+# cookies_expiry_info's `if not exp:` is likewise truthiness-based, so the
+# sentinel falls through to `elif exp < now` and is counted EXPIRED.
+#
+# -1 is not a BD invention: it is Playwright's own session marker
+# (login_impl/replay.py:476 documents it) and the form browser-extension
+# cookie exporters emit for a session cookie. A jar of live session cookies
+# therefore reports expired>0 and session==0, which drives
+# runner_auth._check_cookies_or_relogin (:1012) past both of its guards --
+# forcing a re-login, or with no stored credentials routing the URL to
+# _handle_failure("Cookies expired -- re-login needed") on a WORKING login.
+# --------------------------------------------------------------------------
+
+def test_a_non_positive_expiry_is_a_session_cookie_not_an_expired_one():
+    """The classifier, stated directly. An expiry is meaningful only when it is
+    a positive timestamp; 0 and -1 both mean 'no expiry was set'."""
+    for sentinel in (-1, 0):
+        ei = cookies_expiry_info([{"name": "sessionid", "value": "v",
+                                   "domain": "example.test", "path": "/",
+                                   "expires": sentinel}])
+        assert ei["session"] == 1 and ei["expired"] == 0, (
+            f"a cookie with expires={sentinel!r} was graded {ei!r}. A "
+            f"non-positive expiry is Playwright's session marker, not a "
+            f"timestamp in 1969 -- grading it EXPIRED tells the runner to "
+            f"re-login a session that is live."
+        )
+
+
+def test_the_file_loader_does_not_manufacture_a_negative_expiry():
+    """load_cookies_from_file is the disk path into the jar. An extension export
+    carrying `expirationDate: -1` must not become `expires: -1`; pw_to_json's
+    convention is that the key is absent unless the expiry is real."""
+    import json as _json
+    import tempfile
+    from bulk_downloader.cookies import load_cookies_from_file
+
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "cookies.json"
+        p.write_text(_json.dumps([{"name": "sessionid", "value": "v",
+                                   "domain": "example.test", "path": "/",
+                                   "expirationDate": -1}]), encoding="utf-8")
+        loaded = load_cookies_from_file(str(p))
+
+    assert "expires" not in loaded[0], (
+        f"loaded {loaded[0]!r}. `if c.get('expirationDate'):` is a truthiness "
+        f"test and -1 is truthy, so the sentinel is copied through as a real "
+        f"expiry. pw_to_json guards the same field with `> 0`; these two must "
+        f"agree or a jar changes meaning by round-tripping through disk."
+    )
+    assert cookies_expiry_info(loaded)["session"] == 1
+
+
+def test_the_upload_endpoint_shares_the_loaders_normalisation():
+    """`/api/sites/<sid>/load_cookies` had its own byte-for-byte copy of the
+    loader's normalisation loop, including the same truthiness bug. Two copies
+    of one rule is the denominator that drifts -- and here the copy was already
+    wrong in the same way. Assert they are ONE function, not two that happen to
+    agree today."""
+    from bulk_downloader import cookies as ck
+    from bulk_downloader import app_sites_auth as asa
+
+    shared = getattr(ck, "normalize_stored_cookie", None)
+    assert shared is not None, (
+        "bulk_downloader.cookies.normalize_stored_cookie does not exist; the "
+        "upload endpoint and load_cookies_from_file still carry separate "
+        "copies of the same normalisation."
+    )
+    assert getattr(asa, "normalize_stored_cookie", None) is shared, (
+        "app_sites_auth does not use the shared normaliser, so the endpoint "
+        "can drift from the file loader again."
+    )
+    assert "expires" not in shared({"name": "s", "expirationDate": -1})
+
+
+def test_the_runner_and_the_panel_agree_on_a_sentinel_jar():
+    """The end of the chain. Both consumers must read a -1 jar as live."""
+    jar = [{"name": "sessionid", "value": "v", "domain": "example.test",
+            "path": "/", "expires": -1}]
+    ei = cookies_expiry_info(jar)
+    runner_treats_as_live = (ei["expired"] <= 0 or ei["session"] != 0)
+    assert runner_treats_as_live, (
+        f"runner_auth._check_cookies_or_relogin would re-login this jar "
+        f"(ei={ei}) even though every cookie in it is a live session cookie.")
+    assert _state(jar) == "ok"
