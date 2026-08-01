@@ -2311,7 +2311,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1370,
+    "edge_count": 1371,
     "in": {
       "bulk_downloader/_envfile.py": [
         "bulk_downloader/__init__.py",
@@ -2389,6 +2389,7 @@
         "tools/audit_write_route_guard.py",
         "tools/body_contract.py",
         "tools/build_endpoint_catalog.py",
+        "tools/census_file_size_drift.py",
         "tools/dast_probe.py",
         "tools/endpoint_reachability.py",
         "tools/gui_parity_inventory.py",
@@ -6746,6 +6747,7 @@
         "tools/capture_analytics.py"
       ],
       "tools/census_file_size_drift.py": [
+        "bulk_downloader/app.py",
         "bulk_downloader/db.py"
       ],
       "tools/closed_loop_learning.py": [

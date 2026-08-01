@@ -2,7 +2,7 @@
 """Census the Library doctor's size-drift population, split by SIGN.
 
 WHY THIS EXISTS. `history.file_size` is written once by `db_log()` and never
-UPDATEd anywhere (8 `UPDATE history` sites, none touches the column), so rows
+UPDATEd anywhere (7 `UPDATE history` sites, none touches the column), so rows
 written before v3.66.820 recorded a PRE-tag size. Once basename resolution
 works (v3.66.825, cut25b) those rows surface as POSITIVE drift deltas. The
 operator's question is how much of the panel's drift count is that residue
@@ -18,10 +18,42 @@ The "over 64KB" line is the honesty check: an atom write is kilobytes, so a
 large positive delta is NOT residue and must not be swept up by a re-stat that
 assumes it is.
 
-WHY IT USES list_size_drift RATHER THAN SQL. The figures then match what the
-Library panel actually shows. A SQL approximation would answer a neighbouring
-question -- and `list_size_drift` deliberately excludes rows it cannot resolve
-to exactly one file, which a hand-rolled query would silently include.
+WHY IT USES list_size_drift RATHER THAN SQL. A SQL approximation would answer
+a neighbouring question -- `list_size_drift` deliberately excludes rows it
+cannot resolve to exactly one file, which a hand-rolled query would silently
+include.
+
+TWO PASSES, BECAUSE THEY ANSWER DIFFERENT QUESTIONS. This is the defect
+v3.66.827 corrects: the first version ran only the per-site pass and its
+docstring claimed "the figures then match what the Library panel actually
+shows". Measured FALSE.
+
+  PER SITE      list_size_drift(dir, site_id=sid) -- attributes drift to a
+                configured site, which is what a backfill decision needs.
+  WHOLE HISTORY list_size_drift(dir, site_id=None) -- what the PANEL does.
+                frontend/src/routes/Library.tsx:497 calls the audit with
+                {download_dir} and NO site_id, and library_final.audit()
+                takes site_id as Optional[str] = None, so it spans EVERY
+                history row under that directory.
+
+A probe built a database where the per-site pass printed 0 drift while the
+panel's own call returned 3 -- including a real -9899 truncation. Rows whose
+site_id is not in sites_config are examined by the per-site pass at NO point;
+on the deploy box that was 31 of 31 rows. Both passes are therefore reported,
+ALONGSIDE each other. Reading only one of them is how the first version
+reported a clean library it had not asked about.
+
+THE DEFAULT DOWNLOAD DIR IS SWEPT TOO. A site whose `download_dir` is blank
+still writes somewhere: `app.py:_oi_default_download_dir()` resolves
+BD_DOWNLOAD_DIR -> the global config's download_dir -> ~/Downloads, and
+`runner.py`'s no-dl-dir branch calls it at write time. Bucketing such a site
+UNKNOWN examines nothing while its files sit on disk under the default. The
+resolver is IMPORTED, never reimplemented -- a second copy of that order is a
+denominator that drifts.
+
+ORPHAN SITES ARE NAMED, NOT COUNTED. The v3.66.826 box closure rested on an
+ad-hoc query nobody can re-run, because the report emitted only a count. A
+count cannot tell an operator that all 23 orphans were `bdseed fixture site`.
 
 THE SHAPE TRAP THIS TOOL EXISTS TO NOT REPEAT. `sites_config.json` is a FLAT
 mapping of site_id -> cfg. There is no "sites" wrapper: app.py's writer emits
@@ -106,35 +138,85 @@ def load_sites(path: str):
 
 
 def _done_row_counts(db):
-    """Total and per-site counts of done rows carrying a recorded size."""
+    """Total, per-site counts, and (site_id, site_name, n) of done rows
+    carrying a recorded size.
+
+    The NAMES are load-bearing: an orphan site_id alone is an opaque hex
+    string, and the whole point of listing orphans is that the operator can
+    recognise what they are (`bdseed fixture site`) without a second query.
+    """
     sql = ("SELECT COUNT(*) FROM history WHERE status='done' "
            "AND filename != '' AND file_size > 0")
     with db.db_conn() as cx:
         total = cx.execute(sql).fetchone()[0]
-        per_site = {r[0]: r[1] for r in cx.execute(
-            sql.replace("COUNT(*)", "site_id, COUNT(*)")
-            + " GROUP BY site_id").fetchall()}
-    return total, per_site
+        named = [(r[0] or "", r[1] or "", r[2]) for r in cx.execute(
+            sql.replace("COUNT(*)", "site_id, site_name, COUNT(*)")
+            + " GROUP BY site_id, site_name").fetchall()]
+    per_site = {}
+    for sid, _name, n in named:
+        per_site[sid] = per_site.get(sid, 0) + n
+    return total, per_site, named
 
 
-def census(sites, db, lf) -> dict:
-    """Walk every configured site and split its drift rows by sign.
+def resolve_default_download_dir() -> str:
+    """Where a site with a blank download_dir actually writes.
 
-    Returns a dict with the two populations, the per-site lines, and the
-    coverage accounting. One pass PER SITE, deliberately not deduped by
+    Delegates to ``app._oi_default_download_dir`` -- the same resolver
+    ``runner.py``'s no-dl-dir branch calls at write time -- rather than
+    reimplementing its BD_DOWNLOAD_DIR -> global config -> ~/Downloads order.
+    A second copy of that order is a denominator that drifts, and the copy
+    nobody updated is the one that decides what the census can see.
+    """
+    from bulk_downloader.app import _oi_default_download_dir
+    return str(_oi_default_download_dir() or "").strip()
+
+
+def census(sites, db, lf, default_dir=None) -> dict:
+    """Split drift rows by sign, per configured site AND across all history.
+
+    Returns a dict with both populations, the per-site lines, the whole-history
+    sweep, and the coverage accounting.
+
+    The per-site pass is one pass PER SITE, deliberately not deduped by
     download_dir: ``list_size_drift`` filters by site_id, so skipping a
     repeated directory would drop that site's rows entirely rather than
     merely avoid duplicate work.
+
+    The sweep is one pass per resolvable DIRECTORY with ``site_id=None`` --
+    the call the Library panel makes -- so rows whose site_id is not in
+    sites_config are examined rather than silently excluded. ``default_dir``
+    is the deployment default (see ``resolve_default_download_dir``); it is
+    both used for sites that name no directory of their own and swept in its
+    own right, because files can be sitting under it with no configured site
+    pointing there at all.
     """
-    total, per_site = _done_row_counts(db)
+    total, per_site, named = _done_row_counts(db)
+    default_dir = (default_dir or "").strip()
+    if not default_dir:
+        default_state = "not resolved -- UNKNOWN, not empty"
+    elif os.path.isdir(default_dir):
+        default_state = "resolved"
+    else:
+        default_state = "absent on disk: " + default_dir
+    default_ok = default_state == "resolved"
+
     neg, pos, unknown, capped, lines = [], [], [], [], []
     covered = 0
+    sweep_sources: dict = {}
     for sid, cfg in sorted(sites.items()):
         dd = ((cfg or {}).get("download_dir") or "").strip()
         n = per_site.get(sid, 0)
+        label = sid
         if not dd:
-            unknown.append((sid, n, "no download_dir configured"))
-            continue
+            if not default_ok:
+                unknown.append((sid, n, "no download_dir configured, and the "
+                                        "deployment default is " + default_state))
+                continue
+            # The runner resolves the default at WRITE time, so this site's
+            # files really are under it -- examining nothing here would be
+            # the census reporting clean over an excluded denominator.
+            dd = default_dir
+            label = sid + " (via deployment default)"
         if not os.path.isdir(dd):
             unknown.append((sid, n, "download_dir absent: " + dd))
             continue
@@ -145,7 +227,51 @@ def census(sites, db, lf) -> dict:
         for row in rows:
             (neg if row["delta_bytes"] < 0 else pos).append(row)
         lines.append((sid, n, len(rows), dd))
+        sweep_sources.setdefault(dd, []).append(label)
+    if default_ok and "<deployment default>" not in \
+            sweep_sources.setdefault(default_dir, []):
+        sweep_sources[default_dir].append("<deployment default>")
+
+    # The panel's own call: no site_id, so it spans every history row that
+    # resolves under the directory.
+    sweep_lines, sweep_neg, sweep_pos = [], [], []
+    for dd in sorted(sweep_sources):
+        dn = dp = 0
+        for row in lf.list_size_drift(dd, site_id=None, limit=ROW_LIMIT):
+            r = dict(row)
+            r["_dir"] = dd
+            if r["delta_bytes"] < 0:
+                sweep_neg.append(r)
+                dn += 1
+            else:
+                sweep_pos.append(r)
+                dp += 1
+        sweep_lines.append((dd, sorted(sweep_sources[dd]), dn, dp))
+
     unknown_rows = sum(n for _, n, _ in unknown)
+    configured = set(sites)
+    # Rows whose site_id is not in sites_config at all -- examined by the
+    # per-site pass at no point, and the reason a 0/0 result can be
+    # meaningless.
+    #
+    # HONEST NOTE ABOUT ``orphan_rows`` BELOW. It is summed from these grouped
+    # rows, but that is NOT a behavioural difference from writing
+    # ``total - covered - unknown_rows``: the loop above puts every configured
+    # site in exactly one of ``covered`` or ``unknown``, so
+    # covered + unknown_rows == |rows whose site_id IS configured| and the two
+    # forms are arithmetically identical on every input. No test can tell them
+    # apart, and the reconciliation assertion in the tests is therefore an
+    # identity about the LOOP's exhaustiveness, not evidence about this line.
+    # An earlier version of this comment claimed the derivation mattered for
+    # the count; it does not, and nothing tested it.
+    #
+    # What the grouped derivation DOES buy -- and subtraction cannot -- is
+    # ``orphan_sites``: the ids and names, without which the v3.66.826 box
+    # closure had to rest on an ad-hoc query nobody can re-run. That part is
+    # pinned behaviourally against an independent recount.
+    orphan_sites = sorted(((sid, name, n) for sid, name, n in named
+                           if sid not in configured),
+                          key=lambda t: (-t[2], t[0]))
     return {
         "total_done_rows": total,
         "truncations": neg,
@@ -155,9 +281,13 @@ def census(sites, db, lf) -> dict:
         "capped": capped,
         "lines": lines,
         "covered_rows": covered,
-        # Rows whose site_id is not in sites_config at all -- examined by
-        # nothing, and the reason a 0/0 result can be meaningless.
-        "orphan_rows": total - covered - unknown_rows,
+        "orphan_sites": orphan_sites,
+        "orphan_rows": sum(n for _, _, n in orphan_sites),
+        "default_dir": default_dir,
+        "default_dir_state": default_state,
+        "sweep_lines": sweep_lines,
+        "sweep_truncations": sweep_neg,
+        "sweep_residue": sweep_pos,
     }
 
 
@@ -180,11 +310,32 @@ def format_report(rep: dict) -> str:
     if rep["orphan_rows"]:
         out.append("          rows whose site_id is not in sites_config : %d"
                    % rep["orphan_rows"])
+        # Named, not merely counted: a count cannot be recognised, and the
+        # v3.66.826 box closure had to rest on an ad-hoc query because of it.
+        for sid, name, n in rep["orphan_sites"]:
+            out.append("            %-26s %-30s rows %d"
+                       % (sid[:26], (name or "(no site_name)")[:30], n))
     if rep["capped"]:
         out.append("          LIMIT HIT -- census truncated for: %s"
                    % ", ".join("%s(%d)" % (s, n) for s, n in rep["capped"]))
     if not (rep["unknown_rows"] or rep["orphan_rows"] or rep["capped"]):
         out.append("          complete -- every done row was examined")
+    out.append("")
+    out.append("WHOLE-HISTORY SWEEP -- list_size_drift(dir, site_id=None), the")
+    out.append("call Library.tsx:497 -> audit() actually makes. It spans EVERY")
+    out.append("history row resolving under the dir, orphan site_ids included,")
+    out.append("so THIS is the figure comparable to what the panel shows.")
+    if rep["sweep_lines"]:
+        for dd, srcs, dn, dp in rep["sweep_lines"]:
+            out.append("  %-38s trunc %-6d residue %-6d [%s]"
+                       % (dd[:38], dn, dp, ", ".join(srcs) or "-"))
+    else:
+        out.append("  no resolvable download dir -- NOTHING was swept, which "
+                   "is UNKNOWN, not clean")
+    out.append("  SWEEP TRUNCATIONS (delta<0) : %d" % len(rep["sweep_truncations"]))
+    out.append("  SWEEP RESIDUE     (delta>0) : %d" % len(rep["sweep_residue"]))
+    out.append("  deployment default download dir : %s  (%s)"
+               % (rep["default_dir"] or "-", rep["default_dir_state"]))
     if rep["residue"]:
         sizes = sorted(abs(r["delta_bytes"]) for r in rep["residue"])
         out.append("")
@@ -239,7 +390,17 @@ def main(argv=None) -> int:
               "empty denominator")
         return 2
 
-    rep = census(sites, db, lf)
+    default_dir = ""
+    try:
+        default_dir = resolve_default_download_dir()
+    except Exception as exc:
+        # Say so rather than proceeding as if the default were empty: an
+        # unresolvable default is UNKNOWN, and the sweep below is then
+        # narrower than the operator would assume.
+        print("  note: could not resolve the deployment default download dir "
+              "-- UNKNOWN, not absent: %s: %s" % (type(exc).__name__, exc))
+
+    rep = census(sites, db, lf, default_dir=default_dir)
     print("done rows with a recorded size : %d" % rep["total_done_rows"])
     print("sites in config                : %d" % len(sites))
     print("")

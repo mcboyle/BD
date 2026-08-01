@@ -4,6 +4,50 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.827 - the census asked per site; the panel asks about everything
+
+- v3.66.826 shipped a census whose denominator did not match the surface it was
+  built to size. census() walks configured sites and calls list_size_drift with
+  site_id=<that site>, but Library.tsx:497 calls the audit with download_dir and
+  NO site_id, so audit() spans every history row. On a database with one drifting
+  row belonging to a site that is no longer in sites_config, the census printed
+  0 while the panel's own call returned 3 -- including a real -9899 truncation.
+  The tool's docstring claimed "the figures then match what the Library panel
+  actually shows". That claim was false and nothing pinned it.
+
+- Adds a whole-history sweep (site_id=None) over every resolvable download dir
+  INCLUDING the deployment default, reported alongside the per-site figures.
+  A site with a blank download_dir was bucketed UNKNOWN, but app.py's
+  _oi_default_download_dir() falls back BD_DOWNLOAD_DIR -> global config ->
+  ~/Downloads, and runner.py resolves it at write time, so those files were
+  examined by nothing.
+
+- Prints orphan site_ids and names. The tool previously emitted a count only,
+  which is why the v3.66.826 conclusion rested on an ad-hoc query that is not in
+  the repo and that nobody can re-run.
+
+- Corrects two figures. The docstring said "8 UPDATE history sites"; the
+  executable count is 7 -- the eighth was history_tags.tag, a different table.
+  Re-derived by AST over the tracked tree, and the re-derivation test now reads
+  each SQL constant's full source span instead of only its first line, so a
+  multi-line UPDATE touching file_size can no longer evade it. Both evasion
+  shapes were reproduced against real sites before the widening.
+
+- Corrects the record. SESSION_CARRY 14.3(a) said "the population is ZERO" and
+  stood CLOSED; 0 of 31 rows examined is UNKNOWN. Downgraded to OPEN/UNMEASURED
+  with the re-open trigger stated, and the v3.66.826 CHANGELOG entry carries a
+  withdrawal of the same sentence.
+
+- Three mutation escapes in the cut's own new tests were found by adversarial
+  review and closed: the rendered SWEEP lines were not pinned to the sweep
+  figures (a swap printed 0 against a true 1 with every test passing), and the
+  standalone default-dir branch could be deleted outright because the fixture
+  reached that directory by another route. A fourth escape was proven to be an
+  equivalent mutant -- orphan_rows by subtraction is arithmetically identical to
+  the grouped derivation over all 11620 probed configurations -- so the source
+  comment claiming the derivation mattered was deleted rather than falsely
+  pinned.
+
 ## v3.66.826 - a census that could not see the library reported it clean
 
 - The size-drift census recorded in SESSION_CARRY 15.2 parsed sites_config.json
@@ -38,10 +82,18 @@ archive is not present in this repository; consult source-control history.
 - Measured on test4 with the corrected tool: 31 done rows carrying a recorded
   size, 0 examined. All 23 orphan site_ids are `bdseed fixture site` -- the
   live_seed.py residue that tool documents as structurally unremovable, since
-  history is append-only. The one configured site has zero history rows. The
-  legacy file_size population on that host is therefore ZERO; the defect class
-  remains real by construction (file_size is never UPDATEd) but no backfill is
-  warranted there and no figure is obtainable from it.
+  history is append-only. The one configured site has zero history rows.
+
+  CORRECTION, entered at v3.66.827. The sentence that stood here concluded
+  "the legacy file_size population on that host is therefore ZERO". That does
+  not follow and it is withdrawn. 0 of 31 rows EXAMINED is UNKNOWN, not zero
+  -- the coverage line exists precisely so a 0/0 split cannot be read as a
+  clean library, and this entry read it and made that reading anyway. The
+  census itself was blind to those 31 rows: it asked only per configured site,
+  while the panel asks with no site_id at all. See SESSION_CARRY 14.3(a),
+  downgraded from CLOSED to OPEN/UNMEASURED, for the re-open trigger. The
+  defect class remains real by construction (file_size is never UPDATEd) and
+  no figure is obtainable from that run either way.
 
 ## v3.66.825 - four producers put a job in a counted state with nothing to count it by
 

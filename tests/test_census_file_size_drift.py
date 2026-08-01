@@ -205,3 +205,376 @@ def test_report_states_coverage_even_when_there_is_no_drift(lib):
     assert "not in sites_config : 5" in text, text
     assert "complete -- every done row was examined" not in text, (
         "the report claimed completeness while examining nothing:\n" + text)
+
+
+# ─── The denominator mismatch (v3.66.827) ─────────────────────────────
+#
+# The per-site pass calls list_size_drift(dd, site_id=sid), but the panel
+# calls audit({download_dir}) with NO site_id (frontend/src/routes/Library.tsx
+# :497 -> library_final.audit(), whose site_id is Optional and defaults to
+# None), so audit() spans EVERY history row in the directory. A census that
+# only ever asks per-site is structurally blind to rows whose site_id is not
+# in sites_config -- which on the deploy box was 31 of 31.
+
+
+def test_whole_history_sweep_sees_a_row_whose_site_is_not_configured(lib):
+    """The exact 0-vs-3 case: per-site says clean, the panel's own call does not.
+
+    Site Z is configured and owns the download dir but has ZERO history rows,
+    so every per-site figure is 0. The rows actually IN that directory belong
+    to A, B and ghost -- none of them configured. list_size_drift with
+    site_id=None (what audit() passes) finds three of them, including a real
+    -9899 truncation.
+    """
+    db, lf, dl = lib
+    rep = cen.census({"Z": {"download_dir": str(dl)}}, db, lf)
+
+    # the blindness, restated so the failure names the cause
+    assert len(rep["truncations"]) == 0 and len(rep["residue"]) == 0, (
+        "fixture drift: the per-site pass was supposed to see nothing here")
+
+    trunc = {r["filename"] for r in rep["sweep_truncations"]}
+    res = {r["filename"] for r in rep["sweep_residue"]}
+    assert trunc == {"short.mp4"}, (
+        "the whole-history sweep missed the truncation the panel reports: "
+        f"{rep['sweep_truncations']}")
+    assert res == {"residue.mp4", "b.mp4"}, (
+        f"the whole-history sweep missed residue rows: {rep['sweep_residue']}")
+    assert len(rep["sweep_truncations"]) + len(rep["sweep_residue"]) == 3, rep
+
+    worst = min(rep["sweep_truncations"], key=lambda r: r["delta_bytes"])
+    assert worst["delta_bytes"] == -9899, worst
+    # every swept row carries the directory it was found under, or the
+    # operator cannot tell which panel run would show it
+    assert all(r.get("_dir") == str(dl)
+               for r in rep["sweep_truncations"] + rep["sweep_residue"]), rep
+
+
+def test_the_sweep_is_reported_alongside_the_per_site_figures(lib):
+    """Alongside, not instead of. The split by SIGN is still the decision;
+    the sweep answers a DIFFERENT question (what the panel shows) and a
+    report that prints only one of them cannot be reconciled with the other."""
+    db, lf, dl = lib
+    text = cen.format_report(cen.census({"Z": {"download_dir": str(dl)}},
+                                        db, lf))
+
+    assert "TRUNCATIONS  (delta<0) : 0" in text, text
+    assert "SWEEP" in text, (
+        "the whole-history sweep is not in the report at all:\n" + text)
+    assert "site_id=None" in text, (
+        "the report does not say the sweep is the panel's own call:\n" + text)
+    assert str(dl) in text, text
+
+
+def test_the_rendered_sweep_lines_carry_the_SWEEP_numbers(lib):
+    """The report TEXT is the deliverable, and it was not pinned.
+
+    ``format_report`` prints four totals. Nothing read the rendered string, so
+    feeding the SWEEP lines the PER-SITE lists -- len(rep["truncations"])
+    instead of len(rep["sweep_truncations"]) -- printed 0 truncations while
+    the panel-comparable figure was 1, and every test stayed green. That is
+    section 0 one level up: the assertions could not see the artifact the
+    operator actually reads.
+
+    The fixture is built so the two populations DISAGREE (per-site 0/0, sweep
+    1/2). If they were equal this test would prove nothing, so the
+    disagreement is asserted first and the numbers are matched LINE-EXACT --
+    a substring check cannot distinguish "TRUNCATIONS  (delta<0) : 0" from
+    the sweep line that contains the same tail.
+    """
+    db, lf, dl = lib
+    rep = cen.census({"Z": {"download_dir": str(dl)}}, db, lf)
+
+    per_site = (len(rep["truncations"]), len(rep["residue"]))
+    sweep = (len(rep["sweep_truncations"]), len(rep["sweep_residue"]))
+    assert per_site == (0, 0) and sweep == (1, 2), (
+        "fixture drift: this test is only meaningful while the per-site and "
+        f"sweep populations differ; got per_site={per_site} sweep={sweep}")
+
+    lines = [ln.rstrip() for ln in cen.format_report(rep).splitlines()]
+    text = "\n".join(lines)
+
+    assert "TRUNCATIONS  (delta<0) : 0" in lines, (
+        "the per-site truncation line does not carry the per-site "
+        "figure:\n" + text)
+    assert "ATOM RESIDUE (delta>0) : 0" in lines, (
+        "the per-site residue line does not carry the per-site "
+        "figure:\n" + text)
+    assert "  SWEEP TRUNCATIONS (delta<0) : 1" in lines, (
+        "the SWEEP truncation line does not carry the SWEEP figure -- the "
+        "panel shows 1 truncation and the report prints another number:\n"
+        + text)
+    assert "  SWEEP RESIDUE     (delta>0) : 2" in lines, (
+        "the SWEEP residue line does not carry the SWEEP figure:\n" + text)
+
+    # the per-directory sweep line must agree with the sweep totals too
+    dir_line = [ln for ln in lines if ln.lstrip().startswith(str(dl)[:38])]
+    assert dir_line and "trunc 1" in dir_line[0] and "residue 2" in dir_line[0], (
+        "the per-directory sweep line disagrees with the sweep totals:\n"
+        + text)
+
+
+def test_a_blank_download_dir_is_examined_under_the_deployment_default(lib):
+    """A site with a BLANK download_dir still writes somewhere.
+
+    app.py:2493 _oi_default_download_dir() resolves BD_DOWNLOAD_DIR -> global
+    config download_dir -> ~/Downloads, and runner.py:3628-3654 calls it at
+    write time. Bucketing such a site UNKNOWN examines nothing while the
+    files are on disk under the default.
+
+    This pins the PER-SITE fallback only. The standalone sweep of the default
+    dir is a different branch and is pinned separately below -- here the
+    default dir reaches the sweep through THIS site, so this fixture is blind
+    to that branch by construction.
+    """
+    db, lf, dl = lib
+    rep = cen.census({"A": {}}, db, lf, default_dir=str(dl))
+
+    reasons = {sid for sid, _, _ in rep["unknown"]}
+    assert "A" not in reasons, (
+        f"a blank download_dir was still bucketed UNKNOWN: {rep['unknown']}")
+    assert {r["filename"] for r in rep["truncations"]} == {"short.mp4"}, rep
+    assert {r["filename"] for r in rep["residue"]} == {"residue.mp4"}, rep
+    assert rep["default_dir"] == str(dl)
+    # and the default dir is in the whole-history sweep too
+    assert str(dl) in {d for d, _, _, _ in rep["sweep_lines"]}, rep
+
+
+def test_the_default_dir_is_swept_when_no_configured_site_points_at_it(lib):
+    """The standalone default-dir sweep branch, with a denominator that
+    contains it.
+
+    WHY THIS FIXTURE IS BUILT THE HARD WAY. The obvious test gives the one
+    configured site a BLANK download_dir, so the census substitutes the
+    default and appends that directory to ``sweep_sources`` from inside the
+    per-site loop. The default dir is then already swept by another route,
+    and deleting the standalone branch entirely changes NOTHING -- measured:
+    all tests stayed green with it disabled.
+
+    So here the configured site owns its OWN directory (empty, elsewhere) and
+    NOTHING configured points at the default. The standalone branch is the
+    only way the default dir can enter the sweep at all, which is what makes
+    this test able to see its subject.
+    """
+    db, lf, dl = lib
+    elsewhere = Path(tempfile.mkdtemp(prefix="cen_other_"))
+
+    rep = cen.census({"Z": {"download_dir": str(elsewhere)}}, db, lf,
+                     default_dir=str(dl))
+
+    # no configured site names the default dir -- so the per-site pass cannot
+    # have put it into the sweep
+    assert str(dl) not in {dd for _, _, _, dd in rep["lines"]}, (
+        f"fixture drift: a configured site points at the default dir: "
+        f"{rep['lines']}")
+    assert len(rep["truncations"]) == 0 and len(rep["residue"]) == 0, (
+        f"fixture drift: the per-site pass was supposed to see nothing: {rep}")
+
+    swept = {dd: srcs for dd, srcs, _, _ in rep["sweep_lines"]}
+    assert str(dl) in swept, (
+        "the deployment default download dir was NOT swept, so files written "
+        "by the runner's no-dl-dir branch were examined by nothing: "
+        f"{rep['sweep_lines']}")
+    assert "<deployment default>" in swept[str(dl)], (
+        f"the default dir is swept but not labelled as such: {swept}")
+
+    trunc = {r["filename"] for r in rep["sweep_truncations"]}
+    assert trunc == {"short.mp4"}, (
+        "the sweep of the deployment default missed the truncation: "
+        f"{rep['sweep_truncations']}")
+    worst = min(rep["sweep_truncations"], key=lambda r: r["delta_bytes"])
+    assert worst["delta_bytes"] == -9899, worst
+    assert {r["filename"] for r in rep["sweep_residue"]} \
+        == {"residue.mp4", "b.mp4"}, rep["sweep_residue"]
+
+
+def test_an_unresolvable_default_is_said_so_not_assumed(lib):
+    """UNKNOWN is a third state. A default dir that is not a directory must
+    not read as 'nothing to sweep there'."""
+    db, lf, dl = lib
+    gone = str(dl / "no_such_default")
+    rep = cen.census({"A": {"download_dir": str(dl)}}, db, lf, default_dir=gone)
+
+    assert gone not in {d for d, _, _, _ in rep["sweep_lines"]}, rep
+    assert "absent" in rep["default_dir_state"], rep["default_dir_state"]
+    assert gone in cen.format_report(rep)
+
+
+def test_orphan_site_ids_and_names_are_printed_not_just_counted(lib):
+    """The box finding must be reproducible FROM THE TOOL.
+
+    The v3.66.826 closure rested on an ad-hoc query nobody can re-run,
+    because the report emitted only a COUNT of orphan rows. A count cannot
+    tell an operator that all 23 were `bdseed fixture site`.
+    """
+    db, lf, dl = lib
+    db.db_log(site_id="zz9", site_name="bdseed fixture site", url="u9",
+              status="done", filename="z.mp4", file_size=42)
+    rep = cen.census({"A": {"download_dir": str(dl)}}, db, lf)
+
+    found = {sid: (name, n) for sid, name, n in rep["orphan_sites"]}
+    assert set(found) == {"B", "ghost", "zz9"}, rep["orphan_sites"]
+    assert found["zz9"] == ("bdseed fixture site", 1), found
+    assert sum(n for _, _, n in rep["orphan_sites"]) == rep["orphan_rows"], rep
+
+    text = cen.format_report(rep)
+    assert "zz9" in text and "bdseed fixture site" in text, (
+        "orphan site ids/names are not in the report, so the box finding "
+        "cannot be reproduced from the tool:\n" + text)
+
+
+def test_orphan_sites_agree_with_an_independent_recount(lib):
+    """Pin what the grouped derivation actually buys.
+
+    MEASURED, AND STATED SO IT IS NOT INHERITED WRONG: ``orphan_rows`` is
+    arithmetically IDENTICAL to ``total - covered - unknown_rows``. The
+    per-site loop puts every configured site in exactly one of covered or
+    unknown, so covered + unknown_rows is exactly the row count of configured
+    sites and the remainder is exactly the orphan count -- on every input.
+    Reverting that line to subtraction passes this file, and no fixture can
+    change that; the coverage reconciliation assertion above is an identity
+    about the LOOP's exhaustiveness, not evidence about how the count is
+    derived. The source comment now says the same thing instead of claiming
+    a distinction nothing tests.
+
+    What subtraction CANNOT produce is the ids and names, so that is what is
+    pinned here -- against a recount taken straight from the database rather
+    than from another field of the same report.
+    """
+    db, lf, dl = lib
+    configured = {"A": {"download_dir": str(dl)}}
+    rep = cen.census(configured, db, lf)
+
+    with db.db_conn() as cx:
+        raw = cx.execute(
+            "SELECT site_id, site_name, COUNT(*) FROM history "
+            "WHERE status='done' AND filename != '' AND file_size > 0 "
+            "GROUP BY site_id, site_name").fetchall()
+    expected = {(r[0] or "", r[1] or "", r[2]) for r in raw
+                if (r[0] or "") not in configured}
+
+    assert set(rep["orphan_sites"]) == expected, (
+        "the named orphan list does not match an independent recount of the "
+        f"rows whose site_id is not configured: {rep['orphan_sites']} vs "
+        f"{sorted(expected)}")
+    assert rep["orphan_rows"] == sum(n for _, _, n in expected), rep
+
+
+def test_the_source_does_not_claim_the_orphan_count_derivation_matters():
+    """The claim was untestable and is therefore not allowed back.
+
+    The removed sentence said orphan_rows was "Derived from the grouped rows
+    rather than by subtraction", implying a behavioural difference. There is
+    none (see above). A claim in the source that nothing can test is read as
+    authority, which is exactly how this census shipped a false docstring
+    once already.
+    """
+    src = (_REPO / "tools" / "census_file_size_drift.py").read_text(
+        encoding="utf-8")
+    assert "Derived from the grouped rows rather than by subtraction" \
+        not in src, (
+        "the untested derivation claim is back in census_file_size_drift.py; "
+        "orphan_rows is arithmetically identical to total - covered - "
+        "unknown_rows and no test can distinguish the two forms")
+
+
+def test_the_docstring_does_not_claim_the_per_site_figures_match_the_panel():
+    """The claim was measured FALSE and nothing pinned it.
+
+    The per-site pass and the panel ask different questions; only the sweep
+    matches the panel. A docstring that says otherwise is read as authority.
+    """
+    doc = cen.__doc__ or ""
+    assert "The figures then match what the Library panel actually shows" \
+        not in doc, ("the false claim is back in the census docstring; the "
+                     "per-site figures do NOT match the panel -- the panel "
+                     "calls audit() with no site_id")
+    assert "site_id=None" in doc, (
+        "the docstring must state which call actually matches the panel")
+
+
+def test_the_update_history_figure_is_re_derived_not_quoted():
+    """The shipped docstring said 8; the executable count is 7.
+
+    INSTRUMENT: AST (`ast.Constant` string nodes plus the literal parts of
+    `ast.JoinedStr`) over `git ls-files -- bulk_downloader/*.py`, with
+    module/class/function docstring nodes structurally excluded so prose
+    cannot inflate the count.
+
+    PREDICATE: ``UPDATE\\s+history\\b``. The trailing \\b is the whole
+    subject fix -- `_` is a word character, so it excludes
+    `UPDATE history_tags` (tags.py:251), which is the DIFFERENT TABLE that
+    was miscounted as the 8th site.
+
+    THE file_size CHECK'S OWN DENOMINATOR. It used to read only
+    ``splitlines()[node.lineno - 1]``. ``ast.Constant.lineno`` is the START
+    line of a multi-line string, and two of the seven live sites already span
+    more than one line (batch_ops.py's triple-quoted statement and
+    retention.py's implicit concatenation), so an ``UPDATE history SET ...
+    file_size`` whose column name landed on the second line was invisible:
+    measured, adding ``file_size = 0`` to line 2 of the batch_ops statement
+    left all tests green. The subject is now the constant's OWN VALUE (which
+    is what the predicate matched, and which folds implicit concatenation)
+    UNION the node's full source span lineno..end_lineno.
+    """
+    import ast
+    import re
+    import subprocess
+
+    files = subprocess.run(
+        ["git", "ls-files", "--", "bulk_downloader/*.py"],
+        cwd=str(_REPO), capture_output=True, text=True, check=True
+    ).stdout.split()
+    assert len(files) > 50, f"denominator collapsed: {len(files)} files"
+
+    pat = re.compile(r"UPDATE\s+history\b", re.I)
+    sites = []          # (rel, lineno, end_lineno, constant_text)
+    for rel in files:
+        src = (_REPO / rel).read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        docs = set()
+        for n in ast.walk(tree):
+            body = getattr(n, "body", None)
+            if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
+                              ast.ClassDef)) and body \
+                    and isinstance(body[0], ast.Expr) \
+                    and isinstance(body[0].value, ast.Constant) \
+                    and isinstance(body[0].value.value, str):
+                docs.add(id(body[0].value))
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Constant) and isinstance(n.value, str) \
+                    and id(n) not in docs and pat.search(n.value):
+                sites.append((rel, n.lineno, n.end_lineno or n.lineno, n.value))
+            elif isinstance(n, ast.JoinedStr):
+                txt = "".join(v.value for v in n.values
+                              if isinstance(v, ast.Constant)
+                              and isinstance(v.value, str))
+                if pat.search(txt):
+                    sites.append((rel, n.lineno, n.end_lineno or n.lineno, txt))
+
+    labels = sorted("%s:%d-%d" % (rel, a, b) for rel, a, b, _ in sites)
+    stated = re.search(r"\((\d+)\s+`UPDATE history` sites", cen.__doc__ or "")
+    assert stated, "the census docstring no longer states the figure at all"
+    assert int(stated.group(1)) == len(sites), (
+        f"the docstring says {stated.group(1)} `UPDATE history` sites; the "
+        f"AST count is {len(sites)}: {labels}")
+
+    # A multi-line statement's lineno is only its FIRST line -- read the whole
+    # span, and the constant's own value, or the check cannot see its subject.
+    assert len(sites) == len(labels), "duplicate site labels"
+    offenders = []
+    for rel, lineno, end_lineno, text in sites:
+        span = "\n".join((_REPO / rel).read_text(encoding="utf-8")
+                         .splitlines()[lineno - 1:end_lineno])
+        if "file_size" in text or "file_size" in span:
+            offenders.append("%s:%d-%d" % (rel, lineno, end_lineno))
+    assert not offenders, (
+        "an UPDATE history site now touches file_size -- the premise the "
+        f"whole census rests on has changed: {offenders} (all sites: "
+        f"{labels})")
+    # the widening is only real if some site actually spans >1 line; if that
+    # stops being true the test silently reverts to the narrow check
+    assert any(b > a for _, a, b, _ in sites), (
+        "no UPDATE history site spans multiple lines any more, so this test "
+        "can no longer demonstrate that it reads past the first line; "
+        f"re-derive before trusting it: {labels}")

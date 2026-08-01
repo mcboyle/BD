@@ -708,8 +708,17 @@ Rows written before v3.66.820 recorded a PRE-tag size. The producer half of
 task #25 was fixed at 9e46526 (every path writing MP4 atoms now re-stats after
 tagging, pinned by 12 tests incl. a real mutagen write, 1442 -> 2675, +1233),
 but there is NO backfill anywhere in the tree: `history.file_size` is never
-UPDATEd. Eight `UPDATE history` sites exist -- library_id (x3), filename (x2),
-retention_excluded, status/message, history_tags.tag -- and none touches it.
+UPDATEd. SEVEN `UPDATE history` sites exist -- library_id (x3: library.py:175,
+411, 614), filename (x2: batch_ops.py:239, storage_rebalance.py:228),
+retention_excluded (retention.py:77), status/message (batch_ops.py:142) -- and
+none touches it. CORRECTED at v3.66.827: this entry said EIGHT and counted
+`history_tags.tag` (tags.py:251), which is a DIFFERENT TABLE. Instrument: AST
+(`ast.Constant` strings plus `ast.JoinedStr` literal parts) over
+`git ls-files -- bulk_downloader/*.py`, docstring nodes structurally excluded.
+Predicate: `UPDATE\s+history\b` -- the trailing `\b` is what excludes
+`history_tags`, since `_` is a word character. The figure is now re-derived at
+test time by `test_the_update_history_figure_is_re_derived_not_quoted`, so it
+cannot be quoted wrong again.
 `library.record_completion`, named in library.py's own module docstring as the
 forward path, does not exist.
 
@@ -729,37 +738,67 @@ that re-stats `history.file_size` for done rows whose file resolves on disk,
 --dry-run first, printing a count. Never an automatic migration -- history is
 append-only by design and a deploy must not silently rewrite shipped rows.
 
-MEASURED 2026-08-01 on test4 -- the population is ZERO, so (a) is CLOSED as
-not-applicable-on-this-host. Run with `tools/census_file_size_drift.py`
-(v3.66.826; the command previously recorded in 15.2 was wrong -- see there):
+MEASURED 2026-08-01 on test4, and the verdict written here was WRONG.
+DOWNGRADED at v3.66.827 from "CLOSED, the population is ZERO" to **OPEN,
+UNMEASURED ON THIS HOST**. What the run produced was:
 
     done rows with a recorded size : 31
     sites in config                : 1
     rows examined                  : 0 of 31
     rows whose site_id is not in sites_config : 31
 
-All 23 orphan site_ids are named `bdseed fixture site`. They are
-`tools/live_seed.py` residue, which that tool documents at lines 82-85 as
-structurally unremovable: history is append-only, `db_log()` is its only
-writer and `db_prune()` (by AGE, not by marker) its only deleter, so teardown
-cannot clear the rows. `_RUN_NONCE` gives each capture run a fresh site_id,
-which is why there are 23. The one configured site (`d9f19e92`, "wow") has
-ZERO history rows and its download_dir holds zero files.
+**0 of 31 examined is UNKNOWN, not zero.** The population was never measured;
+it was never LOOKED AT. This entry read a coverage line -- printed precisely
+so a 0/0 split could not be mistaken for a clean library -- and then made
+exactly that mistake one level up. Section 0 applied to a register: the
+denominator excluded the subject and the closure reported clean.
 
-READ THE VERDICT PRECISELY, because a wrong closure is permanent. This does
-NOT say the defect is not real: `history.file_size` is still never UPDATEd, so
-a pre-v3.66.820 row on a real library will still surface as positive drift.
-What is measured is that THIS HOST HAS NO SUCH ROWS. No backfill is warranted
-here and no figure is obtainable here. If the operator ever points BD at a
-library with pre-v3.66.820 history, re-run the census -- do not re-derive the
-answer from this entry.
+THE TOOL WAS ALSO BLIND, and that is the reason the coverage line said 0.
+`tools/census_file_size_drift.py` walked configured sites and called
+`list_size_drift(dd, site_id=sid)`, so a row whose site_id is not in
+sites_config is examined at NO point. Fixed at v3.66.827: the census now also
+runs the WHOLE-HISTORY sweep -- `list_size_drift(dd, site_id=None)`, which is
+the call the panel makes -- against every resolvable download dir including
+the deployment default, and reports it ALONGSIDE the per-site figures. A probe
+built a database where the old per-site pass printed 0 drift while the panel's
+own call returned 3, including a real -9899 truncation.
 
-SIDE FINDING, not filed as a defect. `Library.tsx:497` calls the audit with
-`{ download_dir }` and no `site_id`, and `audit()` treats site_id as optional,
-so the panel spans every history row. On this box that means it reports the 31
-fixture rows as `missing` -- correct behaviour (their files are genuinely
-gone), but noise that grows by 1-2 per capture run forever. Derived by reading
-Library.tsx and app_library.py, NOT by running the panel.
+RE-OPEN TRIGGER -- what must be run before this item can be graded again:
+
+    venv/bin/python tools/census_file_size_drift.py     # on test4, v3.66.827+
+
+and read the SWEEP block, not only the per-site split. The item may be closed
+only if the sweep examines a non-zero number of rows AND reports no positive
+residue. If the sweep is still 0 rows examined, the verdict is UNKNOWN and the
+item stays open -- do not convert "examined nothing" into "found nothing"
+a second time.
+
+What the run DID establish, and this part stands: all 23 orphan site_ids are
+named `bdseed fixture site`. They are `tools/live_seed.py` residue, which that
+tool documents at lines 82-85 as structurally unremovable -- history is
+append-only, `db_log()` is its only writer and `db_prune()` (by AGE, not by
+marker) its only deleter, so teardown cannot clear the rows. `_RUN_NONCE`
+gives each capture run a fresh site_id, which is why there are 23. The one
+configured site (`d9f19e92`, "wow") has ZERO history rows and its download_dir
+holds zero files. Note that the second half of that sentence is exactly why
+the sweep may STILL return 0 on this host -- but 0-because-swept and
+0-because-not-looked-at are different results and only the tool can tell them
+apart now. Since v3.66.827 the report also prints the orphan site_ids and
+site_names, so this finding is reproducible from the tool rather than from an
+ad-hoc query nobody can re-run.
+
+The defect class is real by construction either way: `history.file_size` is
+never UPDATEd (7 sites, above), so a pre-v3.66.820 row on a real library
+surfaces as positive drift. Nothing measured here bears on that.
+
+NOT A SIDE FINDING -- THIS WAS THE DEFECT. `Library.tsx:497` calls the audit
+with `{ download_dir }` and no `site_id`, and `library_final.audit()` takes
+`site_id: Optional[str] = None`, so the panel spans every history row. This
+entry recorded that as harmless noise ("it reports the 31 fixture rows as
+`missing`"). It is the same denominator mismatch that made the census blind,
+written down one paragraph after the closure it invalidates, and graded
+correct. Derived by reading Library.tsx and app_library.py; the 0-vs-3
+divergence was later reproduced by probe.
 
 **(b) A fifth operator surface still carries raw UTC.**
 
