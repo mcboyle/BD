@@ -170,9 +170,84 @@ def list_orphans(download_dir: str, *, site_id: Optional[str] = None) -> list:
     return out
 
 
+def _basename_index(download_dir: str) -> dict:
+    """{basename: [paths]} for every file under download_dir.
+
+    Built once per check rather than per row: a library is a few thousand
+    files and a per-row rglob would make the doctor quadratic.
+    """
+    idx: dict = {}
+    if not download_dir:
+        return idx
+    try:
+        root = Path(download_dir)
+        if not root.is_dir():
+            return idx
+        for p in root.rglob("*"):
+            try:
+                if p.is_file():
+                    idx.setdefault(p.name, []).append(p)
+            except OSError:
+                continue
+    except OSError:
+        return idx
+    return idx
+
+
+def _resolve_recorded(fn: str, download_dir: str, index: dict):
+    """(path, state) for a `history.filename` value.
+
+    state is one of:
+      "resolved"  -- exactly one real file; `path` is it
+      "absent"    -- we know where it should be and it is not there
+      "ambiguous" -- the basename matches SEVERAL files; which row owns which
+                     cannot be decided, so neither missing nor drift may be
+                     claimed
+      "unknown"   -- no download_dir to resolve against; nothing can be said
+
+    WHY THIS EXISTS. runner_transport.py:989 records `final_path.name` -- a
+    bare BASENAME, not a path. Feeding that to `Path(fn)` resolves it against
+    the process CWD, so every production row missed. The two callers then
+    failed in opposite directions off that one root cause: missing reported
+    every row, drift reported none.
+
+    A flat `download_dir / fn` is not sufficient on its own: the recorded
+    basename has already lost any subdirectory the filename template created,
+    so the index fallback is what finds nested files.
+
+    "ambiguous" and "unknown" are deliberately NOT folded into "absent".
+    Guessing first-match-wins would let a size comparison run against the wrong
+    file and report a drift that is an artefact of the guess.
+    """
+    if not fn:
+        return None, "unknown"
+    p = Path(fn)
+    if p.is_absolute():
+        return (p, "resolved") if p.exists() else (p, "absent")
+    if not download_dir:
+        return None, "unknown"
+    direct = Path(download_dir) / fn
+    if direct.exists():
+        return direct, "resolved"
+    hits = index.get(p.name) or []
+    if len(hits) == 1:
+        return hits[0], "resolved"
+    if len(hits) > 1:
+        return None, "ambiguous"
+    return direct, "absent"
+
+
 def list_missing_from_disk(*, site_id: Optional[str] = None,
-                           limit: int = 500) -> list:
-    """Find history rows where status='done' but the file is gone."""
+                           limit: int = 500,
+                           download_dir: str = "") -> list:
+    """Find history rows where status='done' but the file is gone.
+
+    `download_dir` is what the recorded basename is resolved against; without
+    it nothing can be decided and no row is reported (see _resolve_recorded).
+    It is keyword-only and defaults to "" so existing callers keep working --
+    they get the old can't-resolve behaviour, but now it reports NOTHING
+    rather than reporting EVERYTHING.
+    """
     try:
         from . import db as _db
         sql = "SELECT id, site_id, filename, ts FROM history WHERE status='done' AND filename != ''"
@@ -186,11 +261,15 @@ def list_missing_from_disk(*, site_id: Optional[str] = None,
             rows = cx.execute(sql, params).fetchall()
     except Exception:
         return []
+    index = _basename_index(download_dir)
     out = []
     for r in rows:
         d = dict(r)
         fn = d.get("filename") or ""
-        if fn and not Path(fn).exists():
+        _path, state = _resolve_recorded(fn, download_dir, index)
+        # Only a row we can actually place and find absent is missing.
+        # "ambiguous" and "unknown" are not evidence of absence.
+        if state == "absent":
             out.append(d)
     return out
 
@@ -228,8 +307,10 @@ def list_size_drift(download_dir: str, *, site_id: Optional[str] = None,
     """History rows (status=done) whose recorded ``file_size`` differs from the
     file's actual on-disk size -- a truncated or altered download. Returns
     [{filename, recorded_bytes, disk_bytes, delta_bytes}], most-truncated
-    (largest negative delta) first. ``download_dir`` is accepted for signature
-    symmetry with the other doctor checks; drift is keyed off the history rows."""
+    (largest negative delta) first. ``download_dir`` is what the recorded
+    basename is RESOLVED against -- runner_transport.py:989 records
+    ``final_path.name``, so without it every production row failed to resolve
+    and this check reported 0 while a truncated file sat on disk."""
     try:
         from . import db as _db
         sql = ("SELECT filename, file_size FROM history "
@@ -244,6 +325,7 @@ def list_size_drift(download_dir: str, *, site_id: Optional[str] = None,
             rows = cx.execute(sql, params).fetchall()
     except Exception:
         return []
+    index = _basename_index(download_dir)
     out = []
     for r in rows:
         d = dict(r)
@@ -251,10 +333,14 @@ def list_size_drift(download_dir: str, *, site_id: Optional[str] = None,
         recorded = int(d.get("file_size") or 0)
         if not fn or recorded <= 0:
             continue
+        path, state = _resolve_recorded(fn, download_dir, index)
+        # Compare only what we resolved to exactly one real file. An absent
+        # file is list_missing_from_disk's subject, not drift; an ambiguous
+        # basename would be compared against a guess.
+        if state != "resolved" or path is None:
+            continue
         try:
-            if not Path(fn).exists():
-                continue
-            disk = os.path.getsize(fn)
+            disk = os.path.getsize(path)
         except OSError:
             continue
         if abs(disk - recorded) > tolerance_bytes:
@@ -285,7 +371,7 @@ def audit(*, download_dir: str, site_id: Optional[str] = None) -> dict:
       sample_size_drift        list  first 10 rows of each
     """
     o = list_orphans(download_dir, site_id=site_id)
-    m = list_missing_from_disk(site_id=site_id)
+    m = list_missing_from_disk(site_id=site_id, download_dir=download_dir)
     dupes = list_duplicate_candidates(download_dir)
     drift = list_size_drift(download_dir, site_id=site_id)
     total_orphan = sum(x["size_bytes"] for x in o)
