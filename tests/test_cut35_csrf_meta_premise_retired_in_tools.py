@@ -69,16 +69,32 @@ this file's own subject, one level in.
 The controls are not a meta-gate. They assert nothing about this file's text
 and add no layer over the verdict -- they are the ordinary two-sided form the
 gate already uses at the tools/-subdirectory reach check and at the root-load
-`[ok` check, applied to the two arms that lacked it. What they do NOT cover is
-a defect severity nobody thought to plant: if the probe's severity ladder grows
-a new failing grade, _DEFECT_GRADE_RE goes blind and no control here notices.
-Deriving that set from tools/_probe_lib is the fix, and it is a separate cut
-because it adds an import edge.
+`[ok` check, applied to the two arms that lacked it.
+
+THE RESIDUE THAT LEFT, and how. A positive control only proves the instrument
+sees what its AUTHOR THOUGHT TO PLANT, so a defect severity nobody planted
+stayed invisible: _DEFECT_GRADE_RE hardcoded `(bug|crit)`, and a new failing
+grade on _probe_lib's ladder updated Report.exit_code() while leaving this
+grader blind, with every control here still passing. Measured by mutation --
+adding a `fatal` grade to _SYM/_ORDER and to exit_code's inline expression left
+three of this file's four tests green while `assert not graded_bug` had gone
+vacuous.
+
+The set is now DERIVED from _probe_lib.FAILING_GRADES, which Report.exit_code()
+also consumes, so the two cannot disagree. Note what was NOT done: deriving it
+from _probe_lib._ORDER, which is the LADDER and also holds info/ok/warn. That
+would have made this gate report offenders on healthy probe output -- the
+opposite soundness bug, and the specific way this fix goes wrong. Both
+directions are held by the grade control below, which classifies each grade by
+RUNNING a Report rather than by reading either side's spelling: every grade
+_probe_lib really fails on must be seen, and every grade it does not must not.
 
 run_tests.py conventions: repo root from __file__; no pytest builtins.
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import re
 import shutil
@@ -86,6 +102,8 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+from tools import _probe_lib
 
 REPO = Path(__file__).resolve().parents[1]
 TOOLS = REPO / "tools"
@@ -183,21 +201,39 @@ def _scan_for_retired_probes(bodies: dict[str, bytes],
     return offenders
 
 
-# `_probe_lib.Report.F` prints `  <sym> [<sev:4>] <name>`, so the severity is
-# padded to four columns and the closing bracket does not sit against the word.
-_DEFECT_GRADE_RE = re.compile(r"\[(bug|crit)\s*\]")
+# `_probe_lib.Report.F` prints `  <sym> [<sev:4>] <name>`, so a grade of four
+# characters or fewer is padded out to four columns and the closing bracket does
+# not sit against the word, while a longer grade is flush. `\s*` covers both, and
+# must stay: a grade added tomorrow need not be four characters.
+#
+# DERIVED from _probe_lib.FAILING_GRADES rather than hardcoded. The set that
+# fails a probe run is defined once, in the lib, and Report.exit_code() reads
+# that same constant -- so a new failing grade cannot update the exit status
+# while leaving this grader behind, which is exactly what a hardcoded
+# `(bug|crit)` did. NOT derived from _probe_lib._ORDER: that is the LADDER and
+# carries info/ok/warn too, so it would make this grader fire on healthy probe
+# output -- over-sensitivity is a soundness bug, not a safe default.
+#
+# An empty FAILING_GRADES would make this pattern blind, but it would equally
+# make exit_code() always return 0; the two are coupled, and
+# test_the_defect_grader_sees_exactly_the_grades_probe_lib_fails_on fails
+# UNKNOWN on that tree rather than certifying it.
+_DEFECT_GRADE_RE = re.compile(
+    r"\[(" + "|".join(map(re.escape, _probe_lib.FAILING_GRADES)) + r")\s*\]")
 
 
 def _graded_defect_lines(section: str) -> list[str]:
-    """Lines in a probe section graded a defect (bug or crit).
+    """Lines in a probe section graded a defect -- _probe_lib.FAILING_GRADES.
 
     Extracted for the same reason as _scan_for_retired_probes: the assertion
     that no defect was graded and the control proving a defect CAN be seen must
     share one predicate, or the control certifies a copy.
 
-    `warn` is deliberately not a defect here. The two-sided root-load assertion
-    at the end of the behavioural test is what catches a downgrade to warn; if
-    that responsibility ever moves, move it deliberately, not by widening this.
+    `warn` is deliberately not a defect here, and that is not this module's
+    opinion -- it is _probe_lib's, read from FAILING_GRADES, and it is the same
+    answer Report.exit_code() gives. The two-sided root-load assertion at the
+    end of the behavioural test is what catches a downgrade to warn; if that
+    responsibility ever moves, move it deliberately, not by widening this.
     """
     return [ln for ln in section.splitlines() if _DEFECT_GRADE_RE.search(ln)]
 
@@ -376,3 +412,92 @@ def test_the_retired_probe_scan_can_see_a_planted_offender():
             f"the scan reported {probe!r} as retired while a reachable body "
             "carries it. The contract is live again, so probing it is exactly "
             "what a tool should do -- this gate would be banning a spelling.")
+
+
+def test_the_defect_grader_sees_exactly_the_grades_probe_lib_fails_on():
+    """The defect grader matches a line IFF _probe_lib really fails the run on it.
+
+    INSTRUMENT: a RUNNING _probe_lib.Report -- one fresh Report per grade in
+    _probe_lib._ORDER, graded through Report.F, with the judged line captured
+    off stdout. That is the same idiom as the positive control above: the line
+    is one the probe REALLY printed, not a hand-spelled imitation, so this
+    cannot certify a format Report.F has stopped using.
+    PREDICATE: Report.exit_code() == 1 on a report holding exactly one finding
+    of that grade -- the shipped definition of "this grade fails a probe run",
+    read from behaviour rather than from either side's spelling.
+
+    Why not `assert FAILING_GRADES == ("bug", "crit")`: that is the presence-
+    not-behaviour class this file already rejects. It certifies a literal, and
+    would keep passing if exit_code stopped consulting the constant, or if this
+    module's regex were built from something else entirely. This drives BOTH
+    consumers -- the real exit_code() and this module's real pattern -- over
+    every grade in the ladder, so a divergence between them on ANY EXISTING
+    grade fails here. It does not prove they can never disagree: a future
+    grade added to _SYM/_ORDER but not to FAILING_GRADES is consistent for
+    both consumers and correctly invisible to both. Say the weaker true
+    thing.
+
+    BOTH DIRECTIONS ARE MANDATORY, because the two failure modes are opposite
+    and each looks fine from the other's side:
+
+      * blindness -- a grade that fails a run but the grader cannot see makes
+        `assert not graded_bug` above vacuous. This is the residue the previous
+        cut recorded honestly: a positive control only proves the instrument
+        sees what its author thought to plant, so a NEW failing grade added to
+        the ladder escaped every control in this file.
+      * over-sensitivity -- and this is the specific way THIS fix goes wrong.
+        _ORDER is the LADDER, not the failing set: it also holds info, ok and
+        warn. A grader derived from _ORDER would match the [ok  ] and [info]
+        lines every healthy probe prints, and CLAUDE.md calls a gate that cries
+        wolf a soundness bug rather than a safe default.
+    """
+    ladder = tuple(_probe_lib._ORDER)
+    assert ladder, (
+        "_probe_lib._ORDER is empty, so there is no severity ladder to measure "
+        "and this control would certify nothing (UNKNOWN fails)")
+
+    failing: list[tuple[str, str]] = []
+    passing: list[tuple[str, str]] = []
+    for grade in ladder:
+        assert grade in _probe_lib._SYM, (
+            f"_ORDER lists {grade!r} but _SYM carries no symbol for it, so "
+            "Report.F raises on it and the ladder cannot be graded at all "
+            "(UNKNOWN fails)")
+        rep = _probe_lib.Report("GRADE-CONTROL")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rep.F(grade, "GET / control finding")
+        printed = [ln for ln in buf.getvalue().splitlines() if ln.strip()]
+        assert len(printed) == 1, (
+            f"grading {grade!r} printed {len(printed)} lines rather than one, "
+            "so this control does not know which line to judge (UNKNOWN "
+            f"fails): {printed!r}")
+        code = rep.exit_code()
+        assert code in (0, 1), (
+            f"exit_code() returned {code!r} for a report holding one {grade!r} "
+            "finding, so the grade cannot be classified as failing or not "
+            "(UNKNOWN fails)")
+        (failing if code == 1 else passing).append((grade, printed[0]))
+
+    assert failing, (
+        "no grade on _probe_lib's ladder makes exit_code() report failure, so "
+        "there is nothing for the defect grader to be blind TO and the "
+        "blindness direction below asserts over an empty set (UNKNOWN fails)")
+    assert passing, (
+        "every grade on _probe_lib's ladder makes exit_code() report failure, "
+        "so the over-sensitivity direction below has no witness and a grader "
+        "matching every line would pass unnoticed (UNKNOWN fails)")
+
+    for grade, line in failing:
+        assert _graded_defect_lines(line) == [line], (
+            f"_probe_lib fails a probe run on a {grade!r} finding, but the "
+            "defect grader does not see the line the probe really printed for "
+            "it. `assert not graded_bug` in the behavioural test above is "
+            f"therefore vacuous for {grade!r}. probe printed: {line!r}")
+
+    for grade, line in passing:
+        assert _graded_defect_lines(line) == [], (
+            f"the defect grader reports a {grade!r} finding as a defect while "
+            "_probe_lib exits 0 on it, so the behavioural test above would "
+            "fire on a healthy probe run. Over-sensitivity is a soundness bug, "
+            f"not a safe default. probe printed: {line!r}")

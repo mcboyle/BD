@@ -32,6 +32,34 @@ os.environ.setdefault("BD_DISABLE_KEEPALIVE", "1")
 _SYM = {"info": "·", "ok": "✓", "warn": "⚠", "bug": "✗", "crit": "🛑"}
 _ORDER = ("info", "ok", "warn", "bug", "crit")
 
+# The grades that FAIL a probe run -- ADD A NEW FAILING GRADE HERE.
+#
+# _ORDER above is the LADDER, not this set. It also carries info/ok/warn, which
+# are healthy outcomes, so a consumer that derived "failing" from _ORDER would
+# fire on every healthy probe run. The two are different questions and this is
+# the answer to the second one.
+#
+# Two consumers read this constant and must not be able to disagree:
+#   * Report.exit_code() below -- the process exit status of tools/*_probe.py
+#   * tests/test_cut35_csrf_meta_premise_retired_in_tools.py -- builds the
+#     pattern deciding whether a probe section graded a defect
+#
+# It used to exist only as an inline expression inside exit_code(), with the
+# gate hardcoding its own second copy. A grade added to the ladder then updated
+# the exit status while leaving the gate blind, and no positive control noticed:
+# a control only proves the instrument sees what its author thought to plant.
+# Adding a grade here (plus _SYM/_ORDER above) now moves both.
+FAILING_GRADES = ("bug", "crit")
+
+# Loud at import, because exit_code() indexes self.counts (built from
+# _ORDER) by every member: a grade added HERE but not to _SYM/_ORDER
+# would otherwise KeyError at run time, inside a probe, long after the
+# edit. The old inline form could not fail this way -- it hardcoded two
+# permanent members -- so the check is new obligation, not decoration.
+assert set(FAILING_GRADES) <= set(_ORDER), (
+    "FAILING_GRADES must be a subset of _ORDER; add the grade to _SYM "
+    "and _ORDER too: %s" % (set(FAILING_GRADES) - set(_ORDER),))
+
 
 class Report:
     """Unified severity counter + finding log.
@@ -77,7 +105,7 @@ class Report:
                     print(f"        {detail[:200]}")
 
     def exit_code(self) -> int:
-        return 1 if self.counts["bug"] + self.counts["crit"] > 0 else 0
+        return 1 if sum(self.counts[g] for g in FAILING_GRADES) > 0 else 0
 
 
 _TMP_HOMES: list[str] = []

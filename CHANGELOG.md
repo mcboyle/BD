@@ -4,6 +4,43 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.832 - the gate hardcoded a failing-grade set the probe lib could grow past
+
+- v3.66.830 added positive controls to the cut-35 gate and recorded their honest
+  residue: a control only proves the instrument sees what its AUTHOR THOUGHT TO
+  PLANT. The gate's `_DEFECT_GRADE_RE` hardcoded `(bug|crit)`, so a NEW failing
+  grade added to tools/_probe_lib's ladder would change the probe's exit status
+  while leaving the gate blind, and no control would notice.
+
+- tools/_probe_lib.py gains `FAILING_GRADES`, consumed by BOTH `Report.exit_code()`
+  and the gate's pattern, so the two cannot hold different answers. NOT derived
+  from `_ORDER`: that is the LADDER and also carries info/ok/warn, so deriving
+  "failing" from it would make the gate fire on healthy probe output. Over-
+  sensitivity is a soundness bug, not a safe default -- a gate that cries wolf
+  gets switched off.
+
+- The new control is BEHAVIOURAL, not a constant-equality assert. It drives a
+  real Report over every grade in the ladder, captures the line the probe really
+  prints, and asserts the gate's own pattern matches it IFF exit_code() == 1.
+  Measured biconditional, exact: info/ok/warn exit 0 and do not match; bug/crit
+  exit 1 and do.
+
+- RED proven by simulating the future the item describes -- a `fatal` grade added
+  to _SYM, _ORDER and FAILING_GRADES. Against the PRISTINE hardcoded gate the
+  control FAILS (blind, exactly as filed); against the fixed gate it passes.
+  Both files restored byte-identical afterwards.
+
+- `exit_code()` now indexes counts by every FAILING_GRADES member, so a grade
+  added there but not to _SYM/_ORDER would KeyError inside a probe run, far from
+  the edit. A module-level subset assertion makes that loud at import instead --
+  new obligation created by this change, not decoration. Proven to fire.
+
+- HONEST LIMIT, stated because the gate's PASS looks like coverage: the
+  import-graph gate walks only bulk_downloader/ and tools/ (dependency_graph.py
+  _py_files), so the tests/ -> tools/_probe_lib edge this cut adds is
+  structurally OUTSIDE its denominator. Its "no new edges" result is not
+  evidence about this edge; it never saw it.
+
 ## v3.66.831 - the honesty check was gated on the population that had nothing
 
 - The census prints two lines that decide what a one-shot re-stat may touch:
