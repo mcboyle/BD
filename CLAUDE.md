@@ -532,6 +532,23 @@ each producing a convincing failure signal about the wrong subject:
 | port | **5555** (`BD_PORT`, host `0.0.0.0`) | `downloader_ui.py:224-228` |
 | liveness | `GET /` and `GET /api/health` -> 200 | -- |
 | running version | `tools/deployed_version.txt` | rewritten by `ExecStartPre` on every start, so it reflects the **process**, not the tree |
+| timezone | **`Etc/UTC` (UTC, +0000)**, NTP active | measured on the box 2026-08-01 via `timedatectl` |
+
+The timezone is load-bearing for anything comparing a stored stamp to a local
+date, and it is the reason a whole class of bug stays **dormant here**. The
+queue table's `ts_updated` is UTC (SQLite `strftime(...,'now')`) while the
+day-window consumers compare a LOCAL `%Y-%m-%d`; at `Asia/Tokyo` that loses 9
+of 24 hourly instants and at `Pacific/Kiritimati` 14, but at UTC it loses none.
+v3.66.825 fixed the clash anyway (`runner_util._utc_iso_to_local_iso`), because
+correctness should not depend on the host's zone -- but **do not cite that cut
+as having repaired live miscounting on this box; it did not.** Two sibling
+fixes name the same trap: `bw_chart.py:38-50` and `storage_tier.py:297-304`.
+
+The corollary matters more than the value: a UTC box **cannot reproduce**
+timezone defects, so a green `./capture.sh` here is silent about them. Tests
+for that class must force `TZ` (`os.environ["TZ"]` + `time.tzset()`) and
+exercise both signs, or they prove nothing on this host and fail only somewhere
+else.
 
 There is no `/api/version`. The only version route is `/api/dev/version_check`
 (`app_dev_maint.py:16`) and it is dev-mode gated. A `000` from curl means

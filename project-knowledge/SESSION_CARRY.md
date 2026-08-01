@@ -734,12 +734,15 @@ one matches its own rendered SPA label, so "making them agree" would have been
 a wasted cut that broke a caption. Establish what the SPA actually renders this
 field as, and whether anything sorts or diffs on it, BEFORE changing it.
 
-**(c) test4's timezone is still unmeasured** -- ASKED, awaiting the value.
+**(c) test4's timezone -- MEASURED 2026-08-01, item CLOSED.**
 
-The clock defect's severity is entirely conditional on it: dormant at UTC,
-losing 9 of 24 hourly instants at Asia/Tokyo and 14 at Pacific/Kiritimati.
-The fix is correct in every zone regardless, so this bounds the HISTORICAL
-impact only. When the value is known it belongs in CLAUDE.md alongside the
-other box runtime facts (unit name, port 5555, liveness endpoints,
-deployed_version.txt), not here -- those are durable environment facts, and
-this file is a register.
+`timedatectl` on the box reports `Etc/UTC (UTC, +0000)`, NTP active. So the
+UTC/LOCAL clock clash fixed at v3.66.825 was DORMANT here and its historical
+impact on this deployment is ZERO. The fix stands on its own merits -- code
+should not depend on the host zone -- but do not credit it with repairing live
+miscounting, because there was none to repair.
+
+Recorded in CLAUDE.md with the other durable box runtime facts; this file is a
+register and that is an environment fact. The durable consequence is there too:
+a UTC box cannot reproduce timezone defects, so a green capture is SILENT about
+that class and its tests must force TZ.
