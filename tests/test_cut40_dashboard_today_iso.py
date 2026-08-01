@@ -547,3 +547,56 @@ def test_job_with_no_ts_iso_counts_zero():
         assert _by_site(v2, "cut40_g4").get("today_done") == 0, v2
     finally:
         cleanup()
+
+
+# ── CUT #42: the status SETS were correct and completely unguarded ──────────
+
+def test_each_consumer_counts_exactly_the_statuses_its_label_claims():
+    """The four day-window consumers deliberately count DIFFERENT status sets:
+
+        app.py:3912          done, failed, needs_review  -> today.{...}
+        app_dashboard.py:66  done, failed, needs_review  -> today.{...}
+        app_dashboard.py:203 done, failed ONLY           -> today.{...} + by_site
+        app_queue.py:228     done ONLY                   -> done_today_count
+
+    That divergence is INTENTIONAL and was verified against the rendered SPA
+    labels: `done_today_count` is a counter labelled "Done today", so folding
+    needs_review into it would make the figure contradict its own caption. This
+    test does NOT ask them to agree.
+
+    What was missing is any pin at all. Every existing dashboard assertion runs
+    in COLD state with no runners registered, where all four read 0 on any
+    status set -- so a change to one consumer's set would have shipped
+    silently. The fixture below carries a today-stamped job in every status,
+    which is the only state that can tell the sets apart.
+    """
+    jobs = {
+        _URL + "#d": _job("done", date.today().isoformat()),
+        _URL + "#f": _job("failed", date.today().isoformat()),
+        _URL + "#r": _job("needs_review", date.today().isoformat()),
+    }
+    cleanup = _register("cut42_sets", jobs)
+    try:
+        def _check(today_iso):
+            snap = _snapshot().get("today") or {}
+            assert snap.get("done") == 1 and snap.get("failed") == 1 \
+                and snap.get("needs_review") == 1, snap
+
+            b1 = (_get("/api/dashboard").get_json() or {}).get("today") or {}
+            assert b1.get("done") == 1 and b1.get("failed") == 1 \
+                and b1.get("needs_review") == 1, b1
+
+            v2 = _get("/api/dashboard/v2").get_json() or {}
+            t2 = v2.get("today") or {}
+            assert t2.get("done") == 1 and t2.get("failed") == 1, t2
+            assert "needs_review" not in t2, (
+                "v2's today gained needs_review; its SPA label does not claim it")
+            assert _by_site(v2, "cut42_sets").get("today_done") == 1, v2
+
+            q = _get("/api/queue/v2").get_json() or {}
+            assert q.get("done_today_count") == 1, (
+                "done_today_count must count ONLY done -- it is rendered under "
+                f"the label 'Done today': {q.get('done_today_count')!r}")
+        _guard_midnight(_check)
+    finally:
+        cleanup()

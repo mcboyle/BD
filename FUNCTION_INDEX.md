@@ -216,20 +216,21 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_util.py` (11 entries)
+## `bulk_downloader/runner_util.py` (12 entries)
 
 ```
 - L0057 `_ts` `[private]`
 - L0060 `_ts_iso` `[private]` — The date-comparable sibling of `_ts()`.
-- L0081 `_resolve_safe` `[private]` — NEW-7 (v3.66.43): resolve a credential value, returning "" on any
-- L0112 `_check_video_magic_bytes` `[private]` — v3.43.0: identify a video container from its first bytes.
-- L0161 `resolve_url_attribute` — Pick the URL attribute to read for a matched selector.
-- L0210 `gate_candidate_url` — Resolve a download candidate's URL from its element and classify it.
-- L0258 `_bump_learned_stat` `[private]` — Phase 5.8: increment a counter inside config['learned']['stats'].
-- L0275 `record_bandwidth` — Add n_bytes to the current-second counter. Called from inside the
-- L0293 `get_bandwidth_history` — Return up to `seconds` of (epoch_second, bytes) data, most recent
-- L0320 `_bump_per_selector` `[private]` — Increment per-selector counter for a learned selector's hit/miss
-- L0345 `_maybe_demote_selectors` `[private]` — Walk the role's selector list and demote/drop based on miss streak.
+- L0081 `_utc_iso_to_local_iso` `[private]` — Re-render a UTC "%Y-%m-%dT%H:%M:%S" stamp in LOCAL time, same format.
+- L0119 `_resolve_safe` `[private]` — NEW-7 (v3.66.43): resolve a credential value, returning "" on any
+- L0150 `_check_video_magic_bytes` `[private]` — v3.43.0: identify a video container from its first bytes.
+- L0199 `resolve_url_attribute` — Pick the URL attribute to read for a matched selector.
+- L0248 `gate_candidate_url` — Resolve a download candidate's URL from its element and classify it.
+- L0296 `_bump_learned_stat` `[private]` — Phase 5.8: increment a counter inside config['learned']['stats'].
+- L0313 `record_bandwidth` — Add n_bytes to the current-second counter. Called from inside the
+- L0331 `get_bandwidth_history` — Return up to `seconds` of (epoch_second, bytes) data, most recent
+- L0358 `_bump_per_selector` `[private]` — Increment per-selector counter for a learned selector's hit/miss
+- L0383 `_maybe_demote_selectors` `[private]` — Walk the role's selector list and demote/drop based on miss streak.
 ```
 
 
@@ -408,23 +409,23 @@ Schema version: 2
 - L0071 `QueueMixin` `[class]`
   - L0072 `QueueMixin._job_status_writer` `[private]`
   - L0075 `QueueMixin._restore_queue` `[private]` — Load persisted queue rows and rebuild self.urls / self.jobs.
-  - L0124 `QueueMixin.load_urls` — Phase 7.4: when folder_scan=True, walk the configured download_dir
-  - L0360 `QueueMixin.reorder_urls`
-  - L0372 `QueueMixin.set_priority`
-  - L0382 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
-  - L0400 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
-  - L0431 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
-  - L0459 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
-  - L0484 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
-  - L0505 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
-  - L0527 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
-  - L0551 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
-  - L0597 `QueueMixin.clear_completed` — Drop URLs in `done` or `stopped` status from both the in-memory
-  - L0611 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
-  - L0627 `QueueMixin.retry`
-  - L0629 `QueueMixin.clear`
-  - L0631 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
-  - L0637 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
+  - L0128 `QueueMixin.load_urls` — Phase 7.4: when folder_scan=True, walk the configured download_dir
+  - L0364 `QueueMixin.reorder_urls`
+  - L0376 `QueueMixin.set_priority`
+  - L0386 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
+  - L0404 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
+  - L0435 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
+  - L0463 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
+  - L0488 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
+  - L0509 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
+  - L0531 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
+  - L0555 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
+  - L0601 `QueueMixin.clear_completed` — Drop URLs in `done` or `stopped` status from both the in-memory
+  - L0615 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
+  - L0631 `QueueMixin.retry`
+  - L0633 `QueueMixin.clear`
+  - L0635 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
+  - L0641 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
 ```
 
 
@@ -690,4 +691,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 514 across 22 files._
+_Total entries: 515 across 22 files._

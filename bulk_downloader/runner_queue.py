@@ -9,7 +9,7 @@ from .runner.
 import contextlib, queue, sqlite3, sys, threading, time
 from pathlib import Path
 
-from .runner_util import _ts, _ts_iso
+from .runner_util import _ts, _ts_iso, _utc_iso_to_local_iso
 from .db import (
     queue_load, queue_upsert, queue_bulk_upsert, queue_bulk_delete,
     queue_bulk_update, queue_delete_status, queue_reorder, queue_set_priority,
@@ -102,8 +102,12 @@ class QueueMixin:
                 # out of the day-window count. `ts_updated` is the queue
                 # table's ISO completion time (SQLite
                 # strftime('%Y-%m-%dT%H:%M:%S','now'), UTC); "" when the
-                # column is null or missing. Copied verbatim.
-                "ts_iso": r.get("ts_updated", "") or "",
+                # column is null or missing.
+                # CUT #42: converted to LOCAL, not copied verbatim. All four
+                # day-window consumers compare a LOCAL date, so a verbatim UTC
+                # copy compared two different clocks and silently dropped
+                # completed jobs on any non-UTC host.
+                "ts_iso": _utc_iso_to_local_iso(r.get("ts_updated", "") or ""),
                 "priority": r.get("priority","") or "normal",
                 "retries": r.get("retries",0),
                 "retry_after": r.get("retry_after",0),
