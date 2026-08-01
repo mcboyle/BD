@@ -702,7 +702,46 @@ Both were measured during the v3.66.825 day-window work and both are real. The
 operator chose to record rather than cut. Re-derive before acting (section 1);
 neither figure below was measured on the box.
 
-**(a) Legacy history.file_size rows read as size drift.**
+**(a) Legacy history.file_size rows read as size drift -- MEASURED 2026-08-01
+on test4 at v3.66.831. CLOSED: no action warranted, and the figure is
+reproducible from the tool.**
+
+    per-site pass  0 truncations, 0 residue, 0 of 31 rows examined
+    whole-history  /home/mboyle/Downloads  trunc 0  residue 27  [deployment default]
+                   /home/mboyle/d          trunc 0  residue 0   [d9f19e92]
+    SWEEP residue bytes min/median/max : 13 / 1242 / 1242
+    SWEEP residue over 64KB (NOT atom-shaped) : 0
+
+EVERY ONE IS ATOM-SHAPED. Max delta 1242 bytes against the producer fix's own
+measured atom of +1233 (1442 -> 2675, 9e46526) -- the same size class, and the
+over-64KB honesty check returns zero, so nothing larger is hiding in the
+population. ZERO TRUNCATIONS: nothing on disk is smaller than recorded, so
+there is no silent data loss here.
+
+AND THEY ARE NOT THE OPERATOR'S LIBRARY. All 27 resolve under the DEPLOYMENT
+DEFAULT download dir, and all 31 orphan rows are named `bdseed fixture site`
+-- live_seed.py residue. The one configured site contributes 0 rows and 0
+drift. A re-stat would rewrite 27 fixture rows by ~1.2 KB each.
+
+SO THE OPT-IN RE-STAT TOOL SHOULD NOT BE BUILT. That is now a measured
+decision, not the assumed one this entry carried at v3.66.826.
+
+RE-OPEN TRIGGER, unchanged: if BD is ever pointed at a library carrying
+pre-v3.66.820 ORGANIC history, re-run
+`venv/bin/python tools/census_file_size_drift.py` and read the SWEEP figures.
+Do not re-derive the answer from this entry.
+
+HOW THIS WAS GOT WRONG TWICE BEFORE, kept because the shape recurs: v3.66.826
+read "0 of 31 examined" as ZERO and closed the item -- that is UNKNOWN, and
+the per-site pass never asked about those rows at all. v3.66.831 then found
+the distribution lines were gated on the PER-SITE residue, so the two figures
+that decide the re-stat were unreachable in exactly the run that had residue.
+Both were the same defect: a reading taken over a denominator that excluded
+its subject.
+
+The original filing follows.
+
+**(a-original) Legacy history.file_size rows read as size drift.**
 
 Rows written before v3.66.820 recorded a PRE-tag size. The producer half of
 task #25 was fixed at 9e46526 (every path writing MP4 atoms now re-stats after
