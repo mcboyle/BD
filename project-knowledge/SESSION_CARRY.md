@@ -764,3 +764,154 @@ Recorded in CLAUDE.md with the other durable box runtime facts; this file is a
 register and that is an environment fact. The durable consequence is there too:
 a UTC box cannot reproduce timezone defects, so a green capture is SILENT about
 that class and its tests must force TZ.
+
+## 15 | Handoff written 2026-08-01 -- carries its own provenance
+
+    generated            2026-08-01
+    against version      3.66.825
+    against origin/main  813b4b0
+    guard pins           7 ok, 0 drifted, 0 missing
+    box                  test4, Etc/UTC, NTP active (measured via timedatectl)
+
+Sections 1-14 keep their own stamps. This section supersedes nothing; it records
+what existed only in a session transcript and would otherwise be lost when the
+container is reclaimed.
+
+### 15.1 | The capture reconciliation -- USE THIS TO READ THE NEXT CAPTURE
+
+BASELINE, from the v3.66.824 capture bundle (run 2026-07-31T22:58:00):
+
+    verdict     PASS -- unit 14340 pass/0 fail/0 error/85 skip; live 36 pass/0 warn/0 fail
+    collected   14425
+    parallel    1458 passed              in 121.81s  (2:01)
+    serial      12882 passed, 85 skipped in 2176.39s (36:16)
+    graph       check-hash OK, graph-gate exit 0
+    csrf diag   status 200, body 937 bytes, Set-Cookie redacted
+                (name + value_len 43 + flags, NO value -- the leak fix holding
+                 in a bundle that gets shipped)
+
+PREDICTION for v3.66.825, derived not guessed (`--collect-only` on this tree
+returns 14449; the delta is the 24 tests the cut added: 9 cut41 + 6 cut42 +
+8 cut25b + 1 cut40 status-set pin):
+
+    collected   14449   (+24)
+    passed      14364   (+24)
+    failed      0       errors 0
+    skipped     85      UNCHANGED  <-- the number that matters
+    parallel    1458    UNCHANGED  (all 24 new tests classify SERIAL; verified
+                                    with `-m capture_parallel --collect-only`)
+    serial      12906 passed + 85 skipped
+
+WHY `skipped` IS THE SIGNAL. The cut42 clock tests self-skip when `time.tzset`
+is unavailable. A rise above 85 means the host cannot force TZ, so the UTC/LOCAL
+fix is UNVERIFIED on the machine it was written for -- the environment's
+denominator excluding the subject, section 0 one level up. On Linux tzset IS
+available, so a skip there is real signal, not noise.
+
+The serial lane is 36 of the ~40 minutes. Raising `--workers` will not shorten
+it: the serial lane is hardcoded `-n 0` and no flag widens it.
+
+### 15.2 | The legacy file_size census -- READ-ONLY, run on the box
+
+Answers the one number blocking section 14.3(a): how much of the drift the
+Library panel now reports is the pre-v3.66.820 atom residue versus a real
+truncation. Uses the REAL `list_size_drift`, so the figures are what the panel
+shows rather than a SQL approximation. Tested against a synthetic library
+before being handed over (correctly separated a -9899 truncation from a +1233
+residue nested in a subdirectory, and excluded the intact file from both).
+
+    cd /home/mboyle/BulkDownloader
+    venv/bin/python - <<'PY'
+    import json, os, sys
+    sys.path.insert(0, os.getcwd())
+    from bulk_downloader import library_final as lf
+    import bulk_downloader.db as db
+    cfg = os.environ.get("BD_SITES_CONFIG_PATH", "sites_config.json")
+    sites = (json.load(open(cfg, encoding="utf-8")) or {}).get("sites", {})
+    with db.db_conn() as cx:
+        n = cx.execute("SELECT COUNT(*) FROM history WHERE status='done' "
+                       "AND filename!='' AND file_size>0").fetchone()[0]
+    print("done rows with a recorded size:", n, "| sites:", len(sites))
+    neg, pos, seen = [], [], set()
+    for sid, s in sites.items():
+        dd = (s or {}).get("download_dir") or ""
+        if not dd or dd in seen: continue
+        seen.add(dd)
+        if not os.path.isdir(dd):
+            print(f"  {sid}: download_dir ABSENT -> UNKNOWN, skipped: {dd}"); continue
+        rows = lf.list_size_drift(dd, site_id=sid, limit=100000)
+        for r in rows: (neg if r["delta_bytes"] < 0 else pos).append(r)
+        print(f"  {sid}: drift rows {len(rows)}  dir {dd}")
+    print("TRUNCATIONS  (delta<0):", len(neg))
+    print("ATOM RESIDUE (delta>0):", len(pos))
+    if pos:
+        p = sorted(abs(r["delta_bytes"]) for r in pos)
+        print("  residue bytes min/median/max:", p[0], p[len(p)//2], p[-1])
+        print("  residue over 64KB (NOT atom-shaped):", sum(1 for x in p if x > 65536))
+    for r in sorted(neg, key=lambda r: r["delta_bytes"])[:10]:
+        print("  TRUNC", r["delta_bytes"], r["recorded_bytes"], r["disk_bytes"], r["filename"][:60])
+    PY
+
+THE SPLIT IS THE DECISION, not the total. delta<0 is a file SMALLER than
+recorded -- a genuine truncation, worth investigating whatever is decided about
+the residue. delta>0 is the atom residue, ~1-2 KB, and is the ONLY population a
+one-shot re-stat should touch. The "over 64KB" line is the honesty check: an
+atom write is kilobytes, so a large positive delta is not residue and must not
+be swept up by a re-stat that assumes it is.
+
+A TIMESTAMP QUERY IS THE WRONG INSTRUMENT here, and this is worth stating
+because it is the obvious first idea. The producer fix is commit 9e46526,
+2026-07-31 10:35:55 UTC -- but what matters is when the BOX was running that
+code, not when the commit merged, and nothing in the repo records the deploy
+time per version. The mismatch itself answers the question exactly; a date
+answers a neighbouring one.
+
+### 15.3 | Known-unfixed, all deliberate -- do not "discover" these again
+
+- GATE-INTERNAL MUTATION ESCAPES in tests/test_cut35_csrf_meta_premise_retired_in_tools.py:
+  inverting the reachability polarity, and narrowing the finding regex from
+  (bug|crit) to crit-only. Both survive because no other test observes that
+  file's internals. No test can be its own meta-test, and a tower of meta-gates
+  trades a known gap for an unknown one. Recorded in the v3.66.824 commit.
+- diag_d2_fresh_bd_home.py's `body_sha256` list membership is unguarded --
+  moving it back from `structural` to cosmetic is caught by nothing (mutation
+  M4). Small, but it is the field v3.66.824 promoted.
+- app_sites_queue.py:883 -- the fifth raw-UTC operator surface. See 14.3(b),
+  including the explicit do-not-fix-by-reflex.
+
+### 15.4 | Environment defects found, NOT repaired
+
+- COMMIT SIGNING IS SILENTLY BROKEN IN THE CLOUD CONTAINER, and it is the
+  session's own defect class. `commit.gpgsign=true`, `gpg.format=ssh`,
+  `user.signingkey=/home/claude/.ssh/commit_signing_key.pub` -- which is a
+  ZERO-BYTE file with no private key beside it. Git produces no signature and
+  STILL EXITS 0, so every commit from a cloud session is unsigned while the
+  config claims otherwise. A stop hook then flags it and proposes
+  `--amend --reset-author`, which cannot fix it: the author email is already
+  correct and amending does not create a signature. The fix belongs in
+  scripts/cloud-setup.sh -- populate the key, or unset gpgsign so the failure
+  is LOUD instead of silent. ($HOME here is /root; /home/claude is the stale
+  path class section 5 already records.)
+- 21 REMOTE BRANCHES SHARE NO COMMON ANCESTOR WITH main, each carrying 2-36
+  files main does not have. `git branch --merged` and the GitHub merged badge
+  are both useless here; only a content comparison decides. codex/integrate-all-branches
+  (98 commits) looks like a prior attempt at exactly that reconciliation.
+  DO NOT bulk-delete: an early sweep of mine marked 21 of them "SAFE (adds
+  nothing)" because the three-dot diff ERRORED with "no merge base" and the
+  error output was counted as zero changed files. A measurement that could not
+  run reported clean.
+
+### 15.5 | The squash-merge trap is CLOSED -- and how that was established
+
+GitHub's "Automatically delete head branches" was enabled 2026-08-01 and is
+VERIFIED, twice: PR #104 (a throwaway branch with an empty commit, created so
+it carried no pre-setting history to confound the result) and PR #105 (which
+collected claude/bulkdownloader-handoff-kcnbvx, a branch that PREDATED the
+setting). CLAUDE.md section 7 carries the detail and the cases where the
+prove-then-force-with-lease fallback still applies.
+
+The reusable lesson is the method, not the setting. Checking the branch listing
+after the setting was flipped would have proven NOTHING while looking exactly
+like proof -- the setting acts only on future merges, so the listing is
+byte-identical either way. Causing a merge and observing was the only check
+whose denominator contained its subject.
