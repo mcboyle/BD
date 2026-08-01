@@ -633,7 +633,25 @@ likely to recur.
 Sections 1-13 keep their own (older) stamp and the header's warning still
 applies to them. This section supersedes nothing above; it only adds.
 
-### 14.1 | Open, tracked -- the ts_iso PRODUCER gap
+### 14.1 | CLOSED -- the ts_iso PRODUCER gap (shipped v3.66.825)
+
+**This entry was written 2026-07-31 as "Open, tracked" and was stale within a
+day.** Shipped in v3.66.825 (PR #102, squashed to 17f8e16). Left in place
+rather than deleted because the detail below is still the right map of the
+defect -- but do NOT act on it as open work.
+
+WHAT SHIPPED, and it differs from what this entry predicted: the register said
+THREE producer sites; four independent sweeps found FOUR. The missed one is
+`runner_teach.py:351`, which sets `ts` to "" and then calls `_update_job` with
+`_memory_already_updated=True` -- the flag that SKIPS the central ts_iso stamp
+at runner.py:1658. The three named below were all real, so the correction ran
+in one direction only.
+
+The value now comes from one helper, `runner_util._ts_iso()`. CUT #40's G4
+stayed green throughout, which is the signal the fix went in the producer and
+not the consumer.
+
+The original entry follows, for the map only:
 
 Deliberately filed rather than fixed: it is a different subject from the cut it
 was found in, and CUT #40 scoped it out on purpose.

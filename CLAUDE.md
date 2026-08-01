@@ -233,15 +233,28 @@ grep -rln "ls-files\|rglob\|--collect-only" tests/*.py | head -40
 ```
 
 Then keep only the ones whose enumerated path reaches `tests/` or the whole
-repo. Measured by reading at v3.66.822, four do — treat this as a starting
-point, not a register:
+repo. **The membership question is not "does it walk the tree" — it is "does
+editing a TEST FILE change this gate's denominator".** Re-measured by reading
+at v3.66.825, **seven** do. An earlier revision of this table listed four and
+was inherited as complete through five cuts; treat the list below as a starting
+point too, and re-derive it:
 
-| file | enumerates |
-| --- | --- |
-| `test_source_windows_do_not_shift.py` | `git ls-files tests/*.py` |
-| `test_pytest_runner_boundary.py` | `(REPO / "tests").glob("test*.py")` |
-| `test_capture_execution_lanes.py` | `tests_root.rglob("test*.py")` |
-| `test_deploy_manifest_stays_retired.py` | `git ls-files -- *.py *.sh` (repo-wide) |
+| file | enumerates | moved by a new test file? |
+| --- | --- | --- |
+| `test_source_windows_do_not_shift.py` | `git ls-files tests/*.py` | yes |
+| `test_pytest_runner_boundary.py` | `(REPO / "tests").glob("test*.py")` | yes |
+| `test_capture_execution_lanes.py` | `tests_root.rglob("test*.py")` | yes |
+| `test_deploy_manifest_stays_retired.py` | `git ls-files -- *.py *.sh` | yes |
+| `test_all_sources_parse.py` | `git ls-files -- *.py` (1216 under `tests/`) | yes |
+| `test_generated_artifacts_are_not_tracked.py` | `git ls-files -z` (everything) | yes |
+| `test_gitignore_rules_actually_match.py` | `git ls-files` (everything) | yes |
+| `test_playwright_engines_single_source.py` | `git ls-files -z '*.sh'` (48 files) | **NO — `.sh` only** |
+
+That last row is the distinction worth keeping. It is a genuine repo-wide
+enumerator, so it belongs in the band of any cut touching a **shell script**
+(v3.66.824 edited `scripts/cloud-setup.sh` and needed it) — but a new `.py`
+test cannot move it, so counting it as an axis-6 gate over-bands every
+test-only cut. A count is not a band; ask what each one's subject actually is.
 
 ---
 
