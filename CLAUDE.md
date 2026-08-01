@@ -569,15 +569,38 @@ nothing was listening on the port you chose -- check the port before concluding
 the service is down; a `503` is the real failure, and means the SPA bundle was
 not found.
 
-**The squash-merge branch trap.** PRs here merge with **squash**, which writes a
-*new* commit on `main`. Your topic branch does not follow it, so immediately
-after a merge `origin/<branch>` still points at the pre-squash commit and the
-branch and `main` have **no common tip** even though their content is
-identical. The next ordinary push is rejected as non-fast-forward, and the
-tempting reflex — `--force` — is the one that can discard someone else's work.
+**The squash-merge branch trap — CLOSED at source, 2026-08-01.** The repo now
+has GitHub's **"Automatically delete head branches"** enabled, so a merge
+removes the head branch and the next push *creates* it fresh. No stale ref, no
+non-fast-forward, no force.
 
-The safe sequence, every time, is: prove the content is already merged, then
-force **with lease**.
+**Verified by experiment, not by reading the setting.** Enabling it acts only on
+FUTURE merges — it never retroactively deletes branches merged earlier — so the
+branch listing is byte-identical whether it is on or off, and nothing readable
+from a session distinguishes them. PR #104 was an empty commit on a throwaway
+branch (`claude/test-branch-autodelete`) created specifically so it carried no
+pre-setting history to confound the result; on merge (`3e9a4ff`) the branch was
+gone. That is the whole evidence, and it is why a bare "the setting is on" was
+not written here first.
+
+**The mechanism it fixes, kept because the fallback still needs it.** Squash
+writes a *new* commit on `main`. A topic branch does not follow it, so
+`origin/<branch>` still points at the pre-squash commit and the two have **no
+common tip** even though their content is identical. The next ordinary push is
+rejected non-fast-forward, and the tempting reflex — `--force` — is the one that
+can discard someone else's work.
+
+**When the sequence below is still required:**
+
+- a branch **merged before 2026-08-01**, which nothing will collect
+  (`claude/bulkdownloader-handoff-kcnbvx` is one; 21 more branches share no
+  common ancestor with `main` at all);
+- the setting being turned off, or a fork PR, where it does not apply;
+- any push rejected non-fast-forward for a reason you have not identified —
+  in which case the diff below is how you find out, not a formality.
+
+Do not treat auto-delete as a licence to `--force`. The sequence is: prove the
+content is already merged, then force **with lease**.
 
 ```bash
 git fetch origin main
