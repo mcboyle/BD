@@ -800,9 +800,28 @@ written down one paragraph after the closure it invalidates, and graded
 correct. Derived by reading Library.tsx and app_library.py; the 0-vs-3
 divergence was later reproduced by probe.
 
-**(b) A fifth operator surface still carries raw UTC.**
+**(b) A fifth operator surface carries raw UTC -- ADDRESSED at v3.66.829
+(PR #110, d3011f1). The value was NOT converted, and must not be.**
 
-`bulk_downloader/app_sites_queue.py:883` returns
+THE REMEDY INVERTED WHEN IT WAS INVESTIGATED, which is why the caution below
+was right. That field is the delta-poll cursor for the endpoint's own `since`
+parameter, and `queue_changed_since` (db.py:1792) compares the cursor directly
+against the UTC `ts_updated` column with a bare `>`. Localising it gives the
+cursor a different clock than the column it filters: measured to over-return
+west of UTC and to SILENTLY DROP ROWS east of UTC. v3.66.829 therefore added a
+comment at the return site plus a round-trip regression test under forced TZ in
+both directions -- and changed no value. The line is now **893**, not 883; the
+cut's own comment moved it. Cite the `api_queue` handler, not a line number.
+
+NOTE ALSO: the pinned contract has NO LIVE CALLER. Nothing in frontend/src,
+tools/ or toolchain/ calls the endpoint with a `since` parameter, and its only
+in-repo consumer reads status/message/filename and never `ts`. The pin exists
+so a future session does not "fix" the field.
+
+The original filing is kept below because its reasoning is what produced the
+correct outcome.
+
+`bulk_downloader/app_sites_queue.py:893` returns
 `"ts": r.get("ts_updated","") or r.get("ts_added","")` from the paginated queue
 endpoint. It is NOT a `ts_iso` reader, so the v3.66.825 clock fix
 (`runner_util._utc_iso_to_local_iso`, applied at `runner_queue.py`'s restore
@@ -836,8 +855,8 @@ that class and its tests must force TZ.
 ## 15 | Handoff written 2026-08-01 -- carries its own provenance
 
     generated            2026-08-01
-    against version      3.66.825
-    against origin/main  813b4b0
+    against version      3.66.830   (refreshed after PR #111)
+    against origin/main  ec4af12
     guard pins           7 ok, 0 drifted, 0 missing
     box                  test4, Etc/UTC, NTP active (measured via timedatectl)
 
@@ -928,18 +947,42 @@ code, not when the commit merged, and nothing in the repo records the deploy
 time per version. The mismatch itself answers the question exactly; a date
 answers a neighbouring one.
 
-### 15.3 | Known-unfixed, all deliberate -- do not "discover" these again
+### 15.3 | Known-unfixed -- ALL THREE ENTRIES WERE SHIPPED, 2026-08-01
 
-- GATE-INTERNAL MUTATION ESCAPES in tests/test_cut35_csrf_meta_premise_retired_in_tools.py:
-  inverting the reachability polarity, and narrowing the finding regex from
-  (bug|crit) to crit-only. Both survive because no other test observes that
-  file's internals. No test can be its own meta-test, and a tower of meta-gates
-  trades a known gap for an unknown one. Recorded in the v3.66.824 commit.
-- diag_d2_fresh_bd_home.py's `body_sha256` list membership is unguarded --
-  moving it back from `structural` to cosmetic is caught by nothing (mutation
-  M4). Small, but it is the field v3.66.824 promoted.
-- app_sites_queue.py:883 -- the fifth raw-UTC operator surface. See 14.3(b),
-  including the explicit do-not-fix-by-reflex.
+This section was headed "do not discover these again" and listed three items as
+deliberately unfixed. All three were closed within hours of it being written,
+and the section was NOT updated by the cuts that closed them, because each was
+correctly scoped to its own subject. That is section 1's failure mode operating
+on this very file: a document goes stale silently and is then read as authority.
+Re-derive before believing any row here, including this one.
+
+- GATE-INTERNAL MUTATION ESCAPES in
+  tests/test_cut35_csrf_meta_premise_retired_in_tools.py -- **FIXED at
+  v3.66.830 (PR #111, ec4af12).** Both verdicts rested on a list being EMPTY,
+  which cannot tell "nothing is wrong" from "the scan stopped looking". Each
+  now runs through a named helper with a POSITIVE CONTROL driving the SAME
+  helper the verdict does; a control over a re-implementation certifies the
+  copy, and that was measured -- with controls in place but the assertions
+  still using inline copies, both mutations still escaped. Before/after
+  measured on the branch: both ESCAPED on pristine, both CAUGHT after.
+  The filed "no test can be its own meta-test" objection was answered, not
+  waived: the controls assert nothing about the file's text and add no layer,
+  they are the two-sided form the gate already used on two other arms.
+  STILL OPEN, and it is the honest residue: a positive control only proves the
+  instrument sees what the author thought to plant. If the probe's severity
+  ladder grows a new failing grade, _DEFECT_GRADE_RE goes blind and no control
+  notices. Deriving that set from tools/_probe_lib is the fix and is a separate
+  cut, because it adds an import edge.
+- diag_d2_fresh_bd_home.py's `body_sha256` list membership -- **FIXED at
+  v3.66.828 (PR #109, 62911c3).** The guard is BEHAVIOURAL: it drives the real
+  _diff_probes with two probe dicts differing only in body_sha256 and asserts a
+  structural difference is reported. A source scan asserting the literal
+  appears in the structural list would have been the presence-not-behaviour
+  class that test_capture_csrf_diag_redacts_cookies records as having survived
+  mutation five times here -- and would also pass on the string in a comment.
+- app_sites_queue.py's raw-UTC `ts` -- **ADDRESSED at v3.66.829 (PR #110,
+  d3011f1), by pinning it rather than changing it.** See 14.3(b): the reflexive
+  fix is measurably harmful. The line is now 893, not 883.
 
 ### 15.4 | Environment defects found, NOT repaired
 
@@ -977,3 +1020,51 @@ after the setting was flipped would have proven NOTHING while looking exactly
 like proof -- the setting acts only on future merges, so the listing is
 byte-identical either way. Causing a merge and observing was the only check
 whose denominator contained its subject.
+
+### 15.6 | What shipped 2026-08-01 after this handoff, and what is genuinely left
+
+Five cuts landed after section 15 was written. Re-derive before acting; this
+row is a claim like any other.
+
+| ver | PR | merge | subject |
+| --- | --- | --- | --- |
+| 3.66.826 | #107 | 00d6e35 | a census that could not see the library reported it clean |
+| 3.66.827 | #108 | 66cf813 | the census asked per site; the panel asks about everything |
+| 3.66.828 | #109 | 62911c3 | a field promoted to structural, promotion untested |
+| 3.66.829 | #110 | d3011f1 | the queue ts is a cursor, not a display value |
+| 3.66.830 | #111 | ec4af12 | an empty list certified that the scan had stopped looking |
+
+THE ONE RECURRING DEFECT ACROSS ALL OF THEM, worth more than the individual
+fixes: four separate pieces of work measured something ADJACENT to their
+subject and graded it correct.
+
+- v3.66.826's census shipped with a docstring claiming its figures matched the
+  Library panel. They did not -- the panel calls audit() with no site_id, the
+  census asked per site. Probe: census 0, panel 3, including a real truncation.
+- v3.66.826's supporting box evidence came from an ad-hoc diag script that
+  called os.path.exists() on a BARE BASENAME, resolving against the CWD -- the
+  exact cut25b defect the programme had just fixed elsewhere. Its exists=False
+  was read as "the files are gone". It meant "not in the current directory".
+- item B's RED proof mutated the cursor INSIDE THE TEST, which establishes the
+  test's own premise and says nothing about whether the pin catches the
+  production defect. Redone against the production line.
+- item C's second mutation anchor DID NOT EXIST on the pristine file (it is a
+  constant that cut introduced), so a before/after table would have been half
+  fabricated. The pristine inline form had to be found and mutated instead.
+
+WHAT IS LEFT, measured 2026-08-01 at ec4af12:
+
+1. **14.3(a) is OPEN and UNMEASURED.** The corrected census has never run on
+   test4. It now sweeps whole-history and the deployment default dir and prints
+   orphan site ids, so the answer will be reproducible FROM THE TOOL. Run
+   `venv/bin/python tools/census_file_size_drift.py` after the next deploy.
+2. **Nothing in cuts 826-830 is verified on the box.** All container-measured.
+   Deploy, clear __pycache__, RE-PIN THE GRAPH HASH (source changed across five
+   cuts; step [2b] otherwise fails the whole capture from a stage exit), then
+   ./capture.sh. No frontend/dist rebuild is needed -- no cut touched SPA
+   source.
+3. **_DEFECT_GRADE_RE severity ladder** -- see 15.3. Separate cut, adds an
+   import edge.
+4. **Commit signing** -- see 15.4. Still broken, still silent.
+5. **21 orphan-history branches** -- see 15.4. Still unreconciled, still not
+   safe to bulk-delete.
