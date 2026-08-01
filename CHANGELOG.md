@@ -4,6 +4,40 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.830 - an empty list was certifying that the scan had stopped looking
+
+- Both verdicts in the cut-35 gate rest on a list being EMPTY -- `not offenders`
+  and `not graded_bug` -- and emptiness cannot tell "nothing is wrong" from "the
+  scan never looked". Two mutations proved it, each leaving every other arm of
+  the file passing:
+
+  - inverting the reachability polarity, so no tools/ source was ever scanned
+  - narrowing the finding pattern to crit-only, so a `bug` grade was invisible
+
+  Measured before and after on this branch, not inherited: on the pristine file
+  both ESCAPED (exit 0, 2 passed); with the guard both are CAUGHT (exit 1).
+
+- Each emptiness verdict now runs through a named helper --
+  _scan_for_retired_probes and _graded_defect_lines -- and each helper has a
+  POSITIVE CONTROL handing it an input whose correct answer is non-empty by
+  construction. The control must drive the SAME helper the verdict does: with
+  the controls in place but the assertions still using inline copies, both
+  mutations were re-measured and both still escaped. Certifying a copy rather
+  than the gate is this file's own subject, one level in.
+
+- NOT A META-GATE, and the objection it answers is recorded rather than waved
+  away. The filed note argued that no test can be its own meta-test and that a
+  tower of meta-gates trades a known gap for an unknown one. These controls
+  assert nothing about this file's text and add no layer over the verdict; they
+  are the ordinary two-sided form the gate already uses at the tools/ reach
+  check and the root-load `[ok` check, applied to the two arms that lacked it.
+
+- WHAT THE CONTROLS STILL DO NOT COVER, stated because a positive control only
+  proves the instrument sees what the author thought to plant: if the probe's
+  severity ladder grows a new failing grade, _DEFECT_GRADE_RE goes blind and no
+  control here notices. Deriving that set from tools/_probe_lib is the fix, and
+  it is a separate cut because it adds an import edge.
+
 ## v3.66.829 - the queue ts is a cursor, not a display value; pin it as one
 
 - app_sites_queue.py's paginated queue endpoint returns a RAW UTC ts, while the
