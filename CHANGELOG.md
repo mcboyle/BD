@@ -4,6 +4,33 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.828 - a field was promoted to structural and nothing tested the promotion
+
+- diag_d2 classifies probe fields as structural or cosmetic. body_sha256 was
+  promoted from cosmetic to structural at v3.66.824, and no test constrained
+  which list it lands in. Mutation M4 -- deleting "body_sha256" from the
+  structural list -- escaped: the tool silently stopped reporting a body-hash
+  difference as a STRUCTURAL DIFF, and the whole derived denominator of tests
+  that could possibly read that file stayed green.
+
+- tests/test_diag_d2_body_sha256_structural.py closes it BEHAVIOURALLY. It
+  drives the real _diff_probes under redirect_stdout with two well-formed probe
+  dicts identical except body_sha256, and asserts the tool reports a structural
+  difference. An AST or regex assertion that the literal "body_sha256" appears
+  in the structural list would have been the presence-not-behaviour class that
+  test_capture_csrf_diag_redacts_cookies records as having survived mutation
+  five times in this programme -- it is also satisfied by the string appearing
+  in a comment.
+
+- RED proven by applying M4 under the full protocol (unique anchor, length
+  arithmetic, ast.parse before judging) and observing the new test fail with
+  _diff_probes printing "No structural difference"; source restored and
+  sha256 re-verified byte-identical.
+
+- tools/ has no __init__.py, so the module is loaded via
+  importlib.util.spec_from_file_location -- the same pattern already used by
+  tests/test_build_session_pack.py.
+
 ## v3.66.827 - the census asked per site; the panel asks about everything
 
 - v3.66.826 shipped a census whose denominator did not match the surface it was
