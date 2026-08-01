@@ -234,10 +234,12 @@ grep -rln "ls-files\|rglob\|--collect-only" tests/*.py | head -40
 
 Then keep only the ones whose enumerated path reaches `tests/` or the whole
 repo. **The membership question is not "does it walk the tree" — it is "does
-editing a TEST FILE change this gate's denominator".** Re-measured by reading
-at v3.66.825, **seven** do. An earlier revision of this table listed four and
-was inherited as complete through five cuts; treat the list below as a starting
-point too, and re-derive it:
+editing a TEST FILE change this gate's denominator".** Re-read 2026-08-01 at
+v3.66.833: all 51 grep candidates classified, zero unknowns, **seven** qualify.
+An earlier revision of this table listed four and was inherited as complete
+through five cuts; the v3.66.825 revision was then wrong in **both**
+directions — one false "yes", one missed member — section 0 applied to this
+table itself. Treat the list below as a starting point too, and re-derive it:
 
 | file | enumerates | moved by a new test file? |
 | --- | --- | --- |
@@ -245,16 +247,24 @@ point too, and re-derive it:
 | `test_pytest_runner_boundary.py` | `(REPO / "tests").glob("test*.py")` | yes |
 | `test_capture_execution_lanes.py` | `tests_root.rglob("test*.py")` | yes |
 | `test_deploy_manifest_stays_retired.py` | `git ls-files -- *.py *.sh` | yes |
-| `test_all_sources_parse.py` | `git ls-files -- *.py` (1216 under `tests/`) | yes |
+| `test_all_sources_parse.py` | `git ls-files -- *.py` (bare `*.py` reaches `tests/`) | yes |
 | `test_generated_artifacts_are_not_tracked.py` | `git ls-files -z` (everything) | yes |
-| `test_gitignore_rules_actually_match.py` | `git ls-files` (everything) | yes |
+| `test_history_columns_go_through_migrations.py` | `_tracked("*.py")` (`:49`, call `:59`) — bare `*.py` crosses directories | yes |
+| `test_gitignore_rules_actually_match.py` | `git ls-files` → `.gitignore` paths only (`_gitignore_files`, `:60-67`) | **NO — `.gitignore` only** |
+| `test_v3_66_820_share_tools_saw_no_session_keys.py` | `git ls-files` → text extensions (`:451-456`) | **NO — `.py` not in the set** |
 | `test_playwright_engines_single_source.py` | `git ls-files -z '*.sh'` (48 files) | **NO — `.sh` only** |
 
-That last row is the distinction worth keeping. It is a genuine repo-wide
-enumerator, so it belongs in the band of any cut touching a **shell script**
-(v3.66.824 edited `scripts/cloud-setup.sh` and needed it) — but a new `.py`
-test cannot move it, so counting it as an axis-6 gate over-bands every
-test-only cut. A count is not a band; ask what each one's subject actually is.
+The NO rows are the distinction worth keeping. Each runs a genuine repo-wide
+enumerator and then filters to a set a new `.py` test file cannot enter, so
+counting them as axis-6 gates over-bands every test-only cut — but each still
+has a real band: the playwright gate joins any cut touching a **shell script**
+(v3.66.824 edited `scripts/cloud-setup.sh` and needed it); the share-tools
+gate's set is text extensions (`.md`, `.json`, `.txt`, `.html`, …), so a cut
+adding or renaming tracked text assets — corpus, fixtures, docs — moves it;
+the gitignore gate moves only with a tracked `.gitignore`.
+(`test_history_columns_go_through_migrations.py` also calls `_tracked` at
+`:75`, but that call is `bulk_downloader/`-scoped and does not move.) A count
+is not a band; ask what each one's subject actually is.
 
 ---
 
