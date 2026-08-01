@@ -4,6 +4,45 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.826 - a census that could not see the library reported it clean
+
+- The size-drift census recorded in SESSION_CARRY 15.2 parsed sites_config.json
+  as json.load(...).get("sites", {}). The file is a FLAT {site_id: cfg} mapping
+  -- app.py:1276 writes {sid: dict(cfg)} and app.py:1334 iterates data.items()
+  -- so that lookup could only ever return empty. Run on the deploy box it
+  reported an empty denominator and exited 2.
+
+  It had been "tested against a synthetic library" before being handed over.
+  The synthetic fixture was hand-built in the same wrong shape, so it confirmed
+  the author's assumption instead of the app's behaviour: the denominator
+  excluded the subject and the check reported clean.
+
+- tools/census_file_size_drift.py replaces the pasted snippet with a tracked,
+  read-only tool. Three further defects in the original are fixed:
+
+  - deduping sites by download_dir dropped rows, because list_size_drift
+    filters by site_id: a second site sharing a directory was never examined
+  - list_size_drift swallows every DB error and returns [], so a failed read
+    reported a clean library; row counts are now taken independently
+  - the row LIMIT could truncate invisibly, since the returned rows are only
+    the drifting ones and len(rows) can never reveal that the cap bit
+
+  It refuses to connect to a missing database rather than create an empty one
+  and report a spotless library it never saw, and it prints COVERAGE so a 0/0
+  split cannot read as a clean library when nothing was examined.
+
+- tests/test_census_file_size_drift.py pins the config shape by driving
+  app.py's own _save_sites_config to write the fixture, so the app is the
+  oracle and the fixture cannot drift back to the assumption.
+
+- Measured on test4 with the corrected tool: 31 done rows carrying a recorded
+  size, 0 examined. All 23 orphan site_ids are `bdseed fixture site` -- the
+  live_seed.py residue that tool documents as structurally unremovable, since
+  history is append-only. The one configured site has zero history rows. The
+  legacy file_size population on that host is therefore ZERO; the defect class
+  remains real by construction (file_size is never UPDATEd) but no backfill is
+  warranted there and no figure is obtainable from it.
+
 ## v3.66.825 - four producers put a job in a counted state with nothing to count it by
 
 - Four day-window consumers count jobs whose status is done, failed or
