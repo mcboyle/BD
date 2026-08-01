@@ -3,20 +3,38 @@ import json, time
 from pathlib import Path
 
 # ─── COOKIES ──────────────────────────────────────────────────────────────────
+def normalize_stored_cookie(c):
+    """One stored-form cookie dict -> BD's in-memory shape.
+
+    Single source for the disk loader below and for the
+    /api/sites/<sid>/load_cookies upload endpoint, which carried a
+    byte-identical copy of this loop -- including the same defect.
+
+    `expirationDate` becomes `expires` only when it is POSITIVE. Playwright
+    marks a session cookie with `expires: -1` (login_impl/replay.py:476) and
+    the browser-extension exporters emit the same for a cookie with no
+    Expires/Max-Age. The old guard was `if c.get("expirationDate"):`, and -1
+    is truthy, so the sentinel was copied through as though it were a real
+    timestamp -- which cookies_expiry_info then graded EXPIRED, telling
+    runner_auth to re-login a session that was live. pw_to_json has always
+    guarded the same field with `> 0`; this keeps the two directions
+    symmetrical, so a jar cannot change meaning by round-tripping through
+    disk.
+    """
+    ss=c.get("sameSite","None")
+    if ss not in ("Strict","Lax","None"): ss="None"
+    e={"name":c.get("name",""),"value":c.get("value",""),"domain":c.get("domain",""),
+       "path":c.get("path","/"),"sameSite":ss,"secure":bool(c.get("secure")),"httpOnly":bool(c.get("httpOnly"))}
+    exp=c.get("expirationDate")
+    if exp and float(exp)>0: e["expires"]=int(exp)
+    return e
+
 def load_cookies_from_file(path):
     with open(path,"r",encoding="utf-8") as f: raw=json.load(f)
     items=[]
     for v in (raw.values() if isinstance(raw,dict) else [raw]):
         if isinstance(v,list): items.extend(v)
-    out=[]
-    for c in items:
-        ss=c.get("sameSite","None")
-        if ss not in ("Strict","Lax","None"): ss="None"
-        e={"name":c.get("name",""),"value":c.get("value",""),"domain":c.get("domain",""),
-           "path":c.get("path","/"),"sameSite":ss,"secure":bool(c.get("secure")),"httpOnly":bool(c.get("httpOnly"))}
-        if c.get("expirationDate"): e["expires"]=int(c["expirationDate"])
-        out.append(e)
-    return out
+    return [normalize_stored_cookie(c) for c in items]
 
 def pw_to_json(cookies):
     out=[]
@@ -135,7 +153,16 @@ def cookies_expiry_info(cookies):
     now=time.time(); session=expired=expiring=0; earliest=None
     for c in cookies:
         exp=c.get("expires",0) or c.get("expirationDate",0)
-        if not exp: session+=1
+        try: exp=float(exp or 0)
+        except (TypeError, ValueError): exp=0.0
+        # A NON-POSITIVE expiry is the session marker, not a timestamp in
+        # 1969. The old test was `if not exp`, which is truthiness, so -1
+        # fell through to `exp < now` and a live session cookie was counted
+        # EXPIRED. runner_auth._check_cookies_or_relogin keys on exactly
+        # this pair (`expired <= 0 or session != 0`), so the miscount forced
+        # a re-login -- or, with no stored credentials, routed the URL to
+        # _handle_failure on a working login.
+        if exp<=0: session+=1
         elif exp<now: expired+=1
         elif exp<now+86400: expiring+=1; earliest=min(earliest,exp) if earliest else exp
         else: earliest=min(earliest,exp) if earliest else exp
