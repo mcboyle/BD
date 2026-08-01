@@ -139,6 +139,12 @@ park at `needs_review`, which is not a terminal state.
 
 ## 4 | Open, tracked
 
+RE-VERIFIED 2026-08-01 at e4a0e4b: both items below are STILL OPEN. #3's poll
+was improved (15s loop, failed-fast) but still watches `systemctl is-active`
+-- *started*, not *serving* -- so the class stands. #4 re-confirmed:
+`plugins/ackgate.py` is neither tracked nor gitignored (`git check-ignore`
+exits 1).
+
 - **#3 -- the started-not-serving defect at `install_service.sh` step [4].**
   Same class as the one fixed in `capture.sh`: it polls `systemctl is-active`,
   then sleeps a fixed interval before the vault unlock. A service restart
@@ -150,22 +156,26 @@ park at `needs_review`, which is not a terminal state.
   `plugins/plugins.registry.json` and modify `plugins/plugins.json`. While that
   is true, `git status` is not a reliable signal of what a change touched.
 
-## 5 | Reported, not fixed -- each needs re-derivation before action
+## 5 | Reported, not fixed -- RE-VERIFIED 2026-08-01 at e4a0e4b, per item
 
-- `DELETE /api/sites/<sid>` leaves the `auth_health` row behind, so
-  `Maintenance.tsx` lists sites that no longer exist.
-- Seeded downloads leave `history` residue. History is append-only and teardown
-  does not remove rows; `_report_residue()` reports rather than deletes,
-  deliberately.
-- The Phase B login fallback records an event advertising a manual takeover it
-  can never open: `start_manual_login()` returns early while
-  `_login_thread.is_alive()` (`bulk_downloader/runner_auth.py:177`, and again at
-  `:331`), and Phase B runs inside that thread.
-- `cookies_expiry_info` misreads Playwright's `-1` session sentinel. Session
-  cookies carry no `Expires` and are the default for Flask, Django, PHP and
-  Rails, so this is not an edge case.
-- Step [4] is inconsistent about origin: `127.0.0.1` in one place, `localhost`
-  in another.
+- CLOSED at v3.66.820: `DELETE /api/sites/<sid>` leaving the `auth_health` row
+  behind. Pinned by tests/test_v3_66_820_auth_health_reaped_on_site_delete.py.
+- CLOSED BY DESIGN: seeded downloads leave `history` residue. History is
+  append-only; live_seed.py's RESIDUE_NOTE documents it, and 14.3(a)'s census
+  measured the accumulated population (31 rows, all fixture, all atom-shaped).
+- STILL OPEN: the Phase B login fallback records an event advertising a manual
+  takeover it can never open. `start_manual_login()` returns early while
+  `_login_thread.is_alive()` -- re-read today, verbatim at
+  `bulk_downloader/runner_auth.py:177` and `:331`, and Phase B runs inside
+  that thread.
+- STILL OPEN: `cookies_expiry_info` misreads Playwright's `-1` session
+  sentinel. Re-read today (`bulk_downloader/cookies.py:134`): `-1` is truthy,
+  so `if not exp` misses it and `exp < now` counts the cookie EXPIRED -- the
+  wrong bucket, since `-1` means a session cookie. Session cookies are the
+  default for Flask, Django, PHP and Rails, so this is not an edge case.
+- CLOSED (by later edits, exact cut untraced): the step [4] origin
+  inconsistency. Measured today: neither `127.0.0.1` nor `localhost` occurs in
+  install_service.sh at all.
 - **`/home/claude` paths.** Measured 2026-07-29 over tracked files:
   **393 files, 1541 occurrences** (77 `.py`, 36 `.md`, 13 `.sh`, plus
   `toolchain/bin/bd-*` extensionless scripts). An earlier figure of "~132 tools"
@@ -696,11 +706,13 @@ the wrong day near midnight on a non-UTC host. No test in the tree sees this.
   step 3 -- that inline block was already clean. Nothing automated invoked
   `tools/diag_csrf_bootstrap.py`; it was a manual operator tool.
 
-### 14.3 | Open, filed 2026-08-01 -- decided "file, do not fix yet"
+### 14.3 | SUPERSEDED HEADING -- both items are now settled (2026-08-01)
 
-Both were measured during the v3.66.825 day-window work and both are real. The
-operator chose to record rather than cut. Re-derive before acting (section 1);
-neither figure below was measured on the box.
+Originally "Open, filed -- decided file, do not fix yet". Since then:
+(a) CLOSED, measured on the box at v3.66.831 -- see its entry below;
+(b) ADDRESSED at v3.66.829 by pinning the value rather than changing it --
+see its entry below. Both bodies are kept because their reasoning and re-open
+triggers are load-bearing.
 
 **(a) Legacy history.file_size rows read as size drift -- MEASURED 2026-08-01
 on test4 at v3.66.831. CLOSED: no action warranted, and the figure is
@@ -903,7 +915,14 @@ Sections 1-14 keep their own stamps. This section supersedes nothing; it records
 what existed only in a session transcript and would otherwise be lost when the
 container is reclaimed.
 
-### 15.1 | The capture reconciliation -- USE THIS TO READ THE NEXT CAPTURE
+### 15.1 | The capture reconciliation -- SUPERSEDED by two later captures
+
+Kept for method only. The v3.66.825 capture reconciled EXACTLY against the
+prediction below (14449/14364/85, cut42 skipped=0), and a v3.66.831 capture
+then reconciled exactly again (14476/14391/85, +27 accounted test-by-test,
+parallel 1458 unchanged). Box-verified through v3.66.831; the .832 delta was
+band-verified on the box (22 passed + probe import) and its full-capture
+expectation is 14477/14392/85, parallel unchanged, graph pin d942220c (armed).
 
 BASELINE, from the v3.66.824 capture bundle (run 2026-07-31T22:58:00):
 
@@ -1144,19 +1163,53 @@ subject and graded it correct.
   constant that cut introduced), so a before/after table would have been half
   fabricated. The pristine inline form had to be found and mutated instead.
 
-WHAT IS LEFT, measured 2026-08-01 at ec4af12:
+WHAT WAS LEFT at ec4af12 -- ALL FIVE SINCE RESOLVED. Superseded by 15.7.
 
-1. **14.3(a) is OPEN and UNMEASURED.** The corrected census has never run on
-   test4. It now sweeps whole-history and the deployment default dir and prints
-   orphan site ids, so the answer will be reproducible FROM THE TOOL. Run
-   `venv/bin/python tools/census_file_size_drift.py` after the next deploy.
-2. **Nothing in cuts 826-830 is verified on the box.** All container-measured.
-   Deploy, clear __pycache__, RE-PIN THE GRAPH HASH (source changed across five
-   cuts; step [2b] otherwise fails the whole capture from a stage exit), then
-   ./capture.sh. No frontend/dist rebuild is needed -- no cut touched SPA
-   source.
-3. **_DEFECT_GRADE_RE severity ladder** -- see 15.3. Separate cut, adds an
-   import edge.
-4. **Commit signing** -- see 15.4. Still broken, still silent.
-5. **21 orphan-history branches** -- see 15.4. Still unreconciled, still not
-   safe to bulk-delete.
+1. 14.3(a): CLOSED at #115, measured on the box (27 atom-shaped fixture rows).
+2. Box verification: a v3.66.831 capture reconciled exactly (14476/14391/85);
+   .832 band-verified on the box; graph pin re-armed twice.
+3. _DEFECT_GRADE_RE ladder: SHIPPED at v3.66.832 (#116), FAILING_GRADES
+   single-sourced in _probe_lib, cry-wolf proven clean.
+4. Commit signing: the entry was WRONG and is withdrawn in 15.4 -- signing
+   works via gpg.ssh.program=/tmp/code-sign.
+5. Orphan branches: reconciled, bundled, DELETED by the operator; remote is
+   main-only. See 15.4.
+
+### 15.7 | Session close 2026-08-01, e4a0e4b (v3.66.832) -- the OPEN set
+
+Eleven PRs merged this session (#107-#117). Every item this session filed or
+inherited from its own queue is closed. What remains open in the WHOLE
+register, each re-verified against source today (see sections 4 and 5 for the
+evidence):
+
+  OPEN, real, unscheduled:
+  - s4#3  install_service.sh polls is-active, not serving (improved, class
+          stands)
+  - s4#4  band runs write into the working tree (plugins/ackgate.py et al,
+          neither tracked nor ignored)
+  - s5    Phase B manual-takeover early-return (runner_auth.py:177/:331)
+  - s5    cookies_expiry_info counts the -1 session sentinel as EXPIRED
+          (cookies.py:134)
+  - s5    /home/claude path residue (393 files / 1541 occurrences at last
+          measure; large, dormant, decision framework already recorded)
+
+  OPEN, deliberate deferrals (operator decisions, not defects):
+  - import-graph gate walks only bulk_downloader/ and tools/, so tests/->
+    edges are invisible to it (stated in v3.66.832's CHANGELOG). Widening
+    makes every future test cut carry a re-freeze -- standing-cost call.
+  - the pre-force line b4f0c80 of the deleted preflight branch: unexamined,
+    no verdict, exists only in test4's object store.
+  - Library panel shows the 31 fixture rows as `missing` (grows 1-2 per
+    capture run). Correct behaviour, cosmetic noise; derived by reading.
+
+  PENDING on the box, routine:
+  - next full ./capture.sh covers v3.66.832; expect 14477/14392/85,
+    parallel 1458, graph pin d942220c already armed.
+  - 3 stale >6h lock files flagged by the census selftest; remove only after
+    confirming no process holds them.
+  - the orphan-family bundle ~/bd-orphans-2026-08-01.bundle is the SOLE copy
+    of the deleted branches -- give it whatever backup rotation other bundles
+    get.
+
+  PARALLEL PROGRAM, not this queue: CODEX_HANDOFF.md's ledger (paused at its
+  Analysis Task 4). Statuses are a register -- re-derive before acting.

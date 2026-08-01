@@ -592,9 +592,12 @@ can discard someone else's work.
 
 **When the sequence below is still required:**
 
-- a branch **merged before 2026-08-01**, which nothing will collect
-  (`claude/bulkdownloader-handoff-kcnbvx` is one; 21 more branches share no
-  common ancestor with `main` at all);
+- a branch **merged before 2026-08-01**, which nothing will collect.
+  (The original population -- 21 no-merge-base branches plus a stale merged
+  handoff branch -- was reconciled and DELETED 2026-08-01; the remote now
+  carries `main` only, and the family is archived in the operator's verified
+  bundle on the box. See SESSION_CARRY 15.4. The case can still arise for any
+  future pre-setting branch.);
 - the setting being turned off, or a fork PR, where it does not apply;
 - any push rejected non-fast-forward for a reason you have not identified —
   in which case the diff below is how you find out, not a formality.
