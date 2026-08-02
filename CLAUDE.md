@@ -202,6 +202,34 @@ guess.
   `DEPENDENCY_GRAPH.json`.
 - A `data_layer` route add must update **both** `test_wave2_backlog` **and**
   `test_v3_66_302_gui_parity_reconcile`.
+- **Editing a function body — even adding a COMMENT — bands the fixed-width
+  source-window tests that read that function.** They slice
+  `src[pos:pos+3000]` from a `find("def <name>")` anchor, so anything you add
+  above the assertion's target pushes it out of the window and `find()`
+  returns `-1`. A grep for the *module* cannot reach them: they read source
+  text and import nothing. Derive by **function name**, not module:
+
+  ```bash
+  grep -rln "def <function_you_touched>\|<function_you_touched>" tests/*.py
+  ```
+
+  Measured 2026-08-02: v3.66.835 added an 8-line comment to
+  `start_manual_login`; `pause_site_keepers` moved 37 chars past the window
+  and `open_manual_login_browser(` 15 past it, failing
+  `test_v3_43_52_keeper_collision` **on the box** after four container bands
+  called the cut green. Two more traps in that one file: `_bd_runner_src()`
+  **concatenates** `runner.py` + every `runner_*.py`, so measuring the offset
+  in the one file you edited is the wrong denominator; and the two assertions
+  fail at *different* offsets, so fixing the first can leave the second red.
+  Measure against the concatenation, and check every symbol the window asserts
+  on. `test_source_windows_do_not_shift.py` ratchets the COUNT of these
+  windows — it does not catch a shift inside an existing one.
+- **Adding any `BD_`-prefixed name — including a shell local — bands
+  `tests/test_gui_parity.py`.** Its env-var scan matches on the `BD_` prefix,
+  so a script variable enters the ledger denominator and reads as "promoted
+  but unledgered". v3.66.836 named a loop variable `BD_PROBE_PORT` in
+  `install_service.sh` and failed the parity gate on the box. If the name is
+  not a real config key, **do not prefix it**.
 
 **Naming trap:** `test_spa_wired_join_is_faithful` is a *function inside*
 `tests/test_route_index_in_sync.py`, not a file. Passing it as a path makes the

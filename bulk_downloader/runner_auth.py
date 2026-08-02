@@ -402,13 +402,8 @@ class AuthMixin:
                 f"  manual login already pending for {self.site_id} "
                 f"— ignoring duplicate start\n")
             return True, "Manual login window already open"
-        # v3.66.835: the guard exists to stop an EXTERNAL caller racing a
-        # running auto-login. login_async's own Phase B fallback calls this
-        # from inside _run -- i.e. ON self._login_thread -- so an identity
-        # check refused the very takeover it had just decided to open, and
-        # the site died at "manual fallback also failed: An auto-login is
-        # already running". Exempt the login thread from its own guard;
-        # every other caller still sees it.
+        # v3.66.835: EXTERNAL callers only -- Phase B calls this ON
+        # self._login_thread and the guard refused its own caller.
         if (self._login_thread and self._login_thread.is_alive()
                 and self._login_thread is not threading.current_thread()):
             return False, "An auto-login is already running"

@@ -343,16 +343,16 @@ SERVING="unknown"
 if [ "$SERVICE_STATE" = "active" ]; then
     # BD_PORT is a GUI-editable key delivered via EnvironmentFile=-${APP_DIR}/.env,
     # so honour the environment first and that file second before the default.
-    BD_PROBE_PORT="${BD_PORT:-}"
-    if [ -z "$BD_PROBE_PORT" ] && [ -r "${APP_DIR}/.env" ]; then
-        BD_PROBE_PORT="$(sed -n 's/^[[:space:]]*BD_PORT[[:space:]]*=[[:space:]]*//p' \
+    PROBE_PORT="${BD_PORT:-}"
+    if [ -z "$PROBE_PORT" ] && [ -r "${APP_DIR}/.env" ]; then
+        PROBE_PORT="$(sed -n 's/^[[:space:]]*BD_PORT[[:space:]]*=[[:space:]]*//p' \
                          "${APP_DIR}/.env" | tail -n 1 | tr -d '"'"'"' \r')"
     fi
-    [ -n "$BD_PROBE_PORT" ] || BD_PROBE_PORT=5555
+    [ -n "$PROBE_PORT" ] || PROBE_PORT=5555
     if command -v curl >/dev/null 2>&1; then
         for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
             if curl -sSf --max-time 2 \
-                 "http://127.0.0.1:${BD_PROBE_PORT}/api/health" >/dev/null 2>&1; then
+                 "http://127.0.0.1:${PROBE_PORT}/api/health" >/dev/null 2>&1; then
                 SERVING="yes"
                 break
             fi
@@ -366,15 +366,15 @@ echo
 echo " ================================================================"
 if [ "$SERVICE_STATE" = "active" ] && [ "$SERVING" = "yes" ]; then
     echo "  ${SERVICE_NAME} is RUNNING and enabled on boot."
-    echo "  (serving on 127.0.0.1:${BD_PROBE_PORT})"
+    echo "  (serving on 127.0.0.1:${PROBE_PORT})"
 elif [ "$SERVICE_STATE" = "active" ] && [ "$SERVING" = "unknown" ]; then
     echo "  WARNING: ${SERVICE_NAME} is active, but whether it is SERVING is"
     echo "  unverified -- curl is not installed, so the health endpoint could"
     echo "  not be probed. Check by hand:"
-    echo "    curl -sS http://127.0.0.1:${BD_PROBE_PORT}/api/health"
+    echo "    curl -sS http://127.0.0.1:${PROBE_PORT}/api/health"
 elif [ "$SERVICE_STATE" = "active" ]; then
     echo "  WARNING: ${SERVICE_NAME} is active but is NOT serving:"
-    echo "  nothing answered http://127.0.0.1:${BD_PROBE_PORT}/api/health"
+    echo "  nothing answered http://127.0.0.1:${PROBE_PORT}/api/health"
     echo "  within 15s. The process started; the app did not come up. Check:"
     echo "    sudo systemctl status ${SERVICE_NAME}"
     echo "    journalctl -u ${SERVICE_NAME} -n 50"
