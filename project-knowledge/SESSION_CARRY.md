@@ -1487,9 +1487,21 @@ THE OPEN SET at 014f894, superseding 15.7's:
   OPEN, real, unscheduled:
   - 15.12  six runner_extractors completion paths cannot execute
            (safe_dest(str) raises; all five entry points swallow it). LARGEST
-           open defect. Premise "they have never completed a download" is
-           supported by a box query returning 0 for all five db_log markers,
-           but is still not PROVEN -- see 15.12.
+           open defect. EVIDENCE STATE, measured 2026-08-02 and stated
+           precisely because two different claims keep getting conflated:
+           "CANNOT work as written" is PROVEN -- safe_dest('Scene Title.mp4')
+           raises AttributeError (reproduced twice), _try_library_extractor
+           was driven end to end and crashed before its db_log, and every
+           caller wraps in `except Exception` so it degrades silently.
+           "Has NEVER worked on this box" is INFERRED, not proven: 41 done
+           rows exist (so the query sees its subject) and all 41 are
+           other/transport with zero in any of the five extractor buckets;
+           535 log_events fired with zero of the seven *_done kinds. That
+           FAILED TO REFUTE the item -- one jsonapi_done or one `jsonapi=`
+           marker would have killed it -- but the box has sites_loaded=1, so
+           zero is also what an ineligible site produces. Do not upgrade the
+           inference to a proof; the code proof is the one that matters and
+           it stands alone.
   - 15.9   check_stale_locks has no real subject; fix unscheduled.
   - 15.8   census coverage counts rows it never examined.
   - 15.11  qB/JD library rows -- dl_dir IS in scope, so only WHICH FILE a
@@ -1523,10 +1535,23 @@ THE OPEN SET at 014f894, superseding 15.7's:
   DEFERRALS, still deliberate:
   - import-graph gate walks only bulk_downloader/ and tools/ (see the new
     predicate item above -- it changes the order, not the decision).
-  - b4f0c80, the pre-force commit of the deleted preflight branch:
-    unexamined, no verdict, and it exists ONLY in test4's object store. It
-    is the sole item in this register that can become permanently
-    unrecoverable. One `git show` settles it.
+  - b4f0c80 -- CLOSED 2026-08-02, hours after this section was written, by
+    the box session it asked for. It is NOT unexamined and NOT at risk:
+    it carries the tag `archive/preflight-preforce`, so it survives gc,
+    and its content ("feat: provisioner installs shellcheck, so the parse
+    gates can actually run") is ALREADY IN MAIN -- the `lint` group at
+    scripts/lib/system_deps.sh:256, included in `all` at :280, consumed by
+    cloud-setup.sh:401 as $LINT_PKGS, with the inline apt_i that drifted
+    now gone. It shipped in 860d8be (#71). NOTHING_UNIQUE.
+    Two things this got wrong are worth keeping, because both are the
+    register misreading itself. (a) "the sole item that can become
+    permanently unrecoverable" was false -- a tag pins it; the only
+    residual exposure is that the tag lives on one host. (b) section 15.6
+    had ALREADY recorded this verdict ("b4f0c80 -- NOTHING_UNIQUE, its
+    content shipped at 860d8be (#71)") while 15.7 carried it as an open
+    deferral. The register disagreed with itself and the open side was
+    inherited forward twice. Re-derive before filing an item as open,
+    including from this file.
   - Library panel shows 31 fixture rows as `missing`. Which query produces
     the 31 has NOT been discriminated; two different mechanisms would imply
     different fixes and different bands. Measure before choosing.
@@ -1535,8 +1560,23 @@ THE OPEN SET at 014f894, superseding 15.7's:
   keep-set into one verified bundle (B3 is deletable now its plaintext
   password-manager export was destroyed); decide B4's 533 raw wacz and its
   91 mid-transaction .db copies BEFORE consolidating; rotate the orphan
-  bundle AFTER consolidation, or rotation targets the wrong artifact; remove
-  the three stale agent worktrees, which also quiets the stale_locks WARN.
+  bundle AFTER consolidation, or rotation targets the wrong artifact.
+
+  WORKTREES -- RE-SCOPED 2026-08-02, measured. "Three stale agent
+  worktrees" was wrong by six times. `git worktree list` on the box shows
+  EIGHTEEN entries: the deploy checkout itself, eleven under .worktrees/
+  (five on codex/* branches, several pinned at f523fe2, a commit predating
+  this session's work), one stray at ~/pytest-fixture-diag-vm6-20260726-01,
+  and SIX under /tmp/ already marked `prunable`. `git worktree prune -v`
+  clears the six with no risk; the rest are a per-entry operator decision.
+  This also re-scopes 15.9: the three yarn.lock files its selftest WARNs
+  about live in three of these, so pruning shrinks the phantom denominator
+  without touching selftest.py.
+  Noted while measuring, not a defect: the deploy checkout reports the
+  branch `claude/bulkdownloader-preflight-setup-bh5n4z` rather than main.
+  Content is correct and `git reset --hard origin/main` still does the
+  right thing; only the branch name in `git status` there misleads.
+  `git checkout -B main origin/main` on the next deploy settles it.
 
 TWO CITATIONS IN THIS REGISTER WERE WRONG, and both are corrected here rather
 than left to mislead. Each names a genuinely CLOSED item, so the risk was not
