@@ -4,6 +4,45 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.837 - every completed download minted a second, permanent library ghost row
+
+- db.py's forward-path library_record was handed history.filename -- a
+  BARE BASENAME. library.file_path is UNIQUE and scan() inserts ABSOLUTE
+  paths, so the forward row could never collide with the scanner's row.
+  Every download therefore produced two rows for one file: the ghost born
+  file_exists=0, and the two disagreeing on file_size.
+- The basename was not reconstructible at that layer either. Joining a
+  configured download_dir is wrong three separate ways: template subdirs
+  (Studio/x.mp4) were already stripped by final_path.name, deployment
+  default and spillover dirs are not where the file went, and Stash's
+  path is already absolute and would be corrupted by the join.
+- db_log now takes an optional file_path, and the library row is written
+  only when an ABSOLUTE path is available from either argument. The test
+  is absoluteness, not which parameter carried it: callers like the Stash
+  dedup path have always passed a full path as filename and their rows
+  were correct, so keying on the new argument alone silently stopped
+  recording them -- caught by the band, not by reasoning.
+- Eight call sites now pass the path they already hold:
+  runner_transport's already-have and saved paths, and all six
+  runner_extractors done-sites (jsonapi, vixen, dl8, aylo, and both
+  library-extractor arms).
+- CORRECTION to an earlier draft of this entry, which called all eight
+  "live, MEASURED". What was measured was the CALL GRAPH; adversarial
+  review then showed the six extractor sites cannot EXECUTE at all --
+  safe_dest(str) raises AttributeError upstream and every caller
+  swallows it (register 15.12). Two of the eight are live today. The
+  six edits are correct and inert, and they stop being inert the moment
+  15.12 is fixed. Measuring reachability is not measuring execution.
+- The GCW probe row is suppressed by construction: that path aborts the
+  transfer and saves no file, so it passes no path and now records no
+  library row. It previously minted one for a file that never existed.
+- A caller with no absolute path records nothing rather than something
+  wrong. history.filename is unchanged -- it stays a basename for the
+  FTS payload, the cut-25b resolver, and the History UI.
+- Fix-forward only: rows already in the table are untouched. Their count
+  is unverified, and the query that settles it is recorded in the
+  register rather than guessed at here.
+
 ## v3.66.836 - install_service.sh certified RUNNING without asking the app
 
 - The installer decided "is RUNNING and enabled on boot" from

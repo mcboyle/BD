@@ -959,7 +959,7 @@ def db_queue_recovery_summary() -> dict:
     return out
 
 
-def db_log(site_id, site_name, url, status, filename="", file_size=0, message="", screenshot="", honeypot_score=None, best_effort=False, bytes_fetched=None, transfer_mode=None):
+def db_log(site_id, site_name, url, status, filename="", file_size=0, message="", screenshot="", honeypot_score=None, best_effort=False, bytes_fetched=None, transfer_mode=None, file_path=None):
     """Append one row to the history table. Called on every job-level
     state transition (done/failed/needs_review). Append-only — the row
     is never updated or deleted by application code.
@@ -1064,12 +1064,32 @@ def db_log(site_id, site_name, url, status, filename="", file_size=0, message=""
     # above because library_record opens its own connection — nesting
     # would risk a write-lock contention on the same DB. Best-effort:
     # a library bug must never break the canonical history insert.
-    if status == "done" and filename:
+    # v3.66.837: record ONLY an absolute path. library.file_path is UNIQUE and
+    # scan() inserts absolute paths, so a bare basename could never collide
+    # with the scanner's row: every download produced a second, permanent
+    # ghost row -- born file_exists=0, disagreeing with its twin on file_size.
+    # The basename is not reconstructible here either: `filename` has already
+    # had template subdirs stripped, and joining a configured download_dir
+    # would be wrong for template subdirs, deployment-default and spillover
+    # dirs alike. So the caller passes the absolute path it already holds, and
+    # a caller that has none (or produced no file at all, like the GCW probe)
+    # records nothing rather than a row that is wrong.
+    # The test is ABSOLUTENESS, not which parameter carried it. Some callers
+    # have always passed a full path as `filename` -- the Stash dedup path
+    # (runner_integrations.py) does, and its rows were correct; keying only on
+    # the new argument would have silently stopped recording them.
+    if status == "done":
+        # Inside the try, not outside it: F3 above requires that nothing on the
+        # done path propagates, or the caller flips a completed job to failed
+        # and re-downloads it. str()/isabs() on caller-supplied data is a thin
+        # surface, but it is not the zero surface a bare truthiness test was.
         try:
-            from . import library as _library
-            _library.library_record(
-                filename, history_id=history_id, site_id=site_id,
-                file_size=file_size)
+            _lib_path = file_path or filename
+            if _lib_path and _os.path.isabs(str(_lib_path)):
+                from . import library as _library
+                _library.library_record(
+                    str(_lib_path), history_id=history_id, site_id=site_id,
+                    file_size=file_size)
         except Exception:
             pass
 

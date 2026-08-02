@@ -972,7 +972,8 @@ class TransportMixin:
             db_log(self.site_id,self.config.get("name","?"),page_url,"done",
                    final_path.name,existing_size,"already on disk",
                    honeypot_score=best.get("_honeypot_score"),  # P5-2b
-                   bytes_fetched=0)  # skip_if_exists: dl.cancel(), nothing fetched
+                   bytes_fetched=0,  # skip_if_exists: dl.cancel(), nothing fetched
+                   file_path=str(final_path))
             try: dl.cancel()
             except Exception: pass
             return
@@ -1210,7 +1211,8 @@ class TransportMixin:
         db_log(self.site_id,self.config.get("name","?"),page_url,"done",filename,file_size_on_disk,"",
                honeypot_score=best.get("_honeypot_score"),  # P5-2b: stamp resolve-time score for per-site threshold learning
                bytes_fetched=bytes_fetched,
-               transfer_mode=transfer_mode)  # which arm of the chain above ran
+               transfer_mode=transfer_mode,  # which arm of the chain above ran
+               file_path=str(final_path))
         # Phase 66 (v3.41.0): cross-site filename duplicate detection.
         # Look back through history for a successful download with the
         # same filename + similar size. If found, log + emit event so

@@ -1099,7 +1099,7 @@ class ExtractorsMixin:
                output_filename, file_size_on_disk,
                f"jsonapi={result.protocol} tier={src.height} "
                f"avail={result.available_heights}", bytes_fetched=downloaded_size,
-               transfer_mode=transfer_mode)
+               transfer_mode=transfer_mode, file_path=output_path)
         self.log_event(
             "jsonapi_done",
             f"{src.height}p via {result.protocol} "
@@ -1346,7 +1346,7 @@ class ExtractorsMixin:
                output_filename, file_size_on_disk,
                f"vixen={result.via} tier={upgraded_tier} "
                f"avail={result.available_tiers}", bytes_fetched=downloaded_size,
-               transfer_mode=transfer_mode)
+               transfer_mode=transfer_mode, file_path=output_path)
         self.log_event(
             "vixen_done",
             f"{upgraded_tier}p via {result.via} "
@@ -1568,7 +1568,8 @@ class ExtractorsMixin:
         db_log(self.site_id, self.config.get("name", "?"), url, "done",
                output_filename, file_size_on_disk,
                f"dl8={result.via} tier={chosen_tier} "
-               f"avail={result.available_tiers}", bytes_fetched=downloaded_size)
+               f"avail={result.available_tiers}", bytes_fetched=downloaded_size,
+               file_path=output_path)
         self.log_event(
             "dl8_done",
             f"{chosen_tier}p via {result.via} "
@@ -1836,7 +1837,7 @@ class ExtractorsMixin:
                f"aylo={variant.format} quality={variant.quality}p "
                f"avail=[{','.join(result.available_qualities[:5])}]",
                bytes_fetched=downloaded_size,
-               transfer_mode=transfer_mode)
+               transfer_mode=transfer_mode, file_path=output_path)
         self.log_event(
             "aylo_done",
             f"{variant.quality}p {variant.format} via flashvars "
@@ -2321,7 +2322,7 @@ class ExtractorsMixin:
                    # A literal is right here, unlike jsonapi/vixen/aylo: this
                    # arm has its OWN db_log and returns, so the constant cannot
                    # leak onto the direct-URL row below.
-                   transfer_mode="segmented")
+                   transfer_mode="segmented", file_path=output_path)
             return True
 
         # Direct URL path: reuse the existing _http_download path. It
@@ -2383,5 +2384,5 @@ class ExtractorsMixin:
                bytes_fetched=None,
                # The COUNT is unknown here; the TRANSPORT is not. Two separate
                # facts, and the bool return only loses the first one.
-               transfer_mode="http")
+               transfer_mode="http", file_path=output_path)
         return True
