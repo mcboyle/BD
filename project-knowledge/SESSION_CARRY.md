@@ -1661,16 +1661,59 @@ THE OPEN SET at a7f0f92:
            tests/-baseline. Either way 10-C first. Standing cost: a
            re-freeze on roughly a quarter of future commits.
 
-  OPERATOR ACTIONS, in dependency order:
-  - `git worktree prune -v` on the box (six /tmp entries, risk-free), then
-    per-entry decisions on the other twelve. See 15.13 for the count.
-  - `git checkout -B main origin/main` in the deploy checkout -- it reports
-    a stale agent branch name. Content is correct; only the name misleads.
-  - B4's 533 raw wacz (redact or secure) and its 91 mid-transaction .db
-    copies -- decide BOTH before consolidating.
-  - consolidate the B1/B2/B4 archive keep-set into one verified bundle
-    (B3 is deletable), THEN rotate the orphan bundle. Rotating first
-    targets the wrong artifact.
+  OPERATOR ACTIONS -- the full set, in dependency order. These are not
+  cuts; several are cheap MEASUREMENTS that unblock filed items, and they
+  are listed first because a code item cannot start without them.
+
+  Box measurements that unblock filed items (all read-only):
+  - item 12's discriminator: WHICH query returns the 31 `missing` fixture
+    rows. Two mechanisms imply different fixes and different bands, so
+    this decides the item's shape and cost. Nothing can be cut until it
+    is run.
+  - 15.11's fact: whether qB/JD `st['filename']` is ever a DIRECTORY in
+    practice -- a remote-daemon preference (qBittorrent's
+    torrent_content_layout, JDownloader's package-subfolder setting) that
+    is unreadable from the repo. If it is always a file, 15.11 collapses
+    from a product decision into "join dl_dir".
+  - the ghost-row count, for 15.8/15.11's fix-forward boundary:
+    `SELECT COUNT(*) FROM library WHERE file_path NOT LIKE '/%'`. The
+    "27" in older text is unverified and probably conflates 14.3(a).
+  - whether v3.66.840 restores completions: after the next deploy, watch
+    for `jsonapi=` / `vixen=` / `dl8=` / `aylo=` / `library_extractor=`
+    markers appearing in history.message for the first time. Zero forever
+    means those sites never route to an extractor; non-zero is the
+    real-world confirmation the archaeology could not give.
+
+  Box hygiene:
+  - `git worktree prune -v` (six /tmp entries, risk-free), then per-entry
+    decisions on the other twelve. See 15.13 for the count and shape.
+    This also removes 15.9's three phantom yarn.lock WARNs.
+  - `git checkout -B main origin/main` in the deploy checkout -- it
+    reports a stale agent branch name. Content is correct; only the name
+    in `git status` misleads.
+  - deploy v3.66.839 + 840 and capture. 840 changes runtime behaviour;
+    839 changes capture.sh's own failure reporting, so the next capture
+    exercises both.
+
+  Archive (15.10), strictly ordered -- each depends on the one above:
+  - decide B4's 533 raw wacz (redact or secure) AND its 91
+    mid-transaction .db copies (not clean backups as they sit).
+  - THEN consolidate the B1/B2/B4 keep-set into one verified bundle
+    (`sha256sum -c` the manifest before deleting any source). B3 is
+    deletable -- its plaintext password-manager export was destroyed
+    2026-08-02.
+  - THEN rotate the orphan bundle. Rotating before consolidation targets
+    the wrong artifact.
+
+  FILED HERE BECAUSE NOTHING ELSE RECORDS IT -- a small code item, not an
+  operator one, surfaced while triaging two capture uploads: the capture
+  bundle cannot identify its own commit. 01_sysinfo.log carries the OS
+  and the CHANGELOG head but no SHA, so two uploads from different trees
+  were distinguishable only by content-hashing 02_SUMMARY.txt.
+  `09_http_smoke.log` does carry the sha via /api/health, but only when
+  the service stage ran. Adding `git rev-parse HEAD` to 01_sysinfo.log
+  makes every future bundle self-identifying; it is a .sh change and
+  rides any cut that touches capture.sh.
 
   UNVERIFIED, carried forward and not to be mistaken for closed:
   - whether any sites_config write site reaches _save_sites_config outside
