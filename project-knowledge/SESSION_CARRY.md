@@ -1462,3 +1462,99 @@ box, not here.
 NOTHING TESTS IT. tests/test_v3_43_68_jsonapi.py:488 asserts only
 hasattr(SiteRunner, "_try_jsonapi_extractor"). A gate whose denominator
 is "the method exists" cannot see a method that always raises.
+
+### 15.13 | Session close 2026-08-02, 014f894 (v3.66.838) -- SUPERSEDES 15.7's open set
+
+15.7 advertises itself as "what remains open in the WHOLE register" and is
+therefore the section a fresh session reads as authority. It is now wrong in
+BOTH directions: it lists three items that have shipped, and it predates five
+filed items including 15.12. 15.7 is a dated, commit-anchored session close
+(e4a0e4b, v3.66.832) and its body is NOT edited here -- rewriting it would
+destroy the provenance its own heading claims. This section supersedes it.
+
+SHIPPED SINCE 15.7 was written, so no longer open:
+
+  - s4#3  install_service.sh polled is-active, not serving -- FIXED v3.66.836.
+  - s5    Phase B manual-takeover early-return -- this was TWO defects, not
+          one. The dropped on_done contract is FIXED v3.66.834; the takeover
+          refusing its own calling thread is FIXED v3.66.835. Conflating them
+          was the trap; two test files now keep them apart.
+  - s5    cookies_expiry_info graded the -1 session sentinel EXPIRED -- FIXED
+          v3.66.833.
+
+THE OPEN SET at 014f894, superseding 15.7's:
+
+  OPEN, real, unscheduled:
+  - 15.12  six runner_extractors completion paths cannot execute
+           (safe_dest(str) raises; all five entry points swallow it). LARGEST
+           open defect. Premise "they have never completed a download" is
+           supported by a box query returning 0 for all five db_log markers,
+           but is still not PROVEN -- see 15.12.
+  - 15.9   check_stale_locks has no real subject; fix unscheduled.
+  - 15.8   census coverage counts rows it never examined.
+  - 15.11  qB/JD library rows -- dl_dir IS in scope, so only WHICH FILE a
+           directory-valued download names is open.
+  - s5     /home/claude path residue. Re-measured 2026-08-02: ~324 file edits
+           including 147 mirrors. The earlier "393 files / 1541 occurrences"
+           and a later 1534 have never been reconciled; re-derive before
+           acting on any of the three figures.
+  - Audit #3  cold Ollama: ai_provider.warmup() preloads only model_text, so
+           the first capture after a reboot fails on a healthy backend.
+  - #7     seeded rows. RE-SCOPED, and the item as filed is stale: the
+           dedup-POISONING it names was closed by the per-process run nonce
+           (live_seed.py:89 + seeded_url), and db_find_url_in_history is an
+           exact-URL match that cannot cross runs. What remains is unbounded
+           RESIDUE accumulating in history on the box, contaminating exactly
+           the denominators 15.8 is about. Three places still state the
+           stale rationale as fact.
+
+  CORRECTED, s4#4 -- THE PREMISE IS DEAD. 15.7 says band runs write
+  plugins/ackgate.py into the tree, "neither tracked nor ignored". Measured
+  2026-08-02: that does not reproduce. What IS observed is repo-root
+  .db-wal/-shm residue, and the writing test has not been bisected. Do not
+  inherit the plugins/ackgate.py wording; re-derive.
+
+  NEW, found while costing the backlog (not previously filed):
+  - the import-graph gate's predicate is blind to the
+    `from bulk_downloader import X` form, missing ~240 edges. Widening the
+    gate's WALK to tests/ without first fixing the PREDICATE would admit
+    tests/ half-blind, so the predicate fix must land first.
+
+  DEFERRALS, still deliberate:
+  - import-graph gate walks only bulk_downloader/ and tools/ (see the new
+    predicate item above -- it changes the order, not the decision).
+  - b4f0c80, the pre-force commit of the deleted preflight branch:
+    unexamined, no verdict, and it exists ONLY in test4's object store. It
+    is the sole item in this register that can become permanently
+    unrecoverable. One `git show` settles it.
+  - Library panel shows 31 fixture rows as `missing`. Which query produces
+    the 31 has NOT been discriminated; two different mechanisms would imply
+    different fixes and different bands. Measure before choosing.
+
+  OPERATOR ACTIONS (15.10 and box hygiene): consolidate the B1/B2/B4 archive
+  keep-set into one verified bundle (B3 is deletable now its plaintext
+  password-manager export was destroyed); decide B4's 533 raw wacz and its
+  91 mid-transaction .db copies BEFORE consolidating; rotate the orphan
+  bundle AFTER consolidation, or rotation targets the wrong artifact; remove
+  the three stale agent worktrees, which also quiets the stale_locks WARN.
+
+TWO CITATIONS IN THIS REGISTER WERE WRONG, and both are corrected here rather
+than left to mislead. Each names a genuinely CLOSED item, so the risk was not
+a re-opened defect but a reader deleting the wrong guard:
+
+  - #10, the VPN config leak, is CLOSED-VERIFIED -- driven end to end, not
+    reasoned. Cite conftest.py:345-381 (the autouse fixture and its raise at
+    :368), NOT the bare :304, which lands in the explanatory comment block.
+    A reader who opens :304 expecting a guard finds prose.
+  - Audit #1, the sites_config.json leak, is CLOSED-VERIFIED for the reported
+    vector -- but NOT by the mechanism previously named. It is closed by
+    app.py:1173-1183 plus the autouse chdir at conftest.py:197. It is NOT
+    closed by "BD_INSTALL_DIR keying at conftest.py ~:521". The distinction
+    matters: the chdir is what covers the BD_INSTALL_DIR-unset case, so a
+    session that trusted the old wording could delete conftest.py:197
+    believing install-dir keying covered it. It does not.
+
+STILL UNMEASURED, recorded so it is not mistaken for closed: whether any
+sites_config write site reaches _save_sites_config outside the autouse chdir
+window with BD_INSTALL_DIR unset. No unsafe instance was found; the
+enumeration was not exhaustive. Those are different statements.
