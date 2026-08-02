@@ -1362,3 +1362,50 @@ snapshots jointly hold ~350 cookie-class and ~130 secret-class files
 STATUS: triage MEASURED and complete; execution (secure the Proton Pass
 export, dedup B2, decide raw wacz + dirty dbs, consolidate) is operator
 work, not a cut. Item 4 of the 2026-08-01 queue closes with this entry.
+
+### 15.11 | qB/JD library rows: a directory has no absolute FILE path -- OPEN
+
+Filed 2026-08-02 alongside v3.66.837, which fixed the eight live
+db_log done-sites that DO hold an absolute file path. These two do not,
+and the rule for them is a product decision, not a mechanical fix.
+
+THE SHAPE. The qBittorrent and JDownloader bridges record completion
+from a transfer-state dict whose `st['filename']` may name a torrent
+DIRECTORY containing many files, not a single file. v3.66.837's
+contract -- record a library row only when given an absolute path --
+means these sites currently record NO row. That is deliberate: a wrong
+row is worse than no row, and it is the same reasoning the cut applies
+to any caller without a path. But it is a gap, not a resolution.
+
+THE OPTIONS, and what each breaks:
+
+  (a) record the DIRECTORY as file_path. Cheapest. But library rows
+      then mix files and directories in a column every consumer treats
+      as a file -- storage_tier, retention, the Plex/TPDB writers and
+      library_final's resolver all assume a file, and file_exists /
+      file_size become meaningless for those rows.
+  (b) record the LARGEST MEDIA FILE inside the directory. Matches what
+      a user means by "the download", and keeps every consumer's
+      assumption true. Needs a scan at record time, a media-extension
+      predicate, and a tie-break rule; multi-episode torrents get one
+      row where arguably they want several.
+  (c) record NOTHING and let scan() pick the files up on its backward
+      pass. Correct rows, no invented rule, at the cost of the forward
+      path never covering torrent downloads -- the library lags until a
+      scan runs. THIS IS TODAY'S BEHAVIOUR by omission, not by choice.
+
+UNVERIFIED, and it decides between them: whether `st['filename']` is
+in practice ever a directory on this operator's sites, or always a
+single file. Nobody has measured it. If it is always a file, the whole
+item collapses into "pass the path" and joins v3.66.837's pattern.
+
+ALSO OPEN, recorded here so it is not lost: the count of pre-existing
+ghost rows on the box. v3.66.837 is fix-forward and touched no existing
+row. The settling query, to be run on test4:
+
+    SELECT COUNT(*) FROM library WHERE file_path NOT LIKE '/%';
+
+The "27" figure quoted in earlier queue text is UNVERIFIED and is
+probably a conflation with 14.3(a)'s history-residue count; the upper
+bound implied by that section is 31. Measure before any backfill, and
+prefer resolve-and-merge over delete -- each ghost has a scanned twin.
