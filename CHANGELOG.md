@@ -4,6 +4,31 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.839 - the capture told the operator "}", "}", "]" instead of the reason
+
+- When seeding declined, capture.sh printed a fixed `tail -3` of the seed
+  log. Reproduced with the real tool at v3.66.838: exit 2, a 31-line log
+  whose LINE 1 is the REFUSED sentence explaining that /api/vpn/status
+  could not be read -- and whose last three lines, the only ones the
+  operator saw, are `"dry_run": true`, `}`, `]`. The tail of a JSON plan
+  was shown in place of the diagnostic.
+- TWO independent causes, and fixing either alone still misreports.
+  live_seed writes its plan JSON to stdout and its REFUSED/TIMEOUT
+  diagnostic to stderr; capture.sh merges them with 2>&1, and when stdout
+  is a FILE it is block-buffered while stderr is write-through, so the two
+  do not interleave in source order. Separately, the TIMEOUT arm emits one
+  line per unresolved URL, so the diagnostic is variable-length -- no fixed
+  N is ever correct.
+- The seeder now runs with -u so the streams interleave in source order,
+  and the failure branch SELECTS on the `live_seed: ` marker both exit
+  paths emit rather than on position. When no marker is present it says so
+  and points at the log, instead of printing an arbitrary slice that reads
+  as the cause.
+- The gate pins both halves separately: that the report is not a blind
+  fixed tail, and that it actually surfaces the reason -- a fix that merely
+  stopped printing the wrong thing would satisfy the first and leave the
+  operator with nothing.
+
 ## v3.66.838 - three box failures the container bands could not see
 
 - test_v3_43_52_keeper_collision went red on the box. v3.66.835 added an

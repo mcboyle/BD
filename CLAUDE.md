@@ -156,11 +156,15 @@ Then regenerate `PIN_INDEX` (`venv/bin/python tools/build_pin_index.py`) and rea
 the `form == "version"` entries out of `PIN_INDEX.json` — do not assume the pin
 list has stayed at one entry.
 
-Do **not** reach for `grep -rnE '__version__ *== *"3\.66\.' tests/` here. It
-returns five hits of which exactly one is a real pin
-(`tests/test_settings_center_slice4.py:200`); the other four are fixture string
-literals inside `test_release_hygiene_gates.py` and
-`test_scan_version_pins_fixture.py`, plus `__pycache__` binary matches.
+Do **not** reach for `grep -rnE '__version__ *== *"3\.66\.' tests/` here.
+Measured at v3.66.838: **8 hits across four `.py` files**, of which exactly one
+is a real pin (`tests/test_settings_center_slice4.py:200`). The other seven are
+fixture string literals — `test_versync_gate.py` (3),
+`test_release_hygiene_gates.py` (2), `test_scan_version_pins_fixture.py` (2) —
+plus three `__pycache__` binary matches the raw grep also reports.
+This paragraph itself said "five hits" and named only two of the four files
+until v3.66.838; `test_versync_gate.py`'s three were invisible to it. A
+worked example of the trap it is warning about, in the warning.
 `build_pin_index.py` uses AST precisely so those fixtures are structurally
 invisible to it. This is section 1's rule applied to this file: the instrument
 fixes the denominator, the predicate fixes the subject.
