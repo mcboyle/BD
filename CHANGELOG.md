@@ -4,6 +4,37 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.834 - login_async's on_done now fires exactly once on every path
+
+- login_async(on_done=cb) publishes a callback contract, and three return
+  paths never honoured it: the in-flight-thread guard, the pending-manual-
+  takeover guard, and any exception escaping the _run thread body. The sole
+  consumer, _check_cookies_or_relogin, waits 60 s on that callback -- so each
+  dropped notification burned the full wait and then reported "Auto re-login
+  failed", a verdict it never actually observed.
+- A single-fire notifier now wraps on_done: every path resolves it exactly
+  once with a bool, and a raising caller-supplied callback is logged instead
+  of killing the login thread (on the MANUAL_PENDING branch a bare callback
+  raise would also have fallen through into the Phase B fallback).
+- The pending-manual-takeover guard resolves False immediately (not logged in
+  yet -- same verdict as the auto-teach divert, delivered without the 60 s
+  stall). The in-flight guard does NOT fire False: the running login may
+  succeed, so a watcher joins the live thread (55 s, strictly under the
+  consumer's 60 s wait) and reports its outcome by cookie freshness --
+  _cookies_updated_at must move past the value captured at call time, because
+  it is initialised once and never reset, and a bare > 0 would report a stale
+  prior success as this login's outcome.
+- _run's body is wrapped in try/except/finally: a crashed login thread now
+  sets a terminal status instead of pinning "Logging in..." forever, and
+  finally-fires False as the at-least-once guarantee.
+- The Phase 19.fix anti-orphan guards are unchanged -- no second login
+  thread, no second browser; only the notification changes. login_async
+  still returns immediately, and pause_site_keepers still precedes do_login
+  inside _run (INV-001).
+- Known, deliberately out of scope: the Phase B fallback still cannot open
+  its takeover window (start_manual_login's alive-guard refuses its own
+  caller thread). That is the next cut.
+
 ## v3.66.833 - a -1 session cookie was graded EXPIRED and re-logged-in a live login
 
 - Playwright marks a session cookie with `expires: -1`, and the browser
