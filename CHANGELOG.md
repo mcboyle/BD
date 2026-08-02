@@ -22,11 +22,17 @@ archive is not present in this repository; consult source-control history.
   dedup path have always passed a full path as filename and their rows
   were correct, so keying on the new argument alone silently stopped
   recording them -- caught by the band, not by reasoning.
-- Eight live call sites now pass the path they already hold:
+- Eight call sites now pass the path they already hold:
   runner_transport's already-have and saved paths, and all six
   runner_extractors done-sites (jsonapi, vixen, dl8, aylo, and both
-  library-extractor arms). Reachability of those six was MEASURED, not
-  assumed -- each is called from _process_one inside the worker loop.
+  library-extractor arms).
+- CORRECTION to an earlier draft of this entry, which called all eight
+  "live, MEASURED". What was measured was the CALL GRAPH; adversarial
+  review then showed the six extractor sites cannot EXECUTE at all --
+  safe_dest(str) raises AttributeError upstream and every caller
+  swallows it (register 15.12). Two of the eight are live today. The
+  six edits are correct and inert, and they stop being inert the moment
+  15.12 is fixed. Measuring reachability is not measuring execution.
 - The GCW probe row is suppressed by construction: that path aborts the
   transfer and saves no file, so it passes no path and now records no
   library row. It previously minted one for a file that never existed.

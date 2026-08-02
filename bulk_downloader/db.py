@@ -1078,13 +1078,18 @@ def db_log(site_id, site_name, url, status, filename="", file_size=0, message=""
     # have always passed a full path as `filename` -- the Stash dedup path
     # (runner_integrations.py) does, and its rows were correct; keying only on
     # the new argument would have silently stopped recording them.
-    _lib_path = file_path or filename
-    if status == "done" and _lib_path and _os.path.isabs(str(_lib_path)):
+    if status == "done":
+        # Inside the try, not outside it: F3 above requires that nothing on the
+        # done path propagates, or the caller flips a completed job to failed
+        # and re-downloads it. str()/isabs() on caller-supplied data is a thin
+        # surface, but it is not the zero surface a bare truthiness test was.
         try:
-            from . import library as _library
-            _library.library_record(
-                str(_lib_path), history_id=history_id, site_id=site_id,
-                file_size=file_size)
+            _lib_path = file_path or filename
+            if _lib_path and _os.path.isabs(str(_lib_path)):
+                from . import library as _library
+                _library.library_record(
+                    str(_lib_path), history_id=history_id, site_id=site_id,
+                    file_size=file_size)
         except Exception:
             pass
 

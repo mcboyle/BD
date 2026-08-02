@@ -1370,12 +1370,25 @@ db_log done-sites that DO hold an absolute file path. These two do not,
 and the rule for them is a product decision, not a mechanical fix.
 
 THE SHAPE. The qBittorrent and JDownloader bridges record completion
-from a transfer-state dict whose `st['filename']` may name a torrent
-DIRECTORY containing many files, not a single file. v3.66.837's
-contract -- record a library row only when given an absolute path --
-means these sites currently record NO row. That is deliberate: a wrong
-row is worse than no row, and it is the same reasoning the cut applies
-to any caller without a path. But it is a gap, not a resolution.
+from a transfer-state dict whose `st['filename']` is a bare NAME
+(qb_bridge.py:514, jd_bridge.py:483 -- never a path), and which may name
+a torrent DIRECTORY containing many files rather than a single file.
+v3.66.837's contract -- record a library row only when an absolute path
+is available -- means these sites currently record NO row. That is
+deliberate: a wrong row is worse than no row. But it is a gap, not a
+resolution, and it LOSES VISIBILITY that existed before: library.py:669
+surfaces file_exists=0 rows as "missing", so a qB download used to show
+up as a reconcilable missing row and now shows up nowhere until a scan
+walks dl_dir.
+
+CORRECTION, measured 2026-08-02 after this entry was first written: an
+absolute path IS mechanically available at both sites. `dl_dir` is in
+lexical scope at each db_log call (_try_qb_download and _try_jd_download
+both bind it; it is the same value passed to client.submit(...,
+dest_dir=dl_dir)). So the open question is NOT "is a path available" --
+it is only WHICH FILE a directory-valued download should name. An
+earlier draft of this entry said the item might "collapse into pass the
+path"; it does not. It collapses into "join dl_dir", which is easier.
 
 THE OPTIONS, and what each breaks:
 
@@ -1409,3 +1422,43 @@ The "27" figure quoted in earlier queue text is UNVERIFIED and is
 probably a conflation with 14.3(a)'s history-residue count; the upper
 bound implied by that section is 31. Measure before any backfill, and
 prefer resolve-and-merge over delete -- each ghost has a scanned twin.
+
+### 15.12 | Six extractor completion paths cannot execute -- OPEN, pre-existing
+
+Filed 2026-08-02 from v3.66.837's adversarial review. NOT introduced by
+that cut; it changes what the cut's own commit message claimed, and it
+is the more consequential finding of the two.
+
+THE DEFECT. runner_extractors.py assigns
+`output_filename = safe_dest(rendered)` at :992, :1235, :1512, :1708,
+:2222 and :2231, where `rendered` is a str (from
+resolve_filename_template, or a `title_root + ext` fallback).
+detect.py:537-538 is `def safe_dest(path): if not path.exists()` -- a
+Path method. Measured: `safe_dest('Scene Title.mp4')` raises
+AttributeError: 'str' object has no attribute 'exists'. No assignment
+is inside a try. All five entry points (runner.py:2991, :3023, :3463,
+:3482, :3499) wrap the call in `except Exception` and fall through, so
+the jsonapi, vixen, dl8, aylo and both library-extractor arms never
+reach their db_log at all. Those download paths cannot complete today.
+
+WHY IT WAS MISSED, and the rule it illustrates. v3.66.837 asserted
+these six sites were "live, MEASURED not assumed". What was measured
+was the CALL GRAPH -- each function is called from _process_one in the
+worker loop -- which is a different question from whether execution
+reaches the line. CLAUDE.md section 1 names exactly this: a
+verification can answer a different question than the item asks, and
+be true and useless. The earlier "probably dead code" read was right,
+for a reason nobody had established.
+
+NOT PROVEN, and it decides the item: whether these paths have EVER
+completed a download. The AttributeError was reproduced with
+production-shaped input and the swallow-sites were derived by AST, but
+no one drove _try_jsonapi_extractor end-to-end against a real page. If
+the operator has ever seen a jsonapi_done / vixen_done / dl8_done /
+aylo_done event in the live log, this entry is wrong and must be
+re-derived. That check is the cheapest next step and it lives on the
+box, not here.
+
+NOTHING TESTS IT. tests/test_v3_43_68_jsonapi.py:488 asserts only
+hasattr(SiteRunner, "_try_jsonapi_extractor"). A gate whose denominator
+is "the method exists" cannot see a method that always raises.

@@ -208,3 +208,58 @@ def test_library_stats_counts_each_file_once(forward_path_probe):
         f"{_FLAT_BYTES + _NESTED_BYTES}")
     assert stats["missing_files"] == 0, (
         f"missing_files={stats['missing_files']}, but both files are on disk")
+
+
+def test_the_forward_path_itself_records_an_absolute_row(clean_workdir):
+    """The green half of the contract, which the fixture above cannot see.
+
+    Every row the other tests assert over is produced by the SCANNER, so an
+    implementation that deleted db_log's forward-path library_record outright
+    would pass them all. Measured with runtime mutants: dropping the file_path
+    kwarg, and deleting the forward path entirely, both left this file 7/7
+    green. That is CLAUDE.md section 0 applied to this gate itself -- a
+    denominator (library rows) that structurally excludes its subject
+    (forward-path rows).
+
+    So: record via db_log ONLY, over a file the scanner never walks, and
+    assert the row exists at the absolute path.
+    """
+    from bulk_downloader import app as _app  # boot triggers migrations
+    from bulk_downloader.db import db_log
+    from bulk_downloader import library as lib
+
+    unscanned = clean_workdir / "elsewhere"
+    unscanned.mkdir(parents=True)
+    target = unscanned / "forward_only.mp4"
+    target.write_bytes(b"\0" * 4096)
+
+    db_log("site2", "Site Two", "https://example.invalid/fwd", "done",
+           target.name, 4096, "", file_path=str(target))
+
+    rows, _ = lib.library_browse(limit=50)
+    matches = [r for r in rows if r["file_path"] == str(target)]
+    assert len(matches) == 1, (
+        "the forward path did not record a row at the absolute path. No scan "
+        f"ran here, so this row can only come from db_log itself. rows={rows!r}"
+    )
+    assert matches[0]["history_id"] is not None, (
+        "the forward-path row must carry its history back-reference")
+
+
+def test_a_basename_only_producer_still_records_nothing(clean_workdir):
+    """The negative half, isolated from the scanner for the same reason."""
+    from bulk_downloader import app as _app
+    from bulk_downloader.db import db_log
+    from bulk_downloader import library as lib
+
+    unscanned = clean_workdir / "elsewhere2"
+    unscanned.mkdir(parents=True)
+    (unscanned / "ghosty.mp4").write_bytes(b"\0" * 2048)
+
+    db_log("site3", "Site Three", "https://example.invalid/ghost", "done",
+           "ghosty.mp4", 2048, "")  # no file_path, basename only
+
+    rows, _ = lib.library_browse(limit=50)
+    ghosts = [r for r in rows if not os.path.isabs(r["file_path"])]
+    assert not ghosts, (
+        f"a basename-only producer minted a non-absolute library row: {ghosts!r}")
