@@ -1303,3 +1303,62 @@ change to selftest.py needing its own authorized cut: delete the check,
 or re-point it at an artifact BD actually writes (check_orphan_tempfiles
 already covers BD's real temp artifacts). Operator-side, `git worktree
 remove` of the three stale worktrees quiets the warn with no code change.
+
+### 15.10 | The four-snapshot archive triage -- MEASURED, verdicts filed
+
+Filed 2026-08-01. All figures operator-measured on test4 (deep inventory
+`~/archive_inventory.sh` v2 -- every class found by whole-tree walk, never
+a fixed-path probe -- plus five targeted probes; outputs pasted to the
+session). Nothing below was executed; every action is the operator's.
+
+The v1 inventory probed expected paths ("$d/templates" etc.) and reported
+zeros a nested layout made truthful and useless -- section 0 in shell
+form. v2 figures superseded it in every class.
+
+  BulkDownloader 1 (328M) -- a curated redacted-capture corpus wearing a
+  source tree. 239 `*.redacted.wacz` under from_v2/ and from_last14/;
+  source is near-main (4 absent names, all explained: deploy_manifest.py
+  + its test retired deliberately; diag_csrf_bootstrap.py one-off;
+  player_recognition.PATCHED.py an operator hand-patch worth diffing
+  before discard). KEEP the corpus + the PATCHED file; the tree around
+  them is redundant.
+
+  BulkDownloader 2 (3.0G) -- the pre-git session-handoff archive, NOT a
+  release history (exactly one shipped release zip:
+  BulkDownloader_v3_66_805.zip). Unique: the audit_state_v3_66_805
+  witness battery (44 .py absent from main), "project files/" tools, the
+  corpus + recordings packs. Four duplicate zip pairs CONFIRMED identical
+  by sha256, including bdsuite_v3_66_810.zip == bdsuite_v3_66_805.zip --
+  byte-identical under two different version labels, so one label is
+  false; do not trust bdsuite zip names against their content. The big
+  packs (pack_A/B/C/E, ~1.6G) are nested DEPENDENCY KITS (chromium,
+  node, webproxy) -- rebuildable downloads, not operator data. KEEP
+  witnesses/tools/corpus/recordings; duplicates and kit packs are
+  deletable at the operator's discretion.
+
+  BulkDownloader 3 (18M) -- ONE FILE MATTERS: "Proton
+  Pass_export_2026-07-19_1784474629.xlsx", a password-manager export in
+  plaintext, in an unencrypted snapshot dir. Secure or destroy it FIRST;
+  after that B3 holds nothing unique (0 absent .py names; 92 older
+  revisions; 4 PWA icons) and is deletable. NOTE: the inventory's
+  credential patterns did NOT flag this file -- no pattern matches
+  password-manager exports; a future sweep should add one
+  (*Pass_export*, *keepass*, *bitwarden*, *1password*, *.kdbx).
+
+  BulkDownloader 4 (11G) -- the Windows-era everything-folder. Real
+  value: the capture/template store (~13k files) and 784 redacted wacz.
+  Open decisions: 533 RAW wacz (may carry session material -- redact or
+  secure); 91 `.db` sitting beside 90 `.db-journal` -- copies taken
+  mid-transaction, which roll back on open, so none is a clean backup as
+  it sits. Rebuildable bulk: cockpit_tasks/ Windows venvs
+  (venv/Lib/site-packages) and PyInstaller dists
+  (dist/BulkDownloader/_internal/), .worktrees/, 571 `.old` files.
+
+CROSS-CUTTING: the keep-set should end up in ONE verified operator
+bundle, as the branch family did (15.4), not four ad-hoc trees -- the
+snapshots jointly hold ~350 cookie-class and ~130 secret-class files
+(v2 counts, vendor-excluded) plus the items named above.
+
+STATUS: triage MEASURED and complete; execution (secure the Proton Pass
+export, dedup B2, decide raw wacz + dirty dbs, consolidate) is operator
+work, not a cut. Item 4 of the 2026-08-01 queue closes with this entry.
