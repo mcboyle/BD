@@ -831,7 +831,12 @@ if [ -f "$BD_HOME/tools/live_seed.py" ] && [ -f "$BD_HOME/tools/fixture_site.py"
     # respect to egress — state defaults to "down", no SOCKS port is allocated
     # until start_tunnel() which the seeder never calls, and no site routes to
     # it — so it is observable without being live.
-    if venv/bin/python tools/live_seed.py --seed --start --start-timeout 180 \
+    # -u is load-bearing: live_seed writes its plan JSON to stdout and its
+    # REFUSED/TIMEOUT diagnostic to stderr. Merged into one file with 2>&1,
+    # stdout is block-buffered while stderr is write-through, so without -u
+    # the two do not interleave in source order and the reason surfaces at
+    # whichever end the buffer happened to flush.
+    if venv/bin/python -u tools/live_seed.py --seed --start --start-timeout 180 \
          --login --vpn-tunnel --count 3 $_seed_force \
          > "$OUT/05a_live_seed.log" 2>&1; then
       SEEDED=1
@@ -844,7 +849,24 @@ if [ -f "$BD_HOME/tools/live_seed.py" ] && [ -f "$BD_HOME/tools/fixture_site.py"
       # nothing is cheaper than stranding marked state on the box.
       SEEDED=1
       echo "  seeding declined or failed (not a capture failure):"
-      tail -3 "$OUT/05a_live_seed.log" 2>/dev/null | sed 's/^/    /'
+      # Select on the diagnostic marker, never on position. Both exit paths
+      # emit a `live_seed: ` line (REFUSED, and TIMEOUT which then adds one
+      # line per unresolved URL), so the reason is variable-length AND at an
+      # unpredictable offset -- a fixed `tail -N` printed the tail of the plan
+      # JSON instead, which is how "}", "}", "]" reached the operator while
+      # the real sentence sat on line 1.
+      _seed_why="$(grep -n 'live_seed: ' "$OUT/05a_live_seed.log" 2>/dev/null \
+                   | head -1 | cut -d: -f1)"
+      if [ -n "$_seed_why" ]; then
+        sed -n "${_seed_why},\$p" "$OUT/05a_live_seed.log" 2>/dev/null \
+          | head -12 | sed 's/^/    /'
+      else
+        # No marker: say the log could not be read for a reason rather than
+        # printing an arbitrary slice of it and letting it read as the cause.
+        echo "    (no 'live_seed:' diagnostic in the log -- full output is in"
+        echo "     $OUT/05a_live_seed.log)"
+        head -5 "$OUT/05a_live_seed.log" 2>/dev/null | sed 's/^/    /'
+      fi
     fi
   else
     echo "  fixture site did not come up on :8899 — skipping seed"
