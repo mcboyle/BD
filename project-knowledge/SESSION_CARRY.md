@@ -1598,3 +1598,103 @@ STILL UNMEASURED, recorded so it is not mistaken for closed: whether any
 sites_config write site reaches _save_sites_config outside the autouse chdir
 window with BD_INSTALL_DIR unset. No unsafe instance was found; the
 enumeration was not exhaustive. Those are different statements.
+
+### 15.14 | Session close 2026-08-02, a7f0f92 (v3.66.840) -- SUPERSEDES 15.13's open set
+
+Seven PRs merged (#120-#126), eight cuts (v3.66.833-840). One box capture
+PASSED clean at v3.66.838 (14424 pass / 0 fail / 85 skip, live 36/0/0,
+graph pin OK, /api/health reporting sha 014f894 -- so the running process
+was verified on the merged tree, not just the checkout).
+
+SHIPPED THIS SESSION, no longer open:
+
+  - 833  cookies_expiry_info graded the -1 session sentinel EXPIRED.
+  - 834  login_async dropped on_done on two guard paths (60s stall then a
+         false "Auto re-login failed"). NOTE the cut introduced and then
+         fixed a false-SUCCESS regression; see 2a in CLAUDE.md.
+  - 835  the Phase B takeover refused its own calling thread.
+  - 836  install_service.sh certified RUNNING from is-active alone.
+  - 837  every completed download minted a permanent library ghost row.
+  - 838  three box failures the container bands could not see.
+  - 839  the capture printed "}" instead of the seed-failure reason.
+  - 840  five extractor download backends could never complete (15.12).
+  - 15.12 CLOSES with 840. b4f0c80 CLOSED (see 15.13). s4#3, the Phase B
+         pair and the -1 sentinel CLOSED (see 15.13).
+
+THE OPEN SET at a7f0f92:
+
+  OPEN, real, unscheduled -- in the order the costing pass ranked them:
+  - 15.9   check_stale_locks has no real subject. DELETE is the recommended
+           variant; band 318. Cheaper now: its three phantom WARNs live in
+           worktrees that `git worktree prune` removes.
+  - 15.8   census coverage counts rows it never examined. Band 154.
+           Sequence BEFORE #7 -- its honest numbers are the instrument that
+           shows whether #7's clear worked.
+  - Audit #3  cold Ollama: warmup() preloads only model_text, so the first
+           capture after a reboot fails on a healthy backend. Band 414.
+           Three operator decisions ride along. A timeout-only change is
+           REJECTED-measured: the binding wall is inside the app.
+  - 10-C   the import-graph predicate is blind to the
+           `from bulk_downloader import X` form (~240 missed edges). Band
+           202. MUST land before any widening of the walk (10-A/10-B).
+  - #7     seeded history residue. RE-SCOPED: the dedup-poisoning it named
+           was closed by the per-process run nonce; unbounded residue
+           remains and contaminates 15.8's denominators. Band 298.
+  - 15.11  qB/JD library rows. dl_dir IS in lexical scope at both sites, so
+           only WHICH FILE a directory-valued download names is open.
+           Option (a) record-the-directory is REJECTED-measured: four
+           consumer breakages, and it reintroduces 837's ghost class.
+  - s4#4   PREMISE DEAD (see 15.13). What is actually observed is repo-root
+           .db-wal/-shm residue; the writing test has NOT been bisected.
+  - s5     /home/claude residue. ~324 file edits incl. 147 mirrors.
+           Blocked on an operator scoping decision, not on measurement.
+           Three different figures (393/1541, 1534, ~324) have never been
+           reconciled -- re-derive, do not inherit any of them.
+
+  OPEN, needs a measurement first (cheap, unblocks the item):
+  - item 12  the Library panel's 31 `missing` fixture rows. WHICH query
+           produces the 31 has not been discriminated; two mechanisms imply
+           different fixes and different bands. Measure before choosing.
+
+  DEFERRALS, still deliberate:
+  - 10-A/10-B  widening the import-graph walk to tests/, or a separate
+           tests/-baseline. Either way 10-C first. Standing cost: a
+           re-freeze on roughly a quarter of future commits.
+
+  OPERATOR ACTIONS, in dependency order:
+  - `git worktree prune -v` on the box (six /tmp entries, risk-free), then
+    per-entry decisions on the other twelve. See 15.13 for the count.
+  - `git checkout -B main origin/main` in the deploy checkout -- it reports
+    a stale agent branch name. Content is correct; only the name misleads.
+  - B4's 533 raw wacz (redact or secure) and its 91 mid-transaction .db
+    copies -- decide BOTH before consolidating.
+  - consolidate the B1/B2/B4 archive keep-set into one verified bundle
+    (B3 is deletable), THEN rotate the orphan bundle. Rotating first
+    targets the wrong artifact.
+
+  UNVERIFIED, carried forward and not to be mistaken for closed:
+  - whether any sites_config write site reaches _save_sites_config outside
+    the autouse chdir window with BD_INSTALL_DIR unset. No unsafe instance
+    found; the enumeration was not exhaustive. Different statements.
+  - the pre-existing ghost-row count on the box. 15.8/15.11's settling
+    query is `SELECT COUNT(*) FROM library WHERE file_path NOT LIKE '/%'`.
+    The "27" figure is unverified and probably conflates 14.3(a).
+  - whether 840 actually restores completions in practice. If any site
+    routes to jsonapi/vixen/dl8/aylo or the library extractor, history
+    should begin carrying `jsonapi=`-style markers for the first time.
+    That is the real-world confirmation the archaeology could not give.
+
+PROCESS FAILURES THIS SESSION are recorded in CLAUDE.md section 2a rather
+than here, because they are contract, not history: regen after the last
+source edit; untracked files from other cuts contaminate the regen; the
+git-ls-files gates cannot see untracked test files so their pre-merge pass
+proves nothing; `git fetch --prune` must accompany every post-merge reset
+and a refspec-scoped prune collects nothing else; harnesses must
+discriminate the exception they hunt and cut on structure not width;
+subagent output is data, not evidence; a green band is not the absence of
+a regression; and say which question you measured.
+
+CAPTURE STATE: the box was captured GREEN at v3.66.838. Cuts 839 and 840
+are NOT yet captured. 840 changes runtime behaviour (runner_extractors),
+839 changes capture.sh's own reporting -- so the next capture exercises
+both and is the one that matters.
