@@ -174,7 +174,27 @@ class AuthMixin:
         login selectors yet, route through start_manual_login instead of
         do_login. Saves a guaranteed-to-fail auto-attempt on a brand-new
         site and forces selector capture on the first try."""
-        if self._login_thread and self._login_thread.is_alive(): return
+        # v3.66.834: single-fire notifier -- every path out of login_async
+        # resolves the caller's on_done exactly once, and a raising callback
+        # cannot kill the login thread.
+        _fired = threading.Event()
+        def _fire(ok):
+            if on_done is None or _fired.is_set():
+                return
+            _fired.set()
+            try:
+                on_done(bool(ok))
+            except Exception as _e:
+                sys.stderr.write(f"[{self.site_id}] login on_done raised: {_e}\n")
+        if self._login_thread and self._login_thread.is_alive():
+            # v3.66.834: the anti-orphan guard stands (Phase 19.fix -- no
+            # second thread, no second browser) but the caller's callback
+            # must not be dropped. Do NOT fire False here: the in-flight
+            # login may succeed, and an instant False would convert a slow
+            # false-failure into an instant one for concurrent workers.
+            if on_done:
+                self._await_in_flight_login(self._login_thread, _fire)
+            return
         # Phase 19.fix: if a manual login is already pending, login_async
         # is a no-op. Without this, clicking Login while a manual session
         # is open would call start_manual_login again, which under earlier
@@ -184,6 +204,7 @@ class AuthMixin:
             sys.stderr.write(
                 f"  login: manual login already in progress for {self.site_id} "
                 f"— click I'm Done in the takeover panel\n")
+            _fire(False)
             return
         # Auto-teach: skip the auto chain when nothing's learned yet
         if self.config.get("auto_teach_first_run", True):
@@ -197,111 +218,164 @@ class AuthMixin:
                 # Mirror login_async's normal contract: set _login_status,
                 # don't raise, let the manual-done flow do the rest.
                 self._login_status = ("⏳ " if ok else "✗ ") + msg
-                if on_done: on_done(False)  # not "ok" yet — user must finish manually
+                _fire(False)  # not "ok" yet — user must finish manually
                 return
         self._login_status="Logging in..."
+        # v3.66.834: stamp this attempt so a second caller's watcher can read
+        # THIS login's real result instead of inferring it from a shared
+        # timestamp any other code path can bump (an expired-jar set_cookies
+        # racing a failed login would otherwise read as success).
+        self._login_attempt_seq = getattr(self, "_login_attempt_seq", 0) + 1
+        _attempt = self._login_attempt_seq
         def _run():
-            # v3.43.78 (F2): pause session keepers BEFORE do_login spawns
-            # its own sync_playwright. The v3.43.52 collision pattern
-            # applies here too — a keeper heartbeat running its own
-            # sync_playwright in parallel can deadlock the worker-
-            # initiated re-login. The keeper detects its torn-down
-            # browser on next heartbeat and reconnects automatically;
-            # no explicit resume call needed (no such function exists).
-            # Best-effort: if session_keeper isn't importable or
-            # pause raises, we proceed anyway — that's the same
-            # fail-open behavior the keeper's own relogin callback
-            # uses (session_keeper.py:721).
+            _settled = threading.Event()
+            def _settle(ok):
+                if _settled.is_set():
+                    return
+                _settled.set()
+                self._login_outcome = (_attempt, bool(ok))
+                _fire(ok)
             try:
-                from . import session_keeper as _sk
-                _sk.pause_site_keepers(self.site_id)  # INV-001
-            except Exception as _e:
-                sys.stderr.write(
-                    f"[{self.site_id}] login_async: pause_site_keepers "
-                    f"raised (proceeding anyway): {_e}\n")
-            result=do_login(self.config,allow_manual_takeover=allow_manual)
-            # Manual takeover branch: store handle, set state, return
-            if result and result[0]=="MANUAL_PENDING":
-                _,reason,handle=result
-                self._manual_login_handle=handle
-                self._login_status=f"⏳ Manual login required: {reason}"
-                # Don't change self._state — login isn't a worker state.
-                # The UI looks at self._login_status and a flag to render
-                # the takeover banner.
-                if on_done: on_done(False)
-                return
-            ok,msg,cookies=result
-            if ok:
-                self.set_cookies(cookies)
-                # Phase 18.fix: signal workers that fresh cookies are available
-                self._cookies_updated_at = time.time()
-                p=self.config.get("cookie_file","")
-                if p:
-                    try:
-                        from .cookies import save_cookies_to_file
-                        save_cookies_to_file(p,cookies)
-                    except (OSError, ValueError) as e:
-                        # Cookie save failures aren't fatal — session
-                        # state survives in-memory; next login refreshes
-                        self.log.warning("cookie save to %s failed: %s", p, e)
-                self._login_status=("✓ ")+msg
-                if on_done: on_done(ok)
-                return
-            # ── Phase B (v3.62.2): templated-login failure fallback ──
-            # The auto-login failed (ok is False). When this site has a
-            # login template applied — i.e. learned.login selectors are
-            # present and the first-run manual teach was therefore
-            # SKIPPED — a hard failure here would otherwise leave the
-            # site dead with no path to recovery (stale template
-            # selectors, a site redesign, etc.). So fall back to a
-            # manual-login takeover, the exact flow the template-skip
-            # bypassed. Only when allow_manual is on and a window can be
-            # shown; worker-initiated relogins (allow_manual=False) keep
-            # the old behaviour and just report ✗ for the worker's
-            # auth-retry backoff to handle.
-            # NOTE: do_login already converts most POST-page-load
-            # failures into MANUAL_PENDING (handled above). This branch
-            # catches the residue — page-load/network failures and any
-            # other (False, ...) return — for templated sites only.
-            learned_login = (self.config.get("learned") or {}).get("login") or {}
-            had_template = any(learned_login.get(k) for k in
-                               ("user_field","pass_field","submit_btn"))
-            if (not ok and allow_manual and had_template
-                    and not getattr(self, "_manual_login_handle", None)
-                    and self.config.get("login_url","").startswith("http")):
-                sys.stderr.write(
-                    f"  login: templated auto-login failed for "
-                    f"{self.site_id} ({msg}) — falling back to manual "
-                    f"login takeover\n")
-                fallback_detail = (f"templated login failed ({msg}); "
-                                   f"opened manual login")
-                self.log_event("login_template_fallback", fallback_detail)
-                # Persist the same lifecycle event that the live L7
-                # contract reads.  log_event() intentionally owns only the
-                # bounded in-memory/SSE stream, so without this write a real
-                # fallback vanished at restart and could never become durable
-                # OPV evidence.
+                # v3.43.78 (F2): pause session keepers BEFORE do_login spawns
+                # its own sync_playwright. The v3.43.52 collision pattern
+                # applies here too — a keeper heartbeat running its own
+                # sync_playwright in parallel can deadlock the worker-
+                # initiated re-login. The keeper detects its torn-down
+                # browser on next heartbeat and reconnects automatically;
+                # no explicit resume call needed (no such function exists).
+                # Best-effort: if session_keeper isn't importable or
+                # pause raises, we proceed anyway — that's the same
+                # fail-open behavior the keeper's own relogin callback
+                # uses (session_keeper.py:721).
                 try:
-                    session_event_record(
-                        self.site_id,
-                        getattr(self, "_active_account_idx", None),
-                        "login_template_fallback",
-                        fallback_detail,
-                    )
+                    from . import session_keeper as _sk
+                    _sk.pause_site_keepers(self.site_id)  # INV-001
                 except Exception as _e:
                     sys.stderr.write(
-                        f"  login: could not persist fallback event for "
-                        f"{self.site_id}: {_e}\n")
-                m_ok, m_msg = self.start_manual_login()
-                self._login_status = (
-                    f"⏳ Auto-login failed ({msg}) — finish login "
-                    f"manually" if m_ok
-                    else f"✗ {msg}; manual fallback also failed: {m_msg}")
-                if on_done: on_done(False)
-                return
-            self._login_status=("✗ ")+msg
-            if on_done: on_done(ok)
+                        f"[{self.site_id}] login_async: pause_site_keepers "
+                        f"raised (proceeding anyway): {_e}\n")
+                result=do_login(self.config,allow_manual_takeover=allow_manual)
+                # Manual takeover branch: store handle, set state, return
+                if result and result[0]=="MANUAL_PENDING":
+                    _,reason,handle=result
+                    self._manual_login_handle=handle
+                    self._login_status=f"⏳ Manual login required: {reason}"
+                    # Don't change self._state — login isn't a worker state.
+                    # The UI looks at self._login_status and a flag to render
+                    # the takeover banner.
+                    _settle(False)
+                    return
+                ok,msg,cookies=result
+                if ok:
+                    self.set_cookies(cookies)
+                    # Phase 18.fix: signal workers that fresh cookies are available
+                    self._cookies_updated_at = time.time()
+                    p=self.config.get("cookie_file","")
+                    if p:
+                        try:
+                            from .cookies import save_cookies_to_file
+                            save_cookies_to_file(p,cookies)
+                        except (OSError, ValueError) as e:
+                            # Cookie save failures aren't fatal — session
+                            # state survives in-memory; next login refreshes
+                            self.log.warning("cookie save to %s failed: %s", p, e)
+                    self._login_status=("✓ ")+msg
+                    _settle(ok)
+                    return
+                # ── Phase B (v3.62.2): templated-login failure fallback ──
+                # The auto-login failed (ok is False). When this site has a
+                # login template applied — i.e. learned.login selectors are
+                # present and the first-run manual teach was therefore
+                # SKIPPED — a hard failure here would otherwise leave the
+                # site dead with no path to recovery (stale template
+                # selectors, a site redesign, etc.). So fall back to a
+                # manual-login takeover, the exact flow the template-skip
+                # bypassed. Only when allow_manual is on and a window can be
+                # shown; worker-initiated relogins (allow_manual=False) keep
+                # the old behaviour and just report ✗ for the worker's
+                # auth-retry backoff to handle.
+                # NOTE: do_login already converts most POST-page-load
+                # failures into MANUAL_PENDING (handled above). This branch
+                # catches the residue — page-load/network failures and any
+                # other (False, ...) return — for templated sites only.
+                learned_login = (self.config.get("learned") or {}).get("login") or {}
+                had_template = any(learned_login.get(k) for k in
+                                   ("user_field","pass_field","submit_btn"))
+                if (not ok and allow_manual and had_template
+                        and not getattr(self, "_manual_login_handle", None)
+                        and self.config.get("login_url","").startswith("http")):
+                    sys.stderr.write(
+                        f"  login: templated auto-login failed for "
+                        f"{self.site_id} ({msg}) — falling back to manual "
+                        f"login takeover\n")
+                    fallback_detail = (f"templated login failed ({msg}); "
+                                       f"opened manual login")
+                    self.log_event("login_template_fallback", fallback_detail)
+                    # Persist the same lifecycle event that the live L7
+                    # contract reads.  log_event() intentionally owns only the
+                    # bounded in-memory/SSE stream, so without this write a real
+                    # fallback vanished at restart and could never become durable
+                    # OPV evidence.
+                    try:
+                        session_event_record(
+                            self.site_id,
+                            getattr(self, "_active_account_idx", None),
+                            "login_template_fallback",
+                            fallback_detail,
+                        )
+                    except Exception as _e:
+                        sys.stderr.write(
+                            f"  login: could not persist fallback event for "
+                            f"{self.site_id}: {_e}\n")
+                    m_ok, m_msg = self.start_manual_login()
+                    self._login_status = (
+                        f"⏳ Auto-login failed ({msg}) — finish login "
+                        f"manually" if m_ok
+                        else f"✗ {msg}; manual fallback also failed: {m_msg}")
+                    _settle(False)
+                    return
+                self._login_status=("✗ ")+msg
+                _settle(ok)
+            except Exception as e:
+                self._login_status = ("✗ ")+f"login crashed: {e}"
+                sys.stderr.write(f"[{self.site_id}] login thread crashed: {e}\n")
+            finally:
+                _settle(False)
         self._login_thread=threading.Thread(target=_run,daemon=True); self._login_thread.start()
+    def _await_in_flight_login(self, thread, fire, timeout=55.0):
+        """v3.66.834: resolve a second caller's on_done against the login
+        thread that is ALREADY running (the in-flight guard path in
+        login_async).
+
+        Success is read from the in-flight attempt's OWN recorded outcome
+        (_login_outcome, stamped by _settle with the attempt's sequence
+        number), never inferred from _cookies_updated_at. An inferred
+        predicate is wrong in both directions: any other code path that
+        calls set_cookies -- account switch, transport, the sites API --
+        bumps that timestamp, so a FAILED login racing an expired-jar
+        set_cookies reads as success and the worker downloads with a dead
+        jar; and a second caller entering after the bump but before the
+        thread exits captures an already-moved baseline and reads a real
+        success as failure. The attempt stamp has neither failure mode.
+
+        timeout stays strictly under the sole consumer's 60 s wait in
+        _check_cookies_or_relogin, so the callback lands before that wait
+        expires. The two are coupled by contract, not by construction --
+        tests/test_v3_66_834_login_on_done_always_fires.py pins it."""
+        attempt = getattr(self, "_login_attempt_seq", 0)
+        def _watch():
+            thread.join(timeout)
+            rec = getattr(self, "_login_outcome", None)
+            fire(bool(rec) and rec[0] == attempt and rec[1] is True)
+        try:
+            threading.Thread(target=_watch, daemon=True,
+                             name=f"login-wait-{self.site_id}").start()
+        except Exception as _e:
+            # Thread exhaustion must not strand the caller: this guard path
+            # was a bare `return` before v3.66.834 and could not raise.
+            sys.stderr.write(
+                f"[{self.site_id}] login watcher could not start: {_e}\n")
+            fire(False)
     def start_manual_login(self):
         """Phase 19: skip auto-login entirely and open a browser at the
         login URL with the recorder + manual banner active. The user
@@ -328,7 +402,15 @@ class AuthMixin:
                 f"  manual login already pending for {self.site_id} "
                 f"— ignoring duplicate start\n")
             return True, "Manual login window already open"
-        if self._login_thread and self._login_thread.is_alive():
+        # v3.66.835: the guard exists to stop an EXTERNAL caller racing a
+        # running auto-login. login_async's own Phase B fallback calls this
+        # from inside _run -- i.e. ON self._login_thread -- so an identity
+        # check refused the very takeover it had just decided to open, and
+        # the site died at "manual fallback also failed: An auto-login is
+        # already running". Exempt the login thread from its own guard;
+        # every other caller still sees it.
+        if (self._login_thread and self._login_thread.is_alive()
+                and self._login_thread is not threading.current_thread()):
             return False, "An auto-login is already running"
         login_url = (self.config.get("login_url") or "").strip()
         if not login_url or not login_url.startswith("http"):
