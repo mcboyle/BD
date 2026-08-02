@@ -125,7 +125,17 @@ def test_the_seeder_is_run_unbuffered(capture_src):
     idx = capture_src.find("tools/live_seed.py --seed")
     assert idx > 0, "the seeding invocation moved; re-anchor this gate"
     line_start = capture_src.rfind("\n", 0, idx) + 1
-    invocation = capture_src[line_start:idx + 200]
+    # Read the whole LOGICAL command by following backslash continuations,
+    # not a fixed-width slice. A fixed window is the precise pattern
+    # test_source_windows_do_not_shift ratchets: anything inserted above the
+    # target silently pushes it out of view and the assertion then passes over
+    # nothing. Derived bounds cannot drift that way.
+    invocation_lines = []
+    for line in capture_src[line_start:].splitlines():
+        invocation_lines.append(line)
+        if not line.rstrip().endswith("\\"):
+            break
+    invocation = "\n".join(invocation_lines)
     assert re.search(r"python\s+-u\b", invocation), (
         "live_seed.py is invoked without -u, so its stdout is block-buffered "
         "when redirected to a file and the stderr reason will not appear in "
