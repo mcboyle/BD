@@ -4,6 +4,38 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.840 - five extractor download backends could never complete
+
+- detect.safe_dest(path) calls path.exists(): it takes a Path. Six sites
+  in runner_extractors.py handed it the bare str from
+  resolve_filename_template, so every extractor completion path raised
+  AttributeError. Reproduced by execution, not by reading:
+  safe_dest('Scene Title.mp4') raises, and driving the real
+  _try_library_extractor end to end crashes before its db_log.
+- Every caller in runner.py wraps the attempt in `except Exception` and
+  falls through to teach/JD/qB, so the failure was SILENT. Five backends
+  -- jsonapi, vixen, dl8, aylo, and both library-extractor arms --
+  degraded instead of erroring, and nothing above noticed.
+- THE OBVIOUS FIX IS WRONG and the gate pins that too.
+  safe_dest(Path(rendered)) stops the crash but probes the process CWD,
+  so collision detection runs in the wrong directory: it under-detects,
+  returns the un-suffixed name, and the download then OVERWRITES an
+  existing file. Worse than the crash, and silent as well.
+- All seven sites now route through one _dest_in_dir(dl_dir, rendered)
+  helper that resolves inside the download dir --
+  str(safe_dest(Path(dl_dir) / rendered)) -- and returns the path plus a
+  BASENAME, matching runner_transport's filename=final_path.name and the
+  history contract cut-25b's resolver depends on. The seventh site,
+  _try_plugin_extractor, was already correct and is the shape the other
+  six were measured against; it is routed through the helper too so the
+  expression cannot exist in two places and drift.
+- Evidence boundary, stated because two claims keep being conflated:
+  "cannot work as written" is PROVEN. "has never completed a download on
+  this box" is INFERRED -- 41 done rows all other/transport, zero
+  extractor markers, 535 log_events with zero *_done -- which failed to
+  refute the item but cannot confirm it, since sites_loaded=1 means zero
+  is also what an ineligible site yields. See register 15.12.
+
 ## v3.66.839 - the capture told the operator "}", "}", "]" instead of the reason
 
 - When seeding declined, capture.sh printed a fixed `tail -3` of the seed

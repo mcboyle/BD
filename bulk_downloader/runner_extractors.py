@@ -9,6 +9,29 @@ runner.py still references the same flags); flat-sibling imports are idempotent.
 """
 import os, re, subprocess, sys
 from datetime import datetime
+from pathlib import Path as _P
+
+
+def _dest_in_dir(dl_dir, rendered):
+    """v3.66.840: collision-safe ABSOLUTE destination for a rendered name.
+
+    detect.safe_dest takes a Path -- it calls .exists() -- and six call sites
+    handed it the bare str from resolve_filename_template, so every extractor
+    completion path raised AttributeError and was swallowed by runner.py's
+    `except Exception`. Five download backends degraded silently.
+
+    The join is the load-bearing half, not the Path() wrapper. safe_dest
+    resolves collisions by probing the filesystem, so a CWD-relative name
+    probes the WRONG DIRECTORY: it under-detects, returns the un-suffixed
+    name, and the download then overwrites an existing file. Resolve inside
+    the download dir or the fix is worse than the crash.
+
+    Returns (output_path, output_filename). output_filename stays a BASENAME,
+    matching runner_transport's `filename=final_path.name` and the history
+    contract that cut-25b's resolver depends on.
+    """
+    output_path = str(safe_dest(_P(dl_dir) / rendered))
+    return output_path, os.path.basename(output_path)
 
 # Cut 665 (2.5): a yt-dlp --limit-rate value must be a bare number with an
 # optional K/M/G suffix (e.g. "2M", "500K", "1048576", "4.2M"). Anything else
@@ -18,7 +41,7 @@ _RATE_RE = re.compile(r"^\d+(\.\d+)?[KMGkmg]?$")
 
 from .runner_util import DEFAULT_MIN_RESOLUTION
 from .db import db_log
-from .detect import find_best_download, fmt_bytes
+from .detect import find_best_download, fmt_bytes, safe_dest
 from .fname import resolve_filename_template, format_duration_for_filename
 # F5 (v3.66.689): per-capture netns isolation for the subprocess download
 # fallbacks. The engine shipped @686; this routes yt-dlp/gallery-dl launches
@@ -989,8 +1012,7 @@ class ExtractorsMixin:
             rendered = title_root + ext
         elif not os.path.splitext(rendered)[1]:
             rendered = rendered + ext
-        output_filename = safe_dest(rendered)
-        output_path = os.path.join(dl_dir_str, output_filename)
+        output_path, output_filename = _dest_in_dir(dl_dir_str, rendered)
         try:
             os.makedirs(os.path.dirname(output_path) or dl_dir_str,
                         exist_ok=True)
@@ -1232,8 +1254,7 @@ class ExtractorsMixin:
             rendered = title_root + ext
         elif not os.path.splitext(rendered)[1]:
             rendered = rendered + ext
-        output_filename = safe_dest(rendered)
-        output_path = os.path.join(dl_dir_str, output_filename)
+        output_path, output_filename = _dest_in_dir(dl_dir_str, rendered)
         try:
             os.makedirs(os.path.dirname(output_path) or dl_dir_str,
                         exist_ok=True)
@@ -1509,8 +1530,7 @@ class ExtractorsMixin:
             rendered = title_root + ext
         elif not os.path.splitext(rendered)[1]:
             rendered = rendered + ext
-        output_filename = safe_dest(rendered)
-        output_path = os.path.join(dl_dir_str, output_filename)
+        output_path, output_filename = _dest_in_dir(dl_dir_str, rendered)
         try:
             os.makedirs(os.path.dirname(output_path) or dl_dir_str,
                         exist_ok=True)
@@ -1705,8 +1725,7 @@ class ExtractorsMixin:
             rendered = title_root + ext
         elif not os.path.splitext(rendered)[1]:
             rendered = rendered + ext
-        output_filename = safe_dest(rendered)
-        output_path = os.path.join(dl_dir_str, output_filename)
+        output_path, output_filename = _dest_in_dir(dl_dir_str, rendered)
         try:
             os.makedirs(os.path.dirname(output_path) or dl_dir_str,
                         exist_ok=True)
@@ -2064,7 +2083,7 @@ class ExtractorsMixin:
                 ext = "." + ext
             if not ext:
                 ext = ".mp4"
-        output_path = str(safe_dest(_Path(dl_dir) / (title + ext)))
+        output_path, _ = _dest_in_dir(dl_dir, title + ext)
         # 695 (v3.66.695): route an HLS/DASH manifest from a plugin @extractor
         # through hls_downloader (the same ffmpeg path jsonapi/vixen use)
         # instead of falling through. ffmpeg absent / hls_downloader missing ->
@@ -2219,8 +2238,7 @@ class ExtractorsMixin:
             rendered = title_root + ext
         elif not os.path.splitext(rendered)[1]:
             rendered = rendered + ext
-        output_filename = safe_dest(rendered)
-        output_path = os.path.join(dl_dir, output_filename)
+        output_path, output_filename = _dest_in_dir(dl_dir, rendered)
         # Ensure any subdirectories the template introduced (e.g.
         # "{studio}/{title}{ext}") exist before we start writing.
         try:
@@ -2228,8 +2246,7 @@ class ExtractorsMixin:
         except Exception as e:
             sys.stderr.write(f"  library_extractor: subdir mkdir failed: {e}\n")
             # Not fatal — write into dl_dir directly with a flat name
-            output_filename = safe_dest(title_root + ext)
-            output_path = os.path.join(dl_dir, output_filename)
+            output_path, output_filename = _dest_in_dir(dl_dir, title_root + ext)
 
         self._update_job(
             url, "running",
