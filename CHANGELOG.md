@@ -4,6 +4,30 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.838 - three box failures the container bands could not see
+
+- test_v3_43_52_keeper_collision went red on the box. v3.66.835 added an
+  8-line comment to start_manual_login; the test slices
+  src[pos:pos+3000] from a find("def start_manual_login") anchor, so
+  pause_site_keepers moved 37 chars past the window and
+  open_manual_login_browser( 15 past it, and find() returned -1. The
+  comment is condensed; both symbols are back inside with 79 chars of
+  margin. Nothing about the guard changed.
+- test_gui_parity went red because v3.66.836 named a shell loop variable
+  BD_PROBE_PORT. The parity scan matches on the BD_ prefix, so a script
+  local entered the env-var ledger denominator and read as promoted but
+  unledgered. Renamed to PROBE_PORT; it was never a config key.
+- Both classes are now band rules in CLAUDE.md section 4, because
+  neither was derivable the way the bands were derived. Source-window
+  tests import nothing and read source TEXT, so a grep for the changed
+  module cannot reach them -- derive them by FUNCTION name. And any
+  BD_-prefixed name, shell locals included, bands the parity gate.
+- Two further traps recorded from fixing it: _bd_runner_src()
+  CONCATENATES runner.py with every runner_*.py, so measuring an offset
+  in the single file you edited is the wrong denominator; and the two
+  assertions in that test fail at different offsets, so fixing the first
+  can leave the second red.
+
 ## v3.66.837 - every completed download minted a second, permanent library ghost row
 
 - db.py's forward-path library_record was handed history.filename -- a
