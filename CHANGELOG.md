@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.835 - the Phase B takeover could not open because it refused its own thread
+
+- start_manual_login's alive-guard returned "An auto-login is already
+  running" to login_async's OWN Phase B fallback. That fallback runs
+  inside _run, on self._login_thread, so the guard was testing the
+  calling thread against itself and always refused. The site ended at
+  "manual fallback also failed: An auto-login is already running" and no
+  takeover window ever opened -- the whole point of the Phase B path.
+- The guard now exempts the login thread from itself
+  (self._login_thread is not threading.current_thread()). Every external
+  caller still sees the original refusal; a preservation test pins that
+  so the guard cannot be deleted outright in a later cut.
+- Distinct from v3.66.834: this path already fired on_done(False)
+  correctly. Conflating the two defects was the trap -- one is a dropped
+  callback, this one is a takeover that cannot open.
+
 ## v3.66.834 - login_async's on_done now fires exactly once on every path
 
 - login_async(on_done=cb) publishes a callback contract, and three return
