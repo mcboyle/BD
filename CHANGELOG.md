@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.836 - install_service.sh certified RUNNING without asking the app
+
+- The installer decided "is RUNNING and enabled on boot" from
+  `systemctl is-active` alone. On a Type=simple unit that reports
+  `active` the moment exec succeeds, not when Flask/waitress binds, so
+  the operator was told the service was up while nothing answered on
+  the port. capture.sh already records a window in which exactly this
+  is false.
+- After the existing is-active loop the installer now probes the app
+  itself: GET /api/health on 127.0.0.1, port resolved from BD_PORT in
+  the environment, else BD_PORT in ${APP_DIR}/.env (the GUI-editable
+  key delivered by EnvironmentFile), else 5555.
+- Three outcomes, all reported: serving, active-but-not-serving (a
+  warning naming the endpoint that did not answer), and unverified
+  when curl is absent. Silence was not an option -- a fix that merely
+  stops printing the banner leaves the operator with no signal at all.
+- The probe never changes the exit code. capture.sh consumes it as a
+  stage exit, and turning a not-serving report into a nonzero status
+  would flip whole-capture verdicts; that is an operator policy call,
+  not a side effect of this cut.
+
 ## v3.66.835 - the Phase B takeover could not open because it refused its own thread
 
 - start_manual_login's alive-guard returned "An auto-login is already
