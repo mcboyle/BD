@@ -3271,3 +3271,149 @@ WHAT IS STILL UNVERIFIED IN-CONTAINER
     In particular tests/test_v3_43_80_modules.py passed here WITHOUT GTK
     typelibs and with DISPLAY unset, which is a measurement, not a claim that
     the section 5 trap is gone.
+
+### 15.26 | Method retrospective for the v3.66.847/848 branch -- where the cost went
+
+15.25 records WHAT shipped. This section records what the shipping COST and
+which of that cost was avoidable, because the operator asked for it and because
+a session that reports only its output teaches the next one nothing about its
+own efficiency. Merged as c8ce9ab. Eleven workflows, roughly 7.5M subagent
+tokens, nineteen commits.
+
+The durable rules extracted from this are in CLAUDE.md -- new section 2b
+(running work across several agents), the fix-reproduces-the-defect paragraph
+in section 0, the `*.py`-is-not-the-Python-files bullet in section 1, the
+mutation paragraphs in section 6, and the CI-is-not-test-evidence bullet in
+section 7. What follows is the accounting behind them.
+
+WHAT THE ADVERSARIAL WORK WAS WORTH, stated first so the cost has a
+denominator. Mutation testing found defects no band could have:
+
+  - `_twin_scan(client, set())` -- running the final twin verification over an
+    EMPTY subject -- passed all 238 tests while turning a real failure (exit 4,
+    TWIN ERROR, one twin dangling) into a clean success (exit 0, "0 remain,
+    re-measured not inferred"). Nothing else in the session would have caught
+    it.
+  - Hardcoding either /api/batch/delete payload `limit` to 1 escaped a 39-test
+    battery. `_build_query` appends LIMIT after the IN clause, so an undersized
+    limit SILENTLY drops ids: the clear would under-delete and report success.
+  - Cut #7's first battery scored 2/13 caught. After closing them, 13/13.
+
+  A green band was present at every moment those defects existed. The band
+  covers the denominator that already exists; a new code path is by definition
+  outside it. That is section 2a's rule, and this is its strongest instance.
+
+WHERE THE COST WENT, and how much of it was avoidable.
+
+  1. STALE WORKTREES -- the single largest waste, and entirely avoidable.
+     Four subagent worktrees came up at the session's base commit. Two mutation
+     batteries reimplemented the feature and scored their own code; two more
+     measured a pre-fix commit and reported defects already closed. That is
+     four batteries' work, of which roughly two were wholly unusable and two
+     needed re-derivation before anything could be acted on. The fix is three
+     lines of preflight (CLAUDE.md 2b) and it worked the moment it was applied.
+     It should have been in the FIRST workflow's prompt, not the fifth.
+
+  2. THE lxml CENSUS, DERIVED THREE TIMES. First by grep (wrong in both
+     directions), then by AST (correct set, wrong denominator statement), then
+     re-measured after the denominator grew to include extensionless scripts.
+     Two of those three passes were avoidable by using AST first -- which
+     CLAUDE.md section 1 already told me to do, and which I read that morning.
+
+  3. THE DECLARATION GATE: FOUR ROUNDS FOR SCOPE THAT WAS NOT ASKED FOR. The
+     operator asked to declare lxml. A critic then found nothing constrained
+     the declaration, so a gate was added -- and the gate needed three repairs,
+     each finding the defect class it existed to catch. The gate is genuinely
+     better than no gate, but it consumed roughly a third of the session's
+     agent budget for a test that did not exist that morning, and it was
+     scope the operator never requested. NEXT TIME: when a critic finds a gap
+     that widens scope, price it and say so before building it.
+
+  4. BANDS RE-RUN AGAINST A MOVING TREE. Several workflows wrote to the tree
+     concurrently, so most band numbers described a commit that was no longer
+     the tip by the time they were read, and the final band had to be run
+     again from scratch. Serialising the two workflows that touched
+     tools/live_seed.py, or freezing the tree between phases, would have made
+     one band run stand.
+
+  5. ONE SELF-INFLICTED RED BRANCH TIP. A `git add -A` in a regen commit swept
+     a concurrent workflow's uncommitted RED battery onto the branch while its
+     implementation was still uncommitted. HEAD then failed its own guard
+     tests until it was noticed. Explicit paths, always.
+
+WHAT WAS ACCURATE, and what was not.
+
+  ACCURATE, and worth repeating: every claim that came with a pasted command
+  and its real output survived scrutiny. The end-to-end probe against the REAL
+  Flask app with a real sqlite database -- once through test_client, once over
+  a real TCP socket with live_seed's own urllib -- is what turned a pile of
+  FakeClient agreement into evidence about the application. Do that earlier
+  next time; it was run by the ninth workflow and could have been the second.
+
+  NOT ACCURATE, mine, in order of embarrassment:
+    - the grep census, written into requirements.txt, the CHANGELOG and this
+      register before AST caught it;
+    - "the wrong census is in three places" (it was two -- the CHANGELOG never
+      carried it), a claim I passed to an agent as fact and which it corrected;
+    - "a genuinely empty library still reports a conclusive zero", asserted in
+      a brief as a premise to preserve, and false on HEAD as well;
+    - the `git add -A` above;
+    - characterising deploy.sh as the mitigation for the lxml install gap,
+      which is circular for the deploy that DELIVERS deploy.sh.
+  In every case an agent caught it, because the agents were asked for evidence
+  rather than for agreement. That is the argument for the adversarial shape
+  even when it is expensive.
+
+THE CHEAPEST THING THAT WOULD HAVE HELPED MOST: state the commit in every
+report. Four bands, three batteries and five lenses each measured a different
+tip, and reconciling which finding applied to which tree cost more than any
+single defect in the branch.
+
+### 15.27 | The tools already existed -- addendum to 15.26
+
+Asked afterwards what would have made the session faster, the answer turned out
+not to be a technique. It was: READ `toolchain/bin` FIRST. There are ~249 bd-*
+tools and the session used four of them.
+
+MEASURED, 2026-08-03, `tools/live_seed.py`:
+
+    grep -rl live_seed tests/*.py                    -> 17 suites
+    bd-band-derive --file tools/live_seed.py         -> 25 suites
+
+A strict superset: 8 files the grep could not see, 0 dropped. The band derived
+by hand in ELEVEN separate workflows was NARROWER than one command, every time.
+That is an accuracy defect, not merely wasted effort -- a narrow band is how a
+regression goes green.
+
+The tool unions four signals; `grep -rl` is one. The other three are a
+filename-stem glob, the curated TOUCHED_FILE_TO_TEST.md map, and declared
+COUNT-COUPLING (a test that exercises a module without importing it or naming
+it). Its docstring states the module-consumer signal exists because that gap
+"forced a by-hand `grep -rl <module> tests/` on every cut since. Now
+mechanized."
+
+WHY IT WAS NOT USED, which is the part worth fixing: CLAUDE.md never named it.
+Section 4 said "derive it with `grep -rl`, don't guess" -- so the session did
+exactly what the contract instructed, and the contract instructed the weaker
+method. Section 4 now names the tool and carries the table above; section 8 now
+says to look in toolchain/bin before hand-rolling, with the four tools this
+document already depends on.
+
+THE DEEPER FINDING. `bd-mutation-test`'s docstring has recorded the
+detector-with-the-bug-it-hunts shape since v3.66.737 -- "the tool built to hunt
+gate-blindness was itself a blind gate" -- which is the same lesson section 0
+gained today from rediscovering it five times. The repo already knew. The
+knowledge was in a tool docstring that nothing indexed, which is a storage
+problem, not a knowledge problem. When you find a lesson, check whether some
+tool learned it first.
+
+AND THE TOOL HAS THE DEFECT SECTION 0 OPENS WITH. `bd-band-derive --file
+CLAUDE.md` reports `changed source (0)` and a one-suite band, because it does
+not count `.md` as source. Section 0's very first example is a band tool that
+"didn't count .tsx/.ts as source, so it reported changed source (0) on a real
+frontend cut." Same tool, same shape, a different extension, still live. Filed
+here rather than fixed: it is a real defect and it is not this cut's subject.
+The hand-derived doc band (the four gates that read CLAUDE.md, the five that
+read this register, the enumerators a tracked .md edit moves) ran 235 passed /
+1 skipped, plus the tool's one suite at 14 passed -- so the wider band was the
+binding one, exactly as "floor, not ceiling" says.

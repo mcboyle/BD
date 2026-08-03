@@ -49,6 +49,42 @@ unchanged tree "changed" every run. Two sessions nearly reconciled a diff that
 did not exist. A gate that cries wolf gets switched off, so over-sensitivity is a
 soundness bug, not a safe default. Attest over **content**, not bytes.
 
+**THE FIX REPRODUCES THE SHAPE OF THE DEFECT. Audit it before you ship it.**
+This is the highest-yield rule on the page and it was learned five times in one
+session (v3.66.847/848). Every one of these was written BY someone who had just
+read this section, in order to fix an instance of it:
+
+- `tools/check_requirements.py` exists to replace `pip check`, whose
+  denominator is the set of INSTALLED packages and so cannot see an
+  uninstalled requirement. It shipped returning **0 with silent stdout** for a
+  file that parses to zero requirement names -- "every entry resolves", over
+  nothing.
+- The declaration gate written to constrain that fix shipped with a
+  denominator excluding `tests/`. Repaired, it then claimed to cover
+  `toolchain/` and `project-knowledge/` -- where **469 of 509** tracked Python
+  files are extensionless `bd-*` scripts a `*.py` glob cannot see. Repaired
+  again, it still cannot read the 17 tracked shell scripts that embed Python
+  heredocs.
+- `scripts/deploy.sh`'s BD_HOME warning was gated on BD_HOME being **exported**
+  while `capture.sh:55` DEFAULTS it, so it stayed silent in the common case.
+- A residue report's own new field (`twins["blind_pages"]`) was declared and
+  **never written**, so the JSON said no page went blind while the verdict
+  beside it said `conclusive: false`.
+- One fix's shadow-detection filtered on "installed under `_REPO`" -- and
+  `venv/` lives inside the repo, so it filtered out every site-packages
+  distribution and the map came back empty.
+
+The last two were caught by the fix's OWN non-empty-denominator assertion, on
+first run, before review. That is the whole argument for writing the assertion
+*before* the verdict: it is the only thing that reliably catches this, because
+the author has just convinced themselves the logic is right.
+
+**Reading this section does not inoculate you against it.** The same session
+that wrote the five items above also re-derived an import census with `grep`
+after reading section 1's warning about exactly that, and got it wrong in both
+directions. Treat "I have read the contract" as worth nothing; treat "I ran the
+check and pasted the output" as worth everything.
+
 ---
 
 ## 1 | The method rule
@@ -68,6 +104,22 @@ been wrong. Every figure obtained by *running the tool* was right.
   of 12 because the predicate was `'playwright' in name`, which also matches
   `playwright_stealth` — a different distribution. **The instrument fixes the
   denominator; the predicate fixes the subject. Say which you used.**
+- **`git ls-files -- '*.py'` is NOT "the Python files in this repo."** Measured
+  at v3.66.848: **2108** files end in `.py`, and a further **469** are tracked,
+  executable, python-shebang, extensionless `bd-*` scripts — 234 under
+  `toolchain/`, 235 under `project-knowledge/`. A `*.py` glob reaches **2.5%**
+  of `toolchain/` and **14.5%** of `project-knowledge/`. Section 8 already says
+  `toolchain/bin` is its own population; this is what that costs you when the
+  enumerator forgets. Type on the shebang as well as the extension, or state
+  that the extensionless population is excluded. Seventeen tracked *shell*
+  scripts also embed Python heredocs no AST walk over files will ever read.
+- **Say which denominator a count is over, in the same sentence as the count.**
+  A requirements note stated its instrument as "every tracked .py file (2108
+  files)" and two lines later said "All three importers" — a number true only
+  of a `bulk_downloader/`-only subset. Both halves were honest and the pair was
+  not. When the denominator later grew to 2577, the count had to be
+  **re-measured rather than assumed**; it happened not to move, and that is a
+  fact you can only state after checking.
 - Numbers that move (tool counts, coupling, retirement pools) must be measured at
   decision time, never quoted — **including from this file.**
 - **A verification can answer a different question than the item asks.** This is
@@ -203,6 +255,55 @@ cannot see its subject:
 work done. Read what an agent returned before counting it as verification; a
 result that is present is not a result that is substantive.
 
+### 2b | Running work across several agents
+
+Earned at v3.66.847/848, where nine workflows ran against one branch. Every
+rule here cost real rework, and the first two cost the most.
+
+**A subagent worktree comes up at the SESSION'S BASE COMMIT, not at your
+branch tip.** Measured: four worktrees in one session all checked out the
+pre-cut base. The failure is silent and it has two flavours, both worse than a
+crash:
+
+- Two mutation agents found the feature absent, **reimplemented it
+  themselves**, and mutated their own code. Their escape lists were precise,
+  well-evidenced measurements about code that was not shipping.
+- Two more landed on a commit that had the feature but not its later fixes,
+  and reported defects that were already closed. Acting on that report means
+  fixing a defect that does not exist.
+
+A preflight of "the tests pass" does **not** catch this: on the old tree the
+OLD tests pass, so it is green for the wrong reason. The fix that works, and
+is now proven:
+
+```bash
+git fetch origin <branch> && git checkout --detach FETCH_HEAD
+git log --oneline -1                  # say which commit you measured
+grep -c '<a symbol the change introduced>' <the file you will mutate>
+```
+
+Assert the symbol is PRESENT before measuring anything. And note `venv/` is
+gitignored, so it does **not** exist in a worktree — use the absolute
+`/home/user/BD/venv/bin/python`, or a bare `python3` silently gives you 3.11
+without the project dependencies (section 5).
+
+**Never `git add -A` while another agent is writing the tree.** A regen commit
+swept a concurrent workflow's uncommitted RED battery into itself; the branch
+tip then carried tests whose implementation was not committed and **failed its
+own guard tests** until someone noticed. `git add <explicit paths>`, always,
+and check `git status` first. One agent avoided this correctly by staging a
+blob derived from `git show HEAD:CHANGELOG.md` rather than adding the file.
+
+**A finding is about a commit. Say which one.** Four bands, three mutation
+batteries and five review lenses in that session each measured a different tip,
+because the tree moved while they ran. A report that does not name its commit
+cannot be acted on later, and "the band was green" is not a property of the
+branch — it is a property of one commit on it.
+
+**Give an agent the deviations, not just the plan.** The generated spec for
+that cut had failed adversarial review; its amendments lived in the register.
+Agents that were handed the spec alone reproduced its defects faithfully.
+
 **A green band is not the absence of a regression.** v3.66.834's band was green
 while the cut had introduced a false-SUCCESS path (a failed login reported as
 succeeded, sending a worker at an expired jar). An independent adversarial pass
@@ -250,8 +351,38 @@ CHANGELOG entries must be **ASCII-only**; an emoji trips a gate on the box.
 ## 4 | Band rules (which tests to run)
 
 **A denominator change has the blast radius of the denominator, not the diff.**
-Band every test touching the changed module — derive it with `grep -rl`, don't
-guess.
+Band every test touching the changed module.
+
+**Derive it with `bd-band-derive`, NOT by hand.** This paragraph used to say
+"derive it with `grep -rl`", and that instruction is what a whole session then
+did — hand-rolling the same grep in eleven workflows, and getting a band that
+was too NARROW every time. Measured 2026-08-03 on `tools/live_seed.py`:
+
+```bash
+venv/bin/python toolchain/bin/bd-band-derive --file <changed file>   # one file
+venv/bin/python toolchain/bin/bd-band-derive --files a.py b.py       # a changed set
+venv/bin/python toolchain/bin/bd-band-derive --emit                  # just the bd-band line
+```
+
+| method | suites | missed |
+| --- | --- | --- |
+| `grep -rl live_seed tests/*.py` | 17 | — |
+| `bd-band-derive --file tools/live_seed.py` | **25** | 0 |
+
+A strict superset: 8 files the grep could not see, none dropped. It unions four
+signals, and `grep -rl` is only one of them — the others are a filename-stem
+glob, the curated `TOUCHED_FILE_TO_TEST.md` map, and declared COUNT-COUPLING
+(a test that exercises a module without importing it or sharing its name). The
+tool's own docstring says the module-consumer signal exists because the gap
+"forced a by-hand `grep -rl <module> tests/` on every cut since. Now
+mechanized." It was mechanized, and then a session did it by hand anyway,
+because this file told it to.
+
+Its output is a **floor, not a ceiling**: it says so itself, and everything else
+in this section — axis-6 gates, source windows, the release-chore gates, a
+deleted tracked file — still has to be added on top. Use it as the starting
+point rather than as the answer, and use `grep -rl` only to check whether it
+missed something, not instead of it.
 
 - Route change → band **both** `test_route_index_in_sync` **and**
   `test_route_map_invariant`; re-freeze the baseline, then update
@@ -575,6 +706,53 @@ collection error, no named guard flips, and the row reads as an escape. Validate
 the mutant (`ast.parse`, or `bash -n` for shell) *before* judging it, and report
 "invalid" as its own outcome.
 
+**Use `bd-mutate`; do not rebuild the harness.** Every rule in the rest of this
+section is mechanical, and five agents in one session hand-rolled them and got
+four of them wrong — a non-unique anchor rewriting the wrong site, a
+non-parsing mutant scored as an escape, stale bytecode reading a mutant off a
+restored file, and a baseline that was never green. Each produced a confident
+wrong number, which is worse than no battery.
+
+```bash
+venv/bin/python toolchain/bin/bd-mutate --spec mutants.json \
+    --band "tests/test_a.py tests/test_b.py"
+venv/bin/python toolchain/bin/bd-mutate --selftest
+```
+
+`mutants.json` is a list of `{label, file, old, new, catcher?}`. It enforces the
+unique anchor and the length arithmetic, validates each mutant before judging
+it, purges `__pycache__` and sets `PYTHONDONTWRITEBYTECODE`, proves the baseline
+GREEN first, and restores by sha256. Exit 0 = every mutant caught, 1 = something
+escaped, **2 = the battery has no verdict** (empty spec, red baseline, failed
+restore) — and 2 is not a softer 1. Choosing good mutants is still yours.
+
+**Stale bytecode defeats a same-length mutate-and-restore.** Python invalidates
+a `.pyc` on `(mtime, size)`. A substitution of equal length (`lid` -> `hid`),
+restored inside the same wall-clock second, changes neither — so the next run
+imports the MUTANT while the source file's sha256 matches the original. Measured
+at v3.66.848: a battery's postflight went red on a tree it had just proven
+byte-identical, and the obvious reading was "the restore corrupted something".
+It is the v3.66.161 footgun wearing a different hat. Run mutation batteries with
+`PYTHONDONTWRITEBYTECODE=1` **and** purge `__pycache__` around each mutant, and
+say which you did.
+
+**Closing a mutation escape means proving RED in BOTH directions.** The test
+must FAIL with the mutant applied and PASS on the real code. Proving only the
+second is the default mistake and it is *invisible* in this phase, because
+everything is green either way — a test that passes on both is not a test. Also
+assert the over-sensitive direction in the same test: a fix for "reports clean
+when blind" that simply calls every scan inconclusive passes the escape's test
+and destroys the tool.
+
+**An escape can be a HARNESS defect rather than a missing test, and those are
+the ones that survive a battery.** Two shipped in one cut: a fake `curl` that
+answered every URL identically — so `/api/health` and `/` could never disagree,
+which is the only condition the check under test exists to detect — and a fake
+`python` returning exit 0 for every `-c`, so a JSON read-back was unobservable
+and a truncated file reached "VERIFIED". A test cannot catch what its harness
+cannot distinguish. When an escape looks like an oversight, check whether the
+fixture can even represent the failure.
+
 ---
 
 ## 7 | What git changes, and what it does not
@@ -609,10 +787,28 @@ system match them, which is the first item below.
   build` whenever SPA source changed. Treat this as a condition to re-derive,
   not a list to memorise: anything generated-and-ignored joins the set.
 
-  **On the deploy box this is still yours to do.** In a *cloud container* it is
-  not: `scripts/cloud-setup.sh` now runs `npm run build` and then reads
-  `frontend/dist/index.html` back, failing the provision if the bundle is
-  absent — exit 0 from `vite build` is not the property anyone depends on.
+  **`scripts/deploy.sh` now does all of this (v3.66.848), and you should use
+  it.** It fetches and resets, runs `pip install -r requirements.txt` followed
+  by a requirement RESOLUTION check (`tools/check_requirements.py`, because
+  `pip install -r` exiting 0 is not proof every requirement is present and
+  `pip check` cannot see one that was never declared), clears `__pycache__`,
+  regenerates the gitignored artifacts, rebuilds `frontend/dist` and reads
+  `index.html` BACK, restarts, and verifies `/api/health` and `GET /`.
+
+  **One property of it matters before you edit it: every step after
+  `git reset --hard` executes the PRE-reset copy of the script.** Git renames a
+  *new inode* over the path and the running bash keeps reading the fd bound to
+  the old one — verified by experiment, with `ls -i` changing across the reset,
+  not reasoned from "bash reads lazily". An improvement to a post-reset step
+  therefore lands one deploy late. That is left deliberate rather than fixed:
+  re-exec'ing the post-reset copy would change which code the operator
+  authorized to run. The corollary is that the FIRST landing of any change to
+  the deploy script is still yours to do by hand.
+
+  **In a *cloud container* none of this applies:** `scripts/cloud-setup.sh` runs
+  `npm run build` and then reads `frontend/dist/index.html` back, failing the
+  provision if the bundle is absent — exit 0 from `vite build` is not the
+  property anyone depends on.
   Two tests fail without it and neither names the cause:
   `test_v3_66_790_nuitka_config::test_data_dirs_all_exist_in_tree` ("declared
   data dir does not exist: frontend/dist") and
@@ -647,6 +843,17 @@ system match them, which is the first item below.
   just the optimistic one: `test_v3_43_80_modules` false-FAILS in a container
   without GTK typelibs and passes 49/49 on the box, so a container result can be
   pessimistic about real code and optimistic about the environment at once.
+- **GitHub CI green is not test evidence, and it never was.** Read
+  `.github/workflows/ci.yml` before treating a green check as a result. The
+  `gates` job runs gitleaks, the generated-artifacts sync check, `compileall`,
+  advisory `pyflakes` and the CHANGELOG ASCII check -- **no pytest at all**. The
+  only job that runs tests is `postgres-integration`, whose list is four mod3
+  files. So CI's entire test denominator is four files, and a cut can be green
+  there while its own battery is red. Measured at v3.66.847: both checks passed
+  on a commit carrying **14 deliberately failing tests**. What CI does catch is
+  real and worth having -- a stale generated artifact fails it reliably, which
+  is why `bd-regen-order` must run after the LAST source edit. Just do not read
+  the tick as "the tests pass"; the derived band is that evidence.
 
 **The post-deploy checklist, and the step that keeps getting left off it.**
 A v3.66.824 handoff listed four box actions -- deploy + clear `__pycache__`,
@@ -820,6 +1027,31 @@ that were not real. A gate existed to keep the two from contradicting each
 other; removing the second contract removes the failure class the gate was
 watching for, which is the stronger fix. If you find a second agent-facing
 document, that is the defect — not a resource.
+
+**LOOK IN `toolchain/bin` BEFORE YOU HAND-ROLL ANYTHING.** There are ~249 bd-*
+tools. A session spent a day hand-rolling band derivation and mutation
+harnesses that already existed, got a narrower band every time, and rebuilt the
+same defective harness repeatedly. The ones that answer questions THIS FILE
+asks you to answer:
+
+| question this file makes you ask | tool |
+| --- | --- |
+| what is the band for this diff? | `bd-band-derive` (section 4) |
+| do the guard SHAs still hold? | `bd-guardcheck` (section 2) |
+| are the generated artifacts in sync? | `bd-regen-order` (section 2) |
+| is `.claude-env-report.md` current? | `bd-env-report-check` (section 7) |
+| do my tests actually constrain the code? | `bd-mutate` (section 6) |
+| is this band list about to trip a footgun? | `bd-bandcheck` |
+
+Do not treat that as the list — it is the four this document already depends
+on. `ls toolchain/bin/ | grep <topic>` before writing a script, every time.
+
+**AND READ THE DOCSTRING OF THE TOOL NEAREST YOUR PROBLEM.** Hard-won findings
+live there and this file does not index them. `bd-mutation-test`'s docstring has
+recorded the detector-with-the-bug-it-hunts shape since **v3.66.737** — "the
+tool built to hunt gate-blindness was itself a blind gate" — years of sessions
+before section 0 gained the same paragraph from rediscovering it. When you find
+a lesson, ask whether some tool already learned it.
 
 **Two populations share the word "tools":** `tools/**/*.py` and the
 `toolchain/bin` bd-* suite. They are **disjoint** populations with different
