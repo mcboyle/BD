@@ -2702,3 +2702,50 @@ conversation is a decision that did not happen.
      different caps (missing 500, size_drift 1000) in one returned dict. What
      is gone is the urgency: the symptom that made it look like a crisis was
      seeded data. Schedule it on its merits, do not inherit it as a fire.
+
+### 15.24 | The unshipped specs are now in the repo -- and why that is a compromise
+
+Four generated specs were saved to project-knowledge/pending-specs/ because
+the container that held them is ephemeral and they could not be cheaply
+re-derived:
+
+    07-seeded-history-clear.md        #7,      READY_WITH_CHANGES
+    s4-4-repo-root-db-residue.md      s4#4,    READY_WITH_CHANGES
+    item12-missing-producers.md       item 12, READY_WITH_CHANGES
+    s5-home-claude-residue.md         s5,      READY
+
+The specs for cuts that ALREADY SHIPPED (15.8, 15.11, 15.9, 10-C) were
+deliberately NOT saved. A spec whose cut is merged has no forward value and
+would be pure staleness.
+
+THIS IS A COMPROMISE AND SHOULD BE READ AS ONE. CLAUDE.md section 8 says a
+second agent-facing document is the defect, not a resource, and it says so
+because CODEX_HANDOFF once shipped 14 commands against a venv that does not
+exist here while CLAUDE.md said otherwise, and a session followed the wrong
+one. These files are the same SHAPE as that failure. Four things keep them on
+the right side of the line, and all four must hold:
+
+  1. Each carries a header stating it is NOT a contract, that CLAUDE.md wins
+     any disagreement, and that SESSION_CARRY is the authoritative register.
+  2. Each states it was adversarially reviewed and did NOT pass clean, with
+     its surviving objections recorded in 15.20 rather than in the file.
+  3. Every DECISION-CRITICAL fact in them is ALREADY in 15.20/15.21/15.23.
+     The files add the exact code and nothing else. If a future reader treats
+     one as authority and it contradicts the register, THE REGISTER IS RIGHT.
+  4. THEY ARE DELETED WHEN THEIR ITEM SHIPS. This is not optional hygiene; it
+     is the condition that keeps them from becoming what they resemble. A cut
+     that lands #7 and leaves 07-seeded-history-clear.md in the tree has done
+     half its job.
+
+If a later session finds these files with no matching open item in the
+register, that is the defect -- delete them rather than reasoning from them.
+
+METHOD NOTE, and it is the second instance in one session. The scan that
+cleared these files for credential-shaped literals was first written with an
+unconditional `echo "(blank = no credential-shaped literals)"` after a grep
+that ERRORED with "No such file or directory" -- the reassurance printed over
+a scan that examined zero bytes. 15.22 records the identical mistake from
+earlier the same day. The replacement asserts a non-empty denominator before
+scanning and reports the file and line counts it actually examined. Twice in
+one session, in a session about exactly this, is the argument for making the
+denominator assertion a reflex rather than a remedy.
