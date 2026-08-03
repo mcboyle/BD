@@ -85,6 +85,75 @@ _SKIP_FILES = frozenset({".DS_Store", "Thumbs.db", "desktop.ini"})
 _SKIP_SUFFIXES = (".part", ".bdseg.json", ".tmp", ".bd-enrich.json")
 
 
+def library_path_for_completion(dl_dir: str, name: str) -> Optional[str]:
+    """15.11 (option b): resolve a backend-reported completion NAME to the
+    absolute path a library row should record, or None for "record nothing".
+
+    The qB/JD bridges report completion with a bare NAME -- qb_bridge.py
+    poll() returns ``t.get("name")``, jd_bridge.py poll() returns
+    ``row.get("name")``; never a path -- and for a multi-file torrent that
+    name is a DIRECTORY. v3.66.837's contract is that db_log records a
+    library row only for an absolute path naming ONE file, so:
+
+      dl_dir/name is a FILE      -> that path, ONLY if its extension is in
+                                    _VIDEO_EXTS. Without the predicate a
+                                    single-file .rar mints a row the next
+                                    scan flips to file_exists=0 while the
+                                    file exists (the scanner only "sees"
+                                    _VIDEO_EXTS files) -- the v3.66.837
+                                    ghost, reintroduced.
+      dl_dir/name is a DIRECTORY -> the LARGEST _VIDEO_EXTS file inside
+                                    (operator decision, option b), walked
+                                    with the scanner's own skip predicate so
+                                    the forward row is exactly the row
+                                    scan() would record and UNIQUE(file_path)
+                                    collides instead of duplicating. Ties
+                                    break to the lexicographically SMALLEST
+                                    path so the answer cannot depend on
+                                    os.walk order.
+      neither                    -> None. A wrong row is worse than no row.
+
+    The name comes from the remote side (torrent/package title), so a
+    candidate that normalises outside dl_dir is refused. Never raises for
+    filesystem reasons: unreadable entries are skipped and any OSError
+    degrades to None -- but callers still wrap their call defensively,
+    because a resolution failure must never cost the caller's history row.
+    """
+    try:
+        if not dl_dir or not name:
+            return None
+        root = os.path.normpath(str(dl_dir))
+        cand = os.path.normpath(os.path.join(root, str(name)))
+        if not os.path.isabs(cand):
+            return None
+        if not cand.startswith(root + os.sep):
+            return None
+        if os.path.isfile(cand):
+            if Path(cand).suffix.lower() in _VIDEO_EXTS:
+                return cand
+            return None
+        if not os.path.isdir(cand):
+            return None
+        best: Optional[tuple[int, str]] = None  # (-size, path); min() wins
+        for dirpath, _dirnames, filenames in os.walk(cand):
+            for fn in filenames:
+                if fn in _SKIP_FILES or fn.endswith(_SKIP_SUFFIXES):
+                    continue
+                if Path(fn).suffix.lower() not in _VIDEO_EXTS:
+                    continue
+                full = os.path.join(dirpath, fn)
+                try:
+                    size = os.path.getsize(full)
+                except OSError:
+                    continue
+                key = (-size, full)
+                if best is None or key < best:
+                    best = key
+        return best[1] if best is not None else None
+    except OSError:
+        return None
+
+
 # ── Library row read / write helpers ────────────────────────────────────
 
 def library_record(file_path: str, *, history_id: Optional[int] = None,

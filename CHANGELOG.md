@@ -4,6 +4,33 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.846 - qB/JD completions record the largest media file
+
+- The qBittorrent and JDownloader bridges report completion with a bare NAME
+  (qb_bridge poll() returns t.get("name"), jd_bridge returns row.get("name")),
+  and for a multi-file torrent or package that name is a DIRECTORY. v3.66.837
+  records a library row only for an absolute path naming one file, so these
+  two sites recorded NO row at all -- deliberate, but a gap, and it lost the
+  visibility a file_exists=0 row used to give.
+- New library.library_path_for_completion(dl_dir, name): a plain file resolves
+  to itself ONLY if its extension is a media extension; a directory resolves
+  to the largest media file inside, using the scanner's own skip rules so the
+  forward row is exactly the row scan() would record; anything else resolves
+  to nothing, because a wrong row is worse than no row. Ties break to the
+  lexicographically smallest path, so the answer cannot depend on walk order.
+- The media predicate on the plain-file path is not decoration. Without it a
+  single-file .rar -- JD's common case -- mints a row the next scan flips to
+  file_exists=0 while the file exists on disk: the v3.66.837 ghost class,
+  reintroduced. Measured, and pinned by a test.
+- Resolution runs in its OWN try at both done-sites, separate from db_log's.
+  A merged try would let a resolution failure skip the history insert
+  entirely; that mutant was written and measured killed.
+- Known limitation, stated rather than hidden: a multi-episode torrent gets
+  ONE row where several are arguably wanted. scan() still picks up the rest
+  on its backward pass.
+- Import-graph baseline re-frozen in the same cut: one new edge,
+  runner_integrations -> library, 1617 -> 1618.
+
 ## v3.66.845 - census coverage counts what it COMPARED, not what it queried
 
 - The census reported coverage by DB ROW COUNT while library_final's resolver
