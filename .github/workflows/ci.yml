@@ -154,3 +154,45 @@ jobs:
               print("::error::guard drift — an operator must explicitly declare a new SHA (CLAUDE.md §2)")
               sys.exit(1)
           PY
+
+      # ── The step that makes a green tick mean something ────────────────────
+      #
+      # Until v3.66.849 this job ran NO pytest at all, and the only job that ran
+      # tests was postgres-integration with a four-file list. So CI's entire
+      # test denominator was four files, and a green tick meant "no secrets,
+      # artifacts in sync, everything parses, CHANGELOG ASCII" -- nothing about
+      # whether the cut's own tests passed. MEASURED at v3.66.847: both checks
+      # went green on a commit carrying 14 deliberately failing tests. That is a
+      # gate reporting OK over a denominator that structurally excludes its
+      # subject (CLAUDE.md §0), and it is the CI job itself.
+      #
+      # WHY THIS SUBSET AND NOT A DERIVED BAND. A band is derived from what a
+      # cut CHANGED (CLAUDE.md §4, `bd-band-derive`), and getting that right
+      # needs the cut's subject. CI does not have it. What CI can run soundly is
+      # the file-INDEPENDENT half: the repo-wide gates whose subject is the tree
+      # itself, which are exactly the ones a cut forgets -- a skipped regen, an
+      # unbumped pin, a new import edge, a source window that shifted. Every one
+      # below holds whatever the diff touched.
+      #
+      # THIS IS NOT THE BAND AND DOES NOT REPLACE IT. A green run here still
+      # says nothing about the changed module's own suites; derive and run those
+      # locally. And the box remains the gate (§7) -- these lanes pass in a
+      # container that differs from test4 in both directions.
+      #
+      # Measured 2026-08-03: 81 tests, 52s. Keep it under a minute; if it grows
+      # past that, split rather than silently dropping files, because a
+      # truncated list here reads as coverage it does not have.
+      - name: Repo-wide gates must pass
+        run: |
+          python -m pytest -q -p no:randomly \
+            tests/test_all_sources_parse.py \
+            tests/test_pin_index_in_sync.py \
+            tests/test_route_index_in_sync.py \
+            tests/test_import_graph_no_new_edges.py \
+            tests/test_source_windows_do_not_shift.py \
+            tests/test_generated_artifacts_are_not_tracked.py \
+            tests/test_settings_center_slice4.py \
+            tests/test_versync_gate.py \
+            tests/test_release_hygiene_gates.py \
+            tests/test_scan_version_pins_fixture.py \
+            tests/test_gui_parity.py
