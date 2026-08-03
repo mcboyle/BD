@@ -28,11 +28,28 @@ PIN_INDEX's test_files_scanned (CLAUDE.md section 4).
 AND THIS GATE IS NOW ITSELF AXIS-6. It was not, and the docstring here said so;
 that was true only because the gate could not see tests/ at all -- the same
 blindness that let an undeclared `requests` sit in two tracked test files while
-the gate reported clean. The declaration gate below now scans every tracked .py
-and resolves each import against the importing file's OWN directory (so
-tests/conftest.py, tests/_env.py and tests/capture_lanes.py do not read as PyPI
-distributions), which means adding or renaming a tests/ file moves what it
-measures. Band this file on any cut that adds or renames a tracked .py.
+the gate reported clean. The declaration gate below now scans every tracked file
+it can read as Python and resolves each import against the importing file's OWN
+directory (so tests/conftest.py, tests/_env.py and tests/capture_lanes.py do not
+read as PyPI distributions), which means adding or renaming a tests/ file moves
+what it measures. Band this file on any cut that adds or renames a tracked
+Python file.
+
+THIRD REPAIR, v3.66.848. A reviewer found the section 0 shape here a third time,
+in three distinct places, and all three are fixed by measurement rather than by
+assertion:
+  * The denominator was `git ls-files -- '*.py'` while the scope note claimed
+    toolchain/ and project-knowledge/. MEASURED: 469 tracked python-shebang
+    scripts in those two directories carry no extension at all, so the glob
+    reached 2.5% and 14.5% of their Python. `import zeep` added to tracked
+    toolchain/bin/bd-guardcheck left this gate GREEN (15 passed). Fixed by
+    typing tracked files on their shebang, not by narrowing the claim.
+  * _declared_names did not follow requirements-dev.txt's `-r requirements.txt`,
+    so 15 core pins read as absent from the dev manifest and a tests-only
+    import of any of them would be told to duplicate a pin it already has.
+  * _DIST_ALIASES was hand-written and therefore incomplete: `import xdist`
+    failed as undeclared while pytest-xdist is pinned. The map is now derived
+    from installed metadata with the hand list as an override.
 """
 from __future__ import annotations
 
@@ -151,6 +168,15 @@ def test_main_check_exit_code_on_drift(capsys=None):
 # tracked test files and declared in no manifest (MEASURED: blocking requests
 # took those two files to 7 failed / 2 passed, control 9 passed).
 #
+# The SECOND widening did not finish the job, and the shape survived a repair:
+# the denominator stayed `git ls-files -- '*.py'` while the scope note named
+# toolchain/ and project-knowledge/, whose Python is 469 EXTENSIONLESS bd-*
+# scripts -- 2.5% and 14.5% covered. `git ls-files` typing files on their
+# extension is the same instrument/predicate distinction CLAUDE.md section 1
+# draws: the instrument (git) fixed the denominator, the predicate ('*.py')
+# still excluded the subject. Files are now typed on their shebang, and the
+# seven undeclared names that were hiding there are waived by name below.
+#
 # The scope was not merely widened, because the two halves answer to DIFFERENT
 # manifests: a runtime import belongs in requirements.txt, a test-only import
 # in requirements-dev.txt. So there are two assertions over disjoint halves
@@ -176,10 +202,44 @@ def test_main_check_exit_code_on_drift(capsys=None):
 
 _REPO = Path(__file__).resolve().parent.parent
 
-# Import name -> distribution name, where PyPI and the module disagree. Only
-# names actually reachable from the tracked tree need an entry; an unmapped
-# name falls through to itself, which is correct for every other case here.
-_DIST_ALIASES = {
+# Import name -> distribution name, where PyPI and the module disagree.
+#
+# DERIVED, NOT HAND-ASSERTED -- and the hand list stays as the override.
+# A hand-written map carries only the aliases somebody remembered, and this one
+# cried wolf for the ones it did not: MEASURED at v3.66.848, injecting
+# `import xdist` into a tracked tests/ file took
+# test_third_party_imports_outside_the_app_package_are_declared RED with
+# "declared in no requirements*.txt", while pytest-xdist is pinned in
+# requirements.txt. Over-sensitivity is a soundness bug (CLAUDE.md section 0),
+# so the map is now built from installed metadata and _DIST_ALIAS_OVERRIDES is
+# applied last.
+#
+# WHAT THE DERIVED HALF COVERS: every top-level import name that a distribution
+# installed in the RUNNING INTERPRETER provides, read from
+# importlib.metadata.packages_distributions(). Measured in this container: 70
+# top-level names, of which 9 differ from the distribution providing them --
+# xdist -> pytest-xdist, bs4 -> beautifulsoup4, attr -> attrs, _pytest and py
+# -> pytest, markdown_it -> markdown-it-py, _cffi_backend -> cffi, plus two
+# metadata artefacts (__pycache__, a mypyc shared object).
+#
+# WHAT IT CANNOT COVER, said out loud because a gate must state what it cannot
+# see:
+#   * A distribution that is NOT installed here contributes nothing. pillow and
+#     yt-dlp are both absent from this container's metadata (measured:
+#     packages_distributions() has no PIL and no yt_dlp key), so those two
+#     entries stay hand-written. The override list is load-bearing, not a
+#     convenience.
+#   * A top-level name provided by MORE THAN ONE distribution is left unmapped,
+#     because picking one would be a guess. Measured: exactly one such name
+#     here, `jaraco`, from jaraco.classes / jaraco.functools / jaraco.context.
+#   * The derived half is a property of the ENVIRONMENT the gate runs in, not
+#     of the tree, so it can differ between this container and the box. It may
+#     therefore only ADD aliases: the override is applied afterwards and wins,
+#     and no hand entry is deleted just because the derivation happened to
+#     cover it here.
+# An unmapped name still falls through to itself, which is correct for every
+# other case in this tree.
+_DIST_ALIAS_OVERRIDES = {
     "bs4": "beautifulsoup4",
     "PIL": "pillow",
     "yt_dlp": "yt-dlp",
@@ -249,6 +309,42 @@ _UNDECLARED_OUTSIDE_BY_DESIGN = {
                       "no index and in no manifest by design. "
                       "tools/capture_session.py catches ImportError and "
                       "tests/test_v3_66_59_redactor_seam.py skips",
+    # The seven below entered the subject at v3.66.848 when the denominator
+    # stopped being a *.py glob (see _tracked_py). They are REAL findings, not
+    # a retreat: each was undeclared and invisible, and each is now waived with
+    # a reason measured at its import site. All seven live in the bd-* operator
+    # scripts, which exist in two identical tracked copies (toolchain/bin/<x>
+    # and project-knowledge/<x>; md5 verified equal for bd-opv, bd-lsp and
+    # bd-proxy at v3.66.848), so each name reports two import sites for one
+    # script. None of the seven is installed in this container, and declaring
+    # them in requirements-dev.txt would put an SMTP server, a proxy, an OCR
+    # binding and a barcode binding on every dev install for tools no lane
+    # runs -- three of them need a system package as well as a wheel.
+    "aiosmtpd": "bd-opv's mail-delivery lane only, try/except guarded TWICE "
+                "(default path, then the prestaged path) before returning "
+                "SKIP with the reason at the site. bd-opv is an operator "
+                "verification script run by hand; no lane and no service "
+                "imports it",
+    "freezegun": "bd-opv's admission-window time-warp smoke, inside a "
+                 "try/except that sets warp_ok False and carries on. Same "
+                 "operator-tool population as aiosmtpd",
+    "jedi": "bd-lsp installs jedi ITSELF from a bundled wheelhouse "
+            "(/home/claude/lsp_kit/wheels) and every jedi subcommand returns 1 "
+            "out of cmd_setup while the import is still MISSING, so the bare "
+            "`import jedi` in _jedi_script is reached only after that check "
+            "passed. A manifest pin would put an offline code-intelligence "
+            "tool on every dev install",
+    "mitmproxy": "bd-proxy's optional wire-capture gate, try/except -> SKIP "
+                 "carrying the reason written at the site: 'throwaway-venv "
+                 "only; not in service venv'",
+    "prometheus_client": "bd-opv's metrics-endpoint lane, try/except -> SKIP. "
+                         "The endpoint itself is served without it; the "
+                         "library is only the lane's PARSER",
+    "pytesseract": "bd-opv's OCR lane, try/except -> SKIP. Needs the tesseract "
+                   "system binary as well as the wheel, which is why it is not "
+                   "a dev-install dependency",
+    "pyzbar": "bd-opv's QR pairing lane, try/except -> SKIP. Needs the libzbar "
+              "system library as well as the wheel",
 }
 
 # These two must be in requirements.txt SPECIFICALLY, not merely somewhere.
@@ -271,10 +367,16 @@ _SCOPE_NOTE = {
            "docs/ or project-knowledge/. Those are "
            "test_third_party_imports_outside_the_app_package_are_declared's "
            "subject, held to a different manifest.",
-    "outside": "SCOPE: every tracked .py OUTSIDE bulk_downloader/ -- tests/, "
-               "tools/, toolchain/, bin/, scripts/, live_tests/, docs/, "
-               "project-knowledge/ and the repo root. bulk_downloader/ is "
-               "test_third_party_imports_are_declared's subject.",
+    "outside": "SCOPE: every tracked file OUTSIDE bulk_downloader/ that this "
+               "walk can read as Python -- *.py PLUS the extensionless "
+               "python-shebang scripts (469 of them at v3.66.848, 234 under "
+               "toolchain/ and 235 under project-knowledge/). That reaches "
+               "tests/, tools/, toolchain/, bin/, scripts/, live_tests/, "
+               "docs/, project-knowledge/ and the repo root. "
+               "bulk_downloader/ is test_third_party_imports_are_declared's "
+               "subject. NOT REACHED: a tracked file that is Python but "
+               "declares it neither by a .py extension nor by a python "
+               "shebang on its first line.",
 }
 
 # Both halves share this blind spot, and both say so on failure.
@@ -283,16 +385,86 @@ _PREDICATE_NOTE = (
     "so __import__(), importlib.import_module() and pytest.importorskip() are "
     "structurally invisible to this walk.")
 
+# A fourth case the three remedies above do not fit, named because a failure
+# message that offers only inapplicable repairs is its own defect.
+_TYPE_CHECKING_NOTE = (
+    "IF THE IMPORT IS UNDER `if TYPE_CHECKING:` none of the remedies above "
+    "apply: it never executes, so it needs neither a runtime pin nor a "
+    "skip-guard. Use a string annotation, or waive it saying exactly that. "
+    "This walk DOES still see such an import; excluding TYPE_CHECKING blocks "
+    "was deliberately not done, because that would remove names from the "
+    "subject to repair a case the tree does not have (MEASURED at v3.66.848: "
+    "zero TYPE_CHECKING-guarded third-party imports in the tracked tree).")
+
 
 def _canon(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
+def _derive_dist_aliases() -> dict[str, str]:
+    """import name -> distribution, from installed metadata; see the notes above.
+
+    Only an UNAMBIGUOUS mapping is taken (exactly one providing distribution),
+    and only where the name actually differs from the distribution, so the
+    result carries aliases and nothing else. _DIST_ALIAS_OVERRIDES is applied
+    last and wins.
+    """
+    derived: dict[str, str] = {}
+    try:
+        mapping = md.packages_distributions()
+    except Exception:            # pragma: no cover - unreadable site metadata
+        mapping = {}
+    for top, dists in mapping.items():
+        if len(dists) == 1 and _canon(dists[0]) != _canon(top):
+            derived[top] = dists[0]
+    derived.update(_DIST_ALIAS_OVERRIDES)
+    return derived
+
+
+_DIST_ALIASES = _derive_dist_aliases()
+
+
 def _tracked_py() -> list[str]:
+    """Every tracked file this walk can read as Python -- BY EXTENSION OR SHEBANG.
+
+    `git ls-files -- '*.py'` was the denominator until v3.66.848's third
+    repair, and it structurally could not see the population CLAUDE.md section
+    8 names as its own: toolchain/bin's bd-* suite. MEASURED on this tree,
+    3423 tracked files -- 2108 end in .py, and 469 MORE carry a python shebang
+    and no extension at all (234 under toolchain/, 235 under
+    project-knowledge/, none anywhere else). The *.py glob therefore reached 6
+    of toolchain/'s 240 Python files (2.5%) and 40 of project-knowledge/'s 275
+    (14.5%), while the scope note claimed both directories outright. Seven
+    undeclared third-party names were living in the gap, and an `import zeep`
+    added to tracked toolchain/bin/bd-guardcheck left this gate GREEN (measured
+    2026-08-03: 15 passed). That is CLAUDE.md section 0 exactly.
+
+    Fixed by making the denominator contain the subject rather than by
+    narrowing the claim: the first line of every tracked non-.py file is read,
+    and a python shebang makes it Python. All 469 parse (zero SyntaxError), and
+    _build_census already fails loudly on a file it cannot parse instead of
+    skipping it, so a shebang that lies is a red gate rather than a quiet drop.
+
+    Still not reached, and _SCOPE_NOTE says so: a tracked Python file that
+    declares itself neither way.
+    """
     out = subprocess.run(
-        ["git", "ls-files", "-z", "--", "*.py"],
+        ["git", "ls-files", "-z"],
         cwd=str(_REPO), capture_output=True, text=True, check=True).stdout
-    return [f for f in out.split("\0") if f]
+    keep: list[str] = []
+    for rel in (f for f in out.split("\0") if f):
+        if rel.endswith(".py"):
+            keep.append(rel)
+            continue
+        try:
+            with (_REPO / rel).open("rb") as fh:
+                first = fh.readline(256).decode("utf-8", "replace")
+        except OSError:          # pragma: no cover - unreadable tracked path
+            continue
+        first = first.split("\n", 1)[0]
+        if first.startswith("#!") and "python" in first:
+            keep.append(rel)
+    return keep
 
 
 def _resolver(tracked: list[str]):
@@ -332,6 +504,33 @@ def _resolver(tracked: list[str]):
     return resolve
 
 
+def _read_manifest(path: Path, out: set[str], seen: set[Path]) -> None:
+    """Canonical names in <path>, FOLLOWING `-r` / `--requirement` includes.
+
+    df.parse_requirement_line returns None for an include directive -- correct
+    for its own job, and the reason the caller has to handle them here.
+    """
+    for line in path.read_text(encoding="utf-8").splitlines():
+        inc = re.match(r"^(?:-r|--requirement)[=\s]+(\S+)", line.strip())
+        if inc:
+            target = (path.parent / inc.group(1)).resolve()
+            assert target.is_relative_to(_REPO), (
+                "%s includes %r, which resolves OUTSIDE the repo (%s); this "
+                "gate must not read a file the tree does not carry"
+                % (path.name, inc.group(1), target))
+            assert target.exists(), (
+                "%s includes %r, which does not exist (%s)"
+                % (path.name, inc.group(1), target))
+            if target in seen:          # a cycle: already counted, stop here
+                continue
+            seen.add(target)
+            _read_manifest(target, out, seen)
+            continue
+        parsed = df.parse_requirement_line(line)
+        if parsed:
+            out.add(_canon(parsed["name"]))
+
+
 def _declared_names() -> dict[str, list[str]]:
     """canonical distribution name -> the requirements manifests declaring it.
 
@@ -339,13 +538,32 @@ def _declared_names() -> dict[str, list[str]]:
     in requirements-optional.txt IS declared, and calling it undeclared would
     be a false failure. Which manifest matters is a separate question, asked by
     _CORE_MANIFEST_REQUIRED and _DEV_MANIFEST below.
+
+    `-r` INCLUDES ARE FOLLOWED, and not following them made this gate cry wolf.
+    requirements-dev.txt's first directive is `-r requirements.txt`, so
+    installing the dev manifest installs every core pin -- but
+    parse_requirement_line returns None for that line, so before v3.66.848's
+    third repair the dev manifest was recorded as declaring only the four names
+    written under it. MEASURED: 15 names (flask, httpx, lxml, playwright,
+    pytest-xdist, cssselect, ...) read as declared in requirements.txt and
+    absent from requirements-dev.txt. A tests-only import of any of them would
+    then be told by test_tests_only_imports_are_declared_in_the_dev_manifest to
+    duplicate a pin the dev install already delivers. Over-sensitivity is a
+    soundness bug, not a safe default (CLAUDE.md section 0).
+
+    The manifest recorded against a name is the TOP-LEVEL file being read, so a
+    name pulled in through an include counts as declared BY THE INCLUDER --
+    which is the question every caller here asks ("would `pip install -r
+    <this>` get it?"). A cycle is broken by `seen`, and an include that
+    resolves outside the repo or does not exist raises rather than being
+    skipped: a manifest this gate cannot read is UNKNOWN, and unknown fails.
     """
     found: dict[str, list[str]] = {}
     for path in sorted(_REPO.glob("requirements*.txt")):
-        for line in path.read_text(encoding="utf-8").splitlines():
-            parsed = df.parse_requirement_line(line)
-            if parsed:
-                found.setdefault(_canon(parsed["name"]), []).append(path.name)
+        names: set[str] = set()
+        _read_manifest(path, names, {path.resolve()})
+        for name in sorted(names):
+            found.setdefault(name, []).append(path.name)
     return found
 
 
@@ -359,7 +577,10 @@ _CENSUS: dict | None = None
 
 
 def _build_census() -> dict:
-    """One AST walk over EVERY tracked .py, sliced by scope afterwards.
+    """One AST walk over every tracked PYTHON file, sliced by scope after.
+
+    "Python file" is _tracked_py's question, not a glob: .py by extension
+    plus the extensionless python-shebang scripts. 2577 files at v3.66.848.
 
     Returns tops (third-party name -> importing files), suppressed (name ->
     {(importer, the repo path that resolved it)}), and per-scope counts of
@@ -436,15 +657,32 @@ def _third_party_imports(scope: str = "app") -> tuple[dict[str, set[str]], int, 
 
 
 def _installed_from_the_repo_itself(loc: Path | None) -> bool:
-    """True when an installed distribution IS this checkout (an editable BD).
+    """True when an installed distribution's files live in this checkout.
 
-    "Inside _REPO" is NOT the test, and assuming it was cost a run: the
+    "Inside _REPO" is NOT sufficient, and assuming it was cost a run: the
     interpreter is venv/bin/python and `venv/` sits INSIDE the repo, so every
     single site-packages distribution is under _REPO and the whole map came
     back empty -- the shadow check's own denominator assertion caught it and
     said UNKNOWN rather than reporting clean, which is why it was noticed.
     A site-packages / dist-packages component means an installed third party
     wherever the directory happens to live.
+
+    SAY WHAT THIS DOES NOT CATCH, because the sibling docstring used to promise
+    more than the code delivers. The predicate is a CONJUNCTION -- no
+    site-packages/dist-packages component AND under _REPO -- so which test runs
+    first is immaterial (the truth table is identical either way), but the
+    conjunction does not recognise a PEP 660 editable install, whose
+    locate_file("") returns the site-packages directory holding the
+    __editable__ .pth rather than the source tree. Such an install of BD would
+    NOT be excluded here.
+
+    It is not repaired, and that is a deliberate choice rather than an
+    oversight: the branch cannot be exercised in this environment, so any fix
+    would ship untested. MEASURED at v3.66.848 -- packages_distributions() has
+    no bulk_downloader key, site-packages holds no __editable__* file, and none
+    of the 67 installed distributions is BD. If it ever happens the failure is
+    loud, not silent: test_repo_resolvable_names_do_not_shadow_a_real_
+    distribution reports bulk_downloader as shadowing itself.
     """
     if loc is None:
         return False
@@ -460,9 +698,12 @@ def _installed_from_the_repo_itself(loc: Path | None) -> bool:
 def _installed_top_levels() -> dict[str, list[str]]:
     """top-level import name -> installed distributions that provide it.
 
-    Anything installed FROM this checkout (an editable BD install would map
-    `bulk_downloader` to a distribution) is excluded, or the shadow check below
-    would flag first-party packages as shadowing themselves.
+    A distribution whose files sit in this checkout OUTSIDE site-packages is
+    excluded, or the shadow check below would flag first-party packages as
+    shadowing themselves. Read _installed_from_the_repo_itself for the case
+    that exclusion does not cover (a PEP 660 editable install) and why it is
+    left uncovered -- the promise this docstring used to make was wider than
+    the code.
     """
     try:
         mapping = md.packages_distributions()
@@ -541,9 +782,9 @@ def test_third_party_imports_are_declared():
         "third-party imports in bulk_downloader/ declared in no "
         "requirements*.txt and not recorded in _UNDECLARED_BY_DESIGN: %s\n"
         "Declare the distribution, or add it to _UNDECLARED_BY_DESIGN WITH A "
-        "REASON. Import sites: %s\n%s\n%s" % (
+        "REASON. Import sites: %s\n%s\n%s\n%s" % (
             undeclared, {t: sorted(tops[t]) for t in undeclared},
-            _SCOPE_NOTE["app"], _PREDICATE_NOTE))
+            _SCOPE_NOTE["app"], _PREDICATE_NOTE, _TYPE_CHECKING_NOTE))
 
 
 def test_third_party_imports_outside_the_app_package_are_declared():
@@ -559,8 +800,8 @@ def test_third_party_imports_outside_the_app_package_are_declared():
     tops, parsed, nodes = _third_party_imports("outside")
     declared = _declared_names()
 
-    assert parsed > 0, "no tracked .py outside bulk_downloader/ parsed -- " \
-                       "nothing was examined"
+    assert parsed > 0, "no tracked Python file outside bulk_downloader/ " \
+                       "parsed -- nothing was examined"
     assert nodes > 0, "no import nodes found in %d files -- the AST predicate " \
                       "is not matching" % parsed
     assert tops, "zero third-party imports found outside bulk_downloader/ -- " \
@@ -581,10 +822,10 @@ def test_third_party_imports_outside_the_app_package_are_declared():
         "%s\nDeclare it (a test-only dependency belongs in %s, not "
         "requirements.txt), guard the import so an absent dependency SKIPS "
         "rather than errors, or add it to _UNDECLARED_OUTSIDE_BY_DESIGN WITH A "
-        "REASON. Import sites: %s\n%s\n%s" % (
+        "REASON. Import sites: %s\n%s\n%s\n%s" % (
             undeclared, _DEV_MANIFEST,
             {t: sorted(tops[t]) for t in undeclared},
-            _SCOPE_NOTE["outside"], _PREDICATE_NOTE))
+            _SCOPE_NOTE["outside"], _PREDICATE_NOTE, _TYPE_CHECKING_NOTE))
 
 
 def test_outside_waivers_are_still_imported_and_still_undeclared():
@@ -627,6 +868,21 @@ def test_tests_only_imports_are_declared_in_the_dev_manifest():
     MAY also carry it -- pytest does, deliberately, because capture runs the
     real runner on a core-only box -- so this asks for presence in the dev
     manifest, not absence from the core one.
+
+    SAY WHAT THE VERDICT BELOW IS CURRENTLY RUNNING OVER. MEASURED at
+    v3.66.848, tests_only == {"pytest"}, and pytest is declared in BOTH
+    manifests -- so wrong_manifest is computed over a single name that cannot
+    fail. This assertion is therefore a live check for the NEXT test-only
+    third-party import, not evidence about today's tree; the non-empty
+    assertion above it is the only part that measures anything now. Said
+    plainly rather than left implied, because a body that cannot fail reads
+    like a body that passed.
+
+    It was ALSO wrong until v3.66.848's third repair, in the other direction:
+    _declared_names did not follow requirements-dev.txt's `-r requirements.txt`
+    include, so any of the 15 core-manifest names would have landed in
+    wrong_manifest the moment it became tests-only -- told to duplicate a pin
+    the dev install already delivers.
     """
     all_tops = _census()["tops"]
     declared = _declared_names()

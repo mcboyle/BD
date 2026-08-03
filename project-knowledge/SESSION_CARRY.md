@@ -2806,10 +2806,12 @@ WHAT SHIPPED
      THE ORIGINAL ENTRY HERE WAS WRONG, and it was wrong in the specific way
      CLAUDE.md section 1 warns about. It was derived BY GREP, and like the
      playwright census in that section it failed in BOTH directions at once.
-     Re-derived with ast.parse over all 2108 tracked .py files
-     (`git ls-files -- '*.py'`; all parsed, zero SyntaxError), reading Import
+     Re-derived with ast.parse over every tracked file the gate reads as
+     Python -- 2577 after the third repair (item f below) widened the
+     denominator from the 2108 that `git ls-files -- '*.py'` returns; all
+     parsed, zero SyntaxError -- reading Import
      and ImportFrom nodes and skipping relative imports. COUNTS BELOW ARE OVER
-     THAT 2108-FILE DENOMINATOR -- v3.66.849 correction: the first version of
+     THAT 2577-FILE DENOMINATOR -- v3.66.849 correction: the first version of
      this entry stated the 2108-file instrument and then counted a smaller
      set under it ("All three" lxml, "Two" cssselect in requirements.txt and
      the CHANGELOG), parenthesising the tests/ importer out of the total while
@@ -2874,14 +2876,17 @@ WHAT SHIPPED
      left the whole band green, so the declaration shipped unconstrained.
      tests/test_v3_66_653_dep_freshness.py now carries EIGHT cases (it shipped
      with three; v3.66.849 added five after two read-only verifiers took the
-     first version apart). The AST walk is one pass over all 2108 tracked .py,
+     first version apart). The AST walk is one pass over all 2577 tracked
+     Python files,
      sliced into two scopes that PARTITION the tree, each with its own
      manifest expectation:
        app     (bulk_downloader/, 565 files, 3632 import nodes)
                30 third-party names: 20 declared, 10 waived.
-       outside (everything else, 1543 files, 12645 nodes)
-               21 third-party names: 13 declared, 8 waived (werkzeug, PIL,
-               psycopg, atheris, hypothesis, markdown, paho, bd_dev_inspect).
+       outside (everything else, 2012 files, 15734 nodes)
+               29 third-party names: 14 declared, 15 waived (werkzeug, PIL,
+               psycopg, atheris, hypothesis, markdown, paho, bd_dev_inspect,
+               plus the seven found by item f: aiosmtpd, freezegun, jedi,
+               mitmproxy, prometheus_client, pytesseract, pyzbar).
      Four things about that gate worth carrying:
        - The denominator is asserted BEFORE the verdict. Five mutations that
          empty or blind the scan (outside subject filter matching no file,
@@ -2911,7 +2916,9 @@ WHAT SHIPPED
          directory -- that is what keeps tests/conftest.py, tests/_env.py and
          tests/capture_lanes.py from reading as PyPI distributions -- so
          adding or renaming a tests/ file moves what it measures. Band this
-         file on any cut that adds or renames a tracked .py. CLAUDE.md
+         file on any cut that adds or renames a tracked PYTHON file -- which
+         after item f means a .py OR an extensionless python-shebang script.
+         CLAUDE.md
          section 4's axis-6 table does not list it; it is an operator file and
          was not edited for this.
      RED proven four ways before the pins were trusted: remove the lxml line
@@ -2965,7 +2972,7 @@ WHAT SHIPPED
           directory) and every removal is RECORDED, then checked against two
           independent signals that a suppressed name is really a distribution:
           declared in a manifest, or a top-level module of something installed
-          from outside this checkout. MEASURED at this tip: 92 names
+          from outside this checkout. MEASURED at this tip: 95 names
           suppressed, 70 installed top-levels seen, ZERO shadow hits -- the
           hazard is latent, not live. Proven to FIRE by adding a real tracked
           tools/lxml.py: the shadow report named the file and all four lxml
@@ -2984,6 +2991,83 @@ WHAT SHIPPED
           file count describing a set the verdict never ran over. The census
           now asks every scope predicate and requires exactly one to match, so
           "the scopes stopped partitioning the tree" is its own named failure.
+       f) THE SECOND REPAIR DID NOT FINISH THE JOB, and a reviewer found the
+          SAME section 0 shape a third time. Three items, all RED-proven on
+          the pristine tree before anything was changed:
+          DENOMINATOR. The scan was `git ls-files -- '*.py'` while
+          _SCOPE_NOTE["outside"] claimed toolchain/ and project-knowledge/
+          outright. MEASURED: 3423 tracked files, 2108 ending .py, and 469
+          MORE that carry a python shebang and NO extension -- 234 under
+          toolchain/, 235 under project-knowledge/, none anywhere else. So the
+          glob reached 6 of toolchain/'s 240 Python files (2.5%) and 40 of
+          project-knowledge/'s 275 (14.5%) while the note claimed both
+          directories. CLAUDE.md section 8 names the toolchain/bin bd-* suite
+          as its own POPULATION; a .py glob structurally cannot see it. RED:
+          `import zeep` appended to tracked toolchain/bin/bd-guardcheck left
+          the gate GREEN (15 passed). Option (i) was taken over narrowing the
+          claim -- _tracked_py now reads the first line of every tracked
+          non-.py file and a python shebang makes it Python (2577 scanned) --
+          because the claim was the true one and the denominator was the
+          defect. The same probe is now RED and names the file.
+          SEVEN REAL FINDINGS, which is why widening was the right call:
+          aiosmtpd, freezegun, jedi, mitmproxy, prometheus_client, pytesseract
+          and pyzbar were all undeclared and all invisible. Waived, not
+          declared, each with a reason read at its import site. They live in
+          bd-opv / bd-lsp / bd-proxy, which exist as TWO identical tracked
+          copies (toolchain/bin/<x> and project-knowledge/<x>; md5 verified
+          equal), so each name reports two import sites for one script -- do
+          not read that as two importers. Six are try/except -> SKIP; jedi is
+          installed by bd-lsp itself from /home/claude/lsp_kit/wheels and every
+          subcommand returns 1 out of cmd_setup while it is missing. Three need
+          a system package (tesseract, libzbar, a proxy) as well as a wheel.
+          OVER-SENSITIVITY, twice, which CLAUDE.md section 0 counts equal to a
+          false clean. (1) _declared_names never followed requirements-dev.txt's
+          first directive `-r requirements.txt` -- parse_requirement_line
+          returns None for it -- so 15 core pins read as ABSENT from the dev
+          manifest (measured 15 -> 0 after the fix). A tests-only import of any
+          of them would have been told to duplicate a pin the dev install
+          already delivers. Includes are followed now, with a cycle guard and
+          an assertion rather than a skip when the target resolves outside the
+          repo or does not exist. (2) _DIST_ALIASES was a hand-written
+          three-entry map, so `import xdist` failed as "declared in no
+          requirements*.txt" while pytest-xdist is pinned in requirements.txt.
+          RED: that import injected into a tracked tests/ file gave 1 failed /
+          14 passed; after both fixes, 15 passed. One injection, both fixes --
+          without the include-follow the name lands in the dev-manifest
+          assertion instead of the undeclared one.
+          THE ALIAS MAP IS NOW DERIVED from
+          importlib.metadata.packages_distributions() with the hand list
+          applied LAST as an override. COVERS every top-level name an installed
+          distribution provides (70 top-levels here; 11 aliases result).
+          CANNOT cover: a distribution not installed in the running
+          environment contributes nothing -- pillow and yt-dlp are both absent
+          from this container's metadata, which is precisely why those two
+          entries stay hand-written; a name provided by MORE than one
+          distribution is left unmapped rather than guessed (exactly one here,
+          jaraco, from three jaraco.* dists); and the derived half is a
+          property of the ENVIRONMENT, not the tree, so it may only ADD and can
+          differ between this container and the box. Never delete a hand entry
+          because a derivation happened to cover it here.
+          THREE MINORS, fixed by telling the truth rather than by adding
+          machinery, and said here because each is a limit somebody will
+          otherwise re-discover. test_tests_only_imports_are_declared_in_the_
+          dev_manifest's verdict runs over ONE name (pytest), declared in both
+          manifests, so it cannot fail today -- it is a live check for the next
+          test-only import, not evidence about this tree.
+          _installed_from_the_repo_itself is a CONJUNCTION (no site-packages
+          component AND under _REPO), so the test order the reviewer flagged is
+          immaterial -- the truth table is identical either way -- but the
+          conjunction does not recognise a PEP 660 editable install, whose
+          locate_file("") returns the site-packages directory. Left unrepaired
+          ON PURPOSE: no BD distribution is installed here at all (no
+          bulk_downloader key, no __editable__* file, none of 67 dists), so the
+          branch cannot be exercised and a fix would ship untested; if it ever
+          happens the shadow test reports bulk_downloader shadowing itself,
+          which is loud. And an `if TYPE_CHECKING:` import fails the gate while
+          none of the three offered remedies fits it, so both failure messages
+          now name that case and point at a string annotation. TYPE_CHECKING
+          blocks were NOT excluded from the walk: that would remove names from
+          the subject to repair a case the tree does not have (measured: zero).
        Also corrected: one more denominator slip found while re-measuring (a)
        -- "imported only from tests/" was first judged against the OUTSIDE
        slice, which made bs4, httpx, lxml, mutagen, openpyxl, curl_cffi and

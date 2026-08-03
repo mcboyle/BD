@@ -41,9 +41,11 @@ archive is not present in this repository; consult source-control history.
 - lxml and cssselect are declared in requirements.txt, and the census behind
   those declarations is CORRECTED. The earlier lxml census was derived BY GREP
   and was wrong in both directions at once -- CLAUDE.md section 1's named trap,
-  reproduced. Re-derived with ast.parse over all 2108 tracked .py files (all
-  parsed, zero SyntaxError), reading Import and ImportFrom nodes. The counts
-  below are stated over that same 2108-file denominator, because the first
+  reproduced. Re-derived with ast.parse over every tracked file the gate reads
+  as Python -- 2577 of them after the third repair below widened the
+  denominator from the 2108 that `git ls-files -- '*.py'` returns (all parsed,
+  zero SyntaxError), reading Import and ImportFrom nodes. The counts
+  below are stated over that same 2577-file denominator, because the first
   version of this bullet gave a 2108-file instrument and then a
   bulk_downloader-shaped count under it -- "All three" lxml importers and
   "Two" for cssselect, when the stated denominator holds four and three:
@@ -116,9 +118,10 @@ archive is not present in this repository; consult source-control history.
   while capture.sh defaults it.
 - The scope was not merely widened. The two halves answer to different
   manifests, so there are two assertions over disjoint scopes whose union is
-  every tracked .py -- bulk_downloader/ (565 files, 3632 import nodes, 30
-  third-party names: 20 declared, 10 waived) and everything else (1543 files,
-  12645 nodes, 21 names: 13 declared, 8 waived) -- plus a third that holds a
+  every tracked Python file -- bulk_downloader/ (565 files, 3632 import nodes,
+  30 third-party names: 20 declared, 10 waived) and everything else (2012
+  files, 15734 nodes, 29 names: 14 declared, 15 waived) -- plus a third that
+  holds a
   tests/-only name to requirements-dev.txt specifically. Each NAMES its own
   scope and the shared blind spot in the failure message: the predicate is
   ast.Import / ast.ImportFrom, so __import__, importlib.import_module and
@@ -150,7 +153,7 @@ archive is not present in this repository; consult source-control history.
   the gate would report clean over an undeclared import. Resolution is now
   per-importer and every removal is RECORDED and checked against two
   independent signals -- declared in a manifest, or a top-level module of
-  something installed from outside this checkout. 92 names suppressed, 70
+  something installed from outside this checkout. 95 names suppressed, 70
   installed top-levels seen, zero shadow hits: the hazard is latent, not live.
   Proven to fire by adding a real tracked tools/lxml.py, which named the file
   and all four lxml importers that had left the subject.
@@ -166,6 +169,73 @@ archive is not present in this repository; consult source-control history.
   selector), so only the grammar probe is lost. MEASURED over 13 probe
   selectors: 7 flip to valid, 4 stay caught structurally, 2 cssselect accepts
   anyway.
+- THE DECLARATION GATE'S SECOND REPAIR DID NOT FINISH THE JOB. A reviewer found
+  the same section 0 shape a third time, in three places; this is the third and
+  last repair, and every item was proven by measurement before anything changed.
+    * DENOMINATOR. The scan was `git ls-files -- '*.py'` while the scope note
+      claimed toolchain/ and project-knowledge/ outright. MEASURED: of 3423
+      tracked files, 2108 end in .py and 469 MORE are extensionless bd-*
+      scripts carrying a python shebang -- 234 under toolchain/, 235 under
+      project-knowledge/, none anywhere else. The glob therefore reached 6 of
+      toolchain/'s 240 Python files (2.5%) and 40 of project-knowledge/'s 275
+      (14.5%). CLAUDE.md section 8 names the toolchain/bin bd-* suite as its
+      own population, and a .py glob structurally cannot see it. RED: an
+      `import zeep` added to tracked toolchain/bin/bd-guardcheck left the gate
+      GREEN, 15 passed. Files are now typed on their shebang as well as their
+      extension (2577 scanned), and that probe is RED and names the file.
+    * SEVEN REAL FINDINGS came out of the gap, waived by name with measured
+      reasons rather than declared: aiosmtpd, freezegun, jedi, mitmproxy,
+      prometheus_client, pytesseract and pyzbar, all in the bd-opv / bd-lsp /
+      bd-proxy operator scripts. Those exist as two identical tracked copies
+      (md5-verified equal), so each name reports two import sites for one
+      script. Six are try/except -> SKIP at the site; jedi is installed by
+      bd-lsp itself from a bundled wheelhouse and every subcommand returns 1
+      out of cmd_setup while it is still missing. Three of the seven need a
+      system package as well as a wheel, so a requirements-dev.txt pin would
+      put an SMTP server, a proxy, an OCR binding and a barcode binding on
+      every dev install for tools no lane runs.
+    * OVER-SENSITIVITY, twice -- a soundness bug, not a safe default, because a
+      gate that cries wolf gets switched off. _declared_names did not follow
+      requirements-dev.txt's first directive `-r requirements.txt`, so 15 core
+      pins read as absent from the dev manifest and a tests-only import of any
+      of them would be told to duplicate a pin the dev install already
+      delivers; includes are now followed, with a cycle guard and a refusal to
+      read a path resolving outside the repo or a path that does not exist.
+      And _DIST_ALIASES was a hand-written three-entry map, so `import xdist`
+      failed as "declared in no requirements*.txt" while pytest-xdist is pinned
+      in requirements.txt. RED proven by injecting that import into a tracked
+      tests/ file: 1 failed / 14 passed before, 15 passed after. That one
+      injection exercises both fixes, since without the include-follow the name
+      lands in the dev-manifest assertion instead.
+- The alias map is DERIVED from importlib.metadata.packages_distributions()
+  with the hand list applied last as an override, and it states what it covers
+  and what it cannot. COVERS: every top-level name an installed distribution
+  provides (70 top-levels here, 11 aliases in the resulting map). CANNOT: a
+  distribution not installed in the running environment contributes nothing --
+  pillow and yt-dlp are both absent here, which is exactly why those two
+  entries stay hand-written and the override list is load-bearing; a name
+  provided by MORE than one distribution is left unmapped rather than guessed
+  (exactly one such name here, jaraco); and the derived half is a property of
+  the environment rather than of the tree, so it may only ADD -- the override
+  wins, and no hand entry is deleted because a derivation happened to cover it
+  in one container.
+- Three smaller corrections in the same file, all made by telling the truth
+  rather than by adding machinery. test_tests_only_imports_are_declared_in_the
+  _dev_manifest now says that its verdict currently runs over a single name
+  (pytest) that is declared in BOTH manifests and therefore cannot fail today:
+  it is a live check for the next test-only import, not evidence about this
+  tree. _installed_from_the_repo_itself's docstring no longer promises an
+  editable-install exclusion the code does not deliver -- the predicate is a
+  conjunction, so the order of its two tests is immaterial, but it does not
+  recognise a PEP 660 editable install, and that is left unrepaired ON PURPOSE
+  because no BD distribution is installed here to exercise the branch
+  (measured: no bulk_downloader key in packages_distributions, no __editable__
+  file in site-packages, none of the 67 installed distributions is BD), so a
+  fix would ship untested. And both undeclared-import failure messages now name
+  the TYPE_CHECKING case, whose repair is a string annotation rather than any
+  of the three remedies they previously offered; TYPE_CHECKING blocks were NOT
+  excluded from the walk, because that would remove names from the subject to
+  repair a case the tree does not have (measured: zero such imports).
 
 ## v3.66.847 - Seeded-history clear (--teardown --clear-history)
 

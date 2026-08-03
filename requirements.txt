@@ -19,8 +19,11 @@ httpx>=0.25,<1.0
 beautifulsoup4>=4.12,<5.0
 
 # THE lxml / cssselect CENSUS BELOW IS AST-DERIVED, AND IT IS A CORRECTION.
-# It comes from ast.parse over every tracked .py file (`git ls-files -- '*.py'`,
-# 2108 files at v3.66.848, all parsed, zero SyntaxError), reading Import and
+# It comes from ast.parse over every tracked file the gate can read as Python
+# -- 2577 at v3.66.848: 2108 ending in .py, PLUS 469 extensionless
+# python-shebang bd-* scripts under toolchain/ and project-knowledge/ that the
+# earlier `git ls-files -- '*.py'` denominator could not see at all (all
+# parsed, zero SyntaxError), reading Import and
 # ImportFrom nodes. The first version of these notes was derived BY GREP and
 # was wrong in BOTH directions at once, which is precisely the trap CLAUDE.md
 # section 1 names ("Grep is not a denominator"):
@@ -38,11 +41,14 @@ beautifulsoup4>=4.12,<5.0
 # is a test failure rather than a silent capability loss.
 
 # v3.66.848: lxml. SAY WHICH DENOMINATOR THE COUNT IS OVER. The walk above
-# covers all 2108 tracked .py; the runtime census below covers
+# covers all 2577 tracked Python files; the runtime census below covers
 # bulk_downloader/ (565 of them), and the first version of this note mixed the
 # two -- it said "All three" directly under a sentence claiming every tracked
 # file, which is the same denominator slip the census itself was correcting.
-#   FOUR importers over the stated 2108-file denominator:
+# The denominator grew from 2108 to 2577 at the third repair (the 469
+# extensionless scripts); the lxml count did NOT change, because none of them
+# imports it -- re-measured, not assumed.
+#   FOUR importers over the stated 2577-file denominator:
 #     bulk_downloader/accessibility.py:185   ARIA audit
 #     bulk_downloader/selector_playground.py:56  XPath selector evaluation
 #     bulk_downloader/synthetic_tests.py:96  synthetic selector check
@@ -62,7 +68,8 @@ beautifulsoup4>=4.12,<5.0
 lxml>=5.0,<7.0
 
 # v3.66.848: cssselect translates CSS selectors to XPath. THREE importers over
-# the same stated 2108-file denominator -- the first version of this note said
+# the same stated 2577-file denominator (re-measured after the denominator
+# grew, and unchanged) -- the first version of this note said
 # "Two", having silently counted a root-level file but not a tests/ one:
 #   bulk_downloader/selector_playground.py:67 -- sets _HAS_CSSSELECT, which
 #     is_available() reports to the operator verbatim. Without it the
