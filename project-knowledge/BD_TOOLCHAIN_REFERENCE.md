@@ -253,6 +253,39 @@ before first paint; self-boots and tears down its own backend.
 - Subtab state lives in the URL (`useUrlState` → `?status=running`); compare the **pathname**,
   not the full URL, or every subtab is discarded as a navigation.
 
+### CODEX_HANDOFF.md — RETIRED 2026-08-03 *(a second agent-facing contract)*
+
+**The document is gone. Do not recreate it; use `CLAUDE.md` plus SESSION_CARRY 15.15.**
+
+Removed in the same cut: `CODEX_HANDOFF.md` and
+`tests/test_codex_handoff_defers_to_claude_md.py`.
+
+WHY, and it is NOT the tracker's reason. TASK_TRACKER was a duplicate
+REGISTER. This was a duplicate CONTRACT -- a second document an agent reads
+before acting, describing a DIFFERENT MACHINE. It once shipped 14 commands
+against a dot-prefixed `venv` that does not exist on this host while CLAUDE.md
+said otherwise; a session followed the wrong one and reported seven failures
+that were not real.
+
+`test_codex_handoff_defers_to_claude_md.py` existed solely to stop that
+recurring -- it failed if the handoff restated any fact CLAUDE.md owns. It is
+retired WITH its subject, deliberately: a gate whose whole purpose is to keep a
+second contract from contradicting the first is answered more completely by not
+having a second contract. Keeping it without the document would be a check that
+can no longer encounter its subject, which is worse than no gate.
+
+The 34-task program's open groups (Analysis Task 4 paused, Analysis 5-7,
+Governance 1-8, Audit/knowledge/hygiene/static-KB 1-11) are recorded in
+SESSION_CARRY 15.15, including the fact that Task 4's frozen review packages no
+longer exist -- so resuming it means RE-FREEZING from the current tree, not
+verifying against the recorded hashes.
+
+THE LESSON IS KEPT, NOT THE FILE. The `.venv` trap stays in CLAUDE.md section 5
+and `LESSONS_LEARNED_v3_66_818.md`. `tests/test_codex_handoff_stays_retired.py`
+asserts CLAUDE.md still owns both halves -- that `venv/bin/python` is stated
+and that `.venv` is still warned about -- so the retirement cannot quietly
+delete the correction along with the error.
+
 ### TASK_TRACKER — RETIRED 2026-08-03 *(the ledger, its generators, and two operator tools)*
 
 **The tracker is gone. Do not regenerate it; use `project-knowledge/SESSION_CARRY.md`.**
