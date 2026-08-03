@@ -618,3 +618,424 @@ def test_the_residue_distribution_is_printed_for_the_population_that_has_residue
     assert "SWEEP residue over 64KB (NOT atom-shaped)" in text, (
         "the over-64KB honesty check is absent for the sweep population:\n"
         + text)
+
+
+# ─── Coverage counted what was COMPARED, not what was queried (v3.66.845) ──
+#
+# The census counted coverage by DB row count (`covered += n`) while
+# library_final's resolver silently drops any row whose recorded basename does
+# not resolve to exactly one on-disk file, plus any resolved path that cannot
+# be stat'ed. Dropped rows were reported as examined, so the tool reported
+# clean over a denominator that structurally excluded the rows it failed to
+# look at -- and the whole-history sweep printed drift counts with no
+# examined-of-total at all, making "0 of 5 resolved" render identically to
+# "swept and clean".
+#
+# WHOLE-LINE assertions below, deliberately. The obvious `"rows examined : 4 of
+# 5" in text` also matches the NEW per-directory and SWEEP lines on this
+# fixture, so a mutant that fixed only the sweep line would pass it. The
+# file's own docstring records that trap; these are the same trap one release
+# later.
+
+
+def _line(text, prefix):
+    """The single rstripped line starting with `prefix`, or None."""
+    hits = [ln.rstrip() for ln in text.splitlines() if ln.startswith(prefix)]
+    assert len(hits) <= 1, f"{prefix!r} matched {len(hits)} lines: {hits}"
+    return hits[0] if hits else None
+
+
+def test_a_row_that_never_resolved_is_not_counted_as_examined(lib):
+    """The register's first reproduction, at the fixture's own scale.
+
+    Every one of the 5 rows is attributed to a directory the census sweeps, so
+    `covered` is 5 -- but `g.mp4` does not exist on disk and is never compared.
+    Coverage must say 4, and the report must not claim completeness.
+    """
+    db, lf, dl = lib
+    rep = cen.census({"A": {"download_dir": str(dl)},
+                      "B": {"download_dir": str(dl)},
+                      "ghost": {"download_dir": str(dl)}}, db, lf)
+    text = cen.format_report(rep)
+
+    assert rep["covered_rows"] == 5, (
+        "fixture drift: this test is only meaningful while all 5 rows are "
+        f"attributed to a swept dir; got {rep['covered_rows']}")
+    assert rep["examined_rows"] == 4, (
+        "g.mp4 has no file on disk, so it was never compared -- but coverage "
+        f"counted it. examined_rows={rep['examined_rows']}\n{text}")
+    assert _line(text, "COVERAGE  rows examined : ") == \
+        "COVERAGE  rows examined : 4 of 5", (
+        "the COVERAGE line reports the queried row count, not the compared "
+        f"one:\n{text}")
+    assert "complete -- every done row was examined" not in text, (
+        "the report claimed every row was examined while one never "
+        f"resolved:\n{text}")
+
+
+def test_the_uncompared_rows_are_named_with_a_reason(lib):
+    """A count of misses nobody can act on is only half the fix."""
+    db, lf, dl = lib
+    rep = cen.census({"A": {"download_dir": str(dl)},
+                      "B": {"download_dir": str(dl)},
+                      "ghost": {"download_dir": str(dl)}}, db, lf)
+    text = cen.format_report(rep)
+
+    assert rep["uncompared_rows"] == 1, rep["uncompared_rows"]
+    ln = _line(text, "          rows attributed but NEVER COMPARED : ")
+    assert ln, f"the uncompared rows are not named at all:\n{text}"
+    assert "absent" in ln, (
+        "the reason histogram does not say WHY the row was not compared, so "
+        f"an operator cannot act on it: {ln!r}")
+    assert _line(text, "          rows attributed to a swept directory : ") == \
+        "          rows attributed to a swept directory : 5", (
+        "the old covered_rows figure is gone rather than relabelled -- keep "
+        f"it readable, just stop calling it 'examined':\n{text}")
+
+
+def test_a_sweep_that_resolved_nothing_is_unknown_not_clean(lib):
+    """The register's second reproduction.
+
+    A directory where nothing resolves prints 0 truncations and 0 residue --
+    byte-identical to a directory that was swept and is genuinely clean. The
+    sweep must carry its own examined-of-total and say which it is.
+    """
+    db, lf, dl = lib
+    empty = Path(tempfile.mkdtemp(prefix="cen_empty_"))
+    rep = cen.census({"A": {"download_dir": str(empty)}}, db, lf)
+    text = cen.format_report(rep)
+
+    assert not rep["sweep_truncations"] and not rep["sweep_residue"], (
+        "fixture drift: this test needs a sweep with zero drift so that the "
+        "only thing distinguishing it from clean is the coverage line")
+    assert rep["sweep_examined_rows"] == 0, rep["sweep_examined_rows"]
+    assert _line(text, "  SWEEP rows examined : ") == \
+        "  SWEEP rows examined : 0 of 5", (
+        f"the sweep printed no examined-of-total:\n{text}")
+    assert "SWEEP EXAMINED NOTHING" in text, (
+        "a sweep that compared nothing rendered identically to a clean "
+        f"one:\n{text}")
+    assert "UNKNOWN, not clean" in text, text
+
+
+def test_the_completeness_line_is_still_printed_when_it_is_true(lib):
+    """The green side. Without this, deleting the line passes the whole band.
+
+    Every other assertion here is about the line being ABSENT, so a mutant
+    that simply never emits it satisfies all of them. This is the only test
+    that fails on that mutant.
+    """
+    db, lf, dl = lib
+    # Give every row a real file, so examined == total == 5.
+    (dl / "g.mp4").write_bytes(b"\0" * 333)
+    rep = cen.census({"A": {"download_dir": str(dl)},
+                      "B": {"download_dir": str(dl)},
+                      "ghost": {"download_dir": str(dl)}}, db, lf)
+    text = cen.format_report(rep)
+
+    assert rep["examined_rows"] == rep["total_done_rows"] == 5, (
+        f"examined={rep['examined_rows']} total={rep['total_done_rows']}\n{text}")
+    assert "complete -- every done row was examined" in text, (
+        "every row WAS examined and the report did not say so -- the "
+        f"completeness line is never emitted:\n{text}")
+    assert "SWEEP complete" in text, text
+
+
+# --- The units the coverage figures are counted in (v3.66.845, review) ----
+#
+# Every figure below was measured wrong before these tests existed:
+#   * the per-directory `examined N of M` was a pure no-op -- printing
+#     `considered` in its place, or deleting the field, passed all 24 tests;
+#   * SWEEP TRUNCATIONS/RESIDUE counted (row, directory) PAIRS while
+#     `SWEEP rows examined` counted ROWS, so "examined 2 of 2" sat above
+#     "SWEEP TRUNCATIONS : 2" for ONE truncated file on disk;
+#   * the `reasons:` histogram was summed over directories: "absent 15"
+#     printed directly under "0 of 5";
+#   * a history read that RAISED rendered as "0 of N rows resolved to exactly
+#     one file" -- a cause nobody measured;
+#   * the SWEEP PARTIAL arm of the three-way verdict, and the whole
+#     denominator-mismatch mechanism, were unpinned.
+#
+# TWO SWEPT DIRECTORIES IS THE NORMAL CONFIGURATION, not an edge case:
+# census() adds the deployment default to sweep_sources unconditionally when
+# it resolves, and _basename_index rglobs, so a site dir nested under the
+# download root resolves the same history row twice.
+
+
+def test_the_per_directory_sweep_line_carries_EXAMINED_not_CONSIDERED(lib):
+    """The per-directory examined-of-total must be the examined figure.
+
+    RED-proving mutants: printing `_sc["considered"]` in place of
+    `_sc["examined"]`, and deleting the field entirely, both passed the whole
+    file before this test. The fixture forces the two apart -- the swept dir
+    is EMPTY, so considered is 5 and examined is 0.
+    """
+    db, lf, dl = lib
+    empty = Path(tempfile.mkdtemp(prefix="cen_pdir_"))
+    rep = cen.census({"A": {"download_dir": str(empty)}}, db, lf)
+    sc = rep["sweep_coverage"][str(empty)]
+    assert (sc["considered"], sc["examined"]) == (5, 0), (
+        f"fixture drift: this test needs considered != examined; got {sc}")
+
+    lines = [ln.rstrip() for ln in cen.format_report(rep).splitlines()]
+    hit = [ln for ln in lines if ln.lstrip().startswith(str(empty)[:38])]
+    assert len(hit) == 1, f"per-directory sweep line not found: {lines}"
+    assert "examined 0 of 5" in hit[0], (
+        "the per-directory sweep line reports the QUERIED count, not the "
+        f"compared one: {hit[0]!r}")
+
+
+def test_the_sweep_totals_are_per_ROW_like_the_examined_figure(lib):
+    """The unit the register's own reproduction got wrong.
+
+    `sweep_examined_rows` is a UNION of row ids; SWEEP TRUNCATIONS/RESIDUE
+    append one entry per (row, directory). A site dir nested under the
+    deployment default resolves every row twice, so the totals doubled while
+    the examined figure did not -- and the report printed them adjacent.
+
+    ONE file on disk is truncated. The report must say ONE.
+    """
+    db, lf, dl = lib
+    # the site writes into dl/sub, which the deployment default (dl) rglobs --
+    # the ordinary production layout, not a contrivance
+    rep = cen.census({"A": {"download_dir": str(dl / "sub")}}, db, lf,
+                     default_dir=str(dl))
+
+    dirs = sorted(rep["sweep_coverage"])
+    assert dirs == [str(dl), str(dl / "sub")], (
+        f"fixture drift: this test needs the site dir nested under the "
+        f"swept default; got {dirs}")
+    assert rep["sweep_multi_dir_rows"] == 1, (
+        "fixture drift: residue.mp4 must resolve under BOTH swept dirs or "
+        f"this test cannot see its subject; got {rep['sweep_multi_dir_rows']}")
+
+    assert len(rep["sweep_truncations"]) == 1, (
+        "the sweep counted (row, directory) pairs: exactly one file on disk "
+        f"is truncated: {rep['sweep_truncations']}")
+    assert len(rep["sweep_residue"]) == 2, (
+        "residue.mp4 resolves under dl AND dl/sub and was counted twice -- "
+        "two files on disk carry positive drift, not three: "
+        f"{[r['filename'] for r in rep['sweep_residue']]}")
+    assert len(rep["sweep_truncations"]) + len(rep["sweep_residue"]) \
+        <= rep["sweep_examined_rows"], (
+        "more drift findings than rows examined -- the two figures are in "
+        f"different units: {rep['sweep_examined_rows']} examined vs "
+        f"{len(rep['sweep_truncations']) + len(rep['sweep_residue'])} findings")
+
+    text = cen.format_report(rep)
+    assert "duplicate (row, directory) drift entr" in text, (
+        "the per-directory lines and the totals disagree and the report does "
+        f"not say why:\n{text}")
+
+
+def test_the_sweep_reason_histogram_sums_to_the_figure_it_explains(lib):
+    """`reasons:` is printed directly under "0 of N". It must add up to N.
+
+    Summed per directory it counted (row, directory) pairs -- measured
+    "absent 15" under "0 of 5" with three swept dirs -- and it also reported
+    a row as a miss when another directory had compared it.
+    """
+    db, lf, dl = lib
+    # d1 sees nothing at all; d2 sees g.mp4 under TWO names, so the same row
+    # is "absent" under one dir and "ambiguous" under the other. Both the
+    # per-directory sum AND a naive per-state union double-count it.
+    d1 = Path(tempfile.mkdtemp(prefix="cen_r1_"))
+    d2 = Path(tempfile.mkdtemp(prefix="cen_r2_"))
+    (d2 / "x").mkdir()
+    (d2 / "y").mkdir()
+    (d2 / "x" / "g.mp4").write_bytes(b"\0" * 333)
+    (d2 / "y" / "g.mp4").write_bytes(b"\0" * 999)
+    rep = cen.census({"A": {"download_dir": str(d1)},
+                      "B": {"download_dir": str(d2)}}, db, lf)
+
+    assert sorted(rep["sweep_coverage"]) == sorted([str(d1), str(d2)]), (
+        f"fixture drift: needs both dirs swept; got {sorted(rep['sweep_coverage'])}")
+    assert rep["sweep_coverage"][str(d2)]["states"].get("ambiguous") == 1, (
+        "fixture drift: g.mp4 must be AMBIGUOUS under d2 and absent under d1, "
+        f"or the two histograms agree and this test proves nothing: "
+        f"{rep['sweep_coverage'][str(d2)]['states']}")
+    assert rep["sweep_examined_rows"] == 0, rep["sweep_examined_rows"]
+    assert sum(rep["sweep_states"].values()) == rep["sweep_considered"], (
+        "the reason histogram does not sum to the population it explains -- "
+        f"{rep['sweep_states']} over {rep['sweep_considered']} rows")
+    assert rep["sweep_states"] == {"ambiguous": 1, "absent": 4}, (
+        "a row that is absent under one directory and ambiguous under another "
+        f"is ONE uncompared row, not one of each: {rep['sweep_states']}")
+
+    text = cen.format_report(rep)
+    assert "  reasons: absent 4, ambiguous 1" in \
+        [ln.rstrip() for ln in text.splitlines()], (
+        f"the reasons line is in (row, directory) units:\n{text}")
+
+
+def test_a_partially_swept_population_says_PARTIAL(lib):
+    """The middle arm of the three-way verdict.
+
+    NOTHING and complete are both pinned; deleting the PARTIAL branch passed
+    the whole file. A sweep that compared 4 of 5 must say so -- it is the
+    commonest of the three states and the one a clean-looking report hides.
+    """
+    db, lf, dl = lib
+    rep = cen.census({"A": {"download_dir": str(dl)}}, db, lf)
+    assert (rep["sweep_examined_rows"], rep["sweep_considered"]) == (4, 5), (
+        f"fixture drift: needs a partial sweep; got "
+        f"{rep['sweep_examined_rows']} of {rep['sweep_considered']}")
+
+    text = cen.format_report(rep)
+    assert "SWEEP PARTIAL -- 4 of 5 rows were compared" in text, (
+        f"a partial sweep did not say it was partial:\n{text}")
+    assert "SWEEP complete" not in text and "SWEEP EXAMINED NOTHING" not in text, (
+        f"a partial sweep also claimed one of the other two verdicts:\n{text}")
+
+
+def test_a_row_that_resolved_but_could_not_be_statted_is_named(lib):
+    """`stat_failed` was incremented and never surfaced.
+
+    Deleting the counter passed the whole file: no fixture produced a stat
+    failure. The subject is the ACCOUNTING, not the filesystem, so the failure
+    is injected -- as root every chmod-based attempt succeeds anyway.
+    """
+    db, lf, dl = lib
+    real = lf.os.path.getsize
+
+    def boom(p):
+        if str(p).endswith("short.mp4"):
+            raise OSError(5, "injected I/O error")
+        return real(p)
+
+    lf.os.path.getsize = boom
+    try:
+        rep = cen.census({"A": {"download_dir": str(dl)}}, db, lf)
+        text = cen.format_report(rep)
+    finally:
+        lf.os.path.getsize = real
+
+    sc = rep["site_coverage"]["A"]
+    assert sc["stat_failed"] == 1, (
+        f"a resolved path that could not be stat'ed was not counted: {sc}")
+    assert sc["examined"] + sum(sc["states"].values()) + sc["stat_failed"] \
+        == sc["considered"], (
+        f"the scan's own accounting does not reconcile: {sc}")
+    assert "stat failed 1" in text, (
+        "a row that resolved and then could not be stat'ed is missing from "
+        f"the reason histogram, so the breakdown does not add up:\n{text}")
+
+
+def test_a_history_read_that_raised_is_not_reported_as_a_resolution_failure(lib):
+    """`query_failed` was set by the scan and read by nobody.
+
+    With the DB read raising, the report asserted "0 of N rows resolved to
+    exactly one file under any swept directory" -- UNKNOWN correctly, but for
+    a cause it had not measured, and with the reasons line suppressed because
+    the histogram was empty. Naming the wrong cause is section 0 in a
+    sentence.
+    """
+    db, lf, dl = lib
+    real_scan = lf.size_drift_scan
+
+    class Failing:
+        @staticmethod
+        def size_drift_scan(dd, **kw):
+            r = real_scan(dd, **kw)      # keep the shape honest
+            return {**r, "rows": [], "considered": 0, "examined": 0,
+                    "states": {}, "state_ids": {}, "stat_failed": 0,
+                    "examined_ids": set(), "query_failed": True}
+
+    rep = cen.census({"A": {"download_dir": str(dl)}}, db, Failing)
+    text = cen.format_report(rep)
+
+    assert rep["query_failed_dirs"] == [str(dl)], rep["query_failed_dirs"]
+    assert rep["query_failed_sites"] == ["A"], rep["query_failed_sites"]
+    assert "SWEEP READ FAILED" in text, (
+        f"a failed history read is invisible in the report:\n{text}")
+    assert "rows resolved to exactly one" not in text, (
+        "the report blamed basename resolution for a failure of the DATABASE "
+        f"READ -- a cause it did not measure:\n{text}")
+    assert "HISTORY READ FAILED" in text, text
+
+
+def test_a_denominator_mismatch_is_printed_and_blocks_the_completeness_line(lib):
+    """The mismatch mechanism was recorded, printed and gated -- and none of
+    the three was pinned.
+
+    A falsy site_id is the live trigger: library_final's ``if site_id:`` is
+    False for "", so that site's scan sweeps EVERY row while _done_row_counts
+    grouped only its own. `examined` then counts (row, scan) pairs and can
+    reach the total by coincidence, which is exactly when a completeness
+    claim would be false.
+    """
+    db, lf, dl = lib
+    # every row resolves, so `examined` REACHES the total -- which is exactly
+    # when a completeness claim would be made, and exactly when it is false.
+    (dl / "g.mp4").write_bytes(b"\0" * 333)
+    with db.db_conn() as cx:
+        cx.execute("UPDATE history SET site_id='' WHERE site_id IN ('A','B')")
+    rep = cen.census({"": {"download_dir": str(dl)}}, db, lf)
+    text = cen.format_report(rep)
+
+    assert rep["examined_rows"] == rep["total_done_rows"] == 5, (
+        "fixture drift: this test is only meaningful while examined reaches "
+        f"the total; got {rep['examined_rows']} of {rep['total_done_rows']}")
+
+    _considered = {k: v["considered"] for k, v in rep["site_coverage"].items()}
+    assert rep["denominator_mismatches"], (
+        "fixture drift: the empty site_id did not produce a mismatch; "
+        "per-site considered=%r" % (_considered,))
+    assert "DENOMINATOR MISMATCH" in text, (
+        f"the mismatch was recorded and never printed:\n{text}")
+    assert "(empty site_id)" in text, (
+        f"the mismatch line does not name the falsy site id:\n{text}")
+    assert "complete -- every done row was examined" not in text, (
+        "completeness was claimed while the two denominators disagree -- the "
+        f"examined figure is not a row count here:\n{text}")
+    assert "NOT a row ratio" in text, (
+        f"the COVERAGE ratio is printed without saying its unit changed:\n{text}")
+    # NOT `uncompared_rows == sum(site_states.values())` -- that is a
+    # TAUTOLOGY: uncompared_rows is DEFINED as that sum, so it holds for any
+    # implementation, correct or not. Assert against the POPULATION instead,
+    # which is an independent quantity.
+    assert rep["uncompared_rows"] <= rep["total_done_rows"], (
+        f"uncompared_rows ({rep['uncompared_rows']}) exceeds the whole "
+        f"population ({rep['total_done_rows']}) -- the figure is being "
+        f"counted in (row x scan) units, not rows: {rep['site_states']}")
+    assert rep["examined_rows"] + rep["uncompared_rows"] <= rep["total_done_rows"], (
+        f"examined ({rep['examined_rows']}) + uncompared "
+        f"({rep['uncompared_rows']}) exceeds the population "
+        f"({rep['total_done_rows']}) -- the two figures overlap, so a row is "
+        f"being counted as both compared and not compared")
+
+
+
+def test_a_row_compared_under_one_dir_is_not_a_miss_under_another(lib):
+    """The other half of the sweep's double-count, and the untested one.
+
+    `_merge_state_ids` removes two separate over-counts and only one of them
+    was pinned. This is the first: a row that is ABSENT under directory A but
+    was COMPARED under directory B is a compared row, full stop. Counting it
+    as a miss because one directory could not see it makes the reason
+    histogram exceed the number of rows that were actually missed.
+
+    A mutant that drops `claimed = set(examined)` from _merge_state_ids
+    survives every other assertion in this file.
+    """
+    db, lf, dl = lib
+    other = Path(tempfile.mkdtemp(prefix="cen_other_"))
+    # `other` is swept but holds none of the history filenames, so every row
+    # is "absent" there while four of them resolve under `dl`.
+    rep = cen.census({"A": {"download_dir": str(dl)},
+                      "B": {"download_dir": str(dl)},
+                      "ghost": {"download_dir": str(other)}}, db, lf)
+
+    assert len(rep["sweep_coverage"]) >= 2, (
+        "fixture drift: this test needs at least two swept directories; got "
+        f"{sorted(rep['sweep_coverage'])}")
+    swept = rep["sweep_examined_rows"]
+    missed = sum(rep["sweep_states"].values())
+    assert swept + missed <= rep["sweep_considered"], (
+        f"the sweep says it examined {swept} rows and missed {missed}, which "
+        f"is more than the {rep['sweep_considered']} rows that exist. A row "
+        f"compared under one directory is being counted as a miss under "
+        f"another: {rep['sweep_states']}")
+    assert swept > 0, (
+        "fixture drift: nothing resolved under either directory, so this "
+        "test cannot distinguish the double-count it is about")

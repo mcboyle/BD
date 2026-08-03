@@ -302,18 +302,50 @@ def list_duplicate_candidates(download_dir: str) -> list:
     return groups
 
 
-def list_size_drift(download_dir: str, *, site_id: Optional[str] = None,
-                    limit: int = 1000, tolerance_bytes: int = 0) -> list:
-    """History rows (status=done) whose recorded ``file_size`` differs from the
-    file's actual on-disk size -- a truncated or altered download. Returns
-    [{filename, recorded_bytes, disk_bytes, delta_bytes}], most-truncated
-    (largest negative delta) first. ``download_dir`` is what the recorded
-    basename is RESOLVED against -- runner_transport.py:989 records
-    ``final_path.name``, so without it every production row failed to resolve
-    and this check reported 0 while a truncated file sat on disk."""
+def size_drift_scan(download_dir: str, *, site_id: Optional[str] = None,
+                    limit: int = 1000, tolerance_bytes: int = 0,
+                    collect_ids: bool = False) -> dict:
+    """``list_size_drift``'s loop, reporting what it EXAMINED as well as what it found.
+
+    The drift rows alone cannot answer "was this population actually checked".
+    A row whose recorded basename does not resolve to exactly one on-disk file
+    is skipped below, and so is one whose resolved path cannot be stat'ed --
+    both silently. A caller counting DB rows therefore reports coverage over a
+    denominator that excludes precisely the rows it failed to look at, and a
+    sweep that resolved NOTHING renders identically to one that swept clean.
+
+    Returned keys:
+      rows          -- the drift rows, exactly as list_size_drift returns them
+      considered    -- rows the query returned (post-LIMIT)
+      examined      -- rows actually compared against a file on disk
+      states        -- histogram of _resolve_recorded states for the skipped
+      stat_failed   -- resolved but os.path.getsize raised
+      limit_hit     -- considered == limit, so `considered` is a floor
+      query_failed  -- the DB read raised; every other number is meaningless
+      examined_ids  -- ids compared, when collect_ids (the sweep needs a UNION;
+                       summing per-directory counts double-counts a row that
+                       resolves under two directories)
+      state_ids     -- {state: set(ids)} for the SKIPPED rows, when collect_ids.
+                       `states` alone cannot be unioned across directories: a
+                       row absent under dir A and compared under dir B is
+                       COMPARED, but both histograms count it, so the reason
+                       line sums to rows x directories instead of to rows.
+                       "stat failed" is a state here so the two agree.
+
+    The accounting lives in the SAME loop as the comparison on purpose. Counted
+    in a second pass it would be a second copy of the resolution logic, free to
+    drift from this one -- and then the coverage figure and the drift figure
+    would be about different passes while claiming to be about one.
+    """
+    states: dict = {}
+    state_ids: dict = {}
+    examined_ids: set = set()
+    result = {"rows": [], "considered": 0, "examined": 0, "states": states,
+              "stat_failed": 0, "limit_hit": False, "query_failed": False,
+              "examined_ids": examined_ids, "state_ids": state_ids}
     try:
         from . import db as _db
-        sql = ("SELECT filename, file_size FROM history "
+        sql = ("SELECT id, filename, file_size FROM history "
                "WHERE status='done' AND filename != '' AND file_size > 0")
         params: list = []
         if site_id:
@@ -324,30 +356,71 @@ def list_size_drift(download_dir: str, *, site_id: Optional[str] = None,
         with _db.db_conn() as cx:
             rows = cx.execute(sql, params).fetchall()
     except Exception:
-        return []
+        result["query_failed"] = True
+        return result
+    result["considered"] = len(rows)
+    result["limit_hit"] = len(rows) >= int(limit)
     index = _basename_index(download_dir)
     out = []
     for r in rows:
         d = dict(r)
         fn = d.get("filename") or ""
         recorded = int(d.get("file_size") or 0)
+        _rid = d.get("id") if collect_ids else None
         if not fn or recorded <= 0:
+            states["empty"] = states.get("empty", 0) + 1
+            if _rid is not None:
+                state_ids.setdefault("empty", set()).add(_rid)
             continue
         path, state = _resolve_recorded(fn, download_dir, index)
         # Compare only what we resolved to exactly one real file. An absent
         # file is list_missing_from_disk's subject, not drift; an ambiguous
         # basename would be compared against a guess.
         if state != "resolved" or path is None:
+            states[state] = states.get(state, 0) + 1
+            if _rid is not None:
+                state_ids.setdefault(state, set()).add(_rid)
             continue
         try:
             disk = os.path.getsize(path)
         except OSError:
+            result["stat_failed"] += 1
+            if _rid is not None:
+                # same label census's _merge_states uses, so the count-based
+                # and id-based histograms carry identical keys
+                state_ids.setdefault("stat failed", set()).add(_rid)
             continue
+        result["examined"] += 1
+        if _rid is not None:
+            examined_ids.add(_rid)
         if abs(disk - recorded) > tolerance_bytes:
-            out.append({"filename": fn, "recorded_bytes": recorded,
-                        "disk_bytes": disk, "delta_bytes": disk - recorded})
+            _row = {"filename": fn, "recorded_bytes": recorded,
+                    "disk_bytes": disk, "delta_bytes": disk - recorded}
+            if collect_ids:
+                # only under collect_ids, so list_size_drift's row shape --
+                # which the audit panel renders -- stays byte-identical
+                _row["id"] = d.get("id")
+            out.append(_row)
     out.sort(key=lambda x: x["delta_bytes"])
-    return out
+    result["rows"] = out
+    return result
+
+
+def list_size_drift(download_dir: str, *, site_id: Optional[str] = None,
+                    limit: int = 1000, tolerance_bytes: int = 0) -> list:
+    """History rows (status=done) whose recorded ``file_size`` differs from the
+    file's actual on-disk size -- a truncated or altered download. Returns
+    [{filename, recorded_bytes, disk_bytes, delta_bytes}], most-truncated
+    (largest negative delta) first. ``download_dir`` is what the recorded
+    basename is RESOLVED against -- runner_transport.py:989 records
+    ``final_path.name``, so without it every production row failed to resolve
+    and this check reported 0 while a truncated file sat on disk.
+
+    A projection of ``size_drift_scan``. Callers that need to know how much of
+    the population was actually compared want that function instead -- this
+    return value cannot distinguish "no drift" from "nothing resolved"."""
+    return size_drift_scan(download_dir, site_id=site_id, limit=limit,
+                           tolerance_bytes=tolerance_bytes)["rows"]
 
 
 def audit(*, download_dir: str, site_id: Optional[str] = None) -> dict:
