@@ -25,13 +25,25 @@ a question about one of them.
 
 CONTRACT (both callers depend on all three codes):
 
-    exit 0    every entry resolves; stdout is SILENT
+    exit 0    every entry resolves, over a NON-EMPTY set of names; stdout SILENT
     exit 1    one or more do not resolve; their names, space-separated, on stdout
-    exit 2    the file could not be read or parsed at all -- UNEVALUABLE
+    exit 2    UNEVALUABLE -- the file could not be read, could not be parsed,
+              or parsed to ZERO requirement names
 
 Exit 2 is not a softer exit 0. Unknown is a third state and it fails: a caller
 that renders "could not evaluate" as "satisfied" has built the gate this file
 exists to replace.
+
+WHY ZERO NAMES IS EXIT 2 AND NOT EXIT 0. `unresolved([])` is `[]`, so a
+readable file declaring no names would otherwise report "every entry resolves"
+over an EMPTY denominator -- true, and useless. That is the same defect one
+level up as the `pip check` behaviour above, and the same shape CLAUDE.md
+section 2 records for bd-guardcheck, which reported "0 ok, 0 drifted, 7
+missing" and exited 0 on a clean tree until v3.66.818: a zero-in-every-bucket
+summary is a failure signal, not a pass. The condition is reachable in the
+field -- a truncated write, a caller handed a path that exists but is the wrong
+file, or a refactor that moves the deps and leaves a stub behind -- and in
+every one of those cases the honest answer is that nothing was verified.
 
 Usage: check_requirements.py [PATH]   (default: requirements.txt, relative to cwd)
 """
@@ -96,6 +108,18 @@ def main(argv=None):
         names = requirement_names(text)
     except Exception as exc:                                # pragma: no cover
         print("cannot parse %s: %s" % (path, exc), file=sys.stderr)
+        return 2
+
+    if not names:
+        # UNEVALUABLE, not satisfied. The file was readable and parsed, but it
+        # declares nothing, so the question "does every entry resolve" has an
+        # empty denominator and its answer says nothing about this
+        # interpreter. Name the condition on stderr -- exit 2 alone is also
+        # what an unreadable file produces, so the code by itself does not tell
+        # a caller which of the two fired. stdout stays empty, per the
+        # contract, so a caller reading it for package names sees none.
+        print("cannot evaluate %s: parsed to zero requirement names" % path,
+              file=sys.stderr)
         return 2
 
     missing = unresolved(names)

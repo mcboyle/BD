@@ -817,13 +817,31 @@ def test_stop_failure_blocks_mutating_window():
         + _ctx(r, "inventory log: %r" % _read(fx.logs["inv"])))
 
 
-def test_check_requirements_tool_contract():
-    """The shared helper's own contract, run under the REAL venv python.
+# ─────────────── tools/check_requirements.py -- one test per OUTCOME
+#
+# The helper has FOUR outcomes, not three, and the fourth is the one a
+# `pip check`-shaped gate always gets wrong: a file that is READABLE but
+# declares ZERO requirement names. `unresolved([])` is `[]`, so "every entry
+# resolves" comes out true over an empty denominator -- true and useless. That
+# is the helper's own docstring subject one level up, and it is exactly the
+# shape CLAUDE.md section 2 records for bd-guardcheck, which reported
+# "0 ok, 0 drifted, 7 missing" and EXITED 0 on a clean tree until v3.66.818.
+# A zero-in-every-bucket summary is a failure signal, not a pass.
+#
+# One test per outcome so a regression names WHICH outcome broke rather than
+# collapsing four subjects into one assertion chain. Each states its own
+# DENOMINATOR -- how many names the file actually parsed to -- before believing
+# an exit code, because every one of these codes is reachable for a wrong
+# reason.
 
-    Discrimination: absence of the file is asserted FIRST and by name. Without
-    it, `python tools/check_requirements.py` on a tree where the file is
-    missing exits 2 -- which is also the contract's 'unevaluable' code -- so
-    the 'no requirements.txt' case would pass for entirely the wrong reason.
+
+def _require_check_req_tool():
+    """Preconditions, asserted BY NAME before any exit code is believed.
+
+    Discrimination: without this, `python tools/check_requirements.py` on a
+    tree where the helper is missing exits 2 -- which is also the contract's
+    'unevaluable' code -- so both exit-2 cases below would pass for entirely
+    the wrong reason.
     """
     assert CHECK_REQ.is_file(), (
         "tools/check_requirements.py does not exist. It is the shared "
@@ -834,32 +852,117 @@ def test_check_requirements_tool_contract():
         "venv/bin/python is missing; this test measures the helper under the "
         "interpreter whose site-packages it is asked about")
 
-    work = tempfile.mkdtemp(prefix="bd_reqtool_")
 
-    # 1. a requirement that cannot resolve -> exit 1, named on stdout
-    _write(os.path.join(work, "requirements.txt"),
-           "# comment\n-e .\nbd-absent-package-zzz>=1.0\n")
-    r = subprocess.run([str(VENV_PY), str(CHECK_REQ)], cwd=work,
-                       capture_output=True, text=True, timeout=120)
+def _parsed_names(body):
+    """The names the helper itself parses out of `body`.
+
+    Imported rather than re-implemented so the denominator each test states is
+    the one the subject actually uses. `tests/` is outside the import-graph
+    gate's frozen surface (bulk_downloader/ + tools/), so this adds no edge to
+    the baseline that gate freezes.
+    """
+    import tools.check_requirements as cr
+    return cr.requirement_names(body)
+
+
+def _run_check_req(body):
+    """Run the helper under the REAL venv python over `body`.
+
+    `body is None` means no requirements.txt exists at all -- the unreadable
+    case. Every call gets a fresh tmpdir so no run inherits another's file.
+    """
+    _require_check_req_tool()
+    work = tempfile.mkdtemp(prefix="bd_reqtool_")
+    if body is not None:
+        _write(os.path.join(work, "requirements.txt"), body)
+    return subprocess.run([str(VENV_PY), str(CHECK_REQ)], cwd=work,
+                          capture_output=True, text=True, timeout=120)
+
+
+def test_check_requirements_zero_names_is_unevaluable():
+    """A readable file declaring NO names is UNEVALUABLE (2), not satisfied.
+
+    Both shapes that reach zero names are exercised: a genuinely empty file,
+    and one carrying only comments, blanks and option lines. Reachable in the
+    field from a truncated write, a caller handed a path that exists but is
+    the wrong file, or a refactor that moved the deps and left a stub behind.
+    """
+    _require_check_req_tool()
+    shapes = (
+        ("an empty file", ""),
+        ("comments, blanks and option lines only",
+         "# runtime deps\n\n-e .\n--index-url https://example.invalid\n"),
+    )
+    for label, body in shapes:
+        assert _parsed_names(body) == [], (
+            "harness error, NOT a subject failure: %s was expected to parse "
+            "to zero requirement names, got %r" % (label, _parsed_names(body)))
+
+        r = _run_check_req(body)
+
+        assert r.returncode == 2, (
+            "%s parsed to ZERO requirement names, so nothing was verified. "
+            "unresolved([]) is [], which makes 'every entry resolves' true "
+            "over an empty denominator -- true and useless. Unknown is a "
+            "third state and it fails (CLAUDE.md section 0)." % label + _ctx(r))
+        assert r.stdout.strip() == "", (
+            "stdout must stay empty so a caller reading it for package names "
+            "never mistakes a diagnostic for a package" + _ctx(r))
+        assert re.search(r"zero requirement names|no requirement names",
+                         r.stderr.lower()), (
+            "the refusal must SAY the file parsed to zero requirement names. "
+            "Exit 2 alone is also what an unreadable file produces, so a bare "
+            "code does not tell the operator which condition fired" + _ctx(r))
+
+
+def test_check_requirements_all_resolve_is_silent_exit0():
+    _require_check_req_tool()
+    body = "# comment\n-e .\npytest\n"
+    names = _parsed_names(body)
+    assert names, (
+        "harness error, NOT a subject failure: the PASS case must have a "
+        "non-empty denominator, or it proves only that nothing was checked")
+
+    r = _run_check_req(body)
+
+    assert r.returncode == 0, (
+        "a satisfied requirements.txt (%r) must exit 0" % (names,) + _ctx(r))
+    assert r.stdout.strip() == "", ("exit 0 must be silent" + _ctx(r))
+
+
+def test_check_requirements_unresolved_names_exit1():
+    _require_check_req_tool()
+    body = "# comment\n-e .\npytest\nbd-absent-package-zzz>=1.0\n"
+    names = _parsed_names(body)
+    assert "pytest" in names and "bd-absent-package-zzz" in names, (
+        "harness error, NOT a subject failure: the parse must see BOTH a "
+        "resolvable and an unresolvable name or an exit 1 here is not about "
+        "the mix; parsed %r" % (names,))
+
+    r = _run_check_req(body)
+
     assert r.returncode == 1, (
         "an unresolvable requirement must exit 1" + _ctx(r))
     assert "bd-absent-package-zzz" in r.stdout, (
         "the missing distribution names must be printed on stdout" + _ctx(r))
+    assert "pytest" not in r.stdout, (
+        "only the UNRESOLVED names belong on stdout; a caller installs what "
+        "it reads there" + _ctx(r))
 
-    # 2. everything resolves -> exit 0, silent
-    _write(os.path.join(work, "requirements.txt"), "# comment\npytest\n")
-    r = subprocess.run([str(VENV_PY), str(CHECK_REQ)], cwd=work,
-                       capture_output=True, text=True, timeout=120)
-    assert r.returncode == 0, ("a satisfied requirements.txt must exit 0" + _ctx(r))
-    assert r.stdout.strip() == "", ("exit 0 must be silent" + _ctx(r))
 
-    # 3. unreadable / absent requirements.txt -> exit 2, the third state
-    os.remove(os.path.join(work, "requirements.txt"))
-    r = subprocess.run([str(VENV_PY), str(CHECK_REQ)], cwd=work,
-                       capture_output=True, text=True, timeout=120)
+def test_check_requirements_unreadable_is_exit2():
+    _require_check_req_tool()
+
+    r = _run_check_req(None)
+
     assert r.returncode == 2, (
         "an unevaluable check is its own state (exit 2) and must never be "
         "confused with 'satisfied'" + _ctx(r))
+    assert r.stdout.strip() == "", (
+        "stdout must stay empty so an error message is never read as a "
+        "package name" + _ctx(r))
+    assert "requirements.txt" in r.stderr, (
+        "the refusal must name the file it could not read" + _ctx(r))
 
 
 def test_cloud_setup_uses_shared_checker():
