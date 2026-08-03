@@ -243,6 +243,34 @@ if [ -n "$DIRTY" ] || [ -n "$LOCAL_COMMITS" ]; then
 fi
 
 # ── [4] reset ───────────────────────────────────────────────────────
+#
+# SELF-MODIFICATION CAVEAT -- an improvement to any step BELOW lands one deploy
+# late. This script is one of the files `git reset --hard` replaces, but the
+# running bash keeps reading from the file descriptor it opened at exec time,
+# and git does not rewrite the file in place: it writes a new object and renames
+# it over the path, so the path gets a NEW inode and the old one stays open and
+# intact behind our fd. Every line from here to [13] therefore executes the
+# PRE-reset copy. The version that ran is not the version now on disk.
+#
+# MEASURED, not reasoned about (2026-08-03): a two-commit reproduction in which
+# the only difference between the deployed and the incoming script was a line
+# AFTER the reset printed the OLD line's text while `grep` on the same file
+# immediately afterwards showed the NEW text; `ls -i` went 1992621 -> 1992622
+# across the reset, confirming the rename/new-inode mechanism.
+#
+# Consequences worth knowing rather than rediscovering:
+#   * the fd is bound to a whole, consistent file, so this is NOT the classic
+#     mid-execution corruption of editing a running script in place -- the old
+#     content runs to completion correctly;
+#   * a fix to steps [5]-[13] first takes effect on the deploy AFTER the one
+#     that delivers it, so a deploy that lands such a fix must be followed by a
+#     second run before the fix can be said to have executed here;
+#   * steps [0]-[3] above the reset are the only ones that run at the version
+#     being deployed;
+#   * so do not read a green run of this script as evidence that the step
+#     changes it just delivered are correct. Nothing below has been exercised.
+# Not restructured: re-exec'ing the post-reset copy would silently change which
+# code the operator authorized to run, which is a worse property than lateness.
 STEP=4
 git reset --hard origin/main >/dev/null || die "git reset --hard origin/main failed"
 [ "$(git rev-parse HEAD)" = "$NEW" ] \

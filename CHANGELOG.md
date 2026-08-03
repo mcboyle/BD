@@ -38,6 +38,54 @@ archive is not present in this repository; consult source-control history.
   answered every URL identically, so /api/health and / could never disagree,
   and the fake venv python answered exit 0 to every -c, so the json.load
   read-back was unobservable. A gate that cannot see its subject reports OK.
+- lxml and cssselect are declared in requirements.txt, and the census behind
+  those declarations is CORRECTED. The earlier lxml census was derived BY GREP
+  and was wrong in both directions at once -- CLAUDE.md section 1's named trap,
+  reproduced. Re-derived with ast.parse over all 2108 tracked .py files (all
+  parsed, zero SyntaxError), reading Import and ImportFrom nodes:
+    lxml       accessibility.py:185, selector_playground.py:56,
+               synthetic_tests.py:96
+    cssselect  selector_playground.py:67, audit_templates.py:26
+  synthetic_tests.py:96 is the false negative -- a real fail-open importer that
+  no prose named. diagnostics_bundle.py:130 was the false positive and is NOT
+  an importer: "lxml" there is a string in a tuple of optional-dependency names
+  fed to __import__ for a version report. Grep sees that line; AST does not.
+  The citation has been removed from requirements.txt rather than softened,
+  because a wrong fact in an authoritative-looking file is inherited as true.
+- cssselect declared at >=1.2,<2.0 rather than left implicit. Both importers
+  fail open, and both lose a real capability silently: the selector playground
+  drops to a hand-rolled CSS-to-XPath translator covering only simple cases,
+  and audit_templates.check_selector skips the cssselect.parse probe entirely
+  and reports every syntactically invalid CSS selector as VALID -- a check
+  whose denominator stopped containing its subject. It is also lxml's own
+  backing for element.cssselect(), which raises ImportError without it
+  (MEASURED), and that is the PRIMARY path at synthetic_tests.py:96; lxml
+  exposes it as an extra, so the lxml pin does not pull it in.
+- The declarations are now CONSTRAINED by a test rather than shipped on trust.
+  Before this, no test read the real requirements.txt for these names: deleting
+  the lxml line left the entire band green. tests/test_v3_66_653_dep_freshness
+  .py gains three cases that AST-walk bulk_downloader/ and require every
+  third-party import to be declared in some requirements*.txt or recorded in an
+  explicit waiver list with a reason, that the waiver list stay honest in both
+  directions, and that lxml and cssselect sit in requirements.txt specifically
+  -- the only manifest scripts/deploy.sh step [5] resolves. Proven RED four
+  ways: removing the lxml line, removing the cssselect line, migrating a pin to
+  requirements-optional.txt, and three mutations that empty the scan (no file
+  matched, no import node collected, no manifest read). All four fail; the
+  empty-scan mutations fail on the denominator assertions rather than reporting
+  "all declared" over nothing. No new test file, so no axis-6 gate and no
+  PIN_INDEX test_files_scanned change.
+- scripts/deploy.sh step [4] documents the self-modification caveat. The script
+  is one of the files git reset --hard replaces, but the running bash keeps
+  reading its original file descriptor and git renames a NEW inode over the
+  path, so every step from [4] to [13] executes the PRE-reset copy: an
+  improvement to a post-reset step lands one deploy late, and a green run is
+  not evidence that the step changes it just delivered are correct. MEASURED
+  with a two-commit reproduction -- the post-reset line printed the OLD text
+  while grep on the same file showed the NEW text, and ls -i confirmed the
+  inode changed across the reset. Comment only; the script is not restructured,
+  because re-exec'ing the post-reset copy would change which code the operator
+  authorized to run.
 
 ## v3.66.847 - Seeded-history clear (--teardown --clear-history)
 

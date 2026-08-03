@@ -2802,14 +2802,93 @@ WHAT SHIPPED
      Off by default because capture.sh runs teardown UNATTENDED and the clear
      predicate is the marker across ALL history, not this run's nonce.
 
-  2. lxml declared in requirements.txt.
-     It was imported at bulk_downloader/accessibility.py:185 (ARIA audit) and
-     bulk_downloader/selector_playground.py:56 (XPath evaluation), both
-     failing OPEN, and reported on -- but not declared -- at
-     bulk_downloader/diagnostics_bundle.py:130. Never in requirements.txt.
-     Now `lxml>=5.0,<7.0` with the reasoning in the file. Reporting
-     availability and declaring an install floor are different jobs; the
-     third site was correct as written and was left alone.
+  2. lxml AND cssselect declared in requirements.txt -- census CORRECTED.
+     THE ORIGINAL ENTRY HERE WAS WRONG, and it was wrong in the specific way
+     CLAUDE.md section 1 warns about. It was derived BY GREP, and like the
+     playwright census in that section it failed in BOTH directions at once.
+     Re-derived with ast.parse over all 2108 tracked .py files
+     (`git ls-files -- '*.py'`; all parsed, zero SyntaxError), reading Import
+     and ImportFrom nodes and skipping relative imports:
+       lxml       bulk_downloader/accessibility.py:185   (ARIA audit)
+                  bulk_downloader/selector_playground.py:56 (XPath eval)
+                  bulk_downloader/synthetic_tests.py:96  (synthetic selector
+                                                          check)
+       cssselect  bulk_downloader/selector_playground.py:67
+                  audit_templates.py:26
+       (tests/test_v3_66_320_synthetic_json_path.py:110-111 imports both; it
+        is a test, not a runtime site.)
+     FALSE NEGATIVE: synthetic_tests.py:96 -- a real fail-open lxml importer
+     that appeared in NO prose on this branch. It returns
+     {"ok": false, "error": "lxml not installed"} and the caller carries on.
+     FALSE POSITIVE: bulk_downloader/diagnostics_bundle.py:130 was cited here
+     and in requirements.txt as an importer. IT IS NOT ONE. "lxml" there is a
+     string inside a tuple of optional-dependency NAMES that
+     _capture_versions() feeds to __import__ for a version report -- there is
+     no import node on that line. Grep sees it; AST does not. The citation has
+     been DELETED from requirements.txt rather than reworded: the observation
+     it carried (reporting availability and declaring an install floor are
+     different jobs) is true, but attaching it to a line that is not an import
+     teaches the next reader a false fact out of a file that looks
+     authoritative. That site is correct as written and was left alone.
+     WHY cssselect IS DECLARED (`cssselect>=1.2,<2.0`), not waved off as
+     optional. Both importers fail open and both lose a capability silently:
+       - selector_playground.py:67 sets _HAS_CSSSELECT, which is_available()
+         reports verbatim; without it the playground falls back to
+         _css_to_xpath_simple(), explicitly only "the common cases the
+         operator actually types".
+       - audit_templates.py:26 sets _have_cssselect; check_selector() then
+         SKIPS the cssselect.parse() probe and returns None, so the deep
+         template audit reports every syntactically INVALID CSS selector as
+         valid. Section 0 shape, in shipped code.
+     And it is why declaring lxml alone was not enough: lxml's
+     element.cssselect() is implemented BY cssselect and raises ImportError
+     without it -- MEASURED here before installing, "cssselect does not seem to
+     be installed" -- and that is the PRIMARY path at synthetic_tests.py:96.
+     lxml exposes it as its `cssselect` extra, so the lxml pin does not pull it
+     in. Floor 1.2 (2022-10-27, first py3-only release); 1.5.0 (2026-07-27)
+     installed into venv and the import proven, together with
+     lxml.html.fromstring(...).cssselect() and
+     selector_playground.is_available() -> cssselect True.
+     CONSTRAINED BY A TEST, which it previously was not. Nothing in the tree
+     read the real requirements.txt for these names: deleting the lxml line
+     left the whole band green, so the declaration shipped unconstrained.
+     tests/test_v3_66_653_dep_freshness.py now carries three cases --
+     test_third_party_imports_are_declared,
+     test_undeclared_by_design_names_are_still_imported_and_still_undeclared,
+     test_lxml_and_cssselect_are_declared_in_the_core_manifest. They AST-walk
+     tracked bulk_downloader/*.py (565 files), classify each top-level import
+     against sys.stdlib_module_names and a repo-derived first-party set, and
+     require every remaining name to be declared in some requirements*.txt or
+     recorded in _UNDECLARED_BY_DESIGN with a reason. Measured partition at
+     this tip: 30 third-party names, 20 declared, 10 waived (werkzeug,
+     requests, rich, PIL, pystray, plexapi, psycopg, psycopg2, subliminal,
+     babelfish).
+     Two things about that gate worth carrying:
+       - The denominator is asserted BEFORE the verdict. Three mutations that
+         empty the scan (subject filter matching no file, import predicate
+         collecting no name, requirements glob reading no manifest) all FAIL
+         on a named denominator assertion instead of reporting "all declared"
+         over nothing. Proven, mutants validated with ast.parse first and the
+         file restored byte-identically (sha256 checked).
+       - It is NOT axis-6, deliberately. It runs `git ls-files -- '*.py'`,
+         which reaches tests/, but _first_party_names takes stems only from the
+         repo root and tools/ (the two dirs whose modules are imported by bare
+         name -- tools/ is load-bearing: build_template_from_wacz and
+         template_drift_report would otherwise read as undeclared PyPI
+         distributions). Adding a tests/ file cannot move what it measures.
+         Change that filter and it becomes axis-6.
+     RED proven four ways before the pins were trusted: remove the lxml line
+     (2 tests fail, and the failure names all three importers including
+     synthetic_tests.py); remove the cssselect line (2 fail); MIGRATE a pin to
+     requirements-optional.txt (only the core-manifest test fails, which is
+     correct -- scripts/deploy.sh step [5] resolves requirements.txt alone, per
+     tools/check_requirements.py:56); and the three empty-scan mutations above.
+     NOT in the CHANGELOG until now. The original lxml work wrote its census
+     into requirements.txt and into commit ac93b44's message but never into
+     CHANGELOG.md, so there was nothing there to correct -- the v3.66.848 entry
+     has been EXTENDED rather than fixed. Worth noting because the handoff that
+     scoped this correction listed CHANGELOG as one of three sites carrying the
+     wrong census; it was two.
 
   3. v3.66.848 -- scripts/deploy.sh as the git deploy path.
      It previously drove the retired zip overlay (--zip, a sha256 gate over a
@@ -2825,6 +2904,19 @@ WHAT SHIPPED
      requirements-resolution check that was inlined in
      scripts/cloud-setup.sh's heredoc. Two callers now:
      scripts/deploy.sh:270 and :283, scripts/cloud-setup.sh:585.
+     SELF-MODIFICATION CAVEAT, now documented at step [4] in the script.
+     deploy.sh is one of the files `git reset --hard` replaces, but the running
+     bash keeps reading the fd it opened at exec time and git renames a NEW
+     inode over the path, so steps [4] through [13] execute the PRE-reset copy.
+     An improvement to any post-reset step lands ONE DEPLOY LATE, and a green
+     run of the script is not evidence that the step changes that run just
+     delivered are correct -- nothing below [4] was exercised at the new
+     version. MEASURED 2026-08-03 with a two-commit reproduction whose only
+     difference was a line after the reset: it printed the OLD text while grep
+     on the same file showed the NEW text, and `ls -i` went 1992621 -> 1992622
+     across the reset. Not restructured; re-exec'ing the post-reset copy would
+     change which code the operator authorized to run, which is worse than
+     lateness.
 
 THE MEASURED NUMBERS
 
