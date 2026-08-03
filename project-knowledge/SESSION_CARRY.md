@@ -1917,3 +1917,85 @@ band that omitted a file surfaced the miss ONE CUT LATE, both times.
 v3.66.839's fixed-width window failed 840's band; v3.66.841's stale
 mutation anchor failed 842's band. CLAUDE.md section 2a already states
 the rule; these are the two instances that prove it is not theoretical.
+
+### 15.17 | v3.66.842 IS CAPTURED -- SUPERSEDES 15.16's box state and item #7
+
+15.16 was written before its own PR merged and before the 842 capture
+existed. Two of its statements are now superseded and one is corrected:
+it says "Ten PRs merged (#120-#129)" -- #130 also merged, as 8221d64 --
+and it says "v3.66.841 and 842 are NOT yet captured". They are. Its open
+set survives intact except where noted below.
+
+THE 842 CAPTURE, measured from the bundle -- not inferred:
+
+  - PASS at v3.66.842, run 2026-08-03T02:02:11:
+    14479 total / 14394 passed / 0 failed / 0 errors / 85 skipped,
+    live 36 pass / 0 warn / 0 fail / 1 n/a.
+  - /api/health reported sha 8221d64c3e5f + version 3.66.842. That is
+    the merged main tip, so the RUNNING PROCESS was verified on the
+    current tree -- not an intermediate, and not merely the checkout.
+  - graph pin [2b] OK against a re-pinned hash (1bc3a28a6302bb91),
+    gate exit 0. The operator re-pinned after the deploy; without that
+    step step [2b] would have reported drift.
+  - parity inventory 1245 items; GET / 200, routes 1002, SPA served.
+  - both JUnit XMLs report failures=0 errors=0 directly. The strings
+    "Traceback" and "ERROR:" DO appear in the bundle, inside captured
+    stdout of PASSING tests -- a grep for them is not a result count.
+
+THE TWO COUNTS THAT MOVED, both reconciled to exhaustion. Recording the
+method as well as the answer, because a count that drops and is waved at
+is the shape section 0 warns about:
+
+  - tests 14518 -> 14479 (-39). Diffed the COLLECTED testcase ids out of
+    both bundles' XMLs, not the totals: 46 gone, 7 new. The 46 are
+    test_tasktracker_gen (13), test_v3_66_754_tracker_decided_against
+    (11), test_tasktracker_sync (7), test_v3_66_721_tasktracker_audit
+    (6), test_codex_handoff_defers_to_claude_md (6),
+    test_tasktracker_status (3) -- the six retired files and NOTHING
+    else. The 7 are the two stays-retired gates. No test silently
+    stopped being collected, which the totals alone could not show.
+  - graph files 1155 -> 1153 (-2). l0_extract's denominator is PROD at
+    tools/l0_extract.py:33-37 -- bulk_downloader/*.py, tools/*.py,
+    frontend/src/*.ts,tsx. Exactly two deletions fall inside it
+    (tools/tasktracker_gen.py, tools/tasktracker_sync.py). The six
+    deleted test files and project-knowledge/tasktracker_gen.py are
+    OUTSIDE that denominator and correctly do not move it.
+
+ITEM #7 -- RE-SCOPED AGAIN, and smaller than 15.16 leaves it. Residue is
+now 62 rows, up from 58: +4 across one capture run. More useful than the
+count: the honest-reporting half of the fix IS ALREADY SHIPPED. The
+append-only / db_prune-deletes-by-AGE explanation that 15.16 quotes
+"verbatim from 05a_live_seed.log" is not the capture describing a gap --
+it is tools/live_seed.py:979-980 doing its job, landed in PR #71. 15.16
+lists "making the reporting say so" as one of two options; that option
+is DONE and is not work. What remains is a single operator decision:
+add a direct-DB clear path, or accept age-pruning. There is no reporting
+work left in item #7.
+
+STILL UNVERIFIED -- the 842 capture did NOT settle either, and neither
+moved:
+
+  - v3.66.840's real-world effect. Grepped the whole bundle for
+    jsonapi= / vixen= / dl8= / aylo= / library_extractor=: zero hits.
+    That is the EXPECTED result whether or not the fix works, because
+    seeding drives the fixture site and it never routes to an extractor.
+    This capture is SILENT on 840, not evidence against it. Do not
+    record a second clean capture as accumulating confidence.
+  - v3.66.839's seed-failure reporting. Seeding succeeded again (every
+    result ok:true), so the failure branch has still never executed.
+
+OPERATOR ACTIONS: "deploy 841+842 and capture" is DONE. Still
+outstanding, unchanged from 15.16: the four read-only box measurements
+in 15.14; `git worktree prune -v` (18 trees, 6 prunable);
+`git checkout -B main origin/main` in the deploy checkout; and the
+archive sequence (decide B4's 533 raw wacz AND its 91 mid-transaction
+.db copies -> consolidate with a verified manifest -> THEN rotate the
+orphan bundle).
+
+A CAPTURE BUNDLE STILL CANNOT IDENTIFY ITS OWN COMMIT, and this session
+paid for it twice: two uploads arrived together and were separable only
+by reading 02_SUMMARY.txt and 09_http_smoke.log. 01_sysinfo.log carries
+the OS and the CHANGELOG head but no SHA. 09_http_smoke.log carries the
+sha via /api/health, but ONLY when the service stage ran. Adding
+`git rev-parse HEAD` to 01_sysinfo.log fixes it -- a .sh change that
+rides any future capture.sh cut. Nothing else records this.
