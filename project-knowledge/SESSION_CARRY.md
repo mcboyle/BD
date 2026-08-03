@@ -1834,3 +1834,86 @@ RELATION TO THIS SESSION'S QUEUE: none of the above overlaps the eight items
 in 15.14. They are a separate, older, and largely operator- or
 capture-bound body of work. Ranking them against 15.14's items is not
 possible without re-deriving them first, which is a session's work on its own.
+
+### 15.16 | Session close 2026-08-03, b1ab382 (v3.66.842) -- SUPERSEDES 15.14's open set
+
+Ten PRs merged (#120-#129), ten cuts (v3.66.833-842). Two box captures, both
+PASS. This section is the current state; 15.14 and 15.15 are history.
+
+BOX STATE, measured -- not inferred:
+
+  - capture PASS at v3.66.840, 2026-08-03T00:18:04:
+    14518 total / 14433 passed / 0 failed / 0 errors / 85 skipped,
+    live 36 pass / 0 warn / 0 fail. Graph pin [2b] OK. /api/health
+    reported sha a7f0f92 + version 3.66.840, so the RUNNING PROCESS was
+    verified on the merged tree, not merely the checkout.
+  - the arithmetic reconciles: 14424 -> 14433 is +9 passed on +9
+    collected (14509 -> 14518), exactly 839's 4 and 840's 5 new tests.
+    Nothing was skipped into passing.
+  - v3.66.841 and 842 are NOT yet captured.
+
+ITEM #7 IS NOW MEASURED, and the capture's own words correct this
+register's mechanism. Count: 58 bdseed history rows remain after
+teardown. The reason teardown cannot remove them, verbatim from
+05a_live_seed.log: history is APPEND-ONLY -- db_log() is its only writer
+and db_prune(), which deletes by AGE not by marker, its only deleter --
+so no marker-matched teardown over the HTTP API can remove the row a
+COMPLETED seeded download leaves. Its library_record row and the
+downloaded file under the seeded site's download_dir are the same class.
+CONSEQUENCE FOR THE FIX: "add a clear to teardown" is not available over
+the HTTP surface. The options are a direct DB path, or accepting that
+this residue is age-pruned and making the reporting say so. The tool
+already reports it rather than hiding it, which is the right behaviour.
+
+TWO THINGS THE CAPTURE COULD NOT SETTLE, and both stay UNVERIFIED:
+
+  - v3.66.840's real-world effect. Seeding drives the FIXTURE site, which
+    never routes to jsonapi/vixen/dl8/aylo, so zero extractor markers is
+    the expected result whether or not the fix works. It needs a real
+    site download. Watch history.message for jsonapi= / vixen= / dl8= /
+    aylo= / library_extractor= appearing for the first time.
+  - v3.66.839's seed-failure reporting. Seeding SUCCEEDED, so the failure
+    branch never ran. Operationally good; the improvement is still
+    untested in the wild.
+
+REGISTER CONSOLIDATION IS COMPLETE. TASK_TRACKER (v3.66.841) and
+CODEX_HANDOFF (v3.66.842) are retired, each with a stays-retired gate and
+a tombstone in BD_TOOLCHAIN_REFERENCE.md. There is now ONE register
+(this file) and ONE agent-facing contract (CLAUDE.md). Their open items
+were absorbed into 15.15 BEFORE any deletion.
+
+THE OPEN SET at b1ab382 -- unchanged from 15.14 except where noted:
+
+  - 15.9   check_stale_locks has no real subject; DELETE recommended.
+           Band 318. Cheapest real fix on the list.
+  - 15.8   census coverage counts rows it never examined. Band 154.
+           Sequence BEFORE #7.
+  - Audit #3  cold Ollama warms only model_text. Band 414.
+  - 10-C   import-graph predicate blind to `from bulk_downloader import X`
+           (~240 edges). Band 202. Must precede 10-A/10-B.
+  - #7     seeded history residue -- NOW MEASURED at 58 rows, and the
+           fix shape is narrower than filed (see above).
+  - 15.11  qB/JD library rows. Needs the directory fact from the box.
+  - s4#4   premise dead; real observation is repo-root .db-wal/-shm
+           residue, writer unbisected.
+  - s5     /home/claude residue, ~324 edits. Operator scoping decision.
+  - item 12  Library panel's 31 `missing` rows -- needs the discriminator
+           measurement before it can be scoped.
+  - 10-A/10-B  standing deferral, gated on 10-C.
+  - 15.15's absorbed rows: 11 from TASK_TRACKER (EXIT-3, OPV-F3.1,
+    CAP-ROBUST, JW-TMPL, LOGIN-NSTEP, P3-T12-CALLSITE, RPTYL, FR-A6.2,
+    FR-A6.3, 2c-DATA, CORPUS-DISPOSITION) and ~23 CODEX task groups. All
+    stale-dated; re-derive before acting.
+
+OPERATOR ACTIONS still outstanding: deploy 841+842 and capture; the four
+read-only box measurements in 15.14; `git worktree prune -v` (18 trees,
+6 prunable); `git checkout -B main origin/main` in the deploy checkout;
+and the archive sequence (decide B4's 533 raw wacz AND its 91
+mid-transaction .db copies -> consolidate with a verified manifest ->
+THEN rotate the orphan bundle).
+
+PROCESS DEBT FOUND TWICE IN THREE CUTS, recorded because it recurred: a
+band that omitted a file surfaced the miss ONE CUT LATE, both times.
+v3.66.839's fixed-width window failed 840's band; v3.66.841's stale
+mutation anchor failed 842's band. CLAUDE.md section 2a already states
+the rule; these are the two instances that prove it is not theoretical.
