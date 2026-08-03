@@ -2705,16 +2705,27 @@ conversation is a decision that did not happen.
 
 ### 15.24 | The unshipped specs are now in the repo -- and why that is a compromise
 
-Four generated specs were saved to project-knowledge/pending-specs/ because
-the container that held them is ephemeral and they could not be cheaply
-re-derived:
+AMENDED 2026-08-03 at v3.66.847 -- THERE ARE NOW THREE, NOT FOUR. This
+section listed four files and named 07-seeded-history-clear.md among them.
+#7 shipped as v3.66.847, so condition 4 below fired and that file was DELETED
+in the same branch that landed the cut (`git diff --name-status` shows
+`D project-knowledge/pending-specs/07-seeded-history-clear.md`). The
+condition was honoured, not waived. The list as it stands:
 
-    07-seeded-history-clear.md        #7,      READY_WITH_CHANGES
     s4-4-repo-root-db-residue.md      s4#4,    READY_WITH_CHANGES
     item12-missing-producers.md       item 12, READY_WITH_CHANGES
     s5-home-claude-residue.md         s5,      READY
 
-The specs for cuts that ALREADY SHIPPED (15.8, 15.11, 15.9, 10-C) were
+Measured at the branch tip rather than quoted: `ls
+project-knowledge/pending-specs/` returns exactly those three names. Note
+what the original text became the moment #7 merged -- a register entry
+naming a file that is not in the tree, i.e. the wrong denominator handed to
+the next reader, which is the class CLAUDE.md section 1 is about. The
+amendment is inline rather than appended as a new section so nobody reads
+the stale list first.
+
+The specs for cuts that ALREADY SHIPPED (15.8, 15.11, 15.9, 10-C, and now #7)
+were
 deliberately NOT saved. A spec whose cut is merged has no forward value and
 would be pure staleness.
 
@@ -2749,3 +2760,236 @@ earlier the same day. The replacement asserts a non-empty denominator before
 scanning and reports the file and line counts it actually examined. Twice in
 one session, in a session about exactly this, is the argument for making the
 denominator assertion a reflex rather than a remedy.
+
+### 15.25 | Branch close 2026-08-03 at 5c46360 -- three features, one squash
+
+Written from measurements taken on this branch tip. Every number below is one
+this session ran, or one it is explicitly attributing to a lane report; where
+nothing was measured the entry says UNKNOWN. Nothing here has been on the box.
+
+The branch is claude/bulkdownloader-handoff-j9o59v, tip 5c46360, version
+3.66.848 (read from the interpreter, not from CHANGELOG). It carries THREE
+features that squash into ONE commit by operator decision -- a deliberate
+departure from CLAUDE.md section 2's one-feature-per-cut rule, taken with the
+blast radius understood rather than by accident.
+
+WHAT SHIPPED
+
+  1. v3.66.847 -- the seeded-history clear.
+     `tools/live_seed.py --teardown --clear-history` deletes the bdseed
+     history residue over POST /api/batch/delete, and deletes the library
+     twins over DELETE /api/library/<lid> FIRST. The order is not a
+     preference: library rows carry history_id with no enforced foreign key,
+     so deleting history first leaves the twins dangling (15.23 decision 1).
+     Anchors, so nobody re-derives them:
+       tools/live_seed.py:1206   clear_seeded_history()
+       tools/live_seed.py:1089   _twin_scan()
+       tools/live_seed.py:1325-1326  the ownership predicate (site_name)
+       tools/live_seed.py:1055   the find (GET /api/history?q=bdseed)
+       tools/live_seed.py:1498   final twin verification, guarded on
+                                 `not dry_run and targeted_ids`
+       tools/live_seed.py:1937-1938  _EXIT_CLEAR_INCOMPLETE=4,
+                                 _EXIT_CLEAR_UNKNOWN=5
+       tools/live_seed.py:1941   _teardown_exit_code()
+       tools/live_seed.py:1808   _report_residue()
+       bulk_downloader/batch_ops.py:200  db_fts_forget, the reason the HTTP
+                                 design was chosen (15.20)
+       bulk_downloader/library.py:412    library_delete()
+       bulk_downloader/app_library.py:138-143  DELETE /api/library/<int:lid>
+       capture.sh:743-777        cleanup_live_seed(), the wiring
+       capture.sh:754            BD_SEED_CLEAR_HISTORY, default 0
+       reports/config_gui_manifest.json:84  the ledger entry, display-only
+     Off by default because capture.sh runs teardown UNATTENDED and the clear
+     predicate is the marker across ALL history, not this run's nonce.
+
+  2. lxml declared in requirements.txt.
+     It was imported at bulk_downloader/accessibility.py:185 (ARIA audit) and
+     bulk_downloader/selector_playground.py:56 (XPath evaluation), both
+     failing OPEN, and reported on -- but not declared -- at
+     bulk_downloader/diagnostics_bundle.py:130. Never in requirements.txt.
+     Now `lxml>=5.0,<7.0` with the reasoning in the file. Reporting
+     availability and declaring an install floor are different jobs; the
+     third site was correct as written and was left alone.
+
+  3. v3.66.848 -- scripts/deploy.sh as the git deploy path.
+     It previously drove the retired zip overlay (--zip, a sha256 gate over a
+     release archive, unzip -o). It now runs git fetch + git reset --hard and
+     then closes the four gaps a file move never closes (CLAUDE.md section 7).
+     Step map, from `grep -n '^# .. \[' scripts/deploy.sh`:
+       [0]:130 preconditions   [1]:176 fetch      [2]:187 show
+       [3]:201 live-edit gate  [4]:245 reset      [5]:262 requirements
+       [6]:294 frontend        [7]:343 graph pin  [8]:390 stop
+       [9]:403 bytecode sweep  [10]:422 parity    [11]:498 start
+       [12]:506 health gate    [13]:568 summary
+     `tools/check_requirements.py` (new, 133 lines) extracts the
+     requirements-resolution check that was inlined in
+     scripts/cloud-setup.sh's heredoc. Two callers now:
+     scripts/deploy.sh:270 and :283, scripts/cloud-setup.sh:585.
+
+THE MEASURED NUMBERS
+
+  Mutation, cut #7 (live_seed):
+    - first battery: 2/13 caught, then 13/13 after the post-review hardening.
+    - a later 104-mutant pass over live_seed found 23 escapes. TWELVE of them
+      survived re-derivation against the fixed tip; the other eleven did not
+      (they were about code that had already changed). All 12 are now closed by
+      tests -- 13 mutants, 13 RED on their target test and on no other, 0
+      anchor failures, 0 invalid, each proven RED with the mutant applied AND
+      green on the pristine file. No source change was needed for any of
+      them: every escape was a missing test, not a missing writer.
+      The one that flipped the exit code was M22 (see below).
+  Mutation, scripts/deploy.sh:
+    - 9 escapes, closed 12/12 caught, 0 invalid, deploy.sh restored
+      byte-identically. One-line source change (step [12]'s $rcode); the rest
+      were tests.
+
+  Band, four lanes run on this tip. All four PASS, all exit 0 unpiped, all on
+  venv/bin/python. Cited from the lane reports rather than asserted:
+    lane                      files   result
+    live-seed-and-capture       49    724 passed, 0 failed, 0 skipped
+    deploy-and-requirements     29    424 passed, 1 skipped, 0 failed
+    gates-and-enumerators       38    388 passed, 0 failed, 0 skipped
+    batch-library-fts           33    506 passed, 0 failed, 0 skipped
+    TOTAL                             2042 passed, 1 skipped, 0 failed
+  The file column sums to 149 LANE MEMBERSHIPS, not 149 distinct files -- the
+  lanes overlap and were not de-duplicated across each other. Do not read 149
+  as a file count. The single skip is declared in-test
+  (tests/test_cloud_setup_truthfulness.py:262, "BD_REPO_CANDIDATES removed
+  entirely"), not an environmental wave-away.
+  The gates lane established one fact worth keeping: this branch adds NO new
+  test file (`git diff --diff-filter=A e8ec5b1 HEAD -- tests/` is empty; the
+  four tests/ entries are all M), so the count-ratchets can only be moved by
+  content edits, not by a count change. They were banded anyway.
+
+  Already measured on this tip, recorded so nobody re-runs them:
+    bd-regen-order      exit 0, ZERO artifact drift
+    bd-guardcheck       7 ok / 0 drifted / 0 missing (non-zero denominator)
+    import_graph_gate   PASS at 1618 edges
+    version             3.66.848
+
+THE FIVE SECTION-0 DEFECTS FOUND IN THIS CUT'S OWN CODE
+
+The pattern is the point. Three were defects in shipped-this-branch source;
+two were defects in the HARNESS that was supposed to catch them. All five are
+the same shape: a check whose denominator structurally excluded its subject.
+
+  1. _twin_scan's blind guard tested the SCAN TOTAL.
+     library.library_browse wraps its whole query in
+     `except Exception: return [], None` (library.py:363-364), so an
+     unreadable library is byte-identical over this API to a library with no
+     twins. The first version tested `rows_scanned == 0` over the scan total
+     -- which page one had already made non-zero. A blind CONTINUATION page
+     was therefore INVISIBLE to it: the scan ended scan_complete, called
+     itself conclusive, wrote twins.remaining = 0, emitted no warning, and a
+     real twin was left dangling. The observation is now PER PAGE
+     (report["blind_pages"] records the after_id of every empty page, and the
+     warning names it), and an honest last page carrying rows with no cursor
+     stays conclusive -- the over-sensitive direction was closed too.
+
+  2. The final twin verification could run over an EMPTY subject.
+     tools/live_seed.py:1498. With no targeted ids, _twin_scan reads every
+     page, matches nothing BY CONSTRUCTION, calls itself conclusive and
+     reports "zero twins remain" with exit 0. The `and targeted_ids` guard
+     was present in the source from the original implementation -- what was
+     missing was any test pinning it. Mutant M22 deleted it and ESCAPED the
+     battery; it was the only survivor that flipped the exit code. Closed by
+     a test, not by a source change. Recorded here because an unpinned guard
+     and an absent guard are the same thing to the next person who edits it.
+
+  3. tools/check_requirements.py exited 0 on a file parsing to ZERO names.
+     This file exists specifically because `pip check` reports clean over a
+     denominator that structurally excludes an uninstalled requirement -- and
+     the replacement rebuilt the same defect one level up. `unresolved([])` is
+     `[]`, so "every entry resolves" came out true over an empty denominator.
+     MEASURED on the pristine file: empty.txt -> exit 0 silent;
+     comments-and-option-lines-only -> exit 0 silent. Now exit 2
+     (UNEVALUABLE) with the condition named on stderr and stdout left empty.
+     Exit 2 is not a softer exit 0. Both callers already treated 2 as failure
+     and were left alone. Same shape as bd-guardcheck's "0 ok, 0 drifted, 7
+     missing, exit 0" before v3.66.818.
+
+  4. deploy step [10]'s BD_HOME warning was gated on BD_HOME being EXPORTED.
+     capture.sh:55 DEFAULTS it (`BD_HOME="${BD_HOME:-$HOME/BulkDownloader}"`),
+     so gating on `[ -n "$BD_HOME" ]` asked a different question and reported
+     clean in the DEFAULT case -- which is the common case, and the one the
+     warning exists for. scripts/deploy.sh:484 now computes
+     `capture_home="${BD_HOME:-$HOME/BulkDownloader}"` the way capture.sh
+     does, compares that, and says so when the directory does not exist at
+     all.
+
+  5. Two deploy escapes were HARNESS defects, not absent tests.
+     - the curl shim answered every URL identically, so /api/health and /
+       could never disagree -- which is the only condition step [12]'s
+       root-URL confirmation exists to detect. ROOT_CODE now discriminates by
+       URL; unset, every response is what it was before.
+     - the fake venv python answered exit 0 to every `-c`, so step [10]'s
+       `json.load` read-back was unobservable and a truncated inventory
+       sailed through to "ALREADY CURRENT -- VERIFIED". `-c` is now delegated
+       to REAL_PY (the interpreter running pytest, passed explicitly, never a
+       bare python3).
+     Two of the first-draft replacement assertions had the same disease and
+     were caught before merge: they anchored on output ("dist") that step [6]
+     prints on every skipped build, so they could never fail. Both now anchor
+     on stderr and on site-specific wording.
+
+WHAT ONLY THE BOX CAN ANSWER -- all three are UNKNOWN, not guessed
+
+  (a) Do the accumulated bdseed history rows carry the marker in site_name?
+      This is the one that decides whether the first armed run does anything.
+      The clear FINDS rows with GET /api/history?q=bdseed (live_seed.py:1055),
+      and db.db_search LIKEs over url / filename / message ONLY
+      (db.py:1179, :1209 -- `url LIKE ? OR filename LIKE ? OR message LIKE ?`;
+      site_name is NOT in that list). It then AUTHORIZES deletion on
+      site_name (live_seed.py:1325-1326). Two different fields. If the
+      accumulated rows do not carry the marker in site_name, every one of
+      them is counted `unowned`, NOTHING is deleted, the tool prints CLEAR
+      SKIPPED and exits 4. That is the safe direction by design -- under-
+      deleting beats over-deleting -- but it means the first armed run may
+      legitimately do nothing, and that must not be read as a defect.
+      GIT CANNOT RECONSTRUCT THIS. The repository's FIRST commit (860d8be,
+      2026-07-29) is also the first commit touching tools/live_seed.py, so
+      there is no earlier tree showing what site_name the seeder wrote when
+      the oldest rows were created.
+      Residue was 66 rows at v3.66.846 (15.22) and 64 at v3.66.844, growing
+      ~2-4 per capture; the count today is UNKNOWN. The read-only query that
+      settles it, already filed in 15.20:
+        SELECT id, site_name, filename, library_id, substr(url,1,60)
+          FROM history WHERE url LIKE '%bdseed%';
+
+  (b) Does BD_HOME equal the install dir on the box?
+      tools/gui_parity_inventory.py:914 defaults --outdir to the RELATIVE
+      "reports", resolved against CWD (:921-923). capture.sh:417 reads
+      PARITY_JSON="$BD_HOME/reports/gui_parity_inventory.json". Those are the
+      same file only if BD_HOME is the directory the regen ran in. If they
+      differ, deploy.sh's step [10] refreshes a copy the suite never reads,
+      and the stale one it does read fails the ENTIRE suite -- the v3.66.818
+      failure mode (CLAUDE.md section 7). deploy.sh:484-495 now WARNS when it
+      cannot establish they agree; whether they agree on test4 is UNKNOWN
+      here and one `echo "${BD_HOME:-unset}"` on the box settles it.
+
+  (c) Is lxml present on the box?
+      UNKNOWN. It is present in this container (measured, lxml 6.1.1) and is
+      now declared, so a fresh install gets it -- but a deploy is
+      `git reset --hard`, which does not install anything. If it is absent,
+      deploy.sh step [5] is the thing that will say so, because
+      check_requirements.py parses requirements.txt rather than asking pip
+      what is installed. Nothing has been run on the box to check.
+
+WHAT IS STILL UNVERIFIED IN-CONTAINER
+
+  - The deploy SAFETY/ORDERING mutation battery is 33 mutants and only FOUR
+    were judged. That battery was force-reported with M01-M04 done, covering
+    the sudo boundary and the stopped-service window. The other 29 were never
+    run to a verdict -- they are UNKNOWN, not passed, and the battery must not
+    be cited as evidence about the 29.
+  - The deploy harness still cannot observe service ORDERING. The curl shim
+    does not read simulated service state, so a mutant that starts the
+    service before the bytecode sweep, or health-gates a service it never
+    stopped, produces the same shim responses as correct ordering. Fixing the
+    URL discrimination (defect 5 above) did not fix this; it is a different
+    blind spot in the same harness.
+  - Nothing in this branch has run on the box. Container green is evidence
+    toward the cut, never evidence the box is green (CLAUDE.md section 7).
+    In particular tests/test_v3_43_80_modules.py passed here WITHOUT GTK
+    typelibs and with DISPLAY unset, which is a measurement, not a claim that
+    the section 5 trap is gone.
