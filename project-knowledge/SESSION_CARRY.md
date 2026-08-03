@@ -2808,15 +2808,25 @@ WHAT SHIPPED
      playwright census in that section it failed in BOTH directions at once.
      Re-derived with ast.parse over all 2108 tracked .py files
      (`git ls-files -- '*.py'`; all parsed, zero SyntaxError), reading Import
-     and ImportFrom nodes and skipping relative imports:
+     and ImportFrom nodes and skipping relative imports. COUNTS BELOW ARE OVER
+     THAT 2108-FILE DENOMINATOR -- v3.66.849 correction: the first version of
+     this entry stated the 2108-file instrument and then counted a smaller
+     set under it ("All three" lxml, "Two" cssselect in requirements.txt and
+     the CHANGELOG), parenthesising the tests/ importer out of the total while
+     keeping a root-level one in. Four and three:
        lxml       bulk_downloader/accessibility.py:185   (ARIA audit)
                   bulk_downloader/selector_playground.py:56 (XPath eval)
                   bulk_downloader/synthetic_tests.py:96  (synthetic selector
                                                           check)
+                  tests/test_v3_66_320_synthetic_json_path.py:110  (a test)
        cssselect  bulk_downloader/selector_playground.py:67
-                  audit_templates.py:26
-       (tests/test_v3_66_320_synthetic_json_path.py:110-111 imports both; it
-        is a test, not a runtime site.)
+                  audit_templates.py:26                  (REPO ROOT, not the
+                                                          app package)
+                  tests/test_v3_66_320_synthetic_json_path.py:111  (a test)
+     Three lxml sites and two cssselect sites are non-test; those fail open.
+     Note what the old shape hid: over a bulk_downloader/-only denominator
+     cssselect has ONE importer, not two -- audit_templates.py is root-level.
+     Neither "two" nor "three" was true of a denominator anyone had stated.
      FALSE NEGATIVE: synthetic_tests.py:96 -- a real fail-open lxml importer
      that appeared in NO prose on this branch. It returns
      {"ok": false, "error": "lxml not installed"} and the caller carries on.
@@ -2837,9 +2847,19 @@ WHAT SHIPPED
          _css_to_xpath_simple(), explicitly only "the common cases the
          operator actually types".
        - audit_templates.py:26 sets _have_cssselect; check_selector() then
-         SKIPS the cssselect.parse() probe and returns None, so the deep
-         template audit reports every syntactically INVALID CSS selector as
-         valid. Section 0 shape, in shipped code.
+         SKIPS the cssselect.parse() probe. v3.66.849 correction: "every
+         syntactically INVALID selector reads as valid" was FALSE. Read the
+         function (audit_templates.py:32-58) -- four structural checks run
+         before the probe and still run without cssselect: non-string type,
+         empty/whitespace, [] and () balance, and quote balance inside each
+         attribute selector. Only the grammar probe is lost, so what stops
+         being rejected is the bracket- and quote-balanced but grammatically
+         invalid subset. MEASURED over 13 probe selectors: 7 flip to valid
+         ("div >> p", "a[href=]", "::", "1abc", "div:", ">div", "*|"), 4 stay
+         caught structurally, 2 ("a:nth-child(2n+)", "a::pseudo-nope")
+         cssselect accepts anyway so they were never caught either way.
+         Section 0 shape in shipped code, over a proper subset -- which is
+         still worth declaring cssselect for, and is what the evidence says.
      And it is why declaring lxml alone was not enough: lxml's
      element.cssselect() is implemented BY cssselect and raises ImportError
      without it -- MEASURED here before installing, "cssselect does not seem to
@@ -2852,31 +2872,48 @@ WHAT SHIPPED
      CONSTRAINED BY A TEST, which it previously was not. Nothing in the tree
      read the real requirements.txt for these names: deleting the lxml line
      left the whole band green, so the declaration shipped unconstrained.
-     tests/test_v3_66_653_dep_freshness.py now carries three cases --
-     test_third_party_imports_are_declared,
-     test_undeclared_by_design_names_are_still_imported_and_still_undeclared,
-     test_lxml_and_cssselect_are_declared_in_the_core_manifest. They AST-walk
-     tracked bulk_downloader/*.py (565 files), classify each top-level import
-     against sys.stdlib_module_names and a repo-derived first-party set, and
-     require every remaining name to be declared in some requirements*.txt or
-     recorded in _UNDECLARED_BY_DESIGN with a reason. Measured partition at
-     this tip: 30 third-party names, 20 declared, 10 waived (werkzeug,
-     requests, rich, PIL, pystray, plexapi, psycopg, psycopg2, subliminal,
-     babelfish).
-     Two things about that gate worth carrying:
-       - The denominator is asserted BEFORE the verdict. Three mutations that
-         empty the scan (subject filter matching no file, import predicate
-         collecting no name, requirements glob reading no manifest) all FAIL
-         on a named denominator assertion instead of reporting "all declared"
-         over nothing. Proven, mutants validated with ast.parse first and the
-         file restored byte-identically (sha256 checked).
-       - It is NOT axis-6, deliberately. It runs `git ls-files -- '*.py'`,
-         which reaches tests/, but _first_party_names takes stems only from the
-         repo root and tools/ (the two dirs whose modules are imported by bare
-         name -- tools/ is load-bearing: build_template_from_wacz and
-         template_drift_report would otherwise read as undeclared PyPI
-         distributions). Adding a tests/ file cannot move what it measures.
-         Change that filter and it becomes axis-6.
+     tests/test_v3_66_653_dep_freshness.py now carries EIGHT cases (it shipped
+     with three; v3.66.849 added five after two read-only verifiers took the
+     first version apart). The AST walk is one pass over all 2108 tracked .py,
+     sliced into two scopes that PARTITION the tree, each with its own
+     manifest expectation:
+       app     (bulk_downloader/, 565 files, 3632 import nodes)
+               30 third-party names: 20 declared, 10 waived.
+       outside (everything else, 1543 files, 12645 nodes)
+               21 third-party names: 13 declared, 8 waived (werkzeug, PIL,
+               psycopg, atheris, hypothesis, markdown, paho, bd_dev_inspect).
+     Four things about that gate worth carrying:
+       - The denominator is asserted BEFORE the verdict. Five mutations that
+         empty or blind the scan (outside subject filter matching no file,
+         resolver resolving nothing, requirements glob reading no manifest,
+         packages_distributions returning nothing, tests/ prefix matching no
+         path) all FAIL on a named denominator assertion instead of reporting
+         "all declared" over nothing. Mutants validated with ast.parse first
+         and the file restored byte-identically (sha256 checked).
+       - IT WAS ITSELF A SECTION 0 DEFECT, and that is the point worth
+         carrying, not the fix. The first version scanned bulk_downloader/
+         ONLY and said so nowhere a failure could show it, so tests/, tools/,
+         toolchain/, bin/, scripts/, live_tests/, docs/ and
+         project-knowledge/ were structurally outside its subject. It reported
+         clean over `requests`, hard-imported by two tracked test files and
+         declared in no manifest. That is the THIRD gate on this branch
+         written to catch a section 0 defect that shipped with one:
+         tools/check_requirements.py exited 0 on a file parsing to zero names,
+         scripts/deploy.sh step [10] warned about BD_HOME only when BD_HOME
+         was exported while capture.sh DEFAULTS it, and now this. Assume the
+         next one has the same shape and go looking.
+       - The scope is not merely wider, it is SAID. Both halves print their
+         own scope and the shared blind spot (the predicate is ast.Import /
+         ast.ImportFrom, so __import__, importlib.import_module and
+         pytest.importorskip are invisible) in the failure message.
+       - IT IS NOW AXIS-6, and the earlier entry here claiming otherwise is
+         superseded. Imports resolve against the importing file's OWN
+         directory -- that is what keeps tests/conftest.py, tests/_env.py and
+         tests/capture_lanes.py from reading as PyPI distributions -- so
+         adding or renaming a tests/ file moves what it measures. Band this
+         file on any cut that adds or renames a tracked .py. CLAUDE.md
+         section 4's axis-6 table does not list it; it is an operator file and
+         was not edited for this.
      RED proven four ways before the pins were trusted: remove the lxml line
      (2 tests fail, and the failure names all three importers including
      synthetic_tests.py); remove the cssselect line (2 fail); MIGRATE a pin to
@@ -2889,6 +2926,71 @@ WHAT SHIPPED
      has been EXTENDED rather than fixed. Worth noting because the handoff that
      scoped this correction listed CHANGELOG as one of three sites carrying the
      wrong census; it was two.
+     v3.66.849 FOLLOW-ONS, all five re-measured before acting rather than
+     inherited from the verifier reports that raised them:
+       a) `requests` WAS a real undeclared import, and the fix is
+          pytest.importorskip in the two importers, NOT a requirements-dev.txt
+          declaration. tests/test_v3_66_550_weather_ssrf.py and
+          tests/test_webhooks_subscription_ssrf.py hard-imported it inside
+          helper functions. MEASURED with requests blocked on sys.path:
+          7 failed / 2 passed; control (same directory, same command, blocker
+          removed) 9 passed. Reproduced here before the fix; after it, the same
+          blocked run is 2 skipped with the reason named, and the control is
+          still 9 passed. WHY NOT DECLARE IT: both files exist to patch
+          requests.head / requests.get / requests.post on the module that
+          site_weather.probe_http and webhooks._deliver_one soft-import, and
+          those functions return {"ok": False, "error": "requests not
+          installed"} without it -- so on a core-only install the guard under
+          test cannot execute and the honest verdict is SKIP, which says so.
+          Declaring it in requirements-dev.txt would also have forced it off
+          _UNDECLARED_BY_DESIGN (the reverse-direction test forbids a declared
+          name staying waived), converting "BD does not require requests" into
+          "BD requires requests, in the dev manifest" -- a claim nobody made.
+       b) THE WAIVER REASON FOR requests WAS STRONGER THAN ITS EVIDENCE. It
+          said "transitive under several declared distributions". MEASURED
+          from installed metadata: EXACTLY ONE, and only through the
+          posture-sensitive optional manifest --
+          requirements-cloak.txt's cloakbrowser[geoip] -> geoip2>=4.0 ->
+          requests>=2.24.0,<3.0.0. The other installed dists that name
+          requests (psutil, pytest, markdown-it-py) name it only under a
+          'dev' / 'testing' extra BD never asks for, so nothing in
+          requirements.txt pulls it in, and install_linux.sh's cloak step is
+          NON-FATAL by design. A waiver whose stated reason is stronger than
+          its evidence is how a real gap survives review.
+       c) THE FIRST-PARTY HEURISTIC COULD SILENTLY REMOVE A REAL NAME. The old
+          _first_party_names took a global BAG of stems from the repo root and
+          tools/, so one tracked tools/<distname>.py would have made that
+          distribution first-party for EVERY importer in the tree. Resolution
+          is now per-importer (repo root, tools/, and the importing file's own
+          directory) and every removal is RECORDED, then checked against two
+          independent signals that a suppressed name is really a distribution:
+          declared in a manifest, or a top-level module of something installed
+          from outside this checkout. MEASURED at this tip: 92 names
+          suppressed, 70 installed top-levels seen, ZERO shadow hits -- the
+          hazard is latent, not live. Proven to FIRE by adding a real tracked
+          tools/lxml.py: the shadow report named the file and all four lxml
+          importers that had left the subject, and the core-manifest test
+          caught it independently. File removed; git status clean.
+       d) `venv/` LIVES INSIDE THE REPO, so "installed under _REPO" is not
+          "installed from this repo" -- the first version of the shadow check
+          used that test and every site-packages distribution was filtered
+          out, leaving the map empty. Its own denominator assertion caught it
+          and said UNKNOWN rather than reporting clean, which is the only
+          reason it was noticed within the session. The test is now a
+          site-packages / dist-packages path component.
+       e) THE PER-SCOPE COUNTS AND THE PER-SCOPE SLICE NOW COME FROM ONE
+          PREDICATE. They were two (the census keyed scope off _in_app, the
+          slice off _SCOPES), so a broken subject filter could leave a healthy
+          file count describing a set the verdict never ran over. The census
+          now asks every scope predicate and requires exactly one to match, so
+          "the scopes stopped partitioning the tree" is its own named failure.
+       Also corrected: one more denominator slip found while re-measuring (a)
+       -- "imported only from tests/" was first judged against the OUTSIDE
+       slice, which made bs4, httpx, lxml, mutagen, openpyxl, curl_cffi and
+       cloakbrowser look test-only (they have no non-tests importer outside
+       bulk_downloader/) and demanded seven runtime pins move to the dev
+       manifest. Judged over the whole tree it is one name, pytest, and it is
+       already in requirements-dev.txt.
 
   3. v3.66.848 -- scripts/deploy.sh as the git deploy path.
      It previously drove the retired zip overlay (--zip, a sha256 gate over a

@@ -42,10 +42,20 @@ archive is not present in this repository; consult source-control history.
   those declarations is CORRECTED. The earlier lxml census was derived BY GREP
   and was wrong in both directions at once -- CLAUDE.md section 1's named trap,
   reproduced. Re-derived with ast.parse over all 2108 tracked .py files (all
-  parsed, zero SyntaxError), reading Import and ImportFrom nodes:
-    lxml       accessibility.py:185, selector_playground.py:56,
-               synthetic_tests.py:96
-    cssselect  selector_playground.py:67, audit_templates.py:26
+  parsed, zero SyntaxError), reading Import and ImportFrom nodes. The counts
+  below are stated over that same 2108-file denominator, because the first
+  version of this bullet gave a 2108-file instrument and then a
+  bulk_downloader-shaped count under it -- "All three" lxml importers and
+  "Two" for cssselect, when the stated denominator holds four and three:
+    lxml       bulk_downloader/accessibility.py:185
+               bulk_downloader/selector_playground.py:56
+               bulk_downloader/synthetic_tests.py:96
+               tests/test_v3_66_320_synthetic_json_path.py:110   (a test)
+    cssselect  bulk_downloader/selector_playground.py:67
+               audit_templates.py:26                             (repo root)
+               tests/test_v3_66_320_synthetic_json_path.py:111   (a test)
+  Three of the lxml sites and two of the cssselect sites are non-test, and
+  those are the ones that fail open.
   synthetic_tests.py:96 is the false negative -- a real fail-open importer that
   no prose named. diagnostics_bundle.py:130 was the false positive and is NOT
   an importer: "lxml" there is a string in a tuple of optional-dependency names
@@ -55,9 +65,17 @@ archive is not present in this repository; consult source-control history.
 - cssselect declared at >=1.2,<2.0 rather than left implicit. Both importers
   fail open, and both lose a real capability silently: the selector playground
   drops to a hand-rolled CSS-to-XPath translator covering only simple cases,
-  and audit_templates.check_selector skips the cssselect.parse probe entirely
-  and reports every syntactically invalid CSS selector as VALID -- a check
-  whose denominator stopped containing its subject. It is also lxml's own
+  and audit_templates.check_selector skips the cssselect.parse probe. NOT
+  "every invalid selector reads as valid" -- that word was wrong and is
+  corrected here. check_selector runs four structural checks BEFORE the probe
+  and those still run without cssselect (non-string type, empty/whitespace,
+  [] and () balance, quote balance inside each attribute selector), so what is
+  lost is the grammar probe alone: the selectors that stop being rejected are
+  the bracket- and quote-balanced but grammatically invalid ones. MEASURED
+  over a 13-selector probe -- 7 flip to valid ("div >> p", "a[href=]", "::",
+  "1abc", "div:", ">div", "*|"), 4 stay caught structurally, 2 cssselect
+  accepts anyway. Still a check whose denominator stopped containing part of
+  its subject, but a proper subset of it. It is also lxml's own
   backing for element.cssselect(), which raises ImportError without it
   (MEASURED), and that is the PRIMARY path at synthetic_tests.py:96; lxml
   exposes it as an extra, so the lxml pin does not pull it in.
@@ -86,6 +104,68 @@ archive is not present in this repository; consult source-control history.
   inode changed across the reset. Comment only; the script is not restructured,
   because re-exec'ing the post-reset copy would change which code the operator
   authorized to run.
+- THE DECLARATION GATE ABOVE SHIPPED WITH THE DEFECT IT EXISTS TO CATCH, and
+  is repaired here. It scanned bulk_downloader/ only and said so nowhere a
+  failure could show it, so tests/, tools/, toolchain/, bin/, scripts/,
+  live_tests/, docs/ and project-knowledge/ sat structurally outside its
+  subject -- and it reported clean over `requests`, hard-imported by two
+  tracked test files and declared in no manifest. That is the third gate on
+  this branch written against a CLAUDE.md section 0 defect that carried one:
+  tools/check_requirements.py exited 0 on a file parsing to zero names, and
+  deploy.sh step [10] warned about BD_HOME only when BD_HOME was exported
+  while capture.sh defaults it.
+- The scope was not merely widened. The two halves answer to different
+  manifests, so there are two assertions over disjoint scopes whose union is
+  every tracked .py -- bulk_downloader/ (565 files, 3632 import nodes, 30
+  third-party names: 20 declared, 10 waived) and everything else (1543 files,
+  12645 nodes, 21 names: 13 declared, 8 waived) -- plus a third that holds a
+  tests/-only name to requirements-dev.txt specifically. Each NAMES its own
+  scope and the shared blind spot in the failure message: the predicate is
+  ast.Import / ast.ImportFrom, so __import__, importlib.import_module and
+  pytest.importorskip are structurally invisible to it. The per-scope counts
+  and the per-scope slice now come from one predicate, asked per file and
+  required to match exactly one scope, so a broken subject filter can no
+  longer leave a healthy file count describing a set the verdict never ran
+  over. The gate is consequently AXIS-6 and its docstring says so.
+- `requests` guarded with pytest.importorskip in
+  tests/test_v3_66_550_weather_ssrf.py and
+  tests/test_webhooks_subscription_ssrf.py, not declared. MEASURED with
+  requests blocked on sys.path: 7 failed / 2 passed, control 9 passed; after
+  the fix the blocked run is 2 skipped with the reason named. Both files patch
+  requests.head / get / post on the module that site_weather.probe_http and
+  webhooks._deliver_one soft-import, and those return "requests not installed"
+  without it -- so on a core-only install the guard under test cannot execute
+  and SKIP is the honest verdict. Declaring it in requirements-dev.txt would
+  also have forced it off the waiver list, turning "BD does not require
+  requests" into "BD requires requests, in the dev manifest".
+- The waiver reason for `requests` overstated its evidence and is corrected to
+  what was measured: not "transitive under several declared distributions" but
+  exactly ONE, and only through the posture-sensitive optional manifest --
+  requirements-cloak.txt's cloakbrowser[geoip] -> geoip2>=4.0 ->
+  requests>=2.24.0,<3.0.0. psutil, pytest and markdown-it-py name requests only
+  under extras BD never asks for.
+- The first-party filter could silently remove a real third-party name: a bag
+  of stems from the repo root and tools/ meant one tracked tools/<distname>.py
+  would make that distribution first-party for every importer in the tree, and
+  the gate would report clean over an undeclared import. Resolution is now
+  per-importer and every removal is RECORDED and checked against two
+  independent signals -- declared in a manifest, or a top-level module of
+  something installed from outside this checkout. 92 names suppressed, 70
+  installed top-levels seen, zero shadow hits: the hazard is latent, not live.
+  Proven to fire by adding a real tracked tools/lxml.py, which named the file
+  and all four lxml importers that had left the subject.
+- Two prose overstatements corrected in requirements.txt, this entry and
+  SESSION_CARRY 15.25. The census stated a 2108-file denominator and then
+  counted a smaller set under it -- "All three" lxml importers and "Two" for
+  cssselect, when that denominator holds four and three; over a
+  bulk_downloader/-only denominator cssselect has ONE, because
+  audit_templates.py is at the repo root. And check_selector does not report
+  "every syntactically invalid CSS selector as valid" without cssselect: four
+  structural checks run first and still run (non-string type,
+  empty/whitespace, [] and () balance, quote balance inside each attribute
+  selector), so only the grammar probe is lost. MEASURED over 13 probe
+  selectors: 7 flip to valid, 4 stay caught structurally, 2 cssselect accepts
+  anyway.
 
 ## v3.66.847 - Seeded-history clear (--teardown --clear-history)
 

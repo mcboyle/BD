@@ -21,7 +21,22 @@ import tempfile
 os.environ.setdefault("BD_HOME", tempfile.mkdtemp())
 os.environ.setdefault("BD_DISABLE_KEEPALIVE", "1")
 
+import pytest
+
 from bulk_downloader import webhooks
+
+# The module under test SOFT-imports requests and returns
+# {"ok": False, "error": "requests not installed"} without it, so the guard this
+# file exercises never runs on an install that lacks it. requests is declared in
+# no requirements manifest -- it arrives only transitively, through
+# requirements-cloak.txt's cloakbrowser[geoip] -> geoip2 -> requests, and that
+# install step is NON-FATAL by design -- so its absence is a supported posture,
+# not a broken box. MEASURED before this line existed: with requests blocked,
+# this file and its sibling SSRF file went to 7 failed / 2 passed (control, same
+# command, blocker removed: 9 passed) -- a missing dependency presenting as an
+# SSRF-guard failure. A check that cannot see its subject must SAY so (CLAUDE.md
+# section 0). A skip says so; a failure lies about which thing is broken.
+requests = pytest.importorskip("requests")
 
 _BAD = [
     "http://169.254.169.254/latest/meta-data/",  # cloud metadata / link-local
@@ -65,7 +80,6 @@ def _insert_raw_sub(url):
 
 
 def _drive_deliver(url, sid_offset):
-    import requests
     sid = _insert_raw_sub(url)
     calls = {"n": 0, "url": None}
 

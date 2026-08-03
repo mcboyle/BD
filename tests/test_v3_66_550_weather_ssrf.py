@@ -25,7 +25,22 @@ Convention: zero-arg fns; requests.head/get patched on the real requests module 
 restored in try/finally; _record patched to a no-op so the test never writes
 site_weather_log.
 """
+import pytest
+
 import bulk_downloader.site_weather as sw
+
+# The module under test SOFT-imports requests and returns
+# {"ok": False, "error": "requests not installed"} without it, so the guard this
+# file exercises never runs on an install that lacks it. requests is declared in
+# no requirements manifest -- it arrives only transitively, through
+# requirements-cloak.txt's cloakbrowser[geoip] -> geoip2 -> requests, and that
+# install step is NON-FATAL by design -- so its absence is a supported posture,
+# not a broken box. MEASURED before this line existed: with requests blocked,
+# this file and its sibling SSRF file went to 7 failed / 2 passed (control, same
+# command, blocker removed: 9 passed) -- a missing dependency presenting as an
+# SSRF-guard failure. A check that cannot see its subject must SAY so (CLAUDE.md
+# section 0). A skip says so; a failure lies about which thing is broken.
+requests = pytest.importorskip("requests")
 
 # Literal IPs (no DNS needed) -- all non-global, must be refused.
 _LOOPBACK = "http://127.0.0.1:5555/api/internal"       # loopback (BD's own API)
@@ -54,7 +69,6 @@ def _spy(url, *_a, **_k):
 
 
 def _patch(spy=_spy):
-    import requests
     orig = (requests.head, requests.get, sw._record)
     requests.head = spy
     requests.get = spy

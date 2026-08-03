@@ -37,13 +37,21 @@ beautifulsoup4>=4.12,<5.0
 # re-runs the AST walk against this file on every band, so deleting a pin below
 # is a test failure rather than a silent capability loss.
 
-# v3.66.848: lxml backs the ARIA audit (bulk_downloader/accessibility.py:185),
-# XPath selector evaluation (selector_playground.py:56) and the synthetic
-# selector check (synthetic_tests.py:96). All three fail open when it is
-# absent -- the audit returns a single "Install lxml to run ARIA audit"
-# finding, XPath selectors return an error string, and the synthetic check
-# returns {"ok": false, "error": "lxml not installed"} -- so a missing lxml
-# degrades silently, exactly as the beautifulsoup4 note above describes.
+# v3.66.848: lxml. SAY WHICH DENOMINATOR THE COUNT IS OVER. The walk above
+# covers all 2108 tracked .py; the runtime census below covers
+# bulk_downloader/ (565 of them), and the first version of this note mixed the
+# two -- it said "All three" directly under a sentence claiming every tracked
+# file, which is the same denominator slip the census itself was correcting.
+#   FOUR importers over the stated 2108-file denominator:
+#     bulk_downloader/accessibility.py:185   ARIA audit
+#     bulk_downloader/selector_playground.py:56  XPath selector evaluation
+#     bulk_downloader/synthetic_tests.py:96  synthetic selector check
+#     tests/test_v3_66_320_synthetic_json_path.py:110  <- a test, not runtime
+#   THREE of those are runtime, and it is the three that fail open: the audit
+# returns a single "Install lxml to run ARIA audit" finding, XPath selectors
+# return an error string, and the synthetic check returns
+# {"ok": false, "error": "lxml not installed"} -- so a missing lxml degrades
+# silently, exactly as the beautifulsoup4 note above describes.
 # It was never declared here, which is why `pip check` reported clean while
 # tests/test_v3_43_80_modules.py's TestAccessibility and TestSynthetic failed
 # on a fresh container: pip cannot see a requirement that was never written
@@ -53,18 +61,29 @@ beautifulsoup4>=4.12,<5.0
 # platform without a wheel will need libxml2/libxslt headers to build.
 lxml>=5.0,<7.0
 
-# v3.66.848: cssselect translates CSS selectors to XPath. Two importers, both
-# fail-open, both from the same AST walk:
+# v3.66.848: cssselect translates CSS selectors to XPath. THREE importers over
+# the same stated 2108-file denominator -- the first version of this note said
+# "Two", having silently counted a root-level file but not a tests/ one:
 #   bulk_downloader/selector_playground.py:67 -- sets _HAS_CSSSELECT, which
 #     is_available() reports to the operator verbatim. Without it the
 #     playground falls back to _css_to_xpath_simple(), a hand-rolled
 #     translator for "the common cases the operator actually types" (tag,
 #     .class, #id and simple combinations); anything richer stops matching.
-#   audit_templates.py:26 -- sets _have_cssselect. check_selector() then skips
-#     the cssselect.parse() probe entirely and returns None, so the deep
-#     template audit reports every syntactically-INVALID CSS selector as
-#     valid. That is the CLAUDE.md section 0 shape: a check whose denominator
-#     no longer contains its subject, reporting OK.
+#   audit_templates.py:26 -- at the REPO ROOT, not in bulk_downloader/. It
+#     sets _have_cssselect, and check_selector() then skips the
+#     cssselect.parse() probe. What it does NOT do is report every invalid
+#     selector as valid: that word was wrong. The four structural checks run
+#     first and still run -- non-string type, empty/whitespace, [] and ()
+#     balance, and quote balance inside each attribute selector -- so what is
+#     lost is exactly the grammar probe. The selectors that stop being
+#     rejected are the bracket- and quote-balanced but grammatically invalid
+#     ones. MEASURED over a 13-selector probe: 7 flip from a cssselect error
+#     to valid ("div >> p", "a[href=]", "::", "1abc", "div:", ">div", "*|"),
+#     4 are still caught structurally, and 2 cssselect accepts anyway. Still
+#     the CLAUDE.md section 0 shape -- a check whose denominator stopped
+#     containing part of its subject -- but a proper subset of it, not all.
+#   tests/test_v3_66_320_synthetic_json_path.py:111 -- a test, not runtime.
+#   Both non-test importers fail open.
 # It is also the reason declaring lxml alone is not enough. lxml's
 # element.cssselect() is implemented by cssselect and raises ImportError
 # without it -- MEASURED here before installing: "cssselect does not seem to
