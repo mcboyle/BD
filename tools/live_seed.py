@@ -79,10 +79,13 @@ SEED_MARKER = "bdseed"
 # where that timestamp was the PREVIOUS capture. Nothing downloaded, and L11/L12
 # reported "no completed downloads" as though BD had failed.
 #
-# History is append-only -- db_log() is its only writer, db_prune() (by AGE, not
-# by marker) its only deleter -- and there is no marker-scoped history delete
-# over HTTP, so teardown structurally cannot clear the rows. Not colliding is
-# cheaper and safer than adding a destructive route to the app.
+# The collision-avoidance rationale stands on its own: not colliding is
+# cheaper and safer than depending on a destructive clear. (This paragraph
+# used to claim history is append-only and that teardown structurally could
+# not clear the rows; that claim was FALSE -- db.py:988-992 records the
+# retraction -- and --teardown --clear-history now removes the marked rows
+# over POST /api/batch/delete. The nonce is still load-bearing: the clear is
+# OPT-IN, so runs must not collide when nobody passes it.)
 #
 # It rides in the QUERY, beside the marker, so routing is untouched and
 # _is_seeded() still matches.
@@ -127,6 +130,23 @@ TERMINAL_QUEUE_STATUSES = frozenset({
 # server-side; these are well above anything the seed set can produce.
 _QUEUE_PAGE = 500
 _HISTORY_PAGE = 500
+
+# Rows per /api/batch/delete call. _build_query truncates id_in at 1000
+# SILENTLY (batch_ops.py:76), and its `LIMIT ?` is appended AFTER the IN
+# clause (batch_ops.py:100-101), so an under-sized limit silently drops ids
+# too (measured: 6 ids with limit=2 matched 2). Both are why the clear chunks
+# and passes limit=len(chunk) rather than relying on any default.
+_CLEAR_CHUNK = 200
+# Each round reads at most _HISTORY_PAGE rows, so 20 rounds bound the clear at
+# 10k rows. Deliberately bounded: capture.sh runs this unattended.
+_CLEAR_MAX_ROUNDS = 20
+# GET /api/library/browse clamps limit to 1..500 (app_library.py:105) and pages
+# by after_id cursor (l.id < after_id for the default descending sort,
+# library.py:331-336). next_cursor is non-None only on a full page
+# (library.py:360-361). 40 pages bound the twin scan at 20k rows; capture.sh
+# runs this unattended.
+_TWIN_PAGE = 500
+_TWIN_MAX_PAGES = 40
 
 
 class SeedRefused(RuntimeError):
@@ -976,23 +996,61 @@ def seed_login(client, *, poll_seconds: float = 30.0, dry_run: bool = False) -> 
 
 
 RESIDUE_NOTE = (
-    "history is append-only: db_log() is its only writer and db_prune() -- "
-    "which deletes by AGE, not by marker -- its only deleter, so no "
-    "marker-matched teardown over the HTTP API can remove the row a completed "
-    "seeded download leaves. Its library_record row and the downloaded file "
-    "under the seeded site's download_dir are in the same class. Nothing here "
-    "is removed; it is reported so a later reader does not mistake it for "
-    "organic history."
+    "a completed seeded download leaves a history row, a library row and a "
+    "file under the seeded site's download_dir. The history row and its "
+    "library twin CAN be removed -- batch_ops.bulk_delete deletes history by "
+    "id over POST /api/batch/delete and maintains the external-content "
+    "history_fts index while doing it (db.db_fts_forget), and DELETE "
+    "/api/library/<lid> removes the twin, deleted FIRST because library rows "
+    "carry history_id and PRAGMA foreign_keys is never enabled "
+    "(library.py:538-543), so the other order leaves them dangling. But the "
+    "default teardown does not remove them: --clear-history is the opt-in, "
+    "and it is opt-in because capture.sh runs teardown unattended and the "
+    "clear's predicate is the marker across ALL history, not this run's "
+    "nonce. The older claim here -- that history is append-only with "
+    "db_prune (which deletes by AGE, not by marker) as its only deleter -- "
+    "was FALSE; db.py:988-992 records the retraction. The downloaded file is "
+    "not removed by any path this tool has. Nothing is hidden; it is "
+    "reported so a later reader does not mistake it for organic history."
+)
+
+# What can survive even a successful --clear-history. Named separately so a
+# "0 remain" line can never be read as "the box is as it was found".
+CLEAR_LEFTOVER_NOTE = (
+    "three classes of residue can survive a clear that measured zero: "
+    "(1) the downloaded files under the seeded site's download_dir -- no "
+    "path this tool has removes them; (2) library rows the twin scan could "
+    "not SEE -- library.library_browse swallows every exception into "
+    "([], None) (library.py:363-364), so over this API an unreadable or "
+    "missing library table produces the identical body to a library with no "
+    "twins; (3) any history row whose FTS-indexed text was updated in place "
+    "-- /api/batch/delete discards db_fts_forget's report, so the index "
+    "outcome is unreported (check fts5vocab on the box to see it). SQLite "
+    "foreign keys are off (library.py:538-543), so an UNSEEN twin's "
+    "history_id dangles rather than being SET NULL -- which is exactly why "
+    "twins are deleted BEFORE their history rows whenever the scan can see "
+    "them."
 )
 
 
-def _seeded_history(client):
-    """(marked history rows, readable). (None, False) when it cannot be read.
+def _seeded_history_rows(client):
+    """(marked history rows, readable). ([], False) when it cannot be read.
 
     Reads through the app, like every other question this tool asks.
     /api/history returns a BARE ARRAY by default and a {rows, next_cursor}
     envelope when paginating, so both shapes are accepted; anything else is
     UNKNOWN and says so rather than counting as zero.
+
+    THE URL IS PART OF THE CONTRACT. tests/test_live_seed_starts_and_settles
+    .py stubs it verbatim, and its FakeClient falls back to a default body on
+    an exact-key miss rather than raising -- so changing the query string
+    here does not fail those tests, it makes one of them pass without
+    exercising its fixture. Unbounded residue is handled by the clear's ROUND
+    LOOP (clear_seeded_history), not by paginating this read.
+
+    The server-side filter is a LIKE over url/filename/message (db.db_search),
+    so the marker is re-checked against the url field here: the subject is a
+    seeded URL, not any row whose message happens to mention one.
     """
     body = client.get(f"/api/history?q={SEED_MARKER}&limit={_HISTORY_PAGE}")
     rows = None
@@ -1001,13 +1059,312 @@ def _seeded_history(client):
     elif isinstance(body, dict) and isinstance(body.get("rows"), list):
         rows = body["rows"]
     if rows is None:
-        return None, False
-    # The server-side filter is a LIKE over url/filename/message, so re-check
-    # the marker against the url field here: the subject is a seeded URL, not
-    # any row whose message happens to mention one.
-    return sum(1 for row in rows
-               if isinstance(row, dict)
-               and SEED_MARKER in str(row.get("url", ""))), True
+        return [], False
+    return [r for r in rows
+            if isinstance(r, dict)
+            and SEED_MARKER in str(r.get("url", ""))], True
+
+
+def _seeded_history(client):
+    """(count of marked history rows, readable). (None, False) when unreadable.
+
+    A projection of _seeded_history_rows, kept because teardown's residue
+    report and every existing caller want the number, not the rows.
+    """
+    rows, readable = _seeded_history_rows(client)
+    return (len(rows) if readable else None), readable
+
+
+def _row_ids(rows):
+    """Integer ids from history rows, skipping anything that is not one."""
+    out = []
+    for r in rows:
+        try:
+            out.append(int(r["id"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+def _twin_scan(client, doomed_ids):
+    """Page GET /api/library/browse and find the doomed rows' library twins.
+
+    Derivation is by history_id MEMBERSHIP, never by text: browse's q=
+    searches title/file_path/notes ONLY (library.py:326-330), so no marker
+    query can find a twin. Rows are `SELECT l.*` so history_id is present
+    (library.py:299).
+
+    THE SECTION-0 TRAP, handled explicitly. library.library_browse wraps its
+    whole query in `except Exception: return [], None` (library.py:363-364),
+    so over this API an unreadable or missing library table produces the
+    IDENTICAL body to a library holding no twins. A scan that saw zero rows
+    therefore reports itself INCONCLUSIVE rather than claiming "no twins".
+    The three states are DISTINCT in the returned report:
+      * rows_scanned > 0 and scan_complete: conclusive -- it can say how
+        many matched, including none;
+      * rows_scanned == 0: it scanned NOTHING it can prove, and says so;
+      * truncated or aborted: partial, and says so.
+    """
+    report = {"pages": 0, "rows_scanned": 0, "scan_complete": False,
+              "conclusive": False, "matched_ids": [], "warnings": []}
+    cursor = None
+    while report["pages"] < _TWIN_MAX_PAGES:
+        path = f"/api/library/browse?limit={_TWIN_PAGE}"
+        if cursor is not None:
+            path = f"{path}&after_id={cursor}"
+        body = client.get(path)
+        if not (isinstance(body, dict) and body.get("ok") is True
+                and isinstance(body.get("rows"), list)):
+            report["warnings"].append(
+                f"library browse returned an unexpected body; twin scan "
+                f"aborted after {report['pages']} page(s) / "
+                f"{report['rows_scanned']} row(s): {str(body)[:200]}")
+            return report
+        report["pages"] += 1
+        report["rows_scanned"] += len(body["rows"])
+        for row in body["rows"]:
+            if not isinstance(row, dict) or row.get("history_id") is None:
+                continue
+            try:
+                hid = int(row["history_id"])
+                lid = int(row["id"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if hid in doomed_ids:
+                report["matched_ids"].append(lid)
+        cursor = body.get("next_cursor")
+        if cursor is None:
+            report["scan_complete"] = True
+            break
+    if not report["scan_complete"]:
+        report["warnings"].append(
+            f"twin scan truncated at {_TWIN_MAX_PAGES} pages with the cursor "
+            f"still set; library rows beyond that were never examined")
+    if report["rows_scanned"] == 0:
+        report["conclusive"] = False
+        report["warnings"].append(
+            f"library browse returned zero rows for {len(doomed_ids)} doomed "
+            f"history id(s); library.library_browse swallows every exception "
+            f"into ([], None) (library.py:363-364), so over this API an "
+            f"unreadable or missing library table is indistinguishable from "
+            f"a library with no twins -- 'no twins' is UNVERIFIED, not "
+            f"measured")
+    else:
+        report["conclusive"] = bool(report["scan_complete"])
+    return report
+
+
+def clear_seeded_history(client, *, dry_run: bool = False,
+                         chunk: int = _CLEAR_CHUNK,
+                         max_rounds: int = _CLEAR_MAX_ROUNDS) -> dict:
+    """Delete the marked history rows and their library twins, twins FIRST.
+
+    WHY HTTP AND NOT A DIRECT sqlite DELETE. history_fts is an FTS5
+    external-content table (content='history', db.py:113-118): SQLite
+    maintains nothing for it, so a hand-rolled DELETE would leave every
+    removed row's terms in the inverted index forever. batch_ops.bulk_delete
+    calls db.db_fts_forget for the batch (batch_ops.py:200) and that is the
+    whole reason this goes through the app.
+
+    WHY TWINS FIRST. library rows carry history_id and PRAGMA foreign_keys
+    is never enabled (library.py:538-543), so `history_id -> history(id) ON
+    DELETE SET NULL` does NOT fire. Deleting the history rows first would
+    leave every twin pointing at an id that no longer exists.
+
+    OWNERSHIP. Two predicates, both required, and the narrower one is the
+    one that authorises a delete: the marker must be in the row's URL (what
+    _seeded_history_rows already checks) AND in its site_name (which db_log
+    stores as a literal -- db.py:962/1036 -- so it survives the site being
+    deleted). A row matching only the first is counted as `unowned` and
+    NEVER deleted: under-deleting is the safe direction, and an unowned row
+    simply keeps the remainder non-zero, which ok=False then reports.
+
+    NO ARITHMETIC. The remainder is RE-MEASURED by re-reading /api/history,
+    never computed as found-minus-deleted: db_log runs on every job-level
+    transition (db.py:962-965), so a job settling during teardown appends a
+    row after the first read, and /api/batch/delete answers a rejected
+    filter and a genuine no-op with the SAME body (candidates_matched 0,
+    processed 0, ok true -- measured), because _matching_rows swallows the
+    TypeError from an unexpected filter key and returns [].
+
+    THE CANARY. Before deleting anything, one chunk is re-sent with
+    dry_run=True. Those ids were just read as present, so candidates_matched
+    MUST equal len(chunk); a 0 means the filter shape is not the one
+    _build_query accepts and the pass aborts having deleted NOTHING --
+    neither twins nor history. The canary runs BEFORE the twin deletes
+    deliberately: if the batch filter is broken, deleting twins first would
+    strand history rows whose twins are already gone.
+    """
+    out = {"action": "clear_seeded_history", "marker": SEED_MARKER,
+           "dry_run": bool(dry_run), "readable": False,
+           "found": None, "unowned": 0, "targeted": 0, "deleted": 0,
+           "rounds": 0, "remaining": None, "remaining_readable": False,
+           "stalled": False, "canary": None,
+           "errors": [], "warnings": [], "ok": False,
+           "twins": {"pages": 0, "rows_scanned": 0, "scan_complete": False,
+                     "matched": 0, "deleted": 0, "already_gone": 0,
+                     "errors": [], "conclusive": False, "remaining": None},
+           "note": CLEAR_LEFTOVER_NOTE}
+    twins = out["twins"]
+    chunk = max(1, min(int(chunk), 1000))
+    prev_remaining = None
+    exhausted = True
+    targeted_ids = set()
+    for round_no in range(1, max(1, int(max_rounds)) + 1):
+        rows, readable = _seeded_history_rows(client)
+        if not readable:
+            out["errors"].append(
+                f"round {round_no}: could not read /api/history, so the "
+                f"{SEED_MARKER} row set is UNKNOWN")
+            out["remaining"] = None
+            out["remaining_readable"] = False
+            return out
+        out["readable"] = True
+        out["rounds"] = round_no
+        if out["found"] is None:
+            out["found"] = len(rows)
+        owned = [r for r in rows
+                 if SEED_MARKER in str(r.get("site_name", ""))]
+        out["unowned"] = len(rows) - len(owned)
+        ids = _row_ids(owned)
+        if not ids:
+            out["remaining"] = len(rows)
+            out["remaining_readable"] = True
+            exhausted = False
+            break
+        if out["canary"] is None:
+            probe = ids[:chunk]
+            resp = client.post("/api/batch/delete",
+                               {"filter": {"id_in": probe,
+                                           "limit": len(probe)},
+                                "dry_run": True, "delete_files": False})
+            matched = resp.get("candidates_matched") \
+                if isinstance(resp, dict) else None
+            out["canary"] = {"sent": len(probe), "matched": matched}
+            if matched != len(probe):
+                out["errors"].append(
+                    f"filter canary: /api/batch/delete matched {matched} of "
+                    f"{len(probe)} ids that were just read as present. The "
+                    f"filter shape is not the one batch_ops._build_query "
+                    f"accepts; nothing was deleted -- neither twins nor "
+                    f"history. Response: {str(resp)[:200]}")
+                out["remaining"] = len(rows)
+                out["remaining_readable"] = True
+                return out
+        # TWIN SCAN AND DELETE -- BEFORE the history deletes (register 15.23
+        # decision 1). The scan counters record THIS round's scan; matched,
+        # deleted, already_gone and errors accumulate across rounds; the
+        # final verification pass below writes `remaining` and NOTHING else.
+        targeted_ids.update(ids)
+        scan = _twin_scan(client, set(ids))
+        twins["pages"] = scan["pages"]
+        twins["rows_scanned"] = scan["rows_scanned"]
+        twins["scan_complete"] = scan["scan_complete"]
+        twins["conclusive"] = scan["conclusive"]
+        twins["matched"] += len(scan["matched_ids"])
+        out["warnings"].extend(scan["warnings"])
+        if dry_run:
+            out["targeted"] = len(ids)
+            out["remaining"] = len(rows)
+            out["remaining_readable"] = True
+            out["ok"] = True
+            return out
+        for lid in scan["matched_ids"]:
+            # BODYLESS DELETE is correct: app_library.py:141-142 does
+            # get_json(silent=True) or {} and delete_file defaults False, so
+            # no file is touched. library_delete also NULLs the history
+            # row's library_id (library.py:478-481) -- harmless, since that
+            # history row dies next.
+            resp = client.delete(f"/api/library/{lid}")
+            if isinstance(resp, dict) and resp.get("ok") is True \
+                    and resp.get("deleted_row"):
+                twins["deleted"] += 1
+            elif isinstance(resp, dict) and resp.get("ok") is False \
+                    and "not found" in str(resp.get("error", "")).lower():
+                # Another writer got it first: a warning, not an error.
+                twins["already_gone"] += 1
+                out["warnings"].append(
+                    f"library {lid}: already gone before this tool's DELETE "
+                    f"({str(resp)[:200]})")
+            else:
+                twins["errors"].append(
+                    f"library {lid}: DELETE /api/library/{lid} answered "
+                    f"{str(resp)[:200]}")
+        for i in range(0, len(ids), chunk):
+            batch = ids[i:i + chunk]
+            out["targeted"] += len(batch)
+            resp = client.post("/api/batch/delete",
+                               {"filter": {"id_in": batch,
+                                           "limit": len(batch)},
+                                "dry_run": False, "delete_files": False})
+            if not isinstance(resp, dict) or resp.get("ok") is not True:
+                out["errors"].append(
+                    f"/api/batch/delete rejected a {len(batch)}-id chunk: "
+                    f"{str(resp)[:200]}")
+                continue
+            processed = resp.get("processed")
+            matched = resp.get("candidates_matched")
+            if not isinstance(processed, int):
+                out["errors"].append(
+                    f"/api/batch/delete returned no processed count: "
+                    f"{str(resp)[:200]}")
+                continue
+            out["deleted"] += processed
+            if matched == 0 and processed == 0:
+                # SOFT, not hard. Another writer removing these ids first
+                # gives exactly this body, and so does a malformed filter --
+                # the canary above already ruled the second one out, and the
+                # re-measured remainder settles the rest.
+                out["warnings"].append(
+                    f"a {len(batch)}-id chunk matched nothing "
+                    f"(already gone?)")
+            elif processed != matched:
+                out["errors"].append(
+                    f"/api/batch/delete processed {processed} of {matched} "
+                    f"matched (errors={resp.get('errors')})")
+        rows_after, readable_after = _seeded_history_rows(client)
+        out["remaining"] = len(rows_after) if readable_after else None
+        out["remaining_readable"] = bool(readable_after)
+        if not readable_after:
+            out["errors"].append(
+                "could not re-read /api/history after the clear, so the "
+                "remainder is UNKNOWN rather than zero")
+            return out
+        if not rows_after:
+            exhausted = False
+            break
+        if prev_remaining is not None and len(rows_after) >= prev_remaining:
+            out["stalled"] = True
+            exhausted = False
+            break
+        prev_remaining = len(rows_after)
+    if exhausted:
+        out["stalled"] = True
+    if not dry_run and targeted_ids:
+        # FINAL TWIN VERIFICATION -- against the union of every id targeted
+        # across rounds. Writes twins["remaining"] (plus its own warning or
+        # error) and NOTHING ELSE: pages/rows_scanned/matched above are the
+        # round scan's findings, and clobbering them would make the report
+        # describe a different pass than the one that deleted.
+        verify = _twin_scan(client, set(targeted_ids))
+        if verify["conclusive"]:
+            leftover = len(verify["matched_ids"])
+            twins["remaining"] = leftover
+            if leftover:
+                twins["errors"].append(
+                    f"{leftover} library twin(s) of the targeted history "
+                    f"id(s) remain after the clear")
+        else:
+            twins["remaining"] = None
+            out["warnings"].extend(verify["warnings"])
+            out["warnings"].append(
+                "final twin verification was inconclusive, so whether any "
+                "library twin remains is UNKNOWN rather than zero")
+    out["ok"] = bool(out["remaining_readable"]
+                     and out["remaining"] == 0
+                     and not out["errors"]
+                     and not twins["errors"])
+    return out
 SEED_TUNNEL_NAME = f"{SEED_MARKER} synthetic tunnel"
 
 
@@ -1144,7 +1501,8 @@ def seed_vpn_tunnel(client, *, dry_run: bool = False) -> dict:
     return plan
 
 
-def teardown(client, *, dry_run: bool = False) -> dict:
+def teardown(client, *, dry_run: bool = False,
+             clear_history: bool = False) -> dict:
     """Cancel exactly the queue entries this tool created.
 
     The predicate is the marker, never position or recency, so a real entry
@@ -1167,13 +1525,23 @@ def teardown(client, *, dry_run: bool = False) -> dict:
     sites = _marked_site_ids(client)
     history_rows, history_readable = _seeded_history(client)
     tunnels = _marked_tunnel_ids(client)
+    # `history_rows` ALWAYS means rows that REMAIN; `history_rows_found`
+    # always means rows the read SAW. Without a clear they are the same
+    # number, which is exactly why one name was enough before and is not
+    # enough now: a clear makes them differ, and a single key would silently
+    # change meaning between two runs of the same tool. `readable` describes
+    # whichever measurement produced `history_rows`.
     plan = {"action": "teardown", "marker": SEED_MARKER,
             "ids": ids, "sites": sites, "tunnels": tunnels,
-            "residue": {"history_rows": history_rows,
+            "residue": {"history_rows_found": history_rows,
+                        "history_rows": history_rows,
                         "readable": history_readable,
+                        "cleared": False,
                         "note": RESIDUE_NOTE}}
     if dry_run:
         plan["dry_run"] = True
+        if clear_history:
+            plan["clear"] = clear_seeded_history(client, dry_run=True)
         return plan
     if ids:
         plan["cancelled"] = client.post("/api/queue/v2/bulk_cancel", {"ids": ids})
@@ -1200,25 +1568,130 @@ def teardown(client, *, dry_run: bool = False) -> dict:
         removed_tunnels.append({"tunnel_id": tid,
                                 "result": client.delete(f"/api/vpn/tunnels/{tid}")})
     plan["removed_tunnels"] = removed_tunnels
+    # LAST, and after the site deletes on purpose: a job that settles while
+    # teardown is running appends a history row (db_log runs on every
+    # job-level transition), so the set is re-read by the clear rather than
+    # reusing the one harvested at the top of this function.
+    if clear_history:
+        clear = clear_seeded_history(client, dry_run=False)
+        plan["clear"] = clear
+        residue = plan["residue"]
+        residue["cleared"] = True
+        residue["history_rows_found"] = clear.get("found")
+        residue["history_rows"] = clear.get("remaining")
+        residue["readable"] = bool(clear.get("remaining_readable"))
     return plan
 
 
 def _report_residue(plan) -> None:
     """Say out loud what teardown could not remove.
 
-    Silent only when the answer is a measured zero. An unreadable history is
-    NOT a clean one and says so; a non-zero count names itself rather than
-    hiding inside the JSON a reader may skim past.
+    Silent only when the answer is a measured zero AND no clear was
+    attempted. An unreadable history is NOT a clean one and says so; a
+    non-zero count names itself rather than hiding inside JSON a reader may
+    skim past.
     """
-    residue = (plan or {}).get("residue") or {}
+    plan = plan or {}
+    residue = plan.get("residue") or {}
+    clear = plan.get("clear") or {}
+    twins = clear.get("twins") or {}
     rows = residue.get("history_rows")
+    found = residue.get("history_rows_found")
+    cleared = bool(residue.get("cleared"))
+    if clear:
+        for err in clear.get("errors") or []:
+            print(f"live_seed: CLEAR ERROR - {err}", file=sys.stderr)
+        for err in twins.get("errors") or []:
+            print(f"live_seed: TWIN ERROR - {err}", file=sys.stderr)
+        for warn in clear.get("warnings") or []:
+            print(f"live_seed: CLEAR WARNING - {warn}", file=sys.stderr)
+        if clear.get("unowned"):
+            print(f"live_seed: CLEAR SKIPPED - {clear['unowned']} row(s) "
+                  f"carry {SEED_MARKER} in the URL but not in site_name, so "
+                  f"they are not provably this tool's and were not deleted.",
+                  file=sys.stderr)
+        if clear.get("stalled"):
+            print(f"live_seed: CLEAR STALLED - a round removed nothing "
+                  f"while {SEED_MARKER} history rows remained.",
+                  file=sys.stderr)
+        if twins and twins.get("conclusive") is False:
+            print(f"live_seed: TWINS UNVERIFIED - the library twin scan "
+                  f"could not prove anything: library.library_browse "
+                  f"swallows every exception into ([], None) "
+                  f"(library.py:363-364), so an unreadable or missing "
+                  f"library table is indistinguishable over HTTP from a "
+                  f"library with no twins.", file=sys.stderr)
     if rows is None:
         print(f"live_seed: RESIDUE UNKNOWN - could not read /api/history, so "
               f"whether this host still holds {SEED_MARKER} history rows is "
               f"undetermined. {RESIDUE_NOTE}", file=sys.stderr)
     elif rows:
+        extra = ""
+        if cleared:
+            extra = (f" (found {found}, deleted {clear.get('deleted', 0)}, "
+                     f"measured after the clear)")
         print(f"live_seed: RESIDUE - {rows} {SEED_MARKER} history row(s) "
-              f"remain after teardown. {RESIDUE_NOTE}", file=sys.stderr)
+              f"remain after teardown{extra}. {RESIDUE_NOTE}",
+              file=sys.stderr)
+    elif cleared:
+        print(f"live_seed: CLEARED - {clear.get('deleted', 0)} of {found} "
+              f"{SEED_MARKER} history row(s) removed; "
+              f"{twins.get('deleted', 0)} library twin(s) removed; 0 "
+              f"remain, re-measured not inferred. {CLEAR_LEFTOVER_NOTE}",
+              file=sys.stderr)
+
+
+# Exit codes. 2 = REFUSED and 3 = TIMEOUT are already taken by main().
+#
+# THE CONTRACT (asserted by tests/test_live_seed_starts_and_settles.py):
+#   0  no clear requested; or clear requested and the remainder RE-MEASURED
+#      at zero with no errors (twin errors included) -- also the dry-run
+#      success path. NOTE a blind/inconclusive twin scan still exits 0: an
+#      absent library table (migration 4 never ran) is a legitimate state
+#      this API cannot distinguish from an empty one, and failing every
+#      clear on it would be the over-sensitivity CLAUDE.md 0 counts as a
+#      soundness bug. The TWINS UNVERIFIED warning is the loud artifact.
+#   2  SeedRefused (pre-existing; an unreadable /api/queue/v2 during
+#      --teardown exits here via _queue_snapshot, before any clear runs).
+#   3  settle timeout (pre-existing, seed path only).
+#   4  _EXIT_CLEAR_INCOMPLETE: the clear was requested and did not fully
+#      happen and we KNOW it -- canary mismatch, batch or twin delete
+#      errors, a non-zero measured remainder (unowned leftovers included),
+#      a stall, round exhaustion, twins remaining after the verification
+#      scan, or a plan carrying no clear dict at all.
+#   5  _EXIT_CLEAR_UNKNOWN: the post-state could not be MEASURED (history
+#      unreadable at a round read or at the post-delete re-read). Unknown
+#      is a third state and it fails, distinctly from 4.
+_EXIT_CLEAR_INCOMPLETE = 4
+_EXIT_CLEAR_UNKNOWN = 5
+
+
+def _teardown_exit_code(plan, *, clear_requested: bool) -> int:
+    """0 only when the clear did what it was asked to do, MEASURED.
+
+    Nothing read this before. main() returned 0 on every teardown outcome
+    except a SeedRefused out of _queue_snapshot, so capture.sh's
+    `|| echo WARNING` had never fired. Measured 2026-08-03 on four separate
+    failures: an unreadable /api/history (prints RESIDUE UNKNOWN, exit 0),
+    an unreadable /api/status so no marked site is found and none is deleted
+    (prints NOTHING, exit 0), a site DELETE answering 500 (prints NOTHING,
+    exit 0), and 64 rows left behind (prints RESIDUE, exit 0).
+
+    SCOPED TO THE CLEAR, deliberately. teardown's queue-cancel step is
+    independently broken -- the entries /api/queue/v2 returns carry no `id`
+    key so `ids` is always empty, and the payload it would send is
+    {"ids":...} where app_queue.py:400-406 reads "jobs" (measured: HTTP
+    400). Making the whole teardown fatal in this cut would warn on every
+    capture for a defect this cut did not introduce. Filed separately.
+    """
+    if not clear_requested:
+        return 0
+    clear = (plan or {}).get("clear") or {}
+    if not clear:
+        return _EXIT_CLEAR_INCOMPLETE
+    if not clear.get("remaining_readable"):
+        return _EXIT_CLEAR_UNKNOWN
+    return 0 if clear.get("ok") else _EXIT_CLEAR_INCOMPLETE
 
 
 def main(argv=None) -> int:
@@ -1233,6 +1706,20 @@ def main(argv=None) -> int:
                              "a config/state pair to cross-check (never "
                              "started; carries no traffic)")
     parser.add_argument("--teardown", action="store_true", help="remove marked entries")
+    # OPT-IN, and the reason is that capture.sh is the unattended caller. The
+    # predicate is the marker across ALL history, not this run's nonce, so
+    # the first non-dry-run clear removes every accumulated row from every
+    # previous capture at once (64 at v3.66.844, up from 62 at 842 and 58 at
+    # 840). That is the operator's state, not this run's, and it must not be
+    # deleted by a cron-shaped process nobody is watching. Run
+    # --teardown --clear-history --dry-run first; it reads, canaries the
+    # filter, and deletes nothing.
+    parser.add_argument("--clear-history", action="store_true",
+                        help="after the teardown, delete the marked history "
+                             "rows (and their library twins, twins first) "
+                             "over the app's own HTTP API (modifies "
+                             "--teardown; OFF by default). Combine with "
+                             "--dry-run to preview without deleting.")
     # OPT-IN, NOT DEFAULT-ON, and the reasoning is the reason it is written
     # here rather than assumed. --seed's documented contract is "place URLs";
     # an operator hand-running it (and the tests that drive it) would suddenly
@@ -1263,11 +1750,15 @@ def main(argv=None) -> int:
 
     client = Client(args.base_url)
     unsettled = None
+    teardown_rc = 0
     try:
         if args.teardown:
-            plan = teardown(client, dry_run=args.dry_run)
+            plan = teardown(client, dry_run=args.dry_run,
+                            clear_history=args.clear_history)
             print(json.dumps(plan, indent=2))
             _report_residue(plan)
+            teardown_rc = _teardown_exit_code(
+                plan, clear_requested=args.clear_history)
         elif args.seed or args.login or args.vpn_tunnel:
             if not args.dry_run:
                 preflight(client, force=args.force)
@@ -1382,6 +1873,11 @@ def main(argv=None) -> int:
                          f"{state.get('note') or state.get('message') or ''}".rstrip())
         print("\n".join(lines), file=sys.stderr)
         return 3
+    if teardown_rc:
+        # capture.sh's cleanup_live_seed tests this exit code. Returning 0
+        # on a failed clear is an unknown laundered into an OK; see
+        # _teardown_exit_code.
+        return teardown_rc
     return 0
 
 

@@ -743,10 +743,32 @@ SEEDED=0
 cleanup_live_seed() {
   if [ "$SEEDED" = "1" ]; then
     SEEDED=0
-    venv/bin/python tools/live_seed.py --teardown \
-      >> "$OUT/05a_live_seed.log" 2>&1 \
-      || echo "  WARNING: seed teardown failed — synthetic rows may remain;" \
-              "run: venv/bin/python tools/live_seed.py --teardown" >&2
+    # BD_SEED_CLEAR_HISTORY is OPT-IN and defaults to 0, for the same reason
+    # BD_SEED_FORCE is: this is the UNATTENDED caller. The seeder's clear
+    # predicate is the marker across ALL history, not this run's nonce, so
+    # the first armed run deletes every bdseed row accumulated by every
+    # previous capture (64 at v3.66.844). Arming it is an explicit operator
+    # act, and the first run should be:
+    #   venv/bin/python tools/live_seed.py --teardown --clear-history --dry-run
+    _clear_flag=""
+    [ "${BD_SEED_CLEAR_HISTORY:-0}" = "1" ] && _clear_flag="--clear-history"
+    venv/bin/python tools/live_seed.py --teardown $_clear_flag \
+      >> "$OUT/05a_live_seed.log" 2>&1
+    _teardown_exit=$?
+    echo "live_seed: TEARDOWN-EXIT=$_teardown_exit" >> "$OUT/05a_live_seed.log"
+    if [ "$_teardown_exit" -ne 0 ]; then
+      echo "  WARNING: seed teardown exited $_teardown_exit -- synthetic rows" \
+           "may remain; run: venv/bin/python tools/live_seed.py --teardown" \
+           "$_clear_flag" >&2
+      # Select on the diagnostic marker, never on position, and do it HERE.
+      # The identical grep at step [5a] runs at SEED time against a log the
+      # teardown has not written to yet (the seed truncates with `>`, the
+      # teardown appends with `>>` about 125 lines later), so it can never
+      # carry a teardown reason. `tail`, not `head`: the teardown's lines
+      # are the last ones in the file.
+      grep 'live_seed: ' "$OUT/05a_live_seed.log" 2>/dev/null \
+        | tail -12 | sed 's/^/    /' >&2
+    fi
   fi
   if [ -n "$FIXTURE_PID" ]; then
     _stop_process_group "$FIXTURE_PID"

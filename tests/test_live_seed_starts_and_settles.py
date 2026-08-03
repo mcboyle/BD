@@ -954,7 +954,16 @@ def test_a_failed_clear_does_not_exit_zero():
     client = _teardown_stubs(
         seed, [_owned_row(seed, 11), _owned_row(seed, 12, index=1)],
         {("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE,
-           ("POST", "/api/batch/delete"): {"ok": False, "error": "boom"}})
+           ("POST", "/api/batch/delete"): [
+               # THE CANARY MUST SUCCEED HERE. A single {"ok": False} body for
+               # every call answers the dry-run probe too, so `candidates_
+               # matched` is absent, the canary aborts the pass, and this test
+               # would measure R4's subject (an unusable filter) while claiming
+               # to measure its own (a delete the app REJECTED). Reply one is
+               # the probe answering honestly; every reply after it rejects.
+               _Reply({"ok": True, "candidates_matched": 2, "processed": 0,
+                       "files_deleted": 0, "errors": 0, "dry_run": True}),
+               _Reply({"ok": False, "error": "boom"})]})
     monkey = pytest.MonkeyPatch()
     try:
         monkey.setattr(seed, "Client", lambda base_url: client)
@@ -964,6 +973,11 @@ def test_a_failed_clear_does_not_exit_zero():
     assert _history_read_indices(seed, client), (
         "the tool never read the stubbed /api/history path; this test's "
         "fixture was not exercised and its verdict is about nothing")
+    assert _batch_delete_indices(client, dry_run=False), (
+        f"no non-dry-run POST to /api/batch/delete was ever made, so the pass "
+        f"aborted at the canary and this test's verdict is about an unusable "
+        f"filter, not about a delete the app rejected. Calls: "
+        f"{[(m, p) for m, p, _b in client.calls]}")
     assert rc == 4, (
         f"a clear whose every /api/batch/delete call was rejected exited "
         f"{rc}. 4 is _EXIT_CLEAR_INCOMPLETE: the clear did not happen and we "
@@ -1252,14 +1266,26 @@ def test_a_row_this_tool_cannot_prove_it_owns_is_not_deleted():
     would match. site_name is the second predicate, and a row failing it is
     counted as `unowned` and NEVER deleted. It then keeps the remainder
     non-zero, which the report says out loud rather than hiding.
+
+    THE FIXTURE PAIRS AN OWNED ROW WITH THE UNOWNED ONE, and that is not
+    decoration. With the unowned row ALONE the clear finds no deletable id,
+    breaks before it ever POSTs, and the payload scan below iterates over an
+    EMPTY list of calls -- an assertion whose denominator structurally
+    excludes its subject, which reports clean truthfully and uselessly
+    (CLAUDE.md 0). Owned id 11 is what makes a real /api/batch/delete happen,
+    so "4242 is not in any payload" is a measurement rather than a vacuum.
     """
     seed = _load()
+    mixed = [_owned_row(seed, 11), _unowned_row(seed, 4242)]
+    leftover = [_unowned_row(seed, 4242)]
+    stubs = {("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE,
+             ("POST", "/api/batch/delete"): {
+                 "ok": True, "candidates_matched": 1, "processed": 1,
+                 "files_deleted": 0, "errors": 0, "dry_run": False}}
     client = _teardown_stubs(
-        seed, [_unowned_row(seed, 4242)],
-        {("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE,
-           ("POST", "/api/batch/delete"): {
-               "ok": True, "candidates_matched": 1, "processed": 1,
-               "files_deleted": 0, "errors": 0, "dry_run": False}})
+        seed,
+        [_Reply(list(mixed)), _Reply(list(mixed)), _Reply(list(leftover))],
+        dict(stubs))
     monkey = pytest.MonkeyPatch()
     try:
         monkey.setattr(seed, "Client", lambda base_url: client)
@@ -1267,23 +1293,33 @@ def test_a_row_this_tool_cannot_prove_it_owns_is_not_deleted():
     finally:
         monkey.undo()
 
+    posts = _batch_delete_indices(client)
+    assert posts, (
+        f"the clear made no POST to /api/batch/delete at all, so the payload "
+        f"scan below would have had an empty denominator and this test would "
+        f"have certified nothing. Owned id 11 is in the fixture precisely so "
+        f"a real delete is issued. Calls: "
+        f"{[(m, p) for m, p, _b in client.calls]}")
     # Shape-independent: 4242 is distinctive, so a substring scan of every
     # /api/batch/delete payload cannot be fooled by a different filter shape
     # the way a structured `payload["filter"]["id_in"]` lookup silently would.
-    for index in _batch_delete_indices(client):
+    for index in posts:
         body = client.calls[index][2]
         assert "4242" not in str(body), (
             f"id 4242 reached /api/batch/delete in {body!r}. Its URL carries "
             f"the marker but its site_name is 'My Real Site', so this tool "
             f"cannot prove the row is its own.")
+    assert any("11" in str(client.calls[i][2]) for i in posts), (
+        f"id 11 -- the row this tool CAN prove it owns -- reached no "
+        f"/api/batch/delete payload either, so the clear under-deleted "
+        f"everything and 'it skipped 4242' is not evidence of a predicate: "
+        f"{[client.calls[i][2] for i in posts]}")
 
     plan = seed.teardown(
         _teardown_stubs(
-            seed, [_unowned_row(seed, 4242)],
-            {("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE,
-               ("POST", "/api/batch/delete"): {
-                   "ok": True, "candidates_matched": 1, "processed": 1,
-                   "files_deleted": 0, "errors": 0, "dry_run": False}}),
+            seed,
+            [_Reply(list(mixed)), _Reply(list(mixed)), _Reply(list(leftover))],
+            dict(stubs)),
         clear_history=True)
     clear = _clear_of(plan)
     assert clear.get("unowned") == 1, (
