@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 1617,
+  "edge_count": 1618,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1729,6 +1729,7 @@
       "bulk_downloader/interop_registry.py",
       "bulk_downloader/jd_bridge.py",
       "bulk_downloader/jellyfin_deep.py",
+      "bulk_downloader/library.py",
       "bulk_downloader/plex_deep.py",
       "bulk_downloader/qb_bridge.py",
       "bulk_downloader/stash_deep.py"

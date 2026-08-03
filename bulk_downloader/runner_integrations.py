@@ -2,7 +2,7 @@
 
 Extracted from runner.py (SiteRunner). Mixin: methods reference self.* only;
 NO __init__. Methods reference self.* only; the integration-bridge modules
-(stash_deep/plex_deep/jellyfin_deep/qb_bridge/jd_bridge), db_log,
+(stash_deep/plex_deep/jellyfin_deep/qb_bridge/jd_bridge), db_log, library,
 load_cookies_from_file and Path-as-_Path are imported INLINE inside the methods
 that use them (flat sibling of runner.py -> `.` = bulk_downloader, unchanged), so
 those imports moved verbatim and still resolve. The only module-level name used as
@@ -561,6 +561,21 @@ class IntegrationsMixin:
                     f"qB: Saved: {st['filename']}",
                     filename=st["filename"] or "",
                     file_size=st["bytes_total"] or st["bytes_done"])
+                # 15.11 (option b): st['filename'] is a bare NAME
+                # (qb_bridge.py poll(): t.get("name")), and for a multi-file
+                # torrent it names a DIRECTORY. Resolve it to the absolute
+                # path of the largest media file inside so the v3.66.837
+                # forward path (db_log keys on absoluteness) records a real
+                # row. In its OWN try, SEPARATE from db_log's below: a
+                # resolution failure must degrade to file_path=None, never
+                # cost the history row.
+                _lib_path = None
+                try:
+                    from . import library as _library
+                    _lib_path = _library.library_path_for_completion(
+                        dl_dir, st["filename"] or "")
+                except Exception:
+                    _lib_path = None
                 try:
                     from .db import db_log
                     db_log(self.site_id, self.config.get("name", "?"),
@@ -571,7 +586,8 @@ class IntegrationsMixin:
                            # genuinely crossed the wire for this job and the
                            # backend reports the count. bytes_done is what was
                            # transferred; bytes_total can be the advertised size.
-                           bytes_fetched=st["bytes_done"])
+                           bytes_fetched=st["bytes_done"],
+                           file_path=_lib_path)
                 except Exception:
                     pass
                 return True, ""
@@ -801,6 +817,17 @@ class IntegrationsMixin:
                     filename=st["filename"] or "",
                     file_size=st["bytes_total"] or st["bytes_done"])
                 # Persist to DB for History tab consistency.
+                # 15.11 (option b): st['filename'] is a bare NAME
+                # (jd_bridge.py poll(): row.get("name")), and for a multi-file
+                # package it names a DIRECTORY. Same contract as the qB
+                # done-site above: resolve in an OWN try, degrade to None.
+                _lib_path = None
+                try:
+                    from . import library as _library
+                    _lib_path = _library.library_path_for_completion(
+                        dl_dir, st["filename"] or "")
+                except Exception:
+                    _lib_path = None
                 try:
                     from .db import db_log
                     db_log(self.site_id, self.config.get("name","?"),
@@ -811,7 +838,8 @@ class IntegrationsMixin:
                            # genuinely crossed the wire for this job and the
                            # backend reports the count. bytes_done is what was
                            # transferred; bytes_total can be the advertised size.
-                           bytes_fetched=st["bytes_done"])
+                           bytes_fetched=st["bytes_done"],
+                           file_path=_lib_path)
                 except Exception:
                     pass
                 return True, ""

@@ -250,11 +250,11 @@ Schema version: 2
   - L0423 `IntegrationsMixin._record_qb_outcome` `[private]` — Append a qB outcome to the rolling window. The ratio drives
   - L0427 `IntegrationsMixin.qb_health` — Return current qB bridge health for the site. Surfaces in
   - L0451 `IntegrationsMixin._try_qb_download` `[private]` — Attempt a qB-backed download. Returns (succeeded, reason).
-  - L0589 `IntegrationsMixin._get_jd_client` `[private]` — Lazy JD client constructor. Returns None when JD is not
-  - L0600 `IntegrationsMixin._read_cookies_for_jd` `[private]` — Read the latest cookies for this site and convert to JD's
-  - L0623 `IntegrationsMixin._record_jd_outcome` `[private]` — Append a JD outcome to the rolling window. Triggered by the
-  - L0629 `IntegrationsMixin.jd_health` — Return current JD bridge health for the site. Called from
-  - L0653 `IntegrationsMixin._try_jd_download` `[private]` — Attempt a JD-backed download for `url`. Returns
+  - L0605 `IntegrationsMixin._get_jd_client` `[private]` — Lazy JD client constructor. Returns None when JD is not
+  - L0616 `IntegrationsMixin._read_cookies_for_jd` `[private]` — Read the latest cookies for this site and convert to JD's
+  - L0639 `IntegrationsMixin._record_jd_outcome` `[private]` — Append a JD outcome to the rolling window. Triggered by the
+  - L0645 `IntegrationsMixin.jd_health` — Return current JD bridge health for the site. Called from
+  - L0669 `IntegrationsMixin._try_jd_download` `[private]` — Attempt a JD-backed download for `url`. Returns
 ```
 
 
