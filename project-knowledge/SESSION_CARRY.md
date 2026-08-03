@@ -2253,3 +2253,202 @@ UNCHANGED, both still open and neither moved by this capture:
     whose premise (direct-DB clear) was REFUTED -- batch_ops.bulk_delete over
     POST /api/batch/delete is a working deleter, so the HTTP design needs an
     explicit yes before any code.
+
+### 15.20 | Consolidation 2026-08-03 -- SUPERSEDES 15.18's open set
+
+Filed after two multi-agent passes (38 agents, then 16) and four merged cuts.
+This section is the current state. 15.18's table is superseded; 15.19's
+capture facts stand.
+
+SHIPPED THIS SESSION, all merged and CI-green:
+
+  - v3.66.843 (#133) 10-C: the import graph could not see
+    `from bulk_downloader import X`. TRUE count was 246 edges, not the
+    inherited ~240 -- the smaller figure is the module-only variant that
+    drops the 6 bulk_downloader/__init__.py edges. 1371 -> 1617.
+  - v3.66.844 (#134) 15.9: check_stale_locks deleted. CONFIRMED on the box
+    by a live GET /api/selftest (see 15.19).
+  - v3.66.845 (#137) 15.8: census coverage counts what it COMPARED.
+  - v3.66.846 (#138) 15.11: qB/JD completions record the largest media file.
+    Import edge runner_integrations -> library declared in-cut, 1617 -> 1618.
+  - Doc cut (#132): CLAUDE.md section 4's axis-6 table corrected from seven
+    members to nine, plus a tenth (test_pin_index_in_sync) whose enumerator
+    lives one import away and which the table's own grep recipe cannot find.
+
+15.8 SHIPPED ITS SECOND DRAFT, and the first one was defective. A mutation
+pass ran 26 mutants against the committed WIP and measured 10 ESCAPING its
+4-test battery. Three defects, all fixed before merge, recorded because the
+shape recurs: the reason histogram was summed in (row x directory) units and
+printed "absent 15" for a 5-row population; `query_failed` was set and read by
+nobody, so a failed DB read rendered as a resolution failure the tool never
+measured; and the new coverage line made a PRE-EXISTING sweep double-count
+READ as reconciled. That last is the most instructive -- the cut did not
+introduce the inconsistency, it made it look settled.
+  Also: an assertion written to pin `uncompared_rows` was a TAUTOLOGY
+  (`uncompared_rows == sum(site_states)` holds for any implementation, because
+  the former is DEFINED as the latter). Assert against the population, which
+  is an independent quantity.
+
+#7 -- THE OPERATOR'S DESIGN DECISION IS VERIFIED, and the item is READY.
+The premise that sent it here was refuted in 15.18 (db_prune is NOT history's
+only deleter). The operator then chose the HTTP design on the grounds that
+batch_ops.bulk_delete maintains history_fts while a hand-rolled sqlite DELETE
+would not. THAT REASONING WAS CHECKED AND HOLDS: batch_ops.py:190-200 calls
+_db.db_fts_forget(cx, deleted) once per batch, passing row dicts harvested
+BEFORE the delete (batch_ops.py:159 `_matching_rows`, SELECT *), so the FTS
+rows carry their pre-delete values. Verified by read + the existing
+tests/test_fts_external_content_delete.py + a live end-to-end probe.
+
+  AMENDMENT 1 IS WORSE THAN FILED: tools/live_seed.py main() returns 0 on
+  FOUR distinct teardown failures, not one, and TWO of them print nothing at
+  all -- history unreadable (prints RESIDUE UNKNOWN, exit 0); /api/status
+  unreadable so no marked site is found (exit 0, stderr EMPTY); site DELETE
+  returning 500 (exit 0, stderr EMPTY); rows remaining (prints RESIDUE, exit
+  0). And capture.sh:858's `live_seed: ` grep is structurally unable to see
+  any of it: :841 runs the SEED with `>` (truncating) and the grep sits in
+  that `if`'s else-branch, while :747 runs the TEARDOWN with `>>` from
+  cleanup_live_seed 125 lines later.
+
+  FOUR MAJORS TO FIX BEFORE CUTTING, all found by adversarial review:
+    (a) R2/R3 are specified against a two-read model of the history GET, but
+        clear_seeded_history performs a MINIMUM of three per run, and R2's
+        asserted number comes from the wrong one.
+    (b) R5 does not test its own name -- a mutant deleting the post-clear
+        re-read survives it.
+    (c) THE ONE WORTH READING TWICE. The spec engineers the new RESIDUE_NOTE
+        to retain the words "append-only" and "prune" SOLELY so the existing
+        assertion at tests/test_live_seed_starts_and_settles.py:607 stays
+        green -- while the new note says the OPPOSITE (the row CAN be
+        removed). It also leaves untouched that test's name
+        (test_teardown_reports_the_history_row_it_cannot_remove), its
+        docstring, and the module docstring at :30-34, all three of which
+        assert the premise db.py:988-992 already retracted. That is a gate
+        passing for the wrong reason BY CONSTRUCTION, and it would hand the
+        retracted claim to the next reader as authority from a test file.
+        The correct fix updates the assertion, the test name and all three
+        docstrings. Do NOT preserve a keyword to satisfy a gate whose subject
+        has changed.
+    (d) The band omits every gate the cut's own release chores move --
+        test_settings_center_slice4, test_versync_gate,
+        test_release_hygiene_gates, test_scan_version_pins_fixture.
+
+  Residue is 64 rows and grows ~2-4 per capture (58 at 840, 62 at 842, 64 at
+  844). Before the first real clear, run on the box:
+    SELECT id, site_name, filename, library_id, substr(url,1,60)
+      FROM history WHERE url LIKE '%bdseed%';
+
+s4#4 -- AUTHORIZED by the operator as TWO cuts, sequenced after 15.8 (done).
+NOT yet started. Two FATALs must be fixed during implementation:
+  - cut 1's gate is INCOMPLETE: app.py:1812-1824 `_migrations.apply_pending()`
+    is a SEVENTH module-scope DB writer, far below the :79-140 region the
+    design gates. Applying the specced edits does NOT make its own RED green.
+  - the cut-1 RED is structurally blind to the keepalive-gated writers,
+    because tests/conftest.py:195 forces BD_DISABLE_KEEPALIVE=1 into
+    os.environ before every test body and the RED copies os.environ into its
+    child.
+  RE-DERIVED, and the inherited figures were both wrong: collection-time app
+  importers are 30 (29 direct + 1 transitive via downloader_ui), not 34;
+  in-process executors of build()/_routes_from_app() are 9, not 10. Why the
+  inherited numbers differed is UNKNOWN -- possibly a different tree state or
+  predicate. The design does not depend on the count.
+  MEASURED: one app import from a bare cwd deposits 352,256 bytes of DB-class
+  residue plus three sentinels, app_config.json, logs/ and live_recordings/.
+  The boot block is SIX module-scope DB touchers at app.py:80-140.
+  The sentinel must be a sys ATTRIBUTE, not a BD_-prefixed env var: a new BD_
+  name enters the config ledger and bands test_gui_parity (CLAUDE.md s4), and
+  children spawned by tests must not inherit the skip.
+
+item 12 -- INVESTIGATION ONLY per operator decision; DO NOT CUT YET.
+The item is REAL and much larger than filed. There are not three producers of
+a library "missing" figure -- there are EIGHT across THREE tables, and the
+enumeration is ALREADY PROVEN NON-EXHAUSTIVE: its own verifier found a ninth
+(cleanup_helpers.py:133-163 find_missing_metadata, running the identical
+population query) that the stated AST predicate structurally could not reach.
+Treat EIGHT as a floor, not a count.
+
+  THE FINDING THAT MAKES THE ORIGINAL QUESTION MOOT: the producers DIVERGE,
+  and equal numbers are NOT agreement. On one concrete input, two producers
+  both return 2 while their row sets are DISJOINT. So "which surface was Matt
+  reading" was never answerable AND never necessary -- knowing the surface
+  would still not identify WHICH 31 rows.
+  Two producers silently SATURATE and never say so, so three different
+  numbers describe one fact. audit() carries TWO DIFFERENT caps in ONE
+  returned dict: "missing" at 500 and "size_drift" at 1000, because it passes
+  neither limit through.
+
+  TWO DEFECTS FOUND HERE THAT NOTHING IN THIS REGISTER HAD EVER FILED, both
+  the same root cause cut 25b already fixed for two siblings IN THE SAME
+  MODULE and left behind -- a bare basename resolved CWD-relative:
+    - library_final.regen_nfos_from_history:474 does Path(fn).exists(). On the
+      box the function is a TOTAL NO-OP: it reports every row as missing_files
+      and writes ZERO NFO sidecars. Read-only, so it has cost only silence.
+    - bitrot.verify_one:155 does Path(row['final_filename']).exists() on a
+      bare basename, judges every sampled row "missing", and _record_issue
+      (kind='missing') WRITES A FALSE ROW into integrity_issues.
+      bg_scheduler.py:252 runs this nightly.
+    CONTESTED, and recorded as contested: a verifier called the claim that
+    bitrot.verify_one is reachable in production FATAL-wrong as stated,
+    arguing _candidates (bitrot.py:98) selects WHERE sha256 != '' and
+    run_scan (:211-218) narrows further. Whether the nightly job actually
+    reaches verify_one is UNKNOWN and must be settled before any cut. The
+    write side effect makes this the highest-urgency unknown in the item.
+
+  FOUR READ-ONLY BOX QUERIES settle the rest, and none needs the panel or the
+  audited-directory string the item was blocked on:
+    SELECT COUNT(*) FROM library WHERE file_exists=0;                  -- (1)
+    SELECT COUNT(*) FROM library WHERE file_path NOT LIKE '/%';        -- (2)
+    SELECT COUNT(*) FROM history WHERE status='done' AND filename!=''; -- (3)
+    SELECT COUNT(*) FROM integrity_issues WHERE kind='missing';        -- (4)
+  Query 1 discriminates the 31: if it returns 31 the number is the
+  library-flag mechanism; if not it is the history mechanism and the
+  directory string was never needed. Query 4 sizes the false integrity rows.
+
+Audit #3 -- STILL HELD, premise effectively refuted (15.18). A both-model warm
+ALREADY ships: ollama_boot_probe.py warm_text/warm_vision plus
+ai_boot_readiness.py, wired as systemd unit bulkdownloader-ai-ready
+(install_service.sh:271). The open question is why it did not leave the vision
+model warm. LIKELY CAUSE, from source: its _attempt raises gpu_unavailable
+BEFORE any warm when nvidia-smi fails -- but a CPU-warm model is still warm,
+so the warm should not be gated on the GPU probe at all. One journalctl plus
+/api/ps after a boot settles it. Do NOT add an in-request warm: measured, it
+runs INSIDE L18's own 90s wall, so the 180s load merely moves from generate
+into warmup and L18 still fails.
+
+s5 -- RE-MEASURED at this HEAD; operator has NOT yet chosen a scope.
+  391 files / 1529 occurrences of "/home/claude"; ZERO in bulk_downloader/.
+  Corrections to figures this register has carried:
+    - "executable = 772, python-only" undercounts: the predicate was
+      .py-suffix, blind to shebang-typed extensionless scripts (toolchain/bin
+      holds many).
+    - "genuine default-path VALUES ~212" could NOT be reproduced with any
+      predicate tried. Closest approximations were 193 argparse defaults and
+      127 ALL-CAPS constant assignments, neither matching. Treat 212 as
+      UNVERIFIED, not as confirmed or refuted.
+    - "roughly half is mirror duplication" does NOT hold: true duplication is
+      ~34% of the repo total (66% of project-knowledge's own count).
+    - the pk mirror drift gate is blind to FIVE currently-identical pairs,
+      not four.
+  test_generated_artifact_workflow.py:195 POSITIVELY pins /home/claude in
+  scripts/build_release.sh, so a blanket sweep turns it red.
+
+PROCESS, three items earned this session and worth keeping:
+
+  - A CHECKPOINT COMMIT IS FINE; A CHECKPOINT THAT READS AS VERIFIED IS NOT.
+    Both 15.8 and 15.11 were committed mid-band to survive an ephemeral
+    container, with commit messages stating plainly that the band had not run,
+    then squashed away. The 15.8 checkpoint turned out to contain three real
+    defects -- had it been written as a finished cut, the PR body would have
+    claimed a verification that had not happened.
+  - A SPEC'S BAND IS AN INPUT, NOT AN ANSWER. 15.11's spec stated two band
+    derivations; re-running its own greps returned 12 files where it said 6
+    and 10 where it said 9. The load-bearing miss was different in kind:
+    _bd_runner_src() CONCATENATES runner.py with every runner_*.py, so 24 test
+    files read a runner_integrations.py edit without ever naming the module.
+    Measured over the real 746958-char concatenation. Final band was 44 files
+    / 563 passed against the spec's 30.
+  - SUBAGENT OUTPUT IS DATA, INCLUDING A SUBAGENT'S OWN CORRECTIONS. The 15.8
+    reviewer's PATCH 1 had a major defect of its own (it made the
+    operator-facing uncompared count WORSE), which only a second adversarial
+    pass caught. The reviewer also reported that its OWN first fix had the
+    same bug one level down and said so. Read what an agent returned; a
+    result that is present is not a result that is correct.
