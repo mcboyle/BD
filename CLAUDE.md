@@ -340,12 +340,15 @@ grep -rln "ls-files\|rglob\|--collect-only" tests/*.py | head -40
 
 Then keep only the ones whose enumerated path reaches `tests/` or the whole
 repo. **The membership question is not "does it walk the tree" — it is "does
-editing a TEST FILE change this gate's denominator".** Re-read 2026-08-01 at
-v3.66.833: all 51 grep candidates classified, zero unknowns, **seven** qualify.
-An earlier revision of this table listed four and was inherited as complete
-through five cuts; the v3.66.825 revision was then wrong in **both**
-directions — one false "yes", one missed member — section 0 applied to this
-table itself. Treat the list below as a starting point too, and re-derive it:
+editing a TEST FILE change this gate's denominator".** Re-measured 2026-08-03
+at v3.66.842: **nine** qualify, plus one that no grep of `tests/` can reach
+(below). The v3.66.833 revision said **seven**, and it was not wrong when
+written — it went stale the same session it was written, because v3.66.841 and
+842 each ADDED a member. An earlier revision listed four and was inherited as
+complete through five cuts; the v3.66.825 revision was then wrong in **both**
+directions — one false "yes", one missed member. Three consecutive revisions of
+this table have now been wrong, which is section 0 applied to the table itself.
+Treat the list below as a starting point too, and re-derive it:
 
 | file | enumerates | moved by a new test file? |
 | --- | --- | --- |
@@ -353,6 +356,8 @@ table itself. Treat the list below as a starting point too, and re-derive it:
 | `test_pytest_runner_boundary.py` | `(REPO / "tests").glob("test*.py")` | yes |
 | `test_capture_execution_lanes.py` | `tests_root.rglob("test*.py")` | yes |
 | `test_deploy_manifest_stays_retired.py` | `git ls-files -- *.py *.sh` | yes |
+| `test_task_tracker_stays_retired.py` | `git ls-files -- *.py *.sh` (added v3.66.841) | yes |
+| `test_codex_handoff_stays_retired.py` | `git ls-files -- *.py *.sh` (added v3.66.842) | yes |
 | `test_all_sources_parse.py` | `git ls-files -- *.py` (bare `*.py` reaches `tests/`) | yes |
 | `test_generated_artifacts_are_not_tracked.py` | `git ls-files -z` (everything) | yes |
 | `test_history_columns_go_through_migrations.py` | `_tracked("*.py")` (`:49`, call `:59`) — bare `*.py` crosses directories | yes |
@@ -371,6 +376,19 @@ the gitignore gate moves only with a tracked `.gitignore`.
 (`test_history_columns_go_through_migrations.py` also calls `_tracked` at
 `:75`, but that call is `bulk_downloader/`-scoped and does not move.) A count
 is not a band; ask what each one's subject actually is.
+
+**A tenth gate is axis-6 and the grep above cannot find it, because its
+enumerator is not in the test file.** `tests/test_pin_index_in_sync.py` imports
+and reloads `tools.build_pin_index` (`:48-50`), and that tool globs
+`(root / "tests").glob("*.py")` at **`:151` and `:211`** — so adding a test file
+changes `test_files_scanned`, `PIN_INDEX.json` goes stale, and the gate fails
+until you regenerate. Nothing in the test's own source matches
+`ls-files|rglob|--collect-only`. Section 2a already records the consequence
+without naming the gate: three untracked RED files from other cuts inflated
+`test_files_scanned` by 3. **The recipe above is a starting point, not a
+denominator** — a gate whose enumeration lives one import away is invisible to
+it, and there is no reason to believe this is the only one. When a cut adds a
+test file, regenerate `PIN_INDEX` regardless of what the grep returned.
 
 ---
 
