@@ -109,11 +109,6 @@ def main(argv=None):
     print(f"  STATE refreshed: built={ver} files={cnt} sha={full[:12]}… "
           f"changes={[k for k in state if k.startswith('changes_')]}")
 
-    # tracker drift gate
-    tts = _import("tasktracker_sync", "tasktracker_sync.py")
-    if tts.check(a.pack_dir) != 0:
-        sys.exit("FAIL: TASK_TRACKER xlsx<->md DRIFT (fix before packing)")
-
     # overlay (optional)
     if a.baseline and a.overlay:
         mo = _import("make_overlay", "make_overlay.py")

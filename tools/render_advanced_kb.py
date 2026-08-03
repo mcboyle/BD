@@ -2,7 +2,7 @@
 """render_advanced_kb -- knowledge-as-data -> reader-facing prose.
 
 Renders ADVANCED_PROJECT_KNOWLEDGE_<batch>.md from CAP-01_advanced.json the way
-TASK_TRACKER renders from DATA.json: the JSON is the truth, the prose is a view.
+A generated doc renders from its data source: the data is the truth, the prose a view.
 The point is to JUDGE the rendered doc as a reader -- if it reads like a curriculum
 you'd onboard an engineer with, the schema is right; if it reads like a DB dump,
 it isn't. Stdlib only.

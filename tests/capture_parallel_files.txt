@@ -82,8 +82,7 @@ test_t36_maintenance_mode.py
 test_t37_token_estimate.py
 test_t41_window_simulate.py
 test_t50_test_timing.py
-test_tasktracker_gen.py
-test_tasktracker_sync.py
+test_task_tracker_stays_retired.py
 test_template_keystone.py
 test_themes_catalog.py
 test_to06_cmd_baseline_unknown_target.py
@@ -161,9 +160,7 @@ test_v3_66_711_automation_gui.py
 test_v3_66_714_endpoint_reachability.py
 test_v3_66_719_tools_control.py
 test_v3_66_720_oidc_and_ffmpeg.py
-test_v3_66_721_tasktracker_audit.py
 test_v3_66_732_cockpit_reachability.py
-test_v3_66_754_tracker_decided_against.py
 test_v3_66_758_takeover_driver.py
 test_v3_66_759_takeover_admission.py
 test_v3_66_762_redact_placeholder_derived.py

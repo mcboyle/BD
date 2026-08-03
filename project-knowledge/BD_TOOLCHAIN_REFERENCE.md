@@ -253,6 +253,41 @@ before first paint; self-boots and tears down its own backend.
 - Subtab state lives in the URL (`useUrlState` → `?status=running`); compare the **pathname**,
   not the full URL, or every subtab is discarded as a navigation.
 
+### TASK_TRACKER — RETIRED 2026-08-03 *(the ledger, its generators, and two operator tools)*
+
+**The tracker is gone. Do not regenerate it; use `project-knowledge/SESSION_CARRY.md`.**
+
+Removed in the same cut: `TASK_TRACKER.md`, `TASK_TRACKER.xlsx`,
+`TASK_TRACKER_DATA.json` (the canonical source -- the other two were views),
+`tools/tasktracker_gen.py`, `tools/tasktracker_sync.py`,
+`toolchain/bin/bd-tracker-recon`, `toolchain/bin/bd-reconcile`, and four
+tests. `bd-pack` lost its `TRACKER_FILES` list and `_tracker_drift()` gate;
+`bd-capsweep` lost its `--data` / `--id` completed[] cross-ref;
+`bd-freshest`, `tools/render_advanced_kb.py` and
+`tools/build_session_pack.py` lost single references.
+
+WHY. It was a SECOND register beside SESSION_CARRY.md, and the two never
+referenced each other -- SESSION_CARRY mentioned TASK_TRACKER zero times
+while the tracker held eleven open operator-bound rows the session queue
+could not see. Two registers that do not know about each other are worse
+than one that is merely incomplete, because each looks authoritative alone.
+Everything still OPEN was absorbed into SESSION_CARRY 15.15 first. The 283
+completed rows were deliberately not copied: git history holds them, and a
+completed row is not something anyone needs to read again.
+
+`bd-pack` sanctioned this. Its drift gate said: *"Regenerate ... or formally
+kill the tracker and remove it from TRACKER_FILES. Do NOT let it silently
+disappear again."* This is the second branch, taken deliberately.
+
+THE ABSENCE IS STILL POLICED, which is the whole point. The tracker vanished
+once already at v3.66.700 and stayed gone 48 versions, because
+`_tracker_drift()` SKIPPED when its files were absent -- the check policing
+the tracker reported CLEAN over its own subject's disappearance. Silence read
+as pass. `tests/test_task_tracker_stays_retired.py` replaces that with a gate
+that ASSERTS absence, plus a no-executable-references scan over `git
+ls-files`. If you are reading this because that test failed, the files came
+back; decide deliberately rather than regenerating on reflex.
+
 ### `bd-deploy-manifest` — RETIRED 2026-07-28 *(added @718, removed once deploy became git)*
 
 **The tool is gone. Do not re-add it; the failure class it detected cannot occur.**

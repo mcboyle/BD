@@ -4,6 +4,41 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.841 - the TASK_TRACKER subsystem is retired; one register remains
+
+- TASK_TRACKER was a SECOND register beside SESSION_CARRY.md and the two
+  never referenced each other: SESSION_CARRY mentioned it zero times while
+  the tracker held eleven open operator-bound rows the session queue could
+  not see. Two registers that do not know about each other are worse than
+  one that is merely incomplete, because each looks authoritative alone.
+- Everything still OPEN was absorbed into SESSION_CARRY 15.15 in the
+  previous cut, BEFORE anything was deleted. The 283 completed rows were
+  deliberately not copied: git history holds them.
+- Removed: TASK_TRACKER.md/.xlsx/_DATA.json (the JSON was canonical, the
+  other two were views), tools/tasktracker_gen.py, tools/tasktracker_sync.py,
+  its project-knowledge mirror, toolchain/bin/bd-tracker-recon,
+  toolchain/bin/bd-reconcile, and five tests whose subject is gone.
+- De-referenced, not removed: bd-pack loses TRACKER_FILES and its
+  _tracker_drift gate; bd-capsweep loses the --data/--id completed[]
+  cross-ref; bd-freshest, tools/render_advanced_kb.py,
+  tools/build_session_pack.py, tools/precut_check.py and
+  project-knowledge/audit_partition.py lose single references. Four
+  project-knowledge mirrors re-synced so the drift gate stays green.
+- bd-pack SANCTIONED this. Its drift gate read: "Regenerate ... or formally
+  kill the tracker and remove it from TRACKER_FILES. Do NOT let it silently
+  disappear again." This is that second branch, taken deliberately.
+- THE ABSENCE IS STILL POLICED, which is the point. The tracker vanished
+  once already at v3.66.700 and stayed gone 48 versions because
+  _tracker_drift() SKIPPED when its files were absent -- the check policing
+  the tracker reported CLEAN over its own subject's disappearance.
+  tests/test_task_tracker_stays_retired.py replaces that with a gate that
+  ASSERTS absence, checks the tombstone, and scans git ls-files for
+  surviving executable references.
+- The gate's own first draft failed the same way it guards against: it
+  asserted "RETIRED" in text and "TASK_TRACKER" in text, both of which were
+  already present for unrelated reasons, so it passed before any tombstone
+  existed. It now requires them on one line.
+
 ## v3.66.840 - five extractor download backends could never complete
 
 - detect.safe_dest(path) calls path.exists(): it takes a Path. Six sites

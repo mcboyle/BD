@@ -11,13 +11,11 @@ What it does, given a capability description:
   1. expands the query with a built-in synonym map (capability verbs/nouns),
   2. greps the WHOLE tree (bulk_downloader/ + tools/, excluding vendor/pyc/tests),
   3. ranks modules by hit density,
-  4. cross-refs the completed[] rows in TASK_TRACKER_DATA.json (shipped-by-ID),
-  5. verdict: LIKELY BUILT under <modules>  |  ABSENT (candidate open).
+  4. verdict: LIKELY BUILT under <modules>  |  ABSENT (candidate open).
 
 Usage:
   bd-capsweep "export import checksum manifest verify"
   bd-capsweep --id IEX-3 "export/import round-trip checksum manifest"
-  bd-capsweep --tree /home/claude/work --data /home/claude/nextsess/TASK_TRACKER_DATA.json "netns per-capture isolation"
 
 Exit 0 always (advisory). It never gates -- it stops you from a WRONG open verdict.
 """
@@ -107,23 +105,6 @@ def grep_tree(tree, terms):
     scores = {m: round(sum(weight[t] for t in ts), 3) for m, ts in module_terms.items()}
     return scores, module_terms, df
 
-def tracker_ids(data_path, ident, terms):
-    if not data_path or not os.path.exists(data_path):
-        return []
-    try:
-        d = json.load(open(data_path))
-    except Exception:  # why: input unavailable/unreadable; return empty so the caller uses its fallback, not a wrong value
-        return []
-    blob_rows = d.get("completed", [])
-    found = []
-    needles = [ident.lower()] if ident else []
-    needles += [t for t in terms if len(t) >= 5][:4]
-    for r in blob_rows:
-        s = json.dumps(r).lower()
-        if any(n and n in s for n in needles):
-            found.append(f"{r.get('ID','?')} (v{r.get('Version','?')})")
-    return found[:6]
-
 def selftest():
     # expand() must drop stopwords and <3-char tokens, keep real terms.
     terms = expand(["the capture DOM recorder"])
@@ -137,10 +118,7 @@ def selftest():
 def main():
     ap = argparse.ArgumentParser(description="Whole-tree capability existence sweep (advisory).")
     ap.add_argument("query", nargs="+", help="capability description, e.g. 'export import checksum manifest'")
-    ap.add_argument("--id", default="", help="the catalog planning-ID (for tracker cross-ref)")
     ap.add_argument("--tree","--work", default="/home/claude/work", help="source tree root")
-    ap.add_argument("--data", default="/home/claude/nextsess/TASK_TRACKER_DATA.json",
-                    help="TASK_TRACKER_DATA.json for shipped-by-ID cross-ref")
     ap.add_argument("--top", type=int, default=6)
     ap.add_argument("--selftest",action="store_true")
     import sys as _s
@@ -155,7 +133,6 @@ def main():
     print(f"query terms (expanded): {' '.join(terms)}\n")
 
     scores, module_terms, df = grep_tree(a.tree, terms)
-    tids = tracker_ids(a.data, a.id, terms)
 
     def distinctive(ts):                 # terms rare enough to be meaningful (in <=3 modules)
         return sorted(t for t in ts if df.get(t, 0) <= 3)
@@ -182,10 +159,6 @@ def main():
         print("CANDIDATE MODULES: none.")
         print("VERDICT: ABSENT across the whole tree -- genuine candidate OPEN.")
 
-    if tids:
-        print(f"\nTRACKER completed[] cross-ref (an ID whose row mentions these terms):")
-        for t in tids:
-            print(f"  {t}")
     print("\nreminder: verify the CAPABILITY, not the catalog module. @601 planning IDs != shipped module names.")
     return 0
 
