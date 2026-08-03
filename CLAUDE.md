@@ -792,15 +792,16 @@ find tests -name 'test_*.py' | wc -l
 ls toolchain/bin/bd-* | wc -l
 ```
 
-**`CODEX_HANDOFF.md` is a second agent-facing doc, and this file outranks it.**
-It records a parallel Codex agent's 34-task program — a task ledger, design
-decisions, and where Analysis Task 4 paused. It states no environment facts by
-design: interpreter, deploy model, band rules and guard pins live here, and
-`tests/test_codex_handoff_defers_to_claude_md.py` fails if it starts restating
-them. It once shipped 14 commands against a dot-prefixed `venv` that does not
-exist here, while this file said otherwise, and a session followed the wrong
-one and reported seven failures that were not real.
-Treat its task statuses as a register — re-derive before acting.
+**This is the only agent-facing contract. There is no second one.**
+`CODEX_HANDOFF.md` was retired at v3.66.842; its 34-task program's open groups
+live in `project-knowledge/SESSION_CARRY.md` 15.15. It was a second document an
+agent read before acting, describing a *different machine*: it once shipped 14
+commands against a dot-prefixed `venv` that does not exist here, while this file
+said otherwise, and a session followed the wrong one and reported seven failures
+that were not real. A gate existed to keep the two from contradicting each
+other; removing the second contract removes the failure class the gate was
+watching for, which is the stronger fix. If you find a second agent-facing
+document, that is the defect — not a resource.
 
 **Two populations share the word "tools":** `tools/**/*.py` and the
 `toolchain/bin` bd-* suite. They are **disjoint** populations with different

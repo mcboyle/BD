@@ -4,6 +4,31 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.842 - CODEX_HANDOFF retired; one agent-facing contract remains
+
+- CODEX_HANDOFF.md was a second CONTRACT, not a second register -- a
+  document an agent reads before acting, describing a DIFFERENT MACHINE.
+  It once shipped 14 commands against a dot-prefixed venv that does not
+  exist on this host while CLAUDE.md said otherwise; a session followed
+  the wrong one and reported seven failures that were not real.
+- Its 34-task program's open groups were absorbed into SESSION_CARRY
+  15.15 in an earlier cut, including the fact that Analysis Task 4's
+  frozen review packages no longer exist -- resuming it means RE-FREEZING
+  from the current tree, not verifying against the recorded hashes.
+- test_codex_handoff_defers_to_claude_md.py is retired WITH its subject,
+  deliberately. Its whole purpose was to stop a second contract
+  contradicting the first; removing the second contract removes the
+  failure class, which is the stronger fix. Keeping the gate without the
+  document would be a check that can no longer encounter its subject --
+  section 0 calls that worse than no gate.
+- THE LESSON IS KEPT, NOT THE FILE. The new gate asserts CLAUDE.md still
+  owns BOTH halves of the venv fact: that venv/bin/python is stated, and
+  that .venv is still warned about. Retiring the document must not
+  quietly delete the correction along with the error.
+- CLAUDE.md section 8's paragraph describing the handoff is replaced with
+  the standing rule it implies: this is the only agent-facing contract,
+  and a second one found in the tree is the defect, not a resource.
+
 ## v3.66.841 - the TASK_TRACKER subsystem is retired; one register remains
 
 - TASK_TRACKER was a SECOND register beside SESSION_CARRY.md and the two

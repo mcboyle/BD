@@ -57,19 +57,14 @@ def _sub(pattern, repl, count=1):
 
 
 REGISTRY = [
-    dict(
-        id="tasktracker/decided_against_denominator",
-        why="The audit's section list was HARDCODED to three, so decided_against -- a "
-            "fourth declared section holding 16 CLOSED-verdict rows -- was neither "
-            "audited nor rendered nor counted, and a row conforming to NO schema "
-            "returned RESULT: CLEAN. Drop the section from SECTION_ORDER and the "
-            "denominator reverts to the old blind three; the 754a test must scream. "
-            "Pins the SHAPE, not the instance: a check whose denominator excludes its "
-            "subject reports clean -- truthfully and uselessly.",
-        target="tools/tasktracker_gen.py",
-        mutate=_sub(r', "decided_against"\]', "]", 1),
-        gate="{py} run_tests.py tests/test_v3_66_754_tracker_decided_against.py",
-    ),
+    # v3.66.842: the tasktracker/decided_against_denominator anchor retired with
+    # tools/tasktracker_gen.py. Its LESSON is the one section 0 already states
+    # and does not depend on that tool: the audit's section list was hardcoded
+    # to three, so a fourth declared section holding 16 CLOSED-verdict rows was
+    # neither audited nor counted, and a row conforming to NO schema returned
+    # RESULT: CLEAN. An anchor whose target no longer exists can only ever
+    # return UNKNOWN, which is why it is removed rather than left pointing at a
+    # deleted file.
     dict(
         id="route_index/spa_wired",
         why="ROUTE_INDEX records spa_wired per (method,path). Un-wire a live "
