@@ -18,6 +18,22 @@ httpx>=0.25,<1.0
 # disables selector fitness scoring on a clean install.
 beautifulsoup4>=4.12,<5.0
 
+# v3.66.848: lxml backs the ARIA audit (bulk_downloader/accessibility.py:185)
+# and XPath selector evaluation (selector_playground.py:56). Both fail open
+# when it is absent -- the audit returns a single "Install lxml to run ARIA
+# audit" finding and XPath selectors return an error string -- so a missing
+# lxml degrades silently, exactly as the beautifulsoup4 note above describes.
+# It was never declared here, which is why `pip check` reported clean while
+# tests/test_v3_43_80_modules.py's TestAccessibility and TestSynthetic failed
+# on a fresh container: pip cannot see a requirement that was never written
+# down. diagnostics_bundle.py:130 still lists it among the optional deps it
+# REPORTS on, which is correct -- reporting availability and declaring an
+# install floor are different jobs.
+# NOT pure Python: lxml is a C extension over libxml2. It ships manylinux,
+# macOS and Windows wheels, so the common installs need no toolchain, but a
+# platform without a wheel will need libxml2/libxslt headers to build.
+lxml>=5.0,<7.0
+
 # Phase 15.4: TLS fingerprint impersonation. Optional — falls back to httpx
 # if not installed. Provides a drop-in `requests`-style API that mimics real
 # Chrome's TLS handshake (JA3, ALPN, HTTP/2 SETTINGS) at the wire level —
