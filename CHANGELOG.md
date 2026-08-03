@@ -4,6 +4,35 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.847 - Seeded-history clear (--teardown --clear-history)
+
+- tools/live_seed.py --teardown --clear-history deletes the bdseed history
+  residue over POST /api/batch/delete (so history_fts is maintained via
+  db.db_fts_forget) and deletes the library twins over DELETE
+  /api/library/<lid> FIRST, because library.history_id carries no enforced
+  foreign key and the other order leaves the twins dangling. Off by default:
+  capture.sh runs teardown unattended and the predicate is the marker across
+  ALL history, not this run's nonce.
+- A dry-run filter canary runs before anything is deleted; a canary mismatch
+  aborts the pass having deleted nothing, distinguishing a malformed filter
+  from an empty table (batch_ops answers both with the same body).
+- The remainder is re-measured by re-reading /api/history, never computed as
+  found-minus-deleted; an unreadable post-state is UNKNOWN and exits 5
+  (_EXIT_CLEAR_UNKNOWN), a known-incomplete clear exits 4
+  (_EXIT_CLEAR_INCOMPLETE). A blind library twin scan (library_browse
+  swallows exceptions into an empty page) is reported UNVERIFIED, not zero.
+- capture.sh wires the clear behind BD_SEED_CLEAR_HISTORY (default 0),
+  captures the teardown exit unpiped, and greps the live_seed diagnostic
+  lines in the failure branch. BD_SEED_CLEAR_HISTORY is ledgered in
+  reports/config_gui_manifest.json as display-only.
+- Post-review hardening: the band now pins every /api/batch/delete payload's
+  limit to len(id_in), chunk coercion, the round-loop bound at exhaustion,
+  the stall equality boundary, a fresh per-round post-delete re-read, exit 4
+  for a plan missing its clear, the RESIDUE UNKNOWN / RESIDUE / CLEAR
+  SKIPPED stderr lines, the unquoted $_clear_flag expansion, and the final
+  twin verification reporting remaining=0 on a conclusive multi-page scan
+  (13/13 targeted mutants caught, up from 2/13).
+
 ## v3.66.846 - qB/JD completions record the largest media file
 
 - The qBittorrent and JDownloader bridges report completion with a bare NAME
