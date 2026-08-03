@@ -2186,3 +2186,70 @@ read-only box measurements (item 12's discriminator is now known to need the
 audited-directory STRING, not a query); `git worktree prune -v`;
 `git checkout -B main origin/main` in the deploy checkout; and the archive
 sequence.
+
+### 15.19 | v3.66.844 captured PASS; 15.9 confirmed on the box; a capture blind spot found
+
+Filed 2026-08-03 from the capture bundle plus one operator probe. This section
+adds to 15.18's open set rather than superseding it; nothing in 15.18 changed.
+
+THE CAPTURE, measured from the bundle:
+
+  - PASS at v3.66.844, run 2026-08-03T09:34:41: 14486 total / 14401 passed /
+    0 failed / 0 errors / 85 skipped; live 36 pass / 0 warn / 0 fail.
+  - /api/health reported sha ff7b5cb3050b + version 3.66.844 -- the merged
+    tip, so the running PROCESS was verified, not merely the checkout.
+  - graph pin [2b] OK against a re-pinned hash (5339f1d69d34660b), exit 0.
+
+  Count delta +7 (14479 -> 14486), reconciled on COLLECTED TESTCASE IDS out of
+  both bundles' XMLs rather than on totals:
+    +5  test_import_graph_sees_package_form  (v3.66.843, 10-C)
+    +4  test_stale_locks_check_is_gone       (v3.66.844, 15.9)
+    -2  test_v3_66_642_selftest_battery      (15.9 removed exactly the two
+        parametrised cases for the deleted check)
+  Nothing dropped silently.
+
+15.9 IS CONFIRMED ON THE BOX, and the confirmation did NOT come from the
+capture. Operator ran `curl -fsS localhost:5555/api/selftest | grep -i -A3
+lock` against the live service: the only matches were table-name substrings
+(achievements_unlocked, content_blocklist, cookie_relogin_log, fed_url_locks),
+and the WARN string "stale lock file(s)" was absent. That grep's denominator
+DOES contain the subject -- it would have matched the WARN text -- so the
+negative is valid. The check is gone from a live response returning real
+content.
+
+THE BLIND SPOT, which is worth more than the item that exposed it.
+`capture.sh` NEVER CALLS /api/selftest -- `grep -n selftest capture.sh`
+returns nothing. So no capture bundle can confirm or refute ANY selftest
+change, and every selftest check on the box sits permanently outside the
+capture's denominator. The original 3-WARN evidence for 15.9 came from a
+manual GET the operator ran on 2026-08-01, never from a capture; that was not
+noticed at the time and reads in the register as if it were capture evidence.
+
+  HOW IT BIT, recorded because the shape is the recurring one: this session
+  grepped the 844 bundle for "stale lock", got silence, and reported the WARN
+  as gone. The claim was true, but the evidence was worthless -- a denominator
+  that structurally cannot contain the subject, reporting clean. Section 0, in
+  a verification rather than in code. The tell was available before the claim:
+  nothing in the bundle should have been expected to carry selftest output.
+  Corrected within the session, but only because the next step happened to
+  probe the endpoint directly.
+
+  FOLLOW-UP ITEM, not yet cut: add a selftest stage to capture.sh so the
+  battery has capture coverage at all. Until then, treat every selftest check
+  as UNCAPTURED and say so rather than inferring from bundle silence. This
+  also means 15.9's own regression protection on the box is the unit test
+  (test_stale_locks_check_is_gone), not the capture.
+
+UNCHANGED, both still open and neither moved by this capture:
+
+  - v3.66.840's real-world effect: still zero extractor markers
+    (jsonapi=/vixen=/dl8=/aylo=/library_extractor=) anywhere in the bundle.
+    That is the EXPECTED result either way, because seeding drives the fixture
+    site and it never routes to an extractor. THREE consecutive captures have
+    now been silent on 840. Silence is accumulating, confidence is not -- do
+    not let the count of clean captures read as evidence.
+  - item #7 residue: 64 rows, from 62 at v3.66.842 and 58 at v3.66.840. Still
+    growing. #7 remains blocked on the operator decision recorded in 15.18,
+    whose premise (direct-DB clear) was REFUTED -- batch_ops.bulk_delete over
+    POST /api/batch/delete is a working deleter, so the HTTP design needs an
+    explicit yes before any code.
