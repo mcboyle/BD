@@ -25,6 +25,19 @@ archive is not present in this repository; consult source-control history.
   was unset -- the common case, and the one the warning exists for. It now
   computes "${BD_HOME:-$HOME/BulkDownloader}" the way capture.sh:55 does and
   compares that, and says so when the directory does not exist at all.
+- Step [12]'s success note printed the literal "GET / = 200" instead of the
+  code it received, so a weakened root check would have asserted 200 in prose
+  over a 404. It now echoes $rcode. A message that restates the constant it
+  was supposed to verify cannot contradict a broken check.
+- Deploy-script coverage closed against a mutation battery rather than assumed:
+  the frontend read-back on the build-SKIPPED path, the root-URL confirmation
+  (all three arms), the parity inventory's exit status / file-existence /
+  JSON-parse read-backs, the BD_RESTART_CMD refusal, and the
+  committed-but-unpushed merge-base gate had no test and are now pinned. Two
+  harness defects were the cause rather than absent tests: the curl shim
+  answered every URL identically, so /api/health and / could never disagree,
+  and the fake venv python answered exit 0 to every -c, so the json.load
+  read-back was unobservable. A gate that cannot see its subject reports OK.
 
 ## v3.66.847 - Seeded-history clear (--teardown --clear-history)
 

@@ -31,11 +31,13 @@ these tests: the shims are placed on PATH so the script's literal
 `sudo systemctl stop bulkdownloader` string is what gets exercised.
 
 NO NEW `BD_`-PREFIXED NAMES. Every harness variable here is unprefixed
-(PY_LOG, SUDO_LOG, CURL_MODE, ...). Only the three already-ledgered BD_ names
-are used, and only because the script honors them: BD_DEPLOY_DIR (not set
-here, cleared instead), BD_VENV_PYTHON, BD_GRAPH_HASH_PIN. Adding a BD_ name
--- even a shell local -- puts it in `tests/test_gui_parity.py`'s scan
-denominator (CLAUDE.md section 4).
+(PY_LOG, SUDO_LOG, CURL_MODE, ROOT_CODE, INV_MODE, ...). Only the four
+already-ledgered BD_ names are used, and only because the script honors them:
+BD_DEPLOY_DIR (not set here, cleared instead), BD_VENV_PYTHON,
+BD_GRAPH_HASH_PIN, and BD_RESTART_CMD (set by exactly one test, which asserts
+the script REFUSES it). All four are in reports/config_gui_manifest.json.
+Adding a BD_ name -- even a shell local -- puts it in
+`tests/test_gui_parity.py`'s scan denominator (CLAUDE.md section 4).
 
 NO FIXED-WIDTH SOURCE WINDOWS. `test_cloud_setup_uses_shared_checker` extracts
 shell heredocs on their BALANCED `<<'DELIM'` / `DELIM` delimiters, never on a
@@ -56,6 +58,7 @@ import os
 import re
 import stat
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -137,6 +140,17 @@ _FAKE_PYTHON = r"""#!/usr/bin/env bash
 # Stands in for the venv python. Dispatches on argv so every distinct call the
 # deploy script makes is observable and independently steerable.
 printf '%s\n' "$*" >> "$PY_LOG"
+# `-c` IS DELEGATED TO A REAL INTERPRETER, and that is load-bearing rather than
+# tidiness. Step [10]'s parse read-back is literally `python -c 'json.load(...)'`
+# against the file the generator just wrote, so a shim that answered exit 0 to
+# every `-c` made that check unobservable: a truncated inventory sailed through
+# and the deploy reported ALREADY CURRENT -- VERIFIED. The shim was the reason
+# the check looked untested, not an absent test (CLAUDE.md section 0). REAL_PY
+# is the interpreter running pytest, passed in explicitly so this never falls
+# back to a bare `python3` (CLAUDE.md section 5).
+case "${1:-}" in
+  -c) exec "${REAL_PY:?REAL_PY not set by the harness}" "$@";;
+esac
 args=" $* "
 case "$args" in
   *check_requirements.py*)
@@ -164,9 +178,25 @@ case "$args" in
       if [ "$prev" = "--outdir" ]; then outdir="$a"; fi
       prev="$a"
     done
+    # INV_MODE steers WHAT the generator leaves on disk, independently of the
+    # exit code it returns. Without it this branch always wrote one well-formed
+    # document, so "exited 0 and wrote nothing" and "exited 0 and wrote a
+    # truncated file" -- the two states step [10]'s read-backs exist for -- were
+    # both unreachable from the harness (CLAUDE.md section 0).
+    case "${INV_MODE:-ok}" in
+      nofile) exit "${INV_EXIT:-0}";;
+    esac
     mkdir -p "$outdir"
-    printf '{"route_source": "%s", "counts": {"total": 1}}\n' \
-        "${INV_ROUTE_SOURCE:-live url_map}" > "$outdir/gui_parity_inventory.json"
+    case "${INV_MODE:-ok}" in
+      truncated)
+        # Still carries route_source, so a failure here is attributable to the
+        # PARSE read-back and not to the route_source one that follows it.
+        printf '{"route_source": "live url_map", "counts": {"total"' \
+            > "$outdir/gui_parity_inventory.json";;
+      *)
+        printf '{"route_source": "%s", "counts": {"total": 1}}\n' \
+            "${INV_ROUTE_SOURCE:-live url_map}" > "$outdir/gui_parity_inventory.json";;
+    esac
     exit "${INV_EXIT:-0}";;
 esac
 case "$args" in
@@ -238,6 +268,13 @@ _FAKE_CURL = r"""#!/usr/bin/env bash
 # `-o <file> -w '<fmt with %{http_code}>'`. The -w format is honored verbatim
 # (printf %b) so a script that parses "body\ncode" and one that parses a bare
 # code both get what real curl would give them.
+#
+# ROOT_CODE MAKES THIS SHIM DISCRIMINATE BY URL, and it exists because without
+# it the shim answered /api/health and / IDENTICALLY -- so the two could never
+# disagree, which is precisely the condition step [12]'s root-URL confirmation
+# exists to detect. A harness whose denominator structurally excludes its
+# subject reports clean, truthfully and uselessly (CLAUDE.md section 0).
+# Unset, every response is byte-for-byte what it was before this knob existed.
 calls="${CURL_CALLS_FILE:-}"
 count=0
 if [ -n "$calls" ]; then
@@ -264,12 +301,19 @@ case "$mode" in
       body="{\"ok\": true, \"db_ok\": true, \"version\": \"$ver\"}"
     fi;;
 esac
-outfile=""; wfmt=""; prev=""
+outfile=""; wfmt=""; prev=""; url=""
 for a in "$@"; do
   if [ "$prev" = "-o" ] || [ "$prev" = "--output" ]; then outfile="$a"; fi
   if [ "$prev" = "-w" ] || [ "$prev" = "--write-out" ]; then wfmt="$a"; fi
+  case "$a" in http://*|https://*) url="$a";; esac
   prev="$a"
 done
+# Stripping the longest `*/api/health` prefix leaves "" for the health URL and
+# the URL itself for anything else, so this asks "is this the ROOT probe?"
+# without pattern-matching a hostname the test happens to have chosen.
+if [ -n "${ROOT_CODE:-}" ] && [ "${url##*/api/health}" = "$url" ]; then
+  body=""; code="$ROOT_CODE"; rc=0
+fi
 if [ -n "$outfile" ]; then
   printf '%s' "$body" > "$outfile"
 else
@@ -355,6 +399,7 @@ def _setup(version=TREE_VERSION, **envextra):
     env["HOME"] = work                       # never resolve a real ~/BulkDownloader
     env.pop("BD_DEPLOY_DIR", None)           # --dir is always explicit here
     env["BD_VENV_PYTHON"] = str(fake_py)
+    env["REAL_PY"] = sys.executable          # the shim delegates `-c` to this
     env["BD_GRAPH_HASH_PIN"] = os.path.join(work, "pin", "KNOWLEDGE_GRAPH.content.sha256")
     env["PY_LOG"] = logs["py"]
     env["PIP_LOG"] = logs["pip"]
@@ -438,6 +483,91 @@ def test_refuses_dirty_tree_exit2_names_paths():
     assert "OPERATOR-LIVE-EDIT" in _read(dirty), (
         "the operator's live edit was destroyed by a run that refused" + _ctx(r))
     assert _head(fx.clone) == before, "HEAD moved during a refusal" + _ctx(r)
+
+
+def test_unpushed_commits_are_refused_then_discardable():
+    """`git status` is SILENT about committed-but-unpushed work.
+
+    A reset destroys it just as surely as an uncommitted edit, and the dirty
+    check cannot see it -- so the script asks the question git actually answers,
+    `git merge-base --is-ancestor HEAD origin/main`. Nothing in this file
+    reached that branch before: every existing refusal test dirties the WORK
+    TREE, which trips the other half of the same `if`. A test that only ever
+    exercises the DIRTY term certifies the ancestry term without touching it.
+
+    Both directions, because a refusal that also fires on a fast-forward would
+    make the script refuse every ordinary deploy.
+    """
+    fx = _setup()
+    target = _advance_origin(fx, "incoming work", rel="bulk_downloader/mod_a.py",
+                             text="A = 1\n")
+    _bundle_current(fx)
+    # A clean tree carrying one local commit origin/main does not have. The
+    # work tree is deliberately left CLEAN so the refusal cannot come from the
+    # dirty check instead.
+    _write(os.path.join(fx.clone, "docs", "LOCAL_ONLY.txt"), "operator work\n")
+    _git(fx.clone, "add", "-A")
+    _git(fx.clone, "commit", "-m", "SENTINEL-UNPUSHED-COMMIT")
+    local_head = _head(fx.clone)
+    assert _git(fx.clone, "status", "--porcelain", "--untracked-files=no").strip() == "", (
+        "harness error, NOT a subject failure: the tree must be CLEAN or this "
+        "test measures the dirty gate rather than the ancestry gate")
+
+    r = _deploy(fx)
+
+    assert r.returncode == 2, (
+        "a commit that exists only on HEAD would be DESTROYED by "
+        "`git reset --hard origin/main`, and git status says nothing about it. "
+        "That is a REFUSAL (exit 2, nothing mutated), not a deploy" + _ctx(r))
+    assert "SENTINEL-UNPUSHED-COMMIT" in _out(r), (
+        "the refusal must name the commits it would have destroyed, not merely "
+        "report that some exist" + _ctx(r))
+    assert _head(fx.clone) == local_head, (
+        "HEAD moved during a refusal -- exit 2 must mean nothing was mutated"
+        + _ctx(r))
+
+    # --discard-local is the deliberate override, and it must still LIST the
+    # work first: nothing is destroyed silently.
+    r2 = _deploy(fx, "--discard-local")
+
+    assert r2.returncode == 0, (
+        "--discard-local run did not complete" + _ctx(r2))
+    assert "SENTINEL-UNPUSHED-COMMIT" in _out(r2), (
+        "the destroyed commits must be listed even when the override is given"
+        + _ctx(r2))
+    assert _head(fx.clone) == target, (
+        "the reset did not land on origin/main" + _ctx(r2))
+
+
+def test_restart_cmd_override_is_refused_not_ignored():
+    """BD_RESTART_CMD cannot express a stopped window, so it is REFUSED.
+
+    Honouring it is impossible and ignoring it is the defect: the operator
+    deliberately set an override, and a run that succeeds having silently
+    dropped it reports success on a question it never asked. The refusal must
+    land in step [0], before any mutation -- an override discovered after the
+    reset is a refusal that already destroyed something.
+    """
+    fx = _setup(BD_RESTART_CMD="sudo systemctl restart bulkdownloader")
+    _advance_origin(fx, "incoming work")
+    _bundle_current(fx)
+    before = _head(fx.clone)
+
+    r = _deploy(fx)
+
+    assert r.returncode == 2, (
+        "an override that cannot be honoured is a REFUSAL, not a warning and "
+        "certainly not a silent no-op" + _ctx(r))
+    assert "BD_RESTART_CMD" in _out(r), (
+        "the refusal must name the variable so the operator knows what to "
+        "unset" + _ctx(r))
+    assert _head(fx.clone) == before, (
+        "the tree was reset before the override was even looked at" + _ctx(r))
+    assert _lines(fx.logs["systemctl"]) == [], (
+        "the service was touched during a refusal" + _ctx(r,
+        "systemctl log: %r" % _read(fx.logs["systemctl"])))
+    assert _lines(fx.logs["npm"]) == [] and _lines(fx.logs["pip"]) == [], (
+        "exit 2 must mean NOTHING was mutated" + _ctx(r))
 
 
 def test_discard_local_reports_then_resets():
@@ -548,6 +678,17 @@ def test_requirement_still_missing_after_install_fails():
         "an unresolvable requirement is a FAILED deploy (exit 1)" + _ctx(r))
     assert "lxml" in _out(r), (
         "the failure must NAME the packages that do not resolve" + _ctx(r))
+    # `"lxml" in output` is satisfied REDUNDANTLY by the pre-install note, so it
+    # does not pin the site it appears to be about: dropping $MISSING from the
+    # post-install die leaves this test green. Pin the failing line itself.
+    still = [ln for ln in _out(r).splitlines() if "still unresolved" in ln]
+    assert still, (
+        "no line reported the requirement as still unresolved AFTER the pip "
+        "install, so this run is not about the post-install re-check" + _ctx(r))
+    assert any("lxml" in ln for ln in still), (
+        "the post-install failure line must carry the names itself -- the "
+        "operator reads the line that FAILED, not the note above it. Lines: %r"
+        % still + _ctx(r))
 
 
 def test_unevaluable_requirements_fail_not_pass():
@@ -562,6 +703,16 @@ def test_unevaluable_requirements_fail_not_pass():
     assert re.search(r"could not evaluate|cannot evaluate|unevaluable|not satisfied",
                      _low(r)), (
         "the message must say the check could not be evaluated" + _ctx(r))
+    # The FIRST exit-2 gate must fire, not the second one after a pointless
+    # detour. A checker that could not read requirements.txt reports NO names,
+    # so the install branch would run `pip install -r` on an EMPTY package list
+    # and only then fail. Same exit code, same wording, a side effect nobody
+    # asked for -- and it is invisible unless the pip log is asserted empty.
+    assert _lines(fx.logs["pip"]) == [], (
+        "an unevaluable requirements check must not trigger an install: "
+        "unknown is a third state, and the remedy for unknown is not `pip "
+        "install -r` against a file the checker could not even read"
+        + _ctx(r, "pip log: %r" % _read(fx.logs["pip"])))
 
 
 def test_frontend_rebuild_keyed_on_content():
@@ -620,6 +771,52 @@ def test_build_exit0_without_bundle_fails():
     assert not Path(fx.clone, "frontend", "dist", "index.html").exists()
 
 
+def test_bundle_readback_runs_on_the_build_skipped_path_too():
+    """The read-back covers BOTH paths, and only the BUILT one was tested.
+
+    Every other test in this file either forces a rebuild or calls
+    `_bundle_current()`, which writes index.html -- so "the build was skipped
+    and the bundle is not there anyway" was structurally unreachable from the
+    harness, and scoping the read-back to the built path escaped a 26-mutant
+    battery. That state is not exotic: a `git clean -x`, a half-finished
+    earlier deploy, or a manually deleted dist/ all reach it while the marker
+    still names HEAD, and the script would then report ALREADY CURRENT --
+    VERIFIED over a tree where every asset route answers 503.
+
+    The empty npm log is the discriminator. Without it this test would also
+    pass on a script that failed for the entirely different reason of trying
+    to build and failing.
+    """
+    fx = _setup()
+    # Marker names HEAD and frontend/ is unchanged -> the build is SKIPPED.
+    # Deliberately not _bundle_current(): that writes the index.html whose
+    # absence is the whole subject here.
+    _write(os.path.join(fx.clone, MARKER_REL), _head(fx.clone) + "\n")
+    assert not Path(fx.clone, "frontend", "dist", "index.html").exists()
+
+    r = _deploy(fx)
+
+    npmlog = _read(fx.logs["npm"])
+    assert _lines(fx.logs["npm"]) == [], (
+        "harness error, NOT a subject failure: the marker names HEAD and "
+        "frontend/ is unchanged, so no build should have been attempted; this "
+        "case is about the SKIPPED path" + _ctx(r, "npm log: %r" % npmlog))
+    assert r.returncode == 1, (
+        "the build was skipped as current but frontend/dist/index.html is "
+        "absent, and the deploy reported success. bulk_downloader/app.py "
+        "cannot serve an absent bundle: every asset route answers 503 and "
+        "nothing else says why" + _ctx(r, "npm log: %r" % npmlog))
+    assert "index.html" in _out(r), (
+        "the failure must name frontend/dist/index.html" + _ctx(r))
+    # Anchored on the step-13 SUMMARY, not on the words "already current":
+    # step [2] prints "source already current at <sha>" for any unchanged tree,
+    # which has nothing to do with the verdict and would make this assertion
+    # fire on a correct run.
+    assert not re.search(r"\[step 13\]", _out(r)), (
+        "a deploy that cannot serve the SPA reached its summary step and "
+        "called itself verified" + _ctx(r))
+
+
 def test_pycache_swept_venv_pruned():
     fx = _setup()
     _bundle_current(fx)
@@ -676,6 +873,68 @@ def test_parity_regen_only_when_service_stopped_and_readback():
         "the generator falls back to ENDPOINT_CATALOG.md and still returns 0; "
         'the written JSON must be read back for "route_source": "live url_map"'
         + _ctx(r))
+
+    # (d) the regen itself FAILS. Its exit status is the cheapest signal there
+    #     is and it must not be discarded: the stale copy is still on disk and
+    #     will read as inventory drift, which failed an otherwise-green
+    #     13389-pass run at v3.66.818.
+    fx = _setup(INV_EXIT="3")
+    _bundle_current(fx)
+    r = _deploy(fx)
+    assert _lines(fx.logs["inv"]), (
+        "the regen was never invoked, so this run says nothing about a regen "
+        "FAILURE" + _ctx(r, "inventory log: %r" % _read(fx.logs["inv"])))
+    assert r.returncode == 1, (
+        "the parity inventory regen exited 3 and the deploy reported success"
+        + _ctx(r))
+    assert "inventory" in _low(r), (
+        "the failure must name the inventory as the failing subject" + _ctx(r))
+
+    # (e) exit 0 having written NO FILE. `[ -f "$PARITY_JSON" ]` is the only
+    #     thing standing between that and a deploy that never notices.
+    fx = _setup(INV_MODE="nofile")
+    _bundle_current(fx)
+    r = _deploy(fx)
+    assert _lines(fx.logs["inv"]), (
+        "the regen was never invoked" + _ctx(r))
+    assert r.returncode == 1, (
+        "the regen exited 0 and wrote nothing; exit 0 is not evidence a file "
+        "exists, and the suite will read whatever stale copy is there"
+        + _ctx(r))
+    assert "gui_parity_inventory.json" in _out(r), (
+        "the failure must name the path that does not exist" + _ctx(r))
+    # Pin the SITE, not just the outcome. Deleting the existence check leaves
+    # the deploy still exiting 1 -- the json.load read-back below it raises on
+    # an absent file and dies too -- so an assertion on the exit code and the
+    # path alone is satisfied redundantly and pins neither check. "does not
+    # exist" is the wording only the existence check produces; a run that got
+    # here via the parse check reports a JSON failure and misdiagnoses a file
+    # that was never written as a file that will not parse.
+    assert "does not exist" in r.stderr, (
+        "an inventory that was never written must be diagnosed as ABSENT, not "
+        "as unparseable -- the two have different remedies" + _ctx(r))
+    assert not Path(fx.clone, "reports", "gui_parity_inventory.json").exists()
+
+    # (f) exit 0 having written a TRUNCATED file. The two read-backs are
+    #     deliberately not merged: a half-written document can still contain
+    #     the route_source line while json.load raises -- and json.load is
+    #     exactly what the reconcile gate does to this file. The fixture keeps
+    #     route_source present so a pass here cannot be the OTHER check firing.
+    fx = _setup(INV_MODE="truncated")
+    _bundle_current(fx)
+    r = _deploy(fx)
+    written = _read(os.path.join(fx.clone, "reports", "gui_parity_inventory.json"))
+    assert "route_source" in written, (
+        "harness error, NOT a subject failure: the truncated fixture must still "
+        "carry route_source, or this case is caught by the wrong check; wrote %r"
+        % written)
+    assert r.returncode == 1, (
+        "a truncated inventory that still contains route_source must be caught "
+        "by the PARSE read-back; the reconcile gate does json.load on this file "
+        "and would fail the whole suite" + _ctx(r, "wrote: %r" % written))
+    assert "json" in _low(r), (
+        "the failure must name JSON parsing as what went wrong, not the "
+        "route_source predicate that happens to be satisfied" + _ctx(r))
 
 
 def test_sudo_wraps_only_writehash_and_systemctl():
@@ -792,6 +1051,72 @@ def test_versionless_then_healthy_retries():
         "curl calls: %s" % _curl_calls(fx)))
 
 
+def test_root_url_confirmed_separately_from_api_health():
+    """A 200 from `/api/health` does not mean `/` serves; only `/` proves that.
+
+    UNTESTED UNTIL NOW, for a harness reason rather than an oversight: the curl
+    shim answered every URL identically, so /api/health and / could never
+    disagree -- which is the only condition this confirmation exists to detect.
+    A denominator that structurally excludes its subject reports clean
+    (CLAUDE.md section 0). ROOT_CODE makes the shim discriminate by URL.
+
+    All three arms are asserted, including the SILENT one: a check that fires
+    when the root is healthy would be a gate firing on identity, and those get
+    switched off.
+    """
+    # (a) health is fine, the root is 503 -> the SPA bundle is not being served.
+    #     Distinct diagnosis and distinct remedy from a 503 on /api/health.
+    fx = _setup(CURL_MODE="healthy", ROOT_CODE="503")
+    _bundle_current(fx)
+    r = _deploy(fx)
+    assert r.returncode == 1, (
+        "/api/health answered 200 with the right version and / answered 503; "
+        "reporting that as a verified deploy is a false SUCCESS -- the app is "
+        "up and serving nothing a browser can use" + _ctx(r))
+    # Anchored on STDERR, where die() writes, and on the wording specific to
+    # THIS diagnosis. A first version of this assertion searched the whole
+    # output for "dist" -- which step [6] prints on every skipped-build run
+    # ("frontend/dist/index.html present"), so it was satisfied by unrelated
+    # stdout and could never fail. It graded the generic "expected 200" fallback
+    # as a correct bundle diagnosis (CLAUDE.md section 0).
+    err = r.stderr
+    assert "503" in err, "the 503 must be reported as a 503" + _ctx(r)
+    assert "bundle" in err.lower(), (
+        "a 503 on / while /api/health is healthy has its own remedy -- rebuild "
+        "frontend/dist -- and must not collapse into the generic 'expected 200' "
+        "message that any other code produces" + _ctx(r))
+    assert "/api/health" in err, (
+        "the message must say WHICH of the two probes disagreed; that is the "
+        "whole reason the root is confirmed separately" + _ctx(r))
+
+    # (b) health is fine, the root is 404 -> still a failure, and the message
+    #     must carry the code RECEIVED, not the code demanded.
+    fx = _setup(CURL_MODE="healthy", ROOT_CODE="404")
+    _bundle_current(fx)
+    r = _deploy(fx)
+    out = _out(r)
+    assert r.returncode == 1, (
+        "GET / returned 404 and the deploy reported success" + _ctx(r))
+    assert "404" in out and "200" in out, (
+        "the failure must name BOTH what was received and what was expected"
+        + _ctx(r))
+    assert not re.search(r"GET / = 200", out), (
+        "the success note restated the constant it was supposed to have "
+        "verified: it printed 'GET / = 200' having received 404. A message "
+        "that echoes its own literal cannot contradict a weakened check"
+        + _ctx(r))
+
+    # (c) both probes agree -> exit 0, and the note echoes the code received.
+    fx = _setup(CURL_MODE="healthy", ROOT_CODE="200")
+    _bundle_current(fx)
+    r = _deploy(fx)
+    assert r.returncode == 0, (
+        "/api/health and / both answered 200 and the deploy still failed; a "
+        "gate that fires on identity gets switched off" + _ctx(r))
+    assert "GET / = 200" in _out(r), (
+        "the health note must report the root probe it actually made" + _ctx(r))
+
+
 def test_stop_failure_blocks_mutating_window():
     fx = _setup(STOP_EXIT="1")
     _bundle_current(fx)
@@ -849,8 +1174,13 @@ def _require_check_req_tool():
         "scripts/cloud-setup.sh must BOTH call; three inlined copies is the "
         "denominator that drifts (CLAUDE.md section 5).")
     assert VENV_PY.is_file(), (
-        "venv/bin/python is missing; this test measures the helper under the "
-        "interpreter whose site-packages it is asked about")
+        "venv/bin/python is missing at %s; this test measures the helper under "
+        "the interpreter whose site-packages it is asked about. If you are in "
+        "a git WORKTREE, this is environmental and not a subject failure: "
+        "venv/ is gitignored, so a worktree never has one. Fix the environment "
+        "(symlink the main checkout's venv in, or run from the main checkout) "
+        "rather than skipping -- two mutation batteries lost a run to this and "
+        "neither said 'worktree'." % VENV_PY)
 
 
 def _parsed_names(body):

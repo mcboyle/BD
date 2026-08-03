@@ -560,7 +560,10 @@ if [ "$rcode" = "503" ]; then
   being served. frontend/dist did not deliver."
 fi
 [ "$rcode" = "200" ] || die "GET $ROOT_URL returned $rcode, expected 200"
-note "health verified: /api/health version $TREE_VERSION, GET / = 200"
+# Echo the code that was RECEIVED, never the literal the check demands. A
+# success note that restates its own constant cannot contradict a weakened
+# check: it would print "GET / = 200" over a 404 and read as a clean pass.
+note "health verified: /api/health version $TREE_VERSION, GET / = $rcode"
 
 # ── [13] summary ────────────────────────────────────────────────────
 # An unchanged tree that verified clean says so and exits 0. It does NOT
