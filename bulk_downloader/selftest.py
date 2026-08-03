@@ -441,34 +441,6 @@ def check_orphan_tempfiles(*dirs, max_age_hours: float = 24.0) -> dict:
         f"no orphan temp files older than {max_age_hours:.0f}h", count=0)
 
 
-def check_stale_locks(*dirs, max_age_hours: float = 6.0) -> dict:
-    """ROB-3-rem: WARN on ``*.lock`` files older than ``max_age_hours`` -- a lock a
-    crashed process never released. A missing dir is skipped. Read-only."""
-    cutoff = time.time() - max_age_hours * 3600.0
-    stale = []
-    for d in dirs:
-        if not d:
-            continue
-        base = Path(d)
-        if not base.is_dir():
-            continue
-        for f in base.rglob("*.lock"):
-            try:
-                if f.is_file() and f.stat().st_mtime < cutoff:
-                    stale.append(str(f))
-            except OSError:
-                continue
-    stale = sorted(set(stale))
-    if stale:
-        return _result(WARN, "stale_locks",
-            f"{len(stale)} stale lock file(s) older than {max_age_hours:.0f}h "
-            f"(a crashed process may not have released them)",
-            count=len(stale), sample=stale[:10], max_age_hours=max_age_hours,
-            hint="Remove only if you are sure no process holds them.")
-    return _result(OK, "stale_locks",
-        f"no stale lock files older than {max_age_hours:.0f}h", count=0)
-
-
 def check_plugin_health() -> dict:
     """X-PLUG-1: run every K7 plugin healthcheck and fold the results into one
     self-test row. OK when no plugin registered a probe or all probes pass; WARN
@@ -645,13 +617,15 @@ def run_all(sites_config_path: str | None = None,
     checks.append(check_ffmpeg_hls())
     checks.append(check_extractor_freshness())
 
-    # Session-1 hygiene: leaked tempfiles + stale locks across the download/capture
-    # roots, and a live verification that egress fails closed (ROB-3-rem / POS-3).
+    # Session-1 hygiene: leaked tempfiles across the download/capture roots,
+    # and a live verification that egress fails closed (ROB-3-rem / POS-3).
+    # The sibling stale-lock check was deleted at v3.66.844: nothing in the
+    # tree writes a *.lock, and its rglob over the PROJECT_ROOT fallback only
+    # ever found vendored npm yarn.lock manifests inside agent worktrees.
     _hygiene_dirs = [d for d in (download_dirs or []) if d]
     if captures_root:
         _hygiene_dirs.append(captures_root)
     checks.append(check_orphan_tempfiles(*_hygiene_dirs))
-    checks.append(check_stale_locks(*_hygiene_dirs))
     checks.append(check_egress_fail_closed())
     checks.append(check_plugin_health())
 

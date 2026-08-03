@@ -4,6 +4,38 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.844 - stale_locks deleted; the .lock convention never existed
+
+- selftest.check_stale_locks WARNed on *.lock files older than 6h across the
+  download and capture roots, on the theory that a crashed process leaves one
+  behind. Nothing in this tree has ever written a *.lock file, so the theory
+  was never true and the check had no subject.
+- MEASURED at v3.66.844 by AST over 2105 tracked .py, docstrings structurally
+  excluded: 7 non-docstring '.lock' string constants exist. All 7 are the check
+  itself, the dev_suite housekeeping consumer, two test fixtures, an assertion
+  MESSAGE, and plex_deep.py:316's 'addedAt.locked' -- a Plex API field that
+  matches only because '.lock' is a substring of '.locked'. Zero producers.
+- WHAT IT ACTUALLY FOUND ON THE BOX: captures_root falls back to PROJECT_ROOT
+  when the capture_store_root app-config key is absent, which it is there, so
+  the rglob descended venv/ and node_modules/. Its three hits were vendored npm
+  yarn.lock dependency manifests inside stale agent worktrees. Dependency
+  manifests, not process locks.
+- dev_suite/housekeeping.py:80 attributed .lock files to storage_tier. That is
+  false at source: storage_tier's exclusive-create placeholder is dest_path
+  ITSELF (storage_tier.py:209-211), never .lock-suffixed, and it is removed in
+  the same call. The comment now records what is true instead.
+- A repo-wide "no tracked source contains a .lock literal" gate was designed
+  and DROPPED, for two measured reasons. It flagged its own file -- its fixture
+  and predicate literals enter the git ls-files denominator it defines, so it
+  failed the moment it was staged. And its predicate is not its subject: it
+  fires on a Plex field name and on an assertion message. A gate built on it
+  would fail correct code.
+- NOT CLAIMED, because an earlier draft of the rationale claimed it: that
+  check_orphan_tempfiles covers BD's real temp artifacts. Measured -- it uses a
+  NON-recursive base.glob(), while crash_recovery.py:141 rglobs *.part exactly
+  because those nest, so a nested .part is missed. Real gap, filed separately,
+  and NOT what this deletion fixes.
+
 ## v3.66.843 - the import graph could not see `from bulk_downloader import X`
 
 - tools/dependency_graph.py:_internal_imports handled three import idioms and
