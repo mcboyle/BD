@@ -1999,3 +1999,190 @@ the OS and the CHANGELOG head but no SHA. 09_http_smoke.log carries the
 sha via /api/health, but ONLY when the service stage ran. Adding
 `git rev-parse HEAD` to 01_sysinfo.log fixes it -- a .sh change that
 rides any future capture.sh cut. Nothing else records this.
+
+### 15.18 | Backlog items 1-9 investigated by a 38-agent pass -- SUPERSEDES 15.16/15.17's open set
+
+2026-08-03, overnight, from f92bdfc. Nine filed items were investigated in
+parallel, each plan then attacked by three independent adversarial verifiers
+(denominator / blast-radius / evidence). FIVE of the nine plans had a FATAL or
+MAJOR defect that its own author did not see. That ratio is the finding: a
+plan produced by a careful reading of source is not the same thing as a
+correct plan, and the cheap way to learn the difference is to have someone try
+to break it before it ships rather than after.
+
+SHIPPED:
+
+  - v3.66.843 (f92bdfc, PR #133) -- 10-C. See below; the count was wrong in
+    the register and the DEFECT WAS IN THE WRONG FILE.
+  - v3.66.844 (PR #134) -- 15.9, check_stale_locks deleted.
+  - a doc cut (9d85cde, PR #132) correcting CLAUDE.md section 4's axis-6
+    table, which was measured at seven and is nine.
+
+THE AXIS-6 TABLE WAS STALE THE SESSION IT WAS WRITTEN. v3.66.833 measured
+seven and wrote "all 51 grep candidates classified, zero unknowns". Then
+v3.66.841 and v3.66.842 EACH ADDED A MEMBER -- test_task_tracker_stays_retired
+and test_codex_handoff_stays_retired, both running the byte-identical
+`git ls-files -z -- '*.py' '*.sh'` pathspec that the table already classified
+"yes" for test_deploy_manifest_stays_retired. Nobody re-derived. Two
+independent agents in this pass found it separately while deriving unrelated
+bands, which is how it surfaced at all.
+
+  The more useful half: a TENTH gate is axis-6 and the table's own recipe
+  CANNOT FIND IT. tests/test_pin_index_in_sync.py imports and reloads
+  tools.build_pin_index (:48-50), which globs (root/"tests").glob("*.py") at
+  :151 and :211. Adding a test file staleness-fails that gate, but nothing in
+  the test's source matches `ls-files|rglob|--collect-only` -- the enumeration
+  lives one import away. Section 2a already recorded the CONSEQUENCE (three
+  untracked RED files inflated test_files_scanned by 3) without ever naming
+  the gate. The recipe is a starting point, not a denominator.
+
+10-C, SHIPPED, AND EVERY INHERITED FACT ABOUT IT WAS WRONG:
+
+  - the defect was NOT in tools/decomp/import_graph_gate.py as filed. That
+    gate has no import predicate of its own; it funnels every mode through
+    tools/dependency_graph.py:_internal_imports, which is where the blindness
+    lived.
+  - the count was NOT ~240. It is 246. The inherited figure is reproducible
+    and it is the policy-B measurement -- dropping the 6 edges whose alias is
+    a name the package __init__ re-exports rather than a submodule. A figure
+    that is merely SMALLER reads as a rounding error rather than as the answer
+    to a different question, which is why the 6 are enumerated separately in
+    the commit body.
+  - _internal_imports has ONE call site but TWO consumers. `prov = sorted(imps
+    - {rp})` at :245 lands in blueprints[key]["providers"] at :253, so the
+    blueprint sub-graph moved too: 9 of 160 records, ~38% of the
+    DEPENDENCY_GRAPH.md diff. The original plan's expectation list omitted it
+    entirely; a blast-radius verifier measured it.
+  - THE PART WORTH KEEPING. The originally-planned RED test could not
+    distinguish the intended fix from routing the alias through _node(), which
+    the plan's own prose forbade. Four stems exist in BOTH packages
+    (llm_readiness, multi_site_benchmark, temporal_benchmark,
+    validation_corpus) and _node tests bd_mods FIRST, so a _node-routed
+    implementation silently mis-targets -- but produces a BYTE-IDENTICAL
+    246-edge result on today's tree, because no live site trips the collision.
+    A verifier measured the fixture passing that mutant 5/5. The shipped
+    fixture now builds the collision deliberately; re-measured, the mutant
+    dies 1-failed/4-passed on that one assertion and the other four stay blind
+    to it. The count could never have caught this. Only the fixture can.
+
+FOUR ITEMS ARE HELD, AND TWO OF THEM ARE HELD BECAUSE THE ITEM WAS WRONG:
+
+  - #7 -- PREMISE REFUTED, and the refutation is already written in this
+    codebase. "db_prune() is history's only deleter, so no marker-matched
+    teardown over the HTTP API can remove them" is FALSE:
+    batch_ops.bulk_delete deletes by id over POST /api/batch/delete, and
+    db.py:988-992 already records the retraction. An end-to-end probe removed
+    exactly the seeded rows and spared a non-seeded one. THE OPERATOR'S CHOSEN
+    DESIGN (a direct-DB clear) WAS SELECTED ON THE STRENGTH OF THE FALSE
+    CLAUSE, so it needs re-deciding rather than executing: the HTTP path
+    exists, works, and does not require live_seed to grow a DB write path.
+    15.17 repeated the false clause as measured fact. It is not.
+  - Audit#3 -- the investigator CONFIRMED the premise (warmup() at
+    ai_provider.py:350 really does warm only model_text) and the evidence
+    verifier still said DO NOT CUT, which is the interesting shape. A shipped
+    both-model boot warm ALREADY EXISTS: ollama_boot_probe.py warm_text /
+    warm_vision plus ai_boot_readiness.py (warms both, verifies VRAM residency
+    via /api/ps, 6 retries), wired as systemd unit bulkdownloader-ai-ready at
+    install_service.sh:271. So the real question is not "add a vision warm" --
+    it is WHY THAT UNIT DID NOT LEAVE THE VISION MODEL WARM on the box. Its
+    _attempt raises gpu_unavailable BEFORE any warm if nvidia-smi fails, which
+    is the restart loop the audit itself recorded. Independently
+    disqualifying: the proposed warm runs INSIDE L18's own 90s-walled request,
+    so the 180s load merely moves from generate into warmup and L18 still
+    fails; and the binding timeout is the 60s _call_model cap, not the 90s
+    join, so the 120-vs-300s question posed to the operator is not the binding
+    number. One journalctl plus /api/ps after a reboot settles it.
+  - s4#4 -- the bisect is REAL and CONFIRMED BY RUNNING, and the proposed fix
+    is disqualified. Mechanism: subprocess children spawned with cwd=<repo
+    root> that import bulk_downloader.app, whose MODULE BODY runs db_init()
+    unconditionally at app.py:80. Confirmed by running:
+    tests/test_v3_66_302_gui_parity_reconcile.py spawns
+    tools/gui_parity_inventory.py with cwd=_REPO and no env override, four
+    times per file run. BUT the evidence verifier measured a larger class the
+    fix leaves armed: module-scope bulk_downloader.app imports at pytest
+    COLLECTION time across 34 test files, so `--collect-only` from a bare cwd
+    deposits the whole DB before any fixture runs. The proposed tool-level fix
+    also rebinds db.DB_PATH GLOBALLY inside _routes_from_app(), which 10 test
+    files execute in-process -- the rebinding survives fixture teardown,
+    defeats clean_workdir, and produces order-dependent cross-file
+    contamination that would surface on the box under --dist loadfile and not
+    in a one-file-at-a-time band. Redesign before any cut.
+  - item12 -- PARTIALLY CONFIRMED and NOT CUTTABLE without one answer only
+    Matt has. The panel's "missing" number comes from the HISTORY table via
+    library_final.audit(), and library.py:669 (the mechanism the item names)
+    IS NOT REACHABLE FROM THE SPA AT ALL. A THIRD producer the item never
+    mentioned: app_widgets_api._collect_library_data:234's site-scoped inline
+    SQL, which is what the Dashboard "Missing files" KPI actually renders and
+    which OVERRIDES the :647 value. The blocking unknown is not a query --
+    it is WHAT STRING WAS IN THE PANEL'S "Download dir to audit" BOX, since
+    mechanism A counts a row missing whenever its bare basename yields zero
+    hits in the audited directory. Nothing in the repo, the register or any
+    log records it. Second unknown, equally unresolved: whether anyone ever
+    read the panel number at all -- this file labels the claim "derived by
+    reading" at :1203 and :1556 and no capture artifact, log line or
+    screenshot carrying an observed 31 was found.
+
+s5 -- MEASURED, no cut (read-only by instruction). 391 tracked files / 1525
+occurrences of /home/claude; bulk_downloader/ contains ZERO. The three
+historical figures are now reconciled rather than merely listed: 393/1541 is
+the 07-29 tree minus SESSION_CARRY's own hit; 1534 is a real repeated
+measurement across 08-01/02 commits and THE COUNT OSCILLATES -- it does not
+monotonically shrink, so a smaller number is not evidence of progress;
+~324/147 is Python hit-files 322 + mirrors 145 at 08-02, off by a consistent
++2. Correction to the scoping input: the "executable = 772" figure is
+PYTHON-ONLY. The shell bucket adds ~277 command-line occurrences including
+toolchain/bin/bd:7 (`. /home/claude/bdenv.sh` -- the suite entrypoint) and
+bd-install:99 (`rm -rf /home/claude/work/*`), so corrected executable is
+~1062, of which genuine default-path VALUES are 212. Roughly half of
+everything is mirror duplication (370 distinct authoritative exec sites). Two
+traps for whoever scopes it: toolchain/bin/bd matches neither `bd-*` nor
+`*.py` so it is outside the mirror gate's pairing rule AND outside the obvious
+RED-test population; and tests/test_generated_artifact_workflow.py:195
+POSITIVELY PINS /home/claude in scripts/build_release.sh, so a blanket sweep
+turns it red.
+
+15.8 -- PLANNED IN FULL, NOT CUT. Premise CONFIRMED, both reproductions
+measured. Design: one loop two outputs -- size_drift_scan() in library_final.py
+with list_size_drift becoming a projection, so the drift figure and the
+coverage figure can never be about different passes. Measured: NO import edge
+added (the census already imports library_final). Four MAJOR objections must
+be folded in before it ships, and they are the reason it was not rushed at the
+end of a long session: (1) the headline RED assertion `'rows examined : 4 of
+5' in text` also matches the NEW sweep line, because both are 4-of-5 on that
+fixture -- use whole-line assertions; (2) NOTHING anywhere asserts the
+completeness line is ever PRINTED, so a mutant deleting it passes the entire
+band -- add an all-resolved third shape; (3) sweep_examined_rows is a per-ROW
+union while SWEEP TRUNCATIONS/RESIDUE are per (row,directory) PAIR, so one row
+in two dirs renders "examined 1 of 1" above "RESIDUE : 2"; (4) TARGETS is 22,
+not 23.
+
+NEW ITEMS FOUND WHILE VERIFYING OTHERS -- filed, not fixed:
+
+  - dev_suite tempdir_clean (housekeeping.py:79, :150-156) DELETES any *.lock
+    in the system temp dir older than 1h with no BD scoping, while its
+    docstring at :117-119 claims it is "scoped strictly to ... never touches
+    anything else". Since no BD producer exists (see 15.9), its only possible
+    targets are OTHER PROGRAMS' lock files. Reachable at POST
+    /api/dev/tempdir_clean, dev-mode + CSRF gated, dry_run defaults True.
+  - check_orphan_tempfiles does NOT cover what 15.9's rationale claimed. It
+    uses a non-recursive base.glob(), while crash_recovery.py:141 rglobs
+    *.part precisely because those nest, so a nested .part is missed. The
+    sentence "check_orphan_tempfiles already covers BD's real temp artifacts"
+    should not be reused.
+  - ARCHITECTURE_INVENTORY.md is tracked, was already stale at 1273 edges
+    against a 1371 tree, sits in NO regen chain and NO CI check, and v3.66.843
+    widened the gap to 1617. Nothing catches it.
+  - tools/dependency_graph.py --selftest FAILS on pristine and did before this
+    session: selftest() hardcodes `nbp == 10` while the tree has 160
+    blueprints. tests/test_dependency_graph_in_sync.py derives its expectation
+    from source and therefore passes, so no gate sees it.
+
+OPERATOR ACTIONS, unchanged from 15.17 except the first: deploy 843+844 and
+capture -- and RE-PIN THE KNOWLEDGE_GRAPH CONTENT HASH FIRST, because both
+cuts touch bulk_downloader/ or tools/ and step [2b] will otherwise report
+drift that capture_verdict.py escalates to a whole-capture FAIL. No
+frontend/dist rebuild is needed for either. Still outstanding: the four
+read-only box measurements (item 12's discriminator is now known to need the
+audited-directory STRING, not a query); `git worktree prune -v`;
+`git checkout -B main origin/main` in the deploy checkout; and the archive
+sequence.
