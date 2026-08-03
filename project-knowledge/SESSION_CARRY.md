@@ -3368,3 +3368,52 @@ THE CHEAPEST THING THAT WOULD HAVE HELPED MOST: state the commit in every
 report. Four bands, three batteries and five lenses each measured a different
 tip, and reconciling which finding applied to which tree cost more than any
 single defect in the branch.
+
+### 15.27 | The tools already existed -- addendum to 15.26
+
+Asked afterwards what would have made the session faster, the answer turned out
+not to be a technique. It was: READ `toolchain/bin` FIRST. There are ~249 bd-*
+tools and the session used four of them.
+
+MEASURED, 2026-08-03, `tools/live_seed.py`:
+
+    grep -rl live_seed tests/*.py                    -> 17 suites
+    bd-band-derive --file tools/live_seed.py         -> 25 suites
+
+A strict superset: 8 files the grep could not see, 0 dropped. The band derived
+by hand in ELEVEN separate workflows was NARROWER than one command, every time.
+That is an accuracy defect, not merely wasted effort -- a narrow band is how a
+regression goes green.
+
+The tool unions four signals; `grep -rl` is one. The other three are a
+filename-stem glob, the curated TOUCHED_FILE_TO_TEST.md map, and declared
+COUNT-COUPLING (a test that exercises a module without importing it or naming
+it). Its docstring states the module-consumer signal exists because that gap
+"forced a by-hand `grep -rl <module> tests/` on every cut since. Now
+mechanized."
+
+WHY IT WAS NOT USED, which is the part worth fixing: CLAUDE.md never named it.
+Section 4 said "derive it with `grep -rl`, don't guess" -- so the session did
+exactly what the contract instructed, and the contract instructed the weaker
+method. Section 4 now names the tool and carries the table above; section 8 now
+says to look in toolchain/bin before hand-rolling, with the four tools this
+document already depends on.
+
+THE DEEPER FINDING. `bd-mutation-test`'s docstring has recorded the
+detector-with-the-bug-it-hunts shape since v3.66.737 -- "the tool built to hunt
+gate-blindness was itself a blind gate" -- which is the same lesson section 0
+gained today from rediscovering it five times. The repo already knew. The
+knowledge was in a tool docstring that nothing indexed, which is a storage
+problem, not a knowledge problem. When you find a lesson, check whether some
+tool learned it first.
+
+AND THE TOOL HAS THE DEFECT SECTION 0 OPENS WITH. `bd-band-derive --file
+CLAUDE.md` reports `changed source (0)` and a one-suite band, because it does
+not count `.md` as source. Section 0's very first example is a band tool that
+"didn't count .tsx/.ts as source, so it reported changed source (0) on a real
+frontend cut." Same tool, same shape, a different extension, still live. Filed
+here rather than fixed: it is a real defect and it is not this cut's subject.
+The hand-derived doc band (the four gates that read CLAUDE.md, the five that
+read this register, the enumerators a tracked .md edit moves) ran 235 passed /
+1 skipped, plus the tool's one suite at 14 passed -- so the wider band was the
+binding one, exactly as "floor, not ceiling" says.

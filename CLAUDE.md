@@ -351,8 +351,38 @@ CHANGELOG entries must be **ASCII-only**; an emoji trips a gate on the box.
 ## 4 | Band rules (which tests to run)
 
 **A denominator change has the blast radius of the denominator, not the diff.**
-Band every test touching the changed module — derive it with `grep -rl`, don't
-guess.
+Band every test touching the changed module.
+
+**Derive it with `bd-band-derive`, NOT by hand.** This paragraph used to say
+"derive it with `grep -rl`", and that instruction is what a whole session then
+did — hand-rolling the same grep in eleven workflows, and getting a band that
+was too NARROW every time. Measured 2026-08-03 on `tools/live_seed.py`:
+
+```bash
+venv/bin/python toolchain/bin/bd-band-derive --file <changed file>   # one file
+venv/bin/python toolchain/bin/bd-band-derive --files a.py b.py       # a changed set
+venv/bin/python toolchain/bin/bd-band-derive --emit                  # just the bd-band line
+```
+
+| method | suites | missed |
+| --- | --- | --- |
+| `grep -rl live_seed tests/*.py` | 17 | — |
+| `bd-band-derive --file tools/live_seed.py` | **25** | 0 |
+
+A strict superset: 8 files the grep could not see, none dropped. It unions four
+signals, and `grep -rl` is only one of them — the others are a filename-stem
+glob, the curated `TOUCHED_FILE_TO_TEST.md` map, and declared COUNT-COUPLING
+(a test that exercises a module without importing it or sharing its name). The
+tool's own docstring says the module-consumer signal exists because the gap
+"forced a by-hand `grep -rl <module> tests/` on every cut since. Now
+mechanized." It was mechanized, and then a session did it by hand anyway,
+because this file told it to.
+
+Its output is a **floor, not a ceiling**: it says so itself, and everything else
+in this section — axis-6 gates, source windows, the release-chore gates, a
+deleted tracked file — still has to be added on top. Use it as the starting
+point rather than as the answer, and use `grep -rl` only to check whether it
+missed something, not instead of it.
 
 - Route change → band **both** `test_route_index_in_sync` **and**
   `test_route_map_invariant`; re-freeze the baseline, then update
@@ -977,6 +1007,29 @@ that were not real. A gate existed to keep the two from contradicting each
 other; removing the second contract removes the failure class the gate was
 watching for, which is the stronger fix. If you find a second agent-facing
 document, that is the defect — not a resource.
+
+**LOOK IN `toolchain/bin` BEFORE YOU HAND-ROLL ANYTHING.** There are ~249 bd-*
+tools. A session spent a day hand-rolling band derivation and mutation
+harnesses that already existed, got a narrower band every time, and rebuilt the
+same defective harness repeatedly. The ones that answer questions THIS FILE
+asks you to answer:
+
+| question this file makes you ask | tool |
+| --- | --- |
+| what is the band for this diff? | `bd-band-derive` (section 4) |
+| do the guard SHAs still hold? | `bd-guardcheck` (section 2) |
+| are the generated artifacts in sync? | `bd-regen-order` (section 2) |
+| is `.claude-env-report.md` current? | `bd-env-report-check` (section 7) |
+
+Do not treat that as the list — it is the four this document already depends
+on. `ls toolchain/bin/ | grep <topic>` before writing a script, every time.
+
+**AND READ THE DOCSTRING OF THE TOOL NEAREST YOUR PROBLEM.** Hard-won findings
+live there and this file does not index them. `bd-mutation-test`'s docstring has
+recorded the detector-with-the-bug-it-hunts shape since **v3.66.737** — "the
+tool built to hunt gate-blindness was itself a blind gate" — years of sessions
+before section 0 gained the same paragraph from rediscovering it. When you find
+a lesson, ask whether some tool already learned it.
 
 **Two populations share the word "tools":** `tools/**/*.py` and the
 `toolchain/bin` bd-* suite. They are **disjoint** populations with different
