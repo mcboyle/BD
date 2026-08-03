@@ -25,12 +25,21 @@ WHAT THIS FILE PINS, and why each one is load-bearing:
   * `skipped_duplicate` settles. It is the outcome L14 exists to observe, so
     treating it as non-terminal would make the seeder burn its whole budget on
     precisely the result it was seeding for.
-  * Teardown still works after a completed download, and says what it cannot
-    reach. `history` is append-only -- db_log is the only writer and db_prune
-    (by AGE) the only deleter -- so a completed seeded download leaves a row no
-    marker-matched teardown can remove over the HTTP API. Silence about that
-    would be the fixture quietly accumulating state that the next run reads as
-    organic.
+  * Teardown still works after a completed download, and says what it LEAVES.
+    This bullet used to read "`history` is append-only -- db_log is the only
+    writer and db_prune (by AGE) the only deleter -- so a completed seeded
+    download leaves a row no marker-matched teardown can remove". That claim
+    was FALSE and bulk_downloader/db.py:988-992 records its retraction:
+    batch_ops.bulk_delete issues `DELETE FROM history WHERE id = ?` and is
+    reachable over HTTP at POST /api/batch/delete. The rows CAN be removed,
+    and `--clear-history` removes them (together with their library twins over
+    DELETE /api/library/<lid>, which must go FIRST because library rows carry
+    history_id and PRAGMA foreign_keys is never enabled -- library.py:538-543).
+    The clear is OPT-IN because capture.sh runs teardown unattended and the
+    clear's predicate is the marker across ALL history, not this run's nonce.
+    So the DEFAULT teardown still leaves the rows and must SAY it leaves them;
+    silence would be the fixture quietly accumulating state that the next run
+    reads as organic.
 """
 from __future__ import annotations
 
@@ -578,14 +587,24 @@ def test_the_seeded_queue_site_is_created_from_that_config():
 
 # ── constraint 3: teardown after a completed download ───────────────────────
 
-def test_teardown_reports_the_completed_rows_it_cannot_remove():
-    """history is append-only; teardown must say so rather than imply clean.
+def test_teardown_reports_the_completed_rows_it_leaves_by_default():
+    """The DEFAULT teardown leaves the history rows, and must say so.
 
-    db_log is history's only writer and db_prune -- which deletes by AGE, not
-    by marker -- is its only deleter. A completed seeded download therefore
-    leaves a row no marker-matched HTTP teardown can remove. Reporting "removed
-    the sites, cancelled the queue" and stopping would imply the box is as it
-    was found. It is not.
+    THIS TEST'S SUBJECT CHANGED, so its assertion changed with it. It used to
+    be named ..._it_cannot_remove and asserted that the residue text contained
+    "append-only" or "prune", because db_prune (which deletes by AGE, not by
+    marker) was believed to be history's only deleter. That premise was FALSE:
+    bulk_downloader/db.py:988-992 records the retraction -- batch_ops.bulk_delete
+    issues `DELETE FROM history WHERE id = ?` and is reachable over HTTP at
+    POST /api/batch/delete, which is what --clear-history now uses.
+
+    Keeping the old keyword assertion alive by engineering those two words into
+    a note that says the OPPOSITE would be a gate passing for the wrong reason
+    BY CONSTRUCTION, and it would hand the retracted claim to the next reader as
+    authority from a test file. So the assertion below is about the note's
+    ACTUAL claim: the row is removable, and the default teardown does not remove
+    it. Reporting "removed the sites, cancelled the queue" and stopping would
+    still imply the box is as it was found. It is not.
     """
     seed = _load()
     client = FakeClient({
@@ -604,9 +623,21 @@ def test_teardown_reports_the_completed_rows_it_cannot_remove():
     assert residue.get("history_rows") == 1, (
         f"teardown did not count the seeded history row it leaves behind: "
         f"{residue}")
-    assert "append-only" in str(residue).lower() or "prune" in str(residue).lower(), (
-        f"the residue report does not say why the row cannot be removed: "
+    text = str(residue)
+    lowered = text.lower()
+    assert "--clear-history" in text, (
+        f"the residue report does not name the opt-in that DOES remove the "
+        f"row, so a reader is left with the retracted 'nothing can remove "
+        f"this' reading: {residue}")
+    assert ("can be removed" in lowered or "removable" in lowered), (
+        f"the residue report does not say the row IS removable. The retracted "
+        f"claim (db.py:988-992) was that it is not; a note that neither "
+        f"asserts nor denies removability leaves the old reading standing: "
         f"{residue}")
+    assert "db.py:988-992" in text, (
+        f"the residue report does not cite the retraction it is correcting. "
+        f"The citation is the only thing that stops a later reader "
+        f"'restoring' the append-only sentence: {residue}")
 
 
 def test_teardown_says_unknown_when_it_cannot_read_history():
