@@ -1,0 +1,199 @@
+#!/usr/bin/env python3
+"""bd-claim -- declare which files you are editing, so a concurrent agent's
+blanket `git add -A` cannot sweep your half-written work into its commit.
+
+THE FAILURE THIS MODELS, measured at v3.66.848. Two workflows wrote to one tree.
+One of them ran `git add -A` in an unrelated regen commit and swept the other's
+uncommitted RED battery onto the branch -- so the branch tip carried tests whose
+implementation was NOT committed, and HEAD failed its own guard tests until
+somebody noticed. Nothing warned: `git add -A` is doing exactly what it is told,
+and the tree looked fine.
+
+WHY A CLAIM AND NOT A HEURISTIC. "That commit looks too broad" is a guess, and a
+guard that guesses gets switched off the first time it cries wolf
+(CLAUDE.md section 0 counts over-sensitivity as a soundness bug). A claim is a
+FACT: an agent states the paths it is writing, and the pre-commit hook refuses
+to commit a claimed path on behalf of anybody else. No claims in flight means no
+opinion at all, so a single-agent session never notices this exists.
+
+  bd-claim add  tools/live_seed.py tests/test_x.py    # I am editing these
+  bd-claim list                                       # who holds what
+  bd-claim release                                    # done (also on exit)
+  bd-claim --selftest
+
+A claim is keyed on PID and dies with the process: `list` drops any claim whose
+PID is gone, so a crashed agent cannot wedge the repo. That liveness check is
+the difference between a lock and a leak.
+
+THE HOOK IS WHAT ENFORCES IT. `.githooks/pre-commit` reads these claims; it is
+inert unless `git config core.hooksPath .githooks` is set. See that file.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+def claims_dir(repo: Path) -> Path:
+    d = repo / ".git" / "bd-claims"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _alive(pid: int) -> bool:
+    """Is this PID still running? A claim outliving its process is a leak."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True          # exists, owned by someone else
+    return True
+
+
+def live_claims(repo: Path) -> list[dict]:
+    """Every live claim, with dead ones reaped. Raises on an unreadable dir --
+    the caller must treat that as UNKNOWN, never as 'no claims'."""
+    out = []
+    d = claims_dir(repo)
+    for f in sorted(d.glob("*.json")):
+        try:
+            c = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            f.unlink(missing_ok=True)
+            continue
+        if not _alive(int(c.get("pid", -1))):
+            f.unlink(missing_ok=True)       # reap: a dead agent holds nothing
+            continue
+        out.append(c)
+    return out
+
+
+def add(repo: Path, paths: list[str], label: str) -> int:
+    if not paths:
+        print("bd-claim: no paths given -- a claim over nothing claims nothing.",
+              file=sys.stderr)
+        return 2
+    rec = {"pid": os.getpid(), "ppid": os.getppid(), "label": label,
+           "paths": sorted(set(paths))}
+    (claims_dir(repo) / f"{os.getpid()}.json").write_text(
+        json.dumps(rec, indent=1), encoding="utf-8")
+    print(f"claimed {len(rec['paths'])} path(s) as pid {os.getpid()}"
+          f"{' (' + label + ')' if label else ''}")
+    return 0
+
+
+def release(repo: Path) -> int:
+    f = claims_dir(repo) / f"{os.getpid()}.json"
+    existed = f.is_file()
+    f.unlink(missing_ok=True)
+    print("released" if existed else "nothing to release for this pid")
+    return 0
+
+
+def show(repo: Path) -> int:
+    cs = live_claims(repo)
+    if not cs:
+        print("no live claims")
+        return 0
+    for c in cs:
+        print(f"pid {c['pid']:>7}  {c.get('label') or '-'}")
+        for p in c["paths"]:
+            print(f"            {p}")
+    return 0
+
+
+def conflicts(repo: Path, staged: list[str], pid: int) -> list[tuple[str, dict]]:
+    """Staged paths claimed by a LIVE process other than `pid`."""
+    out = []
+    for c in live_claims(repo):
+        if int(c["pid"]) == pid:
+            continue
+        held = set(c["paths"])
+        for s in staged:
+            if s in held:
+                out.append((s, c))
+    return out
+
+
+def _selftest(repo: Path) -> int:
+    import tempfile
+    ok = True
+    with tempfile.TemporaryDirectory() as td:
+        t = Path(td)
+        (t / ".git").mkdir()
+
+        # a live claim by ANOTHER pid conflicts
+        (claims_dir(t) / "999999.json").write_text(json.dumps(
+            {"pid": os.getpid(), "label": "other", "paths": ["a.py"]}), encoding="utf-8")
+        c = conflicts(t, ["a.py", "b.py"], pid=os.getpid() + 1)
+        hit = len(c) == 1 and c[0][0] == "a.py"
+        ok &= hit
+        print(("PASS" if hit else "FAIL") + "  a live foreign claim conflicts")
+
+        # my OWN claim never conflicts with me
+        mine = conflicts(t, ["a.py"], pid=os.getpid())
+        ok &= not mine
+        print(("PASS" if not mine else "FAIL") + "  my own claim does not conflict with me")
+
+        # a DEAD pid's claim is reaped, not enforced
+        dead = 2 ** 22        # far above any real pid on Linux
+        (claims_dir(t) / f"{dead}.json").write_text(json.dumps(
+            {"pid": dead, "label": "dead", "paths": ["c.py"]}), encoding="utf-8")
+        gone = not conflicts(t, ["c.py"], pid=os.getpid())
+        reaped = not (claims_dir(t) / f"{dead}.json").exists()
+        ok &= gone and reaped
+        print(("PASS" if gone and reaped else "FAIL")
+              + "  a dead pid's claim is reaped, not enforced (cannot wedge the repo)")
+
+        # no claims at all -> no opinion
+        for f in claims_dir(t).glob("*.json"):
+            f.unlink()
+        quiet = not conflicts(t, ["a.py", "b.py"], pid=os.getpid())
+        ok &= quiet
+        print(("PASS" if quiet else "FAIL") + "  no claims means no opinion (single-agent sessions unaffected)")
+
+        # an empty claim is refused
+        rc = add(t, [], "")
+        ok &= (rc == 2)
+        print(("PASS" if rc == 2 else "FAIL") + "  an empty claim is refused")
+
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="bd-claim")
+    ap.add_argument("action", nargs="?", choices=["add", "list", "release"], default="list")
+    ap.add_argument("paths", nargs="*")
+    ap.add_argument("--label", default=os.environ.get("BD_CLAIM_LABEL", ""))
+    ap.add_argument("--repo", default=None)
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+
+    if a.repo:
+        repo = Path(a.repo)
+    else:
+        try:
+            repo = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                                       capture_output=True, text=True,
+                                       check=True).stdout.strip())
+        except Exception:
+            print("bd-claim: not inside a git repository", file=sys.stderr)
+            return 2
+
+    if a.selftest:
+        return _selftest(repo)
+    if a.action == "add":
+        return add(repo, a.paths, a.label)
+    if a.action == "release":
+        return release(repo)
+    return show(repo)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
