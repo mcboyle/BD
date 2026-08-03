@@ -2663,3 +2663,42 @@ PROCESS EARNED THIS SESSION, beyond 15.20's three:
     load-bearing miss was structural: _bd_runner_src() concatenates every
     runner_*.py, so 24 test files read a runner_integrations.py edit without
     naming the module. Final band 44 files against the spec's 30.
+
+### 15.23 | Four operator decisions, 2026-08-03 -- recorded before the work
+
+These were taken interactively after 15.21 changed what one of them was about.
+Recorded as their own section because a decision that exists only in a
+conversation is a decision that did not happen.
+
+  1. #7's LIBRARY TWINS: DELETE THEM. Teardown clears the history rows AND
+     their library twins. This REVERSES the spec's default of recording-only,
+     and the reversal is 15.21's doing: those twins are 100% of the Library
+     panel's "missing" count, 63% of the library table, and every one is
+     bdseed residue -- non-bdseed ghosts were enumerated BY NAME at zero. The
+     panel goes clean and stays clean. The 27 existing rows go with the first
+     real run.
+       IMPLEMENTATION FACT, read from source rather than assumed: the delete
+       path exists and is HTTP-reachable. library.library_delete(library_id,
+       also_delete_file=False) at library.py:412, exposed as
+       DELETE /api/library/<int:lid> (app_library.py:138-143, JSON body
+       {"delete_file": bool}). ORDER MATTERS -- library rows carry history_id,
+       so delete the twins BEFORE the history rows or they are left dangling.
+       History deletion stays POST /api/batch/delete, whose FTS maintenance is
+       the reason the HTTP design was chosen (15.20).
+
+  2. NEXT CUT IS #7. Design verified, four amendments mandatory (15.20).
+
+  3. s5 SCOPE CHOSEN: toolchain/bin (131 files including the bare `bd`) PLUS
+     toolchain/bdenv.sh and toolchain/install_bdsuite.sh -- the entrypoint's
+     own dependencies -- PLUS the gated mirrors, PLUS manual sync of the pairs
+     the mirror drift gate cannot see. Not a blanket sweep:
+     test_generated_artifact_workflow.py:195 POSITIVELY pins /home/claude in
+     scripts/build_release.sh and would turn red.
+
+  4. ITEM 12's DIVERGENCE FINDING: re-file fresh at NORMAL priority. It is a
+     real source-level defect and is not refuted -- eight producers across
+     three tables, an enumeration already proven non-exhaustive, two producers
+     returning equal counts over disjoint sets, and audit() carrying two
+     different caps (missing 500, size_drift 1000) in one returned dict. What
+     is gone is the urgency: the symptom that made it look like a crisis was
+     seeded data. Schedule it on its merits, do not inherit it as a fire.
