@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 1371,
+  "edge_count": 1617,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -224,6 +224,7 @@
       "bulk_downloader/constants.py",
       "bulk_downloader/cookies.py",
       "bulk_downloader/daily_budget.py",
+      "bulk_downloader/dashboard_widgets.py",
       "bulk_downloader/db.py",
       "bulk_downloader/dedup.py",
       "bulk_downloader/detect.py",
@@ -276,6 +277,9 @@
     "bulk_downloader/app_a11y.py": [
       "bulk_downloader/accessibility.py"
     ],
+    "bulk_downloader/app_account_pool.py": [
+      "bulk_downloader/account_pool.py"
+    ],
     "bulk_downloader/app_accounts.py": [
       "bulk_downloader/account_health.py"
     ],
@@ -311,6 +315,7 @@
       "bulk_downloader/automation_status.py"
     ],
     "bulk_downloader/app_backup.py": [
+      "bulk_downloader/backup.py",
       "bulk_downloader/backup_verify.py"
     ],
     "bulk_downloader/app_batch.py": [
@@ -338,7 +343,8 @@
       "bulk_downloader/audit.py",
       "bulk_downloader/db.py",
       "bulk_downloader/dom_analyzer.py",
-      "bulk_downloader/secrets_store.py"
+      "bulk_downloader/secrets_store.py",
+      "tools/cockpit_core.py"
     ],
     "bulk_downloader/app_changelog.py": [
       "bulk_downloader/site_changelog.py"
@@ -378,11 +384,21 @@
     "bulk_downloader/app_dashboard.py": [
       "bulk_downloader/app_widgets_api.py",
       "bulk_downloader/cookies.py",
+      "bulk_downloader/dashboard_widgets.py",
       "bulk_downloader/login.py"
     ],
     "bulk_downloader/app_data_layer.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/cookie_health.py",
+      "bulk_downloader/db.py",
       "bulk_downloader/dev_metrics.py",
+      "bulk_downloader/dom_recorder.py",
+      "bulk_downloader/secrets_store.py",
       "bulk_downloader/storage_rebalance.py",
+      "bulk_downloader/template_canary.py",
+      "bulk_downloader/vpn.py",
+      "bulk_downloader/vpn_kill_switch_system.py",
       "tools/capture_analytics.py",
       "tools/capture_diagnostics.py",
       "tools/changelog_analyzer.py",
@@ -594,6 +610,9 @@
     "bulk_downloader/app_ramdisk.py": [
       "bulk_downloader/ramdisk_stage.py"
     ],
+    "bulk_downloader/app_rate_limit.py": [
+      "bulk_downloader/rate_limit.py"
+    ],
     "bulk_downloader/app_rebalance.py": [
       "bulk_downloader/storage_rebalance.py"
     ],
@@ -605,6 +624,9 @@
     ],
     "bulk_downloader/app_retention.py": [
       "bulk_downloader/retention.py"
+    ],
+    "bulk_downloader/app_retry_policy.py": [
+      "bulk_downloader/retry_policy.py"
     ],
     "bulk_downloader/app_rights.py": [
       "bulk_downloader/content_rights.py"
@@ -678,6 +700,7 @@
       "bulk_downloader/runner.py"
     ],
     "bulk_downloader/app_sites_auth.py": [
+      "bulk_downloader/account_pool.py",
       "bulk_downloader/app_sites.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/cookies.py",
@@ -698,6 +721,7 @@
     ],
     "bulk_downloader/app_sites_id_core.py": [
       "bulk_downloader/account_pool.py",
+      "bulk_downloader/ai_login.py",
       "bulk_downloader/aiassist.py",
       "bulk_downloader/app_sites.py",
       "bulk_downloader/audit.py",
@@ -721,6 +745,8 @@
       "bulk_downloader/constants.py",
       "bulk_downloader/db.py",
       "bulk_downloader/hooks.py",
+      "bulk_downloader/jellyfin_deep.py",
+      "bulk_downloader/plex_deep.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/site_editor.py",
       "bulk_downloader/stash_deep.py",
@@ -733,12 +759,15 @@
       "bulk_downloader/db.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/selector_drift.py",
-      "bulk_downloader/session_keeper.py"
+      "bulk_downloader/session_keeper.py",
+      "bulk_downloader/watch_folder.py"
     ],
     "bulk_downloader/app_sites_queue.py": [
       "bulk_downloader/app_sites.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/db.py",
+      "bulk_downloader/jd_bridge.py",
+      "bulk_downloader/qb_bridge.py",
       "bulk_downloader/queue_templates.py",
       "bulk_downloader/resume.py",
       "bulk_downloader/runner.py",
@@ -769,6 +798,10 @@
     "bulk_downloader/app_storage_rebalance.py": [
       "bulk_downloader/storage_rebalance.py"
     ],
+    "bulk_downloader/app_store_raw_editor.py": [
+      "bulk_downloader/vpn_config.py",
+      "bulk_downloader/widgets_config.py"
+    ],
     "bulk_downloader/app_stream.py": [
       "bulk_downloader/global_config.py",
       "bulk_downloader/sse_broker.py",
@@ -798,7 +831,9 @@
       "bulk_downloader/user_accounts.py"
     ],
     "bulk_downloader/app_template_manager_ui.py": [
-      "bulk_downloader/template_manager.py"
+      "bulk_downloader/template_manager.py",
+      "tools/template_drift_report.py",
+      "tools/template_inventory.py"
     ],
     "bulk_downloader/app_templates.py": [
       "bulk_downloader/templates.py"
@@ -870,6 +905,9 @@
     "bulk_downloader/audit.py": [
       "bulk_downloader/capture_artifact_redact.py",
       "bulk_downloader/db.py"
+    ],
+    "bulk_downloader/auth_throttle.py": [
+      "bulk_downloader/global_config.py"
     ],
     "bulk_downloader/auto_ci.py": [
       "bulk_downloader/lifecycle_automation.py"
@@ -965,6 +1003,7 @@
     ],
     "bulk_downloader/capture_bodies.py": [
       "bulk_downloader/capture_redact.py",
+      "bulk_downloader/global_config.py",
       "bulk_downloader/netlog_classify.py"
     ],
     "bulk_downloader/capture_ingest.py": [
@@ -977,6 +1016,7 @@
     "bulk_downloader/capture_redactor.py": [
       "bulk_downloader/capture_bodies.py",
       "bulk_downloader/capture_redact.py",
+      "bulk_downloader/global_config.py",
       "bulk_downloader/redaction_profile.py"
     ],
     "bulk_downloader/capture_schedules.py": [
@@ -1052,6 +1092,7 @@
     ],
     "bulk_downloader/db.py": [
       "bulk_downloader/constants.py",
+      "bulk_downloader/global_config.py",
       "bulk_downloader/library.py",
       "bulk_downloader/log.py",
       "bulk_downloader/pg_backend.py"
@@ -1075,23 +1116,104 @@
     "bulk_downloader/detect.py": [
       "bulk_downloader/constants.py",
       "bulk_downloader/dom_honeypot.py",
+      "bulk_downloader/global_config.py",
       "bulk_downloader/plugins.py"
     ],
+    "bulk_downloader/dev_suite/_common.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/dev_tools.py"
+    ],
     "bulk_downloader/dev_suite/audit_security.py": [
-      "bulk_downloader/capture_artifact_redact.py"
+      "bulk_downloader/app.py",
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/csv_bulk.py",
+      "bulk_downloader/extractors.py",
+      "bulk_downloader/jd_bridge.py",
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/qb_bridge.py",
+      "bulk_downloader/site_editor.py"
     ],
     "bulk_downloader/dev_suite/capture_diag.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/captcha_relay.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/cookies.py",
-      "bulk_downloader/learn.py"
+      "bulk_downloader/dedup.py",
+      "bulk_downloader/detect.py",
+      "bulk_downloader/extractors.py",
+      "bulk_downloader/flaresolverr_client.py",
+      "bulk_downloader/fname.py",
+      "bulk_downloader/heuristic_scoring.py",
+      "bulk_downloader/hls_downloader.py",
+      "bulk_downloader/learn.py",
+      "bulk_downloader/login.py",
+      "bulk_downloader/login_flow_recorder.py",
+      "bulk_downloader/login_templates_data.py",
+      "bulk_downloader/request_replay.py",
+      "bulk_downloader/secrets_store.py",
+      "bulk_downloader/stealth.py"
+    ],
+    "bulk_downloader/dev_suite/config_tools.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/site_editor.py"
     ],
     "bulk_downloader/dev_suite/db_tools.py": [
-      "bulk_downloader/constants.py"
+      "bulk_downloader/backup_verify.py",
+      "bulk_downloader/constants.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/login_templates_data.py",
+      "bulk_downloader/migrations.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "bulk_downloader/dev_suite/housekeeping.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_status.py",
+      "bulk_downloader/feature_flags.py",
+      "bulk_downloader/hls_downloader.py",
+      "bulk_downloader/i18n.py",
+      "bulk_downloader/maintenance.py",
+      "bulk_downloader/storage_tier.py"
+    ],
+    "bulk_downloader/dev_suite/integrations_diag.py": [
+      "bulk_downloader/ai_provider.py",
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/app.py"
     ],
     "bulk_downloader/dev_suite/introspection.py": [
       "bulk_downloader/constants.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/detect.py",
+      "bulk_downloader/heuristic_scoring.py",
       "bulk_downloader/login_templates_data.py",
-      "bulk_downloader/runner.py"
+      "bulk_downloader/perf_lab.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/secrets_store.py",
+      "bulk_downloader/session_keeper.py"
+    ],
+    "bulk_downloader/dev_suite/jobs_runner.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/batch_ops.py",
+      "bulk_downloader/download_window.py",
+      "bulk_downloader/session_keeper.py"
+    ],
+    "bulk_downloader/dev_suite/logs.py": [
+      "bulk_downloader/dev_events.py",
+      "bulk_downloader/log.py",
+      "bulk_downloader/sse_broker.py"
+    ],
+    "bulk_downloader/dev_suite/perf_metrics.py": [
+      "bulk_downloader/dev_metrics.py",
+      "bulk_downloader/perf_lab.py"
+    ],
+    "bulk_downloader/dev_suite/release_lint.py": [
+      "bulk_downloader/_bat_lint.py"
+    ],
+    "bulk_downloader/dev_suite/test_meta.py": [
+      "bulk_downloader/dev_tools.py"
+    ],
+    "bulk_downloader/dev_suite/vpn_diag.py": [
+      "bulk_downloader/vpn.py",
+      "bulk_downloader/vpn_config.py"
     ],
     "bulk_downloader/dev_tools.py": [
       "bulk_downloader/global_config.py"
@@ -1428,6 +1550,7 @@
       "bulk_downloader/provider_resolve.py"
     ],
     "bulk_downloader/provider_resolve_impl/youtube.py": [
+      "bulk_downloader/global_config.py",
       "bulk_downloader/provider_resolve.py"
     ],
     "bulk_downloader/push.py": [
@@ -1448,6 +1571,9 @@
     "bulk_downloader/recommendations.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/tag_inference.py"
+    ],
+    "bulk_downloader/redaction_profile.py": [
+      "bulk_downloader/global_config.py"
     ],
     "bulk_downloader/request_replay.py": [
       "bulk_downloader/feature_flags.py"
@@ -1708,6 +1834,9 @@
     "bulk_downloader/search_extractor.py": [
       "bulk_downloader/playlist_extractor.py"
     ],
+    "bulk_downloader/secrets_audit.py": [
+      "bulk_downloader/global_config.py"
+    ],
     "bulk_downloader/secrets_store.py": [
       "bulk_downloader/secrets_audit.py"
     ],
@@ -1920,7 +2049,9 @@
       "tools/_probe_lib.py"
     ],
     "tools/audit/witnesses/cap01_witnesses.py": [
-      "bulk_downloader/capture_artifact_redact.py"
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/capture_bodies.py",
+      "bulk_downloader/live_recorder.py"
     ],
     "tools/audit/witnesses/run01_witnesses.py": [
       "bulk_downloader/runner_extractors.py"
@@ -1928,27 +2059,77 @@
     "tools/audit_write_route_guard.py": [
       "bulk_downloader/app.py"
     ],
+    "tools/autonomy_apply.py": [
+      "tools/autonomy_eligibility.py",
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_oracle.py",
+      "tools/autonomy_policy.py",
+      "tools/autonomy_promotion.py"
+    ],
     "tools/autonomy_center.py": [
+      "bulk_downloader/global_config.py",
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_housekeeping.py",
+      "tools/autonomy_policy.py",
       "tools/autonomy_review.py",
       "tools/cockpit_core.py",
       "tools/cockpit_templates.py"
     ],
+    "tools/autonomy_designate.py": [
+      "tools/autonomy_held_out_assist.py",
+      "tools/autonomy_oracle.py"
+    ],
+    "tools/autonomy_eligibility.py": [
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_oracle.py",
+      "tools/autonomy_policy.py",
+      "tools/autonomy_rollback.py",
+      "tools/autonomy_trust.py"
+    ],
+    "tools/autonomy_grant.py": [
+      "tools/autonomy_oracle.py",
+      "tools/autonomy_policy.py",
+      "tools/autonomy_trust.py"
+    ],
     "tools/autonomy_guardrails.py": [
+      "tools/autonomy_policy.py",
       "tools/cockpit_core.py"
     ],
     "tools/autonomy_held_out_assist.py": [
+      "bulk_downloader/global_config.py",
+      "tools/autonomy_oracle.py",
       "tools/cockpit_core.py",
       "tools/cockpit_templates.py"
     ],
     "tools/autonomy_housekeeping.py": [
+      "tools/autonomy_policy.py",
       "tools/cockpit_core.py",
       "tools/cockpit_templates.py"
     ],
+    "tools/autonomy_impact.py": [
+      "tools/autonomy_eligibility.py",
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_oracle.py",
+      "tools/autonomy_rollback.py",
+      "tools/autonomy_trust.py"
+    ],
+    "tools/autonomy_library_reconcile.py": [
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/library.py",
+      "tools/autonomy_apply.py",
+      "tools/autonomy_grant.py",
+      "tools/autonomy_promotion.py"
+    ],
     "tools/autonomy_live.py": [
       "bulk_downloader/capture_artifact_redact.py",
-      "tools/cockpit_templates.py"
+      "tools/autonomy_apply.py",
+      "tools/autonomy_eligibility.py",
+      "tools/autonomy_oracle.py",
+      "tools/cockpit_templates.py",
+      "tools/live_template_integration.py"
     ],
     "tools/autonomy_oracle.py": [
+      "tools/autonomy_policy.py",
       "tools/cockpit_core.py",
       "tools/cockpit_templates.py"
     ],
@@ -1956,17 +2137,48 @@
       "tools/cockpit_core.py"
     ],
     "tools/autonomy_promotion.py": [
+      "tools/autonomy_eligibility.py",
+      "tools/autonomy_oracle.py",
+      "tools/autonomy_trust.py",
+      "tools/autonomy_validation.py",
       "tools/cockpit_core.py"
     ],
+    "tools/autonomy_queue_hk.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/global_config.py",
+      "tools/autonomy_apply.py",
+      "tools/autonomy_grant.py",
+      "tools/autonomy_promotion.py"
+    ],
     "tools/autonomy_review.py": [
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_housekeeping.py",
+      "tools/autonomy_policy.py",
       "tools/cockpit_templates.py"
+    ],
+    "tools/autonomy_rollback.py": [
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_policy.py"
     ],
     "tools/autonomy_staging.py": [
       "bulk_downloader/capture_artifact_redact.py",
+      "tools/autonomy_apply.py",
+      "tools/autonomy_eligibility.py",
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_impact.py",
+      "tools/autonomy_oracle.py",
+      "tools/autonomy_trust.py",
       "tools/cockpit_templates.py"
     ],
     "tools/autonomy_trust.py": [
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_oracle.py",
+      "tools/autonomy_policy.py",
       "tools/cockpit_core.py"
+    ],
+    "tools/autonomy_validation.py": [
+      "tools/autonomy_eligibility.py",
+      "tools/autonomy_oracle.py"
     ],
     "tools/baselines_snapshot.py": [
       "bulk_downloader/db.py"
@@ -1974,13 +2186,18 @@
     "tools/body_contract.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/db.py",
+      "bulk_downloader/migrations.py",
       "tools/body_contract_fixtures.py"
     ],
     "tools/body_contract_fixtures.py": [
-      "bulk_downloader/db.py"
+      "bulk_downloader/db.py",
+      "bulk_downloader/knowledge.py"
     ],
     "tools/build_endpoint_catalog.py": [
       "bulk_downloader/app.py"
+    ],
+    "tools/build_nuitka.py": [
+      "tools/packaging_config.py"
     ],
     "tools/build_openapi.py": [
       "tools/build_endpoint_catalog.py"
@@ -1988,17 +2205,28 @@
     "tools/build_recognizer_corpus.py": [
       "tools/build_template_from_wacz.py"
     ],
+    "tools/build_release.py": [
+      "bulk_downloader/global_config.py"
+    ],
     "tools/build_route_index.py": [
       "tools/build_endpoint_catalog.py"
     ],
     "tools/build_template_from_wacz.py": [
+      "bulk_downloader/bad_terms.py",
       "bulk_downloader/capture_artifact_redact.py",
       "bulk_downloader/extraction_core.py",
       "bulk_downloader/global_config.py",
+      "bulk_downloader/honeypot_score.py",
+      "bulk_downloader/inspect_pick.py",
       "tools/player_recognition.py"
     ],
     "tools/builder_gap_report.py": [
+      "bulk_downloader/template_normalize.py",
       "bulk_downloader/wacz_export.py",
+      "tools/build_template_from_wacz.py"
+    ],
+    "tools/bulk_review_captures.py": [
+      "bulk_downloader/template_normalize.py",
       "tools/build_template_from_wacz.py"
     ],
     "tools/capture_analytics.py": [
@@ -2017,6 +2245,7 @@
       "tools/capture_analytics.py"
     ],
     "tools/capture_model_golden.py": [
+      "bulk_downloader/capture_ingest.py",
       "bulk_downloader/wacz_export.py",
       "tools/build_template_from_wacz.py",
       "tools/workflow_diagnostic.py"
@@ -2027,9 +2256,15 @@
       "tools/report_core.py"
     ],
     "tools/capture_session.py": [
+      "bulk_downloader/challenge_handling.py",
+      "bulk_downloader/cloak.py",
       "bulk_downloader/dom_capture.py",
       "bulk_downloader/dom_overlay.py",
       "bulk_downloader/dom_recorder.py",
+      "bulk_downloader/element_pick.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/inspect_pick.py",
+      "bulk_downloader/plugins.py",
       "bulk_downloader/session_capture.py",
       "bulk_downloader/wacz_export.py"
     ],
@@ -2038,20 +2273,68 @@
     ],
     "tools/census_file_size_drift.py": [
       "bulk_downloader/app.py",
-      "bulk_downloader/db.py"
+      "bulk_downloader/db.py",
+      "bulk_downloader/library_final.py"
+    ],
+    "tools/check_version_consistency.py": [
+      "bulk_downloader/__init__.py"
     ],
     "tools/closed_loop_learning.py": [
       "bulk_downloader/capture_ingest.py"
     ],
     "tools/cockpit_console.py": [
-      "bulk_downloader/capture_synth.py"
+      "bulk_downloader/capture_ingest.py",
+      "bulk_downloader/capture_synth.py",
+      "bulk_downloader/capture_template.py",
+      "bulk_downloader/capture_workbench.py",
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/dom_recorder.py",
+      "bulk_downloader/profile_sync.py",
+      "bulk_downloader/session_keeper.py",
+      "bulk_downloader/template_multi.py",
+      "bulk_downloader/template_normalize.py",
+      "bulk_downloader/validation_corpus.py",
+      "tools/autonomy_apply.py",
+      "tools/autonomy_center.py",
+      "tools/autonomy_eligibility.py",
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_housekeeping.py",
+      "tools/autonomy_impact.py",
+      "tools/autonomy_library_reconcile.py",
+      "tools/autonomy_live.py",
+      "tools/autonomy_oracle.py",
+      "tools/autonomy_policy.py",
+      "tools/autonomy_promotion.py",
+      "tools/autonomy_queue_hk.py",
+      "tools/autonomy_review.py",
+      "tools/autonomy_rollback.py",
+      "tools/autonomy_staging.py",
+      "tools/autonomy_trust.py",
+      "tools/autonomy_validation.py",
+      "tools/build_template_from_wacz.py",
+      "tools/cockpit_core.py",
+      "tools/cockpit_shell.py",
+      "tools/cockpit_templates.py"
     ],
     "tools/cockpit_core.py": [
+      "bulk_downloader/__init__.py",
       "bulk_downloader/capture_artifact_redact.py",
-      "bulk_downloader/capture_ingest.py"
+      "bulk_downloader/capture_ingest.py",
+      "bulk_downloader/capture_scrub_hook.py",
+      "bulk_downloader/element_pick.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/validation_corpus.py",
+      "tools/autonomy_guardrails.py"
+    ],
+    "tools/cockpit_shell.py": [
+      "bulk_downloader/global_config.py"
     ],
     "tools/cockpit_templates.py": [
+      "bulk_downloader/capture_ingest.py",
+      "bulk_downloader/cookie_quality.py",
+      "bulk_downloader/db.py",
       "bulk_downloader/heuristic_scoring.py",
+      "bulk_downloader/selector_drift.py",
       "tools/cockpit_core.py"
     ],
     "tools/code_intelligence/snapshot.py": [
@@ -2061,7 +2344,9 @@
       "tools/report_core.py"
     ],
     "tools/config_surface_inventory.py": [
+      "bulk_downloader/app_settings_center.py",
       "bulk_downloader/global_config.py",
+      "bulk_downloader/site_editor.py",
       "tools/report_core.py"
     ],
     "tools/ct1_synth.py": [
@@ -2069,7 +2354,11 @@
     ],
     "tools/dast_probe.py": [
       "bulk_downloader/app.py",
+      "bulk_downloader/cookie_relogin.py",
       "bulk_downloader/db.py"
+    ],
+    "tools/decomp/templates_snapshot.py": [
+      "bulk_downloader/templates.py"
     ],
     "tools/dependency_inventory.py": [
       "tools/function_inventory.py",
@@ -2091,7 +2380,11 @@
     "tools/evidence_policy.py": [
       "bulk_downloader/capture_ingest.py"
     ],
+    "tools/framework_fleet.py": [
+      "bulk_downloader/global_config.py"
+    ],
     "tools/functional_probe.py": [
+      "bulk_downloader/cookie_relogin.py",
       "tools/_probe_lib.py"
     ],
     "tools/fuzz_probe.py": [
@@ -2109,6 +2402,9 @@
     "tools/gui_parity_inventory.py": [
       "bulk_downloader/app.py",
       "tools/report_core.py"
+    ],
+    "tools/hook_payload_golden.py": [
+      "bulk_downloader/plugins.py"
     ],
     "tools/install_report.py": [
       "tools/offline_pack_report.py"
@@ -2135,6 +2431,12 @@
       "bulk_downloader/capture_ingest.py",
       "bulk_downloader/detect.py"
     ],
+    "tools/llm_eval_harness.py": [
+      "bulk_downloader/llm_eval.py"
+    ],
+    "tools/llm_readiness.py": [
+      "bulk_downloader/llm_readiness.py"
+    ],
     "tools/meta_intelligence.py": [
       "bulk_downloader/capture_ingest.py",
       "bulk_downloader/validation_corpus.py"
@@ -2143,6 +2445,8 @@
       "bulk_downloader/multi_site_benchmark.py"
     ],
     "tools/nav_probe.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/cloak.py",
       "bulk_downloader/dom_capture.py",
       "tools/capture_session.py"
     ],
@@ -2153,6 +2457,7 @@
       "bulk_downloader/template_normalize.py"
     ],
     "tools/offline_capture_analyze.py": [
+      "bulk_downloader/capture_ingest.py",
       "bulk_downloader/temporal_harness.py",
       "bulk_downloader/validation_corpus.py"
     ],
@@ -2175,6 +2480,16 @@
       "bulk_downloader/cross_site_selectors.py",
       "bulk_downloader/validation_corpus.py"
     ],
+    "tools/opv_guide_lint.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tools/organize_captures.py": [
+      "tools/build_template_from_wacz.py"
+    ],
+    "tools/p5_2b_accuracy_watch.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/honeypot_threshold.py"
+    ],
     "tools/player_families.py": [
       "tools/player_recognition.py"
     ],
@@ -2183,8 +2498,18 @@
       "tools/player_platform_hints.py",
       "tools/player_struct_embed.py"
     ],
+    "tools/plugin_install.py": [
+      "bulk_downloader/plugins.py"
+    ],
+    "tools/plugin_lint.py": [
+      "bulk_downloader/plugins.py"
+    ],
+    "tools/plugin_test.py": [
+      "bulk_downloader/plugins.py"
+    ],
     "tools/promote_template.py": [
       "bulk_downloader/bad_terms.py",
+      "bulk_downloader/selector_lint.py",
       "bulk_downloader/template_manager.py"
     ],
     "tools/queue_intelligence.py": [
@@ -2193,6 +2518,9 @@
     "tools/recognizer_scorecard.py": [
       "tools/player_families.py",
       "tools/player_recognition.py"
+    ],
+    "tools/redaction_dial_report.py": [
+      "bulk_downloader/redaction_profile.py"
     ],
     "tools/release_diff_summary.py": [
       "tools/changelog_analyzer.py",
@@ -2213,6 +2541,7 @@
       "tools/template_inventory.py"
     ],
     "tools/security_probe.py": [
+      "bulk_downloader/app.py",
       "tools/_probe_lib.py"
     ],
     "tools/selector_learning.py": [
@@ -2276,11 +2605,15 @@
     "tools/validate_templates.py": [
       "tools/template_inventory.py"
     ],
+    "tools/validation_corpus.py": [
+      "bulk_downloader/validation_corpus.py"
+    ],
     "tools/validation_harness.py": [
       "bulk_downloader/capture_ingest.py",
       "bulk_downloader/validation_corpus.py"
     ],
     "tools/verify_release.py": [
+      "bulk_downloader/__init__.py",
       "tools/check_doc_drift.py",
       "tools/check_version_consistency.py",
       "tools/template_inventory.py"
@@ -2291,6 +2624,7 @@
     ],
     "tools/workflow_diagnostic.py": [
       "bulk_downloader/bad_terms.py",
+      "bulk_downloader/capture_ingest.py",
       "bulk_downloader/netlog_classify.py"
     ],
     "tools/wow_promote_golden.py": [

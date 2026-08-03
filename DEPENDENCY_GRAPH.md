@@ -10,37 +10,37 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1371**
-- tools: 223 · with internal edge: 102 · with tool→package edge: 49
+- internal import edges: **1617**
+- tools: 223 · with internal edge: 128 · with tool→package edge: 71
 - blueprints: 160 · config stores: 5
 
 ## Most-imported modules (coupling hotspots)
 
-- `bulk_downloader/db.py`: 106
-- `bulk_downloader/global_config.py`: 37
+- `bulk_downloader/db.py`: 112
+- `bulk_downloader/global_config.py`: 54
 - `bulk_downloader/constants.py`: 31
+- `bulk_downloader/app.py`: 24
+- `bulk_downloader/plugins.py`: 23
 - `bulk_downloader/cookies.py`: 19
-- `bulk_downloader/plugins.py`: 17
-- `bulk_downloader/app.py`: 16
+- `bulk_downloader/capture_ingest.py`: 17
+- `bulk_downloader/aiassist.py`: 15
+- `bulk_downloader/cloak.py`: 15
 - `bulk_downloader/runner.py`: 15
-- `bulk_downloader/aiassist.py`: 14
+- `bulk_downloader/secrets_store.py`: 15
+- `bulk_downloader/site_editor.py`: 15
 - `bulk_downloader/capture_artifact_redact.py`: 14
 - `tools/report_core.py`: 13
 - `bulk_downloader/app_dev.py`: 12
-- `bulk_downloader/capture_ingest.py`: 12
-- `bulk_downloader/site_editor.py`: 12
-- `bulk_downloader/cloak.py`: 11
+- `tools/autonomy_oracle.py`: 12
+- `bulk_downloader/detect.py`: 11
 - `bulk_downloader/learn.py`: 11
-- `bulk_downloader/secrets_store.py`: 11
-- `bulk_downloader/capture_redact.py`: 10
-- `bulk_downloader/capture_synth.py`: 10
-- `bulk_downloader/template_manager.py`: 10
-- `bulk_downloader/detect.py`: 9
+- `tools/autonomy_policy.py`: 11
+- `tools/cockpit_core.py`: 11
 
 ## Blueprints → providers
 
 - **a11y** (`app_a11y.py`) — routes 3, providers 1
-- **account_pool** (`app_account_pool.py`) — routes 1, providers 0
+- **account_pool** (`app_account_pool.py`) — routes 1, providers 1
 - **accounts** (`app_accounts.py`) — routes 1, providers 1
 - **activity** (`app_activity.py`) — routes 3, providers 1
 - **ai** (`app_ai.py`) — routes 8, providers 3
@@ -52,7 +52,7 @@ Graph version: 1
 - **auth** (`app_auth.py`) — routes 7, providers 1
 - **auth_health** (`app_auth_health.py`) — routes 3, providers 1
 - **automation_status** (`app_automation_status.py`) — routes 1, providers 1
-- **backup** (`app_backup.py`) — routes 7, providers 1
+- **backup** (`app_backup.py`) — routes 7, providers 2
 - **batch** (`app_batch.py`) — routes 4, providers 1
 - **bg** (`app_bg.py`) — routes 2, providers 1
 - **bitrot** (`app_bitrot.py`) — routes 3, providers 1
@@ -61,7 +61,7 @@ Graph version: 1
 - **bw_chart** (`app_bw_chart.py`) — routes 3, providers 1
 - **capacity** (`app_capacity.py`) — routes 1, providers 1
 - **captcha_relay_api** (`app_captcha_relay.py`) — routes 7, providers 1
-- **captures** (`app_captures.py`) — routes 8, providers 4
+- **captures** (`app_captures.py`) — routes 8, providers 5
 - **changelog** (`app_changelog.py`) — routes 2, providers 1
 - **circuit** (`app_circuit.py`) — routes 2, providers 1
 - **cleanup** (`app_cleanup.py`) — routes 1, providers 1
@@ -77,8 +77,8 @@ Graph version: 1
 - **crash_recovery** (`app_crash_recovery.py`) — routes 5, providers 1
 - **csrf** (`app_csrf.py`) — routes 1, providers 0
 - **daily_budget** (`app_daily_budget.py`) — routes 3, providers 1
-- **dashboard** (`app_dashboard.py`) — routes 5, providers 3
-- **data_layer** (`app_data_layer.py`) — routes 15, providers 9
+- **dashboard** (`app_dashboard.py`) — routes 5, providers 4
+- **data_layer** (`app_data_layer.py`) — routes 15, providers 18
 - **dedup** (`app_dedup.py`) — routes 6, providers 0
 - **deploy** (`app_deploy.py`) — routes 3, providers 1
 - **dev** (`app_dev.py`) — routes 0, providers 11
@@ -133,14 +133,14 @@ Graph version: 1
 - **queue_templates** (`app_queue_templates.py`) — routes 3, providers 2
 - **quick_add** (`app_quick_add.py`) — routes 1, providers 0
 - **ramdisk** (`app_ramdisk.py`) — routes 1, providers 1
-- **rate_limit** (`app_rate_limit.py`) — routes 1, providers 0
+- **rate_limit** (`app_rate_limit.py`) — routes 1, providers 1
 - **rebalance** (`app_rebalance.py`) — routes 3, providers 1
 - **recommendations** (`app_recommendations.py`) — routes 3, providers 1
 - **replication** (`app_replication.py`) — routes 4, providers 1
 - **report_center** (`app_report_center.py`) — routes 9, providers 0
 - **resume_all** (`app_resume_all.py`) — routes 1, providers 0
 - **retention** (`app_retention.py`) — routes 4, providers 1
-- **retry_policy** (`app_retry_policy.py`) — routes 2, providers 0
+- **retry_policy** (`app_retry_policy.py`) — routes 2, providers 1
 - **rights** (`app_rights.py`) — routes 5, providers 1
 - **route_preview** (`app_route_preview.py`) — routes 1, providers 0
 - **route_urls** (`app_route_urls.py`) — routes 1, providers 0
@@ -170,7 +170,7 @@ Graph version: 1
 - **status** (`app_status.py`) — routes 1, providers 0
 - **storage** (`app_storage.py`) — routes 1, providers 0
 - **storage_rebalance** (`app_storage_rebalance.py`) — routes 3, providers 1
-- **store_raw_editor** (`app_store_raw_editor.py`) — routes 2, providers 0
+- **store_raw_editor** (`app_store_raw_editor.py`) — routes 2, providers 2
 - **stream** (`app_stream.py`) — routes 3, providers 3
 - **subtitles** (`app_subtitles.py`) — routes 2, providers 2
 - **supervisor** (`app_supervisor.py`) — routes 2, providers 0
@@ -178,7 +178,7 @@ Graph version: 1
 - **tags** (`app_tags.py`) — routes 9, providers 1
 - **template** (`app_template.py`) — routes 5, providers 3
 - **template_manager** (`app_template_manager.py`) — routes 7, providers 6
-- **template_manager_ui** (`app_template_manager_ui.py`) — routes 3, providers 1
+- **template_manager_ui** (`app_template_manager_ui.py`) — routes 3, providers 3
 - **templates** (`app_templates.py`) — routes 1, providers 1
 - **tg** (`app_tg.py`) — routes 3, providers 0
 - **thumbnail_sheets** (`app_thumbnail_sheets.py`) — routes 2, providers 2
