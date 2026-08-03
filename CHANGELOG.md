@@ -4,6 +4,28 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.848 - scripts/deploy.sh is the git deploy path
+
+- scripts/deploy.sh no longer drives the retired zip overlay (--zip, a sha256
+  gate over a release archive, unzip -o). It now runs the deploy the box
+  actually uses -- git fetch origin main + git reset --hard origin/main -- and
+  then closes the four gaps that a file move never closes: requirements.txt is
+  re-resolved (and pip run only if something is missing, then re-checked),
+  frontend/dist is rebuilt and READ BACK, __pycache__ is swept in a confirmed
+  stopped window, the parity inventory is regenerated and read back for
+  route_source == "live url_map", the graph content pin is re-written and
+  re-verified, and the service is health-gated after start. Work that
+  git reset --hard would discard is named BEFORE the reset, not after.
+- tools/check_requirements.py extracted from scripts/cloud-setup.sh's inline
+  heredoc so the deploy path and the provisioner cannot drift apart; pip check
+  cannot see an uninstalled requirement, so requirements.txt is parsed and each
+  name resolved.
+- Step [10]'s BD_HOME warning compared against the ENVIRONMENT rather than
+  against capture.sh's effective BD_HOME, so it stayed silent whenever BD_HOME
+  was unset -- the common case, and the one the warning exists for. It now
+  computes "${BD_HOME:-$HOME/BulkDownloader}" the way capture.sh:55 does and
+  compares that, and says so when the directory does not exist at all.
+
 ## v3.66.847 - Seeded-history clear (--teardown --clear-history)
 
 - tools/live_seed.py --teardown --clear-history deletes the bdseed history

@@ -470,10 +470,29 @@ note "parity inventory regenerated from the live url_map"
 # BD_HOME, i.e. it assumes BD_HOME IS the install dir. Where that does not hold,
 # the copy refreshed above is not the copy the suite reads, and the v3.66.818
 # staleness comes straight back. Say so rather than assume it away.
-if [ -n "${BD_HOME:-}" ] && [ "$(cd "${BD_HOME}" 2>/dev/null && pwd -P || true)" != "$DIR" ]; then
-  note "WARNING: BD_HOME=${BD_HOME} is not this install dir. capture.sh reads the
-  inventory from \$BD_HOME/reports/, so the copy just refreshed under $DIR is not
-  the one the suite will read."
+#
+# The comparison is against capture.sh's EFFECTIVE BD_HOME, not against the
+# environment. capture.sh:55 is `BD_HOME="${BD_HOME:-$HOME/BulkDownloader}"` --
+# it DEFAULTS the variable, so the question "will the suite read the copy just
+# refreshed here" has an answer whether or not BD_HOME is exported. Gating the
+# warning on `[ -n "$BD_HOME" ]` asked a different question and reported clean
+# in the default case, which is the common one: an operator exports BD_HOME by
+# hand only when they already suspect a mismatch, i.e. exactly when the warning
+# is least needed (CLAUDE.md section 0). The name is lowercase on purpose --
+# a BD_-prefixed shell local enters tests/test_gui_parity.py's scan denominator
+# and reads as promoted-but-unledgered (CLAUDE.md section 4).
+capture_home="${BD_HOME:-$HOME/BulkDownloader}"
+capture_home_real="$(cd "$capture_home" 2>/dev/null && pwd -P || true)"
+if [ -z "$capture_home_real" ]; then
+  note "WARNING: capture.sh will read the parity inventory from
+  $capture_home/reports/ (\$BD_HOME, defaulting to \$HOME/BulkDownloader), and that
+  directory does not exist -- so it is not this install dir $DIR, and the copy
+  just refreshed here is not the one the suite will read."
+elif [ "$capture_home_real" != "$DIR" ]; then
+  note "WARNING: capture.sh will read the parity inventory from
+  $capture_home/reports/ (\$BD_HOME, defaulting to \$HOME/BulkDownloader), which
+  is not this install dir $DIR, so the copy just refreshed here is not the one
+  the suite will read."
 fi
 
 # ── [11] start the service ──────────────────────────────────────────

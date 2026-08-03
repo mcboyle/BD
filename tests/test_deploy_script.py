@@ -901,3 +901,55 @@ def test_cloud_setup_uses_shared_checker():
     assert "tools/check_requirements.py" in src, (
         "scripts/cloud-setup.sh does not invoke tools/check_requirements.py; "
         "the requirements-satisfaction row must come from the shared helper")
+
+
+def test_capture_home_mismatch_reported_when_bd_home_is_unset():
+    """Step [10]'s BD_HOME warning must ask capture.sh's question, not its own.
+
+    capture.sh:55 does `BD_HOME="${BD_HOME:-$HOME/BulkDownloader}"` -- it
+    DEFAULTS the variable when it is unset, then reads
+    "$BD_HOME/reports/gui_parity_inventory.json". So the question that decides
+    whether the copy this script just refreshed is the copy the suite will read
+    is "does $DIR equal that EFFECTIVE path", and it has an answer whether or
+    not BD_HOME happens to be exported. A warning gated on `[ -n "$BD_HOME" ]`
+    asks a different question and stays silent in the default case -- which is
+    the common one, since an operator only exports BD_HOME by hand when they
+    already suspect a mismatch (CLAUDE.md section 0).
+
+    Both directions are asserted: silence when the effective path IS the
+    install dir (a gate that fires on identity gets switched off), and a
+    warning when it is not.
+    """
+    # (a) BD_HOME unset, --dir is NOT $HOME/BulkDownloader -> must warn.
+    fx = _setup()
+    fx.env.pop("BD_HOME", None)
+    _bundle_current(fx)
+
+    r = _deploy(fx)
+
+    out = _out(r)
+    assert r.returncode == 0, _ctx(r)
+    assert "BD_HOME" in out, (
+        "step [10] said nothing about BD_HOME while the deploy dir (%s) is not "
+        "capture.sh's effective BD_HOME (%s/BulkDownloader); the v3.66.818 "
+        "staleness comes straight back and nothing said so"
+        % (fx.clone, fx.work) + _ctx(r))
+    assert "is not this install dir" in out, (
+        "the mismatch must be NAMED, not merely alluded to" + _ctx(r))
+    assert os.path.join(fx.work, "BulkDownloader") in out, (
+        "the warning must print the path capture.sh will actually read, so the "
+        "operator can act on it without re-deriving the default" + _ctx(r))
+
+    # (b) BD_HOME unset, and $HOME/BulkDownloader IS this install dir -> silent.
+    fx2 = _setup()
+    fx2.env.pop("BD_HOME", None)
+    os.symlink(fx2.clone, os.path.join(fx2.work, "BulkDownloader"))
+    _bundle_current(fx2)
+
+    r2 = _deploy(fx2)
+
+    assert r2.returncode == 0, _ctx(r2)
+    assert "is not this install dir" not in _out(r2), (
+        "the effective BD_HOME resolves to this very install dir, so there is "
+        "nothing to warn about; a gate that fires on identity gets switched off"
+        + _ctx(r2))
