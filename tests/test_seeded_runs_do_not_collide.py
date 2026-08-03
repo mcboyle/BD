@@ -13,13 +13,16 @@ That timestamp is the PREVIOUS capture. Nothing downloaded, ~/Downloads stayed
 empty, and L11 and L12 reported "no completed downloads" -- which reads as BD
 failing, when BD correctly recognised a URL it had already fetched.
 
-seeded_url() returned a byte-identical URL on every run, and history is
-append-only: db_log() is its only writer and db_prune() -- which deletes by AGE,
-not by marker -- its only deleter. Re-derived 2026-07-29 rather than inherited:
-/api/history/prune takes only `days`, and DELETE /api/library/<lid> removes
-library rows, not history rows. There is no marker-scoped history delete over
-HTTP, so teardown structurally cannot remove what a completed seeded download
-leaves behind.
+seeded_url() returned a byte-identical URL on every run. The diagnosis
+recorded here originally claimed history is append-only -- db_log() its only
+writer, db_prune() (by AGE, not by marker) its only deleter -- so teardown
+structurally could not remove what a completed seeded download leaves behind.
+That claim was FALSE: bulk_downloader/db.py:988-992 records the retraction
+(batch_ops.bulk_delete issues DELETE FROM history WHERE id = ? and is
+reachable over HTTP at POST /api/batch/delete), and `--teardown
+--clear-history` now uses exactly that route. The fix below predates the
+clear and stands without it: the clear is OPT-IN, so runs must not collide
+when nobody passes it.
 
 So the seed set could exercise a real download exactly ONCE, ever, until the
 rows aged out. Every capture after the first measured dedup instead of download,

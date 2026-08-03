@@ -1,145 +1,607 @@
 #!/usr/bin/env bash
 #
-# deploy.sh (F0.1) — one-command operator deploy for BulkDownloader on stash.
+# deploy.sh -- the GIT deploy path for BulkDownloader on the box.
 #
-# Automates the exact sequence the operating instructions spell out by hand, so
-# the load-bearing pycache sweep and the post-restart /api/health confirmation
-# can never be skipped:
+# WHAT REPLACED WHAT. This file used to drive the F0.1 ZIP OVERLAY deploy
+# (--zip, a sha256 gate over a release archive, `unzip -o`). CLAUDE.md section 7
+# records that the box now updates with `git fetch origin main` +
+# `git reset --hard origin/main` + a service restart, and that "there is no zip
+# overlay and no zip fallback". A script that automates a deploy path nobody
+# runs is a gate whose subject no longer exists.
 #
-#   1. sha256-verify the release zip against an expected digest
-#   2. unzip -o over the install dir (optionally excluding live-edited cockpit files)
-#   3. sweep __pycache__ dirs AND stray *.pyc  (stale bytecode runs otherwise)
-#   4. restart the service
-#   5. poll /api/health until "version" == expected (loud FAIL on timeout)
-#   6. confirm the venv resolves the cloakbrowser backend
+# WHY IT IS NOT JUST THOSE THREE COMMANDS. A deploy MOVES FILES. IT DOES NOT
+# MAKE THE RUNNING SYSTEM MATCH THEM. Every step below closes a gap that
+# survived the move from `unzip -o` to git, because not one of them was ever a
+# property of the overlay either:
 #
-# Operator-executed only. stdlib/coreutils + curl; no Python deps. Bash, because
-# the install host runs bash; `bash -n` must parse it clean.
+#   * requirements.txt gains an entry and NOTHING on the deploy path runs pip
+#     (the only `pip install -r` callers are install_linux.sh and
+#     scripts/cloud-setup.sh, neither of which runs on a git deploy). lxml was
+#     declared and the box never installed it.
+#   * frontend/dist/ holds ZERO tracked files and is gitignored, so git never
+#     delivers it. A missing or stale bundle is a silent 503.
+#   * __pycache__/*.pyc are not cleared by `git reset --hard` (the v3.66.161
+#     stale-bytecode footgun).
+#   * reports/gui_parity_inventory.json is gitignored and build-time generated;
+#     `git clean -fd` cannot evict it (that needs -x). A stale copy reads as
+#     parity drift and failed an otherwise-green 13389-pass run at v3.66.818.
+#   * the graph content pin lives OUTSIDE the repo under /var/lib/, so a reset
+#     never delivers it either, and capture.sh step [2b] then reports drift
+#     which capture_verdict.py turns into a whole-capture FAIL.
+#   * the service is not restarted, so the process keeps running the old tree.
 #
-# Every external command is taken from PATH and the destructive/privileged steps
-# are env-overridable, so the test harness can shim curl/systemctl and point the
-# script at a scratch dir without touching a real service.
+# THE DESIGN RULE (CLAUDE.md section 0). Every step VERIFIES what it did rather
+# than assuming the command that exited 0 achieved it, and a step that cannot
+# verify SAYS SO AND FAILS -- unknown is a third state. Concretely: pip exiting 0
+# is not proof a requirement resolves; `npm run build` exiting 0 is not proof a
+# bundle exists; `systemctl stop` exiting 0 is not proof the unit is inactive;
+# --write-hash exiting 0 is not proof the gate can read the pin; and a health
+# probe that cannot reach the port is UNKNOWN, not "down" and certainly not
+# "up". The inverse rule applies with equal force: a deploy that changes
+# nothing must say "already current" and exit 0, never manufacture drift -- a
+# gate that cries wolf gets switched off.
+#
+# NOTHING IS DESTROYED SILENTLY. `git reset --hard` has no equivalent of
+# `unzip -x`, so it discards operator live-edits the overlay was configured to
+# preserve (GATE_AUTHORITY.md section C). This script REFUSES rather than
+# resetting over them, and prints exactly what it would have destroyed.
+#
+# EXIT CODES (the caller's remedy differs for each; mirrors bd-guardcheck):
+#   0  deployed-and-verified, OR already-current-and-verified
+#   1  a step or a verification FAILED -- the state is NOT known good
+#   2  refusal / precondition -- NOTHING was mutated; fix the inputs
 #
 # Flags:
-#   --zip PATH         release zip to deploy            (required)
-#   --expect VERSION   version /api/health must report  (required)
-#   --sha SHA256       expected sha256 of the zip       (required unless --skip-sha)
-#   --dir PATH         install dir (default: $BD_DEPLOY_DIR or ~/BulkDownloader)
-#   --health-url URL   (default: http://localhost:5555/api/health)
-#   --timeout SECS     health-poll budget               (default 60)
-#   --interval SECS    health-poll interval             (default 2)
-#   --exclude-cockpit  skip tools/cockpit_console.py + ENDPOINT_CATALOG.md
-#   --skip-sha         skip the sha gate (NOT recommended; prints a warning)
-#   --skip-backend-check  skip the venv resolve_backend() check
+#   --dir PATH        install dir (default: $BD_DEPLOY_DIR, else ~/BulkDownloader)
+#   --discard-local   proceed over operator live edits, after listing them
+#   --skip-graph-pin  skip the graph content re-pin (the next capture WILL drift)
+#   --health-url URL  (default: http://localhost:5555/api/health)
+#   --timeout SECS    health-poll budget    (default 120)
+#   --interval SECS   health-poll interval  (default 2)
+#   -h, --help        print this usage and exit 0 WITHOUT touching anything
 #
-# Env overrides (for tests / unusual hosts):
+# Env overrides (all four are already ledgered in reports/config_gui_manifest.json;
+# do NOT introduce a new BD_-prefixed name here -- the config-surface scan globs
+# scripts/*.sh for the BD_ prefix, so even a shell local enters the ledger
+# denominator and reads as promoted-but-unledgered, which is how v3.66.836 failed
+# the parity gate on the box):
 #   BD_DEPLOY_DIR      default install dir
-#   BD_RESTART_CMD     restart command (default: "sudo systemctl restart bulkdownloader")
 #   BD_VENV_PYTHON     venv python (default: "$DIR/venv/bin/python")
+#   BD_GRAPH_HASH_PIN  graph content pin path; the default below MUST stay
+#                      byte-identical to capture.sh's and provision_test_host.sh's
+#   BD_RESTART_CMD     the zip era's whole-restart override. It cannot express
+#                      this script's stopped window, so it is REFUSED rather than
+#                      silently ignored -- see step [0].
+#
+# There is no --expect flag: the expected version is DERIVED from the tree this
+# script just reset to, so it cannot disagree with what was deployed.
+#
+# Operator-executed. coreutils + git + curl; the only Python it runs is the
+# tree's own tools under the venv interpreter.
 #
 set -euo pipefail
 
-die()  { printf 'deploy.sh: FAIL: %s\n' "$*" >&2; exit 1; }
-note() { printf 'deploy.sh: %s\n' "$*"; }
+STEP=0
+die()    { printf 'deploy.sh: FAIL [step %s]: %s\n' "$STEP" "$*" >&2; exit 1; }
+refuse() { printf 'deploy.sh: REFUSED [step %s]: %s\n' "$STEP" "$*" >&2; exit 2; }
+note()   { printf 'deploy.sh: [step %s] %s\n' "$STEP" "$*"; }
 
-CALLER_DIR="$(pwd -P)"
-ZIP=""; EXPECT=""; SHA=""; DIR="${BD_DEPLOY_DIR:-$HOME/BulkDownloader}"
+usage() {
+  # Printed verbatim. Deliberately NOT sliced out of this file's own comment
+  # header by line number: a fixed-width / fixed-line window silently starts
+  # quoting the wrong thing the moment anything above it moves.
+  cat <<'USAGE'
+deploy.sh -- the git deploy path for BulkDownloader.
+
+  --dir PATH        install dir (default: $BD_DEPLOY_DIR, else ~/BulkDownloader)
+  --discard-local   proceed over operator live edits, after listing them
+  --skip-graph-pin  skip the graph content re-pin (the next capture WILL drift)
+  --health-url URL  default http://localhost:5555/api/health
+  --timeout SECS    health-poll budget    (default 120)
+  --interval SECS   health-poll interval  (default 2)
+  -h, --help        print this and exit 0 without touching anything
+
+exit 0  deployed-and-verified, or already-current-and-verified
+exit 1  a step or a verification FAILED -- the state is NOT known good
+exit 2  refusal / precondition -- NOTHING was mutated
+USAGE
+}
+
+DIR=""
+DISCARD=0
+SKIP_GRAPH=0
 HEALTH_URL="http://localhost:5555/api/health"
-TIMEOUT=60; INTERVAL=2
-EXCLUDE_COCKPIT=0; SKIP_SHA=0; SKIP_BACKEND=0
+TIMEOUT=120
+INTERVAL=2
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --zip)        ZIP="${2:-}"; shift 2;;
-    --expect)     EXPECT="${2:-}"; shift 2;;
-    --sha)        SHA="${2:-}"; shift 2;;
-    --dir)        DIR="${2:-}"; shift 2;;
-    --health-url) HEALTH_URL="${2:-}"; shift 2;;
-    --timeout)    TIMEOUT="${2:-}"; shift 2;;
-    --interval)   INTERVAL="${2:-}"; shift 2;;
-    --exclude-cockpit)   EXCLUDE_COCKPIT=1; shift;;
-    --skip-sha)          SKIP_SHA=1; shift;;
-    --skip-backend-check) SKIP_BACKEND=1; shift;;
-    *) die "unknown argument: $1";;
+    --dir)            DIR="${2:-}"; shift 2;;
+    --discard-local)  DISCARD=1; shift;;
+    --skip-graph-pin) SKIP_GRAPH=1; shift;;
+    --health-url)     HEALTH_URL="${2:-}"; shift 2;;
+    --timeout)        TIMEOUT="${2:-}"; shift 2;;
+    --interval)       INTERVAL="${2:-}"; shift 2;;
+    -h|--help)        usage; exit 0;;
+    *) refuse "unknown argument: $1";;
   esac
 done
 
-[ -n "$ZIP" ]    || die "--zip is required"
-[ -n "$EXPECT" ] || die "--expect <version> is required"
-[ -f "$ZIP" ]    || die "zip not found: $ZIP"
-[ -d "$DIR" ]    || die "install dir not found: $DIR"
+# ── [0] preconditions -- refuse before mutating anything ─────────────
+# Everything here is checked BEFORE the first side effect, so exit 2 always
+# means the tree, the service and the pin are exactly as they were.
+
+case "$TIMEOUT" in ''|*[!0-9]*) refuse "--timeout must be a whole number of seconds, got: $TIMEOUT";; esac
+case "$INTERVAL" in ''|*[!0-9]*) refuse "--interval must be a whole number of seconds, got: $INTERVAL";; esac
+[ "$INTERVAL" -gt 0 ] || refuse "--interval must be greater than 0"
+
+# BD_RESTART_CMD is honoured by being REFUSED, not by being ignored. The zip
+# deploy restarted in one command; this one needs a STOPPED WINDOW (the bytecode
+# sweep and the parity regen are unsafe against a live service), so a
+# whole-restart override cannot be expressed here. Silently dropping an override
+# the operator deliberately set is the same class of defect as a gate that
+# cannot see its subject: it reports success having ignored the question.
+if [ -n "${BD_RESTART_CMD:-}" ]; then
+  refuse "BD_RESTART_CMD is set ($BD_RESTART_CMD) but this deploy needs a STOPPED
+  WINDOW, not a restart: the bytecode sweep (step 9) and the parity inventory
+  regen (step 10) must run while the unit is confirmed inactive. It is refused
+  rather than ignored so the setting cannot silently do nothing. Unset it; the
+  service commands are 'sudo systemctl stop|start bulkdownloader'."
+fi
+
+# The cwd is deliberately NOT a fallback for --dir. A deploy that infers its
+# target from wherever you happen to be standing will `git reset --hard` that
+# tree, and the whole point of step [3] is that this script does not destroy
+# work by surprise. An absent default dir is a refusal, which costs the operator
+# one flag; guessing costs a work tree.
+[ -n "$DIR" ] || DIR="${BD_DEPLOY_DIR:-$HOME/BulkDownloader}"
+[ -d "$DIR" ] || refuse "install dir not found: $DIR (pass --dir, or set BD_DEPLOY_DIR)"
 DIR="$(cd "$DIR" && pwd -P)"
+[ -e "$DIR/.git" ] || refuse "not a git work tree: $DIR"
+[ -f "$DIR/bulk_downloader/__init__.py" ] \
+  || refuse "not a BulkDownloader tree (no bulk_downloader/__init__.py): $DIR"
+command -v git >/dev/null 2>&1 || refuse "git is not on PATH"
+command -v curl >/dev/null 2>&1 || refuse "curl is not on PATH"
 
-RESTART_CMD="${BD_RESTART_CMD:-sudo systemctl restart bulkdownloader}"
-case "${BD_VENV_PYTHON:-}" in
-  "") VENV_PY="$DIR/venv/bin/python";;
-  /*) VENV_PY="$BD_VENV_PYTHON";;
-  *)  VENV_PY="$CALLER_DIR/$BD_VENV_PYTHON";;
-esac
+VENV_PY="${BD_VENV_PYTHON:-$DIR/venv/bin/python}"
+[ -x "$VENV_PY" ] || refuse "venv python is not executable: $VENV_PY"
 
-# ── 1. sha256 gate ────────────────────────────────────────────────
-if [ "$SKIP_SHA" -eq 1 ]; then
-  note "WARNING: --skip-sha set; not verifying zip integrity"
+GTMP=""
+cleanup() { if [ -n "$GTMP" ]; then rm -rf -- "$GTMP"; fi; }
+trap cleanup EXIT
+
+cd "$DIR"
+note "preconditions OK: $DIR (venv python: $VENV_PY)"
+
+# ── [1] fetch ───────────────────────────────────────────────────────
+# Bare `--prune origin`, never a refspec-scoped prune. GitHub's auto-delete
+# removes a merged head branch but the local origin/<branch> ref survives as a
+# dead baseline; a refspec-scoped prune (`--prune origin main`) collects nothing
+# else and leaves every other stale ref in place (CLAUDE.md section 2a).
+STEP=1
+git fetch --prune origin >/dev/null 2>&1 || die "git fetch --prune origin failed"
+NEW="$(git rev-parse origin/main 2>/dev/null || true)"
+[ -n "$NEW" ] || die "origin/main does not resolve after a successful fetch"
+note "fetched; origin/main = $NEW"
+
+# ── [2] show what is about to land, BEFORE any mutation ─────────────
+STEP=2
+OLD="$(git rev-parse HEAD)"
+if [ "$OLD" = "$NEW" ]; then
+  SAME=1
+  note "source already current at $OLD"
 else
-  [ -n "$SHA" ] || die "--sha is required (or pass --skip-sha)"
-  command -v sha256sum >/dev/null 2>&1 || die "sha256sum not on PATH"
-  GOT="$(sha256sum "$ZIP" | awk '{print $1}')"
-  [ "$GOT" = "$SHA" ] || die "sha256 mismatch: expected $SHA got $GOT"
-  note "sha256 OK ($GOT)"
+  SAME=0
+  note "incoming commits (HEAD..origin/main):"
+  git log --oneline HEAD..origin/main
+  note "incoming diffstat:"
+  git diff --stat HEAD origin/main
 fi
 
-# ── 2. unzip overlay ──────────────────────────────────────────────
-command -v unzip >/dev/null 2>&1 || die "unzip not on PATH"
-UNZIP_ARGS=(-o "$ZIP" -d "$DIR")
-if [ "$EXCLUDE_COCKPIT" -eq 1 ]; then
-  UNZIP_ARGS+=(-x "tools/cockpit_console.py" "ENDPOINT_CATALOG.md")
-  note "excluding live-edited cockpit files from overlay"
+# ── [3] operator live-edit gate ─────────────────────────────────────
+# Refusal, not a prompt: this must be safe to run non-interactively, and the
+# operator's remedy is already written down (commit the work -- GATE_AUTHORITY.md
+# section C names the cockpit_console.py case specifically).
+STEP=3
+
+# Untracked, non-ignored files are reported for information only. `git reset
+# --hard` does not delete them, so they are not at risk and must not block a
+# deploy -- blocking on something that cannot be lost is a gate firing on
+# identity.
+UNTRACKED="$(git ls-files --others --exclude-standard)"
+if [ -n "$UNTRACKED" ]; then
+  note "untracked files present (a reset will NOT delete these):"
+  printf '%s\n' "$UNTRACKED"
 fi
-unzip "${UNZIP_ARGS[@]}" >/dev/null || die "unzip failed"
-note "overlay applied to $DIR"
 
-# ── 3. pycache sweep (load-bearing) ───────────────────────────────
-find "$DIR" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
-find "$DIR" -name '*.pyc' -delete 2>/dev/null || true
-note "bytecode caches cleared"
+DIRTY="$(git status --porcelain --untracked-files=no)"
 
-# ── 4. restart ────────────────────────────────────────────────────
-note "restarting service: $RESTART_CMD"
-$RESTART_CMD || die "service restart failed"
+# Committed-but-unpushed work is destroyed by `git reset --hard` just as surely
+# as an uncommitted edit, and `git status` is silent about it. Ask the question
+# git actually answers: is HEAD an ancestor of what we are about to reset to?
+LOCAL_COMMITS=""
+if [ "$SAME" -eq 0 ] && ! git merge-base --is-ancestor HEAD origin/main; then
+  LOCAL_COMMITS="$(git log --oneline origin/main..HEAD)"
+fi
 
-# ── 5. health poll ────────────────────────────────────────────────
-command -v curl >/dev/null 2>&1 || die "curl not on PATH"
-note "polling $HEALTH_URL for version==$EXPECT (timeout ${TIMEOUT}s)"
-deadline=$(( $(date +%s) + TIMEOUT ))
-got_version=""
-while [ "$(date +%s)" -lt "$deadline" ]; do
-  body="$(curl -s --max-time 5 "$HEALTH_URL" 2>/dev/null || true)"
-  # extract "version":"x.y.z" without a JSON parser (coreutils only)
-  got_version="$(printf '%s' "$body" \
-      | grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' \
-      | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')" \
-    || got_version=""
-  if [ "$got_version" = "$EXPECT" ]; then
-    note "/api/health version==$EXPECT confirmed"
-    break
+if [ -n "$DIRTY" ] || [ -n "$LOCAL_COMMITS" ]; then
+  if [ -n "$DIRTY" ]; then
+    note "local modifications a reset would DESTROY:"
+    printf '%s\n' "$DIRTY"
+    git diff --stat || true
   fi
+  if [ -n "$LOCAL_COMMITS" ]; then
+    note "commits on HEAD that are NOT in origin/main and would be DESTROYED:"
+    printf '%s\n' "$LOCAL_COMMITS"
+  fi
+  if [ "$DISCARD" -eq 0 ]; then
+    refuse "refusing to discard operator work listed above. Commit it (see
+  GATE_AUTHORITY.md section C) and push, or re-run with --discard-local to
+  destroy it deliberately. Nothing has been changed."
+  fi
+  note "--discard-local given: the work listed above is being DESTROYED"
+fi
+
+# ── [4] reset ───────────────────────────────────────────────────────
+#
+# SELF-MODIFICATION CAVEAT -- an improvement to any step BELOW lands one deploy
+# late. This script is one of the files `git reset --hard` replaces, but the
+# running bash keeps reading from the file descriptor it opened at exec time,
+# and git does not rewrite the file in place: it writes a new object and renames
+# it over the path, so the path gets a NEW inode and the old one stays open and
+# intact behind our fd. Every line from here to [13] therefore executes the
+# PRE-reset copy. The version that ran is not the version now on disk.
+#
+# MEASURED, not reasoned about (2026-08-03): a two-commit reproduction in which
+# the only difference between the deployed and the incoming script was a line
+# AFTER the reset printed the OLD line's text while `grep` on the same file
+# immediately afterwards showed the NEW text; `ls -i` went 1992621 -> 1992622
+# across the reset, confirming the rename/new-inode mechanism.
+#
+# Consequences worth knowing rather than rediscovering:
+#   * the fd is bound to a whole, consistent file, so this is NOT the classic
+#     mid-execution corruption of editing a running script in place -- the old
+#     content runs to completion correctly;
+#   * a fix to steps [5]-[13] first takes effect on the deploy AFTER the one
+#     that delivers it, so a deploy that lands such a fix must be followed by a
+#     second run before the fix can be said to have executed here;
+#   * steps [0]-[3] above the reset are the only ones that run at the version
+#     being deployed;
+#   * so do not read a green run of this script as evidence that the step
+#     changes it just delivered are correct. Nothing below has been exercised.
+# Not restructured: re-exec'ing the post-reset copy would silently change which
+# code the operator authorized to run, which is a worse property than lateness.
+STEP=4
+git reset --hard origin/main >/dev/null || die "git reset --hard origin/main failed"
+[ "$(git rev-parse HEAD)" = "$NEW" ] \
+  || die "reset reported success but HEAD is $(git rev-parse HEAD), not $NEW"
+note "tree reset to $NEW"
+
+# The version the health gate will demand is DERIVED from the tree that was just
+# deployed, never passed in. An --expect flag can disagree with what actually
+# landed; this cannot. Read with sed so it costs no interpreter start and cannot
+# import a half-installed package.
+TREE_VERSION="$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+    bulk_downloader/__init__.py | head -1)"
+[ -n "$TREE_VERSION" ] \
+  || die "could not derive __version__ from bulk_downloader/__init__.py after the reset"
+note "tree version is $TREE_VERSION"
+
+# ── [5] requirements converge ───────────────────────────────────────
+# Keyed on the CHECK, not on the diff: a requirements change pulled in by an
+# earlier unscripted deploy still converges here. `pip check` cannot answer this
+# -- its denominator is the set of INSTALLED distributions, which structurally
+# excludes an uninstalled requirement (CLAUDE.md section 5).
+STEP=5
+DID_PIP=0
+REQ_RC=0
+MISSING="$("$VENV_PY" tools/check_requirements.py)" || REQ_RC=$?
+if [ "$REQ_RC" -eq 2 ]; then
+  die "requirements check could not evaluate requirements.txt -- treat as NOT
+  satisfied. Unknown is a third state and it fails; rendering it as 'satisfied'
+  is the defect this check exists to prevent."
+elif [ "$REQ_RC" -ne 0 ]; then
+  note "requirements that do not resolve: $MISSING -- installing"
+  "$VENV_PY" -m pip install -r requirements.txt \
+    || die "pip install -r requirements.txt failed (missing: $MISSING)"
+  DID_PIP=1
+  # pip exiting 0 is not resolution. Re-ask the same question with the same
+  # instrument, against the same interpreter.
+  REQ_RC=0
+  MISSING="$("$VENV_PY" tools/check_requirements.py)" || REQ_RC=$?
+  if [ "$REQ_RC" -eq 2 ]; then
+    die "requirements check could not evaluate requirements.txt after the install"
+  elif [ "$REQ_RC" -ne 0 ]; then
+    die "still unresolved after pip install -r requirements.txt: $MISSING"
+  fi
+  note "requirements now resolve under $VENV_PY"
+else
+  note "every requirements.txt entry already resolves; pip skipped"
+fi
+
+# ── [6] frontend bundle, keyed on CONTENT ───────────────────────────
+# frontend/dist/ is gitignored with zero tracked files, so the deploy never
+# delivers it and its staleness is invisible to git. The marker records WHICH
+# COMMIT the bundle was built from, so an unchanged tree never rebuilds and
+# never reports drift. Attesting over content rather than over a timestamp is
+# the anti-identity rule: a pin that hashed a wall-clock field once made an
+# unchanged tree "change" on every run, and two sessions tried to reconcile a
+# diff that did not exist.
+STEP=6
+MARKER="frontend/dist/.bd-built-from"
+DID_BUILD=0
+NEED_BUILD=0
+if [ ! -f "$MARKER" ]; then
+  NEED_BUILD=1
+  note "no bundle marker at $MARKER; the bundle's provenance is UNKNOWN, rebuilding"
+else
+  MARKED="$(tr -d ' \t\n\r' < "$MARKER")"
+  if ! git rev-parse --verify --quiet "${MARKED}^{commit}" >/dev/null 2>&1; then
+    # Unknown provenance fails TOWARD doing the work, never toward skipping it.
+    NEED_BUILD=1
+    note "bundle marker names an unresolvable commit ($MARKED); rebuilding"
+  elif ! git diff --quiet "$MARKED" HEAD -- frontend/; then
+    NEED_BUILD=1
+    note "frontend/ changed between $MARKED and HEAD; rebuilding"
+  else
+    note "bundle was built from $MARKED and frontend/ is unchanged; build skipped"
+  fi
+fi
+if [ "$NEED_BUILD" -eq 1 ]; then
+  command -v npm >/dev/null 2>&1 || die "npm is not on PATH but the bundle needs rebuilding"
+  ( cd frontend && npm ci --no-audit --no-fund ) >/dev/null || die "npm ci failed"
+  ( cd frontend && npm run build ) >/dev/null || die "npm run build failed"
+  DID_BUILD=1
+fi
+# Read the artifact back on BOTH paths -- built and skipped. `tsc -b && vite
+# build` can exit 0 having written nothing the app can serve, and the thing
+# every consumer needs is the entry point. This is the same discipline as the
+# parity read-back below and the graph pin's --check-hash.
+[ -f frontend/dist/index.html ] \
+  || die "frontend/dist/index.html is absent. Exit 0 from the build is not the
+  property anyone depends on: bulk_downloader/app.py cannot serve an absent
+  bundle, so every asset route answers 503 and nothing else says why."
+if [ "$DID_BUILD" -eq 1 ]; then
+  printf '%s\n' "$NEW" > "$MARKER"
+  note "bundle rebuilt from $NEW and marker updated"
+else
+  note "frontend/dist/index.html present"
+fi
+
+# ── [7] graph content pin ───────────────────────────────────────────
+# The pin lives OUTSIDE the repo, so `git reset --hard` never delivers it and a
+# source change leaves it describing the previous tree. capture.sh step [2b]
+# then reports drift and capture_verdict.py turns that stage exit into a
+# whole-capture FAIL. This is the step that keeps getting left off the
+# post-deploy checklist, which is why it is in the script and on by default.
+STEP=7
+if [ "$SKIP_GRAPH" -eq 1 ]; then
+  note "WARNING: --skip-graph-pin given. The pin still describes the PREVIOUS
+  tree, so the next ./capture.sh step [2b] will report graph drift and
+  capture_verdict.py will fail the whole capture. Re-pin by hand before running it."
+else
+  # This default MUST stay byte-identical to capture.sh's and
+  # provision_test_host.sh's. If they drift, this step arms a file the gate
+  # never reads and BOTH report success -- two green tools and no gate.
+  PIN="${BD_GRAPH_HASH_PIN:-/var/lib/bulkdownloader/validation/KNOWLEDGE_GRAPH.content.sha256}"
+  GTMP="$(mktemp -d "${TMPDIR:-/tmp}/bd_deploy_graph.XXXXXX")" \
+    || die "mktemp failed; cannot build a throwaway graph to pin against"
+  GDB="$GTMP/KNOWLEDGE_GRAPH.db"
+
+  # UNELEVATED. Running l0_extract under sudo builds with HOME=/root -- the
+  # CLAUDE.md section 5 footgun -- and can drop root-owned files in the tree.
+  "$VENV_PY" tools/l0_extract.py --root "$DIR" --db "$GDB" >/dev/null \
+    || die "graph extract failed; the content pin was NOT updated"
+
+  # sudo wraps ONLY the pin write and its directory plumbing. --write-hash sets
+  # projection_mode false and returns before emitting any projection, so
+  # elevating just this call cannot write anything into the work tree.
+  sudo mkdir -p "$(dirname "$PIN")" 2>/dev/null || true
+  sudo "$VENV_PY" tools/graph_build.py --db "$GDB" --hash-pin "$PIN" --write-hash >/dev/null \
+    || die "graph content pin write failed: $PIN"
+  # Root writes with root's umask; at 077 the pin lands 0600 and the gate then
+  # takes its `[ ! -r ]` branch, which is UNKNOWN and returns 0 -- the silent
+  # skip this step exists to remove, now with a pin that exists.
+  sudo chmod 0644 "$PIN" 2>/dev/null || true
+
+  # Exit 0 from --write-hash proves a WRITE, not that capture.sh can READ and
+  # MATCH the result. Re-run the gate's own check AS THE INVOKING USER -- never
+  # under sudo -- because that is the condition capture.sh will actually evaluate.
+  "$VENV_PY" tools/graph_build.py --db "$GDB" --hash-pin "$PIN" --check-hash >/dev/null \
+    || die "graph content pin --check-hash did not verify as $(id -un): $PIN.
+  The pin is unreadable or does not match, so capture.sh step [2b] will skip or
+  fail the graph gate."
+  rm -rf -- "$GTMP"; GTMP=""
+  note "graph content pin written and verified readable+matching as $(id -un)"
+fi
+
+# ── [8] stop the service ────────────────────────────────────────────
+# `systemctl stop` returning 0 is a request that was accepted, not a unit that
+# is down. Steps 9 and 10 are unsafe against a live service, so the stop is
+# CONFIRMED before either runs.
+STEP=8
+sudo systemctl stop bulkdownloader || die "sudo systemctl stop bulkdownloader failed"
+if systemctl is-active bulkdownloader >/dev/null 2>&1; then
+  die "systemctl stop bulkdownloader returned success but the unit is STILL
+  ACTIVE. The bytecode sweep and the parity regen that follow are unsafe against
+  a live service, so this deploy stops here rather than running them anyway."
+fi
+note "service stopped and confirmed inactive"
+
+# ── [9] bytecode sweep, in the stopped window ───────────────────────
+# `git reset --hard` does not clear __pycache__, and stale bytecode outliving
+# the source it was compiled from is the v3.66.161 footgun. venv/ and
+# node_modules/ are PRUNED: deleting the interpreter's own cached bytecode is
+# gratuitous, slow, and buys nothing -- those trees are not what the deploy moved.
+STEP=9
+_sweep_candidates() {
+  find "$DIR" \
+    \( -path "$DIR/venv" -o -path "$DIR/frontend/node_modules" -o -path "$DIR/.git" \) -prune \
+    -o \( -name '__pycache__' -type d -o -name '*.pyc' -type f \) -print0 2>/dev/null \
+    || true
+}
+_sweep_candidates | xargs -0 -r rm -rf --
+# The verifier shares its denominator with the sweep -- literally the same
+# producer -- so it cannot certify a region the sweep never visited.
+LEFT="$(_sweep_candidates | tr -dc '\0' | wc -c | tr -d ' ')"
+[ "$LEFT" -eq 0 ] || die "bytecode sweep left $LEFT entries behind under $DIR"
+note "bytecode caches cleared (venv/, frontend/node_modules/ and .git/ pruned)"
+
+# ── [10] parity inventory regen, in the stopped window ──────────────
+# reports/gui_parity_inventory.json is gitignored and build-time generated, so
+# a stale copy survives every deploy with nothing able to evict it, and the
+# reconcile gate then reads it as inventory drift and fails the ENTIRE suite
+# (observed at v3.66.818 as one failure on an otherwise-green 13389-pass run).
+#
+# THE POSITION IS LOAD-BEARING, exactly as capture.sh step [2a] documents: the
+# tool does `import bulk_downloader.app`, and that module's TOP LEVEL runs
+# db_init(), db_integrity_check() and five scheduler/thread groups on import.
+# Run against a live service that is a SECOND process doing a SQLite integrity
+# check against the database the service is serving. It must run only in the
+# confirmed-inactive window opened by step [8], and after the sweep in step [9]
+# so it cannot read stale bytecode.
+STEP=10
+"$VENV_PY" tools/gui_parity_inventory.py >/dev/null \
+  || die "gui parity inventory regen failed; the stale copy is still on disk and
+  will read as inventory drift"
+PARITY_JSON="reports/gui_parity_inventory.json"
+[ -f "$PARITY_JSON" ] \
+  || die "the inventory regen exited 0 but $DIR/$PARITY_JSON does not exist"
+
+# Exit 0 is NOT sufficient evidence of a good regen: the generator falls back to
+# ENDPOINT_CATALOG.md when the app import raises, writes a catalog-derived item
+# set, and STILL RETURNS 0. So the written file is read back. Two independent
+# questions, deliberately not merged:
+#   (a) does it PARSE? A half-written or truncated file can still contain the
+#       route_source line while json.load raises -- and json.load is exactly what
+#       the reconcile gate will do to it.
+#   (b) is it APP-DERIVED? One spelling of this predicate, whitespace-tolerant,
+#       so a change to how the tool serialises (indent, key separator) cannot
+#       turn a perfectly good inventory into a reported failure. capture.sh
+#       warns about the strict-literal form for precisely that reason.
+"$VENV_PY" -c 'import json, sys; json.load(open(sys.argv[1], encoding="utf-8"))' \
+    "$PARITY_JSON" >/dev/null 2>&1 \
+  || die "$PARITY_JSON will not parse as JSON; the reconcile gate does json.load
+  on this file, so it would fail the suite"
+ROUTE_SOURCE="$(grep -o '"route_source"[[:space:]]*:[[:space:]]*"[^"]*"' "$PARITY_JSON" \
+    | head -1 \
+    | sed 's/.*:[[:space:]]*"\([^"]*\)".*/\1/')" || ROUTE_SOURCE=""
+if [ "$ROUTE_SOURCE" != "live url_map" ]; then
+  die "the parity inventory was built from '${ROUTE_SOURCE:-<no route_source>}',
+  not the live url_map: the app import degraded silently and the tool still
+  exited 0, so the item set is catalog-derived and the reconcile gate will
+  report inventory drift."
+fi
+note "parity inventory regenerated from the live url_map"
+
+# capture.sh reads "\$BD_HOME/reports/gui_parity_inventory.json" after cd'ing to
+# BD_HOME, i.e. it assumes BD_HOME IS the install dir. Where that does not hold,
+# the copy refreshed above is not the copy the suite reads, and the v3.66.818
+# staleness comes straight back. Say so rather than assume it away.
+#
+# The comparison is against capture.sh's EFFECTIVE BD_HOME, not against the
+# environment. capture.sh:55 is `BD_HOME="${BD_HOME:-$HOME/BulkDownloader}"` --
+# it DEFAULTS the variable, so the question "will the suite read the copy just
+# refreshed here" has an answer whether or not BD_HOME is exported. Gating the
+# warning on `[ -n "$BD_HOME" ]` asked a different question and reported clean
+# in the default case, which is the common one: an operator exports BD_HOME by
+# hand only when they already suspect a mismatch, i.e. exactly when the warning
+# is least needed (CLAUDE.md section 0). The name is lowercase on purpose --
+# a BD_-prefixed shell local enters tests/test_gui_parity.py's scan denominator
+# and reads as promoted-but-unledgered (CLAUDE.md section 4).
+capture_home="${BD_HOME:-$HOME/BulkDownloader}"
+capture_home_real="$(cd "$capture_home" 2>/dev/null && pwd -P || true)"
+if [ -z "$capture_home_real" ]; then
+  note "WARNING: capture.sh will read the parity inventory from
+  $capture_home/reports/ (\$BD_HOME, defaulting to \$HOME/BulkDownloader), and that
+  directory does not exist -- so it is not this install dir $DIR, and the copy
+  just refreshed here is not the one the suite will read."
+elif [ "$capture_home_real" != "$DIR" ]; then
+  note "WARNING: capture.sh will read the parity inventory from
+  $capture_home/reports/ (\$BD_HOME, defaulting to \$HOME/BulkDownloader), which
+  is not this install dir $DIR, so the copy just refreshed here is not the one
+  the suite will read."
+fi
+
+# ── [11] start the service ──────────────────────────────────────────
+# No verification here on purpose: `systemctl start` exiting 0 says the unit was
+# launched, not that the app is serving the tree we just deployed. Step [12] is
+# this step's verification.
+STEP=11
+sudo systemctl start bulkdownloader || die "sudo systemctl start bulkdownloader failed"
+note "service start requested; verifying by health probe"
+
+# ── [12] health gate ────────────────────────────────────────────────
+# Three failures look identical from a bare "it didn't come up" and have three
+# different remedies, so they are diagnosed separately and never conflated.
+STEP=12
+ROOT_URL="${HEALTH_URL%/api/health}/"
+deadline=$(( $(date +%s) + TIMEOUT ))
+got=""
+code=""
+while :; do
+  bodyf="$(mktemp)"
+  code="$(curl -s -o "$bodyf" -w '%{http_code}' --max-time 5 "$HEALTH_URL" 2>/dev/null)" || true
+  [ -n "$code" ] || code="000"
+  body="$(cat "$bodyf")"
+  rm -f "$bodyf"
+
+  # A 503 is a DEFINITE answer, not a not-yet: bulk_downloader/app.py serves it
+  # when the SPA bundle is absent. Polling a definite answer for the full budget
+  # only wastes the operator's time.
+  if [ "$code" = "503" ]; then
+    die "GET $HEALTH_URL returned 503 -- the SPA bundle was not found. frontend/dist
+  did not deliver; rebuild it with (cd frontend && npm ci && npm run build).
+  Not retried: 503 here is an answer, not a slow start."
+  fi
+
+  # The health body is read with a whitespace-tolerant match rather than a JSON
+  # parser on purpose: this loop must keep working when the app is mid-restart
+  # and answering with anything at all.
+  got="$(printf '%s' "$body" \
+      | grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' \
+      | head -1 \
+      | sed 's/.*:[[:space:]]*"\([^"]*\)".*/\1/')" || got=""
+
+  [ "$got" != "$TREE_VERSION" ] || break
+  [ "$(date +%s)" -lt "$deadline" ] || break
   sleep "$INTERVAL"
 done
-[ "$got_version" = "$EXPECT" ] \
-  || die "health gate: expected version $EXPECT, last saw '${got_version:-<none>}' after ${TIMEOUT}s"
 
-# ── 6. backend check ──────────────────────────────────────────────
-if [ "$SKIP_BACKEND" -eq 1 ]; then
-  note "skipping resolve_backend() check (--skip-backend-check)"
-else
-  [ -x "$VENV_PY" ] || die "venv python not executable: $VENV_PY (use --skip-backend-check off-host)"
-  if ! backend="$(cd "$DIR" && "$VENV_PY" -c \
-    'from bulk_downloader import cloak; print(cloak.resolve_backend())' 2>/dev/null)"; then
-    die "resolve_backend() probe execution failed"
+if [ "$got" != "$TREE_VERSION" ]; then
+  if [ "$code" = "000" ]; then
+    die "nothing was listening on that port: curl reported 000 for $HEALTH_URL
+  throughout the ${TIMEOUT}s budget. Check the PORT before concluding the service
+  is down -- the app binds 5555 (BD_PORT) and there is no /api/version route.
+  This is UNKNOWN, not 'down', and unknown fails."
   fi
-  [ "$backend" = "cloakbrowser" ] \
-    || die "resolve_backend()=='${backend:-<none>}', expected 'cloakbrowser' (venv missing cloakbrowser?)"
-  note "resolve_backend()==cloakbrowser confirmed"
+  die "health gate: /api/health reported version '${got:-<none>}', expected
+  $TREE_VERSION, after ${TIMEOUT}s (HTTP $code). The tree is at $TREE_VERSION, so
+  the running process is not it: either stale bytecode survived, or the restart
+  did not take."
 fi
 
-note "DEPLOY OK — $DIR now running $EXPECT"
+rcode="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$ROOT_URL" 2>/dev/null)" || true
+[ -n "$rcode" ] || rcode="000"
+if [ "$rcode" = "503" ]; then
+  die "GET $ROOT_URL returned 503 -- /api/health is fine but the SPA bundle is not
+  being served. frontend/dist did not deliver."
+fi
+[ "$rcode" = "200" ] || die "GET $ROOT_URL returned $rcode, expected 200"
+# Echo the code that was RECEIVED, never the literal the check demands. A
+# success note that restates its own constant cannot contradict a weakened
+# check: it would print "GET / = 200" over a 404 and read as a clean pass.
+note "health verified: /api/health version $TREE_VERSION, GET / = $rcode"
+
+# ── [13] summary ────────────────────────────────────────────────────
+# An unchanged tree that verified clean says so and exits 0. It does NOT
+# manufacture a change: the lxml case is exactly a box whose HEAD was already
+# current and whose ENVIRONMENT had not converged, which is why "already
+# current" is still a full verification and not an early return.
+STEP=13
+if [ "$SAME" -eq 1 ] && [ "$DID_PIP" -eq 0 ] && [ "$DID_BUILD" -eq 0 ]; then
+  note "ALREADY CURRENT -- verified, $TREE_VERSION ($NEW)"
+else
+  note "DEPLOY OK -- $DIR now running $TREE_VERSION ($NEW)"
+fi
+exit 0

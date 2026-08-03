@@ -25,12 +25,21 @@ WHAT THIS FILE PINS, and why each one is load-bearing:
   * `skipped_duplicate` settles. It is the outcome L14 exists to observe, so
     treating it as non-terminal would make the seeder burn its whole budget on
     precisely the result it was seeding for.
-  * Teardown still works after a completed download, and says what it cannot
-    reach. `history` is append-only -- db_log is the only writer and db_prune
-    (by AGE) the only deleter -- so a completed seeded download leaves a row no
-    marker-matched teardown can remove over the HTTP API. Silence about that
-    would be the fixture quietly accumulating state that the next run reads as
-    organic.
+  * Teardown still works after a completed download, and says what it LEAVES.
+    This bullet used to read "`history` is append-only -- db_log is the only
+    writer and db_prune (by AGE) the only deleter -- so a completed seeded
+    download leaves a row no marker-matched teardown can remove". That claim
+    was FALSE and bulk_downloader/db.py:988-992 records its retraction:
+    batch_ops.bulk_delete issues `DELETE FROM history WHERE id = ?` and is
+    reachable over HTTP at POST /api/batch/delete. The rows CAN be removed,
+    and `--clear-history` removes them (together with their library twins over
+    DELETE /api/library/<lid>, which must go FIRST because library rows carry
+    history_id and PRAGMA foreign_keys is never enabled -- library.py:538-543).
+    The clear is OPT-IN because capture.sh runs teardown unattended and the
+    clear's predicate is the marker across ALL history, not this run's nonce.
+    So the DEFAULT teardown still leaves the rows and must SAY it leaves them;
+    silence would be the fixture quietly accumulating state that the next run
+    reads as organic.
 """
 from __future__ import annotations
 
@@ -578,14 +587,24 @@ def test_the_seeded_queue_site_is_created_from_that_config():
 
 # ── constraint 3: teardown after a completed download ───────────────────────
 
-def test_teardown_reports_the_completed_rows_it_cannot_remove():
-    """history is append-only; teardown must say so rather than imply clean.
+def test_teardown_reports_the_completed_rows_it_leaves_by_default():
+    """The DEFAULT teardown leaves the history rows, and must say so.
 
-    db_log is history's only writer and db_prune -- which deletes by AGE, not
-    by marker -- is its only deleter. A completed seeded download therefore
-    leaves a row no marker-matched HTTP teardown can remove. Reporting "removed
-    the sites, cancelled the queue" and stopping would imply the box is as it
-    was found. It is not.
+    THIS TEST'S SUBJECT CHANGED, so its assertion changed with it. It used to
+    be named ..._it_cannot_remove and asserted that the residue text contained
+    "append-only" or "prune", because db_prune (which deletes by AGE, not by
+    marker) was believed to be history's only deleter. That premise was FALSE:
+    bulk_downloader/db.py:988-992 records the retraction -- batch_ops.bulk_delete
+    issues `DELETE FROM history WHERE id = ?` and is reachable over HTTP at
+    POST /api/batch/delete, which is what --clear-history now uses.
+
+    Keeping the old keyword assertion alive by engineering those two words into
+    a note that says the OPPOSITE would be a gate passing for the wrong reason
+    BY CONSTRUCTION, and it would hand the retracted claim to the next reader as
+    authority from a test file. So the assertion below is about the note's
+    ACTUAL claim: the row is removable, and the default teardown does not remove
+    it. Reporting "removed the sites, cancelled the queue" and stopping would
+    still imply the box is as it was found. It is not.
     """
     seed = _load()
     client = FakeClient({
@@ -604,9 +623,21 @@ def test_teardown_reports_the_completed_rows_it_cannot_remove():
     assert residue.get("history_rows") == 1, (
         f"teardown did not count the seeded history row it leaves behind: "
         f"{residue}")
-    assert "append-only" in str(residue).lower() or "prune" in str(residue).lower(), (
-        f"the residue report does not say why the row cannot be removed: "
+    text = str(residue)
+    lowered = text.lower()
+    assert "--clear-history" in text, (
+        f"the residue report does not name the opt-in that DOES remove the "
+        f"row, so a reader is left with the retracted 'nothing can remove "
+        f"this' reading: {residue}")
+    assert ("can be removed" in lowered or "removable" in lowered), (
+        f"the residue report does not say the row IS removable. The retracted "
+        f"claim (db.py:988-992) was that it is not; a note that neither "
+        f"asserts nor denies removability leaves the old reading standing: "
         f"{residue}")
+    assert "db.py:988-992" in text, (
+        f"the residue report does not cite the retraction it is correcting. "
+        f"The citation is the only thing that stops a later reader "
+        f"'restoring' the append-only sentence: {residue}")
 
 
 def test_teardown_says_unknown_when_it_cannot_read_history():
@@ -754,3 +785,2642 @@ def test_the_start_happens_before_the_live_suite_reads_the_result():
     assert start_at < lane_at, (
         f"--start is invoked on line {start_at}, after the live lane on line "
         f"{lane_at}; the checks would read a queue that had not started")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# --clear-history: the opt-in that removes the rows the default teardown leaves
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# WHY THESE LIVE IN THIS FILE. A new tests/*.py moves nine tree-enumerating
+# axis-6 gates plus PIN_INDEX's `test_files_scanned` (CLAUDE.md 4); editing an
+# existing one moves none of them.
+#
+# THE HARNESS TRAP THESE TESTS HAVE TO WORK AROUND. FakeClient keys on an EXACT
+# (METHOD, path) tuple and FALLS BACK to {"ok": True} on a miss rather than
+# raising. So a fixture whose key does not match the URL the tool builds makes
+# the test pass WITHOUT EVER EXERCISING ITS FIXTURE. Every test below therefore
+# asserts that the exact path it stubbed was actually requested, so a URL change
+# in the tool turns these red instead of green-and-vacuous.
+#
+# THE OTHER TRAP: on pristine source argparse rejects the unknown
+# --clear-history with SystemExit(2). A test that merely asserts "non-zero" or
+# "raised" would be satisfied by that -- a pass for the WRONG reason, and one
+# that would keep passing on a tree where the feature is fully implemented.
+# _run_main() below converts SystemExit into a NAMED failure so the RED is
+# always about the subject.
+
+
+def _run_main(seed, argv):
+    """seed.main(argv), with argparse's SystemExit turned into a named failure.
+
+    Discriminate the exception you are hunting (CLAUDE.md 2a). SystemExit(2)
+    here means the FLAG does not exist, which is a different fact from the
+    tool's exit code and must never be read as one.
+    """
+    try:
+        return seed.main(list(argv))
+    except SystemExit as exc:
+        pytest.fail(
+            f"seed.main({argv!r}) raised SystemExit({exc.code!r}) instead of "
+            f"returning an exit code. SystemExit(2) from argparse means "
+            f"tools/live_seed.py has no --clear-history option at all -- that "
+            f"is the missing FEATURE, not the tool's verdict on the clear, and "
+            f"it must not be mistaken for one."
+        )
+
+
+def _owned_row(seed, rid, *, index=0):
+    """A history row this tool can PROVE it owns.
+
+    Ownership needs the marker in BOTH the url (which the server-side LIKE
+    already filtered on) AND site_name -- db_log stores site_name as a literal
+    (db.py:962), so it survives the site being deleted and is the only field
+    that still attributes the row afterwards.
+    """
+    return {"id": rid, "url": seed.seeded_url(index), "status": "done",
+            "filename": f"{rid}.mp4",
+            "site_name": f"{seed.SEED_MARKER} fixture site"}
+
+
+def _unowned_row(seed, rid, *, index=0):
+    """Marker in the URL, but the site_name says it is the operator's."""
+    return {"id": rid, "url": seed.seeded_url(index), "status": "done",
+            "filename": f"{rid}.mp4", "site_name": "My Real Site"}
+
+
+def _browse_body(rows, next_cursor=None):
+    """The exact envelope app_library.py:128-129 returns."""
+    return {"ok": True, "rows": [dict(r) for r in rows],
+            "count": len(rows), "next_cursor": next_cursor}
+
+
+_BLIND_BROWSE = {"ok": True, "rows": [], "count": 0, "next_cursor": None}
+"""The body a MISSING or UNREADABLE library table produces.
+
+library.library_browse wraps its whole query in `except Exception: return
+[], None` (library.py:363-364), and app_library.py:128-129 renders that as
+rows [] / count 0 / next_cursor None -- byte-identical to a library that
+genuinely holds no twins. Over HTTP the two are INDISTINGUISHABLE.
+"""
+
+_HISTORY_KEY_SUFFIX = "&limit=500"
+
+
+def _history_key(seed):
+    return ("GET", f"/api/history?q={seed.SEED_MARKER}{_HISTORY_KEY_SUFFIX}")
+
+
+def _teardown_stubs(seed, history, extra=None):
+    """The three reads teardown makes before it can do anything at all.
+
+    `extra` is POSITIONAL and a plain dict, not **kwargs: FakeClient keys on
+    (METHOD, path) TUPLES, and `**` requires string keys. The first draft of
+    this helper used **kwargs and every caller raised TypeError -- a harness
+    defect presenting as a subject failure, which is the shape CLAUDE.md 2a
+    warns about.
+    """
+    stubs = {
+        ("GET", "/api/queue/v2"): {"ok": True, "running": [], "waiting": [],
+                                   "done_today_count": 0},
+        ("GET", "/api/status"): _status_body(seed),
+        _history_key(seed): history,
+    }
+    stubs.update(extra or {})
+    return FakeClient(stubs)
+
+
+def _history_read_indices(seed, client):
+    prefix = f"/api/history?q={seed.SEED_MARKER}"
+    return [i for i, (m, p, _b) in enumerate(client.calls)
+            if m == "GET" and p.startswith(prefix)]
+
+
+def _batch_delete_indices(client, *, dry_run=None):
+    out = []
+    for i, (method, path, body) in enumerate(client.calls):
+        if method != "POST" or path != "/api/batch/delete":
+            continue
+        if dry_run is not None and bool((body or {}).get("dry_run")) is not dry_run:
+            continue
+        out.append(i)
+    return out
+
+
+def _library_delete_indices(client):
+    return [i for i, (m, p, _b) in enumerate(client.calls)
+            if m == "DELETE" and p.startswith("/api/library/")]
+
+
+def _library_delete_paths(client):
+    return [p for m, p, _b in client.calls
+            if m == "DELETE" and p.startswith("/api/library/")]
+
+
+def _clear_of(plan):
+    return (plan or {}).get("clear") or {}
+
+
+# ── R0: the capability must exist at all (denominator canary) ───────────────
+
+def test_the_clear_capability_exists():
+    """Canary: every assertion below is about these two names.
+
+    Without this, a missing feature reaches each test as an AttributeError or
+    a SystemExit one at a time and the reason is buried in nine different
+    failure modes. Fail here, once, naming the symbol.
+    """
+    seed = _load()
+    for name in ("clear_seeded_history", "_teardown_exit_code"):
+        assert callable(getattr(seed, name, None)), (
+            f"tools/live_seed.py defines no callable {name!r}. The seeded "
+            f"history rows accumulate on every capture (64 at v3.66.844) and "
+            f"nothing can remove them, while the residue note claims -- "
+            f"falsely, see db.py:988-992 -- that nothing ever could."
+        )
+
+
+# ── R1: a clear that failed must not exit 0 ─────────────────────────────────
+
+def test_a_failed_clear_does_not_exit_zero():
+    """main() returned 0 on every teardown outcome except a SeedRefused.
+
+    Measured 2026-08-03 on four distinct failures -- unreadable /api/history,
+    unreadable /api/status, a site DELETE answering 500, and 64 rows left
+    behind -- all exit 0, two of them printing nothing at all. capture.sh's
+    `|| echo WARNING` had therefore never fired in its life. A clear that did
+    not happen must be readable from the exit code.
+    """
+    seed = _load()
+    client = _teardown_stubs(
+        seed, [_owned_row(seed, 11), _owned_row(seed, 12, index=1)],
+        {("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE,
+           ("POST", "/api/batch/delete"): [
+               # THE CANARY MUST SUCCEED HERE. A single {"ok": False} body for
+               # every call answers the dry-run probe too, so `candidates_
+               # matched` is absent, the canary aborts the pass, and this test
+               # would measure R4's subject (an unusable filter) while claiming
+               # to measure its own (a delete the app REJECTED). Reply one is
+               # the probe answering honestly; every reply after it rejects.
+               _Reply({"ok": True, "candidates_matched": 2, "processed": 0,
+                       "files_deleted": 0, "errors": 0, "dry_run": True}),
+               _Reply({"ok": False, "error": "boom"})]})
+    monkey = pytest.MonkeyPatch()
+    try:
+        monkey.setattr(seed, "Client", lambda base_url: client)
+        rc = _run_main(seed, ["--teardown", "--clear-history"])
+    finally:
+        monkey.undo()
+    assert _history_read_indices(seed, client), (
+        "the tool never read the stubbed /api/history path; this test's "
+        "fixture was not exercised and its verdict is about nothing")
+    assert _batch_delete_indices(client, dry_run=False), (
+        f"no non-dry-run POST to /api/batch/delete was ever made, so the pass "
+        f"aborted at the canary and this test's verdict is about an unusable "
+        f"filter, not about a delete the app rejected. Calls: "
+        f"{[(m, p) for m, p, _b in client.calls]}")
+    assert rc == 4, (
+        f"a clear whose every /api/batch/delete call was rejected exited "
+        f"{rc}. 4 is _EXIT_CLEAR_INCOMPLETE: the clear did not happen and we "
+        f"KNOW it. 0 would launder a known failure into an OK, and 5 would "
+        f"claim the post-state could not be measured when it could."
+    )
+
+
+# ── R2: the remainder is MEASURED, and the read model is pinned ─────────────
+
+def test_the_remainder_is_measured_after_the_clear_not_computed():
+    """found-minus-deleted is not the remainder, and cannot be.
+
+    db_log runs on every job-level transition (db.py:962-965), so a job
+    settling during teardown appends a history row AFTER the first read. And
+    /api/batch/delete answers a REJECTED filter and a genuine no-op with the
+    same body, so its counts cannot settle the question either. The remainder
+    has to be re-read.
+
+    THE READ MODEL, pinned rather than assumed. teardown() itself calls
+    _seeded_history at live_seed.py:1168 BEFORE any clear runs, so a clear
+    driven through teardown performs a MINIMUM of THREE reads: teardown's own,
+    the round's, and the post-delete re-read. The spec was written against a
+    TWO-read model and its asserted number came from the wrong read.
+
+    The assertions below pin that model WHERE IT IS LOAD-BEARING -- exactly two
+    reads before the first /api/batch/delete (teardown's and the round's; ONE
+    would mean the clear reused a set read before the site deletes) and at
+    least one after -- rather than pinning a total. A total is not a property
+    of the design: the round loop reads once per round plus once per
+    post-delete check, so any non-zero remainder produces more than three and
+    the exact number falls out of the stall detection, not the contract.
+    """
+    seed = _load()
+    rows_before = [_owned_row(seed, 11), _owned_row(seed, 12, index=1),
+                   _owned_row(seed, 13)]
+    # Read 3 carries id 99, which read 1 never saw: a job that settled while
+    # teardown was running. Arithmetic (3 found - 3 processed) says 0.
+    rows_after = [_owned_row(seed, 12, index=1), _owned_row(seed, 99)]
+    client = _teardown_stubs(
+        seed,
+        [_Reply(list(rows_before)), _Reply(list(rows_before)),
+         _Reply(list(rows_after))],
+        {("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE,
+           ("POST", "/api/batch/delete"): {
+               "ok": True, "candidates_matched": 3, "processed": 3,
+               "files_deleted": 0, "errors": 0, "dry_run": False}})
+    monkey = pytest.MonkeyPatch()
+    try:
+        monkey.setattr(seed, "Client", lambda base_url: client)
+        _run_main(seed, ["--teardown", "--clear-history"])
+    finally:
+        monkey.undo()
+
+    reads = _history_read_indices(seed, client)
+    posts = _batch_delete_indices(client)
+    assert posts, (
+        "the clear never POSTed to /api/batch/delete, so nothing here is "
+        "about a clear at all")
+    assert len(reads) >= 3, (
+        f"the history was read {len(reads)} time(s). A clear driven through "
+        f"teardown reads at MINIMUM three times: teardown's own read at "
+        f"live_seed.py:1168, the clear round's read, and the post-delete "
+        f"re-read. Fewer means one of the three is missing.")
+    before = [i for i in reads if i < posts[0]]
+    after = [i for i in reads if i > posts[0]]
+    assert len(before) == 2, (
+        f"{len(before)} history read(s) happened before the first "
+        f"/api/batch/delete; expected exactly 2 (teardown's, then the clear "
+        f"round's). ONE would mean the clear acted on the set teardown read "
+        f"BEFORE the site deletes, which is a different pass from the one it "
+        f"reports on.")
+    assert after, (
+        "no history read happened after the deletes, so the reported "
+        "remainder cannot have been measured")
+
+    plan_residue = None
+    clear = None
+    # Re-drive through teardown() directly for the residue dict, using a fresh
+    # client so the sequence starts over.
+    client2 = _teardown_stubs(
+        seed,
+        [_Reply(list(rows_before)), _Reply(list(rows_before)),
+         _Reply(list(rows_after))],
+        {("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE,
+           ("POST", "/api/batch/delete"): {
+               "ok": True, "candidates_matched": 3, "processed": 3,
+               "files_deleted": 0, "errors": 0, "dry_run": False}})
+    plan = seed.teardown(client2, clear_history=True)
+    plan_residue = plan.get("residue") or {}
+    clear = _clear_of(plan)
+    assert plan_residue.get("history_rows_found") == 3, (
+        f"history_rows_found is {plan_residue.get('history_rows_found')!r}; "
+        f"the clear SAW 3 rows. This key must always mean 'rows the read saw'."
+    )
+    assert plan_residue.get("history_rows") == 2, (
+        f"history_rows is {plan_residue.get('history_rows')!r}; the re-read "
+        f"returned 2 rows. This key must always mean 'rows that REMAIN'.")
+    assert plan_residue["history_rows"] != 0, (
+        "the remainder was reported as 0. found(3) - processed(3) is 0, and "
+        "that is exactly the arithmetic this design refuses: the re-read "
+        "returned two rows, one of which the first read never saw.")
+    assert clear.get("deleted"), (
+        "the clear reported deleting nothing while /api/batch/delete answered "
+        "processed 3; the report is not about what happened")
+
+
+# ── R3: two names, two meanings, and neither may drift into the other ───────
+
+def test_the_two_residue_names_do_not_share_a_meaning():
+    """One key cannot mean both "saw" and "remain" without changing meaning.
+
+    Before the clear existed the two numbers were always identical, which is
+    exactly why one name was enough and is not enough now. A single key would
+    silently change what it means between two runs of the same tool.
+    """
+    seed = _load()
+    rows_before = [_owned_row(seed, 11), _owned_row(seed, 12, index=1),
+                   _owned_row(seed, 13)]
+    rows_after = [_owned_row(seed, 12, index=1), _owned_row(seed, 99)]
+    client = _teardown_stubs(
+        seed,
+        [_Reply(list(rows_before)), _Reply(list(rows_before)),
+         _Reply(list(rows_after))],
+        {("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE,
+           ("POST", "/api/batch/delete"): {
+               "ok": True, "candidates_matched": 3, "processed": 3,
+               "files_deleted": 0, "errors": 0, "dry_run": False}})
+    cleared = (seed.teardown(client, clear_history=True).get("residue") or {})
+    assert cleared.get("history_rows_found") != cleared.get("history_rows"), (
+        f"after a clear the two residue names carry the same number "
+        f"({cleared.get('history_rows_found')!r}); one of them is not "
+        f"measuring what its name says: {cleared}")
+    assert cleared.get("cleared") is True, (
+        f"a teardown that ran the clear did not record that it did: {cleared}")
+
+    # ...and with no clear requested they must still agree, and must match the
+    # behaviour this file already pinned.
+    plain_client = _teardown_stubs(seed, [_owned_row(seed, 7)])
+    plain = (seed.teardown(plain_client).get("residue") or {})
+    assert plain.get("history_rows_found") == 1, (
+        f"a plain teardown lost the 'rows the read saw' number: {plain}")
+    assert plain.get("history_rows") == 1, (
+        f"a plain teardown changed the meaning of history_rows: {plain}")
+    assert plain.get("readable") is True, plain
+    assert plain.get("cleared") is False, (
+        f"a teardown that ran no clear claims it cleared: {plain}")
+
+
+# ── R4: a malformed filter is caught BEFORE anything is deleted ─────────────
+
+def test_a_malformed_filter_is_caught_before_anything_is_deleted():
+    """batch_ops answers a rejected filter and a real no-op identically.
+
+    _matching_rows swallows the TypeError from an unexpected filter key and
+    returns [] (batch_ops.py:104-110 region), so bulk_delete replies
+    candidates_matched 0 / processed 0 / ok True -- the same body a genuinely
+    empty match produces. The canary is the only cheap discriminator: ids that
+    were JUST read as present must match, so a 0 proves the filter shape is
+    wrong.
+
+    The canary runs BEFORE the twin deletes deliberately. If the batch filter
+    is broken, deleting the library twins first would strand history rows whose
+    twins are already gone -- worse than doing nothing.
+    """
+    seed = _load()
+    client = _teardown_stubs(
+        seed, [_owned_row(seed, 11), _owned_row(seed, 12, index=1)],
+        {("GET", "/api/library/browse?limit=500"): _browse_body(
+               [{"id": 3, "history_id": 11, "title": "t", "file_path": "/x"}]),
+           ("POST", "/api/batch/delete"): {
+               "ok": True, "candidates_matched": 0, "processed": 0,
+               "files_deleted": 0, "errors": 0, "dry_run": False}})
+    monkey = pytest.MonkeyPatch()
+    try:
+        monkey.setattr(seed, "Client", lambda base_url: client)
+        rc = _run_main(seed, ["--teardown", "--clear-history"])
+    finally:
+        monkey.undo()
+
+    posts = _batch_delete_indices(client)
+    assert len(posts) == 1, (
+        f"the tool made {len(posts)} POST(s) to /api/batch/delete against a "
+        f"filter that matched nothing it had just read as present. Exactly "
+        f"one is correct: the dry-run canary, after which the pass aborts.")
+    canary_body = client.calls[posts[0]][2] or {}
+    assert canary_body.get("dry_run") is True, (
+        f"the single /api/batch/delete call was not a dry run: {canary_body}. "
+        f"A canary that deletes is not a canary.")
+    assert not _library_delete_indices(client), (
+        f"library twins were deleted ({_library_delete_paths(client)}) despite "
+        f"the batch filter being unusable. The canary runs FIRST precisely so "
+        f"a broken filter cannot strand history rows whose twins are gone.")
+
+    plan = seed.teardown(
+        _teardown_stubs(
+            seed, [_owned_row(seed, 11), _owned_row(seed, 12, index=1)],
+            {("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE,
+               ("POST", "/api/batch/delete"): {
+                   "ok": True, "candidates_matched": 0, "processed": 0,
+                   "files_deleted": 0, "errors": 0, "dry_run": False}}),
+        clear_history=True)
+    clear = _clear_of(plan)
+    assert clear.get("deleted") == 0, (
+        f"the clear reported deleting {clear.get('deleted')!r} rows after the "
+        f"canary failed; nothing may be deleted on that path: {clear}")
+    errors = " ".join(str(e) for e in (clear.get("errors") or []))
+    assert "canary" in errors.lower(), (
+        f"the abort did not name the canary, so a reader cannot tell a broken "
+        f"filter from an empty table -- which is the one thing the canary "
+        f"exists to distinguish: {clear.get('errors')!r}")
+    assert rc == 4, (
+        f"a clear aborted by the canary exited {rc}; it did not happen and we "
+        f"know it, which is _EXIT_CLEAR_INCOMPLETE (4)")
+
+
+# ── R5: an unreadable post-state is UNKNOWN, and the re-read must HAPPEN ────
+
+def test_an_unreadable_history_after_the_clear_is_unknown_not_zero():
+    """Unknown is a third state and it FAILS -- distinctly from incomplete.
+
+    THIS TEST ASSERTS ITS OWN NAME. `remaining` is None in the report's
+    initialiser too, so asserting only "it is None" is satisfied by a mutant
+    that DELETES the post-clear re-read entirely -- the value would be None
+    because nothing ever set it, not because the re-read failed. The read
+    COUNT is what discriminates the two: three reads means the re-read was
+    attempted, two means it was not.
+    """
+    seed = _load()
+    owned = [_owned_row(seed, 11), _owned_row(seed, 12, index=1)]
+    client = _teardown_stubs(
+        seed,
+        [_Reply(list(owned)), _Reply(list(owned)), _Reply({"error": "x"})],
+        {("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE,
+           ("POST", "/api/batch/delete"): {
+               "ok": True, "candidates_matched": 2, "processed": 2,
+               "files_deleted": 0, "errors": 0, "dry_run": False}})
+    monkey = pytest.MonkeyPatch()
+    try:
+        monkey.setattr(seed, "Client", lambda base_url: client)
+        rc = _run_main(seed, ["--teardown", "--clear-history"])
+    finally:
+        monkey.undo()
+
+    reads = _history_read_indices(seed, client)
+    assert len(reads) == 3, (
+        f"the history was read {len(reads)} time(s); expected exactly 3 "
+        f"(teardown's, the round's, the post-delete re-read -- the third one "
+        f"errors, which ends the pass immediately). Two reads means the "
+        f"post-clear re-read never happened, and then `remaining is None` is "
+        f"the initialiser's value rather than a measurement that failed.")
+    posts = _batch_delete_indices(client)
+    assert posts and reads[-1] > posts[-1], (
+        "the last history read did not happen after the last delete; the "
+        "re-read this test is named for is not in the trace")
+
+    plan = seed.teardown(
+        _teardown_stubs(
+            seed,
+            [_Reply(list(owned)), _Reply(list(owned)), _Reply({"error": "x"})],
+            {("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE,
+               ("POST", "/api/batch/delete"): {
+                   "ok": True, "candidates_matched": 2, "processed": 2,
+                   "files_deleted": 0, "errors": 0, "dry_run": False}}),
+        clear_history=True)
+    residue = plan.get("residue") or {}
+    assert residue.get("history_rows") is None, (
+        f"an unreadable post-clear history was counted as a number: {residue}")
+    assert residue.get("readable") is False, (
+        f"an unreadable post-clear history was reported as readable: "
+        f"{residue}")
+    assert rc == 5, (
+        f"a clear whose post-state could not be MEASURED exited {rc}. 5 is "
+        f"_EXIT_CLEAR_UNKNOWN and it is distinct from 4 on purpose: 4 says "
+        f"'it did not fully happen and we know it', 5 says 'we cannot tell'. "
+        f"0 would be the unknown laundered into an OK.")
+
+
+# ── R6: under-deleting is the safe direction ────────────────────────────────
+
+def test_a_row_this_tool_cannot_prove_it_owns_is_not_deleted():
+    """Two predicates, both required, and the narrower one authorises.
+
+    The marker in the URL is what the server-side LIKE filtered on. It is not
+    proof of ownership: an operator's row whose URL merely contains the marker
+    would match. site_name is the second predicate, and a row failing it is
+    counted as `unowned` and NEVER deleted. It then keeps the remainder
+    non-zero, which the report says out loud rather than hiding.
+
+    THE FIXTURE PAIRS AN OWNED ROW WITH THE UNOWNED ONE, and that is not
+    decoration. With the unowned row ALONE the clear finds no deletable id,
+    breaks before it ever POSTs, and the payload scan below iterates over an
+    EMPTY list of calls -- an assertion whose denominator structurally
+    excludes its subject, which reports clean truthfully and uselessly
+    (CLAUDE.md 0). Owned id 11 is what makes a real /api/batch/delete happen,
+    so "4242 is not in any payload" is a measurement rather than a vacuum.
+    """
+    seed = _load()
+    mixed = [_owned_row(seed, 11), _unowned_row(seed, 4242)]
+    leftover = [_unowned_row(seed, 4242)]
+    stubs = {("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE,
+             ("POST", "/api/batch/delete"): {
+                 "ok": True, "candidates_matched": 1, "processed": 1,
+                 "files_deleted": 0, "errors": 0, "dry_run": False}}
+    client = _teardown_stubs(
+        seed,
+        [_Reply(list(mixed)), _Reply(list(mixed)), _Reply(list(leftover))],
+        dict(stubs))
+    monkey = pytest.MonkeyPatch()
+    try:
+        monkey.setattr(seed, "Client", lambda base_url: client)
+        rc = _run_main(seed, ["--teardown", "--clear-history"])
+    finally:
+        monkey.undo()
+
+    posts = _batch_delete_indices(client)
+    assert posts, (
+        f"the clear made no POST to /api/batch/delete at all, so the payload "
+        f"scan below would have had an empty denominator and this test would "
+        f"have certified nothing. Owned id 11 is in the fixture precisely so "
+        f"a real delete is issued. Calls: "
+        f"{[(m, p) for m, p, _b in client.calls]}")
+    # Shape-independent: 4242 is distinctive, so a substring scan of every
+    # /api/batch/delete payload cannot be fooled by a different filter shape
+    # the way a structured `payload["filter"]["id_in"]` lookup silently would.
+    for index in posts:
+        body = client.calls[index][2]
+        assert "4242" not in str(body), (
+            f"id 4242 reached /api/batch/delete in {body!r}. Its URL carries "
+            f"the marker but its site_name is 'My Real Site', so this tool "
+            f"cannot prove the row is its own.")
+    assert any("11" in str(client.calls[i][2]) for i in posts), (
+        f"id 11 -- the row this tool CAN prove it owns -- reached no "
+        f"/api/batch/delete payload either, so the clear under-deleted "
+        f"everything and 'it skipped 4242' is not evidence of a predicate: "
+        f"{[client.calls[i][2] for i in posts]}")
+
+    plan = seed.teardown(
+        _teardown_stubs(
+            seed,
+            [_Reply(list(mixed)), _Reply(list(mixed)), _Reply(list(leftover))],
+            dict(stubs)),
+        clear_history=True)
+    clear = _clear_of(plan)
+    assert clear.get("unowned") == 1, (
+        f"the unowned row was not reported as unowned: {clear}")
+    assert clear.get("remaining") == 1, (
+        f"the remainder is {clear.get('remaining')!r}; a row that was not "
+        f"deleted still remains, and saying otherwise would be the clear "
+        f"reporting a state it did not produce: {clear}")
+    assert clear.get("ok") is False, (
+        f"a clear that left a row behind reported ok: {clear}")
+    assert rc == 4, (
+        f"a clear that could not reach zero exited {rc}, not 4")
+
+
+# ── R7: GUARD -- passes on pristine BY DESIGN, and that is the point ────────
+#
+# NOT A RED. This is the guard against anyone flipping the default on, in the
+# same category as test_seeding_without_start_still_starts_nothing above: it
+# holds today and must keep holding. Labelled explicitly so a reader does not
+# count it as evidence the feature exists.
+
+def test_the_clear_is_off_unless_asked_for():
+    """GUARD (not a RED): the destructive path must stay opt-in.
+
+    The clear's predicate is the marker across ALL history, not this run's
+    nonce, so the first non-dry-run clear removes every row accumulated by
+    every previous capture at once. capture.sh runs teardown unattended. A
+    default-on clear would make a cron-shaped process delete the operator's
+    accumulated state with nobody watching.
+    """
+    seed = _load()
+    client = _teardown_stubs(seed, [_owned_row(seed, 7)])
+    plan = seed.teardown(client)
+    assert not [p for p, _b in client.posted() if "/api/batch/delete" in p], (
+        f"a plain teardown POSTed to /api/batch/delete: {client.posted()}")
+    assert not _library_delete_paths(client), (
+        f"a plain teardown deleted library rows: "
+        f"{_library_delete_paths(client)}")
+    assert (plan.get("residue") or {}).get("history_rows") == 1, (
+        f"a plain teardown stopped counting the row it leaves: {plan}")
+    # NOTE the assertion that is deliberately NOT here. `residue["cleared"] is
+    # False` belongs to the NEW contract -- pristine has no such key, so
+    # asserting it here would make this file's one always-green guard RED on
+    # pristine and it would stop being a guard. test_the_two_residue_names_do
+    # _not_share_a_meaning already pins it, as a RED, which is where a new-key
+    # assertion belongs.
+
+    client2 = _teardown_stubs(seed, [_owned_row(seed, 7)])
+    monkey = pytest.MonkeyPatch()
+    try:
+        monkey.setattr(seed, "Client", lambda base_url: client2)
+        rc = seed.main(["--teardown"])
+    finally:
+        monkey.undo()
+    assert rc == 0, (
+        f"a teardown with no clear requested exited {rc}; the new exit codes "
+        f"are SCOPED TO THE CLEAR and must not fire on a plain teardown")
+    assert not [p for p, _b in client2.posted() if "/api/batch/delete" in p]
+    assert not _library_delete_paths(client2)
+
+
+# ── R8/R9: capture.sh -- the wiring, and the exit code it must read ────────
+#
+# Cut on STRUCTURE, never a fixed width. A harness that sliced a shell branch
+# by width once swallowed its closing `fi` and produced a bash syntax error
+# presenting as a subject failure (CLAUDE.md 2a). And no `src[pos:pos+N]`
+# source window anywhere: test_source_windows_do_not_shift.py ratchets the
+# COUNT of those and is one-directional.
+
+
+def _capture_logical_lines():
+    """capture.sh with backslash continuations resolved into logical lines.
+
+    Same join the sibling gate uses (test_capture_requests_every_seeding_mode
+    .py:103). A line-at-a-time reader sees only part of an invocation that
+    spans lines, which is a denominator that excludes its own subject.
+    """
+    body = re.sub(r"\\\n\s*", " ", CAPTURE_SH.read_text(encoding="utf-8"))
+    return body.splitlines()
+
+
+def _cleanup_live_seed_body():
+    """cleanup_live_seed's lines, cut at its own closing brace.
+
+    STRUCTURAL: the opener is the function header, the closer is the first
+    line that is a bare `}` at column 0 (bash's own formatting for a function
+    close in this file). The brace balance of the result is then asserted, so
+    an extractor that cut mid-construct FAILS SAYING SO instead of handing a
+    truncated body to assertions that would report a subject failure.
+    """
+    lines = _capture_logical_lines()
+    starts = [i for i, ln in enumerate(lines)
+              if ln.startswith("cleanup_live_seed()")]
+    if not starts:
+        pytest.fail(
+            "capture.sh no longer defines cleanup_live_seed at column 0; this "
+            "gate's anchor is stale and it cannot answer about its subject")
+    start = starts[0]
+    closer = None
+    for i in range(start + 1, len(lines)):
+        if re.fullmatch(r"\}\s*", lines[i]):
+            closer = i
+            break
+    if closer is None:
+        pytest.fail(
+            "cleanup_live_seed has no closing `}` at column 0, so this gate "
+            "cannot cut it on structure. Refusing to guess a width.")
+    body = lines[start:closer + 1]
+    text = "\n".join(body)
+    assert text.count("{") == text.count("}"), (
+        f"the structural cut of cleanup_live_seed is unbalanced "
+        f"({text.count('{')} open, {text.count('}')} close), so it lands "
+        f"mid-construct and nothing asserted over it means anything:\n{text}")
+    return body
+
+
+def _seeder_invocation_lines(lines):
+    """Lines that RUN the seeder, not lines that mention it.
+
+    The predicate is the interpreter at the START of the command. The WARNING
+    echo the failure branch prints also contains the seeder's path -- as
+    PROSE, telling the operator what to re-run -- and a gate satisfiable by a
+    sentence about the thing is not a gate.
+    """
+    return [ln.strip() for ln in lines
+            if ln.strip().startswith("venv/bin/python")
+            and "tools/live_seed.py" in ln]
+
+
+def test_capture_does_not_arm_the_clear_by_default():
+    """The capture must wire the clear, and must leave it OFF.
+
+    An opt-in flag nobody can pass is a feature nobody has; a flag hardcoded
+    into the unattended caller is a destructive default. Both are wrong, and
+    the two assertions below are deliberately in tension so neither can be
+    satisfied by dropping the other.
+    """
+    body = _cleanup_live_seed_body()
+    text = "\n".join(body)
+    invocations = _seeder_invocation_lines(body)
+    assert len(invocations) == 1, (
+        f"cleanup_live_seed runs the seeder {len(invocations)} time(s); this "
+        f"gate reads exactly one teardown invocation:\n  "
+        + "\n  ".join(invocations))
+    call = invocations[0]
+    assert "--teardown" in call, f"the invocation is not a teardown: {call}"
+    assert "$_clear_flag" in call, (
+        f"the teardown invocation carries no $_clear_flag, so "
+        f"BD_SEED_CLEAR_HISTORY cannot reach the seeder and --clear-history "
+        f"is a feature the capture can never ask for:\n  {call}")
+    assert '"$_clear_flag"' not in call and "'$_clear_flag'" not in call, (
+        f"$_clear_flag is QUOTED in the teardown invocation:\n  {call}\n"
+        f"The expansion is intentionally unquoted (same idiom as $_seed_force "
+        f"at the seed step) so an EMPTY value adds no argument. Quoted, the "
+        f"unarmed default passes a literal empty-string argument that "
+        f"argparse rejects with exit 2, so every default capture teardown "
+        f"would fail. The cut #7 mutation battery proved the previous "
+        f"assertions could not see this change.")
+    guard = [ln.strip() for ln in body
+             if "BD_SEED_CLEAR_HISTORY" in ln and not ln.strip().startswith("#")]
+    assert guard, (
+        "cleanup_live_seed never reads BD_SEED_CLEAR_HISTORY outside a "
+        "comment; the switch is documented and not wired")
+    assert any("${BD_SEED_CLEAR_HISTORY:-0}" in ln for ln in guard), (
+        f"BD_SEED_CLEAR_HISTORY is read without the :-0 default, so an unset "
+        f"variable's behaviour is whatever `[` does with an empty string "
+        f"rather than a stated OFF:\n  " + "\n  ".join(guard))
+    assert any('_clear_flag="--clear-history"' in ln for ln in guard), (
+        f"nothing in the guard assigns --clear-history to _clear_flag, so the "
+        f"flag variable is wired to nothing:\n  " + "\n  ".join(guard))
+    # ...and the destructive direction, which is the half that must NOT hold.
+    assert "--clear-history" not in call, (
+        f"the unattended teardown invocation carries a LITERAL "
+        f"--clear-history:\n  {call}\nThe clear's predicate is the marker "
+        f"across ALL history, not this run's nonce, so this deletes every "
+        f"bdseed row every previous capture left, with nobody watching.")
+    assert '_clear_flag=""' in text, (
+        f"_clear_flag is never initialised to empty, so an inherited "
+        f"environment variable of that name would arm the clear:\n{text}")
+
+
+def test_the_teardown_exit_code_reaches_capture_sh():
+    """A produced exit code nobody reads is a code nobody has.
+
+    tools/live_seed.py grew exit codes 4 and 5 for this caller. capture.sh
+    must CAPTURE the status into a variable and branch on it, and the
+    diagnostic grep must run inside the TEARDOWN's failure branch -- the
+    identical grep at step [5a] runs at SEED time against a log the teardown
+    has not written to yet (the seed truncates with `>`, the teardown appends
+    with `>>` about 125 lines later), so it can never carry a teardown reason.
+    """
+    body = _cleanup_live_seed_body()
+    text = "\n".join(body)
+    capture_lines = [(i, ln.strip()) for i, ln in enumerate(body)
+                     if re.search(r"^\s*\w+=\$\?\s*$", ln)]
+    assert capture_lines, (
+        f"cleanup_live_seed never captures `$?` into a variable, so the "
+        f"seeder's exit code is discarded and codes 4 and 5 reach nobody:\n"
+        f"{text}")
+    index, assignment = capture_lines[0]
+    var = assignment.split("=", 1)[0]
+    invocations = [i for i, ln in enumerate(body)
+                   if ln.strip().startswith("venv/bin/python")
+                   and "tools/live_seed.py" in ln]
+    assert invocations and invocations[0] < index, (
+        f"`{assignment}` does not follow the seeder invocation, so it "
+        f"captures some other command's status:\n{text}")
+
+    branch_starts = [i for i, ln in enumerate(body)
+                     if ln.strip().startswith("if ") and f"${var}" in ln]
+    assert branch_starts, (
+        f"nothing branches on ${var}; the exit code is captured and then "
+        f"ignored, which reads as handled and is not:\n{text}")
+    block = _if_block(body, branch_starts[0])
+    assert block is not None, (
+        f"the `if` testing ${var} has no matching `fi`, so this gate cannot "
+        f"cut it on structure and refuses to guess:\n{text}")
+    block_text = "\n".join(block)
+    assert "-ne 0" in block_text or "!= 0" in block_text or "-gt 0" in block_text, (
+        f"the branch on ${var} does not test it against zero:\n{block_text}")
+    assert "live_seed: " in block_text and "grep" in block_text, (
+        f"the failure branch prints no `grep 'live_seed: '` diagnostic, so a "
+        f"non-zero teardown exit produces a warning with no reason attached. "
+        f"Step [5a]'s identical grep cannot cover this: it runs at SEED time, "
+        f"before the teardown has appended anything to the log:\n{block_text}")
+    assert "tail" in block_text, (
+        f"the diagnostic does not use `tail`. The teardown APPENDS with `>>` "
+        f"to a log the seed already truncated with `>`, so its lines are the "
+        f"LAST ones in the file and `head` would print the seed's:\n"
+        f"{block_text}")
+
+
+def _if_block(lines, start_index):
+    """Lines of the if/fi construct opening at `start_index`, cut on its `fi`.
+
+    Structural, and it returns None rather than a truncated block when the
+    construct does not close -- unknown is a third state and the caller fails
+    on it instead of asserting over a fragment.
+    """
+    depth = 0
+    for i in range(start_index, len(lines)):
+        stripped = lines[i].strip()
+        if stripped.startswith("if ") or stripped == "if":
+            depth += 1
+        if stripped == "fi" or stripped.startswith("fi ") or stripped == "fi;":
+            depth -= 1
+            if depth == 0:
+                return lines[start_index:i + 1]
+    return None
+
+
+# ── R10-R13: the library twins ──────────────────────────────────────────────
+#
+# 15.23 decision 1 REVERSES the spec's record-only default: the twins are
+# deleted. They are 100% of the Library panel's "missing" count and 63% of the
+# library table, and every one is bdseed residue.
+#
+# ORDER IS THE WHOLE POINT. library rows carry history_id, and PRAGMA
+# foreign_keys is never enabled (library.py:538-543 states it outright: "which
+# we don't enable globally"), so `history_id -> history(id) ON DELETE SET NULL`
+# does NOT fire. Delete the history rows first and every twin is left pointing
+# at an id that no longer exists.
+#
+# Derivation is by history_id MEMBERSHIP, never by text: browse's q= searches
+# title/file_path/notes ONLY (library.py:326-330), so no marker query can find
+# a twin.
+
+
+def test_the_twins_are_deleted_before_the_history_rows():
+    """The ordering IS the feature, so the ordering is what is asserted.
+
+    Asserting only that both deletes happened would pass on the sequence that
+    leaves every twin dangling, which is the exact failure 15.23 named. The
+    assertion is therefore on the POSITION of each call in client.calls.
+    """
+    seed = _load()
+    owned = [_owned_row(seed, 7), _owned_row(seed, 8, index=1)]
+    page = [{"id": 3, "history_id": 7, "title": "a", "file_path": "/a"},
+            {"id": 4, "history_id": 8, "title": "b", "file_path": "/b"},
+            {"id": 5, "history_id": 99, "title": "c", "file_path": "/c"},
+            {"id": 6, "history_id": None, "title": "d", "file_path": "/d"}]
+    survivors = [r for r in page if r["id"] in (5, 6)]
+    client = _teardown_stubs(
+        seed,
+        [_Reply(list(owned)), _Reply(list(owned)), _Reply([])],
+        {("GET", "/api/library/browse?limit=500"): [
+               _Reply(_browse_body(page)), _Reply(_browse_body(survivors))],
+           ("DELETE", "/api/library/3"): {"ok": True, "deleted_row": True,
+                                          "thumbs_removed": 0},
+           ("DELETE", "/api/library/4"): {"ok": True, "deleted_row": True,
+                                          "thumbs_removed": 0},
+           ("POST", "/api/batch/delete"): {
+               "ok": True, "candidates_matched": 2, "processed": 2,
+               "files_deleted": 0, "errors": 0, "dry_run": False}})
+    monkey = pytest.MonkeyPatch()
+    try:
+        monkey.setattr(seed, "Client", lambda base_url: client)
+        rc = _run_main(seed, ["--teardown", "--clear-history"])
+    finally:
+        monkey.undo()
+
+    assert "/api/library/browse?limit=500" in client.paths("GET"), (
+        f"the tool never GET the stubbed browse path, so this test's twin "
+        f"fixture was never exercised. Paths seen: {client.paths('GET')}")
+    deleted = _library_delete_paths(client)
+    assert "/api/library/3" in deleted and "/api/library/4" in deleted, (
+        f"the twins of the doomed history ids were not deleted: {deleted}")
+    assert "/api/library/5" not in deleted, (
+        f"library row 5 was deleted; its history_id is 99, which is not in "
+        f"the doomed set. That is the operator's row: {deleted}")
+    assert "/api/library/6" not in deleted, (
+        f"library row 6 was deleted; its history_id is None, so nothing "
+        f"attributes it to this tool: {deleted}")
+
+    twin_indices = _library_delete_indices(client)
+    real_deletes = _batch_delete_indices(client, dry_run=False)
+    assert real_deletes, (
+        "no non-dry-run POST to /api/batch/delete happened, so there is no "
+        "ordering to check and the history rows were never removed")
+    assert max(twin_indices) < min(real_deletes), (
+        f"a library twin was deleted at call index {max(twin_indices)}, AFTER "
+        f"the history delete at {min(real_deletes)}. Foreign keys are off "
+        f"(library.py:538-543), so ON DELETE SET NULL does not fire and every "
+        f"twin removed in that order was pointing at a history id that no "
+        f"longer existed. Calls: "
+        f"{[(m, p) for m, p, _b in client.calls]}")
+
+    plan = seed.teardown(
+        _teardown_stubs(
+            seed,
+            [_Reply(list(owned)), _Reply(list(owned)), _Reply([])],
+            {("GET", "/api/library/browse?limit=500"): [
+                   _Reply(_browse_body(page)),
+                   _Reply(_browse_body(survivors))],
+               ("DELETE", "/api/library/3"): {"ok": True, "deleted_row": True},
+               ("DELETE", "/api/library/4"): {"ok": True, "deleted_row": True},
+               ("POST", "/api/batch/delete"): {
+                   "ok": True, "candidates_matched": 2, "processed": 2,
+                   "files_deleted": 0, "errors": 0, "dry_run": False}}),
+        clear_history=True)
+    twins = _clear_of(plan).get("twins") or {}
+    assert twins.get("matched") == 2, (
+        f"the twin scan matched {twins.get('matched')!r} of the 2 rows whose "
+        f"history_id is in the doomed set. `matched` is the scan's own "
+        f"finding and the final verification pass must not clobber it -- it "
+        f"writes `remaining` and nothing else: {twins}")
+    assert twins.get("deleted") == 2, (
+        f"the report claims {twins.get('deleted')!r} twins deleted: {twins}")
+    assert rc == 0, (
+        f"a clear that removed both twins and both history rows, and "
+        f"re-measured zero of each, exited {rc}")
+
+
+def test_a_blind_library_scan_is_unknown_not_no_twins():
+    """A gate that cannot see its subject must SAY so -- and must not cry wolf.
+
+    library.library_browse wraps its whole query in `except Exception: return
+    [], None` (library.py:363-364). A missing library table (migration 4 never
+    ran), an unreadable one, and one holding no twins at all produce the
+    IDENTICAL HTTP body. Reporting "0 twins" over that body is the
+    gate-that-cannot-see-its-subject failure verbatim.
+
+    AND THE INVERSE. An absent library table is a legitimate state, so failing
+    every clear on it would be over-sensitivity -- which CLAUDE.md 0 counts as
+    a soundness bug, because a gate that cries wolf gets switched off. The
+    warning is the loud, honest artifact; the exit code stays 0.
+    """
+    seed = _load()
+    owned = [_owned_row(seed, 11), _owned_row(seed, 12, index=1)]
+    stubs = {("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE,
+             ("POST", "/api/batch/delete"): {
+                 "ok": True, "candidates_matched": 2, "processed": 2,
+                 "files_deleted": 0, "errors": 0, "dry_run": False}}
+    client = _teardown_stubs(
+        seed,
+        [_Reply(list(owned)), _Reply(list(owned)), _Reply([])], stubs)
+    monkey = pytest.MonkeyPatch()
+    try:
+        monkey.setattr(seed, "Client", lambda base_url: client)
+        rc = _run_main(seed, ["--teardown", "--clear-history"])
+    finally:
+        monkey.undo()
+    assert "/api/library/browse?limit=500" in client.paths("GET"), (
+        f"the twin scan never ran, so 'no twins' is not even an unverified "
+        f"claim -- it is an unasked question: {client.paths('GET')}")
+    assert not _library_delete_paths(client), (
+        f"library rows were deleted off a scan that saw nothing: "
+        f"{_library_delete_paths(client)}")
+
+    plan = seed.teardown(
+        _teardown_stubs(
+            seed,
+            [_Reply(list(owned)), _Reply(list(owned)), _Reply([])], stubs),
+        clear_history=True)
+    clear = _clear_of(plan)
+    twins = clear.get("twins") or {}
+    assert twins.get("rows_scanned") == 0, (
+        f"the scan claims to have examined rows it was never given: {twins}")
+    assert twins.get("conclusive") is False, (
+        f"a scan that saw zero rows reported itself as conclusive: {twins}. "
+        f"Over this API an unreadable library and an empty one are the same "
+        f"body, so 'no twins' is UNVERIFIED, not measured.")
+    warnings = " ".join(str(w) for w in (twins.get("warnings")
+                                         or clear.get("warnings") or []))
+    assert warnings, (
+        f"the blind scan produced no warning at all, so the report reads as a "
+        f"clean sweep: {clear}")
+    assert "library.py:363-364" in warnings or "indistinguishable" in warnings.lower(), (
+        f"the warning does not explain WHY the answer is unknown, so a reader "
+        f"sees a hedge rather than the mechanism (library_browse swallows "
+        f"every exception into ([], None)): {warnings}")
+    assert not twins.get("errors"), (
+        f"a blind twin scan was recorded as an ERROR: {twins}. An absent "
+        f"library table is a legitimate state; failing every clear on it is "
+        f"the over-sensitivity CLAUDE.md 0 calls a soundness bug.")
+    assert rc == 0, (
+        f"a clear that removed every history row and re-measured zero exited "
+        f"{rc} because the twin scan was blind. The blind scan WARNS; it does "
+        f"not fail the clear.")
+
+
+def test_the_twin_scan_follows_the_cursor():
+    """One page is not the library.
+
+    /api/library/browse clamps limit to 1..500 (app_library.py:105) and pages
+    by after_id (`l.id < after_id` for the default descending sort,
+    library.py:334-336); next_cursor is non-None only on a FULL page
+    (library.py:360-361). A scan that reads page one and stops sees the newest
+    500 rows and reports every older twin as absent -- a denominator that
+    excludes most of its subject.
+    """
+    seed = _load()
+    owned = [_owned_row(seed, 7), _owned_row(seed, 8, index=1),
+             _owned_row(seed, 9)]
+    page1 = [{"id": 42, "history_id": 7, "title": "a", "file_path": "/a"},
+             {"id": 41, "history_id": 8, "title": "b", "file_path": "/b"}]
+    page2 = [{"id": 20, "history_id": 9, "title": "c", "file_path": "/c"}]
+    # The FINAL twin-verification pass re-calls _twin_scan with no cursor, so
+    # the no-cursor key is consumed a SECOND time. This reply must be a REAL
+    # page (one surviving, unrelated row) rather than _BLIND_BROWSE: a blind
+    # body makes the verification inconclusive, `remaining` stays None, and
+    # the conclusive/zero-remaining path of a multi-page clear is never
+    # exercised by a passing test -- the fixture-fidelity gap the cut #7
+    # attack pass found. rows_scanned > 0 is what makes the scan conclusive
+    # by design; an EMPTY page cannot confirm anything (see _twin_scan).
+    verify_page = [{"id": 9000, "history_id": 555555,
+                    "title": "operator", "file_path": "/keep"}]
+    client = _teardown_stubs(
+        seed,
+        [_Reply(list(owned)), _Reply(list(owned)), _Reply([])],
+        {("GET", "/api/library/browse?limit=500"): [
+               _Reply(_browse_body(page1, next_cursor=40)),
+               _Reply(_browse_body(verify_page))],
+           ("GET", "/api/library/browse?limit=500&after_id=40"):
+               _browse_body(page2, next_cursor=None),
+           ("DELETE", "/api/library/42"): {"ok": True, "deleted_row": True},
+           ("DELETE", "/api/library/41"): {"ok": True, "deleted_row": True},
+           ("DELETE", "/api/library/20"): {"ok": True, "deleted_row": True},
+           ("POST", "/api/batch/delete"): {
+               "ok": True, "candidates_matched": 3, "processed": 3,
+               "files_deleted": 0, "errors": 0, "dry_run": False}})
+    monkey = pytest.MonkeyPatch()
+    try:
+        monkey.setattr(seed, "Client", lambda base_url: client)
+        _run_main(seed, ["--teardown", "--clear-history"])
+    finally:
+        monkey.undo()
+
+    gets = client.paths("GET")
+    assert "/api/library/browse?limit=500" in gets, (
+        f"the first browse page was never requested: {gets}")
+    assert "/api/library/browse?limit=500&after_id=40" in gets, (
+        f"the scan stopped at page one. next_cursor was 40 and the tool never "
+        f"followed it, so every library row older than the first page is "
+        f"invisible to the twin derivation: {gets}")
+    deleted = _library_delete_paths(client)
+    for lid in ("42", "41", "20"):
+        assert f"/api/library/{lid}" in deleted, (
+            f"twin {lid} never entered the match set; row 20 is on PAGE TWO, "
+            f"which is the whole subject of this test: {deleted}")
+
+    plan = seed.teardown(
+        _teardown_stubs(
+            seed,
+            [_Reply(list(owned)), _Reply(list(owned)), _Reply([])],
+            {("GET", "/api/library/browse?limit=500"): [
+                   _Reply(_browse_body(page1, next_cursor=40)),
+                   _Reply(_browse_body(verify_page))],
+               ("GET", "/api/library/browse?limit=500&after_id=40"):
+                   _browse_body(page2, next_cursor=None),
+               ("DELETE", "/api/library/42"): {"ok": True, "deleted_row": True},
+               ("DELETE", "/api/library/41"): {"ok": True, "deleted_row": True},
+               ("DELETE", "/api/library/20"): {"ok": True, "deleted_row": True},
+               ("POST", "/api/batch/delete"): {
+                   "ok": True, "candidates_matched": 3, "processed": 3,
+                   "files_deleted": 0, "errors": 0, "dry_run": False}}),
+        clear_history=True)
+    twins = _clear_of(plan).get("twins") or {}
+    assert twins.get("matched") == 3, (
+        f"the scan matched {twins.get('matched')!r} twins across two pages; "
+        f"all three doomed history ids have one: {twins}")
+    assert twins.get("rows_scanned") == 3, (
+        f"the scan reports {twins.get('rows_scanned')!r} rows examined; it "
+        f"was handed 2 on page one and 1 on page two: {twins}")
+    assert twins.get("pages") == 2, (
+        f"the scan reports {twins.get('pages')!r} page(s); it followed one "
+        f"cursor, so it read two: {twins}")
+    assert twins.get("remaining") == 0, (
+        f"twins['remaining'] is {twins.get('remaining')!r} after a clear "
+        f"whose final verification scanned a real page and matched no doomed "
+        f"id. The final verification pass is the only writer of this key; "
+        f"None here means that pass never ran or came back inconclusive, and "
+        f"a multi-page clear would ship with its zero-remaining path "
+        f"unverified: {twins}")
+
+
+def test_a_failed_twin_delete_fails_the_clear():
+    """A twin the tool tried and failed to delete is not a twin it removed.
+
+    A DELETE answering ok:false is a DIFFERENT fact from one answering "not
+    found" -- the second means another writer got there first, which is a
+    warning. This one is a db error, and swallowing it would let the report
+    say the panel is clean while the row is still in it.
+    """
+    seed = _load()
+    owned = [_owned_row(seed, 7)]
+    stubs = {
+        ("GET", "/api/library/browse?limit=500"): _browse_body(
+            [{"id": 3, "history_id": 7, "title": "a", "file_path": "/a"}]),
+        ("DELETE", "/api/library/3"): {"ok": False, "deleted_row": False,
+                                       "error": "db error: locked"},
+        ("POST", "/api/batch/delete"): {
+            "ok": True, "candidates_matched": 1, "processed": 1,
+            "files_deleted": 0, "errors": 0, "dry_run": False},
+    }
+    client = _teardown_stubs(
+        seed, [_Reply(list(owned)), _Reply(list(owned)), _Reply([])], stubs)
+    monkey = pytest.MonkeyPatch()
+    try:
+        monkey.setattr(seed, "Client", lambda base_url: client)
+        rc = _run_main(seed, ["--teardown", "--clear-history"])
+    finally:
+        monkey.undo()
+    assert "/api/library/3" in _library_delete_paths(client), (
+        f"the failing DELETE was never attempted, so this test's fixture was "
+        f"not exercised: {client.paths('DELETE')}")
+
+    plan = seed.teardown(
+        _teardown_stubs(
+            seed, [_Reply(list(owned)), _Reply(list(owned)), _Reply([])],
+            stubs),
+        clear_history=True)
+    clear = _clear_of(plan)
+    twins = clear.get("twins") or {}
+    errors = " ".join(str(e) for e in (twins.get("errors") or []))
+    assert errors, (
+        f"a DELETE that answered ok:false left no error in the twin report: "
+        f"{twins}")
+    assert "locked" in errors, (
+        f"the twin error does not carry the response the app actually gave, "
+        f"so the operator cannot tell a locked database from a missing row: "
+        f"{errors}")
+    assert clear.get("ok") is False, (
+        f"the clear reported ok while a twin it targeted is still there: "
+        f"{clear}")
+    assert rc == 4, (
+        f"a clear that failed to delete a twin exited {rc}; the failure is "
+        f"KNOWN, which is _EXIT_CLEAR_INCOMPLETE (4), not unknown (5)")
+
+
+# ── mutation-escape closures (cut #7 attack pass) ───────────────────────────
+#
+# Each test below exists because a specific, VALID mutant of the shipped
+# source passed the whole band (measured 2026-08-03, 39/39 green under the
+# mutation). The mutant is named in the docstring; the test is written so
+# that exact change turns it red. Closing an escape means adding the missing
+# test, never deleting the behaviour.
+
+
+def _canary_reply(n, *, dry_run=True):
+    return _Reply({"ok": True, "candidates_matched": n, "processed": 0,
+                   "files_deleted": 0, "errors": 0, "dry_run": dry_run})
+
+
+def _delete_reply(n):
+    return _Reply({"ok": True, "candidates_matched": n, "processed": n,
+                   "files_deleted": 0, "errors": 0, "dry_run": False})
+
+
+def _clear_client(seed, history_replies, batch_replies):
+    """A client for driving clear_seeded_history DIRECTLY (no teardown read).
+
+    The blind browse body keeps the twin scan inconclusive-but-warned, which
+    the exit-code contract deliberately tolerates; these tests are about the
+    history side.
+    """
+    return FakeClient({
+        _history_key(seed): history_replies,
+        ("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE,
+        ("POST", "/api/batch/delete"): batch_replies,
+    })
+
+
+def test_every_batch_delete_payload_carries_a_full_limit():
+    """ESCAPE CLOSED: hardcoding either POST's `limit` to 1 passed the band.
+
+    batch_ops._build_query appends `LIMIT ?` AFTER the IN clause, so an
+    undersized limit silently drops ids (measured: 6 ids with limit=2 matched
+    2). FakeClient keys replies on (method, path) and never inspects the
+    payload, so no path-level assertion can see this value: the payloads
+    themselves are the subject, and this test reads them.
+    """
+    seed = _load()
+    rows = [_owned_row(seed, rid, index=i % 2)
+            for i, rid in enumerate((11, 12, 13, 14, 15))]
+    client = _clear_client(
+        seed,
+        [_Reply(list(rows)), _Reply([])],
+        [_canary_reply(2), _delete_reply(2), _delete_reply(2),
+         _delete_reply(1)])
+    out = seed.clear_seeded_history(client, chunk=2)
+    posts = _batch_delete_indices(client)
+    assert len(posts) == 4, (
+        f"expected 4 POSTs to /api/batch/delete (1 canary + ceil(5/2) "
+        f"chunks); got {len(posts)}: "
+        f"{[(m, p) for m, p, _b in client.calls]}")
+    for index in posts:
+        body = client.calls[index][2] or {}
+        filt = body.get("filter") or {}
+        ids = filt.get("id_in")
+        assert isinstance(ids, list) and ids, (
+            f"a /api/batch/delete payload carries no id_in list -- the "
+            f"denominator of this test's limit check would be empty and its "
+            f"verdict about nothing: {body}")
+        assert filt.get("limit") == len(ids), (
+            f"a /api/batch/delete payload's limit is {filt.get('limit')!r} "
+            f"for {len(ids)} ids: {body}. _build_query appends `LIMIT ?` "
+            f"after the IN clause, so an undersized limit silently drops "
+            f"ids in production with nothing in this band to notice.")
+    canary_body = client.calls[posts[0]][2] or {}
+    assert canary_body.get("dry_run") is True and \
+        len((canary_body.get("filter") or {}).get("id_in") or []) == 2, (
+        f"the first POST is not the 2-id dry-run canary: {canary_body}")
+    assert out["deleted"] == 5 and out["remaining"] == 0, out
+
+
+def test_a_degenerate_chunk_is_coerced_not_crashed():
+    """ESCAPE CLOSED: dropping the max(1, ...) chunk lower bound passed.
+
+    Without the bound, chunk=0 reaches range(0, len(ids), 0) and raises
+    ValueError mid-clear -- after the canary, before any delete. The bound
+    coerces it to 1, which is a defined, safe outcome; this test pins it.
+    """
+    seed = _load()
+    rows = [_owned_row(seed, 21), _owned_row(seed, 22, index=1)]
+    client = _clear_client(
+        seed,
+        [_Reply(list(rows)), _Reply([])],
+        [_canary_reply(1), _delete_reply(1), _delete_reply(1)])
+    out = seed.clear_seeded_history(client, chunk=0)
+    assert out["deleted"] == 2 and out["remaining"] == 0 and out["ok"], (
+        f"a chunk of 0 must be coerced to 1 and the clear completed: {out}")
+    for index in _batch_delete_indices(client, dry_run=False):
+        ids = ((client.calls[index][2] or {}).get("filter") or {}).get("id_in")
+        assert ids and len(ids) == 1, (
+            f"chunk=0 was not coerced to 1-id batches: {client.calls[index]}")
+
+
+def test_round_exhaustion_stops_at_max_rounds_and_reports_the_stall():
+    """ESCAPE CLOSED: an off-by-one capping the loop at max_rounds-1 passed.
+
+    The bound protects an unattended capture.sh clear (the code comment
+    claims 20 rounds x 500 rows = 10k). This scripts max_rounds=3 with a
+    remainder that shrinks every round but never reaches zero, and pins the
+    EXACT round count at exhaustion plus the stalled flag that exhaustion
+    must raise.
+    """
+    seed = _load()
+
+    def rows_n(n):
+        return [_owned_row(seed, 100 + i, index=i % 2) for i in range(n)]
+
+    client = _clear_client(
+        seed,
+        [_Reply(rows_n(4)), _Reply(rows_n(3)),   # round 1: top, re-read
+         _Reply(rows_n(3)), _Reply(rows_n(2)),   # round 2
+         _Reply(rows_n(2)), _Reply(rows_n(1))],  # round 3
+        [_canary_reply(4),
+         _Reply({"ok": True, "candidates_matched": 0, "processed": 0,
+                 "files_deleted": 0, "errors": 0, "dry_run": False})])
+    out = seed.clear_seeded_history(client, max_rounds=3)
+    assert out["rounds"] == 3, (
+        f"the clear ran {out['rounds']} round(s) with max_rounds=3 and a "
+        f"never-empty remainder; the loop bound is off: {out}")
+    assert out["stalled"] is True, (
+        f"round exhaustion with rows remaining did not report stalled: {out}")
+    assert out["remaining"] == 1 and out["ok"] is False, out
+
+
+def test_a_stalled_round_is_detected_on_equality():
+    """ESCAPE CLOSED: weakening the stall boundary >= to > passed the band.
+
+    Two consecutive rounds with an IDENTICAL non-zero remainder is the
+    textbook stall (a delete that reports success and removes nothing), and
+    it sits exactly on the == half of the >= boundary. Under the > mutant
+    the loop spins to max_rounds instead of stopping at round 2, which the
+    exact rounds assertion below turns red.
+    """
+    seed = _load()
+    rows = [_owned_row(seed, 31), _owned_row(seed, 32, index=1)]
+    client = _clear_client(
+        seed,
+        [_Reply(list(rows))],   # the last reply repeats: every read sees 2
+        [_canary_reply(2),
+         _Reply({"ok": True, "candidates_matched": 0, "processed": 0,
+                 "files_deleted": 0, "errors": 0, "dry_run": False})])
+    out = seed.clear_seeded_history(client)
+    assert out["stalled"] is True, (
+        f"two rounds with the same non-zero remainder did not stall: {out}")
+    assert out["rounds"] == 2, (
+        f"the stall was detected after {out['rounds']} round(s); equality "
+        f"must trip it on the SECOND round, not after the loop spins to "
+        f"max_rounds: {out}")
+    assert out["remaining"] == 2 and out["ok"] is False, out
+
+
+def test_the_post_delete_reread_is_fresh_within_a_single_round():
+    """ESCAPE CLOSED: reusing the round's pre-delete rows as the re-read
+    passed the band -- including the two tests written to pin the read model.
+
+    Those tests script three teardown-driven reads, and the mutant's missing
+    per-round re-read was masked by ROUND TWO's top-of-loop read consuming
+    the third reply in its place: the total read count still satisfied >=3.
+    This fixture scripts a SINGLE round driven directly, so there is no
+    later round to launder the missing read: the mutant reports remaining=2
+    off stale rows, enters a second round, and finishes with rounds=2.
+    """
+    seed = _load()
+    rows = [_owned_row(seed, 41), _owned_row(seed, 42, index=1)]
+    client = _clear_client(
+        seed,
+        [_Reply(list(rows)), _Reply([])],
+        [_canary_reply(2), _delete_reply(2)])
+    out = seed.clear_seeded_history(client)
+    reads = _history_read_indices(seed, client)
+    posts = _batch_delete_indices(client, dry_run=False)
+    assert out["rounds"] == 1, (
+        f"a clear whose one round deleted everything ran {out['rounds']} "
+        f"round(s). A second round means the post-delete re-read did not "
+        f"happen inside round one -- its remainder came from the stale "
+        f"pre-delete rows, and the loop had to read again to find out: {out}")
+    assert len(reads) == 2, (
+        f"the history was read {len(reads)} time(s); a single direct-driven "
+        f"round reads exactly twice (top-of-round, post-delete): "
+        f"{[(m, p) for m, p, _b in client.calls]}")
+    assert posts and reads[-1] > posts[-1], (
+        "the read that produced `remaining` did not happen after this "
+        "round's deletes; the remainder was not re-measured")
+    assert out["remaining"] == 0 and out["ok"] is True, out
+
+
+def test_a_plan_missing_its_clear_is_incomplete_not_ok():
+    """ESCAPE CLOSED: deleting the `if not clear` branch passed the band.
+
+    A requested clear whose plan carries no clear dict at all is a clear
+    that KNOWABLY did not happen -- code 4, not 5: nothing was attempted, so
+    there is no unmeasurable post-state to be unknown about. Without the
+    branch the empty dict falls through to the remaining_readable check and
+    reports 5, claiming a measurement failed that was never attempted.
+    """
+    seed = _load()
+    assert seed._teardown_exit_code({}, clear_requested=True) == 4, (
+        "a requested clear with no clear dict in the plan must exit 4 "
+        "(_EXIT_CLEAR_INCOMPLETE): it did not happen and we know it")
+    assert seed._teardown_exit_code(None, clear_requested=True) == 4, (
+        "a None plan with a requested clear must exit 4, not raise and not 5")
+    assert seed._teardown_exit_code({}, clear_requested=False) == 0, (
+        "with no clear requested the exit code is scoped away entirely")
+
+
+def test_the_residue_report_prints_unknown_only_when_unknown(capsys):
+    """ESCAPE CLOSED: inverting `if rows is None` printed exactly backwards
+    UNKNOWN/known messages and passed; deleting the known-count branch also
+    passed. No test read _report_residue's output at all.
+
+    The stderr lines are capture.sh's diagnostic surface (its failure branch
+    greps 'live_seed: '), so a backwards or silent report is an operator
+    reading the wrong fact off the box.
+    """
+    seed = _load()
+    seed._report_residue({"residue": {"history_rows": None,
+                                      "history_rows_found": None,
+                                      "readable": False, "cleared": False}})
+    err = capsys.readouterr().err
+    assert "RESIDUE UNKNOWN" in err, (
+        f"an unreadable history printed no RESIDUE UNKNOWN line: {err!r}")
+
+    seed._report_residue({"residue": {"history_rows": 3,
+                                      "history_rows_found": 3,
+                                      "readable": True, "cleared": False}})
+    err = capsys.readouterr().err
+    assert "RESIDUE UNKNOWN" not in err, (
+        f"a MEASURED remainder of 3 was reported as unknown: {err!r}")
+    assert "live_seed: RESIDUE - 3" in err, (
+        f"3 remaining rows printed no RESIDUE line naming the count: {err!r}")
+
+
+def test_the_skipped_unowned_rows_are_said_out_loud(capsys):
+    """ESCAPE CLOSED: disabling the CLEAR SKIPPED message passed the band.
+
+    An unowned row is the one case where the clear PERMANENTLY cannot reach
+    zero, and the stderr line is where the operator learns why. R6 pins the
+    unowned row's survival in the report dict; this pins the words.
+    """
+    seed = _load()
+    seed._report_residue({
+        "residue": {"history_rows": 2, "history_rows_found": 2,
+                    "readable": True, "cleared": True},
+        "clear": {"unowned": 2, "errors": [], "warnings": [],
+                  "deleted": 0, "stalled": False, "twins": {}}})
+    err = capsys.readouterr().err
+    assert "CLEAR SKIPPED" in err and "2 row(s)" in err, (
+        f"2 unowned rows produced no CLEAR SKIPPED line: {err!r}")
+
+    seed._report_residue({
+        "residue": {"history_rows": 0, "history_rows_found": 2,
+                    "readable": True, "cleared": True},
+        "clear": {"unowned": 0, "errors": [], "warnings": [],
+                  "deleted": 2, "stalled": False, "twins": {}}})
+    err = capsys.readouterr().err
+    assert "CLEAR SKIPPED" not in err, (
+        f"a clear that skipped nothing printed CLEAR SKIPPED: {err!r}")
+
+
+# ── adversarial pass on the SHIPPED cut #7 code (F1-F4) ─────────────────────
+#
+# Four defects found by reading the merged implementation against CLAUDE.md 0
+# rather than against the spec. Each test below FAILS on the tree as it stands
+# and names the defect it is about; none of them weakens an existing
+# assertion, and each that could be satisfied by an over-sensitive fix carries
+# the opposite direction in the same test.
+
+
+def _blind_page_client(seed, first_page, *, cursor, second_body):
+    """A FakeClient serving exactly two browse pages and nothing else.
+
+    Used to drive _twin_scan DIRECTLY, so the verdict is about the scan and
+    not about anything the clear does around it.
+    """
+    return FakeClient({
+        ("GET", "/api/library/browse?limit=500"):
+            _browse_body(first_page, next_cursor=cursor),
+        ("GET", f"/api/library/browse?limit=500&after_id={cursor}"):
+            second_body,
+    })
+
+
+def test_a_blind_continuation_page_does_not_make_the_scan_conclusive():
+    """F1. The blind-library guard's denominator is the SCAN TOTAL.
+
+    `if report["rows_scanned"] == 0` is evaluated over every page the scan
+    read, so it can only ever see a blind FIRST page. A blind body arriving as
+    a CONTINUATION page (page 2+) is structurally invisible to it:
+    rows_scanned is already non-zero from page one, `next_cursor: null` ends
+    the loop as scan_complete, and the scan reports itself CONCLUSIVE having
+    never seen the rows it was asked about. That is CLAUDE.md 0 -- a gate that
+    cannot see the thing it is asked about reporting OK -- inside the very
+    function whose docstring claims to handle it.
+
+    The two bodies are indistinguishable over HTTP by construction:
+    library.library_browse wraps its whole query in `except Exception: return
+    [], None` (library.py:363-364), and next_cursor is non-None only on a FULL
+    page (library.py:360-361) -- so a cursor handed back and then answered with
+    zero rows is exactly as unverified on page 2 as it is on page 1.
+
+    BOTH DIRECTIONS ARE ASSERTED HERE ON PURPOSE. "Call every multi-page scan
+    inconclusive" would satisfy the first half and is the over-sensitivity
+    CLAUDE.md 0 counts as a soundness bug in its own right, so the honest case
+    -- a continuation page carrying real rows and no cursor -- must stay
+    conclusive, warning-free, and must still match both twins.
+    """
+    seed = _load()
+    doomed = {7, 8}
+    page1 = [{"id": 42, "history_id": 7, "title": "a", "file_path": "/a"}]
+    page2_real = [{"id": 20, "history_id": 8, "title": "b", "file_path": "/b"}]
+
+    # -- the defect: page two is the blind body -------------------------------
+    blind = _blind_page_client(seed, page1, cursor=4242,
+                               second_body=_BLIND_BROWSE)
+    report = seed._twin_scan(blind, set(doomed))
+    assert "/api/library/browse?limit=500&after_id=4242" in blind.paths("GET"), (
+        f"the scan never requested the stubbed continuation page, so this "
+        f"test's fixture was not exercised and its verdict is about nothing. "
+        f"Paths: {blind.paths('GET')}")
+    warnings = " ".join(str(w) for w in report["warnings"])
+    assert report["conclusive"] is False, (
+        f"a scan whose page TWO came back with the blind body reported itself "
+        f"CONCLUSIVE: {report}. The guard is `rows_scanned == 0` over the scan "
+        f"TOTAL, which page one already made non-zero, so the continuation "
+        f"page's zero rows are invisible to it. library_browse cannot "
+        f"distinguish an unreadable table from an empty page "
+        f"(library.py:363-364), and that does not become false because an "
+        f"earlier page succeeded -- twin 20 is in the doomed set and was "
+        f"neither seen nor reported unseen.")
+    assert "4242" in warnings, (
+        f"no warning names the page that came back blind. The operator is "
+        f"told the scan is inconclusive without being told WHERE it went "
+        f"blind, which is the one fact that distinguishes this from a first- "
+        f"page failure: {report['warnings']!r}")
+    assert ("library.py:363-364" in warnings
+            or "indistinguishable" in warnings.lower()), (
+        f"the warning does not explain WHY the continuation page is "
+        f"unverified, so it reads as a hedge rather than the mechanism: "
+        f"{warnings!r}")
+
+    # -- the inverse: an HONEST last page must stay conclusive ----------------
+    honest = _blind_page_client(seed, page1, cursor=4242,
+                                second_body=_browse_body(page2_real))
+    ok_report = seed._twin_scan(honest, set(doomed))
+    assert "/api/library/browse?limit=500&after_id=4242" in honest.paths("GET"), (
+        f"the honest fixture's continuation page was never requested: "
+        f"{honest.paths('GET')}")
+    assert ok_report["scan_complete"] is True, ok_report
+    assert ok_report["conclusive"] is True, (
+        f"a genuine end-of-library page two -- real rows, next_cursor null -- "
+        f"was reported INCONCLUSIVE: {ok_report}. Making every multi-page scan "
+        f"unverified is the over-sensitivity half of CLAUDE.md 0: a gate that "
+        f"cries wolf gets switched off, so this is a soundness bug and not a "
+        f"safe default.")
+    assert sorted(ok_report["matched_ids"]) == [20, 42], (
+        f"the honest two-page scan matched {ok_report['matched_ids']!r}; both "
+        f"doomed history ids have a twin, one per page: {ok_report}")
+    assert not ok_report["warnings"], (
+        f"an honest, complete two-page scan emitted warnings: "
+        f"{ok_report['warnings']!r}")
+
+    # -- and the report the clear writes off that scan ------------------------
+    owned = [_owned_row(seed, 7), _owned_row(seed, 8, index=1)]
+    survivor = [{"id": 9000, "history_id": 555555, "title": "operator",
+                 "file_path": "/keep"}]
+    client = FakeClient({
+        _history_key(seed): [_Reply(list(owned)), _Reply([])],
+        ("GET", "/api/library/browse?limit=500"): [
+            _Reply(_browse_body(page1, next_cursor=4242)),
+            _Reply(_browse_body(survivor, next_cursor=4242))],
+        ("GET", "/api/library/browse?limit=500&after_id=4242"): _BLIND_BROWSE,
+        ("DELETE", "/api/library/42"): {"ok": True, "deleted_row": True},
+        ("POST", "/api/batch/delete"): [_canary_reply(2), _delete_reply(2)],
+    })
+    out = seed.clear_seeded_history(client)
+    assert "/api/library/browse?limit=500&after_id=4242" in client.paths("GET"), (
+        f"the clear's twin scan never followed the cursor into the blind "
+        f"page, so this fixture was not exercised: {client.paths('GET')}")
+    twins = out["twins"]
+    assert twins["conclusive"] is False, (
+        f"the clear recorded a conclusive twin scan off a blind continuation "
+        f"page: {twins}")
+    assert twins["remaining"] != 0, (
+        f"twins['remaining'] was written {twins['remaining']!r} by the final "
+        f"verification pass, whose page two was the blind body. History id 8's "
+        f"twin was never seen, never deleted, and is now reported as zero "
+        f"remaining -- a measured-sounding zero over a denominator that "
+        f"excluded the subject. UNKNOWN is a third state (CLAUDE.md 0) and "
+        f"None is how this report spells it: {out}")
+    clear_warnings = " ".join(str(w) for w in out["warnings"])
+    assert "4242" in clear_warnings, (
+        f"the clear emitted no warning naming the blind page, so stderr says "
+        f"nothing at all about it and _report_residue prints the CLEARED line "
+        f"unqualified: {out['warnings']!r}")
+
+
+def test_a_benign_concurrent_removal_does_not_abort_the_whole_clear():
+    """F2. The canary is over-sensitive AND it misdiagnoses.
+
+    `if matched != len(probe)` treats ANY shortfall as a broken filter and
+    aborts the entire clear -- twins included -- while the error text asserts
+    "The filter shape is not the one batch_ops._build_query accepts", which
+    describes only the matched==0 case. One probe id removed by another writer
+    between the history read and the canary produces matched == len(probe)-1,
+    and that is a benign race the same function already handles as a SOFT
+    WARNING twice over: at the batch delete ("a N-id chunk matched nothing
+    (already gone?)") and at the twin delete ("Another writer got it first: a
+    warning, not an error"). Fatal in one place, benign in two.
+
+    Over-sensitivity is a soundness bug, not a safe default (CLAUDE.md 0): a
+    gate that cries wolf gets switched off.
+
+    THE CANARY'S REAL JOB IS NOT BEING WEAKENED HERE. matched==0 for every
+    call must still abort having deleted nothing, and
+    test_a_malformed_filter_is_caught_before_anything_is_deleted (R4, above)
+    is the separate test that proves it. That test must stay green.
+    """
+    seed = _load()
+    rows = [_owned_row(seed, 11), _owned_row(seed, 12, index=1),
+            _owned_row(seed, 13)]
+    client = _clear_client(
+        seed,
+        [_Reply(list(rows)), _Reply([])],
+        # The probe is all three ids; one of them vanished under us, so the
+        # app honestly answers 2. The following non-dry-run chunk then removes
+        # the two that are still there.
+        [_canary_reply(2), _delete_reply(2)])
+    out = seed.clear_seeded_history(client)
+
+    canary_posts = _batch_delete_indices(client, dry_run=True)
+    assert canary_posts, (
+        f"no dry-run canary POST was made at all, so this test's fixture was "
+        f"not exercised: {[(m, p) for m, p, _b in client.calls]}")
+    assert (out.get("canary") or {}).get("sent") == 3, (
+        f"the canary record does not carry the probe it sent: {out['canary']!r}")
+    assert (out.get("canary") or {}).get("matched") == 2, (
+        f"the canary record does not carry the shortfall the app reported, so "
+        f"the discrepancy is erased rather than reported: {out['canary']!r}")
+    assert _batch_delete_indices(client, dry_run=False), (
+        f"the clear aborted at the canary because ONE of three probe ids had "
+        f"already been removed by another writer. Nothing was deleted -- "
+        f"neither the two history rows that were still there nor any library "
+        f"twin -- over a race this same function treats as a warning at both "
+        f"of its other delete sites. Calls: "
+        f"{[(m, p) for m, p, _b in client.calls]}")
+    text = " ".join(str(x) for x in
+                    (out.get("errors") or []) + (out.get("warnings") or []))
+    assert "_build_query accepts" not in text, (
+        f"the report asserts the filter shape is not the one "
+        f"batch_ops._build_query accepts. The evidence is a PARTIAL match "
+        f"(2 of 3), which is exactly what a concurrent removal produces and "
+        f"is not evidence about the filter's shape at all -- only matched==0 "
+        f"is: {text!r}")
+    assert not out["errors"], (
+        f"a clear that went on to delete every row still present and "
+        f"re-measured a remainder of zero was reported as having ERRORED: "
+        f"{out['errors']!r}")
+    warnings = " ".join(str(w) for w in (out.get("warnings") or []))
+    assert "canary" in warnings.lower(), (
+        f"the shortfall left no warning, so it never reaches stderr -- "
+        f"_report_residue prints errors and warnings, never the canary dict, "
+        f"so an operator would never learn a probe id had vanished: "
+        f"{out['warnings']!r}")
+    assert out["deleted"] == 2 and out["remaining"] == 0, (
+        f"the clear did not finish: {out}")
+    assert out["ok"] is True, (
+        f"the clear reported ok={out['ok']!r} after removing every row that "
+        f"was still there and RE-MEASURING zero remaining. Failing this "
+        f"exits 4 on a capture whose only anomaly was a benign race: {out}")
+
+
+def test_the_remainder_does_not_claim_a_measurement_that_never_happened(capsys):
+    """F3. A report field asserting a provenance it does not have.
+
+    clear_seeded_history's docstring says "NO ARITHMETIC. The remainder is
+    RE-MEASURED by re-reading /api/history, never computed", and
+    _report_residue prints "measured after the clear" beside the number. On
+    two paths there is no second read at all: the canary abort and the
+    `if not ids:` break both write `out["remaining"] = len(rows)` -- the
+    round's PRE-abort read -- and return.
+
+    The number is therefore whatever the history looked like BEFORE the
+    decision to stop, presented as though it were measured after it. Both
+    fixtures below hand the tool a third reply showing the live marked set has
+    since dropped to two rows; a genuine re-measure returns 2, the shipped
+    code returns 3 and calls it measured.
+
+    EITHER FIX IS ACCEPTED, and the assertion is written as that disjunction:
+    re-read and report the live number, or stop claiming the number was
+    re-read. What is not accepted is the current pair -- the stale number AND
+    the claim.
+    """
+    seed = _load()
+
+    def _check(label, plan, client, err):
+        reads = _history_read_indices(seed, client)
+        clear = _clear_of(plan)
+        # The read model is pinned by R2: teardown reads once itself, then the
+        # clear's round reads at the top, then the post-clear re-read. Three
+        # or more reads means the remainder was re-measured; two means the
+        # number came from the round's own pre-abort read.
+        assert len(reads) >= 2, (
+            f"{label}: the tool made {len(reads)} history read(s); this "
+            f"fixture was not exercised: "
+            f"{[(m, p) for m, p, _b in client.calls]}")
+        remeasured = len(reads) >= 3
+        claimed = "measured after the clear" in err
+        if remeasured:
+            assert clear.get("remaining") == 2, (
+                f"{label}: the tool re-read /api/history and still reported "
+                f"remaining={clear.get('remaining')!r}. The re-read's own "
+                f"body carries two rows, so the number did not come from the "
+                f"measurement it claims: {clear}")
+        else:
+            assert not claimed, (
+                f"{label}: the report prints 'measured after the clear' "
+                f"beside remaining={clear.get('remaining')!r}, and no read of "
+                f"/api/history happened after the clear stopped -- the number "
+                f"is the round's pre-abort read. The live marked set is 2. "
+                f"Either re-measure it or do not call it measured "
+                f"(CLAUDE.md 0: unknown is a third state). stderr: {err!r}")
+
+    three = [_owned_row(seed, 11), _owned_row(seed, 12, index=1),
+             _owned_row(seed, 13)]
+    two = [_owned_row(seed, 11), _owned_row(seed, 13)]
+    client_a = _teardown_stubs(
+        seed, [_Reply(list(three)), _Reply(list(three)), _Reply(list(two))],
+        {("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE,
+         ("POST", "/api/batch/delete"): {
+             "ok": True, "candidates_matched": 0, "processed": 0,
+             "files_deleted": 0, "errors": 0, "dry_run": True}})
+    plan_a = seed.teardown(client_a, clear_history=True)
+    seed._report_residue(plan_a)
+    err_a = capsys.readouterr().err
+    assert _batch_delete_indices(client_a, dry_run=True), (
+        f"path A never sent the canary, so it is not the canary-abort path "
+        f"and this half of the test is about the wrong subject: "
+        f"{[(m, p) for m, p, _b in client_a.calls]}")
+    _check("canary-abort path", plan_a, client_a, err_a)
+
+    un3 = [_unowned_row(seed, 21), _unowned_row(seed, 22, index=1),
+           _unowned_row(seed, 23)]
+    un2 = [_unowned_row(seed, 21), _unowned_row(seed, 23)]
+    client_b = _teardown_stubs(
+        seed, [_Reply(list(un3)), _Reply(list(un3)), _Reply(list(un2))],
+        {("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE})
+    plan_b = seed.teardown(client_b, clear_history=True)
+    seed._report_residue(plan_b)
+    err_b = capsys.readouterr().err
+    assert not _batch_delete_indices(client_b), (
+        f"path B posted to /api/batch/delete; with every row unowned the "
+        f"clear must break before the canary, so this half is not on the "
+        f"no-owned-ids path: {[(m, p) for m, p, _b in client_b.calls]}")
+    _check("no-owned-ids path", plan_b, client_b, err_b)
+
+
+def test_the_cleared_line_never_reports_more_removed_than_it_found(capsys):
+    """F4. `found` and `deleted` are incommensurable, and the line divides them.
+
+    `found` is set once, from round one's single unpaginated GET, which asks
+    for limit=_HISTORY_PAGE (500) -- by design; unbounded residue is handled
+    by the ROUND LOOP, not by paginating that read. `deleted` accumulates
+    across every round. _report_residue then prints them as "{deleted} of
+    {found} ... row(s) removed", so a clear that needed two rounds prints a
+    numerator larger than its denominator.
+
+    That line is capture.sh's diagnostic surface (its failure branch greps
+    'live_seed: '), so this is the number an operator reads off the box. "600
+    of 500 removed" is not a rounding artifact -- it is a ratio whose two
+    halves were measured over different denominators, which is the mismatch
+    CLAUDE.md 8 warns about in its own terms.
+
+    The fix is not asserted here, only the property: whatever the two numbers
+    become, the CLEARED line must not claim more rows removed than it found.
+    """
+    seed = _load()
+    page = seed._HISTORY_PAGE
+    first = [_owned_row(seed, 1000 + i, index=i % 3) for i in range(page)]
+    second = [_owned_row(seed, 9000 + i, index=i % 3) for i in range(100)]
+    client = _teardown_stubs(
+        seed,
+        [_Reply(list(first)),    # teardown's own read
+         _Reply(list(first)),    # round 1, top of loop -> `found` = 500
+         _Reply(list(second)),   # round 1, post-delete re-read: 100 remain
+         _Reply(list(second)),   # round 2, top of loop
+         _Reply([])],            # round 2, post-delete re-read: none remain
+        {("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE,
+         ("POST", "/api/batch/delete"): [
+             _canary_reply(200),                      # probe = ids[:_CLEAR_CHUNK]
+             _delete_reply(200), _delete_reply(200),   # round 1: 200+200+100
+             _delete_reply(100),
+             _delete_reply(100)]})                     # round 2: 100
+    monkey = pytest.MonkeyPatch()
+    try:
+        monkey.setattr(seed, "Client", lambda base_url: client)
+        rc = _run_main(seed, ["--teardown", "--clear-history"])
+    finally:
+        monkey.undo()
+    err = capsys.readouterr().err
+
+    reads = _history_read_indices(seed, client)
+    assert len(reads) == 5, (
+        f"the fixture's five scripted history reads were not consumed "
+        f"({len(reads)} read(s)), so this clear did not run the two rounds "
+        f"this test is about: {[(m, p) for m, p, _b in client.calls]}")
+    assert len(_batch_delete_indices(client, dry_run=False)) == 4, (
+        f"expected 4 non-dry-run batch deletes (200+200+100 in round one, "
+        f"100 in round two): "
+        f"{[(m, p) for m, p, _b in client.calls]}")
+    assert rc == 0, (
+        f"the two-round clear did not finish cleanly (rc={rc}), so the "
+        f"CLEARED line this test reads was never the subject: {err!r}")
+
+    match = re.search(r"CLEARED - (\d+) of (\d+) ", err)
+    assert match, (
+        f"no CLEARED line was printed, so there is nothing to check: {err!r}")
+    removed, found = int(match.group(1)), int(match.group(2))
+    assert removed <= found, (
+        f"the CLEARED line reads '{match.group(0).strip()}' -- {removed} rows "
+        f"removed out of {found} found. `found` came from ONE read capped at "
+        f"_HISTORY_PAGE={page}; `removed` accumulated across {2} rounds. The "
+        f"two are measured over different denominators and must not be "
+        f"printed as a ratio. Full stderr: {err!r}")
+
+
+# ── residuals from the re-derive pass over the F1-F4 fixes (R1-R4) ──────────
+#
+# The four F-fixes closed, in both directions. These are what the re-derive
+# lens found still standing beside them: three report fields that assert more
+# (or other) than the code established, and one stderr line that names a cause
+# it has no evidence for. Each test below FAILS on the tree as committed at
+# b77c409 and each carries the over-sensitive direction in the same test.
+
+
+def _twin_row(lid, hid):
+    """One /api/library/browse row, shaped as library.py:299 `SELECT l.*`."""
+    return {"id": lid, "history_id": hid, "title": f"t{lid}",
+            "file_path": f"/{lid}"}
+
+
+def _twins_unverified_line(err):
+    """The one stderr line the TWINS UNVERIFIED verdict is printed on."""
+    lines = [ln for ln in err.splitlines() if "TWINS UNVERIFIED" in ln]
+    return lines[0] if lines else ""
+
+
+def test_the_clear_report_names_the_page_the_scan_went_blind_on():
+    """R1. twins['blind_pages'] is declared in the clear report and NEVER written.
+
+    _twin_scan records every zero-row page in its own report['blind_pages'],
+    and clear_seeded_history copies four of that report's fields into
+    out['twins'] -- pages, rows_scanned, scan_complete, conclusive -- but not
+    that one. The key is initialised to [] in the report dict and nothing
+    assigns it afterwards, so the MACHINE-READABLE plan main() prints says no
+    page went blind while, one key away, asserting conclusive: false.
+
+    That is the F1 defect class reproduced by the F1 fix: a field asserting
+    something the code did not establish. The human-readable warning does name
+    the page; the report contradicts it. capture.sh's failure branch greps the
+    stderr, and anything consuming the plan JSON reads the other one, so the
+    two surfaces disagree about the same scan.
+
+    BOTH DIRECTIONS. Writing the cursor unconditionally would make an honest,
+    fully-read library report a blind page, so the healthy two-page scan below
+    must keep blind_pages EMPTY and conclusive TRUE.
+    """
+    seed = _load()
+    owned = [_owned_row(seed, 11), _owned_row(seed, 12, index=1)]
+    survivor = [_twin_row(9000, 555555)]
+
+    blind = FakeClient({
+        _history_key(seed): [_Reply(list(owned)), _Reply([])],
+        ("GET", "/api/library/browse?limit=500"): [
+            _Reply(_browse_body([_twin_row(42, 11)], next_cursor=4242)),
+            _Reply(_browse_body(survivor))],
+        ("GET", "/api/library/browse?limit=500&after_id=4242"): _BLIND_BROWSE,
+        ("DELETE", "/api/library/42"): {"ok": True, "deleted_row": True},
+        ("POST", "/api/batch/delete"): [_canary_reply(2), _delete_reply(2)],
+    })
+    out = seed.clear_seeded_history(blind)
+    twins = out["twins"]
+    assert "/api/library/browse?limit=500&after_id=4242" in blind.paths("GET"), (
+        f"the clear's twin scan never followed the cursor into the blind "
+        f"page, so this fixture was not exercised and the verdict below is "
+        f"about nothing: {blind.paths('GET')}")
+    assert twins["conclusive"] is False, (
+        f"the fixture did not reach the state this test is about -- the scan "
+        f"read a blind continuation page and still called itself conclusive: "
+        f"{twins}")
+    warned = " ".join(str(w) for w in out["warnings"])
+    assert "4242" in warned, (
+        f"no warning names the page that came back blind, so this test cannot "
+        f"compare the report against the observation: {out['warnings']!r}")
+    assert twins["blind_pages"] == [4242], (
+        f"the clear report carries blind_pages={twins['blind_pages']!r} while "
+        f"its own warning names after_id=4242 as the page that came back with "
+        f"zero rows and its own conclusive flag is False. The report and the "
+        f"verdict disagree about the same scan: a reader of the plan JSON is "
+        f"told NO page went blind, which is the F1 failure -- a field "
+        f"asserting something the code did not establish -- inside the F1 "
+        f"fix. warnings={out['warnings']!r} twins={twins}")
+    assert (twins["conclusive"] is False) is bool(
+        twins["blind_pages"] or not twins["scan_complete"]), (
+        f"the report's conclusive flag cannot be derived from the two facts "
+        f"the report carries (blind_pages, scan_complete), so one of them is "
+        f"decoration: {twins}")
+
+    healthy = FakeClient({
+        _history_key(seed): [_Reply(list(owned)), _Reply([])],
+        ("GET", "/api/library/browse?limit=500"): [
+            _Reply(_browse_body([_twin_row(42, 11)], next_cursor=4242)),
+            _Reply(_browse_body(survivor))],
+        ("GET", "/api/library/browse?limit=500&after_id=4242"):
+            _browse_body([_twin_row(20, 12)]),
+        ("DELETE", "/api/library/42"): {"ok": True, "deleted_row": True},
+        ("DELETE", "/api/library/20"): {"ok": True, "deleted_row": True},
+        ("POST", "/api/batch/delete"): [_canary_reply(2), _delete_reply(2)],
+    })
+    ok_out = seed.clear_seeded_history(healthy)
+    ok_twins = ok_out["twins"]
+    assert "/api/library/browse?limit=500&after_id=4242" in healthy.paths("GET"), (
+        f"the honest fixture's continuation page was never requested: "
+        f"{healthy.paths('GET')}")
+    assert ok_twins["blind_pages"] == [], (
+        f"a two-page scan whose every page carried rows reported blind pages "
+        f"{ok_twins['blind_pages']!r}. Recording a page as blind because the "
+        f"scan paginated is the over-sensitivity half of CLAUDE.md 0 -- a gate "
+        f"that cries wolf gets switched off: {ok_twins}")
+    assert ok_twins["conclusive"] is True, (
+        f"the honest, fully-read two-page scan was reported inconclusive: "
+        f"{ok_twins}")
+
+
+def test_a_later_healthy_round_does_not_erase_an_earlier_blind_one():
+    """R4. twins['conclusive'] is ASSIGNED per round, not AND-ed.
+
+    The clear's round loop copies `scan["conclusive"]` over twins["conclusive"]
+    on every round, so round two's healthy scan overwrites round one's blind
+    one and the report ends up claiming the twin derivation was conclusive for
+    a pass in which it was not. _report_residue keys TWINS UNVERIFIED off that
+    same field, so the operator is not told either -- the one round whose twins
+    were never seen is the round that gets erased.
+
+    A boolean copied per round is a statement about the LAST round wearing the
+    name of the whole pass. The blind page belongs to the clear, not to the
+    round it happened in.
+
+    BOTH DIRECTIONS. Latching conclusive to False for every multi-round clear
+    would satisfy the first half and cry wolf on every clear that needed two
+    rounds, so the two-healthy-round fixture below must stay conclusive.
+    """
+    seed = _load()
+    first = [_owned_row(seed, 11), _owned_row(seed, 12, index=1)]
+    second = [_owned_row(seed, 13, index=2)]
+    survivor = [_twin_row(9000, 555555)]
+
+    client = FakeClient({
+        _history_key(seed): [_Reply(list(first)), _Reply(list(second)),
+                             _Reply(list(second)), _Reply([])],
+        ("GET", "/api/library/browse?limit=500"): [
+            # round 1: a full page handing back a cursor ...
+            _Reply(_browse_body([_twin_row(42, 11)], next_cursor=4242)),
+            # round 2: healthy, single page, end of library ...
+            _Reply(_browse_body([_twin_row(99, 13)])),
+            # ... and the final verification pass.
+            _Reply(_browse_body(survivor))],
+        # ... answered with the blind body. Round 1 only: round 2's page
+        # carries no cursor, so nothing follows one.
+        ("GET", "/api/library/browse?limit=500&after_id=4242"): _BLIND_BROWSE,
+        ("DELETE", "/api/library/42"): {"ok": True, "deleted_row": True},
+        ("DELETE", "/api/library/99"): {"ok": True, "deleted_row": True},
+        ("POST", "/api/batch/delete"): [_canary_reply(2), _delete_reply(2),
+                                        _delete_reply(1)],
+    })
+    out = seed.clear_seeded_history(client)
+    twins = out["twins"]
+    assert out["rounds"] == 2, (
+        f"the fixture did not run the two rounds this test is about "
+        f"(rounds={out['rounds']!r}), so the overwrite it is about never "
+        f"happened: {out}")
+    assert "/api/library/browse?limit=500&after_id=4242" in client.paths("GET"), (
+        f"round one's scan never followed the cursor into the blind page: "
+        f"{client.paths('GET')}")
+    assert twins["conclusive"] is False, (
+        f"the clear reports twins.conclusive={twins['conclusive']!r} after a "
+        f"pass whose FIRST round read a blind continuation page. Round two's "
+        f"healthy scan was assigned over the top of it, so the report -- and "
+        f"the TWINS UNVERIFIED line that keys off it -- says the twin "
+        f"derivation was conclusive for a clear in which one round's twins "
+        f"were never seen. History id 12's twin is neither deleted nor "
+        f"reported unseen: {out}")
+    assert 4242 in twins["blind_pages"], (
+        f"round one's blind page is absent from the accumulated report: "
+        f"{twins}. The page went blind during THIS clear; which round it "
+        f"happened in does not unmake it.")
+
+    healthy = FakeClient({
+        _history_key(seed): [_Reply(list(first)), _Reply(list(second)),
+                             _Reply(list(second)), _Reply([])],
+        ("GET", "/api/library/browse?limit=500"): [
+            _Reply(_browse_body([_twin_row(42, 11)])),
+            _Reply(_browse_body([_twin_row(99, 13)])),
+            _Reply(_browse_body(survivor))],
+        ("DELETE", "/api/library/42"): {"ok": True, "deleted_row": True},
+        ("DELETE", "/api/library/99"): {"ok": True, "deleted_row": True},
+        ("POST", "/api/batch/delete"): [_canary_reply(2), _delete_reply(2),
+                                        _delete_reply(1)],
+    })
+    ok_out = seed.clear_seeded_history(healthy)
+    assert ok_out["rounds"] == 2, (
+        f"the inverse fixture did not run two rounds either, so it cannot "
+        f"prove the fix is not latching: {ok_out}")
+    assert ok_out["twins"]["conclusive"] is True, (
+        f"a two-round clear whose every scan read to the end of the library "
+        f"with rows on every page was reported INCONCLUSIVE: "
+        f"{ok_out['twins']}. Latching the flag off because the clear needed "
+        f"more than one round is over-sensitivity, which CLAUDE.md 0 counts "
+        f"as a soundness bug in its own right.")
+
+
+def test_the_cleared_line_divides_by_the_population_it_deleted_from(capsys):
+    """R2. `seen` is described, and printed, as a population it is not.
+
+    clear_seeded_history's docstring says `seen` "is the population `deleted`
+    is drawn from, so it is the commensurable denominator", and the CLEARED
+    line divides by it. But `seen` is fed by `seen_ids.update(_row_ids(rows))`
+    -- EVERY marked row -- while the deletes are drawn only from `owned`, the
+    rows whose site_name also carries the marker. An unowned row is
+    structurally undeletable (that is the entire point of the ownership
+    predicate, and CLEAR SKIPPED says so out loud two lines earlier), so it
+    can never enter the numerator and inflates the denominator by one.
+
+    `targeted_ids` -- the exact union of ids the clear was eligible to delete
+    -- is already computed for the final twin verification and is unused by
+    the report. This is F3's shape: a number presented under a description of
+    a measurement that produced a different one.
+
+    NOTHING IS NARROWED HERE. `seen` stays the union of every distinct marked
+    id observed -- that is a real quantity and the fixture asserts it is still
+    3 -- it just stops being called the population the deletes came from.
+    """
+    seed = _load()
+    rows = [_owned_row(seed, 11), _owned_row(seed, 12, index=1),
+            _unowned_row(seed, 21, index=2)]
+    client = _teardown_stubs(
+        seed,
+        [_Reply(list(rows)), _Reply(list(rows)), _Reply([])],
+        {("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE,
+         ("POST", "/api/batch/delete"): [_canary_reply(2), _delete_reply(2)]})
+    plan = seed.teardown(client, clear_history=True)
+    seed._report_residue(plan)
+    err = capsys.readouterr().err
+    clear = _clear_of(plan)
+
+    assert clear.get("unowned") == 1, (
+        f"the fixture's unowned row was not classified as unowned, so this "
+        f"test is not about the mismatch it names: {clear}")
+    assert clear.get("seen") == 3 and clear.get("deleted") == 2, (
+        f"the fixture did not reach seen=3 / deleted=2: {clear}")
+    assert clear.get("remaining") == 0, (
+        f"the clear did not finish, so no CLEARED line is printed and this "
+        f"test's subject does not exist: {clear}")
+    match = re.search(r"CLEARED - (\d+) of (\d+) ", err)
+    assert match, (
+        f"no CLEARED line was printed, so there is nothing to check: {err!r}")
+    removed, denominator = int(match.group(1)), int(match.group(2))
+    assert removed == 2, (
+        f"the CLEARED line's numerator is {removed}, not the 2 rows the clear "
+        f"deleted: {err!r}")
+    assert clear.get("eligible") == 2, (
+        f"the clear report carries eligible={clear.get('eligible')!r}. The "
+        f"union of ids this clear was actually eligible to delete is exactly "
+        f"2 (rows 11 and 12; row 21 carries the marker in its URL but not in "
+        f"site_name and is never deletable), and that union is already "
+        f"computed as `targeted_ids` for the final twin verification. Without "
+        f"it in the report the machine-readable plan carries no denominator "
+        f"commensurable with `deleted`: {clear}")
+    assert denominator == clear.get("eligible") == 2, (
+        f"the CLEARED line reads '{match.group(0).strip()}' -- {removed} of "
+        f"{denominator}. The denominator counts a row the clear could not "
+        f"delete under any circumstances, so it is not the population the "
+        f"numerator was drawn from; the CLEAR SKIPPED line in the same stderr "
+        f"says that row was skipped. A ratio whose halves were measured over "
+        f"different denominators is what F4 fixed for `found`, one field "
+        f"across. stderr: {err!r}")
+    assert "3" in err, (
+        f"the count of distinct marked ids the clear SAW (3) vanished from "
+        f"the report entirely. It is a real quantity and dropping it narrows "
+        f"what the operator is told rather than correcting it: {err!r}")
+
+
+def test_the_twins_unverified_line_names_the_case_it_cannot_rule_out(capsys):
+    """R3. One stderr line asserts one cause for three different inconclusives.
+
+    TWINS UNVERIFIED prints the same sentence -- "library.library_browse
+    swallows every exception into ([], None), so an unreadable or missing
+    library table is indistinguishable over HTTP from a library with no twins"
+    -- whatever made the scan inconclusive. That sentence is only true of a
+    blind FIRST page. Two other states reach the same branch:
+
+      * A blind CONTINUATION page. library.py:360-361 sets next_cursor
+        whenever len(rows) == limit, so a HEALTHY library whose row count is
+        an exact multiple of _TWIN_PAGE ends on a full page, hands back a
+        cursor, and answers the follow-up with zero rows. Over this API that
+        is genuinely indistinguishable from a table that became unreadable
+        mid-scan -- so the conservative UNKNOWN stands, but the line must say
+        WHICH TWO CASES it cannot separate instead of asserting the alarming
+        one. An exact-multiple library is the common benign cause and the
+        line currently tells the operator the library may be unreadable.
+      * A TRUNCATED scan: _TWIN_MAX_PAGES pages read with the cursor still
+        set. Nothing was swallowed and no page came back empty; the scan hit
+        its own bound. Naming a swallowed exception there is a cause not in
+        evidence.
+
+    The first-page case must KEEP its wording, so the fix cannot be a rewrite
+    that trades one wrong story for another.
+    """
+    seed = _load()
+    owned = [_owned_row(seed, 11), _owned_row(seed, 12, index=1)]
+    stubs = {("POST", "/api/batch/delete"): [_canary_reply(2),
+                                             _delete_reply(2)]}
+
+    # -- (a) a blind FIRST page: the existing wording is the right one -------
+    first_blind = _teardown_stubs(
+        seed, [_Reply(list(owned)), _Reply(list(owned)), _Reply([])],
+        {**stubs, ("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE})
+    seed._report_residue(seed.teardown(first_blind, clear_history=True))
+    line = _twins_unverified_line(capsys.readouterr().err)
+    assert line, "a blind first page printed no TWINS UNVERIFIED line at all"
+    assert "library.py:363-364" in line, (
+        f"the first-page case lost the mechanism that makes it unknowable: "
+        f"{line!r}")
+    assert "no twins" in line, (
+        f"the first-page case no longer names the benign alternative (a "
+        f"library that genuinely holds no twins): {line!r}")
+    assert "multiple" not in line, (
+        f"the first-page case names the exact-multiple page-boundary story, "
+        f"which cannot apply: no cursor was ever handed back, so no page "
+        f"boundary was involved: {line!r}")
+
+    # -- (b) a blind CONTINUATION page: an exact-multiple library ------------
+    cont_blind = _teardown_stubs(
+        seed, [_Reply(list(owned)), _Reply(list(owned)), _Reply([])],
+        {**stubs,
+         ("GET", "/api/library/browse?limit=500"):
+             _browse_body([_twin_row(42, 999999)], next_cursor=4242),
+         ("GET", "/api/library/browse?limit=500&after_id=4242"):
+             _BLIND_BROWSE})
+    seed._report_residue(seed.teardown(cont_blind, clear_history=True))
+    line = _twins_unverified_line(capsys.readouterr().err)
+    assert line, "a blind continuation page printed no TWINS UNVERIFIED line"
+    assert "4242" in line, (
+        f"the line does not say WHERE the scan went blind, which is the one "
+        f"fact separating this from a first-page failure: {line!r}")
+    assert "multiple" in line and str(seed._TWIN_PAGE) in line, (
+        f"the TWINS UNVERIFIED line reads {line!r}. The page that came back "
+        f"empty is a CONTINUATION page, and library.py:360-361 hands back a "
+        f"cursor on every FULL page -- so a healthy library holding an exact "
+        f"multiple of {seed._TWIN_PAGE} rows produces this body every single "
+        f"time it is scanned. The line asserts the library may be unreadable "
+        f"and never names the benign case it cannot tell that apart from, so "
+        f"an operator reads a routine end-of-library as a broken table.")
+
+    # -- (c) a TRUNCATED scan: no page went blind at all ---------------------
+    loop_page = _browse_body([_twin_row(5, 999999)], next_cursor=7)
+    truncated = _teardown_stubs(
+        seed, [_Reply(list(owned)), _Reply(list(owned)), _Reply([])],
+        {**stubs,
+         ("GET", "/api/library/browse?limit=500"): loop_page,
+         ("GET", "/api/library/browse?limit=500&after_id=7"): loop_page})
+    plan = seed.teardown(truncated, clear_history=True)
+    seed._report_residue(plan)
+    line = _twins_unverified_line(capsys.readouterr().err)
+    twins = _clear_of(plan).get("twins") or {}
+    assert twins.get("scan_complete") is False and not twins.get("blind_pages"), (
+        f"the truncation fixture did not truncate (or went blind as well), so "
+        f"part (c) is about the wrong state: {twins}")
+    assert line, "a truncated scan printed no TWINS UNVERIFIED line"
+    assert str(seed._TWIN_MAX_PAGES) in line or "truncat" in line.lower(), (
+        f"the line does not say the scan hit its page bound: {line!r}")
+    assert "unreadable" not in line and "swallow" not in line, (
+        f"the TWINS UNVERIFIED line reads {line!r} for a scan that was "
+        f"TRUNCATED at its {seed._TWIN_MAX_PAGES}-page bound. Every page it "
+        f"read carried rows and none came back empty, so nothing here is "
+        f"evidence about a swallowed exception or an unreadable table -- the "
+        f"scan simply stopped. Asserting that cause is a claim the code did "
+        f"not establish, which is the same defect in prose that R1 is in a "
+        f"field.")
+
+
+# ── the REPORT surface: mutation escapes re-derived on the tip (M-series) ───
+#
+# Two mutation batteries over tools/live_seed.py left 23 escapes; 12 of them
+# survived a re-derivation against this tree (b965c5d's R1-R4 fixes closed
+# four, and the rest were already covered). Every survivor is about the tool's
+# OWN ACCOUNT of what it did, never about what it deleted: the deletes are
+# well constrained, the REPORTING was not. That is CLAUDE.md 0 one level up --
+# a clear that silently misreports is a gate that cannot see its own subject.
+#
+# Each test below names the exact mutant it exists to turn red, and each was
+# MEASURED both ways: red with that mutant applied to a scratch copy of the
+# tree, green on the pristine file. A test that passes on both is not a test,
+# and this is the one phase where that mistake is invisible.
+#
+# None of them weakens an existing assertion, and each carries the
+# over-sensitive direction in the same test where one exists: a gate that
+# cries wolf gets switched off, so inventing an alarm fails here too.
+
+
+def test_the_final_twin_verification_asks_about_the_ids_it_deleted():
+    """MUTANT: `_twin_scan(client, set(targeted_ids))` -> `_twin_scan(client, set())`.
+
+    THE MOST SERIOUS SURVIVOR, and the only one that flips the exit code. The
+    final pass exists to answer one question -- does a library twin of the
+    history ids this clear targeted still exist? -- and its SUBJECT is the
+    doomed set it is handed. Handed an EMPTY set it still reads every page,
+    still reports scan_complete and conclusive, and matches nothing by
+    construction: `remaining` comes back 0 and the clear exits 0 having
+    proven nothing at all. A verification that structurally cannot match its
+    subject reports clean, truthfully and uselessly.
+
+    Nothing in the band constrained that argument, so the whole twin-failure
+    path -- twins['remaining'], the TWIN ERROR line, ok=False, exit 4 --
+    could be switched off by one edit inside the call it belongs to.
+
+    BOTH DIRECTIONS. Widening the subject is the mirror defect: a scan asked
+    about every library row would report the operator's untouched rows as
+    leftovers, so the clean fixture below carries a survivor row whose
+    history_id was never targeted and must still report 0 remaining and
+    exit 0.
+    """
+    seed = _load()
+    owned = [_owned_row(seed, 11)]
+    twin = _twin_row(42, 11)
+    survivor = _twin_row(9000, 555555)
+
+    # The DELETE is accepted and the library hands the row back anyway: the
+    # one state the final verification exists to catch.
+    leftover = FakeClient({
+        _history_key(seed): [_Reply(list(owned)), _Reply([])],
+        ("GET", "/api/library/browse?limit=500"): [
+            _Reply(_browse_body([twin])),
+            _Reply(_browse_body([twin, survivor]))],
+        ("DELETE", "/api/library/42"): {"ok": True, "deleted_row": True},
+        ("POST", "/api/batch/delete"): [_canary_reply(1), _delete_reply(1)],
+    })
+    out = seed.clear_seeded_history(leftover)
+    twins = out["twins"]
+    browse_calls = [p for p in leftover.paths("GET") if "/api/library/browse" in p]
+    assert len(browse_calls) == 2, (
+        f"the clear made {len(browse_calls)} browse call(s); this test needs "
+        f"exactly two -- the round's scan and the FINAL verification -- or it "
+        f"is not about the verification pass at all: {browse_calls}")
+    assert twins["deleted"] == 1, (
+        f"the round never deleted the twin, so the verification below is not "
+        f"looking at a post-delete library: {twins}")
+    assert twins["remaining"] == 1, (
+        f"the final twin verification reported remaining="
+        f"{twins['remaining']!r} while the library's last page still carries "
+        f"library id 42 with history_id 11 -- an id this clear targeted and "
+        f"deleted. A verification handed a subject it cannot match (the empty "
+        f"set) reads every page, calls itself conclusive and matches nothing "
+        f"by construction, which is CLAUDE.md 0 exactly: it reports zero "
+        f"twins remain, truthfully and uselessly. twins={twins}")
+    assert any("remain" in str(e) for e in twins["errors"]), (
+        f"a surviving twin produced no twin error, so nothing tells the "
+        f"operator and nothing fails the clear: {twins['errors']!r}")
+    assert out["ok"] is False, (
+        f"a clear that left a library twin behind reported ok: {out['ok']!r}")
+    rc = seed._teardown_exit_code({"clear": out}, clear_requested=True)
+    assert rc == 4, (
+        f"a clear with a surviving twin exited {rc}; 4 is "
+        f"_EXIT_CLEAR_INCOMPLETE and 0 would launder a known failure into an "
+        f"OK on capture.sh's unattended path")
+
+    clean = FakeClient({
+        _history_key(seed): [_Reply(list(owned)), _Reply([])],
+        ("GET", "/api/library/browse?limit=500"): [
+            _Reply(_browse_body([twin, survivor])),
+            _Reply(_browse_body([survivor]))],
+        ("DELETE", "/api/library/42"): {"ok": True, "deleted_row": True},
+        ("POST", "/api/batch/delete"): [_canary_reply(1), _delete_reply(1)],
+    })
+    ok_out = seed.clear_seeded_history(clean)
+    ok_twins = ok_out["twins"]
+    assert ok_twins["remaining"] == 0, (
+        f"the library's post-clear page carries only library id 9000, whose "
+        f"history_id 555555 this clear never targeted, and the verification "
+        f"counted it as a leftover: {ok_twins}. Reporting the operator's own "
+        f"rows as residue is the over-sensitive half of CLAUDE.md 0.")
+    assert not ok_twins["errors"] and ok_out["ok"] is True, (
+        f"a clear that removed its twin and left nothing behind was reported "
+        f"as failed: twins={ok_twins} errors={ok_out['errors']!r}")
+    assert seed._teardown_exit_code({"clear": ok_out},
+                                    clear_requested=True) == 0, (
+        "a fully successful clear did not exit 0")
+
+
+def test_a_canary_that_answers_no_count_at_all_stops_the_clear():
+    """MUTANT: `if not counted or matched == 0:` -> `if matched == 0:`.
+
+    The canary's job is to prove the filter SHAPE before anything is deleted,
+    and it has three outcomes, not two: the full match, the zero match, and
+    the reply that carries no candidates_matched key at all. The third is
+    UNKNOWN -- the tool cannot tell a rejected filter from a genuine no-op --
+    and unknown is a third state and it fails.
+
+    Only the zero-match branch was covered (R4), so the disjunct that handles
+    the UNKNOWN one was unconstrained: dropping it left the guard passing the
+    band in exactly the state it exists for. It is not a quiet mutant either
+    -- the tool then falls into the partial-match warning and raises
+    TypeError on `len(probe) - matched` with matched None -- and a mutant
+    that makes the tool CRASH on a reachable API response was still invisible.
+
+    BOTH DIRECTIONS. Aborting on every canary would stop every clear, so the
+    honest reply below must go on and delete.
+    """
+    seed = _load()
+    owned = [_owned_row(seed, 11), _owned_row(seed, 12, index=1)]
+    client = FakeClient({
+        _history_key(seed): list(owned),
+        ("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE,
+        # ok:true and a processed count, but no candidates_matched at all.
+        ("POST", "/api/batch/delete"): {"ok": True, "processed": 1,
+                                        "files_deleted": 0, "errors": 0},
+    })
+    out = seed.clear_seeded_history(client)
+    assert out["canary"] == {"sent": 2, "matched": None}, (
+        f"the canary did not record an absent count as None, so this fixture "
+        f"is not the UNKNOWN case: {out['canary']!r}")
+    assert _batch_delete_indices(client, dry_run=False) == [], (
+        f"a canary that answered with NO candidates_matched count was "
+        f"followed by a real /api/batch/delete. The tool cannot tell a "
+        f"rejected filter shape from a genuine no-op over that body, so it "
+        f"must delete nothing at all: "
+        f"{[(m, p, b) for m, p, b in client.calls]}")
+    assert _library_delete_paths(client) == [], (
+        f"the canary aborted and library twins were deleted anyway, stranding "
+        f"history rows whose twins are gone: {_library_delete_paths(client)}")
+    assert any("no candidates_matched" in str(e) for e in out["errors"]), (
+        f"the abort recorded no error naming what it observed, so the "
+        f"operator is not told why nothing was deleted: {out['errors']!r}")
+    assert out["remaining"] == 2 and out["ok"] is False, (
+        f"an aborted clear reported remaining={out['remaining']!r} ok="
+        f"{out['ok']!r}")
+    assert out["remaining_source"] == seed._REMAINING_ROUND_OPEN, (
+        f"the aborted clear's remainder came from the round's opening read "
+        f"and must say so, not claim a post-delete measurement: "
+        f"{out['remaining_source']!r}")
+
+    honest = _clear_client(seed, [_Reply(list(owned)), _Reply([])],
+                           [_canary_reply(2), _delete_reply(2)])
+    ok_out = seed.clear_seeded_history(honest)
+    assert _batch_delete_indices(honest, dry_run=False), (
+        f"a canary matching all 2 probed ids still aborted the clear; the "
+        f"guard fires on the healthy case, which is the over-sensitivity "
+        f"CLAUDE.md 0 counts as a soundness bug: {ok_out['errors']!r}")
+    assert ok_out["deleted"] == 2 and ok_out["ok"] is True, (
+        f"the healthy clear did not complete: {ok_out}")
+
+
+def test_a_browse_body_the_app_calls_failed_is_not_scanned():
+    """MUTANT: drop `body.get("ok") is True` from _twin_scan's page guard.
+
+    app_library.py renders a failure as an envelope with ok:false, and a body
+    can carry ok:false AND a rows list at the same time. Without the ok test
+    the scan treats that as a real page: it counts it, matches history ids out
+    of it, calls the scan complete and CONCLUSIVE, and then issues DELETE
+    /api/library/<id> against rows read out of a response the app used to say
+    it had failed on.
+
+    The page guard is the only thing standing between an error envelope and a
+    delete, and the band constrained none of it.
+
+    BOTH DIRECTIONS. Rejecting healthy bodies would make every scan
+    inconclusive, so the same page with ok:true below must be scanned and its
+    twin deleted.
+    """
+    seed = _load()
+    owned = [_owned_row(seed, 7)]
+    rows = [_twin_row(3, 7)]
+
+    failed = FakeClient({
+        _history_key(seed): [_Reply(list(owned)), _Reply([])],
+        ("GET", "/api/library/browse?limit=500"): {
+            "ok": False, "error": "library read failed",
+            "rows": [dict(r) for r in rows], "count": 1, "next_cursor": None},
+        ("DELETE", "/api/library/3"): {"ok": True, "deleted_row": True},
+        ("POST", "/api/batch/delete"): [_canary_reply(1), _delete_reply(1)],
+    })
+    out = seed.clear_seeded_history(failed)
+    twins = out["twins"]
+    assert [p for p in failed.paths("GET") if "/api/library/browse" in p], (
+        "the twin scan never requested the stubbed browse path, so this "
+        "fixture was not exercised")
+    assert _library_delete_paths(failed) == [], (
+        f"the twin scan read library id 3 out of a body carrying ok:false and "
+        f"an error string, and DELETEd it: {_library_delete_paths(failed)}. "
+        f"The rows in a failure envelope are not an observation of the "
+        f"library; acting on them deletes on the strength of a response the "
+        f"app said had failed.")
+    assert twins["pages"] == 0 and twins["rows_scanned"] == 0, (
+        f"a body the app marked ok:false was counted as a page the scan "
+        f"successfully read: {twins}")
+    assert twins["conclusive"] is False, (
+        f"the scan called itself CONCLUSIVE over a body the app said it had "
+        f"failed on: {twins}")
+    assert any("unexpected body" in str(w) for w in out["warnings"]), (
+        f"nothing warned that the browse body was unusable: "
+        f"{out['warnings']!r}")
+
+    healthy = FakeClient({
+        _history_key(seed): [_Reply(list(owned)), _Reply([])],
+        ("GET", "/api/library/browse?limit=500"): [
+            _Reply(_browse_body(rows)), _Reply(_browse_body([]))],
+        ("DELETE", "/api/library/3"): {"ok": True, "deleted_row": True},
+        ("POST", "/api/batch/delete"): [_canary_reply(1), _delete_reply(1)],
+    })
+    ok_out = seed.clear_seeded_history(healthy)
+    assert _library_delete_paths(healthy) == ["/api/library/3"], (
+        f"an ok:true page carrying the twin was not scanned or not acted on, "
+        f"so the guard rejects healthy bodies too: "
+        f"{_library_delete_paths(healthy)} twins={ok_out['twins']}")
+    assert ok_out["twins"]["pages"] == 1, (
+        f"an ok:true page was not counted: {ok_out['twins']}")
+
+
+def test_the_post_delete_provenance_is_not_claimed_when_the_reread_failed():
+    """MUTANT: `remaining_source = (_REMAINING_POST_DELETE if readable_after
+    else None)` -> unconditional `_REMAINING_POST_DELETE`.
+
+    remaining_source is the report's answer to "WHICH read produced this
+    number", and on the path where the post-delete re-read FAILED there is no
+    such read: `remaining` is None, the clear exits 5 (_EXIT_CLEAR_UNKNOWN)
+    and the provenance field must stay empty. Setting it unconditionally
+    stamps "post-delete re-read" on a number that does not exist -- a field
+    asserting something the code did not establish, beside a field admitting
+    it could not.
+
+    The damage lands in the emitted plan JSON rather than on stderr (with rows
+    None _report_residue takes the RESIDUE UNKNOWN branch), and the JSON is
+    what the operator and capture.sh read.
+
+    BOTH DIRECTIONS. Never recording the provenance would leave the honest
+    path unable to say it measured, so the successful re-read below must carry
+    the post-delete constant.
+    """
+    seed = _load()
+    owned = [_owned_row(seed, 11)]
+    unreadable = _clear_client(
+        seed, [_Reply(list(owned)), _Reply({"error": "x"})],
+        [_canary_reply(1), _delete_reply(1)])
+    out = seed.clear_seeded_history(unreadable)
+    assert len(_history_read_indices(seed, unreadable)) == 2, (
+        f"the post-delete re-read was never attempted, so this test is about "
+        f"the initialiser rather than about a read that failed: "
+        f"{[(m, p) for m, p, _b in unreadable.calls]}")
+    assert out["remaining"] is None and out["remaining_readable"] is False, (
+        f"an unreadable post-clear history was reported as a number: {out}")
+    assert out["remaining_source"] is None, (
+        f"the report claims remaining_source="
+        f"{out['remaining_source']!r} on the path where the post-delete "
+        f"re-read FAILED and the remainder is UNKNOWN. There is no "
+        f"post-delete read to attribute a number to -- and _report_residue "
+        f"prints the provenance it finds rather than deriving one, so this "
+        f"field is the whole claim.")
+    assert any("could not re-read" in str(e) for e in out["errors"]), (
+        f"the failed re-read produced no error: {out['errors']!r}")
+    assert seed._teardown_exit_code({"clear": out},
+                                    clear_requested=True) == 5, (
+        "an unmeasurable post-state did not exit 5 (_EXIT_CLEAR_UNKNOWN)")
+
+    good = _clear_client(seed, [_Reply(list(owned)), _Reply([])],
+                         [_canary_reply(1), _delete_reply(1)])
+    ok_out = seed.clear_seeded_history(good)
+    assert ok_out["remaining"] == 0, (
+        f"the successful fixture did not reach a measured zero: {ok_out}")
+    assert ok_out["remaining_source"] == seed._REMAINING_POST_DELETE, (
+        f"a remainder that WAS re-read after the deletes reported its "
+        f"provenance as {ok_out['remaining_source']!r}; the honest path must "
+        f"be able to say it measured")
+
+
+def test_a_dry_run_does_not_claim_a_post_delete_measurement():
+    """MUTANT: the dry-run branch's `_REMAINING_ROUND_OPEN` -> `_REMAINING_POST_DELETE`.
+
+    `--teardown --clear-history --dry-run` is the DOCUMENTED first-use command
+    (live_seed.py's own --clear-history help tells the operator to run it
+    first), and it is the one path where nothing was deleted and no read
+    followed anything. Its remainder is the round's opening read and must say
+    so; stamping the post-delete constant on it makes the report -- and, on
+    any consumer that renders a cleared plan, the words "measured after the
+    clear" / "re-measured not inferred" -- describe a delete that never
+    happened.
+
+    The dry-run branch's provenance was unasserted in either direction while
+    the two live paths beside it (canary abort, no-owned-ids break) were
+    pinned by F3.
+    """
+    seed = _load()
+    owned = [_owned_row(seed, 11), _owned_row(seed, 12, index=1)]
+    client = _teardown_stubs(
+        seed, list(owned),
+        {("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE,
+         ("POST", "/api/batch/delete"): _canary_reply(2).body})
+    plan = seed.teardown(client, dry_run=True, clear_history=True)
+    clear = _clear_of(plan)
+    assert clear, (
+        f"--dry-run with --clear-history produced no clear report at all, so "
+        f"this test's subject is missing: {plan!r}")
+    assert clear["dry_run"] is True and clear["targeted"] == 2, (
+        f"the dry-run fixture did not reach the dry-run return: {clear}")
+    assert _batch_delete_indices(client, dry_run=False) == [], (
+        f"a dry run issued a real /api/batch/delete: "
+        f"{[(m, p, b) for m, p, b in client.calls]}")
+    assert _library_delete_paths(client) == [], (
+        f"a dry run deleted library twins: {_library_delete_paths(client)}")
+    assert clear["remaining_source"] == seed._REMAINING_ROUND_OPEN, (
+        f"the dry run reports remaining_source={clear['remaining_source']!r}. "
+        f"Nothing was deleted and no read followed anything, so the number is "
+        f"the read that opened the round -- the post-delete constant is a "
+        f"provenance for an event that did not occur, on the first command "
+        f"this tool tells the operator to run.")
+    assert clear["remaining_source"] != seed._REMAINING_POST_DELETE, (
+        "the two provenance constants have collapsed into one string, so the "
+        "report can no longer distinguish the reads it names")
+
+
+def test_every_clear_and_twin_error_reaches_stderr(capsys):
+    """MUTANTS: `clear.get("errors")` / `twins.get("errors")` mistyped, and
+    either print loop emptied. All four passed the band.
+
+    capture.sh's failure branch greps stderr for `live_seed: `, so these two
+    loops are where a failed clear becomes visible to an operator who is not
+    reading the plan JSON. Emptying either -- or reading a key that does not
+    exist, which is the same thing and looks like a typo rather than a
+    deletion -- leaves the tool exiting non-zero with no line saying why.
+
+    The twin loop matters twice over: with the final-verification subject
+    (above) it is the whole twin-failure reporting surface, and the field that
+    carries the failure and the line that prints it were each independently
+    unasserted.
+
+    BOTH DIRECTIONS. A clean clear must print neither prefix.
+    """
+    seed = _load()
+    seed._report_residue({
+        "residue": {"history_rows": 2, "history_rows_found": 2,
+                    "readable": True, "cleared": True},
+        "clear": {"unowned": 0, "errors": ["/api/batch/delete rejected a "
+                                           "2-id chunk"],
+                  "warnings": [], "deleted": 0, "stalled": False,
+                  "rounds": 1, "seen": 2, "eligible": 2,
+                  "remaining_source": seed._REMAINING_POST_DELETE,
+                  "twins": {"errors": ["2 library twin(s) of the targeted "
+                                       "history id(s) remain after the clear"],
+                            "conclusive": True, "scan_complete": True,
+                            "blind_pages": [], "deleted": 0}}})
+    err = capsys.readouterr().err
+    assert "live_seed: CLEAR ERROR - /api/batch/delete rejected a 2-id chunk" \
+        in err, (
+        f"a clear carrying an error printed no CLEAR ERROR line. The exit "
+        f"code says the clear failed and stderr -- which is what capture.sh "
+        f"greps -- says nothing about why: {err!r}")
+    assert "live_seed: TWIN ERROR - 2 library twin(s) of the targeted " \
+        "history id(s) remain after the clear" in err, (
+        f"a surviving library twin printed no TWIN ERROR line, so the twin "
+        f"failure exists only in the plan JSON while ok=False fails the run: "
+        f"{err!r}")
+
+    seed._report_residue({
+        "residue": {"history_rows": 0, "history_rows_found": 2,
+                    "readable": True, "cleared": True},
+        "clear": {"unowned": 0, "errors": [], "warnings": [], "deleted": 2,
+                  "stalled": False, "rounds": 1, "seen": 2, "eligible": 2,
+                  "remaining_source": seed._REMAINING_POST_DELETE,
+                  "twins": {"errors": [], "conclusive": True,
+                            "scan_complete": True, "blind_pages": [],
+                            "deleted": 2, "remaining": 0}}})
+    clean = capsys.readouterr().err
+    assert "CLEAR ERROR" not in clean and "TWIN ERROR" not in clean, (
+        f"a clear that recorded no error printed an error line anyway: "
+        f"{clean!r}")
+
+
+def test_the_twins_unverified_line_fires_on_inconclusive_and_only_then(capsys):
+    """MUTANTS: the gate's `is False` -> `is not None`, and `if False and ...`.
+
+    The never-print direction is caught (a blind first page is covered), but
+    the false-positive direction was not: making the gate fire on a
+    CONCLUSIVE scan passes the whole band. A TWINS UNVERIFIED line on a clean,
+    fully-read clear is the inverse failure CLAUDE.md 0 names -- a gate that
+    cries wolf gets switched off, and this one prints a paragraph about an
+    unreadable library table for a scan that read the library end to end.
+
+    Both directions are asserted here so neither edit can pass.
+    """
+    seed = _load()
+    base_residue = {"history_rows": 0, "history_rows_found": 2,
+                    "readable": True, "cleared": True}
+    base_clear = {"unowned": 0, "errors": [], "warnings": [], "deleted": 2,
+                  "stalled": False, "rounds": 1, "seen": 2, "eligible": 2,
+                  "remaining_source": seed._REMAINING_POST_DELETE}
+
+    seed._report_residue({
+        "residue": dict(base_residue),
+        "clear": {**base_clear,
+                  "twins": {"errors": [], "conclusive": False,
+                            "scan_complete": True, "blind_pages": [None],
+                            "deleted": 0, "remaining": None}}})
+    line = _twins_unverified_line(capsys.readouterr().err)
+    assert line, (
+        "a scan that reported conclusive False printed no TWINS UNVERIFIED "
+        "line, so the one artifact that tells the operator the twin question "
+        "is UNKNOWN is silent")
+
+    seed._report_residue({
+        "residue": dict(base_residue),
+        "clear": {**base_clear,
+                  "twins": {"errors": [], "conclusive": True,
+                            "scan_complete": True, "blind_pages": [],
+                            "deleted": 2, "remaining": 0}}})
+    quiet = capsys.readouterr().err
+    assert not _twins_unverified_line(quiet), (
+        f"a scan that read the library to the end with no blind page and "
+        f"reported itself CONCLUSIVE still printed a TWINS UNVERIFIED line: "
+        f"{quiet!r}. The line asserts the library may be unreadable; printing "
+        f"it on a clean clear trains the operator to ignore it, which is the "
+        f"over-sensitivity half of CLAUDE.md 0 and costs the warning its "
+        f"meaning on the run that needs it.")
+
+
+def test_a_truncated_twin_scan_says_it_was_truncated():
+    """MUTANT: `if not report["scan_complete"]:` -> `if False and ...`.
+
+    A scan that walks its _TWIN_MAX_PAGES bound with the cursor still set has
+    not read the library; rows past the bound were never asked for. The
+    warning is the per-scan record of that, and suppressing it entirely passed
+    the band. (The TWINS UNVERIFIED line names truncation independently, so
+    the fact is not fully lost -- but out["warnings"] is what a multi-round
+    clear accumulates and what the plan JSON carries, and it went silent.)
+
+    BOTH DIRECTIONS. A scan that read to the end must not claim it was
+    truncated.
+    """
+    seed = _load()
+    loop_page = _browse_body([_twin_row(5, 999999)], next_cursor=7)
+    endless = FakeClient({
+        ("GET", "/api/library/browse?limit=500"): loop_page,
+        ("GET", "/api/library/browse?limit=500&after_id=7"): loop_page,
+    })
+    report = seed._twin_scan(endless, {11})
+    assert report["pages"] == seed._TWIN_MAX_PAGES, (
+        f"the fixture did not reach the page bound, so this test is about the "
+        f"wrong state: {report['pages']} page(s)")
+    assert report["scan_complete"] is False and not report["blind_pages"], (
+        f"the truncation fixture went blind or completed instead of "
+        f"truncating: {report}")
+    assert any("truncat" in str(w) for w in report["warnings"]), (
+        f"a scan that stopped at its {seed._TWIN_MAX_PAGES}-page bound with "
+        f"the cursor still set recorded no warning saying so: "
+        f"{report['warnings']!r}. The rows past the bound were never asked "
+        f"for, and the report's own warnings are the only place that "
+        f"observation is written down per scan.")
+    assert any(str(seed._TWIN_MAX_PAGES) in str(w) for w in report["warnings"]), (
+        f"the truncation warning does not name the bound it hit: "
+        f"{report['warnings']!r}")
+
+    complete = FakeClient({
+        ("GET", "/api/library/browse?limit=500"): _browse_body(
+            [_twin_row(5, 999999)]),
+    })
+    done = seed._twin_scan(complete, {11})
+    assert done["scan_complete"] is True and done["conclusive"] is True, (
+        f"the single-page fixture did not complete: {done}")
+    assert not any("truncat" in str(w) for w in done["warnings"]), (
+        f"a scan that read the library to its end warned that it was "
+        f"truncated: {done['warnings']!r}")
+
+
+def test_a_report_carrying_no_provenance_says_unrecorded(capsys):
+    """MUTANT: both UNRECORDED strings -> "measured after the clear" /
+    "re-measured not inferred".
+
+    THE DEFENSIVE THIRD BRANCH, and it is ranked last deliberately: no return
+    path of clear_seeded_history on this tree reaches it, because
+    remaining_source is None only where remaining is None too and that pair
+    takes the RESIDUE UNKNOWN branch. It fires for a report dict written by an
+    older or foreign caller -- which is what the code says it is for.
+
+    It still has to hold, and for the same reason the two live branches do: an
+    absent provenance is UNKNOWN, and defaulting an unknown to the flattering
+    phrase is how "measured after the clear" ends up printed beside a number
+    nobody measured. Both strings are exercised -- the RESIDUE line's and the
+    CLEARED line's.
+    """
+    seed = _load()
+    legacy_clear = {"unowned": 0, "errors": [], "warnings": [], "deleted": 0,
+                    "stalled": False, "rounds": 1, "seen": 2, "eligible": 2,
+                    "twins": {"errors": [], "conclusive": True,
+                              "scan_complete": True, "blind_pages": [],
+                              "deleted": 0, "remaining": 0}}
+
+    seed._report_residue({
+        "residue": {"history_rows": 2, "history_rows_found": 2,
+                    "readable": True, "cleared": True},
+        "clear": dict(legacy_clear)})
+    err = capsys.readouterr().err
+    assert "RESIDUE" in err and "UNRECORDED" in err, (
+        f"a report carrying no remaining_source printed a RESIDUE line that "
+        f"does not say the provenance is unrecorded: {err!r}")
+    assert "measured after the clear" not in err, (
+        f"a report that records WHICH read produced its number nowhere at all "
+        f"was printed as 'measured after the clear': {err!r}. An absent "
+        f"provenance is UNKNOWN, and an unknown defaulting to the affirmative "
+        f"is the one direction this branch exists to prevent.")
+
+    seed._report_residue({
+        "residue": {"history_rows": 0, "history_rows_found": 2,
+                    "readable": True, "cleared": True},
+        "clear": dict(legacy_clear, deleted=2)})
+    cleared = capsys.readouterr().err
+    assert "CLEARED" in cleared and "UNRECORDED" in cleared, (
+        f"the CLEARED line printed no provenance caveat for a report that "
+        f"carries no remaining_source: {cleared!r}")
+    assert "re-measured not inferred" not in cleared, (
+        f"the CLEARED line claims the remainder was 're-measured not "
+        f"inferred' for a report that says nowhere which read produced it: "
+        f"{cleared!r}")

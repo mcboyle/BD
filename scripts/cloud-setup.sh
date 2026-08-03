@@ -567,35 +567,29 @@ PY2
   # --workers lane needs. `pip check` cannot see this -- its denominator is the
   # set of INSTALLED packages, which structurally excludes an uninstalled
   # requirement. Parse the requirements file and ask for each name.
-  REQ_MISSING="$(./venv/bin/python - <<'PY3' 2>/dev/null
-import re, sys
-from importlib.metadata import version, PackageNotFoundError
-try:
-    lines = open("requirements.txt", encoding="utf-8").read().splitlines()
-except OSError:
-    print("UNKNOWN"); sys.exit(0)
-missing = []
-for raw in lines:
-    line = raw.split("#")[0].strip()
-    if not line or line.startswith("-"):
-        continue
-    name = re.split(r"[<>=!~\[; ]", line, 1)[0].strip()
-    if not name:
-        continue
-    try:
-        version(name)
-    except PackageNotFoundError:
-        missing.append(name)
-print(" ".join(missing))
-PY3
-)" || REQ_MISSING="UNKNOWN"
+  # The parse-and-resolve logic now lives in tools/check_requirements.py, so this
+  # provisioner and scripts/deploy.sh ask the IDENTICAL question of the IDENTICAL
+  # interpreter. CLAUDE.md section 5 records what three inlined copies of a
+  # package list cost: they drift, and the copy nobody updated is the one the box
+  # runs. That applies to this check exactly as it did to system_deps.sh.
+  #
+  # It must run AS ./venv/bin/python -- importlib.metadata answers for the
+  # interpreter executing it, and this container has three that disagree.
+  #
+  #   exit 0  everything resolves; stdout silent
+  #   exit 1  the unresolved names, space-separated, on stdout
+  #   exit 2  UNEVALUABLE -- unreadable requirements.txt, or the helper absent on
+  #           an older tree. NOT a softer exit 0.
+  REQ_MISSING=""
+  REQ_RC=0
+  REQ_MISSING="$(./venv/bin/python tools/check_requirements.py 2>/dev/null)" || REQ_RC=$?
 
-  if [ "$REQ_MISSING" = "UNKNOWN" ]; then
+  if [ "$REQ_RC" -eq 2 ]; then
     # Unknown is a third state and it fails. "Could not evaluate" must never be
     # rendered as "satisfied".
     row "requirements satisfied" "**FAILED**" "could not evaluate requirements.txt -- treat as NOT satisfied"
     echo "[FAIL] requirements satisfied (unevaluable)"; CORE_FAILED=1
-  elif [ -n "$REQ_MISSING" ]; then
+  elif [ "$REQ_RC" -ne 0 ] || [ -n "$REQ_MISSING" ]; then
     row "requirements satisfied" "**FAILED**" "MISSING: $(echo "$REQ_MISSING" | cut -c1-70)"
     echo "[FAIL] requirements missing: $REQ_MISSING"; CORE_FAILED=1
   else

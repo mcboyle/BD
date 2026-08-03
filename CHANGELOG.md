@@ -4,6 +4,323 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.848 - scripts/deploy.sh is the git deploy path
+
+- scripts/deploy.sh no longer drives the retired zip overlay (--zip, a sha256
+  gate over a release archive, unzip -o). It now runs the deploy the box
+  actually uses -- git fetch origin main + git reset --hard origin/main -- and
+  then closes the four gaps that a file move never closes: requirements.txt is
+  re-resolved (and pip run only if something is missing, then re-checked),
+  frontend/dist is rebuilt and READ BACK, __pycache__ is swept in a confirmed
+  stopped window, the parity inventory is regenerated and read back for
+  route_source == "live url_map", the graph content pin is re-written and
+  re-verified, and the service is health-gated after start. Work that
+  git reset --hard would discard is named BEFORE the reset, not after.
+- tools/check_requirements.py extracted from scripts/cloud-setup.sh's inline
+  heredoc so the deploy path and the provisioner cannot drift apart; pip check
+  cannot see an uninstalled requirement, so requirements.txt is parsed and each
+  name resolved.
+- Step [10]'s BD_HOME warning compared against the ENVIRONMENT rather than
+  against capture.sh's effective BD_HOME, so it stayed silent whenever BD_HOME
+  was unset -- the common case, and the one the warning exists for. It now
+  computes "${BD_HOME:-$HOME/BulkDownloader}" the way capture.sh:55 does and
+  compares that, and says so when the directory does not exist at all.
+- Step [12]'s success note printed the literal "GET / = 200" instead of the
+  code it received, so a weakened root check would have asserted 200 in prose
+  over a 404. It now echoes $rcode. A message that restates the constant it
+  was supposed to verify cannot contradict a broken check.
+- Deploy-script coverage closed against a mutation battery rather than assumed:
+  the frontend read-back on the build-SKIPPED path, the root-URL confirmation
+  (all three arms), the parity inventory's exit status / file-existence /
+  JSON-parse read-backs, the BD_RESTART_CMD refusal, and the
+  committed-but-unpushed merge-base gate had no test and are now pinned. Two
+  harness defects were the cause rather than absent tests: the curl shim
+  answered every URL identically, so /api/health and / could never disagree,
+  and the fake venv python answered exit 0 to every -c, so the json.load
+  read-back was unobservable. A gate that cannot see its subject reports OK.
+- lxml and cssselect are declared in requirements.txt, and the census behind
+  those declarations is CORRECTED. The earlier lxml census was derived BY GREP
+  and was wrong in both directions at once -- CLAUDE.md section 1's named trap,
+  reproduced. Re-derived with ast.parse over every tracked file the gate reads
+  as Python -- 2577 of them after the third repair below widened the
+  denominator from the 2108 that `git ls-files -- '*.py'` returns (all parsed,
+  zero SyntaxError), reading Import and ImportFrom nodes. The counts
+  below are stated over that same 2577-file denominator, because the first
+  version of this bullet gave a 2108-file instrument and then a
+  bulk_downloader-shaped count under it -- "All three" lxml importers and
+  "Two" for cssselect, when the stated denominator holds four and three:
+    lxml       bulk_downloader/accessibility.py:185
+               bulk_downloader/selector_playground.py:56
+               bulk_downloader/synthetic_tests.py:96
+               tests/test_v3_66_320_synthetic_json_path.py:110   (a test)
+    cssselect  bulk_downloader/selector_playground.py:67
+               audit_templates.py:26                             (repo root)
+               tests/test_v3_66_320_synthetic_json_path.py:111   (a test)
+  Three of the lxml sites and two of the cssselect sites are non-test, and
+  those are the ones that fail open.
+  synthetic_tests.py:96 is the false negative -- a real fail-open importer that
+  no prose named. diagnostics_bundle.py:130 was the false positive and is NOT
+  an importer: "lxml" there is a string in a tuple of optional-dependency names
+  fed to __import__ for a version report. Grep sees that line; AST does not.
+  The citation has been removed from requirements.txt rather than softened,
+  because a wrong fact in an authoritative-looking file is inherited as true.
+- cssselect declared at >=1.2,<2.0 rather than left implicit. Both importers
+  fail open, and both lose a real capability silently: the selector playground
+  drops to a hand-rolled CSS-to-XPath translator covering only simple cases,
+  and audit_templates.check_selector skips the cssselect.parse probe. NOT
+  "every invalid selector reads as valid" -- that word was wrong and is
+  corrected here. check_selector runs four structural checks BEFORE the probe
+  and those still run without cssselect (non-string type, empty/whitespace,
+  [] and () balance, quote balance inside each attribute selector), so what is
+  lost is the grammar probe alone: the selectors that stop being rejected are
+  the bracket- and quote-balanced but grammatically invalid ones. MEASURED
+  over a 13-selector probe -- 7 flip to valid ("div >> p", "a[href=]", "::",
+  "1abc", "div:", ">div", "*|"), 4 stay caught structurally, 2 cssselect
+  accepts anyway. Still a check whose denominator stopped containing part of
+  its subject, but a proper subset of it. It is also lxml's own
+  backing for element.cssselect(), which raises ImportError without it
+  (MEASURED), and that is the PRIMARY path at synthetic_tests.py:96; lxml
+  exposes it as an extra, so the lxml pin does not pull it in.
+- The declarations are now CONSTRAINED by a test rather than shipped on trust.
+  Before this, no test read the real requirements.txt for these names: deleting
+  the lxml line left the entire band green. tests/test_v3_66_653_dep_freshness
+  .py gains three cases that AST-walk bulk_downloader/ and require every
+  third-party import to be declared in some requirements*.txt or recorded in an
+  explicit waiver list with a reason, that the waiver list stay honest in both
+  directions, and that lxml and cssselect sit in requirements.txt specifically
+  -- the only manifest scripts/deploy.sh step [5] resolves. Proven RED four
+  ways: removing the lxml line, removing the cssselect line, migrating a pin to
+  requirements-optional.txt, and three mutations that empty the scan (no file
+  matched, no import node collected, no manifest read). All four fail; the
+  empty-scan mutations fail on the denominator assertions rather than reporting
+  "all declared" over nothing. No new test file, so no axis-6 gate and no
+  PIN_INDEX test_files_scanned change.
+- scripts/deploy.sh step [4] documents the self-modification caveat. The script
+  is one of the files git reset --hard replaces, but the running bash keeps
+  reading its original file descriptor and git renames a NEW inode over the
+  path, so every step from [4] to [13] executes the PRE-reset copy: an
+  improvement to a post-reset step lands one deploy late, and a green run is
+  not evidence that the step changes it just delivered are correct. MEASURED
+  with a two-commit reproduction -- the post-reset line printed the OLD text
+  while grep on the same file showed the NEW text, and ls -i confirmed the
+  inode changed across the reset. Comment only; the script is not restructured,
+  because re-exec'ing the post-reset copy would change which code the operator
+  authorized to run.
+- THE DECLARATION GATE ABOVE SHIPPED WITH THE DEFECT IT EXISTS TO CATCH, and
+  is repaired here. It scanned bulk_downloader/ only and said so nowhere a
+  failure could show it, so tests/, tools/, toolchain/, bin/, scripts/,
+  live_tests/, docs/ and project-knowledge/ sat structurally outside its
+  subject -- and it reported clean over `requests`, hard-imported by two
+  tracked test files and declared in no manifest. That is the third gate on
+  this branch written against a CLAUDE.md section 0 defect that carried one:
+  tools/check_requirements.py exited 0 on a file parsing to zero names, and
+  deploy.sh step [10] warned about BD_HOME only when BD_HOME was exported
+  while capture.sh defaults it.
+- The scope was not merely widened. The two halves answer to different
+  manifests, so there are two assertions over disjoint scopes whose union is
+  every tracked Python file -- bulk_downloader/ (565 files, 3632 import nodes,
+  30 third-party names: 20 declared, 10 waived) and everything else (2012
+  files, 15734 nodes, 29 names: 14 declared, 15 waived) -- plus a third that
+  holds a
+  tests/-only name to requirements-dev.txt specifically. Each NAMES its own
+  scope and the shared blind spot in the failure message: the predicate is
+  ast.Import / ast.ImportFrom, so __import__, importlib.import_module and
+  pytest.importorskip are structurally invisible to it. The per-scope counts
+  and the per-scope slice now come from one predicate, asked per file and
+  required to match exactly one scope, so a broken subject filter can no
+  longer leave a healthy file count describing a set the verdict never ran
+  over. The gate is consequently AXIS-6 and its docstring says so.
+- `requests` guarded with pytest.importorskip in
+  tests/test_v3_66_550_weather_ssrf.py and
+  tests/test_webhooks_subscription_ssrf.py, not declared. MEASURED with
+  requests blocked on sys.path: 7 failed / 2 passed, control 9 passed; after
+  the fix the blocked run is 2 skipped with the reason named. Both files patch
+  requests.head / get / post on the module that site_weather.probe_http and
+  webhooks._deliver_one soft-import, and those return "requests not installed"
+  without it -- so on a core-only install the guard under test cannot execute
+  and SKIP is the honest verdict. Declaring it in requirements-dev.txt would
+  also have forced it off the waiver list, turning "BD does not require
+  requests" into "BD requires requests, in the dev manifest".
+- The waiver reason for `requests` overstated its evidence and is corrected to
+  what was measured: not "transitive under several declared distributions" but
+  exactly ONE, and only through the posture-sensitive optional manifest --
+  requirements-cloak.txt's cloakbrowser[geoip] -> geoip2>=4.0 ->
+  requests>=2.24.0,<3.0.0. psutil, pytest and markdown-it-py name requests only
+  under extras BD never asks for.
+- The first-party filter could silently remove a real third-party name: a bag
+  of stems from the repo root and tools/ meant one tracked tools/<distname>.py
+  would make that distribution first-party for every importer in the tree, and
+  the gate would report clean over an undeclared import. Resolution is now
+  per-importer and every removal is RECORDED and checked against two
+  independent signals -- declared in a manifest, or a top-level module of
+  something installed from outside this checkout. 95 names suppressed, 70
+  installed top-levels seen, zero shadow hits: the hazard is latent, not live.
+  Proven to fire by adding a real tracked tools/lxml.py, which named the file
+  and all four lxml importers that had left the subject.
+- Two prose overstatements corrected in requirements.txt, this entry and
+  SESSION_CARRY 15.25. The census stated a 2108-file denominator and then
+  counted a smaller set under it -- "All three" lxml importers and "Two" for
+  cssselect, when that denominator holds four and three; over a
+  bulk_downloader/-only denominator cssselect has ONE, because
+  audit_templates.py is at the repo root. And check_selector does not report
+  "every syntactically invalid CSS selector as valid" without cssselect: four
+  structural checks run first and still run (non-string type,
+  empty/whitespace, [] and () balance, quote balance inside each attribute
+  selector), so only the grammar probe is lost. MEASURED over 13 probe
+  selectors: 7 flip to valid, 4 stay caught structurally, 2 cssselect accepts
+  anyway.
+- THE DECLARATION GATE'S SECOND REPAIR DID NOT FINISH THE JOB. A reviewer found
+  the same section 0 shape a third time, in three places; this is the third and
+  last repair, and every item was proven by measurement before anything changed.
+    * DENOMINATOR. The scan was `git ls-files -- '*.py'` while the scope note
+      claimed toolchain/ and project-knowledge/ outright. MEASURED: of 3423
+      tracked files, 2108 end in .py and 469 MORE are extensionless bd-*
+      scripts carrying a python shebang -- 234 under toolchain/, 235 under
+      project-knowledge/, none anywhere else. The glob therefore reached 6 of
+      toolchain/'s 240 Python files (2.5%) and 40 of project-knowledge/'s 275
+      (14.5%). CLAUDE.md section 8 names the toolchain/bin bd-* suite as its
+      own population, and a .py glob structurally cannot see it. RED: an
+      `import zeep` added to tracked toolchain/bin/bd-guardcheck left the gate
+      GREEN, 15 passed. Files are now typed on their shebang as well as their
+      extension (2577 scanned), and that probe is RED and names the file.
+    * SEVEN REAL FINDINGS came out of the gap, waived by name with measured
+      reasons rather than declared: aiosmtpd, freezegun, jedi, mitmproxy,
+      prometheus_client, pytesseract and pyzbar, all in the bd-opv / bd-lsp /
+      bd-proxy operator scripts. Those exist as two identical tracked copies
+      (md5-verified equal), so each name reports two import sites for one
+      script. Six are try/except -> SKIP at the site; jedi is installed by
+      bd-lsp itself from a bundled wheelhouse and every subcommand returns 1
+      out of cmd_setup while it is still missing. Three of the seven need a
+      system package as well as a wheel, so a requirements-dev.txt pin would
+      put an SMTP server, a proxy, an OCR binding and a barcode binding on
+      every dev install for tools no lane runs.
+    * OVER-SENSITIVITY, twice -- a soundness bug, not a safe default, because a
+      gate that cries wolf gets switched off. _declared_names did not follow
+      requirements-dev.txt's first directive `-r requirements.txt`, so 15 core
+      pins read as absent from the dev manifest and a tests-only import of any
+      of them would be told to duplicate a pin the dev install already
+      delivers; includes are now followed, with a cycle guard and a refusal to
+      read a path resolving outside the repo or a path that does not exist.
+      And _DIST_ALIASES was a hand-written three-entry map, so `import xdist`
+      failed as "declared in no requirements*.txt" while pytest-xdist is pinned
+      in requirements.txt. RED proven by injecting that import into a tracked
+      tests/ file: 1 failed / 14 passed before, 15 passed after. That one
+      injection exercises both fixes, since without the include-follow the name
+      lands in the dev-manifest assertion instead.
+- The alias map is DERIVED from importlib.metadata.packages_distributions()
+  with the hand list applied last as an override, and it states what it covers
+  and what it cannot. COVERS: every top-level name an installed distribution
+  provides (70 top-levels here, 11 aliases in the resulting map). CANNOT: a
+  distribution not installed in the running environment contributes nothing --
+  pillow and yt-dlp are both absent here, which is exactly why those two
+  entries stay hand-written and the override list is load-bearing; a name
+  provided by MORE than one distribution is left unmapped rather than guessed
+  (exactly one such name here, jaraco); and the derived half is a property of
+  the environment rather than of the tree, so it may only ADD -- the override
+  wins, and no hand entry is deleted because a derivation happened to cover it
+  in one container.
+- Three smaller corrections in the same file, all made by telling the truth
+  rather than by adding machinery. test_tests_only_imports_are_declared_in_the
+  _dev_manifest now says that its verdict currently runs over a single name
+  (pytest) that is declared in BOTH manifests and therefore cannot fail today:
+  it is a live check for the next test-only import, not evidence about this
+  tree. _installed_from_the_repo_itself's docstring no longer promises an
+  editable-install exclusion the code does not deliver -- the predicate is a
+  conjunction, so the order of its two tests is immaterial, but it does not
+  recognise a PEP 660 editable install, and that is left unrepaired ON PURPOSE
+  because no BD distribution is installed here to exercise the branch
+  (measured: no bulk_downloader key in packages_distributions, no __editable__
+  file in site-packages, none of the 67 installed distributions is BD), so a
+  fix would ship untested. And both undeclared-import failure messages now name
+  the TYPE_CHECKING case, whose repair is a string annotation rather than any
+  of the three remedies they previously offered; TYPE_CHECKING blocks were NOT
+  excluded from the walk, because that would remove names from the subject to
+  repair a case the tree does not have (measured: zero such imports).
+
+## v3.66.847 - Seeded-history clear (--teardown --clear-history)
+
+- tools/live_seed.py --teardown --clear-history deletes the bdseed history
+  residue over POST /api/batch/delete (so history_fts is maintained via
+  db.db_fts_forget) and deletes the library twins over DELETE
+  /api/library/<lid> FIRST, because library.history_id carries no enforced
+  foreign key and the other order leaves the twins dangling. Off by default:
+  capture.sh runs teardown unattended and the predicate is the marker across
+  ALL history, not this run's nonce.
+- A dry-run filter canary runs before anything is deleted; a canary mismatch
+  aborts the pass having deleted nothing, distinguishing a malformed filter
+  from an empty table (batch_ops answers both with the same body).
+- The remainder is re-measured by re-reading /api/history, never computed as
+  found-minus-deleted; an unreadable post-state is UNKNOWN and exits 5
+  (_EXIT_CLEAR_UNKNOWN), a known-incomplete clear exits 4
+  (_EXIT_CLEAR_INCOMPLETE). A blind library twin scan (library_browse
+  swallows exceptions into an empty page) is reported UNVERIFIED, not zero.
+- capture.sh wires the clear behind BD_SEED_CLEAR_HISTORY (default 0),
+  captures the teardown exit unpiped, and greps the live_seed diagnostic
+  lines in the failure branch. BD_SEED_CLEAR_HISTORY is ledgered in
+  reports/config_gui_manifest.json as display-only.
+- Post-review hardening: the band now pins every /api/batch/delete payload's
+  limit to len(id_in), chunk coercion, the round-loop bound at exhaustion,
+  the stall equality boundary, a fresh per-round post-delete re-read, exit 4
+  for a plan missing its clear, the RESIDUE UNKNOWN / RESIDUE / CLEAR
+  SKIPPED stderr lines, the unquoted $_clear_flag expansion, and the final
+  twin verification reporting remaining=0 on a conclusive multi-page scan
+  (13/13 targeted mutants caught, up from 2/13).
+- Second adversarial pass, against the SHIPPED code rather than the spec:
+  four defects, each with a RED test in
+  tests/test_live_seed_starts_and_settles.py before the fix.
+  (F1) _twin_scan's blind-library guard tested rows_scanned == 0 over the
+  SCAN TOTAL, so a blind page arriving as a CONTINUATION page was
+  structurally invisible to it: page one made the total non-zero, the scan
+  ended scan_complete, called itself conclusive, wrote twins.remaining = 0
+  and emitted no warning, with a real twin left dangling. The observation is
+  now PER PAGE -- report["blind_pages"] records the after_id of every page
+  that came back empty and the warning names it -- and an honest last page
+  carrying rows with no cursor stays conclusive.
+  (F2) the filter canary aborted the entire clear, twins included, on ANY
+  shortfall, and its error asserted "the filter shape is not the one
+  batch_ops._build_query accepts" over evidence that was a partial match.
+  matched == 0, or no count at all, still aborts having deleted nothing; a
+  PARTIAL match is now the same soft warning the batch delete
+  ("already gone?") and the twin delete ("another writer got it first")
+  already use for the identical race.
+  (F3) the canary-abort and no-owned-ids paths returned the round's OPENING
+  read while _report_residue printed "measured after the clear" beside it.
+  The report now carries remaining_source and the stderr lines print the
+  provenance they find; only the post-delete re-read earns the words.
+  (F4) the CLEARED line divided deleted (accumulated across rounds) by found
+  (one read capped at _HISTORY_PAGE), printing "600 of 500 removed" on a
+  two-round clear. The report gains seen -- the union of distinct marked ids
+  across every round -- and found is printed beside the ratio, labelled as a
+  page. (seen was ALSO described, here and in the docstring, as the
+  population deleted is drawn from. It is not; see R2 below.)
+- Third pass, re-deriving those four fixes against the shipped code: all four
+  closed in both directions, and four residuals stood beside them. Each has a
+  RED test in tests/test_live_seed_starts_and_settles.py before its fix.
+  (R1) twins.blind_pages was declared in the clear report and NEVER written,
+  so the machine-readable plan said no page went blind while asserting
+  conclusive false one key away -- the F1 defect class inside the F1 fix. The
+  per-round copy carries it now, and an honest fully-read scan still reports
+  none.
+  (R2) seen is every marked row the reads SAW, owned or not, while the
+  deletes are drawn from owned alone, so an unowned row inflated a
+  denominator it could never enter. The report gains eligible
+  (len(targeted_ids), the union the ownership predicate admitted), the
+  CLEARED line divides by that and NAMES which set it divided by, and seen is
+  still printed beside it.
+  (R3) TWINS UNVERIFIED printed the swallowed-exception sentence for all
+  three inconclusive states. It now names the one it has: a blind FIRST page
+  (unreadable table vs a library with no twins); a blind CONTINUATION page (a
+  healthy library holding an exact multiple of 500 rows, whose last page is
+  full and hands back a cursor, vs a table that became unreadable mid-scan --
+  indistinguishable over this API, so the conservative UNKNOWN stands and the
+  line says which two cases it cannot separate); or a scan truncated at its
+  40-page bound, which is evidence about the bound and not about the table.
+  (R4) twins.conclusive was ASSIGNED per round, so a later healthy round
+  overwrote an earlier blind one and suppressed TWINS UNVERIFIED. conclusive
+  and scan_complete now fold with AND across rounds and blind_pages
+  accumulates; a two-round clear whose every scan read to the end still
+  reports conclusive.
+
 ## v3.66.846 - qB/JD completions record the largest media file
 
 - The qBittorrent and JDownloader bridges report completion with a bare NAME

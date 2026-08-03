@@ -2705,16 +2705,27 @@ conversation is a decision that did not happen.
 
 ### 15.24 | The unshipped specs are now in the repo -- and why that is a compromise
 
-Four generated specs were saved to project-knowledge/pending-specs/ because
-the container that held them is ephemeral and they could not be cheaply
-re-derived:
+AMENDED 2026-08-03 at v3.66.847 -- THERE ARE NOW THREE, NOT FOUR. This
+section listed four files and named 07-seeded-history-clear.md among them.
+#7 shipped as v3.66.847, so condition 4 below fired and that file was DELETED
+in the same branch that landed the cut (`git diff --name-status` shows
+`D project-knowledge/pending-specs/07-seeded-history-clear.md`). The
+condition was honoured, not waived. The list as it stands:
 
-    07-seeded-history-clear.md        #7,      READY_WITH_CHANGES
     s4-4-repo-root-db-residue.md      s4#4,    READY_WITH_CHANGES
     item12-missing-producers.md       item 12, READY_WITH_CHANGES
     s5-home-claude-residue.md         s5,      READY
 
-The specs for cuts that ALREADY SHIPPED (15.8, 15.11, 15.9, 10-C) were
+Measured at the branch tip rather than quoted: `ls
+project-knowledge/pending-specs/` returns exactly those three names. Note
+what the original text became the moment #7 merged -- a register entry
+naming a file that is not in the tree, i.e. the wrong denominator handed to
+the next reader, which is the class CLAUDE.md section 1 is about. The
+amendment is inline rather than appended as a new section so nobody reads
+the stale list first.
+
+The specs for cuts that ALREADY SHIPPED (15.8, 15.11, 15.9, 10-C, and now #7)
+were
 deliberately NOT saved. A spec whose cut is merged has no forward value and
 would be pure staleness.
 
@@ -2749,3 +2760,514 @@ earlier the same day. The replacement asserts a non-empty denominator before
 scanning and reports the file and line counts it actually examined. Twice in
 one session, in a session about exactly this, is the argument for making the
 denominator assertion a reflex rather than a remedy.
+
+### 15.25 | Branch close 2026-08-03 at 5c46360 -- three features, one squash
+
+Written from measurements taken on this branch tip. Every number below is one
+this session ran, or one it is explicitly attributing to a lane report; where
+nothing was measured the entry says UNKNOWN. Nothing here has been on the box.
+
+The branch is claude/bulkdownloader-handoff-j9o59v, tip 5c46360, version
+3.66.848 (read from the interpreter, not from CHANGELOG). It carries THREE
+features that squash into ONE commit by operator decision -- a deliberate
+departure from CLAUDE.md section 2's one-feature-per-cut rule, taken with the
+blast radius understood rather than by accident.
+
+WHAT SHIPPED
+
+  1. v3.66.847 -- the seeded-history clear.
+     `tools/live_seed.py --teardown --clear-history` deletes the bdseed
+     history residue over POST /api/batch/delete, and deletes the library
+     twins over DELETE /api/library/<lid> FIRST. The order is not a
+     preference: library rows carry history_id with no enforced foreign key,
+     so deleting history first leaves the twins dangling (15.23 decision 1).
+     Anchors, so nobody re-derives them:
+       tools/live_seed.py:1206   clear_seeded_history()
+       tools/live_seed.py:1089   _twin_scan()
+       tools/live_seed.py:1325-1326  the ownership predicate (site_name)
+       tools/live_seed.py:1055   the find (GET /api/history?q=bdseed)
+       tools/live_seed.py:1498   final twin verification, guarded on
+                                 `not dry_run and targeted_ids`
+       tools/live_seed.py:1937-1938  _EXIT_CLEAR_INCOMPLETE=4,
+                                 _EXIT_CLEAR_UNKNOWN=5
+       tools/live_seed.py:1941   _teardown_exit_code()
+       tools/live_seed.py:1808   _report_residue()
+       bulk_downloader/batch_ops.py:200  db_fts_forget, the reason the HTTP
+                                 design was chosen (15.20)
+       bulk_downloader/library.py:412    library_delete()
+       bulk_downloader/app_library.py:138-143  DELETE /api/library/<int:lid>
+       capture.sh:743-777        cleanup_live_seed(), the wiring
+       capture.sh:754            BD_SEED_CLEAR_HISTORY, default 0
+       reports/config_gui_manifest.json:84  the ledger entry, display-only
+     Off by default because capture.sh runs teardown UNATTENDED and the clear
+     predicate is the marker across ALL history, not this run's nonce.
+
+  2. lxml AND cssselect declared in requirements.txt -- census CORRECTED.
+     THE ORIGINAL ENTRY HERE WAS WRONG, and it was wrong in the specific way
+     CLAUDE.md section 1 warns about. It was derived BY GREP, and like the
+     playwright census in that section it failed in BOTH directions at once.
+     Re-derived with ast.parse over every tracked file the gate reads as
+     Python -- 2577 after the third repair (item f below) widened the
+     denominator from the 2108 that `git ls-files -- '*.py'` returns; all
+     parsed, zero SyntaxError -- reading Import
+     and ImportFrom nodes and skipping relative imports. COUNTS BELOW ARE OVER
+     THAT 2577-FILE DENOMINATOR -- v3.66.849 correction: the first version of
+     this entry stated the 2108-file instrument and then counted a smaller
+     set under it ("All three" lxml, "Two" cssselect in requirements.txt and
+     the CHANGELOG), parenthesising the tests/ importer out of the total while
+     keeping a root-level one in. Four and three:
+       lxml       bulk_downloader/accessibility.py:185   (ARIA audit)
+                  bulk_downloader/selector_playground.py:56 (XPath eval)
+                  bulk_downloader/synthetic_tests.py:96  (synthetic selector
+                                                          check)
+                  tests/test_v3_66_320_synthetic_json_path.py:110  (a test)
+       cssselect  bulk_downloader/selector_playground.py:67
+                  audit_templates.py:26                  (REPO ROOT, not the
+                                                          app package)
+                  tests/test_v3_66_320_synthetic_json_path.py:111  (a test)
+     Three lxml sites and two cssselect sites are non-test; those fail open.
+     Note what the old shape hid: over a bulk_downloader/-only denominator
+     cssselect has ONE importer, not two -- audit_templates.py is root-level.
+     Neither "two" nor "three" was true of a denominator anyone had stated.
+     FALSE NEGATIVE: synthetic_tests.py:96 -- a real fail-open lxml importer
+     that appeared in NO prose on this branch. It returns
+     {"ok": false, "error": "lxml not installed"} and the caller carries on.
+     FALSE POSITIVE: bulk_downloader/diagnostics_bundle.py:130 was cited here
+     and in requirements.txt as an importer. IT IS NOT ONE. "lxml" there is a
+     string inside a tuple of optional-dependency NAMES that
+     _capture_versions() feeds to __import__ for a version report -- there is
+     no import node on that line. Grep sees it; AST does not. The citation has
+     been DELETED from requirements.txt rather than reworded: the observation
+     it carried (reporting availability and declaring an install floor are
+     different jobs) is true, but attaching it to a line that is not an import
+     teaches the next reader a false fact out of a file that looks
+     authoritative. That site is correct as written and was left alone.
+     WHY cssselect IS DECLARED (`cssselect>=1.2,<2.0`), not waved off as
+     optional. Both importers fail open and both lose a capability silently:
+       - selector_playground.py:67 sets _HAS_CSSSELECT, which is_available()
+         reports verbatim; without it the playground falls back to
+         _css_to_xpath_simple(), explicitly only "the common cases the
+         operator actually types".
+       - audit_templates.py:26 sets _have_cssselect; check_selector() then
+         SKIPS the cssselect.parse() probe. v3.66.849 correction: "every
+         syntactically INVALID selector reads as valid" was FALSE. Read the
+         function (audit_templates.py:32-58) -- four structural checks run
+         before the probe and still run without cssselect: non-string type,
+         empty/whitespace, [] and () balance, and quote balance inside each
+         attribute selector. Only the grammar probe is lost, so what stops
+         being rejected is the bracket- and quote-balanced but grammatically
+         invalid subset. MEASURED over 13 probe selectors: 7 flip to valid
+         ("div >> p", "a[href=]", "::", "1abc", "div:", ">div", "*|"), 4 stay
+         caught structurally, 2 ("a:nth-child(2n+)", "a::pseudo-nope")
+         cssselect accepts anyway so they were never caught either way.
+         Section 0 shape in shipped code, over a proper subset -- which is
+         still worth declaring cssselect for, and is what the evidence says.
+     And it is why declaring lxml alone was not enough: lxml's
+     element.cssselect() is implemented BY cssselect and raises ImportError
+     without it -- MEASURED here before installing, "cssselect does not seem to
+     be installed" -- and that is the PRIMARY path at synthetic_tests.py:96.
+     lxml exposes it as its `cssselect` extra, so the lxml pin does not pull it
+     in. Floor 1.2 (2022-10-27, first py3-only release); 1.5.0 (2026-07-27)
+     installed into venv and the import proven, together with
+     lxml.html.fromstring(...).cssselect() and
+     selector_playground.is_available() -> cssselect True.
+     CONSTRAINED BY A TEST, which it previously was not. Nothing in the tree
+     read the real requirements.txt for these names: deleting the lxml line
+     left the whole band green, so the declaration shipped unconstrained.
+     tests/test_v3_66_653_dep_freshness.py now carries EIGHT cases (it shipped
+     with three; v3.66.849 added five after two read-only verifiers took the
+     first version apart). The AST walk is one pass over all 2577 tracked
+     Python files,
+     sliced into two scopes that PARTITION the tree, each with its own
+     manifest expectation:
+       app     (bulk_downloader/, 565 files, 3632 import nodes)
+               30 third-party names: 20 declared, 10 waived.
+       outside (everything else, 2012 files, 15734 nodes)
+               29 third-party names: 14 declared, 15 waived (werkzeug, PIL,
+               psycopg, atheris, hypothesis, markdown, paho, bd_dev_inspect,
+               plus the seven found by item f: aiosmtpd, freezegun, jedi,
+               mitmproxy, prometheus_client, pytesseract, pyzbar).
+     Four things about that gate worth carrying:
+       - The denominator is asserted BEFORE the verdict. Five mutations that
+         empty or blind the scan (outside subject filter matching no file,
+         resolver resolving nothing, requirements glob reading no manifest,
+         packages_distributions returning nothing, tests/ prefix matching no
+         path) all FAIL on a named denominator assertion instead of reporting
+         "all declared" over nothing. Mutants validated with ast.parse first
+         and the file restored byte-identically (sha256 checked).
+       - IT WAS ITSELF A SECTION 0 DEFECT, and that is the point worth
+         carrying, not the fix. The first version scanned bulk_downloader/
+         ONLY and said so nowhere a failure could show it, so tests/, tools/,
+         toolchain/, bin/, scripts/, live_tests/, docs/ and
+         project-knowledge/ were structurally outside its subject. It reported
+         clean over `requests`, hard-imported by two tracked test files and
+         declared in no manifest. That is the THIRD gate on this branch
+         written to catch a section 0 defect that shipped with one:
+         tools/check_requirements.py exited 0 on a file parsing to zero names,
+         scripts/deploy.sh step [10] warned about BD_HOME only when BD_HOME
+         was exported while capture.sh DEFAULTS it, and now this. Assume the
+         next one has the same shape and go looking.
+       - The scope is not merely wider, it is SAID. Both halves print their
+         own scope and the shared blind spot (the predicate is ast.Import /
+         ast.ImportFrom, so __import__, importlib.import_module and
+         pytest.importorskip are invisible) in the failure message.
+       - IT IS NOW AXIS-6, and the earlier entry here claiming otherwise is
+         superseded. Imports resolve against the importing file's OWN
+         directory -- that is what keeps tests/conftest.py, tests/_env.py and
+         tests/capture_lanes.py from reading as PyPI distributions -- so
+         adding or renaming a tests/ file moves what it measures. Band this
+         file on any cut that adds or renames a tracked PYTHON file -- which
+         after item f means a .py OR an extensionless python-shebang script.
+         CLAUDE.md
+         section 4's axis-6 table does not list it; it is an operator file and
+         was not edited for this.
+     RED proven four ways before the pins were trusted: remove the lxml line
+     (2 tests fail, and the failure names all three importers including
+     synthetic_tests.py); remove the cssselect line (2 fail); MIGRATE a pin to
+     requirements-optional.txt (only the core-manifest test fails, which is
+     correct -- scripts/deploy.sh step [5] resolves requirements.txt alone, per
+     tools/check_requirements.py:56); and the three empty-scan mutations above.
+     NOT in the CHANGELOG until now. The original lxml work wrote its census
+     into requirements.txt and into commit ac93b44's message but never into
+     CHANGELOG.md, so there was nothing there to correct -- the v3.66.848 entry
+     has been EXTENDED rather than fixed. Worth noting because the handoff that
+     scoped this correction listed CHANGELOG as one of three sites carrying the
+     wrong census; it was two.
+     v3.66.849 FOLLOW-ONS, all five re-measured before acting rather than
+     inherited from the verifier reports that raised them:
+       a) `requests` WAS a real undeclared import, and the fix is
+          pytest.importorskip in the two importers, NOT a requirements-dev.txt
+          declaration. tests/test_v3_66_550_weather_ssrf.py and
+          tests/test_webhooks_subscription_ssrf.py hard-imported it inside
+          helper functions. MEASURED with requests blocked on sys.path:
+          7 failed / 2 passed; control (same directory, same command, blocker
+          removed) 9 passed. Reproduced here before the fix; after it, the same
+          blocked run is 2 skipped with the reason named, and the control is
+          still 9 passed. WHY NOT DECLARE IT: both files exist to patch
+          requests.head / requests.get / requests.post on the module that
+          site_weather.probe_http and webhooks._deliver_one soft-import, and
+          those functions return {"ok": False, "error": "requests not
+          installed"} without it -- so on a core-only install the guard under
+          test cannot execute and the honest verdict is SKIP, which says so.
+          Declaring it in requirements-dev.txt would also have forced it off
+          _UNDECLARED_BY_DESIGN (the reverse-direction test forbids a declared
+          name staying waived), converting "BD does not require requests" into
+          "BD requires requests, in the dev manifest" -- a claim nobody made.
+       b) THE WAIVER REASON FOR requests WAS STRONGER THAN ITS EVIDENCE. It
+          said "transitive under several declared distributions". MEASURED
+          from installed metadata: EXACTLY ONE, and only through the
+          posture-sensitive optional manifest --
+          requirements-cloak.txt's cloakbrowser[geoip] -> geoip2>=4.0 ->
+          requests>=2.24.0,<3.0.0. The other installed dists that name
+          requests (psutil, pytest, markdown-it-py) name it only under a
+          'dev' / 'testing' extra BD never asks for, so nothing in
+          requirements.txt pulls it in, and install_linux.sh's cloak step is
+          NON-FATAL by design. A waiver whose stated reason is stronger than
+          its evidence is how a real gap survives review.
+       c) THE FIRST-PARTY HEURISTIC COULD SILENTLY REMOVE A REAL NAME. The old
+          _first_party_names took a global BAG of stems from the repo root and
+          tools/, so one tracked tools/<distname>.py would have made that
+          distribution first-party for EVERY importer in the tree. Resolution
+          is now per-importer (repo root, tools/, and the importing file's own
+          directory) and every removal is RECORDED, then checked against two
+          independent signals that a suppressed name is really a distribution:
+          declared in a manifest, or a top-level module of something installed
+          from outside this checkout. MEASURED at this tip: 95 names
+          suppressed, 70 installed top-levels seen, ZERO shadow hits -- the
+          hazard is latent, not live. Proven to FIRE by adding a real tracked
+          tools/lxml.py: the shadow report named the file and all four lxml
+          importers that had left the subject, and the core-manifest test
+          caught it independently. File removed; git status clean.
+       d) `venv/` LIVES INSIDE THE REPO, so "installed under _REPO" is not
+          "installed from this repo" -- the first version of the shadow check
+          used that test and every site-packages distribution was filtered
+          out, leaving the map empty. Its own denominator assertion caught it
+          and said UNKNOWN rather than reporting clean, which is the only
+          reason it was noticed within the session. The test is now a
+          site-packages / dist-packages path component.
+       e) THE PER-SCOPE COUNTS AND THE PER-SCOPE SLICE NOW COME FROM ONE
+          PREDICATE. They were two (the census keyed scope off _in_app, the
+          slice off _SCOPES), so a broken subject filter could leave a healthy
+          file count describing a set the verdict never ran over. The census
+          now asks every scope predicate and requires exactly one to match, so
+          "the scopes stopped partitioning the tree" is its own named failure.
+       f) THE SECOND REPAIR DID NOT FINISH THE JOB, and a reviewer found the
+          SAME section 0 shape a third time. Three items, all RED-proven on
+          the pristine tree before anything was changed:
+          DENOMINATOR. The scan was `git ls-files -- '*.py'` while
+          _SCOPE_NOTE["outside"] claimed toolchain/ and project-knowledge/
+          outright. MEASURED: 3423 tracked files, 2108 ending .py, and 469
+          MORE that carry a python shebang and NO extension -- 234 under
+          toolchain/, 235 under project-knowledge/, none anywhere else. So the
+          glob reached 6 of toolchain/'s 240 Python files (2.5%) and 40 of
+          project-knowledge/'s 275 (14.5%) while the note claimed both
+          directories. CLAUDE.md section 8 names the toolchain/bin bd-* suite
+          as its own POPULATION; a .py glob structurally cannot see it. RED:
+          `import zeep` appended to tracked toolchain/bin/bd-guardcheck left
+          the gate GREEN (15 passed). Option (i) was taken over narrowing the
+          claim -- _tracked_py now reads the first line of every tracked
+          non-.py file and a python shebang makes it Python (2577 scanned) --
+          because the claim was the true one and the denominator was the
+          defect. The same probe is now RED and names the file.
+          SEVEN REAL FINDINGS, which is why widening was the right call:
+          aiosmtpd, freezegun, jedi, mitmproxy, prometheus_client, pytesseract
+          and pyzbar were all undeclared and all invisible. Waived, not
+          declared, each with a reason read at its import site. They live in
+          bd-opv / bd-lsp / bd-proxy, which exist as TWO identical tracked
+          copies (toolchain/bin/<x> and project-knowledge/<x>; md5 verified
+          equal), so each name reports two import sites for one script -- do
+          not read that as two importers. Six are try/except -> SKIP; jedi is
+          installed by bd-lsp itself from /home/claude/lsp_kit/wheels and every
+          subcommand returns 1 out of cmd_setup while it is missing. Three need
+          a system package (tesseract, libzbar, a proxy) as well as a wheel.
+          OVER-SENSITIVITY, twice, which CLAUDE.md section 0 counts equal to a
+          false clean. (1) _declared_names never followed requirements-dev.txt's
+          first directive `-r requirements.txt` -- parse_requirement_line
+          returns None for it -- so 15 core pins read as ABSENT from the dev
+          manifest (measured 15 -> 0 after the fix). A tests-only import of any
+          of them would have been told to duplicate a pin the dev install
+          already delivers. Includes are followed now, with a cycle guard and
+          an assertion rather than a skip when the target resolves outside the
+          repo or does not exist. (2) _DIST_ALIASES was a hand-written
+          three-entry map, so `import xdist` failed as "declared in no
+          requirements*.txt" while pytest-xdist is pinned in requirements.txt.
+          RED: that import injected into a tracked tests/ file gave 1 failed /
+          14 passed; after both fixes, 15 passed. One injection, both fixes --
+          without the include-follow the name lands in the dev-manifest
+          assertion instead of the undeclared one.
+          THE ALIAS MAP IS NOW DERIVED from
+          importlib.metadata.packages_distributions() with the hand list
+          applied LAST as an override. COVERS every top-level name an installed
+          distribution provides (70 top-levels here; 11 aliases result).
+          CANNOT cover: a distribution not installed in the running
+          environment contributes nothing -- pillow and yt-dlp are both absent
+          from this container's metadata, which is precisely why those two
+          entries stay hand-written; a name provided by MORE than one
+          distribution is left unmapped rather than guessed (exactly one here,
+          jaraco, from three jaraco.* dists); and the derived half is a
+          property of the ENVIRONMENT, not the tree, so it may only ADD and can
+          differ between this container and the box. Never delete a hand entry
+          because a derivation happened to cover it here.
+          THREE MINORS, fixed by telling the truth rather than by adding
+          machinery, and said here because each is a limit somebody will
+          otherwise re-discover. test_tests_only_imports_are_declared_in_the_
+          dev_manifest's verdict runs over ONE name (pytest), declared in both
+          manifests, so it cannot fail today -- it is a live check for the next
+          test-only import, not evidence about this tree.
+          _installed_from_the_repo_itself is a CONJUNCTION (no site-packages
+          component AND under _REPO), so the test order the reviewer flagged is
+          immaterial -- the truth table is identical either way -- but the
+          conjunction does not recognise a PEP 660 editable install, whose
+          locate_file("") returns the site-packages directory. Left unrepaired
+          ON PURPOSE: no BD distribution is installed here at all (no
+          bulk_downloader key, no __editable__* file, none of 67 dists), so the
+          branch cannot be exercised and a fix would ship untested; if it ever
+          happens the shadow test reports bulk_downloader shadowing itself,
+          which is loud. And an `if TYPE_CHECKING:` import fails the gate while
+          none of the three offered remedies fits it, so both failure messages
+          now name that case and point at a string annotation. TYPE_CHECKING
+          blocks were NOT excluded from the walk: that would remove names from
+          the subject to repair a case the tree does not have (measured: zero).
+       Also corrected: one more denominator slip found while re-measuring (a)
+       -- "imported only from tests/" was first judged against the OUTSIDE
+       slice, which made bs4, httpx, lxml, mutagen, openpyxl, curl_cffi and
+       cloakbrowser look test-only (they have no non-tests importer outside
+       bulk_downloader/) and demanded seven runtime pins move to the dev
+       manifest. Judged over the whole tree it is one name, pytest, and it is
+       already in requirements-dev.txt.
+
+  3. v3.66.848 -- scripts/deploy.sh as the git deploy path.
+     It previously drove the retired zip overlay (--zip, a sha256 gate over a
+     release archive, unzip -o). It now runs git fetch + git reset --hard and
+     then closes the four gaps a file move never closes (CLAUDE.md section 7).
+     Step map, from `grep -n '^# .. \[' scripts/deploy.sh`:
+       [0]:130 preconditions   [1]:176 fetch      [2]:187 show
+       [3]:201 live-edit gate  [4]:245 reset      [5]:262 requirements
+       [6]:294 frontend        [7]:343 graph pin  [8]:390 stop
+       [9]:403 bytecode sweep  [10]:422 parity    [11]:498 start
+       [12]:506 health gate    [13]:568 summary
+     `tools/check_requirements.py` (new, 133 lines) extracts the
+     requirements-resolution check that was inlined in
+     scripts/cloud-setup.sh's heredoc. Two callers now:
+     scripts/deploy.sh:270 and :283, scripts/cloud-setup.sh:585.
+     SELF-MODIFICATION CAVEAT, now documented at step [4] in the script.
+     deploy.sh is one of the files `git reset --hard` replaces, but the running
+     bash keeps reading the fd it opened at exec time and git renames a NEW
+     inode over the path, so steps [4] through [13] execute the PRE-reset copy.
+     An improvement to any post-reset step lands ONE DEPLOY LATE, and a green
+     run of the script is not evidence that the step changes that run just
+     delivered are correct -- nothing below [4] was exercised at the new
+     version. MEASURED 2026-08-03 with a two-commit reproduction whose only
+     difference was a line after the reset: it printed the OLD text while grep
+     on the same file showed the NEW text, and `ls -i` went 1992621 -> 1992622
+     across the reset. Not restructured; re-exec'ing the post-reset copy would
+     change which code the operator authorized to run, which is worse than
+     lateness.
+
+THE MEASURED NUMBERS
+
+  Mutation, cut #7 (live_seed):
+    - first battery: 2/13 caught, then 13/13 after the post-review hardening.
+    - a later 104-mutant pass over live_seed found 23 escapes. TWELVE of them
+      survived re-derivation against the fixed tip; the other eleven did not
+      (they were about code that had already changed). All 12 are now closed by
+      tests -- 13 mutants, 13 RED on their target test and on no other, 0
+      anchor failures, 0 invalid, each proven RED with the mutant applied AND
+      green on the pristine file. No source change was needed for any of
+      them: every escape was a missing test, not a missing writer.
+      The one that flipped the exit code was M22 (see below).
+  Mutation, scripts/deploy.sh:
+    - 9 escapes, closed 12/12 caught, 0 invalid, deploy.sh restored
+      byte-identically. One-line source change (step [12]'s $rcode); the rest
+      were tests.
+
+  Band, four lanes run on this tip. All four PASS, all exit 0 unpiped, all on
+  venv/bin/python. Cited from the lane reports rather than asserted:
+    lane                      files   result
+    live-seed-and-capture       49    724 passed, 0 failed, 0 skipped
+    deploy-and-requirements     29    424 passed, 1 skipped, 0 failed
+    gates-and-enumerators       38    388 passed, 0 failed, 0 skipped
+    batch-library-fts           33    506 passed, 0 failed, 0 skipped
+    TOTAL                             2042 passed, 1 skipped, 0 failed
+  The file column sums to 149 LANE MEMBERSHIPS, not 149 distinct files -- the
+  lanes overlap and were not de-duplicated across each other. Do not read 149
+  as a file count. The single skip is declared in-test
+  (tests/test_cloud_setup_truthfulness.py:262, "BD_REPO_CANDIDATES removed
+  entirely"), not an environmental wave-away.
+  The gates lane established one fact worth keeping: this branch adds NO new
+  test file (`git diff --diff-filter=A e8ec5b1 HEAD -- tests/` is empty; the
+  four tests/ entries are all M), so the count-ratchets can only be moved by
+  content edits, not by a count change. They were banded anyway.
+
+  Already measured on this tip, recorded so nobody re-runs them:
+    bd-regen-order      exit 0, ZERO artifact drift
+    bd-guardcheck       7 ok / 0 drifted / 0 missing (non-zero denominator)
+    import_graph_gate   PASS at 1618 edges
+    version             3.66.848
+
+THE FIVE SECTION-0 DEFECTS FOUND IN THIS CUT'S OWN CODE
+
+The pattern is the point. Three were defects in shipped-this-branch source;
+two were defects in the HARNESS that was supposed to catch them. All five are
+the same shape: a check whose denominator structurally excluded its subject.
+
+  1. _twin_scan's blind guard tested the SCAN TOTAL.
+     library.library_browse wraps its whole query in
+     `except Exception: return [], None` (library.py:363-364), so an
+     unreadable library is byte-identical over this API to a library with no
+     twins. The first version tested `rows_scanned == 0` over the scan total
+     -- which page one had already made non-zero. A blind CONTINUATION page
+     was therefore INVISIBLE to it: the scan ended scan_complete, called
+     itself conclusive, wrote twins.remaining = 0, emitted no warning, and a
+     real twin was left dangling. The observation is now PER PAGE
+     (report["blind_pages"] records the after_id of every empty page, and the
+     warning names it), and an honest last page carrying rows with no cursor
+     stays conclusive -- the over-sensitive direction was closed too.
+
+  2. The final twin verification could run over an EMPTY subject.
+     tools/live_seed.py:1498. With no targeted ids, _twin_scan reads every
+     page, matches nothing BY CONSTRUCTION, calls itself conclusive and
+     reports "zero twins remain" with exit 0. The `and targeted_ids` guard
+     was present in the source from the original implementation -- what was
+     missing was any test pinning it. Mutant M22 deleted it and ESCAPED the
+     battery; it was the only survivor that flipped the exit code. Closed by
+     a test, not by a source change. Recorded here because an unpinned guard
+     and an absent guard are the same thing to the next person who edits it.
+
+  3. tools/check_requirements.py exited 0 on a file parsing to ZERO names.
+     This file exists specifically because `pip check` reports clean over a
+     denominator that structurally excludes an uninstalled requirement -- and
+     the replacement rebuilt the same defect one level up. `unresolved([])` is
+     `[]`, so "every entry resolves" came out true over an empty denominator.
+     MEASURED on the pristine file: empty.txt -> exit 0 silent;
+     comments-and-option-lines-only -> exit 0 silent. Now exit 2
+     (UNEVALUABLE) with the condition named on stderr and stdout left empty.
+     Exit 2 is not a softer exit 0. Both callers already treated 2 as failure
+     and were left alone. Same shape as bd-guardcheck's "0 ok, 0 drifted, 7
+     missing, exit 0" before v3.66.818.
+
+  4. deploy step [10]'s BD_HOME warning was gated on BD_HOME being EXPORTED.
+     capture.sh:55 DEFAULTS it (`BD_HOME="${BD_HOME:-$HOME/BulkDownloader}"`),
+     so gating on `[ -n "$BD_HOME" ]` asked a different question and reported
+     clean in the DEFAULT case -- which is the common case, and the one the
+     warning exists for. scripts/deploy.sh:484 now computes
+     `capture_home="${BD_HOME:-$HOME/BulkDownloader}"` the way capture.sh
+     does, compares that, and says so when the directory does not exist at
+     all.
+
+  5. Two deploy escapes were HARNESS defects, not absent tests.
+     - the curl shim answered every URL identically, so /api/health and /
+       could never disagree -- which is the only condition step [12]'s
+       root-URL confirmation exists to detect. ROOT_CODE now discriminates by
+       URL; unset, every response is what it was before.
+     - the fake venv python answered exit 0 to every `-c`, so step [10]'s
+       `json.load` read-back was unobservable and a truncated inventory
+       sailed through to "ALREADY CURRENT -- VERIFIED". `-c` is now delegated
+       to REAL_PY (the interpreter running pytest, passed explicitly, never a
+       bare python3).
+     Two of the first-draft replacement assertions had the same disease and
+     were caught before merge: they anchored on output ("dist") that step [6]
+     prints on every skipped build, so they could never fail. Both now anchor
+     on stderr and on site-specific wording.
+
+WHAT ONLY THE BOX CAN ANSWER -- all three are UNKNOWN, not guessed
+
+  (a) Do the accumulated bdseed history rows carry the marker in site_name?
+      This is the one that decides whether the first armed run does anything.
+      The clear FINDS rows with GET /api/history?q=bdseed (live_seed.py:1055),
+      and db.db_search LIKEs over url / filename / message ONLY
+      (db.py:1179, :1209 -- `url LIKE ? OR filename LIKE ? OR message LIKE ?`;
+      site_name is NOT in that list). It then AUTHORIZES deletion on
+      site_name (live_seed.py:1325-1326). Two different fields. If the
+      accumulated rows do not carry the marker in site_name, every one of
+      them is counted `unowned`, NOTHING is deleted, the tool prints CLEAR
+      SKIPPED and exits 4. That is the safe direction by design -- under-
+      deleting beats over-deleting -- but it means the first armed run may
+      legitimately do nothing, and that must not be read as a defect.
+      GIT CANNOT RECONSTRUCT THIS. The repository's FIRST commit (860d8be,
+      2026-07-29) is also the first commit touching tools/live_seed.py, so
+      there is no earlier tree showing what site_name the seeder wrote when
+      the oldest rows were created.
+      Residue was 66 rows at v3.66.846 (15.22) and 64 at v3.66.844, growing
+      ~2-4 per capture; the count today is UNKNOWN. The read-only query that
+      settles it, already filed in 15.20:
+        SELECT id, site_name, filename, library_id, substr(url,1,60)
+          FROM history WHERE url LIKE '%bdseed%';
+
+  (b) Does BD_HOME equal the install dir on the box?
+      tools/gui_parity_inventory.py:914 defaults --outdir to the RELATIVE
+      "reports", resolved against CWD (:921-923). capture.sh:417 reads
+      PARITY_JSON="$BD_HOME/reports/gui_parity_inventory.json". Those are the
+      same file only if BD_HOME is the directory the regen ran in. If they
+      differ, deploy.sh's step [10] refreshes a copy the suite never reads,
+      and the stale one it does read fails the ENTIRE suite -- the v3.66.818
+      failure mode (CLAUDE.md section 7). deploy.sh:484-495 now WARNS when it
+      cannot establish they agree; whether they agree on test4 is UNKNOWN
+      here and one `echo "${BD_HOME:-unset}"` on the box settles it.
+
+  (c) Is lxml present on the box?
+      UNKNOWN. It is present in this container (measured, lxml 6.1.1) and is
+      now declared, so a fresh install gets it -- but a deploy is
+      `git reset --hard`, which does not install anything. If it is absent,
+      deploy.sh step [5] is the thing that will say so, because
+      check_requirements.py parses requirements.txt rather than asking pip
+      what is installed. Nothing has been run on the box to check.
+
+WHAT IS STILL UNVERIFIED IN-CONTAINER
+
+  - The deploy SAFETY/ORDERING mutation battery is 33 mutants and only FOUR
+    were judged. That battery was force-reported with M01-M04 done, covering
+    the sudo boundary and the stopped-service window. The other 29 were never
+    run to a verdict -- they are UNKNOWN, not passed, and the battery must not
+    be cited as evidence about the 29.
+  - The deploy harness still cannot observe service ORDERING. The curl shim
+    does not read simulated service state, so a mutant that starts the
+    service before the bytecode sweep, or health-gates a service it never
+    stopped, produces the same shim responses as correct ordering. Fixing the
+    URL discrimination (defect 5 above) did not fix this; it is a different
+    blind spot in the same harness.
+  - Nothing in this branch has run on the box. Container green is evidence
+    toward the cut, never evidence the box is green (CLAUDE.md section 7).
+    In particular tests/test_v3_43_80_modules.py passed here WITHOUT GTK
+    typelibs and with DISPLAY unset, which is a measurement, not a claim that
+    the section 5 trap is gone.
