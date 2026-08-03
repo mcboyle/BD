@@ -63,6 +63,32 @@ def selftest():
     return 0
 
 
+def _load_bandcheck():
+    """Load the sibling bd-bandcheck by PATH. It is extensionless, so a normal
+    import cannot reach it; returning None (never raising) keeps a missing
+    checker from taking the band down with it -- but the caller must then say
+    the band is UNVERIFIED rather than treating absence as safety."""
+    import importlib.util, importlib.machinery, os as _o
+    here = _o.path.dirname(_o.path.realpath(__file__))
+    tgt = _o.path.join(here, "bd-bandcheck")
+    if not _o.path.isfile(tgt):
+        return None
+    try:
+        spec = importlib.util.spec_from_loader(
+            "_bd_bandcheck",
+            importlib.machinery.SourceFileLoader("_bd_bandcheck", tgt))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod if hasattr(mod, "check") else None
+    except Exception:
+        return None
+
+
+def rundir_probe(a):
+    """The tree bd-bandcheck should resolve targets against."""
+    return a.work
+
+
 def main(argv=None):
     import sys as _s
     if "--selftest" in _s.argv: return selftest()
@@ -71,13 +97,60 @@ def main(argv=None):
     ap.add_argument("--work","--tree", default="/home/claude/work")
     ap.add_argument("--from-zip", help="extract this zip and band from the pristine tree")
     ap.add_argument("--timeout", type=int, default=240, help="per-suite timeout seconds")
+    ap.add_argument("--skip-bandcheck", action="store_true",
+                    help="run even if bd-bandcheck flags a target (say why in the cut)")
     a = ap.parse_args(argv)
 
-    bad = [s for s in a.suites if s.rstrip("/") in ("tests", "test")]
-    if bad:
+    # @849 -- REFUSE AN UNSAFE BAND BEFORE SPENDING 200 SECONDS DISCOVERING IT.
+    #
+    # bd-bandcheck has validated band lists against the three footguns CLAUDE.md
+    # section 4 documents -- the whole-dir/perf_lab hang, a test FUNCTION passed
+    # as a path (run_tests falls back to a broad run -> timeout -> ABORT), and
+    # the test_phases_195_199/test_cut8_schedules BD_INSTALL_DIR leak -- and
+    # NOTHING HAS EVER CALLED IT. It was one of 167 bd-* tools that are described
+    # somewhere and invoked by nowhere. A checker nobody runs is a checker that
+    # does not exist, so the wiring is the whole point: the footguns are now
+    # refused at the door rather than documented in a file the caller may not
+    # have read.
+    #
+    # Delegation, not reimplementation: bd-bandcheck.check() is the single
+    # source of truth for what is unsafe. Duplicating its lists here is how the
+    # copy nobody updates becomes the one that runs (section 5).
+    # The ORIGINAL bare-tests/ refusal, kept as a floor. My first draft of this
+    # block DELETED it in favour of the delegated check and then let the band
+    # run when the loader failed -- so a `bd-band tests` launched the whole-dir
+    # hang the guard existed to prevent. A replacement that fails OPEN where the
+    # original failed CLOSED is a regression even when the replacement is
+    # better, and this one is CLAUDE.md section 0's own shape: the check could
+    # not see its subject and reported nothing.
+    if [s for s in a.suites if s.rstrip("/") in ("tests", "test")]:
         print(f"{R}refusing{RST} a bare tests/ dir -- it hangs (test_perf_lab). "
               f"Pass specific files.", file=sys.stderr)
         return 2
+
+    _bc = _load_bandcheck()
+    if _bc is None:
+        # UNKNOWN IS A THIRD STATE, and for a gate that means FAIL, not warn.
+        # "bd-bandcheck could not be loaded" is not "the targets are safe".
+        print(f"{R}refusing this band{RST} -- bd-bandcheck is not loadable, so "
+              f"the targets are UNVERIFIED. Absence of a checker is not a pass.\n"
+              f"(override with --skip-bandcheck if you are certain)",
+              file=sys.stderr)
+        if not a.skip_bandcheck:
+            return 2
+    elif a.skip_bandcheck:
+        print(f"{Y}bandcheck skipped by request{RST} -- targets UNVERIFIED.",
+              file=sys.stderr)
+    else:
+        _rc, _lines = _bc.check(a.suites, rundir_probe(a))
+        if _rc != 0:
+            print(f"{R}refusing this band{RST} -- bd-bandcheck flagged it:",
+                  file=sys.stderr)
+            for _l in _lines:
+                print(_l, file=sys.stderr)
+            print("(override with --skip-bandcheck if you are certain)",
+                  file=sys.stderr)
+            return 2
 
     if a.from_zip:
         if not os.path.exists(a.from_zip):
