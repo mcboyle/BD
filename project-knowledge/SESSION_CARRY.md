@@ -2539,3 +2539,127 @@ whose evidence cannot fail to appear is not a verdict. The replacement
 derived every conclusion from an actual result and distinguished
 table-absent from table-empty, which is what made the bitrot settlement
 trustworthy rather than a second guess.
+
+### 15.22 | HANDOFF, 2026-08-03 close at e3cb953 (v3.66.846)
+
+Written as the durable record of a long session. If you are starting fresh,
+read CLAUDE.md in full, then 15.20, 15.21 and this section. 15.18's open set
+is superseded; 15.19's capture facts and 15.21's box measurements stand.
+
+STATE, measured not inferred:
+
+  - main e3cb953, v3.66.846, working tree clean, no open PRs.
+  - The box captured PASS at v3.66.846 (run 2026-08-03T14:29:28): 14509 total
+    / 14424 passed / 0 failed / 0 errors / 85 skipped; live 36/0/0; graph pin
+    OK against a re-pinned 2e0f1b1a; /api/health sha d0b8cc91a3a4 -- the
+    merged tip, so the running PROCESS was verified.
+  - Count delta +23 from v3.66.844 reconciled on COLLECTED TESTCASE IDS: +12
+    census (15.8), +11 qB/JD (15.11), zero gone.
+
+SHIPPED THIS SESSION: v3.66.843 (10-C), 844 (15.9), 845 (15.8), 846 (15.11),
+plus two doc cuts (CLAUDE.md axis-6 table; registers 15.17/15.19/15.20/15.21).
+Eight PRs merged, #132 through #139.
+
+WHAT A GREEN CAPTURE IS STRUCTURALLY SILENT ABOUT. Three things now, and the
+list grows -- treat it as a class, not a list:
+  - the SELFTEST battery: capture.sh never calls /api/selftest (15.19). Any
+    selftest change is uncaptured; confirm it with a live GET.
+  - the CENSUS tool: capture.sh never runs census_file_size_drift.py, so
+    15.8's whole visible effect is invisible to a capture. Run it directly on
+    the box; that also answers the last of the legacy-residue questions.
+  - any qB/JD path: seeding drives the FIXTURE site, which never routes
+    through those bridges, so 15.11 is unexercised. Zero qB/JD library rows is
+    the expected result whether or not it works.
+  - and still: v3.66.840's extractor markers, silent for four consecutive
+    captures for the same reason.
+
+THE OPEN SET, with the exact next action for each:
+
+  #7  seeded history residue -- READY TO CUT, design verified.
+      Residue 66 rows and growing ~2/capture. The HTTP design via POST
+      /api/batch/delete is CONFIRMED correct: batch_ops.py:190-200 maintains
+      history_fts, checked by read + the existing FTS test + a live probe.
+      Four amendments are mandatory and are recorded in 15.20; the one that
+      matters most is (c), the spec's attempt to keep a stale assertion green
+      by retaining keywords while asserting their opposite.
+      DECISION OUTSTANDING, and 15.21 changed it: the spec defaults to
+      RECORDING the 27 library twins rather than deleting them. Those twins
+      are 100% of the Library panel's "missing" count and 63% of the library
+      table, and all 27 are seeded. Deleting clears a false operator-facing
+      signal. Do not let the default stand unexamined.
+
+  s4#4  repo-root .db-wal writer -- AUTHORIZED as two cuts, not started.
+      Two FATALs must be fixed during implementation: app.py:1812-1824
+      _migrations.apply_pending() is a SEVENTH module-scope DB writer below
+      the gated region, so the specced edits do NOT make their own RED green;
+      and the RED is structurally blind to keepalive-gated writers because
+      tests/conftest.py:195 forces BD_DISABLE_KEEPALIVE=1 and the RED copies
+      os.environ into its child. Re-derived counts: 30 collection-time app
+      importers (not 34), 9 in-process executors (not 10). The sentinel must
+      be a sys ATTRIBUTE, not a BD_-prefixed env var -- a new BD_ name enters
+      the config ledger and bands test_gui_parity.
+
+  item 12  CLOSED as filed (15.21). What REMAINS open and should be re-filed
+      on its own merits at its own priority: the eight-producer divergence,
+      the proven non-exhaustiveness of that enumeration, and audit()'s two
+      different caps (missing 500, size_drift 1000) in one returned dict.
+      Also still real: library_final.regen_nfos_from_history:474 resolves a
+      bare basename CWD-relative and is a total no-op on the box.
+
+  Audit #3  HELD. A both-model warm already ships (ollama_boot_probe.py +
+      ai_boot_readiness.py, systemd unit bulkdownloader-ai-ready,
+      install_service.sh:271). One journalctl plus /api/ps after a boot
+      settles why it did not leave the vision model warm. LIKELY FIX, from
+      source: its _attempt raises gpu_unavailable BEFORE any warm when
+      nvidia-smi fails, but a CPU-warm model is still warm -- the warm should
+      not be gated on the GPU probe. Do NOT add an in-request warm: measured,
+      it runs inside L18's own 90s wall and does not fix the capture.
+
+  s5  /home/claude residue -- 391 files / 1529 occurrences, zero in
+      bulk_downloader/. Operator scope decision outstanding. Three inherited
+      figures corrected in 15.20; "~212 genuine default-path values" is
+      UNVERIFIED because no predicate tried could reproduce it.
+      test_generated_artifact_workflow.py:195 POSITIVELY pins /home/claude in
+      scripts/build_release.sh, so a blanket sweep turns it red.
+
+  Small, unclaimed: add `git rev-parse HEAD` to 01_sysinfo.log so capture
+  bundles self-identify (two uploads arrived together this session and were
+  separable only by 02_SUMMARY.txt and 09_http_smoke.log). Rides any
+  capture.sh cut. And add a selftest stage to capture.sh (see the silence
+  class above).
+
+OPERATOR-SIDE, unchanged and still outstanding: `git worktree prune -v` (18
+trees, 6 prunable); `git checkout -B main origin/main` in the deploy checkout;
+and the archive sequence (decide B4's 533 raw wacz AND its 91 mid-transaction
+.db copies -> consolidate with a verified manifest -> THEN rotate the orphan
+bundle).
+
+WHAT IS NOT PERSISTED, stated so nobody hunts for it. Two multi-agent runs
+(38 agents, then 16) produced implementation-ready specs with exact code for
+#7 and s4#4. Those outputs lived in the container's /tmp and are GONE with it.
+Everything DECISION-CRITICAL from them is in 15.20, 15.21 and this section --
+the premises, the amendments, the measured figures, the file:line anchors.
+The exact code is not, and re-deriving it means re-running the investigation.
+That is the honest cost, and it is the right trade: a 40K-character generated
+spec committed to project-knowledge would become a second document an agent
+reads before acting, which CLAUDE.md section 8 names as the defect it is.
+
+PROCESS EARNED THIS SESSION, beyond 15.20's three:
+
+  - A VERDICT WHOSE EVIDENCE CANNOT FAIL TO APPEAR IS NOT A VERDICT. A probe
+    handed to the operator ended with an unconditional
+    `echo "(blank above = bitrot has never run)"`, and it printed on a box
+    with no sqlite3 CLI installed. The conclusion was decoupled from the
+    measurement. The replacement derived every line from an actual result and
+    distinguished table-absent from table-empty -- which is the only reason
+    the bitrot settlement in 15.21 is trustworthy.
+  - EQUAL COUNTS ARE NOT AGREEMENT, and this session had both the warning and
+    the instance. item 12's own investigation found two producers returning 2
+    over DISJOINT sets; days later two figures both read 27 and the temptation
+    to call them one population was strong. The intersection was measured
+    (27, both one-sided differences zero) BEFORE the claim was made.
+  - A SPEC'S BAND IS AN INPUT, NOT AN ANSWER -- 15.11's stated derivations
+    returned 12 where the spec said 6 and 10 where it said 9, and the
+    load-bearing miss was structural: _bd_runner_src() concatenates every
+    runner_*.py, so 24 test files read a runner_integrations.py edit without
+    naming the module. Final band 44 files against the spec's 30.
