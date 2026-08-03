@@ -23,7 +23,7 @@ _SHIPPED_INVENTORY = _REPO / "reports" / "gui_parity_inventory.json"
 # the 7 tools that existed in tools/ but were missing from the frozen baseline
 _PHANTOM_TOOLS = {
     "build_session_pack", "legacy_pin_scan", "make_overlay", "precut_check",
-    "tasktracker_gen", "tasktracker_sync", "build_recognizer_corpus",
+    "build_recognizer_corpus",
 }
 # the 2 routes added @293 that were never reconciled into the shipped inventory
 _NEW_293_ROUTES = {"sites.api_template_capture_cancel", "cockpit.api_capture_goto"}

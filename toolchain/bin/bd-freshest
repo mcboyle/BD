@@ -27,7 +27,6 @@ FAMILIES = {
     "EPIC_SCOPING":       "epic scoping plan",
     "KB_HANDOFF":         "session handoff",
     "KB_JUDGMENT":        "durable judgment layer",
-    "TASK_TRACKER":       "task tracker",
 }
 CATALOGS = ("FEATURES_MAXIMALIST", "BD_FEATURE_IDEAS", "COMPATIBILITY_AND_INTEROP_ROADMAP",
             "IDEAS_", "FEATURE_EXECUTION_PLAN", "CONSOLIDATED_EXECUTION_PLAN", "PROGRAM_")

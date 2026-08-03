@@ -26,7 +26,7 @@ SUBSYS=[
  ("APP",           r"bulk_downloader/app(_|\.py)"),
  ("CORE_BD",       r"bulk_downloader/"),
  ("COCKPIT",       r"tools/cockpit"),
- ("TOOLS_BUILD",   r"tools/(build_|dependency_graph|import_graph|route_map|gui_parity|check_route|tasktracker|verify_release|decomp|audit_atomic|cross_monolith|pin_index|function_index)"),
+ ("TOOLS_BUILD",   r"tools/(build_|dependency_graph|import_graph|route_map|gui_parity|check_route|verify_release|decomp|audit_atomic|cross_monolith|pin_index|function_index)"),
  ("TOOLS_OTHER",   r"tools/"),
 ]
 def subsys(p):

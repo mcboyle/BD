@@ -61,14 +61,10 @@ TOUCH_MAP = [
      ["test_v3_66_285_cloak_parity"]),
     (r"frontend/src/.*CaptureWorkflow", ["test_gui_parity", "test_v3_66_274_capture_ux", "test_v3_66_292_dom_analyzer_link"]),
     (r"^tools/legacy_pin_scan\.py$", ["test_legacy_pin_scan"]),
-    (r"^tools/tasktracker_sync\.py$", ["test_tasktracker_sync"]),
-    # v3.66.754a: this mapped to test_tasktracker_gen ALONE, so an edit to the tool did not
-    # band its own audit gate (721) or the decided_against pins (754a). A band map is a
-    # denominator: if it does not contain the tests that guard the file, the cut is green
-    # because nothing looked, not because nothing broke.
-    (r"^tools/tasktracker_gen\.py$",
-     ["test_tasktracker_gen", "test_v3_66_721_tasktracker_audit",
-      "test_v3_66_754_tracker_decided_against", "test_tasktracker_status"]),
+    # v3.66.841: the tasktracker_gen/_sync band entries are gone with the tool.
+    # The lesson they carried is kept because it outlives them: a band map is a
+    # DENOMINATOR, and one that omits a test guarding the file makes the cut
+    # green because nothing looked, not because nothing broke.
     (r"^bulk_downloader/global_config\.py$",
      ["test_v3_66_285_config_validation", "test_u28_config_cache",
       "test_u29_config_snapshot"]),

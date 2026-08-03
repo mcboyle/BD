@@ -4,9 +4,8 @@
 Hand-regenerating the pack under time pressure drops things (we once shipped a
 pack with two old-pinned docs). bd-pack makes that impossible: it cross-checks
 the pack against STATE.json and refuses to zip if the required set is incomplete,
-a volatile doc still flies a stale `LIVE = <older>` banner, more than one (or an
-older) KB_HANDOFF is present, or the generated TASK_TRACKER has drifted from its
-data source.
+a volatile doc still flies a stale `LIVE = <older>` banner, or more than one (or
+an older) KB_HANDOFF is present.
 
 It does NOT write your prose -- you still author the narrative. It guarantees the
 STATE-derived facts are consistent and the required set is complete, then zips.
@@ -23,8 +22,6 @@ Conventions (v3.66.286, BP-PR/C11):
   * The pack zip is named for the BUILT version handed off (not built+1):
     BulkDL_next_session_v3_66_<built>.zip.
   * "Newest handoff only": exactly one KB_HANDOFF_*.md, pinned to <built>.
-  * If TASK_TRACKER_DATA.json + TASK_TRACKER.md are present, the md preamble
-    totals must equal the counts in the data source (generated-tracker drift).
 """
 import argparse
 import glob
@@ -112,61 +109,17 @@ if "--selftest" in sys.argv:
 G, R, Y, RST = "\033[32m", "\033[31m", "\033[33m", "\033[0m"
 VOLATILE = ["Backlog.md", "Roadmap.md"]
 
-# v3.66.748 -- THE LEDGER MUST SHIP, AND ITS ABSENCE MUST BE LOUD.
-#
-# TASK_TRACKER.md/.xlsx/_DATA.json shipped in every pack from 539 to 692, VANISHED at 700,
-# and stayed gone for 48 VERSIONS -- because nothing asserted their presence. Worse:
-# _tracker_drift() below "skips if files absent", so the check that existed to police the
-# tracker reported CLEAN over its disappearance. Silence read as pass.
-#
-# Meanwhile STATE kept accumulating TASK_TRACKER_ROWS_TO_ADD -- a queue feeding a document
-# that no longer existed. Nobody read it. One unread row flagged the automation MASTER
-# OFF-SWITCH as unwritable at HIGHEST PRIORITY.
-#
-# A ledger whose presence nothing checks WILL vanish and take its queue with it.
-TRACKER_FILES = ["TASK_TRACKER.md", "TASK_TRACKER.xlsx", "TASK_TRACKER_DATA.json"]
-
-
-def _tracker_drift(d):
-    """Self-contained generated-tracker lint: md preamble totals must match the
-    data source counts. Returns a fail message or None.
-
-    v3.66.748: this used to RETURN None when the files were absent -- so when the tracker
-    stopped shipping at 700, the check policing it reported CLEAN for 48 versions. An
-    absent subject is not a clean subject. Absence is now a FAILURE, not a skip."""
-    dp = os.path.join(d, "TASK_TRACKER_DATA.json")
-    mp = os.path.join(d, "TASK_TRACKER.md")
-    missing = [f for f in ("TASK_TRACKER_DATA.json", "TASK_TRACKER.md")
-               if not os.path.exists(os.path.join(d, f))]
-    if missing:
-        return ("TASK_TRACKER missing from the pack: %s -- the ledger vanished at v700 "
-                "exactly this way and nobody noticed for 48 versions. Regenerate with "
-                "`tasktracker_gen --render %s`, or formally kill the tracker and remove it "
-                "from TRACKER_FILES. Do NOT let it silently disappear again."
-                % (", ".join(missing), d))
-    try:
-        data = json.load(open(dp, encoding="utf-8"))
-        n_inc = len(data.get("incomplete", []))
-        n_comp = len(data.get("completed", []))
-        n_await = len(data.get("awaiting_operator", []))
-    except (ValueError, OSError) as e:
-        return f"TASK_TRACKER_DATA.json unreadable: {e}"
-    txt = open(mp, encoding="utf-8", errors="replace").read()
-    m = re.search(r"Totals:\*\*\s*(\d+)\s*incomplete\s*[·•]\s*(\d+)\s*completed"
-                  r"(?:\s*[·•]\s*(\d+)\s*awaiting)?", txt)
-    if not m:
-        return ("TASK_TRACKER.md has no parseable '**Totals:** N incomplete · M "
-                "completed' line (regenerate via tasktracker_gen --render)")
-    md_inc, md_comp = int(m.group(1)), int(m.group(2))
-    if (md_inc, md_comp) != (n_inc, n_comp):
-        return (f"TASK_TRACKER.md totals {md_inc}/{md_comp} != data source "
-                f"{n_inc}/{n_comp} -- run `tasktracker_gen --render {d}`")
-    md_await = int(m.group(3)) if (m.lastindex or 0) >= 3 and m.group(3) else None
-    if md_await is not None and md_await != n_await:
-        return (f"TASK_TRACKER.md awaiting-operator {md_await} != data source "
-                f"{n_await} -- run `tasktracker_gen --render {d}`")
-    return None
-
+# v3.66.841 -- the TASK_TRACKER ledger is RETIRED. It shipped in every pack
+# from 539 to 692, vanished at 700, and stayed gone for 48 versions because
+# nothing asserted its presence -- and _tracker_drift() skipped when the files
+# were absent, so the check policing the tracker reported CLEAN over its own
+# subject's disappearance. That guidance ("regenerate, or formally kill the
+# tracker and remove it from TRACKER_FILES -- do NOT let it silently
+# disappear again") is now satisfied by the second branch: the ledger was
+# folded into project-knowledge/SESSION_CARRY.md 15.15 and removed here
+# deliberately. tests/test_task_tracker_stays_retired.py is the gate that
+# keeps the removal honest, so absence is still policed -- by a test that
+# asserts it, rather than by a lint that skipped over it.
 
 
 def _kb_link_health(d):
@@ -238,11 +191,6 @@ def main(argv=None):
         hm = re.search(rf"KB_HANDOFF_v{mtag}_(\d+)\.md", h)
         if hm and int(hm.group(1)) != n_anchor:
             fails.append(f"stale handoff {h} (built is {built}); keep only {handoff}")
-
-    # generated-tracker drift
-    td = _tracker_drift(a.dir)
-    if td:
-        fails.append(td)
 
     # stale 'LIVE = <older>' banner in the REQUIRED volatile docs is a hard fail;
     # the older-version mention scan is limited to the handoff (history docs
