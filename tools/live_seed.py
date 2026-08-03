@@ -1094,19 +1094,38 @@ def _twin_scan(client, doomed_ids):
     query can find a twin. Rows are `SELECT l.*` so history_id is present
     (library.py:299).
 
-    THE SECTION-0 TRAP, handled explicitly. library.library_browse wraps its
+    THE SECTION-0 TRAP, observed PER PAGE. library.library_browse wraps its
     whole query in `except Exception: return [], None` (library.py:363-364),
     so over this API an unreadable or missing library table produces the
-    IDENTICAL body to a library holding no twins. A scan that saw zero rows
-    therefore reports itself INCONCLUSIVE rather than claiming "no twins".
-    The three states are DISTINCT in the returned report:
-      * rows_scanned > 0 and scan_complete: conclusive -- it can say how
-        many matched, including none;
-      * rows_scanned == 0: it scanned NOTHING it can prove, and says so;
+    IDENTICAL body to a library holding no twins.
+
+    THE OBSERVATION HAS TO BE PER PAGE, and the first version of this
+    function made it per SCAN: `rows_scanned == 0` was evaluated over the
+    scan TOTAL, which page one already made non-zero, so a blind body
+    arriving as a CONTINUATION page was structurally invisible to it. The
+    scan ended scan_complete, called itself conclusive, and reported on rows
+    it had never been shown -- the exact failure this docstring claimed to
+    handle, one page in.
+
+    So every page that comes back with ZERO rows is recorded in
+    `blind_pages` (the after_id it was requested with, or None for the first
+    page), warned about by name, and makes the whole scan inconclusive. The
+    states are DISTINCT in the returned report:
+      * scan_complete and no blind page: conclusive -- it can say how many
+        matched, including none;
+      * any blind page: it cannot prove what that page held, and says WHICH
+        page went blind;
       * truncated or aborted: partial, and says so.
+
+    A library that ends exactly on a page boundary produces a blind-looking
+    last page too, and over this API it is genuinely indistinguishable, so
+    it lands in the same UNKNOWN bucket. That is not over-sensitivity: the
+    ordinary end of a library is a page CARRYING ROWS with next_cursor null,
+    and that stays conclusive.
     """
     report = {"pages": 0, "rows_scanned": 0, "scan_complete": False,
-              "conclusive": False, "matched_ids": [], "warnings": []}
+              "conclusive": False, "matched_ids": [], "warnings": [],
+              "blind_pages": []}
     cursor = None
     while report["pages"] < _TWIN_MAX_PAGES:
         path = f"/api/library/browse?limit={_TWIN_PAGE}"
@@ -1122,6 +1141,27 @@ def _twin_scan(client, doomed_ids):
             return report
         report["pages"] += 1
         report["rows_scanned"] += len(body["rows"])
+        if not body["rows"]:
+            # `cursor` is still the after_id THIS page was requested with
+            # (None for the first page); it is reassigned below. It is the
+            # one fact that says WHERE the scan went blind, so it is both
+            # recorded and named in the warning.
+            report["blind_pages"].append(cursor)
+            if cursor is None:
+                where = "the FIRST page returned zero rows"
+            else:
+                where = (f"the continuation page at after_id={cursor} "
+                         f"returned zero rows, and the page before it handed "
+                         f"back that cursor -- next_cursor is non-None only "
+                         f"on a FULL page (library.py:360-361)")
+            report["warnings"].append(
+                f"twin scan: {where}, with {len(doomed_ids)} history id(s) "
+                f"doomed. library.library_browse swallows every exception "
+                f"into ([], None) (library.py:363-364), so an unreadable or "
+                f"missing library table is indistinguishable over this API "
+                f"from a page that is honestly empty. What this page held is "
+                f"UNVERIFIED, not measured -- and an earlier page succeeding "
+                f"does not make it measured")
         for row in body["rows"]:
             if not isinstance(row, dict) or row.get("history_id") is None:
                 continue
@@ -1140,18 +1180,23 @@ def _twin_scan(client, doomed_ids):
         report["warnings"].append(
             f"twin scan truncated at {_TWIN_MAX_PAGES} pages with the cursor "
             f"still set; library rows beyond that were never examined")
-    if report["rows_scanned"] == 0:
-        report["conclusive"] = False
-        report["warnings"].append(
-            f"library browse returned zero rows for {len(doomed_ids)} doomed "
-            f"history id(s); library.library_browse swallows every exception "
-            f"into ([], None) (library.py:363-364), so over this API an "
-            f"unreadable or missing library table is indistinguishable from "
-            f"a library with no twins -- 'no twins' is UNVERIFIED, not "
-            f"measured")
-    else:
-        report["conclusive"] = bool(report["scan_complete"])
+    # Conclusive requires BOTH halves: the scan read to the end AND every
+    # page it read actually showed it rows. Either half missing is UNKNOWN,
+    # which is a third state and it fails (CLAUDE.md 0). The per-page test
+    # subsumes the old rows_scanned == 0 guard -- a scan that saw nothing at
+    # all has a blind first page -- without inheriting its blind spot.
+    report["conclusive"] = bool(report["scan_complete"]
+                                and not report["blind_pages"])
     return report
+
+
+# Where clear_seeded_history's `remaining` came from. The number is ALWAYS a
+# read and never arithmetic -- but WHICH read is the entire claim, and only a
+# read taken after this pass's deletes can honestly be called "measured after
+# the clear". _report_residue prints the provenance it finds rather than
+# asserting one.
+_REMAINING_POST_DELETE = "post-delete re-read"
+_REMAINING_ROUND_OPEN = "the read that opened the round the clear stopped in"
 
 
 def clear_seeded_history(client, *, dry_run: bool = False,
@@ -1179,37 +1224,68 @@ def clear_seeded_history(client, *, dry_run: bool = False,
     NEVER deleted: under-deleting is the safe direction, and an unowned row
     simply keeps the remainder non-zero, which ok=False then reports.
 
-    NO ARITHMETIC. The remainder is RE-MEASURED by re-reading /api/history,
-    never computed as found-minus-deleted: db_log runs on every job-level
+    NO ARITHMETIC. The remainder is always a READ of /api/history, never
+    computed as found-minus-deleted: db_log runs on every job-level
     transition (db.py:962-965), so a job settling during teardown appends a
     row after the first read, and /api/batch/delete answers a rejected
     filter and a genuine no-op with the SAME body (candidates_matched 0,
     processed 0, ok true -- measured), because _matching_rows swallows the
     TypeError from an unexpected filter key and returns [].
 
-    THE CANARY. Before deleting anything, one chunk is re-sent with
-    dry_run=True. Those ids were just read as present, so candidates_matched
-    MUST equal len(chunk); a 0 means the filter shape is not the one
-    _build_query accepts and the pass aborts having deleted NOTHING --
-    neither twins nor history. The canary runs BEFORE the twin deletes
-    deliberately: if the batch filter is broken, deleting twins first would
-    strand history rows whose twins are already gone.
+    WHICH READ, SAID OUT LOUD. "Re-measured" was only ever true of the
+    post-delete re-read. Two paths -- the canary abort and the no-owned-ids
+    break -- return the round's OPENING read, taken before the decision to
+    stop, and the report used to present that number under the same words.
+    Both now record `remaining_source`, and _report_residue prints whichever
+    provenance it finds: a number is not measured after an event merely
+    because it is printed after it.
+
+    `found` VS `seen`, AND WHY THE REPORT DIVIDES BY `seen`. `found` is
+    round ONE's read count and nothing else, and that read asks for
+    limit=_HISTORY_PAGE -- so on a large residue it is a PAGE, not a total.
+    `deleted` accumulates across every round. Dividing one by the other
+    printed "600 of 500 removed": two numbers measured over different
+    denominators, presented as a ratio. `seen` is the union of DISTINCT
+    marked ids across every round, which is the population `deleted` is
+    drawn from, so it is the commensurable denominator. (A row whose id is
+    not an integer is in neither number: _row_ids skips it, and nothing can
+    delete it.)
+
+    THE CANARY, AND THE TWO SHORTFALLS IT MUST NOT CONFLATE. Before
+    deleting anything, one chunk is re-sent with dry_run=True; those ids
+    were just read as present. A 0 -- or no count at all -- aborts the pass
+    having deleted NOTHING, neither twins nor history, because
+    _matching_rows swallows the TypeError from an unexpected filter key and
+    returns [] (batch_ops.py:104-110 region), so a rejected filter and a
+    genuine no-op answer identically and this tool cannot tell them apart.
+    A PARTIAL match is a different fact: that is what a concurrent writer
+    looks like, it is not evidence about the filter's shape, and it is
+    handled as a soft WARNING -- the same way the batch delete's "matched
+    nothing (already gone?)" and the twin delete's "another writer got it
+    first" already handle the identical race. Failing the whole clear on it
+    was the over-sensitivity CLAUDE.md 0 counts as a soundness bug. The
+    canary runs BEFORE the twin deletes deliberately: if the batch filter is
+    broken, deleting twins first would strand history rows whose twins are
+    already gone.
     """
     out = {"action": "clear_seeded_history", "marker": SEED_MARKER,
            "dry_run": bool(dry_run), "readable": False,
-           "found": None, "unowned": 0, "targeted": 0, "deleted": 0,
-           "rounds": 0, "remaining": None, "remaining_readable": False,
+           "found": None, "seen": 0, "unowned": 0, "targeted": 0,
+           "deleted": 0, "rounds": 0, "remaining": None,
+           "remaining_readable": False, "remaining_source": None,
            "stalled": False, "canary": None,
            "errors": [], "warnings": [], "ok": False,
            "twins": {"pages": 0, "rows_scanned": 0, "scan_complete": False,
-                     "matched": 0, "deleted": 0, "already_gone": 0,
-                     "errors": [], "conclusive": False, "remaining": None},
+                     "blind_pages": [], "matched": 0, "deleted": 0,
+                     "already_gone": 0, "errors": [], "conclusive": False,
+                     "remaining": None},
            "note": CLEAR_LEFTOVER_NOTE}
     twins = out["twins"]
     chunk = max(1, min(int(chunk), 1000))
     prev_remaining = None
     exhausted = True
     targeted_ids = set()
+    seen_ids = set()
     for round_no in range(1, max(1, int(max_rounds)) + 1):
         rows, readable = _seeded_history_rows(client)
         if not readable:
@@ -1223,6 +1299,11 @@ def clear_seeded_history(client, *, dry_run: bool = False,
         out["rounds"] = round_no
         if out["found"] is None:
             out["found"] = len(rows)
+        # `seen` accumulates; `found` does not. See the docstring: they are
+        # different questions and only one of them is commensurable with
+        # `deleted`.
+        seen_ids.update(_row_ids(rows))
+        out["seen"] = len(seen_ids)
         owned = [r for r in rows
                  if SEED_MARKER in str(r.get("site_name", ""))]
         out["unowned"] = len(rows) - len(owned)
@@ -1230,6 +1311,7 @@ def clear_seeded_history(client, *, dry_run: bool = False,
         if not ids:
             out["remaining"] = len(rows)
             out["remaining_readable"] = True
+            out["remaining_source"] = _REMAINING_ROUND_OPEN
             exhausted = False
             break
         if out["canary"] is None:
@@ -1241,16 +1323,43 @@ def clear_seeded_history(client, *, dry_run: bool = False,
             matched = resp.get("candidates_matched") \
                 if isinstance(resp, dict) else None
             out["canary"] = {"sent": len(probe), "matched": matched}
-            if matched != len(probe):
+            counted = isinstance(matched, int) and not isinstance(matched, bool)
+            if not counted or matched == 0:
+                # HARD. Zero of N ids that were JUST read as present is the
+                # one shortfall that is evidence about the filter's SHAPE,
+                # and a missing count is UNKNOWN, which fails the same way.
+                # Neither says WHICH cause it is, so the message reports the
+                # observation and names both rather than asserting one.
+                observed = ("answered no candidates_matched count at all"
+                            if not counted else
+                            f"matched 0 of {len(probe)} ids that were just "
+                            f"read as present")
                 out["errors"].append(
-                    f"filter canary: /api/batch/delete matched {matched} of "
-                    f"{len(probe)} ids that were just read as present. The "
+                    f"filter canary: /api/batch/delete {observed}. Nothing "
+                    f"was deleted -- neither twins nor history. Either the "
                     f"filter shape is not the one batch_ops._build_query "
-                    f"accepts; nothing was deleted -- neither twins nor "
-                    f"history. Response: {str(resp)[:200]}")
+                    f"accepts, or every probed id vanished at once; this "
+                    f"tool cannot tell those apart, so it stops. Response: "
+                    f"{str(resp)[:200]}")
                 out["remaining"] = len(rows)
                 out["remaining_readable"] = True
+                out["remaining_source"] = _REMAINING_ROUND_OPEN
                 return out
+            if matched != len(probe):
+                # SOFT, exactly like the two sibling races further down. A
+                # PARTIAL match is what a concurrent removal looks like, not
+                # evidence about the filter's shape, and aborting the whole
+                # clear -- twins included -- on it is the over-sensitivity
+                # CLAUDE.md 0 counts as a soundness bug. The RE-MEASURED
+                # remainder settles what actually happened.
+                out["warnings"].append(
+                    f"filter canary: /api/batch/delete matched {matched} of "
+                    f"{len(probe)} ids that were just read as present, so "
+                    f"{len(probe) - matched} of them went away between this "
+                    f"round's read and the probe. That is what a concurrent "
+                    f"writer looks like; the clear continues and the "
+                    f"re-measured remainder settles it. Response: "
+                    f"{str(resp)[:200]}")
         # TWIN SCAN AND DELETE -- BEFORE the history deletes (register 15.23
         # decision 1). The scan counters record THIS round's scan; matched,
         # deleted, already_gone and errors accumulate across rounds; the
@@ -1267,6 +1376,7 @@ def clear_seeded_history(client, *, dry_run: bool = False,
             out["targeted"] = len(ids)
             out["remaining"] = len(rows)
             out["remaining_readable"] = True
+            out["remaining_source"] = _REMAINING_ROUND_OPEN
             out["ok"] = True
             return out
         for lid in scan["matched_ids"]:
@@ -1325,6 +1435,8 @@ def clear_seeded_history(client, *, dry_run: bool = False,
         rows_after, readable_after = _seeded_history_rows(client)
         out["remaining"] = len(rows_after) if readable_after else None
         out["remaining_readable"] = bool(readable_after)
+        out["remaining_source"] = (_REMAINING_POST_DELETE if readable_after
+                                   else None)
         if not readable_after:
             out["errors"].append(
                 "could not re-read /api/history after the clear, so the "
@@ -1621,6 +1733,32 @@ def _report_residue(plan) -> None:
                   f"(library.py:363-364), so an unreadable or missing "
                   f"library table is indistinguishable over HTTP from a "
                   f"library with no twins.", file=sys.stderr)
+    # PROVENANCE, not a slogan. Only the post-delete re-read earns the words
+    # "measured after the clear"; the canary abort and the no-owned-ids break
+    # return the round's opening read, and a report dict carrying no source
+    # at all is UNKNOWN and says so rather than defaulting to the flattering
+    # branch.
+    source = clear.get("remaining_source")
+    if source == _REMAINING_POST_DELETE:
+        residue_prov = "measured after the clear"
+        cleared_prov = "re-measured not inferred"
+    elif source:
+        # Worded so the affirmative phrase does not appear at all: a reader
+        # (and a grep) must not be able to lift "measured after the clear"
+        # out of a line that is denying it.
+        residue_prov = (f"this number is {source}; no history read followed "
+                        f"the clear's stop")
+        cleared_prov = (f"this number is {source}, not a post-clear re-read")
+    else:
+        residue_prov = "the provenance of this number is UNRECORDED"
+        cleared_prov = "the provenance of this number is UNRECORDED"
+    # `seen` is the denominator commensurable with `deleted` (see
+    # clear_seeded_history). `found` is round one's single capped read and is
+    # printed beside it, never as the divisor.
+    seen = clear.get("seen")
+    if seen is None:
+        seen = found
+    rounds = clear.get("rounds", 0)
     if rows is None:
         print(f"live_seed: RESIDUE UNKNOWN - could not read /api/history, so "
               f"whether this host still holds {SEED_MARKER} history rows is "
@@ -1628,24 +1766,30 @@ def _report_residue(plan) -> None:
     elif rows:
         extra = ""
         if cleared:
-            extra = (f" (found {found}, deleted {clear.get('deleted', 0)}, "
-                     f"measured after the clear)")
+            extra = (f" (round one's read saw {found}; {seen} distinct "
+                     f"marked id(s) seen across {rounds} round(s); "
+                     f"{clear.get('deleted', 0)} removed; {residue_prov})")
         print(f"live_seed: RESIDUE - {rows} {SEED_MARKER} history row(s) "
               f"remain after teardown{extra}. {RESIDUE_NOTE}",
               file=sys.stderr)
     elif cleared:
-        print(f"live_seed: CLEARED - {clear.get('deleted', 0)} of {found} "
-              f"{SEED_MARKER} history row(s) removed; "
-              f"{twins.get('deleted', 0)} library twin(s) removed; 0 "
-              f"remain, re-measured not inferred. {CLEAR_LEFTOVER_NOTE}",
+        print(f"live_seed: CLEARED - {clear.get('deleted', 0)} of {seen} "
+              f"{SEED_MARKER} history row(s) removed across {rounds} "
+              f"round(s); round one's single read saw {found} and is capped "
+              f"at limit={_HISTORY_PAGE}, so it is NOT the denominator of a "
+              f"multi-round clear; {twins.get('deleted', 0)} library twin(s) "
+              f"removed; 0 remain, {cleared_prov}. {CLEAR_LEFTOVER_NOTE}",
               file=sys.stderr)
 
 
 # Exit codes. 2 = REFUSED and 3 = TIMEOUT are already taken by main().
 #
 # THE CONTRACT (asserted by tests/test_live_seed_starts_and_settles.py):
-#   0  no clear requested; or clear requested and the remainder RE-MEASURED
-#      at zero with no errors (twin errors included) -- also the dry-run
+#   0  no clear requested; or clear requested and the remainder MEASURED
+#      at zero with no errors (twin errors included) -- the report's
+#      remaining_source says WHICH read produced it, because a clear that
+#      found nothing to delete never took a post-delete one -- also the
+#      dry-run
 #      success path. NOTE a blind/inconclusive twin scan still exits 0: an
 #      absent library table (migration 4 never ran) is a legitimate state
 #      this API cannot distinguish from an empty one, and failing every

@@ -32,6 +32,33 @@ archive is not present in this repository; consult source-control history.
   SKIPPED stderr lines, the unquoted $_clear_flag expansion, and the final
   twin verification reporting remaining=0 on a conclusive multi-page scan
   (13/13 targeted mutants caught, up from 2/13).
+- Second adversarial pass, against the SHIPPED code rather than the spec:
+  four defects, each with a RED test in
+  tests/test_live_seed_starts_and_settles.py before the fix.
+  (F1) _twin_scan's blind-library guard tested rows_scanned == 0 over the
+  SCAN TOTAL, so a blind page arriving as a CONTINUATION page was
+  structurally invisible to it: page one made the total non-zero, the scan
+  ended scan_complete, called itself conclusive, wrote twins.remaining = 0
+  and emitted no warning, with a real twin left dangling. The observation is
+  now PER PAGE -- report["blind_pages"] records the after_id of every page
+  that came back empty and the warning names it -- and an honest last page
+  carrying rows with no cursor stays conclusive.
+  (F2) the filter canary aborted the entire clear, twins included, on ANY
+  shortfall, and its error asserted "the filter shape is not the one
+  batch_ops._build_query accepts" over evidence that was a partial match.
+  matched == 0, or no count at all, still aborts having deleted nothing; a
+  PARTIAL match is now the same soft warning the batch delete
+  ("already gone?") and the twin delete ("another writer got it first")
+  already use for the identical race.
+  (F3) the canary-abort and no-owned-ids paths returned the round's OPENING
+  read while _report_residue printed "measured after the clear" beside it.
+  The report now carries remaining_source and the stderr lines print the
+  provenance they find; only the post-delete re-read earns the words.
+  (F4) the CLEARED line divided deleted (accumulated across rounds) by found
+  (one read capped at _HISTORY_PAGE), printing "600 of 500 removed" on a
+  two-round clear. The report gains seen -- the union of distinct marked ids
+  across every round, the population deleted is drawn from -- and the line
+  divides by that, with found printed beside it and labelled as a page.
 
 ## v3.66.846 - qB/JD completions record the largest media file
 
