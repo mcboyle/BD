@@ -11,9 +11,10 @@ Four sub-graphs:
   blueprint  — each Flask blueprint's module, owned routes, provider modules
   config     — each config store's reader + writer modules
 
-Three idioms that defeat naive AST extraction are handled explicitly
-(this is the whole reason the tool exists — the prior reference graph in
-dependency_inventory.py undercounts internal edges ~2.6x by missing #2):
+Four idioms that defeat naive AST extraction are handled explicitly in
+`_internal_imports` (this is the whole reason the tool exists — the prior
+reference graph in dependency_inventory.py undercounts internal edges ~2.6x
+by missing #2):
   P1  ternary-guarded defs/decorators:
         x = Blueprint(...) if Flask else None
         @bp.route(...) if bp else (lambda f: f)
@@ -24,6 +25,14 @@ dependency_inventory.py undercounts internal edges ~2.6x by missing #2):
   P3  verb_noun mutation methods + import alias:
         from . import vpn_config as VC ; VC.update_tunnel_config(...)
       -> resolve aliases, AST-match Call <alias>.<verb|verb_*>(...).
+  P4  absolute package-form import:
+        from bulk_downloader import db, runner
+      -> ImportFrom.module is the PACKAGE, so the ALIASES are the targets.
+         The naive `cand` path resolves "bulk_downloader", which is not a
+         node, and dropped 246 edges silently until v3.66.843. Aliases
+         resolve inside the named package only — never through `_node()`,
+         whose bulk_downloader-first precedence would mis-target the four
+         stems that exist in both packages.
 
 Fail-closed contract (CLAUDE.md 0). A file the parser cannot read contributes
 *no edges*, so a graph built over it is a graph of a tree that is not the tree.
@@ -133,6 +142,37 @@ def _internal_imports(tree, bd_mods, tool_stems):
         if isinstance(n, ast.ImportFrom):
             if n.module:                                   # from X import ... / from .X import ...
                 b = n.module.split(".")
+                if n.level == 0 and len(b) == 1 and b[0] in ("bulk_downloader", "tools"):
+                    # P4: `from bulk_downloader import db, runner`. n.module is
+                    # the PACKAGE, so the edge targets are the ALIASES. `cand`
+                    # below resolves "bulk_downloader", which is not a node --
+                    # _node() returned None and 246 edges vanished in silence,
+                    # while the P2 arm four lines down read n.names correctly.
+                    #
+                    # Resolve inside the NAMED package, never via _node(): it
+                    # tests `stem in bd_mods` first, and four stems live in both
+                    # packages (llm_readiness, multi_site_benchmark,
+                    # temporal_benchmark, validation_corpus), so `from tools
+                    # import validation_corpus` would target bulk_downloader/.
+                    # No live site trips that today, which is exactly why the
+                    # fixture in test_import_graph_sees_package_form.py builds
+                    # the collision on purpose -- it is the only thing that can
+                    # tell this apart from the _node() simplification.
+                    #
+                    # An alias that is not a submodule is a name the package
+                    # __init__ defines or re-exports, so that is the edge. For
+                    # a subpackage (dev_suite, deep_detect, vpn_providers) it
+                    # is coarse-but-true: the precise node does not exist until
+                    # the target set is widened. tools/ has no __init__.py, so
+                    # the fallback is correctly bulk_downloader-only.
+                    stems = bd_mods if b[0] == "bulk_downloader" else tool_stems
+                    for a in n.names:
+                        head = a.name.split(".")[0]
+                        if head in stems:
+                            out.add(f"{b[0]}/{head}.py")
+                        elif "__init__" in stems:
+                            out.add(f"{b[0]}/__init__.py")
+                    continue
                 cand = (b[1] if b[0] in ("bulk_downloader", "tools")
                         and len(b) > 1 else b[0])
                 if (x := _node(cand, bd_mods, tool_stems)):

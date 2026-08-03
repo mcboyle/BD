@@ -4,6 +4,43 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.843 - the import graph could not see `from bulk_downloader import X`
+
+- tools/dependency_graph.py:_internal_imports handled three import idioms and
+  its docstring said so. It missed a fourth: for the absolute package form
+  `from bulk_downloader import db`, ImportFrom.module is the PACKAGE, so the
+  naive `cand` computation resolved the string "bulk_downloader" -- not a node
+  -- _node() returned None, and the edge was dropped. The P2 arm four lines
+  below reads n.names correctly for the RELATIVE form; the absolute form never
+  reached it.
+- 246 real edges were invisible. The gate built on this predicate
+  (tools/decomp/import_graph_gate.py, which has no predicate of its own and
+  funnels every mode through this builder) therefore reported PASS over a graph
+  missing them: a denominator that structurally excludes part of its subject,
+  reporting clean.
+- MEASURED, not estimated: 1371 -> 1617 edges, 246 new, 0 removed. The commit
+  body enumerates all 246 individually, which is the condition the re-freeze
+  was authorized under.
+- The inherited figure was "~240". That is reproducible, and it is the policy-B
+  measurement: dropping the 6 edges whose alias is not a submodule but a name
+  the package __init__ re-exports. Those 6 are listed separately in the commit
+  body. Recording it because a figure that is merely SMALLER looks like a
+  rounding error rather than a different question.
+- Aliases resolve inside the NAMED package, never through _node(). _node()
+  tests `stem in bd_mods` first, and four stems exist in both packages
+  (llm_readiness, multi_site_benchmark, temporal_benchmark, validation_corpus),
+  so a _node-routed implementation would resolve `from tools import
+  validation_corpus` into bulk_downloader/. No live site trips that today, and
+  that is the danger: the mutant produces a byte-identical 246-edge result on
+  this tree. tests/test_import_graph_sees_package_form.py builds the collision
+  deliberately and is the only thing that can see the difference; it was added
+  after an adversarial pass measured the original fixture passing the mutant
+  5/5.
+- Out of scope, deliberately: widening the walk to tests/ (10-A/10-B);
+  ARCHITECTURE_INVENTORY.md, which is tracked, already stale at 1273 edges
+  against a 1371 tree, sits in no regen chain and no CI check, and which this
+  cut widens to 1617. It needs its own item.
+
 ## v3.66.842 - CODEX_HANDOFF retired; one agent-facing contract remains
 
 - CODEX_HANDOFF.md was a second CONTRACT, not a second register -- a
