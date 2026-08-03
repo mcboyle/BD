@@ -5,8 +5,10 @@ Three new selftest checks, all pure/self-contained, wired into run_all():
   * check_orphan_tempfiles(dirs)  -- ROB-3-rem: WARN on stale temp artifacts
     (.part / .tmp* / .selftest_* left by a crashed operation) older than a
     threshold, so a leaked-tempfile buildup is visible on the health page.
-  * check_stale_locks(dirs)       -- ROB-3-rem: WARN on old *.lock files (a lock
-    a crashed process never released).
+  * check_stale_locks(dirs)       -- DELETED at v3.66.844. No producer writes a
+    *.lock; the check's rglob over the PROJECT_ROOT fallback only ever found
+    vendored npm yarn.lock manifests. See SESSION_CARRY 15.9 and
+    tests/test_stale_locks_check_is_gone.py.
   * check_egress_fail_closed()    -- POS-3: VERIFY the fail-closed egress
     invariant -- a vpn_required site whose tunnel is down must make
     download_egress.effective_download_proxy() RAISE (never return an unproxied
@@ -59,24 +61,6 @@ def test_check_orphan_tempfiles_missing_dir_is_ok():
     assert rec["status"] == st.OK, "a missing dir must not FAIL the health page"
 
 
-# ---- ROB-3-rem: stale locks ----------------------------------------------
-
-def test_check_stale_locks_warns_on_old_lock():
-    d = tempfile.mkdtemp(prefix="stalelock_")
-    lk = Path(d) / "runner.lock"
-    lk.write_text("pid=1")
-    _age(lk, 24)                              # 24h old lock -> stale
-    rec = st.check_stale_locks(d, max_age_hours=6.0)
-    assert rec["status"] == st.WARN, f"an old .lock should WARN, got {rec}"
-    assert rec.get("detail", {}).get("count", 0) >= 1, rec
-
-
-def test_check_stale_locks_ok_when_none():
-    d = tempfile.mkdtemp(prefix="stalelock_ok_")
-    rec = st.check_stale_locks(d, max_age_hours=6.0)
-    assert rec["status"] == st.OK, f"no locks should be OK, got {rec}"
-
-
 # ---- POS-3: egress fail-closed -------------------------------------------
 
 def test_check_egress_fail_closed_ok_when_invariant_holds():
@@ -114,8 +98,12 @@ def test_run_all_includes_the_new_checks():
     assert "egress_fail_closed" in names, (
         f"run_all must include the egress_fail_closed check; saw {sorted(names)}"
     )
-    assert "orphan_tempfiles" in names or "stale_locks" in names, (
-        f"run_all must include the tempfile-hygiene checks; saw {sorted(names)}"
+    # Was `... or "stale_locks" in names`. check_stale_locks was deleted at
+    # v3.66.844, so that disjunct can never be true again -- an assertion whose
+    # denominator no longer contains half its subject would keep passing while
+    # covering less than it reads as covering.
+    assert "orphan_tempfiles" in names, (
+        f"run_all must include the tempfile-hygiene check; saw {sorted(names)}"
     )
 
 

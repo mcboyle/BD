@@ -77,8 +77,13 @@ def _scan_bd_temp_artifacts():
                               "age_seconds": age, "kind": kind,
                               "sweepable": age >= _TEMPDIR_MIN_AGE_S})
         elif not is_dir and name.endswith(".lock"):
-            # .lock files BD's storage_tier creates as O_EXCL
-            # placeholders; a lingering one means an aborted move.
+            # NOT a BD artifact. Measured v3.66.844: nothing in the tree
+            # writes a *.lock file. storage_tier's exclusive placeholder is
+            # dest_path ITSELF (storage_tier.py:209-211), never .lock-suffixed,
+            # and it is removed inside the same call. This branch is a generic
+            # system-temp lock reporter, so any hit belongs to some OTHER
+            # program -- and tempdir_clean below would DELETE it. That
+            # over-scope is filed in SESSION_CARRY 15.9 and NOT fixed here.
             lock_files.append({"name": name, "path": full,
                                "age_seconds": age})
     temp_dirs.sort(key=lambda d: d["age_seconds"], reverse=True)
