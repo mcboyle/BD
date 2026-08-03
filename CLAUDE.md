@@ -706,6 +706,26 @@ collection error, no named guard flips, and the row reads as an escape. Validate
 the mutant (`ast.parse`, or `bash -n` for shell) *before* judging it, and report
 "invalid" as its own outcome.
 
+**Use `bd-mutate`; do not rebuild the harness.** Every rule in the rest of this
+section is mechanical, and five agents in one session hand-rolled them and got
+four of them wrong — a non-unique anchor rewriting the wrong site, a
+non-parsing mutant scored as an escape, stale bytecode reading a mutant off a
+restored file, and a baseline that was never green. Each produced a confident
+wrong number, which is worse than no battery.
+
+```bash
+venv/bin/python toolchain/bin/bd-mutate --spec mutants.json \
+    --band "tests/test_a.py tests/test_b.py"
+venv/bin/python toolchain/bin/bd-mutate --selftest
+```
+
+`mutants.json` is a list of `{label, file, old, new, catcher?}`. It enforces the
+unique anchor and the length arithmetic, validates each mutant before judging
+it, purges `__pycache__` and sets `PYTHONDONTWRITEBYTECODE`, proves the baseline
+GREEN first, and restores by sha256. Exit 0 = every mutant caught, 1 = something
+escaped, **2 = the battery has no verdict** (empty spec, red baseline, failed
+restore) — and 2 is not a softer 1. Choosing good mutants is still yours.
+
 **Stale bytecode defeats a same-length mutate-and-restore.** Python invalidates
 a `.pyc` on `(mtime, size)`. A substitution of equal length (`lid` -> `hid`),
 restored inside the same wall-clock second, changes neither — so the next run
@@ -1020,6 +1040,8 @@ asks you to answer:
 | do the guard SHAs still hold? | `bd-guardcheck` (section 2) |
 | are the generated artifacts in sync? | `bd-regen-order` (section 2) |
 | is `.claude-env-report.md` current? | `bd-env-report-check` (section 7) |
+| do my tests actually constrain the code? | `bd-mutate` (section 6) |
+| is this band list about to trip a footgun? | `bd-bandcheck` |
 
 Do not treat that as the list — it is the four this document already depends
 on. `ls toolchain/bin/ | grep <topic>` before writing a script, every time.

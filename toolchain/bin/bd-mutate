@@ -1,0 +1,332 @@
+#!/usr/bin/env python3
+"""bd-mutate -- run a mutation battery without rebuilding the harness (and its
+bugs) from scratch every session.
+
+WHY THIS EXISTS. Mutation testing is the only thing in this project that has
+repeatedly found defects a green band could not: at v3.66.847 a battery scored
+2/13 caught on a cut whose own 39-test suite was green, and the worst survivor
+turned a real failure (exit 4, a dangling library twin) into a clean success
+(exit 0, "0 remain, re-measured not inferred") while passing all 238 tests. It
+is worth doing. What is NOT worth doing is what happened around it: five
+separate agents hand-rolled the harness, and the harness -- not the subject --
+was wrong in four distinguishable ways, each of which silently produced a
+CONFIDENT WRONG NUMBER:
+
+  1. AN ANCHOR THAT MATCHED MORE THAN ONE SITE. `re.subn(..., count=1)` rewrites
+     whichever site it reaches first, so the verdict is evidence about a
+     different line than the one named in the report.
+  2. A MUTANT THAT DID NOT PARSE. Deleting a line can orphan an `except:`; the
+     runner then reports a collection error, no named guard flips, and the row
+     reads as an ESCAPE. Invalid is a third outcome and it is not "caught".
+  3. STALE BYTECODE. Python invalidates a .pyc on (mtime, size). A same-length
+     substitution (`lid` -> `hid`) restored inside one wall-clock second changes
+     neither, so the NEXT run imports the mutant while the file's sha256 matches
+     the original. Measured: a battery's postflight went red on a tree it had
+     just proven byte-identical, and the obvious reading was "the restore
+     corrupted something".
+  4. A BASELINE THAT WAS NEVER GREEN, or was green for the wrong reason -- two
+     agents ran in a git worktree checked out at the pre-cut base, found the
+     feature absent, REIMPLEMENTED it, and scored their own code. Their escape
+     lists were precise, well-evidenced measurements about code that was not
+     shipping.
+
+Every one of those is mechanical, and every one is handled here. What is NOT
+handled here is choosing good mutants; that is the part that needs judgment, so
+it stays with the caller.
+
+THE CONTRACT
+
+  bd-mutate --spec mutants.json --band "tests/a.py tests/b.py" [--work DIR]
+  bd-mutate --selftest
+
+  mutants.json is a LIST of objects:
+    label   required  what this mutant breaks, in words, for the report
+    file    required  repo-relative path to mutate
+    old     required  the exact text to replace. MUST occur exactly once.
+    new     required  what to replace it with
+    catcher optional  the test you EXPECT to catch it (reported, not enforced)
+
+  Exit 0 only when every mutant is CAUGHT. Exit 1 if any ESCAPED. Exit 2 if the
+  battery could not be run at all -- an empty spec, a red or unprovable
+  baseline, a file that will not restore. Two is not a softer one: it means the
+  battery has no verdict, which is the state that must never read as success.
+
+WHAT IT DELIBERATELY DOES NOT DO. It does not judge whether an escape matters,
+and it does not close one. An escape is closed by adding the missing TEST, never
+by deleting the behaviour -- and that test must be proven RED with the mutant
+applied AND green without it, because a test that passes in both states is not a
+test and in this phase that mistake is invisible.
+"""
+from __future__ import annotations
+
+import argparse
+import ast
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+CAUGHT, ESCAPED, INVALID, ERROR = "CAUGHT", "ESCAPED", "INVALID", "ERROR"
+
+
+def _sha(p: Path) -> str:
+    return hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+def _purge_pycache(root: Path) -> int:
+    """Remove every __pycache__ under root. See failure 3 in the docstring."""
+    n = 0
+    for d in list(root.rglob("__pycache__")):
+        shutil.rmtree(d, ignore_errors=True)
+        n += 1
+    return n
+
+
+def _child_env() -> dict:
+    env = dict(os.environ)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"   # belt; the purge is braces
+    return env
+
+
+def _validate(path: Path, text: str) -> tuple[bool, str]:
+    """Can this mutant even run? Invalid is its own outcome, never 'caught'."""
+    suffix = path.suffix
+    if suffix == ".py" or (not suffix and text.startswith("#!") and "python" in text.splitlines()[0]):
+        try:
+            ast.parse(text)
+        except SyntaxError as e:
+            return False, f"ast.parse: {e}"
+        return True, ""
+    if suffix == ".sh" or (not suffix and text.startswith("#!") and "sh" in text.splitlines()[0]):
+        with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as fh:
+            fh.write(text)
+            tmp = fh.name
+        try:
+            r = subprocess.run(["bash", "-n", tmp], capture_output=True, text=True)
+            if r.returncode != 0:
+                return False, f"bash -n: {r.stderr.strip()[:200]}"
+        finally:
+            os.unlink(tmp)
+        return True, ""
+    return True, ""            # unknown type: not our place to guess
+
+
+def _apply(src: str, old: str, new: str) -> str:
+    """The applied-check from CLAUDE.md section 6, in one place.
+
+    `new in after` is trivially true when `new` already occurs elsewhere;
+    `after.count(old) == 0` fails for an append-style edit where old is a
+    substring of new. Length arithmetic is exact for ONE replacement of a
+    UNIQUE anchor and cannot be fooled by substring overlap in either
+    direction. The uniqueness assert is what makes it exact.
+    """
+    n = src.count(old)
+    if n != 1:
+        raise ValueError(f"anchor occurs {n} times, must be exactly 1")
+    after = src.replace(old, new, 1)
+    if after == src:
+        raise ValueError("replacement changed nothing")
+    if len(after) != len(src) - len(old) + len(new):
+        raise ValueError("length arithmetic failed -- the edit is not what it claims")
+    return after
+
+
+def _run_band(band: list[str], work: Path) -> tuple[int, str]:
+    py = str(work / "venv" / "bin" / "python")
+    if not Path(py).is_file():
+        py = sys.executable      # a worktree has no venv/ -- say so, do not guess
+    cmd = [py, "-m", "pytest", "-q", "-p", "no:randomly", *band]
+    r = subprocess.run(cmd, cwd=str(work), capture_output=True, text=True,
+                       env=_child_env())
+    return r.returncode, (r.stdout + r.stderr)[-4000:]
+
+
+def run_battery(spec: list[dict], band: list[str], work: Path,
+                verbose: bool = True) -> tuple[int, list[dict]]:
+    out: list[dict] = []
+
+    # ---- DENOMINATOR. An empty battery must never read as "all caught". -----
+    if not spec:
+        print("BD-MUTATE-UNRUNNABLE: the spec lists zero mutants, so 'every "
+              "mutant was caught' would be true over nothing.", file=sys.stderr)
+        return 2, out
+    if not band:
+        print("BD-MUTATE-UNRUNNABLE: no band given; a mutant judged by no test "
+              "is not judged.", file=sys.stderr)
+        return 2, out
+
+    # ---- BASELINE. Red afterwards proves nothing if it was red before. ------
+    _purge_pycache(work)
+    rc, tail = _run_band(band, work)
+    if rc != 0:
+        print("BD-MUTATE-UNRUNNABLE: BASELINE IS RED. Every verdict below would "
+              "be evidence about the baseline, not about a mutant.\n" + tail[-1500:],
+              file=sys.stderr)
+        return 2, out
+    if verbose:
+        print(f"baseline GREEN over {len(band)} band target(s); {len(spec)} mutant(s)\n")
+
+    for i, m in enumerate(spec, 1):
+        label = m.get("label") or f"mutant {i}"
+        rel = m["file"]
+        path = work / rel
+        row = {"label": label, "file": rel, "catcher": m.get("catcher")}
+        if not path.is_file():
+            row["verdict"] = ERROR
+            row["why"] = "file does not exist"
+            out.append(row)
+            continue
+
+        original = path.read_text(encoding="utf-8")
+        before_sha = _sha(path)
+        try:
+            mutated = _apply(original, m["old"], m["new"])
+        except (ValueError, KeyError) as e:
+            row["verdict"] = ERROR
+            row["why"] = f"apply: {e}"
+            out.append(row)
+            continue
+
+        ok, why = _validate(path, mutated)
+        if not ok:
+            row["verdict"] = INVALID
+            row["why"] = why
+            out.append(row)
+            continue
+
+        try:
+            _purge_pycache(work)
+            path.write_text(mutated, encoding="utf-8")
+            rc, tail = _run_band(band, work)
+            row["verdict"] = CAUGHT if rc != 0 else ESCAPED
+            if rc == 0:
+                row["why"] = "band stayed green with the behaviour broken"
+            else:
+                first = [l for l in tail.splitlines() if l.startswith("FAILED")]
+                row["why"] = first[0][:160] if first else "band went red"
+        finally:
+            path.write_text(original, encoding="utf-8")
+            _purge_pycache(work)
+            after_sha = _sha(path)
+            if after_sha != before_sha:
+                row["verdict"] = ERROR
+                row["why"] = (f"RESTORE FAILED: {before_sha[:12]} -> {after_sha[:12]}. "
+                              f"The tree is NOT as it was found.")
+        out.append(row)
+        if verbose:
+            print(f"  [{row['verdict']:7}] {label}")
+
+    return (0 if all(r["verdict"] == CAUGHT for r in out) else 1), out
+
+
+def _report(rows: list[dict]) -> None:
+    from collections import Counter
+    c = Counter(r["verdict"] for r in rows)
+    print("\n%-8s %-46s %s" % ("VERDICT", "MUTANT", "NOTE"))
+    for r in rows:
+        print("%-8s %-46s %s" % (r["verdict"], r["label"][:46], (r.get("why") or "")[:70]))
+    print("\n%d caught, %d escaped, %d invalid, %d error"
+          % (c[CAUGHT], c[ESCAPED], c[INVALID], c[ERROR]))
+    if c[INVALID]:
+        print("INVALID is not CAUGHT: those mutants never ran, so they are "
+              "unmeasured, not survived.")
+    if c[ESCAPED]:
+        print("An escape names a behaviour the cut asserts but does not "
+              "constrain. Close it by ADDING the missing test -- and prove that "
+              "test RED with the mutant applied AND green without it. A test "
+              "that passes in both states is not a test.")
+
+
+def _selftest(work: Path) -> int:
+    """Prove the harness catches its own four historical failures."""
+    ok = True
+    with tempfile.TemporaryDirectory() as td:
+        t = Path(td)
+        (t / "tests").mkdir()
+        (t / "m.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+        (t / "tests" / "test_m.py").write_text(
+            "import sys; sys.path.insert(0, '.')\n"
+            "def test_f():\n"
+            "    import importlib, m; importlib.reload(m)\n"
+            "    assert m.f() == 1\n", encoding="utf-8")
+
+        # 1. a real mutant is CAUGHT, and the bytecode purge makes it reliable
+        rc, rows = run_battery([{"label": "return 1 -> 2", "file": "m.py",
+                                 "old": "return 1", "new": "return 2"}],
+                               ["tests/test_m.py"], t, verbose=False)
+        got = rows[0]["verdict"] if rows else "?"
+        ok &= (got == CAUGHT)
+        print(("PASS" if got == CAUGHT else "FAIL") + f"  a real mutant is CAUGHT (got {got})")
+
+        # 2. a non-parsing mutant is INVALID, never CAUGHT and never ESCAPED
+        rc, rows = run_battery([{"label": "orphan the body", "file": "m.py",
+                                 "old": "    return 1", "new": "    return ("}],
+                               ["tests/test_m.py"], t, verbose=False)
+        got = rows[0]["verdict"] if rows else "?"
+        ok &= (got == INVALID)
+        print(("PASS" if got == INVALID else "FAIL") + f"  a non-parsing mutant is INVALID (got {got})")
+
+        # 3. a non-unique anchor is an ERROR, not a silent first-match rewrite
+        (t / "dup.py").write_text("x = 1\nx = 1\n", encoding="utf-8")
+        rc, rows = run_battery([{"label": "ambiguous anchor", "file": "dup.py",
+                                 "old": "x = 1", "new": "x = 2"}],
+                               ["tests/test_m.py"], t, verbose=False)
+        got = rows[0]["verdict"] if rows else "?"
+        amb = got == ERROR and "occurs 2 times" in (rows[0].get("why") or "")
+        ok &= amb
+        print(("PASS" if amb else "FAIL") + f"  a non-unique anchor is ERROR (got {got})")
+
+        # 4. an empty spec is UNRUNNABLE (2), never "all caught" (0)
+        rc, rows = run_battery([], ["tests/test_m.py"], t, verbose=False)
+        ok &= (rc == 2)
+        print(("PASS" if rc == 2 else "FAIL") + f"  an empty spec exits 2, not 0 (got {rc})")
+
+        # 5. a RED baseline is UNRUNNABLE, so no verdict can be read from it
+        (t / "tests" / "test_red.py").write_text("def test_no():\n    assert False\n",
+                                                 encoding="utf-8")
+        rc, rows = run_battery([{"label": "unused", "file": "m.py",
+                                 "old": "return 1", "new": "return 2"}],
+                               ["tests/test_red.py"], t, verbose=False)
+        ok &= (rc == 2)
+        print(("PASS" if rc == 2 else "FAIL") + f"  a RED baseline exits 2 (got {rc})")
+
+        # 6. the tree is restored byte-identically after a battery
+        same = (t / "m.py").read_text(encoding="utf-8") == "def f():\n    return 1\n"
+        ok &= same
+        print(("PASS" if same else "FAIL") + "  the subject file is restored byte-identically")
+
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="bd-mutate")
+    ap.add_argument("--spec", help="JSON file: a list of mutant objects")
+    ap.add_argument("--band", default="", help="space-separated test targets")
+    ap.add_argument("--work", default=os.environ.get("BD_REPO", "."))
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    work = Path(a.work).resolve()
+
+    if a.selftest:
+        return _selftest(work)
+    if not a.spec:
+        ap.error("--spec is required (or --selftest)")
+
+    spec = json.loads(Path(a.spec).read_text(encoding="utf-8"))
+    band = [b for b in a.band.split() if b]
+    rc, rows = run_battery(spec, band, work)
+    if a.json:
+        print(json.dumps({"exit": rc, "rows": rows}, indent=1))
+    elif rows:
+        _report(rows)
+    return rc
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
