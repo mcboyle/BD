@@ -4,6 +4,35 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.845 - census coverage counts what it COMPARED, not what it queried
+
+- The census reported coverage by DB ROW COUNT while library_final's resolver
+  silently drops any row whose recorded basename does not resolve to exactly
+  one on-disk file, plus any resolved path that cannot be stat'ed. Dropped
+  rows were reported as examined: the denominator structurally excluded the
+  rows the tool failed to look at, and it reported clean.
+- The whole-history sweep printed drift counts with NO examined-of-total at
+  all, so "0 of 5 rows resolved" rendered byte-identically to "swept and
+  clean". Both reproductions are now pinned by tests.
+- library_final gains size_drift_scan(), which carries the accounting in the
+  SAME loop as the comparison; list_size_drift is a projection of it. Counted
+  in a second pass the two figures could describe different passes while
+  claiming to describe one.
+- The report now names WHY a row was not compared (absent / ambiguous /
+  unknown / stat failed), carries examined-of-total in both blocks and per
+  swept directory, and distinguishes SWEEP EXAMINED NOTHING from SWEEP
+  PARTIAL from SWEEP complete.
+- Three defects found by an adversarial mutation pass over this cut's own
+  first draft, all fixed here: the reason histogram was summed in (row x
+  directory) units and printed "absent 15" for a 5-row population; a failed
+  history read was rendered as a resolution failure, a cause the tool never
+  measured; and the pre-existing sweep double-count (drift counted per
+  (row,directory), coverage per row) was made to READ as reconciled by the
+  new adjacent coverage line. Drift is now deduped by row id and multi-dir
+  rows are reported.
+- The report will look WORSE on the box after this lands. That is the fix
+  working.
+
 ## v3.66.844 - stale_locks deleted; the .lock convention never existed
 
 - selftest.check_stale_locks WARNed on *.lock files older than 6h across the

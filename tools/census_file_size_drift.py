@@ -171,6 +171,72 @@ def resolve_default_download_dir() -> str:
     return str(_oi_default_download_dir() or "").strip()
 
 
+def _merge_states(coverage: dict) -> dict:
+    """Sum the per-scan not-compared reasons into one histogram.
+
+    `stat_failed` is folded in as its own reason rather than dropped: a row
+    that resolved to exactly one file and then could not be stat'ed was not
+    compared either, and a breakdown that omits it does not add up to
+    `uncompared_rows`.
+    """
+    out: dict = {}
+    for scan in (coverage or {}).values():
+        for state, n in (scan.get("states") or {}).items():
+            out[state] = out.get(state, 0) + n
+        if scan.get("stat_failed"):
+            out["stat failed"] = out.get("stat failed", 0) + scan["stat_failed"]
+    return out
+
+
+# Most specific first. A row can carry a DIFFERENT state under each swept
+# directory -- absent under one, ambiguous under another -- so it must be
+# attributed to exactly ONE of them or the histogram double-counts it again,
+# one level down. "absent" is last because it is the weakest claim any single
+# directory can make ("not here"); anything more definite wins.
+_STATE_PRIORITY = ("stat failed", "ambiguous", "empty", "unknown", "absent")
+
+
+def _merge_state_ids(coverage: dict) -> dict:
+    """{state: n} for the rows NO directory compared, counted once per ROW.
+
+    `_merge_states` sums the per-directory count histograms, which is the
+    right unit for the PER-SITE pass (one scan per site, disjoint rows) and
+    the wrong one for the SWEEP (one scan per DIRECTORY, same rows). Measured:
+    5 rows over 3 swept dirs printed "reasons: absent 15" directly under
+    "0 of 5". Two separate double-counts live here and BOTH must go, or the
+    figure still does not add up:
+      * a row absent under dir A and compared under dir B was COMPARED;
+      * a row absent under A and ambiguous under B is ONE uncompared row,
+        not one of each.
+    The result sums to the number of uncompared rows by construction.
+    """
+    by_state: dict = {}
+    examined: set = set()
+    for scan in (coverage or {}).values():
+        examined |= set(scan.get("examined_ids") or ())
+        for state, ids in (scan.get("state_ids") or {}).items():
+            by_state.setdefault(state, set()).update(ids)
+    # a state _resolve_recorded grows later must not be silently dropped
+    order = list(_STATE_PRIORITY) + sorted(set(by_state) - set(_STATE_PRIORITY))
+    claimed: set = set(examined)
+    out: dict = {}
+    for state in order:
+        ids = by_state.get(state)
+        if not ids:
+            continue
+        mine = ids - claimed
+        if mine:
+            out[state] = len(mine)
+            claimed |= mine
+    return out
+
+
+def _fmt_states(states: dict) -> str:
+    if not states:
+        return "no reason recorded"
+    return ", ".join("%s %d" % (k, v) for k, v in sorted(states.items()))
+
+
 def census(sites, db, lf, default_dir=None) -> dict:
     """Split drift rows by sign, per configured site AND across all history.
 
@@ -202,6 +268,9 @@ def census(sites, db, lf, default_dir=None) -> dict:
 
     neg, pos, unknown, capped, lines = [], [], [], [], []
     covered = 0
+    examined = 0
+    site_coverage: dict = {}
+    denominator_mismatches: list = []
     sweep_sources: dict = {}
     for sid, cfg in sorted(sites.items()):
         dd = ((cfg or {}).get("download_dir") or "").strip()
@@ -222,8 +291,18 @@ def census(sites, db, lf, default_dir=None) -> dict:
             continue
         if n >= ROW_LIMIT:
             capped.append((sid, n))
-        rows = lf.list_size_drift(dd, site_id=sid, limit=ROW_LIMIT)
+        scan = lf.size_drift_scan(dd, site_id=sid, limit=ROW_LIMIT,
+                                  collect_ids=True)
+        rows = scan["rows"]
         covered += n
+        examined += scan["examined"]
+        site_coverage[sid] = scan
+        if scan["considered"] != n:
+            # _done_row_counts groups on site_id while size_drift_scan filters
+            # with `if site_id:` -- an empty-string site id is falsy there and
+            # would sweep every row. Say the denominators disagree rather than
+            # clamping one to the other.
+            denominator_mismatches.append((sid, n, scan["considered"]))
         for row in rows:
             (neg if row["delta_bytes"] < 0 else pos).append(row)
         lines.append((sid, n, len(rows), dd))
@@ -235,17 +314,43 @@ def census(sites, db, lf, default_dir=None) -> dict:
     # The panel's own call: no site_id, so it spans every history row that
     # resolves under the directory.
     sweep_lines, sweep_neg, sweep_pos = [], [], []
+    sweep_coverage: dict = {}
+    seen_drift: set = set()
+    sweep_multi_dir = 0
     for dd in sorted(sweep_sources):
         dn = dp = 0
-        for row in lf.list_size_drift(dd, site_id=None, limit=ROW_LIMIT):
+        scan = lf.size_drift_scan(dd, site_id=None, limit=ROW_LIMIT,
+                                  collect_ids=True)
+        sweep_coverage[dd] = scan
+        for row in scan["rows"]:
             r = dict(row)
             r["_dir"] = dd
             if r["delta_bytes"] < 0:
-                sweep_neg.append(r)
                 dn += 1
             else:
-                sweep_pos.append(r)
                 dp += 1
+            # THE UNIT. The per-directory dn/dp are per (row, directory) --
+            # that is what "visible under this dir" means. The TOTALS must be
+            # per ROW, because sweep_examined_rows is a per-row union and the
+            # report prints the two next to each other. _basename_index
+            # rglobs, so a site dir nested under the deployment default
+            # resolves the same row twice, and the default dir is added to
+            # sweep_sources unconditionally -- two swept dirs is the NORMAL
+            # configuration, not an edge case. Measured before this dedupe:
+            # "examined 2 of 2" above "SWEEP TRUNCATIONS : 2" for ONE
+            # truncated file.
+            key = r.get("id")
+            if key is None:
+                # no id (a caller that does not honour collect_ids): degrade
+                # to the old per-(row,dir) behaviour rather than over-dedupe
+                # two genuinely different rows into one.
+                key = ("nokey", dd, r["filename"], r["recorded_bytes"],
+                       r["disk_bytes"])
+            if key in seen_drift:
+                sweep_multi_dir += 1
+                continue
+            seen_drift.add(key)
+            (sweep_neg if r["delta_bytes"] < 0 else sweep_pos).append(r)
         sweep_lines.append((dd, sorted(sweep_sources[dd]), dn, dp))
 
     unknown_rows = sum(n for _, n, _ in unknown)
@@ -281,6 +386,28 @@ def census(sites, db, lf, default_dir=None) -> dict:
         "capped": capped,
         "lines": lines,
         "covered_rows": covered,
+        "examined_rows": examined,
+        # Derived from the SAME histogram the report prints beside it, so the
+        # two reconcile by construction. `covered - examined` does not: a
+        # falsy site_id makes that site's scan sweep every row (library_final
+        # `if site_id:`), examined then exceeds covered, and max(0, ...)
+        # clamped the difference to 0 -- hiding a 4-entry reason histogram
+        # behind "uncompared 0". Measured.
+        "uncompared_rows": sum(_merge_state_ids(site_coverage).values()),
+        "site_states": _merge_state_ids(site_coverage),
+        "site_coverage": site_coverage,
+        "denominator_mismatches": denominator_mismatches,
+        "query_failed_sites": sorted(s for s, sc in site_coverage.items()
+                                     if sc.get("query_failed")),
+        "sweep_coverage": sweep_coverage,
+        "sweep_considered": total,
+        "sweep_examined_rows": len(
+            set().union(*[s["examined_ids"] for s in sweep_coverage.values()])
+            if sweep_coverage else set()),
+        "sweep_multi_dir_rows": sweep_multi_dir,
+        "query_failed_dirs": sorted(d for d, sc in sweep_coverage.items()
+                                    if sc.get("query_failed")),
+        "sweep_states": _merge_state_ids(sweep_coverage),
         "orphan_sites": orphan_sites,
         "orphan_rows": sum(n for _, _, n in orphan_sites),
         "default_dir": default_dir,
@@ -303,7 +430,26 @@ def format_report(rep: dict) -> str:
     out.append("ATOM RESIDUE (delta>0) : %d" % len(rep["residue"]))
     out.append("")
     out.append("COVERAGE  rows examined : %d of %d"
-               % (rep["covered_rows"], rep["total_done_rows"]))
+               % (rep["examined_rows"], rep["total_done_rows"]))
+    out.append("          rows attributed to a swept directory : %d"
+               % rep["covered_rows"])
+    if rep["uncompared_rows"]:
+        out.append("          rows attributed but NEVER COMPARED : %d  "
+                   "(%s)" % (rep["uncompared_rows"],
+                             _fmt_states(rep["site_states"])))
+    if rep["query_failed_sites"]:
+        out.append("          HISTORY READ FAILED for %d site(s): %s -- every "
+                   "figure above is UNKNOWN, not clean"
+                   % (len(rep["query_failed_sites"]),
+                      ", ".join(rep["query_failed_sites"])))
+    if rep["denominator_mismatches"] or \
+            rep["examined_rows"] > rep["total_done_rows"]:
+        out.append("          the ratio above is NOT a row ratio -- a scan "
+                   "whose denominator disagrees (below) swept rows it was not "
+                   "grouped for, so `examined` counts (row, scan) pairs")
+    for _sid, _n, _c in rep["denominator_mismatches"]:
+        out.append("          DENOMINATOR MISMATCH -- %s: grouped %d, "
+                   "scanned %d" % (_sid or "(empty site_id)", _n, _c))
     if rep["unknown_rows"]:
         out.append("          rows UNKNOWN  : %d  (%d site(s) unresolvable)"
                    % (rep["unknown_rows"], len(rep["unknown"])))
@@ -318,7 +464,8 @@ def format_report(rep: dict) -> str:
     if rep["capped"]:
         out.append("          LIMIT HIT -- census truncated for: %s"
                    % ", ".join("%s(%d)" % (s, n) for s, n in rep["capped"]))
-    if not (rep["unknown_rows"] or rep["orphan_rows"] or rep["capped"]):
+    if (rep["examined_rows"] == rep["total_done_rows"]
+            and not rep["capped"] and not rep["denominator_mismatches"]):
         out.append("          complete -- every done row was examined")
     out.append("")
     out.append("WHOLE-HISTORY SWEEP -- list_size_drift(dir, site_id=None), the")
@@ -327,13 +474,52 @@ def format_report(rep: dict) -> str:
     out.append("so THIS is the figure comparable to what the panel shows.")
     if rep["sweep_lines"]:
         for dd, srcs, dn, dp in rep["sweep_lines"]:
-            out.append("  %-38s trunc %-6d residue %-6d [%s]"
-                       % (dd[:38], dn, dp, ", ".join(srcs) or "-"))
+            _sc = rep["sweep_coverage"].get(dd) or {}
+            out.append("  %-38s examined %d of %d  trunc %-6d residue %-6d [%s]"
+                       % (dd[:38], _sc.get("examined", 0),
+                          _sc.get("considered", 0), dn, dp,
+                          ", ".join(srcs) or "-"))
     else:
         out.append("  no resolvable download dir -- NOTHING was swept, which "
                    "is UNKNOWN, not clean")
+    out.append("  SWEEP rows examined : %d of %d"
+               % (rep["sweep_examined_rows"], rep["sweep_considered"]))
     out.append("  SWEEP TRUNCATIONS (delta<0) : %d" % len(rep["sweep_truncations"]))
     out.append("  SWEEP RESIDUE     (delta>0) : %d" % len(rep["sweep_residue"]))
+    if rep["sweep_multi_dir_rows"]:
+        # states the gap between the per-directory counts above and these
+        # totals, instead of leaving the reader to discover it
+        out.append("  (%d duplicate (row, directory) drift entr(y/ies) "
+                   "collapsed: a row visible under N swept directories is "
+                   "counted ONCE here and N times in the lines above)"
+                   % rep["sweep_multi_dir_rows"])
+    if rep["query_failed_dirs"]:
+        out.append("  SWEEP READ FAILED -- the history query raised for %d of "
+                   "%d swept dir(s): %s"
+                   % (len(rep["query_failed_dirs"]), len(rep["sweep_coverage"]),
+                      ", ".join(rep["query_failed_dirs"])))
+        out.append("  Everything below is UNKNOWN, not clean, and NOT evidence "
+                   "about whether files resolved.")
+    _se, _sn = rep["sweep_examined_rows"], rep["sweep_considered"]
+    if rep["query_failed_dirs"]:
+        pass
+    elif _sn and not _se:
+        out.append("  SWEEP EXAMINED NOTHING -- 0 of %d rows resolved to "
+                   "exactly one" % _sn)
+        out.append("  file under any swept directory. This is UNKNOWN, not "
+                   "clean: the two")
+        out.append("  counts above are drift over an empty comparison set.")
+        if rep["sweep_states"]:
+            out.append("  reasons: %s" % _fmt_states(rep["sweep_states"]))
+    elif _se < _sn:
+        out.append("  SWEEP PARTIAL -- %d of %d rows were compared; the counts "
+                   "above are" % (_se, _sn))
+        out.append("  about those %d only." % _se)
+        if rep["sweep_states"]:
+            out.append("  reasons: %s" % _fmt_states(rep["sweep_states"]))
+    elif _sn:
+        out.append("  SWEEP complete -- every done row was compared under "
+                   "some directory")
     out.append("  deployment default download dir : %s  (%s)"
                % (rep["default_dir"] or "-", rep["default_dir_state"]))
     # The distribution is emitted for EACH population that has residue, not
