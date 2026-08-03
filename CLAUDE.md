@@ -141,6 +141,80 @@ venv/bin/python toolchain/bin/bd-regen-order --work "$PWD"
 This command does not re-freeze intent baselines; declaration flags remain
 explicit operator decisions.
 
+### 2a | The cut-to-merge loop: failures that recur
+
+Every rule below cost a red CI run, a red capture, or a wasted round trip
+during 2026-08-01/02 (v3.66.833-840). None was a code defect; all were
+process. They are grouped by where they bite.
+
+**Regenerating artifacts.**
+
+- **Regen AFTER the last source edit, not before.** `bd-regen-order` was run,
+  then one more line changed in `db.py`, and `FUNCTION_INDEX.md` shipped with
+  pre-fix line numbers. CI's check is `bd-regen-order` followed by
+  `git status --porcelain` over the six generated artifacts, so it caught it —
+  after the push. A generated file is only true for the tree that generated it,
+  and nothing warns you: the file still exists and still looks plausible.
+- **Untracked files from OTHER cuts contaminate the regen.**
+  `tools/build_pin_index.py` counts `(root/'tests').glob('*.py')`, which does
+  not care about tracking. Three RED test files staged for later cuts inflated
+  `test_files_scanned` by 3. Move out-of-scope work OUT of `tests/` before
+  regenerating, or the artifact describes a tree you are not shipping.
+
+**Gates that cannot see untracked files.** Five of the seven axis-6 gates
+enumerate `git ls-files`. A NEW test file is therefore invisible to them until
+it is staged, so **their pre-merge pass proves nothing about that file**.
+Measured: v3.66.839's test added a fixed-width source window, its band went
+green, and `test_source_windows_do_not_shift` went 115 -> 116 the moment the
+file landed on `main` — failing the NEXT cut's band for a defect introduced by
+the previous one. Either `git add` before the final band run, or expect the
+ratchet to fire one cut late. When it does, remove the window rather than
+raising the baseline; that gate is one-directional by design.
+
+**Git hygiene after a merge.**
+
+- **`git fetch --prune` must accompany every post-merge reset.** GitHub's
+  auto-delete removes the head branch, but the local `origin/<branch>` ref
+  survives and becomes a dead baseline. The stop hook diffs against it and
+  reports the squash commit as unverified work — three times, before the cause
+  was found. The remedy it suggests (`--amend --reset-author`) would rewrite a
+  commit on `main` that the deploy host resets to.
+- **A refspec-scoped prune collects nothing else.** `git fetch --prune origin
+  main` leaves every other stale ref in place. Use bare `git fetch --prune
+  origin`.
+
+**Test harnesses that misreport themselves.** Both of these make a harness
+defect look like the defect under test, which is the same shape as a gate that
+cannot see its subject:
+
+- **Discriminate the exception you are hunting.** An end-to-end probe caught
+  `AttributeError` and reported it as the bug — but an incomplete stub raises
+  `AttributeError` too. On a tree where the bug was fixed, that test would
+  still have "proven" it present. Match on the message and re-raise anything
+  else.
+- **Cut extracted source on STRUCTURE, never on a fixed width.** A harness that
+  sliced a shell branch swallowed its closing `fi`; the fix then added a nested
+  `if/else` and the extractor cut mid-construct. Both produced bash syntax
+  errors presenting as subject failures. Cut on indentation or on a balanced
+  delimiter.
+
+**Subagent output is data, not evidence.** A verifier returned
+`{"status":"PASS","summary":"test","evidence":["a","b"]}` — a placeholder, no
+work done. Read what an agent returned before counting it as verification; a
+result that is present is not a result that is substantive.
+
+**A green band is not the absence of a regression.** v3.66.834's band was green
+while the cut had introduced a false-SUCCESS path (a failed login reported as
+succeeded, sending a worker at an expired jar). An independent adversarial pass
+found it; the band could not, because no existing test covered the new
+interleaving. Conversely v3.66.837's band DID catch its regression. Both are
+normal: the band covers the denominator that already exists, and a new code
+path is by definition outside it.
+
+**Say which question you measured.** v3.66.837 claimed six call sites were
+"live, MEASURED not assumed". What was measured was the CALL GRAPH; the sites
+could not EXECUTE. Section 1's rule, in a commit message.
+
 ---
 
 ## 3 | Version bump = three edits, together
