@@ -304,12 +304,48 @@ def module_consumers(work, rel):
     Word-boundary matched, so `dedup` does not drag in `dedupe_key`. Python modules only
     (a stem is only a module name for .py); a .tsx stem would false-positive on prose.
     """
-    if not rel.endswith(".py"):
-        return []
-    stem = re.sub(r"\.\w+$", "", os.path.basename(rel))
-    if not stem or stem in ("__init__", "conftest", "setup"):
-        return []
-    pat = re.compile(r"\b%s\b" % re.escape(stem))
+    base = os.path.basename(rel)
+    if rel.endswith(".py"):
+        stem = re.sub(r"\.\w+$", "", base)
+        if not stem or stem in ("__init__", "conftest", "setup"):
+            return []
+        pat = re.compile(r"\b%s\b" % re.escape(stem))
+    else:
+        # NON-PYTHON: match the FULL BASENAME, extension included.
+        #
+        # The docstring above is right that a bare STEM is only a module name
+        # for .py, and that a .tsx stem would false-positive on prose. But
+        # bailing entirely made this signal blind to every shell script and doc
+        # in the tree, and those are named VERBATIM by the tests that read them:
+        # "capture.sh", "CLAUDE.md", "install_service.sh". The full basename
+        # carries the extension, so it is distinctive in a way the stem is not
+        # -- "capture" matches prose everywhere, "capture.sh" does not.
+        #
+        # MEASURED 2026-08-03 on capture.sh, which is why this exists: the
+        # tool returned 73 suites and `grep -rl "capture\.sh" tests/*.py`
+        # returned 39, and the two sets were COMPLEMENTARY -- the tool missed
+        # 26 that the grep found, including test_deploy_script.py and
+        # test_install_service_waits_for_serving.py. For a .py file the tool is
+        # a strict superset of the grep (25 vs 17 on tools/live_seed.py); for a
+        # .sh file it was not, and CLAUDE.md section 4 now sends every cut here
+        # first. A band that is a superset for one file class and a subset for
+        # another is worse than one that is honestly narrow, because the caller
+        # cannot know which they got.
+        # DISTINCTIVENESS, not "has an extension". The first draft of this
+        # branch required a dot -- which excluded the 469 tracked extensionless
+        # python-shebang bd-* scripts under toolchain/ and project-knowledge/,
+        # i.e. the exact population CLAUDE.md section 1 warns a `*.py` glob
+        # cannot see. Caught by running this tool on ITSELF: bd-band-derive is
+        # extensionless, and banded 1 suite. The fix reproducing the defect it
+        # fixes is section 0's own rule, and this is an instance of it.
+        #
+        # What actually makes a basename safe to grep for is that it cannot be
+        # ordinary prose. A dot does it ("capture.sh"), and so does a hyphen or
+        # underscore ("bd-band-derive", "install_service"). A bare single word
+        # is rejected, which is what the original .py-only bail was protecting.
+        if not base or not any(ch in base for ch in ".-_"):
+            return []
+        pat = re.compile(re.escape(base))
     hits = []
     tdir = os.path.join(work, "tests")
     if not os.path.isdir(tdir):
@@ -607,8 +643,25 @@ def report(work, changed, rows, label, deps=None, as_json=False, emit_only=False
                           "dependents": deps or []}, indent=1))
         return 0
     print("== bd-band-derive :: %s" % label)
-    src = [c for c in changed if c.endswith((".py", ".tsx", ".ts"))]
+    # WHAT COUNTS AS SOURCE HERE IS THE SUBJECT OF CLAUDE.md SECTION 0'S OPENING
+    # EXAMPLE, and this line has now been wrong twice. It first counted only
+    # .py, so a real frontend cut printed "changed source (0)"; .ts/.tsx were
+    # added; and it STILL printed "changed source (0)" for a doc or shell cut
+    # while emitting a real band underneath -- measured on CLAUDE.md, which
+    # bands 66 suites. A summary line that reports zero over a non-empty
+    # subject is the exact shape the section names, in the tool the section
+    # cites. Count every changed TRACKED file and name the classes, so the
+    # number can never disagree with the band beneath it.
+    _SRC_EXT = (".py", ".tsx", ".ts", ".sh", ".md", ".json", ".yml", ".yaml",
+                ".toml", ".cfg", ".ini", ".txt", ".html", ".css")
+    src = [c for c in changed if c.endswith(_SRC_EXT)]
+    other = [c for c in changed if not c.endswith(_SRC_EXT)]
     print("  changed source (%d): %s" % (len(src), ", ".join(src[:6]) + (" ..." if len(src) > 6 else "")))
+    if other:
+        # Never silently drop from the count: an extensionless tracked file is
+        # still a change (toolchain/bin holds 469 python-shebang scripts with
+        # no suffix -- CLAUDE.md section 1).
+        print("  changed, unclassified (%d): %s" % (len(other), ", ".join(other[:6])))
     print("  band (%d):" % len(band))
     for b in band[:24]:
         print("    %s" % b)
@@ -1106,6 +1159,33 @@ def selftest():
           + "  R1 guard set derived from STATE, loud 7-literal fallback (%d bases, src=%s)"
           % (len(GUARD_BASES), sec.guard_source()))
     ok = ok and _r1
+
+    # @848 NON-PY CONSUMER: the module-consumer signal used to `return []` for
+    # anything not ending in .py, so every shell script and doc in the tree got
+    # only the stem glob. MEASURED before the fix: capture.sh banded 73 suites
+    # while `grep -rl "capture\.sh" tests/*.py` found 39, and the sets were
+    # COMPLEMENTARY -- the tool missed 26 the grep found. For .py the tool is a
+    # strict superset of the grep; for .sh it was not, which is worse than being
+    # honestly narrow because the caller cannot tell which they got.
+    #
+    # POSITIVE: a .sh file bands a consumer that names it verbatim.
+    # NEGATIVE (the reason the old bail existed): the match is on the FULL
+    # BASENAME, so a bare stem cannot drag in prose -- "capture" alone must not
+    # be what produced the hit.
+    _np_pos = _np_neg = False
+    try:
+        _cap = module_consumers(sec.DEFAULT_WORK, "capture.sh")
+        _np_pos = len(_cap) >= 20
+        _bogus = module_consumers(sec.DEFAULT_WORK, "zzz_no_such_file.sh")
+        _np_neg = not _bogus
+    except Exception as _e:                       # never let the control pass by erroring
+        print("FAIL  NON-PY CONSUMER: control raised %s" % _e)
+    _np = _np_pos and _np_neg
+    print(("PASS" if _np else "FAIL")
+          + "  NON-PY CONSUMER: capture.sh bands its verbatim consumers (%d), "
+            "an absent basename bands none (%s)"
+          % (len(_cap) if _np_pos else -1, "ok" if _np_neg else "LEAKED"))
+    ok = ok and _np
 
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
     return 0 if ok else 1
