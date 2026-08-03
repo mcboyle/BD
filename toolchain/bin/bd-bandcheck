@@ -17,7 +17,15 @@ import argparse, os, sys
 # known-hang / never-band-directly (from KNOWN_FLAKES.md + memory)
 HANG = {
     "test_perf_lab.py": "hangs the whole run; on-stash only",
-    "test_v3_66_146_nav_guard.py": ">200s timeout in sandbox (known, not a regression)",
+    # REMOVED @849: "test_v3_66_146_nav_guard.py". CLAUDE.md section 5 refutes it
+    # by name -- NO FILE OF THAT NAME EXISTS, in any variant (`git ls-files |
+    # grep nav_guard` is empty), and both real 146 files
+    # (test_v3_66_146_runtime_gate.py, test_v3_66_146_detection_safety.py) pass
+    # in under a second. A blocklist entry for a phantom cannot fire, so it cost
+    # nothing directly -- but this tool is now WIRED INTO bd-band, so every
+    # entry here refuses a real band, and an entry the contract has retracted is
+    # a gate firing on a claim nobody can reproduce. The second hanger remains
+    # UNIDENTIFIED; do not re-add a name until someone measures one.
 }
 # test FUNCTIONS people mistake for files -> the real file to band instead
 NOT_A_FILE = {
@@ -41,6 +49,49 @@ def selftest():
     return 0 if found else 1
 
 
+def check(targets, tree):
+    """(rc, lines) for a proposed band. Factored out of main() @849 so bd-band
+    can REFUSE an unsafe band instead of discovering it 200 seconds later.
+
+    Pure: prints nothing, touches nothing. rc is 1 if any target is unsafe.
+    An EMPTY target list is rc 2 -- "all targets safe" over zero targets is the
+    CLAUDE.md section 0 shape, and this function is now a gate."""
+    lines = []
+    if not targets:
+        return 2, ["  NO TARGETS -- a band over nothing is not a safe band."]
+    rc = 0
+    names = set()
+    for t in targets:
+        base = os.path.basename(t.rstrip("/"))
+        # whole-dir
+        if t.rstrip("/").endswith("tests") or t.rstrip("/") in ("tests", "."):
+            lines.append(f"  UNSAFE  '{t}' -- the whole tests/ dir HANGS at test_perf_lab.py. Band targeted files."); rc = 1; continue
+        # function-not-file
+        stem = base[:-3] if base.endswith(".py") else base
+        if stem in NOT_A_FILE:
+            lines.append(f"  NOT A FILE  '{t}' is a test FUNCTION -> a broad run -> timeout -> ABORT.")
+            lines.append(f"              band instead: {NOT_A_FILE[stem]}"); rc = 1; continue
+        # known hang
+        if base in HANG:
+            lines.append(f"  UNSAFE  {base} -- {HANG[base]}."); rc = 1; continue
+        # exists?
+        path = t if os.path.isabs(t) else os.path.join(tree, t)
+        if not os.path.exists(path):
+            # maybe they gave a bare name
+            alt = os.path.join(tree, "tests", base)
+            if os.path.exists(alt):
+                lines.append(f"  ok      {base}  (resolved to tests/{base})")
+                names.add(base); continue
+            lines.append(f"  MISSING '{t}' -- no such file under {tree}. Typo? (a non-file path triggers a broad run)."); rc = 1; continue
+        lines.append(f"  ok      {os.path.relpath(path, tree)}")
+        names.add(base)
+    # leak-pair co-band check
+    for setA, setB, why in LEAK_PAIRS:
+        if names & setA and names & setB:
+            lines.append(f"  LEAK CO-BAND  {sorted(names & setA)} + {sorted(names & setB)} -- {why}. Split into two bands."); rc = 1
+    return rc, lines
+
+
 def main():
     import sys as _s
     if "--selftest" in _s.argv: return selftest()
@@ -48,37 +99,11 @@ def main():
     ap.add_argument("targets", nargs="+")
     ap.add_argument("--tree","--work", default="/home/claude/work")
     a = ap.parse_args()
-    rc = 0
-    names = set()
-    for t in a.targets:
-        base = os.path.basename(t.rstrip("/"))
-        # whole-dir
-        if t.rstrip("/").endswith("tests") or t.rstrip("/") in ("tests", "."):
-            print(f"  UNSAFE  '{t}' -- the whole tests/ dir HANGS at test_perf_lab.py. Band targeted files."); rc = 1; continue
-        # function-not-file
-        stem = base[:-3] if base.endswith(".py") else base
-        if stem in NOT_A_FILE:
-            print(f"  NOT A FILE  '{t}' is a test FUNCTION -> a broad run -> timeout -> ABORT.")
-            print(f"              band instead: {NOT_A_FILE[stem]}"); rc = 1; continue
-        # known hang
-        if base in HANG:
-            print(f"  UNSAFE  {base} -- {HANG[base]}."); rc = 1; continue
-        # exists?
-        path = t if os.path.isabs(t) else os.path.join(a.tree, t)
-        if not os.path.exists(path):
-            # maybe they gave a bare name
-            alt = os.path.join(a.tree, "tests", base)
-            if os.path.exists(alt):
-                print(f"  ok      {base}  (resolved to tests/{base})")
-                names.add(base); continue
-            print(f"  MISSING '{t}' -- no such file under {a.tree}. Typo? (a non-file path triggers a broad run)."); rc = 1; continue
-        print(f"  ok      {os.path.relpath(path, a.tree)}")
-        names.add(base)
-    # leak-pair co-band check
-    for setA, setB, why in LEAK_PAIRS:
-        if names & setA and names & setB:
-            print(f"\n  LEAK CO-BAND  {sorted(names & setA)} + {sorted(names & setB)} -- {why}. Split into two bands."); rc = 1
-    print("\n" + ("all targets safe to band." if rc == 0 else "=> fix the flagged targets before banding (else timeout/ABORT/false-fail)."))
+    rc, lines = check(a.targets, a.tree)
+    for l in lines:
+        print(l)
+    print("\n" + ("all targets safe to band." if rc == 0
+                  else "=> fix the flagged targets before banding (else timeout/ABORT/false-fail)."))
     return rc
 
 if __name__ == "__main__":

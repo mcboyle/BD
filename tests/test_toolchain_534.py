@@ -18,6 +18,7 @@ RED-first map (fail on pristine 533 -> pass after 534):
 """
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -91,3 +92,110 @@ if __name__ == "__main__":
             f += 1
     print(f"\n{p} passed, {f} failed")
     sys.exit(1 if f else 0)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# @849 -- THE PROSE-ONLY RATCHET.
+#
+# MEASURED 2026-08-03: of 243 bd-* tools, 167 were described somewhere and
+# INVOKED BY NOTHING -- no test, no script, no CI. Among them was bd-bandcheck,
+# which validates a band list against exactly the three footguns CLAUDE.md
+# section 4 spends paragraphs on, and which nothing had ever called. A checker
+# nobody runs is a checker that does not exist.
+#
+# This does NOT demand that the 166 be wired -- that is a real backlog and
+# retiring or wiring them is its own work. It ratchets: the number must not
+# GROW. Adding a tool that nothing invokes now costs a red test, and the fix is
+# to wire it, to give it a selftest a test runs, or to bump the baseline in the
+# same cut with a stated reason.
+#
+# THE PREDICATE'S OWN DENOMINATOR BIT ME WRITING IT, which is the joke this
+# whole cut is about: the first draft counted an "executable context" as
+# tests/, .github/, or a .sh suffix -- and `.githooks/pre-commit` is
+# EXTENSIONLESS, so the hook that invokes bd-claim was invisible and bd-claim
+# read as unwired. Same shape as CLAUDE.md section 1's `*.py` glob missing 469
+# extensionless bd-* scripts. Type on the SHEBANG as well as the suffix.
+
+_PROSE_ONLY_BASELINE = 166
+
+
+def _bd_tools(root):
+    d = os.path.join(root, "toolchain", "bin")
+    return sorted(n for n in os.listdir(d) if n.startswith("bd-"))
+
+
+def _is_executable_context(root, rel):
+    """Would a reference here actually RUN the tool, or merely describe it?"""
+    if rel.startswith(("project-knowledge/", "docs/")):
+        return False                      # prose, by definition
+    if rel.startswith((".github/", "tests/", ".githooks/")):
+        return True
+    if rel.endswith((".sh", ".py")):
+        return True
+    if rel.endswith((".md", ".txt", ".json", ".html", ".css")):
+        return False
+    # Extensionless: read the shebang rather than guessing from the name.
+    try:
+        with open(os.path.join(root, rel), "r", errors="replace") as fh:
+            return fh.readline(200).startswith("#!")
+    except OSError:
+        return False
+
+
+def _prose_only(root):
+    tools = _bd_tools(root)
+    tracked = subprocess.run(["git", "ls-files", "-z"], cwd=root,
+                             capture_output=True, text=True).stdout.split("\0")
+    tracked = [f for f in tracked if f and not f.startswith("toolchain/bin/")]
+    assert len(tracked) > 100, (
+        "git ls-files returned %d files -- the denominator collapsed and a pass "
+        "below would mean nothing." % len(tracked))
+    exec_files = []
+    for rel in tracked:
+        p = os.path.join(root, rel)
+        if not os.path.isfile(p) or not _is_executable_context(root, rel):
+            continue
+        try:
+            with open(p, "r", errors="replace") as fh:
+                exec_files.append(fh.read())
+        except OSError:
+            continue
+    assert exec_files, ("no executable-context file was readable -- this check "
+                        "cannot see its subject, which is a FAILURE and not a pass.")
+    return sorted(t for t in tools if not any(t in blob for blob in exec_files))
+
+
+def test_unwired_bd_tools_do_not_multiply():
+    root = str(_REPO_ROOT)
+    tools = _bd_tools(root)
+    assert len(tools) > 100, (
+        "found only %d bd-* tools -- the subject collapsed." % len(tools))
+    prose = _prose_only(root)
+    assert len(prose) <= _PROSE_ONLY_BASELINE, (
+        "%d bd-* tools are invoked by nothing, up from the %d baseline. The new "
+        "ones are somewhere in:\n  %s\nWire it (a test that runs its --selftest "
+        "counts), or raise _PROSE_ONLY_BASELINE in this cut and say why. A tool "
+        "nothing invokes is a tool that does not run."
+        % (len(prose), _PROSE_ONLY_BASELINE, ", ".join(prose[:12])))
+
+
+def test_the_tools_this_cut_added_are_wired_and_selftest_clean():
+    """The ratchet is a floor; these three must be genuinely exercised.
+
+    Each ships a --selftest that asserts its own failure modes. Running them
+    here is what makes them WIRED rather than described -- and it is the
+    difference between the 76 tools that are invoked and the 166 that are not.
+    """
+    root = str(_REPO_ROOT)
+    for tool in ("bd-mutate", "bd-claim", "bd-bandcheck"):
+        path = os.path.join(root, "toolchain", "bin", tool)
+        assert os.path.isfile(path), "%s is missing" % tool
+        r = subprocess.run([sys.executable, path, "--selftest"],
+                           cwd=root, capture_output=True, text=True, timeout=180)
+        assert r.returncode == 0, (
+            "%s --selftest exited %d:\n%s" % (tool, r.returncode,
+                                              (r.stdout + r.stderr)[-1500:]))
+        assert "SELFTEST PASS" in (r.stdout + r.stderr), (
+            "%s --selftest exited 0 without saying SELFTEST PASS -- an exit code "
+            "with no verdict behind it is the shape this repo keeps finding."
+            % tool)

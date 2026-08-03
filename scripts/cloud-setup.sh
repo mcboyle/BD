@@ -270,6 +270,15 @@ else
   fi
   row "python interp" "OK" "venv built on $("$PYBIN" --version 2>&1) (box/CI parity)"
   step "python venv"  core     "$PYBIN" -m venv venv
+  # @849 -- arm the concurrent-writer guard. Inert unless another process
+  # holds a bd-claim, so a single-agent session never notices it; when two
+  # workflows share a tree it refuses a commit that would sweep the other's
+  # in-progress files. That happened at v3.66.848: a `git add -A` in a regen
+  # commit put a RED battery on the branch without its implementation, and
+  # HEAD failed its own guard tests until somebody noticed. Containers are
+  # where agents run concurrently, which is why it is armed HERE and left as
+  # an opt-in on the box.
+  step "claim guard"  optional git config core.hooksPath .githooks
   step "pip upgrade"  optional ./venv/bin/pip install -q --upgrade pip
   step "runtime deps" core     ./venv/bin/pip install -q -r requirements.txt
   step "test deps"    core     ./venv/bin/pip install -q "pytest>=7.0,<9.0" pyflakes

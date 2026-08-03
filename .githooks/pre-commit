@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# pre-commit -- refuse to commit a file another LIVE agent has claimed.
+#
+# THE FAILURE, measured at v3.66.848: two workflows wrote to one tree, one ran
+# `git add -A` in an unrelated regen commit, and it swept the other's
+# uncommitted RED battery onto the branch. The tip then carried tests whose
+# implementation was not committed, and HEAD failed its own guard tests until
+# someone noticed. Nothing warned, because `git add -A` did exactly what it was
+# told.
+#
+# INERT BY DEFAULT, TWICE OVER. Git only runs this if core.hooksPath points
+# here, and even then it has no opinion unless another process holds a claim:
+#
+#     git config core.hooksPath .githooks        # opt in, once per checkout
+#     bd-claim add tools/live_seed.py            # an agent declares its files
+#
+# So a single-operator session never sees it. That is deliberate -- a guard that
+# fires when nothing is wrong gets switched off, and CLAUDE.md section 0 counts
+# over-sensitivity as a soundness bug equal to a false clean.
+#
+# UNKNOWN IS A THIRD STATE. If bd-claim cannot run, this hook says so and
+# REFUSES rather than assuming the tree is uncontended -- "the checker is
+# missing" is not "there is no conflict". Override deliberately, in one place:
+#
+#     BD_SKIP_CLAIM_CHECK=1 git commit ...
+set -u
+
+if [ "${BD_SKIP_CLAIM_CHECK:-0}" = "1" ]; then
+  exit 0
+fi
+
+repo="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+claim="$repo/toolchain/bin/bd-claim"
+
+# No claim tool in this checkout -> the convention is not in use here. That is a
+# true absence, not an unknown: there is nothing that could have created a
+# claim, so there is nothing to miss.
+[ -f "$claim" ] || exit 0
+
+# Nothing claimed by anyone -> nothing to check. Cheap short-circuit so the
+# common case costs one directory stat.
+[ -d "$repo/.git/bd-claims" ] || exit 0
+set -- "$repo"/.git/bd-claims/*.json
+[ -e "$1" ] || exit 0
+
+py="$repo/venv/bin/python"
+[ -x "$py" ] || py="$(command -v python3 || true)"
+if [ -z "$py" ]; then
+  echo "pre-commit: no interpreter to run bd-claim -- staged paths are" >&2
+  echo "            UNVERIFIED against live claims, not verified clean." >&2
+  echo "            Set BD_SKIP_CLAIM_CHECK=1 to commit anyway." >&2
+  exit 1
+fi
+
+# NUL-delimited: a path with a space or newline must not split into two,
+# and `--name-only` alone would let it. Passed as ARGV rather than stdin
+# because the interpreter already reads the script from stdin -- the
+# first draft used BOTH redirections and the heredoc silently won.
+mapfile -d "" staged < <(git diff --cached -z --name-only)
+[ "${#staged[@]}" -gt 0 ] || exit 0
+
+hook_py="$(mktemp)"
+trap 'rm -f "$hook_py"' EXIT
+cat > "$hook_py" <<'PY'
+import sys, os, importlib.util, importlib.machinery
+repo = sys.argv[1]
+staged = [s for s in sys.argv[2:] if s.strip()]
+tgt = os.path.join(repo, "toolchain", "bin", "bd-claim")
+spec = importlib.util.spec_from_loader(
+    "_bd_claim", importlib.machinery.SourceFileLoader("_bd_claim", tgt))
+mod = importlib.util.module_from_spec(spec)
+try:
+    spec.loader.exec_module(mod)
+except Exception as e:                      # cannot check -> cannot pass
+    print(f"pre-commit: bd-claim would not load ({e}); staged paths are "
+          f"UNVERIFIED. BD_SKIP_CLAIM_CHECK=1 to override.", file=sys.stderr)
+    sys.exit(1)
+from pathlib import Path
+try:
+    hits = mod.conflicts(Path(repo), staged, pid=os.getppid())
+except Exception as e:
+    print(f"pre-commit: could not read claims ({e}) -- UNKNOWN, refusing. "
+          f"BD_SKIP_CLAIM_CHECK=1 to override.", file=sys.stderr)
+    sys.exit(1)
+if hits:
+    print("pre-commit: REFUSING -- these staged paths are claimed by another "
+          "live process:", file=sys.stderr)
+    for path, c in hits:
+        print(f"    {path}   held by pid {c['pid']} "
+              f"({c.get('label') or 'no label'})", file=sys.stderr)
+    print("\nThis is the `git add -A` sweep that put a RED battery on a branch "
+          "without its implementation at v3.66.848.", file=sys.stderr)
+    print("Stage explicit paths you own (git add <path>), or wait for the "
+          "other agent, or BD_SKIP_CLAIM_CHECK=1 if you are certain.",
+          file=sys.stderr)
+    sys.exit(1)
+sys.exit(0)
+PY
+"$py" "$hook_py" "$repo" "${staged[@]}"

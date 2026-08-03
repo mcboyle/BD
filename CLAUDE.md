@@ -287,7 +287,13 @@ gitignored, so it does **not** exist in a worktree — use the absolute
 `/home/user/BD/venv/bin/python`, or a bare `python3` silently gives you 3.11
 without the project dependencies (section 5).
 
-**Never `git add -A` while another agent is writing the tree.** A regen commit
+**Never `git add -A` while another agent is writing the tree.** This is now
+enforced rather than merely stated: `bd-claim add <paths>` declares what you are
+editing, and `.githooks/pre-commit` refuses to commit a path another LIVE
+process holds. `scripts/cloud-setup.sh` arms it (`core.hooksPath .githooks`);
+on the box it is opt-in, one command. It is inert unless a claim is in flight,
+so a single-operator session never sees it, and a dead claimant is reaped rather
+than wedging the repo. Override with `BD_SKIP_CLAIM_CHECK=1` when you are sure. A regen commit
 swept a concurrent workflow's uncommitted RED battery into itself; the branch
 tip then carried tests whose implementation was not committed and **failed its
 own guard tests** until someone noticed. `git add <explicit paths>`, always,
