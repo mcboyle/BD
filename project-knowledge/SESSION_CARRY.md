@@ -2452,3 +2452,90 @@ PROCESS, three items earned this session and worth keeping:
     pass caught. The reviewer also reported that its OWN first fix had the
     same bug one level down and said so. Read what an agent returned; a
     result that is present is not a result that is correct.
+
+### 15.21 | item 12 is CLOSED on box evidence, and it was never a library defect
+
+Filed 2026-08-03 from five read-only probes the operator ran on test4 against
+downloader_history.db (sqlite3 mode=ro, no writes). This closes item 12,
+settles two standing UNKNOWNs, and REFUTES two claims this register has been
+carrying as fact.
+
+THE MEASUREMENTS, in the order they were taken:
+
+    library file_exists=0                    27
+    library file_path NOT LIKE '/%'          27
+    intersection                             27      (missing-only 0, ghost-only 0)
+    library total                            43
+    history status='done' AND filename!=''   51
+    integrity_issues total                    0
+    history url LIKE '%bdseed%'              66
+    ghosts WITH an absolute twin by basename  0
+    ghosts from bdseed                       27      (NOT from bdseed: 0)
+
+ITEM 12 IS CLOSED. The rows the Library panel reports as "missing" are not
+missing files. They are rows whose file_path was never recorded as absolute,
+so nothing can resolve them on disk and file_exists=0 follows mechanically --
+and ALL 27 of them were written by the capture's own bdseed seeding
+(joined library.history_id -> history.url, every one matching '%bdseed%';
+non-bdseed ghosts = ZERO, enumerated by name, not merely counted). There is
+no library loss on this box. The panel has been displaying test residue.
+
+  The "31" NEVER REPRODUCED. It is 27. The register's own suspicion that 31
+  was a conflation was correct, but the number it doubted (27) is the true
+  one -- so the entry was right for the wrong reason.
+
+  EQUAL COUNTS WERE CHECKED, NOT ASSUMED. file_exists=0 and non-absolute-path
+  are both 27, which is exactly the shape the item-12 investigation warned
+  about: it had found two producers returning 2 over DISJOINT sets. The
+  intersection was measured (27, with both one-sided differences ZERO) before
+  concluding they are one population.
+
+TWO CLAIMS IN THIS REGISTER ARE REFUTED BY THESE NUMBERS:
+
+  - "prefer resolve-and-merge over delete -- each ghost has a scanned twin"
+    (15.11's ghost-row paragraph). ZERO of the 27 have an absolute twin by
+    basename. The repair strategy that guidance implies has no basis, and it
+    would have shaped the fix. Deleted from the plan, not softened.
+  - "bitrot.verify_one WRITES false integrity_issues rows, run nightly by
+    bg_scheduler.py:252" (15.20, filed as the item's highest-urgency unknown
+    because of the write side effect). The integrity_issues table EXISTS and
+    holds ZERO rows. Nothing has been written, ever. The verifier that called
+    this claim FATAL-wrong as stated was right and the agent that filed it
+    was wrong -- recorded because 15.20 explicitly left it contested and this
+    is the settlement.
+    Its sibling defect is UNAFFECTED and still real:
+    library_final.regen_nfos_from_history:474 resolves a bare basename
+    CWD-relative and is a total no-op on the box. Read-only, so it has cost
+    only silence.
+
+15.11's GHOST-ROW UNKNOWN IS SETTLED at 27, all seeded. That figure had been
+carried unverified since the item was filed.
+
+CONSEQUENCE FOR #7, and it is a real change of shape rather than a detail.
+Item 12 needs no fix of its own; it collapses into #7. But #7's spec
+recommends RECORDING the library twins rather than deleting them, and that
+recommendation was made without knowing what the twins were. They are 27
+rows, 63% of the entire library table, and 100% of the Library panel's
+"missing" count. Deleting them clears a false operator-facing signal;
+recording them preserves it. OPERATOR DECISION, not an implementation
+detail -- do not let the spec's default stand unexamined.
+
+WHAT THE 8-PRODUCER DIVERGENCE FINDING STILL MEANS. 15.20 records that item
+12's investigation found eight producers of a "missing" figure across three
+tables, that the enumeration was already proven non-exhaustive, and that two
+producers returned equal counts over disjoint sets. NONE of that is refuted
+here -- the divergence is a real source-level defect and remains OPEN. What
+is closed is the motivating case: the specific number on the operator's panel
+had a single, mundane cause, and knowing which of the eight surfaces he was
+reading would never have revealed it. The divergence should be re-filed on
+its own merits, at its own priority, rather than inherited as urgent because
+of a symptom that turned out to be seeded data.
+
+METHOD NOTE, because it nearly went the other way. The first probe handed to
+the operator ended with an unconditional `echo "(blank above = bitrot has
+never run)"` -- a line that printed its conclusion whether or not the command
+succeeded, and it DID print on a box with no sqlite3 CLI installed. A verdict
+whose evidence cannot fail to appear is not a verdict. The replacement
+derived every conclusion from an actual result and distinguished
+table-absent from table-empty, which is what made the bitrot settlement
+trustworthy rather than a second guess.
