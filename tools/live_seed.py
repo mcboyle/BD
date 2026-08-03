@@ -1153,7 +1153,11 @@ def _twin_scan(client, doomed_ids):
                 where = (f"the continuation page at after_id={cursor} "
                          f"returned zero rows, and the page before it handed "
                          f"back that cursor -- next_cursor is non-None only "
-                         f"on a FULL page (library.py:360-361)")
+                         f"on a FULL page (library.py:360-361), so a HEALTHY "
+                         f"library holding an exact multiple of {_TWIN_PAGE} "
+                         f"rows produces this body every time it is scanned, "
+                         f"and that is one of the two causes this page cannot "
+                         f"be separated into")
             report["warnings"].append(
                 f"twin scan: {where}, with {len(doomed_ids)} history id(s) "
                 f"doomed. library.library_browse swallows every exception "
@@ -1240,15 +1244,27 @@ def clear_seeded_history(client, *, dry_run: bool = False,
     provenance it finds: a number is not measured after an event merely
     because it is printed after it.
 
-    `found` VS `seen`, AND WHY THE REPORT DIVIDES BY `seen`. `found` is
-    round ONE's read count and nothing else, and that read asks for
-    limit=_HISTORY_PAGE -- so on a large residue it is a PAGE, not a total.
-    `deleted` accumulates across every round. Dividing one by the other
-    printed "600 of 500 removed": two numbers measured over different
-    denominators, presented as a ratio. `seen` is the union of DISTINCT
-    marked ids across every round, which is the population `deleted` is
-    drawn from, so it is the commensurable denominator. (A row whose id is
-    not an integer is in neither number: _row_ids skips it, and nothing can
+    `found`, `seen`, `eligible`, AND WHICH ONE THE REPORT DIVIDES BY.
+    `found` is round ONE's read count and nothing else, and that read asks
+    for limit=_HISTORY_PAGE -- so on a large residue it is a PAGE, not a
+    total. `deleted` accumulates across every round. Dividing one by the
+    other printed "600 of 500 removed": two numbers measured over different
+    denominators, presented as a ratio.
+
+    `seen` is the union of DISTINCT marked ids across every round -- every
+    row the reads SAW, owned or not. It is NOT the population `deleted` is
+    drawn from, and this paragraph used to say it was: `seen_ids.update(
+    _row_ids(rows))` takes every marked row, while the deletes are drawn
+    from `owned` alone, so an unowned row -- structurally undeletable, which
+    is the entire point of the ownership predicate and what CLEAR SKIPPED
+    says out loud -- inflated a denominator it could never enter.
+
+    `eligible` IS that population: len(targeted_ids), the union of ids the
+    ownership predicate admitted, and it is what the CLEARED line divides
+    by. `seen` is still reported beside it, because "saw 3, could delete 2"
+    is the fact that explains the difference; dropping it would narrow what
+    the operator is told rather than correct it. (A row whose id is not an
+    integer is in none of the three: _row_ids skips it, and nothing can
     delete it.)
 
     THE CANARY, AND THE TWO SHORTFALLS IT MUST NOT CONFLATE. Before
@@ -1270,7 +1286,8 @@ def clear_seeded_history(client, *, dry_run: bool = False,
     """
     out = {"action": "clear_seeded_history", "marker": SEED_MARKER,
            "dry_run": bool(dry_run), "readable": False,
-           "found": None, "seen": 0, "unowned": 0, "targeted": 0,
+           "found": None, "seen": 0, "eligible": 0, "unowned": 0,
+           "targeted": 0,
            "deleted": 0, "rounds": 0, "remaining": None,
            "remaining_readable": False, "remaining_source": None,
            "stalled": False, "canary": None,
@@ -1286,6 +1303,7 @@ def clear_seeded_history(client, *, dry_run: bool = False,
     exhausted = True
     targeted_ids = set()
     seen_ids = set()
+    twin_rounds = 0
     for round_no in range(1, max(1, int(max_rounds)) + 1):
         rows, readable = _seeded_history_rows(client)
         if not readable:
@@ -1360,16 +1378,41 @@ def clear_seeded_history(client, *, dry_run: bool = False,
                     f"writer looks like; the clear continues and the "
                     f"re-measured remainder settles it. Response: "
                     f"{str(resp)[:200]}")
-        # TWIN SCAN AND DELETE -- BEFORE the history deletes (register 15.23
-        # decision 1). The scan counters record THIS round's scan; matched,
-        # deleted, already_gone and errors accumulate across rounds; the
-        # final verification pass below writes `remaining` and NOTHING else.
         targeted_ids.update(ids)
+        # `eligible` is maintained HERE, beside the set it counts, so the
+        # report's denominator cannot drift from the population the deletes
+        # are drawn from. The two paths that stop before this line -- the
+        # no-owned-ids break and the canary abort -- leave it 0, which is
+        # true: nothing was eligible for a delete that never happened.
+        out["eligible"] = len(targeted_ids)
+        # TWIN SCAN AND DELETE -- BEFORE the history deletes (register 15.23
+        # decision 1). WHICH FIELDS ARE WHOSE: pages and rows_scanned
+        # describe THIS round's scan; matched, deleted, already_gone, errors
+        # and blind_pages accumulate across rounds; scan_complete and
+        # conclusive are FOLDED with AND, never assigned; the final
+        # verification pass below writes `remaining` and NOTHING else.
+        #
+        # The fold is not cosmetic. Assigning conclusive per round let a
+        # later HEALTHY round overwrite an earlier BLIND one, so the report
+        # -- and the TWINS UNVERIFIED line that keys off exactly that field
+        # -- claimed the derivation was conclusive for a pass in which one
+        # round's twins were never seen. A blind page belongs to the clear,
+        # not to the round it happened in. The first fold cannot be an AND:
+        # both flags start False (meaning "no scan has run yet"), so round
+        # one ASSIGNS and every round after it narrows.
         scan = _twin_scan(client, set(ids))
+        twin_rounds += 1
         twins["pages"] = scan["pages"]
         twins["rows_scanned"] = scan["rows_scanned"]
-        twins["scan_complete"] = scan["scan_complete"]
-        twins["conclusive"] = scan["conclusive"]
+        twins["blind_pages"].extend(scan["blind_pages"])
+        if twin_rounds == 1:
+            twins["scan_complete"] = scan["scan_complete"]
+            twins["conclusive"] = scan["conclusive"]
+        else:
+            twins["scan_complete"] = bool(twins["scan_complete"]
+                                          and scan["scan_complete"])
+            twins["conclusive"] = bool(twins["conclusive"]
+                                       and scan["conclusive"])
         twins["matched"] += len(scan["matched_ids"])
         out["warnings"].extend(scan["warnings"])
         if dry_run:
@@ -1457,7 +1500,12 @@ def clear_seeded_history(client, *, dry_run: bool = False,
         # across rounds. Writes twins["remaining"] (plus its own warning or
         # error) and NOTHING ELSE: pages/rows_scanned/matched above are the
         # round scan's findings, and clobbering them would make the report
-        # describe a different pass than the one that deleted.
+        # describe a different pass than the one that deleted. blind_pages
+        # and conclusive are in that set too -- this scan runs AFTER the
+        # deletes, so a page going blind here is not a page the derivation
+        # was blind on. Its own inconclusiveness is reported where it
+        # belongs: remaining stays None (UNKNOWN, not zero) and its warnings
+        # are copied to out["warnings"] below.
         verify = _twin_scan(client, set(targeted_ids))
         if verify["conclusive"]:
             leftover = len(verify["matched_ids"])
@@ -1695,6 +1743,68 @@ def teardown(client, *, dry_run: bool = False,
     return plan
 
 
+def _twins_unverified_reason(twins) -> str:
+    """WHICH inconclusive the twin scan was, and which cases it cannot separate.
+
+    One branch printed ONE sentence -- the swallowed-exception story -- for
+    three different states, and it is only true of the first:
+
+      * a blind FIRST page. library.library_browse swallows every exception
+        into ([], None) (library.py:363-364), so an unreadable or missing
+        table and a library that genuinely holds no twins arrive identically.
+      * a blind CONTINUATION page. next_cursor is non-None only on a FULL
+        page (library.py:360-361), so a HEALTHY library whose row count is an
+        exact multiple of _TWIN_PAGE ends on a full page, hands back a cursor,
+        and answers the follow-up with zero rows. Over this API that is
+        genuinely indistinguishable from a table that became unreadable
+        mid-scan -- so the conservative UNKNOWN stands, and the line says
+        WHICH TWO CAUSES it cannot separate instead of asserting the alarming
+        one. Telling an operator the library may be unreadable when the
+        ordinary cause is a full last page is a gate crying wolf.
+      * a TRUNCATED scan: the page bound reached with the cursor still set.
+        Nothing was swallowed and no page came back empty -- the scan stopped
+        itself. Naming a swallowed exception there is a cause not in evidence.
+
+    A report carrying none of those facts is inconclusive for an UNRECORDED
+    reason, and says that rather than picking a story.
+    """
+    twins = twins or {}
+    blind = list(twins.get("blind_pages") or [])
+    parts = []
+    if None in blind:
+        parts.append(
+            "the FIRST browse page returned zero rows, and "
+            "library.library_browse swallows every exception into ([], None) "
+            "(library.py:363-364), so an unreadable or missing library table "
+            "arrives over HTTP as the same body as a library that genuinely "
+            "holds no twins")
+    continuations = [c for c in blind if c is not None]
+    if continuations:
+        where = ", ".join(str(c) for c in continuations)
+        parts.append(
+            f"the continuation page(s) at after_id={where} returned "
+            f"zero rows, which this tool cannot separate into its two causes: "
+            f"a HEALTHY library holding an exact multiple of {_TWIN_PAGE} "
+            f"rows, whose last page is full so library.py:360-361 hands back "
+            f"a cursor and the page after it is honestly empty; or a library "
+            f"that became unreadable mid-scan (library.py:363-364). "
+            f"UNVERIFIED is not the same claim as broken")
+    if not twins.get("scan_complete"):
+        parts.append(
+            f"the scan stopped at its {_TWIN_MAX_PAGES}-page bound with the "
+            f"cursor still set, so the library rows past that were never "
+            f"asked for -- a bound this tool reached, not a table that failed")
+    if not parts:
+        parts.append(
+            "the scan reported itself inconclusive while recording neither a "
+            "blind page nor an incomplete read, so WHY is unrecorded -- which "
+            "is itself an unknown and not a clean result")
+    return ("the library twin scan could not prove what the library holds: "
+            + "; ".join(parts)
+            + ". Whether a twin of the deleted history rows remains is "
+              "UNKNOWN rather than zero.")
+
+
 def _report_residue(plan) -> None:
     """Say out loud what teardown could not remove.
 
@@ -1727,12 +1837,8 @@ def _report_residue(plan) -> None:
                   f"while {SEED_MARKER} history rows remained.",
                   file=sys.stderr)
         if twins and twins.get("conclusive") is False:
-            print(f"live_seed: TWINS UNVERIFIED - the library twin scan "
-                  f"could not prove anything: library.library_browse "
-                  f"swallows every exception into ([], None) "
-                  f"(library.py:363-364), so an unreadable or missing "
-                  f"library table is indistinguishable over HTTP from a "
-                  f"library with no twins.", file=sys.stderr)
+            print(f"live_seed: TWINS UNVERIFIED - "
+                  f"{_twins_unverified_reason(twins)}", file=sys.stderr)
     # PROVENANCE, not a slogan. Only the post-delete re-read earns the words
     # "measured after the clear"; the canary abort and the no-owned-ids break
     # return the round's opening read, and a report dict carrying no source
@@ -1752,12 +1858,31 @@ def _report_residue(plan) -> None:
     else:
         residue_prov = "the provenance of this number is UNRECORDED"
         cleared_prov = "the provenance of this number is UNRECORDED"
-    # `seen` is the denominator commensurable with `deleted` (see
-    # clear_seeded_history). `found` is round one's single capped read and is
-    # printed beside it, never as the divisor.
+    # `eligible` is the denominator commensurable with `deleted` (see
+    # clear_seeded_history): the union of ids the ownership predicate
+    # admitted, which is the population the deletes were drawn from. `seen`
+    # counts every marked row the reads saw, owned or not, and `found` is
+    # round one's single capped read; both are printed BESIDE the ratio and
+    # neither is the divisor. A report written before `eligible` existed
+    # carries no such key, so the line falls back -- and SAYS it fell back,
+    # rather than printing an older number under the new description.
     seen = clear.get("seen")
     if seen is None:
         seen = found
+    eligible = clear.get("eligible")
+    if eligible is None:
+        eligible = seen
+        divisor = ("this report carries no eligible-set count, so the "
+                   "denominator is every marked row seen and includes any "
+                   "row this tool could not prove it owned")
+        eligible_phrase = ("and how many of them this tool could prove it "
+                           "owned is UNRECORDED in this report")
+    else:
+        divisor = ("the denominator is the ELIGIBLE set -- the ids the "
+                   "ownership predicate admitted, which is the population "
+                   "these deletes were drawn from")
+        eligible_phrase = (f"of which {eligible} were provably this tool's "
+                           f"and so eligible for deletion")
     rounds = clear.get("rounds", 0)
     if rows is None:
         print(f"live_seed: RESIDUE UNKNOWN - could not read /api/history, so "
@@ -1767,18 +1892,21 @@ def _report_residue(plan) -> None:
         extra = ""
         if cleared:
             extra = (f" (round one's read saw {found}; {seen} distinct "
-                     f"marked id(s) seen across {rounds} round(s); "
-                     f"{clear.get('deleted', 0)} removed; {residue_prov})")
+                     f"marked id(s) seen across {rounds} round(s), "
+                     f"{eligible_phrase}; {clear.get('deleted', 0)} removed; "
+                     f"{residue_prov})")
         print(f"live_seed: RESIDUE - {rows} {SEED_MARKER} history row(s) "
               f"remain after teardown{extra}. {RESIDUE_NOTE}",
               file=sys.stderr)
     elif cleared:
-        print(f"live_seed: CLEARED - {clear.get('deleted', 0)} of {seen} "
-              f"{SEED_MARKER} history row(s) removed across {rounds} "
-              f"round(s); round one's single read saw {found} and is capped "
-              f"at limit={_HISTORY_PAGE}, so it is NOT the denominator of a "
-              f"multi-round clear; {twins.get('deleted', 0)} library twin(s) "
-              f"removed; 0 remain, {cleared_prov}. {CLEAR_LEFTOVER_NOTE}",
+        print(f"live_seed: CLEARED - {clear.get('deleted', 0)} of "
+              f"{eligible} {SEED_MARKER} history row(s) removed across "
+              f"{rounds} round(s); {divisor}. {seen} distinct marked row(s) "
+              f"were seen in all and round one's single read saw {found}, "
+              f"capped at limit={_HISTORY_PAGE}, so neither of those is the "
+              f"denominator of a multi-round clear; "
+              f"{twins.get('deleted', 0)} library twin(s) removed; 0 remain, "
+              f"{cleared_prov}. {CLEAR_LEFTOVER_NOTE}",
               file=sys.stderr)
 
 

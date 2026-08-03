@@ -79,8 +79,36 @@ archive is not present in this repository; consult source-control history.
   (F4) the CLEARED line divided deleted (accumulated across rounds) by found
   (one read capped at _HISTORY_PAGE), printing "600 of 500 removed" on a
   two-round clear. The report gains seen -- the union of distinct marked ids
-  across every round, the population deleted is drawn from -- and the line
-  divides by that, with found printed beside it and labelled as a page.
+  across every round -- and found is printed beside the ratio, labelled as a
+  page. (seen was ALSO described, here and in the docstring, as the
+  population deleted is drawn from. It is not; see R2 below.)
+- Third pass, re-deriving those four fixes against the shipped code: all four
+  closed in both directions, and four residuals stood beside them. Each has a
+  RED test in tests/test_live_seed_starts_and_settles.py before its fix.
+  (R1) twins.blind_pages was declared in the clear report and NEVER written,
+  so the machine-readable plan said no page went blind while asserting
+  conclusive false one key away -- the F1 defect class inside the F1 fix. The
+  per-round copy carries it now, and an honest fully-read scan still reports
+  none.
+  (R2) seen is every marked row the reads SAW, owned or not, while the
+  deletes are drawn from owned alone, so an unowned row inflated a
+  denominator it could never enter. The report gains eligible
+  (len(targeted_ids), the union the ownership predicate admitted), the
+  CLEARED line divides by that and NAMES which set it divided by, and seen is
+  still printed beside it.
+  (R3) TWINS UNVERIFIED printed the swallowed-exception sentence for all
+  three inconclusive states. It now names the one it has: a blind FIRST page
+  (unreadable table vs a library with no twins); a blind CONTINUATION page (a
+  healthy library holding an exact multiple of 500 rows, whose last page is
+  full and hands back a cursor, vs a table that became unreadable mid-scan --
+  indistinguishable over this API, so the conservative UNKNOWN stands and the
+  line says which two cases it cannot separate); or a scan truncated at its
+  40-page bound, which is evidence about the bound and not about the table.
+  (R4) twins.conclusive was ASSIGNED per round, so a later healthy round
+  overwrote an earlier blind one and suppressed TWINS UNVERIFIED. conclusive
+  and scan_complete now fold with AND across rounds and blind_pages
+  accumulates; a two-round clear whose every scan read to the end still
+  reports conclusive.
 
 ## v3.66.846 - qB/JD completions record the largest media file
 

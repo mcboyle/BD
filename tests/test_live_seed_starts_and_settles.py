@@ -2518,3 +2518,368 @@ def test_the_cleared_line_never_reports_more_removed_than_it_found(capsys):
         f"_HISTORY_PAGE={page}; `removed` accumulated across {2} rounds. The "
         f"two are measured over different denominators and must not be "
         f"printed as a ratio. Full stderr: {err!r}")
+
+
+# ── residuals from the re-derive pass over the F1-F4 fixes (R1-R4) ──────────
+#
+# The four F-fixes closed, in both directions. These are what the re-derive
+# lens found still standing beside them: three report fields that assert more
+# (or other) than the code established, and one stderr line that names a cause
+# it has no evidence for. Each test below FAILS on the tree as committed at
+# b77c409 and each carries the over-sensitive direction in the same test.
+
+
+def _twin_row(lid, hid):
+    """One /api/library/browse row, shaped as library.py:299 `SELECT l.*`."""
+    return {"id": lid, "history_id": hid, "title": f"t{lid}",
+            "file_path": f"/{lid}"}
+
+
+def _twins_unverified_line(err):
+    """The one stderr line the TWINS UNVERIFIED verdict is printed on."""
+    lines = [ln for ln in err.splitlines() if "TWINS UNVERIFIED" in ln]
+    return lines[0] if lines else ""
+
+
+def test_the_clear_report_names_the_page_the_scan_went_blind_on():
+    """R1. twins['blind_pages'] is declared in the clear report and NEVER written.
+
+    _twin_scan records every zero-row page in its own report['blind_pages'],
+    and clear_seeded_history copies four of that report's fields into
+    out['twins'] -- pages, rows_scanned, scan_complete, conclusive -- but not
+    that one. The key is initialised to [] in the report dict and nothing
+    assigns it afterwards, so the MACHINE-READABLE plan main() prints says no
+    page went blind while, one key away, asserting conclusive: false.
+
+    That is the F1 defect class reproduced by the F1 fix: a field asserting
+    something the code did not establish. The human-readable warning does name
+    the page; the report contradicts it. capture.sh's failure branch greps the
+    stderr, and anything consuming the plan JSON reads the other one, so the
+    two surfaces disagree about the same scan.
+
+    BOTH DIRECTIONS. Writing the cursor unconditionally would make an honest,
+    fully-read library report a blind page, so the healthy two-page scan below
+    must keep blind_pages EMPTY and conclusive TRUE.
+    """
+    seed = _load()
+    owned = [_owned_row(seed, 11), _owned_row(seed, 12, index=1)]
+    survivor = [_twin_row(9000, 555555)]
+
+    blind = FakeClient({
+        _history_key(seed): [_Reply(list(owned)), _Reply([])],
+        ("GET", "/api/library/browse?limit=500"): [
+            _Reply(_browse_body([_twin_row(42, 11)], next_cursor=4242)),
+            _Reply(_browse_body(survivor))],
+        ("GET", "/api/library/browse?limit=500&after_id=4242"): _BLIND_BROWSE,
+        ("DELETE", "/api/library/42"): {"ok": True, "deleted_row": True},
+        ("POST", "/api/batch/delete"): [_canary_reply(2), _delete_reply(2)],
+    })
+    out = seed.clear_seeded_history(blind)
+    twins = out["twins"]
+    assert "/api/library/browse?limit=500&after_id=4242" in blind.paths("GET"), (
+        f"the clear's twin scan never followed the cursor into the blind "
+        f"page, so this fixture was not exercised and the verdict below is "
+        f"about nothing: {blind.paths('GET')}")
+    assert twins["conclusive"] is False, (
+        f"the fixture did not reach the state this test is about -- the scan "
+        f"read a blind continuation page and still called itself conclusive: "
+        f"{twins}")
+    warned = " ".join(str(w) for w in out["warnings"])
+    assert "4242" in warned, (
+        f"no warning names the page that came back blind, so this test cannot "
+        f"compare the report against the observation: {out['warnings']!r}")
+    assert twins["blind_pages"] == [4242], (
+        f"the clear report carries blind_pages={twins['blind_pages']!r} while "
+        f"its own warning names after_id=4242 as the page that came back with "
+        f"zero rows and its own conclusive flag is False. The report and the "
+        f"verdict disagree about the same scan: a reader of the plan JSON is "
+        f"told NO page went blind, which is the F1 failure -- a field "
+        f"asserting something the code did not establish -- inside the F1 "
+        f"fix. warnings={out['warnings']!r} twins={twins}")
+    assert (twins["conclusive"] is False) is bool(
+        twins["blind_pages"] or not twins["scan_complete"]), (
+        f"the report's conclusive flag cannot be derived from the two facts "
+        f"the report carries (blind_pages, scan_complete), so one of them is "
+        f"decoration: {twins}")
+
+    healthy = FakeClient({
+        _history_key(seed): [_Reply(list(owned)), _Reply([])],
+        ("GET", "/api/library/browse?limit=500"): [
+            _Reply(_browse_body([_twin_row(42, 11)], next_cursor=4242)),
+            _Reply(_browse_body(survivor))],
+        ("GET", "/api/library/browse?limit=500&after_id=4242"):
+            _browse_body([_twin_row(20, 12)]),
+        ("DELETE", "/api/library/42"): {"ok": True, "deleted_row": True},
+        ("DELETE", "/api/library/20"): {"ok": True, "deleted_row": True},
+        ("POST", "/api/batch/delete"): [_canary_reply(2), _delete_reply(2)],
+    })
+    ok_out = seed.clear_seeded_history(healthy)
+    ok_twins = ok_out["twins"]
+    assert "/api/library/browse?limit=500&after_id=4242" in healthy.paths("GET"), (
+        f"the honest fixture's continuation page was never requested: "
+        f"{healthy.paths('GET')}")
+    assert ok_twins["blind_pages"] == [], (
+        f"a two-page scan whose every page carried rows reported blind pages "
+        f"{ok_twins['blind_pages']!r}. Recording a page as blind because the "
+        f"scan paginated is the over-sensitivity half of CLAUDE.md 0 -- a gate "
+        f"that cries wolf gets switched off: {ok_twins}")
+    assert ok_twins["conclusive"] is True, (
+        f"the honest, fully-read two-page scan was reported inconclusive: "
+        f"{ok_twins}")
+
+
+def test_a_later_healthy_round_does_not_erase_an_earlier_blind_one():
+    """R4. twins['conclusive'] is ASSIGNED per round, not AND-ed.
+
+    The clear's round loop copies `scan["conclusive"]` over twins["conclusive"]
+    on every round, so round two's healthy scan overwrites round one's blind
+    one and the report ends up claiming the twin derivation was conclusive for
+    a pass in which it was not. _report_residue keys TWINS UNVERIFIED off that
+    same field, so the operator is not told either -- the one round whose twins
+    were never seen is the round that gets erased.
+
+    A boolean copied per round is a statement about the LAST round wearing the
+    name of the whole pass. The blind page belongs to the clear, not to the
+    round it happened in.
+
+    BOTH DIRECTIONS. Latching conclusive to False for every multi-round clear
+    would satisfy the first half and cry wolf on every clear that needed two
+    rounds, so the two-healthy-round fixture below must stay conclusive.
+    """
+    seed = _load()
+    first = [_owned_row(seed, 11), _owned_row(seed, 12, index=1)]
+    second = [_owned_row(seed, 13, index=2)]
+    survivor = [_twin_row(9000, 555555)]
+
+    client = FakeClient({
+        _history_key(seed): [_Reply(list(first)), _Reply(list(second)),
+                             _Reply(list(second)), _Reply([])],
+        ("GET", "/api/library/browse?limit=500"): [
+            # round 1: a full page handing back a cursor ...
+            _Reply(_browse_body([_twin_row(42, 11)], next_cursor=4242)),
+            # round 2: healthy, single page, end of library ...
+            _Reply(_browse_body([_twin_row(99, 13)])),
+            # ... and the final verification pass.
+            _Reply(_browse_body(survivor))],
+        # ... answered with the blind body. Round 1 only: round 2's page
+        # carries no cursor, so nothing follows one.
+        ("GET", "/api/library/browse?limit=500&after_id=4242"): _BLIND_BROWSE,
+        ("DELETE", "/api/library/42"): {"ok": True, "deleted_row": True},
+        ("DELETE", "/api/library/99"): {"ok": True, "deleted_row": True},
+        ("POST", "/api/batch/delete"): [_canary_reply(2), _delete_reply(2),
+                                        _delete_reply(1)],
+    })
+    out = seed.clear_seeded_history(client)
+    twins = out["twins"]
+    assert out["rounds"] == 2, (
+        f"the fixture did not run the two rounds this test is about "
+        f"(rounds={out['rounds']!r}), so the overwrite it is about never "
+        f"happened: {out}")
+    assert "/api/library/browse?limit=500&after_id=4242" in client.paths("GET"), (
+        f"round one's scan never followed the cursor into the blind page: "
+        f"{client.paths('GET')}")
+    assert twins["conclusive"] is False, (
+        f"the clear reports twins.conclusive={twins['conclusive']!r} after a "
+        f"pass whose FIRST round read a blind continuation page. Round two's "
+        f"healthy scan was assigned over the top of it, so the report -- and "
+        f"the TWINS UNVERIFIED line that keys off it -- says the twin "
+        f"derivation was conclusive for a clear in which one round's twins "
+        f"were never seen. History id 12's twin is neither deleted nor "
+        f"reported unseen: {out}")
+    assert 4242 in twins["blind_pages"], (
+        f"round one's blind page is absent from the accumulated report: "
+        f"{twins}. The page went blind during THIS clear; which round it "
+        f"happened in does not unmake it.")
+
+    healthy = FakeClient({
+        _history_key(seed): [_Reply(list(first)), _Reply(list(second)),
+                             _Reply(list(second)), _Reply([])],
+        ("GET", "/api/library/browse?limit=500"): [
+            _Reply(_browse_body([_twin_row(42, 11)])),
+            _Reply(_browse_body([_twin_row(99, 13)])),
+            _Reply(_browse_body(survivor))],
+        ("DELETE", "/api/library/42"): {"ok": True, "deleted_row": True},
+        ("DELETE", "/api/library/99"): {"ok": True, "deleted_row": True},
+        ("POST", "/api/batch/delete"): [_canary_reply(2), _delete_reply(2),
+                                        _delete_reply(1)],
+    })
+    ok_out = seed.clear_seeded_history(healthy)
+    assert ok_out["rounds"] == 2, (
+        f"the inverse fixture did not run two rounds either, so it cannot "
+        f"prove the fix is not latching: {ok_out}")
+    assert ok_out["twins"]["conclusive"] is True, (
+        f"a two-round clear whose every scan read to the end of the library "
+        f"with rows on every page was reported INCONCLUSIVE: "
+        f"{ok_out['twins']}. Latching the flag off because the clear needed "
+        f"more than one round is over-sensitivity, which CLAUDE.md 0 counts "
+        f"as a soundness bug in its own right.")
+
+
+def test_the_cleared_line_divides_by_the_population_it_deleted_from(capsys):
+    """R2. `seen` is described, and printed, as a population it is not.
+
+    clear_seeded_history's docstring says `seen` "is the population `deleted`
+    is drawn from, so it is the commensurable denominator", and the CLEARED
+    line divides by it. But `seen` is fed by `seen_ids.update(_row_ids(rows))`
+    -- EVERY marked row -- while the deletes are drawn only from `owned`, the
+    rows whose site_name also carries the marker. An unowned row is
+    structurally undeletable (that is the entire point of the ownership
+    predicate, and CLEAR SKIPPED says so out loud two lines earlier), so it
+    can never enter the numerator and inflates the denominator by one.
+
+    `targeted_ids` -- the exact union of ids the clear was eligible to delete
+    -- is already computed for the final twin verification and is unused by
+    the report. This is F3's shape: a number presented under a description of
+    a measurement that produced a different one.
+
+    NOTHING IS NARROWED HERE. `seen` stays the union of every distinct marked
+    id observed -- that is a real quantity and the fixture asserts it is still
+    3 -- it just stops being called the population the deletes came from.
+    """
+    seed = _load()
+    rows = [_owned_row(seed, 11), _owned_row(seed, 12, index=1),
+            _unowned_row(seed, 21, index=2)]
+    client = _teardown_stubs(
+        seed,
+        [_Reply(list(rows)), _Reply(list(rows)), _Reply([])],
+        {("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE,
+         ("POST", "/api/batch/delete"): [_canary_reply(2), _delete_reply(2)]})
+    plan = seed.teardown(client, clear_history=True)
+    seed._report_residue(plan)
+    err = capsys.readouterr().err
+    clear = _clear_of(plan)
+
+    assert clear.get("unowned") == 1, (
+        f"the fixture's unowned row was not classified as unowned, so this "
+        f"test is not about the mismatch it names: {clear}")
+    assert clear.get("seen") == 3 and clear.get("deleted") == 2, (
+        f"the fixture did not reach seen=3 / deleted=2: {clear}")
+    assert clear.get("remaining") == 0, (
+        f"the clear did not finish, so no CLEARED line is printed and this "
+        f"test's subject does not exist: {clear}")
+    match = re.search(r"CLEARED - (\d+) of (\d+) ", err)
+    assert match, (
+        f"no CLEARED line was printed, so there is nothing to check: {err!r}")
+    removed, denominator = int(match.group(1)), int(match.group(2))
+    assert removed == 2, (
+        f"the CLEARED line's numerator is {removed}, not the 2 rows the clear "
+        f"deleted: {err!r}")
+    assert clear.get("eligible") == 2, (
+        f"the clear report carries eligible={clear.get('eligible')!r}. The "
+        f"union of ids this clear was actually eligible to delete is exactly "
+        f"2 (rows 11 and 12; row 21 carries the marker in its URL but not in "
+        f"site_name and is never deletable), and that union is already "
+        f"computed as `targeted_ids` for the final twin verification. Without "
+        f"it in the report the machine-readable plan carries no denominator "
+        f"commensurable with `deleted`: {clear}")
+    assert denominator == clear.get("eligible") == 2, (
+        f"the CLEARED line reads '{match.group(0).strip()}' -- {removed} of "
+        f"{denominator}. The denominator counts a row the clear could not "
+        f"delete under any circumstances, so it is not the population the "
+        f"numerator was drawn from; the CLEAR SKIPPED line in the same stderr "
+        f"says that row was skipped. A ratio whose halves were measured over "
+        f"different denominators is what F4 fixed for `found`, one field "
+        f"across. stderr: {err!r}")
+    assert "3" in err, (
+        f"the count of distinct marked ids the clear SAW (3) vanished from "
+        f"the report entirely. It is a real quantity and dropping it narrows "
+        f"what the operator is told rather than correcting it: {err!r}")
+
+
+def test_the_twins_unverified_line_names_the_case_it_cannot_rule_out(capsys):
+    """R3. One stderr line asserts one cause for three different inconclusives.
+
+    TWINS UNVERIFIED prints the same sentence -- "library.library_browse
+    swallows every exception into ([], None), so an unreadable or missing
+    library table is indistinguishable over HTTP from a library with no twins"
+    -- whatever made the scan inconclusive. That sentence is only true of a
+    blind FIRST page. Two other states reach the same branch:
+
+      * A blind CONTINUATION page. library.py:360-361 sets next_cursor
+        whenever len(rows) == limit, so a HEALTHY library whose row count is
+        an exact multiple of _TWIN_PAGE ends on a full page, hands back a
+        cursor, and answers the follow-up with zero rows. Over this API that
+        is genuinely indistinguishable from a table that became unreadable
+        mid-scan -- so the conservative UNKNOWN stands, but the line must say
+        WHICH TWO CASES it cannot separate instead of asserting the alarming
+        one. An exact-multiple library is the common benign cause and the
+        line currently tells the operator the library may be unreadable.
+      * A TRUNCATED scan: _TWIN_MAX_PAGES pages read with the cursor still
+        set. Nothing was swallowed and no page came back empty; the scan hit
+        its own bound. Naming a swallowed exception there is a cause not in
+        evidence.
+
+    The first-page case must KEEP its wording, so the fix cannot be a rewrite
+    that trades one wrong story for another.
+    """
+    seed = _load()
+    owned = [_owned_row(seed, 11), _owned_row(seed, 12, index=1)]
+    stubs = {("POST", "/api/batch/delete"): [_canary_reply(2),
+                                             _delete_reply(2)]}
+
+    # -- (a) a blind FIRST page: the existing wording is the right one -------
+    first_blind = _teardown_stubs(
+        seed, [_Reply(list(owned)), _Reply(list(owned)), _Reply([])],
+        {**stubs, ("GET", "/api/library/browse?limit=500"): _BLIND_BROWSE})
+    seed._report_residue(seed.teardown(first_blind, clear_history=True))
+    line = _twins_unverified_line(capsys.readouterr().err)
+    assert line, "a blind first page printed no TWINS UNVERIFIED line at all"
+    assert "library.py:363-364" in line, (
+        f"the first-page case lost the mechanism that makes it unknowable: "
+        f"{line!r}")
+    assert "no twins" in line, (
+        f"the first-page case no longer names the benign alternative (a "
+        f"library that genuinely holds no twins): {line!r}")
+    assert "multiple" not in line, (
+        f"the first-page case names the exact-multiple page-boundary story, "
+        f"which cannot apply: no cursor was ever handed back, so no page "
+        f"boundary was involved: {line!r}")
+
+    # -- (b) a blind CONTINUATION page: an exact-multiple library ------------
+    cont_blind = _teardown_stubs(
+        seed, [_Reply(list(owned)), _Reply(list(owned)), _Reply([])],
+        {**stubs,
+         ("GET", "/api/library/browse?limit=500"):
+             _browse_body([_twin_row(42, 999999)], next_cursor=4242),
+         ("GET", "/api/library/browse?limit=500&after_id=4242"):
+             _BLIND_BROWSE})
+    seed._report_residue(seed.teardown(cont_blind, clear_history=True))
+    line = _twins_unverified_line(capsys.readouterr().err)
+    assert line, "a blind continuation page printed no TWINS UNVERIFIED line"
+    assert "4242" in line, (
+        f"the line does not say WHERE the scan went blind, which is the one "
+        f"fact separating this from a first-page failure: {line!r}")
+    assert "multiple" in line and str(seed._TWIN_PAGE) in line, (
+        f"the TWINS UNVERIFIED line reads {line!r}. The page that came back "
+        f"empty is a CONTINUATION page, and library.py:360-361 hands back a "
+        f"cursor on every FULL page -- so a healthy library holding an exact "
+        f"multiple of {seed._TWIN_PAGE} rows produces this body every single "
+        f"time it is scanned. The line asserts the library may be unreadable "
+        f"and never names the benign case it cannot tell that apart from, so "
+        f"an operator reads a routine end-of-library as a broken table.")
+
+    # -- (c) a TRUNCATED scan: no page went blind at all ---------------------
+    loop_page = _browse_body([_twin_row(5, 999999)], next_cursor=7)
+    truncated = _teardown_stubs(
+        seed, [_Reply(list(owned)), _Reply(list(owned)), _Reply([])],
+        {**stubs,
+         ("GET", "/api/library/browse?limit=500"): loop_page,
+         ("GET", "/api/library/browse?limit=500&after_id=7"): loop_page})
+    plan = seed.teardown(truncated, clear_history=True)
+    seed._report_residue(plan)
+    line = _twins_unverified_line(capsys.readouterr().err)
+    twins = _clear_of(plan).get("twins") or {}
+    assert twins.get("scan_complete") is False and not twins.get("blind_pages"), (
+        f"the truncation fixture did not truncate (or went blind as well), so "
+        f"part (c) is about the wrong state: {twins}")
+    assert line, "a truncated scan printed no TWINS UNVERIFIED line"
+    assert str(seed._TWIN_MAX_PAGES) in line or "truncat" in line.lower(), (
+        f"the line does not say the scan hit its page bound: {line!r}")
+    assert "unreadable" not in line and "swallow" not in line, (
+        f"the TWINS UNVERIFIED line reads {line!r} for a scan that was "
+        f"TRUNCATED at its {seed._TWIN_MAX_PAGES}-page bound. Every page it "
+        f"read carried rows and none came back empty, so nothing here is "
+        f"evidence about a swallowed exception or an unreadable table -- the "
+        f"scan simply stopped. Asserting that cause is a claim the code did "
+        f"not establish, which is the same defect in prose that R1 is in a "
+        f"field.")
