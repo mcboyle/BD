@@ -4,6 +4,36 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.854 - nothing statically checked the 243 tools in toolchain/bin
+
+- ci.yml's compileall COMPILES without resolving names, and its pyflakes step is
+  advisory (`|| true`) AND scoped to bulk_downloader and tools. The 243
+  extensionless bd-* scripts in toolchain/bin therefore had no static checking
+  of any kind. bd-tool-smoke is the only instrument in the repo that reads them,
+  and it was unwired.
+- It found a real defect on its first run: bd-pack:169, `undefined name
+  'TRACKER_FILES'`. That list was deleted at v3.66.841 with the TASK_TRACKER
+  retirement and this use site was left behind, so any call reaching that line
+  raised NameError. bd-pack --selftest exits 0 because it drives a different
+  path, and both bd-tool-lint modes report "toolchain clean".
+- The retirement gate could not see it either, and the reason is precise:
+  tests/test_task_tracker_stays_retired.py polices the absence by scanning for
+  TASK_TRACKER references, and the string "TRACKER_FILES" does not contain
+  "TASK_TRACKER". The dangling name sat outside the gate's denominator. The
+  retirement removed the list and not its consumer; this completes it.
+- bd-tool-smoke's BIN was hardcoded to /home/claude/bin and WORK to
+  /home/claude/work. Both now resolve -- BIN from the tool's own location (it
+  lives in the bin it scans) and WORK from sec.DEFAULT_WORK. It runs with no
+  arguments and scans 243 tools.
+- STATED ACCURATELY: this tool was NOT a false-clean gate before the fix. With
+  the dead BIN it raised FileNotFoundError and exited 1 -- it failed CLOSED,
+  which is the correct behaviour. It was simply unusable without flags, so
+  nothing ever ran it. The defect was disuse, not blindness.
+- Wiring: the new test runs `bd-tool-smoke --gate`, and test_toolchain_534.py is
+  in CI's repo-wide gates lane as of v3.66.850, so no separate CI step is added.
+  The test asserts the scan count exceeds 100 before trusting a clean verdict --
+  a pass over a collapsed denominator would mean nothing.
+
 ## v3.66.853 - bd-docstale reported an 805-releases-behind doc as current
 
 - bd-docstale is the complement of bd-doc-truth (fixed @850): that one asks
