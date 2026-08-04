@@ -88,6 +88,57 @@ _MANIFEST_FALLBACK_NAMES = {"downloader_history.db", "app_config.json",
 _MANIFEST_FALLBACK_SUFFIXES = (".db", ".db-wal", ".db-shm")
 
 
+# ---------------------------------------------------------------- @859 REDACTION
+# A REDACTION TOOL MUST NOT DECIDE "TEXT" BY FILE EXTENSION.
+#
+# Measured at v3.66.858: bd-wacz-scrub, bd-scrub-proof and bd-share-safe each
+# carried their OWN hand-rolled TEXT_EXT allowlist -- three sets, no two
+# identical, and none containing ".warc". A WACZ's payload IS .warc, so a
+# capture whose archive/data.warc held `Authorization: Bearer ...` and
+# `Cookie: bd_session=...` was copied through untouched while the tool printed
+#
+#     scrubbed WACZ -> ... (1 redactions across 2 text members, VERIFIED CLEAN)
+#
+# and exited 0. The verifier shared the blind spot, so nothing downstream caught
+# it. The redactor itself was fine -- a .txt control in the same archive was
+# redacted correctly. The DENOMINATOR was the defect.
+#
+# An allowlist is the wrong SHAPE for a security tool: it fails open on every
+# extension nobody thought of, and the cost of that miss is a shipped
+# credential. Decide by CONTENT and fail CLOSED -- scan anything that is not
+# provably binary. A false positive costs a wasted scan; a false negative ships
+# the secret.
+_BINARY_SNIFF_BYTES = 8192
+
+
+def looks_binary(data):
+    """True only if `data` is PROVABLY binary. Ambiguity resolves to TEXT.
+
+    NUL is the discriminator: it cannot appear in UTF-8/ASCII text and is
+    present in essentially every real binary container. Everything else --
+    including .warc, .cdxj, and any extension not yet invented -- gets scanned.
+    """
+    head = data[:_BINARY_SNIFF_BYTES]
+    if b"\x00" in head:
+        return True
+    try:
+        head.decode("utf-8")
+        return False
+    except UnicodeDecodeError:
+        # Not valid UTF-8 and no NUL: could be latin-1 text carrying a secret.
+        # Fail CLOSED -- treat as scannable.
+        return False
+
+
+def should_scan(name, data):
+    """Should this archive member be scanned for secrets? Content, not name.
+
+    Kept as a named helper so the three share ONE answer; three divergent
+    allowlists is how the .warc gap survived in all of them at once.
+    """
+    return not looks_binary(data)
+
+
 def read_manifest_canon(work=None):
     """(names, paths, suffixes, source) -- the manifest-exclusion canon.
 

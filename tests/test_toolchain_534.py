@@ -968,3 +968,62 @@ def test_the_toolchain_does_not_grow_unbudgeted():
         "toolchain/bin holds %d bd-* tools, over the %d budget. Adding a tool "
         "owes retiring one: wire it, retire another, or raise _TOOL_BUDGET in "
         "this cut and say why." % (n, _TOOL_BUDGET))
+
+
+def test_a_scrubber_decides_text_by_content_not_by_extension():
+    """@859 -- the share chain shipped raw session credentials.
+
+    bd-wacz-scrub, bd-scrub-proof and bd-share-safe each carried their OWN
+    hand-rolled TEXT_EXT allowlist: three sets, no two identical, and none
+    containing ".warc". A WACZ's payload IS .warc, so a capture whose
+    archive/data.warc held `Authorization: Bearer ...` and `Cookie:
+    bd_session=...` was copied through untouched while the tool printed
+
+        scrubbed WACZ -> ... (1 redactions across 2 text members, VERIFIED CLEAN)
+
+    and exited 0. The VERIFIER shared the blind spot, so nothing downstream
+    caught it. Measured: a .txt control in the same archive WAS redacted, so the
+    redactor was fine -- the denominator was the defect.
+
+    An allowlist is the wrong SHAPE for a security tool: it fails open on every
+    extension nobody thought of, and the cost of that miss is a shipped
+    credential. Corpus values below are ZERO-ENTROPY repeats per CLAUDE.md s7 --
+    a realistic-looking token would make this file a place the secret lives, and
+    gitleaks scans the whole PR range.
+    """
+    root = str(_REPO_ROOT)
+    sys.path.insert(0, os.path.join(root, "toolchain", "bin"))
+    import importlib
+    sec = importlib.import_module("bdtools_sec")
+
+    # The exact miss: a WARC payload must be scannable.
+    assert sec.should_scan("archive/data.warc",
+                           b"WARC/1.1\r\nAuthorization: Bearer AAAAAAAAAAAAAAAA\r\n"), (
+        "a .warc member read as binary -- this is the WACZ payload, and it is "
+        "where the session credentials live.")
+
+    # ...and any extension nobody thought of.
+    for name in ("x.cdxj", "x.ndjson", "x.unheard-of", "no_extension_at_all"):
+        assert sec.should_scan(name, b"Cookie: bd_session=BBBBBBBBBBBBBBBB"), (
+            "%s read as binary; an allowlist fails open on exactly this." % name)
+
+    # OVER-SENSITIVITY CONTROL: real binary must still be skipped, or every
+    # scrub run pays to decode video. A tool that scans everything is not the
+    # fix -- deciding by CONTENT is.
+    assert not sec.should_scan("shot.png", b"\x89PNG\r\n\x1a\n\x00\x00\x00IHDR")
+    assert not sec.should_scan("clip.mp4", b"\x00\x00\x00 ftypmp42\x00\x00\x00\x00")
+
+    # Ambiguity resolves to TEXT -- fail closed. Latin-1 bytes are not valid
+    # UTF-8 and carry no NUL; a secret in that encoding must still be found.
+    assert sec.should_scan("odd.dat", b"caf\xe9 Cookie: bd_session=BBBBBBBBBBBBBBBB")
+
+    # And the three tools must all route through the ONE helper -- three
+    # divergent copies is how the same gap survived in all of them at once.
+    for tool in ("bd-wacz-scrub", "bd-scrub-proof", "bd-share-safe"):
+        src = open(os.path.join(root, "toolchain", "bin", tool),
+                   errors="replace").read()
+        assert "sec.should_scan(" in src, (
+            "%s does not use the shared content check; a private allowlist is "
+            "how this defect was born." % tool)
+        assert "if ext in TEXT_EXT" not in src, (
+            "%s still branches on an extension allowlist." % tool)
