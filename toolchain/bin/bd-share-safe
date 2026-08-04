@@ -30,6 +30,13 @@ def build(files, out, allow_capture):
     manifest=[]; refused=[]
     for f in files:
         if not os.path.exists(f): refused.append({"file":f,"reason":"not found"}); continue
+        # @863: refuse BEFORE anything is copied. This tool writes the
+        # artifact someone hands over, so it is the last place a
+        # credential store can be caught -- and it does not call
+        # bd-scrub-proof, so fixing that one did not fix this one.
+        _why=sec.credential_filename(f)
+        if _why:
+            refused.append({"file":f,"reason":_why}); continue
         ext=os.path.splitext(f)[1].lower()
         if ext in RAW_CAPTURE and not allow_capture:
             refused.append({"file":f,"reason":"raw capture (use --allow-capture to scrub+include)"}); continue
