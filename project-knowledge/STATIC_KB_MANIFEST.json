@@ -333,10 +333,6 @@
       "bytes": 2255,
       "sha256": "1ec5e8cf1b49bbc1453998889618de3109e86e9c37903ca32d6e14a7285f3956"
     },
-    "bd-audit": {
-      "bytes": 15650,
-      "sha256": "62fe7cbaaad8de4fb9b4179b3c6fb6d12a76647d24c7c30d9ffb8302b6822eaf"
-    },
     "bd-audit-gate.py": {
       "bytes": 5684,
       "sha256": "336a0bab398275e8c5d54a82a9e66df216c6752a2d44178353a78ff05f5dbfd1"
@@ -500,10 +496,6 @@
     "bd-deploy-proof": {
       "bytes": 4699,
       "sha256": "941c5f8366cbd853131e5740b20a8772013512b7b38ec4a02e5513adb90f84c0"
-    },
-    "bd-deploy-rehearse": {
-      "bytes": 15232,
-      "sha256": "d4857a89015eb87a93bd26fb14bd7c871886719582140876986931b9cf42aa9c"
     },
     "bd-deps": {
       "bytes": 3287,
@@ -681,10 +673,6 @@
       "bytes": 8326,
       "sha256": "6744230acf8f29376154f55a9168ccab68f1833aeeceafffafebac93558f234b"
     },
-    "bd-intake": {
-      "bytes": 6905,
-      "sha256": "5b99e29cae3731ab209a687a85d04f3c4a0fabe88367b6be297852f09695b279"
-    },
     "bd-interface-contracts": {
       "bytes": 2643,
       "sha256": "e00841f322a20c8364c562d2e933d2f40d75087ea1d44ba6c4b9b26c95b331f4"
@@ -812,14 +800,6 @@
     "bd-pack": {
       "bytes": 14209,
       "sha256": "28e0a55ce0f7c419d268de8c0ce6b11b2e37f251ba3d5454deca580c5a0ea542"
-    },
-    "bd-packs": {
-      "bytes": 3460,
-      "sha256": "78e55d50ff02830c04a307fcc1e772974ab1474af8641b8495bff10cb7e7c36a"
-    },
-    "bd-parallel": {
-      "bytes": 6761,
-      "sha256": "4a76d756a32b6e3a7cf3a173aa1c586a5651a2c48153303a42a025c521675374"
     },
     "bd-parband": {
       "bytes": 7717,
@@ -1013,10 +993,6 @@
       "bytes": 4456,
       "sha256": "4e11ad30373a0e90ed8cb06d79574bd6392ee7627becfd035abada59932b2782"
     },
-    "bd-rollback-plan": {
-      "bytes": 4381,
-      "sha256": "89e55f01ccd4c9d19c5d9ba1c62182c1fa3003310855f3d52d304014a7fd3623"
-    },
     "bd-route": {
       "bytes": 4328,
       "sha256": "9b513e8f866f67544124c55bef5f2879b5dd5e6d42c18adcb7a8761ce961713a"
@@ -1168,10 +1144,6 @@
     "bd-template-taint": {
       "bytes": 3602,
       "sha256": "c0152a6a68e38c093ce8d09c4f80097e4bab6436de1674f01156ecbe65eaa484"
-    },
-    "bd-time-travel": {
-      "bytes": 4443,
-      "sha256": "807f672c799a4dbaa64b343006853dc42669d730a14377ef34055df633487824"
     },
     "bd-timeit": {
       "bytes": 1389,
