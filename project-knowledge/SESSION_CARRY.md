@@ -1,4 +1,4 @@
-# SESSION_CARRY -- state of the 2026-07-28/29 session
+# SESSION_CARRY -- carried state, 2026-07-28 onward (newest section wins)
 
 ASCII-only.
 
@@ -3559,3 +3559,188 @@ STILL OPEN, unchanged by any of this:
       stage for capture.sh.
   166 bd-* tools remain prose-only. The ratchet stops that number growing;
       wiring or retiring them is its own work.
+
+### 15.29 | Mid-session record 2026-08-04 at 6296b06 (v3.66.867) -- SUPERSEDES 15.28's open set
+
+NOT a close section, deliberately. The session is still running, and 15.28
+records what happens when a close names a tip written before its own merge.
+Titled without the word "close" so bd-freshcheck's check_session_close_tip
+keeps grading 15.28 rather than a claim that is not yet true.
+
+STATE, measured: main 6296b06, version 3.66.867, working tree clean, `main` the
+only local branch. Seven merges this session:
+
+  a2245ca (#162) 861  the box capture's four failures -- three causes, all mine
+  b3e138e (#163) 862  pyflakes was DECLARED where the deploy path cannot read
+                      it; requirements-test.txt split out of requirements-dev
+  e63b5b9 (#164) 863  bd-scrub-proof called an archive holding a
+                      password-manager export SAFE TO SHARE
+  35bab4c (#165) 864  bd-docstale read line 1 three times, not lines 1-3
+  f4dcea1 (#166) 865  a reverted container reports a perfectly healthy tree
+  c533f66 (#167) 866  that hook stopped reimplementing the provisioner
+  6296b06 (#168) 867  the destructive-route gate asserted over 0 of 16 routes
+
+BOX EVIDENCE, and the arithmetic reconciles at each step:
+
+  capture @862  14591 total / 14506 passed / 0 failed / 85 skipped, live 36/0/0
+  capture @866  14608 total / 14523 passed / 0 failed / 85 skipped, live 36/0/0
+                delta +17/+17 with skips UNCHANGED -- 15 tests from 863 and 2
+                from 864, so nothing quietly stopped running. Both captures
+                verified the running PROCESS via /api/health sha, not just the
+                tree. Graph check-hash OK on both.
+  band @867     139 passed on the box. 867 touches no application code (one
+                test file plus the version bump), so a derived band is real
+                evidence rather than a shortcut -- stated because "band, not
+                capture" is normally the wrong answer.
+
+---
+
+THE FINDING WORTH KEEPING: A `.redacted` FILENAME AND A SCRUB MANIFEST BOTH
+CERTIFIED FILES THAT CARRIED SECRETS.
+
+Census of every wacz under ~ (1658 files, bd-scrub-proof on each, read-only):
+
+  root                      SAFE   SECRET   rate
+  BulkDownloader 4          1118    197     15.0%
+  BulkDownloader 1           216     22      9.2%
+  BulkDownloader (live)       64      5      7.2%
+  bd-archive-2026-08          28      4     12.5%
+  BulkDownloader 2             4      0     clean
+  TOTAL                     1430    228     13.8%
+
+Four of the contaminated files sat in a directory named `from_scrub_manifest/`.
+Twenty-two were in B1 -- the corpus 15.10 told the operator to KEEP, on the
+strength of those files being redacted. They were not.
+
+CAUSE: bd-wacz-scrub, bd-scrub-proof and bd-share-safe each carried their own
+TEXT_EXT allowlist -- three sets, no two identical, none containing `.warc`,
+which is where a WACZ's payload lives. Every one reported "verified clean" over
+a denominator that excluded the subject. Fixed at v3.66.859 by switching to
+content sniffing (sec.should_scan); this census is that defect's blast radius,
+measured after the fact.
+
+REMEDIATED: 228 scrubbed, each proved clean twice (the tool's own check, then
+an INDEPENDENT bd-scrub-proof run -- the `.redacted` files were also produced
+by a tool that verified its own work), then the dirty originals deleted only
+where a proven-clean sibling existed. Re-census: 1658 SAFE, 0 SECRET, total
+unchanged at 1658, which is the arithmetic proof that the 228 were replaced
+1:1 rather than lost.
+
+THE PORTABLE LESSON, since the counts will go stale: there was NO predictor.
+Not the date, not the path, not the `auth.` subdomain, not the `.redacted`
+label. A 2026-06-20 capture was clean, 06-29 dirty, 07-21 clean, 07-28 clean.
+Every file had to be proven individually, and the slow approach was the only
+correct one.
+
+A SECOND CLASS THE SAME CENSUS COULD NOT SEE, closed at v3.66.863. A
+password-manager export is a binary container that IS the credential store
+rather than one that contains a secret. looks_binary() rightly refuses to regex
+it, the member lands in `binary_skipped`, and binary_skipped never touched
+`safe`. bd-scrub-proof returned exit 0, "SAFE TO SHARE", for an archive holding
+"Proton Pass_export_<date>_<n>.xlsx" -- a real file that sat unencrypted on the
+box from 2026-07-19 to 2026-08-04, which 15.10 flagged and nobody actioned. Now
+destroyed. Note bd-share-safe needed its OWN fix: it does not call prove(), so
+repairing the shared library left the tool that WRITES the handed-over bundle
+still copying the export in at exit 0.
+
+---
+
+CLOSED ON BOX EVIDENCE, all three previously unanswerable from a container:
+
+  site_name (15.22)  72 of 72 seeded history rows carry the marker in BOTH the
+      URL and site_name. Cut #7's clear will delete all 72 and exit 0, not find
+      nothing and exit 4. The concern was real and does not obtain here.
+  BD_HOME vs install dir  CLOSED, and the register had it mis-framed.
+      gui_parity_inventory.py's --outdir defaults to the RELATIVE "reports", so
+      it resolves against the CWD; BD_HOME never enters it. Both sides run from
+      the same checkout. It was a working-directory question, not an env-var one.
+  Audit #3 (AI warm)  NOT REAL. The readiness service takes ~108s, retries
+      internally, and converges with BOTH models resident on the Tesla T4.
+      MECHANISM, so this is not closed on a lucky sample: attempt 1 is EXPECTED
+      to fail -- it races Ollama's socket and the GPU driver. A reader sampling
+      the state file during those 108s sees ollama_unreachable / gpu false /
+      models pending and cannot distinguish it from a terminal failure. That is
+      a real if minor defect (ai_boot_readiness.json has no in-flight marker)
+      and it is what produced a WRONG "reproduced" verdict mid-session before
+      the journal showed the run had not finished.
+
+ITEM 18's WORKTREE HALF IS CLOSED. 12 worktrees -> 0, 8 local branches -> 1,
+eight artifacts archived under ~/branch-archive (two .patch, four .tracked.diff,
+two more .patch). Every discard was either proven merged by lowercase `git
+branch -d` or archived first. Two branches whose work had reached main by
+re-implementation rather than by merge were format-patch'd before -D, because
+`git cherry` matches by patch-id and cannot see a re-implementation.
+
+---
+
+CORRECTIONS TO FIGURES THIS REGISTER ASSERTED. Each was true when written and
+each was inherited as current:
+
+  "18 trees, 6 prunable"  WRONG IN BOTH NUMBERS. Measured: 12 registered
+      worktrees, and `git worktree prune -v` collected NOTHING -- prune only
+      unregisters worktrees whose directory is GONE, and every directory
+      existed. prune was never the right verb.
+  "533 RAW wacz (may carry session material)"  Wrong scope and wrong emphasis.
+      722 of 1661 under ~ are raw, and RAW WAS THE SAFER HALF: the redacted
+      population was contaminated at 10% while carrying a name that asserted
+      safety.
+  "166 bd-* tools remain prose-only"  184 of 239, measured. The 166 predates
+      four separate fixes to the ratchet's predicate.
+
+---
+
+PROCESS, earned the hard way:
+
+  AN INTERRUPTED bd-mutate DOES NOT RESTORE. A battery killed by a 2-minute
+      tool timeout left `len(hits) > 99` in the tree where `> 1` belonged.
+      Happened twice this session. After any interrupted battery, grep for the
+      mutant text before trusting a test result -- the sha256 restore only runs
+      on the exit path.
+  THE CLOUD CONTAINER REVERTS TO ITS BASE IMAGE ON RESTART. Measured: uptime
+      2h29m against a session hours older, venv/bin/python dated 2026-07-28.
+      Three times in one session the git checkout reappeared at an old commit,
+      and once a source read against that stale tree produced a confidently
+      WRONG conclusion about a fix that was present on main. lxml and cssselect
+      "vanishing" is the same event. v3.66.865/866's SessionStart hook makes it
+      announce itself; before that, a reverted container looked healthy.
+  MUTATION TESTING FOUND TWO UNCONSTRAINED ASSERTIONS A GREEN BAND COULD NOT.
+      Both in v3.66.867, both the same shape: a branch guarding a condition the
+      live data never produces (zero missing, zero ambiguous names), so
+      mutating it is a no-op. The band was green at every step.
+
+---
+
+OPEN, superseding 15.28's list:
+
+  Batch A   bd-parband names a verdict about a suite it never ran (a bad path
+      falls through to a broad run and the result is attributed to the missing
+      suite), plus `.bd_last_band.json` has no gitignore rule. VERIFIED still
+      open at 6296b06.
+  Item 7    test_pk_mirrors_do_not_drift does not fire. DEMONSTRATED this
+      session: a band passed 261 with all four project-knowledge mirrors stale,
+      while bd-pk-mirror --check caught them. Two known defects -- it calls
+      pytest.fail(), which the custom runner stubs without .fail, and its
+      SOURCE_DIRS loop breaks on first match so tools/ copies are never
+      compared.
+  Batch B   four of five done? NO -- ONE of five. bd-docstale shipped at
+      v3.66.864. bd-opv, bd-env-report-check, bd-equiv and bd-fullsuite remain.
+  Item 3    the 12-tool retirement, ~20 references across 7 surviving tools.
+      Tool budget sits at exactly 239/239, so retiring one is the only way to
+      create headroom without spending the ratchet.
+  bd-state  still held behind tools/build_session_pack.py:128.
+  Item 6    bd-band's /home/claude paths. test_contracts gives 4 passed/10
+      failed under bd-band and 14 under pytest; origin/main reproduces it, so
+      it is pre-existing. Needs root-causing before it is a cut.
+  NEW, found this session and not previously filed:
+      - the credential-file patterns exist in bdtools_sec (v3.66.863) but the
+        archive inventory that MISSED the Proton Pass export is untracked, so a
+        fresh sweep still cannot see that class;
+      - ai_boot_readiness.json has no in-flight marker (above);
+      - CLAUDE.md section 6 owes a line about interrupted bd-mutate.
+  ARCHIVE SEQUENCE, the operator half of item 18 and the only one with an
+      ordering constraint: decide B4's 91 `.db` beside 90 `.db-journal`
+      (operator chose recover-then-evaluate; none is a clean backup as it sits),
+      purge the rebuildable bulk (kit packs, Windows venvs, PyInstaller dists,
+      571 `.old` files), THEN consolidate into one verified bundle. Consolidation
+      is materially safer than it was this morning because the keep-set is now
+      provably clean rather than labelled clean.
