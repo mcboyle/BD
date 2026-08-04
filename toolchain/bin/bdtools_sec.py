@@ -139,6 +139,61 @@ def should_scan(name, data):
     return not looks_binary(data)
 
 
+# ---------------------------------------------------------------------------
+# @863: the one class no CONTENT rule can reach.
+#
+# should_scan() above throws the filename away on purpose, and for the .warc
+# gap that was right. But it leaves a hole: a file that IS the credential store
+# rather than one that CONTAINS a secret. A password-manager export is a binary
+# container -- looks_binary() sees NUL and refuses to regex it, correctly -- so
+# it lands in `binary_skipped`, and a member the scanner could not read counted
+# as a member with nothing in it.
+#
+# MEASURED: "Proton Pass_export_<date>_<n>.xlsx" sat in an unencrypted snapshot
+# on the box for sixteen days. bd-scrub-proof returned "SAFE TO SHARE (0 secret
+# hit(s), 1 binary member(s) skipped)", exit 0, and bd-share-safe consumes that
+# verdict to build bundles.
+#
+# THE PREDICATE IS DELIBERATELY NARROW. Matching "password", "token" or
+# "session" as substrings would flag password_policy.md, token_usage.json and
+# session_manager.py -- and a WACZ is mostly binary by design, so a rule that
+# fires on "unscannable" makes SAFE TO SHARE unreachable and the gate gets
+# switched off. Over-sensitivity is a soundness bug, not a safe default
+# (CLAUDE.md section 0). Vendor names, export markers and vault extensions
+# only; nothing that a normal source or docs file can carry.
+_CRED_VENDORS = ("keepass", "bitwarden", "1password", "lastpass", "dashlane",
+                 "protonpass", "proton pass", "enpass", "roboform", "nordpass")
+_CRED_EXT = (".kdbx", ".kdb", ".1pux", ".opvault", ".agilekeychain", ".psafe3")
+_CRED_MARKERS = ("pass_export", "password_export", "passwords_export",
+                 "vault_export", "credentials_export")
+_CRED_EXACT = ("passwords.csv", "passwords.txt", "credentials.csv")
+
+
+def credential_filename(name):
+    """Reason string if `name` names a credential store, else None.
+
+    Answers a different question from should_scan(): not "can this be scanned"
+    but "is this file itself the secret". Both are needed -- the first governs
+    whether a regex is worth running, the second governs whether an artifact is
+    safe to hand to anyone.
+    """
+    base = os.path.basename(str(name or "")).lower()
+    if not base:
+        return None
+    for v in _CRED_VENDORS:
+        if v in base:
+            return "password-manager artifact (%s)" % v
+    for m in _CRED_MARKERS:
+        if m in base:
+            return "credential export (%s)" % m
+    for e in _CRED_EXT:
+        if base.endswith(e):
+            return "password-vault database (%s)" % e
+    if base in _CRED_EXACT:
+        return "plaintext credential file (%s)" % base
+    return None
+
+
 def read_manifest_canon(work=None):
     """(names, paths, suffixes, source) -- the manifest-exclusion canon.
 

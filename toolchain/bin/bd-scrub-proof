@@ -31,12 +31,18 @@ TEXT_EXT={".log",".txt",".json",".md",".csv",".html",".xml",".yaml",".yml",".ndj
 def prove(artifact):
     if not os.path.exists(artifact):
         return {"error":"not found"}
-    res={"artifact":artifact,"members":[],"total_secrets":0,"binary_skipped":0}
+    res={"artifact":artifact,"members":[],"total_secrets":0,"binary_skipped":0,
+         "credential_files":[]}
     if zipfile.is_zipfile(artifact):
         with zipfile.ZipFile(artifact) as z:
             for n in z.namelist():
                 if n.endswith("/"): continue
                 _raw=z.read(n)
+                # @863: independent of should_scan on purpose. A credential
+                # store is the secret rather than a container of one, and it
+                # is usually binary -- so the content path can never see it.
+                _why=sec.credential_filename(n)
+                if _why: res["credential_files"].append({"member":n,"reason":_why})
                 # @859: CONTENT, not extension. This VERIFIER carried the same
                 # TEXT_EXT blind spot as the scrubber it verifies -- .warc, the
                 # WACZ payload, was in neither list -- so nothing downstream
@@ -51,11 +57,16 @@ def prove(artifact):
                 else:
                     res["binary_skipped"]+=1
     else:
+        _why=sec.credential_filename(artifact)
+        if _why: res["credential_files"].append({"member":os.path.basename(artifact),"reason":_why})
         text=open(artifact,errors="ignore").read()
         hits,counts=scan_text(text)
         if hits: res["members"].append({"member":os.path.basename(artifact),"secrets":hits,"by_rule":counts})
         res["total_secrets"]+=hits
-    res["safe"]=res["total_secrets"]==0
+    # @863: a credential store makes an artifact unsafe to share no matter
+    # what the text members say -- and "0 secrets found" over a file that
+    # could not be read is not a finding of zero.
+    res["safe"]=res["total_secrets"]==0 and not res["credential_files"]
     return res
 
 def selftest():
@@ -91,6 +102,12 @@ def main():
     tag=(G+"SAFE TO SHARE"+RST) if r["safe"] else (R+"NOT SAFE"+RST)
     print("%s: %s (%d secret hit(s), %d binary member(s) skipped)"%(os.path.basename(a.artifact),tag,r["total_secrets"],r["binary_skipped"]))
     for m in r["members"][:20]: print("  %s%s%s: %d %s"%(R,m["member"],RST,m["secrets"],m["by_rule"]))
+    # @863: NAME the reason. "NOT SAFE (0 secret hits)" with nothing
+    # under it reads as a bug in the tool rather than a finding, and a
+    # verdict whose evidence never appears is not a verdict.
+    for c in r.get("credential_files",[])[:20]:
+        print("  %s%s%s: %s -- content cannot be scanned; the FILE is the secret"
+              %(R,c["member"],RST,c["reason"]))
     return 0 if r["safe"] else 1
 if __name__ == "__main__":
     sys.exit(main())

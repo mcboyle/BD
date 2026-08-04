@@ -44,7 +44,12 @@ def scrub_zip(inp, out):
             else:
                 zout.writestr(item, data)
     proof=_sp.prove(out)
-    return {"out":out,"redactions":total,"text_members":members,"safe":proof.get("safe",False),"residual":proof.get("total_secrets",0)}
+    # @863: carry the credential verdict out too. Without it a refusal
+    # prints "0 secret(s) remain after scrub", which is self-contradictory
+    # and reads as a bug in the tool rather than a finding.
+    return {"out":out,"redactions":total,"text_members":members,
+            "safe":proof.get("safe",False),"residual":proof.get("total_secrets",0),
+            "credential_files":proof.get("credential_files",[])}
 
 def selftest():
     ok=True
@@ -77,6 +82,12 @@ def main():
     if not r["safe"]:
         os.remove(a.out) if os.path.exists(a.out) else None
         if sec.emit({**r,"refused":True},as_json=a.json): return 1
+        if r.get("credential_files"):
+            print(R+"REFUSED"+RST+": the archive holds a credential store, "
+                  "which no scrub can fix -- remove the member instead")
+            for c in r["credential_files"][:20]:
+                print("  %s%s%s: %s"%(R,c["member"],RST,c["reason"]))
+            return 1
         print(R+"REFUSED"+RST+": %d secret(s) remain after scrub"%r["residual"]); return 1
     if sec.emit(r,as_json=a.json): return 0
     print(G+"scrubbed WACZ"+RST+" -> %s (%d redactions across %d text members, verified clean)"%(r["out"],r["redactions"],r["text_members"]))

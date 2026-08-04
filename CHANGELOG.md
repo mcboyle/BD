@@ -4,6 +4,30 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.863 - a file the scanner could not read counted as a file with nothing in it
+
+- bdtools_sec.credential_filename() is new: a filename check that answers a
+  different question from should_scan(). Not "can this be scanned" but "is this
+  file itself the secret".
+- bd-scrub-proof called an archive holding a password-manager export SAFE TO
+  SHARE, exit 0. looks_binary() correctly refuses to regex a binary container,
+  the member landed in binary_skipped, and binary_skipped never touched `safe`.
+  No content rule can reach this class: the file IS the credential store rather
+  than a container of one. MEASURED on a real file that sat in an unencrypted
+  snapshot on the deploy host from 2026-07-19 to 2026-08-04.
+- bd-share-safe needed its own fix. It does not call prove() -- build() decides
+  inclusion itself -- so repairing the shared library left the tool that WRITES
+  the handed-over bundle still copying the export in, exit 0, "0 refused". A
+  shared helper is not shared behaviour unless the consumer calls it.
+- The verdict now names its reason. "NOT SAFE (0 secret hits)" with nothing
+  under it reads as a tool bug rather than a finding.
+- The predicate is deliberately narrow -- vendor names, export markers and
+  vault extensions only. Matching "password", "token" or "session" as
+  substrings would flag password_policy.md, token_usage.json and
+  session_manager.py, and a WACZ is mostly binary by design, so a rule firing
+  on "unscannable" makes SAFE TO SHARE unreachable. Both directions are pinned:
+  6 credential names must refuse, 7 ordinary binaries must still pass.
+
 ## v3.66.862 - the pyflakes declaration was unreachable; manifests split
 
 - requirements-test.txt is new: pytest, pyyaml and pyflakes, the dependencies

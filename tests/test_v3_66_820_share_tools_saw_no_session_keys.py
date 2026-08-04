@@ -492,3 +492,132 @@ def test_the_tools_own_selftests_still_pass():
                               capture_output=True, text=True, timeout=180)
         assert proc.returncode == 0, f"{tool} --selftest exit={proc.returncode}\n{proc.stdout}\n{proc.stderr}"
         assert "SELFTEST PASS" in proc.stdout, f"{tool}: {proc.stdout}"
+
+
+# --------------------------------------------------------------------------
+# v3.66.863 -- a file the scanner COULD NOT READ counted as a file with
+# nothing in it.
+#
+# `bdtools_sec.should_scan(name, data)` decides by CONTENT and throws the
+# filename away. That is correct for the .warc gap it was written to close
+# (v3.66.859): an extension allowlist is what let a WACZ payload through three
+# tools at once. But it leaves one class no content rule can reach -- a file
+# that IS the credential store rather than one that CONTAINS a secret. A
+# password-manager export is a binary container: looks_binary sees NUL,
+# refuses to regex it (rightly), the member lands in `binary_skipped`, and
+# `binary_skipped` never touches `safe`.
+#
+# MEASURED on a real file: "Proton Pass_export_2026-07-19_<n>.xlsx" sat in an
+# unencrypted snapshot on the operator's box from 2026-07-19 to 2026-08-04.
+# The v2 archive inventory's credential patterns did not flag it, and neither
+# did any tool here -- bd-scrub-proof returned exit 0, "SAFE TO SHARE (0 secret
+# hit(s), 1 binary member(s) skipped)". bd-share-safe consumes that verdict to
+# build share bundles.
+#
+# Both directions are pinned below. The obvious over-correction -- treat every
+# unscannable member as unsafe -- would make the tool useless, since a WACZ is
+# mostly binary by design.
+# --------------------------------------------------------------------------
+
+CRED_NAMES = [
+    "Proton Pass_export_2026-07-19_1784474629.xlsx",
+    "keepass-backup.kdbx",
+    "bitwarden_export_20260101.json",
+    "1password-vault.1pux",
+    "lastpass_export.csv",
+    "passwords.csv",
+]
+
+BENIGN_BINARY_NAMES = [
+    "pages/screenshot.png",
+    "archive/data.warc.gz",
+    "assets/font.woff2",
+    "media/clip.mp4",
+    # near-misses: these name a concept, not a credential store
+    "docs/password_policy.md",
+    "src/session_manager.py",
+    "reports/token_usage.json",
+]
+
+
+def _binary_blob() -> bytes:
+    """A NUL-bearing blob so looks_binary() is PROVABLY true for it.
+
+    Payload bytes are a zero-entropy repeat on purpose (CLAUDE.md section 7):
+    a realistic-looking secret written into a tracked test turns the test file
+    into a place the secret lives, and gitleaks scans the PR's whole range.
+    """
+    return b"PK\x03\x04\x00\x00" + b"a" * 512
+
+
+def test_looks_binary_really_is_true_for_the_fixture():
+    """Denominator canary. If the blob were scannable the two tests below
+    would pass for the wrong reason -- they would be exercising the text path,
+    not the binary-skip path that carries the defect."""
+    sec = _load("bdtools_sec.py")
+    assert sec.looks_binary(_binary_blob()) is True
+    assert sec.should_scan("anything.xlsx", _binary_blob()) is False
+
+
+@pytest.mark.parametrize("name", CRED_NAMES)
+def test_a_credential_store_is_not_safe_to_share(name, tmp_path):
+    """RED on v3.66.862: exit 0, 'SAFE TO SHARE', because the member was
+    skipped as binary and skipping is silent."""
+    z = tmp_path / "snapshot.zip"
+    with zipfile.ZipFile(z, "w") as f:
+        f.writestr(name, _binary_blob())
+        f.writestr("readme.txt", "nothing sensitive here")
+    sp = _load("bd-scrub-proof")
+    res = sp.prove(str(z))
+    assert res["safe"] is False, (
+        f"bd-scrub-proof called an archive holding {name!r} SAFE TO SHARE. "
+        f"No content rule can reach this file -- it IS the credential store, "
+        f"and it is binary, so the only signal available is the name: {res}")
+
+
+@pytest.mark.parametrize("name", BENIGN_BINARY_NAMES)
+def test_ordinary_binaries_stay_safe(name, tmp_path):
+    """The over-sensitive direction, and the one that would destroy the tool.
+
+    A WACZ is mostly binary by design. A fix that flags every unscannable
+    member -- or that matches 'password'/'token'/'session' as substrings --
+    makes SAFE TO SHARE unreachable and the gate gets switched off. Section 0
+    calls over-sensitivity a soundness bug, not a safe default."""
+    z = tmp_path / "snapshot.zip"
+    with zipfile.ZipFile(z, "w") as f:
+        f.writestr(name, _binary_blob())
+        f.writestr("readme.txt", "nothing sensitive here")
+    sp = _load("bd-scrub-proof")
+    res = sp.prove(str(z))
+    assert res["safe"] is True, (
+        f"bd-scrub-proof refused an archive whose only binary member is "
+        f"{name!r}. That is an ordinary artifact, not a credential store: {res}")
+
+
+def test_share_safe_refuses_to_bundle_a_credential_store(tmp_path):
+    """RED on v3.66.862, and the reason it is a SEPARATE test from the
+    bd-scrub-proof one above: fixing the shared library does NOT fix this.
+
+    bd-share-safe does not call prove(); `build()` decides inclusion itself.
+    MEASURED before the fix: exit 0, "1 included, 0 refused", and the export
+    written into the bundle verbatim. A shared helper is not shared behaviour
+    unless the consumer actually calls it -- the same lesson as the three
+    divergent TEXT_EXT sets that hid the .warc gap in all of them at once.
+
+    bd-share-safe is the tool that WRITES the artifact someone hands over, so
+    it is the last place this can be caught.
+    """
+    cred = tmp_path / "Proton Pass_export_2026-07-19.xlsx"
+    cred.write_bytes(b"PK\x03\x04\x00\x00" + b"a" * 512)
+    out = tmp_path / "share"
+    proc = subprocess.run(
+        [sys.executable, str(BIN / "bd-share-safe"), str(cred), "--out", str(out)],
+        capture_output=True, text=True, timeout=120)
+    assert not (out / cred.name).exists(), (
+        f"bd-share-safe exited {proc.returncode} and copied a password-manager "
+        f"export into a share bundle it declares safe:\n{proc.stdout}")
+    manifest = json.loads((out / "SHARE_MANIFEST.json").read_text())
+    assert manifest["refused"], f"nothing refused: {manifest}"
+    assert any("proton pass" in x["reason"].lower() for x in manifest["refused"]), (
+        f"refused, but not for the right reason -- the manifest must say WHY: "
+        f"{manifest['refused']}")
