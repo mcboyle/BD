@@ -314,6 +314,80 @@ def test_the_tools_this_cut_added_are_wired_and_selftest_clean():
             % tool)
 
 
+def _docstale(args, cwd):
+    tool = os.path.join(str(_REPO_ROOT), "toolchain", "bin", "bd-docstale")
+    return subprocess.run([sys.executable, tool] + args, cwd=cwd,
+                          capture_output=True, text=True, timeout=120)
+
+
+def test_docstale_cannot_report_current_when_it_does_not_know_the_version():
+    """@853 -- bd-docstale asserted the OPPOSITE of the truth, three ways.
+
+    It is the complement of bd-doc-truth (fixed @850): that one checks whether a
+    cited PATH still resolves, this one checks how far a doc's verified-against
+    marker is behind __version__. Measured at v3.66.852:
+
+      1. --dir defaulted to /mnt/project    -> "no verified-against markers
+         found", exit 0, while 79 tracked docs carry the marker.
+      2. --work defaulted to /home/claude/work, so the current version could not
+         be read -- and `d = (cur - p) if cur else 0` then scored EVERY doc as
+         0 behind. A doc pinned at 3.66.47 printed in GREEN as "current" and the
+         summary read "worst is 0 releases behind". Not blind: INVERTED.
+      3. an empty scan returned 0.
+
+    (2) is the one worth the test. A missing minuend silently became zero, so
+    the tool's confident output was maximally wrong exactly when its input was
+    missing. Unknown is a third state and it FAILS -- it does not become 0.
+    """
+    import tempfile
+    root = str(_REPO_ROOT)
+
+    # (1) the shipped no-argument invocation must scan real docs.
+    r = _docstale([], root)
+    assert r.returncode != 2, (
+        "the no-argument invocation found no corpus; --dir must resolve into "
+        "the work tree.\n%s" % (r.stdout + r.stderr)[-300:])
+    assert "no verified-against markers found" not in r.stdout, (
+        "default --dir still points somewhere with no markers, while the repo "
+        "has dozens.")
+
+    # (2) THE INVERSION: an unresolvable current version must refuse, never
+    # score every doc as current.
+    with tempfile.TemporaryDirectory() as td:
+        r = _docstale(["--dir", os.path.join(root, "project-knowledge"),
+                       "--work", td], root)
+        assert r.returncode == 2, (
+            "with no readable __version__ under --work the tool exited %d. It "
+            "used to print every doc as 'current' and 'worst is 0 releases "
+            "behind' -- a confident inversion, not a gap." % r.returncode)
+        # The specific thing that must not happen: a graded table. "worst is
+        # N releases behind" is printed only on the grading path, and it read
+        # "worst is 0" while docs were 805 behind. (Do not assert on the words
+        # "current"/"behind" alone -- the refusal message contains both, which
+        # made the first draft of this line fail on a correct tool.)
+        assert "worst is" not in r.stdout, (
+            "it still emitted a graded summary against an unknown current "
+            "version:\n%s" % r.stdout[-300:])
+
+        # (3) empty corpus -> UNKNOWN, not clean.
+        empty = os.path.join(td, "empty")
+        os.makedirs(empty)
+        r = _docstale(["--dir", empty, "--work", root], root)
+        assert r.returncode == 2, (
+            "an empty docs dir exited %d; zero documents scanned is not zero "
+            "problems found." % r.returncode)
+
+    # (4) OVER-SENSITIVITY: a real corpus with a readable version must still
+    # produce a report at exit 0 absent --behind. A tool that only ever refuses
+    # is not an instrument (section 0 counts that as an equal soundness bug).
+    r = _docstale(["--dir", os.path.join(root, "project-knowledge"),
+                   "--work", root], root)
+    assert r.returncode == 0, (
+        "a fully-resolvable run exited %d; without --behind this is a report "
+        "tool and must report." % r.returncode)
+    assert "behind" in r.stdout, "resolvable run produced no staleness figures"
+
+
 def test_equiv_refuses_to_certify_over_an_empty_token_set():
     """@852 -- bd-equiv licensed retirement on the strength of measuring nothing.
 
