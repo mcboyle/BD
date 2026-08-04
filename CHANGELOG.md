@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.864 - bd-docstale read line 1 three times, not lines 1-3
+
+- The scan window was `"".join([next(open(f)) for _ in range(3)])`, which opens
+  the file THREE times and takes each fresh handle's FIRST line. `head` was
+  line 1 repeated. The comment beside it and its except branch both described a
+  three-line read that never happened, which is why it survived review.
+- MEASURED at v3.66.863: 60 docs carry a verified-against marker in their first
+  three lines; 55 have it on line 1 and 5 on line 2. Those five were invisible
+  and the tool printed "55 marked docs" as its denominator -- grading staleness
+  over a population 8 percent smaller than the real one. The five are
+  CODE_INTELLIGENCE_ARCHITECTURE, _PROGRAM, _SCHEMAS, _TOOLING and
+  CODE_REVIEW_INDEX, all 45-58 releases behind and all reported as absent.
+- Under-counting a denominator is the same defect as scanning zero documents
+  (bd-doc-truth, v3.66.850), only less visible: the report still looks like a
+  report.
+- Fixed with one handle and zip(range(3), fh), which stops at the shorter side
+  so a file under three lines needs no special case.
+- Both directions tested: a marker on line 2 or 3 must be found, and a marker
+  on line 4 must NOT be -- widening the read until everything matches would
+  make the tool grade prose that merely mentions the string.
+
 ## v3.66.863 - a file the scanner could not read counted as a file with nothing in it
 
 - bdtools_sec.credential_filename() is new: a filename check that answers a

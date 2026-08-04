@@ -548,6 +548,22 @@ def _docstale(args, cwd):
                           capture_output=True, text=True, timeout=120)
 
 
+def _docstale_fixture(td):
+    """A minimal tree bd-docstale can resolve: a readable __version__ under
+    --work, and an empty docs dir for --dir. Returns the docs path.
+
+    A fixture rather than the live corpus on purpose -- project-knowledge/
+    moves whenever anyone edits a header, and a window test asserting over it
+    would fail for reasons that have nothing to do with the window.
+    """
+    os.makedirs(os.path.join(td, "bulk_downloader"), exist_ok=True)
+    with open(os.path.join(td, "bulk_downloader", "__init__.py"), "w") as fh:
+        fh.write('__version__ = "3.66.900"\n')
+    docs = os.path.join(td, "project-knowledge")
+    os.makedirs(docs, exist_ok=True)
+    return docs
+
+
 def test_docstale_cannot_report_current_when_it_does_not_know_the_version():
     """@853 -- bd-docstale asserted the OPPOSITE of the truth, three ways.
 
@@ -614,6 +630,66 @@ def test_docstale_cannot_report_current_when_it_does_not_know_the_version():
         "a fully-resolvable run exited %d; without --behind this is a report "
         "tool and must report." % r.returncode)
     assert "behind" in r.stdout, "resolvable run produced no staleness figures"
+
+
+def test_docstale_reads_three_lines_not_line_one_three_times():
+    """@864 -- the scan window opened the file three times and read line 1.
+
+        head = "".join([next(open(f)) for _ in range(3)])
+
+    Three FRESH handles, each yielding its own first line, so `head` was line 1
+    repeated -- not lines 1-3. The comment above it and the except branch
+    (StopIteration for a file shorter than 3 lines) both describe a three-line
+    read that never happened, which is why it survived review.
+
+    MEASURED on this repo at v3.66.863: 65 docs carry the marker in their first
+    three lines, 55 have it on line 1, and the five below have it on line 2 --
+    invisible to the tool, which then printed "55 marked docs" as its
+    denominator and graded staleness over a population 8% smaller than the real
+    one. Under-counting the denominator is the same defect as scanning zero
+    documents (bd-doc-truth @850), just less obvious.
+
+    A fixture is used rather than the live corpus: the real docs move every
+    time someone edits a header, and a test that asserts over them would fail
+    for reasons unrelated to the window.
+    """
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        docs = _docstale_fixture(td)
+        # line 1 -- was already visible
+        with open(os.path.join(docs, "on_line_one.md"), "w") as fh:
+            fh.write("verified-against: v3.66.700\n# Title\nbody\n")
+        # line 2 and line 3 -- the blind spots
+        with open(os.path.join(docs, "on_line_two.md"), "w") as fh:
+            fh.write("# Title\nverified-against: v3.66.701\nbody\n")
+        with open(os.path.join(docs, "on_line_three.md"), "w") as fh:
+            fh.write("# Title\n\nverified-against: v3.66.702\nbody\n")
+
+        r = _docstale(["--dir", docs, "--work", td], td)
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "3 marked docs" in r.stdout, (
+            "the scan window still misses a marker below line 1 -- it reported:"
+            "\n%s" % r.stdout[-400:])
+        for name in ("on_line_one.md", "on_line_two.md", "on_line_three.md"):
+            assert name in r.stdout, "%s missing from the report:\n%s" % (
+                name, r.stdout[-400:])
+
+
+def test_docstale_does_not_widen_past_its_window():
+    """The over-sensitive direction. A marker on line 4 is out of the stated
+    three-line window; widening the read until everything matches would make
+    the tool grade prose that merely mentions the string."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        docs = _docstale_fixture(td)
+        with open(os.path.join(docs, "on_line_one.md"), "w") as fh:
+            fh.write("verified-against: v3.66.700\n# Title\nbody\n")
+        with open(os.path.join(docs, "way_down.md"), "w") as fh:
+            fh.write("# Title\n\n\nverified-against: v3.66.001\n")
+        r = _docstale(["--dir", docs, "--work", td], td)
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "1 marked docs" in r.stdout, (
+            "the window widened past three lines:\n%s" % r.stdout[-400:])
 
 
 def test_equiv_refuses_to_certify_over_an_empty_token_set():
