@@ -4,6 +4,35 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.853 - bd-docstale reported an 805-releases-behind doc as current
+
+- bd-docstale is the complement of bd-doc-truth (fixed @850): that one asks
+  whether a cited PATH still resolves, this one asks how far a doc's own
+  verified-against marker has fallen behind __version__. It was blind three
+  ways, and the second INVERTED the answer rather than merely missing it.
+- (1) --dir defaulted to /mnt/project, a retired-sandbox path no checkout has,
+  so the shipped invocation printed "no verified-against markers found" and
+  exited 0 while 79 tracked docs carry the marker.
+- (2) THE INVERSION. --work defaulted to /home/claude/work, so the current
+  version could not be read, and `d = (cur - p) if cur else 0` then scored every
+  doc as 0 behind. Measured before the fix: DANGER_MAPv2.md, pinned at 3.66.47,
+  printed in GREEN as "current", under a summary reading "worst is 0 releases
+  behind". The true figure on the same corpus is 805. A missing minuend silently
+  became zero, so the tool was maximally confident exactly when its input was
+  absent. Unknown is a third state; it does not become 0.
+- (3) an empty scan returned 0.
+- All three now exit 2. --dir resolves from --work, --work from sec.DEFAULT_WORK,
+  an unreadable __version__ refuses before grading anything, and a corpus with no
+  marked doc refuses. --behind N still exits 1, and a fully resolvable run still
+  reports at 0 -- asserted as the over-sensitivity control, because a tool that
+  can only refuse is not an instrument.
+- Its selftest had two cases, both exercising patch() on a string. Neither ever
+  ran a scan, which is precisely how the tool shipped inverted with SELFTEST
+  PASS underneath it. Three controls added that drive the real CLI.
+- bd-mutate: 4 mutants, 4 caught, 0 escaped, including the over-sensitive one.
+- Reported by the same run: 55 marked docs, worst 805 behind. That backlog is
+  NOT addressed here -- this cut makes the instrument able to see it.
+
 ## v3.66.852 - bd-equiv licensed retirement on an empty comparison
 
 - bd-equiv is the tool that AUTHORIZES deleting another tool ("prove one tool
