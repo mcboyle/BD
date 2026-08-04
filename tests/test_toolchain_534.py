@@ -873,3 +873,94 @@ def test_the_derivable_half_of_staleness_is_clean():
         "bd-freshcheck --repo-only exited %d. 1 = something is STALE, 2 = a check "
         "could not RUN (UNKNOWN, which is not a softer 1):\n%s"
         % (r.returncode, out[-1500:]))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# @857 -- SALVAGE. Three capabilities rescued from tools retired this cut. Each
+# encodes a defect that recurred more than once, so the code is kept even though
+# its original container is gone. These tests are what make the salvage WIRED
+# rather than a second copy of the prose-only problem.
+
+def test_salvaged_manifest_canon_reads_the_tree_not_a_fallback():
+    """From bd-repin-dist. Announces PROVENANCE, because a silent fallback to
+    hand-copied literals is how 6_MANIFEST_EXCLUSION_RULES.md drifted ~600
+    releases (fixed @850 by making that doc derive)."""
+    root = str(_REPO_ROOT)
+    sys.path.insert(0, os.path.join(root, "toolchain", "bin"))
+    import importlib
+    sec = importlib.import_module("bdtools_sec")
+
+    names, paths, sufs, source = sec.read_manifest_canon(root)
+    assert source == "tree", (
+        "canon came from the FALLBACK literals on a tree that has "
+        "release_lint.py. A silent fallback is the defect this carries.")
+    assert len(names) > 10 and sufs, (
+        "canon read but nearly empty (%d names, %d suffixes) -- an empty "
+        "denominator would make every exclusion check vacuously clean."
+        % (len(names), len(sufs)))
+    # NEG: a tree without release_lint must SAY fallback, not pretend.
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        _, _, _, s2 = sec.read_manifest_canon(td)
+        assert s2 == "fallback", "an absent canon reported as if read from tree"
+
+
+def test_salvaged_stub_detector_separates_a_marker_from_prose_about_one():
+    """From bd-pack. The 721 pack shipped 30-byte TODO(author) planning docs and
+    the gate said clean because it was os.path.exists(); it RECURRED at 728.
+    The false-positive guard matters equally: a 12KB doc that MENTIONS the
+    marker is not a stub."""
+    root = str(_REPO_ROOT)
+    sys.path.insert(0, os.path.join(root, "toolchain", "bin"))
+    import importlib
+    import tempfile
+    sec = importlib.import_module("bdtools_sec")
+
+    with tempfile.TemporaryDirectory() as td:
+        stub = os.path.join(td, "stub.md")
+        with open(stub, "w") as fh:
+            fh.write("# Backlog\n\nTODO(author)\n")
+        assert sec.stub_reason(stub), "a TODO(author) placeholder read as content"
+
+        empty = os.path.join(td, "empty.md")
+        open(empty, "w").close()
+        assert sec.stub_reason(empty) == "empty"
+
+        # THE FALSE-POSITIVE GUARD: real prose that discusses the marker.
+        # NOTE the shape: the marker sits on ONE line among many. The guard is
+        # LINE-WISE -- it strips marker LINES and judges the remainder -- so a
+        # marker buried mid-paragraph on a single very long line takes the whole
+        # paragraph with it. That is a real limitation of the salvaged code, and
+        # the first draft of this fixture hit it (one long line -> 9 bytes left).
+        about = os.path.join(td, "about.md")
+        with open(about, "w") as fh:
+            fh.write("# Handoff\n\n"
+                     "The 721 pack shipped TODO(author) stubs as planning docs.\n\n"
+                     + "\n".join(
+                         "This line describes the failure in enough detail that "
+                         "a reader can actually act on it, which is what makes "
+                         "the document real rather than a placeholder."
+                         for _ in range(6)) + "\n")
+        assert sec.stub_reason(about) is None, (
+            "a substantial doc that MENTIONS the marker was flagged as a stub -- "
+            "the bare `marker in text` bug that flagged a 12KB document.")
+
+    # a real repo doc must not be flagged (over-sensitivity control)
+    assert sec.stub_reason(os.path.join(root, "CHANGELOG.md")) is None
+
+
+# @857: the net-tool budget, salvaged in SPIRIT from bd-mkbdsuite. Its own
+# predicate was `n > budget` -- trivial; the VALUE was the policy it enforced:
+# "adding a tool owes retiring one". Re-homed as a ratchet, and unlike the
+# prose-only baseline this one is expected to RATCHET DOWN as retirements land.
+_TOOL_BUDGET = 246
+
+
+def test_the_toolchain_does_not_grow_unbudgeted():
+    root = str(_REPO_ROOT)
+    n = len(_bd_tools(root))
+    assert n > 100, "only %d tools found -- the subject collapsed" % n
+    assert n <= _TOOL_BUDGET, (
+        "toolchain/bin holds %d bd-* tools, over the %d budget. Adding a tool "
+        "owes retiring one: wire it, retire another, or raise _TOOL_BUDGET in "
+        "this cut and say why." % (n, _TOOL_BUDGET))

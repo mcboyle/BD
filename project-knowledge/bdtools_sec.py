@@ -76,6 +76,99 @@ def _imports_pytest(exe, timeout=30):
         return False
 
 
+# ---------------------------------------------------------------- @857 SALVAGE
+# Rescued from three tools retired at v3.66.857 (bd-repin-dist, bd-pack,
+# bd-mkbdsuite). Their SUBJECTS died with the zip/overlay world; these three
+# capabilities did not, and each encodes a defect that recurred more than once.
+# Kept here so the retirement loses the plumbing and not the lesson.
+
+_MANIFEST_FALLBACK_NAMES = {"downloader_history.db", "app_config.json",
+                            ".fts_optimize_last", ".integrity_check_last",
+                            ".integrity_last_run"}
+_MANIFEST_FALLBACK_SUFFIXES = (".db", ".db-wal", ".db-shm")
+
+
+def read_manifest_canon(work=None):
+    """(names, paths, suffixes, source) -- the manifest-exclusion canon.
+
+    source == 'tree' when read from bulk_downloader/dev_suite/release_lint.py,
+    'fallback' when it could not be -- and CALLERS MUST PRINT WHICH, because a
+    silent fallback is exactly how the hand-copied mirror drifted for ~600
+    releases (see project-knowledge/6_MANIFEST_EXCLUSION_RULES.md, rewritten at
+    v3.66.850 to derive rather than copy).
+
+    Read by AST, not by import: release_lint uses package-relative imports so
+    loading it standalone fails, and executing application code merely to learn
+    a constant is a side effect a read-only tool has no business causing.
+    """
+    work = work or DEFAULT_WORK
+    try:
+        p = os.path.join(work, "bulk_downloader", "dev_suite", "release_lint.py")
+        with open(p, "r", encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        want = {"_MANIFEST_EXCLUDE_NAMES": None, "_MANIFEST_EXCLUDE_PATHS": None,
+                "_MANIFEST_EXCLUDE_SUFFIXES": None}
+        for node in tree.body:
+            if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name)
+                    and node.targets[0].id in want):
+                try:
+                    want[node.targets[0].id] = ast.literal_eval(node.value)
+                except Exception:      # a computed canon cannot be read statically
+                    pass
+        names, paths, sufs = (want["_MANIFEST_EXCLUDE_NAMES"],
+                              want["_MANIFEST_EXCLUDE_PATHS"],
+                              want["_MANIFEST_EXCLUDE_SUFFIXES"])
+        if names and sufs:
+            return set(names), set(paths or ()), tuple(sufs), "tree"
+    except Exception:
+        pass
+    return (set(_MANIFEST_FALLBACK_NAMES), set(),
+            tuple(_MANIFEST_FALLBACK_SUFFIXES), "fallback")
+
+
+STUB_MARKERS = ("todo(author)", "todo (author)", "tbd", "fill me in",
+                "<placeholder>", "lorem ipsum", "xxx replace")
+MIN_DOC_BYTES = 200        # a real planning doc is ~2-3KB; 30 bytes was the defect
+
+
+def stub_reason(path):
+    """Is this doc a PLACEHOLDER rather than content? A reason string, or None.
+
+    PRESENCE IS NOT CONTENT. The 721 release pack shipped 30-byte `TODO(author)`
+    Backlog.md and Roadmap.md as the next session's planning docs and the gate
+    said clean, because the gate was os.path.exists(). It RECURRED at 728 with
+    35-byte stubs.
+
+    FALSE-POSITIVE GUARD, learned the hard way: a doc that merely MENTIONS a
+    marker -- a handoff explaining "the pack shipped TODO(author) stubs" -- is
+    NOT a stub. A bare `marker in text` flagged a 12KB written document. So
+    STRIP the marker lines and judge WHAT IS LEFT; if substantial content
+    remains the marker was just prose about it.
+    """
+    try:
+        raw = open(path, "rb").read()
+    except OSError as e:
+        return "unreadable (%s)" % e
+    if not raw.strip():
+        return "empty"
+    txt = raw.decode("utf-8", "replace")
+    lines = txt.splitlines()
+    kept = [l for l in lines if not any(m in l.lower() for m in STUB_MARKERS)]
+    body = "\n".join(kept).strip()
+    had_marker = len(kept) != len(lines)
+    if had_marker and len(body.encode()) < MIN_DOC_BYTES:
+        return ("is a placeholder -- a marker and little else (%d bytes of real "
+                "content)" % len(body.encode()))
+    if len(raw) < MIN_DOC_BYTES:
+        return "%d bytes (< %d-byte floor)" % (len(raw), MIN_DOC_BYTES)
+    prose = [l.strip() for l in body.splitlines()
+             if l.strip() and not l.lstrip().startswith(("#", "-", "*", ">", "|", "`"))]
+    if not prose:
+        return "headings/bullets only -- no prose content"
+    return None
+
+
 def resolve_test_interpreter(work=None, _probe=None):
     """The interpreter that can actually run THIS PROJECT's tests, or None.
 
