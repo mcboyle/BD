@@ -4,6 +4,37 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.867 - the destructive-route gate asserted over 0 of 16 routes
+
+test_phase3_config_maintenance_mutations_are_gated pins sixteen
+config/maintenance/lifecycle endpoints that must stay gui-gated. It exists
+because those mutations were landing gui-safe (GUI-parity audit finding #2) and
+it is meant to stop the sensitivity keyword set silently regressing them.
+
+MEASURED at v3.66.866: 0 of 16 resolved, against a 1246-item inventory. The
+inventory names routes blueprint-QUALIFIED -- "global_config.api_global_config",
+"supervisor.api_supervisor_configure" -- while the pin holds bare endpoint
+names, so the dict lookup matched nothing and the `continue` beneath it
+swallowed all sixteen as "route not present in this tree slice". The loop body
+never executed once, and the gate ran green inside CI's own gates lane.
+
+- Resolution is now blueprint-aware, anchored on a dot boundary so a name that
+  merely ENDS WITH the wanted string cannot match.
+- A DENOMINATOR ASSERTION runs before the verdict. A pinned name that stops
+  resolving is exactly when this gate must speak, not fall silent.
+- Ambiguity REFUSES rather than picking. Two blueprints exposing one endpoint
+  name means the pin is under-specified; asserting about whichever sorted first
+  is a confident claim about a different route.
+- The invariant itself was never broken: all sixteen routes are correctly
+  gui-gated. This repairs the gate, not the thing it guards.
+
+bd-mutate caught TWO unconstrained assertions during the cut, neither visible
+to a green band. Both had the same shape -- a branch guarding a condition the
+live inventory never produces (there are zero missing and zero ambiguous names
+today), so mutating it is a no-op. Closed by extracting _classify_must_gate()
+and driving all three outcomes from a fixture where they actually occur. Final
+battery: 4 caught, 0 escaped.
+
 ## v3.66.866 - the session hook repairs by DELEGATING, not by reimplementing
 
 v3.66.865's hook ran its own `pip install -r requirements.txt
