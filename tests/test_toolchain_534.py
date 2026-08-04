@@ -314,6 +314,45 @@ def test_the_tools_this_cut_added_are_wired_and_selftest_clean():
             % tool)
 
 
+def test_tool_smoke_runs_unaided_and_the_toolchain_has_no_undefined_names():
+    """@854 -- the only static check that can see toolchain/bin, now wired.
+
+    WHY IT MATTERS: ci.yml's compileall COMPILES without resolving names, and
+    its pyflakes step is `|| true` (advisory) AND scoped to bulk_downloader and
+    tools -- so the 243 extensionless bd-* scripts had no static checking of any
+    kind. bd-tool-smoke found a real one on its first run:
+        bd-pack:169  undefined name 'TRACKER_FILES'
+    TRACKER_FILES was deleted at v3.66.841 with the TASK_TRACKER retirement and
+    that use site was left behind. test_task_tracker_stays_retired.py polices
+    the retirement by scanning for TASK_TRACKER references, and 'TRACKER_FILES'
+    does not contain that string -- the dangling name sat outside its
+    denominator. bd-pack --selftest exits 0 because it drives another path.
+
+    NOT a false-clean gate before this: with BIN hardcoded to /home/claude/bin
+    it raised FileNotFoundError and exited 1. It failed CLOSED, which is right;
+    it was simply unusable without flags, so nothing ran it.
+    """
+    root = str(_REPO_ROOT)
+    tool = os.path.join(root, "toolchain", "bin", "bd-tool-smoke")
+    assert os.path.isfile(tool), "bd-tool-smoke is missing"
+
+    # The wired invocation takes NO arguments -- BIN and WORK must self-resolve.
+    r = subprocess.run([sys.executable, tool, "--gate"], cwd=root,
+                       capture_output=True, text=True, timeout=600)
+    out = r.stdout + r.stderr
+    m = re.search(r"(\d+)\s+python tools scanned", out)
+    assert m, ("bd-tool-smoke --gate did not report a scan count; it must say "
+               "what its denominator was:\n%s" % out[-600:])
+    assert int(m.group(1)) > 100, (
+        "only %s tools scanned -- the denominator collapsed, and a clean verdict "
+        "over it would mean nothing." % m.group(1))
+    assert r.returncode == 0, (
+        "bd-tool-smoke --gate exited %d: a tool in toolchain/bin would crash on "
+        "invocation. Nothing else in CI can see this -- compileall does not "
+        "resolve names and pyflakes is advisory and scoped elsewhere.\n%s"
+        % (r.returncode, out[-1200:]))
+
+
 def _docstale(args, cwd):
     tool = os.path.join(str(_REPO_ROOT), "toolchain", "bin", "bd-docstale")
     return subprocess.run([sys.executable, tool] + args, cwd=cwd,

@@ -166,7 +166,14 @@ def main(argv=None):
     fails, warns = [], []
 
     handoff = f"KB_HANDOFF_v{mtag}_{n_anchor}.md"
-    required = VOLATILE + TRACKER_FILES + [handoff]
+    # @854: TRACKER_FILES was deleted at v3.66.841 with the TASK_TRACKER
+    # retirement and this use site was left behind, so every call reaching
+    # here raised NameError. test_task_tracker_stays_retired.py polices the
+    # absence by scanning for TASK_TRACKER references -- and 'TRACKER_FILES'
+    # does not contain that string, so the dangling name was outside its
+    # denominator. Found by bd-tool-smoke, the only tool that reads
+    # toolchain/bin at all.
+    required = VOLATILE + [handoff]
     for r in required:
         rp = os.path.join(a.dir, r)
         if not os.path.exists(rp):
