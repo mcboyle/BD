@@ -34,7 +34,8 @@ def build(files, out, allow_capture):
         if ext in RAW_CAPTURE and not allow_capture:
             refused.append({"file":f,"reason":"raw capture (use --allow-capture to scrub+include)"}); continue
         dest=os.path.join(out,os.path.basename(f))
-        if ext in TEXT_EXT:
+        # @859: CONTENT, not extension (see bd-wacz-scrub).
+        if sec.should_scan(f, open(f,'rb').read()):
             text=open(f,errors="ignore").read()
             scrubbed,counts=_ls.scrub(text)
             # verify no residual

@@ -4,6 +4,43 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.859 - the share chain shipped raw session credentials
+
+- SECURITY. bd-wacz-scrub, bd-scrub-proof and bd-share-safe each carried their
+  OWN hand-rolled TEXT_EXT allowlist -- three sets, no two identical, and none
+  containing ".warc". A WACZ's payload IS .warc, so a capture whose
+  archive/data.warc held an Authorization bearer header and a bd_session cookie
+  was copied through untouched while the tool printed
+      scrubbed WACZ -> ... (1 redactions across 2 text members, verified clean)
+  and exited 0. The VERIFIER shared the blind spot, so nothing downstream could
+  catch it. Reproduced end-to-end before and after the fix.
+- The redactor was never the problem: a .txt control in the same archive WAS
+  redacted on the same run. The DENOMINATOR was the defect -- CLAUDE.md section
+  0, on the path whose entire purpose is making a capture safe to hand to
+  someone else.
+- An allowlist is the wrong SHAPE for a security tool. It fails open on every
+  extension nobody thought of, and the cost of that miss is a shipped
+  credential. All three now route through one shared bdtools_sec.should_scan(),
+  which decides by CONTENT: NUL in the first 8KB means binary, everything else
+  is scanned, and ambiguity (valid bytes that are not UTF-8) resolves to TEXT so
+  a latin-1 secret is still found. Fail closed.
+- NOT "scan everything": a PNG and an MP4 are still skipped, asserted as the
+  over-sensitivity control. A scrubber that decodes every video is one that gets
+  switched off.
+- Three divergent private copies is HOW the same gap survived in all three at
+  once, so the test also asserts that none of them branches on an extension
+  allowlist any more.
+- Found by the v3.66.859 wired-gate audit, which probed 62 wired tools and 13
+  CI-lane tests by injecting a defect each one claims to catch. Score: 53 proven
+  healthy, 16 with a proven cannot-fail path, 4 worker claims refuted on
+  independent confirmation. This was the highest-cost finding; the rest are
+  queued.
+- Corpus values in the test are ZERO-ENTROPY repeats per CLAUDE.md section 7 --
+  a realistic-looking token would make the test file a place the secret lives,
+  and gitleaks scans the whole PR range.
+- bd-mutate: 3 mutants, 3 caught, 0 escaped, including both the revert-to-
+  allowlist and the scan-everything over-correction.
+
 ## v3.66.858 - retirement, tier 1: seven zero-coupling tools
 
 - Retired from toolchain/bin and project-knowledge, with their bd-tools category

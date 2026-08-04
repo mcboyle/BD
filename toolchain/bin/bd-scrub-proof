@@ -36,8 +36,12 @@ def prove(artifact):
         with zipfile.ZipFile(artifact) as z:
             for n in z.namelist():
                 if n.endswith("/"): continue
-                ext=os.path.splitext(n)[1].lower()
-                if ext in TEXT_EXT:
+                _raw=z.read(n)
+                # @859: CONTENT, not extension. This VERIFIER carried the same
+                # TEXT_EXT blind spot as the scrubber it verifies -- .warc, the
+                # WACZ payload, was in neither list -- so nothing downstream
+                # could catch a shipped credential.
+                if sec.should_scan(n, _raw):
                     try: text=z.read(n).decode("utf-8","ignore")
                     # why: not decodable text; COUNTED in binary_skipped so the denominator is reported -- a scrub proof never hides what it could not read
                     except Exception: res["binary_skipped"]+=1; continue

@@ -33,8 +33,10 @@ def scrub_zip(inp, out):
     with zipfile.ZipFile(inp) as zin, zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED) as zout:
         for item in zin.infolist():
             data=zin.read(item.filename)
-            ext=os.path.splitext(item.filename)[1].lower()
-            if ext in TEXT_EXT:
+            # @859: CONTENT, not extension. The old TEXT_EXT allowlist omitted
+            # .warc -- the WACZ payload -- so a capture carrying a bearer token
+            # was copied through while the tool printed 'verified clean'.
+            if sec.should_scan(item.filename, data):
                 text=data.decode("utf-8","ignore")
                 scrubbed,counts=_ls.scrub(text)
                 total+=sum(counts.values()); members+=1
