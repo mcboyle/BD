@@ -138,14 +138,154 @@ _PHASE3_MUST_GATE = {
 }
 
 
+def _resolve_must_gate(items, want):
+    """Every item whose name is `want` or `<blueprint>.<want>`.
+
+    @867: the inventory names routes blueprint-QUALIFIED -- "global_config.
+    api_global_config", "supervisor.api_supervisor_configure" -- while
+    _PHASE3_MUST_GATE holds bare endpoint names. A dict lookup on the bare name
+    therefore matched NOTHING, and the `continue` below it swallowed every miss
+    as "route not present in this tree slice".
+
+    Returns the full match list rather than a single item ON PURPOSE. Silently
+    taking matches[0] would assert about whichever blueprint happens to sort
+    first, which is a different route from the one the pin names -- a gate
+    asserting confidently about the wrong subject is worse than one asserting
+    about none.
+    """
+    return [it for it in items
+            if it.get("name") == want
+            or str(it.get("name") or "").endswith("." + want)]
+
+
+def _classify_must_gate(items, names):
+    """Split `names` into (resolved, missing, ambiguous) against `items`.
+
+    @867: extracted from the gate so every arm is reachable from a test. The
+    first mutation battery showed the gate's `len(hits) > 1` branch escaping --
+    the real inventory has zero ambiguous names, so mutating that branch is a
+    no-op and the band stays green with the behaviour broken. An assertion
+    guarding a condition the live data never produces is real but
+    unconstrained; the only way to constrain it is a fixture where the
+    condition occurs.
+    """
+    resolved, missing, ambiguous = {}, [], {}
+    for name in sorted(names):
+        hits = _resolve_must_gate(items, name)
+        if not hits:
+            missing.append(name)
+        elif len(hits) > 1:
+            ambiguous[name] = [h.get("name") for h in hits]
+        else:
+            resolved[name] = hits[0]
+    return resolved, missing, ambiguous
+
+
+def test_classify_must_gate_separates_all_three_outcomes():
+    """@867 -- closes the second mutation escape.
+
+    Drives the gate's own classification against a fixture where MISSING and
+    AMBIGUOUS actually occur. On the live 1246-item inventory both buckets are
+    empty, so neither branch is exercised by the gate above -- which is exactly
+    why deleting or weakening them left the band green.
+    """
+    items = [
+        {"name": "global_config.api_wanted"},
+        {"name": "left.api_dup"}, {"name": "right.api_dup"},
+    ]
+    resolved, missing, ambiguous = _classify_must_gate(
+        items, {"api_wanted", "api_dup", "api_absent"})
+
+    assert list(resolved) == ["api_wanted"]
+    assert resolved["api_wanted"]["name"] == "global_config.api_wanted"
+    # MISSING: a pinned name with no inventory item. The pre-@867 gate treated
+    # this as "not in this tree slice" and continued.
+    assert missing == ["api_absent"]
+    # AMBIGUOUS: two blueprints, one endpoint name. Must NOT silently resolve --
+    # asserting about whichever sorted first is a claim about a different route.
+    assert list(ambiguous) == ["api_dup"]
+    assert sorted(ambiguous["api_dup"]) == ["left.api_dup", "right.api_dup"]
+    assert "api_dup" not in resolved
+
+
+def test_resolve_must_gate_discriminates(  ):
+    """@867 -- closes a mutation escape.
+
+    bd-mutate showed that deleting the "missing" assertion from the gate above
+    left the band green: with resolution working, `missing` is always empty, so
+    the assertion guards a condition that never arises on a healthy tree. That
+    makes it real but UNCONSTRAINED -- delete it and a future rename would slip
+    through silently, which is the state this cut just repaired.
+
+    So the resolver is exercised against a synthetic inventory where each
+    outcome actually occurs. Fixture, not the live build: the real inventory is
+    1246 items that move whenever a route is added.
+    """
+    items = [
+        {"name": "api_bare"},                       # unqualified
+        {"name": "global_config.api_global_config"},  # blueprint-qualified
+        {"name": "left.api_dup"}, {"name": "right.api_dup"},  # ambiguous
+        {"name": "other.api_similar_suffix"},
+    ]
+    # (a) bare name still resolves
+    assert [i["name"] for i in _resolve_must_gate(items, "api_bare")] == ["api_bare"]
+    # (b) blueprint-qualified resolves -- the case the old dict lookup missed
+    assert [i["name"] for i in _resolve_must_gate(items, "api_global_config")] \
+        == ["global_config.api_global_config"]
+    # (c) absent resolves to NOTHING, which is what the gate's denominator
+    #     assertion consumes. This is the arm the escape left unconstrained.
+    assert _resolve_must_gate(items, "api_does_not_exist") == []
+    # (d) two blueprints exposing one endpoint name is AMBIGUOUS, not a pick.
+    assert len(_resolve_must_gate(items, "api_dup")) == 2
+    # (e) OVER-SENSITIVITY: the match is anchored on a dot boundary, so a name
+    #     that merely ENDS WITH the wanted string must not match. Without the
+    #     "." the suffix test would pull in api_similar_suffix for "suffix".
+    assert _resolve_must_gate(items, "suffix") == []
+
+
 def test_phase3_config_maintenance_mutations_are_gated():
+    """MEASURED at v3.66.866: 0 of 16 pinned routes resolved, over a 1246-item
+    inventory. The gate ran green in CI's own lane having asserted nothing.
+
+    The pin exists because config/maintenance/lifecycle mutations were landing
+    gui-safe (finding #2 of the GUI-parity audit); it is meant to stop the
+    sensitivity keyword set silently regressing them. It could not: the loop
+    body never executed once.
+
+    The denominator assertion comes BEFORE the verdict deliberately. That
+    ordering is the only thing that reliably catches this class -- the author
+    of a gate has just convinced themselves the logic is right, and a gate over
+    an empty set is indistinguishable from a passing one by its exit code.
+    """
     d = P1.build(_ROOT)
-    by_name = {it.get("name"): it for it in d["items"]}
-    for name in _PHASE3_MUST_GATE:
-        it = by_name.get(name)
-        if it is None:
-            continue  # route not present in this tree slice — don't fail on absence
-        assert it["gui_class"] == "gui-gated", f"{name} must be gui-gated, got {it['gui_class']}"
+    items = d["items"]
+    assert items, "inventory is empty -- nothing below proves anything"
+
+    resolved, missing, ambiguous = _classify_must_gate(items, _PHASE3_MUST_GATE)
+
+    # (1) DENOMINATOR. A pinned name that no longer resolves means the route was
+    # renamed or removed -- which is exactly when this gate must speak, not fall
+    # silent. The old code treated absence as "fine".
+    assert not missing, (
+        f"{len(missing)} of {len(_PHASE3_MUST_GATE)} pinned routes do not "
+        f"resolve in a {len(items)}-item inventory: {missing}. Either they were "
+        f"renamed (update the pin in the same cut) or the inventory changed "
+        f"shape -- do not delete the entry to make this pass.")
+
+    # (2) NO GUESSING. Two blueprints exposing the same endpoint name means the
+    # pin is under-specified; qualify it rather than letting the gate pick.
+    assert not ambiguous, (
+        f"pinned names match more than one inventory item, so the gate cannot "
+        f"tell which route it is asserting about: {ambiguous}")
+
+    assert len(resolved) == len(_PHASE3_MUST_GATE)
+
+    # (3) the actual invariant, now over a non-empty subject.
+    bad = {n: it.get("gui_class") for n, it in resolved.items()
+           if it.get("gui_class") != "gui-gated"}
+    assert not bad, (
+        f"config/maintenance/lifecycle mutations must be gui-gated; these are "
+        f"not: {bad}")
 
 
 # Finding #1: the previously un-inventoried operator workflows are now present.
