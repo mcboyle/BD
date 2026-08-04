@@ -1783,7 +1783,7 @@ app boot (during the endpoint-catalog gate's import), and on any
 tree where the suite has executed the file accumulates: pytest
 tempdir paths in `path_allowlist`, plus `stream_token_secret` and
 `share_token_secret` (cryptographic secrets generated lazily by
-`bulk_downloader/share.py` and the stream broker). The pre-v3.65.1
+`bulk_downloader/shares.py` and the stream broker). The pre-v3.65.1
 local rebuilds that shipped this content baked the build
 environment's secrets into every deploy.
 

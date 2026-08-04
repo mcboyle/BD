@@ -23,7 +23,7 @@ the floor, not the ceiling. The on-stash full suite remains the binding gate.
 | `bulk_downloader/takeover.py` | `test_v3_66_757_takeover_fold`, `test_v3_66_758_takeover_driver`, `test_v3_66_759_takeover_admission`, `test_v3_66_760_takeover_idle_sweep`, `test_v3_66_761_takeover_observability`; changing `open_channel`/`sse_frames` also bands `test_v3_43_60_captcha_relay` (via the relay wrappers) |
 | `bulk_downloader/metrics_prom.py` | `test_v3_66_12_phase1_p05_minimal_metrics`, `test_v3_66_761_takeover_observability`; adding a block that imports a NEW module (e.g. `metrics_prom -> takeover` @761) also requires re-freezing `import_graph_gate` (`--update`) + regen `DEPENDENCY_GRAPH` + band `test_import_graph_no_new_edges` in the SAME cut |
 | `bulk_downloader/__init__.py` (version) + `CHANGELOG.md` | `test_contracts` (CHANGELOG/health/semver), `test_settings_center_slice4` (the version pin) |
-| `bulk_downloader/capture_scrub.py` / redaction | `test_capture_scrub_hook`, `test_capture_scrub_patches`, `test_capture_redact_nested`, `test_secret_display_never` (stash), `test_ct2_capture_bodies` |
+| `bulk_downloader/capture_scrub_hook.py` / redaction | `test_capture_scrub_hook`, `test_capture_scrub_patches`, `test_capture_redact_nested`, `test_secret_display_never` (stash), `test_ct2_capture_bodies` |
 | `tools/capture_session.py` *(GUARD)* | `test_capture_session_nav_resilience`, `test_v3_66_153_capture_finish_sentinel`, `test_v3_66_158_capture_finish_endpoint` + **declare the guard sha change** |
 | `bulk_downloader/dom_recorder.py` *(GUARD)* | `test_dom_recorder_asi` (5 static ASI checks) + the Node A/B (`asi_node_ab.js`) + **declare guard sha** |
 | `capture.sh` | `test_u45_capture_sh_shipped`; re-run `verify_release --zip` (banner gate) |

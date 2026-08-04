@@ -195,7 +195,25 @@ jobs:
             tests/test_versync_gate.py \
             tests/test_release_hygiene_gates.py \
             tests/test_scan_version_pins_fixture.py \
-            tests/test_gui_parity.py
+            tests/test_gui_parity.py \
+            tests/test_pk_mirrors_do_not_drift.py \
+            tests/test_toolchain_534.py
+          # @850: the last two are new here, and both were added because they
+          # were RED somewhere nothing could see.
+          #   test_pk_mirrors_do_not_drift -- three project-knowledge mirrors
+          #     (bd-band, bd-band-derive, bd-bandcheck) drifted from their
+          #     toolchain/bin originals across v3.66.847-849 and sat red on main
+          #     the whole time, because no band derived from a changed module
+          #     reaches a gate that enumerates the tree.
+          #   test_toolchain_534 -- carries the four tool selftests, the
+          #     prose-only ratchet, and bd-freshcheck --repo-only.
+          # DEPENDS ON `fetch-depth: 0` ABOVE. bd-freshcheck asserts the
+          # register's close-tip commit is an ancestor of HEAD; under the
+          # default depth-1 checkout that commit is absent and the check returns
+          # UNKNOWN (exit 2), failing for an environmental reason rather than a
+          # real one. The depth is currently set for gitleaks -- if that ever
+          # changes, this step needs its own reason to keep full history.
+          # Runtime measured at 15s locally.
 
       # Staleness is not caught by any test above: a doc can cite a file that no
       # longer exists, or a register can name a commit this branch never had,

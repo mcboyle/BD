@@ -1,14 +1,28 @@
 #!/usr/bin/env python3
 """bd-doc-truth -- compare docs to source behavior.
 
-Checks concrete, verifiable claims in the PK docs against the live source: a doc
-that states "version 3.66.X" not matching current __version__, a stated tool
-count / route count that's stale, or a referenced file path that no longer
-exists. Flags each stale claim -> BD-DOC-STALE. This is the truth-decay detector
-for the KB. Read-only.
+WHAT IT ACTUALLY CHECKS, stated narrowly on purpose: backticked
+`bulk_downloader/...py` file-path claims in the PK docs that no longer resolve
+against the work tree -> BD-DOC-STALE. That is ONE detector.
+
+This docstring used to also advertise version-claim, tool-count and route-count
+checks. The code has never implemented them. A tool's own docstring is a
+document and goes stale like any other (CLAUDE.md section 1); claiming coverage
+that does not exist is how a narrow detector gets read as a broad one.
 
 Usage: bd-doc-truth [--docs DIR] [--work DIR] [--json] [--selftest]
-Exit 0 (advisory).
+
+EXIT IS A VERDICT, NOT A FORMALITY (@850):
+  0  scanned >=1 document, found nothing stale
+  1  found at least one stale claim
+  2  CANNOT EVALUATE -- the docs dir is absent, or contains no .md at all
+
+Until @850 this returned 0 unconditionally and `--docs` defaulted to
+/mnt/project, a path from the retired sandbox that no git checkout has. Since
+bd-freshcheck:193 invokes it with NO ARGUMENTS, the wired path scanned zero
+documents and reported clean -- inside a CI gate. Both halves had to be fixed:
+aiming it at real docs while main() still returned 0 would have left it equally
+blind, because check_delegate maps rc0 -> OK.
 """
 import argparse, glob, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -27,43 +41,117 @@ def current_version(work):
 def scan(docs, work):
     cur=current_version(work)
     stale=[]
+    # docs_scanned is not cosmetic: it is the DENOMINATOR, and reporting a
+    # count without it is exactly how "0 stale claims" over zero documents read
+    # as clean for as long as it did.
+    files=sorted(glob.glob(os.path.join(docs,"*.md")))
     # file-path claims: `some/path.py` references that don't exist
-    for f in glob.glob(os.path.join(docs,"*.md")):
+    for f in files:
         name=os.path.basename(f)
         txt=open(f,errors="ignore").read()
         for m in re.finditer(r'`(bulk_downloader/[a-zA-Z0-9_/]+\.py)`',txt):
             path=m.group(1)
             if not os.path.exists(os.path.join(work,path)):
                 stale.append({"doc":name,"kind":"missing-file","claim":path})
-    return {"current_version":cur,"stale":stale[:60],"stale_count":len(stale)}
+    return {"current_version":cur,"stale":stale[:60],"stale_count":len(stale),
+            "docs_dir":docs,"docs_scanned":len(files),
+            "docs_dir_exists":os.path.isdir(docs)}
 
 def selftest():
-    ok=True
-    r=scan("/mnt/project",sec.DEFAULT_WORK)
-    print(("PASS" if r["current_version"] else "FAIL")+"  current version read (%s)"%r["current_version"])
-    ok=ok and bool(r["current_version"])
+    """Every case below is a NEGATIVE control except the last two.
+
+    The pre-@850 selftest called scan("/mnt/project", ...) and then asserted
+    only that a version string could be read -- which comes from --work, not
+    from --docs. So it passed at full volume while the docs corpus it was
+    pointed at did not exist. A selftest whose inputs are all well-formed
+    cannot see the case the environment actually produced.
+    """
     import tempfile
-    with tempfile.TemporaryDirectory() as d:
-        open(os.path.join(d,"x.md"),"w").write("See `bulk_downloader/does_not_exist.py` for details.\n")
-        s=scan(d,sec.DEFAULT_WORK)
-    print(("PASS" if any("does_not_exist" in x["claim"] for x in s["stale"]) else "FAIL")+"  missing-file claim flagged (%d)"%s["stale_count"])
-    ok=ok and any("does_not_exist" in x["claim"] for x in s["stale"])
+    ok=True
+    def chk(cond,label):
+        nonlocal ok
+        ok = ok and bool(cond)
+        print(("PASS" if cond else "FAIL")+"  "+label)
+
+    chk(bool(current_version(sec.DEFAULT_WORK)),
+        "current version read from --work (%s)"%current_version(sec.DEFAULT_WORK))
+
+    # The default must resolve inside the tree, not onto a retired sandbox path.
+    d=default_docs(sec.DEFAULT_WORK)
+    chk(os.path.isdir(d), "default --docs resolves to a real dir (%s)"%d)
+    chk("/mnt/" not in d, "default --docs is not a sandbox absolute path")
+
+    with tempfile.TemporaryDirectory() as td:
+        # NEG: absent dir -> 2. The exact shape of the shipped defect.
+        r=scan(os.path.join(td,"nope"),sec.DEFAULT_WORK)
+        chk(verdict(r)==sec.EXIT_CANNOT_EVALUATE,
+            "NEG absent docs dir -> CANNOT-EVALUATE (got %d)"%verdict(r))
+
+        # NEG: present but empty -> 2, NOT a clean 0.
+        e=os.path.join(td,"empty"); os.makedirs(e)
+        r=scan(e,sec.DEFAULT_WORK)
+        chk(verdict(r)==sec.EXIT_CANNOT_EVALUATE,
+            "NEG empty docs dir -> CANNOT-EVALUATE (got %d)"%verdict(r))
+
+        # POS: a genuinely stale claim -> 1, and the claim is named.
+        b=os.path.join(td,"bad"); os.makedirs(b)
+        open(os.path.join(b,"x.md"),"w").write(
+            "See `bulk_downloader/does_not_exist.py` for details.\n")
+        r=scan(b,sec.DEFAULT_WORK)
+        chk(verdict(r)==1 and any("does_not_exist" in x["claim"] for x in r["stale"]),
+            "stale missing-file claim -> 1 and is named (%d found)"%r["stale_count"])
+
+        # POS/OVER-SENSITIVITY: a real file must NOT be flagged. A detector
+        # that fires on everything gets switched off, which section 0 counts
+        # as the equal of a false clean.
+        g=os.path.join(td,"good"); os.makedirs(g)
+        open(os.path.join(g,"y.md"),"w").write(
+            "See `bulk_downloader/__init__.py`, which exists.\n")
+        r=scan(g,sec.DEFAULT_WORK)
+        chk(verdict(r)==0 and r["docs_scanned"]==1,
+            "clean non-empty corpus -> 0 over a denominator of 1 (got %d/%d)"
+            %(verdict(r),r["docs_scanned"]))
+
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
     return 0 if ok else 1
 
+def default_docs(work):
+    """The PK docs of THIS tree. Resolved from --work so a relocated checkout
+    follows it, rather than a literal that only existed in one sandbox."""
+    return os.path.join(work,"project-knowledge")
+
+
+def verdict(r):
+    """0 clean / 1 stale / 2 cannot-evaluate. Split out so the selftest can
+    assert the mapping directly instead of only through a subprocess."""
+    if not r["docs_dir_exists"] or r["docs_scanned"]==0:
+        return sec.EXIT_CANNOT_EVALUATE
+    return 1 if r["stale_count"] else 0
+
+
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--docs",default="/mnt/project"); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--docs",default=None); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
     ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
     a=ap.parse_args()
     if a.selftest: return selftest()
     sec.require_source_tree(a.work)
-    r=scan(a.docs,a.work)
-    if sec.emit(r,as_json=a.json): return 0
-    print("current version %s; %d stale doc claim(s):"%(r["current_version"],r["stale_count"]))
+    docs=a.docs if a.docs is not None else default_docs(a.work)
+    r=scan(docs,a.work)
+    rc=verdict(r)
+    # The verdict is computed BEFORE emit(), because emit() returns True for
+    # --json and the old code returned 0 on that branch without ever grading.
+    if sec.emit(r,as_json=a.json): return rc
+    if rc==sec.EXIT_CANNOT_EVALUATE:
+        why=("does not exist" if not r["docs_dir_exists"] else "contains no .md files")
+        print("%sBD-DOC-TRUTH UNEVALUABLE%s %s %s -- 0 documents scanned. That is "
+              "UNKNOWN, not clean."%(R,RST,docs,why))
+        return rc
+    print("current version %s; %d document(s) scanned in %s; %d stale doc claim(s):"
+          %(r["current_version"],r["docs_scanned"],docs,r["stale_count"]))
     for x in r["stale"][:40]: print("  %sBD-DOC-STALE%s %s: %s (%s)"%(Y,RST,x["doc"],x["claim"],x["kind"]))
-    if not r["stale"]: print(G+"no stale file-path claims in docs"+RST)
-    return 0
+    if not r["stale"]: print(G+"no stale file-path claims in %d document(s)"%r["docs_scanned"]+RST)
+    return rc
 
 if __name__ == "__main__":
     sys.exit(main())

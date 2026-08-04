@@ -4,6 +4,50 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.850 - bd-doc-truth was a CI gate that scanned zero documents
+
+- bd-doc-truth is wired into CI through bd-freshcheck, and it was blind twice
+  over. (1) `--docs` defaulted to /mnt/project, a path from the retired sandbox
+  that no git checkout has, and bd-freshcheck:193 invokes the tool with NO
+  arguments -- so the wired path scanned 0 documents and printed "0 stale doc
+  claim(s)". (2) main() returned 0 unconditionally, and the --json branch
+  returned before the verdict was computed at all, so even aimed at real docs
+  it could never report STALE: check_delegate maps rc0 -> OK. Fixing either
+  half alone leaves it blind; both are fixed here.
+- Exit is now a verdict: 0 clean over >=1 document, 1 stale claim found, 2
+  CANNOT-EVALUATE when the docs dir is absent or holds no .md. bd-freshcheck
+  already graded 2 as UNKNOWN and failed on it -- only the producer was
+  missing. The tool now also prints how many documents it scanned, because a
+  count without its denominator is how "0 stale claims" read as clean.
+- Its selftest previously called scan("/mnt/project") and then asserted only
+  that a version string could be read -- a value that comes from --work, not
+  --docs -- so it passed at full volume against a corpus that did not exist.
+  Rebuilt around negative controls: absent dir -> 2, empty dir -> 2, stale -> 1,
+  and a clean non-empty corpus -> 0 as the over-sensitivity control.
+- The docstring advertised version-claim, tool-count and route-count checks the
+  code has never implemented. Narrowed to what it does: backticked
+  bulk_downloader/*.py path claims that no longer resolve.
+- Un-blinding it surfaced 3 real stale claims, all repaired here:
+  DANGER_MAPv2.md cited bulk_downloader/share.py (now shares.py, which is where
+  share_token_secret is lazily generated at :73-78); TOUCHED_FILE_TO_TEST.md
+  cited capture_scrub.py (now capture_scrub_hook.py, matching the
+  test_capture_scrub_hook row beside it); and 6_MANIFEST_EXCLUSION_RULES.md
+  cited bulk_downloader/dev_suite.py, which became a package.
+- 6_MANIFEST_EXCLUSION_RULES.md was rewritten to DERIVE rather than copy. Its
+  hand-written sets had rotted to 11 of 13 exclude-dirs, 4 of 6 suffixes and 11
+  of 29 names, it asserted that live_recordings/ was not a dir-exclude when it
+  now is, and it carried a dead `sed -n '801,860p'` command an operator was
+  told to run. Header said v3.66.276; the body described itself as the v3.66.160
+  state -- about 600 releases behind a tree that read it as authoritative. The
+  five sets are now a runnable one-liner plus their real source locations; the
+  rationale prose, which source cannot tell you, is kept.
+- RED-first, and the first draft of the test was itself vacuous: it asserted
+  "/mnt/project" not in --help output, which argparse never prints, so it passed
+  on the broken tool. Replaced with the property that matters -- the
+  no-argument invocation must not report an empty corpus.
+- bd-mutate: 5 mutants, 5 caught, 0 escaped, including the over-sensitive
+  direction (a verdict that can never pass) and the --json short-circuit.
+
 ## v3.66.849 - the prose-only ratchet counted data as wiring
 
 - tests/test_toolchain_534.py's _prose_only asked `tool in blob` over any file

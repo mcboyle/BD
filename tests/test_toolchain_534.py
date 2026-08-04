@@ -314,6 +314,93 @@ def test_the_tools_this_cut_added_are_wired_and_selftest_clean():
             % tool)
 
 
+def _doc_truth(args, cwd):
+    tool = os.path.join(str(_REPO_ROOT), "toolchain", "bin", "bd-doc-truth")
+    return subprocess.run([sys.executable, tool] + args, cwd=cwd,
+                          capture_output=True, text=True, timeout=120)
+
+
+def test_doc_truth_mints_a_verdict_instead_of_always_zero():
+    """@850 -- bd-doc-truth is WIRED into CI and scanned nothing.
+
+    THE DEFECT, two independent halves, each sufficient to blind it:
+      1. `--docs` defaulted to /mnt/project, a path from the retired sandbox
+         that does not exist in any git checkout. bd-freshcheck:193 invokes it
+         as `_run([sys.executable, str(p)], root)` -- NO ARGUMENTS -- so the
+         wired path scanned ZERO documents and printed "0 stale doc claim(s)".
+      2. main() returned 0 unconditionally, and the --json branch returned 0
+         before even reaching that. check_delegate maps rc0->OK, so even aimed
+         at the real docs it could never report STALE.
+    Fixing either alone leaves it blind, which is why both are asserted here.
+
+    THE EMPTY DENOMINATOR IS THE POINT. A scan of zero documents is UNKNOWN,
+    not clean -- CLAUDE.md section 0's third state. bd-freshcheck:297 already
+    grades 2 as UNKNOWN and fails on it; only the producer was missing.
+    """
+    import tempfile
+    root = str(_REPO_ROOT)
+
+    # (1) THE WIRED INVOCATION. bd-freshcheck:193 runs this tool with no
+    # arguments at all, so the default --docs IS the shipped behaviour. Assert
+    # the property that matters -- it scanned a real corpus -- not the absence
+    # of a string. The first draft of this checked `"/mnt/project" not in
+    # --help`, which argparse never prints, so it passed on the broken tool:
+    # a vacuous assertion inside the test for vacuous assertions.
+    r = _doc_truth([], root)
+    assert r.returncode != 2, (
+        "the no-argument invocation (exactly what bd-freshcheck runs) reported "
+        "an empty/absent corpus. Its --docs default must resolve into the work "
+        "tree.\n%s" % (r.stdout + r.stderr)[-400:])
+    assert "document(s) scanned" in (r.stdout + r.stderr), (
+        "the tool does not say how many documents it scanned. A count without "
+        "its denominator is the reason this defect survived: '0 stale claims' "
+        "read as clean when it meant nothing was looked at.")
+
+    with tempfile.TemporaryDirectory() as td:
+        # (2) absent docs dir -> UNKNOWN(2), never a clean 0.
+        r = _doc_truth(["--docs", os.path.join(td, "nope"), "--work", root], root)
+        assert r.returncode == 2, (
+            "scanning an ABSENT docs dir exited %d; an absent corpus is "
+            "UNKNOWN (2), and unknown fails." % r.returncode)
+
+        # (3) present but empty -> still UNKNOWN. This is the exact shape the
+        # /mnt/project default produced: a real call over nothing.
+        empty = os.path.join(td, "empty")
+        os.makedirs(empty)
+        r = _doc_truth(["--docs", empty, "--work", root], root)
+        assert r.returncode == 2, (
+            "scanning an EMPTY docs dir exited %d -- zero documents scanned is "
+            "not zero problems found." % r.returncode)
+
+        # (4) a real stale claim -> 1, so check_delegate grades it STALE.
+        bad = os.path.join(td, "bad")
+        os.makedirs(bad)
+        with open(os.path.join(bad, "x.md"), "w") as fh:
+            fh.write("See `bulk_downloader/does_not_exist_at_all.py`.\n")
+        r = _doc_truth(["--docs", bad, "--work", root], root)
+        assert r.returncode == 1, (
+            "a stale file-path claim exited %d; it must be 1 or bd-freshcheck "
+            "grades it OK." % r.returncode)
+        # and --json must agree -- it used to return 0 before the verdict.
+        rj = _doc_truth(["--docs", bad, "--work", root, "--json"], root)
+        assert rj.returncode == 1, (
+            "--json exited %d on a stale corpus. emit() returning True made "
+            "main() return 0 before the verdict was ever computed."
+            % rj.returncode)
+
+        # (5) OVER-SENSITIVITY CONTROL: a non-empty corpus with nothing wrong
+        # must still be 0. A gate that only ever fails is as useless as one
+        # that only ever passes (section 0 counts both as soundness bugs).
+        good = os.path.join(td, "good")
+        os.makedirs(good)
+        with open(os.path.join(good, "y.md"), "w") as fh:
+            fh.write("See `bulk_downloader/__init__.py`, which exists.\n")
+        r = _doc_truth(["--docs", good, "--work", root], root)
+        assert r.returncode == 0, (
+            "a clean NON-EMPTY corpus exited %d; only an empty or absent one "
+            "is UNKNOWN." % r.returncode)
+
+
 def test_the_derivable_half_of_staleness_is_clean():
     """bd-freshcheck --repo-only must pass: doc anchors resolve, the register's
     close section names a commit in this history, and doc claims match source.
