@@ -355,6 +355,7 @@ def _seed_files(version=TREE_VERSION):
     return {
         "bulk_downloader/__init__.py": '__version__ = "%s"\n' % version,
         "requirements.txt": "# runtime deps\nlxml>=5.0,<7.0\n",
+        "requirements-test.txt": "# suite deps\npyflakes>=3.0,<4.0\n",
         "frontend/package.json": '{"name": "bd-frontend", "private": true}\n',
         "frontend/src/main.ts": "// spa entry\n",
         "tools/check_requirements.py": "# stub; the fake venv python dispatches on this path\n",
@@ -665,6 +666,46 @@ def test_requirement_gap_installs_then_rechecks():
     checks = [ln for ln in _lines(fx.logs["py"]) if "check_requirements.py" in ln]
     assert len(checks) >= 2, (
         "pip exiting 0 is not resolution -- the check must be RE-RUN afterwards"
+        + _ctx(r, "check calls: %r" % checks))
+
+
+def test_test_requirements_converge_too():
+    """v3.66.862. RED on v3.66.861.
+
+    pyflakes was DECLARED in requirements-dev.txt at v3.66.861 to close a box
+    capture failure, and the NEXT capture failed on pyflakes again -- because
+    step [5] converges requirements.txt ONLY (:305) and check_requirements.py
+    defaults to requirements.txt only (:56). The declaration landed in a
+    manifest nothing on the deploy path reads, so it could not have worked.
+    That is CLAUDE.md section 0's own warning: the fix reproduced the shape of
+    the defect it was fixing -- a denominator that structurally excludes the
+    subject.
+
+    The box IS the gate (section 7): capture.sh runs the full suite there, and
+    the suite's own dependencies are therefore deploy-path dependencies. They
+    live in requirements-test.txt rather than requirements-dev.txt because the
+    dev manifest also carries the packaging chain (nuitka needs gcc), and a
+    deploy must not provision a build host as a side effect. This
+    asserts the QUESTION is asked, not that pip runs -- with every entry
+    already resolved the correct behaviour is to skip the install, and an
+    assertion on the pip log would be green for the wrong reason.
+    """
+    fx = _setup(REQ_MODE="ok")
+    _advance_origin(fx, "any change at all")
+    _bundle_current(fx)
+
+    r = _deploy(fx)
+
+    checks = [ln for ln in _lines(fx.logs["py"]) if "check_requirements.py" in ln]
+    assert checks, (
+        "no requirements check ran at all -- this test's own denominator is "
+        "empty and it proves nothing about the dev manifest"
+        + _ctx(r, "py log: %r" % _read(fx.logs["py"])))
+    dev = [ln for ln in checks if "requirements-test.txt" in ln]
+    assert dev, (
+        "deploy.sh never asks whether requirements-test.txt resolves, so a "
+        "dependency declared there is invisible to the deploy and the box "
+        "fails the suite on it (pyflakes, v3.66.861)"
         + _ctx(r, "check calls: %r" % checks))
 
 

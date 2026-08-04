@@ -281,14 +281,15 @@ else
   step "claim guard"  optional git config core.hooksPath .githooks
   step "pip upgrade"  optional ./venv/bin/pip install -q --upgrade pip
   step "runtime deps" core     ./venv/bin/pip install -q -r requirements.txt
-  # pyyaml is named here rather than pulled via -r requirements-dev.txt on
-  # purpose: that manifest also carries nuitka, which needs gcc and patchelf
-  # and is a build tool no session needs. pyyaml is a ~700KB pure wheel and
-  # is what VALIDATES an edit to .github/workflows/ci.yml -- without it a
-  # session checks YAML by eye, which is how a CI edit nearly shipped on an
-  # indentation guess at v3.66.849. Declaring it in requirements-dev.txt
-  # persisted the knowledge; only this line survives a container rebuild.
-  step "test deps"    core     ./venv/bin/pip install -q "pytest>=7.0,<9.0" pyflakes "pyyaml>=6.0,<7.0"
+  # v3.66.862: this was a HAND-WRITTEN list of the same three packages, and the
+  # comment above it explained that -r requirements-dev.txt was unusable here
+  # because that manifest also carries nuitka (gcc + patchelf). That reasoning
+  # was right and is now solved by the manifest split -- requirements-test.txt
+  # is exactly "what the suite needs, without the packaging chain", so the list
+  # lives in one place instead of three (here, deploy.sh, and the manifest).
+  # A hand-copied dependency list is the denominator that drifts, and the copy
+  # nobody updates is the one an environment actually runs (CLAUDE.md 5, S0/S8).
+  step "test deps"    core     ./venv/bin/pip install -q -r requirements-test.txt
 
   # NODE_ENV=production makes `npm ci` omit devDependencies, silently removing
   # vite/typescript/vitest. Verified empirically; `npm ci --dry-run` does NOT

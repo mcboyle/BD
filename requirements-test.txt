@@ -1,0 +1,54 @@
+# Bulk Downloader — test-suite dependencies
+# Install: pip install -r requirements-test.txt
+#
+# WHY THIS FILE EXISTS, SEPARATELY FROM requirements-dev.txt (v3.66.862).
+# The box is the gate (CLAUDE.md section 7): capture.sh runs the full suite
+# there, so the suite's own tooling is a DEPLOY-PATH dependency and
+# scripts/deploy.sh step [5] converges this manifest on every deploy.
+# requirements-dev.txt cannot serve that purpose, because it also carries the
+# packaging chain (pyinstaller, nuitka, zstandard) -- Nuitka needs a C compiler
+# and patchelf, so converging it on the deploy host would either install a
+# build toolchain nobody asked for or DIE at step [5] on a host that has no
+# gcc. Two different questions, two manifests.
+#
+# requirements-dev.txt pulls this in via `-r`, so a build/dev environment still
+# gets everything from one install and CI's line is unchanged.
+#
+# Note tools/check_requirements.py SKIPS `-r` lines by design (:73) -- it
+# resolves each manifest's own direct names. deploy.sh therefore checks
+# requirements.txt and this file separately rather than relying on the include.
+
+-r requirements.txt
+
+# Phase 33: test suite. Run via:
+#   pytest tests/                     # all tests
+#   pytest tests/test_validators.py   # specific file
+#   pytest tests/ -v -x               # verbose, stop on first failure
+pytest>=7.0,<9.0
+
+# v3.66.849: PyYAML, for validating .github/workflows/ci.yml. Not a runtime
+# import and not imported by any tracked file -- an AST walk over all tracked
+# Python finds zero importers -- so it is declared HERE, not in the runtime
+# manifest, and the declaration gate is unaffected either way.
+#
+# It is declared at all because a session installed it by hand to check a CI
+# edit and nearly shipped that edit on an indentation eyeball instead. Nothing
+# guarantees it otherwise: MEASURED, the only installed distribution naming
+# pyyaml is markdown-it-py, and it gates it behind `extra == "rtd"` which BD
+# never requests -- so a container rebuild loses it silently and the next
+# session repeats the eyeball.
+pyyaml>=6.0,<7.0
+
+# v3.66.861: pyflakes. DECLARED BECAUSE ITS ABSENCE IS SILENT-BY-DESIGN
+# EVERYWHERE ELSE. It was installed by scripts/cloud-setup.sh:291 and
+# .github/workflows/ci.yml:101 and written down in no manifest, so the deploy
+# host never got it -- and bd-tool-smoke, which pyflakes backs, then refused to
+# report clean over an absent analyzer ("this gate verified NOTHING"). That
+# refusal is CORRECT and it failed the box capture at v3.66.859: the tool was
+# right, the environment was missing a dependency nobody had declared.
+#
+# v3.66.862: declaring it was NOT sufficient, and the next capture proved it.
+# It was declared in requirements-dev.txt, which nothing on the deploy path
+# read -- the fix had reproduced the shape of the defect it was fixing
+# (CLAUDE.md section 0). Living here is what makes the declaration reachable.
+pyflakes>=3.0,<4.0
