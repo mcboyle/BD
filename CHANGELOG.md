@@ -4,6 +4,36 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.857 - salvage before the retirement
+
+- Prerequisite for the 20-tool retirement: three capabilities are rescued out of
+  tools whose SUBJECT died with the zip/overlay world, so the deletion loses the
+  plumbing and not the lesson. Nothing is deleted in this cut.
+- read_manifest_canon() (from bd-repin-dist) -> bdtools_sec. AST-reads the
+  manifest-exclusion canon from release_lint.py -- by AST because release_lint
+  uses package-relative imports so a standalone import fails, and because
+  executing application code to learn a constant is a side effect a read-only
+  tool has no business causing. It returns PROVENANCE ('tree' vs 'fallback')
+  and callers must print it: a silent fallback to hand-copied literals is
+  exactly how 6_MANIFEST_EXCLUSION_RULES.md drifted ~600 releases before @850
+  made that doc derive. Measured here: 29 names / 3 paths / 6 suffixes, tree.
+- stub_reason() (from bd-pack) -> bdtools_sec. PRESENCE IS NOT CONTENT: the 721
+  release pack shipped 30-byte TODO(author) planning docs and the gate said
+  clean because it was os.path.exists(); it RECURRED at 728 with 35-byte stubs.
+  Its false-positive guard is salvaged with it and matters equally -- a bare
+  `marker in text` once flagged a written 12KB document, so the code strips
+  marker LINES and judges what remains.
+- The net-tool budget (from bd-mkbdsuite) is salvaged in SPIRIT, not in code:
+  its predicate was `n > budget`, trivial, while the value was the policy
+  "adding a tool owes retiring one". Re-homed as test_the_toolchain_does_not_
+  grow_unbudgeted with _TOOL_BUDGET = 246. Unlike the prose-only baseline this
+  one is expected to ratchet DOWN as retirements land.
+- All three are TESTED, which is what makes this a salvage rather than a second
+  copy of the prose-only problem. The stub test carries a note the fixture
+  taught: the guard is LINE-WISE, so a marker buried mid-paragraph on one very
+  long line takes the paragraph with it -- a real limitation of the salvaged
+  code, recorded at the assertion that hit it.
+
 ## v3.66.856 - the wiring predicate matched prefixes and prose
 
 - Found while using _invokes() to decide which tools are safe to DELETE, which
