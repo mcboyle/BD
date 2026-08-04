@@ -9,8 +9,17 @@ from STATE, build_info presence in the tree) and marks live checks as
 operator-run. Read-only.
 
 Usage: bd-deploy-proof [--home DIR] [--work DIR] [--json] [--selftest]
+--home defaults to $HOME, --work to the checkout the tool ships in.
 Exit 0 all locally-verifiable checks OK / 1 a local check FAILED /
-2 CANNOT-EVALUATE (absent tree or bundle).
+2 CANNOT-EVALUATE (absent tree, or no STATE-derivable expected version).
+
+The expected version comes from STATE.json under --home, which is RETIRED
+along with the release zip (CLAUDE.md s7). On a git checkout there is no STATE,
+so the "expected version" check has no comparand -- that is CANNOT-EVALUATE(2),
+not a FAILED check(1): nothing about the deploy was measured. The checklist and
+its 4 operator-run live checks are unaffected, and --home at a preserved bundle
+still reads the pinned version. The selftest exercises the ledger-independent
+logic against a SYNTHETIC STATE fixture.
 """
 import argparse, os, sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -28,10 +37,15 @@ def build(home, work):
     checks=[
         {"check":"expected version","expect":ver,"verifiable_here":True,"ok":bool(ver)},
         {"check":"build_info.json present","expect":bi or "(none found)","verifiable_here":True,"ok":bool(bi)},
-        {"check":"GET /api/version == "+str(ver),"verifiable_here":False,"ok":None,"how":"curl localhost:5555/api/version"},
-        {"check":"static assets served","verifiable_here":False,"ok":None,"how":"curl -I localhost:5555/"},
-        {"check":"health OK","verifiable_here":False,"ok":None,"how":"curl localhost:5555/api/health"},
-        {"check":"capture.sh --workers=180 GREEN","verifiable_here":False,"ok":None,"how":"capture.sh --workers=180"},
+        # There is NO /api/version route (CLAUDE.md s7): the only version route
+        # is /api/dev/version_check and it is dev-mode gated. The running
+        # version is tools/deployed_version.txt, rewritten by the unit's
+        # ExecStartPre on every start -- so it reflects the PROCESS, not the
+        # tree, which is exactly what a deploy proof needs to compare.
+        {"check":"running version == "+str(ver),"verifiable_here":False,"ok":None,"how":"cat ~/BulkDownloader/tools/deployed_version.txt"},
+        {"check":"static assets served (503 = SPA bundle missing)","verifiable_here":False,"ok":None,"how":"curl -sI localhost:5555/"},
+        {"check":"health OK","verifiable_here":False,"ok":None,"how":"curl -s localhost:5555/api/health"},
+        {"check":"capture.sh GREEN","verifiable_here":False,"ok":None,"how":"./capture.sh --workers=$(nproc); echo exit=$?"},
     ]
     local_ok=all(c["ok"] for c in checks if c["verifiable_here"])
     return {"version":ver,"checks":checks,"local_evidence_ok":local_ok}
@@ -51,10 +65,22 @@ def _expect_version():
     return v
 
 
+def _fixture_home(tmp, ver):
+    """A synthetic STATE bundle pinning `ver`, so the STATE-read path stays
+    verified without the retired zip world."""
+    import json as _json
+    os.makedirs(os.path.join(tmp,"nextsess"),exist_ok=True)
+    with open(os.path.join(tmp,"nextsess","STATE.json"),"w") as fh:
+        _json.dump({"built_version":ver},fh)
+    return tmp
+
+
 def selftest():
     ok=True
-    d=build("/home/claude", sec.DEFAULT_WORK)
+    import tempfile, shutil, subprocess
+    tmp=tempfile.mkdtemp(prefix="dp_fixture_")
     want=_expect_version()
+    d=build(_fixture_home(tmp,want), sec.DEFAULT_WORK)
     print(("PASS" if d["version"]==want else "FAIL")+"  version from STATE matches source (%s vs %s)"%(d["version"],want))
     ok=ok and d["version"]==want
     print(("PASS" if len(d["checks"])==6 else "FAIL")+"  6-point checklist")
@@ -68,6 +94,18 @@ def selftest():
     print(("PASS" if (pos_rc, neg_rc) == (0, 1) else "FAIL") +
           "  NEG: failed local check -> exit 1 (got %s/%s)" % (pos_rc, neg_rc))
     ok = ok and (pos_rc, neg_rc) == (0, 1)
+
+    # NEG (verdict seam): no STATE under --home means the expected version has
+    # no comparand. That is CANNOT-EVALUATE(2), and it must not be reported as
+    # a FAILED local check(1) -- a deploy that was never measured is not a
+    # deploy that failed.
+    empty=os.path.join(tmp,"empty_home"); os.makedirs(empty,exist_ok=True)
+    rc=subprocess.run([sys.executable,os.path.realpath(__file__),"--home",empty],
+                      capture_output=True,text=True,timeout=60).returncode
+    print(("PASS" if rc==2 else "FAIL")+
+          "  NEG: no STATE under --home -> CANNOT-EVALUATE 2 (got %d)"%rc)
+    ok = ok and rc==2
+    shutil.rmtree(tmp,ignore_errors=True)
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
     return 0 if ok else 1
 
@@ -79,12 +117,21 @@ def _verdict_rc(d):
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--home",default="/home/claude"); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--home",default=os.path.expanduser("~")); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
     ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
     a=ap.parse_args()
     if a.selftest: return selftest()
     sec.require_source_tree(a.work)
-    sec.require_bundle(a.home)
+    # NOT require_bundle: the zip markers are not this tool's corpus, and their
+    # absence is not what makes the proof unevaluable. The expected version is.
+    if sec.load_state(a.home) is None:
+        sys.stderr.write(
+            "CANNOT-EVALUATE deploy proof: reason=%s (no STATE.json under %s, so "
+            "there is no expected version to prove the deploy against. STATE.json "
+            "and the release zip are RETIRED -- git replaced the zip overlay "
+            "(CLAUDE.md s7). Pass --home at a preserved bundle to check an "
+            "archived release.)\n" % (sec.REASON_ABSENT, a.home))
+        return sec.EXIT_CANNOT_EVALUATE
     d=build(a.home,a.work)
     if sec.emit(d,as_json=a.json): return _verdict_rc(d)
     print("deploy-proof checklist for v%s:"%d["version"])

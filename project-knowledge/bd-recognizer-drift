@@ -29,8 +29,11 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
 G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
-_WORK = os.environ.get("BD_WORK", "/home/claude/work")
+_WORK = os.environ.get("BD_WORK", sec.DEFAULT_WORK)
 if os.path.isdir(os.path.join(_WORK, "bulk_downloader")) and _WORK not in sys.path:
     sys.path.insert(0, _WORK)
 _CHALLENGE = ("just a moment", "cf-challenge", "captcha", "verifying you are human",

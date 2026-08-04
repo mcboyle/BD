@@ -48,7 +48,7 @@ def scan(work, home):
 
 def selftest():
     ok=True
-    rows=scan("/home/claude/work","/home/claude")
+    rows=scan(sec.DEFAULT_WORK,sec.DEFAULT_WORK)
     print(("PASS" if len(rows)>0 else "FAIL")+"  license inventory built (%d deps)"%len(rows))
     ok=ok and len(rows)>0
     known=sum(1 for r in rows if not r["unknown"])
@@ -59,12 +59,20 @@ def selftest():
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK); ap.add_argument("--home",default="/home/claude")
+    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK); ap.add_argument("--home",default=sec.DEFAULT_WORK,
+        help="unused by this scan (kept for CLI compatibility); license data comes from --work's venv + requirements*.txt")
     ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
     a=ap.parse_args()
     if a.selftest: return selftest()
     sec.require_source_tree(a.work)
-    sec.require_bundle(a.home)
+    # NOTE: previously also gated on sec.require_bundle(a.home), which demands
+    # a retired release zip (BUNDLE_MARKERS: BulkDownloader_v3_66_*.zip) under
+    # --home -- a subject git replaced (CLAUDE.md s7) and one this scan never
+    # reads (home is unused inside scan()). That made the tool CANNOT-EVALUATE
+    # unconditionally on a git checkout even though its real subject --
+    # --work's venv + requirements*.txt -- is present and evaluable. Gating on
+    # data you don't use is the s0 failure in its over-sensitive direction:
+    # dropped.
     rows=scan(a.work,a.home)
     unk=[r for r in rows if r["unknown"]]; cl=[r for r in rows if r["copyleft"]]
     if sec.emit({"deps":rows,"summary":{"total":len(rows),"unknown_license":len(unk),"copyleft":len(cl)}},as_json=a.json): return 0

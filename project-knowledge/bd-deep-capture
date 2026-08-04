@@ -42,10 +42,15 @@ import sys
 import time
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
 G, R, Y, DIM, BOLD, RST = ("\033[32m", "\033[31m", "\033[33m",
                            "\033[2m", "\033[1m", "\033[0m")
-DEFAULT_WORK = "/home/claude/work"
-SERVE = "/home/claude/render_kit/spa_serve.py"
+DEFAULT_WORK = sec.DEFAULT_WORK
+# the render-kit backend now lives in the checkout (was session staging at
+# /home/claude/render_kit/); overridable with --serve
+SERVE = os.path.join(sec.DEFAULT_WORK, "project-knowledge", "spa_serve.py")
 
 # Never click these while PROSPECTING FOR MODALS. Not applied to navigation.
 DENY = re.compile(
@@ -341,6 +346,8 @@ def main():
     ap.add_argument("--no-modals", action="store_true")
     ap.add_argument("--port", type=int, default=5599)
     ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--serve", default=SERVE,
+                    help="path to the spa_serve.py render backend")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--selftest", action="store_true")
@@ -354,10 +361,31 @@ def main():
     base = "http://%s:%d" % (a.host, a.port)
     os.makedirs(a.out, exist_ok=True)
 
+    # @855: the dry-run branch ran BEFORE any --work validation, so an empty or
+    # bogus tree printed 'DRY: 1 routes' and exited 0. Offline does not mean
+    # unvalidated -- the route list is read FROM the tree.
+    sec.require_source_tree(a.work)
+    if a.dry_run:
+        # plan mode is offline: no backend, so seeded-site routes are not listed
+        if a.group == "main":
+            targets = [(r, slug(r) if r != "/" else "home") for r in spa_routes(a.work)]
+        else:
+            targets = [(r, slug(r)) for r in COCKPIT_ROUTES]
+        targets = targets[a.start:a.start + a.count]
+        print("DRY: %d routes (seeded-site routes excluded; they need a backend)"
+              % len(targets))
+        for p, n in targets:
+            print("   %s -> %s" % (p, n))
+        return 0
+
     proc = None
     if not port_open(a.host, a.port):
+        if not os.path.isfile(a.serve):
+            print("%sCANNOT-EVALUATE%s render backend not found: %s "
+                  "(the staged render kit is retired; pass --serve)" % (R, RST, a.serve))
+            return sec.EXIT_CANNOT_EVALUATE
         proc = subprocess.Popen(
-            [sys.executable, SERVE], cwd=a.work,
+            [sys.executable, a.serve], cwd=a.work,
             env=dict(os.environ, PYTHONPATH=a.work, BD_DISABLE_KEEPALIVE="1"),
             start_new_session=True,
             stdout=open(os.path.join(a.out, "serve.log"), "w"),
@@ -393,12 +421,6 @@ def main():
             if sid:
                 targets.append(("/cockpit/settings/site/%s" % sid, "cockpit-settings-site"))
         targets = targets[a.start:a.start + a.count]
-
-        if a.dry_run:
-            print("DRY: %d routes" % len(targets))
-            for p, n in targets:
-                print("   %s -> %s" % (p, n))
-            return 0
 
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:

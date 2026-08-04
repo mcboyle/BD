@@ -11,8 +11,14 @@ or wide blast radius -> hold + investigate. Read-only.
 Usage: bd-rollback-oracle --failure TYPE [--touched N] [--tier T] [--work DIR] [--json]
        bd-rollback-oracle --selftest
 Exit 0 recommendation produced / 1 no --failure TYPE given (usage guard). Informational: advises, does not gate.
+
+v3.66.855 port: --touched auto-detection compared the work tree against the
+newest BulkDownloader_v3_66_*.zip in /home/claude. That directory is retired
+(CLAUDE.md s7), so the glob always came back empty and the auto path was DEAD:
+every run without an explicit --touched got touched=None, which forces HOLD for
+every patchable failure. The baseline is now git.
 """
-import argparse, glob, os, sys, zipfile
+import argparse, os, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec
 import os as _oscli, sys as _syscli
@@ -22,17 +28,31 @@ from bdtools_cli import G, R, Y, DIM, RST
 ROLLBACK_FAILURES={"guard","security","ssrf","data-loss","corruption","auth","boot-fail","deploy-broken"}
 PATCHABLE_FAILURES={"cosmetic","copy","typo","ui-minor","log-noise","perf-minor"}
 
-def touched_count(work, home="/home/claude"):
-    zp=sorted(glob.glob(os.path.join(home,"BulkDownloader_v3_66_*.zip")),key=os.path.getmtime,reverse=True)
-    if not zp: return None
-    pinned={}
-    with zipfile.ZipFile(zp[0]) as z:
-        for n in z.namelist():
-            if n.endswith(".py"): pinned[n]=z.read(n)
-    n=0
-    for p,rel,_t in sec.iter_py(work, strict=True, label="--work/--tree"):
-        if rel not in pinned or pinned[rel]!=open(p,"rb").read(): n+=1
-    return n
+def touched_count(work):
+    """How many bulk_downloader/*.py files this cut touched, from git.
+
+    None when git cannot answer (not a checkout, no HEAD, git absent). None is
+    load-bearing: decide() treats it as "blast radius unknown" and falls through
+    to HOLD rather than PATCH-FORWARD, so a blind probe advises the cautious
+    thing. That was also the pre-port behaviour -- the zip glob could only ever
+    return None here -- so blindness still fails the same way; what changes is
+    that a real answer is now reachable.
+
+    Scope is bulk_downloader/*.py, matching the sec.iter_py(subdir=...) default
+    the zip-era implementation counted over. Untracked files are included: a new
+    module is part of the blast radius.
+    """
+    def _git(*args):
+        try:
+            r=subprocess.run(["git","-C",work]+list(args),
+                             capture_output=True,text=True,timeout=120)
+        except (OSError,subprocess.SubprocessError):
+            return None
+        return None if r.returncode!=0 else [l for l in r.stdout.splitlines() if l.strip()]
+    if _git("rev-parse","--verify","HEAD") is None: return None
+    tracked=_git("diff","--name-only","HEAD","--","bulk_downloader") or []
+    untracked=_git("ls-files","--others","--exclude-standard","--","bulk_downloader") or []
+    return len({r for r in tracked+untracked if r.endswith(".py")})
 
 def decide(failure, touched, tier):
     f=(failure or "").lower()

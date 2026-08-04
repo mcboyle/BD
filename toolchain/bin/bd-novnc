@@ -39,6 +39,9 @@ import sys
 import tempfile
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
 G, R, Y, B, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[34m", "\033[2m", "\033[0m"
 
 SYNTH_HTML = (
@@ -52,7 +55,7 @@ SYNTH_HTML = (
 
 
 def _ensure_tree():
-    for base in ("/home/claude/work", os.getcwd()):
+    for base in (sec.DEFAULT_WORK, os.getcwd()):
         if os.path.isfile(os.path.join(base, "bulk_downloader", "__init__.py")):
             sys.path.insert(0, base)
             return base
@@ -121,6 +124,13 @@ def check_workbench():
     except Exception as e:
         return "FAIL", f"evaluate_selectors raised: {str(e)[:60]}"
     by = {r.get("selector"): r for r in (res or [])}
+    # engine unavailable (e.g. lxml not installed) is an UNKNOWN, not a count mismatch
+    errs = {r.get("error") for r in (res or []) if r.get("error")}
+    if res and all(r.get("error") for r in res):
+        # @855: NOT a SKIP. SKIP is counted green below, and lxml is DECLARED
+        # (requirements.txt:68) -- its absence is a provisioning defect, not an
+        # environment this tool may shrug at. Unknown is a third state; it fails.
+        return "UNKNOWN", f"selector engine unavailable ({sorted(errs)[0][:60]})"
     ok_dl = by.get("#dl", {}).get("count") == 1
     ok_li = by.get("li.item", {}).get("count") == 2
     ok_none = by.get(".nope", {}).get("count") == 0
@@ -208,13 +218,21 @@ def main():
     print("bd-novnc -- headless PICK + workbench checks")
     print("=" * 62)
     bad = 0
+    unknown = 0
     for cid, fn in checks:
         status, detail = fn()
-        col = {"PASS": G, "FAIL": R, "SKIP": Y}.get(status, "")
+        col = {"PASS": G, "FAIL": R, "SKIP": Y, "UNKNOWN": R}.get(status, "")
         print(f"  {col}{status:5}{RST} {cid:10} {detail}")
         if status == "FAIL":
             bad += 1
+        elif status == "UNKNOWN":
+            unknown += 1
     print("=" * 62)
+    # @855: UNKNOWN outranks a clean exit. A probe that could not RUN has not
+    # passed -- this tool previously exited 0 with its core selector check
+    # skipped because a DECLARED dependency was missing.
+    if unknown:
+        return sec.EXIT_CANNOT_EVALUATE
     return 1 if bad else 0
 
 

@@ -44,6 +44,9 @@ import sys
 import tempfile
 from urllib.parse import urlparse
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
 G, R, Y, B, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[34m", "\033[2m", "\033[0m"
 
 # listing/detail pages that are public + no-login + HTML (not JS-rendered):
@@ -165,7 +168,7 @@ def main():
         print(f"\n  {DIM}Not covered: JS-rendered listings, noVNC click-through, headed login runner.{RST}")
         return 0
 
-    for base in ("/home/claude/work", os.getcwd()):
+    for base in (sec.DEFAULT_WORK, os.getcwd()):
         if os.path.isfile(os.path.join(base, "bulk_downloader", "__init__.py")):
             sys.path.insert(0, base)
             break

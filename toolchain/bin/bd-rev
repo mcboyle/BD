@@ -9,8 +9,11 @@ has egress, this builds that venv on demand:
 
   * LIVE (default): pip-install the pinned deps from PyPI + npm-install jscpd.
     ~90s, always current, no giant upload needed.
-  * OFFLINE (--offline or auto on no-egress): install from the uploaded wheels
-    (bd_review_tools_kit / semgrep_kit) for reproducibility / air-gapped runs.
+  * OFFLINE (--offline or auto on no-egress): install from a local wheel dir for
+    reproducibility / air-gapped runs. v3.66.855: the uploaded kit
+    (bd_review_tools_kit / semgrep_kit) is RETIRED with the uploads mount, so the
+    wheel dir must be named -- --wheels DIR, else $BD_WHEELS, else
+    <checkout>/wheels. None of those holding a *.whl is exit 2, not a failure.
 
 Pins (kept == the stash ~/rev per STATE so scan results match):
   radon==6.0.1 vulture==2.16 bandit==1.9.4 detect-secrets==1.5.0
@@ -19,10 +22,12 @@ Pins (kept == the stash ~/rev per STATE so scan results match):
 Usage:
   bd-rev                      provision at ~/rev (default), live-pull
   bd-rev --dir /path          provision elsewhere
-  bd-rev --offline            use uploaded wheels only (no network)
-  bd-rev --verify             P4: check the installed tools match the pins (rc!=0 on drift)
+  bd-rev --offline [--wheels DIR]   use local wheels only (no network)
+  bd-rev --verify             P4: check the installed tools match the pins (rc 1 on drift)
   bd-rev --no-jscpd           skip the npm jscpd step (python-only battery)
-Stdlib only; wraps pip/npm via subprocess.
+Exit 0 ok / 1 real failure or pin drift / 2 CANNOT-EVALUATE (no venv to verify,
+no wheel dir to install from) -- an absent corpus is never reported as drift.
+Stdlib only (plus bdtools_sec, which ships beside it); wraps pip/npm via subprocess.
 """
 import argparse
 import glob
@@ -31,6 +36,12 @@ import os
 import shutil
 import subprocess
 import sys
+
+# After the whole import block on purpose -- placing it above `import sys` would
+# leave sys undefined here and --help would die with NameError, which ast.parse
+# does not catch (the v3.66.851 trap).
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
 
 G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 
@@ -63,17 +74,30 @@ def _have_egress():
         return False
 
 
-def _find_wheels():
-    """Locate an uploaded wheels/ dir from the review-tools kit."""
-    for pat in ("/home/claude/**/wheels", "/mnt/user-data/uploads/**/wheels",
-                "/home/claude/uploads_backup/**/wheels"):
-        for d in glob.glob(pat, recursive=True):
-            if os.path.isdir(d) and glob.glob(os.path.join(d, "*.whl")):
-                return d
+def _find_wheels(explicit=None):
+    """Locate a wheels/ dir holding the review-tools kit, or None.
+
+    v3.66.855 port: the three globs here were /home/claude/**, the retired uploads
+    mount and a sandbox backup dir -- none can exist in a git checkout, so
+    --offline could only ever fail. The *uploaded kit* is gone with the mount and
+    inventing a replacement path would be a guess, so the order is now explicit
+    first: --wheels, then $BD_WHEELS, then a wheels/ dir inside the checkout. A
+    directory only counts if it actually contains a .whl -- an empty dir passing
+    as a wheel source is the empty-denominator failure this suite exists to avoid.
+    """
+    cands = []
+    if explicit:
+        cands.append(explicit)
+    if os.environ.get("BD_WHEELS"):
+        cands.append(os.environ["BD_WHEELS"])
+    cands.append(os.path.join(sec.DEFAULT_WORK, "wheels"))
+    for d in cands:
+        if d and os.path.isdir(d) and glob.glob(os.path.join(d, "*.whl")):
+            return d
     return None
 
 
-def provision(vdir, offline, do_jscpd):
+def provision(vdir, offline, do_jscpd, wheels_dir=None):
     py = sys.executable
     # 1) create venv
     if not os.path.isdir(os.path.join(vdir, "bin")):
@@ -91,11 +115,19 @@ def provision(vdir, offline, do_jscpd):
     if live:
         r = run([vpip, "install", "--quiet", *specs])
     else:
-        wheels = _find_wheels()
+        wheels = _find_wheels(wheels_dir)
         if not wheels:
-            print(f"{R}FAIL{RST} --offline but no uploaded wheels/ dir found "
-                  f"(bd_review_tools_kit). Either attach it or drop --offline.")
-            return 1
+            # Absent corpus: there is nothing to install FROM, so no provisioning
+            # verdict can be minted. Exit 2, not 1 -- 1 here would be
+            # indistinguishable from "pip ran and failed".
+            sys.stderr.write(
+                "CANNOT-EVALUATE --offline: reason=ABSENT (no wheels/ dir holding "
+                "*.whl)\n"
+                "  Looked at: --wheels, $BD_WHEELS, %s\n"
+                "  The uploaded bd_review_tools_kit is retired with the uploads "
+                "mount. Point --wheels at a real wheel dir, or drop --offline and "
+                "pull from PyPI.\n" % os.path.join(sec.DEFAULT_WORK, "wheels"))
+            return sec.EXIT_CANNOT_EVALUATE
         r = run([vpip, "install", "--quiet", "--no-index",
                  "--find-links", wheels, *specs])
     if r.returncode != 0:
@@ -126,8 +158,12 @@ def verify(vdir):
     semgrep would silently change scan results)."""
     vpy = os.path.join(vdir, "bin", "python")
     if not os.path.exists(vpy):
-        print(f"{R}FAIL{RST} no venv at {vdir} (run bd-rev first)")
-        return 1
+        # CLAUDE.md s0: "no venv" is an ABSENT corpus, not pin drift. Returning 1
+        # here made "the audit venv has drifted from its pins" and "there is no
+        # audit venv to check" the same signal to any caller reading the exit code.
+        sys.stderr.write("CANNOT-EVALUATE --verify: reason=ABSENT (no audit venv "
+                         "at %s -- run bd-rev first)\n" % vdir)
+        return sec.EXIT_CANNOT_EVALUATE
     bad = []
     for dist, want in PINS.items():
         mod = IMPORT_NAME.get(dist, dist.replace("-", "_"))
@@ -171,6 +207,9 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", default=os.path.expanduser("~/rev"))
     ap.add_argument("--offline", action="store_true")
+    ap.add_argument("--wheels", default=None,
+                    help="wheel dir for --offline (else $BD_WHEELS, else "
+                         "<checkout>/wheels; absent => exit 2)")
     ap.add_argument("--verify", action="store_true")
     ap.add_argument("--no-jscpd", action="store_true")
     ap.add_argument("--selftest",action="store_true")
@@ -182,7 +221,7 @@ def main(argv=None):
     print("=" * 50)
     if a.verify:
         return verify(a.dir)
-    rc = provision(a.dir, a.offline, not a.no_jscpd)
+    rc = provision(a.dir, a.offline, not a.no_jscpd, a.wheels)
     if rc == 0:
         print()
         print(f"{DIM}now runnable: bd-scan --semgrep --ts --venv {a.dir} ; "

@@ -50,9 +50,9 @@ def selftest():
     # consumed and dropped after install, so asserting they exist tests the
     # sandbox, not the tool. Skip explicitly, naming the requirement -- a SKIP
     # is never a pass. The synthetic fixture below is the gating control.
-    r=scan("/home/claude")
+    r=scan(sec.DEFAULT_WORK)
     if not r["packs"]:
-        print("SKIP: needs pack_*.zip in /home/claude (dropped after install)")
+        print("SKIP: needs pack_*.zip in %s (dropped after install)"%sec.DEFAULT_WORK)
     else:
         total_wheels=sum(p["wheels"] for p in r["packs"].values())
         print("PASS  live scan: %d pack(s), %d wheels, %d unique packages, %d dup-version"%(len(r["packs"]),total_wheels,r["unique_packages"],len(r["duplicate_versions"])))
@@ -92,7 +92,7 @@ def _verdict_rc(r, strict):
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--home",default="/home/claude")
+    ap.add_argument("--home",default=sec.DEFAULT_WORK)
     ap.add_argument("--strict",action="store_true",help="exit 1 on any dup-version or suspicious file")
     ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
     a=ap.parse_args()

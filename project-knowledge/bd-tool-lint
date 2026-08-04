@@ -39,7 +39,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec   # noqa: E402  (ONE definition of corpus_profile)
 
-DEFAULT_BIN = "/home/claude/bin"
+DEFAULT_BIN = os.path.dirname(os.path.realpath(__file__))
 # The release-gating mutators: they edit the tree and gate every release. The
 # 30-phase deep dive flagged these as the highest latent risk (all lack a
 # selftest). Tracked, not excused; the untested count is ratcheted.
@@ -571,6 +571,10 @@ def main():
     a = ap.parse_args()
     if a.selftest:
         return selftest()
+    if not glob.glob(os.path.join(a.bin, "bd-*")):
+        sys.stderr.write("CANNOT-EVALUATE --bin %s: no bd-* tools found -- a scan over "
+                         "nothing is not a clean toolchain\n" % a.bin)
+        return sec.EXIT_CANNOT_EVALUATE
     res = run(a.bin, do_runtime=not a.no_runtime)
     cc = res["critical_core"]
     cd = res["corpus_debt"]

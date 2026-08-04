@@ -336,7 +336,7 @@ def selftest():
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", "--work", "--tree", default=sec.DEFAULT_WORK)
-    ap.add_argument("--db", default="/home/claude/KNOWLEDGE_GRAPH.db",
+    ap.add_argument("--db", default=os.path.join(sec.DEFAULT_WORK, "KNOWLEDGE_GRAPH.db"),
                     help="output KNOWLEDGE_GRAPH.db (consumed by --graph-aware tools)")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--selftest", action="store_true")

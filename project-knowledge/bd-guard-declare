@@ -1,12 +1,22 @@
 #!/usr/bin/env python3
 """bd-guard-declare -- declare an intentional change to a release-guard file by
-rebaselining its SHA in STATE.json atomically, instead of hand-editing.
+rebaselining its SHA atomically, instead of hand-editing.
+
+WHERE THE BASELINE LIVES (v3.66.855). It is `guards.json` at the repo root --
+the single source of truth read by bd-guardcheck (GATE_AUTHORITY section A).
+STATE.json, which this tool was written to rewrite, is RETIRED along with the
+sandbox that held it. So with no --state the tool no longer errors: it does the
+read-only half (recompute the live sha, diff it against the guards.json pin,
+refuse a non-guard) and then STOPS, printing the exact edit for the operator to
+make. It deliberately does NOT write guards.json -- rebaselining a release guard
+is an explicit operator decision, and a tool that re-froze it silently would
+defeat the gate it exists to serve. The --state path below is unchanged and still
+works if you hand it a real STATE.json.
 
 THE 7 RELEASE GUARDS must stay byte-identical between releases UNLESS the operator
-explicitly declares a new SHA (the per-release baseline lives in STATE.guards +
-the newest KB_HANDOFF). Today that declaration is a manual edit of STATE.json (and
-a note in the handoff) -- error-prone: a typo'd SHA, or updating STATE but not the
-handoff, silently breaks the guard contract. This mechanizes the SAFE parts:
+explicitly declares a new SHA. Hand-declaring is error-prone: a typo'd SHA, or
+updating one baseline but not the other, silently breaks the guard contract. This
+mechanizes the SAFE parts:
 
   * verify the named file IS one of the 7 guards (refuses a non-guard),
   * recompute its live sha256 from the tree,
@@ -20,11 +30,16 @@ declaration, with the reason recorded. Without --apply it is a dry-run diff.
 
 Usage:
   bd-guard-declare --file tools/build_release.py --reason "carries in-sync gate" [--apply]
-    --state   STATE.json to rebaseline (default: newest STATE.json in uploads/home)
-    --root    tree root to recompute the live sha from (default: /home/claude/work)
-    --apply   actually rewrite STATE (else dry-run)
-Exit 0 on a clean dry-run/apply; 1 if the file is not a guard or is missing.
-Stdlib only.
+    --state   a STATE.json to rebaseline (no default -- STATE.json is retired;
+              without it the tool reports against guards.json and writes nothing)
+    --root    tree root to recompute the live sha from (default: the checkout
+              this tool lives in, via bdtools_sec.DEFAULT_WORK)
+    --apply   actually rewrite the given --state (else dry-run)
+Exit 0 on a clean dry-run/apply; 1 if the file is not a guard or is missing;
+2 CANNOT-EVALUATE if there is no baseline to compare against, or if --apply was
+asked for with no writable STATE (in which case NOTHING was written and the
+guards.json edit to make is printed).
+Stdlib only (plus bdtools_sec, which ships beside it).
 """
 import argparse
 import glob
@@ -34,7 +49,15 @@ import os
 import sys
 import time
 
+# After the whole import block: above `import sys` this leaves sys undefined at
+# the insertion point and --help dies with NameError while ast.parse is happy
+# (the v3.66.851 trap).
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
 G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+MANIFEST_NAME = "guards.json"
 
 # The canonical 7 release guards (path -> ok). Kept here as the authority so a
 # typo'd --file cannot rebaseline a non-guard.
@@ -49,10 +72,37 @@ GUARDS = {
 }
 
 
+def _manifest_pin(root, rel):
+    """The pin guards.json currently carries for `rel`, as (short8, full) or None.
+
+    READ-ONLY. guards.json is the live single source of truth for the 7 guard
+    SHAs (GATE_AUTHORITY section A); this tool deliberately does NOT write it,
+    because rebaselining a guard is an explicit operator decision and a tool that
+    re-froze it silently would defeat the gate it exists to serve.
+    """
+    p = os.path.join(root, MANIFEST_NAME)
+    if not os.path.isfile(p):
+        return None
+    try:
+        doc = json.load(open(p, encoding="utf-8"))
+        full = (doc.get("guards") or {}).get(rel)
+    except Exception:  # why: unreadable/malformed manifest is UNKNOWN, not "unpinned"
+        return None
+    if not isinstance(full, str) or not full.strip():
+        return None
+    full = full.strip().lower()
+    return full[:8], full
+
+
 def _find_state():
+    # v3.66.855 port: the three globs here were /mnt/user-data/uploads,
+    # /home/claude and /mnt/project -- the retired sandbox and uploads mount.
+    # STATE.json itself is retired (project-knowledge/SESSION_CARRY.md is the
+    # register now, guards.json is the guard baseline), so there is nothing left
+    # to discover: this returns None unless the operator passes --state, and the
+    # caller reports that as CANNOT-EVALUATE rather than guessing a path.
     cands = []
-    for pat in ("/mnt/user-data/uploads/**/STATE.json",
-                "/home/claude/**/STATE.json", "/mnt/project/STATE.json"):
+    for pat in ():
         cands += glob.glob(pat, recursive=True)
     cands = [c for c in cands if os.path.isfile(c)]
     def _state_ver(p):
@@ -123,7 +173,9 @@ def main(argv=None):
     ap.add_argument("--file", required=True, help="the guard file being changed")
     ap.add_argument("--reason", help="why this guard legitimately changed (required with --apply)")
     ap.add_argument("--state", default=None)
-    ap.add_argument("--root", default="/home/claude/work")
+    # v3.66.855 port: was /home/claude/work. sec.DEFAULT_WORK walks up from the
+    # shared library's own file to the checkout that owns this tool.
+    ap.add_argument("--root", default=sec.DEFAULT_WORK)
     ap.add_argument("--apply", action="store_true")
     a = ap.parse_args(argv)
 
@@ -142,8 +194,49 @@ def main(argv=None):
 
     state_path = a.state or _find_state()
     if not state_path or not os.path.exists(state_path):
-        print(f"{R}ERROR{RST} -- no STATE.json found (pass --state).")
-        return 1
+        # v3.66.855: STATE.json is retired, so this is now the NORMAL path, not an
+        # error. Refusing with exit 1 said "the input is bad"; the truth is that
+        # there is no writable baseline to rebaseline INTO. Degrade to the useful
+        # read-only half -- compare the live sha against guards.json, which IS the
+        # live single source of truth -- and name the operator's remaining step.
+        man = _manifest_pin(a.root, rel)
+        print(f"bd-guard-declare -- {rel}")
+        print("=" * 66)
+        print(f"  {Y}STATE.json: none{RST} (retired; guards.json is the baseline now)")
+        print(f"  NEW live   sha : {live8}   (full: {live})")
+        if man is None:
+            sys.stderr.write(
+                "CANNOT-EVALUATE --root %s: reason=ABSENT (no STATE.json and no "
+                "readable guards.json pin for %s)\n" % (a.root, rel))
+            return sec.EXIT_CANNOT_EVALUATE
+        man8, manfull = man
+        print(f"  guards.json pin: {man8}   (full: {manfull})")
+        if manfull == live:
+            print(f"  {G}no change{RST} -- live sha already matches guards.json; "
+                  f"nothing to declare.")
+            return 0
+        print(f"  {Y}DRIFT{RST}: guards.json {man8} -> live {live8}")
+        if not a.apply:
+            print()
+            print(f"{DIM}dry-run. This tool does NOT write guards.json: rebaselining a "
+                  f"guard is an explicit operator decision (GATE_AUTHORITY A), and a "
+                  f"tool that re-froze it silently would defeat the gate.{RST}")
+            return 0
+        # --apply with nothing writable: say so with a code that means "no verdict
+        # minted / nothing done", not 0 (which would read as APPLIED) and not 1
+        # (which this tool reserves for a bad --file).
+        sys.stderr.write(
+            "CANNOT-EVALUATE --apply: reason=ABSENT (no STATE.json to rewrite; the "
+            "STATE.json flow is retired)\n"
+            "  NOTHING WAS WRITTEN. To declare this guard change, set the full sha\n"
+            "  in guards.json BY HAND and record the reason:\n"
+            "    %s\n"
+            "      \"guards\": { \"%s\": \"%s\" }   (was %s)\n"
+            "      reason: %s\n"
+            "  Then re-derive with: bd-guardcheck --tree %s\n"
+            % (os.path.join(a.root, MANIFEST_NAME), rel, live, manfull,
+               a.reason or "(none given -- --reason is required to declare)", a.root))
+        return sec.EXIT_CANNOT_EVALUATE
     st = json.load(open(state_path))
     guards = st.get("guards", {})
     old8 = guards.get(rel, "(unset)")

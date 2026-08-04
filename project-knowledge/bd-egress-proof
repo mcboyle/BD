@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""bd-egress-proof -- prove the egress path for a site/request (direct/proxy/VPN, tunnel status, no direct-leak evidence). Same resolver as bd-vpn-proof, framed as a per-request egress attestation. Read-only. Usage: bd-egress-proof [--work DIR] [--site SITE] [--json] [--selftest]"""
+"""bd-egress-proof -- prove the egress path for a site/request (direct/proxy/VPN, tunnel status, no direct-leak evidence). Same resolver as bd-vpn-proof, framed as a per-request egress attestation. Read-only. Usage: bd-egress-proof [--work DIR] [--site SITE] [--json] [--selftest]
+Exit 0 the egress path was resolved / 2 CANNOT-EVALUATE (--work is not a work
+tree, or vpn_runtime could not be imported so nothing could be resolved)."""
 import argparse, os, sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec
@@ -14,8 +16,9 @@ def _load_mod(work, modname):
     try:
         pkg=types.ModuleType("bulk_downloader"); pkg.__path__=[os.path.join(work,"bulk_downloader")]
         sys.modules.setdefault("bulk_downloader",pkg)
-        for e in (work,"/tmp/prestaged_site_packages"):
-            if e not in sys.path: sys.path.insert(0,e)
+        # /tmp/prestaged_site_packages was the retired prestage; the venv
+        # carries the deps now, so the work tree is the only path to add.
+        if work not in sys.path: sys.path.insert(0,work)
         spec=importlib.util.spec_from_file_location("bulk_downloader."+modname,p)
         m=importlib.util.module_from_spec(spec); sys.modules["bulk_downloader."+modname]=m
         spec.loader.exec_module(m); return m,None
@@ -63,9 +66,18 @@ def main():
     if a.selftest: return selftest()
     sec.require_source_tree(a.work)
     r=prove(a.work,a.site)
-    if sec.emit(r,as_json=a.json): return 0
-    if r.get("error") and r.get("vpn_required") is None:
-        print(R+"error"+RST+": "+r["error"]); return 0
+    # s0: vpn_required is None means the resolver could not be consulted at all
+    # (vpn_runtime.py absent or un-importable). An egress proof that could not
+    # look is UNKNOWN -- it used to print the error and exit 0, which reads to a
+    # caller exactly like "no direct leak".
+    unresolved = r.get("vpn_required") is None
+    if sec.emit(r,as_json=a.json):
+        return sec.EXIT_CANNOT_EVALUATE if unresolved else sec.EXIT_OK
+    if unresolved:
+        sys.stderr.write("CANNOT-EVALUATE egress proof: reason=%s (%s)\n"
+                         %(sec.REASON_ABSENT, r.get("error")))
+        print(R+"error"+RST+": "+str(r.get("error")))
+        return sec.EXIT_CANNOT_EVALUATE
     leak=(R+"DIRECT LEAK"+RST) if r.get("direct_leak") else (G+"no direct leak"+RST)
     print("site "+r["site"]+": vpn_required="+str(r.get("vpn_required"))+" path="+str(r.get("path"))
           +" proxy="+str(r.get("proxy"))+"  "+leak)

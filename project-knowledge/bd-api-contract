@@ -55,7 +55,7 @@ def selftest():
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
-    ap.add_argument("--write",action="store_true"); ap.add_argument("--out",default="/home/claude/api_contract_baseline.json")
+    ap.add_argument("--write",action="store_true"); ap.add_argument("--out",default=os.path.join(sec.DEFAULT_WORK,"api_contract_baseline.json"))
     ap.add_argument("--baseline",default=None)
     ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
     a=ap.parse_args()

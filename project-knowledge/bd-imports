@@ -10,11 +10,16 @@ import argparse, os, subprocess, sys
 import os as _oscli, sys as _syscli
 _syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
 from bdtools_cli import G, R, Y, DIM, RST
+import bdtools_sec as sec
 def gate(work,*args):
     p=os.path.join(work,"tools/decomp/import_graph_gate.py")
     if not os.path.exists(p): return None,None
-    r=subprocess.run(["python3",p,*args],cwd=work,capture_output=True,text=True,
-                     env={**os.environ,"PYTHONPATH":f"{work}:/tmp/prestaged_site_packages"})
+    # venv/bin/python, never bare python3 -- a bare python3 can be 3.11 with
+    # none of the project deps (CLAUDE.md s5), and there is no reason to make
+    # the wrapped gate run under a different interpreter than this wrapper.
+    py = sys.executable
+    r=subprocess.run([py,p,*args],cwd=work,capture_output=True,text=True,
+                     env={**os.environ,"PYTHONPATH":work})
     return r.returncode,(r.stdout+r.stderr)
 def selftest():
     """DELEGATE: wraps tools/decomp/import_graph_gate.py, which lives in the WORK TREE / PK, not in bin/. The
@@ -22,17 +27,23 @@ def selftest():
     wrapper that cannot find what it wraps is broken, and a selftest that cannot
     verify must not report success."""
     import os as _o
-    cands = ['/home/claude/work/tools/decomp/import_graph_gate.py']
+    cands = [_o.path.join(sec.DEFAULT_WORK, 'tools/decomp/import_graph_gate.py')]
     hit = next((p for p in cands if _o.path.isfile(p)), None)
     print(("PASS" if hit else "FAIL") + "  delegation target present: tools/decomp/import_graph_gate.py (%s)" % (hit or "NOT FOUND"))
-    print("SELFTEST PASS" if hit else "SELFTEST FAIL")
-    return 0 if hit else 1
+    if hit:
+        rc, out = gate(sec.DEFAULT_WORK, "--check")
+        ran = rc is not None
+        print(("PASS" if ran else "FAIL") + "  wrapped gate actually RUNS under venv's interpreter (rc=%s)" % rc)
+        print("SELFTEST PASS" if (hit and ran) else "SELFTEST FAIL")
+        return 0 if (hit and ran) else 1
+    print("SELFTEST FAIL")
+    return 1
 
 
 def main():
     import sys as _s
     if "--selftest" in _s.argv: return selftest()
-    ap=argparse.ArgumentParser(); ap.add_argument("--work","--tree",default="/home/claude/work")
+    ap=argparse.ArgumentParser(); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
     ap.add_argument("--update",action="store_true"); a=ap.parse_args()
     rc,out=gate(a.work,"--check")
     if rc is None: print(f"{R}import_graph_gate.py not found{RST}"); return 1

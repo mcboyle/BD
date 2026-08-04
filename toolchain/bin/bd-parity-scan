@@ -35,10 +35,18 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
 G, R, Y, DIM, BOLD, RST = ("\033[32m", "\033[31m", "\033[33m",
                            "\033[2m", "\033[1m", "\033[0m")
-DEFAULT_WORK = "/home/claude/work"
-RESULTS = "/home/claude/.bd_parity_scan.json"
+DEFAULT_WORK = sec.DEFAULT_WORK
+# A scratch results cache, not a tracked repo artifact -- writing it into the
+# checkout (the old /home/claude/.bd_parity_scan.json convention re-rooted at
+# DEFAULT_WORK) would leave an untracked file for another concurrent worker's
+# `git add` to sweep up (CLAUDE.md s2b). Use the system tempdir instead.
+import tempfile as _tempfile_bd
+RESULTS = os.path.join(_tempfile_bd.gettempdir(), "bd_parity_scan.json")
 
 ENV_RE = re.compile(r"os\.(?:environ\.get|getenv)\(\s*['\"]([A-Z][A-Z0-9_]+)['\"]")
 
@@ -396,6 +404,14 @@ def main():
     if a.selftest:
         return selftest()
 
+    sec.require_source_tree(a.work)
+    tools_dir = os.path.join(a.work, "tools")
+    if not (os.path.isfile(os.path.join(tools_dir, "gui_parity_inventory.py"))
+            and os.path.isfile(os.path.join(tools_dir, "config_surface_inventory.py"))):
+        sys.stderr.write("CANNOT-EVALUATE --work %s: tools/gui_parity_inventory.py or "
+                         "tools/config_surface_inventory.py missing -- this scan derives "
+                         "from them and cannot mint a verdict without them\n" % a.work)
+        return sec.EXIT_CANNOT_EVALUATE
     d = build(a.work)
     json.dump(d, open(RESULTS, "w"), indent=2, sort_keys=True)
     s = d["summary"]

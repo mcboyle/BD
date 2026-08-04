@@ -12,6 +12,9 @@ fault case, it has teeth; if not, the tool is theater.
 Exit 0 if every gating tool caught its injected fault; non-zero otherwise.
 """
 import argparse, hashlib, json, os, shutil, subprocess, sys, tempfile, zipfile
+import os as _os_bd, sys as _sys_bd  # noqa: E402
+_sys_bd.path.insert(0, _os_bd.path.dirname(_os_bd.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
 
 RESULTS = []
 def rec(tool, case, ok, detail, kind='BEHAVIOR'):
@@ -19,7 +22,7 @@ def rec(tool, case, ok, detail, kind='BEHAVIOR'):
 
 def run(exe, *args, cwd=None, env=None):
     e = dict(os.environ); e.update(env or {})
-    e.setdefault("PYTHONPATH", "/home/claude/work:/tmp/prestaged_site_packages")
+    e.setdefault("PYTHONPATH", sec.DEFAULT_WORK)
     try:
         r = subprocess.run([sys.executable, exe, *args], cwd=cwd, env=e,
                            capture_output=True, text=True, timeout=120)
@@ -113,7 +116,7 @@ def test_touched(BIN):   # retained name; now exercises the ENGINE (shims retire
     """FAULT: a changed source file must map to a band + a route/guard touch forces regen.
     Feed a tree that differs from its zip; assert bd-touched reports SOMETHING to band."""
     exe = os.path.join(BIN, "bd-band-derive")
-    rc, out = run(exe, "--tree", "/home/claude/work")
+    rc, out = run(exe, "--tree", sec.DEFAULT_WORK)
     # teeth = it runs against the real (clean) tree and gives a definite 'nothing changed'
     # or a band line, never a crash
     rec("bd-band-derive", "definite-output", (rc != 99 and "Traceback" not in out),

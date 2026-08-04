@@ -108,7 +108,17 @@ def grade(rows, errored):
     """
     if errored:
         return "CANNOT-EVALUATE"
-    if rows and all(r["old_count"] == 0 and r["new_count"] == 0 for r in rows):
+    # @855 -- THE OLD TOOL IS THE SUBJECT, so its token count is the denominator
+    # that matters. @852 only caught the case where BOTH sides measured nothing;
+    # old=0 / new=5 still graded SUPERSET at exit 0, because "new is a superset
+    # of nothing" is vacuously true. That is a green retirement licence for a
+    # tool nobody ever saw produce output. Found by the desandbox program's own
+    # verification pass, against the fix that was supposed to close this.
+    #
+    # NOT symmetric on purpose: old=5 / new=0 is a REAL and important verdict
+    # (REGRESSION -- the replacement lost everything), so it must keep flowing to
+    # the `missing` branch below rather than being refused here.
+    if rows and sum(r["old_count"] for r in rows) == 0:
         return "CANNOT-EVALUATE"
     if any(r["missing"] for r in rows):
         return "REGRESSION"

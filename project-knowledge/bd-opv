@@ -14,16 +14,23 @@ Each check returns one of:
   SKIP   -- precondition missing (e.g. a setting/route absent in this build)
   GATED  -- genuinely operator/device-only; cannot be sandboxed (with the reason)
 
-It boots the app via the same prestaged-Flask path run_tests.py uses; nothing is
-deployed, nothing hits a live site by default (an optional --live class uses the
-headless browser against SAFE public demo sites only).
+It boots the app in-process from the checkout (resolved by bdtools_sec, so a
+relocated tree is followed); nothing is deployed, nothing hits a live site by
+default (an optional --live class uses the headless browser against SAFE public
+demo sites only).
 
 Usage:
   bd-opv                      run all sandboxable OPV checks
   bd-opv --only OPV-F4.3      run one check
   bd-opv --list               list checks + their sandboxability
   bd-opv --include-gated      also print the operator-gated ones (as GATED)
-Exit 0 if no FAIL; 1 if any check FAILed. Runs under `bd`.
+
+Exit contract (bdtools_sec):
+  0  at least one check PASSed and none FAILed
+  1  a check FAILed -- a real finding
+  2  CANNOT-EVALUATE: every check SKIPped on absent preconditions, so nothing
+     was verified (a 0 there would be a gate reporting OK about a subject it
+     could not see), or --only named an id that is not in the registry.
 """
 import argparse
 import json
@@ -31,13 +38,21 @@ import os
 import sys
 import tempfile
 
+# Self-sufficient bootstrap: this must not depend on where it sits relative to
+# the alphabetical import block above, and `sec` resolves the checkout by
+# walking up from this file, so a relocated tree is followed rather than
+# hardcoded (v3.66.855 port off the retired /home/claude sandbox).
+import os as _os_bd, sys as _sys_bd  # noqa: E402
+_sys_bd.path.insert(0, _os_bd.path.dirname(_os_bd.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
 G, R, Y, B, DIM, RST = ("\033[32m", "\033[31m", "\033[33m", "\033[34m",
                         "\033[2m", "\033[0m")
 
 PASS, FAIL, SKIP, GATED = "PASS", "FAIL", "SKIP", "GATED"
 
 # ensure the BD tree is importable regardless of CWD
-_WORK = os.environ.get("BD_WORK", "/home/claude/work")
+_WORK = os.environ.get("BD_WORK", sec.DEFAULT_WORK)
 if os.path.isdir(os.path.join(_WORK, "bulk_downloader")) and _WORK not in sys.path:
     sys.path.insert(0, _WORK)
 
@@ -46,7 +61,7 @@ if os.path.isdir(os.path.join(_WORK, "bulk_downloader")) and _WORK not in sys.pa
 # DIFFERENT playwright than the service venv, expecting a browser build that isn't in the
 # cache -> headed checks SKIP. The venv python (what `bd` uses) matches the cache. If we
 # detect the mismatch, re-exec once under the venv python so bd-opv works either way.
-_VENV_PY = "/home/claude/work/venv/bin/python"
+_VENV_PY = os.path.join(_WORK, "venv", "bin", "python")
 if os.environ.get("_BD_OPV_REEXEC") != "1" and os.path.exists(_VENV_PY):
     _need_reexec = False
     try:
@@ -64,7 +79,7 @@ if os.environ.get("_BD_OPV_REEXEC") != "1" and os.path.exists(_VENV_PY):
 
 
 def _client(auth_token=None):
-    """Boot the BD app under the test client (prestaged Flask). Returns (client, app)."""
+    """Boot the BD app under the test client. Returns (client, app)."""
     os.environ.setdefault("BD_HOME", tempfile.mkdtemp(prefix="opv_"))
     os.environ.setdefault("BD_DISABLE_KEEPALIVE", "1")
     if auth_token:
@@ -266,7 +281,16 @@ def chk_f26_workbench():
         res = SP.evaluate_selectors(html, ["#dl", "li.item", ".nope"])
     except Exception as e:
         return FAIL, f"evaluate_selectors raised: {str(e)[:50]}"
-    by = {r.get("selector"): r.get("count") for r in (res or [])}
+    # evaluate_selectors reports a MISSING OPTIONAL DEP in each row's "error"
+    # key rather than raising ("lxml not installed; ..."). Reading only "count"
+    # turns that precondition miss into "selector counts wrong" -- a FAIL about
+    # working code. Discriminate it (CLAUDE.md s2a) and SKIP with the reason.
+    rows = res or []
+    dep_err = next((r.get("error") for r in rows
+                    if r.get("count") is None and r.get("error")), None)
+    if dep_err:
+        return SKIP, f"selector evaluation unavailable ({str(dep_err)[:60]})"
+    by = {r.get("selector"): r.get("count") for r in rows}
     if not (by.get("#dl") == 1 and by.get("li.item") == 2 and by.get(".nope") == 0):
         return FAIL, f"selector counts wrong: {by}"
     import tempfile as _tf
@@ -448,6 +472,16 @@ def chk_f33_template_canary():
         from bulk_downloader import template_canary as TC
     except Exception as e:
         return SKIP, f"canary import issue ({str(e)[:40]})"
+    # PRECONDITION, not a finding: the whole fixture depends on CSS-selector
+    # extraction, and synthetic_tests._try_selector is explicitly lxml-gated
+    # (bulk_downloader/synthetic_tests.py:96-98 returns "lxml not installed").
+    # Without it EVERY site extracts "" and both the good and the drifted site
+    # score 0/2 -- which reads as "canary posture wrong" about code that is
+    # fine. SKIP with the reason instead of manufacturing a FAIL.
+    import importlib.util as _ilu
+    if _ilu.find_spec("lxml") is None:
+        return SKIP, ("lxml absent -- selector extraction is lxml-gated, so the "
+                      "fixture replay cannot distinguish healthy from drifted")
     import json as _json, tempfile as _tf
     from pathlib import Path as _P
     root = _P(_tf.mkdtemp(prefix="opv_f33_"))
@@ -637,9 +671,18 @@ def chk_a11y():
     import os as _os
     if not _os.environ.get("DISPLAY"):
         return SKIP, "no DISPLAY (headed-display stack not up; start Xvfb :99)"
-    axe_path = "/home/claude/.sbcap/axe/axe.min.js"
-    if not _os.path.exists(axe_path):
-        return SKIP, "axe-core asset absent (fetch axe.min.js to /home/claude/.sbcap/axe/)"
+    # axe-core is a fetched asset, not a tracked file. $BD_AXE_JS is the explicit
+    # override; otherwise look where a checkout or the invoking user's HOME would
+    # put it. A hardcoded foreign home made this SKIP unconditionally off-sandbox.
+    _axe_cands = [c for c in (
+        _os.environ.get("BD_AXE_JS"),
+        _os.path.join(_WORK, "frontend", "node_modules", "axe-core", "axe.min.js"),
+        _os.path.expanduser("~/.sbcap/axe/axe.min.js"),
+    ) if c]
+    axe_path = next((c for c in _axe_cands if _os.path.exists(c)), None)
+    if axe_path is None:
+        return SKIP, ("axe-core asset absent (set BD_AXE_JS, or fetch axe.min.js "
+                      "to one of: %s)" % ", ".join(_axe_cands))
     try:
         import threading as _th, time as _t, urllib.request as _u
         from bulk_downloader.app import app as _app
@@ -660,7 +703,7 @@ def chk_a11y():
         return SKIP, "app did not bind in-sandbox (port busy?)"
     import os as _os2
     if not _os2.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
-        _c = "/home/claude/.cache/ms-playwright"
+        _c = _os2.path.expanduser("~/.cache/ms-playwright")
         if _os2.path.isdir(_c):
             _os2.environ["PLAYWRIGHT_BROWSERS_PATH"] = _c
     try:
@@ -699,18 +742,11 @@ def chk_notify_email():
     no external mail server. SKIPs if aiosmtpd is unavailable."""
     try:
         from aiosmtpd.controller import Controller
-    except Exception:  # why: aiosmtpd not importable from the default path; the block below
-                       # retries via the prestaged path, and the caller SKIPs if it still fails
-        # aiosmtpd lives in the prestaged path; ensure it's importable when bd-opv
-        # is invoked outside the full bd env.
-        import sys as _s
-        _pp = "/tmp/prestaged_site_packages"
-        if _pp not in _s.path:
-            _s.path.insert(0, _pp)
-        try:
-            from aiosmtpd.controller import Controller
-        except Exception as e:
-            return SKIP, f"aiosmtpd unavailable ({str(e)[:40]})"
+    except Exception as e:  # why: aiosmtpd is an optional dep; its absence is a
+                            # precondition miss, reported as SKIP with the reason.
+                            # (The retired /tmp/prestaged_site_packages retry was
+                            # dropped at v3.66.855 -- venv carries the deps now.)
+        return SKIP, f"aiosmtpd unavailable ({str(e)[:40]})"
     try:
         from bulk_downloader import notify_apprise as N
     except Exception as e:
@@ -764,10 +800,6 @@ def chk_soak():
     unattended run stays operator-gated; this proves the leak-freedom + time-warp
     machinery). Uses freezegun 1.5.5 for the clock warp."""
     try:
-        import sys as _s
-        _pp = "/tmp/prestaged_site_packages"
-        if _pp not in _s.path:
-            _s.path.insert(0, _pp)
         import tracemalloc, gc, time as _t
         from bulk_downloader.app import app as _app
     except Exception as e:
@@ -787,26 +819,40 @@ def chk_soak():
     grew = sum(s.size_diff for s in snap1.compare_to(snap0, "lineno") if s.size_diff > 0)
     tracemalloc.stop()
     per_req = grew / N
-    # freezegun time-warp smoke (proves the admission window clock warps)
+    # freezegun time-warp smoke (proves the admission window clock warps).
+    # DISCRIMINATE the exception (CLAUDE.md s2a): freezegun is an OPTIONAL dep,
+    # so its absence is a precondition miss and must not be reported as "soak
+    # regressed" -- that is a false alarm about working code. Only a warp that
+    # actually raised is a finding. Before v3.66.855 the whole check SKIPped on
+    # an unrelated import error, so this arm was unreachable and the conflation
+    # was invisible.
     warp_ok = True
+    warp_note = "freezegun time-warp ran"
     try:
         from freezegun import freeze_time
-        from bulk_downloader import admission as A
-        with freeze_time("2026-07-02 12:00:00"):
-            A.next_eligible_retry(_t.time(),
-                {"window_enabled": True, "window_active_hours": "09:00-18:00",
-                 "window_action_outside": "paused"})
-    except Exception:  # why: operation failed; degrade to the default and continue
-        warp_ok = False
+    except ImportError as e:
+        warp_ok = None
+        warp_note = f"time-warp smoke unavailable ({str(e)[:40]})"
+    if warp_ok is not None:
+        try:
+            from bulk_downloader import admission as A
+            with freeze_time("2026-07-02 12:00:00"):
+                A.next_eligible_retry(_t.time(),
+                    {"window_enabled": True, "window_active_hours": "09:00-18:00",
+                     "window_action_outside": "paused"})
+        except Exception as e:
+            warp_ok = False
+            warp_note = f"time-warp RAISED: {type(e).__name__}: {str(e)[:50]}"
     checks = {
         "no-pathological-growth": per_req < 4096,
         "all-real-statuses": all(c in (200, 401, 403, 404, 405) for c in codes),
-        "freezegun-warp-ran": warp_ok,
     }
+    if warp_ok is not None:
+        checks["freezegun-warp-ran"] = warp_ok
     bad = [k for k, v in checks.items() if not v]
     if bad:
-        return FAIL, f"soak regressed: {bad} (per_req={per_req:.0f}B)"
-    return PASS, f"{N} req, {per_req:.0f}B/req heap growth (no leak); freezegun time-warp ran"
+        return FAIL, f"soak regressed: {bad} (per_req={per_req:.0f}B); {warp_note}"
+    return PASS, f"{N} req, {per_req:.0f}B/req heap growth (no leak); {warp_note}"
 
 
 def chk_push():
@@ -818,10 +864,7 @@ def chk_push():
     live browser push endpoint is unreachable (inherent); the key-gen + storage +
     dispatch machinery is fully proven. Uses a throwaway BD_HOME so it never
     touches real subscription state."""
-    import os as _os, tempfile as _tf, sys as _s
-    _pp = "/tmp/prestaged_site_packages"
-    if _pp not in _s.path:
-        _s.path.insert(0, _pp)
+    import os as _os, tempfile as _tf
     _prev_home = _os.environ.get("BD_HOME")
     _os.environ["BD_HOME"] = _tf.mkdtemp(prefix="opv_push_")
     try:
@@ -862,10 +905,6 @@ def chk_qr():
     would read BD's pairing QR correctly. The app renders it as SVG; this proves
     the encode path + payload fidelity via a raster round-trip. SKIPs if
     qrcode/pyzbar/PIL are unavailable."""
-    import sys as _s
-    _pp = "/tmp/prestaged_site_packages"
-    if _pp not in _s.path:
-        _s.path.insert(0, _pp)
     try:
         import io as _io, qrcode
         from PIL import Image
@@ -906,12 +945,11 @@ def chk_fixture():
     import http.server as _hs, socketserver as _ss, urllib.request as _u
     if not _os.environ.get("DISPLAY"):
         return SKIP, "no DISPLAY (headed-display stack not up)"
-    _pp = "/tmp/prestaged_site_packages"
-    if _pp not in _s.path:
-        _s.path.insert(0, _pp)
-    # ensure the headed browser is findable when bd-opv is invoked outside the full bd env
+    # The ambient PLAYWRIGHT_BROWSERS_PATH is authoritative when set (the
+    # container exports it). Otherwise fall back to playwright's OWN default
+    # under the invoking user's HOME -- never a hardcoded foreign home.
     if not _os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
-        _cand = "/home/claude/.cache/ms-playwright"
+        _cand = _os.path.expanduser("~/.cache/ms-playwright")
         if _os.path.isdir(_cand):
             _os.environ["PLAYWRIGHT_BROWSERS_PATH"] = _cand
     try:
@@ -1111,10 +1149,6 @@ def chk_metrics():
     into typed metric families with samples, the format is real Prometheus (not just
     text that looks close). Asserts >=3 bd_ series, valid metric types, and the
     version=0.0.4 content-type. SKIPs if prometheus_client isn't available."""
-    import sys as _s
-    _pp = "/tmp/prestaged_site_packages"
-    if _pp not in _s.path:
-        _s.path.insert(0, _pp)
     try:
         from prometheus_client.parser import text_string_to_metric_families
         from bulk_downloader.app import app as _app
@@ -1152,12 +1186,9 @@ def chk_ocr():
     the pixel-level complement to OPV-A11Y's structural axe scan: axe proves the DOM
     is accessible, OCR proves it actually rendered. SKIPs if no DISPLAY / tesseract /
     pytesseract."""
-    import os as _os, sys as _s
+    import os as _os
     if not _os.environ.get("DISPLAY"):
         return SKIP, "no DISPLAY (headed-display stack not up)"
-    _pp = "/tmp/prestaged_site_packages"
-    if _pp not in _s.path:
-        _s.path.insert(0, _pp)
     try:
         import threading as _th, time as _t, urllib.request as _u
         import pytesseract
@@ -1183,7 +1214,7 @@ def chk_ocr():
         return SKIP, "app did not bind"
     try:
         from playwright.sync_api import sync_playwright
-        shot = "/home/claude/.sbcap/cockpit_ocr.png"
+        shot = _os.path.join(tempfile.mkdtemp(prefix="opv_ocr_"), "cockpit_ocr.png")
         with sync_playwright() as p:
             b = p.chromium.launch(headless=False, args=["--no-sandbox", "--disable-dev-shm-usage"])
             pg = b.new_page()
@@ -1223,27 +1254,37 @@ def chk_render():
     import os as _os, sys as _s, subprocess as _sp
     if not _os.environ.get("DISPLAY") and not True:  # render_check uses headless; DISPLAY optional
         pass
-    rc = "/home/claude/.sbcap/render_check_sb.py"
-    if not _os.path.exists(rc):
-        # fall back to the stock/project copies (headless -- needs the matching shell build)
-        for cand in ("/home/claude/.sbcap/render_check.py", "/mnt/project/render_check.py"):
-            if _os.path.exists(cand):
-                rc = cand
-                break
-        else:
-            return SKIP, "render_check.py not staged"
-    work = "/home/claude/work"
+    work = _WORK
+    # render_check.py is TRACKED at project-knowledge/render_check.py, so the
+    # checkout is the first and authoritative candidate; $BD_RENDER_CHECK is the
+    # explicit override, and ~/.sbcap holds a hand-staged copy on a box that has
+    # one. (The retired /home/claude and /mnt/project literals were dropped at
+    # v3.66.855; the checkout copy is what actually resolves now.)
+    _rc_cands = [c for c in (
+        _os.environ.get("BD_RENDER_CHECK"),
+        _os.path.join(work, "project-knowledge", "render_check.py"),
+        _os.path.expanduser("~/.sbcap/render_check_sb.py"),
+        _os.path.expanduser("~/.sbcap/render_check.py"),
+    ) if c]
+    rc = next((c for c in _rc_cands if _os.path.exists(c)), None)
+    if rc is None:
+        return SKIP, "render_check.py not staged (looked in: %s)" % ", ".join(_rc_cands)
     if not _os.path.exists(_os.path.join(work, "tools", "cockpit_console.py")):
         return SKIP, "cockpit_console blueprint absent (precondition)"
-    venv_py = "/home/claude/work/venv/bin/python"
+    venv_py = _VENV_PY
     py = venv_py if _os.path.exists(venv_py) else _s.executable
     env = dict(_os.environ)
     env["BD_RENDER_ROOT"] = work
-    env["PLAYWRIGHT_BROWSERS_PATH"] = "/home/claude/.cache/ms-playwright"
-    # CRITICAL: drop the prestaged path from PYTHONPATH -- it ships a NEWER playwright
-    # that pins a chromium build (1228) not in the cache, which shadows the venv's
-    # 1.61.0 (chromium-1223, installed). render_check must resolve the venv playwright,
-    # so give it only the work tree; the venv's own site-packages is on py's default path.
+    # Inherit the ambient browser pool when the environment sets one; only fall
+    # back to playwright's own per-user default. Clobbering it with a hardcoded
+    # path sent render_check at a cache that does not exist here.
+    if not env.get("PLAYWRIGHT_BROWSERS_PATH"):
+        _pwc = _os.path.expanduser("~/.cache/ms-playwright")
+        if _os.path.isdir(_pwc):
+            env["PLAYWRIGHT_BROWSERS_PATH"] = _pwc
+    # Give the subprocess ONLY the work tree on PYTHONPATH: render_check must
+    # resolve the venv's playwright (whose chromium rev is the installed one),
+    # not whatever an inherited PYTHONPATH would shadow it with.
     env["PYTHONPATH"] = work
     env.pop("_BD_OPV_REEXEC", None)
     try:
@@ -1316,7 +1357,7 @@ def main(argv=None):
 
     print("bd-opv -- sandboxable operator-verification checks")
     print("=" * 62)
-    n_pass = n_fail = n_skip = n_gated = 0
+    n_pass = n_fail = n_skip = n_gated = n_ran = 0
     for cid, klass, fn in REGISTRY:
         if a.only and cid != a.only:
             continue
@@ -1330,6 +1371,7 @@ def main(argv=None):
         tag = {PASS: G + "PASS " + RST, FAIL: R + "FAIL " + RST,
                SKIP: Y + "SKIP " + RST, GATED: B + "GATED" + RST}[status]
         print(f"  {tag} {cid:12s} {detail}")
+        n_ran += 1
         n_pass += status == PASS
         n_fail += status == FAIL
         n_skip += status == SKIP
@@ -1341,7 +1383,27 @@ def main(argv=None):
         hidden = sum(1 for _, k, _ in REGISTRY if k == "gated")
         if hidden:
             print(f"  {DIM}({hidden} operator-gated check(s) hidden; --include-gated to show){RST}")
-    return 1 if n_fail else 0
+
+    if a.only and n_ran == 0:
+        sys.stderr.write("CANNOT-EVALUATE bd-opv: reason=%s (no check id matches "
+                         "--only %s; --list shows the registry)\n"
+                         % (sec.REASON_ABSENT, a.only))
+        return sec.EXIT_CANNOT_EVALUATE
+    if n_fail:
+        return sec.EXIT_FINDINGS
+    # A run in which NOTHING got a verdict is not a clean run. Every check
+    # SKIPping means the preconditions were absent, so the pass-conditions were
+    # never tested -- exit 0 there is the CLAUDE.md section 0 defect (a gate that
+    # cannot see its subject reporting OK). Note the guard is n_pass, not n_skip:
+    # a run with even ONE real PASS and the rest skipped HAS evidence and stays 0,
+    # so this cannot degenerate into a tool that only ever refuses.
+    if n_ran and n_pass == 0:
+        sys.stderr.write("CANNOT-EVALUATE bd-opv: reason=%s (%d/%d check(s) SKIPped "
+                         "on absent preconditions and none PASSed -- no OPV item was "
+                         "actually verified; this is not a clean run)\n"
+                         % (sec.REASON_EMPTY, n_skip, n_ran))
+        return sec.EXIT_CANNOT_EVALUATE
+    return sec.EXIT_OK
 
 
 if __name__ == "__main__":

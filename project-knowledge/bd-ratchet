@@ -11,10 +11,22 @@ records each metric per-run and FAILS a cut if it moved the wrong way.
   bd-ratchet --trend <name>             show a metric over runs
   bd-ratchet --selftest
 
+--tree defaults to the checkout this tool lives in.
 Metrics (name, direction): a 'ceiling' metric must NOT rise; a 'floor' must NOT fall.
 Store: JSONL at ~/.bd_metrics.jsonl (append-only, keyed by metric+ts).
+
+Exit 0 = measured, nothing regressed; 3 = a metric regressed; 2 = CANNOT-EVALUATE.
+Every collector fails SAFE to None, so a tree this tool cannot read yields ZERO
+metrics -- and zero metrics must never be reported as "nothing regressed", nor
+pinned as a baseline. 2 covers: no baseline, a --baseline that would pin {}, a
+--check where not one pinned metric was measurable, and a --collect that measured
+nothing. One measurable metric is enough for a real verdict.
 """
 import argparse, json, os, re, subprocess, sys, time, glob
+
+# v3.66.855 desandbox. AFTER the import line on purpose (sys must already be bound).
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
 
 STORE = os.path.expanduser("~/.bd_metrics.jsonl")
 BASELINE = os.path.expanduser("~/.bd_metrics_baseline.json")
@@ -161,6 +173,16 @@ def cmd_collect(a, record=True):
 
 def cmd_baseline(a):
     vals = _collect(a.tree)
+    # THE WORST FAILURE THIS TOOL CAN HAVE. Every collector fails SAFE to None, so a
+    # tree it cannot read yields {} -- and pinning {} as the baseline makes every
+    # later --check iterate an empty dict and print "OK -- no metric regressed".
+    # A ratchet with an empty baseline is not a loose ratchet, it is a green light
+    # welded on. Refuse to write it (CLAUDE.md s0: unknown is a third state).
+    if not vals:
+        sys.stderr.write("CANNOT-EVALUATE: 0 metrics collectable from %s (reason=%s) "
+                         "-- refusing to pin an empty baseline\n"
+                         % (a.tree, sec.REASON_EMPTY))
+        return sec.EXIT_CANNOT_EVALUATE
     json.dump(vals, open(BASELINE, "w"), indent=1)
     print(f"pinned baseline ({len(vals)} metrics):")
     for n, v in sorted(vals.items()):
@@ -174,6 +196,7 @@ def cmd_check(a):
     base = json.load(open(BASELINE))
     cur = _collect(a.tree)
     regressed = []
+    compared = 0
     print("ratchet check vs baseline:")
     for n, bv in sorted(base.items()):
         # why: v3.66.805 -- keys starting with "_" are PROVENANCE (_meta:
@@ -188,6 +211,7 @@ def cmd_check(a):
         cv = cur.get(n)
         if cv is None:
             print(f"  [skip] {n} (not measurable now)"); continue
+        compared += 1
         d = METRICS[n][1]
         bad = (cv > bv) if d == "ceiling" else (cv < bv)
         tag = "REGRESSED" if bad else "ok"
@@ -202,7 +226,18 @@ def cmd_check(a):
             verb = "rose" if d == "ceiling" else "fell"
             print(f"  * {n}: {verb} {bv} -> {cv}")
         return 3
-    print("OK -- no metric regressed.")
+    # Every collector fails safe to None, so a tree this tool cannot read produces a
+    # page of "[skip]" lines followed by "OK -- no metric regressed": a pass minted
+    # over zero comparisons. ONE comparison is enough to mint a verdict, so a
+    # partially-measurable tree still reports normally -- this only refuses when the
+    # denominator is empty.
+    if not compared:
+        sys.stderr.write("CANNOT-EVALUATE: 0 of %d pinned metric(s) were measurable "
+                         "against %s (reason=%s) -- no verdict\n"
+                         % (len([k for k in base if not k.startswith("_")]),
+                            a.tree, sec.REASON_EMPTY))
+        return sec.EXIT_CANNOT_EVALUATE
+    print(f"OK -- no metric regressed ({compared} compared).")
     return 0
 
 
@@ -246,7 +281,7 @@ def selftest():
 
 def main():
     ap = argparse.ArgumentParser(prog="bd-ratchet")
-    ap.add_argument("--tree", "--work", default="/home/claude/work")
+    ap.add_argument("--tree", "--work", default=sec.DEFAULT_WORK)
     ap.add_argument("--collect", action="store_true")
     ap.add_argument("--baseline", action="store_true")
     ap.add_argument("--check", action="store_true")
@@ -257,8 +292,13 @@ def main():
     if a.baseline: return cmd_baseline(a)
     if a.check: return cmd_check(a)
     if a.trend: return cmd_trend(a)
-    if a.collect: cmd_collect(a); return 0
-    cmd_collect(a, record=False); return 0
+    vals = cmd_collect(a, record=bool(a.collect))
+    if not vals:
+        sys.stderr.write("CANNOT-EVALUATE: 0 metrics collectable from %s (reason=%s) "
+                         "-- an empty measurement is not a measurement\n"
+                         % (a.tree, sec.REASON_EMPTY))
+        return sec.EXIT_CANNOT_EVALUATE
+    return 0
 
 
 if __name__ == "__main__":

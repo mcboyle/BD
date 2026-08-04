@@ -13,7 +13,9 @@ the parser -> BD-IMPORT-CRASH (high). Targets:
 Read-only (in-memory).
 
 Usage: bd-fuzz-import [--work DIR] [--json] [--selftest]
-Exit 1 if any target crashes on a payload, else 0.
+Exit 1 if any target crashes on a payload; 2 (CANNOT-EVALUATE) if plugins.py
+could not be loaded (the named targets were never fuzzed, so "handled
+gracefully" would be a verdict over the wrong corpus); else 0.
 """
 import argparse
 import importlib.util
@@ -61,9 +63,8 @@ def load_plugins(work):
         pkg = types.ModuleType("bulk_downloader")
         pkg.__path__ = [os.path.join(work, "bulk_downloader")]
         sys.modules.setdefault("bulk_downloader", pkg)
-        for extra in (work, "/tmp/prestaged_site_packages"):
-            if extra not in sys.path:
-                sys.path.insert(0, extra)
+        if work not in sys.path:
+            sys.path.insert(0, work)
         spec = importlib.util.spec_from_file_location("bulk_downloader.plugins", p)
         mod = importlib.util.module_from_spec(spec)
         sys.modules["bulk_downloader.plugins"] = mod
@@ -150,12 +151,20 @@ def main():
         return selftest()
     sec.require_source_tree(a.work)
     res = fuzz(a.work)
+    if not res["plugins_loaded"] and not res["crashes"]:
+        # The named targets (api_compatible, _read_manifest_ast) never ran;
+        # only the generic json.loads battery did. A green verdict here would
+        # certify a corpus that excludes its subject (CLAUDE.md s0).
+        sec.emit({"crashes": res["crashes"], "summary": {
+            "tested": res["tested"], "crashes": 0,
+            "plugins_loaded": False, "error": res["error"]}}, as_json=a.json)
+        print(f"{Y}BD-UNEVALUABLE{RST}: plugins.py not loadable ({res['error']}) -- "
+              f"the import/parse targets were never fuzzed.", file=sys.stderr)
+        return sec.EXIT_CANNOT_EVALUATE
     if sec.emit({"crashes": res["crashes"], "summary": {
             "tested": res["tested"], "crashes": len(res["crashes"]),
             "plugins_loaded": res["plugins_loaded"]}}, as_json=a.json):
         return 1 if res["crashes"] else 0
-    if not res["plugins_loaded"]:
-        print(f"{Y}plugins.py not loadable{RST}: {res['error']}")
     if not res["crashes"]:
         print(f"{G}all {res['tested']} import/parse payloads handled gracefully{RST}")
         return 0

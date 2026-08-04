@@ -481,6 +481,20 @@ def test_equiv_refuses_to_certify_over_an_empty_token_set():
     assert eq.grade(rows([(0, 0), (0, 0)]), errored=False) == "CANNOT-EVALUATE", (
         "two empty token sets graded as agreement. That is a licence to retire "
         "a tool based on having measured nothing.")
+    # @855 -- the half @852 MISSED. The OLD tool is the subject: if it never
+    # emitted a token, "new is a superset of it" is vacuously true and still
+    # exits 0 as 'safe to retire'. Caught by the desandbox verification pass
+    # against the very fix meant to close this.
+    assert eq.grade(rows([(0, 5)]), errored=False) == "CANNOT-EVALUATE", (
+        "old emitted NOTHING and the verdict was still a retirement licence. "
+        "You cannot prove a replacement covers a tool you never saw produce "
+        "output.")
+    # ...but NOT symmetric: old=5/new=0 is a real REGRESSION and must survive.
+    _r = rows([(5, 0)])
+    _r[0]["missing"] = ["tok"]
+    assert eq.grade(_r, errored=False) == "REGRESSION", (
+        "old=5/new=0 is the replacement losing everything -- the most important "
+        "verdict this tool emits. Refusing it would destroy the instrument.")
     # A tool that CRASHED must not yield a substantive verdict either.
     assert eq.grade(rows([(3, 3)]), errored=True) == "CANNOT-EVALUATE", (
         "a tool that errored still produced a verdict; its empty output would "

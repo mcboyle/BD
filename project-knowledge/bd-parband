@@ -8,7 +8,9 @@ test_phases_195_199 leaking BD_INSTALL_DIR) can't cross suites — parallel is b
 faster AND safer than sequential co-banding for those.
 
 Refuses the known hangers (perf_lab, nav_guard) and a bare tests/ dir. Writes the
-run to /home/claude/.bd_last_band.json so `bd-retest` can re-run just the failures.
+run to the band-results file -- default <checkout>/.bd_last_band.json, override
+with BD_LAST_BAND -- so `bd-retest` can re-run just the failures (bd-retest reads
+the SAME default/override; change one and you break the pair).
 
 Usage:
     bd-parband tests/a.py tests/b.py tests/c.py [--jobs 4] [--timeout 300] [--work DIR]
@@ -51,8 +53,18 @@ import time
 
 G, R, Y, DIM, BOLD, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[1m", "\033[0m"
 HANGERS = ("test_perf_lab", "test_v3_66_146_nav_guard")
-RESULTS = "/home/claude/.bd_last_band.json"
-BDENV = "/home/claude/bdenv.sh"
+# The bd-retest CONTRACT: both tools resolve this identically (env override,
+# then checkout-relative default). Edit them together or the pair breaks.
+RESULTS = os.environ.get("BD_LAST_BAND",
+                         os.path.join(sec.DEFAULT_WORK, ".bd_last_band.json"))
+# Optional env file sourced for the suite env (GTK stack etc.). The retired
+# sandbox kept one at /home/claude/bdenv.sh; no such file ships in this
+# checkout, so the default is ABSENT and the tool falls back to os.environ --
+# which is correct here (the provisioner sets the GTK env directly). Do NOT
+# point this at toolchain/bdenv.sh: that file still exports the retired
+# prestaged PYTHONPATH and /home/claude paths.
+BDENV = os.environ.get("BD_ENV_FILE",
+                       os.path.join(sec.DEFAULT_WORK, "bdenv.sh"))
 
 _BD_ENV_CACHE = None
 

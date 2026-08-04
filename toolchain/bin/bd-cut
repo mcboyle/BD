@@ -31,8 +31,10 @@ Flags:
     --changelog MSG    one-line CHANGELOG body (required with --version)
     --suites ...       band suites (default: gui_parity, contracts,
                        parity_method_aware, slice4)
-    --work DIR         default /home/claude/work
-    --out DIR          build output dir (default /home/claude/out)
+    --work DIR         the checkout to cut (default: derived from this file's
+                       location via bdtools_sec.DEFAULT_WORK -- follows a
+                       relocated tree; no sandbox path is assumed)
+    --out DIR          build output dir (default <work>/out, gitignored)
     --no-build         stop after step 3 (typecheck + build + inventory only)
 """
 import argparse
@@ -146,20 +148,28 @@ def run(cmd, cwd=None, env=None, timeout=None):
     # whole-dir / test_perf_lab hang footgun).
     #
     # P4 (regen-env self-sufficiency): when the caller passes NO explicit env,
-    # default one that puts the work root (cwd) + the prestaged site-packages on
-    # PYTHONPATH. This makes bd-cut's regen/build subprocesses (gui_parity, the
-    # in-sync index regens, build_release, verify_release) resolve
-    # `bulk_downloader`/`tools` AND the prestaged deps (httpx -> scrape_listing
-    # registers, so the parity/route artifacts don't ship a route short) no matter
+    # default one that puts the work root (cwd) on PYTHONPATH. This makes bd-cut's
+    # regen/build subprocesses (gui_parity, the in-sync index regens,
+    # build_release, verify_release) resolve `bulk_downloader`/`tools` no matter
     # how bd-cut itself was launched -- no more mandatory `export PYTHONPATH` or
     # `bd` wrapper. Callers that pass env explicitly (the band, step 8) are
     # unaffected, and a caller-set PYTHONPATH is preserved (appended after).
+    #
+    # v3.66.855 port: the prestaged site-packages leg (/tmp/prestaged_site_packages)
+    # is DROPPED. That directory belonged to the retired sandbox; it does not exist
+    # in a git checkout, and the third-party deps it used to supply now come from
+    # the work tree's venv, which python_for() already selects as the interpreter.
+    # A PYTHONPATH entry that does not exist is not harmless here: it was the only
+    # documented source of httpx for the parity/route regens, so leaving it in
+    # advertised a dependency route that silently resolves to nothing.
     if env is None:
         env = dict(os.environ)
-        _pp = f"{cwd}:/tmp/prestaged_site_packages" if cwd \
-            else "/tmp/prestaged_site_packages"
         _prev = env.get("PYTHONPATH", "")
-        env["PYTHONPATH"] = f"{_pp}:{_prev}" if _prev else _pp
+        _pp = cwd or ""
+        if _pp and _prev:
+            env["PYTHONPATH"] = f"{_pp}:{_prev}"
+        elif _pp:
+            env["PYTHONPATH"] = _pp
     try:
         return subprocess.run(cmd, cwd=cwd, env=env, capture_output=True,
                               text=True, timeout=timeout)
@@ -229,15 +239,18 @@ def precut(work, baseline):
     # ship a KNOWLEDGE_GRAPH.db.sha256 pin from bd-mkauditstate, then decide gate-or-advise.
     gtool = os.path.join(work, "tools", "graph_build.py")
     gdb = gpin = None
-    _cands = ("/home/claude/review/artifacts/KNOWLEDGE_GRAPH.db",
-              os.path.join(work, "review", "artifacts", "KNOWLEDGE_GRAPH.db"),
-              "/home/claude/audit_state/artifacts/KNOWLEDGE_GRAPH.db",
-              "/home/claude/as/audit_state/artifacts/KNOWLEDGE_GRAPH.db",
-              # v3.66.762: the audit_state pack now restores to audit_carry/ (the
-              # @760 FG-AUDIT-STATE-IN-WORK-TREE relocation). bd-cut wasn't updated,
-              # so it reported "no db present" even when one was restored -- another
-              # denominator that structurally excluded the thing it asks about.
-              "/home/claude/audit_carry/artifacts/KNOWLEDGE_GRAPH.db")
+    # v3.66.855 port: the four /home/claude/{review,audit_state,as,audit_carry}
+    # candidates are gone -- that sandbox is retired and none of those paths can
+    # exist in a git checkout, so they only padded the denominator. What survives is
+    # the IN-TREE pair: the audit_state pack restores to <work>/audit_carry/ (the
+    # @760 FG-AUDIT-STATE-IN-WORK-TREE relocation) and the older review/ location.
+    # NOTE FOR THE OPERATOR: capture.sh step [2b] pins the graph OUT of tree at
+    # /var/lib/bulkdownloader/validation/KNOWLEDGE_GRAPH.content.sha256, which is a
+    # DIFFERENT pin scheme (<db>.sha256 beside the db). Unifying the two is a policy
+    # call, not a port, so this list is left in-tree only and still reports UNKNOWN.
+    _cands = (os.path.join(work, "review", "artifacts", "KNOWLEDGE_GRAPH.db"),
+              os.path.join(work, "audit_carry", "artifacts", "KNOWLEDGE_GRAPH.db"),
+              os.path.join(work, "audit_state", "artifacts", "KNOWLEDGE_GRAPH.db"))
     _db_seen = None
     for cand in _cands:
         if os.path.isfile(cand):
@@ -688,10 +701,16 @@ def band(zippath, suites, work):
               f"result DIFFERENTIALLY against the previous release.{RST}")
         _band_args = list(present)
         _band_timeout = 90 + 25 * len(present)
+    # v3.66.855 port: the band env used to CLOBBER PYTHONPATH with the retired
+    # prestaged site-packages and PIN PLAYWRIGHT_BROWSERS_PATH to a sandbox cache.
+    # Both are gone. PYTHONPATH is no longer set at all (the extracted zip's own
+    # root is cwd, and python_for(work) supplies the deps); PLAYWRIGHT_BROWSERS_PATH
+    # is INHERITED from os.environ -- hardcoding it pointed the band at a browser
+    # pool that does not exist, and CLAUDE.md s5 warns that two pools with different
+    # chromium revisions is already a live confounder. Absent in the environment ==
+    # playwright's own default, which is the correct fallback.
     env = dict(os.environ)
-    env.update(BD_HOME=tempfile.mkdtemp(), BD_DISABLE_KEEPALIVE="1",
-               PYTHONPATH="/tmp/prestaged_site_packages",
-               PLAYWRIGHT_BROWSERS_PATH="/home/claude/.cache/ms-playwright")
+    env.update(BD_HOME=tempfile.mkdtemp(), BD_DISABLE_KEEPALIVE="1")
     # The band runs the EXTRACTED ZIP's tests, but under the WORK TREE's interpreter:
     # the zip carries no venv, and bare python3 has no deps -- the band would collapse
     # into import errors that read as source failures.
@@ -836,8 +855,13 @@ def main(argv=None):
     ap.add_argument("--baseline")
     ap.add_argument("--changelog")
     ap.add_argument("--suites", nargs="*", default=DEFAULT_SUITES)
-    ap.add_argument("--work","--tree", default="/home/claude/work")
-    ap.add_argument("--out", default="/home/claude/out")
+    # v3.66.855 port: both defaults were retired-sandbox literals. --work now
+    # derives from sec.DEFAULT_WORK, which walks up from this file to the checkout
+    # that owns it, so a relocated tree follows. --out defaults INSIDE that checkout
+    # at <work>/out, which .gitignore already covers ("out/"), rather than a
+    # per-machine path nobody can create.
+    ap.add_argument("--work","--tree", default=sec.DEFAULT_WORK)
+    ap.add_argument("--out", default=os.path.join(sec.DEFAULT_WORK, "out"))
     ap.add_argument("--no-build", action="store_true")
     ap.add_argument("--resume-zip",
                     help="skip build; re-run band+verify+summary on an existing "
@@ -903,7 +927,12 @@ def main(argv=None):
     # runs INLINE, unchanged. --skip-fe goes back to meaning what it says (a backend-only
     # cut) instead of "the gate does not fit".
     if getattr(a, "detach", False):
-        _job = shutil.which("bd-job") or "/home/claude/bin/bd-job"
+        # v3.66.855 port: the fallback was /home/claude/bin/bd-job, which cannot
+        # exist here -- so --detach could only ever die. bd-job ships in this
+        # tool's OWN bin dir; resolve it there, exactly as regen_order resolves
+        # bd-regen-order from the work tree instead of from PATH.
+        _job = shutil.which("bd-job") or os.path.join(
+            os.path.dirname(os.path.realpath(__file__)), "bd-job")
         if not os.path.isfile(_job):
             die("--detach needs bd-job (not found) -- run without it, or install bd-job")
         argv_ = list(argv if argv is not None else sys.argv[1:])

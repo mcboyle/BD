@@ -22,10 +22,14 @@ gate gets ignored, which is worse than no gate. Everything else is compared,
 INCLUDING counts and denominators. A tool with no golden is UNKNOWN, never OK:
 an approval test that silently approves whatever it has never seen is not a test.
 
-Usage: bd-golden (--record|--check) [--work DIR] [--golden DIR] [--only T,T]
-                 [--timeout S] [--json] [--selftest]
-Exit 0 = no drift (states how many tools compared); 1 = drift (listed);
-2 = CANNOT-EVALUATE (no golden dir, corpus absent, or nothing runnable).
+Usage: bd-golden (--record|--check) [--work DIR] [--bin DIR] [--golden DIR]
+                 [--only T,T] [--timeout S] [--json] [--selftest]
+Defaults: --work and --bin resolve inside the checkout this tool lives in;
+--golden is ~/.bd_golden, per-machine local state (the approval record is not a
+repo artifact). A fresh machine therefore has NO goldens until --record runs.
+Exit 0 = no drift (states how many tools compared); 1 = drift or a per-tool
+UNKNOWN; 2 = CANNOT-EVALUATE (--bin absent, corpus absent, nothing runnable, or
+--check with no recorded goldens at all -- that is a missing baseline, not drift).
 """
 import argparse
 import difflib
@@ -39,8 +43,18 @@ import bdtools_sec as sec  # noqa: E402
 
 G, Y, R, DIM, RST = "\033[32m", "\033[33m", "\033[31m", "\033[2m", "\033[0m"
 
-DEFAULT_GOLDEN = "/home/claude/baselines/golden"
-DEFAULT_BIN = "/home/claude/bin"
+# v3.66.855 desandbox.
+# --bin: the toolchain lives INSIDE the checkout now. Resolved via sec.DEFAULT_WORK
+#   rather than this file's own directory, so the byte-identical project-knowledge/
+#   mirror names the same bin instead of scanning itself.
+# --golden: PER-MACHINE STATE, not a repo artifact. The snapshots are a local
+#   approval record; writing them into the checkout would leave untracked files in a
+#   tree twelve agents share. Same idiom as this suite's other local stores
+#   (bd-ratchet's ~/.bd_metrics.jsonl). Nothing in tests/ or project-knowledge/ is a
+#   successor -- tests/golden/ holds goldens for tools/*.py (capture model, hook
+#   payloads, wow_promote), a different subject from these bd-* --json snapshots.
+DEFAULT_GOLDEN = os.path.expanduser("~/.bd_golden")
+DEFAULT_BIN = os.path.join(sec.DEFAULT_WORK, "toolchain", "bin")
 
 # Fields that legitimately differ run to run. Dropping anything else would be
 # hiding drift, so this list stays short and explicit.
@@ -339,6 +353,30 @@ def main():
     # is a snapshot of nothing and every later check trivially "passes".
     sec.require_corpus(os.path.join(a.work, "bulk_downloader"), min_files=1,
                        label="--work", patterns=("*.py",))
+
+    if not os.path.isdir(a.bin):
+        sys.stderr.write("CANNOT-EVALUATE --bin %s: reason=%s\n"
+                         % (a.bin, sec.REASON_ABSENT))
+        return sec.EXIT_CANNOT_EVALUATE
+
+    # --check over an absent/empty golden dir is NOT "N tools drifted". Every tool
+    # comes back UNKNOWN and the old code folded that into EXIT_FINDINGS(1) -- the
+    # docstring already promised 2 for "no golden dir" and the code did not deliver
+    # it, so the operator saw a findings-shaped answer to a question that was never
+    # asked. Recording is the remedy, and a remedy is not a finding. NOT over-broad:
+    # one recorded golden is enough to run the gate, and per-tool UNKNOWN still
+    # fails the way it always did.
+    if a.check:
+        have_goldens = (os.path.isdir(a.golden) and
+                        [f for f in os.listdir(a.golden) if f.endswith(".json")])
+        if not have_goldens:
+            sys.stderr.write(
+                "CANNOT-EVALUATE --golden %s: reason=%s -- no approved snapshots "
+                "exist yet, so there is nothing to diff against. Run --record "
+                "first.\n" % (a.golden,
+                              sec.REASON_ABSENT if not os.path.isdir(a.golden)
+                              else sec.REASON_EMPTY))
+            return sec.EXIT_CANNOT_EVALUATE
 
     tools = candidates(a.bin, work=a.work)
     if a.only:

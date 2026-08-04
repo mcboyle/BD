@@ -22,8 +22,11 @@ import argparse
 import glob
 import json
 import os
+import os as _os_bd, sys as _sys_bd
+_sys_bd.path.insert(0, _os_bd.path.dirname(_os_bd.path.realpath(__file__)))
+import bdtools_sec as sec
 
-RULES = "/home/claude/review/artifacts/TRIAGE_RULES.json"
+RULES = os.path.join(sec.DEFAULT_WORK, "project-knowledge", "TRIAGE_RULES.json")
 
 
 def _load_rules():
@@ -164,7 +167,7 @@ def new(findings_path, baseline_path):
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
-    s = sub.add_parser("seed"); s.add_argument("--from-audits", default="/home/claude/review")
+    s = sub.add_parser("seed"); s.add_argument("--from-audits", default=os.path.join(sec.DEFAULT_WORK, "project-knowledge"))
     a = sub.add_parser("apply"); a.add_argument("--findings", required=True)
     n = sub.add_parser("new"); n.add_argument("--findings", required=True); n.add_argument("--baseline", required=True)
     args = ap.parse_args()
@@ -187,8 +190,8 @@ def selftest():
     _here = _o.path.dirname(_o.path.realpath(__file__))
     cands = [_o.path.join(_here, "TRIAGE_RULES.json"),
              _o.path.join(_here, "..", "TRIAGE_RULES.json"),
-             "/mnt/project/TRIAGE_RULES.json",
-             "/home/claude/bin/TRIAGE_RULES.json"]
+             _o.path.join(_here, "..", "project-knowledge", "TRIAGE_RULES.json"),
+             RULES]
     hit = next((p for p in cands if _o.path.isfile(p)), None)
     print(("PASS" if hit else "FAIL") +
           "  delegation target present: TRIAGE_RULES.json (%s)"

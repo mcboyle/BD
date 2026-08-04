@@ -7,7 +7,7 @@ functions, respx/hypothesis property spaces) -- covering surface pytest doesn't
 reach. This makes them a first-class toolchain entry point: discover the suites,
 run each against the work tree, aggregate PASS/FAIL, and gate on any failure.
 
-Suites are found in (first that exists): --kit DIR, /home/claude/kit_build/
+Suites are found in (first that exists): --kit DIR, ~/kit_build/
 verification/app_suites, or a bd_verification_kit.zip in the home dir. Each suite
 runs with the app on PYTHONPATH; a suite's own nonzero exit or any FAIL line ->
 BD-VERIFY-FAIL. Read-only w.r.t. the tree.
@@ -41,14 +41,16 @@ def find_suites(kit):
             if s:
                 return s, kit
         return [], None
-    roots = ["/home/claude/kit_build/verification/app_suites"]
+    roots = [os.path.join(os.path.expanduser("~"), "kit_build", "verification",
+                          "app_suites")]
     for r in roots:
         if os.path.isdir(r):
             s = sorted(glob.glob(os.path.join(r, "*suite*.py")))
             if s:
                 return s, r
     # fall back: extract app_suites from a kit zip in home
-    for z in glob.glob("/home/claude/bd_verification_kit.zip"):
+    for z in glob.glob(os.path.join(os.path.expanduser("~"),
+                                    "bd_verification_kit.zip")):
         dest = "/tmp/_bdverify_kit"
         try:
             with zipfile.ZipFile(z) as zf:
@@ -63,7 +65,7 @@ def find_suites(kit):
 
 def _run_suite(path, work):
     venv_sp = os.path.join(work, "venv", "lib", "python3.12", "site-packages")
-    pp = ":".join([work, venv_sp, "/tmp/prestaged_site_packages"])
+    pp = ":".join([work, venv_sp])
     env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
     env["PYTHONPATH"] = pp
     try:

@@ -20,20 +20,28 @@ constructible neighbour: "which tools are named by no other tool, no doc, no tes
 A tool that nothing references is not PROVEN dead -- an operator may run it by hand --
 so this reports CANDIDATES and says so. It never claims a tool is dead.
 
-Exit: 0 ok | 2 the tool broke | 3 nothing found for the query (an empty answer is a
-FINDING, not a pass -- callers must be able to tell "no consumers" from "did not look").
+Exit: 0 ok | 2 the tool broke OR the corpus is absent/wrong (CANNOT-EVALUATE -- an
+unreachable WORK must not read as "no consumers") | 3 nothing found for the query in a
+corpus that WAS reachable (an empty answer is a FINDING, not a pass -- callers must be
+able to tell "no consumers" from "did not look").
 """
 import argparse
+import functools
 import json
 import os
 import re
 import sys
 
+import bdtools_sec as sec  # noqa: E402  (toolchain/bin is on sys.path[0] as the script dir)
+
 G, R, Y, C, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[36m", "\033[2m", "\033[0m"
 
-WORK = os.environ.get("BD_WORK", "/home/claude/work")
-BIN = os.environ.get("BD_BIN", "/home/claude/bin")
-PK = "/home/claude/pk"
+# WORK/BIN/PK follow the checkout root (sec.DEFAULT_WORK walks up from this
+# file to bulk_downloader/__init__.py), not the retired sandbox layout. Env
+# overrides are still honoured for anyone pointing this at another tree.
+WORK = os.environ.get("BD_WORK", sec.DEFAULT_WORK)
+BIN = os.environ.get("BD_BIN", os.path.join(WORK, "toolchain", "bin"))
+PK = os.environ.get("BD_PK", os.path.join(WORK, "project-knowledge"))
 
 # kind -> (roots, extensions)
 CORPUS = {
@@ -76,7 +84,12 @@ def _files_by_kind():
     return out
 
 
+@functools.lru_cache(maxsize=None)
 def _read(p):
+    # cmd_dead_tools re-scans the whole corpus once PER TOOL (251+ tools over
+    # thousands of files in the real checkout, vs a handful in the old sandbox
+    # fixture) -- caching by path turns that from O(tools * files) re-reads of
+    # disk into one read per file, which is what made this finish at all.
     try:
         with open(p, "r", errors="replace") as f:
             return f.read()
@@ -100,6 +113,27 @@ def consumers(name, files=None, word=True):
     return hits
 
 
+def _corpus_reachable():
+    """Cannot-evaluate guard (s0): an absent or wrong WORK must not silently
+    produce an empty corpus that then reads as a genuine 'no consumers' or
+    'nothing dead' finding. Checked before any query runs."""
+    if not os.path.isdir(WORK):
+        return False, "%s: work tree not found: %s" % (sec.REASON_ABSENT, WORK)
+    if not os.path.isfile(os.path.join(WORK, "bulk_downloader", "__init__.py")):
+        return False, ("%s: %s is not a BulkDownloader checkout "
+                        "(no bulk_downloader/__init__.py)" % (sec.REASON_ABSENT, WORK))
+    return True, None
+
+
+def _cannot_evaluate(a, reason):
+    if getattr(a, "json", False):
+        print(json.dumps({"error": "CANNOT_EVALUATE", "reason": reason}, indent=2))
+    else:
+        print("%sCANNOT-EVALUATE%s -- %s" % (R, RST, reason))
+        print("%s  (an absent/wrong corpus must not read as 'no consumers' -- s0)%s" % (DIM, RST))
+    return sec.EXIT_CANNOT_EVALUATE
+
+
 def _rel(p):
     for base in (WORK + "/", BIN + "/", PK + "/"):
         if p.startswith(base):
@@ -108,6 +142,9 @@ def _rel(p):
 
 
 def cmd_query(a):
+    ok, reason = _corpus_reachable()
+    if not ok:
+        return _cannot_evaluate(a, reason)
     name = a.name
     files = _files_by_kind()
     hits = consumers(name, files, word=not a.substring)
@@ -137,6 +174,9 @@ def cmd_query(a):
 
 def cmd_module(a):
     """BAND view -- the signal bd-band-derive is missing (Signal 4)."""
+    ok, reason = _corpus_reachable()
+    if not ok:
+        return _cannot_evaluate(a, reason)
     mod = a.module
     stem = os.path.basename(mod)
     for suf in (".py",):
@@ -177,13 +217,18 @@ def cmd_dead_tools(a):
                      real candidates.
       ORPHAN      -- not even catalogued.
     """
+    ok, reason = _corpus_reachable()
+    if not ok:
+        return _cannot_evaluate(a, reason)
     files = _files_by_kind()
     # USAGE EVIDENCE: handoffs/changelogs record what a session actually RAN. It is the
     # closest thing to an invocation log that exists (no real one ever has -- the sandbox
     # fs resets between sessions), so a tool named here was probably genuinely used.
+    # The sandbox's /home/claude/vp/{KB_HANDOFF,Backlog,Roadmap}.md are retired session
+    # artifacts; project-knowledge/SESSION_CARRY.md is their in-repo replacement
+    # (CLAUDE.md's STATE.json/handoff idiom), and CHANGELOG.md is unchanged.
     evidence = []
-    for p in ("/home/claude/vp/KB_HANDOFF_v3_66_722.md", "/home/claude/vp/Backlog.md",
-              "/home/claude/vp/Roadmap.md", os.path.join(WORK, "CHANGELOG.md")):
+    for p in (os.path.join(PK, "SESSION_CARRY.md"), os.path.join(WORK, "CHANGELOG.md")):
         if os.path.isfile(p):
             evidence.append(p)
     files["evidence"] = evidence
@@ -195,9 +240,9 @@ def cmd_dead_tools(a):
         os.path.join(PK, "BDSUITE_CHANGELOG.md"),
         os.path.join(PK, "BUNDLE_MANIFEST.md"),
         os.path.join(PK, "STATIC_KB_MANIFEST.json"),
-        # a doc ABOUT tools ("not a duplicate of X") names them without USING them
-        "/home/claude/ctx/TOOL_PROPOSALS_50.md",
-        os.path.join(PK, "BD_TOOLCHAIN_WHEN_TO_USE.md"),
+        # /home/claude/ctx/TOOL_PROPOSALS_50.md (a doc ABOUT tools, naming them
+        # without USING them) is a retired sandbox artifact with no in-repo
+        # equivalent -- dropped rather than invented (CLAUDE.md porting idiom).
     )}
     tools = sorted(os.path.basename(p) for p in files["tool"])
     used, listed_only, orphan = [], [], []
@@ -291,6 +336,7 @@ def _selftest():
         os.makedirs(os.path.join(WORK, d), exist_ok=True)
     os.makedirs(BIN, exist_ok=True)
     os.makedirs(PK, exist_ok=True)
+    open(os.path.join(WORK, "bulk_downloader", "__init__.py"), "w").close()
     open(os.path.join(WORK, "bulk_downloader", "widget.py"), "w").write("X=1\n")
     open(os.path.join(WORK, "bulk_downloader", "user.py"), "w").write("from . import widget\n")
     open(os.path.join(WORK, "tests", "test_widget_thing.py"), "w").write("import widget\n")
@@ -336,6 +382,20 @@ def _selftest():
                      "(catalog counted as a use -- the denominator bug)")
     if "bd-usedtool" in out["listed_only"] or "bd-usedtool" in out["orphan"]:
         fails.append("genuinely-used tool wrongly reported unused")
+    # POS: CANNOT-EVALUATE guard -- an absent WORK must exit 2, never a silent
+    # empty "no consumers" (s0). Point WORK at a directory that is not a BD
+    # checkout and confirm cmd_query refuses to mint a verdict.
+    real_work, real_bin, real_pk = WORK, BIN, PK
+    WORK = os.path.join(td, "not_a_checkout")
+    os.makedirs(WORK, exist_ok=True)
+    a2 = argparse.Namespace(name="widget", json=True, substring=False)
+    buf2 = io.StringIO()
+    with contextlib.redirect_stdout(buf2):
+        rc = cmd_query(a2)
+    out2 = json.loads(buf2.getvalue())
+    if rc != 2 or out2.get("error") != "CANNOT_EVALUATE":
+        fails.append("absent-checkout WORK did not report CANNOT_EVALUATE/exit 2")
+    WORK, BIN, PK = real_work, real_bin, real_pk
     import shutil
     shutil.rmtree(td, ignore_errors=True)
     if fails:

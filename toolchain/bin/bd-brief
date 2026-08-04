@@ -18,6 +18,9 @@ Read-only. Usage: bd-brief [--tree DIR] [--json]
 """
 import argparse, glob, hashlib, json, os, re, shutil, subprocess, sys, tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
 GUARDS = ["bulk_downloader/extraction_core.py", "bulk_downloader/session_capture.py",
           "bulk_downloader/dom_capture.py", "bulk_downloader/dom_recorder.py",
           "bulk_downloader/capture_bodies.py", "tools/capture_session.py",
@@ -97,7 +100,6 @@ def _capability(tree):
     # env-tranche gate: is config_surface_inventory importable here?
     try:
         sys.path.insert(0, os.path.join(tree, "tools"))
-        sys.path.insert(0, "/tmp/prestaged_site_packages")
         __import__("config_surface_inventory")
         caps["env_tranche_gate_runs_in_sandbox"] = True
     except Exception:  # why: operation failed; degrade to the default and continue -- correctness unaffected, only completeness
@@ -146,7 +148,7 @@ def _fg_bit(f):
 
 def main():
     ap = argparse.ArgumentParser(prog="bd-brief")
-    ap.add_argument("--tree", "--work", default="/home/claude/work")
+    ap.add_argument("--tree", "--work", default=sec.DEFAULT_WORK)
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()

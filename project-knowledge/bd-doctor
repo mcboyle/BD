@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """bd-doctor -- one-shot READ-ONLY sandbox triage. Answers "is anything obviously
 wrong?" in one command: tools on PATH, background services up, work tree present +
-its version, prestaged packages, Playwright browsers, STATE readability.
+its version, work-tree venv, Playwright browsers, session register present.
 
 Never changes anything; never deploys. Exit 0 if all CRITICAL checks pass, 1 if a
 critical check fails (warnings alone don't fail).
@@ -132,35 +132,21 @@ def main(argv=None):
     line("ok" if pw else WARN, "Playwright chromium",
          f"pool {_pool}" if pw else ("no pool located" if not _pool else f"none under {_pool}"))
 
-    print("-- STATE.json")
-    cands = []
-    for pat in ("/mnt/user-data/uploads/STATE.json", "/home/claude/**/STATE.json",
-                "/tmp/**/STATE.json"):
-        cands += glob.glob(pat, recursive=True)
-    cands = [c for c in cands if os.path.isfile(c)]
-    if cands:
-        def _state_ver(p):
-            # Prefer the STATE with the highest CONTENT version, mtime only as a
-            # tiebreak: extraction resets mtimes, so a stale extracted STATE.json can
-            # look "newest" (the v3.66.688 manifest-inversion class).
-            try:
-                import json as _j
-                st = _j.load(open(p, encoding="utf-8"))
-                v = str(st.get("built_version") or st.get("live_version") or "")
-                return tuple(int(x) for x in v.split(".") if x.isdigit())
-            except Exception:  # why: input unavailable/unreadable; return empty so the caller uses its fallback, not a wrong value
-                return ()
-        sp = max(cands, key=lambda p: (_state_ver(p), os.path.getmtime(p)))
-        try:
-            st = json.load(open(sp, encoding="utf-8"))
-            line("ok", "STATE.json", f"{os.path.basename(sp)} (live {st.get('live_version','?')})")
-            fg = st.get("active_footguns", [])
-            if fg:
-                print(f"  {DIM}active footguns: {len(fg)} (run bd-boot to list){RST}")
-        except Exception as e:
-            line(WARN, "STATE.json", f"unreadable: {e}")
+    print("-- session register")
+    # STATE.json is RETIRED: the session-state file belonged to the zip-overlay
+    # sandbox, and project-knowledge/SESSION_CARRY.md is the register now. The
+    # old code globbed the retired trees (/mnt/user-data, /home/claude, all of
+    # /tmp) and could pick up an unrelated STATE.json left by another process --
+    # a diagnostic reading someone else's fixture as this host's state. Report
+    # the retirement as a FACT and check the real register instead.
+    _carry = os.path.join(a.work, "project-knowledge", "SESSION_CARRY.md")
+    if os.path.isfile(_carry):
+        line("ok", "session register",
+             "STATE.json retired -- project-knowledge/SESSION_CARRY.md present")
     else:
-        line(WARN, "STATE.json", "none found (pack not attached?)")
+        line(WARN, "session register",
+             f"STATE.json retired; no SESSION_CARRY.md under {a.work} "
+             "(not a checkout, or the register moved)")
 
     # -- live capabilities (egress-era; what can this sandbox actually DO?) ----
     # A session should know its real capabilities instead of assuming the old
@@ -179,7 +165,7 @@ def main(argv=None):
          else "no network (offline packs required)")
     # audit venv (bd-rev target)
     rev = None
-    for c in (os.path.expanduser("~/rev"), "/home/claude/rev"):
+    for c in (os.path.expanduser("~/rev"),):
         if os.path.isdir(os.path.join(c, "bin")):
             rev = c
             break

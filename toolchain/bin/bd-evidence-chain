@@ -11,7 +11,10 @@ Usage:
     bd-evidence-chain [--home DIR] [--glob PATTERN...] [--json]
     bd-evidence-chain --verify MANIFEST.json [--home DIR]
     bd-evidence-chain --selftest
-Exit 1 if --verify detects tampering, else 0.
+--home defaults to $HOME. Exit 0 chain built / manifest intact; 1 --verify
+detected tampering; 2 CANNOT-EVALUATE (no artifact matched the globs, or the
+--verify manifest is absent). A chain over zero artifacts has the all-zero
+root and attests nothing, so it is refused rather than emitted.
 """
 import argparse
 import glob
@@ -119,7 +122,7 @@ def selftest():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--home", default="/home/claude")
+    ap.add_argument("--home", default=os.path.expanduser("~"))
     ap.add_argument("--glob", action="append", default=None)
     ap.add_argument("--verify", metavar="MANIFEST", default=None)
     ap.add_argument("--json", action="store_true")
@@ -127,8 +130,12 @@ def main():
     a = ap.parse_args()
     if a.selftest:
         return selftest()
-    sec.require_bundle(a.home)
     if a.verify:
+        if not os.path.isfile(a.verify):
+            sys.stderr.write("CANNOT-EVALUATE evidence chain: reason=%s "
+                             "(--verify manifest %s)\n"
+                             % (sec.REASON_ABSENT, a.verify))
+            return sec.EXIT_CANNOT_EVALUATE
         probs, root_ok = verify(a.verify, a.home)
         if sec.emit({"problems": probs, "root_ok": root_ok}, as_json=a.json):
             return 1 if probs else 0
@@ -138,7 +145,18 @@ def main():
         for p in probs:
             print(f"  {R}{p['issue']}{RST} {p['artifact']}")
         return 1
-    files = collect(a.home, a.glob or DEFAULT_GLOBS)
+    globs = a.glob or DEFAULT_GLOBS
+    files = collect(a.home, globs)
+    # s0: the corpus this tool hashes is exactly `files`. It used to be guarded
+    # by sec.require_bundle(), whose denominator is the release-zip markers --
+    # a DIFFERENT set from --glob, so `--glob '*.log'` was refused over a
+    # directory full of logs while an empty chain over zero artifacts (root =
+    # 64 zeros) could still be minted. Guard the set actually hashed.
+    if not files:
+        sys.stderr.write("CANNOT-EVALUATE evidence chain: reason=%s "
+                         "(no artifact under %s matches %s)\n"
+                         % (sec.REASON_EMPTY, a.home, ",".join(globs)))
+        return sec.EXIT_CANNOT_EVALUATE
     chain = build_chain(files)
     if not a.json:
         json.dump(chain, sys.stdout, indent=2, sort_keys=True)

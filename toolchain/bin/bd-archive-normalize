@@ -14,8 +14,6 @@ Exit 0 (informational -- reports/generates; does not render a pass/fail verdict 
 import argparse, glob, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec
-import os as _oscli, sys as _syscli
-_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
 from bdtools_cli import G, R, Y, DIM, RST
 CANON=[re.compile(r'^bdsuite_v3_66_\d+\.zip$'),re.compile(r'^bd_project_files\.zip$'),
        re.compile(r'^BulkDownloader_v3_66_\d+\.zip$'),re.compile(r'^BulkDL_next_session_v3_66_\d+\.zip$'),
@@ -35,9 +33,6 @@ def scan(home):
 
 def selftest():
     ok=True
-    rows=scan("/home/claude")
-    print(("PASS" if rows else "FAIL")+"  zips inventoried (%d)"%len(rows))
-    ok=ok and bool(rows)
     import tempfile
     with tempfile.TemporaryDirectory() as d:
         for n in ("bdsuite_v3_66_688.zip","weird name.zip","random.zip"):
@@ -47,15 +42,27 @@ def selftest():
     good=byn["bdsuite_v3_66_688.zip"]["canonical"] and not byn["random.zip"]["canonical"] and "contains space" in byn["weird name.zip"]["issues"]
     print(("PASS" if good else "FAIL")+"  canonical recognized, stray+spaced flagged")
     ok=ok and good
+    empty=scan(tempfile.gettempdir())
+    # @855: was len(empty)>=0, true for every possible list. A control that
+    # cannot fail proves nothing; assert the actual property.
+    print(("PASS" if empty==[] else "FAIL")+"  empty dir yields NO rows (%d)"%len(empty))
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
     return 0 if ok else 1
 
 def main():
+    import tempfile
     ap=argparse.ArgumentParser()
-    ap.add_argument("--home",default="/home/claude")
+    ap.add_argument("--home",default=None,
+                    help="state dir. NO DEFAULT (@855): defaulting to the shared temp dir made the empty-corpus guard unreachable, because that dir is never empty -- the tool then reported confidently about files belonging to other processes instead of refusing.")
     ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
     a=ap.parse_args()
     if a.selftest: return selftest()
+    if a.home is None:
+        print("BD-UNEVALUABLE: --home is required (@855). It used to default to\n"
+              "the shared temp dir, which is never empty, so the empty-corpus\n"
+              "guard below could never fire and this tool reported on whatever\n"
+              "other processes had left lying there.")
+        return sec.EXIT_CANNOT_EVALUATE
     sec.require_bundle(a.home)
     rows=scan(a.home)
     flagged=[r for r in rows if r["issues"]]

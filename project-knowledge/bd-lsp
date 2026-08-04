@@ -29,13 +29,29 @@ import os
 import subprocess
 import sys
 
-WHEELS = "/home/claude/lsp_kit/wheels"
-NODE_BIN = "/home/claude/.local/node/bin"
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
+# /home/claude/lsp_kit/wheels was a sandbox-only prestaged wheel cache for
+# fully-offline installs; it does not exist on this checkout and has no
+# in-repo replacement (no bundled wheels anywhere in the tree -- measured).
+# BD_LSP_WHEELS lets an operator point at one if they ever stage one; absent
+# that, cmd_setup falls back to a normal `pip install` from PyPI (reachable
+# through this host's proxy allowlist -- verified).
+WHEELS = os.environ.get("BD_LSP_WHEELS", os.path.join(sec.DEFAULT_WORK, "lsp_kit", "wheels"))
+# /home/claude/.local/node/bin was the sandbox's staged node; this host has a
+# real node on PATH already (/opt/node22/bin), so NODE_BIN is only prepended
+# when it actually exists -- an absent entry silently prepending nothing to
+# PATH is harmless, but naming it here for an operator override is not.
+NODE_BIN = os.environ.get("BD_LSP_NODE_BIN", "")
 
 
 def _ensure_env():
-    """Put node on PATH + the two pyright-offline env vars."""
-    os.environ["PATH"] = NODE_BIN + os.pathsep + os.environ.get("PATH", "")
+    """Put node on PATH (if a staged one is configured) + the two
+    pyright-offline env vars. If no NODE_BIN is configured, this host's own
+    PATH is trusted to already carry node (verified: /opt/node22/bin)."""
+    if NODE_BIN and os.path.isdir(NODE_BIN):
+        os.environ["PATH"] = NODE_BIN + os.pathsep + os.environ.get("PATH", "")
     os.environ.setdefault("PYRIGHT_PYTHON_GLOBAL_NODE", "1")
     os.environ.setdefault("PYRIGHT_PYTHON_FORCE_VERSION", "1.1.409")
 
@@ -54,11 +70,20 @@ def cmd_setup(_):
         whl = []
         if os.path.isdir(WHEELS):
             whl = [os.path.join(WHEELS, w) for w in os.listdir(WHEELS) if w.endswith(".whl")]
-        if not whl:
-            print(f"[bd-lsp] no wheels in {WHEELS}", file=sys.stderr)
-            return 1
-        subprocess.run([sys.executable, "-m", "pip", "install",
-                        "--break-system-packages", "-q", *whl], check=False)
+        if whl:
+            subprocess.run([sys.executable, "-m", "pip", "install",
+                            "--break-system-packages", "-q", *whl], check=False)
+        else:
+            # No offline wheel cache (the sandbox one is retired and nothing
+            # replaced it in-repo) -- fall back to a normal PyPI install
+            # under THIS interpreter (sys.executable == venv/bin/python).
+            print(f"[bd-lsp] no offline wheel cache at {WHEELS} -- "
+                  f"falling back to `pip install` from PyPI", file=sys.stderr)
+            r = subprocess.run([sys.executable, "-m", "pip", "install", "-q",
+                                "jedi", "pyright"], capture_output=True, text=True)
+            if r.returncode != 0:
+                print(f"[bd-lsp] pip install failed:\n{r.stderr[-800:]}", file=sys.stderr)
+                return 1
     _ensure_env()
     ok_jedi = _have("jedi")
     # pyright readiness: --version with node on PATH
@@ -193,12 +218,31 @@ def cmd_unused(a):
 
 
 def selftest():
-    """SKIP: this tool needs a running language server, which the sandbox cannot provide. A SKIP
-    is counted apart from PASS and never claims the tool works -- honest absence
-    beats a green smoke test."""
-    print("SKIP: needs a running language server")
-    print("SELFTEST PASS")
-    return 0
+    """Actually exercises jedi (setup + a real 'defs' pass over this file), rather
+    than a static SKIP that reads SELFTEST PASS regardless of whether anything
+    ran (the s0 shape: unknown must not print as green). pyright/node are NOT
+    exercised here -- they need a real project tree and are slow -- but jedi
+    readiness is a genuine, fast, offline-after-setup check."""
+    rc = cmd_setup(argparse.Namespace())
+    if rc != 0:
+        print("CANNOT-EVALUATE: jedi setup did not succeed (offline wheels absent "
+              "and PyPI install failed or was unreachable)")
+        print("SELFTEST CANNOT-EVALUATE")
+        return sec.EXIT_CANNOT_EVALUATE
+    try:
+        src, sc = _jedi_script(__file__)
+    except Exception as e:  # why: jedi itself can raise on an unexpected tree shape
+        print(f"FAIL  jedi.Script() raised: {e}")
+        print("SELFTEST FAIL")
+        return 1
+    tree = ast.parse(src)
+    known = {n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    ok = "cmd_setup" in known and "selftest" in known
+    print(("PASS" if ok else "FAIL") +
+          "  jedi ready + AST def-scan finds this file's own top-level defs (%d found)"
+          % len(known))
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
 
 
 def main(argv=None):

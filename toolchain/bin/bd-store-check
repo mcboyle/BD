@@ -13,8 +13,6 @@ Exit 1 if any store is invalid, else 0.
 import argparse, glob, json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec
-import os as _oscli, sys as _syscli
-_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
 from bdtools_cli import G, R, Y, DIM, RST
 
 # (glob, expected_top_type, required_keys_if_dict)
@@ -59,18 +57,26 @@ def selftest():
     good=len(issues)==1 and "status" in issues[0]["issue"]
     print(("PASS" if good else "FAIL")+"  template missing status flagged (%d issues)"%len(f))
     ok=ok and good
-    r=scan(sec.DEFAULT_WORK, "/home/claude")
+    r=scan(sec.DEFAULT_WORK, tempfile.gettempdir())
     print(("PASS" if r[1]>=0 else "FAIL")+"  real tree: %d stores checked, %d issues"%(r[1],len(r[0])))
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
     return 0 if ok else 1
 
 def main():
+    import tempfile
     ap=argparse.ArgumentParser()
-    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK); ap.add_argument("--home",default="/home/claude")
+    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK); ap.add_argument("--home",default=None,
+                    help="state dir. NO DEFAULT (@855): defaulting to the shared temp dir made the empty-corpus guard unreachable, because that dir is never empty -- the tool then reported confidently about files belonging to other processes instead of refusing.")
     ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
     a=ap.parse_args()
     if a.selftest: return selftest()
     sec.require_source_tree(a.work)
+    if a.home is None:
+        print("BD-UNEVALUABLE: --home is required (@855). It used to default to\n"
+              "the shared temp dir, which is never empty, so the empty-corpus\n"
+              "guard below could never fire and this tool reported on whatever\n"
+              "other processes had left lying there.")
+        return sec.EXIT_CANNOT_EVALUATE
     sec.require_bundle(a.home)
     f,c=scan(a.work,a.home)
     if sec.emit({"findings":f,"summary":{"checked":c,"invalid":len(f)}},as_json=a.json): return 1 if f else 0

@@ -7,14 +7,18 @@ them is unsafe -- bd-boot/bd-install have side effects, and not every tool is
 argparse). Checks: valid shebang, executable bit, Python syntax (ast.parse), a
 main/entrypoint, and byte-identity vs the PK bundle.
 
-Usage: bd-selfcheck [--bin /home/claude/bin] [--pk /mnt/project]
+Usage: bd-selfcheck [--bin DIR] [--pk DIR]
+(--bin defaults to this script's own directory; --pk to <checkout>/project-knowledge)
 Exit 0 if every tool is structurally sound (drift-vs-PK is a warning, not a fail);
-1 if any tool has a real defect (bad shebang / syntax error / no entrypoint).
+1 if any tool has a real defect (bad shebang / syntax error / no entrypoint);
+2 CANNOT-EVALUATE if --bin holds no bd* tools at all (a verdict over an empty
+corpus is not a verdict).
 """
 import argparse, ast, glob, os, sys
 import os as _oscli, sys as _syscli
 _syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
 from bdtools_cli import G, R, Y, DIM, RST
+import bdtools_sec as sec  # noqa: E402
 def selftest():
     """DELEGATE: wraps bd-tool-lint. Asserts the target file is present in the tool's own
     bin dir -- if not, FAIL (a wrapper that cannot find what it wraps is broken;
@@ -30,9 +34,15 @@ def selftest():
 def main():
     import sys as _s
     if "--selftest" in _s.argv: return selftest()
-    ap=argparse.ArgumentParser(); ap.add_argument("--bin",default="/home/claude/bin")
-    ap.add_argument("--pk",default="/mnt/project"); a=ap.parse_args()
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--bin",default=os.path.dirname(os.path.realpath(__file__)))
+    ap.add_argument("--pk",default=os.path.join(sec.DEFAULT_WORK,"project-knowledge"))
+    a=ap.parse_args()
     tools=sorted(p for p in glob.glob(os.path.join(a.bin,"bd*")) if os.path.isfile(p))
+    if not tools:
+        sys.stderr.write("CANNOT-EVALUATE --bin %s: reason=EMPTY (no bd* tools found "
+                         "-- a toolchain check over nothing certifies nothing)\n" % a.bin)
+        return sec.EXIT_CANNOT_EVALUATE
     noshebang=[]; notexec=[]; parse_err=[]; noentry=[]; drift=[]
     for t in tools:
         b=os.path.basename(t); raw=open(t,"rb").read()

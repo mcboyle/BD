@@ -39,6 +39,8 @@ import os
 import subprocess
 import sys
 
+import bdtools_sec as sec  # noqa: E402  (toolchain/bin is on sys.path[0] as the script dir)
+
 BIN = os.path.dirname(os.path.realpath(__file__))
 DEFAULT_MODULE = "bulk_downloader/app.py"
 
@@ -208,9 +210,14 @@ def report(work, data, top, moves_route, as_json):
 
 def selftest():
     ok = True
-    work = "/home/claude/work"
+    work = sec.DEFAULT_WORK
     if not os.path.isdir(os.path.join(work, "bulk_downloader")):
-        print("SKIP  no work tree"); print("SELFTEST PASS"); return 0
+        # s0: an absent work tree is CANNOT-EVALUATE, never a silent PASS --
+        # this used to hardcode the retired sandbox path, find nothing, and
+        # report SELFTEST PASS regardless.
+        print("CANNOT-EVALUATE  no work tree at %s" % work)
+        print("SELFTEST CANNOT-EVALUATE")
+        return sec.EXIT_CANNOT_EVALUATE
 
     d = gather(work, DEFAULT_MODULE)
     composed = [k for k in ("xray", "seams", "coupling", "plan") if d.get(k)]
@@ -255,7 +262,7 @@ def selftest():
 def main():
     ap = argparse.ArgumentParser(prog="bd-decomp")
     ap.add_argument("--module", default=DEFAULT_MODULE)
-    ap.add_argument("--work", "--tree", default="/home/claude/work")
+    ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
     ap.add_argument("--top", type=int, default=10)
     ap.add_argument("--route", action="store_true",
                     help="the extraction moves a ROUTE (stricter gate set)")

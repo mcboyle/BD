@@ -33,9 +33,20 @@ code defect, and the run exits non-zero only on REAL failures.
 
 Usage:
     bd-fullsuite [--jobs N] [--timeout S] [--shard i/n] [--only SUBSTR]
-                 [--work DIR] [--json] [--selftest]
+                 [--work DIR] [--state-dir DIR] [--json] [--selftest]
 
-Exit 0 = zero REAL failures. 1 = real failure, or a preflight gate refused.
+Exit contract (bdtools_sec):
+  0  zero REAL failures (and, for --status, a run that has finished)
+  1  a real failure, a preflight gate refused, or --status on a run still going
+  2  CANNOT-EVALUATE: no interpreter under --work can import pytest, or
+     --status found no recorded run at all. "Still running" and "no run
+     exists" used to share exit 1, so a poller could not tell them apart.
+
+Run state (--bg log, --status progress, the per-file duration cache that drives
+LPT bin-packing) lives in --state-dir, default $BD_FULLSUITE_STATE or
+~/.bd_fullsuite. PLAYWRIGHT_BROWSERS_PATH and PYTHONPATH are INHERITED from the
+environment, never overwritten: pointing workers at a browser cache that does
+not exist made this tool classify its own misconfiguration as ENV_BROWSER.
 """
 import argparse
 import concurrent.futures as cf
@@ -84,8 +95,20 @@ DEFAULT_WORK = sec.DEFAULT_WORK
 # whole point of forking is that each file still sees first-party code fresh.
 FORK_PRELUDE = ("flask", "werkzeug", "jinja2", "requests", "urllib3",
                 "playwright.sync_api", "bs4", "yaml", "json", "sqlite3", "logging")
-RESULTS = "/home/claude/.bd_fullsuite.json"
-PROGRESS = "/home/claude/.bd_fullsuite.progress.json"
+def _default_state_dir():
+    """Where cross-invocation run state lives: --bg writes it, --status reads it
+    back, and _lpt_bins reads the previous run's per-file durations. It must
+    OUTLIVE one invocation, so a fresh tempdir will not do. Was hardcoded under
+    the retired /home/claude sandbox HOME (v3.66.855); $BD_FULLSUITE_STATE or
+    --state-dir override, default under the invoking user's HOME."""
+    return (os.environ.get("BD_FULLSUITE_STATE")
+            or os.path.join(os.path.expanduser("~"), ".bd_fullsuite"))
+
+
+STATE_DIR = _default_state_dir()
+RESULTS = os.path.join(STATE_DIR, "results.json")
+PROGRESS = os.path.join(STATE_DIR, "progress.json")
+LOGFILE = os.path.join(STATE_DIR, "run.log")
 MIN_FREE_MB = 2048        # refuse to start below this
 ABORT_FREE_MB = 400       # abort mid-run below this (before it corrupts)
 
@@ -114,7 +137,6 @@ def _fork_worker(work, timeout, files):
     snapshot), so per-file isolation is identical to spawn mode -- sys.path
     pollution, leftover asyncio loops, and BD_HOME writes all die with the
     child. Emits one JSON line per file on stdout."""
-    sys.path.insert(0, "/tmp/prestaged_site_packages")
     sys.path.insert(0, work)
     for m in FORK_PRELUDE:
         try:
@@ -143,8 +165,12 @@ def _fork_worker(work, timeout, files):
             try:
                 os.environ["BD_HOME"] = td
                 os.environ["BD_DISABLE_KEEPALIVE"] = "1"
-                os.environ["PYTHONPATH"] = "/tmp/prestaged_site_packages"
-                os.environ["PLAYWRIGHT_BROWSERS_PATH"] =                     "/home/claude/.cache/ms-playwright"
+                # The work tree, not a retired prestage; PREPEND so an
+                # operator's ambient PYTHONPATH survives. PLAYWRIGHT_BROWSERS_PATH
+                # is INHERITED -- clobbering it pointed every browser test at a
+                # cache that does not exist and reported ENV_BROWSER for it.
+                os.environ["PYTHONPATH"] = os.pathsep.join(
+                    [work] + [x for x in [os.environ.get("PYTHONPATH")] if x])
                 fd = os.open(outp, os.O_WRONLY | os.O_CREAT, 0o600)
                 os.dup2(fd, 1)
                 os.dup2(fd, 2)
@@ -241,8 +267,7 @@ def scan_pyc(work, _roots=None):
     magic = _iu.MAGIC_NUMBER
     n, bad = 0, []
     roots = _roots if _roots is not None else (
-        os.path.join(work, "bulk_downloader"), os.path.join(work, "tests"),
-        "/tmp/prestaged_site_packages")
+        os.path.join(work, "bulk_downloader"), os.path.join(work, "tests"))
     for root in roots:
         for dp, _d, fns in os.walk(root):
             if os.path.basename(dp) != "__pycache__":
@@ -351,7 +376,8 @@ def preflight(work, fix=True):
             ok = False
 
     # browser revs
-    pw = "/home/claude/.cache/ms-playwright"
+    pw = (os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+          or os.path.expanduser("~/.cache/ms-playwright"))
     shells = glob.glob(os.path.join(pw, "chromium_headless_shell-*"))
     if shells:
         notes.append(("PASS", "ENV", "playwright: %d chromium shell rev(s)" % len(shells)))
@@ -372,9 +398,13 @@ def preflight(work, fix=True):
 def run_one(work, f, timeout, retry_bytecode=True):
     env = dict(os.environ)
     home = tempfile.mkdtemp(prefix="bdfs_")
+    # PLAYWRIGHT_BROWSERS_PATH is deliberately NOT set: dict(os.environ) already
+    # carries the ambient one, and overwriting it with a hardcoded path aimed
+    # every browser test at a cache that does not exist here -- which this very
+    # tool would then classify as ENV_BROWSER and excuse.
     env.update(BD_HOME=home, BD_DISABLE_KEEPALIVE="1",
-               PYTHONPATH="/tmp/prestaged_site_packages",
-               PLAYWRIGHT_BROWSERS_PATH="/home/claude/.cache/ms-playwright")
+               PYTHONPATH=os.pathsep.join(
+                   [work] + [x for x in [os.environ.get("PYTHONPATH")] if x]))
     t0 = time.time()
     try:
         r = subprocess.run([_py(work), "run_tests.py", f], cwd=work, env=env,
@@ -485,30 +515,54 @@ def main():
     ap.add_argument("--status", action="store_true",
                     help="print progress of a --bg run and exit")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--state-dir", default=None,
+                    help="where --bg/--status run state and the duration cache "
+                         "live (default $BD_FULLSUITE_STATE or ~/.bd_fullsuite)")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
 
     if a.selftest:
         return selftest()
 
+    if a.state_dir:
+        global STATE_DIR, RESULTS, PROGRESS, LOGFILE
+        STATE_DIR = os.path.abspath(a.state_dir)
+        RESULTS = os.path.join(STATE_DIR, "results.json")
+        PROGRESS = os.path.join(STATE_DIR, "progress.json")
+        LOGFILE = os.path.join(STATE_DIR, "run.log")
+
     if a.status:
+        # THREE states, not two. "no run recorded" used to share exit 1 with
+        # "still running", so a poller waiting on `until bd-fullsuite --status`
+        # could not tell a run in flight from no run at all and would spin
+        # forever. Absent state mints no verdict -> EXIT_CANNOT_EVALUATE.
+        if not os.path.exists(PROGRESS):
+            print("no background run found (looked in %s)" % PROGRESS)
+            sys.stderr.write("CANNOT-EVALUATE bd-fullsuite --status: reason=%s "
+                             "(%s absent -- no run to report on)\n"
+                             % (sec.REASON_ABSENT, PROGRESS))
+            return sec.EXIT_CANNOT_EVALUATE
         try:
             pg = json.load(open(PROGRESS))
-            print(json.dumps(pg))
-            return 0 if pg.get("state") != "running" else 1
-        except Exception:
-            print("no background run found")
-            return 1
+        except Exception as e:
+            print("progress file unreadable: %s" % e)
+            sys.stderr.write("CANNOT-EVALUATE bd-fullsuite --status: reason=%s "
+                             "(%s is not readable JSON)\n"
+                             % (sec.REASON_UNREADABLE, PROGRESS))
+            return sec.EXIT_CANNOT_EVALUATE
+        print(json.dumps(pg))
+        return 0 if pg.get("state") != "running" else 1
 
     if a.bg:
         me = os.path.realpath(sys.argv[0])
         args = [x for x in sys.argv[1:] if x != "--bg"]
-        log = open("/home/claude/.bd_fullsuite.log", "w")
+        os.makedirs(STATE_DIR, exist_ok=True)
+        log = open(LOGFILE, "w")
         pr = subprocess.Popen([sys.executable, me] + args, stdout=log,
                               stderr=log, start_new_session=True,
                               env=os.environ)
         print("detached pid %d -- poll: bd-fullsuite --status ; "
-              "log: /home/claude/.bd_fullsuite.log" % pr.pid)
+              "log: %s" % (pr.pid, LOGFILE))
         return 0
 
     if not a.jobs:
@@ -540,12 +594,21 @@ def main():
 
     files = collect(a.work, a.only, shard)
     if not files:
-        print("no test files matched")
-        return 1
+        # An EMPTY selection ran zero tests, so "0 real failures" is not a pass
+        # -- it is the absence of a measurement. Sharing exit 1 with a genuine
+        # failure was also wrong in the other direction: a typo'd --only read as
+        # a red suite. Neither; this mints no verdict.
+        print("no test files matched (--only %r, shard %s) under %s"
+              % (a.only, a.shard or "none", a.work))
+        sys.stderr.write("CANNOT-EVALUATE bd-fullsuite: reason=%s (0 test files "
+                         "selected -- nothing was run, so there is no result to "
+                         "report)\n" % sec.REASON_EMPTY)
+        return sec.EXIT_CANNOT_EVALUATE
     if not a.json:
         print("\n%srunning %d file(s)%s %s(per-file isolation, %d jobs, %ds each)%s"
               % (BOLD, len(files), RST, DIM, a.jobs, a.timeout, RST))
 
+    os.makedirs(STATE_DIR, exist_ok=True)
     t0 = time.time()
     results = []
     aborted = False
@@ -779,8 +842,7 @@ def selftest():
     open(lst, "w").write(pol + "\n" + chkf + "\n")
     me = os.path.realpath(sys.argv[0] if sys.argv else __file__)
     r = _sp.run([sys.executable, me, "--_worker", DEFAULT_WORK, "60", lst],
-                capture_output=True, text=True, env=dict(
-                    os.environ, PYTHONPATH="/tmp/prestaged_site_packages"))
+                capture_output=True, text=True, env=dict(os.environ))
     lines = [json.loads(l) for l in r.stdout.splitlines() if l.strip()]
     got = {os.path.basename(x["file"]): x for x in lines}
     p_ok = got.get("test_zz_pollute.py", {}).get("rc") == 0

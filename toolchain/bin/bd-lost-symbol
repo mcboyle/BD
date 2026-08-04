@@ -30,9 +30,12 @@ import os
 import sys
 import zipfile
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
 G, R, Y, DIM, BOLD, RST = ("\033[32m", "\033[31m", "\033[33m",
                            "\033[2m", "\033[1m", "\033[0m")
-WORK = "/home/claude/work"
+WORK = sec.DEFAULT_WORK
 SCAN_DIRS = ("bulk_downloader/", "tools/")
 
 
@@ -88,6 +91,13 @@ def _from_tree(root):
 
 def lost(old_zip, new_zip=None, work=WORK):
     old = _from_zip(old_zip)
+    if not new_zip and not os.path.isfile(os.path.join(work, "bulk_downloader", "__init__.py")):
+        # s0: an unreachable/wrong work tree must not silently produce an EMPTY
+        # `new` set -- that would report every symbol in `old` as lost, which is
+        # the over-sensitive twin of the same bug (a false regression, not a
+        # true one). Caller must distinguish CANNOT-EVALUATE from a real diff.
+        raise FileNotFoundError(
+            "work tree not a BulkDownloader checkout (no bulk_downloader/__init__.py): %s" % work)
     new = _from_zip(new_zip) if new_zip else _from_tree(work)
     gone = sorted(old - new)
     added = sorted(new - old)
@@ -163,9 +173,13 @@ def main():
         ap.error("--old <previous release zip> is required")
     if not os.path.isfile(a.old):
         print("no such zip: %s" % a.old)
-        return 2
+        return sec.EXIT_CANNOT_EVALUATE
 
-    d = lost(a.old, a.new, a.work)
+    try:
+        d = lost(a.old, a.new, a.work)
+    except FileNotFoundError as e:
+        print("CANNOT-EVALUATE -- %s" % e)
+        return sec.EXIT_CANNOT_EVALUATE
     if a.json:
         print(json.dumps(d, indent=2, sort_keys=True))
         return 1 if (a.gate and d["counts"]["lost_in_surviving_files"]) else 0

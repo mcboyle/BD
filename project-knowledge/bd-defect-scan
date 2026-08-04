@@ -937,9 +937,12 @@ def main():
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--json", action="store_true")
     _here = os.path.dirname(os.path.abspath(__file__))
+    # CLAUDE.md: single deployment target, one checkout root -- the old
+    # /home/claude/review/regression_corpus "deploy fallback" modeled a SEPARATE
+    # sandbox home that no longer exists (bd-fixture-lint hit the identical dead
+    # literal). require_corpus() below reports the honest CANNOT-EVALUATE if
+    # neither this nor a --corpus override resolves to a real directory.
     _default_corpus = os.path.join(_here, "..", "regression_corpus")
-    if not os.path.isdir(_default_corpus):
-        _default_corpus = "/home/claude/review/regression_corpus"  # deploy fallback
     ap.add_argument("--corpus", default=_default_corpus)
     ap.add_argument("--out")
     a = ap.parse_args()

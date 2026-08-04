@@ -24,7 +24,17 @@ Usage:
     bd-optpack verify          # probe each installed pack's CAPABILITY (not the flag)
 
 Detect-only commands never change anything. `install` is explicit and per-pack.
-Exit 0 on success / clean list; 1 on a requested install that failed. Stdlib only.
+
+Exit contract (bdtools_sec): 0 = success / clean list / every probed capability
+OK; 1 = a requested install failed, or a capability probe failed; 2 =
+CANNOT-EVALUATE -- `verify` ran ZERO capability probes because no pack is
+installed, so there was nothing to grade (printing "all OK" there would be a
+verdict over an empty denominator).
+
+Paths follow the environment rather than the retired sandbox: $BD_PACK_DIR /
+$BD_KIT_HOME locate pack zips and staged kits (default $HOME), and the browser
+cache is $BD_PW_CACHE, else the ambient $PLAYWRIGHT_BROWSERS_PATH, else
+playwright's own ~/.cache/ms-playwright.
 """
 import argparse
 import glob
@@ -35,23 +45,42 @@ import subprocess
 import sys
 import zipfile
 
+import os as _os_bd, sys as _sys_bd  # noqa: E402
+_sys_bd.path.insert(0, _os_bd.path.dirname(_os_bd.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
 G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 
-# Where uploaded packs may live (uploads is read-only + evicts, so also check home).
-SEARCH_DIRS = [
-    "/mnt/user-data/uploads",
-    "/home/claude",
-    "/home/claude/packs_out",
-]
-# The BD runtime (bdenv.sh) uses /home/claude/.cache/ms-playwright. The AMBIENT
-# container env sets PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers, where BD never
-# looks -- honoring it made install_E land browsers in the wrong place while
-# installed_E() (probing the same wrong place) reported success (v3.66.688
-# OPTPACK_EH_ISSUES E-1). Target the runtime cache explicitly; BD_PW_CACHE is
-# the deliberate override.
-PW_PATH = os.environ.get("BD_PW_CACHE", "/home/claude/.cache/ms-playwright")
-WORK = "/home/claude/work"
+# Where operator-delivered pack zips may live. The retired sandbox's read-only
+# uploads mount is gone (v3.66.855); $BD_PACK_DIR is the explicit override and
+# the rest follow the INVOKING user's HOME rather than a hardcoded foreign one.
+KIT_HOME = os.environ.get("BD_KIT_HOME") or os.path.expanduser("~")
+SEARCH_DIRS = [d for d in (
+    os.environ.get("BD_PACK_DIR"),
+    KIT_HOME,
+    os.path.join(KIT_HOME, "packs_out"),
+    os.path.join(KIT_HOME, "incoming"),
+) if d]
+
+# WHERE THE BROWSERS GO. v3.66.688 (OPTPACK_EH_ISSUES E-1) pinned this to the
+# old sandbox runtime cache because honoring the ambient var made install_E land
+# browsers somewhere installed_E() did not probe. That premise died with the
+# sandbox: the ambient PLAYWRIGHT_BROWSERS_PATH is now exactly where BD's
+# browsers live (CLAUDE.md s5 -- "browsers are preinstalled at
+# PLAYWRIGHT_BROWSERS_PATH"), and hardcoding a foreign home made installed_E()
+# report NOT-INSTALLED with firefox-1532 and webkit-2311 both present and
+# executable. The E-1 lesson is preserved by construction: install and probe
+# read the SAME name, so they cannot disagree. BD_PW_CACHE still overrides.
+PW_PATH = (os.environ.get("BD_PW_CACHE")
+           or os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+           or os.path.expanduser("~/.cache/ms-playwright"))
+WORK = os.environ.get("BD_WORK", sec.DEFAULT_WORK)
 VENV_PY = os.path.join(WORK, "venv", "bin", "python")
+PYEXT_KIT = os.path.join(KIT_HOME, "pyext_kit")
+NETDEPS_KIT = os.path.join(KIT_HOME, "netdeps_kit")
+AUDIT_KIT = os.path.join(KIT_HOME, "audit_tools")
+REV_LINK = os.path.join(KIT_HOME, "rev")
+FIXTURES_DIR = os.path.join(KIT_HOME, "browsers_fixtures")
 
 
 def find_pack(letter):
@@ -84,7 +113,7 @@ def installed_E():
 
 def installed_F():
     # a-la-carte pool: "installed" == the wheelhouse has been staged locally
-    return os.path.isdir("/home/claude/pyext_kit/wheels")
+    return os.path.isdir(os.path.join(PYEXT_KIT, "wheels"))
 
 
 def installed_G():
@@ -93,8 +122,8 @@ def installed_G():
 
 def installed_H():
     # Capability: audit venv present AND wired where bd-rev/bd-doctor look.
-    venv_ok = os.path.isfile("/home/claude/audit_tools/venv/bin/semgrep")
-    rev = "/home/claude/rev"
+    venv_ok = os.path.isfile(os.path.join(AUDIT_KIT, "venv", "bin", "semgrep"))
+    rev = REV_LINK
     wired = os.path.isdir(rev) and os.path.isfile(os.path.join(rev, "bin", "semgrep"))
     return (venv_ok and wired) or shutil.which("semgrep") is not None
 
@@ -173,8 +202,8 @@ def install_E(pack_path):
     # fixtures live alongside for capture tests
     fx = os.path.join(tmp, "fixtures")
     if os.path.isdir(fx):
-        shutil.rmtree("/home/claude/browsers_fixtures", ignore_errors=True)
-        shutil.move(fx, "/home/claude/browsers_fixtures")
+        shutil.rmtree(FIXTURES_DIR, ignore_errors=True)
+        shutil.move(fx, FIXTURES_DIR)
     # webkit's web process loads its injected bundle from a HARDCODED system
     # path; symlink it to the bundled copy or every page load aborts
     # (OPTPACK_EH_ISSUES E-3).
@@ -192,7 +221,7 @@ def install_E(pack_path):
     ok = installed_E()
     print("  %s pack_E: firefox-1532 + webkit-2311 -> %s%s" %
           (G + "OK" + RST if ok else R + "XX" + RST, PW_PATH,
-           "  (fixtures -> /home/claude/browsers_fixtures)"))
+           "  (fixtures -> %s)" % FIXTURES_DIR))
     print(DIM + "     webkit: headful-under-Xvfb only (pure headless needs a GL"
           " stack this container lacks); playwright's own chromium rev-mismatch"
           " is pre-existing + moot (BD backend is cloakbrowser)" + RST)
@@ -200,7 +229,7 @@ def install_E(pack_path):
 
 
 def install_F(pack_path, pip_pkgs=None):
-    dest = "/home/claude/pyext_kit"
+    dest = PYEXT_KIT
     shutil.rmtree(dest, ignore_errors=True)
     _extract(pack_path, dest)
     wh = os.path.join(dest, "wheels")
@@ -225,15 +254,14 @@ def install_F(pack_path, pip_pkgs=None):
 
 
 def install_G(pack_path, do_apt=False):
-    dest = "/home/claude/netdeps_kit"
+    dest = NETDEPS_KIT
     shutil.rmtree(dest, ignore_errors=True)
     _extract(pack_path, dest)
     debs = os.path.join(dest, "debs")
     # pack_G2 supplies pack_G's missing dependency debs (iproute2/iptables/nftables/
     # aria2 libs). Stage them into the same debs dir so dpkg -i resolves them together.
     g2n = 0
-    for base in (os.path.dirname(pack_path), "/home/claude/incoming",
-                 "/mnt/user-data/uploads", "/home/claude"):
+    for base in [os.path.dirname(pack_path)] + SEARCH_DIRS:
         g2 = sorted(glob.glob(os.path.join(base, "pack_G2*.zip")))
         if g2:
             _extract(g2[0], dest + "_g2")
@@ -264,7 +292,7 @@ def install_G(pack_path, do_apt=False):
 
 
 def install_H(pack_path):
-    dest = "/home/claude/audit_tools"
+    dest = AUDIT_KIT
     shutil.rmtree(dest, ignore_errors=True)
     _extract(pack_path, dest)
     wh = os.path.join(dest, "wheels")
@@ -325,7 +353,7 @@ def install_H(pack_path):
     # (OPTPACK_EH_ISSUES H-4). Never clobber a REAL venv dir -- only create or
     # retarget symlinks.
     if ok:
-        for rev in ("/home/claude/rev", os.path.expanduser("~/rev")):
+        for rev in dict.fromkeys((REV_LINK, os.path.expanduser("~/rev"))):
             if os.path.islink(rev) or not os.path.exists(rev):
                 try:
                     os.remove(rev)
@@ -352,9 +380,11 @@ def do_verify(a=None):
     install flag can say OK while the capability is dead). Read-only, cheap --
     no browser launches (use the runbook's launch block for that)."""
     fails = 0
+    probed = 0          # how many CAPABILITY assertions actually ran
 
     def row(ok, label, detail=""):
-        nonlocal fails
+        nonlocal fails, probed
+        probed += 1
         if not ok:
             fails += 1
         print("  %s %s%s" % (G + "OK" + RST if ok else R + "XX" + RST, label,
@@ -379,7 +409,7 @@ def do_verify(a=None):
         row(os.path.isfile(lnk), "webkit injected-bundle path resolves", lnk)
 
     print("pack_F (pyext wheels):")
-    wh = "/home/claude/pyext_kit/wheels"
+    wh = os.path.join(PYEXT_KIT, "wheels")
     if not os.path.isdir(wh):
         print(DIM + "  -- not staged" + RST)
     else:
@@ -405,7 +435,7 @@ def do_verify(a=None):
                 "" if r.returncode == 0 else (r.stderr or "").strip()[-120:])
 
     print("pack_G (+G2, system debs):")
-    if not os.path.isdir("/home/claude/netdeps_kit"):
+    if not os.path.isdir(NETDEPS_KIT):
         print(DIM + "  -- not staged" + RST)
     else:
         for tool in ("ip", "nft", "aria2c", "jq", "sqlite3"):
@@ -414,13 +444,13 @@ def do_verify(a=None):
             "libzbar.so.0 present (pyzbar runtime dep)")
 
     print("pack_H (audit battery):")
-    dest = "/home/claude/audit_tools"
+    dest = AUDIT_KIT
     if not os.path.isdir(dest):
         print(DIM + "  -- not installed" + RST)
     else:
         row(os.path.isfile(os.path.join(dest, "venv", "bin", "semgrep")),
             "audit venv semgrep present")
-        rev = "/home/claude/rev"
+        rev = REV_LINK
         row(os.path.isfile(os.path.join(rev, "bin", "semgrep")),
             "~/rev wired (bd-rev/bd-doctor path)", rev)
         binlink = os.path.join(dest, "jscpd", "node_modules", ".bin", "jscpd")
@@ -435,9 +465,23 @@ def do_verify(a=None):
             if os.path.exists(bp):
                 row(os.access(bp, os.X_OK), "%s executable" % b, bp)
     print()
-    print(("%s all probed capabilities OK" % (G + "OK" + RST)) if fails == 0
-          else ("%s %d capability probe(s) failed" % (R + "XX" + RST, fails)))
-    return 0 if fails == 0 else 1
+    # NO PROBE RAN == NO VERDICT. With every pack absent this printed "all
+    # probed capabilities OK" and exited 0 -- a clean bill of health over an
+    # empty denominator, which is the CLAUDE.md section 0 defect verbatim. It
+    # refuses ONLY when nothing could be measured: one real probe and the
+    # ordinary 0/1 contract applies, so this cannot degenerate into a tool that
+    # can only say "cannot evaluate".
+    if probed == 0:
+        print("%s no pack capability could be probed -- none of E/F/G/H is "
+              "installed under this HOME" % (Y + "??" + RST))
+        sys.stderr.write("CANNOT-EVALUATE bd-optpack verify: reason=%s (0 capability "
+                         "probes ran; searched PW_PATH=%s, %s, %s, %s -- an 'all OK' "
+                         "over zero probes is not a result)\n"
+                         % (sec.REASON_ABSENT, PW_PATH, PYEXT_KIT, NETDEPS_KIT, AUDIT_KIT))
+        return sec.EXIT_CANNOT_EVALUATE
+    print(("%s all %d probed capabilities OK" % (G + "OK" + RST, probed)) if fails == 0
+          else ("%s %d of %d capability probe(s) failed" % (R + "XX" + RST, fails, probed)))
+    return sec.EXIT_OK if fails == 0 else sec.EXIT_FINDINGS
 
 
 def do_list(brief=False):

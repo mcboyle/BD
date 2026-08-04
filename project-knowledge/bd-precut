@@ -20,6 +20,12 @@ Usage:
 """
 import argparse, glob, os, re, subprocess, sys, tempfile
 
+# Placed AFTER the whole import block on purpose: inserting above `import sys`
+# leaves sys undefined at the insertion point and --help dies with NameError,
+# while ast.parse still accepts the file (the v3.66.851 trap).
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402  -- DEFAULT_WORK follows a relocated checkout
+
 IN_SYNC = [
     "tests/test_function_index_in_sync.py",
     "tests/test_dependency_graph_in_sync.py",
@@ -36,19 +42,28 @@ def _version(name):
     return tuple(int(x) for x in m.groups()) if m else (0, 0, 0)
 
 
-def _auto_baseline():
-    pats = ["/mnt/user-data/uploads/BulkDownloader_v*.zip",
-            "/home/claude/out/BulkDownloader_v*.zip",
-            "/home/claude/BulkDownloader_v*.zip"]
-    found = []
-    for p in pats:
-        found += glob.glob(p)
-    found = [f for f in found if "overlay" not in os.path.basename(f).lower()]
+def _auto_baseline(root=None):
+    """Newest release zip to diff against, or None.
+
+    v3.66.855 port: the three sandbox globs (/mnt/user-data/uploads,
+    /home/claude/out, /home/claude) are retired and can never match here, so the
+    only honest default is the ONE place a zip can now appear -- <root>/out,
+    which is where bd-cut --out writes. Returning None is the normal case in a
+    git checkout, and the caller already says so out loud rather than pretending
+    precut_check ran.
+    """
+    root = root or sec.DEFAULT_WORK
+    found = [f for f in glob.glob(os.path.join(root, "out", "BulkDownloader_v*.zip"))
+             if "overlay" not in os.path.basename(f).lower()]
     return max(found, key=_version) if found else None
 
 
 def _auto_root():
-    for c in ("/home/claude/work", os.getcwd()):
+    """v3.66.855 port: /home/claude/work is gone. sec.DEFAULT_WORK walks up from
+    the shared library's own file to the checkout that owns this tool, so it is
+    right from any cwd; cwd stays as the second rung for a tree that is not the
+    one this tool was installed into."""
+    for c in (sec.DEFAULT_WORK, os.getcwd()):
         if os.path.isdir(os.path.join(c, "bulk_downloader")):
             return c
     return os.getcwd()
@@ -66,7 +81,12 @@ def _run_insync(root):
     env = dict(os.environ)
     env["BD_HOME"] = tempfile.mkdtemp()
     env["BD_DISABLE_KEEPALIVE"] = "1"
-    env["PYTHONPATH"] = "/tmp/prestaged_site_packages"
+    # v3.66.855 port: this used to CLOBBER PYTHONPATH with the retired prestaged
+    # site-packages -- both a dead path and a destructive assignment, since a
+    # caller's own PYTHONPATH was discarded. The deps now come from the venv that
+    # is running us; the tree root is what the in-sync tests actually need.
+    _prev = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{root}:{_prev}" if _prev else root
     try:
         r = subprocess.run([sys.executable, "run_tests.py"] + present,
                            cwd=root, env=env, capture_output=True, text=True, timeout=180)
@@ -121,12 +141,13 @@ def main(argv=None):
         return selftest()
 
     root = a.root or _auto_root()
-    baseline = a.baseline or _auto_baseline()
+    baseline = a.baseline or _auto_baseline(root)
     print(f"== bd-precut{' --gate' if a.gate else ''} :: root={root}")
     if baseline:
         print(f"               baseline={os.path.basename(baseline)}\n")
 
     blocking = []
+    unknown = []          # checks that did NOT run -- never fold these into "OK"
 
     # 1. precut_check (version/pin/surface)
     tool = os.path.join(root, "tools", "precut_check.py")
@@ -136,7 +157,15 @@ def main(argv=None):
         if rc != 0:
             blocking.append("precut_check (version/pin/surface)")
     else:
-        print("  [precut_check skipped -- no tool or baseline]\n")
+        # v3.66.855 (CLAUDE.md s0): this branch is the COMMON case in a git
+        # checkout -- there is no release zip to diff against -- and the final
+        # verdict used to say "version/pin/surface OK" regardless. A verdict over
+        # a check that never ran is exactly the gate-that-cannot-see-its-subject
+        # shape. Record it as UNKNOWN and say so in the RESULT line.
+        why = "no tools/precut_check.py" if not os.path.isfile(tool) else \
+              "no baseline zip (pass --baseline; the zip flow is retired here)"
+        print(f"  [precut_check NOT RUN -- {why}]\n")
+        unknown.append(f"version/pin/surface (precut_check did not run: {why})")
 
     # 2. executable footgun registry (env-tranche F-01 + in-sync F-03 + route-map +
     #    import-edge + endpoint + pin + guard-sha) -- the single source of truth,
@@ -179,15 +208,29 @@ def main(argv=None):
                             "does not catch an injected fault (bd-coretest)")
     elif a.no_coretest:
         print("  [tool integrity] SKIPPED (--no-coretest)")
+        unknown.append("core tool integrity (--no-coretest)")
     else:
         print("  [bd-coretest not found -- tool integrity SKIPPED]")
+        unknown.append("core tool integrity (bd-coretest not found)")
 
     print()
     if blocking:
         print("RESULT: NOT CUT-READY -- " + "; ".join(blocking))
         return 3 if a.gate else 0   # only BLOCK (non-zero) in --gate mode
-    print("RESULT: cut-ready (version/pin/surface OK, derived docs in sync, "
-          "no env trap, gating tools have teeth)")
+    # The verdict now enumerates ONLY what actually ran. A check that did not run
+    # is UNKNOWN, and UNKNOWN is a third state -- it is reported, not absorbed
+    # into "cut-ready". The exit code is unchanged (an unrun check is not a
+    # finding, and making it one would be the over-sensitivity bug), so --gate
+    # keeps exactly the teeth it had.
+    ran = "footguns clean, metric ratchets clean"
+    if unknown:
+        print(f"RESULT: cut-ready for what RAN ({ran}) -- "
+              f"{len(unknown)} check(s) NOT RUN, so UNKNOWN, not OK:")
+        for u in unknown:
+            print(f"  - {u}")
+    else:
+        print("RESULT: cut-ready (version/pin/surface OK, derived docs in sync, "
+              "no env trap, gating tools have teeth)")
     return 0
 
 

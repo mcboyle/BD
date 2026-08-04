@@ -38,7 +38,8 @@ Usage:
   bd-corpus --out <dir>                  fixture output dir (default kb/recognizer_corpus_live)
   bd-corpus --regen-pins                 rebuild expected_verdicts.json from fixtures (delegates)
 Exit 0 on success; 1 on a redaction rejection, an off-allowlist URL, or a
-challenge that was cleared (policy failure).
+challenge that was cleared (policy failure); 2 = CANNOT-EVALUATE (--selftest
+cannot find the recognizer corpus it would pin against).
 """
 import argparse
 import json
@@ -48,6 +49,17 @@ import sys
 import time
 from pathlib import Path
 from urllib.parse import urlparse
+
+# v3.66.855 desandbox. AFTER the whole import block on purpose (sys must already
+# be bound before it is used here).
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
+# The recognizer corpus lives in the checkout now (47 *.cap.json fixtures plus
+# expected_verdicts.json), written by tools/build_recognizer_corpus.py, whose own
+# --out default is this same path. The retired sandbox kept it under
+# /home/claude/verification/corpus, which does not exist on a git checkout.
+CORPUS_DIR = os.path.join(sec.DEFAULT_WORK, "tests", "corpus", "recognizer")
 
 G, R, Y, B, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[34m", "\033[2m", "\033[0m"
 
@@ -259,7 +271,7 @@ def _load_corpus_tool():
     import importlib.util
     repo = Path(__file__).resolve()
     # find the work tree root (has bulk_downloader/ + tools/)
-    for base in (Path("/home/claude/work"), Path.cwd()):
+    for base in (Path(sec.DEFAULT_WORK), Path.cwd()):
         t = base / "tools" / "build_recognizer_corpus.py"
         if t.is_file():
             spec = importlib.util.spec_from_file_location("bd_corpus_tool", t)
@@ -339,20 +351,36 @@ def do_url(url, tool, base, out_dir, click=None, steps=None, challenge_detect=Fa
 
 
 def selftest():
-    """SKIP: this tool regenerates expected_verdicts.json from the detector corpus.
-    That corpus is a generated artifact that may legitimately be absent in a fresh
-    sandbox, so a missing one is not a tool defect. A skip is never a pass."""
+    """Assert the recognizer corpus this tool regenerates pins against is real.
+
+    IT SAID "SKIP ... SELFTEST PASS" AND EXITED 0. The old body pointed at
+    /home/claude/verification/corpus -- a directory that does not exist on a git
+    checkout -- so the not-a-dir branch fired on EVERY run and printed a pass. A
+    skip is never a pass, and that comment was in the docstring while the code
+    below it did the opposite (CLAUDE.md s0). Two further denominator bugs came
+    with it: it counted `*.py`, and the corpus is `*.cap.json` fixtures, so even
+    against the right directory it would have reported 0 and FAILED.
+
+    Absent/empty corpus is now CANNOT-EVALUATE (2), never 0 and never a blanket 1.
+    """
     import os as _o
-    corpus = "/home/claude/verification/corpus"
-    if not _o.path.isdir(corpus):
-        print("SKIP: needs the detector corpus (%s)" % corpus)
-        print("SELFTEST PASS")
-        return 0
-    n = len([f for f in _o.listdir(corpus) if f.endswith(".py")])
-    ok = n > 0
-    print(("PASS" if ok else "FAIL") + "  corpus present with %d fixture file(s)" % n)
-    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
-    return 0 if ok else 1
+    if not _o.path.isdir(CORPUS_DIR):
+        sys.stderr.write("CANNOT-EVALUATE: recognizer corpus absent (%s) reason=%s\n"
+                         % (CORPUS_DIR, sec.REASON_ABSENT))
+        print("SELFTEST CANNOT-EVALUATE")
+        return sec.EXIT_CANNOT_EVALUATE
+    fixtures = [f for f in _o.listdir(CORPUS_DIR) if f.endswith(".cap.json")]
+    if not fixtures:
+        sys.stderr.write("CANNOT-EVALUATE: recognizer corpus holds 0 *.cap.json "
+                         "fixtures (%s) reason=%s\n" % (CORPUS_DIR, sec.REASON_EMPTY))
+        print("SELFTEST CANNOT-EVALUATE")
+        return sec.EXIT_CANNOT_EVALUATE
+    pins = _o.path.isfile(_o.path.join(CORPUS_DIR, "expected_verdicts.json"))
+    print("PASS  corpus present with %d fixture file(s)" % len(fixtures))
+    print(("PASS" if pins else "FAIL") + "  expected_verdicts.json present (the pins "
+          "--regen-pins rewrites)")
+    print("SELFTEST PASS" if pins else "SELFTEST FAIL")
+    return 0 if pins else 1
 
 
 def main():

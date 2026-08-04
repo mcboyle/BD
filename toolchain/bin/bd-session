@@ -8,7 +8,7 @@ It WRAPS bd-cut/bd-ship (does not replace them). Ideal wiring: bd-cut/bd-ship
 call `bd-session add ...` on a successful cut, and the deploy step calls
 `bd-session deploy --green`. Until that hook lands, use it manually.
 
-Ledger: /home/claude/.bd_session_ledger.json (one arc per sandbox lifetime;
+Ledger: $BD_SESSION_LEDGER or ~/.bd_session_ledger.json (one arc per session;
 `bd-session reset` starts fresh).
 
 Subcommands:
@@ -17,7 +17,8 @@ Subcommands:
   show                                  # the arc: versions, guard lineage, per-cut status
   arc                                   # draft the KB_HANDOFF "## Session arc" FACTUAL bullets
   check                                 # WARN (never fail) if any cut lacks a green record
-  sync-state [--state STATE.json]       # write non-green cuts into STATE.deploy_queue
+  sync-state                            # RETIRED: STATE.json is gone; refuses with
+                                        # exit 2 and points at project-knowledge/SESSION_CARRY.md
   reset                                 # clear the ledger
 
 Design notes:
@@ -28,7 +29,8 @@ Design notes:
 """
 import argparse, datetime, json, os, sys
 
-LEDGER = os.environ.get("BD_SESSION_LEDGER", "/home/claude/.bd_session_ledger.json")
+LEDGER = os.environ.get("BD_SESSION_LEDGER",
+                        os.path.join(os.path.expanduser("~"), ".bd_session_ledger.json"))
 
 def load():
     if os.path.exists(LEDGER):
@@ -114,15 +116,16 @@ def cmd_check(a):
     return 0  # never fails
 
 def cmd_sync_state(a):
-    d = load(); rows = _rows(d)
-    sp = a.state
-    if not os.path.exists(sp):
-        print(f"no STATE at {sp}"); return 1
-    s = json.load(open(sp))
-    s["deploy_queue"] = [{"version": c["version"], "label": c.get("label",""), "status": c.get("status","built")}
-                         for c in rows if c.get("status") != "green"]
-    json.dump(s, open(sp, "w"), indent=2, ensure_ascii=False)
-    print(f"wrote {len(s['deploy_queue'])} pending cut(s) into STATE.deploy_queue")
+    # STATE.json is RETIRED (the register is project-knowledge/SESSION_CARRY.md).
+    # A subcommand whose subject no longer exists must refuse, not invent a file:
+    # writing a fresh STATE.json here would resurrect a dead document that other
+    # sessions then read as authority. Exit 2 = CANNOT-EVALUATE, per the house rule
+    # that unknown/absent is a third state and it fails.
+    sys.stderr.write(
+        "CANNOT-EVALUATE sync-state: reason=RETIRED (STATE.json no longer exists; "
+        "the session register is project-knowledge/SESSION_CARRY.md -- record "
+        "pending cuts there)\n")
+    return 2
 
 def cmd_reset(a):
     if os.path.exists(LEDGER):
@@ -150,7 +153,7 @@ def main():
     sub.add_parser("show").set_defaults(fn=cmd_show)
     sub.add_parser("arc").set_defaults(fn=cmd_arc)
     sub.add_parser("check").set_defaults(fn=cmd_check)
-    p = sub.add_parser("sync-state"); p.add_argument("--state", default="/home/claude/nextsess/STATE.json"); p.set_defaults(fn=cmd_sync_state)
+    p = sub.add_parser("sync-state"); p.set_defaults(fn=cmd_sync_state)
     sub.add_parser("reset").set_defaults(fn=cmd_reset)
     a = ap.parse_args()
     return a.fn(a) or 0

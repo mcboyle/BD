@@ -27,7 +27,11 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
 
 G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 
@@ -36,7 +40,8 @@ def _resolve(name):
     """Consult the shared bd-resolve.sh finder (searches every place files land,
     incl. relocated/evicted paths). Returns the path or None."""
     import subprocess
-    for res in ("/home/claude/bin/bd-resolve.sh", "/usr/local/bin/bd-resolve.sh"):
+    for res in (os.path.join(sec.DEFAULT_WORK, "toolchain", "bin", "bd-resolve.sh"),
+                "/usr/local/bin/bd-resolve.sh"):
         if os.path.isfile(res):
             try:
                 out = subprocess.run(["sh", res, "file", name],
@@ -48,15 +53,14 @@ def _resolve(name):
     return None
 
 
-def find_first(work, names, subdirs=("tools", "scripts", "live_tests", "")):
+def find_first(work, names, subdirs=("tools", "scripts", "live_tests", "project-knowledge", "")):
     # 1) the shared resolver first -- broadest, drift/relocation proof
     for n in names:
         hit = _resolve(n)
         if hit:
             return hit
     # 2) fall back to the local search (kept so bd-render works even without the resolver)
-    roots = [work, "/home/claude/work", "/home/claude",
-             "/mnt/user-data/uploads", os.getcwd()]
+    roots = [work, sec.DEFAULT_WORK, os.getcwd()]
     for root in roots:
         for sub in subdirs:
             for n in names:
@@ -83,13 +87,13 @@ def selftest():
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="bd-render")
-    ap.add_argument("--work","--tree", default="/home/claude/work")
+    ap.add_argument("--work","--tree", default=sec.DEFAULT_WORK)
     ap.add_argument("--port", type=int, default=5599, help="spa_serve backend port")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--serve-cmd", help="override the command that starts the render backend")
     ap.add_argument("--capture-cmd", help="override the capture command")
     ap.add_argument("--montage-cmd", help="override the montage command")
-    ap.add_argument("--out", default="/home/claude/render_out")
+    ap.add_argument("--out", default=os.path.join(tempfile.gettempdir(), "bd_render_out"))
     ap.add_argument("--serve-only", action="store_true")
     ap.add_argument("--no-montage", action="store_true")
     ap.add_argument("--wait", type=int, default=40, help="seconds to wait for the port")
@@ -118,7 +122,7 @@ def main(argv=None):
                       f"(pass --serve-cmd)", file=sys.stderr)
                 return 1
         else:
-            serve = ["python3", srv, "--port", str(a.port)]
+            serve = [sys.executable, srv, "--port", str(a.port)]
 
     if port_open(a.host, a.port):
         print(f"{Y}note{RST} :{a.port} already open -- reusing the running backend")
@@ -175,7 +179,7 @@ def main(argv=None):
             if not capt:
                 print(f"{R}FAIL{RST} no capture_all.py found (pass --capture-cmd)")
                 return 1
-            cap = ["python3", capt, "--out", a.out]
+            cap = [sys.executable, capt, "--out", a.out]
         cap += [x for x in a.passthrough if x != "--"]
         print(f"== capture: {' '.join(cap)}")
         rc = subprocess.run(cap, cwd=a.work).returncode
@@ -193,7 +197,7 @@ def main(argv=None):
                     print(f"{Y}note{RST} no build_montage.py found -- skipping montage")
                     mon = None
                 else:
-                    mon = ["python3", mt, "--out", a.out]
+                    mon = [sys.executable, mt, "--out", a.out]
             if mon:
                 print(f"== montage: {' '.join(mon)}")
                 rc = subprocess.run(mon, cwd=a.work).returncode

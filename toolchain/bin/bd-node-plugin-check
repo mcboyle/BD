@@ -103,9 +103,8 @@ def _tree_probe_agrees(work, fixture):
     try:
         import importlib.util
         import types
-        for extra in (work, "/tmp/prestaged_site_packages"):
-            if extra not in sys.path:
-                sys.path.insert(0, extra)
+        if work not in sys.path:
+            sys.path.insert(0, work)
         pkg = types.ModuleType("bulk_downloader")
         pkg.__path__ = [os.path.join(work, "bulk_downloader")]
         sys.modules.setdefault("bulk_downloader", pkg)

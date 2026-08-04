@@ -234,16 +234,19 @@ def selftest():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--db", default="/home/claude/KNOWLEDGE_GRAPH.db")
-    ap.add_argument("--outdir", default="/home/claude/kg_artifacts")
+    ap.add_argument("--db", default=os.path.join(sec.DEFAULT_WORK, "KNOWLEDGE_GRAPH.db"))
+    ap.add_argument("--outdir", default=os.path.join(sec.DEFAULT_WORK, "kg_artifacts"))
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
     if a.selftest:
         return selftest()
     if not os.path.exists(a.db):
+        # An absent input DB is CANNOT-EVALUATE (s0), not a plain error 1 --
+        # this tool mints no verdict about the corpus, so it must not exit
+        # like one that scanned and found nothing.
         print("KNOWLEDGE_GRAPH.db not found at %s -- run bd-l0-graph first" % a.db)
-        return 1
+        return sec.EXIT_CANNOT_EVALUATE
     os.makedirs(a.outdir, exist_ok=True)
     stats = build(a.db, a.outdir)
     stats["outdir"] = a.outdir

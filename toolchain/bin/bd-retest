@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """bd-retest -- re-run ONLY the failed suites from the last band (flake triage).
 
-Reads /home/claude/.bd_last_band.json (written by bd-parband) and re-runs each
+Reads the band-results file written by bd-parband -- default
+<checkout>/.bd_last_band.json, override with BD_LAST_BAND (bd-parband resolves
+the SAME default/override; change one and you break the pair) -- and re-runs each
 failed/timed-out suite N times. Passes on retry => FLAKE; fails every time => REAL
 failure. Saves re-running the whole band to find out. Runner is inline (no fragile
-cross-tool import).
+cross-tool import). Suite env is inherited from os.environ (venv carries the
+deps; PLAYWRIGHT_BROWSERS_PATH comes from the environment, never hardcoded).
 
 Usage: bd-retest [--retries 2] [--timeout 300] [--work DIR]
 Exit 0 if every previously-failing suite now passes; 1 on a consistent (real)
-failure or if there's nothing to retest.
+failure; 2 (CANNOT-EVALUATE) if there is no band-results file to read.
 """
 import argparse, json, os, re, subprocess, sys, tempfile, time
 import os as _os_bd, sys as _sys_bd  # noqa: E402
@@ -37,11 +40,13 @@ def _py(work):
     return _PY_CACHE[work]
 
 G,R,Y,DIM,BOLD,RST="\033[32m","\033[31m","\033[33m","\033[2m","\033[1m","\033[0m"
-RESULTS="/home/claude/.bd_last_band.json"
+# The bd-parband CONTRACT: both tools resolve this identically (env override,
+# then checkout-relative default). Edit them together or the pair breaks.
+RESULTS=os.environ.get("BD_LAST_BAND",
+                       os.path.join(sec.DEFAULT_WORK, ".bd_last_band.json"))
 def run_one(work,suite,timeout):
     env=dict(os.environ); env.update(BD_HOME=tempfile.mkdtemp(prefix="bdrt_"),
-        BD_DISABLE_KEEPALIVE="1",PYTHONPATH="/tmp/prestaged_site_packages",
-        PLAYWRIGHT_BROWSERS_PATH="/home/claude/.cache/ms-playwright")
+        BD_DISABLE_KEEPALIVE="1")
     try:
         r=subprocess.run([_py(work),"run_tests.py",suite],cwd=work,env=env,
                          capture_output=True,text=True,timeout=timeout)
@@ -70,7 +75,10 @@ def main():
     if a.selftest:
         return selftest()
     if not os.path.exists(RESULTS):
-        print(f"{Y}no last-band results ({RESULTS}). run bd-parband first.{RST}"); return 1
+        # absent corpus: there is nothing to grade, which is NOT a failure
+        # verdict -- unknown is a third state (CLAUDE.md s0).
+        print(f"{Y}no last-band results ({RESULTS}). run bd-parband first.{RST}")
+        return sec.EXIT_CANNOT_EVALUATE
     d=json.load(open(RESULTS)); work=a.work or d.get("work",sec.DEFAULT_WORK)
     failed=[r["suite"] for r in d["results"] if r["status"]!="pass"]
     if not failed:
