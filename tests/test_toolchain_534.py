@@ -116,7 +116,15 @@ if __name__ == "__main__":
 # read as unwired. Same shape as CLAUDE.md section 1's `*.py` glob missing 469
 # extensionless bd-* scripts. Type on the SHEBANG as well as the suffix.
 
-_PROSE_ONLY_BASELINE = 166
+# @849: 166 -> 180. THE POPULATION DID NOT GROW; THE MEASUREMENT GOT HONEST.
+# _invokes() below stopped counting a mention inside a file that cannot execute
+# anything as "wired". 14 tools were revealed, 7 of them named only as keys in
+# scripts/emit_toolchain_ledger.py's hand-correction dict -- which records four
+# of those same tools as broken. Raising a ratchet baseline is normally a smell;
+# here the old number was the artifact and this one is the measurement. Each of
+# the 14 was read individually and is a genuine prose mention (a docstring
+# aside, an error-message string, a parity-inventory tuple), not a call.
+_PROSE_ONLY_BASELINE = 180
 
 
 def _bd_tools(root):
@@ -142,6 +150,42 @@ def _is_executable_context(root, rel):
         return False
 
 
+# @849 -- an execution primitive. A .py holding none of these cannot run
+# anything, so a tool named in it is a RECORD ABOUT the tool, not a call to it.
+# This is CLAUDE.md section 0's fix pattern applied literally: DERIVE
+# reachability rather than assert it.
+_EXEC_PRIMITIVE = re.compile(
+    r"subprocess|os\.system|os\.exec|Popen|runpy|exec_module|pytest\.main"
+    r"|check_call|check_output|SourceFileLoader|__import__|importlib")
+
+
+def _invokes(tool, rel, body):
+    """Does this file plausibly RUN `tool`, or does it merely NAME it?
+
+    Both directions were measured at v3.66.849 before this predicate was
+    settled, because each obvious form of it is wrong in one direction:
+      - `tool in body` alone (the original) counts a data dict as wiring: all 7
+        tools keyed in scripts/emit_toolchain_ledger.py read as wired.
+      - requiring a literal `toolchain/bin/<tool>` path drops 52 of 80 genuinely
+        wired tools, bd-band-derive and bd-mutate among them, because most
+        wiring names the bare stem and joins the path at runtime.
+      - the execution-primitive test ALONE wrongly flags the four bd-*fuzz*
+        tools: tools/code_intelligence/fuzz_adapters.py names their paths but
+        shells out through an imported `_run_bounded`, so the primitive is in
+        another module entirely.
+    Hence two positive signals, not one.
+    """
+    if tool not in body:
+        return False
+    # Naming an executable's PATH is only ever done in order to run it, and the
+    # runner is often in an imported helper this file does not contain.
+    if "toolchain/bin/%s" % tool in body:
+        return True
+    if not rel.endswith(".py"):
+        return True          # shell / yaml / hooks: any bare word is a command
+    return bool(_EXEC_PRIMITIVE.search(body))
+
+
 def _prose_only(root):
     tools = _bd_tools(root)
     tracked = subprocess.run(["git", "ls-files", "-z"], cwd=root,
@@ -157,12 +201,13 @@ def _prose_only(root):
             continue
         try:
             with open(p, "r", errors="replace") as fh:
-                exec_files.append(fh.read())
+                exec_files.append((rel, fh.read()))
         except OSError:
             continue
     assert exec_files, ("no executable-context file was readable -- this check "
                         "cannot see its subject, which is a FAILURE and not a pass.")
-    return sorted(t for t in tools if not any(t in blob for blob in exec_files))
+    return sorted(t for t in tools
+                  if not any(_invokes(t, rel, body) for rel, body in exec_files))
 
 
 def test_unwired_bd_tools_do_not_multiply():
@@ -177,6 +222,74 @@ def test_unwired_bd_tools_do_not_multiply():
         "counts), or raise _PROSE_ONLY_BASELINE in this cut and say why. A tool "
         "nothing invokes is a tool that does not run."
         % (len(prose), _PROSE_ONLY_BASELINE, ", ".join(prose[:12])))
+
+
+def _fixture_repo(td):
+    """A minimal tracked repo carrying two fake tools and two mentioning files.
+
+    >100 filler files because _prose_only asserts its denominator did not
+    collapse -- the fixture has to clear the same bar real callers do.
+    """
+    root = Path(td)
+    (root / "toolchain" / "bin").mkdir(parents=True)
+    (root / "scripts").mkdir()
+    (root / "filler").mkdir()
+    for name in ("bd-zzz-ledger-only", "bd-zzz-invoked", "bd-zzz-pathonly"):
+        (root / "toolchain" / "bin" / name).write_text("#!/usr/bin/env python3\n")
+    # INERT: a pure data dict, the emit_toolchain_ledger.py shape. Naming a tool
+    # here is a RECORD ABOUT it, never a call to it -- this file cannot execute.
+    (root / "scripts" / "ledger.py").write_text(
+        'VERDICT = {\n "bd-zzz-ledger-only": ("RUNS-DEGRADED", "scanned the wrong place"),\n}\n')
+    # LIVE: really shells out.
+    (root / "scripts" / "runner.py").write_text(
+        'import subprocess\nsubprocess.run(["bd-zzz-invoked", "--selftest"])\n')
+    # LIVE BY PATH: no execution primitive in THIS file -- it hands the path to a
+    # helper imported from elsewhere. tools/code_intelligence/fuzz_adapters.py.
+    (root / "scripts" / "dispatch.py").write_text(
+        'from .util import _run_bounded\nADAPTERS = {"pg": "toolchain/bin/bd-zzz-pathonly"}\n')
+    for i in range(110):
+        (root / "filler" / f"f{i}.py").write_text("x = 1\n")
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True,
+                   capture_output=True)
+    return root
+
+
+def test_a_data_dict_mention_is_not_wiring():
+    """@849 -- naming a tool in a data structure is not invoking it.
+
+    THE DEFECT: _prose_only asked `tool in blob` over any executable-CONTEXT
+    file. scripts/emit_toolchain_ledger.py is a .py holding a hand-correction
+    dict keyed by tool name, so all 7 tools it records read as WIRED -- four of
+    them recorded verbatim as broken ("scanned the wrong place", "all zeros ...
+    scanned an empty denominator"). The ratchet counted a tool as wired BECAUSE
+    a generator wrote down that it does not work. CLAUDE.md section 0, in the
+    gate written to police section 0.
+
+    BOTH DIRECTIONS ARE ASSERTED, because the obvious fix is over-sensitive and
+    over-sensitivity is an equal soundness bug. Measured while building this:
+    requiring a literal `toolchain/bin/<tool>` path would have dropped 52 of 80
+    wired tools including bd-band-derive and bd-mutate; and a reachability check
+    alone wrongly flagged the four bd-*fuzz* tools, whose dispatch file names
+    their PATH but executes through an imported helper.
+    """
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        root = _fixture_repo(td)
+        prose = _prose_only(str(root))
+
+        assert "bd-zzz-ledger-only" in prose, (
+            "a tool named ONLY as a key in an inert data dict was counted as "
+            "wired. That is the emit_toolchain_ledger.py defect: the predicate "
+            "cannot tell a record ABOUT a tool from a call TO it.")
+        assert "bd-zzz-invoked" not in prose, (
+            "a tool genuinely invoked via subprocess was reported unwired -- "
+            "the predicate went over-sensitive, which section 0 counts as an "
+            "equal soundness bug to a false clean.")
+        assert "bd-zzz-pathonly" not in prose, (
+            "a tool named by its toolchain/bin path was reported unwired. "
+            "Naming an executable's path is done in order to run it, and the "
+            "runner often lives in an imported helper this file cannot see.")
 
 
 def test_the_tools_this_cut_added_are_wired_and_selftest_clean():
