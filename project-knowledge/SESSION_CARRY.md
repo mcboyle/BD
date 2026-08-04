@@ -3417,3 +3417,115 @@ The hand-derived doc band (the four gates that read CLAUDE.md, the five that
 read this register, the enumerators a tracked .md edit moves) ran 235 passed /
 1 skipped, plus the tool's one suite at 14 passed -- so the wider band was the
 binding one, exactly as "floor, not ceiling" says.
+
+### 15.28 | Session close 2026-08-04 at 939a37d -- three merges, and a freshness audit
+
+STATE, measured not inferred:
+
+  main 939a37d, version 3.66.848, working tree clean, no open PRs.
+  Merged this session, in order:
+    c8ce9ab (#143)  cut #7 + lxml/cssselect declarations + scripts/deploy.sh
+    1869cf9 (#144)  the method lessons into CLAUDE.md; CI tests; bd-band-derive
+                    fixed; bd-mutate added
+    939a37d (#145)  bd-bandcheck wired into bd-band; bd-claim + the pre-commit
+                    hook; the prose-only ratchet
+
+  THE BOX CAPTURED #143 AS PASS at 2026-08-03T23:32: 14573 total / 14488 passed
+  / 0 failed / 0 errors / 85 skipped; live 36/0/0; graph check-hash OK
+  (211cb5a3be3ea80e); /api/health sha c8ce9abbaff7 -- the merged squash, so the
+  running PROCESS was verified and not merely the tree. Count delta from
+  v3.66.846 is +64 total / +64 passed with skips unchanged at 85.
+
+  CUT #7 BEHAVED ON THE BOX EXACTLY AS SPECIFIED, which is worth recording
+  because it was designed against a stub: residue reported
+  history_rows_found=68, history_rows=68, cleared=false, TEARDOWN-EXIT=0. The
+  two names being EQUAL with cleared=false is the deviation-(a) semantics
+  working -- they diverge only when a clear runs. The RESIDUE line cited the
+  db.py:988-992 retraction rather than the append-only claim, so deviation (c)
+  is live. And the clear stayed DISARMED through an unattended run, which was
+  amendment 6's whole job.
+
+FRESHNESS AUDIT, run because a session that ends without one hands the next one
+a tree it cannot trust. Every line below is a command's real output.
+
+  BOOTSTRAP -- NO FORK. The panel's pasted setup text and
+  scripts/cloud-bootstrap.sh are BYTE-IDENTICAL, sha256 5ceb75b1be77d60e both
+  sides, `diff` exit 0. This is the highest-risk artifact in the project (the
+  only provisioning text outside the repo's reach, and it forked three commits
+  and 91 lines once before), so it is checked by diffing, never by looking.
+
+  ENV BOX -- MATCHES. CLAUDE.md section 5's five panel variables are exactly the
+  five the operator has set and exactly the five live in this session:
+  BD_HOME=/tmp/bd_home, BD_REPO=/home/user/BD, BD_SKIP_ARCHB=1,
+  BD_SKIP_BROWSERS=1, BD_DISABLE_KEEPALIVE=1.
+
+  DOCS -- CLEAN. bd-doc-truth exit 0, "0 stale doc claim(s)", no stale
+  file-path claims.
+
+  .claude-env-report.md -- STALE, and now says so. bd-env-report-check exit 1:
+  the report claims version 3.66.818 / commit cee4be70f8e7 against a tree at
+  3.66.848 / 939a37d65d36, thirty releases apart, written 2026-07-28. It is
+  gitignored, so it survives `git clean -fd` and cannot be fixed in a commit; a
+  STALE banner was prepended in place instead. A fresh container regenerates it
+  and never sees the banner. CLAUDE.md section 7 already says to check this file
+  before believing any row in it -- this is that warning coming true.
+
+  pyyaml -- WAS INSTALLED BY HAND, NOW DECLARED (requirements-dev.txt). A
+  session installed it to validate a ci.yml edit and nearly shipped that edit on
+  an indentation eyeball instead. MEASURED: the only installed distribution
+  naming pyyaml is markdown-it-py, gated behind `extra == "rtd"` which BD never
+  requests -- so nothing guaranteed it and a container rebuild would lose it
+  silently. No runtime declaration is owed: an AST walk finds zero tracked
+  importers.
+
+  lxml and cssselect are declared (#143) and PRESENT ON THE BOX -- proven by the
+  capture, which has zero <failure> and zero <error> elements across both XMLs,
+  so TestAccessibility and TestSynthetic passed rather than being absent.
+
+TOOLS THAT NOW EXIST AND ARE WIRED, so nobody rebuilds them:
+
+  bd-mutate      one mutation harness. Encodes the four ways five hand-rolled
+                 ones were wrong in a single session (non-unique anchor,
+                 non-parsing mutant scored as an escape, stale bytecode,
+                 baseline never green). Exit 2 = the battery has NO VERDICT,
+                 which is not a softer 1.
+  bd-claim       declare files you are editing; .githooks/pre-commit refuses a
+                 commit that would sweep another live process's work. Armed by
+                 scripts/cloud-setup.sh; opt-in on the box
+                 (`git config core.hooksPath .githooks`).
+  bd-bandcheck   now CALLED by bd-band, so an unsafe band is refused at the door
+                 instead of timing out 200s later.
+
+  All three run their --selftest inside tests/test_toolchain_534.py, which is
+  what makes them wired rather than described.
+
+FILED, NOT FIXED -- two tools carry zip-era /home/claude paths and are unusable
+here. This is s5 residue wearing a different hat, and it is a separate subject:
+
+  bd-band       band_env() hardcodes PYTHONPATH=/tmp/prestaged_site_packages and
+                PLAYWRIGHT_BROWSERS_PATH=/home/claude/.cache/ms-playwright
+                (:52-53). MEASURED: tests/test_contracts.py gives "Passed: 4 |
+                Failed: 10" under bd-band and 14 passed under pytest, and
+                origin/main reproduces the identical 4/10 -- pre-existing. Its
+                REFUSAL path (the part wired this session) is unaffected.
+  bd-factcheck  defaults its doc to /home/claude/STATE.json, absent here. It
+                exits 2 rather than passing over an unreadable denominator --
+                "REFUSING a clean verdict: 0 of 1 docs could be read" -- which
+                is the correct behaviour and a good example of it.
+
+STILL OPEN, unchanged by any of this:
+
+  site_name on the box  THE ONE THAT DECIDES WHETHER #7 DOES ANYTHING. The clear
+      FINDS rows by q=bdseed (db_search LIKEs url/filename/message) but
+      AUTHORISES deletion on site_name -- different fields. Residue is 68 rows
+      and grows ~2/capture. If they do not match, the first armed run deletes
+      nothing and exits 4. No container can answer it and git cannot
+      reconstruct it: the repository's first commit introduced live_seed.py.
+  BD_HOME vs the install dir  decides whether deploy.sh's parity regen writes
+      where the suite reads (the v3.66.818 whole-suite failure).
+  s4#4, s5, item 12's producer divergence, Audit #3  -- see 15.20/15.22/15.23.
+  Small: `git rev-parse HEAD` into 01_sysinfo.log (checked this bundle; still
+      absent, so capture bundles still cannot self-identify) and a selftest
+      stage for capture.sh.
+  166 bd-* tools remain prose-only. The ratchet stops that number growing;
+      wiring or retiring them is its own work.

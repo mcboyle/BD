@@ -293,7 +293,9 @@ editing, and `.githooks/pre-commit` refuses to commit a path another LIVE
 process holds. `scripts/cloud-setup.sh` arms it (`core.hooksPath .githooks`);
 on the box it is opt-in, one command. It is inert unless a claim is in flight,
 so a single-operator session never sees it, and a dead claimant is reaped rather
-than wedging the repo. Override with `BD_SKIP_CLAIM_CHECK=1` when you are sure. A regen commit
+than wedging the repo. Override with `BD_SKIP_CLAIM_CHECK=1` when you are sure.
+
+The failure it models: a regen commit
 swept a concurrent workflow's uncommitted RED battery into itself; the branch
 tip then carried tests whose implementation was not committed and **failed its
 own guard tests** until someone noticed. `git add <explicit paths>`, always,
