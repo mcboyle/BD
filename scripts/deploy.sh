@@ -292,32 +292,63 @@ note "tree version is $TREE_VERSION"
 # earlier unscripted deploy still converges here. `pip check` cannot answer this
 # -- its denominator is the set of INSTALLED distributions, which structurally
 # excludes an uninstalled requirement (CLAUDE.md section 5).
+#
+# BOTH MANIFESTS, and the second one is why this is a function (v3.66.862).
+# Until then this step converged requirements.txt ONLY. v3.66.861 declared
+# pyflakes in requirements-dev.txt to close a box capture failure, the next
+# capture failed on pyflakes AGAIN, and the reason was structural: the
+# declaration landed in a manifest nothing on the deploy path reads, so it
+# could not have worked. The fix had reproduced the shape of the defect it was
+# fixing (CLAUDE.md section 0).
+#
+# WHY A DEPLOY SCRIPT INSTALLS TEST DEPENDENCIES. The box is the gate (section
+# 7) -- capture.sh runs the full suite there, and several gates in that suite
+# shell out to dev tooling. bd-tool-smoke FAILS CLOSED without pyflakes
+# ("this gate verified NOTHING ... refusing to report clean over an absent
+# analyzer"), which is correct behaviour and turns an undeclared dependency
+# into a red capture rather than a silent pass. So the suite's dependencies
+# ARE deploy-path dependencies here, and converging them is this step's job.
 STEP=5
 DID_PIP=0
-REQ_RC=0
-MISSING="$("$VENV_PY" tools/check_requirements.py)" || REQ_RC=$?
-if [ "$REQ_RC" -eq 2 ]; then
-  die "requirements check could not evaluate requirements.txt -- treat as NOT
+
+converge_reqs() {
+  # $1 -- a requirements manifest, relative to $DIR. Converges it or dies.
+  _req_file="$1"
+  [ -f "$_req_file" ] \
+    || die "$_req_file is tracked but absent after the reset -- the tree is not
+  what this script believes it is. Unknown is a third state and it fails."
+  _rc=0
+  _missing="$("$VENV_PY" tools/check_requirements.py "$_req_file")" || _rc=$?
+  if [ "$_rc" -eq 2 ]; then
+    die "requirements check could not evaluate $_req_file -- treat as NOT
   satisfied. Unknown is a third state and it fails; rendering it as 'satisfied'
   is the defect this check exists to prevent."
-elif [ "$REQ_RC" -ne 0 ]; then
-  note "requirements that do not resolve: $MISSING -- installing"
-  "$VENV_PY" -m pip install -r requirements.txt \
-    || die "pip install -r requirements.txt failed (missing: $MISSING)"
-  DID_PIP=1
-  # pip exiting 0 is not resolution. Re-ask the same question with the same
-  # instrument, against the same interpreter.
-  REQ_RC=0
-  MISSING="$("$VENV_PY" tools/check_requirements.py)" || REQ_RC=$?
-  if [ "$REQ_RC" -eq 2 ]; then
-    die "requirements check could not evaluate requirements.txt after the install"
-  elif [ "$REQ_RC" -ne 0 ]; then
-    die "still unresolved after pip install -r requirements.txt: $MISSING"
+  elif [ "$_rc" -ne 0 ]; then
+    note "requirements that do not resolve in $_req_file: $_missing -- installing"
+    "$VENV_PY" -m pip install -r "$_req_file" \
+      || die "pip install -r $_req_file failed (missing: $_missing)"
+    DID_PIP=1
+    # pip exiting 0 is not resolution. Re-ask the same question with the same
+    # instrument, against the same interpreter.
+    _rc=0
+    _missing="$("$VENV_PY" tools/check_requirements.py "$_req_file")" || _rc=$?
+    if [ "$_rc" -eq 2 ]; then
+      die "requirements check could not evaluate $_req_file after the install"
+    elif [ "$_rc" -ne 0 ]; then
+      die "still unresolved after pip install -r $_req_file: $_missing"
+    fi
+    note "$_req_file now resolves under $VENV_PY"
+  else
+    note "every $_req_file entry already resolves; pip skipped"
   fi
-  note "requirements now resolve under $VENV_PY"
-else
-  note "every requirements.txt entry already resolves; pip skipped"
-fi
+}
+
+converge_reqs requirements.txt
+# NOT requirements-dev.txt: that one also carries the packaging chain
+# (pyinstaller, nuitka, zstandard) and nuitka needs gcc + patchelf. The
+# suite's own dependencies live in requirements-test.txt precisely so a
+# deploy can converge them without provisioning a build host.
+converge_reqs requirements-test.txt
 
 # ── [6] frontend bundle, keyed on CONTENT ───────────────────────────
 # frontend/dist/ is gitignored with zero tracked files, so the deploy never

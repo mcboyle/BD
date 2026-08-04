@@ -4,6 +4,29 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.862 - the pyflakes declaration was unreachable; manifests split
+
+- requirements-test.txt is new: pytest, pyyaml and pyflakes, the dependencies
+  the SUITE needs. requirements-dev.txt keeps the packaging chain
+  (pyinstaller, nuitka, zstandard) and pulls the new file in with -r, so a dev
+  install and CI's line are unchanged.
+- scripts/deploy.sh step [5] now converges requirements.txt AND
+  requirements-test.txt. It converged requirements.txt only, so v3.66.861's
+  fix -- declaring pyflakes in requirements-dev.txt -- landed in a manifest
+  nothing on the deploy path reads and could not have worked. The box capture
+  at v3.66.861 failed on pyflakes again, for the third time. The fix had
+  reproduced the shape of the defect it was fixing (CLAUDE.md section 0).
+- Deliberately NOT requirements-dev.txt: nuitka needs a C compiler and
+  patchelf, so converging that manifest would make every deploy provision a
+  build host or fail outright on one that has no gcc.
+- scripts/cloud-setup.sh's hand-written "pytest pyflakes pyyaml" list is
+  replaced by -r requirements-test.txt. Its own comment said the dev manifest
+  was unusable because of nuitka -- correct, and now solved -- so the list no
+  longer needs a third copy that can drift.
+- RED-first: tests/test_deploy_script.py::test_test_requirements_converge_too
+  asserts the QUESTION is asked, with a non-empty-denominator assertion ahead
+  of the verdict so an empty log cannot read as a pass.
+
 ## v3.66.861 - box capture FAIL: four failures, three causes, all mine
 
 - The v3.66.859 capture failed on the box: 14588 total, 14499 passed, 4 FAILED.

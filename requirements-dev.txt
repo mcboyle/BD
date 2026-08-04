@@ -1,8 +1,18 @@
 # Bulk Downloader — Build/dev dependencies
 # Install: pip install -r requirements-dev.txt
 # Used for building the Windows .exe AND running the test suite — not needed to run the app
+#
+# v3.66.862: the test-suite dependencies moved to requirements-test.txt and are
+# pulled in below, so this file still installs everything and CI's line is
+# unchanged. The split exists because scripts/deploy.sh converges the SUITE's
+# dependencies on the box (it is the gate, CLAUDE.md section 7) and must not
+# drag the packaging chain along: nuitka needs a C compiler and patchelf, so
+# converging this manifest on an arbitrary deploy host would either install a
+# build toolchain nobody asked for or fail the deploy outright. Build deps stay
+# here; anything the suite itself imports or shells out to belongs next door.
 
 -r requirements.txt
+-r requirements-test.txt
 pyinstaller>=6.0,<7.0
 
 # v3.66.793 (MOD-7 adopt): Nuitka packaging path. Evaluated on the build host
@@ -15,33 +25,3 @@ pyinstaller>=6.0,<7.0
 # Pinned 4.x (the evaluated line was 4.1.3). See tools/nuitka_eval.runbook().
 nuitka>=4.0,<5.0
 zstandard>=0.22,<1.0
-
-# Phase 33: test suite. Run via:
-#   pytest tests/                     # all tests
-#   pytest tests/test_validators.py   # specific file
-#   pytest tests/ -v -x               # verbose, stop on first failure
-pytest>=7.0,<9.0
-
-# v3.66.849: PyYAML, for validating .github/workflows/ci.yml. Not a runtime
-# import and not imported by any tracked file -- an AST walk over all tracked
-# Python finds zero importers -- so it is declared HERE, not in the runtime
-# manifest, and the declaration gate is unaffected either way.
-#
-# It is declared at all because a session installed it by hand to check a CI
-# edit and nearly shipped that edit on an indentation eyeball instead. Nothing
-# guarantees it otherwise: MEASURED, the only installed distribution naming
-# pyyaml is markdown-it-py, and it gates it behind `extra == "rtd"` which BD
-# never requests -- so a container rebuild loses it silently and the next
-# session repeats the eyeball.
-pyyaml>=6.0,<7.0
-
-# v3.66.861: pyflakes. DECLARED HERE BECAUSE ITS ABSENCE IS SILENT-BY-DESIGN
-# EVERYWHERE ELSE. It was installed by scripts/cloud-setup.sh:291 and
-# .github/workflows/ci.yml:101 and written down in no manifest, so the deploy
-# host never got it -- and bd-tool-smoke, which pyflakes backs, then refused to
-# report clean over an absent analyzer ("this gate verified NOTHING"). That
-# refusal is CORRECT and it failed the box capture at v3.66.859: the tool was
-# right, the environment was missing a dependency nobody had declared.
-# tools/check_requirements.py resolves every name here, so an undeclared
-# analyzer cannot hide again.
-pyflakes>=3.0,<4.0
