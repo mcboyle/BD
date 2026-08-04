@@ -258,10 +258,22 @@ def auto_zip():
 
 
 def find_map(work):
-    for c in (os.path.join(work, "TOUCHED_FILE_TO_TEST.md"),
+    """Locate the curated TOUCHED_FILE_TO_TEST map.
+
+    @860: project-knowledge/ was NOT in this list, and `git log --follow` shows
+    the map has lived there and ONLY there since it was created. So signal 2 --
+    the curated map, one of the four this tool unions -- loaded zero rows on
+    every checkout, silently, since inception. Every band CLAUDE.md section 4
+    orders derived through this tool was narrower than designed.
+
+    The silence was the real defect: a missing map returned None and the caller
+    carried on. A signal that can vanish without saying so is the section 0
+    shape, so main() now prints when the map is absent.
+    """
+    for c in (os.path.join(work, "project-knowledge", "TOUCHED_FILE_TO_TEST.md"),
+              os.path.join(work, "TOUCHED_FILE_TO_TEST.md"),
               os.path.join(work, "docs", "TOUCHED_FILE_TO_TEST.md"),
-              os.path.join(work, "kb", "TOUCHED_FILE_TO_TEST.md"),
-              "/mnt/project/TOUCHED_FILE_TO_TEST.md"):
+              os.path.join(work, "kb", "TOUCHED_FILE_TO_TEST.md")):
         if os.path.isfile(c):
             return c
     return None
@@ -1212,7 +1224,21 @@ def main():
     # pattern is deliberately not required, since --file mode is legitimate on a
     # tree mid-extraction.
     sec.require_corpus(a.work, min_files=1, label="--work", patterns=("*.py",))
-    rows = map_rows(find_map(a.work))
+    # @860: SAY when the curated map is missing. It was absent on every
+    # checkout (find_map did not look in project-knowledge/) and contributed
+    # zero rows in SILENCE -- one of the four signals this tool unions, gone
+    # without a word. A signal that can vanish quietly is worse than one that
+    # is missing loudly, because the narrower band still looks authoritative.
+    _mp = find_map(a.work)
+    rows = map_rows(_mp)
+    if not a.json and not a.emit:
+        if not _mp:
+            print("  NOTE curated map not found under %s -- signal 2 of 4 is "
+                  "contributing nothing; this band is narrower than designed."
+                  % a.work, file=sys.stderr)
+        elif not rows:
+            print("  NOTE curated map %s parsed to ZERO rows." % _mp,
+                  file=sys.stderr)
     if a.file:
         return report(a.work, [a.file], rows, "FILE %s" % a.file,
                       deps=rev_deps(a.work, a.file), as_json=a.json, emit_only=a.emit)

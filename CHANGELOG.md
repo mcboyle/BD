@@ -4,6 +4,44 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.860 - the band's evidence was unreliable two ways
+
+- Both found by the wired-gate audit. Both undercut the test evidence every
+  other cut rests on, which is why they went together.
+- ZERO-COLLECTION READ AS PASS. run_tests_core.py ended
+  `sys.exit(1 if failed > 0 else 0)`. A requested file from which pytest
+  collects NOTHING prints "Total: 0 | Passed: 0 | Failed: 0" and exited 0 -- and
+  all three band runners grade on exactly that shape (bd-band and bd-parband
+  test 'Failed: 0' in blob and rc == 0; bd-fullsuite counts the file green). A
+  RED-first battery could be reported as proven failing while running nothing,
+  and the first honest signal would be the box. That defeats section 2's first
+  rule. Now exits 2 with a named reason. Verified downstream: bd-band went from
+  PASS to FAIL on a file whose only assertion sits in a non-Test* class.
+- SKIPS ARE NOT THAT, and the guard says so: an all-skipped file has total > 0
+  and stays green. bd-mutate proved the assertion was necessary -- a mutant
+  broadening the condition to `skipped == total` ESCAPED until an all-skipped
+  control was added.
+- BAND-DERIVE'S CURATED MAP WAS DEAD ON EVERY CHECKOUT. find_map() looked in the
+  work root, docs/, kb/ and the retired /mnt/project -- but not
+  project-knowledge/, where `git log --follow` shows TOUCHED_FILE_TO_TEST.md has
+  lived since it was created. One of the four signals this tool unions loaded
+  ZERO rows, in silence, since inception. Measured on
+  bulk_downloader/global_config.py: 64 suites before, 69 after.
+- The SILENCE was the real defect. A signal that vanishes without saying so
+  still produces an authoritative-looking band, so the tool now prints a NOTE
+  when the map is absent or parses to zero rows.
+- Two instrument errors of my own, both caught by running rather than reading:
+  a NameError from colour constants this tool does not define, and -- worse -- a
+  pytest --collect-only survey used to decide the zero-collection guard was
+  SAFE, when the runner collects differently from pytest (it collects nothing
+  from a unittest.TestCase). Re-measured with the actual runner: 0 of 25 tracked
+  files collect zero.
+- Noted, not fixed: tests/test_pk_mirrors_do_not_drift.py calls pytest.fail(),
+  which this harness stubs WITHOUT a .fail attribute, so it fails under
+  run_tests.py while passing under pytest. Pre-existing, and a reminder that
+  "the band is green" and "the tests pass" answer different questions.
+- bd-mutate: 4 mutants, 4 caught, 0 escaped.
+
 ## v3.66.859 - the share chain shipped raw session credentials
 
 - SECURITY. bd-wacz-scrub, bd-scrub-proof and bd-share-safe each carried their

@@ -1580,4 +1580,33 @@ def main():
             except OSError as _e:
                 print(f"  WARN: could not write {summary_path}: {_e}")
 
+    # @860 -- A FILE THAT COLLECTED NOTHING IS NOT A FILE THAT PASSED.
+    #
+    # This was `sys.exit(1 if failed > 0 else 0)`. A requested file from which
+    # pytest collects zero tests prints
+    #     Total: 0 | Passed: 0 | Failed: 0 | Skipped: 0
+    # and exited 0 -- and all three band runners grade on exactly that shape:
+    # bd-band and bd-parband test ('Failed: 0' in blob and rc == 0), bd-fullsuite
+    # counts the file green. So a RED-first battery could be reported as proven
+    # failing while collecting nothing at all, and the first honest signal would
+    # be the box. That defeats CLAUDE.md section 2's first rule.
+    #
+    # Reproduced: a file whose only assertion lives in a non-Test* class (pytest
+    # collects nothing) was graded PASS by bd-band and bd-parband.
+    #
+    # SKIPS ARE NOT THIS. An all-skipped file has total > 0 and stays green --
+    # environment skips are legitimate and gating on them would be the section 0
+    # over-correction. The bug is collecting NOTHING.
+    #
+    # Only when files were explicitly REQUESTED: a bare run globs the whole
+    # directory, and an empty tests/ is a different problem with its own signal.
+    # Measured before changing this: 14588 tests collect across tests/, and 0 of
+    # 60 sampled tracked files collect zero, so nothing legitimate trips it.
+    if total == 0 and requested:
+        print()
+        print("  BD-RUNNER UNEVALUABLE: %d file(s) requested, ZERO tests "
+              "collected." % len(files_to_run))
+        print("  This is not a pass. Nothing ran, so nothing was proven --")
+        print("  check for a non-Test* class, a bad node-id, or a typo in the path.")
+        sys.exit(2)
     sys.exit(1 if failed > 0 else 0)
