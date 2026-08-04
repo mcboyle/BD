@@ -953,7 +953,11 @@ def test_salvaged_stub_detector_separates_a_marker_from_prose_about_one():
 # predicate was `n > budget` -- trivial; the VALUE was the policy it enforced:
 # "adding a tool owes retiring one". Re-homed as a ratchet, and unlike the
 # prose-only baseline this one is expected to RATCHET DOWN as retirements land.
-_TOOL_BUDGET = 246
+# @858: 246 -> 239. Seven zero-coupling tools retired. This ratchet is
+# meant to move DOWN as retirements land -- unlike _PROSE_ONLY_BASELINE,
+# lowering it is the point, and leaving it at 246 would silently re-permit
+# the growth the retirement just paid for.
+_TOOL_BUDGET = 239
 
 
 def test_the_toolchain_does_not_grow_unbudgeted():

@@ -4,6 +4,38 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.858 - retirement, tier 1: seven zero-coupling tools
+
+- Retired from toolchain/bin and project-knowledge, with their bd-tools category
+  rows and STATIC_KB_MANIFEST.json entries: bd-packs, bd-intake, bd-time-travel,
+  bd-rollback-plan, bd-deploy-rehearse, bd-audit, bd-parallel. 14 tracked files.
+- WHY THESE SEVEN AND NOT THE TWENTY PROPOSED. The coupling was measured rather
+  than assumed. Deleting all 19 (bd-state was already held) left 65 references
+  across 36 files -- roughly triple the estimate in the retirement plan. These
+  seven have ZERO surviving references outside the bd-tools registry, so no
+  surviving tool needed editing and no CI-wired gate was touched.
+- The other twelve stay queued because each needs an edit in a tool that lives
+  on: bd-sweep (8 refs), bd-coretest (4), bd-tool-lint (3), plus single
+  references in bd-freshcheck, bd-guardcheck, bd-cut and bd-tool-smoke -- all
+  four of which gate CI or the release, and none of which the container can
+  prove safe.
+- bd-state is held separately: tools/build_session_pack.py genuinely invokes it
+  at :128 via subprocess, and that file carries its own pin test. The plan
+  called build_session_pack.py a coupled orphan; it is not.
+- NOT PROVED BY bd-equiv, stated plainly. Their corpora are retired so the old
+  tools emit zero tokens, which bd-equiv now correctly grades CANNOT-EVALUATE
+  (@852, @855) rather than issuing the false licence it used to. The argument is
+  subject-death under CLAUDE.md section 7 plus a named replacement.
+- _TOOL_BUDGET 246 -> 239. This ratchet is meant to move DOWN as retirements
+  land; leaving it would silently re-permit the growth the retirement just paid
+  for.
+- A tombstone in BD_TOOLCHAIN_REFERENCE.md records the removal, the reasoning,
+  and the twelve still queued -- the same shape as the deploy-manifest and
+  task-tracker retirements before it.
+- Incidental confirmation that @856 works: pruning STATIC_KB_MANIFEST left an
+  apparent "bd-audit" residual which the exact-name predicate correctly
+  identified as bd-audit-gate.py, a different and surviving tool.
+
 ## v3.66.857 - salvage before the retirement
 
 - Prerequisite for the 20-tool retirement: three capabilities are rescued out of

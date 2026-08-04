@@ -33,6 +33,40 @@ accept `--work` / `--tree` / `--root` / `--bin` to override. See
 
 ---
 
+
+## RETIRED at v3.66.858 -- seven zero-coupling tools
+
+Removed from `toolchain/bin/` and `project-knowledge/`, with their `bd-tools`
+category rows and `STATIC_KB_MANIFEST.json` entries:
+
+`bd-packs` `bd-intake` `bd-time-travel` `bd-rollback-plan`
+`bd-deploy-rehearse` `bd-audit` `bd-parallel`
+
+WHY. Their SUBJECT died with the zip/overlay world (CLAUDE.md section 7): the
+release zip is retired and `git diff` replaced it, the uploads mount does not
+exist, snapshots are branches, and `scripts/deploy.sh` replaced the overlay
+rehearsal. Each was invoked by nothing.
+
+WHY ONLY SEVEN. Twenty were proposed. The coupling was MEASURED rather than
+assumed and came to 65 references across 36 files -- roughly triple the estimate.
+These seven are the ones with ZERO surviving references outside the `bd-tools`
+category registry, so no surviving tool needed editing. The other twelve each
+require an edit in a tool that lives on -- `bd-sweep` (8 refs), `bd-coretest`
+(4), `bd-tool-lint` (3), and single references in `bd-freshcheck`,
+`bd-guardcheck`, `bd-cut` and `bd-tool-smoke`, all four of which gate CI or the
+release. They stay queued.
+
+`bd-state` is held separately: `tools/build_session_pack.py` genuinely invokes
+it (`:128`) and that file carries its own pin test.
+
+NOT PROVED BY bd-equiv, and that is stated rather than glossed. Their corpora
+are retired, so the old tools emit zero tokens -- which `bd-equiv` now correctly
+grades CANNOT-EVALUATE (@852, @855) instead of issuing a false licence. The
+argument is subject-death plus a named replacement, not a mechanical proof.
+
+SALVAGED FIRST at v3.66.857, into `bdtools_sec`: `read_manifest_canon()` and
+`stub_reason()`, plus the net-tool budget policy re-homed as a test ratchet.
+
 ## Lifecycle at a glance
 ```
 OPEN      bd-boot (budgeted+checkpointed -- re-run until READY) = prestage → install → venv → preflight → state → status → footguns → kbsync
