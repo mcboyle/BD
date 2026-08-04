@@ -41,7 +41,12 @@ import os
 import subprocess
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+# @861: see bd-triage.py. bdtools_sec lives in toolchain/bin, and this
+# file also ships byte-identical in tools/, where dirname(__file__)
+# finds nothing.
+_d_bd = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, _d_bd)
+sys.path.insert(0, os.path.join(os.path.dirname(_d_bd), 'toolchain', 'bin'))
 import bdtools_sec as sec  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))

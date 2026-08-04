@@ -197,7 +197,9 @@ jobs:
             tests/test_scan_version_pins_fixture.py \
             tests/test_gui_parity.py \
             tests/test_pk_mirrors_do_not_drift.py \
-            tests/test_toolchain_534.py
+            tests/test_toolchain_534.py \
+            tests/test_v3_66_799_audit_tool_selftests.py \
+            tests/test_v3_66_653_dep_freshness.py
           # @850: the last two are new here, and both were added because they
           # were RED somewhere nothing could see.
           #   test_pk_mirrors_do_not_drift -- three project-knowledge mirrors

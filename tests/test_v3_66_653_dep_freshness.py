@@ -494,7 +494,15 @@ def _resolver(tracked: list[str]):
         if name in topdirs:
             return name + "/"
         owner = rel.rsplit("/", 1)[0] if "/" in rel else ""
-        for base in ("", "tools", owner):
+        # @861: toolchain/bin is a real FIRST-PARTY module location -- it holds
+        # bdtools_sec, bdtools_cli, bdtools_cache and bdtools_taint, the shared
+        # libraries the bd-* suite imports. It was missing from this tuple, so a
+        # tool importing bdtools_sec from OUTSIDE toolchain/bin resolved to
+        # nothing and was reported as an undeclared THIRD-PARTY package. That is
+        # not an exemption case: the module is first-party and in the tree, the
+        # resolver's denominator just did not include where it lives. Failed the
+        # box capture at v3.66.859 once tools/bd-triage.py started importing it.
+        for base in ("", "tools", "toolchain/bin", owner):
             prefix = base + "/" if base else ""
             for cand in (prefix + name + ".py", prefix + name + "/__init__.py"):
                 if cand in tset:
