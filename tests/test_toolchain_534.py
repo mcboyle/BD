@@ -187,7 +187,7 @@ def test_the_tools_this_cut_added_are_wired_and_selftest_clean():
     difference between the 76 tools that are invoked and the 166 that are not.
     """
     root = str(_REPO_ROOT)
-    for tool in ("bd-mutate", "bd-claim", "bd-bandcheck"):
+    for tool in ("bd-mutate", "bd-claim", "bd-bandcheck", "bd-freshcheck"):
         path = os.path.join(root, "toolchain", "bin", tool)
         assert os.path.isfile(path), "%s is missing" % tool
         r = subprocess.run([sys.executable, path, "--selftest"],
@@ -199,3 +199,32 @@ def test_the_tools_this_cut_added_are_wired_and_selftest_clean():
             "%s --selftest exited 0 without saying SELFTEST PASS -- an exit code "
             "with no verdict behind it is the shape this repo keeps finding."
             % tool)
+
+
+def test_the_derivable_half_of_staleness_is_clean():
+    """bd-freshcheck --repo-only must pass: doc anchors resolve, the register's
+    close section names a commit in this history, and doc claims match source.
+
+    --repo-only is deliberate. The full run also checks .claude-env-report.md,
+    a GITIGNORED per-machine provisioning artifact that does not exist in CI at
+    all -- gating on it would return UNKNOWN on every run forever and the gate
+    would be switched off inside a week. A check whose subject is absent from
+    the place it runs is CLAUDE.md section 0 wearing a scheduler.
+
+    What this does NOT cover, stated so a pass is not over-read: whether a cited
+    line still SAYS what the doc claims. In-range is necessary, not sufficient,
+    and that half needs a reader.
+    """
+    root = str(_REPO_ROOT)
+    tool = os.path.join(root, "toolchain", "bin", "bd-freshcheck")
+    assert os.path.isfile(tool), "bd-freshcheck is missing"
+    r = subprocess.run([sys.executable, tool, "--root", root, "--repo-only"],
+                       cwd=root, capture_output=True, text=True, timeout=300)
+    out = r.stdout + r.stderr
+    assert "doc file:line anchors" in out, (
+        "bd-freshcheck ran but reported no anchor check -- it saw nothing, which "
+        "is not the same as finding nothing wrong:\n%s" % out[-800:])
+    assert r.returncode == 0, (
+        "bd-freshcheck --repo-only exited %d. 1 = something is STALE, 2 = a check "
+        "could not RUN (UNKNOWN, which is not a softer 1):\n%s"
+        % (r.returncode, out[-1500:]))

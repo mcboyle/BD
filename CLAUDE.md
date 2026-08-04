@@ -1067,6 +1067,7 @@ asks you to answer:
 | is `.claude-env-report.md` current? | `bd-env-report-check` (section 7) |
 | do my tests actually constrain the code? | `bd-mutate` (section 6) |
 | is this band list about to trip a footgun? | `bd-bandcheck` |
+| has any doc or register claim gone stale? | `bd-freshcheck` |
 
 Do not treat that as the list — it is the four this document already depends
 on. `ls toolchain/bin/ | grep <topic>` before writing a script, every time.
