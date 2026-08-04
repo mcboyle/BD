@@ -4,6 +4,44 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.851 - the band tools drove an interpreter without pytest
+
+- bd-band, bd-parband, bd-fullsuite and bd-retest all built their argv as
+  ["python3", "run_tests.py", ...]. Measured here: python3 is 3.11.15 and
+  `python3 -c "import pytest"` raises ModuleNotFoundError, while venv/bin/python
+  is 3.12.3 with pytest 8.4.2. A run under the wrong interpreter does not error
+  out -- it reports FAILURES, and they read as real. CLAUDE.md section 5 records
+  that exact incident ("a full test band was measured on 3.11 and reported seven
+  failures that did not exist"), and bd-band is the tool section 4 tells you to
+  derive a band with.
+- Bare sys.executable is NOT the fix and was rejected: that is whatever launched
+  the tool, so `python3 toolchain/bin/bd-band` reintroduces the defect verbatim.
+  bdtools_sec.resolve_test_interpreter(work) prefers the project venv, PROBES
+  every candidate by actually importing pytest, and returns None when none
+  qualifies. None is a verdict -- callers exit EXIT_CANNOT_EVALUATE rather than
+  band on an interpreter whose failures would be artifacts.
+- bd-band could not run in this container at all: --work defaulted to
+  /home/claude/work, so bd-bandcheck reported every suite MISSING and refused
+  the band. All six /home/claude/work literals across the four tools now resolve
+  through sec.DEFAULT_WORK, which walks up from the tool's own file. The family
+  now has zero occurrences of that path. bd-band end-to-end on this tree went
+  from "refusing this band" to ALL PASS -- 2/2 suites green.
+- Scope stated plainly: this cut fixes the INTERPRETER and the work-tree
+  default. bd-retest remains sandbox-bound by its input
+  (/home/claude/.bd_last_band.json, /tmp/prestaged_site_packages) and is not
+  ported here.
+- Caught in my own fix before shipping: the first patch inserted the
+  sys.path/bdtools_sec import ABOVE the alphabetical `import sys` in three of
+  the four files, so `sys` was undefined at that point and --help died with a
+  NameError. ast.parse accepted all four (CLAUDE.md section 6: "ast.parse is not
+  name resolution"), and a grep confirming `import sys` existed SOMEWHERE in the
+  file was the wrong denominator -- it had to come before. Running --help found
+  it in one command.
+- RED-first: test_no_runner_hardcodes_the_wrong_interpreter names all four
+  offending sites with line numbers; test_interpreter_resolver_proves_pytest_
+  and_refuses_when_it_cannot asserts both directions plus the over-sensitive
+  one. bd-mutate: 4 mutants, 4 caught, 0 escaped.
+
 ## v3.66.850 - bd-doc-truth was a CI gate that scanned zero documents
 
 - bd-doc-truth is wired into CI through bd-freshcheck, and it was blind twice

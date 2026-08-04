@@ -63,6 +63,54 @@ EXIT_CANNOT_EVALUATE = 2    # absent/empty/unreadable corpus: no verdict minted
 REASON_ABSENT = "ABSENT"
 REASON_EMPTY = "EMPTY"
 REASON_UNREADABLE = "UNREADABLE"
+REASON_NO_INTERPRETER = "NO_INTERPRETER"
+
+
+def _imports_pytest(exe, timeout=30):
+    """Can this interpreter actually import pytest? Proven, never assumed."""
+    import subprocess
+    try:
+        return subprocess.run([exe, "-c", "import pytest"],
+                              capture_output=True, timeout=timeout).returncode == 0
+    except Exception:
+        return False
+
+
+def resolve_test_interpreter(work=None, _probe=None):
+    """The interpreter that can actually run THIS PROJECT's tests, or None.
+
+    NOT bare "python3" (@851). In the cloud container that resolves to 3.11
+    WITHOUT the project dependencies, and run_tests.py under it reports failures
+    that do not exist. CLAUDE.md section 5 records precisely that incident -- "a
+    full test band was measured on 3.11 and reported seven failures that did not
+    exist" -- and four runner tools had the literal hardcoded, bd-band among
+    them, which is the tool section 4 tells you to band with.
+
+    NOT bare sys.executable either, which is the seductive one-line fix: that is
+    whatever launched THIS tool, so `python3 toolchain/bin/bd-band` puts the
+    defect straight back. The candidate order below prefers the project venv,
+    and EVERY candidate is probed rather than trusted -- an interpreter that
+    exists is not an interpreter that can run the suite.
+
+    Returning None is a VERDICT, not a fallback: the caller must exit
+    EXIT_CANNOT_EVALUATE. A band whose failures are interpreter artifacts is
+    worse than no band, because it is read as a result.
+    """
+    import shutil
+    work = work or DEFAULT_WORK
+    probe = _probe or _imports_pytest
+    cands = [os.path.join(work, "venv", "bin", "python"),
+             os.path.join(DEFAULT_WORK, "venv", "bin", "python"),
+             sys.executable,
+             shutil.which("python3") or ""]
+    seen = set()
+    for c in cands:
+        if not c or c in seen:
+            continue
+        seen.add(c)
+        if os.path.exists(c) and probe(c):
+            return c
+    return None
 
 # Cloud-metadata endpoints (IP + well-known hostnames)
 METADATA_IPS = {"169.254.169.254", "fd00:ec2::254"}

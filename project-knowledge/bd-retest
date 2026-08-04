@@ -11,6 +11,31 @@ Exit 0 if every previously-failing suite now passes; 1 on a consistent (real)
 failure or if there's nothing to retest.
 """
 import argparse, json, os, re, subprocess, sys, tempfile, time
+import os as _os_bd, sys as _sys_bd  # noqa: E402
+_sys_bd.path.insert(0, _os_bd.path.dirname(_os_bd.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
+_PY_CACHE = {}
+
+
+def _py(work):
+    """The interpreter that can run this project's tests. Memoized: the probe
+    spawns a subprocess and these runners call this once per suite.
+
+    None from the resolver is FATAL, never a silent fallback -- a band under a
+    deps-less interpreter reports failures that read as real defects, which is
+    the v3.66.850 finding (CLAUDE.md s5).
+    """
+    if work not in _PY_CACHE:
+        exe = sec.resolve_test_interpreter(work)
+        if exe is None:
+            print("BD-UNEVALUABLE: no interpreter under %s can import pytest -- "
+                  "refusing to run rather than report interpreter artifacts as "
+                  "test failures." % work, file=sys.stderr)
+            raise SystemExit(sec.EXIT_CANNOT_EVALUATE)
+        _PY_CACHE[work] = exe
+    return _PY_CACHE[work]
+
 G,R,Y,DIM,BOLD,RST="\033[32m","\033[31m","\033[33m","\033[2m","\033[1m","\033[0m"
 RESULTS="/home/claude/.bd_last_band.json"
 def run_one(work,suite,timeout):
@@ -18,7 +43,7 @@ def run_one(work,suite,timeout):
         BD_DISABLE_KEEPALIVE="1",PYTHONPATH="/tmp/prestaged_site_packages",
         PLAYWRIGHT_BROWSERS_PATH="/home/claude/.cache/ms-playwright")
     try:
-        r=subprocess.run(["python3","run_tests.py",suite],cwd=work,env=env,
+        r=subprocess.run([_py(work),"run_tests.py",suite],cwd=work,env=env,
                          capture_output=True,text=True,timeout=timeout)
         out=r.stdout+r.stderr; m=re.search(r'Failed:\s*(\d+)',out)
         failed=int(m.group(1)) if m else (0 if r.returncode==0 else -1)
@@ -30,7 +55,7 @@ def selftest():
     wrapper that cannot find what it wraps is broken, and a selftest that cannot
     verify must not report success."""
     import os as _o
-    cands = ['/home/claude/work/run_tests.py']
+    cands = [_os_bd.path.join(sec.DEFAULT_WORK, 'run_tests.py')]
     hit = next((p for p in cands if _o.path.isfile(p)), None)
     print(("PASS" if hit else "FAIL") + "  delegation target present: run_tests.py (%s)" % (hit or "NOT FOUND"))
     print("SELFTEST PASS" if hit else "SELFTEST FAIL")
@@ -46,7 +71,7 @@ def main():
         return selftest()
     if not os.path.exists(RESULTS):
         print(f"{Y}no last-band results ({RESULTS}). run bd-parband first.{RST}"); return 1
-    d=json.load(open(RESULTS)); work=a.work or d.get("work","/home/claude/work")
+    d=json.load(open(RESULTS)); work=a.work or d.get("work",sec.DEFAULT_WORK)
     failed=[r["suite"] for r in d["results"] if r["status"]!="pass"]
     if not failed:
         print(f"{G}last band had no failures -- nothing to retest{RST}"); return 0
