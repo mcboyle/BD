@@ -4,6 +4,35 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.866 - the session hook repairs by DELEGATING, not by reimplementing
+
+v3.66.865's hook ran its own `pip install -r requirements.txt
+-r requirements-test.txt`. That is a second home for what
+scripts/cloud-setup.sh already does, and a second home for one answer is this
+repo's signature failure -- three divergent TEXT_EXT sets hid the .warc gap in
+all of them at once; the pytest/pyflakes/pyyaml list had three copies until
+v3.66.862. The hook would have drifted from the provisioner the first time
+either changed.
+
+- The cheap probe still decides: tools/check_requirements.py over both
+  manifests. `pip install -r` exiting 0 is not proof a requirement is present
+  and `pip check` cannot see one that was never installed.
+- The REPAIR is now scripts/cloud-setup.sh, which is idempotent, honours the
+  BD_SKIP_* flags the hook exports, and verifies each step rather than trusting
+  an exit code.
+- Gated on the hook's `source`, because the right repair differs. A full
+  provision is 33 steps -- apt, npm build, playwright, nuclei, GTK, kasmvnc --
+  so startup and resume repair, while compact and clear (which happen
+  MID-SESSION) report the problem and name the command instead of stalling a
+  running session for minutes. Reporting a real problem is not the same as
+  fixing it; silently doing neither is what the hook exists to prevent.
+- stdin is parsed without assuming jq -- a base image that reverted may not
+  have it -- and malformed or empty stdin yields "" rather than crashing the
+  hook. Both are tested.
+- Tested across all four source values on a healthy tree (never provisions) and
+  on a deliberately broken one (startup/resume run the provisioner,
+  compact/clear refuse and say so).
+
 ## v3.66.865 - a reverted container reports a perfectly healthy tree
 
 MEASURED 2026-08-04: this session's container rebooted mid-session (uptime 2h29m
