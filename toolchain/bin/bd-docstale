@@ -98,10 +98,23 @@ def main():
         return sec.EXIT_CANNOT_EVALUATE
     rows=[]
     for f in sorted(glob.glob(os.path.join(docs,"*.md"))):
-        try: head="".join([next(open(f)) for _ in range(3)])
-        except Exception:  # why: fewer than 3 lines (StopIteration) or an odd encoding;
-                           # read a fixed prefix instead -- the marker search below is identical
-            head=open(f).read(300)
+        # @864: ONE handle, three lines. The previous form was
+        #     "".join([next(open(f)) for _ in range(3)])
+        # which opens the file THREE times and takes each fresh handle's FIRST
+        # line -- so `head` was line 1 repeated, not lines 1-3. Measured at
+        # v3.66.863: of 60 docs carrying the marker in their first three lines,
+        # 55 had it on line 1 and 5 on line 2, and those 5 were invisible. The
+        # tool then printed "55 marked docs" as its denominator and graded
+        # staleness over a population 8% smaller than the real one.
+        # zip() stops at the shorter side, so a file with fewer than 3 lines
+        # needs no special case -- which is why the old except branch, written
+        # for StopIteration, described a read that never happened.
+        try:
+            with open(f, encoding="utf-8", errors="replace") as _fh:
+                head="".join(ln for _, ln in zip(range(3), _fh))
+        except Exception:  # why: unreadable/odd encoding; fall back to a fixed
+                           # prefix -- the marker search below is identical
+            head=open(f, errors="replace").read(300)
         m=re.search(r'verified-against:\s*v?(3\.66\.(\d+))',head)
         if m: rows.append((os.path.basename(f),int(m.group(2))))
     if not rows:
