@@ -4,6 +4,48 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.856 - the wiring predicate matched prefixes and prose
+
+- Found while using _invokes() to decide which tools are safe to DELETE, which
+  is the use that makes a false "wired" expensive: it hides a dead tool behind a
+  sentence describing it. Two more denominator bugs, the third and fourth in
+  this one predicate.
+- PREFIX. `tool in body` had no word boundary, so a tool whose NAME PREFIXES
+  another inherited that tool's wiring: bd-band off bd-band-derive, bd-rollback
+  off bd-rollback-oracle, bd-audit off bd-audit-gate.py, bd-state off the
+  FILENAME "bd-state.json". Measured: 16 of 246 tools shadowed this way. A plain
+  \b does not fix it -- \b treats "-" as a boundary, so the continuation class
+  has to include the hyphen, and a following ".ext" has to be excluded too.
+- PROSE. After the prefix fix, six retirement candidates STILL read as wired,
+  and every hit was a comment or docstring: `# bd-state cleanly SKIPS` in
+  tools/build_release.py, an echo banner in install_bdsuite.sh, and -- the best
+  one -- this test file's OWN docstring, which named bd-rollback and bd-audit as
+  examples of the bug and thereby wired them. _code_only() now strips comments
+  and docstrings while KEEPING other string literals, because
+  subprocess.run(["bd-audit"]) is real wiring.
+- The test now uses SYNTHETIC tool names (bd-zz-tool). Using real ones made the
+  test wire them through its own string fixtures -- a test must not perturb the
+  population it measures, which is the same self-reference @849 caught in
+  emit_toolchain_ledger.
+- PERFORMANCE IS A SOUNDNESS PROPERTY HERE. The regex alone took this file from
+  35s to 6m29s (~314k scans over whole file bodies), and lru_cache did not help
+  because the cost is the SCAN, not the compile. A fast `in` pre-filter restored
+  it to 30.9s -- faster than before the fix. A gate that slow gets switched off.
+- _PROSE_ONLY_BASELINE 180 -> 184. The population did not grow; the measurement
+  got honest a third time. Verified in BOTH directions: all 12 known-wired tools
+  are still detected, which is the direction that would otherwise license
+  deleting a tool that IS called.
+- KNOWN REMAINING IMPRECISION, stated rather than hidden: install_bdsuite.sh
+  prints an `echo "ready: bd-boot, bd-cut, bd-handoff, bd-pack, ..."` banner and
+  the shell path cannot tell a banner from a command, so those two read as
+  wired. Stripping shell strings would break real invocations, so this errs
+  toward "wired" -- the safe direction for a deletion gate.
+- bd-mutate: 3 mutants, 2 caught, 1 escaped -- and the escape was verified to be
+  an EQUIVALENT mutant (0 behavioural differences across 246 tools x 7 text
+  shapes), not a test gap. One of the two catches only exists because bd-mutate
+  showed the ratchet CANNOT catch a lost comment-strip: the baseline is a <=
+  ceiling, so reducing the count keeps it green.
+
 ## v3.66.855 - desandbox: 100 toolchain tools repointed at the real tree
 
 - The repo moved from a zip-overlay sandbox to a git checkout, bdtools_sec was

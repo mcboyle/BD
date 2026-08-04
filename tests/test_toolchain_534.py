@@ -16,6 +16,8 @@ RED-first map (fail on pristine 533 -> pass after 534):
   E test_bd_scan_ts_uses_semgrep             -> the TS path must invoke semgrep
        (the uploaded kit) rather than re-grep. RED: no semgrep reference.
 """
+import ast
+import functools
 import os
 import re
 import subprocess
@@ -124,7 +126,28 @@ if __name__ == "__main__":
 # here the old number was the artifact and this one is the measurement. Each of
 # the 14 was read individually and is a genuine prose mention (a docstring
 # aside, an error-message string, a parity-inventory tuple), not a call.
-_PROSE_ONLY_BASELINE = 180
+# @856: 180 -> 184. AGAIN the population did not grow; the measurement got
+# honest a third time. _invokes() now (a) matches NAME-EXACTLY, so a tool no
+# longer inherits the wiring of a longer tool that starts with its name -- 16 of
+# 246 were shadowed that way -- and (b) matches against CODE with comments and
+# docstrings stripped, because a `# bd-state cleanly SKIPS` comment is not a
+# call. Both were found while using this predicate to decide what is safe to
+# DELETE, which is the use that makes a false "wired" expensive: it hides a dead
+# tool behind a sentence describing it.
+#
+# Sanity-checked in both directions at v3.66.856: all 12 known-wired tools
+# (bd-mutate, bd-band-derive, bd-freshcheck, bd-claim, bd-bandcheck,
+# bd-tool-smoke, bd-doc-truth, bd-docstale, bd-equiv, bd-band, bd-guardcheck,
+# bd-regen-order) are still detected -- no false negative, which is the
+# direction that would license deleting a tool that IS called.
+#
+# KNOWN REMAINING IMPRECISION, stated rather than hidden: toolchain/
+# install_bdsuite.sh prints an `echo "ready: bd-boot, bd-cut, bd-handoff,
+# bd-pack, ..."` banner, and the shell path cannot tell a banner from a command,
+# so bd-handoff and bd-pack read as wired off that line. Stripping shell strings
+# would break real invocations, so this errs toward "wired" -- the safe
+# direction for a deletion gate.
+_PROSE_ONLY_BASELINE = 184
 
 
 def _bd_tools(root):
@@ -159,6 +182,85 @@ _EXEC_PRIMITIVE = re.compile(
     r"|check_call|check_output|SourceFileLoader|__import__|importlib")
 
 
+@functools.lru_cache(maxsize=4096)
+def _code_only(body, is_py):
+    """`body` with COMMENTS and DOCSTRINGS removed; other string literals kept.
+
+    @856, the fourth denominator bug in this predicate and the subtlest. After
+    the prefix fix, six retirement candidates still read as WIRED -- and every
+    single hit was prose: a `# bd-state cleanly SKIPS` comment in
+    tools/build_release.py, an echo banner in install_bdsuite.sh, and -- best of
+    all -- THIS FILE's own docstring, which names bd-rollback and bd-audit as
+    examples of the bug and thereby wired them.
+
+    Comments and docstrings cannot execute anything. Other string literals CAN:
+    `subprocess.run(["bd-audit", "--json"])` is real wiring and must survive, so
+    this deliberately does NOT strip all strings.
+
+    Non-Python (shell/yaml) keeps `#` comments stripped line-wise; that is
+    imprecise inside heredocs but errs toward calling a mention prose, and for a
+    DELETION gate the safe error is the one that leaves a tool looking unwired
+    only when nothing executable names it.
+    """
+    if not is_py:
+        return "\n".join(ln.split("#", 1)[0] for ln in body.splitlines())
+    import io
+    import tokenize
+    try:
+        toks = list(tokenize.generate_tokens(io.StringIO(body).readline))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return body                      # unparseable -> do not silently narrow
+    docstrings = set()
+    try:
+        tree = ast.parse(body)
+        for n in ast.walk(tree):
+            if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
+                              ast.ClassDef)) and n.body:
+                first = n.body[0]
+                if (isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)
+                        and isinstance(first.value.value, str)):
+                    docstrings.add((first.value.lineno, first.value.col_offset))
+    except SyntaxError:
+        pass
+    out = []
+    for tok in toks:
+        if tok.type == tokenize.COMMENT:
+            continue
+        if tok.type == tokenize.STRING and tok.start in docstrings:
+            continue
+        out.append(tok.string)
+    return "\n".join(out)
+
+
+def _names(tool, body, prefix=""):
+    """Does `body` mention EXACTLY this tool, not a longer one that starts with it?
+
+    @856. Plain `tool in body` made bd-band read as wired off bd-band-derive.
+    `\\b` does not help: it treats "-" as a word boundary, so bd-band\\b still
+    matches inside bd-band-derive. The continuation class must therefore include
+    the hyphen. The trailing (?!\\.[A-Za-z0-9]) rejects "bd-state.json" -- a file
+    whose name begins with a tool's name is not that tool -- while still letting
+    the two genuinely .py-suffixed tools (bd-triage.py, bd-audit-gate.py) match
+    themselves, because their own name is consumed before the lookahead applies.
+    """
+    needle = prefix + tool
+    # Fast reject FIRST. _prose_only performs ~314k of these (246 tools x 638
+    # executable-context files x 2 signals) over whole file bodies. `in` is a
+    # C-level substring search; the regex below scans. Running the regex
+    # unconditionally took this file from 35s to 6m29s -- and lru_cache did not
+    # help, because the cost is the SCAN, not the compile. A gate that slow gets
+    # switched off, which section 0 counts as a soundness problem.
+    if needle not in body:
+        return False
+    return _name_re(needle).search(body) is not None
+
+
+@functools.lru_cache(maxsize=1024)
+def _name_re(needle):
+    return re.compile(r"(?<![A-Za-z0-9_-])" + re.escape(needle)
+                      + r"(?![A-Za-z0-9_-])(?!\.[A-Za-z0-9])")
+
+
 def _invokes(tool, rel, body):
     """Does this file plausibly RUN `tool`, or does it merely NAME it?
 
@@ -174,16 +276,25 @@ def _invokes(tool, rel, body):
         shells out through an imported `_run_bounded`, so the primitive is in
         another module entirely.
     Hence two positive signals, not one.
+
+    @856 -- and every match is now NAME-EXACT. The bare `in` test had no word
+    boundary, so a tool whose name PREFIXES another's inherited that tool's
+    wiring: bd-band from bd-band-derive, bd-rollback from bd-rollback-oracle,
+    bd-audit from bd-audit-gate.py, bd-state from "bd-state.json". 16 of 246
+    tools are shadowed that way.
     """
-    if tool not in body:
+    # @856: match against CODE, not prose. Comments and docstrings cannot run
+    # anything -- see _code_only, which this file's own docstring motivated.
+    code = _code_only(body, rel.endswith(".py"))
+    if not _names(tool, code):
         return False
     # Naming an executable's PATH is only ever done in order to run it, and the
     # runner is often in an imported helper this file does not contain.
-    if "toolchain/bin/%s" % tool in body:
+    if _names(tool, code, prefix="toolchain/bin/"):
         return True
     if not rel.endswith(".py"):
         return True          # shell / yaml / hooks: any bare word is a command
-    return bool(_EXEC_PRIMITIVE.search(body))
+    return bool(_EXEC_PRIMITIVE.search(code))
 
 
 def _prose_only(root):
@@ -290,6 +401,84 @@ def test_a_data_dict_mention_is_not_wiring():
             "a tool named by its toolchain/bin path was reported unwired. "
             "Naming an executable's path is done in order to run it, and the "
             "runner often lives in an imported helper this file cannot see.")
+
+
+def test_a_tool_name_that_prefixes_another_is_not_wiring():
+    """@856 -- the THIRD denominator bug in this one predicate.
+
+    _invokes() opened with `if tool not in body`, a bare substring test with no
+    word boundary. So a tool whose NAME IS A PREFIX of another tool's name reads
+    as WIRED purely because the LONGER tool is invoked somewhere:
+        bd-band     <- bd-band-derive, bd-bandcheck
+        bd-rollback <- bd-rollback-oracle, bd-rollback-plan
+        bd-audit    <- bd-audit-gate.py
+        bd-state    <- bd-state-machine-extract, and "bd-state.json" (a FILE)
+    Measured at v3.66.855: 16 of 246 tools are shadowed this way.
+
+    This predicate decides which tools are safe to DELETE. A false "wired" hides
+    a dead tool; a false "unwired" licenses deleting one that is still called.
+    Both directions are asserted here, and the second is the dangerous one.
+
+    Deliberately NOT a word-boundary regex alone: \\b treats "-" as a boundary,
+    so bd-band would still match inside bd-band-derive. The continuation class
+    has to include the hyphen, and a following ".ext" has to be excluded too, or
+    "bd-state.json" reads as bd-state.
+    """
+    root = str(_REPO_ROOT)
+    sys.path.insert(0, root)
+    import importlib
+    mod = importlib.import_module("tests.test_toolchain_534")
+
+    # SYNTHETIC names throughout. Using the REAL ones (bd-band, bd-rollback,
+    # bd-audit) made this test wire them: its own string literals are code, so
+    # _invokes found them and three retirement candidates read as WIRED off
+    # nothing but this file. A test must not perturb the population it measures
+    # -- the same self-reference that @849 caught in emit_toolchain_ledger.
+    longer = 'subprocess.run([sys.executable, "toolchain/bin/bd-zz-tool-long"])'
+    assert mod._invokes("bd-zz-tool-long", "x.py", longer) is True, (
+        "the tool actually invoked stopped counting -- over-correction")
+    assert mod._invokes("bd-zz-tool", "x.py", longer) is False, (
+        "a PREFIX read as WIRED off the longer tool's invocation. A prefix is "
+        "not a name, and this predicate authorises deletions.")
+
+    # a FILENAME beginning with the tool name is not the tool.
+    assert mod._invokes("bd-zz-tool", "x.py",
+                        'subprocess.run(["cat", "bd-zz-tool.json"])') is False, (
+        "a .json file whose name starts with the tool name is not the tool.")
+
+    # OVER-SENSITIVITY CONTROL -- real wiring must still count, in each of the
+    # three shapes it actually takes in this repo.
+    assert mod._invokes("bd-zz-tool", "x.py",
+                        'subprocess.run([sys.executable, "toolchain/bin/bd-zz-tool"])') is True
+    assert mod._invokes("bd-zz-tool", "run.sh",
+                        "venv/bin/python toolchain/bin/bd-zz-tool tests/x.py") is True
+    assert mod._invokes("bd-zz-tool", "x.py",
+                        'subprocess.run(["bd-zz-tool", "--json"])') is True, (
+        "an exact-name argv entry must still count -- refusing it would license "
+        "deleting a tool that IS called.")
+
+    # PROSE IS NOT A CALL. Asserted directly, because the ratchet cannot catch
+    # this: _PROSE_ONLY_BASELINE is a <= ceiling, so losing the comment-stripping
+    # LOWERS the count and the ratchet stays green. bd-mutate found exactly that
+    # escape, which is the whole argument for a behavioural assertion here.
+    commented = ('import subprocess\n'
+                 '# bd-zz-tool cleanly SKIPS its check when the zip is absent\n'
+                 'subprocess.run(["something-else"])\n')
+    assert mod._invokes("bd-zz-tool", "x.py", commented) is False, (
+        "a tool named only in a COMMENT read as wired. Real instance: "
+        "tools/build_release.py carries `# ... bd-state cleanly SKIPS ...`.")
+
+    docstringed = ('"""Notes: bd-zz-tool is the final cross-check."""\n'
+                   'import subprocess\n'
+                   'subprocess.run(["something-else"])\n')
+    assert mod._invokes("bd-zz-tool", "x.py", docstringed) is False, (
+        "a tool named only in a DOCSTRING read as wired -- which is how THIS "
+        "file's own prose wired three retirement candidates before @856.")
+
+    # ...but a string literal that is a real argument still counts (above), so
+    # the stripping must not reach ordinary strings.
+    assert mod._code_only('x = "bd-zz-tool"  # a comment\n', True).count("bd-zz-tool") == 1, (
+        "stripping removed a live string literal, not just the comment")
 
 
 def test_the_tools_this_cut_added_are_wired_and_selftest_clean():
