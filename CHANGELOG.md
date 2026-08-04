@@ -4,6 +4,42 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.852 - bd-equiv licensed retirement on an empty comparison
+
+- bd-equiv is the tool that AUTHORIZES deleting another tool ("prove one tool
+  can safely REPLACE another, before you retire it"). Its verdict came from
+  diffing two token SETS, with EQUAL as the else-branch -- and two EMPTY sets do
+  not disagree. The default --extract is a test-path regex and most tools emit
+  no test paths, so on this tree:
+      bd-equiv --old bd-capture-chaos --new bd-plugin-chaos --inputs $PWD
+      -> {"verdict":"EQUAL","old_count":0,"new_count":0}   exit 0
+  Two tools that share nothing, certified interchangeable, at exit 0. That is a
+  licence to retire derived from measuring nothing, in the one tool whose whole
+  job is refusing exactly that.
+- grade() is now split out of compare() so the verdict is derivable from rows
+  alone and assertable without spawning subprocesses. Two guards, both needed:
+  every row measuring zero tokens from BOTH tools is CANNOT-EVALUATE, and a tool
+  that CRASHED is CANNOT-EVALUATE (its silence would otherwise read as agreement,
+  or as a REGRESSION by the other tool). The error sentinel is now a named
+  constant rather than an inline literal.
+- PARTIAL emptiness stays evaluable on purpose: one input yielding no tokens
+  does not invalidate another that did. Refusing there would be the section 0
+  over-correction, and a tool that can only refuse is not an instrument. That
+  direction is asserted in the test and in the selftest, and mutation-tested.
+- Exit contract: CANNOT-EVALUATE is 2, and it OUTRANKS --require, which must
+  never be satisfied by a refusal. report() would also have raised KeyError on
+  the new verdict (its colour map was a bare [] lookup over three keys) and
+  would have printed "Identical on every input -- safe to retire" over it.
+- --work defaulted to /home/claude/work, the retired sandbox path; now
+  sec.DEFAULT_WORK. bd-equiv did not import bdtools_sec at all, so the
+  substitution alone would have been a NameError -- caught by RUNNING the tool,
+  which is the v3.66.851 lesson applied one cut later.
+- Consequence worth stating: any earlier retirement "proved" with bd-equiv's
+  default flags rests on a comparison of two empty sets and is unproven.
+- Three new negative controls in its own selftest, which previously had five
+  cases all built from well-formed fixtures -- none could reach the empty case
+  the real environment produces constantly. bd-mutate: 4 mutants, 4 caught.
+
 ## v3.66.851 - the band tools drove an interpreter without pytest
 
 - bd-band, bd-parband, bd-fullsuite and bd-retest all built their argv as

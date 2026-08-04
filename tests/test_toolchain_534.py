@@ -314,6 +314,73 @@ def test_the_tools_this_cut_added_are_wired_and_selftest_clean():
             % tool)
 
 
+def test_equiv_refuses_to_certify_over_an_empty_token_set():
+    """@852 -- bd-equiv licensed retirement on the strength of measuring nothing.
+
+    It is the tool that AUTHORIZES deleting another tool ("prove one tool can
+    safely REPLACE another, before you retire it"). Its verdict is derived by
+    diffing two token SETS, and when both sets came back empty -- because the
+    default --extract is a test-path regex and most tools emit no test paths --
+    every row was `equal: true` and the verdict was EQUAL at exit 0.
+
+    Measured at v3.66.851 on two tools that share nothing:
+        bd-equiv --old bd-capture-chaos --new bd-plugin-chaos --inputs $PWD
+        -> {"verdict":"EQUAL","old_count":0,"new_count":0}  exit 0
+
+    An empty denominator is CANNOT-EVALUATE, not agreement. The consequence is
+    not cosmetic: any retirement previously "proved" with default flags rests on
+    a comparison of two empty sets.
+    """
+    root = str(_REPO_ROOT)
+    tgt = os.path.join(root, "toolchain", "bin", "bd-equiv")
+
+    # BEHAVIOURAL RED FIRST, through the real CLI, so this test fails on the
+    # shipped defect rather than only on a symbol it introduces (section 2a:
+    # discriminate the exception you are hunting -- a missing grade() and a
+    # broken verdict are different failures and must not look alike).
+    r = subprocess.run(
+        [sys.executable, tgt, "--old", "bd-capture-chaos", "--new",
+         "bd-plugin-chaos", "--inputs", root, "--json", "--work", root],
+        cwd=root, capture_output=True, text=True, timeout=300)
+    assert r.returncode == 2, (
+        "comparing two unrelated tools whose token sets are both EMPTY exited "
+        "%d. Both sets empty is CANNOT-EVALUATE (2), not agreement:\n%s"
+        % (r.returncode, (r.stdout + r.stderr)[-600:]))
+
+    sys.path.insert(0, os.path.join(root, "toolchain", "bin"))
+    import importlib.util
+    import importlib.machinery
+    spec = importlib.util.spec_from_loader(
+        "_bd_equiv", importlib.machinery.SourceFileLoader("_bd_equiv", tgt))
+    eq = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(eq)
+
+    def rows(pairs):
+        return [{"input": "i%d" % i, "old_count": a, "new_count": b,
+                 "missing": [], "added": [], "equal": a == b}
+                for i, (a, b) in enumerate(pairs)]
+
+    assert hasattr(eq, "grade"), (
+        "bd-equiv has no grade() -- the verdict must be derivable from rows "
+        "alone so it can be asserted without spawning two subprocesses.")
+
+    # THE DEFECT: every row measured nothing.
+    assert eq.grade(rows([(0, 0), (0, 0)]), errored=False) == "CANNOT-EVALUATE", (
+        "two empty token sets graded as agreement. That is a licence to retire "
+        "a tool based on having measured nothing.")
+    # A tool that CRASHED must not yield a substantive verdict either.
+    assert eq.grade(rows([(3, 3)]), errored=True) == "CANNOT-EVALUATE", (
+        "a tool that errored still produced a verdict; its empty output would "
+        "read as agreement or as a regression, both of them artifacts.")
+    # OVER-SENSITIVITY: real, non-empty, agreeing measurements must still be
+    # EQUAL. A tool that can only ever say CANNOT-EVALUATE is the section 0
+    # over-correction and destroys the instrument.
+    assert eq.grade(rows([(5, 5)]), errored=False) == "EQUAL"
+    # partial emptiness is still evaluable -- one input yielding nothing does
+    # not invalidate an input that yielded tokens.
+    assert eq.grade(rows([(0, 0), (4, 4)]), errored=False) == "EQUAL"
+
+
 _RUNNERS = ("bd-band", "bd-parband", "bd-fullsuite", "bd-retest")
 
 
