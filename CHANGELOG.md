@@ -4,6 +4,45 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.865 - a reverted container reports a perfectly healthy tree
+
+MEASURED 2026-08-04: this session's container rebooted mid-session (uptime 2h29m
+against a session hours older) and came back on a base image dated 2026-07-28.
+Two things reverted with it and neither announced itself:
+
+  - the venv lost every package declared after the image was built. lxml and
+    cssselect were declared at v3.66.843 and simply vanished;
+    tools/check_requirements.py went from exit 0 to naming them missing.
+  - the git checkout reappeared at an old commit, three separate times. Once, a
+    source read against that stale tree produced a confidently WRONG conclusion
+    about a fix that was in fact present on main.
+
+That is CLAUDE.md section 0 wearing a hypervisor: the thing that would have
+told you is the thing that got reset.
+
+- .claude/hooks/session-start.sh is new -- a SessionStart hook that reinstates
+  the dependency floor and REPORTS checkout divergence. It repairs
+  dependencies, which is idempotent and safe; it never resets the work tree,
+  because the hook also fires on resume and compact where the checkout is
+  legitimately ahead of origin and mid-cut work is uncommitted.
+- The hook writes the five session env vars through $CLAUDE_ENV_FILE, so the
+  web panel's env box -- previously the only part of the setup that lived
+  nowhere in the repo, and which section 5 had to record in prose -- is now
+  under version control.
+- NOT done, and the reason is worth recording: an "environment" row was added
+  to bd-ready and then backed out. bd-ready is driven in its own tests against
+  a SYNTHETIC tree of stub members, and an inline check cannot be stubbed -- it
+  correctly reported that fake tree as "not a git checkout, no venv", turned
+  every all-green run UNKNOWN, and broke two tests whose whole subject is the
+  exit-0 path. The alternatives were worse: an env var to skip it is a gate you
+  can switch off, and rewriting those tests to expect a permanent UNKNOWN guts
+  what they assert. The hook already covers detection; a second home for the
+  same check needs a design that survives being stubbed.
+- The hook was caught being wrong by its own test before shipping: the first
+  draft returned early when the venv was absent, silently skipping the more
+  important divergence report. Both directions are now exercised -- a stale
+  worktree emits the warning, the current tree stays silent.
+
 ## v3.66.864 - bd-docstale read line 1 three times, not lines 1-3
 
 - The scan window was `"".join([next(open(f)) for _ in range(3)])`, which opens

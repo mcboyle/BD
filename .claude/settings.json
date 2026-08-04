@@ -5,5 +5,17 @@
       "Bash(venv/bin/python tools/decomp/import_graph_gate.py)",
       "Bash(venv/bin/python toolchain/bin/bd-guardcheck)"
     ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
+          }
+        ]
+      }
+    ]
   }
 }
