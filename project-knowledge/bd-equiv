@@ -39,6 +39,11 @@ import sys
 G, Y, R, C, DIM, RST = "\033[32m", "\033[33m", "\033[31m", "\033[36m", "\033[2m", "\033[0m"
 DEFAULT_EXTRACT = r"tests/[\w/]+\.py|test_[\w]+"
 BIN = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, BIN)
+import bdtools_sec as sec  # noqa: E402
+
+
+ERROR_SENTINEL = "__BD_EQUIV_ERROR__"   # @852: a crash is not agreement
 
 
 def _resolve(tool):
@@ -60,7 +65,7 @@ def run_tool(tool, arg, work, timeout=180):
                             capture_output=True, text=True, timeout=timeout, cwd=work)
         return (cp.stdout or "") + (cp.stderr or "")
     except Exception as e:
-        return "__BD_EQUIV_ERROR__ %s" % e
+        return "%s %s" % (ERROR_SENTINEL, e)
 
 
 def _canon(t):
@@ -80,11 +85,48 @@ def tokens(out, extract):
     return {_canon(t) for t in re.findall(extract, out or "") if t.strip()}
 
 
+def grade(rows, errored):
+    """The verdict, derived from rows alone so it can be asserted directly.
+
+    @852. EQUAL used to be the else-branch, which meant "nothing disagreed" --
+    and two EMPTY token sets do not disagree. The default --extract is a
+    test-path regex and most tools emit no test paths, so `bd-equiv --old X
+    --new Y` on unrelated tools returned EQUAL / old_count 0 / new_count 0 at
+    exit 0: a licence to RETIRE a tool, derived from measuring nothing. This is
+    the tool that authorizes deletion, so that verdict was the most expensive
+    false clean in the suite.
+
+    Two guards, and both are needed:
+      - every row measured nothing  -> CANNOT-EVALUATE (empty denominator)
+      - either tool CRASHED         -> CANNOT-EVALUATE (its silence is not
+                                       agreement, and would otherwise read as
+                                       EQUAL or as a REGRESSION by the other)
+    PARTIAL emptiness stays evaluable: one input yielding no tokens does not
+    invalidate another that did. Grading that CANNOT-EVALUATE would be the
+    section 0 over-correction -- a tool that can only refuse is not an
+    instrument.
+    """
+    if errored:
+        return "CANNOT-EVALUATE"
+    if rows and all(r["old_count"] == 0 and r["new_count"] == 0 for r in rows):
+        return "CANNOT-EVALUATE"
+    if any(r["missing"] for r in rows):
+        return "REGRESSION"
+    if any(r["added"] for r in rows):
+        return "SUPERSET"
+    return "EQUAL"
+
+
 def compare(old, new, inputs, work, extract, timeout=180):
     rows = []
+    errored = False
     for inp in inputs:
-        a = tokens(run_tool(old, inp, work, timeout), extract)
-        b = tokens(run_tool(new, inp, work, timeout), extract)
+        raw_a = run_tool(old, inp, work, timeout)
+        raw_b = run_tool(new, inp, work, timeout)
+        if ERROR_SENTINEL in raw_a or ERROR_SENTINEL in raw_b:
+            errored = True
+        a = tokens(raw_a, extract)
+        b = tokens(raw_b, extract)
         rows.append({
             "input": inp,
             "old_count": len(a),
@@ -93,15 +135,10 @@ def compare(old, new, inputs, work, extract, timeout=180):
             "added": sorted(b - a),        # new says more -> superset
             "equal": a == b,
         })
-    any_missing = any(r["missing"] for r in rows)
-    any_added = any(r["added"] for r in rows)
-    if any_missing:
-        verdict = "REGRESSION"
-    elif any_added:
-        verdict = "SUPERSET"
-    else:
-        verdict = "EQUAL"
+    verdict = grade(rows, errored)
     return {"verdict": verdict, "inputs": len(inputs), "rows": rows,
+            "errored": errored,
+            "tokens_seen": sum(r["old_count"] + r["new_count"] for r in rows),
             "regressions": sum(len(r["missing"]) for r in rows),
             "additions": sum(len(r["added"]) for r in rows)}
 
@@ -111,7 +148,8 @@ def report(res, old, new, require, as_json):
         print(json.dumps(res, indent=1))
     else:
         v = res["verdict"]
-        color = {"EQUAL": G, "SUPERSET": Y, "REGRESSION": R}[v]
+        color = {"EQUAL": G, "SUPERSET": Y, "REGRESSION": R,
+                 "CANNOT-EVALUATE": R}.get(v, R)
         print("%sbd-equiv%s  old=%s  new=%s  over %d input(s)"
               % (C, RST, old, new, res["inputs"]))
         for r in res["rows"]:
@@ -135,9 +173,18 @@ def report(res, old, new, require, as_json):
             print("  %sSafe to retire IF 'more' is safe for this output.%s For a TEST BAND"
                   % (G, RST))
             print("  it is: an extra suite costs seconds; a missing one costs a release.")
+        elif v == "CANNOT-EVALUATE":
+            why = ("a tool ERRORED" if res.get("errored")
+                   else "every input yielded ZERO tokens from BOTH tools")
+            print("  %sNO VERDICT -- %s.%s This is not agreement: an empty"
+                  % (R, why, RST))
+            print("  comparison cannot license a retirement. Give --extract a regex")
+            print("  that actually matches these tools' output, or pick real inputs.")
         else:
             print("  %sIdentical on every input -- safe to retire.%s" % (G, RST))
 
+    if res["verdict"] == "CANNOT-EVALUATE":
+        return 2          # no verdict minted; not a softer 3, and not a 0
     if require == "equal" and res["verdict"] != "EQUAL":
         return 3
     if require == "superset" and res["verdict"] == "REGRESSION":
@@ -196,6 +243,33 @@ def selftest():
           "  NEG: a regression EXITS 3 under --require superset (blocks retirement)")
     ok = ok and rc == 3
 
+    # @852 -- the empty-denominator controls. These are the ones that were
+    # missing: every fixture above is well-formed, so none of them could ever
+    # reach the case the real environment produces constantly (a default
+    # --extract that matches nothing in these tools' output).
+    def _rows(pairs):
+        return [{"input": "i%d" % i, "old_count": a, "new_count": b,
+                 "missing": [], "added": [], "equal": a == b}
+                for i, (a, b) in enumerate(pairs)]
+
+    e1 = grade(_rows([(0, 0), (0, 0)]), errored=False) == "CANNOT-EVALUATE"
+    print(("PASS" if e1 else "FAIL")
+          + "  NEG: BOTH token sets empty on every input -> CANNOT-EVALUATE "
+            "(an empty comparison cannot licence a retirement)")
+    ok = ok and e1
+
+    e2 = grade(_rows([(3, 3)]), errored=True) == "CANNOT-EVALUATE"
+    print(("PASS" if e2 else "FAIL")
+          + "  NEG: a tool that ERRORED -> CANNOT-EVALUATE (a crash is not agreement)")
+    ok = ok and e2
+
+    e3 = (grade(_rows([(5, 5)]), errored=False) == "EQUAL"
+          and grade(_rows([(0, 0), (4, 4)]), errored=False) == "EQUAL")
+    print(("PASS" if e3 else "FAIL")
+          + "  POS: real agreeing tokens still EQUAL, and PARTIAL emptiness stays "
+            "evaluable (a tool that can only refuse is not an instrument)")
+    ok = ok and e3
+
     import shutil
     shutil.rmtree(d, ignore_errors=True)
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
@@ -213,7 +287,7 @@ def main():
                     help="regex for the tokens that must agree")
     ap.add_argument("--require", choices=["equal", "superset"],
                     help="exit 3 unless the verdict meets this bar")
-    ap.add_argument("--work", "--tree", default="/home/claude/work")
+    ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
