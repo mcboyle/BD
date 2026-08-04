@@ -196,3 +196,12 @@ jobs:
             tests/test_release_hygiene_gates.py \
             tests/test_scan_version_pins_fixture.py \
             tests/test_gui_parity.py
+
+      # Staleness is not caught by any test above: a doc can cite a file that no
+      # longer exists, or a register can name a commit this branch never had,
+      # while every gate stays green. --repo-only is the set that reads tracked
+      # content only, so it means the same thing here as on the box; the full
+      # run also checks a gitignored per-machine provisioning report that does
+      # not exist in CI, and gating on that would be UNKNOWN forever.
+      - name: Docs and register must not be stale
+        run: python toolchain/bin/bd-freshcheck --repo-only

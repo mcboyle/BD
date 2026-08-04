@@ -1,0 +1,301 @@
+#!/usr/bin/env python3
+"""bd-freshcheck -- the one command that asks "has anything gone stale?"
+
+WHAT THIS CAN AND CANNOT DO, first, because the honest boundary is the whole
+value. Staleness is not one problem:
+
+  MECHANICALLY CHECKABLE (this tool)   a version claim that disagrees with
+      __version__; a file:line anchor whose file is gone or whose line is past
+      the end; a session-close section naming a tip that is not HEAD; a
+      provisioning report written against another tree.
+  NOT CHECKABLE BY ANY TOOL            whether line 1167 still SAYS what the
+      doc claims it says; whether "the second hanger is unidentified" is still
+      true; whether a paragraph's reasoning still holds. Those need a reader.
+
+So this does not make the repo un-stale. It makes the DERIVABLE half of
+staleness fail loudly, which is the half that has actually bitten: an env report
+thirty releases old whose own header told the reader to trust it, and a
+session-close section naming a tip one commit behind because it was written
+before its own merge.
+
+WHY AN AGGREGATOR AND NOT A NEW DETECTOR. bd-doc-truth, bd-factcheck,
+bd-freshest, bd-kb-conflict and bd-decision-memory already existed -- and every
+one of them was PROSE-ONLY, described somewhere and invoked by nothing, for
+long enough that the staleness they detect shipped anyway. A checker nobody runs
+is a checker that does not exist. The scarce thing was never the detector; it
+was one entry point that runs them and one test that runs it.
+
+  bd-freshcheck                 # everything, human-readable
+  bd-freshcheck --json
+  bd-freshcheck --selftest
+
+EXIT CODES. 0 = every check ran and passed. 1 = something is STALE. 2 = a check
+could not RUN, so the answer is UNKNOWN -- and 2 is not a softer 1. A freshness
+tool that reports clean because it could not see its subject is the exact defect
+it exists to catch (CLAUDE.md section 0).
+"""
+from __future__ import annotations
+
+import argparse
+import collections
+import json
+import pathlib
+import re
+import subprocess
+import sys
+
+OK, STALE, UNKNOWN = "OK", "STALE", "UNKNOWN"
+
+# Docs whose claims are load-bearing enough to gate on.
+_DOCS = ("CLAUDE.md", "project-knowledge/SESSION_CARRY.md")
+
+_ANCHOR = re.compile(r'\b([A-Za-z0-9_./-]+\.(?:py|sh|json|md|txt|yml))[:](\d+)(?:-(\d+))?\b')
+
+
+def _run(cmd, root):
+    try:
+        r = subprocess.run(cmd, cwd=str(root), capture_output=True, text=True, timeout=180)
+        return r.returncode, (r.stdout + r.stderr)
+    except Exception as e:
+        return None, str(e)
+
+
+def check_anchors(root: pathlib.Path) -> dict:
+    """Every `file.py:123` in the gating docs must resolve and be in range.
+
+    THE PREDICATE IS THE HARD PART, and the first draft got it wrong in the
+    direction that would have killed the tool: it treated `bw_chart.py:38` as a
+    repo-root-relative path, and reported 81 of 143 anchors BROKEN when all 143
+    were fine -- every one a bare basename living under bulk_downloader/ or
+    tools/. A gate that cries wolf on 57% of its subject gets switched off in a
+    day, which CLAUDE.md section 0 counts as a soundness bug equal to a false
+    clean. Bare basenames are resolved against the tracked tree, and a basename
+    matching MORE than one tracked file is reported AMBIGUOUS rather than
+    guessed at.
+
+    What this canNOT check: whether line 123 still says what the doc claims.
+    In-range is necessary, not sufficient.
+    """
+    rc, out = _run(["git", "ls-files", "-z"], root)
+    if rc != 0:
+        return {"name": "doc file:line anchors", "status": UNKNOWN,
+                "detail": "git ls-files failed; the denominator is unknown"}
+    tracked = [f for f in out.split("\0") if f]
+    if len(tracked) < 100:
+        return {"name": "doc file:line anchors", "status": UNKNOWN,
+                "detail": f"git ls-files returned {len(tracked)} files -- denominator collapsed"}
+    by_base = collections.defaultdict(list)
+    for f in tracked:
+        by_base[pathlib.PurePosixPath(f).name].append(f)
+    tset = set(tracked)
+
+    total = ok = ambiguous = 0
+    broken = []
+    for d in _DOCS:
+        p = root / d
+        if not p.is_file():
+            return {"name": "doc file:line anchors", "status": UNKNOWN,
+                    "detail": f"{d} is missing -- cannot check its claims"}
+        for m in _ANCHOR.finditer(p.read_text(encoding="utf-8", errors="replace")):
+            rel, lo, hi = m.group(1), int(m.group(2)), m.group(3)
+            total += 1
+            cands = [rel] if rel in tset else by_base.get(pathlib.PurePosixPath(rel).name, [])
+            if not cands:
+                broken.append(f"{d}: {rel}:{lo} -- no tracked file of that name")
+                continue
+            if len(cands) > 1:
+                ambiguous += 1        # cannot judge; not counted as broken
+                continue
+            n = len((root / cands[0]).read_text(encoding="utf-8", errors="replace").splitlines())
+            top = int(hi) if hi else lo
+            if top > n:
+                broken.append(f"{d}: {rel}:{top} -- past end of {cands[0]} ({n} lines)")
+                continue
+            ok += 1
+    if total == 0:
+        return {"name": "doc file:line anchors", "status": UNKNOWN,
+                "detail": "found ZERO anchors -- the check saw nothing, which is "
+                          "not the same as finding nothing wrong"}
+    return {"name": "doc file:line anchors",
+            "status": STALE if broken else OK,
+            "detail": f"{ok}/{total} resolve and are in range"
+                      + (f", {ambiguous} ambiguous basename(s) not judged" if ambiguous else "")
+                      + ("; BROKEN: " + "; ".join(broken[:6]) if broken else "")}
+
+
+def check_session_close_tip(root: pathlib.Path) -> dict:
+    """The newest `### 15.N | ... close ... at <sha>` must name the current HEAD.
+
+    MEASURED at v3.66.849: a session-close section read "close at 939a37d" while
+    HEAD was 030f16a, because it was written before the commit carrying it
+    merged. A close section names the tip it closes AT, so it is only ever
+    correct if written or corrected after its own merge -- and nothing catches
+    that but a check like this one.
+    """
+    reg = root / "project-knowledge" / "SESSION_CARRY.md"
+    if not reg.is_file():
+        return {"name": "register close tip", "status": UNKNOWN,
+                "detail": "SESSION_CARRY.md is missing"}
+    heads = re.findall(r"^### (\d+\.\d+) \|([^\n]*)$", reg.read_text(encoding="utf-8"), re.M)
+    closes = [(n, t) for n, t in heads if re.search(r"\bclose\b", t, re.I)]
+    if not closes:
+        return {"name": "register close tip", "status": UNKNOWN,
+                "detail": "no section title contains 'close' -- nothing to check"}
+    num, title = closes[-1]
+    m = re.search(r"\bat ([0-9a-f]{7,40})\b", title)
+    if not m:
+        return {"name": "register close tip", "status": UNKNOWN,
+                "detail": f"section {num} is a close section but names no commit"}
+    claimed = m.group(1)
+    rc, head = _run(["git", "rev-parse", "HEAD"], root)
+    if rc != 0:
+        return {"name": "register close tip", "status": UNKNOWN, "detail": "git rev-parse failed"}
+    head = head.strip()
+
+    # THE PREDICATE IS ANCESTRY, NOT IDENTITY, and the difference decides
+    # whether this gate survives contact with a working repo.
+    #
+    # The obvious check -- "the named commit must BE HEAD" -- catches the bug
+    # that motivated this (a close section written before its own merge, naming
+    # a tip one behind). But it goes STALE on the very next commit, because a
+    # close section legitimately names the tip AT CLOSE TIME and work continues
+    # after it. Wired into a test, that is red on every subsequent cut forever,
+    # and a gate that cries wolf gets switched off (CLAUDE.md section 0 counts
+    # over-sensitivity as a soundness bug equal to a false clean).
+    #
+    # So the GATED condition is the one that is always wrong when violated: the
+    # named commit must exist and be an ANCESTOR of HEAD. That catches a typo,
+    # a commit from an abandoned branch, and a sha invented from memory. Whether
+    # it is also the current tip is reported as DETAIL for a human, not gated
+    # on -- which is honest about the fact that only a reader can tell "written
+    # one commit early" from "three cuts have landed since".
+    rc2, _ = _run(["git", "merge-base", "--is-ancestor", claimed, "HEAD"], root)
+    if rc2 is None:
+        return {"name": "register close tip", "status": UNKNOWN,
+                "detail": f"could not test whether {claimed} is in this history"}
+    if rc2 != 0:
+        return {"name": "register close tip", "status": STALE,
+                "detail": f"{num} says 'close at {claimed}', which is NOT an ancestor "
+                          f"of HEAD ({head[:12]}) -- it names a commit this branch "
+                          f"does not contain"}
+    at_tip = head.startswith(claimed)
+    return {"name": "register close tip", "status": OK,
+            "detail": f"{num} names {claimed}, in history"
+                      + (" and at the tip" if at_tip
+                         else f"; HEAD has moved to {head[:12]} since (normal after "
+                              f"further cuts -- only a reader can tell that from a "
+                              f"section written one commit early)")}
+
+
+def check_delegate(root: pathlib.Path, tool: str, label: str) -> dict:
+    """Run a sibling detector. Its ABSENCE is UNKNOWN, never OK."""
+    p = root / "toolchain" / "bin" / tool
+    if not p.is_file():
+        return {"name": label, "status": UNKNOWN, "detail": f"{tool} not present"}
+    rc, out = _run([sys.executable, str(p)], root)
+    if rc is None:
+        return {"name": label, "status": UNKNOWN, "detail": out[:200]}
+    tail = " / ".join(l.strip() for l in out.strip().splitlines()[-2:] if l.strip())
+    if rc == 0:
+        return {"name": label, "status": OK, "detail": tail[:220]}
+    if rc == 2:
+        return {"name": label, "status": UNKNOWN, "detail": tail[:220]}
+    return {"name": label, "status": STALE, "detail": tail[:220]}
+
+
+# TWO POPULATIONS, and conflating them would kill the gate.
+#
+# REPO-DERIVABLE checks read only tracked content, so they mean the same thing
+# in a container, in CI and on the box -- those are the ones a test can gate on.
+# ENVIRONMENT-LOCAL checks read a gitignored artifact of one machine's
+# provisioning run; in CI that file does not exist at all, so the check would
+# return UNKNOWN on every run forever and the gate would be switched off inside
+# a week. A check whose subject is absent from the place it runs is CLAUDE.md
+# section 0 wearing a scheduler.
+def run_all(root: pathlib.Path, repo_only: bool = False) -> list[dict]:
+    rows = [
+        check_anchors(root),
+        check_session_close_tip(root),
+        check_delegate(root, "bd-doc-truth", "doc claims vs source (bd-doc-truth)"),
+    ]
+    if not repo_only:
+        rows.append(check_delegate(root, "bd-env-report-check",
+                                   "provisioning report freshness [environment-local]"))
+    return rows
+
+
+def _selftest(root: pathlib.Path) -> int:
+    import tempfile, os
+    ok = True
+
+    # An empty docs set must be UNKNOWN, never OK.
+    with tempfile.TemporaryDirectory() as td:
+        t = pathlib.Path(td)
+        subprocess.run(["git", "init", "-q", "."], cwd=td)
+        r = check_anchors(t)
+        good = r["status"] == UNKNOWN
+        ok &= good
+        print(("PASS" if good else "FAIL")
+              + f"  an empty tree is UNKNOWN, not OK (got {r['status']})")
+
+    # A missing delegate is UNKNOWN, never OK.
+    with tempfile.TemporaryDirectory() as td:
+        r = check_delegate(pathlib.Path(td), "bd-nonexistent", "absent tool")
+        good = r["status"] == UNKNOWN
+        ok &= good
+        print(("PASS" if good else "FAIL")
+              + f"  a missing detector is UNKNOWN, not OK (got {r['status']})")
+
+    # The real tree's anchors resolve, and the count is non-zero.
+    r = check_anchors(root)
+    good = r["status"] == OK and "/0 " not in r["detail"]
+    ok &= good
+    print(("PASS" if good else "FAIL") + f"  live anchors: {r['status']} -- {r['detail'][:70]}")
+
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return 0 if ok else 1
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="bd-freshcheck")
+    ap.add_argument("--root", default=".")
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--repo-only", action="store_true",
+                    help="only checks that read tracked content -- the set a test "
+                         "or CI can gate on, since they mean the same thing "
+                         "everywhere. Excludes the provisioning-report check, "
+                         "whose subject is a gitignored per-machine artifact.")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    root = pathlib.Path(a.root).resolve()
+
+    if a.selftest:
+        return _selftest(root)
+
+    rows = run_all(root, repo_only=a.repo_only)
+    if a.json:
+        print(json.dumps(rows, indent=1))
+    else:
+        for r in rows:
+            print(f"  {r['status']:8} {r['name']}")
+            if r.get("detail"):
+                print(f"           {r['detail']}")
+    stale = [r for r in rows if r["status"] == STALE]
+    unk = [r for r in rows if r["status"] == UNKNOWN]
+    if not a.json:
+        print()
+        if stale:
+            print(f"{len(stale)} STALE. Fix the claim or re-derive it; a document read as "
+                  f"authority has to be true.")
+        elif unk:
+            print(f"{len(unk)} check(s) could not RUN. That is UNKNOWN, not clean -- "
+                  f"exit 2 so it cannot be mistaken for a pass.")
+        else:
+            print("all checks ran and passed. NOTE: this covers the DERIVABLE half of "
+                  "staleness only -- whether a cited line still SAYS what the doc "
+                  "claims needs a reader.")
+    return 1 if stale else (2 if unk else 0)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -302,6 +302,23 @@ own guard tests** until someone noticed. `git add <explicit paths>`, always,
 and check `git status` first. One agent avoided this correctly by staging a
 blob derived from `git show HEAD:CHANGELOG.md` rather than adding the file.
 
+**`git fetch --prune` does NOT delete the LOCAL branch.** After a squash merge
+the remote branch is auto-deleted and the prune collects the remote ref -- but a
+local branch of the same name survives, still pointing at the PRE-SQUASH commit.
+Push it and you re-open the merged work as a new PR: measured at v3.66.849,
+where a stale local branch was pushed instead of the session's actual commit,
+GitHub diffed it against its merge base, and the resulting PR (#146) was a
+byte-for-byte duplicate of the one that had just merged. Delete the local branch
+in the same breath as the prune:
+
+```bash
+git fetch --prune origin && git checkout -B main origin/main
+git branch -D <the merged topic branch>
+```
+
+Nothing in the repo catches this -- the stop hook's "unpushed commit on main"
+did. And the repair is section 7's two-dot diff, not `--force` alone.
+
 **A finding is about a commit. Say which one.** Four bands, three mutation
 batteries and five review lenses in that session each measured a different tip,
 because the tree moved while they ran. A report that does not name its commit
@@ -1050,6 +1067,7 @@ asks you to answer:
 | is `.claude-env-report.md` current? | `bd-env-report-check` (section 7) |
 | do my tests actually constrain the code? | `bd-mutate` (section 6) |
 | is this band list about to trip a footgun? | `bd-bandcheck` |
+| has any doc or register claim gone stale? | `bd-freshcheck` |
 
 Do not treat that as the list — it is the four this document already depends
 on. `ls toolchain/bin/ | grep <topic>` before writing a script, every time.
