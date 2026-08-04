@@ -47,7 +47,10 @@ import os
 import re
 import sys
 
-WORK = os.environ.get("BD_WORK", "/home/claude/work")
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
+WORK = os.environ.get("BD_WORK", sec.DEFAULT_WORK)
 G, R, Y, DIM, BOLD, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[1m", "\033[0m"
 
 MUTATORS = ("apiPost", "apiPut", "apiPatch", "apiDelete")
@@ -370,6 +373,12 @@ def main():
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--all", action="store_true", help="show OK + UNKNOWN too")
     a = ap.parse_args()
+
+    sec.require_source_tree(a.work)
+    fe_dir = os.path.join(a.work, "frontend", "src")
+    if not os.path.isdir(fe_dir):
+        print(f"CANNOT-EVALUATE: no frontend/src under --work {a.work}", file=sys.stderr)
+        return sec.EXIT_CANNOT_EVALUATE
 
     calls = fe_calls(a.work)
     res = probe(a.work, calls)

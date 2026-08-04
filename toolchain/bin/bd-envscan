@@ -20,9 +20,12 @@ open env_vars exist in --tree (so it can gate a pre-cut hook if wired to $?).
 """
 import argparse, os, sys, importlib
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
 
 def _load_csi(tree):
-    for e in (os.path.join(tree, "tools"), tree, "/tmp/prestaged_site_packages"):
+    for e in (os.path.join(tree, "tools"), tree):
         if e not in sys.path:
             sys.path.insert(0, e)
     importlib.invalidate_caches()
@@ -48,7 +51,7 @@ def _src(item):
 def _selftest():
     # negative + positive controls on the DELEGATE (csi._open_settings), the logic
     # v2 relies on -- no full synthetic tree needed.
-    tree = os.environ.get("BD_SELFTEST_TREE", "/home/claude/work")
+    tree = os.environ.get("BD_SELFTEST_TREE", sec.DEFAULT_WORK)
     try:
         csi = _load_csi(tree)
     except Exception as e:
@@ -82,7 +85,7 @@ def _selftest():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tree", "--work", default="/home/claude/work")
+    ap.add_argument("--tree", "--work", default=sec.DEFAULT_WORK)
     ap.add_argument("--baseline-tree", default=None)
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--selftest", action="store_true")

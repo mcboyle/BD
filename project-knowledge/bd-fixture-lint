@@ -44,7 +44,12 @@ import bdtools_sec as sec  # noqa: E402
 
 G, Y, R, DIM, RST = "\033[32m", "\033[33m", "\033[31m", "\033[2m", "\033[0m"
 
-DEFAULT_CORPUS = "/home/claude/verification/corpus"
+# Mirrors bd-defect-scan's own corpus resolution: the regression corpus lives
+# beside toolchain/bin, not under the retired sandbox home. Neither exists in
+# this checkout today -- require_corpus() below reports that honestly as
+# CANNOT-EVALUATE rather than minting a verdict over nothing.
+_here = os.path.dirname(os.path.realpath(__file__))
+DEFAULT_CORPUS = os.path.join(_here, "..", "regression_corpus")
 FIXTURE_RE = re.compile(r"^(DP-\d+)_(vuln|fixed)\.py$")
 
 # Below this, "fixed" and "vuln" are not the same file with a fix applied --

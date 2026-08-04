@@ -232,7 +232,6 @@ REGISTRY = [
 
 def _run(cmd, cwd, timeout=900):
     env = dict(os.environ)
-    env.setdefault("PYTHONPATH", "/tmp/prestaged_site_packages")
     env.setdefault("BD_DISABLE_KEEPALIVE", "1")
     env["BD_HOME"] = tempfile.mkdtemp()
     try:

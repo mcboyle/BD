@@ -26,6 +26,8 @@ A file with CONTROLS and READS but no MUTATING call is the interesting case: it 
 you the state and cannot change it.
 
 Read-only. ASCII. --json. --selftest.
+Exit 0 normally; 2 CANNOT-EVALUATE if frontend/src/routes is not reachable
+under --work (an absent tree must not read as "every surface is fine").
 """
 import argparse
 import json
@@ -33,9 +35,12 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
 G, R, Y, DIM, BOLD, RST = ("\033[32m", "\033[31m", "\033[33m",
                            "\033[2m", "\033[1m", "\033[0m")
-WORK = "/home/claude/work"
+WORK = sec.DEFAULT_WORK
 
 # A mutation is not always a literal apiPost at the call site: most routes go through
 # useMutation({mutationFn: () => login(...)}) where the wrapper (login/createUser/...)
@@ -156,6 +161,18 @@ def main():
     a = ap.parse_args()
     if a.selftest:
         return selftest()
+
+    routes_dir = os.path.join(a.work, "frontend", "src", "routes")
+    if not os.path.isdir(routes_dir):
+        # s0: an absent/wrong --work must not read as "every control surface
+        # reaches a mutating endpoint" -- that is what scan() returning []
+        # silently produced (0 surfaces printed as a clean verdict).
+        msg = "CANNOT-EVALUATE -- no such dir: %s" % routes_dir
+        if a.json:
+            print(json.dumps({"error": "CANNOT_EVALUATE", "reason": msg}, indent=2))
+        else:
+            print(msg)
+        return sec.EXIT_CANNOT_EVALUATE
 
     rows = scan(a.work)
     d = dead(rows)

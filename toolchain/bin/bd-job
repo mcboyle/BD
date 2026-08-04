@@ -23,9 +23,9 @@ process-group id), log, and rc (written by the wrapper on exit). Because the chi
 is its own session leader, it is NOT in bash_tool's process group and is not reaped
 when the call returns. `kill` targets the whole group so children die too.
 
-State root: $BD_JOB_DIR or /home/claude/.bd_jobs (persists within a session; the
-sandbox fs resets between sessions, which is correct -- a job cannot outlive its
-sandbox).
+State root: $BD_JOB_DIR or <system tempdir>/.bd_jobs (persists within a session;
+a tempdir resets with the host, which is correct -- a job cannot outlive its
+session).
 
 Exit: 0 ok | 2 the tool itself broke | 3 policy (e.g. wait timed out, job failed).
 """
@@ -40,7 +40,8 @@ import time
 
 G, R, Y, C, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[36m", "\033[2m", "\033[0m"
 
-ROOT = os.environ.get("BD_JOB_DIR", "/home/claude/.bd_jobs")
+import tempfile
+ROOT = os.environ.get("BD_JOB_DIR", os.path.join(tempfile.gettempdir(), ".bd_jobs"))
 
 
 def jdir(name):

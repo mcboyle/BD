@@ -37,11 +37,31 @@ GUARD_FILES = [
 ]
 
 
+def _guards_from_manifest(work):
+    """guards.json (CLAUDE.md section 2) is now the single source of truth for
+    the 7 guard-file pins -- STATE.json, which sec.load_state()/home look for,
+    is a retired sandbox session-bundle artifact this git checkout never
+    produces. bd-guardcheck already reads guards.json first and STATE.json
+    only as a fallback; mirror that order here rather than staying permanently
+    CANNOT-EVALUATE on a source that no longer exists in this world."""
+    p = os.path.join(work, "guards.json")
+    try:
+        doc = __import__("json").load(open(p))
+    except Exception:
+        return None
+    guards = doc.get("guards")
+    if not isinstance(guards, dict) or not guards:
+        return None
+    return guards
+
+
 def inv_guard_unchanged(work, home):
-    st = sec.load_state(home)
-    if not st:
-        return (None, "no STATE.json")
-    want = sec.state_guard_shas(st)
+    want = _guards_from_manifest(work)
+    if want is None:
+        st = sec.load_state(home)
+        if not st:
+            return (None, "no guards.json in %s and no STATE.json in %s" % (work, home))
+        want = sec.state_guard_shas(st)
     mismatches = []
     for rel, sha in want.items():
         p = os.path.join(work, rel)
@@ -55,12 +75,21 @@ def inv_guard_unchanged(work, home):
 
 
 def inv_version_honest(work, home):
-    st = sec.load_state(home)
-    ver = (st or {}).get("built_version") or (st or {}).get("live_version")
+    # CLAUDE.md section 3: a version bump is three edits together --
+    # __init__.py, the test pin (tests/test_settings_center_slice4.py), and
+    # CHANGELOG.md's top header. STATE.json's built_version/live_version was
+    # the sandbox's fourth comparand; it is retired and this git checkout
+    # never produces one, so anchoring on it left this invariant permanently
+    # CANNOT-EVALUATE here. The three in-repo comparands are the real,
+    # currently-authoritative ones -- ported to compare those instead.
     initp = os.path.join(work, "bulk_downloader", "__init__.py")
     m = re.search(r'__version__\s*=\s*["\']([^"\']+)', open(initp).read()) \
         if os.path.exists(initp) else None
     code_ver = m.group(1) if m else None
+    pinp = os.path.join(work, "tests", "test_settings_center_slice4.py")
+    pm = re.search(r'__version__\s*==\s*["\']([^"\']+)', open(pinp).read()) \
+        if os.path.exists(pinp) else None
+    pin_ver = pm.group(1) if pm else None
     chlog = os.path.join(work, "CHANGELOG.md")
     ctop = None
     if os.path.exists(chlog):
@@ -71,11 +100,11 @@ def inv_version_honest(work, home):
     # equality that held because nothing was there to disagree. An invariant needs
     # an EXISTENCE PREDICATE: absent comparands are CANNOT-EVALUATE (None), never
     # agreement. Vacuous truth is the most confident kind.
-    if code_ver is None or ver is None:
-        return (None, "CANNOT-EVALUATE: comparand absent (code=%s state=%s changelog=%s)"
-                % (code_ver, ver, ctop))
-    agree = code_ver == ver and (ctop is None or ctop == ver)
-    return (agree, f"code={code_ver} state={ver} changelog={ctop}")
+    if code_ver is None or pin_ver is None:
+        return (None, "CANNOT-EVALUATE: comparand absent (code=%s pin=%s changelog=%s)"
+                % (code_ver, pin_ver, ctop))
+    agree = code_ver == pin_ver and (ctop is None or ctop == pin_ver)
+    return (agree, f"code={code_ver} test_pin={pin_ver} changelog={ctop}")
 
 
 def inv_tree_parses(work, home):
@@ -138,7 +167,7 @@ def run(work, home, only):
 
 def selftest():
     ok = True
-    res = run(sec.DEFAULT_WORK, "/home/claude", None)
+    res = run(sec.DEFAULT_WORK, sec.DEFAULT_WORK, None)
     print(f"  {DIM}invariants: {len(res)}{RST}")
     # on a pristine tree, GUARD/VERSION/TREE/EGRESS must hold
     must = {"GUARD-UNCHANGED", "VERSION-HONEST", "TREE-PARSES", "NO-BANNED-EGRESS"}
@@ -156,7 +185,9 @@ def selftest():
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
-    ap.add_argument("--home", default="/home/claude")
+    ap.add_argument("--home", default=sec.DEFAULT_WORK,
+                    help="legacy STATE.json bundle root (fallback only -- "
+                         "GUARD-UNCHANGED now reads --work/guards.json first)")
     ap.add_argument("--only", default=None)
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--selftest", action="store_true")
@@ -164,7 +195,14 @@ def main():
     if a.selftest:
         return selftest()
     sec.require_source_tree(a.work)
-    sec.require_bundle(a.home)
+    # require_bundle() demands a release-zip bundle in --home (BUNDLE_MARKERS:
+    # BulkDownloader_*.zip / BulkDL_next_session_*.zip / STATE.json) -- the
+    # retired zip world (CLAUDE.md s7). No invariant below needs that bundle
+    # any more: GUARD-UNCHANGED reads --work/guards.json first, VERSION-HONEST
+    # reads the in-repo test pin, and the rest never touched --home. Gating
+    # the WHOLE engine on an artifact nothing here needs is the over-sensitive
+    # twin of a blind gate -- it would report CANNOT-EVALUATE on a fully
+    # evaluable tree. Dropped; --home is now a fallback only (see load_state).
     res = run(a.work, a.home, a.only)
     # TRI-STATE (B-15). holds is True / False / None, and None is not False:
     # "this invariant is broken" and "I could not evaluate this invariant" are

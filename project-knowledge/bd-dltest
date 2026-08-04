@@ -31,7 +31,8 @@ Usage:
   bd-dltest --max-seconds N            HLS/DASH slice length (default 8)
   bd-dltest --out <dir>                where to write downloaded files (default /tmp/bd_dltest)
 Exit 0 if every attempted download verified; 1 on an off-allowlist URL, a failed
-download, or an ffprobe-invalid output.
+download, or an ffprobe-invalid output; 2 (CANNOT-EVALUATE) if no
+bulk_downloader tree can be found (nothing was exercised at all).
 """
 import argparse
 import os
@@ -41,6 +42,9 @@ import sys
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
 
 G, R, Y, B, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[34m", "\033[2m", "\033[0m"
 
@@ -207,11 +211,14 @@ def do_url(url, out_dir, max_seconds):
 
 
 def _ensure_tree_on_path():
-    for base in (Path("/home/claude/work"), Path.cwd()):
+    for base in (Path(sec.DEFAULT_WORK), Path.cwd()):
         if (base / "bulk_downloader" / "__init__.py").is_file():
             sys.path.insert(0, str(base))
             return base
-    raise SystemExit(f"{R}cannot find the bulk_downloader tree{RST}")
+    # no tree found: nothing was downloaded or verified -- CANNOT-EVALUATE,
+    # not a download failure (CLAUDE.md s0).
+    print(f"{R}cannot find the bulk_downloader tree{RST}", file=sys.stderr)
+    raise SystemExit(sec.EXIT_CANNOT_EVALUATE)
 
 
 def selftest():

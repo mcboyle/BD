@@ -11,6 +11,8 @@ Usage:
 Exit 0 route(s) found / 1 no route source in tree / 2 usage error. Informational lookup.
 """
 import argparse, json, os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
 
 def load_routes(tree):
     """Return list of (path, owner, methods) from the best available url_map source."""
@@ -64,7 +66,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("path", nargs="?")
     ap.add_argument("--grep", default=None)
-    ap.add_argument("--tree","--work", default="/home/claude/work")
+    ap.add_argument("--tree","--work", default=sec.DEFAULT_WORK)
     a = ap.parse_args()
     rows, src = load_routes(a.tree)
     if not rows:

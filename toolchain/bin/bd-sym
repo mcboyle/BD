@@ -3,9 +3,13 @@
 
 The @680 lesson: a first fix touched 1/5 `_DISABLED` sites because it matched the
 symptom. This lists ALL occurrences grouped by file with a count, so you fix all N.
-Usage: bd-sym <symbol> [--work DIR] [--py-only]   Exit 0 if found, 1 if none.
+Usage: bd-sym <symbol> [--work DIR] [--py-only]   Exit 0 if found, 1 if none,
+2 if --work does not exist (CANNOT-EVALUATE -- an absent tree must not read
+as "no occurrences").
 """
 import argparse, os, re, subprocess, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
 G,R,DIM,RST="\033[32m","\033[31m","\033[2m","\033[0m"
 # --- R3 (@808): ONE denominator, two engines -----------------------------------
 # rg searches every file except node_modules / *.min.*; the python fallback used to
@@ -22,8 +26,11 @@ _BINARY_EXT = (".pyc", ".pyo", ".so", ".mo", ".png", ".jpg", ".jpeg", ".gif",
 
 def _find_rg():
     import shutil
+    # /tmp/tools_bin, /tmp/media/tools_bin, /home/claude/bin were sandbox-only
+    # rg staging locations; on this checkout rg is a system package (PATH), so
+    # the only real fallback worth keeping is a venv-adjacent one.
     return (shutil.which("rg") or next(iter([p for p in
-            ("/tmp/tools_bin/rg", "/tmp/media/tools_bin/rg", "/home/claude/bin/rg")
+            (os.path.join(sec.DEFAULT_WORK, "venv", "bin", "rg"),)
             if os.path.exists(p)]), None))
 
 
@@ -122,8 +129,13 @@ def main():
     import sys as _s
     if "--selftest" in _s.argv: return selftest()
     ap=argparse.ArgumentParser(); ap.add_argument("symbol")
-    ap.add_argument("--work","--tree",default="/home/claude/work"); ap.add_argument("--py-only",action="store_true")
+    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK); ap.add_argument("--py-only",action="store_true")
     a=ap.parse_args()
+    if not os.path.isdir(a.work):
+        # s0: a nonexistent --work must not silently fall through to "no
+        # occurrences" -- that is indistinguishable from a real, clean scan.
+        print("CANNOT-EVALUATE -- --work does not exist: %s" % a.work)
+        return sec.EXIT_CANNOT_EVALUATE
     rgbin = _find_rg()
     if rgbin:
         out = _scan_rg(rgbin, a.work, a.symbol, a.py_only)

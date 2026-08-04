@@ -25,7 +25,7 @@ def _state_guard_set():
     """Frozenset of guard paths from STATE.guards (the authoritative source), or None if
     no STATE.json is reachable -- None means UNVERIFIABLE, never silently 'fine'."""
     import json as _json
-    cands = [_oscli.environ.get("BD_STATE"), "/home/claude/STATE.json",
+    cands = [_oscli.environ.get("BD_STATE"),
              _oscli.path.join(_oscli.path.dirname(_oscli.path.realpath(__file__)), "STATE.json")]
     for c in cands:
         if c and _oscli.path.exists(c):
@@ -81,7 +81,7 @@ def watchdog(work, home):
 
 def selftest():
     ok=True
-    r=watchdog(sec.DEFAULT_WORK,"/home/claude")
+    r=watchdog(sec.DEFAULT_WORK,os.path.expanduser("~"))
     print(("PASS" if r.get("clean") is not None else "FAIL")+"  watchdog ran (pristine tree clean=%s)"%r.get("clean"))
     ok=ok and "error" not in r
     print(("PASS" if r.get("total_changed")==0 else "WARN")+"  pristine tree: %d changed"%r.get("total_changed",-1))
@@ -114,7 +114,7 @@ def selftest():
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK); ap.add_argument("--home",default="/home/claude")
+    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK); ap.add_argument("--home",default=os.path.expanduser("~"))
     ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
     a=ap.parse_args()
     if a.selftest: return selftest()

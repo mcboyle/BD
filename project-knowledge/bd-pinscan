@@ -9,6 +9,9 @@ Usage:
 Advisory (exit 0).
 """
 import argparse, glob, os, re, sys
+import os as _os_bd, sys as _sys_bd
+_sys_bd.path.insert(0, _os_bd.path.dirname(_os_bd.path.realpath(__file__)))
+import bdtools_sec as sec
 
 # count/parity concepts where a magnitude == pin is fragile
 KEYWORDS = re.compile(
@@ -31,7 +34,7 @@ def selftest():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tree","--work", default="/home/claude/work")
+    ap.add_argument("--tree","--work", default=sec.DEFAULT_WORK)
     ap.add_argument("--selftest",action="store_true")
     a = ap.parse_args()
     if a.selftest:

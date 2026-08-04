@@ -11,13 +11,21 @@ baseline is a SEPARATE freeze -- use bd-imports.)
 Usage:
     bd-regen            # --check all generators, report DRIFT/OK (default)
     bd-regen --write    # actually regenerate the stale ones
-    bd-regen --work DIR
-Exit 0 if all in sync (or all written), 1 if any drifted (in --check mode).
+    bd-regen --work DIR   # default: the checkout this tool lives in
+Exit 0 if all in sync (or all written), 1 if any drifted (in --check mode),
+2 = CANNOT-EVALUATE: nothing drifted because nothing could be verified (every
+generator absent, or none declares a read-only check). Unknown is not green.
 """
 import argparse
 import os
 import subprocess
 import sys
+
+# v3.66.855 desandbox. Placed AFTER the whole import block on purpose: inserting a
+# sec import above `import sys` leaves sys undefined at that point and --help dies
+# with NameError, which ast.parse accepts happily (CLAUDE.md s6).
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
 
 # --- 702: --selftest delegates to the tool's own bd-coretest fault-injection case.
 # These are the RELEASE-GATING MUTATORS: they edit the tree and gate a cut, and they
@@ -74,7 +82,7 @@ def run(work, path, *args):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--work","--tree", default="/home/claude/work")
+    ap.add_argument("--work","--tree", default=sec.DEFAULT_WORK)
     ap.add_argument("--write", action="store_true")
     a = ap.parse_args()
     drift = 0
@@ -123,7 +131,11 @@ def main():
     if drift or missing:
         print(f"{R}RESULT: {drift} drifted, {missing} unverifiable/missing "
               f"-- NOT in sync{RST}")
-        return 1
+        # A tree where NOTHING could be verified is not "N documents drifted" --
+        # it is no verdict at all, and the two must not share an exit code. 1 means
+        # "I looked and found drift"; 2 means "I could not look" (CLAUDE.md s0).
+        # Still non-zero either way, so nothing that only tests `rc != 0` moves.
+        return 1 if drift else sec.EXIT_CANNOT_EVALUATE
     print(f"{G}RESULT: all derived docs in sync{RST}")
     return 0
 

@@ -10,17 +10,24 @@ bd-cut emits the zip into --out; bd-ship derives that path and feeds it to
 bd-handoff so you don't transcribe it. A failed cut stops the chain (no handoff
 on a NO-CUT). bd-ship NEVER deploys -- handoff only repins + packs.
 
-PREREQUISITE: you must have authored the pack PROSE first (STATE.json narrative +
+PREREQUISITE: you must have authored the pack PROSE first (the STATE narrative +
 KB_HANDOFF_v3_66_<n>.md) in --pack-dir -- bd-handoff/bd-pack fix the byte-facts and
 lint, but they do not write your narrative. Use --no-handoff to stop after the cut
 if the prose isn't ready yet.
 
+v3.66.855: the chained tools are resolved from PATH *or* from bd-ship's own bin
+dir (nothing is on PATH in a git checkout, which made this tool unrunnable), and
+--out defaults to <checkout>/out to match bd-cut. --pack-dir has NO default --
+the sandbox's work_pack is retired and the pack dir is a per-machine location,
+so it must be named whenever a handoff is requested.
+
 Usage:
-    bd python3 bd-ship --version 3.66.365 --changelog "..." \
-        --baseline /mnt/user-data/uploads/BulkDownloader_v3_66_364.zip \
-        [--pack-dir /home/claude/work_pack] [--out /home/claude/out] \
+    bd-ship --version 3.66.365 --changelog "..." \
+        [--baseline /path/to/BulkDownloader_v3_66_364.zip] \
+        [--pack-dir DIR] [--out DIR] \
         [--suites tests/a.py tests/b.py] [--rm-runtime-db] [--no-handoff]
-Exit 0 = cut + (handoff) all green; 1 = a step failed.
+Exit 0 = cut + (handoff) all green; 1 = a step failed; 2 = CANNOT-EVALUATE
+(a chained tool or the pack dir is absent, so nothing was attempted).
 """
 import argparse
 import os
@@ -29,13 +36,32 @@ import subprocess
 import sys
 from shutil import which
 
+# After the whole import block: above `import sys` this would leave sys
+# undefined here and --help would die with NameError (the v3.66.851 trap).
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
 G, R, Y, RST = "\033[32m", "\033[31m", "\033[33m", "\033[0m"
+
+BIN = os.path.dirname(os.path.realpath(__file__))
 
 
 def have(tool):
+    """Resolve a chained bd-* tool: PATH first, then THIS tool's own bin dir.
+
+    v3.66.855: PATH-only was a sandbox assumption (setup.sh / bd-install put the
+    suite on PATH there). In a git checkout nothing is on PATH, so every one of
+    these lookups missed and bd-ship could not run at all -- it printed "not on
+    PATH" and returned 1 while the tool it wanted sat next to it on disk. Same
+    fix as bd-cut's regen_order: resolve from a known location, not from PATH.
+    """
     p = which(tool)
     if not p:
-        print(f"{R}FAIL{RST} {tool} not on PATH (run setup.sh / bd-install)")
+        sibling = os.path.join(BIN, tool)
+        if os.path.isfile(sibling):
+            return sibling
+    if not p:
+        print(f"{R}FAIL{RST} {tool} not on PATH and not beside bd-ship in {BIN}")
     return p
 
 
@@ -59,8 +85,18 @@ def main(argv=None):
     ap.add_argument("--version", required=True)
     ap.add_argument("--changelog", required=True)
     ap.add_argument("--baseline", help="live release zip (for precut + approved-frontend)")
-    ap.add_argument("--pack-dir", default="/home/claude/work_pack")
-    ap.add_argument("--out", default="/home/claude/out")
+    # v3.66.855 port: both defaults were retired-sandbox literals.
+    # --out now matches bd-cut's own default, <checkout>/out (gitignored), so the
+    # zip path bd-ship derives is the one bd-cut actually wrote.
+    # --pack-dir has NO default on purpose. The old /home/claude/work_pack is
+    # gone and there is no in-checkout equivalent: the pack dir holds operator
+    # PROSE (the STATE narrative + KB_HANDOFF) which is a per-machine location,
+    # not a repo path. Guessing one would silently hand bd-handoff an empty
+    # directory. Absent + handoff requested is refused below, loudly.
+    ap.add_argument("--pack-dir", default=None,
+                    help="dir holding the authored pack prose (required unless "
+                         "--no-handoff; no default -- it is per-machine)")
+    ap.add_argument("--out", default=os.path.join(sec.DEFAULT_WORK, "out"))
     ap.add_argument("--suites", nargs="*", help="extra band suites (passed to bd-cut)")
     ap.add_argument("--rm-runtime-db", action="store_true")
     ap.add_argument("--no-handoff", action="store_true",
@@ -71,6 +107,22 @@ def main(argv=None):
     bd_handoff = None if a.no_handoff else have("bd-handoff")
     if not bd_cut or (not a.no_handoff and not bd_handoff):
         return 1
+
+    # Refuse BEFORE the ~minutes-long cut, not after it: discovering the pack dir
+    # is missing at the handoff step wastes the whole build. Exit 2 = nothing was
+    # attempted, which is a different thing from "the cut failed" (1).
+    if not a.no_handoff and not a.pack_dir:
+        sys.stderr.write(
+            "CANNOT-EVALUATE --pack-dir: reason=ABSENT (handoff needs a pack dir "
+            "holding the authored prose)\n"
+            "  There is no default: the old /home/claude/work_pack is retired and a\n"
+            "  repo path would be a guess. Pass --pack-dir DIR, or --no-handoff to\n"
+            "  stop after the cut.\n")
+        return sec.EXIT_CANNOT_EVALUATE
+    if not a.no_handoff and not os.path.isdir(a.pack_dir):
+        sys.stderr.write("CANNOT-EVALUATE --pack-dir %s: reason=ABSENT (no such "
+                         "directory)\n" % a.pack_dir)
+        return sec.EXIT_CANNOT_EVALUATE
     bd_precut = which("bd-precut")  # optional/advisory
 
     # --- precut (advisory) ---

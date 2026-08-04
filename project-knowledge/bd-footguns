@@ -14,6 +14,10 @@ introduced it / which cut it bit), the FIX, and STATUS.
 
   bd-footguns --check [--tree DIR]     run every active detector; exit 3 on a
                                        BLOCKING violation (wire before bd-cut).
+                                       --tree defaults to the checkout this tool
+                                       lives in. Exit 2 = CANNOT-EVALUATE: not one
+                                       detector reached a verdict, so "no footgun
+                                       violated" would be a report over nothing.
   bd-footguns --list [--json]          the registry (human/machine).
   bd-footguns --explain ID             one footgun in full.
   bd-footguns --selftest               neg + pos controls.
@@ -22,6 +26,10 @@ External FOOTGUNS.json (tree root or alongside this tool) is merged over the
 embedded seed, so the registry grows with the project without editing the tool.
 """
 import argparse, json, os, re, subprocess, sys, tempfile
+
+# v3.66.855 desandbox. AFTER the import line on purpose (sys must already be bound).
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
 
 # ---- embedded seed: the mechanically-checkable footguns from the 693-700 review.
 # Each detector DELEGATES to the authoritative gate (no re-derived models -> no drift).
@@ -44,7 +52,7 @@ SEED = [
      "rule": "A route add must re-freeze route_map_baseline + update _BASELINE_SHA, and gui_parity must regen BEFORE ROUTE_INDEX.",
      "detector": {"kind": "insync", "test": "tests/test_route_map_invariant.py"},
      "protects": ["test_route_map_invariant", "test_route_index_in_sync"],
-     "fix": "Regen tests/route_map_baseline.txt via tools/route_map_snapshot.py with PYTHONPATH=tree:/tmp/prestaged (NOT env -u PYTHONPATH) + update _BASELINE_SHA.",
+     "fix": "Regen tests/route_map_baseline.txt via tools/route_map_snapshot.py with PYTHONPATH=<tree> (NOT env -u PYTHONPATH -- that strips the work tree and silently writes an EMPTY baseline) + update _BASELINE_SHA.",
      "provenance": {"review_id": "footgun-taxonomy #4"}},
 
     {"id": "FG-IMPORT-EDGE-BASELINE", "severity": "blocking", "status": "active",
@@ -165,8 +173,13 @@ def _run_insync(test, tree):
     tf = os.path.join(tree, test)
     if not (os.path.isfile(rt) and os.path.isfile(tf)):
         return None, "test/harness missing"
+    # PYTHONPATH carries the WORK TREE, not the retired prestage. The old value
+    # (/tmp/prestaged_site_packages) was a directory that no longer exists, so this
+    # OVERWROTE any inherited PYTHONPATH with nothing; the in-sync tests only kept
+    # passing because cwd=tree puts the tree on sys.path anyway. Naming the tree
+    # makes that accident into the contract (CLAUDE.md s5: venv carries the deps).
     env = dict(os.environ, BD_HOME=tempfile.mkdtemp(), BD_DISABLE_KEEPALIVE="1",
-               PYTHONPATH="/tmp/prestaged_site_packages")
+               PYTHONPATH=tree)
     try:
         r = subprocess.run([sys.executable, "run_tests.py", test], cwd=tree, env=env,
                            capture_output=True, text=True, timeout=180)
@@ -190,6 +203,13 @@ def _check_one(fg, tree):
         rc, _ = _run_tool(det["cmd"], tree)
         if rc is None:
             return "skip", "tool unavailable"
+        # A DELEGATED GATE THAT SAYS "I CANNOT EVALUATE" IS NOT A PASS. The suite
+        # exit contract reserves 2 for exactly that (bdtools_sec.EXIT_CANNOT_EVALUATE),
+        # and the old else-branch swept it into "pass" -- so a detector pointed at a
+        # corpus it could not read was recorded as a footgun that did not fire. Same
+        # shape as the verdict this file exists to prevent, one level down.
+        if rc == sec.EXIT_CANNOT_EVALUATE:
+            return "skip", f"delegate could not evaluate (exit {rc})"
         return ("violation" if rc in det.get("block_on_exit", []) else "pass"), f"exit {rc}"
     if kind == "insync":
         ok, _ = _run_insync(det["test"], tree)
@@ -241,7 +261,22 @@ def cmd_check(a):
             print(f"  * {fg['id']}: {fg['rule']}")
             print(f"    FIX: {fg['fix']}")
         return 3
-    print("OK -- no active footgun violated.")
+    # UNKNOWN IS A THIRD STATE AND IT FAILS (CLAUDE.md s0). Every 'skip' is a
+    # detector that could not run -- its tool or its in-sync test was not found.
+    # If NOT ONE detector reached a verdict, "no active footgun violated" is a
+    # clean report over an empty denominator. That was the observable state before
+    # the desandbox port: --tree defaulted to /home/claude/work, 8 of 10 detectors
+    # skipped, and the tool printed OK and exited 0. Refuse instead of certifying.
+    # NOT over-sensitive: a single real pass/violation is enough to mint a verdict,
+    # so a partially-instrumented tree still reports normally.
+    decided = [r for r in results if r["verdict"] in ("pass", "violation")]
+    if not decided:
+        skipped = [r["id"] for r in results if r["verdict"] == "skip"]
+        print(f"CANNOT-EVALUATE -- 0 of {len(active)} detectors reached a verdict "
+              f"against {a.tree} (reason={sec.REASON_EMPTY}); skipped: "
+              f"{', '.join(skipped) or 'none'}", file=sys.stderr)
+        return sec.EXIT_CANNOT_EVALUATE
+    print(f"OK -- no active footgun violated ({len(decided)} detector(s) ran).")
     return 0
 
 
@@ -268,7 +303,7 @@ def cmd_explain(a):
 
 def selftest():
     ok = True
-    reg = _load_registry("/home/claude/work")
+    reg = _load_registry(sec.DEFAULT_WORK)
     print(f"PASS  registry loads ({len(reg)} footguns)" if reg else "FAIL  empty registry")
     ok = ok and bool(reg)
     ids = {f["id"] for f in reg}
@@ -293,7 +328,7 @@ def selftest():
 
 def main():
     ap = argparse.ArgumentParser(prog="bd-footguns")
-    ap.add_argument("--tree", "--work", default="/home/claude/work")
+    ap.add_argument("--tree", "--work", default=sec.DEFAULT_WORK)
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--explain", metavar="ID")

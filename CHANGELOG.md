@@ -4,6 +4,59 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.855 - desandbox: 100 toolchain tools repointed at the real tree
+
+- The repo moved from a zip-overlay sandbox to a git checkout, bdtools_sec was
+  ported, and ~124 bd-* tools were not: their LIVE code (defaults, constants,
+  argv -- measured by AST with docstrings excluded) still pointed at
+  /home/claude/*, /tmp/prestaged_site_packages, /mnt/user-data/uploads or
+  STATE.json. 100 tools and their 100 project-knowledge twins are repointed at
+  sec.DEFAULT_WORK, which resolves by walking up to bulk_downloader/__init__.py
+  and therefore follows a relocated checkout. 24 were a <=6-line swap; 31 needed
+  40+ lines.
+- The shape of the defect was NOT crashing. It was certification: these tools
+  reported clean over corpora that did not exist. Measured before -> after:
+  bd-tool-lint "linted 0 tools: 0 errors" exit 0 -> "linted 250 tools: 86
+  errors" exit 3; bd-evidence "OK -- views agree" exit 0 with all nine delegates
+  errored -> CANNOT-EVALUATE exit 2; bd-capsweep "ABSENT across the whole tree"
+  over a nonexistent tree -> 6 weighted candidates; bd-opv 0 PASS/24 SKIP -> 15
+  PASS/0 FAIL; bd-parity-scan traceback -> 242 tools / 497 config keys.
+- LEFT ALONE DELIBERATELY: bd-guardcheck, bd-regen-order, bd-sweep, bd-path-scan.
+  All carry dead literals in unreachable fallback branches and work correctly
+  today (bd-guardcheck still reports 7 ok, 0 drifted). Cleaning an unreachable
+  literal is not worth the risk of breaking a wired release gate.
+- SIX REGRESSIONS THE PORT INTRODUCED, all caught by an independent verification
+  pass and fixed here rather than shipped:
+  * bd-bump: pointing --work at a real tree un-inerted a regex pin-finder that
+    then planned to rewrite tests/test_versync_gate.py's FIXTURE literals -- the
+    controls for the very gate that catches a wrong-file rewrite. find_pins now
+    reads PIN_INDEX.json's form=="version" entries (build_pin_index walks the
+    AST, so fixtures are structurally invisible) and RAISES rather than falling
+    back to the regex. Verified: the plan went from 2 files to the 1 real pin.
+  * bd-novnc: a missing selector engine became SKIP, and SKIP counts green, so
+    it exited 0 with lxml -- DECLARED at requirements.txt:68 -- absent. Now
+    UNKNOWN -> exit 2.
+  * bd-store-check and bd-archive-normalize: --home defaulted to the shared temp
+    dir, which is never empty, making the empty-corpus guard structurally
+    unreachable; they reported confidently on other processes' files. --home is
+    now required.
+  * bd-archive-normalize also carried a selftest control asserting len(x) >= 0,
+    true for every possible list. Replaced with the real property.
+  * bd-deep-capture: the offline dry-run branch ran before any --work
+    validation, so an empty tree printed "DRY: 1 routes" and exited 0.
+  * tools/bd-triage.py and tools/bd-audit-gate.py are THIRD copies that were
+    byte-identical to the other two at HEAD and were left behind by the port.
+    Re-synced; all three copies now match.
+- bd-equiv (@852) was still incomplete and the verification pass caught it:
+  old=0/new=5 graded SUPERSET at exit 0, because "new is a superset of nothing"
+  is vacuously true -- a green retirement licence for a tool nobody ever saw
+  produce output. Now CANNOT-EVALUATE when the OLD tool emitted no tokens. NOT
+  made symmetric: old=5/new=0 is a real REGRESSION verdict and must survive.
+- NO DELETIONS. 20 tools are retire-recommended on subject-death grounds
+  (git/scripts/deploy.sh/SESSION_CARRY replaced their subject) but none has a
+  mechanical bd-equiv proof, so all 20 await operator sign-off along with the
+  salvage list. Nothing was removed in this cut.
+
 ## v3.66.854 - nothing statically checked the 243 tools in toolchain/bin
 
 - ci.yml's compileall COMPILES without resolving names, and its pyflakes step is

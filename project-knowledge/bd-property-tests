@@ -15,7 +15,9 @@ Read-only.
 
 Usage: bd-property-tests [--emit | --run] [--work DIR] [--iters N] [--json]
        bd-property-tests --selftest
-Exit 1 if a property is violated, else 0.
+Exit 1 if a property is violated; 2 (CANNOT-EVALUATE) if the real
+_is_safe_path could not be loaded (the path property was never tested, so
+"all properties held" would be a verdict over half the subject); else 0.
 """
 import argparse
 import ast
@@ -100,9 +102,8 @@ def _run_builtin(work, iters):
             pkg = types.ModuleType("bulk_downloader")
             pkg.__path__ = [os.path.join(work, "bulk_downloader")]
             sys.modules.setdefault("bulk_downloader", pkg)
-            for e in (work, "/tmp/prestaged_site_packages"):
-                if e not in sys.path:
-                    sys.path.insert(0, e)
+            if work not in sys.path:
+                sys.path.insert(0, work)
             spec = importlib.util.spec_from_file_location("bulk_downloader.backup", p)
             m = importlib.util.module_from_spec(spec)
             sys.modules["bulk_downloader.backup"] = m
@@ -183,6 +184,15 @@ def main():
         sys.stdout.write(EMITTED)
         return 0
     res = _run_builtin(a.work, a.iters)
+    # Real findings outrank an incomplete corpus and are reported below; but a
+    # CLEAN run with Property B's subject never loaded would cover only the URL
+    # property while CLAIMING both (CLAUDE.md s0) -- no corpus, no verdict.
+    if not res["violations"] and not res["guard_loaded"]:
+        sec.emit(res, as_json=a.json)
+        print(f"{Y}BD-UNEVALUABLE{RST}: bulk_downloader/backup.py _is_safe_path did not "
+              f"load -- path-confinement property NOT tested (URL property alone "
+              f"held on {res['tested']} cases).", file=sys.stderr)
+        return sec.EXIT_CANNOT_EVALUATE
     if sec.emit(res, as_json=a.json):
         return 1 if res["violations"] else 0
     if not res["violations"]:

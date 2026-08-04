@@ -15,8 +15,6 @@ reported nothing).
 import argparse, os, sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec
-import os as _oscli, sys as _syscli
-_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
 from bdtools_cli import G, R, Y, DIM, RST
 
 def _tool_json(tool, *args):
@@ -61,8 +59,9 @@ def _expect_version():
 
 
 def selftest():
+    import tempfile
     ok=True
-    rp=build("/home/claude", sec.DEFAULT_WORK)
+    rp=build(tempfile.gettempdir(), sec.DEFAULT_WORK)
     want=_expect_version()
     print(("PASS" if rp.get("version")==want else "FAIL")+"  composes note+inv+trust (v=%s, want %s)"%(rp.get("version"),want))
     ok=ok and rp.get("version")==want
@@ -90,8 +89,9 @@ def _verdict_rc(rp):
 
 
 def main():
+    import tempfile
     ap=argparse.ArgumentParser()
-    ap.add_argument("--home",default="/home/claude"); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--home",default=tempfile.gettempdir()); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
     ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
     a=ap.parse_args()
     if a.selftest: return selftest()

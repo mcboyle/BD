@@ -24,14 +24,13 @@ G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 
 
 def _load_jd(work):
-    """Load the app's jd_bridge from the work tree (prestaged env on PATH)."""
+    """Load the app's jd_bridge from the work tree (venv on PATH)."""
     p = os.path.join(work, "bulk_downloader", "jd_bridge.py")
     if not os.path.exists(p):
         return None, "jd_bridge.py not found"
-    # ensure the tree + prestaged site-packages are importable
-    for extra in (work, "/tmp/prestaged_site_packages"):
-        if extra not in sys.path:
-            sys.path.insert(0, extra)
+    # ensure the tree is importable (venv carries the deps)
+    if work not in sys.path:
+        sys.path.insert(0, work)
     try:
         spec = importlib.util.spec_from_file_location("bulk_downloader.jd_bridge", p)
         mod = importlib.util.module_from_spec(spec)

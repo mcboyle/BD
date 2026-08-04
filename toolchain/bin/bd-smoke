@@ -6,12 +6,16 @@ SERVICE venv, so a broken import surfaces in ~1s instead of via a slow test band
 Catches the failures unit tests can miss (an import-time error before any test).
 
 Usage: bd-smoke [--work DIR] [--venv work/venv]
-Exit 0 if all import clean; 1 on the first ImportError/other exception.
+Exit 0 if all import clean; 1 on the first ImportError/other exception;
+2 (CANNOT-EVALUATE) if no interpreter with the project deps can be resolved --
+a smoke under a deps-less python reports failures that read as real defects
+(the v3.66.850 finding, CLAUDE.md s5), so it refuses instead of falling back.
 """
 import argparse, os, subprocess, sys
 import os as _oscli, sys as _syscli
 _syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
 from bdtools_cli import G, R, Y, DIM, RST
+import bdtools_sec as sec  # noqa: E402
 MODS=["bulk_downloader","bulk_downloader.app","bulk_downloader.extraction_core",
       "bulk_downloader.runner","bulk_downloader.auto_detect"]
 def selftest():
@@ -29,15 +33,21 @@ def selftest():
 def main():
     import sys as _s
     if "--selftest" in _s.argv: return selftest()
-    ap=argparse.ArgumentParser(); ap.add_argument("--work","--tree",default="/home/claude/work")
+    ap=argparse.ArgumentParser(); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
     ap.add_argument("--venv"); a=ap.parse_args()
     py=a.venv or os.path.join(a.work,"venv","bin","python")
     if not os.path.exists(py):
-        py="python3"; print(f"{Y}service venv not found -- using system python3 (may miss deps){RST}")
+        py=sec.resolve_test_interpreter(a.work)
+        if py is None:
+            print(f"{R}BD-UNEVALUABLE{RST}: no interpreter under {a.work} carries the "
+                  f"project deps -- refusing to smoke under a deps-less python "
+                  f"(its ImportErrors would read as real defects).")
+            return sec.EXIT_CANNOT_EVALUATE
+        print(f"{Y}service venv not found -- using resolved interpreter {py}{RST}")
     fails=[]
     for mod in MODS:
         r=subprocess.run([py,"-c",f"import {mod}"],cwd=a.work,
-                         env={**os.environ,"PYTHONPATH":a.work+":/tmp/prestaged_site_packages"},capture_output=True,text=True, timeout=150)
+                         env={**os.environ,"PYTHONPATH":a.work},capture_output=True,text=True, timeout=150)
         if r.returncode==0:
             print(f"  {G}OK{RST} import {mod}")
         else:

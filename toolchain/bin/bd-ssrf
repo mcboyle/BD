@@ -10,6 +10,7 @@ import argparse, glob, os, re, sys
 import os as _oscli, sys as _syscli
 _syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
 from bdtools_cli import G, R, Y, DIM, RST
+import bdtools_sec as sec
 FETCH=re.compile(r'\b(requests\.(?:get|post|head)|httpx\.(?:get|post|head|Client)|urlopen|\.fetch\(|http_probe|deep_detect)\b')
 GUARD=re.compile(r'is_private_ip|is_internal|metadata|169\.254|127\.0\.0\.1|ssrf|_block_|allowlist|is_public_url|validate_url')
 def selftest():
@@ -24,7 +25,11 @@ def selftest():
 def main():
     import sys as _s
     if "--selftest" in _s.argv: return selftest()
-    ap=argparse.ArgumentParser(); ap.add_argument("--work","--tree",default="/home/claude/work"); a=ap.parse_args()
+    ap=argparse.ArgumentParser(); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK); a=ap.parse_args()
+    target=os.path.join(a.work,"bulk_downloader")
+    if not os.path.isdir(target):
+        print(f"{Y}CANNOT-EVALUATE: no bulk_downloader/ under --work {a.work}{RST}")
+        return sec.EXIT_CANNOT_EVALUATE
     unguarded=0; rows=[]
     for f in glob.glob(os.path.join(a.work,"bulk_downloader","**","*.py"),recursive=True):
         try: txt=open(f,errors="ignore").read()

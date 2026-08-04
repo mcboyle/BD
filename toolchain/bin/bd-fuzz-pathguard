@@ -11,7 +11,8 @@ double-encoding). Asserts:
 Uses a real temp base dir with a real symlink. Read-only w.r.t. the tree.
 
 Usage: bd-fuzz-pathguard [--work DIR] [--json] [--selftest]
-Exit 1 if any escape survives, else 0.
+Exit 1 if any escape survives; 2 (CANNOT-EVALUATE) if the guard could not be
+loaded (nothing was fuzzed, so neither a pass nor a fail was measured); else 0.
 """
 import argparse
 import importlib.util
@@ -46,9 +47,8 @@ def load_guard(work):
         pkg = types.ModuleType("bulk_downloader")
         pkg.__path__ = [os.path.join(work, "bulk_downloader")]
         sys.modules.setdefault("bulk_downloader", pkg)
-        for extra in (work, "/tmp/prestaged_site_packages"):
-            if extra not in sys.path:
-                sys.path.insert(0, extra)
+        if work not in sys.path:
+            sys.path.insert(0, work)
         spec = importlib.util.spec_from_file_location("bulk_downloader.backup", p)
         mod = importlib.util.module_from_spec(spec)
         sys.modules["bulk_downloader.backup"] = mod
@@ -136,11 +136,16 @@ def main():
         return selftest()
     sec.require_source_tree(a.work)
     res = fuzz(a.work)
+    if res["error"]:
+        # Guard never loaded -> 0 payloads fuzzed. In --json mode the old path
+        # returned 0 here (empty escapes over an empty corpus) -- the exact
+        # blind-gate shape (CLAUDE.md s0). No corpus, no verdict.
+        sec.emit(res, as_json=a.json)
+        print(f"{R}BD-UNEVALUABLE{RST}: guard not loadable: {res['error']}",
+              file=sys.stderr)
+        return sec.EXIT_CANNOT_EVALUATE
     if sec.emit(res, as_json=a.json):
         return 1 if res["escapes_survived"] else 0
-    if res["error"]:
-        print(f"{R}guard not loadable{RST}: {res['error']}")
-        return 1
     if res["escapes_survived"]:
         print(f"{R}CONFINEMENT BYPASS -- {len(res['escapes_survived'])} escape(s) survived:{RST}")
         for e in res["escapes_survived"]:

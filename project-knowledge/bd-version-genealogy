@@ -13,8 +13,6 @@ Exit 0 (informational -- reports/generates; does not render a pass/fail verdict 
 import argparse, glob, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec
-import os as _oscli, sys as _syscli
-_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
 from bdtools_cli import G, R, Y, DIM, RST
 HEADER=re.compile(r'^##\s*v?(\d+\.\d+\.\d+)\s*(?:[-\u2013:]\s*)?(.*)$')
 
@@ -38,7 +36,9 @@ def genealogy(work, home, limit):
 
 def selftest():
     ok=True
-    g=genealogy("/home/claude/work","/home/claude",50)
+    import tempfile
+    tmpdir=tempfile.gettempdir()
+    g=genealogy(sec.DEFAULT_WORK, tmpdir, 50)
     print(("PASS" if len(g)>=1 else "FAIL")+"  ancestry built (%d versions)"%len(g))
     ok=ok and len(g)>=1
     # newest first, descending
@@ -52,8 +52,9 @@ def selftest():
     return 0 if ok else 1
 
 def main():
+    import tempfile
     ap=argparse.ArgumentParser()
-    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK); ap.add_argument("--home",default="/home/claude")
+    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK); ap.add_argument("--home",default=tempfile.gettempdir())
     ap.add_argument("--limit",type=int,default=30)
     ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
     a=ap.parse_args()

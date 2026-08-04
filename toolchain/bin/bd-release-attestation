@@ -8,7 +8,16 @@ with an overall attested=true/false verdict (true iff STATE is honest AND all
 invariants hold). Read-only.
 
 Usage: bd-release-attestation [--home DIR] [--work DIR] [--json] [--selftest]
-Exit 1 if not attestable, else 0.
+--home defaults to $HOME, --work to the checkout the tool ships in.
+Exit 0 attested / 1 not attestable / 2 CANNOT-EVALUATE (a composed tool could
+not be consulted).
+
+The proof ledger it composes is STATE-derived, and STATE.json plus the release
+zip are RETIRED (CLAUDE.md s7). On a git checkout bd-proof-ledger has nothing
+to hand over, so the attestation is CANNOT-EVALUATE(2) -- deliberately NOT
+"not attestable"(1): an attestation that was never assembled has not failed,
+and a 1 here would read as a release that flunked its own gate. --home at a
+preserved bundle still attests.
 """
 import argparse, hashlib, json, os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -76,14 +85,28 @@ def _expect_version():
 
 def selftest():
     ok=True
-    att=build("/home/claude", sec.DEFAULT_WORK)
     want=_expect_version()
-    print(("PASS" if att.get("version")==want else "FAIL")+"  composes 3 tools (version=%s, want %s)"%(att.get("version"),want))
-    ok=ok and att.get("version")==want
-    print(("PASS" if att.get("attested") else "FAIL")+"  attested true on pristine 688 (state=%s inv=%s)"%(att.get("state_honest"),att.get("invariants_hold")))
-    ok=ok and att.get("attested")
-    print(("PASS" if att.get("chain_root") else "FAIL")+"  evidence chain root present")
-    ok=ok and bool(att.get("chain_root"))
+    # The composition assertions need the three sub-tools to answer, and the
+    # ledger is STATE-derived (retired world). _tool_json exits 2 on a dep it
+    # cannot consult, which used to abort the selftest on its FIRST line -- so
+    # the four fingerprint controls below, which mock every dependency and need
+    # no bundle whatsoever, never ran. Catch it, say the composition was not
+    # measured, and keep going. The final rc is still 2.
+    unevaluable=False
+    try:
+        att=build(os.path.expanduser("~"), sec.DEFAULT_WORK)
+    except SystemExit as e:
+        unevaluable=True; att=None
+        print("SKIP  composition assertions: a composed tool could not be "
+              "consulted (rc=%s) -- no STATE-derived ledger; the fingerprint "
+              "controls below mock all three deps"%getattr(e,"code",None))
+    if att is not None:
+        print(("PASS" if att.get("version")==want else "FAIL")+"  composes 3 tools (version=%s, want %s)"%(att.get("version"),want))
+        ok=ok and att.get("version")==want
+        print(("PASS" if att.get("attested") else "FAIL")+"  attested true on a pristine bundle (state=%s inv=%s)"%(att.get("state_honest"),att.get("invariants_hold")))
+        ok=ok and att.get("attested")
+        print(("PASS" if att.get("chain_root") else "FAIL")+"  evidence chain root present")
+        ok=ok and bool(att.get("chain_root"))
 
     # @805: the attestation must be REPRODUCIBLE. Two builds against the same
     # inputs used to differ only in generated_at, with no fingerprint to
@@ -99,11 +122,12 @@ def selftest():
         return lambda tool,*a:(led if "ledger" in tool else _INV if "invariant" in tool else _CHN if "evidence-chain" in tool else {})
     try:
         globals()["_tool_json"]=_mock(_LED)
-        a1=build("/home/claude",sec.DEFAULT_WORK)
+        _H=os.path.expanduser("~")
+        a1=build(_H,sec.DEFAULT_WORK)
         time.sleep(1.1)  # force a generated_at tick
-        a2=build("/home/claude",sec.DEFAULT_WORK)
+        a2=build(_H,sec.DEFAULT_WORK)
         globals()["_tool_json"]=_mock({**_LED,"version":"3.66.111"})
-        a3=build("/home/claude",sec.DEFAULT_WORK)
+        a3=build(_H,sec.DEFAULT_WORK)
     finally:
         globals()["_tool_json"]=_real
     has_fp="attestation_sha256" in a1
@@ -119,16 +143,33 @@ def selftest():
     print(("PASS" if neg else "FAIL")+"  NEG: version change moves the fingerprint")
     ok=ok and neg
 
+    if unevaluable:
+        print("SELFTEST CANNOT-EVALUATE" if ok else "SELFTEST FAIL")
+        sys.stderr.write("CANNOT-EVALUATE selftest: reason=%s (composition "
+                         "assertions unmeasured; no STATE-derived ledger)\n"
+                         %sec.REASON_ABSENT)
+        return sec.EXIT_CANNOT_EVALUATE if ok else 1
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
     return 0 if ok else 1
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--home",default="/home/claude"); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--home",default=os.path.expanduser("~")); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
     ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
     a=ap.parse_args()
     if a.selftest: return selftest()
     sec.require_source_tree(a.work)
+    # _tool_json already exits 2 on a dep it could not consult; this names the
+    # retirement first so the operator is not told "the bundle is empty" when
+    # the bundle CONCEPT is what went away.
+    if sec.load_state(a.home) is None:
+        sys.stderr.write(
+            "CANNOT-EVALUATE attestation: reason=%s (no STATE.json under %s. The "
+            "proof ledger is STATE-derived and STATE.json / the release zip are "
+            "RETIRED -- git replaced the zip overlay (CLAUDE.md s7). Pass --home "
+            "at a preserved bundle to attest an archived release.)\n"
+            %(sec.REASON_ABSENT, a.home))
+        return sec.EXIT_CANNOT_EVALUATE
     sec.require_bundle(a.home)
     att=build(a.home,a.work)
     if sec.emit(att,as_json=a.json): return 0 if att["attested"] else 1

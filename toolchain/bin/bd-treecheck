@@ -10,38 +10,27 @@ WHOLE tree in one fast pass — before it reaches the slow build_release chain.
 Modes:
     bd-treecheck                 source (bulk_downloader/ + tools/) + all .json
     bd-treecheck --tests         also parse tests/  (adds ~1k files)
-    bd-treecheck --changed       ONLY files changed vs the pinned zip (fast inner-loop)
+    bd-treecheck --changed       ONLY files changed vs HEAD (fast inner-loop)
     bd-treecheck --py-only       skip the .json pass (pure syntax gate)
-    bd-treecheck --work DIR
-Exit 0 if everything parses/loads, 1 on the first structural failure.
+    bd-treecheck --work DIR      (default: the checkout this tool lives in)
+Exit 0 if everything parses/loads, 1 on the first structural failure,
+2 CANNOT-EVALUATE when --work holds no .py to parse (an unscannable tree is
+not a clean one).
+
+v3.66.855 port: --changed used to diff the work tree against the newest
+BulkDownloader_v3_66_*.zip in /home/claude or /mnt/user-data/uploads. Both are
+retired (CLAUDE.md s7); the baseline is now git, so --changed asks git.
 """
 import argparse
 import ast
-import re
 import glob
-import hashlib
 import json
 import os
+import subprocess
 import sys
-import zipfile
 
-
-def _bd_pick_newest(paths):
-    """Highest VERSION wins; ties resolve to /home/claude.
-
-    These lists glob BOTH /mnt/user-data/uploads AND /home/claude, then sorted the PATH
-    STRINGS with reverse=True. Lexicographically "/mnt..." > "/home...", so the READ-ONLY
-    UPLOADS COPY ALWAYS WON -- regardless of version. bd-since cheerfully diffed the work
-    tree against a FOUR-RELEASE-STALE zip (722 against a live 726) while looking entirely
-    correct; bd-agent-scorecard scored off that, and bd-evidence BLOCKED on the result.
-
-    The denominator CONTAINED the right file. The ORDERING discarded it. Sort by the thing
-    actually being asked about -- the version -- not by where the file happens to live.
-    """
-    def _k(p):
-        nums = tuple(int(x) for x in re.findall(r"\d+", os.path.basename(p)))
-        return (nums, p.startswith("/home/claude"))
-    return sorted(paths, key=_k, reverse=True)
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402  (after the import block -- os/sys are bound above)
 
 
 G, R, Y, DIM, BOLD, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[1m", "\033[0m"
@@ -49,26 +38,38 @@ G, R, Y, DIM, BOLD, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[1
 CRITICAL = ["bulk_downloader/__init__.py", "bulk_downloader/app.py", "CHANGELOG.md",
             "requirements.txt"]
 
+_CHANGED_DIRS = ("bulk_downloader", "tools", "tests")
+
 
 def changed_files(work):
-    z = _bd_pick_newest(glob.glob("/mnt/user-data/uploads/BulkDownloader_v3_66_*.zip")
-               + glob.glob("/home/claude/BulkDownloader_v3_66_*.zip")
-                        + glob.glob("/home/claude/out/BulkDownloader_v3_66_*.zip"))
-    if not z:
+    """Files changed vs HEAD, from git. None when `work` is not a usable repo --
+    the caller then falls back to the full source pass and SAYS SO.
+
+    Returns tracked modifications (`diff --name-only HEAD`) UNIONED with untracked
+    files (`ls-files --others --exclude-standard`). The untracked half is the whole
+    point of the mode: a brand-new module is exactly the file most likely to carry
+    a SyntaxError, and it is invisible to `git diff` alone. The zip-era predecessor
+    got this right by comparing against a member list, so dropping it here would
+    have been a silent narrowing of the denominator.
+    """
+    def _git(*args):
+        r = subprocess.run(["git", "-C", work] + list(args),
+                           capture_output=True, text=True, timeout=120)
+        if r.returncode != 0:
+            return None
+        return [ln for ln in r.stdout.splitlines() if ln.strip()]
+
+    if _git("rev-parse", "--git-dir") is None:
         return None
-    zf = zipfile.ZipFile(z[0])
-    zsha = {n: hashlib.sha256(zf.read(n)).hexdigest()
-            for n in zf.namelist() if not n.endswith("/")}
-    out = []
-    for base in ("bulk_downloader", "tools", "tests"):
-        for p in glob.glob(os.path.join(work, base, "**", "*"), recursive=True):
-            if not os.path.isfile(p):
-                continue
-            rel = os.path.relpath(p, work)
-            b = open(p, "rb").read()
-            if rel not in zsha or hashlib.sha256(b).hexdigest() != zsha[rel]:
-                out.append(rel)
-    return out
+    tracked = _git("diff", "--name-only", "HEAD", "--") or []
+    untracked = _git("ls-files", "--others", "--exclude-standard") or []
+    keep = []
+    for rel in dict.fromkeys(tracked + untracked):
+        if not rel.startswith(_CHANGED_DIRS):
+            continue
+        if os.path.isfile(os.path.join(work, rel)):   # a DELETED path has nothing to parse
+            keep.append(rel)
+    return keep
 
 
 
@@ -94,7 +95,7 @@ def selftest():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--work", "--tree", default="/home/claude/work")
+    ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
     ap.add_argument("--tests", action="store_true")
     ap.add_argument("--changed", action="store_true")
     ap.add_argument("--py-only", action="store_true")
@@ -109,7 +110,7 @@ def main():
     if a.changed:
         ch = changed_files(w)
         if ch is None:
-            print(f"{Y}no pinned zip to diff against; falling back to full source{RST}")
+            print(f"{Y}--work is not a git checkout; falling back to full source{RST}")
             a.changed = False
     if a.changed:
         pyfiles = [os.path.join(w, r) for r in ch if r.endswith(".py")]
@@ -123,6 +124,22 @@ def main():
         jsonfiles = glob.glob(os.path.join(w, "*.json")) + \
             glob.glob(os.path.join(w, "bulk_downloader", "**", "*.json"), recursive=True)
         scope = f"{'+'.join(dirs)}" + (" +json" if not a.py_only else "")
+
+        # A full-source pass that found NO .py is not a sound tree -- it is a tree
+        # this tool could not see. Before the port it printed "OK 0 .py parsed" and
+        # then failed on the four missing CRITICAL files, so the verdict named the
+        # symptom ("4 structural failures -- fix before cutting") instead of the
+        # cause (--work points at nothing). Refuse instead of minting a verdict.
+        #
+        # Deliberately NOT applied to --changed: there, an empty set is the real
+        # answer ("nothing changed vs HEAD"), and refusing on it would be the
+        # over-sensitivity failure -- equally a soundness bug, per CLAUDE.md s0.
+        if not pyfiles:
+            sys.stderr.write(
+                "CANNOT-EVALUATE --work %s: reason=EMPTY (no .py under %s -- "
+                "is --work the checkout?)\n" % (w, "/, ".join(dirs) + "/"))
+            print(f"{Y}CANNOT-EVALUATE{RST} no .py found under {w}")
+            return sec.EXIT_CANNOT_EVALUATE
 
     print(f"{BOLD}tree health{RST} {DIM}[{scope}]{RST}")
     fails = 0

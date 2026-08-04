@@ -48,7 +48,7 @@ def redteam(work, home):
 
 def selftest():
     ok=True
-    r=redteam(sec.DEFAULT_WORK,"/home/claude")
+    r=redteam(sec.DEFAULT_WORK,os.path.expanduser("~"))
     print(("PASS" if "error" not in r else "FAIL")+"  redteam ran (pristine: %d changed, %d findings)"%(r.get("changed",-1),len(r.get("findings",[]))))
     ok=ok and "error" not in r
     # logic: a fetch-without-guard text triggers high
@@ -65,7 +65,7 @@ def selftest():
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK); ap.add_argument("--home",default="/home/claude")
+    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK); ap.add_argument("--home",default=os.path.expanduser("~"))
     ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
     a=ap.parse_args()
     if a.selftest: return selftest()

@@ -7,6 +7,11 @@ bd-invariant-engine. A transparent rubric, not a black box -- prints the
 per-factor contribution. Read-only.
 
 Usage: bd-trust-score [--home DIR] [--work DIR] [--json] [--selftest]
+--home defaults to $HOME. It supplies the STATE-derived ledger, which is
+RETIRED along with the release zip (CLAUDE.md s7), so on a git checkout
+bd-proof-ledger has nothing to hand over and the score is CANNOT-EVALUATE(2) --
+correct: a score minted from a missing ledger would silently be 25-50 points
+low and still look like a verdict. --home at a preserved bundle still scores.
 Exit 0 = scored a single, verified tree at or above --threshold;
 1 = scored, below --threshold; 2 = CANNOT-EVALUATE (absent tree, absent
 bundle, or a CROSS-TREE blend). A score minted from two trees, or from
@@ -47,13 +52,29 @@ def score(home, work):
 
 def selftest():
     ok=True
-    s=score("/home/claude", sec.DEFAULT_WORK)
-    print(("PASS" if 0<=s["score"]<=100 else "FAIL")+"  score in range (%d)"%s["score"])
-    ok=ok and 0<=s["score"]<=100
-    print(("PASS" if s["score"]>=80 else "WARN")+"  pristine tree scores high (%d)"%s["score"])
-    ok=ok and s["score"]>=80
-    print(("PASS" if len(s["factors"])==5 else "FAIL")+"  5 transparent factors")
-    ok=ok and len(s["factors"])==5
+    unevaluable=False
+    # The scoring path needs a STATE-derived ledger. Where none exists (a git
+    # checkout: the bundle world is retired) the tool's own _tool_json exits 2,
+    # which used to abort the WHOLE selftest at line 1 -- so the three NEG
+    # controls below, which need no bundle at all, never ran and the tool's
+    # exit contract went unverified. Catch the refusal, SAY it was skipped, and
+    # go on: an unevaluable factor is not a reason to leave everything else
+    # unmeasured. The final rc is still 2, not 0.
+    try:
+        s=score(os.path.expanduser("~"), sec.DEFAULT_WORK)
+    except SystemExit as e:
+        unevaluable=True
+        print("SKIP  scoring assertions: no STATE-derived ledger under $HOME "
+              "(rc=%s) -- the bundle world is retired; the NEG controls below "
+              "do not need one"%getattr(e,"code",None))
+        s=None
+    if s is not None:
+        print(("PASS" if 0<=s["score"]<=100 else "FAIL")+"  score in range (%d)"%s["score"])
+        ok=ok and 0<=s["score"]<=100
+        print(("PASS" if s["score"]>=80 else "WARN")+"  pristine tree scores high (%d)"%s["score"])
+        ok=ok and s["score"]>=80
+        print(("PASS" if len(s["factors"])==5 else "FAIL")+"  5 transparent factors")
+        ok=ok and len(s["factors"])==5
 
     # I-4: the selftest asserted ONLY the happy path. The cross-tree assertion and
     # the 0/1/2 contract are real and working -- but nothing encoded them, which is
@@ -85,17 +106,28 @@ def selftest():
     ok=ok and rc_g==2
     _sh.rmtree(d2,ignore_errors=True)
 
-    # NEG 3: THRESHOLD -- a scorer that cannot fail is decoration (I-2).
-    rc_t=_rc("--threshold","101")
-    print(("PASS" if rc_t==1 else "FAIL")+"  NEG: below --threshold -> 1 (got %d)"%rc_t)
-    ok=ok and rc_t==1
+    # NEG 3: THRESHOLD -- a scorer that cannot fail is decoration (I-2). This
+    # one DOES need a scoreable bundle: with no ledger the run refuses (2)
+    # before any threshold is applied, so asserting 1 there would be asserting
+    # against a hole. Skipped, and said so, rather than quietly reinterpreted.
+    if not unevaluable:
+        rc_t=_rc("--threshold","101")
+        print(("PASS" if rc_t==1 else "FAIL")+"  NEG: below --threshold -> 1 (got %d)"%rc_t)
+        ok=ok and rc_t==1
+    else:
+        print("SKIP  NEG: --threshold seam needs a scoreable bundle")
 
+    if unevaluable:
+        print("SELFTEST CANNOT-EVALUATE" if ok else "SELFTEST FAIL")
+        sys.stderr.write("CANNOT-EVALUATE selftest: reason=%s (no STATE-derived "
+                         "ledger; scoring assertions unmeasured)\n"%sec.REASON_ABSENT)
+        return sec.EXIT_CANNOT_EVALUATE if ok else 1
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
     return 0 if ok else 1
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--home",default="/home/claude"); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
+    ap.add_argument("--home",default=os.path.expanduser("~")); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
     ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
     ap.add_argument("--threshold",type=int,default=0,
                     help="exit 1 if the score is below this (default 0 = report only)")

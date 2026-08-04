@@ -15,6 +15,9 @@ import argparse
 import json
 import os
 import sys
+import os as _os_bd, sys as _sys_bd
+_sys_bd.path.insert(0, _os_bd.path.dirname(_os_bd.path.realpath(__file__)))
+import bdtools_sec as sec
 
 G, C, Y, DIM, RST = "\033[32m", "\033[36m", "\033[33m", "\033[2m", "\033[0m"
 
@@ -32,7 +35,7 @@ def selftest():
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("name", nargs="?")
-    ap.add_argument("--work","--tree", default="/home/claude/work")
+    ap.add_argument("--work","--tree", default=sec.DEFAULT_WORK)
     ap.add_argument("--selftest",action="store_true")
     a = ap.parse_args()
     if a.selftest:

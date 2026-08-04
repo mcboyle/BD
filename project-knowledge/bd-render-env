@@ -15,39 +15,43 @@ Checks (each is a real observed break, not a hypothetical):
           (Observed @708: venv playwright 1.61.0 wants rev 1228; the cache had
           chromium-1228 + chromium_headless_shell-1223. Bare launch() -> dead.)
   CHROME  the full chromium-<rev> build exists (headed / Xvfb path).
-  PYPATH  the prestaged path is NOT shadowing the venv playwright with a newer
-          one that pins a rev nobody installed.
+  PYPATH  a working interpreter resolves the chromium rev the installed
+          playwright will execute (no PYTHONPATH shadowing; never bare python3).
   HARNESS the render harness (spa_serve/capture_all/build_montage/render_check)
-          is reachable. It ships ONLY in /mnt/project (read-only), so it must be
-          staged out to a writable dir or bd-render's discovery finds nothing.
+          is reachable. It ships in the checkout under project-knowledge/; a
+          missing file means an incomplete checkout (staging is retired).
   DIST    frontend/dist exists -- spa_serve serves the BUILT SPA, so a missing
           dist yields a 200 with an empty shell and screenshots of nothing.
 
---fix repairs SHELL (symlink to the nearest installed shell) and HARNESS (stage
-from /mnt/project). It never touches the work tree.
+--fix repairs SHELL (symlink to the nearest installed shell). It never touches
+the work tree.
 
 WHEN: before any GUI render / capture / OPV-RENDER run, and after any pack
 install that moves browsers.
 
 Read-only unless --fix. ASCII. Deterministic. --json. --selftest.
-Exit 0 = render is possible; 1 = a blocking fault remains.
+Exit 0 = render is possible; 1 = a blocking fault remains; 2 = the probe could
+not see a playwright install at all (no verdict minted).
 """
 import argparse
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
 G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 
-CANON = "/home/claude/.cache/ms-playwright"
+CANON = os.path.expanduser("~/.cache/ms-playwright")  # playwright's default cache
 CACHE = os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or CANON
-WORK = "/home/claude/work"
-VENV_PY = "/home/claude/work/venv/bin/python"
-STAGE = "/home/claude/render_kit"
-PK = "/mnt/project"
+WORK = sec.DEFAULT_WORK
+VENV_PY = os.path.join(sec.DEFAULT_WORK, "venv", "bin", "python")
+# the render harness ships IN the checkout now (the /home/claude/render_kit
+# staging dir and its /mnt/project source are retired)
+STAGE = os.path.join(sec.DEFAULT_WORK, "project-knowledge")
 HARNESS = ["spa_serve.py", "capture_all.py", "build_montage.py", "render_check.py",
            "build_navigator.py", "spa_shot.py"]
 
@@ -59,21 +63,19 @@ def _rev_wanted(py=VENV_PY):
         "from playwright.sync_api import sync_playwright\n"
         "with sync_playwright() as p: print(p.chromium.executable_path)\n"
     )
-    env = dict(os.environ, PLAYWRIGHT_BROWSERS_PATH=CANON)
-    env.pop("PYTHONPATH", None)  # prestaged ships a NEWER playwright -> wrong rev
+    # inherit the ambient PLAYWRIGHT_BROWSERS_PATH (the effective cache) rather
+    # than pinning a canonical dir the deployment may not use
+    env = dict(os.environ, PLAYWRIGHT_BROWSERS_PATH=CACHE)
+    env.pop("PYTHONPATH", None)  # a shadowing playwright -> wrong rev
     # v3.66.714: probe the venv, but do not assume it EXISTS. The service venv can be
     # absent (it vanished mid-session once, and every tool that hardcoded
-    # venv/bin/python then silently probed nothing). Fall back to a prestaged
-    # interpreter and SAY SO -- its playwright is newer and may resolve a different
-    # rev, which is exactly the mismatch this tool exists to catch.
-    cands = [py, "/home/claude/work/venv/bin/python3", "python3"]
-    for i, cand in enumerate(cands):
-        e = dict(env)
-        if i == 2:  # the fallback needs the prestaged path to import playwright at all
-            e["PYTHONPATH"] = "/tmp/prestaged_site_packages"
+    # venv/bin/python then silently probed nothing). Fall back to THIS tool's own
+    # interpreter (never bare python3: that is 3.11 without the project deps).
+    cands = [py, os.path.join(sec.DEFAULT_WORK, "venv", "bin", "python3"), sys.executable]
+    for cand in cands:
         try:
             out = subprocess.run([cand, "-c", code], capture_output=True, text=True,
-                                 timeout=60, env=e).stdout.strip()
+                                 timeout=60, env=env).stdout.strip()
         except Exception:  # why: this item is unreadable/unparseable; skip it, the loop continues over the rest
             continue
         if out:
@@ -102,7 +104,11 @@ def audit(fix=False, rev=None):
     if rev is None:
         rev, _exe = _rev_wanted()
     if not rev:
-        add("PYPATH", False, "could not resolve a chromium rev from the venv playwright")
+        # no interpreter could even IMPORT playwright: the probe is blind, so
+        # this is an unknown (cannot-evaluate), not a proven blocking fault
+        add("PYPATH", False, "could not resolve a chromium rev from the venv playwright",
+            blocking=True)
+        findings[-1]["cannot_evaluate"] = True
         return findings
     add("PYPATH", True, "venv playwright resolves rev %s" % rev, blocking=False)
 
@@ -147,24 +153,14 @@ def audit(fix=False, rev=None):
             "chromium_headless_shell-%s %s" % (rev, "present" if shell_ok else
                                                "MISSING -- bare launch() will die"))
 
-    # HARNESS
+    # HARNESS -- ships in the checkout (project-knowledge/); the /mnt/project
+    # staging source is retired, so a missing file means an incomplete checkout
+    # and --fix cannot conjure it.
     missing = [h for h in HARNESS if not os.path.isfile(os.path.join(STAGE, h))]
-    if missing and fix:
-        os.makedirs(STAGE, exist_ok=True)
-        staged = []
-        for h in missing:
-            src = os.path.join(PK, h)
-            if os.path.isfile(src):
-                shutil.copy(src, os.path.join(STAGE, h))
-                staged.append(h)
-        missing = [h for h in HARNESS if not os.path.isfile(os.path.join(STAGE, h))]
-        add("HARNESS", not missing,
-            "staged %d from %s; still missing: %s" % (len(staged), PK, missing or "none"),
-            blocking=False, fixed=bool(staged))
-    else:
-        add("HARNESS", not missing,
-            "%s: missing %s" % (STAGE, missing) if missing else "%s complete" % STAGE,
-            blocking=False)
+    add("HARNESS", not missing,
+        "%s: missing %s (checkout incomplete; staging is retired)" % (STAGE, missing)
+        if missing else "%s complete" % STAGE,
+        blocking=False)
 
     # DIST
     dist = os.path.join(WORK, "frontend", "dist", "index.html")
@@ -178,7 +174,7 @@ def selftest():
     ok = True
 
     # POS: the rev regex pulls the rev out of a real executable_path
-    p = "/home/claude/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome"
+    p = "/x/ms-playwright/chromium-1228/chrome-linux64/chrome"  # fixture string for the rev regex
     m = re.search(r"chromium(?:_headless_shell)?-(\d+)", p)
     got = m and m.group(1) == "1228"
     print(("%sPASS%s" if got else "%sFAIL%s") % ((G, RST) if got else (R, RST)) +
@@ -246,6 +242,11 @@ def main():
                 (R + "XX " + RST) if x["blocking"] else (Y + "-- " + RST))
             fixed = (G + " [fixed]" + RST) if x["fixed"] else ""
             print("  %s %-8s %s%s" % (mark, x["check"], x["detail"], fixed))
+    if any(x.get("cannot_evaluate") for x in f):
+        if not a.json:
+            print("%sCANNOT-EVALUATE%s -- the probe could not see a playwright install; "
+                  "no render verdict" % (Y, RST))
+        return sec.EXIT_CANNOT_EVALUATE
     bad = [x for x in f if not x["ok"] and x["blocking"]]
     if bad and not a.json:
         print("%sRENDER BLOCKED%s -- run 'bd-render-env --fix'" % (R, RST))

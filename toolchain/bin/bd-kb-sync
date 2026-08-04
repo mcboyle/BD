@@ -30,8 +30,29 @@ MODES.
   --verify <root>                 integrity: <root> matches the manifest EXACTLY (exit 1 if not)
   --diff   <root> <other_manifest> compare a dir's live shas to another manifest (freshness)
 
-<root> = the static-KB working directory. --manifest overrides the default
-<root>/STATIC_KB_MANIFEST.json. The manifest never tracks itself or the update flag.
+<root> = the static-KB working directory. In the git checkout that is
+`project-knowledge/`, which carries its own STATIC_KB_MANIFEST.json.
+--manifest overrides the default <root>/STATIC_KB_MANIFEST.json. The manifest
+never tracks itself or the update flag.
+
+EMPTY DENOMINATOR (v3.66.855). check/verify/diff/pin now REFUSE with exit 2 when
+BOTH the scanned root and the manifest hold zero tracked files. Measured before
+the fix: an empty dir plus a zero-file manifest returned `IN-SYNC` (check, 0),
+`INTEGRITY OK` (verify, 0) and `CURRENT` (diff, 0) -- three green verdicts over
+nothing at all, and `pin` anchored that nothing as canon. A gate that cannot see
+its subject reports OK, truthfully and uselessly (CLAUDE.md s0). The guard fires
+ONLY when both sides are empty: a populated root with an empty manifest, or an
+emptied root with a populated manifest, are real findings and still report drift.
+
+THE EXTERNAL PIN'S HOME (v3.66.855). STATE.json was the sandbox session-state
+file; it is RETIRED, and no STATE.json is tracked in this repo. _default_state()
+no longer probes /home/claude or /mnt/user-data/uploads (neither exists) and no
+longer reaches into a BulkDL_next_session_v*.zip (the zip channel is retired --
+CLAUDE.md s7). Only $BD_STATE is consulted, so `verify` without --state and
+without $BD_STATE fails closed with CANON UNKNOWN -- which is the honest answer,
+not a regression. This is unchanged behaviour on this machine: the retired
+probes could never match here.
+
 Stdlib-only; safe to run anywhere (no network, no BD imports).
 """
 import argparse
@@ -40,9 +61,10 @@ import hashlib
 import json
 import os
 import sys
-import re
-import tempfile
 import zipfile
+# `re` and `tempfile` went unused at v3.66.855 when _default_state() stopped
+# reaching into the retired BulkDL_next_session_v*.zip channel. selftest imports
+# tempfile locally where it needs it.
 
 G, R, Y, B, RST = "\033[32m", "\033[31m", "\033[33m", "\033[1m", "\033[0m"
 MANIFEST_NAME = "STATIC_KB_MANIFEST.json"
@@ -100,6 +122,24 @@ def diff(current, recorded):
     return added, removed, changed
 
 
+def empty_denominator(current, recorded):
+    """s0 guard: True when there is NOTHING to compare on EITHER side.
+
+    'root matches its manifest' is trivially true when both hold zero files, so
+    the green verdict is about nothing. Returns True only when BOTH are empty --
+    an over-sensitive guard that refused real data would be an equal soundness
+    bug, and 'root emptied' / 'manifest empty but root populated' are genuine
+    findings the drift report must keep making.
+    """
+    return not current and not recorded
+
+
+_EMPTY_MSG = ("both the scanned root and the manifest track ZERO files -- there "
+              "is nothing to compare, so 'in sync' would be a verdict about "
+              "nothing. Point --manifest/<root> at the real static-KB set "
+              "(project-knowledge/ in this checkout), or --seed it first.")
+
+
 def _report(added, removed, changed):
     for tag, col, items in (("ADDED", G, added), ("REMOVED", R, removed), ("CHANGED", Y, changed)):
         for it in items:
@@ -119,7 +159,11 @@ def cmd_check(root, manifest_path, state_path=None):
         print(f"{Y}NO MANIFEST{RST} at {manifest_path} -- run --seed first.")
         return 2
     rec = load_manifest(manifest_path)["files"]
-    added, removed, changed = diff(scan(root), rec)
+    cur = scan(root)
+    if empty_denominator(cur, rec):
+        print(f"{R}CANNOT-EVALUATE{RST} -- {_EMPTY_MSG}")
+        return 2
+    added, removed, changed = diff(cur, rec)
     if _report(added, removed, changed):
         print(f"{Y}DRIFT{RST} -- static KB differs from the manifest "
               f"({len(added)} added / {len(removed)} removed / {len(changed)} changed). "
@@ -182,39 +226,27 @@ STATE_PIN_KEY = "static_kb_manifest_pin"
 
 
 def _default_state():
-    """Extracted STATE.json if present, else reach into the version pack --
-    bd-boot runs the kbsync step BEFORE anything extracts it, and a gate that
-    cannot find its pin must not halt the bootstrap it exists to protect.
-    Candidate zips are ordered by the VERSION IN THE FILENAME, never by path
-    string: sorting paths lexicographically is how /mnt/... beat /home/... and a
-    stale zip won every resolver in the toolchain."""
-    for cand in (os.environ.get("BD_STATE"), "/home/claude/STATE.json"):
-        if cand and os.path.exists(cand):
-            return cand
-    best, best_v = None, (-1, -1, -1)
-    for d in ("/home/claude", "/mnt/user-data/uploads"):
-        if not os.path.isdir(d):
-            continue
-        for fn in os.listdir(d):
-            m = re.match(r"BulkDL_next_session_v(\d+)_(\d+)_(\d+)\.zip$", fn)
-            if not m:
-                continue
-            v = tuple(int(x) for x in m.groups())
-            if v > best_v:
-                best_v, best = v, os.path.join(d, fn)
-    if best:
-        try:
-            with zipfile.ZipFile(best) as z:
-                data = z.read("STATE.json")
-            tmp = os.path.join(tempfile.gettempdir(), "_bdkbsync_state.json")
-            with open(tmp, "wb") as fh:
-                fh.write(data)
-            return tmp
-        except Exception:  # why: the version zip is unreadable/has no STATE.json. Returning
-            # None means "no pin found", and _check_external_pin turns that into CANON
-            # UNKNOWN -> exit 1. It never becomes a clean verdict.
-            return None
-    return None
+    """Where the external canon pin lives when --state is not given.
+
+    v3.66.855 -- PORTED. This used to probe `/home/claude/STATE.json` and then
+    reach into the newest `BulkDL_next_session_v*.zip` under `/home/claude` or
+    `/mnt/user-data/uploads`. All three are RETIRED: the sandbox home, the
+    uploads mount, and the session-zip channel that carried STATE.json (git
+    replaced it -- CLAUDE.md s7; the register is now
+    project-knowledge/SESSION_CARRY.md). None of those paths exists on this
+    machine, so every one of those probes already returned nothing -- dropping
+    them changes no verdict here, it only stops the code claiming to look
+    somewhere real.
+
+    No STATE.json is tracked in this repo, so there is no in-checkout default to
+    substitute and inventing one would be worse than having none. $BD_STATE is
+    the single explicit rung; without it (and without --state) the answer is
+    "no pin found", which `_check_external_pin` turns into CANON UNKNOWN and
+    `_pin_verdict` into 'unknown'. Returning None is a refusal, never a clean
+    verdict.
+    """
+    cand = os.environ.get("BD_STATE")
+    return cand if (cand and os.path.exists(cand)) else None
 
 
 def _manifest_sha(manifest_path):
@@ -350,6 +382,13 @@ def cmd_pin(root, manifest_path, state_path, version_context):
               "a content sha it does not have." % (R, RST, manifest_path))
         return 2
     rec = load_manifest(manifest_path)
+    if not (rec.get("files") or {}):
+        print("%sCANNOT-EVALUATE%s -- refusing to pin a manifest that tracks ZERO "
+              "files. A canon anchor over an empty set certifies nothing, and every "
+              "later verify against it would report INTEGRITY OK over nothing "
+              "(CLAUDE.md s0). Seed the manifest from the real static-KB set first."
+              % (R, RST))
+        return 2
     oldpin = state.get(STATE_PIN_KEY) or {}
     old = oldpin.get("content_sha256") or oldpin.get("sha256")
     state[STATE_PIN_KEY] = {
@@ -402,6 +441,9 @@ def cmd_verify(root, manifest_path, kit_overlay=None, state_path=None):
         return 2
     rec = load_manifest(manifest_path)["files"]
     cur = scan(root)
+    if empty_denominator(cur, rec):
+        print(f"{R}CANNOT-EVALUATE{RST} -- {_EMPTY_MSG}")
+        return 2
     added, removed, changed = diff(cur, rec)
 
     overlay_lag = []
@@ -440,7 +482,11 @@ def cmd_verify(root, manifest_path, kit_overlay=None, state_path=None):
 def cmd_diff(root, other_manifest):
     """Freshness: compare a dir's live shas to ANOTHER manifest (e.g. the pack's)."""
     rec = load_manifest(other_manifest)["files"]
-    added, removed, changed = diff(scan(root), rec)
+    cur = scan(root)
+    if empty_denominator(cur, rec):
+        print(f"{R}CANNOT-EVALUATE{RST} -- {_EMPTY_MSG}")
+        return 2
+    added, removed, changed = diff(cur, rec)
     stale = removed or changed  # the dir is MISSING newer files / has older content
     if added or removed or changed:
         _report(added, removed, changed)
@@ -685,6 +731,69 @@ def selftest():
               "  CONTENT-PIN-BITES: changed content mismatches (verdict=%s)"
               % verdict2)
         ok = ok and c6
+
+    # EMPTY-DENOMINATOR (855). BOTH directions, because the fix for "reports OK
+    # while blind" that simply refuses everything is an equal soundness bug.
+    c7 = empty_denominator({}, {}) is True
+    print(("PASS" if c7 else "FAIL") +
+          "  EMPTY-DENOM-UNIT: nothing on either side -> refuse")
+    ok = ok and c7
+    c8 = (empty_denominator({"a": 1}, {}) is False
+          and empty_denominator({}, {"a": 1}) is False
+          and empty_denominator({"a": 1}, {"a": 1}) is False)
+    print(("PASS" if c8 else "FAIL") +
+          "  EMPTY-DENOM-NOT-OVERSENSITIVE: either side populated -> still a "
+          "real verdict (emptied root / empty manifest are FINDINGS, not refusals)")
+    ok = ok and c8
+
+    with _tf.TemporaryDirectory() as td:
+        # NEG end-to-end: empty root + zero-file manifest. Measured before the
+        # fix: check=0 IN-SYNC, verify=0 INTEGRITY OK, diff=0 CURRENT -- three
+        # green verdicts over nothing. All three must now be 2.
+        root = os.path.join(td, "kb"); os.makedirs(root)
+        mpath = os.path.join(root, MANIFEST_NAME)
+        write_manifest(mpath, {}, "vE")
+        state = os.path.join(td, "STATE.json")
+        json.dump({"live_version": "x"}, open(state, "w"))
+        rcs = {m: _run(m, root, *extra).returncode
+               for m, extra in (("check", ("--state", state)),
+                                ("verify", ("--state", state)),
+                                ("pin", ("--state", state, "--version", "vE")))}
+        rcs["diff"] = _run("diff", root, mpath).returncode
+        # verify is 1, not 2, and that is CORRECT: it consults the external pin
+        # FIRST and this STATE carries none, so CANON UNKNOWN (1) preempts the
+        # empty-denominator refusal. Both are refusals; neither is green, which
+        # is the property under test. Asserting 2 here would have been asserting
+        # the wrong thing about the right behaviour.
+        c9 = (rcs["check"] == 2 and rcs["diff"] == 2 and rcs["pin"] == 2
+              and rcs["verify"] == 1)
+        print(("PASS" if c9 else "FAIL") +
+              "  EMPTY-DENOM-E2E: empty root+manifest -> check/diff/pin exit 2, "
+              "verify exits 1 (CANON UNKNOWN preempts); none is 0 (got %s)" % rcs)
+        ok = ok and c9
+
+        # ...and the verify guard itself IS reachable: give it a LEGACY byte-pin
+        # that matches, so the pin check passes and the empty guard is the thing
+        # that decides. Without this control the guard could be dead code in
+        # verify and the row above would never notice.
+        json.dump({STATE_PIN_KEY: {"sha256": _manifest_sha(mpath)}},
+                  open(state, "w"))
+        rv = _run("verify", root, "--state", state)
+        c9b = rv.returncode == 2 and "CANNOT-EVALUATE" in rv.stdout
+        print(("PASS" if c9b else "FAIL") +
+              "  EMPTY-DENOM-VERIFY: pin satisfied, empty set -> verify exits 2 "
+              "instead of INTEGRITY OK (rc=%d)" % rv.returncode)
+        ok = ok and c9b
+
+        # POS end-to-end: one real file -> the drift verdict must come back, not
+        # a refusal. Without this the guard could pass by refusing everything.
+        open(os.path.join(root, "DOC_A.md"), "w").write("alpha\n")
+        r10 = _run("check", root, "--state", state)
+        c10 = r10.returncode == 1 and "ADDED" in r10.stdout
+        print(("PASS" if c10 else "FAIL") +
+              "  EMPTY-DENOM-POS: one real file -> genuine DRIFT verdict (rc=%d), "
+              "not a refusal" % r10.returncode)
+        ok = ok and c10
 
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
     return 0 if ok else 1

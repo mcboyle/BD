@@ -13,8 +13,6 @@ Exit 1 if any manifest invalid, else 0.
 import argparse, glob, json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec
-import os as _oscli, sys as _syscli
-_syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
 from bdtools_cli import G, R, Y, DIM, RST
 
 def _load_mod(work, modname):
@@ -24,8 +22,7 @@ def _load_mod(work, modname):
     try:
         pkg=types.ModuleType("bulk_downloader"); pkg.__path__=[os.path.join(work,"bulk_downloader")]
         sys.modules.setdefault("bulk_downloader",pkg)
-        for e in (work,"/tmp/prestaged_site_packages"):
-            if e not in sys.path: sys.path.insert(0,e)
+        if work not in sys.path: sys.path.insert(0,work)
         spec=importlib.util.spec_from_file_location("bulk_downloader."+modname,p)
         m=importlib.util.module_from_spec(spec); sys.modules["bulk_downloader."+modname]=m
         spec.loader.exec_module(m); return m

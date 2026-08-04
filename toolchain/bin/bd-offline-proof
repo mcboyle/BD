@@ -15,6 +15,9 @@ tier COMPLETE / 1 = a required tier is PARTIAL or ABSENT / 2 = CANNOT-EVALUATE.
 A required tier that is not COMPLETE is a real failed attestation, not a note.
 
 Usage: bd-offline-proof [--home DIR] [--work DIR] [--json] [--selftest]
+--home defaults to $HOME (the wheelhouse/browser-cache/audit-tool roots live
+there); --work to the checkout the tool ships in. Browser detection honours
+PLAYWRIGHT_BROWSERS_PATH when set.
 """
 import argparse, glob, os, shutil, sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -35,8 +38,11 @@ def check(home, work):
     venv_sp=glob.glob(os.path.join(work,"venv","lib","python*","site-packages"))
     flask=any(os.path.exists(os.path.join(sp,"flask")) for sp in venv_sp)
     tiers["wheels"]={"checks":{"wheelhouse_staged":bool(pw),"venv_flask":flask},}
-    # browsers
-    cache=os.path.join(home,".cache","ms-playwright")
+    # browsers -- PLAYWRIGHT_BROWSERS_PATH wins when set. It is set on this
+    # host (/opt/pw-browsers) and browsers are preinstalled there, so globbing
+    # only $HOME/.cache/ms-playwright reported ABSENT over a pool that exists:
+    # a wrong verdict from a denominator that excludes the subject.
+    cache=os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or os.path.join(home,".cache","ms-playwright")
     br={"chromium":bool(glob.glob(os.path.join(cache,"chromium-*"))),
         "firefox":bool(glob.glob(os.path.join(cache,"firefox-*"))),
         "webkit":bool(glob.glob(os.path.join(cache,"webkit-*")))}
@@ -58,7 +64,7 @@ def check(home, work):
 
 def selftest():
     ok=True
-    t=check("/home/claude","/home/claude/work")
+    t=check(os.path.expanduser("~"), sec.DEFAULT_WORK)
     print(("PASS" if len(t)==5 else "FAIL")+"  5 capability tiers checked")
     ok=ok and len(t)==5
     # netdeps should be COMPLETE (installed this session)
@@ -98,13 +104,17 @@ def _verdict_rc(tiers, require):
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--home",default="/home/claude"); ap.add_argument("--work","--tree",default="/home/claude/work")
+    ap.add_argument("--home",default=os.path.expanduser("~")); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
     ap.add_argument("--require",default=None,help="comma-separated tiers that must be COMPLETE (e.g. wheels,netdeps)")
     ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
     a=ap.parse_args()
     if a.selftest: return selftest()
     sec.require_source_tree(a.work)
-    sec.require_bundle(a.home)
+    # NOT require_bundle: this tool's corpus is the work tree's venv, $HOME's
+    # caches and PATH -- never a release zip. Asserting over the zip markers
+    # guarded a denominator the tool does not scan, so it refused every run on
+    # a git checkout while having everything it actually needs. ABSENT tiers
+    # are a reported finding here, not an empty denominator.
     t=check(a.home,a.work)
     if sec.emit({"tiers":t,"summary":{k:v["status"] for k,v in t.items()}},as_json=a.json): return _verdict_rc(t,a.require)
     print("offline install completeness:")

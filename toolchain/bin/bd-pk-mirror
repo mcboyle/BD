@@ -2,11 +2,26 @@
 """bd-pk-mirror -- detect drift between static-PK .py files and their
 work-tree / bdsuite-bin counterparts.
 
-WHY A bd-* TOOL AND NOT A tests/ SUITE: /mnt/project does not exist on
-stash. A tests/ gate would assert over a denominator that structurally
-excludes its own subject on the machine where the full suite runs -- it
-would report clean, truthfully and uselessly. That is the exact failure
-shape this project catalogues.
+WHY A bd-* TOOL AND NOT A tests/ SUITE -- AND WHAT CHANGED AT v3.66.855.
+The original reason was that the PK root was /mnt/project, a sandbox mount
+absent on the deploy box: a tests/ gate would have asserted over a
+denominator that structurally excluded its own subject on the machine where
+the full suite runs, and reported clean -- truthfully and uselessly.
+
+That reason has expired. On the git checkout the PK root is the tracked
+project-knowledge/ directory, so the subject IS present everywhere, and
+tests/test_pk_mirrors_do_not_drift.py now gates twin agreement by sha256.
+This tool is no longer the only instrument; it is the WIDER one, and the two
+ask different questions. The test compares a mirror against its single
+source. This tool classifies every counterpart of a PK file across BOTH
+toolchain/bin and the work tree, so it can report AMBIGUOUS -- two
+same-named copies that disagree with EACH OTHER -- which a one-to-one
+comparison cannot express. Keep both.
+
+DEFAULTS FOLLOW THE CHECKOUT: --pk, --work and --bin are derived from the
+repo root this file lives in (bdtools_sec.DEFAULT_WORK). Before the port they
+were three hardcoded sandbox paths, so the tool refused on every invocation
+that did not spell all three out -- a permanent, honest, useless exit 2.
 
 Per PK .py file, one verdict:
   PK-ONLY          no counterpart anywhere (the render-harness class --
@@ -36,6 +51,17 @@ import hashlib
 import json
 import os
 import sys
+
+# v3.66.855 desandbox. AFTER the import block on purpose (sys must already be bound).
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
+# The three roots this tool compares. In the retired sandbox they were three
+# unrelated absolute paths (/mnt/project, /home/claude/work, /home/claude/bin);
+# on a git checkout all three live INSIDE the tree, so they are derived from one
+# resolved root and a relocated checkout carries them along.
+DEFAULT_PK = os.path.join(sec.DEFAULT_WORK, "project-knowledge")
+DEFAULT_BIN = os.path.join(sec.DEFAULT_WORK, "toolchain", "bin")
 
 G, R, Y, D, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 
@@ -258,9 +284,9 @@ def selftest() -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pk", default="/mnt/project")
-    ap.add_argument("--work", default="/home/claude/work")
-    ap.add_argument("--bin", dest="bin_dir", default="/home/claude/bin")
+    ap.add_argument("--pk", default=DEFAULT_PK)
+    ap.add_argument("--work", default=sec.DEFAULT_WORK)
+    ap.add_argument("--bin", dest="bin_dir", default=DEFAULT_BIN)
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--selftest", action="store_true")

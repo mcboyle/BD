@@ -63,9 +63,16 @@ def scan(home):
 
 def selftest():
     ok=True
-    rows=scan("/home/claude")
-    print(("PASS" if len(rows)>0 else "FAIL")+"  executables inventoried (%d)"%len(rows))
-    ok=ok and len(rows)>0
+    # The live-home scan is ENVIRONMENT-DEPENDENT: the sandbox bin dirs and
+    # offline pack zips are consumed and dropped after install, so asserting
+    # they exist tests the sandbox, not the tool (same reasoning as
+    # bd-supply-chain-scan's selftest). Skip explicitly rather than FAIL --
+    # the synthetic fixture below is the gating control.
+    rows=scan(sec.DEFAULT_WORK)
+    if not rows:
+        print("SKIP: needs pack_*.zip or %s in %s (dropped after install)"%(BIN_DIRS,sec.DEFAULT_WORK))
+    else:
+        print("PASS  executables inventoried (%d)"%len(rows))
     ww=[r for r in rows if r.get("world_writable")]
     print(("PASS" if not ww else "WARN")+"  world-writable executables: %d"%len(ww))
     import tempfile
@@ -92,7 +99,7 @@ def _verdict_rc(ww, big, fail_ww):
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--home",default="/home/claude")
+    ap.add_argument("--home",default=sec.DEFAULT_WORK)
     ap.add_argument("--fail-on-world-writable",action="store_true",dest="fail_ww",help="exit 1 if any world-writable binary is found")
     ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
     a=ap.parse_args()

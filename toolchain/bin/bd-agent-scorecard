@@ -48,7 +48,7 @@ def score(work, home):
 
 def selftest():
     ok=True
-    s=score(sec.DEFAULT_WORK,"/home/claude")
+    s=score(sec.DEFAULT_WORK,os.path.expanduser("~"))
     print(("PASS" if 0<=s["score"]<=100 else "FAIL")+"  score in range (%d)"%s["score"])
     ok=ok and 0<=s["score"]<=100
     print(("PASS" if s["score"]>=80 else "WARN")+"  pristine tree scores high (%d)"%s["score"])
@@ -74,7 +74,7 @@ def _verdict_rc(s, threshold):
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK); ap.add_argument("--home",default="/home/claude")
+    ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK); ap.add_argument("--home",default=os.path.expanduser("~"))
     ap.add_argument("--threshold",type=int,default=None)
     ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
     a=ap.parse_args()

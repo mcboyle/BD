@@ -18,13 +18,23 @@ Checks (each prints PASS/FAIL; exits non-zero on any failure):
      toolchain drift before a cut, not after).
 
 Usage:
-    bd-preflight                       # checks 1-3
-    bd-preflight --determinism         # + check 4 (runs a vite build)
-    bd-preflight --zip /path/to.zip    # pin a specific source zip
-    bd-preflight --work /home/claude/work
+    bd-preflight --zip /path/to.zip                 # checks 1-3 against that zip
+    bd-preflight --zip /path/to.zip --determinism   # + check 4 (runs a vite build)
+    bd-preflight --work DIR                         # default: this checkout
 
-Exit: 0 = all green, 1 = any failure. Wrap in `bd` so PATH/Flask/etc. are set:
-    bd python3 /path/to/bd-preflight --determinism
+STATUS (v3.66.855) -- READ THIS BEFORE RELYING ON IT. Every check here is
+anchored on an uploaded release ZIP, and the zip flow is RETIRED: the repo moved
+to a git checkout and CLAUDE.md s7 says plainly that `git diff` replaces zip
+comparison. The old default hunted /mnt/user-data/uploads, which cannot exist
+here, so with no --zip this tool has NO corpus and cannot answer anything.
+
+It now says so with EXIT 2 (CANNOT-EVALUATE) instead of exit 1. That distinction
+is the whole point: exit 1 means "I compared and found a divergence", and
+emitting it while having compared nothing is the gate-that-cannot-see-its-subject
+failure (CLAUDE.md s0). The checks still work if you hand it a real --zip.
+
+Exit: 0 = all green, 1 = a real divergence was found, 2 = no zip/tree to compare
+(no verdict minted).
 """
 import argparse
 import hashlib
@@ -34,6 +44,12 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+
+# After the whole import block on purpose -- above `import sys` this would leave
+# sys undefined here and --help would die with NameError (the v3.66.851 trap),
+# which ast.parse would not catch.
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
 
 EXCLUDE_DIRS = ("node_modules", "__pycache__", ".git", "venv", ".venv",
                 ".pytest_cache", "bd_home")
@@ -56,8 +72,17 @@ def _excluded(rel):
     return rel.endswith(EXCLUDE_SUFFIX)
 
 
-def find_zip(uploads="/mnt/user-data/uploads"):
-    """Highest embedded-version BulkDownloader_v*.zip (mirrors bd-install)."""
+def find_zip(uploads=None):
+    """Highest embedded-version BulkDownloader_v*.zip, or None.
+
+    v3.66.855 port: the default was /mnt/user-data/uploads, the retired uploads
+    mount. The only place a release zip can now appear is <work>/out, which is
+    where bd-cut --out writes it, so that is the default the caller passes. None
+    is the normal answer in a git checkout, and the caller turns it into
+    CANNOT-EVALUATE rather than into a failure verdict.
+    """
+    if not uploads:
+        return None
     best, best_ver = None, None
     import glob
     for z in glob.glob(os.path.join(uploads, "BulkDownloader_v*.zip")):
@@ -294,19 +319,32 @@ def main(argv=None):
     import sys as _s
     if "--selftest" in _s.argv: return selftest()
     ap = argparse.ArgumentParser(description="assert work tree == source zip")
-    ap.add_argument("--work","--tree", default="/home/claude/work")
-    ap.add_argument("--zip", default=None, help="source zip (default: highest in uploads)")
+    ap.add_argument("--work","--tree", default=sec.DEFAULT_WORK)
+    ap.add_argument("--zip", default=None,
+                    help="source zip to compare against (default: highest in "
+                         "<work>/out; absent => exit 2, no verdict)")
     ap.add_argument("--determinism", action="store_true",
                     help="also rebuild unmodified frontend + compare bundle hash")
     a = ap.parse_args(argv)
 
-    zpath = a.zip or find_zip()
+    # CLAUDE.md s0: an absent corpus is UNKNOWN, not a failure. Both of these used
+    # to return 1 -- the same code a REAL byte-divergence returns -- so a caller
+    # could not tell "the tree is stale" from "there was nothing to compare".
+    zpath = a.zip or find_zip(os.path.join(a.work, "out"))
     if not zpath:
-        print(f"{RED}FAIL{RST}  no source zip found in uploads")
-        return 1
+        sys.stderr.write(
+            "CANNOT-EVALUATE --zip: reason=ABSENT (no BulkDownloader_v*.zip in %s)\n"
+            "  The uploaded-zip flow is retired (CLAUDE.md s7): this repo is a git\n"
+            "  checkout and `git status --porcelain` / `git diff` answer 'does the\n"
+            "  tree match its baseline'. Pass --zip explicitly to compare against a\n"
+            "  real release zip. No verdict minted.\n"
+            % os.path.join(a.work, "out"))
+        return sec.EXIT_CANNOT_EVALUATE
     if not os.path.isdir(os.path.join(a.work, "bulk_downloader")):
-        print(f"{RED}FAIL{RST}  no work tree at {a.work} (run bd-install)")
-        return 1
+        sys.stderr.write(
+            "CANNOT-EVALUATE --work %s: reason=ABSENT (no bulk_downloader/ package)\n"
+            % a.work)
+        return sec.EXIT_CANNOT_EVALUATE
 
     print("=" * 66)
     print(f"  bd-preflight -- work={a.work}")
