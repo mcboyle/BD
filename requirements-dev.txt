@@ -21,3 +21,16 @@ zstandard>=0.22,<1.0
 #   pytest tests/test_validators.py   # specific file
 #   pytest tests/ -v -x               # verbose, stop on first failure
 pytest>=7.0,<9.0
+
+# v3.66.849: PyYAML, for validating .github/workflows/ci.yml. Not a runtime
+# import and not imported by any tracked file -- an AST walk over all tracked
+# Python finds zero importers -- so it is declared HERE, not in the runtime
+# manifest, and the declaration gate is unaffected either way.
+#
+# It is declared at all because a session installed it by hand to check a CI
+# edit and nearly shipped that edit on an indentation eyeball instead. Nothing
+# guarantees it otherwise: MEASURED, the only installed distribution naming
+# pyyaml is markdown-it-py, and it gates it behind `extra == "rtd"` which BD
+# never requests -- so a container rebuild loses it silently and the next
+# session repeats the eyeball.
+pyyaml>=6.0,<7.0
