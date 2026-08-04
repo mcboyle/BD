@@ -281,7 +281,14 @@ else
   step "claim guard"  optional git config core.hooksPath .githooks
   step "pip upgrade"  optional ./venv/bin/pip install -q --upgrade pip
   step "runtime deps" core     ./venv/bin/pip install -q -r requirements.txt
-  step "test deps"    core     ./venv/bin/pip install -q "pytest>=7.0,<9.0" pyflakes
+  # pyyaml is named here rather than pulled via -r requirements-dev.txt on
+  # purpose: that manifest also carries nuitka, which needs gcc and patchelf
+  # and is a build tool no session needs. pyyaml is a ~700KB pure wheel and
+  # is what VALIDATES an edit to .github/workflows/ci.yml -- without it a
+  # session checks YAML by eye, which is how a CI edit nearly shipped on an
+  # indentation guess at v3.66.849. Declaring it in requirements-dev.txt
+  # persisted the knowledge; only this line survives a container rebuild.
+  step "test deps"    core     ./venv/bin/pip install -q "pytest>=7.0,<9.0" pyflakes "pyyaml>=6.0,<7.0"
 
   # NODE_ENV=production makes `npm ci` omit devDependencies, silently removing
   # vite/typescript/vitest. Verified empirically; `npm ci --dry-run` does NOT
@@ -652,7 +659,7 @@ echo "python interp: $("$PYBIN" --version 2>&1)"
 "$PYBIN" -m venv venv
 ./venv/bin/pip install -q --upgrade pip
 ./venv/bin/pip install -q -r requirements.txt || exit 1
-./venv/bin/pip install -q "pytest>=7.0,<9.0" pyflakes
+./venv/bin/pip install -q "pytest>=7.0,<9.0" pyflakes "pyyaml>=6.0,<7.0"
 [ "${NODE_ENV:-}" = "production" ] && { echo "FATAL: NODE_ENV=production omits devDependencies"; exit 1; }
 ( cd frontend && npm ci --no-audit --no-fund ) || echo "WARN: frontend deps failed"
 # Browsers. This heredoc body is a STANDALONE script installed into ~/bin, so
