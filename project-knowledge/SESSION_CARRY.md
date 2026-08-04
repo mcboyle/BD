@@ -3418,17 +3418,47 @@ read this register, the enumerators a tracked .md edit moves) ran 235 passed /
 1 skipped, plus the tool's one suite at 14 passed -- so the wider band was the
 binding one, exactly as "floor, not ceiling" says.
 
-### 15.28 | Session close 2026-08-04 at 939a37d -- three merges, and a freshness audit
+### 15.28 | Session close 2026-08-04 at 030f16a -- four merges, and a freshness audit
 
 STATE, measured not inferred:
 
-  main 939a37d, version 3.66.848, working tree clean, no open PRs.
+  main 030f16a, version 3.66.848, working tree clean, no open PRs, and `main`
+  the only branch local or remote.
   Merged this session, in order:
     c8ce9ab (#143)  cut #7 + lxml/cssselect declarations + scripts/deploy.sh
     1869cf9 (#144)  the method lessons into CLAUDE.md; CI tests; bd-band-derive
                     fixed; bd-mutate added
     939a37d (#145)  bd-bandcheck wired into bd-band; bd-claim + the pre-commit
                     hook; the prose-only ratchet
+    030f16a (#147)  this section, the pyyaml declaration, and a section 2b
+                    prose repair. (#146 was a DUPLICATE of #145, closed
+                    unmerged -- see the git error below.)
+
+  THIS HEADER WAS WRONG FOR ONE COMMIT. It first read "close at 939a37d",
+  written before the commit that carries it merged, so the register named a tip
+  that was already one behind. Caught by asking whether compaction was safe and
+  CHECKING rather than recalling. A session-close section states the tip it
+  closes AT, so it can only be correct if written or corrected after the merge.
+
+A NEW FAILURE MODE FOR SECTION 2b, worth more than the typo above. After #145
+merged, `git fetch --prune` deleted the REMOTE branch but the LOCAL branch of
+the same name SURVIVED, still pointing at the pre-squash commit 1602ed9. Two
+mistakes then compounded: the session-close commit was made on local `main`,
+and `git push -u origin claude/...` pushed the surviving stale LOCAL branch
+rather than that work. GitHub diffed 1602ed9 against its merge base and
+re-presented all of #145's content as a new PR (#146), while the actual commit
+never left local main.
+
+  WHAT CAUGHT IT: the stop hook reporting an unpushed commit on `main`. Nothing
+  in the repo would have.
+  WHAT MADE THE REPAIR SAFE: section 7's two-dot check.
+  `git diff --stat origin/main origin/<branch>` was EMPTY, proving the stale
+  branch carried nothing main lacked, and only then --force-with-lease. That
+  check exists so a force-push cannot destroy unmerged work, and this is the
+  first time it has been load-bearing rather than ceremonial.
+  THE HABIT THAT PREVENTS IT: `git branch -D <name>` alongside the post-merge
+  `git fetch --prune`. Pruning collects the remote ref; it does not touch the
+  local branch, and a local branch at a pre-squash commit is a loaded gun.
 
   THE BOX CAPTURED #143 AS PASS at 2026-08-03T23:32: 14573 total / 14488 passed
   / 0 failed / 0 errors / 85 skipped; live 36/0/0; graph check-hash OK
