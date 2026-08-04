@@ -27,6 +27,15 @@ set -euo pipefail
 # Remote only. A laptop checkout provisions itself and has no image to revert to.
 [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] || exit 0
 
+# @866: the hook fires on startup|resume|clear|compact and the right repair
+# differs. A full provision is 33 steps -- apt, npm build, playwright, nuclei,
+# GTK -- so running it on every compact would make the session unusable.
+# stdin is JSON; jq is NOT assumed (a base image that reverted may not have it),
+# and malformed or empty stdin must yield "" rather than crash the hook.
+HOOK_SOURCE="$(python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("source",""))
+except Exception: print("")' 2>/dev/null <&0 || echo "")"
+
 REPO="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 cd "$REPO" || exit 0
 
@@ -58,19 +67,49 @@ if [ ! -x "$PY" ]; then
   echo "session-start: no venv at $PY -- run scripts/cloud-setup.sh for a full provision" >&2
 else
 
-# pip install first, then ASK whether the requirements resolve. `pip install -r`
-# exiting 0 is not proof a requirement is present, and `pip check` cannot see one
-# that was never installed -- its denominator is what IS installed. That is the
-# whole reason tools/check_requirements.py exists (CLAUDE.md section 5).
-"$PY" -m pip install -q -r requirements.txt -r requirements-test.txt >/dev/null 2>&1 || true
+# ASK, do not assume. `pip install -r` exiting 0 is not proof a requirement is
+# present, and `pip check` cannot see one that was never installed -- its
+# denominator is what IS installed. That is why tools/check_requirements.py
+# exists (CLAUDE.md section 5), and it is the cheap probe that decides whether
+# the expensive repair is needed at all.
+broken=""
+for manifest in requirements.txt requirements-test.txt; do
+  [ -f "$manifest" ] || continue
+  rc=0; missing="$("$PY" tools/check_requirements.py "$manifest" 2>/dev/null)" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    broken="$broken $manifest(${missing:-unevaluable})"
+  fi
+done
 
-rc=0; missing="$("$PY" tools/check_requirements.py 2>/dev/null)" || rc=$?
-if [ "$rc" -ne 0 ]; then
-  echo "session-start: requirements.txt does not resolve: ${missing:-<unevaluable>}" >&2
-fi
-rc=0; missing="$("$PY" tools/check_requirements.py requirements-test.txt 2>/dev/null)" || rc=$?
-if [ "$rc" -ne 0 ]; then
-  echo "session-start: requirements-test.txt does not resolve: ${missing:-<unevaluable>}" >&2
+if [ -n "$broken" ]; then
+  echo "session-start: requirements do not resolve:$broken" >&2
+  # @866: DELEGATE the repair. The previous draft ran its own
+  # `pip install -r requirements.txt -r requirements-test.txt`, which is a
+  # second home for what scripts/cloud-setup.sh already does -- and a second
+  # home for one answer is this repo's signature failure (three TEXT_EXT sets,
+  # three copies of the test-dep list). cloud-setup.sh is the provisioner; it
+  # is idempotent, it honours the BD_SKIP_* flags exported above, and it
+  # verifies each step rather than trusting an exit code.
+  case "$HOOK_SOURCE" in
+    startup|resume|"")
+      if [ -x scripts/cloud-setup.sh ]; then
+        echo "session-start: running scripts/cloud-setup.sh to repair (source=${HOOK_SOURCE:-unknown})" >&2
+        BD_SKIP_ARCHB=1 BD_SKIP_BROWSERS=1 BD_HOME=/tmp/bd_home BD_REPO="$REPO" \
+          bash scripts/cloud-setup.sh >&2 || \
+          echo "session-start: cloud-setup.sh exited non-zero -- provision by hand" >&2
+      else
+        echo "session-start: scripts/cloud-setup.sh absent; cannot repair" >&2
+      fi
+      ;;
+    *)
+      # compact/clear happen MID-SESSION. A 33-step provision here would stall
+      # a running session for minutes, so say what is wrong and let the
+      # operator choose. Reporting a real problem is not the same as fixing it,
+      # and silently doing neither is what this hook exists to prevent.
+      echo "session-start: source=$HOOK_SOURCE -- NOT auto-provisioning mid-session." >&2
+      echo "session-start: run 'bash scripts/cloud-setup.sh' when convenient." >&2
+      ;;
+  esac
 fi
 fi
 
