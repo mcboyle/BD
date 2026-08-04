@@ -4,6 +4,47 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.861 - box capture FAIL: four failures, three causes, all mine
+
+- The v3.66.859 capture failed on the box: 14588 total, 14499 passed, 4 FAILED.
+  Every one traces to this session's own work. All four reproduce locally and
+  all four are green here now.
+- CAUSE 1 -- tools/ copies could not import bdtools_sec. tools/bd-triage.py and
+  tools/bd-audit-gate.py ship BYTE-IDENTICAL to their toolchain/bin twins, and
+  the @855 desandbox port gave them `import bdtools_sec` -- a module that lives
+  in toolchain/bin only. Their sys.path insert used dirname(__file__), which
+  from tools/ finds nothing: ModuleNotFoundError on the box.
+  WHY IT SHIPPED: at @855 the three-way sync was restored by comparing SHAs and
+  confirming they had been identical at HEAD. That verified the wrong property.
+  Identical bytes in two directories are NOT identical behaviour when a file
+  resolves imports relative to its own location -- and the copies were never
+  RUN. sha256sum is not --help. The same cut ran --help on every tool it edited
+  inside toolchain/bin and skipped the two it copied out.
+  FIX: the shared path block now also inserts <repo>/toolchain/bin, so all three
+  copies stay byte-identical AND work from any of the three locations. Verified
+  by running --selftest from all three: 6/6 SELFTEST PASS.
+- CAUSE 2 -- pyflakes was declared in no manifest. It is installed by
+  scripts/cloud-setup.sh:291 and .github/workflows/ci.yml:101 and written down
+  nowhere, so the deploy host never had it. bd-tool-smoke, which pyflakes backs,
+  then refused: "pyflakes is NOT INSTALLED -- this gate verified NOTHING." THAT
+  REFUSAL IS CORRECT -- the tool failed closed exactly as designed, and the @854
+  test that wired it turned a silent provisioning gap into a red capture. The
+  tool was right; the environment was missing an undeclared dependency. Now
+  pinned in requirements-dev.txt, where tools/check_requirements.py resolves it.
+- CAUSE 3 -- the dep-freshness resolver did not know toolchain/bin. Its
+  first-party search was ("", "tools", owner), so bdtools_sec imported from
+  outside toolchain/bin resolved to nothing and was reported as an undeclared
+  THIRD-PARTY package. Not an exemption case: the module is first-party and in
+  the tree; the resolver's denominator simply excluded where it lives.
+  toolchain/bin added.
+- CI COULD NOT SEE ANY OF IT. Neither test_v3_66_799_audit_tool_selftests nor
+  test_v3_66_653_dep_freshness was in ci.yml's gates lane, and neither is
+  reachable from a band derived off the changed modules. Both are added to the
+  lane now, which is the direct answer to "can CI detect this type of thing".
+- The band that would have caught cause 1 was ALSO the one @860 repaired:
+  bd-band-derive's curated-map signal was dead when @855 shipped. Context, not
+  an excuse -- the miss was not running the tools.
+
 ## v3.66.860 - the band's evidence was unreliable two ways
 
 - Both found by the wired-gate audit. Both undercut the test evidence every

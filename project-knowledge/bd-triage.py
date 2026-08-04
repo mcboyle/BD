@@ -23,7 +23,16 @@ import glob
 import json
 import os
 import os as _os_bd, sys as _sys_bd
-_sys_bd.path.insert(0, _os_bd.path.dirname(_os_bd.path.realpath(__file__)))
+# @861: bdtools_sec lives in toolchain/bin. This file also ships as a
+# BYTE-IDENTICAL copy in tools/, where a dirname(__file__) insert finds
+# nothing -- so add the repo's toolchain/bin too. The v3.66.855 sync
+# restored the three copies by SHA and never RAN the tools/ ones; the box
+# then failed with ModuleNotFoundError. Identical bytes are not identical
+# behaviour when a file resolves imports relative to its own location.
+_d_bd = _os_bd.path.dirname(_os_bd.path.realpath(__file__))
+_sys_bd.path.insert(0, _d_bd)
+_sys_bd.path.insert(0, _os_bd.path.join(_os_bd.path.dirname(_d_bd),
+                                        'toolchain', 'bin'))
 import bdtools_sec as sec
 
 RULES = os.path.join(sec.DEFAULT_WORK, "project-knowledge", "TRIAGE_RULES.json")

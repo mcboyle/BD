@@ -34,3 +34,14 @@ pytest>=7.0,<9.0
 # never requests -- so a container rebuild loses it silently and the next
 # session repeats the eyeball.
 pyyaml>=6.0,<7.0
+
+# v3.66.861: pyflakes. DECLARED HERE BECAUSE ITS ABSENCE IS SILENT-BY-DESIGN
+# EVERYWHERE ELSE. It was installed by scripts/cloud-setup.sh:291 and
+# .github/workflows/ci.yml:101 and written down in no manifest, so the deploy
+# host never got it -- and bd-tool-smoke, which pyflakes backs, then refused to
+# report clean over an absent analyzer ("this gate verified NOTHING"). That
+# refusal is CORRECT and it failed the box capture at v3.66.859: the tool was
+# right, the environment was missing a dependency nobody had declared.
+# tools/check_requirements.py resolves every name here, so an undeclared
+# analyzer cannot hide again.
+pyflakes>=3.0,<4.0
