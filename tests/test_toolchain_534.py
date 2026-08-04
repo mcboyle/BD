@@ -314,6 +314,68 @@ def test_the_tools_this_cut_added_are_wired_and_selftest_clean():
             % tool)
 
 
+_RUNNERS = ("bd-band", "bd-parband", "bd-fullsuite", "bd-retest")
+
+
+def test_no_runner_hardcodes_the_wrong_interpreter():
+    """@851 -- the band tools drove `python3`, which here is 3.11 without pytest.
+
+    CLAUDE.md section 5 records the incident this causes verbatim: "a full test
+    band was measured on 3.11 and reported seven failures that did not exist."
+    Four runners hardcoded ["python3", "run_tests.py", ...] -- bd-band among
+    them, which is the tool section 4 tells you to derive a band with. Measured
+    at v3.66.850: `python3 -V` -> 3.11.15, `python3 -c "import pytest"` ->
+    ModuleNotFoundError, while venv/bin/python is 3.12.3 with pytest 8.4.2.
+
+    A run under the wrong interpreter does not error out -- it reports FAILURES,
+    which read as real. That is why this is a hardcode ban and not a preference.
+    """
+    root = str(_REPO_ROOT)
+    offenders = []
+    for name in _RUNNERS:
+        p = os.path.join(root, "toolchain", "bin", name)
+        if not os.path.isfile(p):
+            continue
+        src = open(p, errors="replace").read()
+        for m in re.finditer(r'\[\s*["\']python3["\']\s*,', src):
+            line = src[:m.start()].count("\n") + 1
+            offenders.append("%s:%d" % (name, line))
+    assert not offenders, (
+        "these runners build an argv starting with a literal \"python3\", which "
+        "is 3.11 without the project deps here:\n  %s\nUse "
+        "bdtools_sec.resolve_test_interpreter(work) -- and note bare "
+        "sys.executable is NOT the fix, because `python3 <tool>` reintroduces it."
+        % "\n  ".join(offenders))
+
+
+def test_interpreter_resolver_proves_pytest_and_refuses_when_it_cannot():
+    """Both directions. A resolver that always answers is not a check."""
+    root = str(_REPO_ROOT)
+    sys.path.insert(0, os.path.join(root, "toolchain", "bin"))
+    import importlib
+    sec = importlib.import_module("bdtools_sec")
+
+    assert hasattr(sec, "resolve_test_interpreter"), (
+        "bdtools_sec has no resolve_test_interpreter -- the shared library is "
+        "where this belongs, so four runners cannot drift apart again.")
+
+    exe = sec.resolve_test_interpreter(root)
+    assert exe, "no interpreter resolved on a tree that has venv/bin/python"
+    r = subprocess.run([exe, "-c", "import pytest; print(pytest.__version__)"],
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, (
+        "resolve_test_interpreter returned %s, which cannot import pytest. "
+        "Returning an interpreter is a claim that it can run the suite." % exe)
+
+    # NEG: nothing viable -> None, so the caller can exit CANNOT-EVALUATE.
+    # Injected probe, because the real environment always has a good one.
+    assert sec.resolve_test_interpreter(root, _probe=lambda e: False) is None, (
+        "with no viable interpreter the resolver must return None. Falling back "
+        "to a broken one is how the band reported failures that did not exist.")
+    # OVER-SENSITIVITY: it must not return None when one IS viable.
+    assert sec.resolve_test_interpreter(root, _probe=lambda e: True) is not None
+
+
 def _doc_truth(args, cwd):
     tool = os.path.join(str(_REPO_ROOT), "toolchain", "bin", "bd-doc-truth")
     return subprocess.run([sys.executable, tool] + args, cwd=cwd,

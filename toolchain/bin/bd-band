@@ -29,6 +29,9 @@ import sys
 import tempfile
 import zipfile
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
 G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 
 
@@ -94,7 +97,7 @@ def main(argv=None):
     if "--selftest" in _s.argv: return selftest()
     ap = argparse.ArgumentParser(prog="bd-band")
     ap.add_argument("suites", nargs="+", help="specific test files, e.g. tests/test_x.py")
-    ap.add_argument("--work","--tree", default="/home/claude/work")
+    ap.add_argument("--work","--tree", default=sec.DEFAULT_WORK)
     ap.add_argument("--from-zip", help="extract this zip and band from the pristine tree")
     ap.add_argument("--timeout", type=int, default=240, help="per-suite timeout seconds")
     ap.add_argument("--skip-bandcheck", action="store_true",
@@ -167,6 +170,17 @@ def main(argv=None):
             return 2
 
     env = band_env()
+    # @851: NOT "python3". Here that is 3.11 without the project deps, and
+    # run_tests.py under it reports failures that do not exist (CLAUDE.md s5).
+    # None is a verdict -- refuse rather than band on an interpreter whose
+    # failures would be artifacts read as results.
+    py = sec.resolve_test_interpreter(rundir)
+    if py is None:
+        print(f"{R}BD-BAND UNEVALUABLE{RST} no interpreter under {rundir} can "
+              f"import pytest. Banding on one that cannot would report failures "
+              f"that are interpreter artifacts, not defects.")
+        return sec.EXIT_CANNOT_EVALUATE
+    print(f"  {DIM}interpreter: {py}{RST}")
     allok = True
     results = []
     for s in a.suites:
@@ -176,7 +190,7 @@ def main(argv=None):
             results.append((s, False, "missing"))
             continue
         print(f"  ... running {s}", flush=True)
-        r = run(["python3", "run_tests.py", s], cwd=rundir, env=env, timeout=a.timeout)
+        r = run([py, "run_tests.py", s], cwd=rundir, env=env, timeout=a.timeout)
         blob = r.stdout + r.stderr
         tail = blob.strip().splitlines()
         line = next((l for l in reversed(tail) if "Failed:" in l or "Total:" in l), "(no summary)")

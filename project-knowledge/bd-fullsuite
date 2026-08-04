@@ -39,6 +39,31 @@ Exit 0 = zero REAL failures. 1 = real failure, or a preflight gate refused.
 """
 import argparse
 import concurrent.futures as cf
+import os as _os_bd, sys as _sys_bd  # noqa: E402
+_sys_bd.path.insert(0, _os_bd.path.dirname(_os_bd.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
+_PY_CACHE = {}
+
+
+def _py(work):
+    """The interpreter that can run this project's tests. Memoized: the probe
+    spawns a subprocess and these runners call this once per suite.
+
+    None from the resolver is FATAL, never a silent fallback -- a band under a
+    deps-less interpreter reports failures that read as real defects, which is
+    the v3.66.850 finding (CLAUDE.md s5).
+    """
+    if work not in _PY_CACHE:
+        exe = sec.resolve_test_interpreter(work)
+        if exe is None:
+            print("BD-UNEVALUABLE: no interpreter under %s can import pytest -- "
+                  "refusing to run rather than report interpreter artifacts as "
+                  "test failures." % work, file=sys.stderr)
+            raise SystemExit(sec.EXIT_CANNOT_EVALUATE)
+        _PY_CACHE[work] = exe
+    return _PY_CACHE[work]
+
 import glob
 import json
 import os
@@ -52,7 +77,7 @@ import time
 G, R, Y, DIM, BOLD, RST = (
     "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[1m", "\033[0m")
 
-DEFAULT_WORK = "/home/claude/work"
+DEFAULT_WORK = sec.DEFAULT_WORK
 
 # Third-party prelude a fork worker imports ONCE. NEVER bulk_downloader or any
 # first-party module: tests may assert on import state / import order, and the
@@ -352,7 +377,7 @@ def run_one(work, f, timeout, retry_bytecode=True):
                PLAYWRIGHT_BROWSERS_PATH="/home/claude/.cache/ms-playwright")
     t0 = time.time()
     try:
-        r = subprocess.run(["python3", "run_tests.py", f], cwd=work, env=env,
+        r = subprocess.run([_py(work), "run_tests.py", f], cwd=work, env=env,
                            capture_output=True, text=True, timeout=timeout)
         out = r.stdout + r.stderr
         rc = r.returncode

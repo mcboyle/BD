@@ -16,6 +16,31 @@ Exit 0 = every suite Failed:0 ; 1 = any failure/timeout, or a refused hazard.
 """
 import argparse
 import concurrent.futures as cf
+import os as _os_bd, sys as _sys_bd  # noqa: E402
+_sys_bd.path.insert(0, _os_bd.path.dirname(_os_bd.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
+_PY_CACHE = {}
+
+
+def _py(work):
+    """The interpreter that can run this project's tests. Memoized: the probe
+    spawns a subprocess and these runners call this once per suite.
+
+    None from the resolver is FATAL, never a silent fallback -- a band under a
+    deps-less interpreter reports failures that read as real defects, which is
+    the v3.66.850 finding (CLAUDE.md s5).
+    """
+    if work not in _PY_CACHE:
+        exe = sec.resolve_test_interpreter(work)
+        if exe is None:
+            print("BD-UNEVALUABLE: no interpreter under %s can import pytest -- "
+                  "refusing to run rather than report interpreter artifacts as "
+                  "test failures." % work, file=sys.stderr)
+            raise SystemExit(sec.EXIT_CANNOT_EVALUATE)
+        _PY_CACHE[work] = exe
+    return _PY_CACHE[work]
+
 import json
 import os
 import re
@@ -67,7 +92,7 @@ def run_one(work, suite, timeout):
     env.update(BD_HOME=tempfile.mkdtemp(prefix="bdpb_"), BD_DISABLE_KEEPALIVE="1")
     t0 = time.time()
     try:
-        r = subprocess.run(["python3", "run_tests.py", suite], cwd=work, env=env,
+        r = subprocess.run([_py(work), "run_tests.py", suite], cwd=work, env=env,
                            capture_output=True, text=True, timeout=timeout)
         out = r.stdout + r.stderr
         m = re.search(r'Failed:\s*(\d+)', out)
@@ -89,7 +114,7 @@ def selftest():
     wrapper that cannot find what it wraps is broken, and a selftest that cannot
     verify must not report success."""
     import os as _o
-    cands = ['/home/claude/work/run_tests.py']
+    cands = [_os_bd.path.join(sec.DEFAULT_WORK, 'run_tests.py')]
     hit = next((p for p in cands if _o.path.isfile(p)), None)
     print(("PASS" if hit else "FAIL") + "  delegation target present: run_tests.py (%s)" % (hit or "NOT FOUND"))
     ok = bool(hit)
@@ -119,7 +144,7 @@ def main():
     ap.add_argument("suites", nargs="+")
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--timeout", type=int, default=300)
-    ap.add_argument("--work", "--tree", default="/home/claude/work")
+    ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
     a = ap.parse_args()
 
     # hazard refusal
