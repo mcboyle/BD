@@ -4,6 +4,38 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.849 - the prose-only ratchet counted data as wiring
+
+- tests/test_toolchain_534.py's _prose_only asked `tool in blob` over any file
+  in an executable CONTEXT. scripts/emit_toolchain_ledger.py is a .py holding a
+  hand-correction dict keyed by tool name, so every tool it records read as
+  WIRED. Four of those seven are recorded in that same dict verbatim as broken
+  -- "scanned the wrong place", "all zeros ... scanned an empty denominator".
+  The ratchet counted a tool as wired BECAUSE a generator wrote down that it
+  does not work. That is CLAUDE.md section 0 inside the gate written to police
+  section 0.
+- The fix derives reachability instead of asserting it. A new _invokes()
+  requires one of two positive signals: the mentioning file contains an
+  execution primitive (subprocess, Popen, exec_module, ...), or the mention is
+  a literal toolchain/bin/<tool> path -- naming an executable's path is only
+  ever done in order to run it.
+- Both signals are load-bearing, and each single-signal form was measured wrong
+  before this one was settled. Requiring the path alone drops 52 of 80 wired
+  tools, bd-band-derive and bd-mutate among them, because most wiring names the
+  bare stem and joins the path at runtime. The execution-primitive test alone
+  wrongly flags the four bd-*fuzz* tools, whose dispatch file names their paths
+  but shells out through an imported _run_bounded, putting the primitive in
+  another module. That false positive was caught by auditing the fix rather
+  than by the fix's own tests.
+- _PROSE_ONLY_BASELINE 166 -> 180. The population did not grow; the measurement
+  got honest. Each of the 14 revealed tools was read individually and is a
+  genuine prose mention -- a docstring aside, an error-message string, a
+  parity-inventory tuple.
+- RED-first: test_a_data_dict_mention_is_not_wiring fails on pristine source
+  with a real assertion (`assert 'bd-zzz-ledger-only' in []`), not a missing
+  symbol. It asserts BOTH directions, because the over-sensitive fix passes the
+  under-sensitive test. bd-mutate: 4 mutants, 4 caught, 0 escaped.
+
 ## v3.66.848 - scripts/deploy.sh is the git deploy path
 
 - scripts/deploy.sh no longer drives the retired zip overlay (--zip, a sha256
