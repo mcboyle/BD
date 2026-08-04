@@ -1027,3 +1027,125 @@ def test_a_scrubber_decides_text_by_content_not_by_extension():
             "how this defect was born." % tool)
         assert "if ext in TEXT_EXT" not in src, (
             "%s still branches on an extension allowlist." % tool)
+
+
+def test_a_file_that_collects_nothing_is_not_a_pass():
+    """@860 -- RED-first TDD was silently defeatable.
+
+    run_tests_core.py ended `sys.exit(1 if failed > 0 else 0)`. A requested file
+    from which pytest collects ZERO tests prints
+        Total: 0 | Passed: 0 | Failed: 0 | Skipped: 0
+    and exited 0 -- and all three band runners grade on exactly that shape:
+    bd-band and bd-parband test ('Failed: 0' in blob and rc == 0), bd-fullsuite
+    counts the file green. A battery could be reported as "proven failing" while
+    running nothing, and the first honest signal would be the box.
+
+    SKIPS ARE NOT THIS: an all-skipped file has total > 0 and stays green.
+    Gating on skips would be the section 0 over-correction -- environment skips
+    are legitimate and this repo has many.
+    """
+    import tempfile
+    root = str(_REPO_ROOT)
+    with tempfile.TemporaryDirectory() as td:
+        os.makedirs(os.path.join(td, "tests"))
+        # pytest collects nothing from a non-Test* class
+        with open(os.path.join(td, "tests", "test_zero.py"), "w") as fh:
+            fh.write("class Helper:\n    def test_would_fail(self):\n        assert False\n")
+        for f in ("run_tests_core.py", "run_tests.py"):
+            src = os.path.join(root, f)
+            if os.path.isfile(src):
+                with open(src) as a, open(os.path.join(td, f), "w") as b:
+                    b.write(a.read())
+        r = subprocess.run([sys.executable, "run_tests.py", "tests/test_zero.py"],
+                           cwd=td, capture_output=True, text=True, timeout=300)
+        assert r.returncode != 0, (
+            "a file collecting ZERO tests exited 0. bd-band grades that PASS, so "
+            "a RED-first battery could prove nothing and still look proven.\n%s"
+            % (r.stdout + r.stderr)[-500:])
+        assert "UNEVALUABLE" in (r.stdout + r.stderr), (
+            "it failed without saying WHY; a bare non-zero here reads as a test "
+            "failure rather than 'nothing ran'.")
+
+        # OVER-SENSITIVITY CONTROL, and bd-mutate proved it was needed: an
+        # ALL-SKIPPED file must stay GREEN. total > 0 there, so it is not the
+        # zero-collection case, and this repo skips heavily for environment
+        # reasons -- failing on skips would make the guard unusable, which
+        # section 0 counts as an equal soundness bug. Without this assertion a
+        # mutant broadening the condition to `skipped == total` escaped.
+        # pytest.skip() is THIS harness's idiom -- its _PytestStub.skip
+        # raises _Skipped, which records SKIP and still counts toward
+        # total. (unittest.skip does NOT: the harness collects nothing
+        # from a TestCase class, which my first fixture proved the hard
+        # way -- and which is why the pytest --collect-only survey I ran
+        # first was the wrong instrument for this question.)
+        with open(os.path.join(td, "tests", "test_allskip.py"), "w") as fh:
+            fh.write("import pytest\n"
+                     "def test_a():\n"
+                     "    pytest.skip('environment')\n")
+        r2 = subprocess.run([sys.executable, "run_tests.py", "tests/test_allskip.py"],
+                            cwd=td, capture_output=True, text=True, timeout=300)
+        assert r2.returncode == 0, (
+            "an ALL-SKIPPED file failed. Skips are legitimate -- the bug is "
+            "collecting NOTHING, not skipping everything.\n%s"
+            % (r2.stdout + r2.stderr)[-400:])
+
+    # OVER-SENSITIVITY CONTROL: a real suite must still pass.
+    # NOT test_pk_mirrors_do_not_drift.py -- it calls pytest.fail(), which the
+    # run_tests harness stubs WITHOUT a .fail attribute, so it fails under the
+    # runner while passing under pytest. A pre-existing harness incompatibility,
+    # unrelated to this guard, and a reminder that "the band is green" and "the
+    # tests pass" are answers to different questions.
+    r = subprocess.run([sys.executable, "run_tests.py", "tests/test_contracts.py"],
+                       cwd=root, capture_output=True, text=True, timeout=600)
+    assert r.returncode == 0, (
+        "a real, passing suite now fails -- the guard is over-sensitive:\n%s"
+        % (r.stdout + r.stderr)[-500:])
+
+
+def test_band_derive_finds_the_curated_map_and_says_so_when_it_cannot():
+    """@860 -- signal 2 of 4 was dead on every checkout, silently.
+
+    bd-band-derive unions four signals; one is the curated TOUCHED_FILE_TO_TEST
+    map. find_map() looked in the work root, docs/, kb/ and the retired
+    /mnt/project -- but NOT project-knowledge/, and `git log --follow` shows the
+    map has lived there and only there since it was created. Zero rows loaded,
+    no notice printed, so every band CLAUDE.md section 4 orders derived through
+    this tool was narrower than designed. Measured on bulk_downloader/
+    global_config.py: 64 suites before, 69 after.
+
+    The SILENCE is the real defect -- a signal that vanishes without saying so
+    still produces an authoritative-looking answer.
+    """
+    import tempfile
+    root = str(_REPO_ROOT)
+    tool = os.path.join(root, "toolchain", "bin", "bd-band-derive")
+
+    sys.path.insert(0, os.path.join(root, "toolchain", "bin"))
+    import importlib.util
+    import importlib.machinery
+    spec = importlib.util.spec_from_loader(
+        "_bd_bd", importlib.machinery.SourceFileLoader("_bd_bd", tool))
+    bd = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bd)
+
+    found = bd.find_map(root)
+    assert found and os.path.isfile(found), (
+        "the curated map was not located on a tree that has it at "
+        "project-knowledge/TOUCHED_FILE_TO_TEST.md")
+    assert bd.map_rows(found), "the map located but parsed to ZERO rows"
+
+    # ...and a tree WITHOUT the map must SAY so rather than silently narrow.
+    with tempfile.TemporaryDirectory() as td:
+        os.makedirs(os.path.join(td, "bulk_downloader"))
+        os.makedirs(os.path.join(td, "tests"))
+        with open(os.path.join(root, "bulk_downloader", "__init__.py")) as a, \
+             open(os.path.join(td, "bulk_downloader", "__init__.py"), "w") as b:
+            b.write(a.read())
+        with open(os.path.join(td, "tests", "test_x.py"), "w") as fh:
+            fh.write("def test_x(): pass\n")
+        r = subprocess.run([sys.executable, tool, "--work", td,
+                            "--file", "bulk_downloader/__init__.py"],
+                           cwd=root, capture_output=True, text=True, timeout=300)
+        assert "curated map not found" in (r.stdout + r.stderr), (
+            "an absent map produced no notice -- the band silently loses one of "
+            "its four signals and still reads as authoritative.")
