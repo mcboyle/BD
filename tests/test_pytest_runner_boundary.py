@@ -225,3 +225,38 @@ def test_dynamic_runner_helper_consumers_bind_core_under_real_pytest():
         """
     )
     _assert_ok(result)
+
+
+def test_the_stub_serves_pytest_fail_with_its_message():
+    """@870 -- _PytestStub had skip/skipif/approx but no `fail`.
+
+    50 call sites across tests/ use pytest.fail, and under the minimal runner
+    every one raised `AttributeError: '_PytestStub' object has no attribute
+    'fail'`. The test still FAILED -- so this never hid a defect -- but the
+    entire diagnostic was destroyed and replaced by a harness error. Measured
+    on test_pk_mirrors_do_not_drift: pytest reported which mirrors disagreed
+    and printed the `cp` remediation lines; run_tests.py reported an
+    AttributeError. CLAUDE.md 2a -- a harness defect masquerading as the
+    subject, and the shape that makes people debug the wrong thing.
+
+    hasattr alone is NOT the assertion. It would pass against a no-op stub,
+    which is a check that cannot see its subject; the message has to survive.
+    """
+    result = _python(
+        """
+        import sys
+        sys.path.insert(0, ".")
+        from run_tests_core import _PytestStub
+        assert hasattr(_PytestStub, "fail"), "no fail on the stub"
+        try:
+            _PytestStub.fail("boom-diagnostic")
+        except AssertionError as exc:
+            assert "boom-diagnostic" in str(exc), (
+                "fail() raised but ate its message: %r" % (str(exc),))
+        else:
+            raise SystemExit("fail() did not raise at all")
+        print("ok")
+        """
+    )
+    _assert_ok(result)
+    assert "ok" in result.stdout, result.stdout + result.stderr

@@ -4,6 +4,105 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.870 - the mirror gate saw 255 of 258, and the floor said fine
+
+Cut 2 of 2 for the mirror-gate item. Cut 1 (@869) made the gate RUN; this one
+fixes what it can SEE.
+
+THREE INDEPENDENT NARROWINGS, all measured against the old pairing on this
+tree:
+
+  1. The name filter was `startswith("bd-") or suffix == ".py"`. The tool
+     literally named `bd` is neither, so it was invisible.
+  2. SOURCE_DIRS was a hardcoded triple with no entry for
+     tools/audit/witnesses/, so cap01_witnesses.py and run01_witnesses.py were
+     invisible.
+  3. The loop `break`ed at the first matching SOURCE_DIR. Two basenames exist
+     under BOTH toolchain/bin and tools (bd-audit-gate.py, bd-triage.py), so
+     one copy of each was compared and the other was never examined -- drift
+     it and this suite stayed 3-passed while bd-pk-mirror --check exited 1.
+
+AND THE FLOOR COULD NOT SEE ANY OF IT. _MIN_PLAUSIBLE_MIRRORS was 150 while
+the pairing returned 255 against a true population of 258; 255 >= 150 clears
+with room to spare. That is exactly how a narrowing survives a canary written
+to catch narrowings -- a floor alone never can. Raised to 250 AND joined by a
+COVERAGE canary that re-derives the population INDEPENDENTLY (git ls-files,
+basename index, the same .py-or-shebang predicate) and asserts set equality.
+Independence is the whole point; a canary computed from the thing it checks is
+not a canary.
+
+The predicate is now ".py suffix, OR no suffix with a #! shebang" -- what
+bd-pk-mirror already used. Deliberately NOT "any basename that exists
+elsewhere": five PK docs (README.md, SANDBOX.md, AUTOMATION_POLICY.md,
+BDSUITE_CHANGELOG.md, DECOMPOSITION_PROGRAM_ROADMAP.md) have same-named
+tracked files elsewhere with different content by design, so the naive
+widening buys five instant permanent false positives. This excludes all five
+STRUCTURALLY rather than by a skip-list that goes stale, and a test asserts
+both directions. Counterparts now come from `git ls-files`, tracked-only,
+which excludes the untracked audit-venv/ (it carries its own README.md) and
+venv/ without a skip-list either.
+
+THIRD VERDICT: AMBIGUOUS. Comparing every counterpart creates a case the old
+logic could not express -- the two origins of a two-copy tool disagreeing with
+EACH OTHER. That is not mirror drift, and the drift remediation (cp origin ->
+PK) is the wrong repair: it picks one origin arbitrarily and discards the
+others changes. AMBIGUOUS gets its own message naming both origins with their
+shas and asking for a reconciliation.
+
+What it deliberately does NOT do is declare that tools/bd-audit-gate.py must
+stay byte-equal to toolchain/bin/bd-audit-gate.py forever. Nothing in the tree
+declares that, and creating an undeclared invariant as a side effect of fixing
+the break would be its own defect. Both two-origin tools are byte-identical
+today, so the state is green and unarmed.
+
+Measured after: 258 distinct mirrors, 260 flat pairs, 18 PK-only, 0 drifted,
+0 ambiguous. PK-only stays HEALTHY rather than becoming "unknown therefore
+fail" -- a test pins render_check.py as not-a-drift, because the temptation
+when adding a third state is to call absence inconclusive, which destroys the
+instrument.
+
+_PytestStub gained `fail`. It had skip/skipif/approx but not fail, so all 50
+pytest.fail sites in tests/ raised `AttributeError: _PytestStub object has no
+attribute fail` under the minimal runner. The test still FAILED, so this never
+hid a defect -- but the DIAGNOSTIC was destroyed. Proven end to end: with a
+mirror drifted, run_tests.py now prints
+
+    cp toolchain/bin/bd-guardcheck project-knowledge/bd-guardcheck
+
+where it previously printed an AttributeError. Signature verified safe -- zero
+of the 50 call sites pass msg=/reason=/pytrace= by keyword, so a keyword
+caller cannot turn the diagnostic fix into a TypeError. AssertionError is
+already the runner failure path, so no test changes direction.
+
+The stub test asserts the MESSAGE survives, not merely that the attribute
+exists; hasattr alone would pass against a no-op stub, which is a check that
+cannot see its subject.
+
+RED evidence: the three pairing tests were run against the OLD pairing
+extracted from @869 and all failed on this tree -- 255 vs 258 naming bd,
+cap01_witnesses.py and run01_witnesses.py; bd-audit-gate.py count 1 not 2; and
+the floor passing at 255 >= 150 throughout. The stub test failed live with the
+verbatim AttributeError.
+
+ONE ESCAPE, CAUGHT AND CLOSED. The AMBIGUOUS branch had no instance on the
+real tree -- both two-origin tools are byte-identical -- so a mutant that
+disabled the detection entirely left the suite green. A verdict nothing can
+exercise is not a verdict. Closed with a synthetic tree driven through the
+`root` parameter (which is what that parameter is for), asserting BOTH
+directions in one fixture: identical origins stay silent, disagreeing origins
+are reported. Asserting only the second would pass against a detector that
+fires always, making every two-copy tool a permanent failure. The fixture
+git-inits and STAGES its files, because `git ls-files` is the counterpart
+index and an unstaged file would make the fixture invisible to the instrument
+it is meant to exercise -- and it asserts the two counterparts are actually
+there before asserting anything about them.
+
+bd-mutate: 6 caught, 0 escaped, 0 invalid, including both ambiguity directions
+and both predicate directions.
+
+This cut was banded BY the signal cut 1 added, which is the end-to-end proof
+that cut 1 worked.
+
 ## v3.66.869 - the mirror gate ran in no band, for any file
 
 tests/test_pk_mirrors_do_not_drift.py compares project-knowledge/ against its
