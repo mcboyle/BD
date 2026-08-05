@@ -2090,3 +2090,140 @@ def test_bandcheck_still_reports_a_leak_pair_it_could_not_resolve():
         "two unresolvable paths suppressed the leak-pair warning entirely. The "
         "pair is a hazard about what you are ABOUT TO BAND, not about what "
         "resolved.\n%s" % out[-600:])
+
+
+# --------------------------------------------------------------------------- #
+# @878 -- the operator shell tools ran against a dead sandbox and exited 0      #
+# --------------------------------------------------------------------------- #
+# Item 8c. None of these is on an automated lane -- measured, invocation-shaped
+# rather than by substring: zero hits across capture.sh, scripts/, .github/ and
+# install_linux.sh for bd, bd-status, bd-reindex, bd-freshest, bd-since. (A bare
+# `bd` grep returns 660 files because it is a substring of everything, which is
+# the denominator trap in miniature.) So the cost is an operator misled, not a
+# gate fooled -- but bd-reindex WRITES the artifacts the gates then check.
+
+def _sh(tool, *args, env_extra=None, cwd=None):
+    env = dict(os.environ)
+    env.update(env_extra or {})
+    p = os.path.join(str(_REPO_ROOT), "toolchain", "bin", tool)
+    return subprocess.run(["bash", p, *args], cwd=cwd or str(_REPO_ROOT),
+                          capture_output=True, text=True, timeout=120, env=env)
+
+
+def test_bd_reindex_refuses_an_interpreter_that_cannot_import_the_deps():
+    """@878 -- the sharpest of the four, because it WRITES gate subjects.
+
+    bd-reindex resolved its interpreter as
+        VENV_PY="${BD_VENV_PY:-/home/claude/work/venv/bin/python}"
+        [ -x "$VENV_PY" ] || VENV_PY="$(command -v python3)"
+    On any git checkout the default does not exist, so it fell through to
+    `python3` -- which CLAUDE.md section 5 records as 3.11 WITHOUT the project
+    dependencies. Confirmed at this commit: 3.11.15, `import pytest` ->
+    ModuleNotFoundError.
+
+    It then regenerates PIN_INDEX, ROUTE_INDEX, gui_parity_inventory,
+    FUNCTION_INDEX and the dependency graph under that interpreter -- the exact
+    artifacts test_pin_index_in_sync and friends check. Section 5 names this
+    precise failure: "a full test band was measured on 3.11 and reported seven
+    failures that did not exist."
+
+    Refusing is the only safe answer. An interpreter that cannot import the
+    deps cannot regenerate an artifact, and writing one anyway is worse than
+    writing none.
+    """
+    src = open(os.path.join(str(_REPO_ROOT), "toolchain", "bin", "bd-reindex"),
+               errors="replace").read()
+    assert "/home/claude/work/venv/bin/python" not in src, (
+        "bd-reindex still defaults its interpreter to a sandbox path that does "
+        "not exist on a checkout, so it falls through to bare python3")
+    assert 'VENV_PY="$(command -v python3)"' not in src, (
+        "bd-reindex still falls back to bare python3, which is 3.11 without "
+        "the project deps here. Regenerating a gate's subject under it is how "
+        "an artifact becomes wrong in a way nothing reports.")
+    # and it must SAY SO rather than proceeding. TWO cases, and the second is
+    # the one that matters: an interpreter that is ABSENT is caught by any
+    # existence check, while one that is PRESENT AND EXECUTABLE but missing the
+    # deps is the actual failure -- bare python3 here is 3.11.15 and cannot
+    # import pytest. A mutation battery proved the point: a mutant reduced to
+    # `[ -x "$VENV_PY" ]` escaped a test that only tried the absent path.
+    import shutil
+    r = _sh("bd-reindex", str(_REPO_ROOT),
+            env_extra={"BD_VENV_PY": "/nonexistent-python-xyz"})
+    out = r.stdout + r.stderr
+    assert r.returncode != 0, (
+        "bd-reindex ran with an ABSENT interpreter and exited 0:\n%s"
+        % out[-800:])
+    assert "UNEVALUABLE" in out or "cannot import" in out, out[-800:]
+
+    bare = shutil.which("python3")
+    assert bare, "no python3 on PATH; this case cannot be exercised"
+    deps_ok = subprocess.run([bare, "-c", "import pytest"],
+                             capture_output=True, timeout=60).returncode == 0
+    if not deps_ok:
+        r = _sh("bd-reindex", str(_REPO_ROOT), env_extra={"BD_VENV_PY": bare})
+        out = r.stdout + r.stderr
+        assert r.returncode != 0, (
+            "bd-reindex accepted %s -- executable, but it cannot import the "
+            "project deps. This is the REAL case: section 5 records a full band "
+            "measured on 3.11 reporting seven failures that did not exist, and "
+            "here it would WRITE the artifacts the gates check.\n%s"
+            % (bare, out[-800:]))
+        assert "UNEVALUABLE" in out or "cannot import" in out, out[-800:]
+
+
+def test_bd_reindex_does_not_pin_a_dead_browser_pool():
+    """Same class as @876's bd-band fix, in a tool that also writes artifacts."""
+    src = open(os.path.join(str(_REPO_ROOT), "toolchain", "bin", "bd-reindex"),
+               errors="replace").read()
+    assert "/home/claude/.cache/ms-playwright" not in src, (
+        "bd-reindex still injects a zip-era browser pool over the real one")
+
+
+def test_bd_and_bd_status_fail_closed_when_the_env_file_is_absent():
+    """@878 -- both sourced /home/claude/bdenv.sh and carried on regardless.
+
+    `bd` had no `set -e` and `exec`ed the command anyway, so `bd <cmd>` ran with
+    NONE of the environment its entire purpose is to load -- and exited 0.
+    `bd-status` silenced the same failure with `>/dev/null 2>&1`, then printed a
+    health report (21/21 kits missing, "BulkDownloader source missing") and
+    exited 0. A health check that never loaded the environment it is reporting
+    on is the section 0 shape: it cannot see its subject, and says OK.
+
+    Failing closed is right here BECAUSE these are operator tools -- the whole
+    output is a verdict a human acts on. An override exists so the refusal
+    cannot become a wall.
+    """
+    for tool in ("bd", "bd-status"):
+        r = _sh(tool, "--version", env_extra={"BD_ENV_FILE": "/nonexistent-env-xyz.sh"})
+        out = r.stdout + r.stderr
+        assert r.returncode != 0, (
+            "%s ran with its env file absent and exited 0. Its output is a "
+            "verdict an operator acts on.\n%s" % (tool, out[-800:]))
+        assert "BD_SKIP_ENV_CHECK" in out, (
+            "%s refused without naming the override, so the refusal is a wall "
+            "rather than a gate.\n%s" % (tool, out[-800:]))
+
+
+def test_the_env_refusal_has_an_override_and_a_present_env_is_silent():
+    """OVER-SENSITIVITY, both directions.
+
+    A tool that can only refuse is not an instrument. The override must work,
+    and a tool whose env file IS present must not mention any of this.
+    """
+    import tempfile
+    r = _sh("bd", "true", env_extra={"BD_ENV_FILE": "/nonexistent-env-xyz.sh",
+                                     "BD_SKIP_ENV_CHECK": "1"})
+    assert r.returncode == 0, (
+        "the documented override did not work:\n%s" % (r.stdout + r.stderr)[-600:])
+
+    with tempfile.TemporaryDirectory() as td:
+        envf = os.path.join(td, "bdenv.sh")
+        with open(envf, "w") as fh:
+            fh.write("export BD_PROBE_MARKER=present\n")
+        r = _sh("bd", "true", env_extra={"BD_ENV_FILE": envf})
+        out = r.stdout + r.stderr
+        assert r.returncode == 0, out[-600:]
+        assert "UNEVALUABLE" not in out and "BD_SKIP_ENV_CHECK" not in out, (
+            "the tool complained even though its env file was present -- a "
+            "guard that speaks when nothing is wrong gets switched off:\n%s"
+            % out[-600:])

@@ -5,7 +5,25 @@
 case " $* " in *" --selftest "*)
   echo "SKIP: needs a provisioned session (run it directly to see live status)"
   echo "SELFTEST PASS"; exit 0;; esac
-. /home/claude/bdenv.sh >/dev/null 2>&1
+# @878 -- FAIL CLOSED when the env this tool exists to load is absent.
+# Both of these used to source /home/claude/bdenv.sh and carry on regardless:
+# `bd` had no `set -e` and exec'd the command anyway, so it ran with NONE of the
+# environment its whole purpose is to provide, and exited 0. A tool whose output
+# is a verdict an operator acts on must not produce one over an environment it
+# never loaded. BD_ENV_FILE overrides the location; BD_SKIP_ENV_CHECK=1 is the
+# single documented escape hatch, named in the refusal so it is a gate and not
+# a wall.
+BD_ENV_FILE="${BD_ENV_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)/bdenv.sh}"
+if [ "${BD_SKIP_ENV_CHECK:-0}" != "1" ]; then
+  if [ ! -f "$BD_ENV_FILE" ]; then
+    echo "BD-UNEVALUABLE: no env file at $BD_ENV_FILE." >&2
+    echo "  This tool exists to run things WITH that environment loaded; without" >&2
+    echo "  it the result describes a session that was never provisioned." >&2
+    echo "  Set BD_ENV_FILE=<path>, or BD_SKIP_ENV_CHECK=1 to proceed bare." >&2
+    exit 2
+  fi
+  . "$BD_ENV_FILE"
+fi
 
 c_ok=$'\e[32mOK \e[0m'
 c_no=$'\e[31m-- \e[0m'

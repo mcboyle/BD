@@ -9,7 +9,8 @@
 # build_release + verify_release under the venv too.
 #
 # Usage: bd-reindex [WORKDIR|--work DIR|--tree DIR]   (default: /home/claude/work)
-#   env: BD_VENV_PY (default /home/claude/work/venv/bin/python)
+#   env: BD_VENV_PY (default <work>/venv/bin/python; REFUSES if it cannot
+#        import the project deps -- see @878)
 set -u
 # default to the canonical work tree, NOT the caller's cwd: invoked from
 # /home/claude every tools/ path missed and all regens ERR'd (first-ever
@@ -24,13 +25,27 @@ if [ "${1:-}" = "--work" ] || [ "${1:-}" = "--tree" ]; then
 elif [ -n "${1:-}" ]; then
     WORK="$1"
 fi
-VENV_PY="${BD_VENV_PY:-/home/claude/work/venv/bin/python}"
-[ -x "$VENV_PY" ] || VENV_PY="$(command -v python3)"
+# @878 -- REFUSE an interpreter that cannot import the deps.
+# This defaulted to a venv under the retired sandbox work root and fell through
+# to bare `python3` when that was absent -- which on a git checkout is ALWAYS,
+# and which
+# CLAUDE.md section 5 records as 3.11 WITHOUT the project dependencies.
+# bd-reindex then regenerated PIN_INDEX, ROUTE_INDEX, gui_parity_inventory,
+# FUNCTION_INDEX and the dependency graph under it: the exact artifacts
+# test_pin_index_in_sync and friends check. An interpreter that cannot import
+# the deps cannot regenerate an artifact, and writing one anyway is worse than
+# writing none.
+VENV_PY="${BD_VENV_PY:-$WORK/venv/bin/python}"
+if ! [ -x "$VENV_PY" ] || ! "$VENV_PY" -c "import pytest" >/dev/null 2>&1; then
+  echo "BD-REINDEX UNEVALUABLE: $VENV_PY cannot import the project deps." >&2
+  echo "  Regenerating an artifact under it would write a gate's subject from" >&2
+  echo "  an interpreter that cannot run the gate. Set BD_VENV_PY to the venv." >&2
+  exit 2
+fi
 cd "$WORK" || { echo "no such dir: $WORK"; exit 1; }
 echo "bd-reindex: $VENV_PY  (PYTHONPATH=$WORK)"
 for t in build_pin_index.py build_route_index.py "gui_parity_inventory.py --root ." build_function_index.py dependency_graph.py; do
-  env -u PYTHONPATH PYTHONPATH="$WORK" PLAYWRIGHT_BROWSERS_PATH="${BD_PW_CACHE:-/home/claude/.cache/ms-playwright}" \
-    "$VENV_PY" tools/$t >/tmp/bd-reindex.log 2>&1 \
+  env -u PYTHONPATH PYTHONPATH="$WORK"     "$VENV_PY" tools/$t >/tmp/bd-reindex.log 2>&1 \
       && echo "  OK  tools/$t" || { echo "  ERR tools/$t"; tail -3 /tmp/bd-reindex.log; }
 done
 "$VENV_PY" - <<'PY'

@@ -4,6 +4,75 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.878 - the operator shell tools ran against a dead sandbox and exited 0
+
+Item 8c, the last of the three. None of these is on an automated lane --
+measured invocation-shaped rather than by substring: zero hits across
+capture.sh, scripts/, .github/ and install_linux.sh. (A bare `bd` grep returns
+660 files because it is a substring of everything; that number was mine, and
+discarding it is the denominator lesson in miniature.) So the cost is an
+operator misled, not a gate fooled -- EXCEPT for bd-reindex, which writes the
+artifacts the gates then check.
+
+bd-reindex is the sharp one and it is worse than filed. It resolved
+
+    VENV_PY="${BD_VENV_PY:-<retired sandbox work root>/venv/bin/python}"
+    [ -x "$VENV_PY" ] || VENV_PY="$(command -v python3)"
+
+so on any git checkout the default is absent and it fell through to bare
+`python3` -- measured here as 3.11.15, `import pytest` -> ModuleNotFoundError.
+It then regenerates PIN_INDEX, ROUTE_INDEX, gui_parity_inventory,
+FUNCTION_INDEX and the dependency graph under it: the exact artifacts
+test_pin_index_in_sync and friends check. Section 5 records this failure by
+name -- "a full test band was measured on 3.11 and reported seven failures that
+did not exist" -- and here it would WRITE a gate's subject rather than merely
+misread one. It now refuses (exit 2) unless the interpreter can import the
+deps, because an interpreter that cannot import them cannot regenerate an
+artifact, and writing one anyway is worse than writing none.
+
+Its usage line also documented the dead default as current; corrected.
+
+bd and bd-status both sourced a sandbox env file and carried on regardless.
+`bd` had no `set -e` and exec'd the command anyway, so it ran with NONE of the
+environment its entire purpose is to load, and exited 0. bd-status silenced the
+same failure with `>/dev/null 2>&1`, then printed a health report (21/21 kits
+missing, "BulkDownloader source missing") and exited 0 -- a health check over an
+environment it never loaded, which is section 0 exactly. Both now fail closed
+with BD_ENV_FILE to relocate and BD_SKIP_ENV_CHECK=1 as the single documented
+escape, NAMED IN THE REFUSAL so it is a gate and not a wall. A mutant that drops
+the override from the message is caught, as is one that refuses even when the
+file is present.
+
+scripts/build_release.sh had `set +e` followed by an UNGUARDED cd into the
+sandbox work root, so on any other tree the cd failed and the script carried on
+-- running bd-regen-order and packaging against the caller's cwd. Guarded. It is
+zip-era one-shot scaffolding (its zip paths are frozen at v3.66.137/148) and a
+retirement candidate, not a maintenance target; the guard just stops it
+operating on the wrong tree meanwhile.
+
+DELIBERATELY NOT FIXED: bd-freshest and bd-since. Their /home/claude references
+are zip-era globs (/home/claude/*.zip, /mnt/user-data/uploads) whose SUBJECT
+died with the overlay world, so repointing the paths would preserve tools that
+have nothing left to find. They are retirement candidates and belong with item
+7, not here.
+
+TWICE IN ONE SESSION I WROTE AN ASSERTION THAT COULD NOT TELL PROSE FROM CODE.
+At @876 it was a test forbidding a literal that its own explanatory comment
+contained; here it was the reverse -- my comment quoted the dead interpreter
+path and tripped the test I had just written. Fixed by citing the MECHANISM
+rather than the literal, which is the same discipline section 7 states for
+secrets: a document that names the thing becomes a place the thing lives.
+
+ONE MUTANT ESCAPED THE FIRST BATTERY AND THE FAULT WAS THE TEST'S. A mutant
+reducing the interpreter check to `[ -x "$VENV_PY" ]` survived, because my test
+only tried an ABSENT path -- which any existence check catches. The real case is
+an interpreter that is PRESENT AND EXECUTABLE but missing the deps, which is
+precisely bare python3 here. Closed with that case; the test now skips it only
+if python3 CAN import the deps, and says so rather than passing silently.
+
+bd-mutate: 6 caught, 0 escaped, 0 invalid, over shell subjects (bash -n
+validated). Mirrors re-synced for bd, bd-status, bd-reindex.
+
 ## v3.66.877 - a gate certified 2568 files by reading one of them
 
 Item 8b. test_the_bare_work_default_is_not_a_sandbox_path did
