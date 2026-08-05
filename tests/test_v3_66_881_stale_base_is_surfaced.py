@@ -213,6 +213,38 @@ def test_a_failed_repair_is_named_not_silent(tmp_path):
         "git named the colliding path and the hook discarded it, so the "
         "operator cannot act on the failure. stderr=%r" % r.stderr)
 
+    # The CONSEQUENCE line, which the first version of this test left entirely
+    # unconstrained -- and the battery proved it: swallow-the-repair-failure
+    # replaced lines 1-2 only, line 3 survived carrying the marker, so the
+    # marker assertion PASSED under the mutant and the catch rode on gen.txt
+    # alone. Trim line 3 to "please review before working" and the battery
+    # would have stayed 6/6 with the substance gone. Naming the event is not
+    # naming the consequence -- the same reason drop-the-revert-consequence
+    # exists for the STALE BASE block.
+    block = [l for l in r.stderr.splitlines() if "REPAIR FAILED" in l]
+    assert block, "no REPAIR FAILED block. stderr=%r" % r.stderr
+    joined = "\n".join(block)
+    assert "NOT reconverged" in joined, (
+        "the block names the event but not the consequence, so a reader who "
+        "sees it still assumes the environment converged. block=%r" % block)
+    assert "cloud-setup" in joined, (
+        "the block gives no remediation, so the only action available is to "
+        "guess. block=%r" % block)
+
+    # Magnitude, scoped to THESE lines -- the STALE BASE count assertion cannot
+    # reach them, and "how stale is the base I am stuck on" is the same decision
+    # input there and here. Computed rather than hardcoded: adds_late_file adds
+    # a commit beyond behind_by, so the literal would be wrong.
+    behind = _git("rev-list", "--count", "HEAD..origin/main",
+                  cwd=clone).stdout.strip()
+    assert int(behind) > 0, "fixture precondition: the clone is not behind"
+    # "N commit", not a bare N -- the block prints two short SHAs and those are
+    # hex, which is how the STALE BASE version of this assertion passed on a
+    # coincidental match.
+    assert "%s commit" % behind in joined, (
+        "the REPAIR FAILED block does not say how far behind the stuck base is "
+        "(expected %r). block=%r" % (behind, block))
+
 
 def test_the_failed_repair_block_is_distinct_from_stale_base(tmp_path):
     """Different states, different consequences, different markers.
