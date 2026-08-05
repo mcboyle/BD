@@ -85,6 +85,15 @@ def _run_hook(clone: Path, source: str = "startup"):
     env["CLAUDE_CODE_REMOTE"] = "true"
     env["CLAUDE_PROJECT_DIR"] = str(clone)
     env.pop("CLAUDE_ENV_FILE", None)
+    # @882: HOME redirected -- the hook writes $HOME/.bd_boot_state and a test
+    # run must not overwrite the OPERATOR's record, or a genuine container
+    # restart reads as OK. This file keeps its own copy of the runner (the @879
+    # suite has the other); both had to be fixed, which is the two-copies
+    # failure this repo keeps meeting. Fixed in both rather than merged,
+    # because the fixtures they drive differ.
+    home = clone.parent / "fake_home_873"
+    home.mkdir(exist_ok=True)
+    env["HOME"] = str(home)
     return subprocess.run(["bash", str(HOOK)], cwd=str(clone), input='{"source":"%s"}' % source,
                           capture_output=True, text=True, timeout=300, env=env)
 

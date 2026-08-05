@@ -123,6 +123,15 @@ def _run_hook(clone: Path, source: str = "startup"):
     env["CLAUDE_CODE_REMOTE"] = "true"
     env["CLAUDE_PROJECT_DIR"] = str(clone)
     env.pop("CLAUDE_ENV_FILE", None)
+    # @882: HOME is redirected because the hook writes $HOME/.bd_boot_state, and
+    # a test run must not overwrite the OPERATOR's record. Found by taking a
+    # live bd-restart-check reading and seeing "source=clear" -- which no real
+    # session event had produced; it was this suite's own last fixture. A test
+    # that clobbers the state file would make a genuine restart read as OK,
+    # which is the exact false-clean the tool exists to prevent.
+    home = clone.parent / "fake_home"
+    home.mkdir(exist_ok=True)
+    env["HOME"] = str(home)
     return subprocess.run(["bash", str(HOOK)], cwd=str(clone),
                           input='{"source":"%s"}' % source,
                           capture_output=True, text=True, timeout=300, env=env)

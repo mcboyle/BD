@@ -257,4 +257,27 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
   fi
 fi
 
+# --- 4. boot identity: the only record that can answer "did the hook run?" ----
+# @882. Section 3 repairs a rolled-back checkout, but it only runs on a
+# SessionStart event. Whether a mid-session CONTAINER RESTART generates one is
+# UNKNOWN -- this hook's comments and its tests both assume it does, and neither
+# establishes it. If it does not, a rollback sits unrepaired for the rest of the
+# session and every source read after it is against a stale tree.
+#
+# A hook cannot log the runs it did not make, so self-logging cannot answer it:
+# absence of an entry is indistinguishable from a hook that was never installed.
+# /proc/sys/kernel/random/boot_id can, because the kernel regenerates it on
+# every boot -- recording it here makes "the machine changed under you" a
+# positive, checkable fact. `bd-restart-check` reads it back MID-SESSION, which
+# is the only moment the reading is unambiguous.
+#
+# Written last and never gated on: a failure here must not affect the repair
+# above, which is the part that matters.
+BOOT_STATE="$HOME/.bd_boot_state"
+{
+  cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo ""
+  date -u +%Y-%m-%dT%H:%M:%SZ
+  echo "${HOOK_SOURCE:-unknown}"
+} > "$BOOT_STATE" 2>/dev/null || true
+
 exit 0

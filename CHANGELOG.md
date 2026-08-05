@@ -4,6 +4,51 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.882 - a hook cannot log the runs it did not make
+
+Recon items C and D. D closed by audit, C instrumented.
+
+D: two launcher hooks present on disk and registered in no readable settings
+file are Anthropic tooling for Slackbot v2 sessions. Their docstrings explain
+the mystery -- env-manager registers them only when CCR_REPLY_STOP_HOOK_REASON
+is set, and CCR sets that only for Slack-originated sessions. Conditional
+registration working as designed; inert here; not BD's. Recorded so the next
+recon does not spend agents on them again.
+
+C: whether a mid-session container restart fires SessionStart is the residual
+exposure of v3.66.873/879/881. If it does not, a rollback sits unrepaired for
+the rest of the session. The hook's comments and all three suites assume it
+does; none establishes it.
+
+The obvious instrument cannot answer it. A hook that logs its own runs cannot
+record the runs it did not make: with no SessionStart nothing writes anything,
+and the absent entry is indistinguishable from a hook that was never installed.
+
+/proc/sys/kernel/random/boot_id is regenerated on every boot, so recording it
+turns the unobservable negative into an observable positive. The hook writes it
+to $HOME/.bd_boot_state; the new bd-restart-check reads it back, with three
+states and UNEVALUABLE as its own exit rather than a softer OK.
+
+The reading is only unambiguous MID-SESSION, which decides the shape. At hook
+time a mismatch cannot discriminate between "the restart fired SessionStart" and
+"the restart fired nothing and a new session started later" -- the hook is
+running now and the record predates the restart either way. From inside a
+running session with no new session begun, a mismatch can only mean the hook did
+not run. So it is a tool, not another branch in the hook.
+
+The toolchain budget ratchet went 239 -> 240 with nothing retired, which the
+gate is right to make explicit. Stated rather than quietly raised: the
+retirement pool is blocked on its over-sensitivity spec being reworked, so this
+is a deliberate raise. Lower it when that lands.
+
+A finding from wiring it, worth more than the wiring: the first live reading
+returned OK with source=clear, which no real session event had produced. It was
+the test suites' own last fixture -- _run_hook did not override HOME, so every
+test run overwrote the operator's real state file, and a genuine restart would
+have read as OK. The exact false-clean the tool exists to prevent, introduced by
+the tool's own tests. Both copies of the runner now redirect HOME. Caught by
+taking a live reading rather than by trusting a green suite.
+
 ## v3.66.881 - a session branching from a snapshot-stale base reverts main
 
 The cache mechanism recorded at v3.66.880 does not fire once. The panel
