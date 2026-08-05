@@ -4,6 +4,160 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.871 - four tools, one defect wearing four hats
+
+Each of these already HAD a correct AGGREGATE CANNOT-EVALUATE concept. In all
+four the failure was at the UNIT level: a per-unit "I could not evaluate this"
+was folded into the SUCCESS bucket, and the aggregate then reported honestly
+over a denominator the unevaluable unit had quietly left.
+
+bd-fullsuite, the worst of the four. classify() regex-matched ENV_PATTERNS
+against the ENTIRE combined output of a test FILE, first-match-wins, and the
+whole file was then excused as "env". So ONE env-looking line anywhere
+suppressed every genuine failure in that file. Measured, single variable
+changed (presence of the Gtk string):
+
+    --only mixed     ENV tests/test_mixed.py (ENV_GTK) ... REAL failed 0
+                     GREEN   exit=0
+                     (the output contained "AssertionError: prune should
+                      report 1 removed, got 7" and "Failed: 2")
+    --only realonly  FAIL tests/test_realonly.py (REAL)  exit=1
+
+Now segmented per test. run_tests_core.py emits per-test markers (:1385-1391,
+:1416-1422), so failures CAN be attributed individually: every failing block
+environmental stays "env" and stays excused; some env and some real reports
+the REAL ones; and rc != 0 with NO attributable failing block becomes a third
+status, "unknown" -- never "env", never "pass". That direction is chosen
+deliberately: the segmentation is itself a denominator, so if the marker
+format ever stops matching it must fail CLOSED rather than excuse the suite.
+
+THE LOGIC WAS DUPLICATED and that is the trap this cut had to avoid. run_one
+(spawn, the default) and _parse_worker_line (--fork) each derived kind+status
+independently, so a fix landing in one leaves the other defective -- and
+--fork is opt-in, so a contributor testing the default path would never
+exercise it. One helper now serves both, and the invariant has a --fork row.
+The fork path also classified over a TRUNCATED out[-3000:] buffer, a smaller
+denominator again; widened, because two copies of one decision reading
+different windows is the same defect in another dress.
+
+ZERO-PASS GUARD. bd-fullsuite printed "passed 0 ... env 1 ... GREEN exit=0".
+A run in which nothing passed verified nothing. bd-opv:1400 already carried
+exactly this guard, which is the proof of the intended semantics -- and note
+it keys on PASSES, not skips, so a run with even one real pass and the rest
+excused HAS evidence and stays 0. It cannot become a tool that only refuses.
+
+bd-opv. A check that RAISED was graded SKIP -- the benign "precondition
+missing" bucket, which feeds nothing but n_skip, so one unrelated PASS cleared
+the CANNOT-EVALUATE guard and the run exited 0. In the summary line a broken
+check was indistinguishable from the genuine OPV-QR row ("qr/pyzbar/PIL
+unavailable"). A crashed check now has its own outcome, BROKEN, and reaches
+EXIT_CANNOT_EVALUATE -- checked BEFORE n_fail so it cannot hide behind a real
+failure. The live anchor is unchanged: 17 PASS / 0 FAIL / 7 SKIP / exit 0.
+
+bd-equiv. run_tool discarded cp.returncode entirely. ERROR_SENTINEL fired only
+on a HARNESS-level exception, never on the compared subprocess exiting
+non-zero -- and a tool that dies emits a traceback with no extractable tokens,
+so it read as "produced nothing" and new >= nothing was vacuously true.
+Measured: verdict SUPERSET, "errored": false, exit 0, printed as "Safe to
+retire". This is the tool that authorizes deletion. The intent was already
+written at ERROR_SENTINEL ("a crash is not agreement"); only the
+implementation was short. Also dropped the leading `rows and` in grade(), which
+made grade([]) return EQUAL for a library caller.
+
+bd-env-report-check. VERSION IS DECISIVE per its own docstring, and the UNKNOWN
+guard required BOTH fields to be unknown -- so version UNKNOWN with an advisory
+commit present skipped the version check, left problems empty, and returned
+FRESH while printing the TREE's version as though the report had asserted it.
+Reachable in production, not hypothetical: scripts/cloud-setup.sh:95-101 emits
+generated_against_version=${GEN_VERSION:-UNKNOWN} beside a
+git rev-parse HEAD commit, so any tree where rev-parse succeeds and the version
+grep does not -- a partial checkout, a mid-rebase, a reformatted __version__
+line -- produced exactly that report. Two shapes fixed, the UNKNOWN literal and
+the key being absent entirely, because a fix special-casing only the string
+would leave the second open. The commit stays strictly advisory: a gate firing
+on every commit would be switched off, taking the version check with it, and a
+test pins that direction. The note's SHA truncation widened from [:12] -- two
+different commits sharing a prefix printed "commit differs: X vs X".
+
+EXPECT MORE UNKNOWNS, and that is the point rather than a regression: a
+container provisioned from a tree where the version grep failed will now report
+exit 2 instead of FRESH.
+
+ONE STATUS CHANGE ACROSS 51 REAL FILES, and it is explained rather than
+accepted. A before/after shard comparison (1/24, 51 files, 551 passed both
+sides, 5 real failures both sides) moved exactly one file:
+tests/test_e2e_smoke.py, fail/REAL -> unknown/UNKNOWN. It collects ZERO tests
+and exits 2 with "BD-RUNNER UNEVALUABLE", emitting no per-test markers and an
+empty tail -- so it was previously reported to the operator as a REAL code
+failure with no explanation attached. Non-zero either way; the label is now
+true.
+
+The invariant is stated ONCE, table-driven, because that is what stops the next
+toolchain addition acquiring the shape -- four bespoke tests would not. Landed
+in ONE cut on purpose: section 4 records test_source_windows_do_not_shift
+sitting RED on main for five releases because a gate landed ahead of what it
+constrains, and splitting bd-fullsuite out would leave an invariant row red on
+main between cuts.
+
+Every fix carries its over-sensitivity control, all green before and after:
+a file whose failures are ALL environmental is still excused (both dispatch
+paths); a genuine precondition SKIP stays benign; a clean tool printing nothing
+on one input still grades at exit 0 (the new signal is the EXIT CODE, never an
+empty token set); and a matching version with a differing commit is still
+FRESH.
+
+TWO ESCAPES, BOTH CAUGHT AND CLOSED, AND BOTH WERE IN THIS CUT'S OWN TESTS.
+
+  1. "unattributable fails OPEN as env" escaped. The fail-CLOSED direction was
+     asserted in a code COMMENT ("chosen deliberately") and enforced by
+     nothing: every other fixture in the battery produces at least one per-test
+     marker, so the no-blocks branch was never exercised, and the zero-pass
+     guard covered what remained. Closed with a fixture that exits non-zero
+     carrying an env-looking line and NOT ONE marker -- the env string is
+     load-bearing, because without it a fall-back-to-whole-output
+     implementation would classify REAL, the run would go non-zero anyway, and
+     the test would pass against the defect.
+
+  2. "commit made decisive too" escaped because the over-sensitivity fixture
+     was a plain directory, not a git repo. tree_commit() shells out to
+     `git rev-parse HEAD` and returns None when that fails, so want_commit was
+     None, the commit branch never executed, and the test asserted nothing
+     about the thing its name claimed. The denominator excluded the subject --
+     inside the test written to bound the over-correction. The fixture now
+     git-inits and commits, and the test was proven RED with the mutant and
+     green without.
+
+bd-mutate: 10 caught, 0 escaped, 0 invalid -- both directions for all five
+fixes.
+
+ONE OPEN UNKNOWN, STATED RATHER THAN PAPERED OVER. The end-to-end --fork rows
+passed in this container and FAILED in CI, where the fork worker produced no
+output at all and every file classified UNKNOWN. The obvious explanation --
+the fork child dup2s fd 1 and leaves via os._exit(), which does not flush
+Python buffers, so a stub writing to block-buffered sys.stdout would lose it --
+was DISPROVEN by a one-variable test: identical results here with and without
+a flush. The cause is unidentified.
+
+So the rows were REMOVED rather than guessed at, and the property they existed
+to protect is asserted where it actually lives: exactly one classify_run
+definition, exactly two call sites, neither dispatch path re-deriving status
+locally, plus the classifier driven directly through all four outcomes
+including the order-dependence that first-match-wins caused. That is a
+stronger constraint than the end-to-end row and it does not depend on an
+environment I cannot reproduce. An end-to-end row whose failure mode nobody can
+explain is not evidence about bd-fullsuite -- it is a harness defect wearing
+the subject shape, which section 2a says is indistinguishable from the real
+thing. The flush was kept as hygiene and its comment says it is not a
+diagnosis.
+
+WHAT THIS COSTS, SAID PLAINLY: no test now drives --fork end to end. The shared
+helper plus the two-call-site assertion forbids the partial fix, which was the
+actual hazard, but it does not prove the fork worker runs. Re-deriving that CI
+behaviour is open work.
+
+
+Selftests green: bd-fullsuite 24 controls, bd-equiv, bd-opv 17/0/7.
+
 ## v3.66.870 - the mirror gate saw 255 of 258, and the floor said fine
 
 Cut 2 of 2 for the mirror-gate item. Cut 1 (@869) made the gate RUN; this one

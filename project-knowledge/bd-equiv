@@ -63,6 +63,18 @@ def run_tool(tool, arg, work, timeout=180):
     try:
         cp = subprocess.run(argv,
                             capture_output=True, text=True, timeout=timeout, cwd=work)
+        # @871: the returncode was DISCARDED. ERROR_SENTINEL fired only on a
+        # HARNESS-level exception (timeout/OSError), never on the compared tool
+        # exiting non-zero -- and a tool that dies emits a traceback with no
+        # extractable tokens, so it read as "produced nothing" and
+        # `new >= nothing` was vacuously true. Measured: verdict SUPERSET,
+        # "errored": false, exit 0, printed as "Safe to retire". This is the
+        # tool that authorizes deletion. The intent was already written at
+        # ERROR_SENTINEL's definition ("a crash is not agreement"); only the
+        # implementation was short.
+        if cp.returncode != 0:
+            return "%s exited %d\n%s" % (ERROR_SENTINEL, cp.returncode,
+                                         (cp.stdout or "") + (cp.stderr or ""))
         return (cp.stdout or "") + (cp.stderr or "")
     except Exception as e:
         return "%s %s" % (ERROR_SENTINEL, e)
@@ -118,7 +130,12 @@ def grade(rows, errored):
     # NOT symmetric on purpose: old=5 / new=0 is a REAL and important verdict
     # (REGRESSION -- the replacement lost everything), so it must keep flowing to
     # the `missing` branch below rather than being refused here.
-    if rows and sum(r["old_count"] for r in rows) == 0:
+    # @871: `rows and` made grade([]) return EQUAL for a library caller -- an
+    # empty comparison is CANNOT-EVALUATE, not agreement. Unreachable through
+    # main() (which refuses an empty input list at :313) but a real footgun.
+    if not rows:
+        return "CANNOT-EVALUATE"
+    if sum(r["old_count"] for r in rows) == 0:
         return "CANNOT-EVALUATE"
     if any(r["missing"] for r in rows):
         return "REGRESSION"

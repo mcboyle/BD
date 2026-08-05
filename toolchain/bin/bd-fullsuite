@@ -38,9 +38,11 @@ Usage:
 Exit contract (bdtools_sec):
   0  zero REAL failures (and, for --status, a run that has finished)
   1  a real failure, a preflight gate refused, or --status on a run still going
-  2  CANNOT-EVALUATE: no interpreter under --work can import pytest, or
-     --status found no recorded run at all. "Still running" and "no run
-     exists" used to share exit 1, so a poller could not tell them apart.
+  2  CANNOT-EVALUATE: no interpreter under --work can import pytest;
+     --status found no recorded run at all ("still running" and "no run
+     exists" used to share exit 1, so a poller could not tell them apart);
+     or (@871) the run finished with ZERO tests passed, so nothing was
+     verified and a green verdict would be over an empty denominator.
 
 Run state (--bg log, --status progress, the per-file duration cache that drives
 LPT bin-packing) lives in --state-dir, default $BD_FULLSUITE_STATE or
@@ -131,6 +133,52 @@ def classify(out):
     return "REAL"
 
 
+# @871 -- PER-TEST SEGMENTATION. classify() above answers about a TEXT; the
+# defect was calling it on a whole FILE's output. One env-looking line anywhere
+# then excused every genuine failure in that file, and the operator was told
+# GREEN. Measured: a file whose output contained "AssertionError: prune should
+# report 1 removed, got 7" and "Failed: 2" classified ENV_GTK and exited 0.
+#
+# run_tests_core.py emits per-test markers ("  PASS  <name>", "  FAIL  <name>"
+# + an indented 3-line excerpt, "  SKIP  <name> (<err>)" -- :1385-1391 and
+# :1416-1422), so a failure CAN be attributed individually. A whole-file import
+# error arrives as ONE FAIL row (run_tests_core.py:654), so the legitimate
+# GTK-import case still segments to a single env block and stays excused.
+_TEST_MARKER = re.compile(r"^  (PASS|FAIL|SKIP)  ", re.M)
+
+
+def failing_blocks(out):
+    """Each FAIL row's own text: its marker line plus its indented excerpt."""
+    marks = [(m.start(), m.group(1)) for m in _TEST_MARKER.finditer(out)]
+    return [out[pos:(marks[i + 1][0] if i + 1 < len(marks) else len(out))]
+            for i, (pos, kind) in enumerate(marks) if kind == "FAIL"]
+
+
+def classify_run(out, rc, failed):
+    """(kind, status) for one test FILE. THE SINGLE SOURCE for both dispatch
+    paths -- run_one (spawn, the default) and _parse_worker_line (--fork) each
+    derived this independently, so a fix landing in one left the other
+    defective. That duplication IS the fix-reproduces-the-defect trap, and
+    --fork is opt-in, so a contributor testing the default path would never
+    exercise the other.
+    """
+    if rc == 0 and failed == 0:
+        return "OK", "pass"
+    blocks = failing_blocks(out)
+    if not blocks:
+        # rc != 0 and nothing attributable. The failure direction is chosen
+        # DELIBERATELY: unattributable must mean UNKNOWN, never "env". If the
+        # marker format ever stops matching, this segmentation becomes its own
+        # blind denominator -- and it must then fail closed rather than excuse
+        # the whole suite.
+        return "UNKNOWN", "unknown"
+    kinds = [classify(b) for b in blocks]
+    real = [k for k in kinds if not k.startswith("ENV")]
+    if not real:
+        return kinds[0], "env"          # every failing test is environmental
+    return real[0], "fail"              # some are genuine: report those
+
+
 def _fork_worker(work, timeout, files):
     """Single-threaded fork server. Imports the third-party prelude once, then
     forks per test file: each file runs in its OWN process (copy-on-write
@@ -205,7 +253,12 @@ def _fork_worker(work, timeout, files):
         shutil.rmtree(td, ignore_errors=True)
         sys.stdout.write(json.dumps(
             {"file": f, "rc": rc, "secs": round(time.time() - t0, 2),
-             "out": out[-3000:]}) + "\n")
+             # @871: was out[-3000:]. The fork path classifies over this
+             # buffer while the spawn path classifies over the whole output,
+             # so a smaller window here means the two dispatch paths
+             # disagreed on files whose markers fell outside it -- a
+             # denominator difference between two copies of one decision.
+             "out": out[-40000:]}) + "\n")
         sys.stdout.flush()
 
 
@@ -220,11 +273,7 @@ def _parse_worker_line(line):
         return {"file": f, "status": "timeout", "kind": "TIMEOUT", "passed": passed,
                 "failed": failed, "skipped": skipped, "secs": d["secs"],
                 "tail": "timed out"}
-    kind = "OK"
-    if rc != 0 or failed:
-        kind = classify(out)
-    status = "pass" if (rc == 0 and failed == 0) else (
-        "env" if kind.startswith("ENV") else "fail")
+    kind, status = classify_run(out, rc, failed)
     tail = "\n".join(l for l in out.splitlines()
                      if re.search(r"FAIL|Error|assert", l))[-400:]
     return {"file": f, "status": status, "kind": kind, "passed": passed,
@@ -423,18 +472,13 @@ def run_one(work, f, timeout, retry_bytecode=True):
         return int(m.group(1)) if m else 0
 
     passed, failed, skipped = num("Passed"), num("Failed"), num("Skipped")
-    kind = "OK"
-    if rc != 0 or failed:
-        kind = classify(out)
-        # a corrupt bytecode cache is self-inflicted and recoverable: purge + retry once
-        if kind == "ENV_BYTECODE" and retry_bytecode:
-            for dp, _d, _fn in os.walk(work):
-                if os.path.basename(dp) == "__pycache__":
-                    shutil.rmtree(dp, ignore_errors=True)
-            return run_one(work, f, timeout, retry_bytecode=False)
-
-    status = "pass" if (rc == 0 and failed == 0) else (
-        "env" if kind.startswith("ENV") else "fail")
+    kind, status = classify_run(out, rc, failed)
+    # a corrupt bytecode cache is self-inflicted and recoverable: purge + retry once
+    if kind == "ENV_BYTECODE" and retry_bytecode:
+        for dp, _d, _fn in os.walk(work):
+            if os.path.basename(dp) == "__pycache__":
+                shutil.rmtree(dp, ignore_errors=True)
+        return run_one(work, f, timeout, retry_bytecode=False)
     tail = "\n".join(l for l in out.splitlines()
                      if re.search(r"FAIL|Error|assert", l))[-400:]
     return {"file": f, "status": status, "kind": kind, "passed": passed,
@@ -683,6 +727,10 @@ def main():
     F = sum(r["failed"] for r in results if r["status"] == "fail")
     S = sum(r["skipped"] for r in results)
     real = [r for r in results if r["status"] == "fail"]
+    # @871: rc != 0 with no attributable failing test. NOT a pass and NOT env.
+    # Grouped with `real` for the exit code because unknown is a third state
+    # and it FAILS -- but reported separately so nobody reads it as a defect.
+    unk = [r for r in results if r["status"] == "unknown"]
     envf = [r for r in results if r["status"] == "env"]
     flakes = [r for r in results if r["status"] == "flake"]
     tmo = [r for r in results if r["status"] == "timeout"]
@@ -718,14 +766,32 @@ def main():
             print("  %sFLAKE%s %s %s(passed alone; timing-sensitive under "
                   "--jobs %d -- not a defect)%s"
                   % (Y, RST, r["file"], DIM, a.jobs, RST))
+        for r in unk:
+            print("  %sUNKNOWN%s %s %s(exited non-zero with no attributable "
+                  "failing test -- not excused, not passed)%s"
+                  % (R, RST, r["file"], DIM, RST))
         for r in real + tmo:
             print("  %sFAIL%s %s" % (R, RST, r["file"]))
             for l in r.get("tail", "").splitlines()[-3:]:
                 print("    %s%s%s" % (DIM, l[:100], RST))
-        if not real and not tmo and not aborted:
+        if not real and not tmo and not unk and not aborted and P:
             print("%sGREEN%s %s(%d env, %d load-flake, 0 real; results -> %s)%s"
                   % (G, RST, DIM, len(envf), len(flakes), RESULTS, RST))
-    return 1 if (real or tmo or aborted) else 0
+    # @871 -- ZERO-PASS GUARD. A run in which nothing passed verified nothing,
+    # and exit 0 there is the section 0 defect: a gate that cannot see its
+    # subject reporting OK. Measured on pristine: "passed 0 ... env 1 ... GREEN
+    # exit=0". bd-opv:1400 already carries exactly this guard, which is the
+    # proof of the intended semantics -- and note it keys on PASSES, not on
+    # skips, so a run with even one real pass and the rest excused HAS evidence
+    # and stays 0. It cannot degenerate into a tool that only ever refuses.
+    if results and P == 0 and not real and not tmo:
+        sys.stderr.write("CANNOT-EVALUATE bd-fullsuite: reason=%s (%d file(s) "
+                         "collected, ZERO tests passed -- every file was "
+                         "excused or unevaluable, so nothing was actually "
+                         "verified; this is not a clean run)\n"
+                         % (sec.REASON_EMPTY, len(results)))
+        return sec.EXIT_CANNOT_EVALUATE
+    return 1 if (real or tmo or unk or aborted) else 0
 
 
 def selftest():

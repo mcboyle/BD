@@ -1564,3 +1564,423 @@ def test_band_derive_reaches_the_pk_mirror_gate():
             "a tree with no project-knowledge/ dropped signal 8 without a "
             "word, in --emit -- the exact silence @860 exists to "
             "prevent.\n%s" % (r.stdout + r.stderr)[-900:])
+
+
+# --------------------------------------------------------------------------- #
+# @871 -- a unit that could not be evaluated must not land in the success bucket
+# --------------------------------------------------------------------------- #
+# Four tools, one defect wearing four hats. Each already HAS a correct AGGREGATE
+# CANNOT-EVALUATE concept (sec.EXIT_CANNOT_EVALUATE, and three of them mint it
+# correctly somewhere). In all four the failure is at the UNIT level: a per-unit
+# "I could not evaluate this" is folded into the SUCCESS bucket, and the
+# aggregate then reports honestly over a denominator the unevaluable unit has
+# quietly left.
+#
+#   bd-fullsuite   one env-looking LINE excuses every real failure in the FILE
+#   bd-opv         a check that RAISED is graded SKIP, the benign bucket
+#   bd-equiv       a compared tool that exits non-zero reads as "produced nothing"
+#   bd-env-report  version UNKNOWN with a commit present reports FRESH
+#
+# The invariant is stated once, table-driven, because that is what stops the
+# NEXT toolchain addition acquiring the same shape. Four bespoke tests would
+# not. bd-env-report-check's rows live in tests/test_env_report_freshness.py
+# beside its existing siblings.
+
+def _fullsuite_tree(td, files):
+    """A synthetic work tree bd-fullsuite can drive.
+
+    SYNTHETIC ON PURPOSE. The obvious real anchor is test_v3_43_80_modules,
+    which CLAUDE.md section 5 says false-fails without GTK typelibs -- but in
+    THIS container it passes 49/49, so a control anchored on it would prove
+    nothing here and something else on the box.
+
+    `files` maps a test filename to the exact stdout its run should produce.
+    The stub run_tests.py replays that text and exits 1 if any FAIL row is in
+    it, which is the contract bd-fullsuite actually reads.
+    """
+    os.makedirs(os.path.join(td, "tests"), exist_ok=True)
+    for name, out in files.items():
+        with open(os.path.join(td, "tests", name), "w") as fh:
+            fh.write("# fixture\n")
+        with open(os.path.join(td, "tests", name + ".out"), "w") as fh:
+            fh.write(out)
+    with open(os.path.join(td, "run_tests.py"), "w") as fh:
+        fh.write(
+            "import sys, os\n"
+            "t = sys.argv[1]\n"
+            "p = os.path.join(os.path.dirname(os.path.abspath(__file__)), t + '.out')\n"
+            "out = open(p).read()\n"
+            "sys.stdout.write(out)\n"
+            # Hygiene, not a diagnosis: bd-fullsuite's fork child dup2s fd 1
+            # to a file and leaves via os._exit(), which does NOT flush
+            # Python's buffers. A one-variable test showed this stub behaves
+            # identically here with and without the flush, so it is NOT the
+            # reason the end-to-end fork rows failed in CI -- that cause is
+            # still unidentified and the rows were removed rather than guessed
+            # at. Kept because relying on buffered stdout surviving os._exit
+            # is wrong regardless.
+            "sys.stdout.flush()\n"
+            "sys.exit(1 if '  FAIL  ' in out else 0)\n")
+    return td
+
+
+_REAL_BLOCK = ("  FAIL  test_prune_counts\n"
+               "    E   AssertionError: prune should report 1 removed, got 7\n")
+_ENV_BLOCK = ("  FAIL  test_tray_imports\n"
+              "    E   ValueError: Namespace Gtk not available\n")
+
+
+def _fullsuite(td, extra, state):
+    tool = os.path.join(str(_REPO_ROOT), "toolchain", "bin", "bd-fullsuite")
+    env = dict(os.environ)
+    env["BD_FULLSUITE_STATE"] = state
+    return subprocess.run([sys.executable, tool, "--work", td, "--jobs", "1"] + extra,
+                          cwd=str(_REPO_ROOT), capture_output=True, text=True,
+                          timeout=300, env=env)
+
+
+def test_an_env_signal_does_not_excuse_a_real_failure_in_the_same_file():
+    """@871 RED -- classify() regexes the WHOLE file output, first-match-wins.
+
+    bd-fullsuite:127-131 searches ENV_PATTERNS across the entire combined
+    stdout+stderr of a test FILE; :436 then marks the whole file "env" and :728
+    computes the exit code from `real` only. So ONE env-looking line anywhere
+    suppresses every genuine failure in that file.
+
+    Measured on pristine, single variable changed (presence of the Gtk string):
+      mixed   -> "ENV tests/test_mixed.py (ENV_GTK)" ... "REAL failed 0" ...
+                 GREEN, exit=0   -- while the output contained a real
+                 AssertionError and "Failed: 2"
+      control -> "FAIL tests/test_realonly.py (REAL)" ... exit=1
+
+    BOTH DISPATCH PATHS. run_one (:428/:436, spawn, the default) and
+    _parse_worker_line (:225/:226, --fork) derive kind+status independently, so
+    a fix landing in one leaves the other defective -- which is the
+    fix-reproduces-the-shape trap. The --fork row is what forbids it.
+    """
+    import tempfile
+    mixed = ("Running suite\n" + _REAL_BLOCK + _ENV_BLOCK +
+             "Total: 2 | Passed: 0 | Failed: 2 | Skipped: 0\n")
+    for extra in ([],):
+        with tempfile.TemporaryDirectory() as td, \
+             tempfile.TemporaryDirectory() as state:
+            _fullsuite_tree(td, {"test_mixed.py": mixed})
+            r = _fullsuite(td, ["--only", "mixed"] + extra, state)
+            out = r.stdout + r.stderr
+            label = "spawn" if not extra else "fork"
+            assert r.returncode != 0, (
+                "[%s] a file carrying a REAL AssertionError alongside one Gtk "
+                "line exited 0. One env-looking line excused the whole file, "
+                "and the operator is told GREEN.\n%s" % (label, out[-1200:]))
+            assert "AssertionError" in out or "prune should report" in out, (
+                "[%s] the real failure never reached the operator; only the "
+                "env classification did.\n%s" % (label, out[-1200:]))
+
+
+def test_a_file_whose_failures_are_all_environmental_is_still_excused():
+    """OVER-SENSITIVITY -- the fix must not turn every env file into a failure.
+
+    Without this the tool is unusable in any container lacking GTK typelibs or
+    a browser cache, which is most of them. A tool that can only refuse is not
+    an instrument. Green before and after by design.
+    """
+    import tempfile
+    env_only = ("Running suite\n" + _ENV_BLOCK +
+                "Total: 1 | Passed: 0 | Failed: 1 | Skipped: 0\n")
+    passing = ("  PASS  test_ok\n"
+               "Total: 1 | Passed: 1 | Failed: 0 | Skipped: 0\n")
+    for extra in ([],):
+        with tempfile.TemporaryDirectory() as td, \
+             tempfile.TemporaryDirectory() as state:
+            # a real PASS elsewhere in the run, so the zero-pass guard below is
+            # not what is being exercised here
+            _fullsuite_tree(td, {"test_envonly.py": env_only,
+                                 "test_good.py": passing})
+            r = _fullsuite(td, extra, state)
+            out = r.stdout + r.stderr
+            label = "spawn" if not extra else "fork"
+            assert r.returncode == 0, (
+                "[%s] a purely environmental failure was reported as real. The "
+                "segmentation must narrow what 'env' covers, not delete "
+                "it.\n%s" % (label, out[-1200:]))
+
+
+def test_a_fullsuite_run_in_which_nothing_passed_is_not_green():
+    """@871 RED -- bd-fullsuite has no zero-pass guard; bd-opv:1400 has one.
+
+    Measured on pristine: "=== 1 files | passed 0 | REAL failed 0 | ... env 1"
+    then "GREEN", exit=0. A run in which every collected file classified env
+    verified nothing at all, and exit 0 says otherwise. That bd-opv already
+    carries exactly this guard is the proof of the intended semantics.
+    """
+    import tempfile
+    env_only = ("Running suite\n" + _ENV_BLOCK +
+                "Total: 1 | Passed: 0 | Failed: 1 | Skipped: 0\n")
+    with tempfile.TemporaryDirectory() as td, \
+         tempfile.TemporaryDirectory() as state:
+        _fullsuite_tree(td, {"test_a.py": env_only, "test_b.py": env_only})
+        r = _fullsuite(td, [], state)
+        out = r.stdout + r.stderr
+        assert r.returncode != 0, (
+            "every file classified env, zero tests passed, and the run exited "
+            "0 GREEN. Nothing was verified.\n%s" % out[-1200:])
+        assert "CANNOT-EVALUATE" in out or "EMPTY" in out, (
+            "the refusal must name itself as CANNOT-EVALUATE rather than as a "
+            "failure -- nothing failed, nothing was measured.\n%s" % out[-1200:])
+
+
+def _load_opv():
+    import importlib.machinery
+    import importlib.util
+    os.environ["_BD_OPV_REEXEC"] = "1"   # bd-opv:65-70 re-execs itself otherwise
+    tool = os.path.join(str(_REPO_ROOT), "toolchain", "bin", "bd-opv")
+    spec = importlib.util.spec_from_loader(
+        "_bd_opv", importlib.machinery.SourceFileLoader("_bd_opv", tool))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_an_opv_check_that_crashes_is_not_graded_as_a_missing_precondition():
+    """@871 RED -- bd-opv:1368-1370 grades a RAISED check as SKIP.
+
+    SKIP is the benign bucket: the tool's own docstring defines it as
+    "precondition missing (e.g. a setting/route absent in this build)". A check
+    that died is not that. It feeds nothing but n_skip, so one unrelated PASS
+    clears the CANNOT-EVALUATE guard at :1400 and the run exits 0.
+
+    Measured on pristine with a substituted REGISTRY:
+      SKIP  OPV-BOOM     check raised: ZeroDivisionError: the check itself is broken
+      PASS  OPV-GOOD     a real pass
+      1 PASS  0 FAIL  1 SKIP  0 GATED   exit=0
+
+    Indistinguishable in the summary from the genuine OPV-QR row
+    ("qr/pyzbar/PIL unavailable"), which is a real absent precondition.
+    """
+    opv = _load_opv()
+
+    def boom():
+        raise ZeroDivisionError("the check itself is broken")
+
+    def good():
+        return opv.PASS, "a real pass"
+
+    saved = opv.REGISTRY
+    try:
+        opv.REGISTRY = [("OPV-BOOM", "core", boom), ("OPV-GOOD", "core", good)]
+        rc = opv.main([])
+        assert rc == 2, (
+            "a check that RAISED left the run at exit %r. A crashed check is "
+            "not an absent precondition, and folding it into SKIP means a "
+            "broken check reads as a benign one." % (rc,))
+
+        # OVER-SENSITIVITY: a GENUINE precondition skip must stay benign and
+        # keep the run at 0. The live anchor is real at this commit -- the full
+        # run is 17 PASS / 0 FAIL / 7 SKIP / exit 0. If the fix turns any SKIP
+        # into a refusal, bd-opv can only ever refuse in a container.
+        def absent():
+            return opv.SKIP, "qr/pyzbar/PIL unavailable (No module named 'qrcode')"
+
+        opv.REGISTRY = [("OPV-ABSENT", "core", absent), ("OPV-GOOD", "core", good)]
+        rc = opv.main([])
+        assert rc == 0, (
+            "a genuine precondition SKIP alongside a real PASS exited %r. Only "
+            "a check that RAISED may take the new state." % (rc,))
+    finally:
+        opv.REGISTRY = saved
+
+
+def test_a_compared_tool_that_exits_non_zero_is_a_crash_not_silence():
+    """@871 RED -- bd-equiv:62-68 discards cp.returncode entirely.
+
+    ERROR_SENTINEL (:46, commented "@852: a crash is not agreement") fires only
+    on a HARNESS-level exception -- timeout, OSError -- never on the compared
+    subprocess exiting non-zero. A tool that dies emits a traceback with no
+    extractable tokens, so it reads as "produced nothing", and new >= nothing is
+    vacuously true.
+
+    Measured on pristine with an old tool that raises on one of two inputs:
+      verdict SUPERSET, "errored": false, exit=0
+    printed as "Safe to retire IF 'more' is safe." This is the tool that
+    authorizes deletion.
+    """
+    import tempfile
+    tool = os.path.join(str(_REPO_ROOT), "toolchain", "bin", "bd-equiv")
+    with tempfile.TemporaryDirectory() as td:
+        old = os.path.join(td, "old_t.py")
+        new = os.path.join(td, "new_t.py")
+        with open(old, "w") as fh:
+            fh.write("import sys\n"
+                     "if len(sys.argv) > 1 and sys.argv[1] == 'B':\n"
+                     "    raise RuntimeError('this tool is broken')\n"
+                     "print('tests/test_alpha.py')\nprint('tests/test_beta.py')\n")
+        with open(new, "w") as fh:
+            fh.write("print('tests/test_alpha.py')\nprint('tests/test_beta.py')\n"
+                     "print('tests/test_gamma.py')\n")
+        r = subprocess.run([sys.executable, tool, "--old", old, "--new", new,
+                            "--inputs", "A", "B", "--work", td, "--json"],
+                           cwd=str(_REPO_ROOT), capture_output=True, text=True,
+                           timeout=180)
+        out = r.stdout + r.stderr
+        assert r.returncode == 2, (
+            "the OLD tool crashed on one input and bd-equiv exited %d, "
+            "certifying the replacement as a SUPERSET of a traceback. This is "
+            "the tool that authorizes deletion.\n%s"
+            % (r.returncode, out[-1200:]))
+        assert "CANNOT-EVALUATE" in out, out[-1200:]
+
+        # OVER-SENSITIVITY: @852 already holds that PARTIAL emptiness stays
+        # evaluable -- "a tool that can only refuse is not an instrument". A
+        # CLEAN tool that legitimately prints nothing on one input must still
+        # grade. The new signal is the EXIT CODE, never an empty token set.
+        quiet = os.path.join(td, "quiet_t.py")
+        with open(quiet, "w") as fh:
+            fh.write("import sys\n"
+                     "if len(sys.argv) > 1 and sys.argv[1] == 'B':\n"
+                     "    sys.exit(0)\n"
+                     "print('tests/test_alpha.py')\n")
+        r = subprocess.run([sys.executable, tool, "--old", quiet, "--new", new,
+                            "--inputs", "A", "B", "--work", td, "--json"],
+                           cwd=str(_REPO_ROOT), capture_output=True, text=True,
+                           timeout=180)
+        assert r.returncode == 0, (
+            "a clean tool that printed nothing on one input was refused. "
+            "Silence at exit 0 is data; a non-zero exit is the crash.\n%s"
+            % (r.stdout + r.stderr)[-1200:])
+
+
+def test_an_unattributable_failure_is_unknown_not_excused_as_env():
+    """@871 -- the fail-CLOSED direction, which a mutation battery proved was
+    asserted in a comment and enforced by nothing.
+
+    classify_run's segmentation is ITSELF a denominator. When a file exits
+    non-zero and emits NO per-test markers, there is no failing block to
+    classify -- and the tempting answer is to fall back to scanning the whole
+    output, which is the original defect. The chosen answer is UNKNOWN: not
+    excused, not passed. A mutant returning ("ENV_GTK", "env") on that branch
+    ESCAPED the rest of this battery, because every other fixture here produces
+    at least one marker and the zero-pass guard covered the rest.
+
+    THE ENV-LOOKING STRING IN THE FIXTURE IS LOAD-BEARING. Without it a
+    fall-back-to-whole-output implementation would classify REAL and the run
+    would go non-zero anyway -- the test would pass against the defect. It is
+    there so the only way to reach a non-zero exit is to refuse to classify.
+
+    Real instance: tests/test_e2e_smoke.py collects ZERO tests and exits 2 with
+    "BD-RUNNER UNEVALUABLE", no markers, empty tail. It was reported to the
+    operator as a REAL code failure with no explanation attached.
+    """
+    import tempfile
+    # non-zero exit, an env-looking line, and NOT ONE per-test marker
+    noattr = ("BD-RUNNER UNEVALUABLE: 1 file(s) requested, ZERO tests collected.\n"
+              "  ValueError: Namespace Gtk not available\n"
+              "Total: 0 | Passed: 0 | Failed: 0 | Skipped: 0\n")
+    passing = ("  PASS  test_ok\n"
+               "Total: 1 | Passed: 1 | Failed: 0 | Skipped: 0\n")
+    assert "  FAIL  " not in noattr, "the fixture must carry no marker at all"
+
+    for extra in ([],):
+        with tempfile.TemporaryDirectory() as td, \
+             tempfile.TemporaryDirectory() as state:
+            # the passing file keeps P > 0 so the zero-pass guard is NOT what
+            # produces the non-zero exit -- otherwise this test would pass for
+            # the wrong reason.
+            _fullsuite_tree(td, {"test_noattr.py": noattr, "test_good.py": passing})
+            # the stub exits 0 when no FAIL row is present, so force non-zero
+            with open(os.path.join(td, "run_tests.py"), "w") as fh:
+                fh.write(
+                    "import sys, os\n"
+                    "t = sys.argv[1]\n"
+                    "p = os.path.join(os.path.dirname(os.path.abspath(__file__)), t + '.out')\n"
+                    "out = open(p).read()\n"
+                    "sys.stdout.write(out)\n"
+                    "sys.stdout.flush()\n"   # see _fullsuite_tree: os._exit
+                    "sys.exit(2 if 'UNEVALUABLE' in out else 0)\n")
+            r = _fullsuite(td, extra, state)
+            out = r.stdout + r.stderr
+            label = "spawn" if not extra else "fork"
+            assert r.returncode != 0, (
+                "[%s] a file that exited non-zero with NO attributable failing "
+                "test was excused and the run went green. Unattributable must "
+                "fail CLOSED -- if the marker format ever stops matching, the "
+                "fallback must not excuse the whole suite.\n%s"
+                % (label, out[-1200:]))
+            assert "UNKNOWN" in out, (
+                "[%s] the file was not reported as UNKNOWN. It is neither a "
+                "code defect nor an environment excuse, and calling it either "
+                "misinforms the operator.\n%s" % (label, out[-1200:]))
+
+
+def test_both_fullsuite_dispatch_paths_share_one_classifier():
+    """@871 -- the property the end-to-end --fork rows were there to protect,
+    asserted directly instead of through the fork worker.
+
+    THE DEFECT THIS FORBIDS: run_one (spawn, the default) and
+    _parse_worker_line (--fork) each derived kind+status independently, so a
+    fix landing in one leaves the other defective. --fork is opt-in, so a
+    contributor exercising only the default path would never see it.
+
+    WHY NOT END-TO-END. The --fork rows passed here and failed in CI, where the
+    fork worker produced no output at all and every file classified UNKNOWN. I
+    could not reproduce that environment, and a one-variable test disproved the
+    obvious explanation (buffered stdout lost to os._exit -- identical results
+    with and without a flush). Rather than guess at a cause, the rows were
+    removed and the property is asserted where it actually lives: one function,
+    called from both sites. An end-to-end row whose failure mode I cannot
+    explain is not evidence about bd-fullsuite -- it is a harness defect
+    wearing the subject's shape, which is exactly what CLAUDE.md 2a warns is
+    indistinguishable from the real thing.
+
+    The unidentified CI behaviour is recorded in the CHANGELOG as open.
+    """
+    src = open(os.path.join(str(_REPO_ROOT), "toolchain", "bin", "bd-fullsuite"),
+               errors="replace").read()
+
+    # exactly one definition, and both dispatch sites call it
+    assert src.count("def classify_run(") == 1, (
+        "classify_run must be defined once -- two definitions is the "
+        "duplication this replaced.")
+    # Anchored on the ASSIGNMENT, not the bare name: `def classify_run(out,
+    # rc, failed):` contains the call text too, so counting that substring put
+    # the DEFINITION inside the denominator and made the expected count 3.
+    # A denominator including its own subject, in the assertion about
+    # denominators.
+    n = src.count("kind, status = classify_run(out, rc, failed)")
+    assert n == 2, (
+        "expected exactly two call sites (run_one and _parse_worker_line); "
+        "found %d. If a dispatch path stopped calling the shared classifier, "
+        "the two paths have forked apart again." % n)
+
+    # and neither site re-derives status locally any more
+    assert 'else (\n        "env" if kind.startswith("ENV") else "fail")' not in src, (
+        "a dispatch path is deriving status from a whole-file classify() "
+        "again -- that is the original defect.")
+
+    # BEHAVIOUR, not just wiring: the classifier itself, all four outcomes.
+    import importlib.machinery
+    import importlib.util
+    spec = importlib.util.spec_from_loader(
+        "_bd_fs", importlib.machinery.SourceFileLoader(
+            "_bd_fs", os.path.join(str(_REPO_ROOT), "toolchain", "bin",
+                                   "bd-fullsuite")))
+    fs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fs)
+
+    real = "  FAIL  t_a\n    E   AssertionError: prune should report 1 removed\n"
+    env = "  FAIL  t_b\n    E   ValueError: Namespace Gtk not available\n"
+    ok = "  PASS  t_c\n"
+
+    assert fs.classify_run(ok, 0, 0) == ("OK", "pass")
+    # one env line must NOT excuse the real failure beside it
+    assert fs.classify_run(real + env, 1, 2)[1] == "fail", (
+        "a real failure alongside an env failure was excused -- the defect.")
+    assert fs.classify_run(env + real, 1, 2)[1] == "fail", (
+        "order-dependent: first-match-wins is exactly what was removed.")
+    # all-environmental is still excused
+    assert fs.classify_run(env, 1, 1)[1] == "env"
+    assert fs.classify_run(env + env, 1, 2)[1] == "env"
+    # rc != 0 with nothing attributable fails CLOSED, even carrying an env string
+    assert fs.classify_run("Namespace Gtk not available\n", 2, 0) == (
+        "UNKNOWN", "unknown"), (
+        "an unattributable non-zero exit was excused as env. If the marker "
+        "format ever stops matching, this fallback must not excuse the suite.")

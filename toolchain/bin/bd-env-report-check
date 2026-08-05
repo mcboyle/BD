@@ -95,10 +95,21 @@ def evaluate(tree: Path, report: Path) -> tuple[int, str]:
             "or was written by a forked script. It cannot be dated against this "
             "tree, which is not the same as being current."
         )
-    if got_version in (None, "", "UNKNOWN") and got_commit in (None, "", "UNKNOWN"):
+    # @871 -- VERSION IS DECISIVE, and this guard used to require BOTH fields
+    # to be unknown. With version UNKNOWN and an advisory commit present the
+    # check below simply skipped, `problems` stayed empty, and the report came
+    # back FRESH -- printing the TREE's version as though the report had
+    # asserted it. Reachable in production: scripts/cloud-setup.sh:95-101 emits
+    # `generated_against_version=${GEN_VERSION:-UNKNOWN}` where GEN_VERSION is
+    # a grep of __version__ and GEN_COMMIT is `git rev-parse HEAD`, so any tree
+    # where rev-parse succeeds and the grep does not -- a partial checkout, a
+    # mid-rebase, a reformatted __version__ line -- produced exactly that.
+    # A commit cannot stand in for the decisive field.
+    if got_version in (None, "", "UNKNOWN"):
         return UNKNOWN, (
-            "the report records provenance as UNKNOWN, meaning the provisioner "
-            "could not determine what it was building against."
+            "the report does not record the VERSION it was generated against "
+            "(commit is advisory and cannot substitute), so it cannot be dated "
+            "against this tree. That is not the same as being current."
         )
 
     want_version = tree_version(tree)
@@ -115,7 +126,9 @@ def evaluate(tree: Path, report: Path) -> tuple[int, str]:
     # switched off, and then the version check goes with it.
     note = ""
     if got_commit and want_commit and got_commit != want_commit:
-        note = f" (commit differs: {got_commit[:12]} vs {want_commit[:12]})"
+        # Not [:12]: two DIFFERENT commits sharing a 12-char prefix printed
+        # "commit differs: X vs X", which reads as a tool malfunction.
+        note = f" (commit differs: {got_commit[:20]} vs {want_commit[:20]})"
 
     if problems:
         return STALE, "; ".join(problems) + note
