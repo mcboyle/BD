@@ -1,5 +1,16 @@
 set +e
-cd /home/claude/work
+# @878: was an UNGUARDED `cd /home/claude/work` under `set +e`, so on any tree
+# without that directory the cd failed and the script CARRIED ON -- running
+# bd-regen-order and the packaging steps against whatever the caller's cwd
+# happened to be. This script is zip-era one-shot scaffolding (its zip paths are
+# frozen at v3.66.137/148) and is a retirement candidate, not a maintenance
+# target; the cd is guarded so it cannot silently operate on the wrong tree in
+# the meantime.
+cd "${BD_RELEASE_WORK:-/home/claude/work}" || {
+  echo "build_release.sh: cannot cd to ${BD_RELEASE_WORK:-/home/claude/work};" >&2
+  echo "  refusing to package from \$PWD instead. Set BD_RELEASE_WORK." >&2
+  exit 2
+}
 python toolchain/bin/bd-regen-order --work "$PWD" || exit $?
 Z=/mnt/user-data/uploads/BulkDownloader_v3_66_137.zip
 STAGE=/home/claude/release_148
