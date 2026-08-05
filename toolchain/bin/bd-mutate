@@ -145,6 +145,171 @@ def _run_band(band: list[str], work: Path) -> tuple[int, str]:
     return r.returncode, (r.stdout + r.stderr)[-4000:]
 
 
+# --------------------------------------------------------------------------- #
+# @875 -- THE INTERRUPTED BATTERY, and why a signal handler is not the fix.     #
+# --------------------------------------------------------------------------- #
+# The restore is a `finally:` in the per-mutant loop. It runs on the normal path
+# and on any Python-level exception -- and a signal whose default disposition is
+# to terminate never becomes one. Measured: SIGINT unwinds through
+# KeyboardInterrupt and restores; SIGTERM (shell 143) and SIGKILL both leave the
+# mutant on disk with the band's pytest orphaned and still running against it.
+# `timeout 30 bd-mutate ...` reproduces it exactly.
+#
+# So every UNATTENDED way a battery dies -- an agent command timeout, timeout(1),
+# an orchestrator reaping a slow job -- is a way it dies dirty, and Ctrl-C, the
+# one case `finally` covers, is the case that does not happen when nobody is
+# watching.
+#
+# A SIGTERM trap would be a PARTIAL fix that reproduces the shape of the defect:
+# it converts a reliable failure (every kill leaves residue) into a rare, SILENT
+# one (only SIGKILL/OOM), and the next run adopts that residue as pristine --
+# because `original` is read from the WORKING TREE, never from git, so a
+# before/after check structurally cannot see that "before" was already wrong.
+# Measured: a tree left at `len(hits) > 99` ran a full battery, scored an
+# ESCAPE, and restored `> 99`. Precise, well-evidenced, and about code that is
+# not in git.
+#
+# The journal is on DISK, which is the property no handler can have: it survives
+# SIGKILL and OOM. It does not prevent residue; it makes the NEXT run refuse to
+# launder it.
+_JOURNAL_DIRNAME = "bd-mutate-inflight"
+
+
+def _journal_dir(work: Path) -> Path:
+    """Where in-flight records live.
+
+    Inside `<git-dir>/` on purpose: invisible to `git status`, to
+    `git clean -fdx`, and to every axis-6 enumerator, so it needs no .gitignore
+    entry and contaminates no other gate. Resolved with `git rev-parse
+    --git-dir` rather than `work/'.git'` because in a WORKTREE `.git` is a FILE
+    and the literal path fails -- and CLAUDE.md 2b puts agents in worktrees
+    routinely.
+
+    A non-git `work` (the selftest's tmpdirs) has no git to contaminate, so a
+    dot-dir beside it is correct there and nowhere else.
+    """
+    try:
+        r = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=str(work),
+                           capture_output=True, text=True, timeout=30)
+        if r.returncode == 0 and r.stdout.strip():
+            gd = Path(r.stdout.strip())
+            if not gd.is_absolute():
+                gd = work / gd
+            return gd / _JOURNAL_DIRNAME
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return work / ("." + _JOURNAL_DIRNAME)
+
+
+def _journal_write(work: Path, rel: str, original: str, mutated: str,
+                   label: str) -> Path:
+    d = _journal_dir(work)
+    d.mkdir(parents=True, exist_ok=True)
+    f = d / f"{os.getpid()}.json"
+    f.write_text(json.dumps({
+        "path": rel, "label": label, "pid": os.getpid(),
+        "original_sha": hashlib.sha256(original.encode("utf-8")).hexdigest(),
+        "mutated_sha": hashlib.sha256(mutated.encode("utf-8")).hexdigest(),
+        "original": original,
+    }, indent=1), encoding="utf-8")
+    return f
+
+
+def _journal_records(work: Path) -> list[tuple[Path, dict]]:
+    d = _journal_dir(work)
+    out = []
+    if not d.is_dir():
+        return out
+    for f in sorted(d.glob("*.json")):
+        try:
+            out.append((f, json.loads(f.read_text(encoding="utf-8"))))
+        except (OSError, ValueError):
+            out.append((f, {}))
+    return out
+
+
+def _text_sha(path: Path) -> str | None:
+    try:
+        return hashlib.sha256(path.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
+    except OSError:
+        return None
+
+
+def journal_preflight(work: Path) -> tuple[int, list[str]]:
+    """(exit_code, messages). RESOLVE the journal; never assume.
+
+    Three branches, and the first is what stops this becoming the cry-wolf gate
+    that gets switched off: a journal whose file already matches its ORIGINAL is
+    a tree someone repaired by hand or with `git reset --hard`. Reap it and
+    proceed. bd-claim's precedent -- a dead claimant is reaped rather than
+    wedging the repo.
+    """
+    msgs: list[str] = []
+    bad = False
+    for f, rec in _journal_records(work):
+        rel = rec.get("path")
+        if not rel or not rec.get("original_sha"):
+            msgs.append(f"BD-MUTATE-UNRUNNABLE: unreadable in-flight record {f}. "
+                        f"Cannot tell what it was protecting -- inspect and remove it.")
+            bad = True
+            continue
+        cur = _text_sha(work / rel)
+        if cur == rec["original_sha"]:
+            f.unlink(missing_ok=True)          # already clean: reap, do not refuse
+            continue
+        if cur == rec.get("mutated_sha"):
+            msgs.append(
+                f"BD-MUTATE-UNRUNNABLE: {rel} still holds the MUTANT from an "
+                f"interrupted battery (pid {rec.get('pid')}, {rec.get('label')!r}). "
+                f"A run started here would adopt it as pristine and restore it. "
+                f"Repair with: bd-mutate --recover --work {work}")
+            bad = True
+            continue
+        msgs.append(
+            f"BD-MUTATE-UNRUNNABLE: {rel} matches NEITHER the recorded original "
+            f"nor the recorded mutant. Unknown is a third state and it fails -- "
+            f"refusing to guess. Diff it: git diff -- {rel}")
+        bad = True
+    return (2 if bad else 0), msgs
+
+
+def journal_recover(work: Path) -> int:
+    """Write recorded originals back, verifying by sha. Never a blind overwrite."""
+    rc = 0
+    recs = _journal_records(work)
+    if not recs:
+        print("no in-flight records: nothing to recover")
+        return 0
+    for f, rec in recs:
+        rel = rec.get("path")
+        if not rel or not rec.get("original_sha"):
+            print(f"REFUSING {f}: unreadable record", file=sys.stderr)
+            rc = 2
+            continue
+        target = work / rel
+        cur = _text_sha(target)
+        if cur == rec["original_sha"]:
+            f.unlink(missing_ok=True)
+            print(f"already clean: {rel}")
+            continue
+        if cur != rec.get("mutated_sha"):
+            print(f"REFUSING {rel}: it matches neither recorded state, so a "
+                  f"recover would overwrite an edit nobody recorded. "
+                  f"git diff -- {rel}", file=sys.stderr)
+            rc = 2
+            continue
+        target.write_text(rec["original"], encoding="utf-8")
+        if _text_sha(target) != rec["original_sha"]:
+            print(f"RECOVER FAILED for {rel}: sha still wrong after write",
+                  file=sys.stderr)
+            rc = 2
+            continue
+        _purge_pycache(work)
+        f.unlink(missing_ok=True)
+        print(f"recovered {rel}")
+    return rc
+
+
 def run_battery(spec: list[dict], band: list[str], work: Path,
                 verbose: bool = True) -> tuple[int, list[dict]]:
     out: list[dict] = []
@@ -158,6 +323,14 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
         print("BD-MUTATE-UNRUNNABLE: no band given; a mutant judged by no test "
               "is not judged.", file=sys.stderr)
         return 2, out
+
+    # ---- RESIDUE. A dirty tree makes every verdict below evidence about a
+    # mutant somebody else left, and the run would restore it (@875).
+    prc, pmsgs = journal_preflight(work)
+    for m in pmsgs:
+        print(m, file=sys.stderr)
+    if prc != 0:
+        return prc, out
 
     # ---- BASELINE. Red afterwards proves nothing if it was red before. ------
     _purge_pycache(work)
@@ -198,6 +371,15 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
             out.append(row)
             continue
 
+        # Journal BEFORE the write, and refuse if it cannot be written -- a
+        # safety net that reports OK while absent is the defect it closes.
+        try:
+            jrec = _journal_write(work, rel, original, mutated, label)
+        except OSError as e:
+            print(f"BD-MUTATE-UNRUNNABLE: cannot write the in-flight journal "
+                  f"({e}). Refusing to mutate unjournalled -- an interrupted "
+                  f"run would then be invisible to the next one.", file=sys.stderr)
+            return 2, out
         try:
             _purge_pycache(work)
             path.write_text(mutated, encoding="utf-8")
@@ -216,6 +398,8 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
                 row["verdict"] = ERROR
                 row["why"] = (f"RESTORE FAILED: {before_sha[:12]} -> {after_sha[:12]}. "
                               f"The tree is NOT as it was found.")
+            else:
+                jrec.unlink(missing_ok=True)   # only once the restore VERIFIED
         out.append(row)
         if verbose:
             print(f"  [{row['verdict']:7}] {label}")
@@ -299,6 +483,101 @@ def _selftest(work: Path) -> int:
         ok &= same
         print(("PASS" if same else "FAIL") + "  the subject file is restored byte-identically")
 
+        # 6b. CLEAN-RUN CONTROL (@875). No journal may survive a normal battery,
+        # and the NEXT battery must reach a real verdict. Without this the
+        # journal wedges every subsequent run and the tool is dead -- the
+        # over-correction that "passes the escape's test and destroys the tool".
+        left = list(_journal_dir(t).glob("*.json")) if _journal_dir(t).is_dir() else []
+        rc, rows = run_battery([{"label": "again", "file": "m.py",
+                                 "old": "return 1", "new": "return 2"}],
+                               ["tests/test_m.py"], t, verbose=False)
+        clean = not left and rc in (0, 1) and rows and rows[0]["verdict"] == CAUGHT
+        ok &= clean
+        print(("PASS" if clean else "FAIL")
+              + f"  a clean run leaves no journal and the next run still verdicts "
+                f"(left={len(left)} rc={rc})")
+
+        # 7. AN INTERRUPTED BATTERY IS DETECTED, NOT LAUNDERED.
+        # The whole point: kill a battery mid-band so the mutant is on disk with
+        # no restore, then prove the NEXT run refuses instead of adopting it as
+        # pristine. The wait is on a HEARTBEAT the band test writes, never on a
+        # fixed sleep -- a fixed sleep is a race, and it is 2a's "cut on
+        # structure, never on a fixed width" in another costume.
+        import signal as _signal
+        import time as _time
+        k = Path(td) / "kill"
+        k.mkdir()
+        (k / "tests").mkdir()
+        (k / "m.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+        (k / "tests" / "test_m.py").write_text(
+            "import pathlib, time\n"
+            "def test_f():\n"
+            "    pathlib.Path('hb.txt').write_text(pathlib.Path('m.py').read_text())\n"
+            "    time.sleep(6)\n", encoding="utf-8")
+        specf = k / "spec.json"
+        specf.write_text(json.dumps([{"label": "kill me", "file": "m.py",
+                                      "old": "return 1", "new": "return 2"}]),
+                         encoding="utf-8")
+        proc = subprocess.Popen(
+            [sys.executable, os.path.realpath(__file__), "--spec", str(specf),
+             "--band", "tests/test_m.py", "--work", str(k)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        hb = k / "hb.txt"
+        deadline = _time.time() + 90
+        while _time.time() < deadline:
+            if hb.is_file() and "return 2" in hb.read_text(encoding="utf-8"):
+                break
+            _time.sleep(0.2)
+        proc.send_signal(_signal.SIGTERM)
+        proc.wait(timeout=60)
+        residue = "return 2" in (k / "m.py").read_text(encoding="utf-8")
+        print(("PASS" if residue else "FAIL")
+              + "  SIGTERM leaves the mutant on disk (the trigger; finally does not run)")
+        ok &= residue
+        rc2, _rows2 = run_battery([{"label": "next run", "file": "m.py",
+                                    "old": "return 2", "new": "return 3"}],
+                                  ["tests/test_m.py"], k, verbose=False)
+        detected = rc2 == 2
+        ok &= detected
+        print(("PASS" if detected else "FAIL")
+              + f"  a battery on the residued tree exits 2 instead of a verdict (got {rc2})")
+
+        # 8a. --recover repairs it, verifying by sha
+        recovered = journal_recover(k) == 0 and \
+            (k / "m.py").read_text(encoding="utf-8") == "def f():\n    return 1\n"
+        ok &= recovered
+        print(("PASS" if recovered else "FAIL") + "  --recover restores the original")
+
+        # 8b. REAP CONTROL, the important over-sensitivity clamp. A journal whose
+        # file ALREADY matches its recorded original -- the operator ran
+        # `git checkout --` -- must be REAPED and the run must proceed. A check
+        # that refuses on the mere PRESENCE of a journal is the cry-wolf gate
+        # that gets switched off, taking the real check with it.
+        _journal_write(k, "m.py", (k / "m.py").read_text(encoding="utf-8"),
+                       "def f():\n    return 99\n", "already repaired")
+        prc, _ = journal_preflight(k)
+        reaped = prc == 0 and not list(_journal_dir(k).glob("*.json"))
+        ok &= reaped
+        print(("PASS" if reaped else "FAIL")
+              + f"  a journal whose tree is already clean is REAPED, not refused (rc={prc})")
+
+        # 8c. UNKNOWN IS NOT "DIRTY". A file matching neither recorded state must
+        # exit 2 by SAYING it cannot tell -- never by silently recovering over an
+        # edit the operator made deliberately.
+        _journal_write(k, "m.py", "def f():\n    return 1\n",
+                       "def f():\n    return 2\n", "unknown state")
+        (k / "m.py").write_text("def f():\n    return 41\n", encoding="utf-8")
+        prc, pmsgs = journal_preflight(k)
+        unknown = prc == 2 and any("NEITHER" in m for m in pmsgs)
+        ok &= unknown
+        print(("PASS" if unknown else "FAIL")
+              + "  a file matching neither recorded state is UNKNOWN, not auto-recovered")
+        refused = journal_recover(k) == 2 and \
+            (k / "m.py").read_text(encoding="utf-8") == "def f():\n    return 41\n"
+        ok &= refused
+        print(("PASS" if refused else "FAIL")
+              + "  --recover REFUSES rather than overwriting an unrecorded edit")
+
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
     return 0 if ok else 1
 
@@ -310,11 +589,15 @@ def main() -> int:
     ap.add_argument("--work", default=os.environ.get("BD_REPO", "."))
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--recover", action="store_true",
+                    help="restore originals recorded by an interrupted battery")
     a = ap.parse_args()
     work = Path(a.work).resolve()
 
     if a.selftest:
         return _selftest(work)
+    if a.recover:
+        return journal_recover(work)
     if not a.spec:
         ap.error("--spec is required (or --selftest)")
 

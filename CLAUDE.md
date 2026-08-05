@@ -748,8 +748,55 @@ venv/bin/python toolchain/bin/bd-mutate --selftest
 unique anchor and the length arithmetic, validates each mutant before judging
 it, purges `__pycache__` and sets `PYTHONDONTWRITEBYTECODE`, proves the baseline
 GREEN first, and restores by sha256. Exit 0 = every mutant caught, 1 = something
-escaped, **2 = the battery has no verdict** (empty spec, red baseline, failed
-restore) — and 2 is not a softer 1. Choosing good mutants is still yours.
+escaped, **2 = the battery has no verdict** (empty spec, red baseline, residue
+from an interrupted battery, failed restore) — and 2 is not a softer 1.
+Choosing good mutants is still yours.
+
+**An interrupted battery does NOT restore the tree.** The restore is a
+`finally:` in the per-mutant loop, so it runs on the normal path and on any
+Python-level exception — and a signal whose default disposition is to terminate
+the process never becomes one. Measured by killing a battery mid-band: SIGINT
+unwinds through `KeyboardInterrupt` and the file comes back byte-identical, but
+**SIGTERM (shell exit 143) and SIGKILL both leave the mutant on disk**, with the
+band's `pytest` orphaned and still running against it. `timeout 30 bd-mutate …`
+reproduces it exactly: exit 124, mutant still there. So every unattended way a
+battery dies — an agent's command timeout, `timeout(1)`, an orchestrator reaping
+a slow job — is a way it dies dirty, and Ctrl-C, the one case the `finally`
+covers, is the case that does not happen when nobody is watching. Nor is Ctrl-C
+a reliable way to test this: a bd-mutate backgrounded with `&` from a
+non-interactive shell inherits SIGINT as SIG_IGN (`SigIgn` bit `0x2` in
+`/proc/<pid>/status`), so `kill -INT` does nothing and the battery runs to
+completion looking like a clean restore.
+
+**A second run then launders the residue into the baseline.** `bd-mutate` reads
+the "original" it will restore from the WORKING TREE, never from git, and its
+restore check compares that same text back — so a battery started on a dirty
+tree adopts the mutant as pristine and puts it back, reporting a clean
+sha256-verified restore. Measured: a tree left at `len(hits) > 99` where `> 1`
+belonged ran a full battery, scored an ESCAPE, and restored `> 99`. The verdict
+was precise, well-evidenced, and about code that is not in git. A before/after
+check cannot see that "before" was already wrong — section 0, inside the tool
+this section tells you to trust.
+
+**@875 added an on-disk journal, and you need to know what it does not cover.**
+Before the first write, bd-mutate records the file, both shas and the original
+bytes under `<git-dir>/bd-mutate-inflight/<pid>.json`, and deletes it only once
+the restore verifies. The next battery refuses (exit 2) if that file still holds
+the recorded mutant, and `bd-mutate --recover` writes the original back. It is
+on disk rather than in a signal handler because that is the one property no
+handler can have — it survives SIGKILL and OOM. A trap would have been the
+partial fix that reproduces the shape: it converts a reliable failure into a
+rare, silent one. **But the journal only sees residue from a battery that ran
+WITH it.** A hand-left edit, or residue from a pre-@875 run, is still adopted as
+pristine and restored — measured, identical behaviour before and after. So the
+next line has not been retired by the fix.
+
+**If a battery did not print its summary, `git status` before you believe
+anything, and before you re-run.** `git diff -- <the files in your spec>` is the
+check and `git checkout --` is the repair; the second run is what makes the
+residue permanent. And read "restores by sha256" above for what it is — a
+within-run consistency check, not a promise about a tree you did not watch it
+leave.
 
 **Stale bytecode defeats a same-length mutate-and-restore.** Python invalidates
 a `.pyc` on `(mtime, size)`. A substitution of equal length (`lid` -> `hid`),
