@@ -169,7 +169,19 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
     if [ -z "$dirty" ] && [ "$ahead" = "0" ] && [ "$branch" = "main" ]; then
       echo "session-start: checkout $head_sha is $behind commit(s) behind origin/main ($main_sha)" >&2
       echo "session-start: on main, no modified tracked files, 0 commits ahead -- this is the reverted-image signature, and a fast-forward is lossless. Repairing." >&2
-      if git reset --hard -q origin/main 2>/dev/null; then
+      # @881: capture the merge's stderr instead of discarding it. The swap from
+      # `reset --hard` is NOT behaviour-preserving, and the divergent state is
+      # reachable: `dirty` is measured with --untracked-files=no, so an untracked
+      # file is invisible to the predicate BY CONSTRUCTION. Let the snapshot
+      # carry one at a path a later main commit adds -- routine, since the
+      # snapshot bakes generated files -- and this is stale, clean-by-predicate,
+      # on main. Measured: --ff-only REFUSES ("untracked working tree files
+      # would be overwritten") while `reset --hard` exits 0 by DELETING the file.
+      # The divergence favours --ff-only; it just must not be silent. A refusal
+      # that does not name its consequence gets scrolled past, and a repair that
+      # does not name its FAILURE gets read as success -- the last line the
+      # reader saw was "Repairing."
+      if merge_err="$(git merge --ff-only origin/main 2>&1)"; then
         echo "session-start: REPAIRED -- checkout now at $(git rev-parse --short HEAD)" >&2
         # --- the tree is not the environment ------------------------------
         # @879. THIS IS THE POINT OF THE CUT. The reverted image breaks five
@@ -204,13 +216,33 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
           echo "session-start: ENVIRONMENT NOT RECONVERGED -- scripts/cloud-setup.sh absent; the venv may still be the reverted image's." >&2
         fi
       else
-        echo "session-start: reset FAILED -- re-sync by hand before trusting any source read" >&2
+        # A DIFFERENT marker from STALE BASE, deliberately. Off main the harm is
+        # "your PR reverts"; here it is "the auto-repair did not happen". One
+        # marker for both would make them indistinguishable exactly when the
+        # reader needs to tell them apart.
+        echo "session-start: *** REPAIR FAILED *** the fast-forward to origin/main ($main_sha) did NOT happen -- still at $head_sha, $behind commit(s) behind." >&2
+        echo "session-start: *** REPAIR FAILED *** git said: ${merge_err:-no output}" >&2
+        echo "session-start: *** REPAIR FAILED *** this session continues on the SNAPSHOT base with the environment NOT reconverged. Resolve the collision git named above, then run: git merge --ff-only origin/main && bash scripts/cloud-setup.sh" >&2
       fi
     else
       # Refusing is the right answer here, and it has to say why: an operator
       # who sees only "behind" will re-run the same command by hand and lose
       # the very work this branch protected.
       echo "session-start: WARNING checkout $head_sha is $behind commit(s) behind origin/main ($main_sha)." >&2
+      # @881: THE CYCLE, not an incident. The panel snapshots the filesystem
+      # after each cache build, so ~7 days later every new session starts stale
+      # again. The dangerous state is not the one this hook repairs (main,
+      # clean, behind) -- it is the one it correctly REFUSES to move: an agent
+      # branches from a snapshot-era commit, commits, and opens a PR. GitHub
+      # diffs that branch against current main, so everything merged since the
+      # snapshot appears as a REMOVAL and the PR reads as a revert of a week's
+      # work. The refusal was already right; it was just quiet, one line in the
+      # startup noise. A refusal that does not name its consequence is one the
+      # reader scrolls past.
+      if [ "$branch" != "main" ]; then
+        echo "session-start: *** STALE BASE *** HEAD ($head_sha) is $behind commit(s) behind origin/main ($main_sha) and you are on ${branch:-a detached HEAD}." >&2
+        echo "session-start: *** STALE BASE *** committing here and opening a PR will diff against current main, so those $behind commit(s) appear as REMOVALS -- the PR silently reverts them. Re-base on origin/main before any work." >&2
+      fi
       if [ "$branch" = "main" ]; then
         why="${dirty:+modified tracked files present; }${ahead:+$ahead commit(s) ahead of origin/main; }a reset would discard work."
       else

@@ -764,6 +764,23 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
      not in the snapshot, so the next session starts without it. Installing a
      package to fix a symptom fixes this session and nothing after it -- put it
      in `scripts/cloud-setup.sh` and force a cache rebuild instead.
+  4. **It RECURS on every cache cycle, and the dangerous state is the one the
+     hook correctly refuses to repair.** A rebuild resets content to today and
+     then re-bakes it, so ~7 days on, sessions go stale again. The repairable
+     case (main, clean, behind) is handled. The one that destroys work is not
+     repairable: an agent branches from a snapshot-era commit, commits, and
+     opens a PR — GitHub diffs it against current main, so **every commit merged
+     since the snapshot appears as a REMOVAL and the PR silently reverts a
+     week's work**. @881 makes the hook emit a distinct `*** STALE BASE ***`
+     block naming the commit count and that consequence whenever HEAD is behind
+     and the checkout is not on `main`. If you see it, re-base before doing
+     anything; do not read it as routine "behind origin/main" noise.
+     A `*** REPAIR FAILED ***` block means the opposite half: the auto-repair on
+     `main` did **not** happen, so you are on the snapshot base with the
+     environment **not** reconverged. Resolve the collision git names in the
+     block — usually an untracked file at a path `origin/main` now tracks — then
+     repair by hand with `git merge --ff-only origin/main && bash
+     scripts/cloud-setup.sh`.
 
 - **The container rolls back to an old base image, and @879 changed what that
   costs you.** Five things revert together: the checkout, venv package
