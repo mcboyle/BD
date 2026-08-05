@@ -135,6 +135,19 @@ class _PytestStub:
     def skip(reason=""): raise _Skipped(reason)
 
     @staticmethod
+    def fail(reason="", pytrace=True):
+        # v3.66.870: the stub had skip/skipif/approx but no `fail`, so all 50
+        # pytest.fail sites in tests/ raised AttributeError under the minimal
+        # runner. The test still FAILED, so this never hid a defect -- but the
+        # DIAGNOSTIC was destroyed and replaced by a harness error, which is
+        # the shape that makes people debug the wrong thing (CLAUDE.md 2a).
+        # AssertionError is already the runner's failure path, so no test
+        # changes direction. Signature verified safe: zero of the 50 call
+        # sites pass msg=/reason=/pytrace= by keyword, so a positional-only
+        # caller cannot turn this into a TypeError.
+        raise AssertionError(reason)
+
+    @staticmethod
     def approx(expected, rel=None, abs=None):
         # v3.66.37: minimal pytest.approx shim. The stub previously
         # lacked it, so any test using `== pytest.approx(x)` raised
