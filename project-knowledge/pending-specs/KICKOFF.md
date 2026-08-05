@@ -10,6 +10,22 @@ not a resource. Read CLAUDE.md. Read this to find your place, then RE-DERIVE
 before you act -- every figure below is a measurement with a timestamp, and
 section 1 says measurements go stale silently and are then read as authority.
 
+PROVENANCE OF THE FIGURES BELOW -- read this before quoting any of them.
+**This file was drafted from a compaction summary, not from the live
+conversation.** A summary is a document, and CLAUDE.md section 1 is explicit
+that documents go stale silently and are then read as authority. So each figure
+here is now tagged by how it was obtained:
+
+- **[primary]** -- re-measured against this tree on 2026-08-05, command and
+  output in the session. Trust it to the timestamp.
+- **[operator]** -- reported by Matt about the box. Cannot be measured from a
+  container at all; section 9 forbids claiming a box state you were not told.
+  Trust it as his report, not as a measurement.
+- **[transcribed]** -- carried through the compaction summary and NOT
+  re-measured, because the subject is not reachable from here (the archive
+  census ran on his machine; the workflow token totals are gone with the run).
+  **These are the ones to re-derive or re-ask before acting.**
+
 VERIFY FIRST, always:
 
 ```bash
@@ -23,7 +39,7 @@ thing to reconcile, not a detail.
 
 ---
 
-## 1 | Where the tree is
+## 1 | Where the tree is -- [primary]
 
 | fact | value | how to re-derive |
 | --- | --- | --- |
@@ -43,11 +59,14 @@ are the spec.
 
 ## 2 | What shipped, and what the box has actually seen
 
-Nine cuts merged this session, v3.66.861 through 867 plus two register
-sections. PRs #162-#169, every one CI-green.
+**[primary]** Nine cuts merged this session, v3.66.861 through 867 plus two
+register sections, PRs #162-#169. Re-derived from `git log --oneline
+origin/main -14`, which shows `a2245ca` (861/#162) through `3fded70`
+(15.29/#169) contiguous. The "every one CI-green" half is **[transcribed]** --
+the merges are in history, the check results are not.
 
-**Box evidence -- reported by Matt, not measured here** (CLAUDE.md section 9:
-do not claim a state on the box you have not been told):
+**Box evidence -- [operator]. Reported by Matt, not measured here**
+(CLAUDE.md section 9: do not claim a state on the box you have not been told):
 
 | what | result |
 | --- | --- |
@@ -63,7 +82,11 @@ had not reconciled, more had changed than either cut claimed.
 A deploy + capture on 867-or-later is operator-side pending and is the only
 binding evidence for the release-gate-adjacent work below.
 
-## 3 | The corpus incident, in one paragraph
+## 3 | The corpus incident, in one paragraph -- [transcribed]
+
+Every number in this section came through the compaction summary. The census
+ran against Matt's machine, so **none of it is re-derivable from a container**.
+Re-ask rather than re-quote.
 
 A census of 1658 wacz/archive files found **228 carrying secrets (13.8%)**. The
 distribution was B4 197, B1 22, live checkout 5, bd-archive-2026-08 4, B2 0.
@@ -80,11 +103,15 @@ subcommand.**
 ## 4 | The nine queued items
 
 Full plans, evidence and three adversarial lenses:
-`project-knowledge/pending-specs/recon-queue-items-1-9.md` (281 KB).
-Twelve agents, 0 errors, ~1.64M subagent tokens. Plans measured at `3fded70`,
-lenses at `a25e577`.
+`project-knowledge/pending-specs/recon-queue-items-1-9.md` (281315 bytes,
+0 non-ASCII) **[primary]**. Plans measured at `3fded70`, lenses at `a25e577` --
+both stated in the file's own header. The agent/token totals (12 agents,
+0 errors, ~1.64M subagent tokens) are **[transcribed]**: the run is over and
+those cannot be recovered.
 
 **Verdicts: 7 REAL, 2 PARTIALLY-REAL, 0 NOT-REAL, 0 CANNOT-EVALUATE.**
+**[primary]** -- re-derived by parsing the JSON block out of the spec file, not
+copied from the summary. The table below is the same parse.
 
 | # | subject | verdict | size |
 | --- | --- | --- | --- |
@@ -126,20 +153,29 @@ Do not skip these -- they are the reason the review was run:
   cannot see mirrors -- items 1, 2 and 8 each measured that blindness
   independently.
 - **Item 4 is missing `tests/test_v3_66_653_dep_freshness.py`**, which lens 3
-  established is an **ELEVENTH axis-6 gate**. CLAUDE.md section 4's table says
-  ten and is stale. Its `_tracked_py` keeps every tracked `.py` **plus** every
-  tracked file with a python shebang, so the 469 extensionless `bd-*` scripts
-  are in its denominator.
+  established is an **ELEVENTH axis-6 gate**. Its `_tracked_py` (`:427`) keeps
+  every tracked `.py` **plus** every tracked file with a python shebang, so the
+  469 extensionless `bd-*` scripts are in its denominator, and its own
+  docstring (`:24-37`) says *"Band this file on any cut that adds or renames a
+  tracked Python file."*
 
-### Two decisions still owed by Matt
+  **[primary], re-verified 2026-08-05, and the staleness is exact:** CLAUDE.md
+  section 4's table has **9 rows marked yes** plus 3 marked NO, and prose names
+  a tenth (`test_pin_index_in_sync`, whose enumerator lives one import away).
+  That is the ten. The string `test_v3_66_653_dep_freshness` appears **nowhere
+  in CLAUDE.md** -- so it is a genuine eleventh, unrecorded, and correcting
+  that table is owed by whichever cut bands it first.
 
-1. **Item 2 as one cut or two.** The recon agent recommends splitting it.
-2. **Item 6 part (b)** -- adding a `bd-mutate` journal and `--recover`. That is
-   a tool behaviour change and CLAUDE.md section 9 puts it behind explicit
-   per-task authorization. Part (a), the CLAUDE.md prose, is free.
+### Two decisions -- BOTH ANSWERED 2026-08-05
 
-Item 9 carries the same constraint and it is sharper: `capture.sh` **is** the
-release gate, so both its cuts need Matt's go, and only his box run is binding.
+1. **Item 2 splits into two cuts.** Matt's call, matching the recon agent's
+   recommendation.
+2. **Item 6 part (b) is AUTHORIZED** -- the `bd-mutate` journal and
+   `--recover`. Section 9's per-task authorization is granted for it.
+
+Item 9 still carries its constraint and it is sharper: `capture.sh` **is** the
+release gate, so both its cuts need Matt's separate go, and only his box run is
+binding evidence. That authorization has **not** been given.
 
 ## 5 | After 1-9: the order Matt chose, by speed x blast radius
 
@@ -167,6 +203,10 @@ record and not a close.
 - Scripts already delivered to him as files: `probe11.py` (read-only `mode=ro`
   SQLite probe), `bd-wacz-survey.py` (read-only), and `bd-archive-exec.py`
   (dry-run default -- with the `wacz` subcommand defect noted in section 3).
+  **[primary]: none of the three is tracked** (`git ls-files` returns nothing
+  for any of them). They exist only on Matt's machine and in the transcript.
+  Do not go looking for them in the repo, and do not assume the copy he holds
+  matches anything here.
 
 ## 7 | Container traps this session actually hit
 
