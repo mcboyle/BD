@@ -3,7 +3,12 @@
     "allow": [
       "mcp__github__pull_request_read",
       "Bash(venv/bin/python tools/decomp/import_graph_gate.py)",
-      "Bash(venv/bin/python toolchain/bin/bd-guardcheck)"
+      "Bash(venv/bin/python toolchain/bin/bd-guardcheck)",
+      "Bash(venv/bin/python toolchain/bin/bd-freshcheck)",
+      "Bash(venv/bin/python toolchain/bin/bd-freshcheck *)",
+      "Bash(venv/bin/python toolchain/bin/bd-band-derive *)",
+      "Bash(venv/bin/python toolchain/bin/bd-env-report-check)",
+      "Bash(venv/bin/python toolchain/bin/bd-restart-check)"
     ]
   },
   "hooks": {

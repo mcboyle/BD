@@ -983,19 +983,24 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   that was read-only in every environment is now read-only in every environment
   it passes cleanly in.
 
-  **CI is protected, but its comment is still misstated -- and the
-  misstatement is the dangerous part.** `.github/workflows/ci.yml` sets
+  **CI is protected, and its comment was misstated in BOTH eras -- corrected at
+  v3.66.884 on operator sign-off.** `.github/workflows/ci.yml` sets
   `fetch-depth: 0` on the `gates` job, so none of this is armed there. Its
-  comment explains why by saying that under a depth-1 checkout the check
+  comment explained why by saying that under a depth-1 checkout the check
   "returns UNKNOWN (exit 2), failing for an environmental reason rather than a
-  real one." That was wrong before the fix (it returned STALE, exit 1) and it
-  is still wrong after it (a depth-1 clone with network now deepens and returns
-  OK). Anyone who later removes gitleaks' need for full history will reason
-  from that comment and get neither behaviour it describes. Correcting it is a
-  comment-only change to a CI file and therefore needs operator sign-off; it is
-  deliberately NOT bundled into this cut. **Unmeasured:** whether a depth-1
-  checkout inside GitHub Actions can reach the remote to deepen -- the OK above
-  is from this container, not from CI.
+  real one." That was wrong BEFORE the fix -- measured, it returned STALE
+  (exit 1), which is fail-WRONG rather than fail-safe -- and it would have been
+  wrong AFTER it too, since a depth-1 clone with a reachable remote now deepens
+  and returns OK. Neither behaviour it described has ever existed, and it is
+  the stated reason the depth is load-bearing, so a future editor removing
+  gitleaks' need for full history would have reasoned straight from it.
+
+  The comment now records what the depth actually buys: not a correct answer --
+  the tool gets that either way -- but the avoidance of a step that reaches the
+  NETWORK and DEEPENS the checkout in order to answer. **Unmeasured, and the
+  comment says so:** whether that fetch can reach the remote from inside GitHub
+  Actions. The OK is from this container, not from CI, and nothing here should
+  be read as evidence about the Actions runner's egress.
 
   **Unverified: whether the box's clone is shallow.** This reading is about the
   cloud container and a scratch clone; do not generalise it to `test4`.

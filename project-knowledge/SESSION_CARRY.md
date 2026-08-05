@@ -3664,13 +3664,28 @@ VERIFICATION, this container, at the commit this section ships in:
 The fixture is hermetic: it builds its own six-commit repo and clones it over
 `file://`, so the freshness gate's own test needs no network on the box.
 
-OPEN SET, changed by this cut only where stated. **A is closed.** The `ci.yml`
-comment item is now MORE wrong, not less -- it claims UNKNOWN exit 2, the
-pre-fix truth was STALE exit 1, and the post-fix truth is OK; still a
-comment-only change to a CI file, still needs operator sign-off, deliberately
-not bundled here. B, B2, 7a, 7b and 9 are untouched and still carry the gates
-15.33 and the kickoff put on them. **Unmeasured and left so:** whether a
-depth-1 checkout inside GitHub Actions can reach the remote to deepen.
+**THE `ci.yml` COMMENT IS ALSO CORRECTED, on operator sign-off given after the
+first commit landed.** It claimed a depth-1 checkout returns UNKNOWN exit 2.
+That was wrong in BOTH eras: measured pre-fix it returned STALE exit 1
+(fail-wrong, not fail-safe), and post-fix a reachable remote makes it deepen
+and return OK. Since the comment is the stated reason `fetch-depth: 0` is
+load-bearing, and it explicitly invites a future editor to revisit the depth,
+leaving it would have handed that editor a premise that was never true.
+
+The rewrite states what the depth actually buys -- not correctness, which the
+tool now has either way, but the avoidance of a step that reaches the network
+and deepens the checkout to answer at all -- and marks as UNMEASURED whether
+that fetch can reach the remote from inside Actions. Verified safe to rewrite
+first: the two suites that read `ci.yml` (`test_generated_artifact_workflow`,
+`test_toolchain_534`) assert on the artifact-sync step's substrings and on
+nothing in this comment.
+
+OPEN SET, changed by this branch only where stated. **A is closed; the `ci.yml`
+comment item is closed with it.** B, B2, 7a, 7b and 9 are untouched and still
+carry the gates 15.33 and the kickoff put on them. **Unmeasured and left so:**
+whether a depth-1 checkout inside GitHub Actions can reach the remote to
+deepen -- deliberately not probed, since arming it would mean changing the
+depth on a CI file to find out.
 
 ### 15.33 | The cache-rebuild discriminator -- READINGS, and why the protocol could not answer its own question
 

@@ -44,6 +44,17 @@ implemented; `--deepen` carries the repair and the residual case degrades to
 UNKNOWN. A test asserts over the AST, not the source text, that no verdict is
 computed from a fetch of the claimed sha.
 
+Also, on operator sign-off: the `gates` job's `fetch-depth: 0` comment in
+`.github/workflows/ci.yml` claimed a depth-1 checkout returns UNKNOWN exit 2.
+Wrong in both eras - measured pre-fix it returned STALE exit 1 (fail-wrong
+rather than fail-safe), and post-fix a reachable remote makes it deepen and
+return OK. That comment is the stated reason the depth is load-bearing and it
+invites a future editor to revisit it, so it now records what the depth
+actually buys: not a correct answer, which the tool has either way, but the
+avoidance of a step that reaches the network and deepens the checkout to
+answer at all. Whether that fetch can reach the remote from inside GitHub
+Actions is UNMEASURED and the comment says so.
+
 Verification: 7 new tests, 2 proven RED on pristine source in both behavioural
 directions; 6 of 6 mutants caught by `bd-mutate` over the new band, baseline
 GREEN; `bd-freshcheck --selftest` PASS; `test_toolchain_534` 44/44.
