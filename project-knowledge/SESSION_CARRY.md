@@ -3590,10 +3590,30 @@ STATE: twelve cuts merged this session, #170-#180 plus this one.
   5e87c68 (#180) 878  the operator shell tools ran against a dead sandbox, exit 0
   (this cut)     879  the provision trigger could see one fifth of the damage
 
-BOX EVIDENCE: four captures, all PASS, arithmetic reconciling exactly. The last
-is v3.66.875. **876, 877, 878 and 879 have NO box evidence -- container lanes
-only.** Deltas were verified by counting net new test functions per file, not
-assumed.
+BOX EVIDENCE: FIVE captures, all PASS, arithmetic reconciling exactly. The last
+is **v3.66.878, captured 2026-08-05T17:53** -- so 876, 877 and 878 are now
+verified on the gate that counts. **v3.66.879 has NO box evidence: container
+lanes only.** Deltas were verified by counting net new test functions per cut,
+not assumed.
+
+  capture @878  14669 total / 14584 passed / 0 failed / 85 skipped
+                delta from @875 is +8/+8 with skips UNCHANGED at 85, and the
+                net new test functions per cut are 876=3, 877=1, 878=4 = 8.
+                Exact. Skips holding still is the half that matters: it says
+                nothing quietly stopped running to make room.
+                Lanes reconcile too -- 1424 parallel + 13160 serial = 14584
+                passed, +85 skipped = 14669 total.
+                graph check-hash OK against the pin; live 36 pass/0 warn/0 fail
+                exit 0; GET / 200 and /api/health reporting sha 5e87c6800954 /
+                version 3.66.878, so the running PROCESS matches the tree and
+                not merely the checkout. Routes 1002.
+
+**What 879 changes is exactly what a capture would exercise** -- the SessionStart
+hook and the provisioner -- and its reconverge path is proven only against a
+FAKE provisioner in tests. The trigger logic and all three refusal cases are
+mutation-constrained (5 mutants, 5 caught), but the hand-over to the real
+33-step cloud-setup.sh runs for the first time whenever the container next
+actually reverts. Treat that path as unexercised until it is observed.
 
   capture @867  14610 total / 14525 passed / 0 failed / 85 skipped
   capture @870  14624 / 14539 / 0 / 85     (+14)
