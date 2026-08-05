@@ -22,9 +22,12 @@ name its consequence is a refusal the reader scrolls past.
 
 So the refusal now emits a distinct STALE BASE block naming the number of commits
 and the specific harm. And the repair uses `merge --ff-only` rather than
-`reset --hard`: with `ahead == 0` the two are equivalent, but `--ff-only` REFUSES
-on divergence instead of moving the tree anyway, so the guard is enforced by git
-rather than only by the predicate that selected the branch.
+`reset --hard`: `--ff-only` REFUSES on divergence instead of moving the tree
+anyway, so the guard is enforced by git rather than only by the predicate that
+selected the branch. That swap is NOT behaviour-preserving -- it opened one
+corridor, closed here in the same cut: an untracked file at a path origin/main
+tracks makes the fast-forward refuse where reset would have succeeded by
+deleting it, and the refusal must be NAMED or "Repairing." reads as success.
 """
 from __future__ import annotations
 
@@ -129,10 +132,12 @@ def test_a_repaired_main_does_not_emit_the_block(tmp_path):
 def test_the_repair_is_fast_forward_only():
     """`reset --hard` moves the tree whatever the relationship between the two
     commits; `merge --ff-only` refuses unless the move is genuinely a
-    fast-forward. With `ahead == 0` they agree, so this changes no behaviour
-    today -- it makes git enforce the property the surrounding predicate
-    asserts, so a future edit to that predicate cannot silently license a
-    destructive move.
+    fast-forward. With `ahead == 0` they agree EXCEPT where an untracked file
+    sits at a path origin/main tracks -- reset deleted it and succeeded, ff
+    refuses. See test_a_failed_repair_is_named_not_silent, which measures both.
+    The swap makes git enforce the property the surrounding predicate asserts,
+    so a future edit to that predicate cannot silently license a destructive
+    move.
     """
     code = shell_code_only(HOOK)
     assert "merge --ff-only" in code, (
@@ -159,3 +164,75 @@ def test_a_stale_but_dirty_main_gets_the_repair_refusal_not_the_branch_warning(t
     assert _MARKER not in r.stderr, (
         "the branch-revert warning fired on main, where it does not apply. "
         "stderr=%r" % r.stderr)
+
+
+# --------------------------------------------------------------------------- #
+# the corridor the --ff-only swap itself opened                                #
+# --------------------------------------------------------------------------- #
+
+def test_a_failed_repair_is_named_not_silent(tmp_path):
+    """The swap is NOT behaviour-preserving, and this is the state that proves it.
+
+    `dirty` is measured with --untracked-files=no, so untracked files are
+    invisible to the predicate BY CONSTRUCTION. Let the snapshot carry an
+    untracked, non-ignored file at a path a later main commit adds -- routine
+    here, because the snapshot bakes generated files and committing one at that
+    path later is ordinary. Then: stale, clean-by-predicate, on main, so the
+    repair path is entered and "Repairing." prints.
+
+    Measured: `merge --ff-only` REFUSES ("untracked working tree files would be
+    overwritten"), HEAD does not move, the file survives. In the identical state
+    `reset --hard` exits 0 -- by DELETING the untracked file, which is its
+    documented behaviour. So the divergence favours --ff-only: reset succeeded
+    lossily, ff refuses correctly.
+
+    But correctly and SILENTLY, which is 881's own thesis extended one step. A
+    refusal that does not name its consequence gets scrolled past; a repair that
+    does not name its FAILURE gets read as success. The last relevant line the
+    reader saw was "Repairing." -- REPAIRED never printed, cloud-setup never ran,
+    and no STALE BASE fired because branch == main.
+    """
+    _origin, clone = _origin_and_clone(tmp_path, adds_late_file="gen.txt")
+    (clone / "gen.txt").write_text("baked into the snapshot, untracked\n")
+    stale = _head(clone)
+
+    r = _run_hook(clone, source="startup")
+
+    # The refusal itself is CORRECT -- this assertion is not the RED one.
+    assert _head(clone) == stale, "the repair moved HEAD despite the collision"
+    assert (clone / "gen.txt").read_text().startswith("baked"), (
+        "the untracked file was destroyed -- that is reset --hard's behaviour, "
+        "not --ff-only's")
+
+    # These two carry the RED.
+    assert "REPAIR FAILED" in r.stderr, (
+        "the merge refused and said nothing: 'Repairing.' printed, REPAIRED did "
+        "not, and the session proceeds on the snapshot base believing it was "
+        "repaired. stderr=%r" % r.stderr)
+    assert "gen.txt" in r.stderr, (
+        "git named the colliding path and the hook discarded it, so the "
+        "operator cannot act on the failure. stderr=%r" % r.stderr)
+
+
+def test_the_failed_repair_block_is_distinct_from_stale_base(tmp_path):
+    """Different states, different consequences, different markers.
+
+    Off main, the harm is that your PR reverts. On main, the harm is that the
+    auto-repair did not happen. Reusing one marker would make the two
+    indistinguishable at exactly the moment the reader needs to tell them apart.
+    """
+    _origin, clone = _origin_and_clone(tmp_path, adds_late_file="gen.txt")
+    (clone / "gen.txt").write_text("baked\n")
+    r = _run_hook(clone, source="startup")
+    assert _MARKER not in r.stderr, (
+        "the off-main STALE BASE marker fired on main. stderr=%r" % r.stderr)
+
+
+def test_a_repair_with_no_collision_still_succeeds_silently(tmp_path):
+    """The over-sensitive direction: the new block must not fire on the ordinary
+    repair, which is the common case and already works."""
+    _origin, clone = _origin_and_clone(tmp_path)
+    r = _run_hook(clone, source="startup")
+    assert _head(clone) == _tip(clone), "precondition: the ordinary repair broke"
+    assert "REPAIR FAILED" not in r.stderr, (
+        "the failure block fired on a successful repair. stderr=%r" % r.stderr)

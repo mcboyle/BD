@@ -26,9 +26,24 @@ not on main. On main it stays silent, because the existing refusal already says
 the right thing there and noise is what makes a real warning unreadable.
 
 The repair also moves from `reset --hard` to `merge --ff-only`. With ahead == 0
-the two agree, so no behaviour changes today; it makes git enforce the property
-the surrounding predicate asserts, so a later edit to that predicate cannot
-silently license a destructive move.
+the two agree EXCEPT where an untracked file sits at a path origin/main tracks
+-- reset deleted it and succeeded; --ff-only refuses, correctly and now loudly.
+That state is reachable, not theoretical: `dirty` is measured with
+--untracked-files=no, so untracked files are invisible to the predicate by
+construction, and the snapshot bakes generated files that a later commit may
+track at the same path. Measured both ways.
+
+So the swap opened a corridor and this cut closes it in the same breath. The
+merge's stderr is captured rather than discarded, and a failed fast-forward
+emits a *** REPAIR FAILED *** block carrying git's own reason (the colliding
+path), the commit count, and the consequence: the session continues on the
+snapshot base with the environment NOT reconverged. A distinct marker from
+STALE BASE, because the harms differ -- off main your PR reverts; on main the
+auto-repair simply did not happen. Without it the failure was silent: stderr
+went to /dev/null, REPAIRED never printed, cloud-setup never ran, no STALE BASE
+fired because branch == main, and the last line the reader saw was "Repairing."
+881's own thesis, one step further: a repair that does not name its failure gets
+read as success.
 
 Measured, not assumed: neither scripts/cloud-bootstrap.sh nor
 scripts/cloud-setup.sh contains a git clone -- the bootstrap PROBES for a
@@ -36,7 +51,7 @@ checkout and exits 1 if none is found. So the platform must clone before the
 setup script runs, which is why the snapshot carries .git. The mechanism needs
 no platform quirk; it follows from the bootstrap's own precondition.
 
-Mutation battery: 5 mutants, 5 caught. Two escaped first. One was a real gap --
+Mutation battery: 6 mutants, 6 caught. Two escaped first. One was a real gap --
 the block lives in the else-branch, so a mutant firing it unconditionally is
 invisible to every test exercising the repair path. The other was subtler: the
 magnitude assertion matched a bare digit while the block prints two short SHAs,

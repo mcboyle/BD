@@ -775,6 +775,12 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
      block naming the commit count and that consequence whenever HEAD is behind
      and the checkout is not on `main`. If you see it, re-base before doing
      anything; do not read it as routine "behind origin/main" noise.
+     A `*** REPAIR FAILED ***` block means the opposite half: the auto-repair on
+     `main` did **not** happen, so you are on the snapshot base with the
+     environment **not** reconverged. Resolve the collision git names in the
+     block — usually an untracked file at a path `origin/main` now tracks — then
+     repair by hand with `git merge --ff-only origin/main && bash
+     scripts/cloud-setup.sh`.
 
 - **The container rolls back to an old base image, and @879 changed what that
   costs you.** Five things revert together: the checkout, venv package

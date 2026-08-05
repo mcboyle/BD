@@ -72,7 +72,8 @@ def _git(*args, cwd, check=True):
                           text=True, check=check, timeout=120)
 
 
-def _origin_and_clone(tmp_path: Path, behind_by: int = 3, faithful: bool = False):
+def _origin_and_clone(tmp_path: Path, behind_by: int = 3, faithful: bool = False,
+                      adds_late_file: str | None = None):
     """A bare 'origin' with N commits and a clone parked at the FIRST one.
 
     `faithful=True` also rewinds refs/remotes/origin/main, which is what an image
@@ -97,6 +98,14 @@ def _origin_and_clone(tmp_path: Path, behind_by: int = 3, faithful: bool = False
     for i in range(1, behind_by + 1):
         (work / "src.py").write_text(f"VERSION = {i}\n")
         _git("commit", "-qam", f"c{i}", cwd=work)
+    if adds_late_file:
+        # @881: a path that exists on origin/main's tip but NOT at the snapshot
+        # commit. That is what an untracked file in the clone can collide with,
+        # and it is routine here -- the snapshot bakes generated files and a
+        # later commit tracking one at the same path is ordinary.
+        (work / adds_late_file).write_text("tracked by origin/main\n")
+        _git("add", "-A", cwd=work)
+        _git("commit", "-qm", "adds " + adds_late_file, cwd=work)
     _git("clone", "-q", "--bare", str(work), str(origin), cwd=tmp_path)
 
     clone = tmp_path / "clone"
