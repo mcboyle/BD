@@ -4,6 +4,182 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.883 - the discriminator ran, and could not discriminate
+
+The v3.66.882 protocol was executed in the first session started after the
+operator's 19:43Z setup-script edit. Readings recorded in CLAUDE.md section 5
+and SESSION_CARRY 15.33 as MEASURED, replacing the inferred model. The freeze
+on new sessions is spent and lifted.
+
+MEASURED, and new: the cache rebuild is LAZY. It did not fire at 19:43Z when
+the panel script was edited; it fired when this session started 24 minutes
+later. Container boot ~20:07Z, cloud-setup.sh header 20:07:23Z, report
+generated_against_commit equal to HEAD, venv 20:07:28, frontend/dist 20:08:38.
+This session is the cache build. HEAD 5eb43d6, 0 behind origin/main, reflog
+oldest 2026-08-05 20:07:19, no hook blocks -- and bd-restart-check confirms the
+hook ran at 20:12:41Z with source=startup, so the silence is "nothing to
+repair" rather than "did not run".
+
+What the protocol could not do, recorded so the next one is not built the same
+way. Its two branches were "reflog oldest is the rebuild time" and "reflog
+oldest is this session's own start". Because the rebuild fires at a session
+start, those are the same number. The deeper reason is section 0: a cache-BUILD
+session has a freshly provisioned repo under either model, so its denominator
+structurally excludes the subject. Only a CACHED session can distinguish them,
+which is what the 2026-07-28 reading was and why that one reading still carries
+the model. The confirming reading is now a JOINT prediction over FOUR observables instead of
+one. This session's reflog records the platform lifecycle: clone -> main ->
+claude/<session>. Sessions never run on main, and the hook's repair predicate
+requires branch = main (.claude/hooks/session-start.sh:169). So the snapshot
+model predicts a FOREIGN branch claude/bulkdownloader-discriminator-das7sy in
+git branch AND reflog-oldest 2026-08-05 20:07:19 AND behind >= 1 AND a STALE BASE
+block; the fresh-clone model predicts no foreign branch AND reflog-oldest at the
+session's own start AND behind 0 AND no block. The foreign branch is the most
+legible of the four and should be read first: a timestamp invites arithmetic, a
+branch named after somebody else's session does not.
+
+Corollary recorded: the REPAIRED path is structurally unreachable at a
+platform-created session START -- on a RESUME the branch is wherever the session
+parked it, so REPAIRED is reachable on a later resume of a session that checked
+out main by hand. The unreachability is a property of how sessions start, not of
+the hook. CLAUDE.md is reworded accordingly: what must stay routine is the rebase
+RESPONSE, not the ignoring. The carve-out that would fix it is named in
+SESSION_CARRY 15.33 and deliberately not built; the reading comes first.
+
+Shallow clone, and the finding is now demonstrated rather than read off the
+source. In a throwaway clone --depth 1, bd-freshcheck --repo-only returns exit 1
+and STALE, accusing an innocent register section of naming a commit the branch
+does not contain. A second defect sits beside it: ci.yml's comment justifying
+fetch-depth: 0 says a depth-1 checkout makes the check return UNKNOWN (exit 2),
+"failing for an environmental reason rather than a real one". It returns STALE,
+exit 1. Fail-safe versus fail-wrong, in the comment that invites a future editor
+to revisit the depth. Comment-only fix, its own cut.
+
+The spec for that fix was revised twice: against the operator's over-sensitivity
+objection, and then against a measured-and-wrong row of my own. "128 -> UNKNOWN,
+UNKNOWN fails" would convert a false STALE into a false FAIL on a healthy repo,
+which is the over-sensitivity the code comment above the line exists to prevent.
+
+The first version of the table reported fetch-by-sha as refused. That test used a
+FABRICATED sha, and "upload-pack: not our ref" is guaranteed for a nonexistent
+commit regardless of server policy, so it established nothing. Re-measured
+against the real sha: git fetch --depth=1 origin <real full sha> SUCCEEDS, exit
+0. GitHub serves SHA-in-want for a reachable commit through this proxy.
+
+The correction strengthens the spec rather than weakening it. Fetching by sha
+delivers the OBJECT without the connecting history, so ancestry becomes
+uncomputable and merge-base --is-ancestor answers 1 -- "not an ancestor", which
+is false; ground truth in a deepened clone is 0. That trades a DETECTABLE
+blindness (128) for an UNDETECTABLE false negative (1). A fix built on
+fetch-by-sha would have reproduced the exact defect class it was written to
+remove. Only --deepen connects the history and returns the truth, it needs no sha
+in hand, and it depends on no server capability. So the slogan is narrower than
+"never fetch-by-sha": never let a by-sha fetch feed is-ancestor. As an EXISTENCE
+probe it is sound and useful.
+
+The UNKNOWN trigger went through two wrong drafts, both recorded. Draft 1 keyed on
+object presence, and the false-1 state is exactly one where the object IS present,
+so it shipped the false STALE unchanged. Draft 2 -- "in a shallow clone only exit 0
+is trustworthy, any nonzero is UNKNOWN" -- fixed that and destroyed the gate: the
+check's own comment says it exists to catch a typo, a commit from an abandoned
+branch, and a sha invented from memory, and all three are also
+nonzero-in-a-shallow-clone, so every real STALE became UNKNOWN. Removing a false
+STALE by removing STALE is section 0's over-sensitivity flip, one draft after the
+false-clean.
+
+The spec is three-way, keyed on the shallow BOUNDARY. Deepen and re-ask: exit 0 is
+OK, since a connected path cannot be faked. If the repo is no longer shallow, a
+nonzero is authoritative and means STALE. If it is still shallow and still nonzero,
+probe existence by sha: the fetch failing means the commit does not exist or is
+unreachable on the remote, which is STALE and is the true positive draft 2 threw
+away; the fetch succeeding means ancestry cannot be decided here, which is UNKNOWN
+with its own exit per bd-restart-check's precedent.
+
+Band triage, and 883 touches no code. 100 suites: 75 green, 23 real failures, 2
+zero-collect helper modules bd-band grades as FAIL.
+Same container, same commit, same packages: 413 passed exit 0 under bare pytest,
+23 suites FAIL under bd-band. The failures are a property of the runner.
+bd-band runs run_tests.py, whose pytest stub shims clean_workdir for a test
+function's parameters but not as a fixture's dependency -- one name, two
+resolution paths, only one complete. NINE signature classes across 22 suites
+(+ pin_index_in_sync = 23), collapsing to FOUR root causes: stub API surface
+(param, importorskip, MonkeyPatch, mark.slow), fixture-dependency resolution
+(clean_workdir), module import path (shell_source, conftest, cross-test-module),
+and parametrize injection. Every signature is recorded in 15.33.
+
+Two counting errors are recorded there rather than smoothed over. I sampled one
+suite, hypothesised nine shared its cause, and found on checking all eleven that
+they split five ways. I then promoted that five -- the split of the eleven
+unsignatured FAILs -- into the headline for the whole set, a subset's count
+standing directly above a nine-row table that contradicted it.
+
+Two further corrections, both found by an adversarial audit of this entry rather
+than by review, and both recorded because they are the classes CLAUDE.md sections
+0 and 1 exist for.
+
+The failure count was INHERITED, NOT MEASURED. The first draft said "~47
+failures", taken from a sibling session's message and repeated twice as a
+headline. Measured over the stated denominator -- the Failed: field summed across
+the 23 real FAIL suites in the band log -- it is 82, of which
+test_pin_index_in_sync's 2 were a real stale-artifact detection the regen
+resolved, leaving 80 manufactured.
+
+The AST predicate's explanation was wrong, and the correction is a worse finding.
+"A module fixture whose dependency the stub drops" returned 13 and was a superset:
+7 failed, 6 did not. I attributed the gap to autouse resolving on a different
+path, citing a code comment that is about resolution ORDERING and says nothing of
+the kind. Measured instead: run_tests_core.py registers a fixture, autouse or
+named, only if its name does not start with an underscore, so _isolate is NEVER
+REGISTERED and 834 runs 9/9 with zero autouse lines. The discriminating variable
+is discoverability, not autouse-ness. The old "0/6 autouse" row was also section 0
+inside a precision claim -- the 6 were fixtures across three files, four of them
+in conftest.py, which is not a suite and can never appear in a FAIL list. Honest
+form: 7 discovered module fixtures with a dropped dependency, 7/7 suites FAIL; 2
+underscore-prefixed ones whose suites pass with the fixture silently never
+invoked; 4 conftest fixtures excluded rather than counted as passing.
+
+That silent skip is recorded as its own open item, since a suite passing without
+the setup it declares is a false clean bd-band cannot see. Scoped precisely: under
+run_tests.py the cwd IS a tmpdir, so the db-location property _isolate exists for
+survives via _resolve_db_path's third rung, but BD_INSTALL_DIR and BD_TEST_MODE
+are unset -- exactly the belt-and-braces half tests/conftest.py's own comment
+names. Narrower than "the isolation does not happen", which the measurement does
+not support.
+
+The dependency-drift prior is refuted, so the venv specifier item stays
+theoretical and must not be recorded as measured. Blast radius is the container
+dev loop only, and the v3.66.882 capture below PROVES that rather than implying
+it: all 23 of these suites ran on the box under real pytest and all 23 passed.
+
+boot_id, and the claim is narrower than "container-scoped". Measured across two
+contemporaneous containers: boot_id differs while machine-id is identical. That
+refutes a SHARED boot_id across simultaneous containers, which is the failure mode
+flagged -- but it does not by itself establish namespacing, because two containers
+on different physical hosts would also differ, and an identical machine-id shows a
+shared IMAGE rather than a shared host. Nor was one container observed restarting
+in place. So bd-restart-check is not blind in the way flagged; the confirming check
+is whether boot_id is namespaced for this runtime, and item C itself remains open.
+
+v3.66.882 IS CAPTURED PASS, closing the 879-882 box-evidence gap. The operator
+supplied the bundle mid-session: verdict PASS, unit 14618 pass / 0 fail / 0 error
+/ 85 skip across 14703 total, live 36 pass / 0 warn / 0 fail, run
+2026-08-05T21:00:20. Lanes reconcile as 1424 parallel + 13194 serial = 14618.
+Graph check-hash OK against its pin, graph-gate exit 0. GET / 200, 1002 routes.
+The deployed commit read from /api/health's build.sha is 5eb43d67c3e6 -- exactly
+this session's baseline, so box and container were on the same tree.
+
+883 itself has no box evidence and that is expected: the capture ran against
+5eb43d6 before this commit existed, and 883 is docs, register, changelog and a
+version string. Container lanes plus green CI is the appropriate evidence for a
+no-code cut.
+
+The bundle also refutes a standing open item. 15.28 records that git rev-parse
+HEAD is absent from 01_sysinfo.log "so capture bundles still cannot
+self-identify". The first half holds -- no sha anywhere in that file. The
+conclusion does not: 09_http_smoke.log carries /api/health's build.sha, so the
+bundle DOES self-identify from a different file. The narrow ask stands; the
+stated consequence was wrong because its denominator was one file.
+
 ## v3.66.882 - a hook cannot log the runs it did not make
 
 Recon items C and D. D closed by audit, C instrumented.
