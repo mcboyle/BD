@@ -3573,6 +3573,120 @@ STILL OPEN, unchanged by any of this:
   166 bd-* tools remain prose-only. The ratchet stops that number growing;
       wiring or retiring them is its own work.
 
+### 15.34 | Open item A is fixed; the spec's last step had to be dropped, and the reading was void again
+
+Session of 2026-08-05, v3.66.884, branch `claude/bulkdownloader-resume-tpi03q`.
+Two things happened: the confirming reading was attempted and VOIDED, and open
+item A was implemented against a spec whose final step turned out to be
+inapplicable to this register's own data.
+
+**THE READING IS VOID, AND THE WAY IT IS VOID IS THE FINDING.** This session
+was itself a cache BUILD. Direct readings: boot ~`21:49:11Z` (uptime 274s read
+at `21:53:45Z`); `cloud-setup.sh` report header `2026-08-05T21:49:21Z`, ten
+seconds after boot; `generated_against_commit=f863c49` = HEAD; report finalized
+`21:53:35Z`. 15.33 already establishes that a build session's denominator
+excludes the subject, so nothing here bears on the snapshot question.
+
+What is worth recording is that **all four observables read FRESH-CLONE**:
+
+    reflog OLDEST      3 entries, oldest 2026-08-05 21:49:18, messageless
+    git branch         main + claude/bulkdownloader-resume-tpi03q (its own)
+    behind origin/main 0   (after `git fetch origin main`, exit 0)
+    hook block         none
+
+Under the snapshot model every one of those should have read the other way. They
+did not, because a build session manufactures the fresh-clone column **under
+either model**. So the four-observable table is not merely uninformative on a
+build session -- it is actively MISLEADING, and an agent that runs the four
+readings without doing 15.33's step 0 first gets four agreeing signals and the
+wrong conclusion. That is the same shape as the 15.31 protocol failure, one
+iteration later: the instrument is fine, the denominator is not. **Decide
+build-vs-cached FIRST from `generated_at` against boot; only then read the
+table.** CLAUDE.md section 5 now says so in those words.
+
+**A SECOND FACT, unexplained: two cache builds 1h42m apart** -- `20:07:23Z`
+(15.33) and `21:49:21Z` (here), same day. The ~7-day expiry cannot produce
+that, and a repo commit cannot either, since the panel hashes the pasted
+bootstrap TEXT. `scripts/cloud-bootstrap.sh` line 2 carries a deliberate
+`[cache-rebuild: <date> <version>]` marker (PR #185) whose purpose is to force
+a rebuild when re-pasted, currently reading `2026-08-05 v3.66.881`; the marker
+commit landed `19:40:59Z`, two minutes before the operator edit 15.33 records
+at 19:43Z, which explains the FIRST build cleanly. The second has no
+observable cause from inside the container -- the panel's text cannot be read
+from here. **Recorded as an open question, not a trigger theory.** The
+practical consequence is small and worth stating: do not plan a session around
+being cached. `CLAUDE_CODE_CONTAINER_ID` is in the environment and is the
+cheapest way for a later session to tell whether it shares a container with an
+earlier one; nobody has been recording it.
+
+**ITEM A: FIXED.** The defect reproduced exactly as 15.33 describes -- a
+`--depth 1` clone of this repo, `bd-freshcheck --repo-only` exit 1, STALE
+against 15.30's `5e87c68`, a genuine ancestor. The shipped repair moves the
+shallow BOUNDARY instead of reinterpreting the exit code, three-way: complete
+history -> nonzero is authoritative -> STALE; shallow -> `--deepen` and re-ask,
+where exit 0 cannot be fabricated; still shallow or deepen failed -> UNKNOWN.
+
+**THE SPEC'S STEP 3 WAS DROPPED, ON A MEASUREMENT, AND THIS IS THE ONE THING
+TO CARRY FORWARD.** 15.33 ends with a by-sha existence probe to split the
+still-shallow case, adjudicated after two wrong drafts. It cannot be applied
+to this register's data. Measured on a `--depth 1` clone:
+
+    git fetch --depth=1 origin 5e87c68                      -> 128, couldn't find remote ref
+    git fetch --depth=1 origin 5e87c6800954a632d778...8261   -> 0
+    ... then merge-base --is-ancestor <that sha> HEAD        -> 1   (FALSE; it IS an ancestor)
+
+Git reads a short sha as a REF NAME. **Every close section names a short sha.**
+So "the fetch failed, therefore the commit does not exist, therefore STALE"
+would have reproduced the false accusation the fix exists to remove -- a third
+draft wrong in a third direction, and one that reads as sound because the probe
+IS sound, just not on this sha FORMAT. The gate-cannot-see-its-subject failure
+arrived through the argument's *data* rather than its logic. `--deepen` carries
+the whole repair; the residual case admits UNKNOWN.
+
+Side effect, stated because it is a real change of character: on the repair
+path the gate now performs a network fetch and deepens `.git`. It does NOT on
+the happy path -- the first `is-ancestor` short-circuits -- verified by
+computing both a real-ancestor OK and an invented-sha STALE with `origin`
+pointed at nothing, and by a full `--repo-only` run on this container leaving
+depth at 50 and `.git/shallow` intact.
+
+VERIFICATION, this container, at the commit this section ships in:
+
+| check | result |
+| --- | --- |
+| new suite | 7 tests, **2 proven RED** on pristine source (false STALE; offline-shallow must be UNKNOWN) |
+| `bd-mutate`, 6 mutants, new band | **6 caught, 0 escaped, 0 invalid**, baseline GREEN |
+| `bd-freshcheck --selftest` | PASS |
+| `test_toolchain_534` | 44/44 |
+| end-to-end, real `--depth 1` clone, fixed tool | exit **0**, same sentence a full clone prints |
+| container repo after a full run | depth 50, still shallow -- untouched |
+
+The fixture is hermetic: it builds its own six-commit repo and clones it over
+`file://`, so the freshness gate's own test needs no network on the box.
+
+**THE `ci.yml` COMMENT IS ALSO CORRECTED, on operator sign-off given after the
+first commit landed.** It claimed a depth-1 checkout returns UNKNOWN exit 2.
+That was wrong in BOTH eras: measured pre-fix it returned STALE exit 1
+(fail-wrong, not fail-safe), and post-fix a reachable remote makes it deepen
+and return OK. Since the comment is the stated reason `fetch-depth: 0` is
+load-bearing, and it explicitly invites a future editor to revisit the depth,
+leaving it would have handed that editor a premise that was never true.
+
+The rewrite states what the depth actually buys -- not correctness, which the
+tool now has either way, but the avoidance of a step that reaches the network
+and deepens the checkout to answer at all -- and marks as UNMEASURED whether
+that fetch can reach the remote from inside Actions. Verified safe to rewrite
+first: the two suites that read `ci.yml` (`test_generated_artifact_workflow`,
+`test_toolchain_534`) assert on the artifact-sync step's substrings and on
+nothing in this comment.
+
+OPEN SET, changed by this branch only where stated. **A is closed; the `ci.yml`
+comment item is closed with it.** B, B2, 7a, 7b and 9 are untouched and still
+carry the gates 15.33 and the kickoff put on them. **Unmeasured and left so:**
+whether a depth-1 checkout inside GitHub Actions can reach the remote to
+deepen -- deliberately not probed, since arming it would mean changing the
+depth on a CI file to find out.
+
 ### 15.33 | The cache-rebuild discriminator -- READINGS, and why the protocol could not answer its own question
 
 Run 2026-08-05 per 15.31, in the first session started after the operator's

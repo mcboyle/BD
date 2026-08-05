@@ -858,6 +858,37 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
      repair by hand with `git merge --ff-only origin/main && bash
      scripts/cloud-setup.sh`.
 
+  **THE CONFIRMING READING IS STILL UNOBTAINED, and the reason is worth more
+  than the reading would have been. STEP 0 IS NOT OPTIONAL.** v3.66.884 was
+  started to take it and could not: it was itself a cache BUILD, so its
+  denominator excludes the subject for exactly the reason 15.33 gives. The
+  readings, all direct: container boot ~`21:49:11Z` (uptime 274s at
+  `21:53:45Z`); `cloud-setup.sh` header `2026-08-05T21:49:21Z` -- **ten seconds
+  after boot**; report `generated_against_commit=f863c49` = HEAD; reflog three
+  entries, oldest `21:49:18` and messageless; `git branch` = `main` + its own;
+  `behind origin/main` = 0 after a fetch that exited 0; no hook block.
+
+  **Every one of those four observables read FRESH-CLONE, and every one was
+  void.** A build session manufactures the fresh-clone column under either
+  model -- so the table is not merely uninformative there, it is actively
+  MISLEADING, and an agent that runs the four readings without doing step 0
+  first will conclude "fresh clone per session" with four agreeing signals and
+  be wrong. Decide build-vs-cached FIRST, from `generated_at` against boot
+  time; only then is the table meaningful.
+
+  **A SECOND FACT THE ~7-DAY MODEL DOES NOT EXPLAIN: two cache builds occurred
+  1h42m apart on 2026-08-05** -- `20:07:23Z` (recorded at v3.66.883) and
+  `21:49:21Z` (here). Expiry cannot produce that. Neither can a repo commit:
+  the panel hashes the pasted bootstrap TEXT, and `scripts/cloud-bootstrap.sh`
+  carries a deliberate `[cache-rebuild: <date> <version>]` marker on line 2
+  (added by PR #185) whose entire purpose is to force a rebuild when re-pasted.
+  A re-paste between the two sessions would explain it exactly, and **from
+  inside the container that is not observable** -- the panel's text cannot be
+  read from here. Recorded as an open question, not as a trigger theory. What
+  it costs you in practice: **do not plan a session around being cached.**
+  `CLAUDE_CODE_CONTAINER_ID` is in the environment and is the cheapest way for
+  a later session to tell whether it shares a container with an earlier one.
+
 - **The container's clone is SHALLOW, and a nonzero `--is-ancestor` here does
   not mean what it says.** Measured 2026-08-05 in this container: `.git/shallow`
   exists, `git rev-list --count HEAD` returns **50**, and the graft is
@@ -869,14 +900,17 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   The two exit codes mean opposite things: **1 is "it is not in this history",
   128 is "I cannot see it."** Conflating them is section 0's inverse defect -- a
   gate firing on its own blindness, and doing so with a confident, specific,
-  wrong claim. `bd-freshcheck`'s register-close-tip check tests every nonzero
+  wrong claim. `bd-freshcheck`'s register-close-tip check tested every nonzero
   alike -- the `rc2 != 0` branch of its close-tip `merge-base --is-ancestor`
   check. (Named by mechanism, not by `file:line`: the file is extensionless, so
   the anchor gate's own regex cannot see such an anchor and could never catch it
   going stale -- and the line DID move once already while this cut was written.)
 
+  **REPAIRED at v3.66.884; the rules below are what survive the repair.** The
+  reading that follows is the PRE-fix state, kept because it is the evidence.
+
   **DEMONSTRATED, not inferred from reading the code.** In a throwaway
-  `git clone --depth 1` of this repo, `bd-freshcheck --repo-only` returns:
+  `git clone --depth 1` of this repo, `bd-freshcheck --repo-only` returned:
 
   ```
   exit=1
@@ -886,7 +920,7 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   ```
 
   The register section is innocent and the sentence is false. Our own container
-  passes only because 15.30's `5e87c68` sits 6 commits back, inside a 50-deep
+  passed only because 15.30's `5e87c68` sits 6 commits back, inside a 50-deep
   window; at ~12 cuts a session that window is a few days deep. The code comment
   directly above that line reasons carefully about over-sensitivity and does not
   consider that the instrument itself could be blind.
@@ -906,6 +940,19 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   because it succeeds into a wrong answer.** Use `--deepen`, which needs no sha
   in hand and depends on no server capability.
 
+  **AND A BY-SHA FETCH CANNOT EVEN BE USED AS AN EXISTENCE PROBE ON THIS
+  REGISTER'S DATA.** Measured 2026-08-05 while building the fix, on a `--depth
+  1` clone: `git fetch --depth=1 origin 5e87c68` exits **128, `couldn't find
+  remote ref`** -- for the same commit whose FULL 40-char form fetches
+  successfully seconds earlier. Git reads a short sha as a REF NAME, not a sha.
+  The close sections all name short shas, so a design that concludes "the fetch
+  failed, therefore the commit does not exist, therefore STALE" reproduces the
+  false accusation it was written to remove. This killed the last step of the
+  spec that had already been revised twice (SESSION_CARRY 15.33): the shipped
+  fix carries the whole repair on `--deepen` and admits UNKNOWN rather than
+  probing. **A sound-looking probe applied to the wrong sha FORMAT is still a
+  gate that cannot see its subject.**
+
   **The general rule, and it is the one to carry away: in a shallow clone only
   `--is-ancestor` exit 0 is trustworthy.** A 0 means a connected path was found,
   which the shallow boundary cannot fake. Any nonzero -- 1 and 128 alike -- is
@@ -921,15 +968,39 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   commit. Recorded because a wrong measurement stated confidently is the thing
   section 1 exists to catch.)
 
-  **CI is protected, but for a misstated reason -- and the misstatement is the
-  dangerous part.** `.github/workflows/ci.yml` sets `fetch-depth: 0` on the
-  `gates` job, so the defect is not armed there. Its comment explains why by
-  saying that under a depth-1 checkout the check "returns UNKNOWN (exit 2),
-  failing for an environmental reason rather than a real one." Measured above,
-  that is wrong: it returns **STALE (exit 1)**. The difference is fail-safe
-  versus fail-wrong. Anyone who later removes gitleaks' need for full history
-  will reason from that comment, expect a loud environmental UNKNOWN, and get a
-  confident false accusation against a register section instead.
+  **WHAT THE v3.66.884 FIX DOES, and the one property to know before editing
+  it.** A nonzero now resolves three ways instead of one: on a complete history
+  it is authoritative and stays STALE; on a shallow one the clone is DEEPENED
+  and the question re-asked, where exit 0 is the answer a boundary cannot
+  fabricate; still shallow, or a deepen that failed, is UNKNOWN. Re-measured in
+  a fresh `--depth 1` clone with the fixed tool: **exit 0**, and the verdict is
+  the same sentence a full clone prints. The property that matters is that
+  **nothing runs on the happy path** -- the first `is-ancestor` short-circuits,
+  so the box and CI's `gates` job do no network and do not touch `.git`.
+  Measured on this container across a full `--repo-only` run: depth stayed 50
+  and `.git/shallow` survived. On the repair path it does deepen (the scratch
+  clone went 1 -> 360 and un-shallowed), which is a real side effect: a gate
+  that was read-only in every environment is now read-only in every environment
+  it passes cleanly in.
+
+  **CI is protected, and its comment was misstated in BOTH eras -- corrected at
+  v3.66.884 on operator sign-off.** `.github/workflows/ci.yml` sets
+  `fetch-depth: 0` on the `gates` job, so none of this is armed there. Its
+  comment explained why by saying that under a depth-1 checkout the check
+  "returns UNKNOWN (exit 2), failing for an environmental reason rather than a
+  real one." That was wrong BEFORE the fix -- measured, it returned STALE
+  (exit 1), which is fail-WRONG rather than fail-safe -- and it would have been
+  wrong AFTER it too, since a depth-1 clone with a reachable remote now deepens
+  and returns OK. Neither behaviour it described has ever existed, and it is
+  the stated reason the depth is load-bearing, so a future editor removing
+  gitleaks' need for full history would have reasoned straight from it.
+
+  The comment now records what the depth actually buys: not a correct answer --
+  the tool gets that either way -- but the avoidance of a step that reaches the
+  NETWORK and DEEPENS the checkout in order to answer. **Unmeasured, and the
+  comment says so:** whether that fetch can reach the remote from inside GitHub
+  Actions. The OK is from this container, not from CI, and nothing here should
+  be read as evidence about the Actions runner's egress.
 
   **Unverified: whether the box's clone is shallow.** This reading is about the
   cloud container and a scratch clone; do not generalise it to `test4`.
