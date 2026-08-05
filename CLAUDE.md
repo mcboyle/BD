@@ -745,15 +745,73 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   **Editing the environment-variables box does NOT trigger a rebuild**, and
   resuming a session never does.
 
-  Measured in this container: `.claude-env-report.md` was written
-  `2026-07-28T18:42:15Z` at `cee4be70` (v3.66.818), and the git reflog's OLDEST
-  entry is `2026-07-28 18:42:12` -- so the `.git` directory itself came from the
-  snapshot, which a fresh clone would contradict (its reflog would start today).
-  Eight days later the cache is at expiry. That is the whole mechanism: the
-  "rollback to an old commit" is the snapshot's HEAD, and the "venv losing
-  packages" is a venv built before those packages were declared.
+  **The rebuild appears to be LAZY -- fired by the first NEW session start, not
+  by the edit** (2026-08-05, the discriminator session, v3.66.882 at `5eb43d6`).
+  Split the evidence, because only half of this is a reading: **MEASURED** is that
+  this session WAS a cache build, from the timestamps below. **DERIVED** is the
+  laziness itself — nothing was observed at or after the operator's 19:43Z edit,
+  so an eager rebuild that began at 19:43 in a container this session never saw
+  would produce identical readings here. Best explanation, not a measurement.
+  The readings:
 
-  Three consequences, and the third is the one that bites:
+  | reading | value |
+  | --- | --- |
+  | container boot | ~`20:07Z` (uptime 6 min when read at 20:13:08Z) |
+  | `cloud-setup.sh` start (report header) | `2026-08-05T20:07:23Z` |
+  | report `generated_against_commit` | `5eb43d6` -- equal to HEAD |
+  | `venv/bin/python` mtime | `20:07:28` |
+  | `frontend/dist/index.html` mtime | `20:08:38` |
+  | report finalized (file mtime) | `20:12:24` |
+  | reflog OLDEST | `2026-08-05 20:07:19` |
+  | HEAD / behind `origin/main` | `5eb43d6` / **0** |
+  | hook blocks at session start | **none** (as predicted) |
+  | `bd-restart-check` | `OK`, hook ran `20:12:41Z`, `source=startup` |
+
+  **The discriminator could not discriminate, and the reason is section 0.** The
+  protocol's two branches were "reflog-oldest ~= the rebuild time" (snapshot
+  carries `.git`) versus "reflog-oldest ~= this session's own start" (fresh clone
+  per session). Because the rebuild fires AT a session start, those are **the
+  same number** -- 24 minutes apart in the design, zero apart in fact. A
+  cache-BUILD session has a freshly provisioned repo under *either* model, so its
+  denominator structurally excludes the subject. Do not re-run the protocol on a
+  rebuild session expecting an answer.
+
+  **So the model stands on the 2026-07-28 reading, which is the only kind that
+  can settle it:** `.claude-env-report.md` was written `2026-07-28T18:42:15Z` at
+  `cee4be70` (v3.66.818), and a session running **eight days later** read the
+  reflog's OLDEST entry as `2026-07-28 18:42:12` -- the build minute, not its
+  own start. A fresh clone per session would contradict that (its reflog would
+  start that day). Snapshot-carries-`.git` is therefore the model, on **one**
+  cached-session reading. That is the whole mechanism: the "rollback to an old
+  commit" is the snapshot's HEAD, and the "venv losing packages" is a venv built
+  before those packages were declared.
+
+  **The confirming reading needs no freeze, and it is FOUR observables — read
+  the branch one first.** This session baked a snapshot whose reflog begins
+  `2026-08-05 20:07:19`, on a branch it created. Any session that starts WITHOUT
+  a setup-script change is a cached session, so:
+
+  ```bash
+  git branch                                  # a FOREIGN claude/* branch present?
+  git reflog --date=iso | tail -1             # vs. your own session start time
+  git rev-list --count HEAD..origin/main      # behind?
+  # and: which hook block appeared at session start
+  ```
+
+  | observable | snapshot carries `.git` | fresh clone per session |
+  | --- | --- | --- |
+  | `git branch` | lists **`claude/bulkdownloader-discriminator-das7sy`** — a branch this session never created | only `main` + its own |
+  | reflog OLDEST | `2026-08-05 20:07:19` | ~= own session start |
+  | behind `origin/main` | **>= 1** | **0** |
+  | hook block | `*** STALE BASE ***` | none |
+
+  **Read the foreign branch first**: a timestamp invites arithmetic, a branch
+  named after someone else's session cannot be misread. Four agreeing
+  observables beat one, and three of them are free. Record whichever set you
+  get — `project-knowledge/SESSION_CARRY.md` 15.33 carries the full reading
+  guide and the decision it feeds.
+
+  Four consequences, and the third is the one that bites:
 
   1. **The @879 SessionStart repair is LOAD-BEARING, not belt-and-braces.** On a
      normal cached session it is the only thing that reconverges anything.
@@ -773,14 +831,108 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
      since the snapshot appears as a REMOVAL and the PR silently reverts a
      week's work**. @881 makes the hook emit a distinct `*** STALE BASE ***`
      block naming the commit count and that consequence whenever HEAD is behind
-     and the checkout is not on `main`. If you see it, re-base before doing
-     anything; do not read it as routine "behind origin/main" noise.
+     and the checkout is not on `main`.
+
+     **On a cloud cached session, expect this block ONCE PER SESSION — and what
+     must stay routine is the rebase RESPONSE, not the ignoring.** Measured at
+     v3.66.883: the platform's session lifecycle is clone -> `main` ->
+     `claude/<session>`, so a session is **never on `main`** by the time the
+     hook runs, while the repair predicate requires
+     `[ "$branch" = "main" ]` (`.claude/hooks/session-start.sh:169`). The
+     REPAIRED path is therefore structurally unreachable **at a
+     platform-created session start**, and STALE BASE is the only outcome
+     available whenever HEAD is behind. **On a RESUME the branch is wherever the
+     session parked it**, so REPAIRED *is* reachable on a later resume of a
+     session that checked out `main` by hand — the unreachability is a property
+     of how sessions START, not of the hook. Re-base
+     before doing anything. Do not let its frequency train you to skip it: the
+     consequence it names — a PR that silently reverts every commit merged since
+     the snapshot — does not get smaller because the warning got familiar.
+     (Whether it truly fires every cached session depends on the snapshot model,
+     which SESSION_CARRY 15.33 leaves as a four-observable reading; the carve-out
+     that would fix it is named there and deliberately not built.)
      A `*** REPAIR FAILED ***` block means the opposite half: the auto-repair on
      `main` did **not** happen, so you are on the snapshot base with the
      environment **not** reconverged. Resolve the collision git names in the
      block — usually an untracked file at a path `origin/main` now tracks — then
      repair by hand with `git merge --ff-only origin/main && bash
      scripts/cloud-setup.sh`.
+
+- **The container's clone is SHALLOW, and a nonzero `--is-ancestor` here does
+  not mean what it says.** Measured 2026-08-05 in this container: `.git/shallow`
+  exists, `git rev-list --count HEAD` returns **50**, and the graft is
+  `75e9024` (2026-08-03). A commit older than the graft is not in this
+  repository at all -- `cee4be70`, a genuine ancestor of `main` and the commit
+  cited in the cache bullet above, is `fatal: Not a valid object name`, and
+  `git merge-base --is-ancestor` on it exits **128**, not 1.
+
+  The two exit codes mean opposite things: **1 is "it is not in this history",
+  128 is "I cannot see it."** Conflating them is section 0's inverse defect -- a
+  gate firing on its own blindness, and doing so with a confident, specific,
+  wrong claim. `bd-freshcheck`'s register-close-tip check tests every nonzero
+  alike -- the `rc2 != 0` branch of its close-tip `merge-base --is-ancestor`
+  check. (Named by mechanism, not by `file:line`: the file is extensionless, so
+  the anchor gate's own regex cannot see such an anchor and could never catch it
+  going stale -- and the line DID move once already while this cut was written.)
+
+  **DEMONSTRATED, not inferred from reading the code.** In a throwaway
+  `git clone --depth 1` of this repo, `bd-freshcheck --repo-only` returns:
+
+  ```
+  exit=1
+    STALE  register close tip
+           15.30 says 'close at 5e87c68', which is NOT an ancestor of HEAD
+           (5eb43d67c3e6) -- it names a commit this branch does not contain
+  ```
+
+  The register section is innocent and the sentence is false. Our own container
+  passes only because 15.30's `5e87c68` sits 6 commits back, inside a 50-deep
+  window; at ~12 cuts a session that window is a few days deep. The code comment
+  directly above that line reasons carefully about over-sensitivity and does not
+  consider that the instrument itself could be blind.
+
+  **THE OBVIOUS REPAIR MAKES IT WORSE, AND THAT IS THE FINDING.** The reflex is
+  "fetch the missing object, then re-ask". Measured on one `--depth 1` clone, in
+  sequence: `git fetch --depth=1 origin <full sha>` **succeeds** (exit 0 -- GitHub
+  does serve SHA-in-want for a reachable commit through this proxy), the object
+  arrives, and `merge-base --is-ancestor` then returns **1**. Not 0, and no
+  longer 128. The commit genuinely IS an ancestor -- ground truth is exit 0 in a
+  deepened clone -- so fetching by sha delivers the object *without the
+  connecting history* and converts a **detectable** blindness into an
+  **undetectable false negative**. `git fetch --deepen=200 origin main` on the
+  same clone then yields the correct 0.
+
+  So: **never repair a 128 with a by-sha fetch -- not because it fails, but
+  because it succeeds into a wrong answer.** Use `--deepen`, which needs no sha
+  in hand and depends on no server capability.
+
+  **The general rule, and it is the one to carry away: in a shallow clone only
+  `--is-ancestor` exit 0 is trustworthy.** A 0 means a connected path was found,
+  which the shallow boundary cannot fake. Any nonzero -- 1 and 128 alike -- is
+  UNKNOWN until the clone is no longer shallow, because a bounded deepen can
+  leave an object present and its ancestry still uncomputable. Keying the verdict
+  on whether the OBJECT is present is the trap: the false-1 state is exactly the
+  one where it is. A fix built the obvious way would
+  have reproduced the exact defect class it was written to remove, which is this
+  file's section 0 landing inside the repair for an instance of section 0. (The
+  first version of this measurement was itself wrong -- it tested a *fabricated*
+  sha, where `not our ref` is guaranteed regardless of server policy, and
+  concluded by-sha was refused. Corrected on re-measurement against the real
+  commit. Recorded because a wrong measurement stated confidently is the thing
+  section 1 exists to catch.)
+
+  **CI is protected, but for a misstated reason -- and the misstatement is the
+  dangerous part.** `.github/workflows/ci.yml` sets `fetch-depth: 0` on the
+  `gates` job, so the defect is not armed there. Its comment explains why by
+  saying that under a depth-1 checkout the check "returns UNKNOWN (exit 2),
+  failing for an environmental reason rather than a real one." Measured above,
+  that is wrong: it returns **STALE (exit 1)**. The difference is fail-safe
+  versus fail-wrong. Anyone who later removes gitleaks' need for full history
+  will reason from that comment, expect a loud environmental UNKNOWN, and get a
+  confident false accusation against a register section instead.
+
+  **Unverified: whether the box's clone is shallow.** This reading is about the
+  cloud container and a scratch clone; do not generalise it to `test4`.
 
 - **The container rolls back to an old base image, and @879 changed what that
   costs you.** Five things revert together: the checkout, venv package
