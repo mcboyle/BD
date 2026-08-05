@@ -50,8 +50,14 @@ def _base(cfg: Mapping[str, Any], attempt: int, gpu: dict | None = None) -> dict
     }
 
 
-def _persist(document, state_path: Path, now, boot_id):
-    return write_status(document, state_path, now=now(), boot_id=boot_id)
+def _persist(document, state_path: Path, now, boot_id, *, final: bool):
+    """`final` is REQUIRED and deliberately has no default.
+
+    Omitting it at any call site is an authoring-time TypeError rather than a
+    silent True -- and a silent True on an in-flight write is precisely the
+    defect this closes.
+    """
+    return write_status(document, state_path, now=now(), boot_id=boot_id, final=final)
 
 
 def _validate_config(cfg: Mapping[str, Any]) -> None:
@@ -129,22 +135,37 @@ def run(config: Mapping[str, Any] | None = None, *, state_path: Path = STATE_PAT
         now=time.time, boot_id: str | None = None) -> int:
     cfg = load_effective_config() if config is None else dict(config)
     if not cfg["enabled"] or cfg["provider"] != "ollama":
-        _persist({**_base(cfg, 0), "state": "not_applicable"}, state_path, now, boot_id)
+        _persist({**_base(cfg, 0), "state": "not_applicable"}, state_path, now, boot_id,
+                 final=True)
         return 0
     try:
         _validate_config(cfg)
     except ProbeFailure as exc:
         _persist({**_base(cfg, 0), "state": "degraded", "error_code": exc.code,
-                  "error": str(exc)[:300]}, state_path, now, boot_id)
+                  "error": str(exc)[:300]}, state_path, now, boot_id, final=True)
         return 1
+    # @874 -- CLOSE THE PRE-ATTEMPT-1 WINDOW. Nothing was written between
+    # process start and the END of attempt 1, and attempt 1 can issue five
+    # sequential calls each bounded by REQUEST_TIMEOUT. On the box, where
+    # systemd restarts this unit on failure, a reader sampling that window sees
+    # the PREVIOUS run's terminal `degraded` document verbatim and cannot tell
+    # it from a finished failure. That produced a wrong "Audit #3 reproduced"
+    # verdict. Written BEFORE the factory call so a slow factory is covered too.
+    _persist({**_base(cfg, 0), "state": "retrying", "error_code": "", "error": ""},
+             state_path, now, boot_id, final=False)
     probe = probe_factory(cfg["endpoint"], timeout=REQUEST_TIMEOUT)
     delays = tuple(retry_delays)
     last_text_ready = None
     for index in range(len(delays) + 1):
         attempt = index + 1
+        # The heartbeat that keeps IN_FLIGHT_TTL_SECONDS honest. Ships WITH the
+        # TTL or neither ships: TTL without a heartbeat grades a slow live run
+        # abandoned; heartbeat without a TTL lets a dead run read live forever.
+        _persist({**_base(cfg, attempt), "state": "retrying", "error_code": "",
+                  "error": ""}, state_path, now, boot_id, final=False)
         try:
             ready = _attempt(cfg, probe, attempt)
-            _persist(ready, state_path, now, boot_id)
+            _persist(ready, state_path, now, boot_id, final=True)
             return 0
         except ProbeFailure as exc:
             final = index == len(delays)
@@ -163,7 +184,7 @@ def run(config: Mapping[str, Any] | None = None, *, state_path: Path = STATE_PAT
                 "error_code": exc.code,
                 "error": str(exc)[:300],
             }
-            _persist(failed, state_path, now, boot_id)
+            _persist(failed, state_path, now, boot_id, final=final)
             if final:
                 return 1
             sleep(delays[index])

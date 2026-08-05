@@ -4,6 +4,82 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.874 - a readiness run in flight was indistinguishable from one that failed
+
+bulk_downloader/ai_boot_readiness.py wrote NOTHING between process start and the
+END of attempt 1, and attempt 1 can issue five sequential HTTP calls each
+bounded by REQUEST_TIMEOUT = 120. On the box the readiness unit is Type=simple /
+Restart=on-failure / RestartSec=60, so the document a reader finds during that
+window is the PREVIOUS run's terminal record -- byte-identical to a finished
+failure, same boot_id, well inside STALE_AFTER_SECONDS. Measured:
+
+    prior run rc = 1 -> state='degraded' error_code='ollama_unreachable'
+    -- NEW run executing attempt 1 --
+    read_status() -> state='degraded'
+    new run rc = 0        <- it CONVERGED; the reader was told it had failed
+
+That is the mechanism behind the wrong "Audit #3 reproduced" verdict recorded in
+SESSION_CARRY 15. read_status() could not rescue it: the boot_id matches and 108s
+is far inside the 600s window.
+
+THE MARKER IS SELF-EXPIRING, AND THAT IS THE WHOLE DESIGN. A bare boolean set
+before attempt 1 and cleared at the end is the obvious fix AND IT REPRODUCES THE
+DEFECT: today's `retrying` token already does exactly that, and a process
+SIGKILLed mid-run leaves it readable for the full 600s -- the reader is lied to
+in the opposite direction. So write_status() stamps `final`, and read_status()
+grades a non-final document abandoned once IN_FLIGHT_TTL_SECONDS (300) elapses
+without a refresh. The per-attempt heartbeat is what keeps that honest. TTL and
+heartbeat ship together or neither ships: TTL without a refresh grades a slow
+live run abandoned, a heartbeat without a TTL lets a dead run read live forever.
+
+AN ABSENT `final` KEY IS UNKNOWN, NOT TERMINAL. Defaulting it to True would
+grade every pre-fix document -- every document during a rolling deploy -- as a
+finished verdict, which is this defect reintroduced by its own fix, invisibly.
+It self-heals on the next readiness write.
+
+THE TTL APPLIES TO NON-FINAL DOCUMENTS ONLY. Expiring everything at 300s would
+silently halve STALE_AFTER_SECONDS for terminal verdicts and turn an actionable
+`degraded: gpu_unavailable` into `stale` -- the same information loss as the
+original defect, pointed the other way. A test pins that, and a mutant that
+widens the TTL to all documents is caught.
+
+TTL CHOICE, STATED RATHER THAN DISCOVERED ON THE BOX: the measured run is ~108s
+over six attempts, roughly 18s between writes, so 300 tolerates a slow attempt.
+It does NOT cover a pathological attempt that times out on all five sequential
+calls at REQUEST_TIMEOUT=120 -- that run is graded abandoned at 300s. Fail-safe,
+never a false terminal verdict, but real. Not derived by importing
+REQUEST_TIMEOUT: that is a reverse import edge and a cycle.
+
+The frontend needs no change. Reusing the existing "retrying" token renders "AI
+warming" already, and "stale" renders "AI readiness stale"; a NEW state token
+would fall through AiBootReadinessStatus.tsx's if/else chain to "unknown".
+
+ONE PLAN DEFECT CORRECTED RATHER THAN COPIED. The recon specified asserting
+expiry at +181s, which only discriminates against a 180s TTL, while its own fix
+section reasons carefully for 300 -- an internal inconsistency. The reasoning was
+kept and the literal was not: the test asserts at +400s, past the 300s TTL and
+still inside the 600s stale window, so a fix that deleted the in-flight branch
+entirely returns "retrying" and fails. An offset past 600 would have been
+satisfied by the pre-existing expiry check and proved nothing about the new
+branch. A second assertion pins IN_FLIGHT_TTL_SECONDS < STALE_AFTER_SECONDS, or
+the abandoned branch becomes unreachable and the whole test passes vacuously.
+
+RED-first, stated precisely: 5 failed on pristine, of which THREE for the right
+reason (AssertionError naming the behaviour). Two failed with
+`TypeError: write_status() got an unexpected keyword argument 'final'` -- a
+signature red, which an incomplete stub produces too, so it proves nothing.
+Those two are constrained by mutants M2/M3/M7 instead.
+
+bd-mutate: 8 caught, 0 escaped, 0 invalid. FOUR escaped on the first run and all
+four were real gaps of one shape -- the pre-attempt-1 write and the heartbeat
+overlap everywhere except the probe-factory window, so each masked the other's
+absence. Closed with a slow-factory test, an attempt-number test, and a test
+that the terminal `ready` document is marked final (a ready doc written
+non-final would report stale five minutes after a healthy system converged).
+
+Tests APPENDED to the two existing files, never a new one: a new tests/*.py
+moves nine axis-6 gates plus PIN_INDEX's test_files_scanned for no benefit here.
+
 ## v3.66.873 - the reverted checkout now repairs itself when that is lossless
 
 This container reverts to a 2026-07-28 base image on restart. FOUR times the
