@@ -18,6 +18,7 @@ RED-first map (fail on pristine 533 -> pass after 534):
 """
 import ast
 import functools
+import json
 import os
 import re
 import subprocess
@@ -1225,3 +1226,255 @@ def test_band_derive_finds_the_curated_map_and_says_so_when_it_cannot():
         assert "curated map not found" in (r.stdout + r.stderr), (
             "an absent map produced no notice -- the band silently loses one of "
             "its four signals and still reads as authoritative.")
+
+
+# --------------------------------------------------------------------------- #
+# @868 -- a band tool must not mint a verdict for a suite it never ran         #
+# --------------------------------------------------------------------------- #
+# bd-parband and bd-retest both shell out to `run_tests.py <suite>`.
+# run_tests_core.py:1277-1284 prints a WARN for a path it cannot find and then
+# `continue`s; with every requested path missing, `filters` is empty, :1288
+# takes the else branch and :1303 globs the WHOLE suite. The substituted run's
+# verdict is then attributed to the path that was never run -- measured as a
+# green PASS with passed=5 for a file that does not exist.
+#
+# The @860 guard at run_tests_core.py:1605 (`total == 0 and requested`) cannot
+# fire here: the substituted full-suite run makes `total` huge. Section 0 --
+# the denominator excludes the subject.
+#
+# EVERY TEST BELOW MUST USE subprocess + BD_LAST_BAND. Both tools resolve
+# RESULTS at MODULE IMPORT (bd-parband:58-59, bd-retest:45-46), so an
+# in-process import writes .bd_last_band.json into the repo root and the
+# "no verdict was minted" assertion stops meaning anything.
+
+def _band_tool(name, args, results_path, timeout=300):
+    tool = os.path.join(str(_REPO_ROOT), "toolchain", "bin", name)
+    env = dict(os.environ)
+    env["BD_LAST_BAND"] = results_path
+    return subprocess.run([sys.executable, tool] + args, cwd=str(_REPO_ROOT),
+                          capture_output=True, text=True, timeout=timeout,
+                          env=env)
+
+
+def test_parband_refuses_a_suite_path_that_does_not_exist():
+    """@868 RED -- bd-parband minted a verdict for a file that is not there.
+
+    Measured on pristine: exit 1, the output carries `TIMEOUT
+    tests/test_DOES_NOT_EXIST...` with no refusal, and the results file IS
+    written carrying status "timeout" for the nonexistent suite. With a longer
+    timeout and a green fallback it mints `PASS ... passed=5` instead, which is
+    the worse half of the same defect.
+
+    Assertion (c) is the item's actual claim; (a) and (b) are the mechanism.
+    """
+    import tempfile
+    ghost = "tests/test_DOES_NOT_EXIST_parband_gate.py"
+    assert not os.path.exists(os.path.join(str(_REPO_ROOT), ghost)), (
+        "the fixture path exists, so this test cannot observe its own subject")
+
+    with tempfile.TemporaryDirectory() as td:
+        results = os.path.join(td, "band.json")
+        r = _band_tool("bd-parband", [ghost, "--jobs", "1", "--timeout", "1"],
+                       results, timeout=120)
+        out = r.stdout + r.stderr
+
+        assert r.returncode == 2, (
+            "bd-parband exited %d for a suite that does not exist. A missing "
+            "subject is UNKNOWN, and unknown is a third state that fails -- "
+            "exit 1 says 'the suite failed', which is a verdict about a run "
+            "that never happened.\n%s" % (r.returncode, out[-800:]))
+
+        # REQUIRED, not decoration: argparse also exits 2 on a bad argv, so
+        # rc==2 alone does not discriminate the condition being hunted.
+        assert "BD-PARBAND UNEVALUABLE" in out, (
+            "exit 2 with no marker is indistinguishable from an argparse usage "
+            "error, so the test would pass on a tool broken a different "
+            "way.\n%s" % out[-800:])
+        assert "test_DOES_NOT_EXIST_parband_gate.py" in out, (
+            "the refusal does not name the offending path; an operator banding "
+            "20 suites cannot act on it.\n%s" % out[-800:])
+
+        assert not os.path.exists(results), (
+            "a band-results file was written for a suite that was never run. "
+            "bd-retest reads this file back and re-grades from it, so a minted "
+            "row propagates.")
+
+
+def test_parband_still_runs_a_suite_that_exists():
+    """OVER-SENSITIVITY (a) -- the 'refuse everything' over-correction.
+
+    Section 0 is symmetric: a fix for 'reports clean when blind' that simply
+    refuses every input passes the escape's test and destroys the tool.
+
+    The explicit --work with a RELATIVE suite path is the point. A validator
+    that resolves against os.getcwd() instead of a.work reproduces the shape of
+    the defect one level down -- green from the repo root, refusing everything
+    from anywhere else -- and only this input can tell the two apart.
+    """
+    import tempfile
+    suite = "tests/test_capture_dict_shape_tripwire.py"
+    assert os.path.isfile(os.path.join(str(_REPO_ROOT), suite)), (
+        "%s is gone; pick another fast green suite rather than deleting this "
+        "assertion -- it is the only guard on the over-correction." % suite)
+
+    with tempfile.TemporaryDirectory() as td:
+        results = os.path.join(td, "band.json")
+        r = _band_tool("bd-parband",
+                       [suite, "--work", str(_REPO_ROOT), "--jobs", "1",
+                        "--timeout", "180"], results, timeout=300)
+        out = r.stdout + r.stderr
+        assert r.returncode == 0, (
+            "a real, green suite was not run cleanly (exit %d). The door check "
+            "must narrow the accepted set to 'exists', not to 'nothing'.\n%s"
+            % (r.returncode, out[-800:]))
+        assert "PASS" in out, out[-800:]
+        assert os.path.exists(results), (
+            "no results file for a suite that DID run -- bd-retest's input "
+            "would be missing.")
+        row = json.loads(open(results).read())["results"][0]
+        # Deliberately not pinning the pass COUNT: it drifts with the suite.
+        assert row["status"] == "pass" and (row.get("passed") or 0) > 0, row
+
+
+def test_parband_still_accepts_the_leak_pair_it_exists_to_make_safe():
+    """OVER-SENSITIVITY (b) -- the delegate-to-bd-bandcheck over-correction.
+
+    bd-bandcheck.check() is the obvious 'single source of truth' move and it
+    already has the right MISSING logic. It also enforces LEAK_PAIRS
+    (bd-bandcheck:34-37): test_phases_195_199 + test_cut8_schedules must not
+    co-band. That pair is bd-parband's WHOLE REASON TO EXIST -- its docstring
+    (:5-8) says the per-process BD_HOME means the BD_INSTALL_DIR leak cannot
+    cross suites. Delegating would make the tool refuse the exact case it was
+    built for, and check() returns one rc, not per-reason, so selective
+    delegation is not available without changing its API.
+
+    Green today, RED the moment someone delegates. --timeout 1 because this
+    tests the DOOR, not the suites; both are expected to time out.
+    """
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        results = os.path.join(td, "band.json")
+        r = _band_tool("bd-parband",
+                       ["tests/test_phases_195_199.py",
+                        "tests/test_cut8_schedules.py",
+                        "--jobs", "2", "--timeout", "1"], results, timeout=120)
+        out = r.stdout + r.stderr
+        assert r.returncode != 2, (
+            "bd-parband refused the co-band it exists to make safe.\n%s"
+            % out[-800:])
+        assert "UNEVALUABLE" not in out and "refusing" not in out, (
+            "the leak pair was refused. Both files exist; refusing them means "
+            "the door is enforcing a co-band policy that belongs to bd-band, "
+            "and bd-parband has no reason to exist.\n%s" % out[-800:])
+
+
+def test_retest_refuses_a_ledger_suite_that_no_longer_exists():
+    """@868 RED, the consumer half -- bd-retest has the SAME fall-through.
+
+    bd-retest:83-90 reads the results file, takes every non-pass row and calls
+    run_one() on it; run_one (:47-56) drives `run_tests.py <suite>` with no
+    existence check. Its grading is WORSE than bd-parband's: if the substituted
+    whole-suite run comes back green, `all(o == "pass")` prints FLAKE and the
+    tool removes a real failure from the ledger.
+
+    Reachable with no hand-editing: band fails -> the test file is renamed or
+    deleted as part of the fix -> bd-retest re-runs the old results file.
+
+    Assertion (c) is the claim -- a suite that cannot be run must not receive a
+    GRADE. On pristine the run times out and it prints REAL, which is a verdict
+    about a broad run of the whole tree.
+    """
+    import tempfile
+    ghost = "tests/test_DOES_NOT_EXIST_retest_gate.py"
+    assert not os.path.exists(os.path.join(str(_REPO_ROOT), ghost))
+
+    with tempfile.TemporaryDirectory() as td:
+        results = os.path.join(td, "band.json")
+        with open(results, "w") as fh:
+            json.dump({"work": str(_REPO_ROOT), "timeout": 1,
+                       "results": [{"suite": ghost, "status": "fail",
+                                    "failed": 1, "passed": 0, "secs": 0.1,
+                                    "tail": ""}]}, fh)
+        r = _band_tool("bd-retest",
+                       ["--retries", "1", "--timeout", "1",
+                        "--work", str(_REPO_ROOT)], results, timeout=120)
+        out = r.stdout + r.stderr
+
+        assert r.returncode == 2, (
+            "bd-retest exited %d for a ledger row whose suite is gone. It "
+            "cannot be retested, so there is no verdict to give.\n%s"
+            % (r.returncode, out[-800:]))
+        assert "BD-RETEST UNEVALUABLE" in out, (
+            "no discriminating marker -- exit 2 is also what an absent results "
+            "file produces (bd-retest:78-82), so rc alone cannot tell the two "
+            "apart.\n%s" % out[-800:])
+        assert "test_DOES_NOT_EXIST_retest_gate.py" in out, out[-800:]
+        assert not re.search(r"\b(REAL|FLAKE|FLAKY)\b", out), (
+            "bd-retest GRADED a suite it could not run. FLAKE is the dangerous "
+            "one: it deletes a real failure from the ledger on the strength of "
+            "a whole-tree run that was never asked for.\n%s" % out[-800:])
+
+
+def test_retest_still_retests_a_suite_that_exists():
+    """OVER-SENSITIVITY -- bd-retest must still do its job.
+
+    A green suite in the ledger as 'fail' is exactly the flake case the tool
+    exists for; it must come back FLAKE and exit 0, not get refused alongside
+    the missing ones.
+    """
+    import tempfile
+    suite = "tests/test_capture_dict_shape_tripwire.py"
+    assert os.path.isfile(os.path.join(str(_REPO_ROOT), suite))
+
+    with tempfile.TemporaryDirectory() as td:
+        results = os.path.join(td, "band.json")
+        with open(results, "w") as fh:
+            json.dump({"work": str(_REPO_ROOT), "timeout": 180,
+                       "results": [{"suite": suite, "status": "fail",
+                                    "failed": 1, "passed": 0, "secs": 0.1,
+                                    "tail": ""}]}, fh)
+        r = _band_tool("bd-retest",
+                       ["--retries", "1", "--timeout", "180",
+                        "--work", str(_REPO_ROOT)], results, timeout=300)
+        out = r.stdout + r.stderr
+        assert r.returncode == 0, (
+            "a real suite that passes on retry did not grade clean (exit %d)."
+            "\n%s" % (r.returncode, out[-800:]))
+        assert "FLAKE" in out, out[-800:]
+        assert "UNEVALUABLE" not in out, out[-800:]
+
+
+def test_the_band_pair_shares_one_existence_check():
+    """The pair contract is stated in BOTH headers: bd-parband:57-58 and
+    bd-retest:43-44 say 'Edit them together or the pair breaks.'
+
+    Two copies of this predicate is how the consumer half stayed open while
+    the producer half was fixed, so the check lives in bdtools_sec and both
+    tools call it BY NAME. Asserting the call sites, not just the helper, is
+    the point: a helper nobody calls is the section 0 shape again.
+    """
+    root = str(_REPO_ROOT)
+    sys.path.insert(0, os.path.join(root, "toolchain", "bin"))
+    import importlib
+    sec = importlib.import_module("bdtools_sec")
+
+    assert hasattr(sec, "missing_suite_reason"), (
+        "bdtools_sec has no missing_suite_reason -- the shared library is "
+        "where this belongs, so the pair cannot drift apart again.")
+
+    # BOTH directions. A predicate that always answers the same way is not a
+    # check: one that never refuses is the original defect, one that always
+    # refuses is the over-correction.
+    assert sec.missing_suite_reason(root, "tests/test_capture_dict_shape_tripwire.py") is None
+    assert sec.missing_suite_reason(root, "tests/test_NOT_A_REAL_SUITE_xyz.py")
+    # Resolution is against `work`, NOT cwd -- the whole point of the argument.
+    assert sec.missing_suite_reason(os.path.join(root, "tests"), "test_toolchain_534.py") is None
+    assert sec.missing_suite_reason("/nonexistent-root-xyz", "tests/test_toolchain_534.py")
+
+    for name in ("bd-parband", "bd-retest"):
+        src = open(os.path.join(root, "toolchain", "bin", name),
+                   errors="replace").read()
+        assert "missing_suite_reason" in src, (
+            "%s does not call the shared check, so the pair has forked again "
+            "-- which is how bd-retest kept the fall-through after bd-parband "
+            "lost it." % name)

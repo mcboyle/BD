@@ -311,6 +311,39 @@ def resolve_test_interpreter(work=None, _probe=None):
             return c
     return None
 
+
+def missing_suite_reason(work, suite):
+    """Reason string if `suite` does not resolve to a file under `work`, else None.
+
+    @868. Shared by the bd-parband / bd-retest pair, whose headers both say
+    "Edit them together or the pair breaks" -- two copies of this predicate is
+    exactly how the consumer half stayed open after the producer half was fixed.
+
+    WHY A MISSING PATH IS NOT MERELY A NO-OP. Both tools drive
+    `run_tests.py <suite>`. run_tests_core.py:1277-1284 prints a WARN for a
+    path it cannot find and then `continue`s; with every requested path
+    missing, `filters` ends up empty, :1288 takes the else branch and :1303
+    globs the WHOLE suite. The substituted run's verdict is then attributed to
+    the path that was never run -- measured as a green PASS with passed=5 for a
+    file that does not exist, and as bd-retest printing FLAKE, which DELETES a
+    real failure from the ledger.
+
+    The @860 guard at run_tests_core.py:1605 (`total == 0 and requested`)
+    cannot fire on this: the substituted full-suite run makes `total` huge.
+    Section 0 -- a denominator that excludes its subject reports OK.
+
+    Resolution is against `work`, NOT os.getcwd(). Both callers already run the
+    suite with cwd=work, so any other root would refuse valid relative paths --
+    which would reproduce the shape of the defect one level down: green from
+    the repo root, refusing everything from anywhere else.
+    """
+    p = suite if os.path.isabs(suite) else os.path.join(work or DEFAULT_WORK, suite)
+    if os.path.isfile(p):
+        return None
+    return ("no such file under %s -- run_tests.py falls back to a BROAD RUN of "
+            "the whole tree and the result would be attributed to this path"
+            % (work or DEFAULT_WORK))
+
 # Cloud-metadata endpoints (IP + well-known hostnames)
 METADATA_IPS = {"169.254.169.254", "fd00:ec2::254"}
 METADATA_HOSTS = {"metadata.google.internal"}

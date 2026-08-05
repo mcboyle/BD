@@ -724,13 +724,20 @@ start so a broken tool can't silently corrupt work.
 ### `bd-parband` — speed · run targeted suites in parallel
 Runs multiple suites concurrently, each in its own subprocess with its own
 `BD_HOME` (mktemp) — so it's faster AND the state-leak co-band hazards can't cross
-suites (per-process isolation). Refuses the known hangers + a bare `tests/` dir.
-`--jobs N` `--timeout S`. Writes the run to `/home/claude/.bd_last_band.json`.
+suites (per-process isolation). Refuses the known hangers, a bare `tests/` dir,
+and (@868) any suite path that does not exist — exit 2, nothing dispatched, no
+results file written. `--jobs N` `--timeout S`. Writes the run to
+`<checkout>/.bd_last_band.json` (`bdtools_sec.DEFAULT_WORK`), override with
+`BD_LAST_BAND`. The `/home/claude/` path this line carried until @868 was
+zip-era and had never been where the tool writes.
 
 ### `bd-retest` — reliability · re-run only the last band's failures
 Reads the last `bd-parband` results and re-runs each failed suite N times: passes
 on retry ⇒ FLAKE, fails every time ⇒ REAL failure. `--retries N`. Avoids re-running
-the whole band to tell a flake from a real break.
+the whole band to tell a flake from a real break. Exit 2 if the ledger names a
+suite that no longer exists (@868): `run_tests.py` broad-runs an unknown path, a
+green whole-tree run reads as FLAKE, and that DELETES a real failure. Resolves
+the results path identically to `bd-parband` — edit them together.
 
 ### `bd-checkpoint` — robustness · wholesale source checkpoint + restore
 `save <name>` tars the source dirs; `restore <name>` reverts them in one move;

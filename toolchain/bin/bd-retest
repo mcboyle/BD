@@ -11,7 +11,9 @@ deps; PLAYWRIGHT_BROWSERS_PATH comes from the environment, never hardcoded).
 
 Usage: bd-retest [--retries 2] [--timeout 300] [--work DIR]
 Exit 0 if every previously-failing suite now passes; 1 on a consistent (real)
-failure; 2 (CANNOT-EVALUATE) if there is no band-results file to read.
+failure; 2 (CANNOT-EVALUATE) if there is no band-results file to read, or if a
+row in it names a suite that no longer exists (nothing to retest -- and grading
+the substituted broad run is how a real failure gets deleted as a FLAKE).
 """
 import argparse, json, os, re, subprocess, sys, tempfile, time
 import os as _os_bd, sys as _sys_bd  # noqa: E402
@@ -83,6 +85,28 @@ def main():
     failed=[r["suite"] for r in d["results"] if r["status"]!="pass"]
     if not failed:
         print(f"{G}last band had no failures -- nothing to retest{RST}"); return 0
+    # @868. A ledger row whose suite is GONE cannot be retested, and run_one
+    # below would not notice: run_tests.py falls back to a BROAD RUN for a path
+    # it cannot find, and a green whole-tree run makes all(o=="pass") true, so
+    # this tool would print FLAKE and DELETE a real failure from the ledger.
+    # Reachable with no hand-editing -- band fails, the test file is renamed or
+    # deleted as part of the fix, bd-retest re-reads the old results file.
+    # Shared with bd-parband on purpose (sec.missing_suite_reason): two copies
+    # of this predicate is how this half stayed open when the producer half was
+    # closed.
+    gone=[(s,sec.missing_suite_reason(work,s)) for s in failed]
+    gone=[(s,w) for s,w in gone if w]
+    if gone:
+        print(f"{R}BD-RETEST UNEVALUABLE{RST} -- these ledger rows name suites "
+              f"that no longer exist, so there is nothing to retest:",
+              file=sys.stderr)
+        for s,w in gone: print(f"  {R}XX{RST} {s} {DIM}({w}){RST}",file=sys.stderr)
+        print(f"{DIM}re-run the band (bd-parband) to rebuild the ledger{RST}",
+              file=sys.stderr)
+        # Refuse the whole run rather than grading the survivors: a partial
+        # retest reported as a clean verdict is the same false-clean this
+        # closes. Unknown is a third state and it fails.
+        return sec.EXIT_CANNOT_EVALUATE
     print(f"{BOLD}retest{RST} {DIM}{len(failed)} previously-failing suite(s), {a.retries} retries each{RST}")
     real=[]; flake=[]
     for s in failed:
