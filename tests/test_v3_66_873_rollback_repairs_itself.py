@@ -45,9 +45,17 @@ def _git(*args, cwd, check=True):
 def _origin_and_clone(tmp_path: Path, behind_by: int = 3):
     """A bare 'origin' with N commits, and a clone parked at the FIRST one.
 
-    That is the rollback signature reproduced faithfully: the clone is a valid
-    checkout of a real commit, it just is not the tip. Nothing about it looks
-    broken, which is the whole problem.
+    PARTIAL, and @879 measured how. This rewinds HEAD but leaves
+    refs/remotes/origin/main at the true tip, so the clone already knows where
+    main is and the hook's `git fetch` is unconstrained -- delete the fetch and
+    every test below still passes. A real image reversion takes the whole .git
+    directory back, tracking refs included, which is precisely the state in
+    which a swallowed fetch failure makes a rollback invisible.
+
+    tests/test_v3_66_879_provision_trigger_sees_its_subject.py carries the
+    faithful fixture (`faithful=True` also does update-ref on the tracking ref)
+    and the assertions that constrain the fetch. Left partial here rather than
+    changed, so the two files cover different states on purpose.
     """
     origin = tmp_path / "origin"
     work = tmp_path / "seed"

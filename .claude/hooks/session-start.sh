@@ -139,18 +139,70 @@ fi
 # refuses and SAYS WHICH, because a repair that could eat a cut is worse than
 # the rollback it fixes.
 if git rev-parse --git-dir >/dev/null 2>&1; then
-  git fetch -q origin main 2>/dev/null || true
+  # @879: capture the fetch's exit code instead of swallowing it. An image
+  # reversion takes the WHOLE .git directory back, so refs/remotes/origin/main
+  # rewinds together with HEAD. With no successful fetch both sides of the
+  # comparison below are equally stale, `merge-base --is-ancestor` reports
+  # HEAD == origin/main, and the hook exits 0 in silence. So a failed fetch does
+  # not merely degrade this check, it INVERTS it: the one step that reveals a
+  # rollback becomes the step whose failure hides it. Unknown is a third state.
+  if ! git fetch -q origin main 2>/dev/null; then
+    echo "session-start: could not reach origin -- checkout identity UNVERIFIED." >&2
+    echo "session-start: a rolled-back image reverts refs/remotes/origin/main too, so this is indistinguishable from a current tree. Treat every source read as possibly stale." >&2
+  fi
   head_sha="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
   main_sha="$(git rev-parse --short origin/main 2>/dev/null || echo unknown)"
   if [ "$main_sha" != "unknown" ] && ! git merge-base --is-ancestor origin/main HEAD 2>/dev/null; then
     behind="$(git rev-list --count HEAD..origin/main 2>/dev/null || echo '?')"
     dirty="$(git status --porcelain --untracked-files=no 2>/dev/null || echo UNKNOWN)"
     ahead="$(git rev-list --count origin/main..HEAD 2>/dev/null || echo '?')"
-    if [ -z "$dirty" ] && [ "$ahead" = "0" ]; then
+    # @879: losslessness is necessary and NOT sufficient. A clean topic branch or
+    # a detached HEAD parked at an ancestor of origin/main has zero unique
+    # commits, so it satisfied the predicate and was reset onto main. Nothing
+    # became unreachable -- the byte-losslessness claim stayed literally true --
+    # but the operator's POSITION is what they chose, and CLAUDE.md section 2b
+    # instructs agents to `git checkout --detach FETCH_HEAD` before measuring
+    # anything. A reverted image comes back on the branch the image was built
+    # from, so requiring `main` costs the repair nothing and protects a state
+    # this project creates deliberately and routinely.
+    branch="$(git branch --show-current 2>/dev/null || echo '')"
+    if [ -z "$dirty" ] && [ "$ahead" = "0" ] && [ "$branch" = "main" ]; then
       echo "session-start: checkout $head_sha is $behind commit(s) behind origin/main ($main_sha)" >&2
-      echo "session-start: no modified tracked files and 0 commits ahead -- this is the reverted-image signature, and a fast-forward is lossless. Repairing." >&2
+      echo "session-start: on main, no modified tracked files, 0 commits ahead -- this is the reverted-image signature, and a fast-forward is lossless. Repairing." >&2
       if git reset --hard -q origin/main 2>/dev/null; then
         echo "session-start: REPAIRED -- checkout now at $(git rev-parse --short HEAD)" >&2
+        # --- the tree is not the environment ------------------------------
+        # @879. THIS IS THE POINT OF THE CUT. The reverted image breaks five
+        # things -- the checkout, the venv's package VERSIONS, frontend/dist,
+        # __pycache__, and .claude-env-report.md -- and until now the decision
+        # "does this need provisioning?" was made by tools/check_requirements.py,
+        # whose denominator is requirement NAMES. Four of the five are
+        # structurally invisible to it, so it answered "no" while the session
+        # ran on a reverted image. That is section 0 sitting inside the fix
+        # written for section 0, and it is why @873 repaired the rollback three
+        # times and the venv kept losing packages anyway.
+        #
+        # The signature IS the trigger now. cloud-setup.sh is idempotent, honours
+        # the BD_SKIP_* flags, and converges all five in one run.
+        if [ -x scripts/cloud-setup.sh ]; then
+          case "$HOOK_SOURCE" in
+            startup|resume|"")
+              echo "session-start: reconverging the environment (a reverted image takes the venv, frontend/dist and the env report back with the tree)" >&2
+              BD_SKIP_ARCHB=1 BD_SKIP_BROWSERS=1 BD_HOME=/tmp/bd_home BD_REPO="$REPO" \
+                bash scripts/cloud-setup.sh >&2 || \
+                echo "session-start: cloud-setup.sh exited non-zero -- provision by hand" >&2
+              ;;
+            *)
+              # Mid-session. The tree repair above is instant; a 33-step provision
+              # is minutes, and a hook that stalls a running session gets turned
+              # off. Say it loudly and let the operator choose.
+              echo "session-start: ENVIRONMENT NOT RECONVERGED -- source=$HOOK_SOURCE is mid-session, so the 33-step provision was NOT run." >&2
+              echo "session-start: the venv, frontend/dist and .claude-env-report.md may still be the reverted image's. Run 'bash scripts/cloud-setup.sh' when convenient." >&2
+              ;;
+          esac
+        else
+          echo "session-start: ENVIRONMENT NOT RECONVERGED -- scripts/cloud-setup.sh absent; the venv may still be the reverted image's." >&2
+        fi
       else
         echo "session-start: reset FAILED -- re-sync by hand before trusting any source read" >&2
       fi
@@ -159,7 +211,15 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
       # who sees only "behind" will re-run the same command by hand and lose
       # the very work this branch protected.
       echo "session-start: WARNING checkout $head_sha is $behind commit(s) behind origin/main ($main_sha)." >&2
-      echo "session-start: NOT repairing -- ${dirty:+modified tracked files present; }${ahead:+$ahead commit(s) ahead of origin/main; }a reset would discard work." >&2
+      if [ "$branch" = "main" ]; then
+        why="${dirty:+modified tracked files present; }${ahead:+$ahead commit(s) ahead of origin/main; }a reset would discard work."
+      else
+        # Naming the ref matters: "behind main" on a topic branch is the NORMAL
+        # state, and an operator who cannot tell this line from a rollback will
+        # run the reset by hand and lose the position they chose.
+        why="checked out on ${branch:-a detached HEAD}, not main; a reset would move it onto main and discard a deliberate position (bisect, a pre-fix baseline, a branch awaiting its first commit)."
+      fi
+      echo "session-start: NOT repairing -- $why" >&2
       echo "session-start: verify before trusting any source read; re-sync deliberately once the local work is safe." >&2
     fi
   fi

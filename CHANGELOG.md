@@ -4,6 +4,60 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.879 - the provision trigger could see one fifth of the damage
+
+The operator reported three failures recurring across sessions: the checkout
+rolls back to a stale commit, the venv loses packages, and .claude-env-report.md
+asserts about a tree 60 versions old. v3.66.873 fixed the first and the other two
+kept happening, which is the tell that the diagnosis was incomplete.
+
+They share one cause. .claude/hooks/session-start.sh decided whether to provision
+by asking tools/check_requirements.py whether every requirement NAME resolves.
+That instrument's denominator is names. An image reversion breaks five things --
+the checkout, venv package VERSIONS, frontend/dist, __pycache__ and the env
+report -- and four are structurally invisible to it. So "is a repair needed?" was
+answered by a check that could not see most of what was broken. That is a gate
+reporting OK over a denominator excluding its subject, sitting inside the fix
+written for that failure mode.
+
+The reverted-image SIGNATURE is now the trigger. The hook already detects and
+repairs it; on startup/resume it now also hands over to scripts/cloud-setup.sh,
+which is idempotent, honours the BD_SKIP_ flags and converges all five. On
+compact/clear it repairs the tree and says loudly that the environment was NOT
+reconverged, because a 33-step provision mid-session stalls a running session and
+a hook that is always expensive gets switched off.
+
+Three further defects in the same path, each found by adversarial probe:
+
+- A failed fetch was swallowed. An image reversion rewinds
+  refs/remotes/origin/main together with HEAD, so with no successful fetch the
+  is-ancestor check sees HEAD == origin/main and the hook exits 0 in silence. The
+  failure did not degrade the check, it inverted it: the one step that reveals a
+  rollback became the step whose failure hides it. Now reported as UNVERIFIED.
+- The repair was gated on losslessness alone, never on which ref is checked out.
+  A clean topic branch or detached HEAD parked at an ancestor of origin/main has
+  zero unique commits, satisfied the predicate, and was reset onto main. Nothing
+  became unreachable, so the byte-losslessness claim stayed literally true, but
+  the operator's position was destroyed -- and CLAUDE.md section 2b instructs
+  agents to detach before measuring. The repair now requires branch == main and
+  names the ref when it refuses.
+- scripts/cloud-setup.sh called check_requirements.py with no argument, grading
+  DEFAULT_REQUIREMENTS (requirements.txt) alone. pyyaml and pyflakes are declared
+  only in requirements-test.txt and sat outside the denominator, while the hook
+  delegates repair there on the stated ground that the script verifies each step.
+  Both core manifests are graded now.
+
+The v3.66.873 fixture rewound HEAD but not the tracking ref, so it did not
+reproduce the rollback it documented and the fetch was unconstrained -- deleting
+the fetch left that suite green. The faithful fixture and the assertions that
+constrain the fetch live in the new file; the docstring no longer overclaims.
+
+Mutation battery: 5 mutants, 5 caught, 0 escaped, 0 invalid. One escaped first --
+the assertion read requirements-test.txt out of the COMMENT explaining the fix,
+so grading only the core manifest stayed green. Closed by asserting over
+comment-stripped source. That is the fourth prose-vs-code conflation in this
+session and the reason the helper exists.
+
 ## v3.66.878 - the operator shell tools ran against a dead sandbox and exited 0
 
 Item 8c, the last of the three. None of these is on an automated lane --

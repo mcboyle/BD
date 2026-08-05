@@ -597,22 +597,35 @@ PY2
   #   exit 1  the unresolved names, space-separated, on stdout
   #   exit 2  UNEVALUABLE -- unreadable requirements.txt, or the helper absent on
   #           an older tree. NOT a softer exit 0.
-  REQ_MISSING=""
-  REQ_RC=0
-  REQ_MISSING="$(./venv/bin/python tools/check_requirements.py 2>/dev/null)" || REQ_RC=$?
+  # @879: grade EVERY core manifest, naming each explicitly. This call used to
+  # omit the path argument, so it graded check_requirements.py's
+  # DEFAULT_REQUIREMENTS -- requirements.txt -- and nothing else. The row it
+  # printed was honest ("every requirements.txt entry resolves"), which is what
+  # made the gap survive: nothing lied, the denominator was just smaller than the
+  # question. `pyyaml` and `pyflakes` are declared only in requirements-test.txt
+  # and were therefore outside it, while .claude/hooks/session-start.sh delegates
+  # its repair here on the stated ground that this script "verifies each step
+  # rather than trusting an exit code" -- true of the core manifest only.
+  # Both are installed above (:292); installing is not verifying.
+  for REQ_FILE in requirements.txt requirements-test.txt; do
+    [ -f "$REQ_FILE" ] || { row "requirements ($REQ_FILE)" "**FAILED**" "manifest absent"; CORE_FAILED=1; continue; }
+    REQ_MISSING=""
+    REQ_RC=0
+    REQ_MISSING="$(./venv/bin/python tools/check_requirements.py "$REQ_FILE" 2>/dev/null)" || REQ_RC=$?
 
-  if [ "$REQ_RC" -eq 2 ]; then
-    # Unknown is a third state and it fails. "Could not evaluate" must never be
-    # rendered as "satisfied".
-    row "requirements satisfied" "**FAILED**" "could not evaluate requirements.txt -- treat as NOT satisfied"
-    echo "[FAIL] requirements satisfied (unevaluable)"; CORE_FAILED=1
-  elif [ "$REQ_RC" -ne 0 ] || [ -n "$REQ_MISSING" ]; then
-    row "requirements satisfied" "**FAILED**" "MISSING: $(echo "$REQ_MISSING" | cut -c1-70)"
-    echo "[FAIL] requirements missing: $REQ_MISSING"; CORE_FAILED=1
-  else
-    row "requirements satisfied" "OK" "every requirements.txt entry resolves in the venv"
-    echo "[ ok ] requirements satisfied"
-  fi
+    if [ "$REQ_RC" -eq 2 ]; then
+      # Unknown is a third state and it fails. "Could not evaluate" must never be
+      # rendered as "satisfied".
+      row "requirements ($REQ_FILE)" "**FAILED**" "could not evaluate -- treat as NOT satisfied"
+      echo "[FAIL] requirements satisfied (unevaluable: $REQ_FILE)"; CORE_FAILED=1
+    elif [ "$REQ_RC" -ne 0 ] || [ -n "$REQ_MISSING" ]; then
+      row "requirements ($REQ_FILE)" "**FAILED**" "MISSING: $(echo "$REQ_MISSING" | cut -c1-70)"
+      echo "[FAIL] requirements missing in $REQ_FILE: $REQ_MISSING"; CORE_FAILED=1
+    else
+      row "requirements ($REQ_FILE)" "OK" "every $REQ_FILE entry resolves in the venv"
+      echo "[ ok ] requirements satisfied ($REQ_FILE)"
+    fi
+  done
 else
   row "import check" "**DEFERRED**" "no repo at setup time"
 fi
