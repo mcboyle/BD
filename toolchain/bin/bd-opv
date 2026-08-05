@@ -50,6 +50,13 @@ G, R, Y, B, DIM, RST = ("\033[32m", "\033[31m", "\033[33m", "\033[34m",
                         "\033[2m", "\033[0m")
 
 PASS, FAIL, SKIP, GATED = "PASS", "FAIL", "SKIP", "GATED"
+# @871 -- a FIFTH outcome. A check that RAISED was graded SKIP, i.e. folded
+# into the benign "precondition missing" bucket, where it fed nothing but
+# n_skip -- so one unrelated PASS cleared the CANNOT-EVALUATE guard at :1400
+# and the run exited 0. The docstring defines SKIP as "precondition missing
+# (e.g. a setting/route absent in this build)"; a check that died is not that,
+# and in the summary line the two were indistinguishable.
+BROKEN = "BROKEN"
 
 # ensure the BD tree is importable regardless of CWD
 _WORK = os.environ.get("BD_WORK", sec.DEFAULT_WORK)
@@ -1357,7 +1364,7 @@ def main(argv=None):
 
     print("bd-opv -- sandboxable operator-verification checks")
     print("=" * 62)
-    n_pass = n_fail = n_skip = n_gated = n_ran = 0
+    n_pass = n_fail = n_skip = n_gated = n_ran = n_broken = 0
     for cid, klass, fn in REGISTRY:
         if a.only and cid != a.only:
             continue
@@ -1367,15 +1374,17 @@ def main(argv=None):
         try:
             status, detail = fn()
         except Exception as e:
-            status, detail = SKIP, f"check raised: {type(e).__name__}: {str(e)[:80]}"
+            status, detail = BROKEN, f"check raised: {type(e).__name__}: {str(e)[:80]}"
         tag = {PASS: G + "PASS " + RST, FAIL: R + "FAIL " + RST,
-               SKIP: Y + "SKIP " + RST, GATED: B + "GATED" + RST}[status]
+               SKIP: Y + "SKIP " + RST, GATED: B + "GATED" + RST,
+               BROKEN: R + "BROKE" + RST}[status]
         print(f"  {tag} {cid:12s} {detail}")
         n_ran += 1
         n_pass += status == PASS
         n_fail += status == FAIL
         n_skip += status == SKIP
         n_gated += status == GATED
+        n_broken += status == BROKEN
     print("=" * 62)
     print(f"  {G}{n_pass} PASS{RST}  {R}{n_fail} FAIL{RST}  "
           f"{Y}{n_skip} SKIP{RST}  {B}{n_gated} GATED{RST}")
@@ -1388,6 +1397,16 @@ def main(argv=None):
         sys.stderr.write("CANNOT-EVALUATE bd-opv: reason=%s (no check id matches "
                          "--only %s; --list shows the registry)\n"
                          % (sec.REASON_ABSENT, a.only))
+        return sec.EXIT_CANNOT_EVALUATE
+    # @871: a check that CRASHED means this run does not know the answer. That
+    # is CANNOT-EVALUATE, and it outranks a clean exit -- it is deliberately
+    # checked BEFORE n_fail so a broken check cannot hide behind a real one.
+    if n_broken:
+        sys.stderr.write("CANNOT-EVALUATE bd-opv: reason=%s (%d check(s) RAISED "
+                         "-- the check itself is broken, which is not the same "
+                         "as a precondition being absent, and its OPV item is "
+                         "unverified either way)\n"
+                         % (sec.REASON_UNREADABLE, n_broken))
         return sec.EXIT_CANNOT_EVALUATE
     if n_fail:
         return sec.EXIT_FINDINGS
