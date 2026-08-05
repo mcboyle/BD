@@ -4,6 +4,49 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.886 - three numbering schemes reconciled; five "open" items were closed
+
+Register-only. The operator supplied seventeen screenshots of THREE different
+sessions, each carrying its own open list in its own numbering, none of which
+reconciled with this register or with each other. SESSION_CARRY 15.35 records
+the reconciliation and 15.36 is the canonical ordered list, items 1-33.
+
+The current session's scheme is canonical, corroborated rather than asserted:
+it reported "18 of 93 suites still fail" under bd-band and this session
+measured 75/93 green independently - same number, two sessions, no shared
+measurement.
+
+FIVE items those lists call open are CLOSED, measured against the tree rather
+than transcribed: the CLAUDE.md section 6 line about an interrupted bd-mutate
+not restoring is present, not absent; test_pk_mirrors_do_not_drift's two
+defects are both fixed - the stub defines `fail` and the SOURCE_DIRS `break`
+survives only inside docstrings explaining its removal; cookies_expiry_info
+counts a non-positive expiry as a session cookie; bd-band carries zero
+/home/claude paths; and test_contracts is 14/14 since v3.66.885.
+
+ONE confirmed still open by direct probe, because a confirmation is worth as
+much as a closure: band runs write plugins/ackgate.py, plugins/handdropped.py
+and plugins/registry.json into the working tree, all three tracked=no AND
+ignored=no.
+
+FIVE cited anchors have drifted off their subjects and are recorded as such:
+runner_auth's two line numbers, cookies.py's, bd-claim's getpid count,
+library_final's, and the toolchain budget. And the /home/claude figure is three
+different denominators - 391 files, 393 files/1541 occurrences, and 1103
+occurrences across 248 tracked files - not a trend; the path is outside the
+repo and per-container, so container and tracked-source counts are not
+comparable in either direction.
+
+BOX: v3.66.883 IS captured - PASS at f863c49369bb, 14703/14618/0/85, live
+36/0/0, graph hash OK - which two of those three sessions did not know. The
+capture gap is two cuts (884, 885), not three.
+
+CORRECTION this session owes: it told the operator that capture.sh uses real
+pytest and therefore does not exercise run_tests_core, so v3.66.885 needed no
+capture. Too strong. Capture does not USE that runner, but its suite contains
+roughly nineteen tests that import and assert on it, so a capture does yield
+box evidence about 885.
+
 ## v3.66.885 - the runner resolved fixture deps from a table missing four of six
 
 Register items B and B2, one root cause. `run_test` supplied SIX shims to a
