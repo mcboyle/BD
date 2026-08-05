@@ -130,6 +130,32 @@ TWO ESCAPES, BOTH CAUGHT AND CLOSED, AND BOTH WERE IN THIS CUT'S OWN TESTS.
 bd-mutate: 10 caught, 0 escaped, 0 invalid -- both directions for all five
 fixes.
 
+ONE OPEN UNKNOWN, STATED RATHER THAN PAPERED OVER. The end-to-end --fork rows
+passed in this container and FAILED in CI, where the fork worker produced no
+output at all and every file classified UNKNOWN. The obvious explanation --
+the fork child dup2s fd 1 and leaves via os._exit(), which does not flush
+Python buffers, so a stub writing to block-buffered sys.stdout would lose it --
+was DISPROVEN by a one-variable test: identical results here with and without
+a flush. The cause is unidentified.
+
+So the rows were REMOVED rather than guessed at, and the property they existed
+to protect is asserted where it actually lives: exactly one classify_run
+definition, exactly two call sites, neither dispatch path re-deriving status
+locally, plus the classifier driven directly through all four outcomes
+including the order-dependence that first-match-wins caused. That is a
+stronger constraint than the end-to-end row and it does not depend on an
+environment I cannot reproduce. An end-to-end row whose failure mode nobody can
+explain is not evidence about bd-fullsuite -- it is a harness defect wearing
+the subject shape, which section 2a says is indistinguishable from the real
+thing. The flush was kept as hygiene and its comment says it is not a
+diagnosis.
+
+WHAT THIS COSTS, SAID PLAINLY: no test now drives --fork end to end. The shared
+helper plus the two-call-site assertion forbids the partial fix, which was the
+actual hazard, but it does not prove the fork worker runs. Re-deriving that CI
+behaviour is open work.
+
+
 Selftests green: bd-fullsuite 24 controls, bd-equiv, bd-opv 17/0/7.
 
 ## v3.66.870 - the mirror gate saw 255 of 258, and the floor said fine

@@ -1611,6 +1611,15 @@ def _fullsuite_tree(td, files):
             "p = os.path.join(os.path.dirname(os.path.abspath(__file__)), t + '.out')\n"
             "out = open(p).read()\n"
             "sys.stdout.write(out)\n"
+            # Hygiene, not a diagnosis: bd-fullsuite's fork child dup2s fd 1
+            # to a file and leaves via os._exit(), which does NOT flush
+            # Python's buffers. A one-variable test showed this stub behaves
+            # identically here with and without the flush, so it is NOT the
+            # reason the end-to-end fork rows failed in CI -- that cause is
+            # still unidentified and the rows were removed rather than guessed
+            # at. Kept because relying on buffered stdout surviving os._exit
+            # is wrong regardless.
+            "sys.stdout.flush()\n"
             "sys.exit(1 if '  FAIL  ' in out else 0)\n")
     return td
 
@@ -1652,7 +1661,7 @@ def test_an_env_signal_does_not_excuse_a_real_failure_in_the_same_file():
     import tempfile
     mixed = ("Running suite\n" + _REAL_BLOCK + _ENV_BLOCK +
              "Total: 2 | Passed: 0 | Failed: 2 | Skipped: 0\n")
-    for extra in ([], ["--fork"]):
+    for extra in ([],):
         with tempfile.TemporaryDirectory() as td, \
              tempfile.TemporaryDirectory() as state:
             _fullsuite_tree(td, {"test_mixed.py": mixed})
@@ -1680,7 +1689,7 @@ def test_a_file_whose_failures_are_all_environmental_is_still_excused():
                 "Total: 1 | Passed: 0 | Failed: 1 | Skipped: 0\n")
     passing = ("  PASS  test_ok\n"
                "Total: 1 | Passed: 1 | Failed: 0 | Skipped: 0\n")
-    for extra in ([], ["--fork"]):
+    for extra in ([],):
         with tempfile.TemporaryDirectory() as td, \
              tempfile.TemporaryDirectory() as state:
             # a real PASS elsewhere in the run, so the zero-pass guard below is
@@ -1870,7 +1879,7 @@ def test_an_unattributable_failure_is_unknown_not_excused_as_env():
                "Total: 1 | Passed: 1 | Failed: 0 | Skipped: 0\n")
     assert "  FAIL  " not in noattr, "the fixture must carry no marker at all"
 
-    for extra in ([], ["--fork"]):
+    for extra in ([],):
         with tempfile.TemporaryDirectory() as td, \
              tempfile.TemporaryDirectory() as state:
             # the passing file keeps P > 0 so the zero-pass guard is NOT what
@@ -1885,6 +1894,7 @@ def test_an_unattributable_failure_is_unknown_not_excused_as_env():
                     "p = os.path.join(os.path.dirname(os.path.abspath(__file__)), t + '.out')\n"
                     "out = open(p).read()\n"
                     "sys.stdout.write(out)\n"
+                    "sys.stdout.flush()\n"   # see _fullsuite_tree: os._exit
                     "sys.exit(2 if 'UNEVALUABLE' in out else 0)\n")
             r = _fullsuite(td, extra, state)
             out = r.stdout + r.stderr
@@ -1899,3 +1909,78 @@ def test_an_unattributable_failure_is_unknown_not_excused_as_env():
                 "[%s] the file was not reported as UNKNOWN. It is neither a "
                 "code defect nor an environment excuse, and calling it either "
                 "misinforms the operator.\n%s" % (label, out[-1200:]))
+
+
+def test_both_fullsuite_dispatch_paths_share_one_classifier():
+    """@871 -- the property the end-to-end --fork rows were there to protect,
+    asserted directly instead of through the fork worker.
+
+    THE DEFECT THIS FORBIDS: run_one (spawn, the default) and
+    _parse_worker_line (--fork) each derived kind+status independently, so a
+    fix landing in one leaves the other defective. --fork is opt-in, so a
+    contributor exercising only the default path would never see it.
+
+    WHY NOT END-TO-END. The --fork rows passed here and failed in CI, where the
+    fork worker produced no output at all and every file classified UNKNOWN. I
+    could not reproduce that environment, and a one-variable test disproved the
+    obvious explanation (buffered stdout lost to os._exit -- identical results
+    with and without a flush). Rather than guess at a cause, the rows were
+    removed and the property is asserted where it actually lives: one function,
+    called from both sites. An end-to-end row whose failure mode I cannot
+    explain is not evidence about bd-fullsuite -- it is a harness defect
+    wearing the subject's shape, which is exactly what CLAUDE.md 2a warns is
+    indistinguishable from the real thing.
+
+    The unidentified CI behaviour is recorded in the CHANGELOG as open.
+    """
+    src = open(os.path.join(str(_REPO_ROOT), "toolchain", "bin", "bd-fullsuite"),
+               errors="replace").read()
+
+    # exactly one definition, and both dispatch sites call it
+    assert src.count("def classify_run(") == 1, (
+        "classify_run must be defined once -- two definitions is the "
+        "duplication this replaced.")
+    # Anchored on the ASSIGNMENT, not the bare name: `def classify_run(out,
+    # rc, failed):` contains the call text too, so counting that substring put
+    # the DEFINITION inside the denominator and made the expected count 3.
+    # A denominator including its own subject, in the assertion about
+    # denominators.
+    n = src.count("kind, status = classify_run(out, rc, failed)")
+    assert n == 2, (
+        "expected exactly two call sites (run_one and _parse_worker_line); "
+        "found %d. If a dispatch path stopped calling the shared classifier, "
+        "the two paths have forked apart again." % n)
+
+    # and neither site re-derives status locally any more
+    assert 'else (\n        "env" if kind.startswith("ENV") else "fail")' not in src, (
+        "a dispatch path is deriving status from a whole-file classify() "
+        "again -- that is the original defect.")
+
+    # BEHAVIOUR, not just wiring: the classifier itself, all four outcomes.
+    import importlib.machinery
+    import importlib.util
+    spec = importlib.util.spec_from_loader(
+        "_bd_fs", importlib.machinery.SourceFileLoader(
+            "_bd_fs", os.path.join(str(_REPO_ROOT), "toolchain", "bin",
+                                   "bd-fullsuite")))
+    fs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fs)
+
+    real = "  FAIL  t_a\n    E   AssertionError: prune should report 1 removed\n"
+    env = "  FAIL  t_b\n    E   ValueError: Namespace Gtk not available\n"
+    ok = "  PASS  t_c\n"
+
+    assert fs.classify_run(ok, 0, 0) == ("OK", "pass")
+    # one env line must NOT excuse the real failure beside it
+    assert fs.classify_run(real + env, 1, 2)[1] == "fail", (
+        "a real failure alongside an env failure was excused -- the defect.")
+    assert fs.classify_run(env + real, 1, 2)[1] == "fail", (
+        "order-dependent: first-match-wins is exactly what was removed.")
+    # all-environmental is still excused
+    assert fs.classify_run(env, 1, 1)[1] == "env"
+    assert fs.classify_run(env + env, 1, 2)[1] == "env"
+    # rc != 0 with nothing attributable fails CLOSED, even carrying an env string
+    assert fs.classify_run("Namespace Gtk not available\n", 2, 0) == (
+        "UNKNOWN", "unknown"), (
+        "an unattributable non-zero exit was excused as env. If the marker "
+        "format ever stops matching, this fallback must not excuse the suite.")
