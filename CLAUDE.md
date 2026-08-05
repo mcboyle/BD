@@ -735,6 +735,36 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   image can restore correct NAMES at wrong VERSIONS and every gate reports OK.
   **Open, and nothing here can see it.**
 
+- **WHY the container "rolls back": the panel snapshots the filesystem, and the
+  setup script runs once per CACHE BUILD -- not per session.** Stated by the
+  operator 2026-08-05 and corroborated here. Anthropic runs the panel's setup
+  script the first time a session starts in an environment, snapshots the
+  filesystem, and every later session starts from that snapshot with the script
+  SKIPPED. It re-runs only when the setup script changes, when the allowed
+  network hosts change, or when the cache expires at roughly **7 days**.
+  **Editing the environment-variables box does NOT trigger a rebuild**, and
+  resuming a session never does.
+
+  Measured in this container: `.claude-env-report.md` was written
+  `2026-07-28T18:42:15Z` at `cee4be70` (v3.66.818), and the git reflog's OLDEST
+  entry is `2026-07-28 18:42:12` -- so the `.git` directory itself came from the
+  snapshot, which a fresh clone would contradict (its reflog would start today).
+  Eight days later the cache is at expiry. That is the whole mechanism: the
+  "rollback to an old commit" is the snapshot's HEAD, and the "venv losing
+  packages" is a venv built before those packages were declared.
+
+  Three consequences, and the third is the one that bites:
+
+  1. **The @879 SessionStart repair is LOAD-BEARING, not belt-and-braces.** On a
+     normal cached session it is the only thing that reconverges anything.
+  2. A stale snapshot is the first suspect for any environment symptom. To
+     distinguish it: record the version at startup, force a rebuild by touching
+     the **panel's** setup script (a comment change suffices), and compare.
+  3. **Anything you install by hand lives only until the session ends.** It is
+     not in the snapshot, so the next session starts without it. Installing a
+     package to fix a symptom fixes this session and nothing after it -- put it
+     in `scripts/cloud-setup.sh` and force a cache rebuild instead.
+
 - **The container rolls back to an old base image, and @879 changed what that
   costs you.** Five things revert together: the checkout, venv package
   *versions*, `frontend/dist`, `__pycache__`, and `.claude-env-report.md`. Until
