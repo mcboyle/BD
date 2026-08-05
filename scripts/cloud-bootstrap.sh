@@ -1,5 +1,5 @@
 #!/bin/bash
-# BulkDownloader -- Claude Code cloud panel BOOTSTRAP.
+# BulkDownloader -- Claude Code cloud panel BOOTSTRAP.   [cache-rebuild: 2026-08-05 v3.66.881]
 #
 # THIS FILE IS THE TEXT TO PASTE INTO THE PANEL'S SETUP-SCRIPT BOX.
 # It is deliberately the only BD provisioning text that lives outside the repo's
