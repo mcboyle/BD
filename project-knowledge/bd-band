@@ -4,9 +4,7 @@ timeout, reporting EVERY suite's result before exiting non-zero on any failure.
 
 Removes the most-repeated manual incantation in a session: the
     env BD_HOME=$(mktemp -d) BD_DISABLE_KEEPALIVE=1 \
-        PYTHONPATH=/tmp/prestaged_site_packages \
-        PLAYWRIGHT_BROWSERS_PATH=/home/claude/.cache/ms-playwright \
-        python3 run_tests.py tests/<file>
+        venv/bin/python run_tests.py tests/<file>
 block, and bounds the known whole-dir / test_perf_lab / nav_guard hangs with a
 per-suite timeout so a wedged suite fails its box instead of the session.
 
@@ -19,7 +17,7 @@ in a reused work dir -- this is why bd-cut bands from the extracted zip).
 Usage:
     bd-band tests/test_gui_parity.py tests/test_contracts.py
     bd-band tests/test_settings_center_slice4.py --timeout 300
-    bd-band tests/test_contracts.py --from-zip /home/claude/out/BulkDownloader_v3_66_365.zip
+    bd-band tests/test_contracts.py --from-zip ~/out/BulkDownloader_v3_66_365.zip
 Exit 0 = all suites Failed:0 ; 1 = any failure/timeout/missing suite.
 """
 import argparse
@@ -50,10 +48,38 @@ def run(cmd, cwd=None, env=None, timeout=None):
 
 
 def band_env():
+    """The suite env. BOTH of the old hardcodes are gone (@876).
+
+    PLAYWRIGHT_BROWSERS_PATH pinned a zip-era sandbox cache that does not exist
+    on a git checkout. Measured on tests/test_v3_66_252_dom_excerpt.py, one
+    variable at a time:
+
+        baseline                    Total: 4 | Passed: 4 | Skipped: 0
+        +PLAYWRIGHT_BROWSERS_PATH   Total: 4 | Passed: 1 | Skipped: 3
+        +PYTHONPATH                 Total: 4 | Passed: 4 | Skipped: 0
+
+    The three lost assertions SELF-SKIP on an unlaunchable browser, so the
+    summary still reads `Failed: 0` with rc 0 -- which is exactly this tool's
+    own pass predicate below. A band derived by the method CLAUDE.md section 4
+    mandates therefore reported green over assertions that never executed.
+    Measured blast radius: 8 of 1212 tracked test files skip that way; the
+    other 7 that launch a browser fail loudly.
+
+    ABSENT is the correct value: playwright then uses its own default. Section 5
+    already warns that two browser pools with different chromium revisions is a
+    live confounder -- pinning one of them by hand is how you pick the wrong one
+    every time.
+
+    PYTHONPATH was inert in that measurement and is removed anyway: replacing it
+    strips the work tree from sys.path, which is the documented
+    route_map_snapshot.py footgun. Do not read this as "both were biting".
+
+    toolchain/bin/bd-cut carries this same port from v3.66.855, rationale and
+    all. bd-band simply never got it; test_toolchain_534 now asserts over both
+    so they cannot drift apart again.
+    """
     env = dict(os.environ)
-    env.update(BD_HOME=tempfile.mkdtemp(), BD_DISABLE_KEEPALIVE="1",
-               PYTHONPATH="/tmp/prestaged_site_packages",
-               PLAYWRIGHT_BROWSERS_PATH="/home/claude/.cache/ms-playwright")
+    env.update(BD_HOME=tempfile.mkdtemp(), BD_DISABLE_KEEPALIVE="1")
     return env
 
 

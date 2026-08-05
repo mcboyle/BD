@@ -14,6 +14,9 @@ Exit 1 if any target is unsafe/invalid, else 0.
 """
 import argparse, os, sys
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
 # known-hang / never-band-directly (from KNOWN_FLAKES.md + memory)
 HANG = {
     "test_perf_lab.py": "hangs the whole run; on-stash only",
@@ -82,7 +85,16 @@ def check(targets, tree):
             if os.path.exists(alt):
                 lines.append(f"  ok      {base}  (resolved to tests/{base})")
                 names.add(base); continue
-            lines.append(f"  MISSING '{t}' -- no such file under {tree}. Typo? (a non-file path triggers a broad run)."); rc = 1; continue
+            # @876: `names.add(base)` runs even here. This branch used to
+            # `continue` straight past it, so the leak-pair detector below ran
+            # over an INCOMPLETE set -- a bare invocation of the
+            # test_phases_195_199 + test_cut8_schedules pair printed two MISSING
+            # lines and NO leak warning. Same exit code, different diagnosis:
+            # the operator fixes the paths and then bands the pair that leaks
+            # BD_INSTALL_DIR. A leak pair is a hazard about what you are ABOUT
+            # TO BAND, not about what happened to resolve.
+            lines.append(f"  MISSING '{t}' -- no such file under {tree}. Typo? (a non-file path triggers a broad run)."); rc = 1
+            names.add(base); continue
         lines.append(f"  ok      {os.path.relpath(path, tree)}")
         names.add(base)
     # leak-pair co-band check
@@ -97,7 +109,13 @@ def main():
     if "--selftest" in _s.argv: return selftest()
     ap = argparse.ArgumentParser()
     ap.add_argument("targets", nargs="+")
-    ap.add_argument("--tree","--work", default="/home/claude/work")
+    # @876: was "/home/claude/work", a zip-era path absent from any git
+    # checkout, so a BARE invocation reported every target MISSING. It failed
+    # CLOSED (exit 1), not clean -- but the DIAGNOSIS was wrong, and the
+    # diagnosis is the product: the operator is told "Typo?" about a path that
+    # is fine. sec.DEFAULT_WORK walks up to the repo root, which is what
+    # bd-band:100 already used.
+    ap.add_argument("--tree","--work", default=sec.DEFAULT_WORK)
     a = ap.parse_args()
     rc, lines = check(a.targets, a.tree)
     for l in lines:

@@ -4,6 +4,80 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.876 - the band tool pinned its suites at a browser pool that is not there
+
+Item 8a, the first of three. bd-band's band_env() hardcoded a zip-era cache
+path into every suite it ran. Measured one variable at a time on
+tests/test_v3_66_252_dom_excerpt.py:
+
+    baseline                    Total: 4 | Passed: 4 | Skipped: 0
+    +PLAYWRIGHT_BROWSERS_PATH   Total: 4 | Passed: 1 | Skipped: 3
+    +PYTHONPATH                 Total: 4 | Passed: 4 | Skipped: 0
+
+Three of four assertions vanish. They SELF-SKIP on an unlaunchable browser, so
+the summary still reads `Failed: 0` with rc 0 -- which is exactly bd-band's own
+pass predicate (`ok = "Failed: 0" in blob and r.returncode == 0`). So the tool
+CLAUDE.md section 4 mandates for deriving every band reported suites GREEN over
+assertions that never executed. Blast radius measured: 8 of 1212 tracked test
+files self-skip that way; the other 7 that launch a browser fail loudly.
+
+ABSENT is the correct value -- playwright then uses its own default. Section 5
+already warns that two browser pools with different chromium revisions is a live
+confounder; pinning one by hand is how you pick the wrong one every time.
+
+ONLY THE BROWSER PATH WAS BITING. PYTHONPATH was inert in that measurement and
+is removed anyway, because replacing it strips the work tree from sys.path --
+the documented route_map_snapshot.py footgun. The original probe changed both at
+once, violating section 5's one-variable rule; isolated, they disagree. Said
+here rather than claiming both were causes.
+
+THE FIX ALREADY EXISTED IN A SIBLING. toolchain/bin/bd-cut carries this exact
+port from v3.66.855 with the rationale written out ("hardcoding it pointed the
+band at a browser pool that does not exist"). bd-band simply never got it. The
+new test asserts over BOTH tools plus bd-parband/bd-fullsuite/bd-bandcheck, and
+a mutant that regresses bd-cut alone is caught -- they cannot drift apart again.
+
+bd-bandcheck's --tree/--work defaulted to the same retired path, so a BARE
+invocation reported every target MISSING.
+
+I REPORTED THAT AS "EXITS 0 ANYWAY" AND I WAS WRONG. It exits 1 -- it fails
+CLOSED, not clean. My measurement piped through `| tail -20; echo "exit=$?"`, so
+the code I read was tail's: CLAUDE.md section 5's pipe trap, which this session
+then walked into a SECOND time on check_requirements.py. Failing closed is a far
+smaller defect than failing open, and acting on "returns 0" would have meant
+fixing something that does not exist. project-knowledge/pending-specs/KICKOFF.md
+carried that wrong claim in tracked form and is corrected in this cut -- a
+committed document with a wrong figure is worse than a stale one, because
+section 1 says it will be inherited as authority.
+
+The real cost was the DIAGNOSIS, and the diagnosis is the product: the operator
+is told "Typo?" about a path that is fine.
+
+SECOND bd-bandcheck DEFECT, and it is the sharper one. The MISSING branch
+`continue`d before `names.add(base)`, so the leak-pair detector ran over an
+INCOMPLETE set. A bare invocation of the test_phases_195_199 +
+test_cut8_schedules pair printed two MISSING lines and NO leak warning -- same
+exit code, different diagnosis. The operator fixes the paths, then bands the
+pair that leaks BD_INSTALL_DIR. A leak pair is a hazard about what you are ABOUT
+TO BAND, not about what happened to resolve.
+
+ONE SUB-CLAIM CAME BACK NOT-REAL and is deliberately NOT in this cut:
+bd-band-derive:692 "silently drops the FLOOR". It does not -- derive() already
+applies the floor at :566 against the correct work, and counterfactuals over 400
+sampled files show ZERO emitted bands differ when :691-692 is deleted. It is
+redundant dead code, and "fixing" the path would need a signature change to
+restore a line that does nothing.
+
+MY OWN FIRST ASSERTION WAS TOO WIDE. It forbade the literal "/home/claude/work"
+anywhere in bd-bandcheck and failed on the COMMENT explaining the removal -- the
+same prose-vs-code conflation that made the queue entry say bd-band had "3
+occurrences" when two were docstring lines and only one was a code position.
+Narrowed to `default=` in code.
+
+RED-first: 3 failed on pristine, all with AssertionErrors naming the behaviour.
+bd-mutate: 5 caught, 0 escaped, 0 invalid. Mirrors re-synced for bd-band and
+bd-bandcheck in the same cut.
+
 ## v3.66.875 - an interrupted mutation battery left the mutant on disk
 
 Item 6, both halves. Part (b) was authorized by the operator.
