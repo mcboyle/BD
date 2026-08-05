@@ -229,18 +229,167 @@ def test_every_mutation_anchor_resolves_to_exactly_its_declared_count():
         + "\n  ".join(bad))
 
 
-def test_the_bare_work_default_is_not_a_sandbox_path():
-    """RED. The tool's --work default pointed at /home/claude/work, so an
-    operator running it with no arguments measured a tree that does not exist.
+# @877 -- the carriers this gate KNOWS about. Anything outside this set is a
+# regression; anything inside it that gets fixed must be REMOVED from the list
+# in the same cut, which is why the assertion is set EQUALITY and not "no new
+# ones". A one-directional count would let the list rot into a permanent
+# amnesty, and this repo already has that failure recorded: a floor of 150 sat
+# under a real population of 258 and could not see a narrowing it was written
+# to catch (@870).
+#
+# NONE of these is on a band path. The two that were -- bd-band and
+# bd-bandcheck -- were fixed at @876; the rest are operator-invoked
+# checkpoint/rollback/snapshot tools and decomp helpers, which is item 8c and
+# is deliberately NOT in this cut. Listing them makes them visible; before
+# this, a gate reading ONE file certified the whole population.
+_SANDBOX_WORK_DEFAULT = 'default="/home/claude/work"'
+_KNOWN_SANDBOX_DEFAULT_CARRIERS = {
+    "project-knowledge/bd-checkpoint",
+    "project-knowledge/bd-repin-dist",
+    "project-knowledge/bd-rollback",
+    "project-knowledge/bd-scan.py",
+    "project-knowledge/bd-since",
+    "project-knowledge/bd-snapshot",
+    "project-knowledge/review_merge.py",
+    "project-knowledge/seed_review_state.py",
+    "toolchain/bin/bd-checkpoint",
+    "toolchain/bin/bd-repin-dist",
+    "toolchain/bin/bd-rollback",
+    "toolchain/bin/bd-since",
+    "toolchain/bin/bd-snapshot",
+    "tools/bd-scan.py",
+    "tools/bd_decomp_lib.py",
+    "tools/decomp_regen.py",
+    "tools/invariants.py",
+    "tools/review_merge.py",
+    "tools/risk_score.py",
+    "tools/seed_review_state.py",
+    # this file: the literal appears in the assertion itself
+    "tests/test_desandbox_tool_verifiers.py",
+}
 
-    Kept NARROW on the default literal: bd-mutation-test legitimately mentions
-    /home/claude/work in a comment explaining this very class of bug, so a
-    whole-file scan would fire on the fixed tree -- cry-wolf.
+
+def _python_typed_tracked():
+    """Tracked files that are Python by EXTENSION *or* by SHEBANG.
+
+    `git ls-files -- '*.py'` is NOT "the Python files in this repo" -- a *.py
+    glob reaches 2.5% of toolchain/, where the tools are extensionless bd-*
+    scripts. Typing on the shebang as well is the difference between a
+    denominator of 2110 and one of 2568.
     """
-    src = MT.read_text(encoding="utf-8")
-    assert 'default="/home/claude/work"' not in src, (
-        "the --work default is still a sandbox path, so a bare invocation "
-        "measures a tree that is not there")
+    out = subprocess.run(["git", "ls-files", "-z"], cwd=str(REPO),
+                         capture_output=True, text=True, check=True).stdout
+    keep = []
+    for rel in out.split("\0"):
+        if not rel:
+            continue
+        p = REPO / rel
+        if rel.endswith(".py"):
+            keep.append(rel)
+            continue
+        if "." in rel.rsplit("/", 1)[-1]:
+            continue
+        try:
+            head = p.read_bytes()[:80]
+        except OSError:
+            continue
+        if head[:2] == b"#!" and b"python" in head.split(b"\n")[0]:
+            keep.append(rel)
+    return keep
+
+
+def _classify_sandbox_carriers(n_files, carriers, known, floor=2000):
+    """Every problem with this scan, as a list of messages. PURE on purpose.
+
+    Extracted so the three guards can be driven with constructed input -- see
+    test_the_sandbox_carrier_classifier_fires_in_all_three_directions. Left
+    inline, all three were unreachable by any mutant on a healthy tree.
+    """
+    problems = []
+    if n_files <= floor:
+        problems.append(
+            "the python-typed denominator collapsed to %d files (floor %d); "
+            "every assertion here would be passing over almost nothing"
+            % (n_files, floor))
+    new = set(carriers) - set(known)
+    if new:
+        problems.append(
+            "%d file(s) newly default --work to the retired sandbox path, so a "
+            "bare invocation measures a tree that is not there:\n  %s"
+            % (len(new), "\n  ".join(sorted(new))))
+    fixed = set(known) - set(carriers)
+    if fixed:
+        problems.append(
+            "%d file(s) no longer carry the sandbox default -- good, but remove "
+            "them from _KNOWN_SANDBOX_DEFAULT_CARRIERS in the SAME cut. A list "
+            "that only ever grows stale becomes a permanent amnesty:\n  %s"
+            % (len(fixed), "\n  ".join(sorted(fixed))))
+    return problems
+
+
+def test_the_bare_work_default_is_not_a_sandbox_path():
+    """@877 -- this gate used to read ONE FILE.
+
+    `MT.read_text()` -- bd-mutation-test, and nothing else -- while 20 other
+    tracked files carried the identical `default="/home/claude/work"`. It
+    certified a population of 2568 by looking at one member of it, and reported
+    OK. CLAUDE.md section 0: the denominator excluded the subject.
+
+    Kept NARROW on the `default=` FORM, not on the bare path. Several of these
+    files legitimately mention /home/claude in a comment explaining this very
+    class of bug -- including the one @876 added to bd-bandcheck -- so a
+    whole-file scan would fire on a fixed tree. Over-sensitivity is a soundness
+    bug too; that distinction is why the original author scoped it, and it is
+    kept.
+    """
+    files = _python_typed_tracked()
+    carriers = set()
+    for rel in files:
+        try:
+            if _SANDBOX_WORK_DEFAULT in (REPO / rel).read_text(
+                    encoding="utf-8", errors="replace"):
+                carriers.add(rel)
+        except OSError:
+            continue
+    problems = _classify_sandbox_carriers(
+        len(files), carriers, _KNOWN_SANDBOX_DEFAULT_CARRIERS)
+    assert not problems, "\n".join(problems)
+
+
+def test_the_sandbox_carrier_classifier_fires_in_all_three_directions():
+    """@877 -- the assertions above are unconstrained ON A HEALTHY TREE.
+
+    A mutation battery proved it: deleting the empty-denominator canary, or the
+    new-carrier check, or the fixed-carrier check, ALL left the suite green,
+    because on this tree `new` and `fixed` are both empty and the denominator
+    is nowhere near collapsing. Three guards that fire only in a state the tree
+    is not in are three guards no mutant can reach -- and a test that passes
+    before and after is not a test.
+
+    So the decision is a PURE function and this drives it with constructed
+    input. That is the only way to exercise a guard whose real-world trigger is
+    an event that has not happened yet.
+    """
+    known = {"a.py", "b.py"}
+
+    # clean: same set, plausible denominator -> silent
+    assert _classify_sandbox_carriers(2500, {"a.py", "b.py"}, known) == []
+
+    # collapsed denominator -> the canary fires even though the sets agree
+    out = _classify_sandbox_carriers(3, {"a.py", "b.py"}, known)
+    assert out and "denominator" in out[0], out
+
+    # a NEW carrier -> named
+    out = _classify_sandbox_carriers(2500, {"a.py", "b.py", "c.py"}, known)
+    assert out and "c.py" in out[0] and "newly" in out[0], out
+
+    # a FIXED carrier -> also named, so the list cannot rot into an amnesty
+    out = _classify_sandbox_carriers(2500, {"a.py"}, known)
+    assert out and "b.py" in out[0], out
+
+    # both at once -> BOTH reported, not just the first
+    out = _classify_sandbox_carriers(2500, {"a.py", "c.py"}, known)
+    assert len(out) == 2, out
 
 
 # ── the engines still work (behavioural) ────────────────────────────────────
