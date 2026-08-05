@@ -3573,6 +3573,199 @@ STILL OPEN, unchanged by any of this:
   166 bd-* tools remain prose-only. The ratchet stops that number growing;
       wiring or retiring them is its own work.
 
+### 15.35 | THREE numbering schemes reconciled into one ordered list -- and five items were already closed
+
+Written 2026-08-05 at `ea524f7` (v3.66.885 merged). The operator supplied
+seventeen screenshots of THREE different sessions, each carrying its own open
+list in its own numbering. They do not reconcile with each other and none
+reconciles with this register, so this section makes one canonical list and
+records what was measured against the tree rather than transcribed.
+
+    S1  "BulkDownloader handoff..."      ~875/876   Items 1-19, Batch A/B,
+                                                    Queue 7a/8b/8c/7b/9
+    S2  "BulkDownloader v3.66.82..."     ~82x       12 items in four groups
+    S3  "BulkDownloader discrimi..."     CURRENT    matches this register
+
+**S3 IS CANONICAL.** Independent corroboration rather than assertion: S3 reports
+"18 of 93 suites still fail" under `bd-band`, and this session measured 75/93
+green on its own 93-file run. Same number, two sessions, no shared measurement.
+S1 and S2 are historical and should not be worked from.
+
+**FIVE ITEMS THOSE LISTS CALL OPEN ARE CLOSED. Measured, not read:**
+
+| the list said | measured at ea524f7 |
+| --- | --- |
+| S1 #6: the CLAUDE.md section 6 line about an interrupted `bd-mutate` not restoring is "confirmed not present" | PRESENT -- section 6 carries it, with the SIGTERM/SIGKILL split |
+| S1 #2 / Item 7: `test_pk_mirrors_do_not_drift` cannot fire -- `pytest.fail()` unstubbed, and its `SOURCE_DIRS` loop `break`s on first match | BOTH FIXED. The stub defines `fail` (`run_tests_core.py:138`), and `break` survives only inside docstrings that explain its removal |
+| S2 #4: `cookies_expiry_info` misreads the `-1` session sentinel | FIXED. The non-positive branch counts a session cookie, and the comment names the old truthiness bug by mechanism |
+| S1 #8: `bd-band` carries three `/home/claude` paths | ZERO, in the tool and in its project-knowledge mirror |
+| S1 #8: `test_contracts` gives 4/10 under `bd-band` | 14/14 since v3.66.885, matching bare pytest exactly |
+
+**ONE ITEM CONFIRMED OPEN BY DIRECT PROBE**, because a confirmation is worth as
+much as a closure: S2 #2, band runs writing into the working tree. All three of
+`plugins/ackgate.py`, `plugins/handdropped.py` and `plugins/registry.json` are
+tracked=no AND ignored=no. And S3's zero-collect item reproduced in this
+session's own band output -- a helper module with zero tests is graded FAIL.
+
+**ANCHORS THAT HAVE DRIFTED.** Every one of these was cited with a `file:line`
+that no longer points at its subject. Section 1 applies: re-derive before
+working any of them.
+
+| cited | actual |
+| --- | --- |
+| `runner_auth.py:177/:331` | `start_manual_login` at :379; `is_alive()` at :189 and :407 |
+| `cookies.py:134` | `cookies_expiry_info` at :152 (and fixed) |
+| `bd-claim`, "9 `os.getpid()` references" | 7 |
+| `library_final.regen_nfos_from_history:474` | the def is at :468 |
+| toolchain budget "239/239" | 240, raised at @882 as acknowledged debt |
+
+**AND THE `/home/claude` COUNT IS THREE DIFFERENT DENOMINATORS, NOT A TREND.**
+S1 says 391 files, S2 says 393 files / 1,541 occurrences, and this session
+measures 1103 occurrences across 248 TRACKED files. `/home/claude` is outside
+the repo and per-container, so a container figure and a tracked-source figure
+are not comparable in either direction, and neither is comparable across two
+containers. Anyone reading these as progress is reading noise.
+
+**BOX -- THIS REGISTER CAN SETTLE WHAT THOSE SESSIONS COULD NOT.** S2 says the
+last capture is v3.66.878; S3 says 882 and that it has "no box evidence for
+883". The operator supplied the 883 bundle to THIS session: **PASS**, deployed
+sha `f863c49369bb`, 14703 total / 14618 passed / 0 failed / 0 errors / 85
+skipped, live 36 pass / 0 warn / 0 fail, graph check-hash OK, run
+2026-08-05T22:30:22. So v3.66.883 IS captured and the gap is **two** cuts
+(884, 885), not three.
+
+**A CORRECTION THIS SESSION OWES.** It told the operator that `capture.sh` uses
+real pytest and therefore "does not exercise" `run_tests_core`, so v3.66.885
+needed no capture. Too strong, and S3 had it right: capture does not USE that
+runner, but its suite contains roughly nineteen tests that import and assert on
+it -- `test_pytest_runner_boundary`, `test_capture_execution_lanes`,
+`test_harness_retry_timeout` and the flake-registry suites among them. A
+capture DOES yield box evidence about 885.
+
+THE CANONICAL ORDERED LIST is in 15.36.
+
+### 15.36 | The canonical open list, 1-33, at ea524f7
+
+Ordered by what unblocks what, not by age. Re-derive each from source before
+working it (section 1); several of the anchors above were stale within days.
+
+BLOCKED ON THE OPERATOR (1-3)
+
+  1. **7b** -- name the twelve retired tools. Unrecoverable from the tree;
+     retiring the wrong tool is not repairable. CANNOT-EVALUATE, not unknown.
+  2. **Item 9** -- `capture.sh` commit identity. Release gate, needs explicit GO.
+     Item 19 below rides this same cut.
+  3. **Item 16 (s5)** -- `/home/claude` residue. Blocked on a scope call: a
+     blanket sweep turns red a test that positively pins the string.
+
+WORK, NOT BLOCKED (4-19)
+
+  4. **`bd-band`'s three remaining root causes** -- stub API surface (`param`,
+     `importorskip`, `MonkeyPatch`, `mark.slow`), module import path
+     (`shell_source`, `conftest`, cross-test-module), parametrize injection.
+     18 of 93 suites. The `shell_source` group is the sharpest: that helper
+     landed at @880, so the suites guarding the last three cuts cannot run
+     under `bd-band` at all.
+  5. **Batch A** -- `bd-parband` attributes a verdict to a suite it never ran
+     (a bad path falls through to a broad run); `.bd_last_band.json` has no
+     ignore rule. Small, confirmed open.
+  6. **Band runs write into the working tree** -- `plugins/ackgate.py`,
+     `plugins/handdropped.py`, `plugins/registry.json`, none tracked and none
+     ignored. RE-CONFIRMED by probe this session.
+  7. **Zero-collect classification** -- `bd-band` grades a zero-test helper
+     module FAIL, and the derive sweeps helper modules into bands.
+     Reproduced in this session's own run.
+  8. **Batch B remainder** -- `bd-opv`, `bd-env-report-check`, `bd-equiv`,
+     `bd-fullsuite`. Worth doing as ONE parametrized invariant -- "every wired
+     gate refuses rather than passes when its denominator is empty" -- not as
+     four separate fixes. One of five already done (`bd-docstale`, @864).
+  9. **`bd-claim` is inert from a shell** -- a CLI invocation dies and reaps its
+     own claim, so it only works agent-to-agent.
+ 10. **`ai_boot_readiness.json` has no in-flight marker** -- a mid-run read is
+     indistinguishable from terminal failure.
+ 11. **Item 13 (s4#4)** -- repo-root `.db-wal` writer. Authorized as two cuts,
+     never started. Two FATALs must be fixed DURING implementation, and the
+     sentinel must be a `sys` attribute, not a `BD_` env var (section 4: a
+     `BD_` name enters the parity ledger).
+ 12. **Item 14** -- `item 12` remnants, four unrelated subjects mis-filed as one.
+     Split and prioritise separately: the eight-producer divergence; its proven
+     non-exhaustiveness; `audit()`'s two different caps in one dict; and
+     `regen_nfos_from_history` resolving a bare basename CWD-relative.
+ 13. **Item 15** -- `bd-state` reachable only through `build_session_pack.py`.
+ 14. **Phase B manual-takeover early-return** -- `start_manual_login` returns
+     while the login thread is alive and Phase B runs inside that thread, so the
+     advertised takeover can never open. ANCHORS DRIFTED -- re-derive.
+ 15. **`install_service.sh` polls started, not serving** -- the loop watches
+     `systemctl is-active`, so the vault unlock can fire before the socket
+     binds. Improved, but the class stands.
+ 16. **7a -- retirement completion.** Three pre-@858 retired tools survive as
+     tracked runnable extensionless `project-knowledge/` files that the three
+     `*_stays_retired` gates cannot see. BLOCKED ON SPEC REWORK: as written it
+     turns three gates red on four LIVE tools. Lower the toolchain budget from
+     240 when it lands.
+ 17. **Item C** -- does a container restart fire SessionStart? Instrumented,
+     unanswered. Needs a `bd-restart-check` exit 1 mid-session; this session
+     got exit 0, `source=startup`.
+ 18. **Venv specifier drift** -- `check_requirements.py` calls `version(name)`
+     and discards it, in all three recovery paths. Still THEORETICAL: @883's
+     band failures were a runner defect and @885 confirmed it. Do not record
+     that as this item's measurement.
+ 19. **Item 17** -- `git rev-parse HEAD` into `01_sysinfo.log`, plus a selftest
+     stage for `capture.sh`. Re-confirmed ABSENT against the 883 bundle.
+     Rides item 2.
+
+DELIBERATE DEFERRALS -- OPERATOR DECISIONS, NOT DEFECTS (20-22)
+
+ 20. **Import-graph gate is blind to `tests/` edges** -- it walks only
+     `bulk_downloader/` and `tools/`. Widening it makes every future test cut
+     carry a baseline re-freeze. Standing-cost call.
+ 21. **The pre-force line `b4f0c80`** of the deleted preflight branch --
+     unexamined, no verdict, exists only in the box's object store.
+ 22. **Library panel shows the 31 fixture rows as `missing`** -- correct
+     behaviour, cosmetic noise, grows 1-2 per capture run.
+
+BOX-ROUTINE (23-25)
+
+ 23. **The capture gap is two cuts wide** -- 884 and 885. 885 IS covered by a
+     capture (see 15.35's correction), so this is real coverage, not a formality.
+ 24. **Three stale >6h lock files** flagged by the census selftest -- remove
+     only after confirming nothing holds them.
+ 25. **`~/bd-orphans-2026-08-01.bundle` is the SOLE copy** of the deleted branch
+     family -- give it normal backup rotation.
+
+STANDALONE REGISTER FINDINGS, STILL OPEN (26-28)
+
+ 26. **15.8** -- census coverage counts rows it never examined.
+ 27. **15.11** -- qB/JD library rows: a directory has no absolute FILE path.
+     Explicitly a PRODUCT decision, not a mechanical fix.
+ 28. **15.12** -- six extractor completion paths cannot execute. Pre-existing.
+
+YOURS, NOT MINE (29-30)
+
+ 29. **The archive sequence** -- the only item with an ordering constraint:
+     recover the 91 `.db` beside 90 `.db-journal`, purge rebuildable bulk,
+     THEN consolidate into one verified bundle.
+ 30. **The launcher Stop hook's advice** -- it suggests pushing pre-squash
+     commits and lives outside the repo. Repo-local mitigation is a
+     `.githooks/pre-push` enforcing section 7's two-dot diff.
+
+PARALLEL PROGRAM -- OLDER, LARGELY OPERATOR- OR CAPTURE-BOUND (31-32)
+
+ 31. **15.15 / TASK_TRACKER, 11 rows** -- EXIT-3 (note CI now runs a green
+     `postgres-integration`; establish whether that moves it), OPV-F3.1 (window
+     ELAPSED 2026-07-30 -- closable or restarts), CAP-ROBUST arm C, JW-TMPL
+     (one credential fill may clear it), LOGIN-NSTEP, P3-T12-CALLSITE, RPTYL
+     (do not close by relaxing `api_patterns >= 1` silently), FR-A6.2, FR-A6.3,
+     2c-DATA, CORPUS-DISPOSITION (data, not a task).
+ 32. **15.15 / CODEX_HANDOFF, 23 of 34 groups** -- Analysis Task 4 (its frozen
+     review packages NO LONGER EXIST; resuming means re-freezing), Analysis
+     Tasks 5-7, Governance/gate 1-8, Audit/knowledge/hygiene/static-KB 1-11.
+
+ONGOING, NOT A FINISH LINE (33)
+
+ 33. **The prose-only pool** -- baseline 184 of a 240-tool population.
+     A ratchet, not a target.
+
 ### 15.34 | Open item A is fixed; the spec's last step had to be dropped, and the reading was void again
 
 Session of 2026-08-05, v3.66.884, branch `claude/bulkdownloader-resume-tpi03q`.
