@@ -450,38 +450,84 @@ def run_test(test_fn, owner=None, autouse_fixtures=(), module_wipe=False,
                     return False, f"setup failed: {type(e).__name__}: {e}"
 
         ctx = ctx_ai = None
-        if "clean_workdir" in params:
-            kwargs["clean_workdir"] = workdir
-        if "fresh_app" in params:
-            ctx = make_fresh_app(workdir)
-            kwargs["fresh_app"] = ctx.__enter__()
-        if "aiassist_module" in params:
-            ctx_ai = make_aiassist_module()
-            kwargs["aiassist_module"] = ctx_ai.__enter__()
-        # v3.43.62: tmp_path + monkeypatch shims so pytest-style tests
-        # (e.g. live_recorder, vpn) work under this runner without
-        # requiring real pytest. They mirror the canonical pytest API
-        # surface enough for our tests to be portable both ways.
+        # v3.43.62 (tmp_path/monkeypatch) and v3.66.37 (capsys): shims so
+        # pytest-style tests work under this runner without real pytest. They
+        # mirror the canonical pytest API surface enough for our tests to be
+        # portable both ways.
         _tmp_path_dir = None
         _monkeypatch_obj = None
-        if "tmp_path" in params:
-            _tmp_path_dir = Path(workdir) / "tmp_path"
-            _tmp_path_dir.mkdir(parents=True, exist_ok=True)
-            kwargs["tmp_path"] = _tmp_path_dir
-        if "monkeypatch" in params:
-            _monkeypatch_obj = _MonkeyPatch()
-            kwargs["monkeypatch"] = _monkeypatch_obj
-        # v3.66.37: capsys shim. Mirrors pytest's capsys fixture enough
-        # for tests that assert on captured stdout/stderr (dd-replay,
-        # recon-corpus CLI tests). Redirects sys.stdout/stderr to buffers
-        # for the duration of the test; readouterr() returns and resets.
         _capsys_obj = None
         _capsys_saved = None
-        if "capsys" in params:
-            _capsys_obj = _CapSys()
-            _capsys_saved = (sys.stdout, sys.stderr)
-            sys.stdout, sys.stderr = _capsys_obj._out, _capsys_obj._err
-            kwargs["capsys"] = _capsys_obj
+
+        # ONE SHIM TABLE, READ BY ALL THREE RESOLUTION PATHS.
+        #
+        # v3.66.885: this used to be three tables. A TEST function's params
+        # got all six names below; the autouse loop and `_resolve_named` got
+        # `tmp_path` and `monkeypatch` only. So `clean_workdir` resolved for a
+        # test and was silently DROPPED for a fixture, and the fixture call
+        # then raised TypeError -- CLAUDE.md section 0's shape, two resolution
+        # paths for one name with only one of them complete. Measured at
+        # v3.66.883: `bd-band` manufactured 80 failing cases across 22 suites
+        # that pass 413/413 under real pytest, while section 4 mandates
+        # `bd-band` as the band tool.
+        #
+        # It is ONE table rather than three-with-clean_workdir-added because
+        # the defect is the asymmetry, not the missing name. Adding the one
+        # name that was reported would have left `fresh_app`, `aiassist_module`
+        # and `capsys` broken on the fixture paths -- and `_resolve_named`'s
+        # own docstring already claimed capsys support it did not have, so the
+        # prose was wrong in the same direction the code was.
+        #
+        # Ordering is preserved from the original by iterating _SHIM_NAMES
+        # rather than `params`: capsys redirects sys.stdout, so it must be
+        # created after fresh_app, and a dict-order change here would be an
+        # invisible behaviour change.
+        _SHIM_NAMES = ("clean_workdir", "fresh_app", "aiassist_module",
+                       "tmp_path", "monkeypatch", "capsys")
+        _shim_cache = {}
+
+        def _shim(pname):
+            """Return the built-in shim named `pname`, or _MISSING.
+
+            Created at most once per test and memoised, so a fixture and the
+            test body that both ask for `monkeypatch` share one object and one
+            teardown -- which is what makes the single table safe. Every
+            producer below assigns the same local the `finally` block already
+            tears down, so a shim created for a FIXTURE is cleaned up exactly
+            as one created for a test always was.
+            """
+            nonlocal ctx, ctx_ai, _tmp_path_dir, _monkeypatch_obj
+            nonlocal _capsys_obj, _capsys_saved
+            if pname in _shim_cache:
+                return _shim_cache[pname]
+            if pname == "clean_workdir":
+                val = workdir
+            elif pname == "fresh_app":
+                ctx = make_fresh_app(workdir)
+                val = ctx.__enter__()
+            elif pname == "aiassist_module":
+                ctx_ai = make_aiassist_module()
+                val = ctx_ai.__enter__()
+            elif pname == "tmp_path":
+                _tmp_path_dir = Path(workdir) / "tmp_path"
+                _tmp_path_dir.mkdir(parents=True, exist_ok=True)
+                val = _tmp_path_dir
+            elif pname == "monkeypatch":
+                _monkeypatch_obj = _MonkeyPatch()
+                val = _monkeypatch_obj
+            elif pname == "capsys":
+                _capsys_obj = _CapSys()
+                _capsys_saved = (sys.stdout, sys.stderr)
+                sys.stdout, sys.stderr = _capsys_obj._out, _capsys_obj._err
+                val = _capsys_obj
+            else:
+                return _MISSING
+            _shim_cache[pname] = val
+            return val
+
+        for _pname in _SHIM_NAMES:
+            if _pname in params:
+                kwargs[_pname] = _shim(_pname)
 
         # v3.49: run autouse fixtures. They typically use monkeypatch +
         # tmp_path to isolate test state. We need to invoke them BEFORE
@@ -496,22 +542,15 @@ def run_test(test_fn, owner=None, autouse_fixtures=(), module_wipe=False,
         for fixture_fn in autouse_fixtures:
             fixture_sig = inspect.signature(fixture_fn)
             fx_kwargs = {}
-            if "monkeypatch" in fixture_sig.parameters:
-                # Reuse the same monkeypatch object so undo cleans up
-                # both fixture and test patches together
-                if _monkeypatch_obj is None:
-                    _monkeypatch_obj = _MonkeyPatch()
-                    # Only expose to the test if the test asked for it
-                    if "monkeypatch" in params:
-                        kwargs["monkeypatch"] = _monkeypatch_obj
-                fx_kwargs["monkeypatch"] = _monkeypatch_obj
-            if "tmp_path" in fixture_sig.parameters:
-                if _tmp_path_dir is None:
-                    _tmp_path_dir = Path(workdir) / "tmp_path"
-                    _tmp_path_dir.mkdir(parents=True, exist_ok=True)
-                    if "tmp_path" in params:
-                        kwargs["tmp_path"] = _tmp_path_dir
-                fx_kwargs["tmp_path"] = _tmp_path_dir
+            # Every shim the TEST path offers, not just two of them. The
+            # memoised `_shim` hands back the same object the test body gets,
+            # so a monkeypatch applied in a fixture is undone by the same
+            # teardown -- which is what the hand-rolled version above was
+            # reaching for when it reused `_monkeypatch_obj`.
+            for _pn in fixture_sig.parameters:
+                _v = _shim(_pn)
+                if _v is not _MISSING:
+                    fx_kwargs[_pn] = _v
             try:
                 gen = fixture_fn(**fx_kwargs)
                 if inspect.isgenerator(gen):
@@ -541,17 +580,11 @@ def run_test(test_fn, owner=None, autouse_fixtures=(), module_wipe=False,
                 ffn = named_fixtures[fname]
                 fx_kwargs = {}
                 for pn in inspect.signature(ffn).parameters:
-                    if pn == "tmp_path":
-                        nonlocal _tmp_path_dir
-                        if _tmp_path_dir is None:
-                            _tmp_path_dir = Path(workdir) / "tmp_path"
-                            _tmp_path_dir.mkdir(parents=True, exist_ok=True)
-                        fx_kwargs[pn] = _tmp_path_dir
-                    elif pn == "monkeypatch":
-                        nonlocal _monkeypatch_obj
-                        if _monkeypatch_obj is None:
-                            _monkeypatch_obj = _MonkeyPatch()
-                        fx_kwargs[pn] = _monkeypatch_obj
+                    # A built-in shim wins over a same-named local fixture,
+                    # which is the precedence the hand-rolled chain had.
+                    _v = _shim(pn)
+                    if _v is not _MISSING:
+                        fx_kwargs[pn] = _v
                     elif pn in named_fixtures:
                         dep = _resolve_named(pn, _seen)
                         if dep is not _MISSING:
@@ -686,14 +719,25 @@ def discover_and_run(test_file):
     named_fixtures = {}
     for name in dir(mod):
         obj = getattr(mod, name)
-        if (callable(obj) and not name.startswith("_")
-            and getattr(obj, "_autouse", False)):
+        # v3.66.885: the MARKER is the discriminator, not the NAME. This used
+        # to also require `not name.startswith("_")`, so an underscore-prefixed
+        # fixture was never collected and therefore never invoked -- and a
+        # suite that declared it PASSED without the setup it asked for. That is
+        # worse than the TypeError above precisely because it is silent, and it
+        # diverges from real pytest, which collects by decorator and does not
+        # care about a leading underscore.
+        #
+        # The `callable(obj) and getattr(obj, ...)` pair is still load-bearing:
+        # dropping the underscore test WITHOUT keeping the marker test would
+        # make every private helper in a test module injectable, so a test
+        # whose parameter happened to share a helper's name would silently
+        # receive the function instead of failing.
+        if callable(obj) and getattr(obj, "_autouse", False):
             autouse_fixtures.append(obj)
         # v3.66.44 (gap 2): index named local fixtures by name so a test
         # can request one via its signature. Autouse fixtures run
         # unconditionally and aren't passed by name, so exclude them here.
-        elif (callable(obj) and not name.startswith("_")
-              and getattr(obj, "_is_fixture", False)):
+        elif callable(obj) and getattr(obj, "_is_fixture", False):
             named_fixtures[name] = obj
 
     results = []

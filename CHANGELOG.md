@@ -4,6 +4,63 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.885 - the runner resolved fixture deps from a table missing four of six
+
+Register items B and B2, one root cause. `run_test` supplied SIX shims to a
+TEST function's parameters - clean_workdir, fresh_app, aiassist_module,
+tmp_path, monkeypatch, capsys - while the two paths that supply a FIXTURE's
+parameters handled only tmp_path and monkeypatch. The identical name resolved
+on one path and was silently dropped on the other, and the fixture call then
+raised TypeError. CLAUDE.md section 0's shape: two resolution paths for one
+name, only one complete. `_resolve_named`'s own docstring claimed
+capsys support it did not have, so the prose was wrong in the same direction
+as the code.
+
+Measured consequence at v3.66.883: bd-band manufactured 80 failing cases
+across 22 suites which pass under real pytest, while section 4 mandates
+bd-band as the band tool. Every session since either wasted a round trip on
+false failures or quietly stopped using the mandated tool.
+
+Fixed with ONE shim table read by all three paths, not by adding the one name
+that was reported - which would have left fresh_app, aiassist_module and
+capsys broken on the fixture paths and reproduced the shape of the defect
+inside its own repair. Shims are memoised, so a fixture and the test body
+that both ask for monkeypatch share one object and one teardown; every
+producer assigns the same local the existing finally block already tears
+down. Creation order is preserved by iterating the shim-name tuple rather
+than the parameter list, because capsys redirects stdout and a dict-order
+change there would be an invisible behaviour change.
+
+B2, the silent half: fixture collection was gated on
+`not name.startswith("_")`, so an underscore-prefixed fixture was never
+collected and never invoked - and a suite that declared one PASSED without
+the setup it asked for. Worse than the TypeError precisely because nothing
+reports it. The marker is now the discriminator, matching real pytest, which
+collects by decorator. The callable+marker test is kept: dropping the
+underscore check without it would make every private helper injectable.
+
+Acceptance: tests/test_contracts.py went 4/10 under bd-band before this cut
+to 14/14 after, matching bare pytest exactly.
+
+Verification: 10 new tests, 5 proven RED on pristine source with five distinct
+measured signatures; 5 pass before and after, pinning the over-correction
+direction and the paths that already worked. bd-mutate 6/6 caught, baseline
+GREEN - but only after two escapes were closed. The first battery scored 4/6:
+deleting clean_workdir from the shim tuple stayed green because that tuple
+drives only the TEST-parameter loop while every case written so far exercised
+the FIXTURE path, and disabling shim memoisation stayed green because nothing
+asserted a fixture and the test body share one object - the property the
+implementation comment claims makes a single table safe. Both gaps were in
+the tests, not the fix, and neither was visible on review.
+
+bd-band over the 93-file band: 75/93 suites green, and every remaining
+failure maps to one of the three root causes this cut does NOT address -
+stub API surface (param, importorskip, MonkeyPatch, mark.slow), module import
+path (shell_source, conftest), and parametrize injection. The 19 test files
+carrying underscore-prefixed autouse fixtures - whose fixtures now execute
+under this runner for the first time - are 19/19 green, so enabling them
+unmasked nothing.
+
 ## v3.66.884 - bd-freshcheck accused an innocent section of being stale
 
 OPEN ITEM A, closed. In a shallow clone the freshness gate reported STALE
