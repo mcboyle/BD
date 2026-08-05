@@ -4,6 +4,54 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.880 - two capability manifests were checked by nothing
+
+v3.66.879's defect one layer out. After it widened the provisioner's check to
+requirements.txt AND requirements-test.txt, the denominator of every recovery
+path was still smaller than the set of manifests:
+
+    requirements.txt           hook, cloud-setup, deploy
+    requirements-test.txt      hook, cloud-setup, deploy
+    requirements-dev.txt       cloud-setup, deploy
+    requirements-cloak.txt     NOTHING
+    requirements-optional.txt  NOTHING
+
+cloakbrowser was installed (0.5.2) with no path able to see it, so a reverted
+image dropping only that package was invisible to all three.
+
+Both are now INSTALLED and resolution-checked. Installing requirements-optional
+is an operator decision taken 2026-08-05: its 21 entries are the site extractors
+and notifier stack (phub, xvideos_api, m3u8, scrapling, apprise), which is
+capability this application exists to have. An earlier draft of this cut argued
+for leaving it absent because 19 of 21 were missing here -- that described the
+container as it happened to be rather than as it is meant to be. Measured before
+wiring rather than assumed: pip install -r exits 0, all 21 resolve, 0 specifier
+drift, and the app still imports.
+
+STATED, not GATED: both rows are WARN and neither sets CORE_FAILED. The optional
+set reaches 21 third-party indexes and any of them can yank a release; a hard
+failure would brick a provision over one unavailable extractor, which is the
+over-sensitive failure that counts equal to a false clean.
+
+Also closes the doc-band gap that cost v3.66.879 a CI round trip. bd-freshcheck
+reads DOCUMENTS -- it resolves every file:line anchor against git ls-files and
+requires the newest close section to name an ancestor commit -- so a register
+edit is in its blast radius and no module-derived band reaches it. CLAUDE.md
+section 4 now says so, with the runnable commands.
+
+And the recurring test-authoring defect behind three of the last four escapes:
+a line-scoped assertion about a shell LOOP is wrong in both directions. It fails
+a correct loop-variable implementation for its form, and the inverse assertion
+passes silently because the body names no literal. Mechanized in
+tests/shell_source.py; both the 879 and 880 suites now use it instead of local
+copies.
+
+Mutation batteries: 6 mutants on this cut, 6 caught; the 879 battery re-run
+after the refactor, 5 caught, 0 escaped. Two of the six escaped on the first
+pass -- the CORE_FAILED guard (line-scoped, per above) and a CLAUDE.md
+assertion that read the tool's name from PROSE while the runnable block was
+swapped for a different tool.
+
 ## v3.66.879 - the provision trigger could see one fifth of the damage
 
 The operator reported three failures recurring across sessions: the checkout

@@ -50,6 +50,10 @@ import re
 import subprocess
 from pathlib import Path
 
+# @880: the shared reader -- this file's local copies were the first two of
+# three hand-rolled versions that got the same two shapes wrong.
+from shell_source import blocks_containing, shell_code_only
+
 REPO = Path(__file__).resolve().parents[1]
 HOOK = REPO / ".claude" / "hooks" / "session-start.sh"
 SETUP = REPO / "scripts" / "cloud-setup.sh"
@@ -251,62 +255,6 @@ def test_a_detached_head_is_not_reset(tmp_path):
 # 4. the delegate's own denominator                                            #
 # --------------------------------------------------------------------------- #
 
-def _shell_code_only(path: Path) -> str:
-    """The script with whole-line `#` comments removed.
-
-    Load-bearing, and learned the hard way FOUR times in one session: an
-    assertion over raw source cannot tell prose from code. The first version of
-    the two tests below searched a window of raw text, and the comment written
-    to EXPLAIN the fix names `requirements-test.txt` -- so a mutant reducing the
-    loop to `for REQ_FILE in requirements.txt` left both green. bd-mutate caught
-    it; review had not.
-
-    Whole-line comments only. Stripping trailing `# ...` would have to know
-    whether the `#` is inside a quoted string, and a wrong strip corrupts the
-    subject rather than narrowing it.
-    """
-    return "\n".join(l for l in path.read_text().splitlines()
-                     if not l.lstrip().startswith("#"))
-
-
-def _enclosing_loop_block(lines, idx):
-    """The `for ... do` / `done` construct containing line `idx`, or that line.
-
-    STRUCTURE, not a fixed width. The first draft sliced src[call-900:call+900],
-    which is the shape CLAUDE.md section 2a forbids -- a harness that cut a shell
-    branch on a fixed width swallowed its closing `fi` and produced bash syntax
-    errors presenting as subject failures. It is also counted by
-    tests/test_source_windows_do_not_shift.py, whose ratchet is one-directional:
-    it went 115 -> 117 on this file and the remedy is to remove the window, not
-    to raise the baseline.
-
-    Falls back to the single line when the call is not inside a loop, so an
-    implementation using two explicit calls is judged on its own text rather
-    than failing for its form.
-    """
-    start = None
-    for i in range(idx, -1, -1):
-        s = lines[i].strip()
-        if re.match(r"^(for|while)\b.*\bdo\b", s) or re.match(r"^(for|while)\b", s):
-            start = i
-            break
-        if s == "done":            # a sibling construct closed above us
-            break
-    if start is None:
-        return lines[idx]
-    depth, end = 0, len(lines) - 1
-    for j in range(start, len(lines)):
-        s = lines[j].strip()
-        if re.search(r"\bdo\b", s):
-            depth += 1
-        if s == "done" or s.startswith("done"):
-            depth -= 1
-            if depth <= 0:
-                end = j
-                break
-    return "\n".join(lines[start:end + 1])
-
-
 def test_cloud_setup_resolution_checks_every_core_manifest():
     """`check_requirements.py` with no argument grades DEFAULT_REQUIREMENTS,
     which is requirements.txt alone. pyyaml and pyflakes are declared only in
@@ -317,10 +265,9 @@ def test_cloud_setup_resolution_checks_every_core_manifest():
     # the manifest through a loop variable, so it failed a correct
     # implementation for its FORM. The property is that both core manifests are
     # inside the denominator the call iterates.
-    lines = _shell_code_only(SETUP).splitlines()
-    hits = [i for i, l in enumerate(lines) if "check_requirements.py" in l]
-    assert hits, "cloud-setup.sh no longer calls check_requirements.py at all"
-    graded = "\n".join(_enclosing_loop_block(lines, i) for i in hits)
+    code = shell_code_only(SETUP)
+    graded = "\n".join(blocks_containing(code, "check_requirements.py"))
+    assert graded, "cloud-setup.sh no longer calls check_requirements.py at all"
     for manifest in ("requirements.txt", "requirements-test.txt"):
         assert manifest in graded, (
             "%s is not inside any construct that calls check_requirements.py, so "
@@ -332,11 +279,8 @@ def test_the_test_manifest_is_actually_graded_not_merely_mentioned():
     """The weaker sibling of the assertion above: naming the manifest in a
     comment would satisfy a substring check while grading nothing. Require the
     result to reach a row and the failure counter, the way the core check does."""
-    lines = _shell_code_only(SETUP).splitlines()
-    for i, l in enumerate(lines):
-        if "check_requirements.py" not in l:
-            continue
-        block = _enclosing_loop_block(lines, i)
+    code = shell_code_only(SETUP)
+    for block in blocks_containing(code, "check_requirements.py"):
         if "requirements-test.txt" in block and "row " in block:
             return
     raise AssertionError(
