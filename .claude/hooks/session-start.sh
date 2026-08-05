@@ -113,17 +113,55 @@ if [ -n "$broken" ]; then
 fi
 fi
 
-# --- 3. checkout identity: REPORT, never repair ------------------------------
-# Silence here is the signal. A divergence line means the tree may be a stale
-# image and anything read out of it is suspect until re-synced BY HAND.
+# --- 3. checkout identity: repair when PROVABLY lossless, else report ---------
+# @873. This section used to only ever REPORT, and the reason given was sound as
+# far as it went: resume/compact fire mid-session, where the checkout is
+# legitimately ahead of origin and carries uncommitted work, and a reset there
+# would destroy exactly what the session is doing.
+#
+# But that conflated two different situations under one refusal. "The tree has
+# work I would lose" and "the tree is a reverted image with nothing of its own"
+# are distinguishable, and the second is the one that keeps happening -- four
+# times now, and once it produced a confidently wrong conclusion about a fix
+# that was present on main all along.
+#
+# So the predicate is provable losslessness, not the hook's trigger source:
+#
+#   * no MODIFIED TRACKED files  -- `git reset --hard` only touches tracked
+#     paths, so untracked scratch files are irrelevant to the question and are
+#     deliberately not counted (--untracked-files=no). Counting them would
+#     refuse to repair the common case for no safety gain.
+#   * zero commits ahead of origin/main -- every commit reachable from HEAD is
+#     already on the remote.
+#
+# Both true means every byte the reset would discard is reachable from
+# origin/main by construction, so there is nothing to lose. Either false and it
+# refuses and SAYS WHICH, because a repair that could eat a cut is worse than
+# the rollback it fixes.
 if git rev-parse --git-dir >/dev/null 2>&1; then
   git fetch -q origin main 2>/dev/null || true
   head_sha="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
   main_sha="$(git rev-parse --short origin/main 2>/dev/null || echo unknown)"
   if [ "$main_sha" != "unknown" ] && ! git merge-base --is-ancestor origin/main HEAD 2>/dev/null; then
     behind="$(git rev-list --count HEAD..origin/main 2>/dev/null || echo '?')"
-    echo "session-start: WARNING checkout $head_sha is $behind commit(s) behind origin/main ($main_sha)." >&2
-    echo "session-start: verify before trusting any source read; re-sync with 'git fetch origin && git checkout -B main origin/main'." >&2
+    dirty="$(git status --porcelain --untracked-files=no 2>/dev/null || echo UNKNOWN)"
+    ahead="$(git rev-list --count origin/main..HEAD 2>/dev/null || echo '?')"
+    if [ -z "$dirty" ] && [ "$ahead" = "0" ]; then
+      echo "session-start: checkout $head_sha is $behind commit(s) behind origin/main ($main_sha)" >&2
+      echo "session-start: no modified tracked files and 0 commits ahead -- this is the reverted-image signature, and a fast-forward is lossless. Repairing." >&2
+      if git reset --hard -q origin/main 2>/dev/null; then
+        echo "session-start: REPAIRED -- checkout now at $(git rev-parse --short HEAD)" >&2
+      else
+        echo "session-start: reset FAILED -- re-sync by hand before trusting any source read" >&2
+      fi
+    else
+      # Refusing is the right answer here, and it has to say why: an operator
+      # who sees only "behind" will re-run the same command by hand and lose
+      # the very work this branch protected.
+      echo "session-start: WARNING checkout $head_sha is $behind commit(s) behind origin/main ($main_sha)." >&2
+      echo "session-start: NOT repairing -- ${dirty:+modified tracked files present; }${ahead:+$ahead commit(s) ahead of origin/main; }a reset would discard work." >&2
+      echo "session-start: verify before trusting any source read; re-sync deliberately once the local work is safe." >&2
+    fi
   fi
 fi
 
