@@ -4,6 +4,58 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.877 - a gate certified 2568 files by reading one of them
+
+Item 8b. test_the_bare_work_default_is_not_a_sandbox_path did
+`MT.read_text()` -- toolchain/bin/bd-mutation-test, and nothing else -- while
+20 other tracked files carried the identical `default="/home/claude/work"`.
+Its denominator was ONE FILE and it reported OK over a population of 2568.
+Section 0, in a test written to catch exactly this class.
+
+Measured at d4fa476 over the ext-OR-shebang denominator (2568 python-typed of
+3419 tracked): 21 files carry the literal, 8 of them project-knowledge mirrors.
+A `*.py` glob would have found 2110 files and missed every extensionless bd-*
+tool in the set -- the difference between the two denominators is the finding.
+
+NONE of the 21 is on a band path. The two that were, bd-band and bd-bandcheck,
+were fixed at @876; the rest are operator-invoked checkpoint/rollback/snapshot
+tools and decomp helpers. That is item 8c and is deliberately NOT in this cut.
+Listing them makes them visible; before this, one file certified all of them.
+
+THE ASSERTION IS SET EQUALITY, NOT "no new ones". A one-directional count lets
+the list rot into a permanent amnesty, and this repo has that failure on
+record: a floor of 150 sat under a real population of 258 and could not see the
+narrowing it was written to catch (@870). So a carrier that gets FIXED also
+fails, until it is removed from the declared set in the same cut.
+
+THE PREDICATE STAYS NARROW, on `default=` rather than on the bare path. Several
+of these files legitimately mention /home/claude in a comment explaining this
+very class of bug -- including the one @876 added to bd-bandcheck -- so a
+whole-file scan would fire on a fixed tree. Over-sensitivity is a soundness bug
+too; the original author scoped it for that reason and the scoping is kept. A
+mutant widening it to the bare path is caught.
+
+THREE MUTANTS ESCAPED THE FIRST BATTERY AND ALL THREE WERE ONE SHAPE: the
+guards only fire in a tree state this tree is not in. On a healthy tree `new`
+and `fixed` are both empty and the denominator is nowhere near collapsing, so
+deleting the empty-denominator canary, or the new-carrier check, or the
+fixed-carrier check, ALL left the suite green. Three guards no mutant can
+reach, which is a test that passes before and after -- i.e. not a test.
+
+Closed by extracting the decision into a PURE function and driving it with
+constructed input: clean, collapsed denominator, a new carrier, a fixed
+carrier, and both at once. That last case is why the function returns a LIST
+rather than raising on the first problem -- a mutant truncating it to
+`problems[:1]` masks every later guard and is now caught.
+
+RED evidence, both directions, against the ONE-FILE gate:
+  * plant a new carrier in tools/ -> widened gate FAILS naming it; the old
+    assertion (`'default=...' not in bd-mutation-test`) passes. Invisible.
+  * remove a carrier from the tree -> widened gate FAILS asking for the list
+    to be updated; the old assertion is unaffected.
+
+bd-mutate: 6 caught, 0 escaped, 0 invalid.
+
 ## v3.66.876 - the band tool pinned its suites at a browser pool that is not there
 
 Item 8a, the first of three. bd-band's band_env() hardcoded a zip-era cache
