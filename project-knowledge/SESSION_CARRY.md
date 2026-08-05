@@ -3573,7 +3573,7 @@ STILL OPEN, unchanged by any of this:
   166 bd-* tools remain prose-only. The ratchet stops that number growing;
       wiring or retiring them is its own work.
 
-### 15.30 | Session close 2026-08-05 at v3.66.879 -- SUPERSEDES 15.29's open set
+### 15.30 | Session close 2026-08-05 at 5e87c68 (v3.66.878 tip), carried by v3.66.879 -- SUPERSEDES 15.29's open set
 
 STATE: twelve cuts merged this session, #170-#180 plus this one.
 
@@ -3675,7 +3675,10 @@ why the refutation pass earns its cost -- at least two would have shipped:
   * The lossless repair converged the tree and nothing derived from it. CLOSED
     by this cut.
   * **The launcher Stop hook's ADVICE reproduces two recorded git-hygiene
-    failures.** `/root/.claude/stop-hook-git-check.sh:41-44` falls back to
+    failures.** the launcher's `stop-hook-git-check.sh` (under the
+    agent home, NOT this repo -- deliberately written without a `file:line`
+    anchor, because an anchor to an untracked path can never resolve and the
+    doc-anchor gate is right to reject it) falls back to
     `origin/HEAD` when `origin/<branch>` does not resolve -- exactly the state of
     a surviving local branch after squash-merge + auto-delete + prune -- then
     tells the agent to push the pre-squash commits. That is the mechanism that
