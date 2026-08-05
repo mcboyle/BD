@@ -241,3 +241,151 @@ def test_early_exit_statuses_strip_endpoint_credentials(tmp_path):
         assert body["endpoint"] == expected_endpoint
         for secret in ("credential-user", "credential-pass", "credential-query"):
             assert secret not in document
+
+
+# --------------------------------------------------------------------------- #
+# @874 -- a reader sampling mid-run must not see the LAST run's verdict         #
+# --------------------------------------------------------------------------- #
+# Nothing was written between process start and the END of attempt 1. On the box
+# the readiness unit is Type=simple / Restart=on-failure / RestartSec=60, so a
+# new run's attempt-1 window is exactly when a reader is most likely to sample
+# -- and what it saw was the PREVIOUS run's terminal `degraded` document,
+# verbatim and indistinguishable from a finished failure. That is what produced
+# the wrong "Audit #3 reproduced" verdict.
+
+def test_in_flight_marker_precedes_the_first_probe_call(tmp_path):
+    """A document must exist, and say it is not final, BEFORE attempt 1 probes.
+
+    The spy reads the file at the moment of the first outbound call, which is
+    the earliest point a real reader could sample.
+    """
+    path = tmp_path / "state.json"
+    probe = ScriptedProbe()
+    seen = {}
+    original = probe.list_models
+
+    def spy():
+        seen["exists"] = path.exists()
+        seen["doc"] = json.loads(path.read_text()) if path.exists() else None
+        return original()
+
+    probe.list_models = spy
+    readiness.run(CFG, state_path=path, probe_factory=_factory(probe),
+                  retry_delays=(), now=lambda: 1000.0, boot_id="boot-a")
+    assert seen["exists"] is True, (
+        "no document existed while attempt 1 was in flight, so a reader had "
+        "nothing but the previous run's terminal record to go on")
+    assert seen["doc"]["final"] is False, seen["doc"]
+
+
+def test_a_new_run_does_not_leave_the_previous_failure_readable(tmp_path):
+    """The box's actual shape: a terminal degraded doc from the prior restart,
+    same boot_id, well inside the 600s stale window, while a NEW run is live."""
+    from bulk_downloader import ai_boot_status as status
+    path = tmp_path / "state.json"
+
+    # 1. a prior run fails to exhaustion. Asserted, not assumed -- without this
+    #    precondition the test could pass because nothing was there at all.
+    readiness.run(CFG, state_path=path, probe_factory=_factory(ScriptedProbe(fail_lists=9)),
+                  retry_delays=(0,), sleep=lambda _s: None,
+                  now=lambda: 1000.0, boot_id="boot-a")
+    assert json.loads(path.read_text())["state"] == "degraded"
+
+    # 2. a new, succeeding run starts against the SAME path and boot id
+    probe = ScriptedProbe()
+    captured = {}
+    original = probe.list_models
+
+    def spy():
+        captured["doc"] = status.read_status(path, now=1100.0, boot_id="boot-a")
+        return original()
+
+    probe.list_models = spy
+    readiness.run(CFG, state_path=path, probe_factory=_factory(probe),
+                  retry_delays=(), now=lambda: 1100.0, boot_id="boot-a")
+    assert captured["doc"]["state"] != "degraded", (
+        "a reader mid-run saw the previous process's terminal failure: %r"
+        % (captured["doc"],))
+    assert captured["doc"]["final"] is False, captured["doc"]
+
+
+def test_a_marker_exists_before_the_probe_is_even_constructed(tmp_path):
+    """The pre-attempt-1 write is BEFORE probe_factory, and this is what makes
+    that ordering observable.
+
+    A mutation battery caught the gap: removing that write, or marking it
+    final=True, left the suite green -- because the per-attempt heartbeat
+    inside the loop writes a moment later and masks it. The two writes overlap
+    everywhere EXCEPT the factory window, so only a slow factory can tell them
+    apart. ScriptedProbe's factory is instant, so no existing test could.
+    """
+    path = tmp_path / "state.json"
+    seen = {}
+
+    def slow_factory(endpoint, timeout=None):
+        seen["exists"] = path.exists()
+        seen["doc"] = json.loads(path.read_text()) if path.exists() else None
+        return ScriptedProbe()
+
+    readiness.run(CFG, state_path=path, probe_factory=slow_factory,
+                  retry_delays=(), now=lambda: 1000.0, boot_id="boot-a")
+    assert seen["exists"] is True, (
+        "no document existed while the probe was being CONSTRUCTED. A slow "
+        "factory is dead time in which a reader sees the previous run's "
+        "verdict.")
+    assert seen["doc"]["final"] is False, seen["doc"]
+    assert seen["doc"]["state"] == "retrying", seen["doc"]
+
+
+def test_the_heartbeat_refreshes_the_marker_on_every_attempt(tmp_path):
+    """The heartbeat is what keeps IN_FLIGHT_TTL_SECONDS honest over a long run.
+
+    Without it, the newest in-flight document during attempt N is the attempt
+    N-1 FAILURE write -- which is also final=False, so finality alone cannot
+    tell them apart. The attempt NUMBER can, and that is what this asserts.
+
+    TTL and heartbeat ship together or neither ships: a TTL with no refresh
+    grades a slow live run abandoned; a heartbeat with no TTL lets a dead run
+    read live forever.
+    """
+    path = tmp_path / "state.json"
+    probe = ScriptedProbe(fail_lists=1)          # attempt 1 fails, attempt 2 succeeds
+    seen = []
+    original = probe.list_models
+
+    def spy():
+        seen.append(json.loads(path.read_text()) if path.exists() else None)
+        return original()
+
+    probe.list_models = spy
+    rc = readiness.run(CFG, state_path=path, probe_factory=_factory(probe),
+                       retry_delays=(0,), sleep=lambda _s: None,
+                       now=lambda: 1000.0, boot_id="boot-a")
+    assert rc == 0 and len(seen) == 2, (rc, seen)
+    assert seen[1]["attempt"] == 2, (
+        "during attempt 2 the newest document still described attempt %r -- "
+        "the marker is not being refreshed, so a long run goes silent and the "
+        "TTL will grade it abandoned: %r" % (seen[1].get("attempt"), seen[1]))
+    assert seen[1]["final"] is False, seen[1]
+
+
+def test_a_successful_run_leaves_a_document_marked_final(tmp_path):
+    """The terminal verdict must NOT wear the in-flight marker.
+
+    A `ready` document written with final=False would expire to
+    "stale/abandoned" after the TTL, so a perfectly healthy system would report
+    stale five minutes after converging. Nothing asserted this until a mutant
+    marked the ready write non-final and the suite stayed green.
+    """
+    from bulk_downloader import ai_boot_status as status
+    path = tmp_path / "state.json"
+    rc = readiness.run(CFG, state_path=path, probe_factory=_factory(ScriptedProbe()),
+                       retry_delays=(), now=lambda: 1000.0, boot_id="boot-a")
+    assert rc == 0
+    doc = json.loads(path.read_text())
+    assert doc["state"] == "ready" and doc["final"] is True, doc
+    # and it must survive well past the in-flight TTL unchanged
+    out = status.read_status(path, now=1000.0 + 400, boot_id="boot-a")
+    assert out["state"] == "ready", (
+        "a converged, healthy system reported %r once the in-flight TTL "
+        "elapsed" % (out.get("state"),))
