@@ -1,30 +1,31 @@
 # Recon plans: queue items 1-9, with adversarial review
 
-PROVENANCE. Produced 2026-08-04/05 by a nine-agent read-only recon over commit
-3fded70, then reviewed by three adversarial lenses (red-really-red,
-fix-reproduces-shape, band-completeness). Every agent was required to CONFIRM
-its defect still existed and paste real command output as evidence, rather than
-trust the queue entry. The lenses ran against a25e577 and say so -- the tree
-moved mid-run, and they tracked it.
+PROVENANCE. 2026-08-04/05. Nine read-only agents over commit 3fded70, then
+THREE adversarial lenses (red-really-red, fix-reproduces-shape,
+band-completeness) over all nine plans. 12 agents, 0 errors, ~1.64M subagent
+tokens. Every agent was required to CONFIRM its defect still existed and paste
+real command output as evidence rather than trust the queue entry. The lenses
+ran against a25e577 and said so unprompted -- the tree moved mid-run and they
+tracked it.
 
 WHAT THIS IS AND IS NOT. A work-in-progress spec, NOT a contract. CLAUDE.md
-section 8 is explicit that there is ONE agent-facing document, and a second one
-an agent reads before acting is the defect rather than a resource. Do not read
-this instead of CLAUDE.md. Read it when you pick up one of these items, and
-RE-DERIVE before acting: SESSION_CARRY 15.22 records agents handed a spec
-WITHOUT its amendments reproducing the spec's defects faithfully.
+section 8: there is ONE agent-facing document, and a second one an agent reads
+before acting is the defect, not a resource. Do not read this instead of
+CLAUDE.md. Read it when you pick up one of these items, and RE-DERIVE before
+acting -- SESSION_CARRY 15.22 records agents handed a spec WITHOUT its
+amendments reproducing the spec's defects faithfully.
 
-STALENESS. Every file:line anchor is against 3fded70/a25e577. This container
-reverted its checkout three times on 2026-08-04, and one source read against a
-stale tree produced a confidently wrong conclusion about a fix that was
-present. Verify first: git -C /home/user/BD log --oneline -1
+STALENESS. Every anchor is against 3fded70/a25e577. This container reverted its
+checkout three times on 2026-08-04 and one source read against a stale tree
+produced a confidently wrong conclusion about a fix that was present. Verify
+first: git -C /home/user/BD log --oneline -1
 
-VERDICTS: 9 plans. 7 REAL, 2 PARTIALLY-REAL, 0 NOT-REAL. The two
-PARTIALLY-REAL (items 7 and 8) are the ones to read before trusting the queue
-entry -- both were filed as flat statements and came back qualified.
+VERDICTS over 9 plans: 7 REAL, 2 PARTIALLY-REAL, 0 NOT-REAL,
+0 CANNOT-EVALUATE. Read the PARTIALLY-REAL ones (items 7 and 8) before
+trusting their queue entries -- both were filed as flat statements and came
+back qualified.
 
-REVIEW COVERAGE: 2 of 3 lenses captured below. A missing lens is a gap in the
-review, not a clean bill.
+REVIEW COVERAGE: 3 of 3 lenses. Complete.
 
 
 ## Plans
@@ -582,7 +583,7 @@ The plan's over-sensitivity (a) (`BD_HOME` fresh + `BD_DISABLE_KEEPALIVE`) alrea
 
 ## ITEM 9 -- SOUND
 
-Confirmed: `capture.sh` executes **no** git command. `grep -n "git" capture.sh` returns 3 hits, at `:24`, `:367`, `:972`, all inside comments; `grep -n "rev-parse"` returns nothing. The sysinfo brace block (`capture.sh:335-347`) emits date/uname/os-release/python/pip/disk/memory/ports/`head -3 __init__.py`/`head -10 CHANGELOG.md` and closes with `} > "$OUT/01_sysinfo.log"`. The probe harness cuts at `# ?? [2b/9]` (`tests/test_capture_shell_runtime.py:28`), so step [1] is in range. RED test 1 (sha must equal the fake repo's HEAD, not merely "some 40-hex exists") and RED test 3 (MISMATCH marker) are both red, and the equality form is the right one -- it is what forbids the direction-D wrong-tree answer.
+Confirmed: `capture.sh` executes **no** git command. `grep -n "git" capture.sh` returns 3 hits, at `:24`, `:367`, `:972`, all inside comments; `grep -n "rev-parse"` returns nothing. The sysinfo brace block (`capture.sh:335-347`) emits date/uname/os-release/python/pip/disk/memory/ports/`head -3 __init__.py`/`head -10 CHANGELOG.md` and closes with `} > "$OUT/01_sysinfo.log"`. The probe harness cuts at `# -- [2b/9]` (`tests/test_capture_shell_runtime.py:28`), so step [1] is in range. RED test 1 (sha must equal the fake repo's HEAD, not merely "some 40-hex exists") and RED test 3 (MISMATCH marker) are both red, and the equality form is the right one -- it is what forbids the direction-D wrong-tree answer.
 
 One scoping caveat on the over-sensitivity clause (c), "01_sysinfo.log contains NO 40-hex string": that holds in the probe's synthetic fixture but is fragile against real content (`head -10 CHANGELOG.md`, `pip freeze`) if the assertion is ever reused outside it. Pin it to the fixture explicitly.
 
@@ -658,7 +659,7 @@ After FIX-2(d), `tools/bd-audit-gate.py` must stay byte-equal to `toolchain/bin/
 
 **F3.3 (medium) -- the fork path's truncation is load-bearing, not an aside.** Verified `bd-fullsuite:208` emits `out[-3000:]` and `_parse_worker_line:212-231` parses that. A segmenter over a truncated buffer routinely sees an **orphaned continuation with no marker line** -- which under the plan's own rule ("no failing block found but rc != 0 -> unknown") flips every long-output file in `--fork` to `unknown`. The plan says "raise or drop the truncation" in a subordinate clause; it is a precondition of the fix, and the `--fork` row of the invariant should assert a file whose output exceeds 3000 chars.
 
-Sound: the bd-equiv (`cp.returncode`), bd-opv (crashed ? absent precondition) and bd-env-report-check (decisive field decisive) fixes are each one-line-shaped and correctly bounded, and the four over-sensitivity anchors (OPV-QR live SKIP, @852 partial emptiness, version-match-with-differing-commit) are real, measured, and the right ones.
+Sound: the bd-equiv (`cp.returncode`), bd-opv (crashed != absent precondition) and bd-env-report-check (decisive field decisive) fixes are each one-line-shaped and correctly bounded, and the four over-sensitivity anchors (OPV-QR live SKIP, @852 partial emptiness, version-match-with-differing-commit) are real, measured, and the right ones.
 
 ---
 
@@ -718,7 +719,7 @@ rec("bd-pack", "FAULT->refuse", (rc != 0 or "FAIL" in out or "missing" in out.lo
 
 `rc != 0` is satisfied by **any** harness failure, not just a missing file: a SyntaxError, an ImportError, a missing dependency, a `NameError`. After the proposed fix, *deleting* a tool is caught and *breaking* one is still graded a correct refusal -- and that is not hypothetical, because the plan's own evidence records `bd-pack:169` carrying a live undefined name (`TRACKER_FILES`) today. So the very tool used as the worked example can currently PASS its fault case by crashing. The repair the lens demands is a **positive marker** from the tool's own output (or a discriminated harness signature: python's "can't open file", a traceback with no tool banner), not a wider set of pre-flight file checks. The existence probe is worth having; do not let it be mistaken for closing the class.
 
-**F7.2 (medium) -- RED test 2 and fix (d) cannot both be satisfied.** RED test 2 asserts `sorted(cc["missing"]) == ["bd-blast","bd-suites","bd-touched"]`; fix (d) seeds exactly those three into `RETIRED_CRITICAL_CORE` so the tree "goes green honestly". If retired names are excluded from `missing`, the RED test can never go green after the fix. Define it explicitly: `missing = absent ? not tombstoned` (the failing set) and `retired_absent` reported separately (non-failing, so the tombstone is visible in the JSON). Then RED test 2 asserts on `retired_absent` today and on `missing` after a synthetic deletion.
+**F7.2 (medium) -- RED test 2 and fix (d) cannot both be satisfied.** RED test 2 asserts `sorted(cc["missing"]) == ["bd-blast","bd-suites","bd-touched"]`; fix (d) seeds exactly those three into `RETIRED_CRITICAL_CORE` so the tree "goes green honestly". If retired names are excluded from `missing`, the RED test can never go green after the fix. Define it explicitly: `missing = absent and not tombstoned` (the failing set) and `retired_absent` reported separately (non-failing, so the tombstone is visible in the JSON). Then RED test 2 asserts on `retired_absent` today and on `missing` after a synthetic deletion.
 
 **F7.3 (low) --** the blocker is correctly identified. Note the plan's own reconstruction is 11-of-12 and it says so; do not let cut 2 start from the arithmetic fit.
 
@@ -769,3 +770,42 @@ Two patterns recur and are worth naming once:
 2. **Three plans propose to copy an existing "good precedent" without auditing the precedent** -- item 2 copies the @860 notice (mode-gated, silent in `--json`/`--emit`), item 8 copies `test_no_runner_hardcodes_the_wrong_interpreter` (silent skip on a missing subject), item 3 copies `bd-opv:1400` (whose zero-pass guard contradicts the env excuse it is being grafted onto). Read the precedent's failure branch before reusing it.
 
 Nothing in items 1, 5, 6 (part a), or 9's core snippet needs redesign -- those four are the closest to shippable, in that order, once F1.1, F5.1, F6.1 and F9.1 are addressed.
+
+### Lens 3
+
+BAND-COMPLETENESS REVIEW. All measurements at HEAD `a25e577`; `git diff --stat 3fded70 a25e577` is one markdown file, so every finding holds at the briefed commit too. Read-only throughout.
+
+**Two cross-cutting facts I measured that several plans depend on:**
+
+1. **`tests/test_v3_66_653_dep_freshness.py` is an ELEVENTH axis-6 gate and CLAUDE.md section 4's table (ten) is stale.** Its own docstring, `tests/test_v3_66_653_dep_freshness.py:28-37`: *"AND THIS GATE IS NOW ITSELF AXIS-6. It was not, and the docstring here said so... which means adding or renaming a tests/ file moves what it measures. **Band this file on any cut that adds or renames a tracked Python file.**"* `_tracked_py` (`:451-467`) keeps every tracked `.py` **plus** every tracked file whose first line is a python shebang -- so the 469 extensionless `bd-*` scripts are in its denominator too.
+
+2. **PK-mirror status of every tool these plans edit, verified by sha256 (all byte-identical today, so a one-sided edit turns `test_pk_mirrors_do_not_drift.py` red):** `bd-parband` `10b05d67`, `bd-opv` `7b87f492`, `bd-equiv` `6bf1c156`, `bd-fullsuite` `d5683884`, `bd-coretest` `7eec57eb`, `bd-tool-lint` `5c20cf99`, `bd-band` `5b7bc7a3`, `bd-band-derive` `240a3587`. **No mirror exists** for `bd-env-report-check`, `bd-claim`, `bd-mutate`, or `.githooks/pre-commit`.
+
+---
+
+**ITEM 1 (bd-parband) -- SOUND.** Band is complete under this lens. `test_pk_mirrors_do_not_drift.py` is correctly included and correctly flagged as not-derivable. I independently checked which tests actually read `.gitignore` (`git check-ignore` or the file by path): `test_gitignore_rules_actually_match.py:67`, `test_generated_artifacts_are_not_tracked.py:188,210`, `test_deploy_script.py:365`, `test_git_deploy_gaps_are_documented.py:72`, `test_code_intelligence_foundation.py:322`, `test_v3_66_748_release_forbids_hypothesis.py:42` -- all six are in the band. No new test file, so the axis-6 file-count gates it bands anyway are over-banding, which it says. One note if risk 5 is taken: `project-knowledge/BD_TOOLCHAIN_REFERENCE.md` is the TOMBSTONE read by all three `*_stays_retired` gates, which require a **single line** carrying both the retired name and `RETIRED` (`tests/test_task_tracker_stays_retired.py:90-107`) -- reflowing that file can break them. All three are already banded.
+
+**ITEM 2 (bd-band-derive / PK gate / run_tests_core) -- SOUND, one reasoning error to correct.** The band note says the three `*_stays_retired` gates *"do move with an edited tracked .py -- include them if the cut adds or renames any tracked file; a content-only edit does not change their denominator."* The denominator claim is right and the **subject** claim is wrong: `test_task_tracker_stays_retired.py:119-127` enumerates `git ls-files -z -- '*.py' '*.sh'` and then **scans the contents** of every file for executable references. A content-only edit to `run_tests_core.py` or to a tests file is inside their subject. Cheap; band them. Also FYI, already covered: `tests/test_desandbox_tool_verifiers.py:317` asserts `"SIGNAL 7" in out` of `bd-band-derive --selftest`, so the new SIGNAL 8 must not disturb the selftest's control output -- that suite is in the 23. And I verified the run_tests_core edit is window-safe: `tests/test_harness_retry_timeout.py:54-57` slices `src.index("def _retry_failures_serial")` -> `src.index("\ndef ", ...)`, structural, not fixed-width.
+
+**ITEM 3 (bd-opv / bd-equiv / bd-fullsuite / bd-env-report-check) -- MISSING `tests/test_pk_mirrors_do_not_drift.py`.** This is the one hard gap in the nine. Three of the four subject tools carry tracked, byte-identical `project-knowledge/` mirrors (shas above); the gate compares sha256 content (`tests/test_pk_mirrors_do_not_drift.py:91`), and `bd-band-derive` cannot see it -- the same blindness items 1, 2 and 8 each measured independently. The `files` list is also missing `project-knowledge/bd-opv`, `project-knowledge/bd-equiv`, `project-knowledge/bd-fullsuite`. `bd-env-report-check` has no mirror; correctly absent.
+Two secondary corrections: (a) the rationale for adding `test_desandbox_tool_verifiers.py` is wrong -- its tool subjects are `bd-mutation-test` (13 references) and `bd-band-derive` (9), and none of this cut's four tools appear in it; running it is harmless, but it is not coverage of these tools. (b) `bd-opv` is the **sole importer** of five waived third-party names in `_UNDECLARED_OUTSIDE_BY_DESIGN` (`tests/test_v3_66_653_dep_freshness.py:326-347`: `aiosmtpd`, `freezegun`, `prometheus_client`, `pytesseract`, `pyzbar`), and `test_outside_waivers_are_still_imported_and_still_undeclared` (`:994-1013`) fails if a waived name stops being imported. Restructuring bd-opv's check runner must not remove or relocate those try/except imports. That gate is already in the band.
+
+**ITEM 4 (bd-claim) -- MISSING `tests/test_v3_66_653_dep_freshness.py`.** The cut adds `tests/test_v3_66_868_claim_survives_the_shell.py`; see cross-cutting fact 1. I re-ran the floor and confirm it is not there: `bd-band-derive --files toolchain/bin/bd-claim .githooks/pre-commit` -> exactly `test_contracts, test_negative, test_toolchain_534, test_v3_66_742_lint_walk_pruned`. The plan's other ten axis-6 members are correct and complete.
+Also worth **stating explicitly rather than leaving implicit**: the proposed `BD_CLAIM_OWNER` does **not** band `test_gui_parity.py`, contrary to CLAUDE.md section 4's blanket rule. Measured denominator: `tools/config_surface_inventory.py:74-77` `_scan_env` walks `bulk_downloader/**/*.py` and `tools/**/*.py`; `_scan_shell_env` (`:538,:568-574`) globs root `*.sh` and `scripts/*.sh`. `toolchain/bin/bd-claim` and `.githooks/pre-commit` are both extensionless and outside all four globs, so the name cannot enter the ledger. That exemption evaporates the moment the variable is also read from a `scripts/*.sh` or `tools/*.py` -- say so in the cut.
+
+**ITEM 5 (ai_boot readiness marker) -- SOUND.** Its axis-6 reasoning is correct and I verified the two claims that carry it. Source windows: I cross-referenced the 40 test files containing a `src[` slice against every test that mentions `ai_boot_*` -- **zero overlap**, so no fixed-width window reads `write_status`/`read_status`/`run`. `test_gui_parity`: `IN_FLIGHT_TTL_SECONDS` is a module constant, and the env scan's predicate is `os.environ.get|getenv("BD_...")` (`tools/config_surface_inventory.py:34`), so it cannot enter regardless. Adding no test file genuinely holds the file-count gates still. Nothing to add.
+
+**ITEM 6 (CLAUDE.md prose + bd-mutate) -- SOUND, one entry over-counted.** Exactly **three** tests read `CLAUDE.md` from disk: `test_codex_handoff_stays_retired.py:98`, `test_generated_artifact_workflow.py:304`, `test_provision_test_host.py:86`. The band's fourth, `test_cloud_setup_truthfulness.py`, never opens it -- its five `CLAUDE` hits (`:5,:28,:78,:80,:327`) are all comments. Harmless to run; do not count it as coverage. Confirmed `bd-mutate` has **no** PK mirror, so the plan is right not to band the mirror gate, and its `_selftest` route into `tests/test_toolchain_534.py:485` is banded.
+
+**ITEM 7 (12-tool retirement) -- FOUR MISSING, all in cut 2/3.**
+- `tests/test_deploy_manifest_stays_retired.py` and `tests/test_codex_handoff_stays_retired.py`. Cut 3 rewrites `project-knowledge/BD_TOOLCHAIN_REFERENCE.md`, which all three `*_stays_retired` gates read as `TOMBSTONE` with a one-line `<NAME>` + `RETIRED` assertion (`test_task_tracker_stays_retired.py:65,90-107`); only `task_tracker` is banded. They also content-scan every tracked `*.py`/`*.sh`, which cut 1 edits.
+- `tests/test_v3_66_653_dep_freshness.py`. Cut 2 deletes tracked, python-shebang, extensionless scripts, which are in that gate's denominator since v3.66.848. Its waiver anti-rot assertion names `bd-opv`, `bd-lsp` and `bd-proxy` as sole importers; none is in the reconstructed twelve, but the twelve is a reconstruction -- run the gate rather than reason about it.
+- `tests/test_generated_artifacts_are_not_tracked.py` (`git ls-files -z` over everything -- cut 2 deletes tracked files) and `tests/test_all_sources_parse.py` (bare `git ls-files -- '*.py'` reaches `tests/`; cut 1 edits `tests/test_toolchain_534.py`).
+The plan's own hedge -- "the bd-* scripts are extensionless so they may NOT move -- verify, do not assume" -- is right about the `*.py *.sh` file list and wrong to stop there, because those gates' subject is file **content**, not the file list.
+
+**ITEM 8 (bd-band `/home/claude` paths) -- SOUND; the most complete band of the nine.** `test_pk_mirrors_do_not_drift.py` correctly added and correctly flagged as a derive miss (mirror verified identical, `5b7bc7a3b7611423`). One factual correction that does not change the band: `tests/test_v3_66_799_audit_tool_selftests.py` does **not** parametrize `--selftest` over shipped toolchain tools -- its `TOOLS` list is hardcoded at `:36-37` to `tools/bd-triage.py` and `tools/bd-audit-gate.py`, so `bd-band` is not in its subject. Running it is free; the real selftest gate for `bd-band` is the `_RUNNERS` block in `test_toolchain_534.py`, already banded.
+
+**ITEM 9 (capture.sh) -- CUT 1 SOUND; CUT 2 MISSING `tests/test_gui_parity.py` + the parity-inventory regen.**
+- Cut 2 adds `tools/selftest_verdict.py`. `tools/gui_parity_inventory.py:772` globs `tools/*.py` and turns each file into an inventory item, so a new `tools/` module moves the GUI-parity denominator; the plan's "NOT NEEDED" block does not mention it. Band `tests/test_gui_parity.py` and regenerate `reports/gui_parity_inventory.json` (section 4: gui_parity regen **before** ROUTE_INDEX). `tools/**/*.py` is also inside `config_surface_inventory._scan_env`, so any `BD_` env read in the new tool enters the ledger.
+- I checked `test_v3_66_653_dep_freshness.py` before flagging it: it **is** already in the derived floor (`bd-band-derive --file capture.sh --emit` returns 100 files and it is one of them), so cut 1's new test files are covered.
+- Verified positively, since the plan asserts it: the ~20-line insertion at `capture.sh:337` cannot shift a fixed-width window. Every capture.sh reader cuts structurally -- `test_capture_step4_waits_for_serving.py:60-66` (banner to banner), `test_capture_reports_the_seed_failure_reason.py:63,80` (anchor then open-ended), `test_live_seed_starts_and_settles.py:716,768,1394-1400` (line iteration / continuation-joined), `test_l36_...:58-62`. Its own comment at `test_live_seed_starts_and_settles.py:1388` says "no `src[pos:pos+N]`".
