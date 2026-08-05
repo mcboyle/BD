@@ -1984,3 +1984,109 @@ def test_both_fullsuite_dispatch_paths_share_one_classifier():
         "UNKNOWN", "unknown"), (
         "an unattributable non-zero exit was excused as env. If the marker "
         "format ever stops matching, this fallback must not excuse the suite.")
+
+
+# --------------------------------------------------------------------------- #
+# @876 -- the band tool pinned its suites at a browser pool that does not exist #
+# --------------------------------------------------------------------------- #
+
+def test_no_band_tool_pins_the_browser_pool_or_pythonpath():
+    """@876 -- bd-band's band_env() hardcoded a zip-era cache path.
+
+    MEASURED, one variable at a time, on tests/test_v3_66_252_dom_excerpt.py:
+
+        baseline                    Total: 4 | Passed: 4 | Skipped: 0
+        +PLAYWRIGHT_BROWSERS_PATH   Total: 4 | Passed: 1 | Skipped: 3
+        +PYTHONPATH                 Total: 4 | Passed: 4 | Skipped: 0
+
+    Three of four assertions vanish, and because they SELF-SKIP on an
+    unlaunchable browser the summary still says `Failed: 0` with rc 0 -- which
+    is exactly bd-band's own pass predicate (`ok = "Failed: 0" in blob and
+    r.returncode == 0`). So the tool CLAUDE.md section 4 mandates for deriving
+    every band reported a suite green over assertions that never executed.
+    Measured blast radius: 8 of 1212 tracked test files self-skip that way.
+
+    Only the browser path causes it; PYTHONPATH is inert here. Both are removed
+    anyway -- replacing PYTHONPATH strips the work tree from sys.path, which is
+    the documented route_map_snapshot.py footgun -- but the CHANGELOG says which
+    of the two was measured to bite, rather than claiming both.
+
+    THE FIX ALREADY EXISTED IN A SIBLING. toolchain/bin/bd-cut carries the
+    ported version WITH its rationale ("hardcoding it pointed the band at a
+    browser pool that does not exist"); bd-cut was ported at v3.66.855 and
+    bd-band was not. This asserts over BOTH so they cannot drift apart again.
+    """
+    root = str(_REPO_ROOT)
+    offenders = []
+    for name in ("bd-band", "bd-cut", "bd-bandcheck", "bd-parband", "bd-fullsuite"):
+        p = os.path.join(root, "toolchain", "bin", name)
+        if not os.path.isfile(p):
+            continue
+        src = open(p, errors="replace").read()
+        for m in re.finditer(
+                r'^\s*(?:env\.update\(|\s+)?(PLAYWRIGHT_BROWSERS_PATH|PYTHONPATH)\s*=\s*["\'][^"\']+["\']',
+                src, re.M):
+            line = src[:m.start()].count("\n") + 1
+            offenders.append("%s:%d  %s" % (name, line, m.group(0).strip()))
+    assert not offenders, (
+        "these band tools ASSIGN a literal browser pool or PYTHONPATH into the "
+        "suite env. Both must be INHERITED: an absent PLAYWRIGHT_BROWSERS_PATH "
+        "is playwright's own default, which is correct, while a wrong one makes "
+        "browser suites self-skip and still report Failed: 0.\n  %s"
+        % "\n  ".join(offenders))
+
+
+def test_bandcheck_defaults_to_a_work_root_that_exists():
+    """@876 -- `--tree/--work` defaulted to the retired /home/claude/work.
+
+    A bare `bd-bandcheck <targets>` therefore reported EVERY target MISSING.
+    It fails CLOSED (exit 1), not clean -- I previously reported this as
+    "exits 0 anyway" and that was WRONG: the measurement piped through `tail`,
+    so the exit code read was tail's. CLAUDE.md section 5's pipe trap.
+
+    Failing closed is much better than failing open, but the DIAGNOSIS is still
+    wrong: the operator is told "Typo?" for a path that is fine, so they fix
+    spelling that is not broken.
+    """
+    tool = os.path.join(str(_REPO_ROOT), "toolchain", "bin", "bd-bandcheck")
+    src = open(tool, errors="replace").read()
+    # Assert over CODE, not over the file's text. The first draft of this
+    # forbade the literal anywhere and failed on the COMMENT that explains the
+    # removal -- the same prose-vs-code conflation that made the queue entry
+    # say bd-band had "3 occurrences" when two were docstring lines and only
+    # one was a code position. A denominator that includes its own explanation
+    # is not the subject.
+    assert not re.search(r'default\s*=\s*["\']/home/claude', src), (
+        "bd-bandcheck still DEFAULTS its work root to the retired sandbox path")
+    r = subprocess.run([sys.executable, tool, "tests/test_toolchain_534.py"],
+                       cwd=str(_REPO_ROOT), capture_output=True, text=True,
+                       timeout=120)
+    out = r.stdout + r.stderr
+    assert r.returncode == 0 and "MISSING" not in out, (
+        "a bare bd-bandcheck on a real, present band file still could not find "
+        "it (exit %d):\n%s" % (r.returncode, out[-600:]))
+
+
+def test_bandcheck_still_reports_a_leak_pair_it_could_not_resolve():
+    """@876 -- the MISSING branch `continue`d before `names.add(base)`.
+
+    So the leak-pair detector ran over an incomplete set, and a bare invocation
+    of the test_phases_195_199 + test_cut8_schedules pair reported two MISSING
+    lines and NO leak warning. Same exit code, different diagnosis -- and the
+    diagnosis is the whole product here. The operator fixes the paths and then
+    bands the pair that leaks BD_INSTALL_DIR.
+
+    Asserted against a NONEXISTENT tree on purpose, so the resolution failure is
+    guaranteed and the only thing under test is whether the leak survives it.
+    """
+    tool = os.path.join(str(_REPO_ROOT), "toolchain", "bin", "bd-bandcheck")
+    r = subprocess.run([sys.executable, tool, "--work", "/nonexistent-tree-xyz",
+                        "tests/test_phases_195_199.py", "tests/test_cut8_schedules.py"],
+                       cwd=str(_REPO_ROOT), capture_output=True, text=True,
+                       timeout=120)
+    out = r.stdout + r.stderr
+    assert r.returncode != 0, out
+    assert "LEAK CO-BAND" in out, (
+        "two unresolvable paths suppressed the leak-pair warning entirely. The "
+        "pair is a hazard about what you are ABOUT TO BAND, not about what "
+        "resolved.\n%s" % out[-600:])

@@ -193,11 +193,17 @@ $ venv/bin/python toolchain/bin/bd-bandcheck --work "$PWD" <same 35>
 ```
 
 `toolchain/bin/bd-bandcheck:100` -- `ap.add_argument("--tree","--work",
-default="/home/claude/work")`. Two defects, and the second is worse: the
-zip-era default means a bare invocation can see none of its subjects, and it
-prints a wall of MISSING lines with a "fix these before banding" instruction
-**while returning 0**. Both directions of section 0 at once -- it cannot see
-its subject, and its exit code disagrees with its own text.
+default="/home/claude/work")`. The zip-era default means a bare invocation can
+see none of its subjects.
+
+**CORRECTED @876 -- the "while returning 0" half of this entry was WRONG, and
+it was my error.** bd-bandcheck exits **1**, not 0; it fails CLOSED, not clean.
+The original measurement piped through `| tail -20; echo "exit=$?"`, so the
+code read was tail's -- CLAUDE.md section 5's pipe trap, which this session
+then walked into a second time on `check_requirements.py`. Failing closed is a
+much smaller defect than failing open, and acting on "returns 0" would have
+meant fixing something that does not exist. The real cost is the DIAGNOSIS: the
+operator is told "Typo?" about a path that is fine. Fixed in @876.
 
 This is **item 8's family** (`bd-band` carries zip-era `/home/claude` paths)
 but a DIFFERENT tool, so item 8's plan does not cover it. Fold it into item 8
