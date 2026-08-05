@@ -95,6 +95,16 @@ code, and each was written by someone who had just read this section:
   comment explaining the fix, so a mutant grading only the core manifest stayed
   green (**`bd-mutate` caught it, not review**).
 
+**And a line-scoped assertion about a shell LOOP is wrong in both directions.**
+Three times across v3.66.879/880: a script grading several manifests writes
+`for X in a b c; do ... "$X" ...; done`, so the literals sit only on the `for`
+line. A per-line check therefore fails a CORRECT implementation for its form
+(two round trips), and the inverse check — "must not set CORE_FAILED" — passes
+**silently**, because the body names no literal. That one escaped its mutant.
+Both shapes are now mechanized in `tests/shell_source.py`
+(`shell_code_only`, `blocks_containing`); use it rather than hand-rolling a
+fourth copy.
+
 Explaining a removal by naming the removed thing recreates it. Assert over
 **comment-stripped** source, and cite the mechanism rather than the literal —
 the discipline §7 already states for secrets, generalised. Note which instrument
@@ -486,6 +496,39 @@ missed something, not instead of it.
   `install_service.sh` and failed the parity gate on the box. If the name is
   not a real config key, **do not prefix it**.
 
+**Editing a DOC or a REGISTER bands the freshness gates, and no module-derived
+band reaches them.** Measured at v3.66.879: the band derived for that cut was
+correct for the code it changed, and CI still went red on a `SESSION_CARRY.md`
+edit. `bd-freshcheck` reads *documents* — it resolves every `file:line` anchor in
+the gating docs against `git ls-files`, and it requires the newest `### 15.N`
+section whose title contains "close" to name a commit that is an ancestor of
+HEAD. Neither subject is a module, so `bd-band-derive` cannot see them and
+`grep -rl` on a changed `.py` cannot either.
+
+Two failure shapes, both hit in one cut:
+
+- **An anchor to an untracked path can never resolve.** Citing the launcher's
+  `stop-hook-git-check.sh` under the agent home — a real file, deliberately
+  outside the repo — with a `:NN` suffix is reported BROKEN, correctly. Name
+  such a file *without* the suffix, as this bullet does, and say why.
+
+  **Writing the bad form as an EXAMPLE is itself the bug.** The first draft of
+  this bullet quoted the full `path:41-44` to illustrate what not to do, and
+  failed the anchor gate on `CLAUDE.md` — the same shape §7 records for
+  secrets, where naming one makes the document a place it lives. Describe the
+  form; never spell it.
+- **A section titled "…close…" must name a commit**, not a version. The
+  predicate is **ancestry, not identity** — deliberately, because identity would
+  go stale on the very next commit — so naming the tip the session closed at is
+  both true and stable.
+
+So when a cut touches `CLAUDE.md`, `project-knowledge/**`, or any tracked doc:
+
+```bash
+venv/bin/python toolchain/bin/bd-freshcheck --repo-only   # exit 0, or fix the claim
+venv/bin/python -m pytest tests/test_toolchain_534.py     # the gate's own suite
+```
+
 **Naming trap:** `test_spa_wired_join_is_faithful` is a *function inside*
 `tests/test_route_index_in_sync.py`, not a file. Passing it as a path makes the
 runner fall back to a broad run → timeout → aborted cut. Band the **file**.
@@ -582,6 +625,16 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
 - Two Playwright browser pools exist with **different chromium revisions**.
   Behaviour differing inside vs outside the env wrapper may be a different
   browser build, not a different code path.
+- **A real band exceeds the 2-minute default command timeout, and being killed
+  at 2:00 looks nothing like a failure.** Measured at v3.66.880: a 28-file band
+  took **169s** and the first attempt was reaped at 120s with exit 143, after
+  which the freshness check queued behind it never ran at all — so the one gate
+  that was about to go red was silently skipped. Pass an explicit timeout
+  (`timeout: 600000`) **or** background the run and wait on its written exit
+  marker; do not read a reaped run as a result. Backgrounding is the more
+  reliable of the two because it has no cap, and it composes with §5's rule
+  about waiting on a marker rather than on `pgrep`.
+
 - Never run the whole `tests/` directory locally. `test_perf_lab.py` is the
   recorded hanger. A second was recorded as `test_v3_66_146_nav_guard` — **no
   file of that name exists**, in any variant, and both real `146` files

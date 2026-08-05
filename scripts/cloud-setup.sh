@@ -626,6 +626,50 @@ PY2
       echo "[ ok ] requirements satisfied ($REQ_FILE)"
     fi
   done
+
+  # @880: the CAPABILITY manifest, STATED and never gated.
+  #
+  # After @879 widened the core check to two manifests, the denominator of every
+  # recovery path was still smaller than the set of manifests: cloak and
+  # optional were checked by NOTHING -- not this script, not the session hook,
+  # not deploy.sh. cloakbrowser is installed here (0.5.2), so a reverted image
+  # dropping only that package was invisible to all three.
+  #
+  # WARN, not CORE_FAILED, and that is the whole design. cloakbrowser is
+  # genuinely optional: BD_SKIP_CLOAK skips it above and a repo-less setup
+  # DEFERS it, so a hard failure would break provisioning on containers that
+  # correctly skip it -- a gate crying wolf, which section 0 counts as equal to
+  # a false clean. The report already tells its reader that a WARN row is an
+  # absent capability; an absent capability that is NAMED is a different object
+  # from one nobody measured.
+  #
+  # requirements-optional.txt is INSTALLED here, by operator decision 2026-08-05.
+  # Its 21 entries are the site extractors and the notifier stack (phub,
+  # xvideos_api, m3u8, scrapling, apprise, ...) -- capability this application
+  # exists to have, not decoration. An earlier draft of this block argued for
+  # leaving it absent because 19 of 21 were missing in this container; that
+  # described the container as it happened to be rather than as it is meant to
+  # be. Measured before wiring: `pip install -r` exits 0, all 21 resolve, 0
+  # specifier drift, and the app still imports.
+  for CAP_FILE in requirements-cloak.txt requirements-optional.txt; do
+    [ -f "$CAP_FILE" ] || continue
+    # `optional` so a yanked release on any of 21 third-party indexes degrades
+    # to a recorded WARN instead of failing the provision.
+    step "install ($CAP_FILE)" optional ./venv/bin/pip install -q -r "$CAP_FILE"
+    CAP_MISSING=""
+    CAP_RC=0
+    CAP_MISSING="$(./venv/bin/python tools/check_requirements.py "$CAP_FILE" 2>/dev/null)" || CAP_RC=$?
+    if [ "$CAP_RC" -eq 0 ]; then
+      row "capability ($CAP_FILE)" "OK" "every entry resolves in the venv"
+      echo "[ ok ] capability resolves ($CAP_FILE)"
+    elif [ "$CAP_RC" -eq 2 ]; then
+      row "capability ($CAP_FILE)" "WARN" "could not evaluate -- capability state UNKNOWN, which is not the same as absent"
+      echo "[warn] capability unevaluable ($CAP_FILE)"
+    else
+      row "capability ($CAP_FILE)" "WARN" "ABSENT: $(echo "$CAP_MISSING" | cut -c1-70)"
+      echo "[warn] capability absent ($CAP_FILE): $CAP_MISSING"
+    fi
+  done
 else
   row "import check" "**DEFERRED**" "no repo at setup time"
 fi
