@@ -136,6 +136,54 @@ def count_coupled(rel):
 
 
 # ---------------------------------------------------------------------------
+# SIGNAL 8 -- PK-MIRROR (@868).
+#
+# project-knowledge/ carries a second copy of much of the toolchain, and
+# tests/test_pk_mirrors_do_not_drift.py compares the pairs by sha256. That gate
+# imports nothing, its stem matches no source file, and it is not in the
+# curated map -- so signals 1, 2, 3 and 4 are ALL structurally blind to it, and
+# it therefore ran in NO band, for ANY mirrored file. Measured before this
+# signal existed: `--file toolchain/bin/bdtools_sec.py` -> 13 suites, gate
+# absent; `--file toolchain/bin/bd-scrub-proof` -> 3 suites, gate absent.
+# Three PK mirrors sat drifted across v3.66.847-849 and the gate was red on
+# main the whole time, because every band in between was derived from a changed
+# module.
+#
+# DERIVED FROM THE TREE, NOT DECLARED. A hardcoded path list would reproduce
+# the shape of the defect it fixes: a frozen denominator that cannot see a
+# mirror added tomorrow. Listing project-knowledge/ means a new mirror is
+# covered the day it lands.
+#
+# EXCLUSION, STATED RATHER THAN IMPLIED: project-knowledge/bdenv.sh and
+# install_bdsuite.sh are byte-identical to toolchain/ copies and are genuine
+# mirrors, but the GATE's own predicate does not admit .sh, so banding on them
+# would run a gate that cannot see them. Widening to .sh needs its own
+# collision measurement (it pulls in the docs/archive/ duplicate tree) and
+# belongs with the gate change, not here.
+_PK_MIRROR_GATE = "tests/test_pk_mirrors_do_not_drift.py"
+
+
+def pk_mirror_coupled(work, rel):
+    """SIGNAL 8. Returns (status, [suites]); status "MISSING" means UNKNOWN.
+
+    A file is PK-mirror-coupled if it lives under project-knowledge/ or shares
+    a basename with something that does. Fan-out measured at v3.66.868: 278
+    tracked files outside PK carry a PK top-level basename -- toolchain/bin
+    239, tools 20, toolchain 3, tools/audit/witnesses 2, root 3, plus 11 doc
+    collisions. ZERO under bulk_downloader/, which is what keeps this from
+    degrading into "band everything".
+    """
+    pk = os.path.join(work, "project-knowledge")
+    if not os.path.isdir(pk):
+        return ("MISSING", [])
+    names = {f for f in os.listdir(pk)
+             if os.path.isfile(os.path.join(pk, f))}
+    if rel.startswith("project-knowledge/") or os.path.basename(rel) in names:
+        return ("OK", [_PK_MIRROR_GATE])
+    return ("OK", [])
+
+
+# ---------------------------------------------------------------------------
 # SIGNAL 5 -- FE-MUTATING-GATE (declared coupling, bit@789).
 #
 # Wiring or rewiring a MUTATING frontend call site (apiPost/apiPut/apiPatch/
@@ -448,6 +496,10 @@ def tests_for_file(work, rel, rows, zsha_src=None):
                 hits.add(cand)
     # SIGNAL 3: declared count-coupling (invisible to the graph -- bit@702).
     for cand in count_coupled(rel):
+        if os.path.isfile(os.path.join(work, cand)):
+            hits.add(cand)
+    # SIGNAL 8: PK-mirror -- the sha256 gate no other signal can reach (@868).
+    for cand in pk_mirror_coupled(work, rel)[1]:
         if os.path.isfile(os.path.join(work, cand)):
             hits.add(cand)
     # SIGNAL 4: module-consumer -- tests that import or name the module (712 RED).
@@ -1239,6 +1291,18 @@ def main():
         elif not rows:
             print("  NOTE curated map %s parsed to ZERO rows." % _mp,
                   file=sys.stderr)
+    # SIGNAL 8's degraded notice is NOT mode-gated, deliberately. The @860
+    # notice above sits behind `not a.json and not a.emit` -- and CLAUDE.md
+    # section 4 advertises `--emit` as the way to get a band, so in the mode
+    # people actually use, a missing signal would vanish without a word and
+    # hand back a narrower band that still looks authoritative. That is the
+    # exact failure the @860 comment says it exists to prevent, reinstated by
+    # the mode gate. stderr cannot corrupt the emitted stdout line, so this one
+    # always speaks.
+    if pk_mirror_coupled(a.work, "")[0] == "MISSING":
+        print("  NOTE project-knowledge/ not found under %s -- the PK-mirror "
+              "signal is contributing nothing; this band is narrower than "
+              "designed." % a.work, file=sys.stderr)
     if a.file:
         return report(a.work, [a.file], rows, "FILE %s" % a.file,
                       deps=rev_deps(a.work, a.file), as_json=a.json, emit_only=a.emit)

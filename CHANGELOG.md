@@ -4,6 +4,75 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.869 - the mirror gate ran in no band, for any file
+
+tests/test_pk_mirrors_do_not_drift.py compares project-knowledge/ against its
+toolchain/bin and tools/ origins by sha256. bd-band-derive could not reach it
+with any of its signals, so it was in NO band, for ANY mirrored file.
+
+Measured on pristine:
+    --file toolchain/bin/bdtools_sec.py   -> band (13), gate absent
+    --file toolchain/bin/bd-scrub-proof   -> band (3),  gate absent
+    --file project-knowledge/bd-scrub-proof -> band (3), gate absent
+
+Why all four signals miss it: the gate imports only hashlib/pathlib/pytest
+(signal 4 blind), its stem matches no source filename (signal 1 blind), it is
+absent from TOUCHED_FILE_TO_TEST.md (signal 2 blind), and COUNT_COUPLED holds
+two rules, neither about mirrors (signal 3 blind). That is the mechanism behind
+three PK mirrors sitting drifted across v3.66.847-849 with the gate red on main
+the whole time -- every band in between was derived from a changed module.
+
+SIGNAL 8 is DERIVED FROM THE TREE, not declared. A hardcoded path list would
+reproduce the shape of the defect it fixes: a frozen denominator that cannot
+see a mirror added tomorrow. Listing project-knowledge/ means a new mirror is
+covered the day it lands. Fan-out measured: 278 tracked files outside PK carry
+a PK top-level basename -- toolchain/bin 239, tools 20, toolchain 3,
+tools/audit/witnesses 2, root 3, 11 doc collisions, and ZERO under
+bulk_downloader/. That zero is what keeps the signal from degrading into "band
+everything", and a test asserts it.
+
+The degraded notice is deliberately NOT mode-gated. The @860 curated-map notice
+sits behind `not a.json and not a.emit`, and CLAUDE.md section 4 advertises
+--emit as the way to get a band -- so in the mode people actually use, a
+missing project-knowledge/ would drop the signal without a word and hand back a
+narrower band that still looks authoritative. That is the exact failure @860
+exists to prevent, reinstated by the mode gate. stderr cannot corrupt the
+emitted stdout line, so this one always speaks, and a test drives --emit
+against a tree with no project-knowledge/ to prove it.
+
+This cut is the first half of a two-part item, split per "one feature per cut".
+It fixes the INSTRUMENT, not the tree: the mirrors are clean at this commit, so
+the gate does not go red once it starts running. The second half widens the
+gate's own denominator (255 pairs measured against 258 true mirrors; `bd`,
+cap01_witnesses.py and run01_witnesses.py are invisible to it) and gives
+_PytestStub a `fail` method. Those are separate blast radii -- the second
+touches a shared harness -- and cut 2 will be banded automatically BY this
+cut's new signal, which is a clean end-to-end proof that it works.
+
+Stated rather than implied: project-knowledge/bdenv.sh and install_bdsuite.sh
+are byte-identical to toolchain/ copies and are genuine mirrors, but the gate's
+own predicate does not admit .sh, so banding on them would run a gate that
+cannot see them. Widening to .sh needs its own collision measurement.
+
+ONE ESCAPE, CAUGHT AND CLOSED, AND IT WAS IN THIS CUT'S OWN TEST. The first
+over-sensitivity assertion read `gate not in r.stdout` for bulk_downloader/
+app.py. bd-band-derive:730 prints `band[:24]`, so that assertion was answered
+by a 24-line window rather than by the band -- a mutant making SIGNAL 8 match
+everything (band 495) ESCAPED it, because the gate sorted past the truncation.
+A denominator that excludes its subject reports OK: the defect this cut is
+about, reproduced inside the test written to prevent it. Now asserted over
+--json, and proven RED with the mutant applied and green without it.
+
+The size assertion that briefly replaced it was dropped rather than tuned: the
+band for app.py is 494 suites on pristine and 495 under the mutant, so no
+threshold can discriminate, and 494 is a number that drifts with every new test
+file. Membership is the assertion with the evidence.
+
+bd-mutate: 4 caught, 0 escaped, 0 invalid.
+
+Self-proving: editing bd-band-derive drifts its own PK mirror, so the signal
+this cut adds fires on the cut that adds it.
+
 ## v3.66.868 - a band tool minted a green PASS for a file that does not exist
 
 bd-parband dispatched any argument ending in .py. It never asked whether the
