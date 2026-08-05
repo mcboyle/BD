@@ -4,6 +4,46 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.881 - a session branching from a snapshot-stale base reverts main
+
+The cache mechanism recorded at v3.66.880 does not fire once. The panel
+snapshots the filesystem after a cache build and every later session starts from
+that snapshot, so roughly seven days after each rebuild the checkout is stale
+again. A rebuild resets content to today and then re-bakes it. This is a cycle.
+
+v3.66.873 and 879 already reconverge the repo when the checkout is on main,
+clean and strictly behind -- the common case, handled. The case that destroys
+work is the one the hook correctly REFUSES to touch: an agent branches from a
+snapshot-era commit, commits, and opens a PR. GitHub diffs that branch against
+current main, so every commit merged since the snapshot appears as a REMOVAL.
+The PR looks like a feature and reads as a revert of a week's work.
+
+The refusal was right and quiet -- "NOT repairing", one line in the startup
+noise. A refusal that does not name its consequence is one the reader scrolls
+past. It now emits a distinct *** STALE BASE *** block giving the commit count
+and the specific harm, whenever HEAD is behind origin/main and the checkout is
+not on main. On main it stays silent, because the existing refusal already says
+the right thing there and noise is what makes a real warning unreadable.
+
+The repair also moves from `reset --hard` to `merge --ff-only`. With ahead == 0
+the two agree, so no behaviour changes today; it makes git enforce the property
+the surrounding predicate asserts, so a later edit to that predicate cannot
+silently license a destructive move.
+
+Measured, not assumed: neither scripts/cloud-bootstrap.sh nor
+scripts/cloud-setup.sh contains a git clone -- the bootstrap PROBES for a
+checkout and exits 1 if none is found. So the platform must clone before the
+setup script runs, which is why the snapshot carries .git. The mechanism needs
+no platform quirk; it follows from the bootstrap's own precondition.
+
+Mutation battery: 5 mutants, 5 caught. Two escaped first. One was a real gap --
+the block lives in the else-branch, so a mutant firing it unconditionally is
+invisible to every test exercising the repair path. The other was subtler: the
+magnitude assertion matched a bare digit while the block prints two short SHAs,
+which are hex and often contain it, so the test passed on a coincidental sha
+match with the count removed. An assertion satisfiable by unrelated text in the
+same line is not measuring what it names.
+
 ## v3.66.880 - two capability manifests were checked by nothing
 
 v3.66.879's defect one layer out. After it widened the provisioner's check to
