@@ -18,18 +18,31 @@ It is also a **register**, and `CLAUDE.md` section 1 applies to it: re-derive
 every status here from source before acting on it. Numbers in this file were
 measured at the time stamped below and will drift.
 
-## Provenance -- check this before believing any row
+## Provenance -- PER SECTION, not for the file
 
-    generated            2026-07-29 (refreshed after PR #55)
-    against version      3.66.818   (bulk_downloader/__init__.py:33)
-    against origin/main  f337bdc
-    live-check registry  37
-    guard pins           7 ok, 0 drifted, 0 missing
-    working tree         clean at time of writing
+**This file is append-structured, and there is no single date at which it is
+true.** Every `15.x` section states the tip it was measured at, in its own
+heading or first paragraph, and the HIGHEST-NUMBERED section supersedes the ones
+before it. Read that section first; it names what the earlier ones no longer
+describe.
 
-If the tree has moved past `f337bdc`, treat every finding below as a claim to
-re-derive, not a fact to inherit. A document that cannot be dated is
-indistinguishable from one written against another tree.
+The block below dates **sections 1-13 only**. It used to sit here unqualified,
+claiming `3.66.818`/`f337bdc` for the whole document while the content ran sixty
+versions past it -- so a reader obeying the header would discard the fresher
+material underneath it. A single hand-maintained date on an append-only file is
+guaranteed to go stale, which is why this is now scoped rather than refreshed:
+refreshing it would only reset the clock on the same defect.
+
+    sections 1-13 generated  2026-07-29 (refreshed after PR #55)
+    against version          3.66.818   (bulk_downloader/__init__.py:33)
+    against origin/main      f337bdc
+    live-check registry      37
+    guard pins               7 ok, 0 drifted, 0 missing
+    working tree             clean at time of writing
+
+Treat every finding below as a claim to re-derive, not a fact to inherit. A
+document that cannot be dated is indistinguishable from one written against
+another tree -- and one that CAN be dated is still only true of that tree.
 
 Sections 1-9 were written against `d38590d` and describe how the session got
 here; sections 10-13 were added or rewritten at `f337bdc` and supersede them
@@ -3559,6 +3572,180 @@ STILL OPEN, unchanged by any of this:
       stage for capture.sh.
   166 bd-* tools remain prose-only. The ratchet stops that number growing;
       wiring or retiring them is its own work.
+
+### 15.30 | Session close 2026-08-05 at v3.66.879 -- SUPERSEDES 15.29's open set
+
+STATE: twelve cuts merged this session, #170-#180 plus this one.
+
+  7a11f2f (#170) 868  a band tool minted a green PASS for a file that does not exist
+  e6a3bf6 (#171) 869  the mirror gate ran in no band, for any file
+  95da0e3 (#172) 870  the mirror gate saw 255 of 258, and the floor said fine
+  c3ee855 (#173) 871  four tools, one defect wearing four hats
+  bd67460 (#174) 872  the concurrent-writer guard was stillborn
+  ada4a17 (#175) 873  the reverted checkout repairs itself when that is lossless
+  8498558 (#176) 874  a readiness run in flight was indistinguishable from a failure
+  a17e961 (#177) 875  an interrupted mutation battery left the mutant on disk
+  d4fa476 (#178) 876  the band tool pinned its suites at a browser pool not there
+  d9e580b (#179) 877  a gate certified 2568 files by reading one of them
+  5e87c68 (#180) 878  the operator shell tools ran against a dead sandbox, exit 0
+  (this cut)     879  the provision trigger could see one fifth of the damage
+
+BOX EVIDENCE: four captures, all PASS, arithmetic reconciling exactly. The last
+is v3.66.875. **876, 877, 878 and 879 have NO box evidence -- container lanes
+only.** Deltas were verified by counting net new test functions per file, not
+assumed.
+
+  capture @867  14610 total / 14525 passed / 0 failed / 85 skipped
+  capture @870  14624 / 14539 / 0 / 85     (+14)
+  capture @872  14647 / 14562 / 0 / 85     (+23)
+  capture @875  14661 / 14576 / 0 / 85     (+14)
+
+---
+
+THE FINDING WORTH KEEPING: THE PROVISION TRIGGER WAS A GATE THAT COULD SEE ONE
+FIFTH OF THE DAMAGE.
+
+The operator reported three failures recurring across sessions -- the checkout
+rolling back to a stale commit, the venv losing packages, the env report
+asserting about a tree 60 versions old. v3.66.873 fixed the first and the other
+two kept happening. That is the tell that a diagnosis is incomplete, and it was
+worth more than the fix: three symptoms with one trigger event.
+
+`.claude/hooks/session-start.sh` decided whether to provision by asking
+`tools/check_requirements.py` whether every requirement NAME resolves. An image
+reversion breaks five things -- the checkout, venv package VERSIONS,
+frontend/dist, `__pycache__`, and `.claude-env-report.md` -- and four are
+structurally invisible to a name-resolution check. So "is a repair needed?" was
+answered by an instrument that could see one fifth of what breaks, and it
+answered no while the session ran on a reverted image.
+
+Section 0, inside the fix written for section 0. The repair converged the TREE
+and nothing derived from it -- a container-side replay of the pre-v3.66.848
+deploy gaps, which `scripts/deploy.sh` already enumerates and closes on the box.
+
+---
+
+WHAT A 25-AGENT RECON RETURNED, AND WHAT IT KILLED.
+
+Six probes, adversarial refutation on every claimed-real finding, then a
+completeness critic. 18 claimed real, **16 survived, 2 refuted**. Pinned at
+5e87c68. The value was concentrated in the parts that said "no":
+
+**Refuted -- do not resurrect without new evidence.**
+
+  * "The repair WIDENS staleness by fast-forwarding the tree while leaving the
+    gitignored report behind." Measured false in the direction claimed.
+  * "SESSION_CARRY's top provenance block claims 3.66.818 while content runs to
+    3.66.867, so a reader obeying the header discards fresher content." The
+    header block does say that; the refutation established the reader-harm claim
+    did not follow. **The stale header is real and is fixed by this entry.**
+
+**Four proposed fixes would have REPRODUCED THE SHAPE OF THE DEFECT.** This is
+why the refutation pass earns its cost -- at least two would have shipped:
+
+  1. "Check the revision directories playwright expects" for the browser probe.
+     `/opt/pw-browsers` holds chromium-1194/1228 AND
+     chromium_headless_shell-1194/1228, and `launch(headless=True)` executes the
+     headless SHELL. That is CLAUDE.md section 0 bullet 4 verbatim -- the recorded
+     instance of this exact error, re-proposed as its own fix.
+  2. "On env-report-check exit 1/2, re-run cloud-setup.sh." `__version__` bumps
+     with every cut while the container does not change, so the report is
+     GUARANTEED stale after every merge. A gate that fires on identity rather
+     than content is the inverse defect, and a gate that cries wolf gets
+     switched off.
+  3. "Append a hand-dated provenance note recording the OPEN list's commit." A
+     hand-maintained date is itself a document that goes stale silently -- the
+     shape the refuted finding above documents biting in this same file.
+  4. "Refuse the repair on detached HEAD." Milder and stated as a trade-off:
+     section 2b instructs agents to `git checkout --detach FETCH_HEAD` before
+     measuring, so this narrows the denominator to exclude a routine state.
+     **Taken anyway, deliberately** -- a reverted image comes back on the branch
+     it was built from, so requiring `main` costs the repair nothing, and the
+     alternative silently destroys a deliberate position.
+
+**Three failure classes nobody had probed:**
+
+  * **Venv version/specifier drift is invisible to every automated gate.**
+    `tools/check_requirements.py:82-90` calls `version(name)` and DISCARDS the
+    result -- specifiers are never compared -- and it is the sole instrument in
+    all three recovery paths (session-start.sh, cloud-setup.sh, deploy.sh). A
+    reverted image can restore correct NAMES at wrong VERSIONS and every gate
+    reports OK. **STILL OPEN.** Partially mitigated by this cut only because
+    `pip install -r` re-converges to specifiers when it runs at all.
+  * The lossless repair converged the tree and nothing derived from it. CLOSED
+    by this cut.
+  * **The launcher Stop hook's ADVICE reproduces two recorded git-hygiene
+    failures.** `/root/.claude/stop-hook-git-check.sh:41-44` falls back to
+    `origin/HEAD` when `origin/<branch>` does not resolve -- exactly the state of
+    a surviving local branch after squash-merge + auto-delete + prune -- then
+    tells the agent to push the pre-squash commits. That is the mechanism that
+    produced duplicate PR #146. It lives OUTSIDE the repo (`/root/.claude/`), so
+    no gate here can reach it. **OPEN, and not repo-fixable.**
+
+---
+
+FOUR PROSE-VS-CODE CONFLATIONS IN ONE SESSION. THE PATTERN IS NOW THE FINDING.
+
+Every one was an assertion that could not tell a comment from executable text,
+and every one was written by someone who had just read section 0:
+
+  1. @876: a test forbade a literal that its own explanatory comment contained.
+  2. @878: a comment quoted the dead interpreter path and tripped the test
+     written in the same commit.
+  3. @878 fixup: the comment explaining why `RELEASE_WORK` is unprefixed spelled
+     the prefixed name in order to say it had been removed --
+     `config_surface_inventory.py:_scan_shell_env` regexes the WHOLE file with
+     no comment stripping, so the comment re-entered the ledger and failed the
+     gate the rename had just fixed. **CI caught this, not review.**
+  4. @879: the assertion that `requirements-test.txt` is graded read it out of
+     the comment explaining the fix, so a mutant grading only the core manifest
+     stayed green. **bd-mutate caught this, not review.**
+
+THE RULE: in this repo a comment is INSIDE the denominator of every gate that
+reads source text. Explaining a removal by naming the removed thing recreates
+it. Assert over comment-stripped source, and cite the mechanism rather than the
+literal -- the same discipline section 7 already states for secrets.
+
+---
+
+ENVIRONMENT FACTS A FRESH SESSION WILL OTHERWISE RE-DERIVE OR GET WRONG.
+
+  * **The cloud panel env box is CORRECT and matches section 5** -- all five
+    vars verified against a screenshot 2026-08-05. Not a suspect.
+  * **The panel's setup script is byte-identical to `scripts/cloud-bootstrap.sh`**
+    -- `diff` exit 0, 79 lines both. The fork this file warns about has NOT
+    recurred. Note the limit of that evidence: it compares the operator's paste
+    to the repo, so it proves the paste matches, and no gate can read the panel.
+  * **`.claude-env-report.md` is STALE after EVERY cut, by design.**
+    `bd-env-report-check` treats the VERSION as decisive and `__version__` bumps
+    every merge, so exit 1 is the steady state, not a signal. Do not chase it,
+    and do not wire it to trigger reprovisioning.
+  * **`requirements-dev.txt` does not resolve in the container** (pyinstaller,
+    nuitka, zstandard) and that is DELIBERATE -- it carries the packaging chain,
+    which is why neither the hook nor cloud-setup.sh installs it. CI installs it
+    for the postgres job only. Not a defect; do not "fix" it.
+  * A stray gitignored `downloader_history.db` sits at the repo root, invisible
+    to `git status` via `.gitignore:20`. With `BD_INSTALL_DIR` unset, any ad-hoc
+    probe importing `bulk_downloader.db` from the repo root connects to it --
+    the section 5 trap. Set `BD_INSTALL_DIR` to a tmpdir in every probe.
+
+---
+
+OPEN SET, superseding 15.29. Re-derive each from source before working it
+(section 1) -- these were written at v3.66.879 and cuts land after registers.
+
+  * **7a -- retirement completion.** Three tools retired before v3.66.858
+    (`bd-reconcile`, `bd-tracker-recon`, `bd-deploy-manifest`) still exist as
+    tracked runnable `project-knowledge/` files; the three `*_stays_retired`
+    gates glob `*.py *.sh` and the survivors are EXTENSIONLESS, so the gates
+    cannot see them. **Needs its over-sensitivity spec reworked first** -- as
+    specified it turns three gates red on four LIVE tools.
+  * **7b -- BLOCKED on the operator** naming the twelve retired tools.
+    Unrecoverable from the tracked tree; retiring the wrong tool is not
+    repairable, so this is CANNOT-EVALUATE, not merely unknown.
+  * **Item 9 -- `capture.sh` commit identity.** Needs explicit go: release gate.
+  * **Venv specifier drift** (above). No gate can see it.
+  * **The launcher Stop hook's advice** (above). Outside the repo.
 
 ### 15.29 | Mid-session record 2026-08-04 at 6296b06 (v3.66.867) -- SUPERSEDES 15.28's open set
 

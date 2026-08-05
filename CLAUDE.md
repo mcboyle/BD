@@ -79,6 +79,27 @@ first run, before review. That is the whole argument for writing the assertion
 *before* the verdict: it is the only thing that reliably catches this, because
 the author has just convinced themselves the logic is right.
 
+**A COMMENT IS INSIDE THE DENOMINATOR OF EVERY GATE THAT READS SOURCE TEXT.**
+Four times in the v3.66.876-879 session an assertion could not tell prose from
+code, and each was written by someone who had just read this section:
+
+- a test forbade a literal that its own explanatory comment contained;
+- a comment quoted the dead interpreter path and tripped the test written in the
+  same commit;
+- the comment explaining why `RELEASE_WORK` is *un*prefixed spelled the prefixed
+  name in order to say it had been removed —
+  `config_surface_inventory.py:_scan_shell_env` regexes the whole file with no
+  comment stripping, so the comment re-entered the env ledger and failed the
+  gate the rename had just fixed (**CI caught it, not review**);
+- an assertion that `requirements-test.txt` is graded read the name out of the
+  comment explaining the fix, so a mutant grading only the core manifest stayed
+  green (**`bd-mutate` caught it, not review**).
+
+Explaining a removal by naming the removed thing recreates it. Assert over
+**comment-stripped** source, and cite the mechanism rather than the literal —
+the discipline §7 already states for secrets, generalised. Note which instrument
+caught each: review caught none of the four.
+
 **Reading this section does not inoculate you against it.** The same session
 that wrote the five items above also re-derived an import census with `grep`
 after reading section 1's warning about exactly that, and got it wrong in both
@@ -653,6 +674,45 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   *is* installed. `runtime deps OK` was reported with `beautifulsoup4` and
   `pytest-xdist` both absent. To ask whether requirements are satisfied, parse
   `requirements.txt` and resolve each name.
+
+  **And name resolution is not version satisfaction.**
+  `tools/check_requirements.py` calls `version(name)` and *discards the result* —
+  specifiers are never compared — yet it is the sole instrument in all three
+  recovery paths (`session-start.sh`, `cloud-setup.sh`, `deploy.sh`). A reverted
+  image can restore correct NAMES at wrong VERSIONS and every gate reports OK.
+  **Open, and nothing here can see it.**
+
+- **The container rolls back to an old base image, and @879 changed what that
+  costs you.** Five things revert together: the checkout, venv package
+  *versions*, `frontend/dist`, `__pycache__`, and `.claude-env-report.md`. Until
+  @879 the hook decided whether to provision by asking whether requirement
+  *names* resolved — a denominator containing one of the five — so it repaired
+  the tree and left the environment on the reverted image. The signature is the
+  trigger now: a repaired rollback hands over to `scripts/cloud-setup.sh` on
+  startup/resume, and on compact/clear says `ENVIRONMENT NOT RECONVERGED` rather
+  than stalling a running session.
+
+  Two consequences to know before you debug it. The repair fires **only on
+  `main`** — a clean topic branch or detached HEAD parked at an ancestor is
+  byte-lossless to reset and is still refused, because §2b tells you to
+  `git checkout --detach FETCH_HEAD` before measuring and resetting that
+  destroys the position you chose. And a **failed fetch is now reported**: an
+  image reversion rewinds `refs/remotes/origin/main` together with HEAD, so
+  without a successful fetch both sides of the comparison are equally stale and
+  a real rollback is indistinguishable from a healthy tree.
+
+- **`.claude-env-report.md` is STALE after every cut, by design — do not chase
+  it.** `bd-env-report-check` treats the VERSION as decisive and `__version__`
+  bumps on every merge, so exit 1 is the steady state rather than a signal.
+  Wiring it to trigger reprovisioning would be a gate firing on identity, not
+  content (§0's inverse defect). Section 7's advice to check its header still
+  holds; what changed is that a STALE verdict alone tells you nothing.
+
+- **`requirements-dev.txt` does not resolve in a cloud container, deliberately.**
+  It carries the packaging chain (`pyinstaller`, `nuitka`, `zstandard`), which is
+  why neither the session hook nor `cloud-setup.sh` installs it; CI installs it
+  for the postgres job alone. The two manifests that ARE the container's floor
+  are `requirements.txt` and `requirements-test.txt`. Do not "fix" the third.
 
 **Provisioning a test host.** `scripts/provision_test_host.sh` is the one command
 that takes a fresh Ubuntu 24.04 box to a green `./capture.sh`: system tier,
