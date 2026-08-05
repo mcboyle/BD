@@ -16,14 +16,40 @@ FACT: an agent states the paths it is writing, and the pre-commit hook refuses
 to commit a claimed path on behalf of anybody else. No claims in flight means no
 opinion at all, so a single-agent session never notices this exists.
 
-  bd-claim add  tools/live_seed.py tests/test_x.py    # I am editing these
-  bd-claim list                                       # who holds what
-  bd-claim release                                    # done (also on exit)
+  bd-claim add tools/live_seed.py tests/test_x.py    # I am editing these
+  bd-claim list                                      # who holds what
+  bd-claim release                                   # done
   bd-claim --selftest
 
-A claim is keyed on PID and dies with the process: `list` drops any claim whose
-PID is gone, so a crashed agent cannot wedge the repo. That liveness check is
-the difference between a lock and a leak.
+A CLAIM IS KEYED ON A DURABLE OWNER, NOT ON THIS PROCESS (@872). It used to be
+keyed on os.getpid() -- the pid of the bd-claim CLI itself, which exits the
+instant the command returns. So `bd-claim add` printed success, wrote the file,
+and `bd-claim list` in the very next command reaped it as dead. The claim was
+stillborn, the hook had nothing to enforce, and the guard reported OK because it
+could not see its own subject:
+
+  $ bd-claim add victim.py --label agentA
+  claimed 1 path(s) as pid 16401 (agentA)
+  $ bd-claim list
+  no live claims
+
+KEYING ON os.getppid() IS NOT THE FIX, AND IT LOOKS LIKE ONE. Measured across
+two consecutive agent tool calls: each call gets a FRESH shell that dies
+immediately (pid 24713 -> gone; next call pid 25788), and only the harness
+process above them is durable. A ppid key therefore works for a human at a
+terminal and is inert for exactly the concurrent-agent case this exists for.
+
+SET BD_CLAIM_OWNER. The ancestry derivation below is a fallback, not the design.
+Two agents under one harness share their durable ancestor, so a derived owner
+can be the SAME token for both -- and then the hook's self-exclusion matches
+agent B against agent A's claim and the guard goes quietly inert. That is the
+original defect wearing the fix's clothes, so `add` REFUSES a derived owner that
+another live claim already holds under a different label, rather than
+documenting the hazard and hoping.
+
+Two INDEPENDENT bounds, so neither alone can wedge the repo: the owner process
+vanishing (checked against its /proc start time, because pids recycle), and a
+TTL. Either one reaps.
 
 THE HOOK IS WHAT ENFORCES IT. `.githooks/pre-commit` reads these claims; it is
 inert unless `git config core.hooksPath .githooks` is set. See that file.
@@ -33,9 +59,19 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
+import time
 from pathlib import Path
+
+DEFAULT_TTL_SECONDS = 4 * 3600
+
+# Process names that are never a durable owner: transient scaffolding around a
+# command, not the session doing the work.
+_TRANSIENT_COMM = {"bash", "sh", "dash", "zsh", "fish", "git", "env", "timeout",
+                   "nohup", "sudo", "bd-claim"}
+_TOKEN_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 def claims_dir(repo: Path) -> Path:
@@ -55,63 +91,260 @@ def _alive(pid: int) -> bool:
     return True
 
 
-def live_claims(repo: Path) -> list[dict]:
+def proc_start(pid: int) -> str | None:
+    """Field 22 of /proc/<pid>/stat -- process start time in clock ticks.
+
+    Load-bearing against PID REUSE, not a nicety. pid_max is 32768 on this
+    container, so a recycled pid would let _alive() report a stranger as the
+    original claimant and a stale claim would block commits forever -- the exact
+    wedge the liveness check exists to prevent.
+
+    Parsed after the LAST ')' because comm can itself contain spaces and
+    parentheses; splitting the whole line on whitespace gets the index wrong for
+    any process whose name has a space in it.
+    """
+    try:
+        with open(f"/proc/{pid}/stat", encoding="utf-8", errors="replace") as fh:
+            line = fh.read()
+    except OSError:
+        return None
+    tail = line.rsplit(")", 1)
+    if len(tail) != 2:
+        return None
+    fields = tail[1].split()
+    # tail[1] begins at field 3 (state), so field 22 sits at index 19.
+    return fields[19] if len(fields) > 19 else None
+
+
+def proc_comm(pid: int) -> str | None:
+    try:
+        with open(f"/proc/{pid}/comm", encoding="utf-8", errors="replace") as fh:
+            return fh.read().strip()
+    except OSError:
+        return None
+
+
+def proc_ppid(pid: int) -> int | None:
+    try:
+        with open(f"/proc/{pid}/stat", encoding="utf-8", errors="replace") as fh:
+            line = fh.read()
+    except OSError:
+        return None
+    tail = line.rsplit(")", 1)
+    if len(tail) != 2:
+        return None
+    fields = tail[1].split()
+    return int(fields[1]) if len(fields) > 1 else None   # field 4 = ppid
+
+
+def ancestor_pids(pid: int, limit: int = 24) -> list[int]:
+    """pid's ancestors, nearest first, excluding pid 1. Empty when /proc is
+    unreadable -- which the caller must read as UNKNOWN, never as 'none'."""
+    out: list[int] = []
+    cur = proc_ppid(pid)
+    while cur and cur > 1 and len(out) < limit:
+        out.append(cur)
+        cur = proc_ppid(cur)
+    return out
+
+
+def derive_owner_pid(start_pid: int | None = None) -> int | None:
+    """The nearest ancestor that is NOT transient shell scaffolding.
+
+    Measured chain from inside a git hook on this container:
+        bash -> git -> bash -> claude(508) -> ...
+    so the first non-transient survivor is the harness -- the thing that
+    outlives both the bd-claim process and the shell that invoked it.
+    """
+    for p in ancestor_pids(start_pid if start_pid is not None else os.getpid()):
+        comm = proc_comm(p)
+        if comm is None:
+            return None                 # /proc unreadable -> UNKNOWN, not a guess
+        if comm not in _TRANSIENT_COMM:
+            return p
+    return None
+
+
+def _token(s: str) -> str:
+    return _TOKEN_SAFE.sub("-", s.strip())[:80] or "unnamed"
+
+
+def _is_dead(c: dict, now: float | None = None) -> str | None:
+    """Reason this claim is dead, else None. TWO INDEPENDENT BOUNDS.
+
+    Either alone reaps, deliberately: the owner vanishing covers a crashed
+    agent, and the TTL covers a claim keyed on a session-long harness pid that
+    would otherwise outlive the edit that justified it. Requiring BOTH would let
+    one of them wedge the repo.
+    """
+    now = time.time() if now is None else now
+    exp = c.get("expires_at")
+    if exp is not None and now >= float(exp):
+        return "expired"
+    op = c.get("owner_pid")
+    if op is not None:
+        op = int(op)
+        if not _alive(op):
+            return "vanished"
+        want = c.get("owner_start")
+        if want is not None and proc_start(op) != want:
+            return "recycled"           # same pid, different process
+    return None
+
+
+def live_claims(repo: Path, reaped: list | None = None) -> list[dict]:
     """Every live claim, with dead ones reaped. Raises on an unreadable dir --
-    the caller must treat that as UNKNOWN, never as 'no claims'."""
+    the caller must treat that as UNKNOWN, never as 'no claims'.
+
+    `reaped` collects (name, reason) so a caller can SAY what it destroyed. A
+    read that silently deletes evidence is its own trap: the operator sees "no
+    live claims" and cannot tell that from "your claim just expired".
+    """
     out = []
     d = claims_dir(repo)
     for f in sorted(d.glob("*.json")):
         try:
             c = json.loads(f.read_text(encoding="utf-8"))
         except (OSError, ValueError):
+            if reaped is not None:
+                reaped.append((f.name, "unreadable"))
             f.unlink(missing_ok=True)
             continue
-        if not _alive(int(c.get("pid", -1))):
-            f.unlink(missing_ok=True)       # reap: a dead agent holds nothing
+        why = _is_dead(c)
+        if why:
+            if reaped is not None:
+                reaped.append((f.name, why))
+            f.unlink(missing_ok=True)
             continue
         out.append(c)
     return out
 
 
-def add(repo: Path, paths: list[str], label: str) -> int:
+def resolve_owner(explicit: str | None,
+                  pid_flag: int | None) -> tuple[str | None, int | None, str | None]:
+    """(owner, owner_pid, error). Most explicit first.
+
+    NEVER falls back to os.getpid(): that is the defect this replaced.
+    """
+    if explicit:
+        return _token(explicit), None, None
+    env = os.environ.get("BD_CLAIM_OWNER")
+    if env:
+        return _token(env), None, None
+    if pid_flag is not None:
+        if not _alive(pid_flag):
+            return None, None, f"--pid {pid_flag} is not a live process"
+        return f"pid-{pid_flag}", pid_flag, None
+    derived = derive_owner_pid()
+    if derived is None:
+        return None, None, (
+            "no durable owner could be derived (no readable /proc, or every "
+            "ancestor is transient shell scaffolding)")
+    return f"pid-{derived}", derived, None
+
+
+def add(repo: Path, paths: list[str], label: str, owner: str | None = None,
+        pid_flag: int | None = None, ttl: int = DEFAULT_TTL_SECONDS) -> int:
     if not paths:
         print("bd-claim: no paths given -- a claim over nothing claims nothing.",
               file=sys.stderr)
         return 2
-    rec = {"pid": os.getpid(), "ppid": os.getppid(), "label": label,
-           "paths": sorted(set(paths))}
-    (claims_dir(repo) / f"{os.getpid()}.json").write_text(
+    tok, owner_pid, err = resolve_owner(owner, pid_flag)
+    if err:
+        # UNKNOWN IS A THIRD STATE AND IT FAILS. A claim keyed on something that
+        # dies with this command is worse than no claim: it reports success and
+        # protects nothing.
+        print(f"bd-claim: BD-CLAIM UNEVALUABLE -- {err}. Set BD_CLAIM_OWNER=<token> "
+              f"or pass --owner/--pid. Refusing to write a claim that would be "
+              f"reaped before anything could read it.", file=sys.stderr)
+        return 2
+
+    was_derived = (owner is None and not os.environ.get("BD_CLAIM_OWNER")
+                   and pid_flag is None)
+    if was_derived:
+        # RISK-1 ENFORCEMENT, not documentation. Two agents under one harness
+        # share their durable ancestor, so a DERIVED owner can be identical for
+        # both -- and then the hook's self-exclusion matches agent B against
+        # agent A's claim and this guard goes silently inert for exactly the
+        # case it exists for. Refuse, and name the fix.
+        for c in live_claims(repo):
+            if c.get("owner") == tok and (c.get("label") or "") != (label or ""):
+                print(f"bd-claim: BD-CLAIM UNEVALUABLE -- the derived owner "
+                      f"{tok!r} is ALREADY held under label "
+                      f"{c.get('label') or 'no label'!r}. A shared ancestor means "
+                      f"both agents would exclude each other and nothing would be "
+                      f"guarded. Set BD_CLAIM_OWNER to something distinct per "
+                      f"agent.", file=sys.stderr)
+                return 2
+
+    expires_at = time.time() + ttl if ttl > 0 else None
+    rec = {"owner": tok,
+           "owner_pid": owner_pid,
+           "owner_start": proc_start(owner_pid) if owner_pid is not None else None,
+           "expires_at": expires_at,
+           "label": label,
+           "paths": sorted(set(paths)),
+           # diagnostics only -- NOT the key. Keeping them makes a stale claim
+           # traceable without tempting anyone to match on them again.
+           "pid": os.getpid(), "ppid": os.getppid()}
+    (claims_dir(repo) / f"{tok}.json").write_text(
         json.dumps(rec, indent=1), encoding="utf-8")
-    print(f"claimed {len(rec['paths'])} path(s) as pid {os.getpid()}"
-          f"{' (' + label + ')' if label else ''}")
+    when = ("never" if expires_at is None
+            else time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(expires_at)))
+    print(f"claimed {len(rec['paths'])} path(s) as owner {tok}"
+          f"{' (' + label + ')' if label else ''}; expires {when}")
+    print(f"release with: bd-claim release --owner {tok}")
     return 0
 
 
-def release(repo: Path) -> int:
-    f = claims_dir(repo) / f"{os.getpid()}.json"
-    existed = f.is_file()
-    f.unlink(missing_ok=True)
-    print("released" if existed else "nothing to release for this pid")
+def release(repo: Path, owner: str | None = None,
+            pid_flag: int | None = None) -> int:
+    tok, _pid, err = resolve_owner(owner, pid_flag)
+    if err:
+        print(f"bd-claim: cannot resolve which owner to release -- {err}. "
+              f"Pass --owner <token>.", file=sys.stderr)
+        return 2
+    f = claims_dir(repo) / f"{tok}.json"
+    if f.is_file():
+        f.unlink(missing_ok=True)
+        print(f"released {tok}")
+        return 0
+    print(f"nothing to release for owner {tok}")
     return 0
 
 
 def show(repo: Path) -> int:
-    cs = live_claims(repo)
+    reaped: list = []
+    cs = live_claims(repo, reaped=reaped)
+    if reaped:
+        counts: dict[str, int] = {}
+        for _n, why in reaped:
+            counts[why] = counts.get(why, 0) + 1
+        detail = ", ".join(f"{v} {k}" for k, v in sorted(counts.items()))
+        print(f"reaped {len(reaped)} stale claim(s): {detail}")
     if not cs:
         print("no live claims")
         return 0
     for c in cs:
-        print(f"pid {c['pid']:>7}  {c.get('label') or '-'}")
+        print(f"{c.get('owner', '?'):>20}  {c.get('label') or '-'}")
         for p in c["paths"]:
-            print(f"            {p}")
+            print(f"                      {p}")
     return 0
 
 
-def conflicts(repo: Path, staged: list[str], pid: int) -> list[tuple[str, dict]]:
-    """Staged paths claimed by a LIVE process other than `pid`."""
+def conflicts(repo: Path, staged: list[str], owners) -> list[tuple[str, dict]]:
+    """Staged paths claimed by a LIVE owner that is NOT one of `owners`.
+
+    `owners` is a SET of owner tokens, not a pid. It used to be `pid: int`, and
+    the hook passed os.getppid() -- the per-commit bash process, spawned fresh
+    every time, which can never equal any stored claim. So the self-exclusion
+    branch was unreachable from the only consumer, and the claimant was refused
+    permission to commit its own claimed file.
+    """
+    owners = set(owners or ())
     out = []
     for c in live_claims(repo):
-        if int(c["pid"]) == pid:
+        if c.get("owner") in owners:
             continue
         held = set(c["paths"])
         for s in staged:
@@ -123,44 +356,87 @@ def conflicts(repo: Path, staged: list[str], pid: int) -> list[tuple[str, dict]]
 def _selftest(repo: Path) -> int:
     import tempfile
     ok = True
+
+    def chk(cond, msg):
+        nonlocal ok
+        ok = ok and bool(cond)
+        print(("PASS" if cond else "FAIL") + "  " + msg)
+
     with tempfile.TemporaryDirectory() as td:
         t = Path(td)
         (t / ".git").mkdir()
+        far = 2 ** 22        # far above pid_max on Linux
 
-        # a live claim by ANOTHER pid conflicts
-        (claims_dir(t) / "999999.json").write_text(json.dumps(
-            {"pid": os.getpid(), "label": "other", "paths": ["a.py"]}), encoding="utf-8")
-        c = conflicts(t, ["a.py", "b.py"], pid=os.getpid() + 1)
-        hit = len(c) == 1 and c[0][0] == "a.py"
-        ok &= hit
-        print(("PASS" if hit else "FAIL") + "  a live foreign claim conflicts")
+        # a live claim by ANOTHER owner conflicts
+        (claims_dir(t) / "other.json").write_text(json.dumps(
+            {"owner": "other", "owner_pid": None, "expires_at": None,
+             "label": "other", "paths": ["a.py"]}), encoding="utf-8")
+        c = conflicts(t, ["a.py", "b.py"], owners={"mine"})
+        chk(len(c) == 1 and c[0][0] == "a.py", "a live foreign claim conflicts")
 
         # my OWN claim never conflicts with me
-        mine = conflicts(t, ["a.py"], pid=os.getpid())
-        ok &= not mine
-        print(("PASS" if not mine else "FAIL") + "  my own claim does not conflict with me")
+        chk(not conflicts(t, ["a.py"], owners={"other"}),
+            "my own claim does not conflict with me")
 
-        # a DEAD pid's claim is reaped, not enforced
-        dead = 2 ** 22        # far above any real pid on Linux
-        (claims_dir(t) / f"{dead}.json").write_text(json.dumps(
-            {"pid": dead, "label": "dead", "paths": ["c.py"]}), encoding="utf-8")
-        gone = not conflicts(t, ["c.py"], pid=os.getpid())
-        reaped = not (claims_dir(t) / f"{dead}.json").exists()
-        ok &= gone and reaped
-        print(("PASS" if gone and reaped else "FAIL")
-              + "  a dead pid's claim is reaped, not enforced (cannot wedge the repo)")
+        # a VANISHED owner's claim is reaped, not enforced
+        (claims_dir(t) / "dead.json").write_text(json.dumps(
+            {"owner": "dead", "owner_pid": far, "owner_start": "1",
+             "expires_at": None, "label": "dead", "paths": ["c.py"]}),
+            encoding="utf-8")
+        gone = not conflicts(t, ["c.py"], owners={"mine"})
+        chk(gone and not (claims_dir(t) / "dead.json").exists(),
+            "a vanished owner's claim is reaped, not enforced (cannot wedge the repo)")
+
+        # an EXPIRED claim is reaped even though its owner is ALIVE. This is the
+        # bound that stops a claim keyed on a session-long harness pid from
+        # outliving the edit that justified it.
+        (claims_dir(t) / "stale.json").write_text(json.dumps(
+            {"owner": "stale", "owner_pid": os.getpid(),
+             "owner_start": proc_start(os.getpid()),
+             "expires_at": time.time() - 1, "label": "stale", "paths": ["d.py"]}),
+            encoding="utf-8")
+        chk(not conflicts(t, ["d.py"], owners={"mine"})
+            and not (claims_dir(t) / "stale.json").exists(),
+            "an expired claim is reaped even with a LIVE owner (TTL bound)")
+
+        # PID REUSE: same pid, different start time -> not the same process
+        (claims_dir(t) / "recyc.json").write_text(json.dumps(
+            {"owner": "recyc", "owner_pid": os.getpid(),
+             "owner_start": "definitely-not-the-real-start-time",
+             "expires_at": None, "label": "recyc", "paths": ["e.py"]}),
+            encoding="utf-8")
+        chk(not conflicts(t, ["e.py"], owners={"mine"}),
+            "a recycled pid is not mistaken for the original claimant")
 
         # no claims at all -> no opinion
         for f in claims_dir(t).glob("*.json"):
             f.unlink()
-        quiet = not conflicts(t, ["a.py", "b.py"], pid=os.getpid())
-        ok &= quiet
-        print(("PASS" if quiet else "FAIL") + "  no claims means no opinion (single-agent sessions unaffected)")
+        chk(not conflicts(t, ["a.py", "b.py"], owners=set()),
+            "no claims means no opinion (single-agent sessions unaffected)")
 
         # an empty claim is refused
-        rc = add(t, [], "")
-        ok &= (rc == 2)
-        print(("PASS" if rc == 2 else "FAIL") + "  an empty claim is refused")
+        chk(add(t, [], "") == 2, "an empty claim is refused")
+
+        # THE CASE THE OLD BATTERY STRUCTURALLY COULD NOT REPRESENT: a claimant
+        # that EXITS. Every case above runs in-process, so the claimant is this
+        # still-running test and nothing ever dies -- which is precisely how the
+        # stillborn-claim defect survived a green selftest for a whole release.
+        # Spawn bd-claim as a real subprocess and assert the claim OUTLIVES it.
+        env = dict(os.environ, BD_CLAIM_OWNER="bd-claim-selftest-owner")
+        me = os.path.realpath(__file__)
+        r1 = subprocess.run([sys.executable, me, "add", "z.py", "--repo", str(t),
+                             "--label", "sub"], capture_output=True, text=True,
+                            timeout=60, env=env)
+        r2 = subprocess.run([sys.executable, me, "list", "--repo", str(t)],
+                            capture_output=True, text=True, timeout=60, env=env)
+        chk(r1.returncode == 0 and "z.py" in r2.stdout,
+            "a claim made by a subprocess SURVIVES that subprocess exiting")
+        r3 = subprocess.run([sys.executable, me, "release", "--repo", str(t)],
+                            capture_output=True, text=True, timeout=60, env=env)
+        r4 = subprocess.run([sys.executable, me, "list", "--repo", str(t)],
+                            capture_output=True, text=True, timeout=60, env=env)
+        chk(r3.returncode == 0 and "z.py" not in r4.stdout,
+            "release actually releases a claim made by an earlier process")
 
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
     return 0 if ok else 1
@@ -168,9 +444,17 @@ def _selftest(repo: Path) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(prog="bd-claim")
-    ap.add_argument("action", nargs="?", choices=["add", "list", "release"], default="list")
+    ap.add_argument("action", nargs="?", choices=["add", "list", "release"],
+                    default="list")
     ap.add_argument("paths", nargs="*")
     ap.add_argument("--label", default=os.environ.get("BD_CLAIM_LABEL", ""))
+    ap.add_argument("--owner", default=None,
+                    help="durable owner token (or $BD_CLAIM_OWNER). PREFER THIS "
+                         "over the ancestry fallback when running concurrent agents.")
+    ap.add_argument("--pid", type=int, default=None,
+                    help="claim on behalf of this live process")
+    ap.add_argument("--ttl", type=int, default=DEFAULT_TTL_SECONDS,
+                    help="seconds until the claim self-expires (0 = never)")
     ap.add_argument("--repo", default=None)
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
@@ -189,9 +473,9 @@ def main() -> int:
     if a.selftest:
         return _selftest(repo)
     if a.action == "add":
-        return add(repo, a.paths, a.label)
+        return add(repo, a.paths, a.label, owner=a.owner, pid_flag=a.pid, ttl=a.ttl)
     if a.action == "release":
-        return release(repo)
+        return release(repo, owner=a.owner, pid_flag=a.pid)
     return show(repo)
 
 

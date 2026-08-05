@@ -4,6 +4,99 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.872 - the concurrent-writer guard was stillborn
+
+bd-claim keyed each claim on os.getpid() -- the pid of the bd-claim CLI itself,
+which exits the instant the command returns. So `add` printed success, wrote
+the file, and the very next invocation reaped it as dead:
+
+    $ bd-claim add victim.py --label agentA
+    claimed 1 path(s) as pid 16401 (agentA)
+    $ cat .git/bd-claims/*.json
+    {"pid": 16401, "ppid": 15935, "label": "agentA", "paths": ["victim.py"]}
+    $ bd-claim list
+    no live claims
+    $ ls .git/bd-claims/ | wc -l
+    0
+
+The consumer then failed OPEN. With the hook installed and armed, a blanket
+`git add -A` swept the claimed file onto the branch and said nothing -- the
+v3.66.848 failure the whole mechanism exists to prevent, reproduced with the
+guard in place. Section 0: the gate could not see its subject, so it reported
+OK. `release` was inert the same way, and 9 occurrences of os.getpid() carried
+the defect.
+
+KEYING ON os.getppid() IS NOT THE FIX AND IT LOOKS LIKE ONE. Measured across
+two consecutive agent tool calls: each gets a FRESH shell that dies
+immediately (pid 24713 -> gone; next call 25788, same parent 508), so only the
+harness above them is durable. A ppid key works for a human at a terminal and
+is inert for exactly the concurrent-agent case this exists for. Anyone
+"fixing" this without running that two-call measurement will believe it works.
+
+A claim now carries a durable OWNER token, resolved most-explicit-first:
+--owner, then $BD_CLAIM_OWNER, then --pid, then a /proc ancestry walk that
+skips transient shell scaffolding. If none yields a durable owner it REFUSES
+with exit 2 rather than falling back to os.getpid(). Unknown is a third state
+and it fails: a claim that will be reaped before anything can read it is worse
+than no claim, because it reports success.
+
+TWO INDEPENDENT BOUNDS, so neither alone can wedge the repo -- the owner
+process vanishing, and a TTL (default 4h). Either reaps. The liveness half
+also compares /proc start time, because pid_max is 32768 here and a recycled
+pid would otherwise let a stranger stand in for the original claimant and
+block commits forever -- the exact wedge liveness exists to prevent,
+reintroduced by the liveness check. That field is parsed after the LAST ')' in
+the stat line, since comm can itself contain spaces and parentheses.
+
+RISK 1 IS ENFORCED, NOT DOCUMENTED, and it is the sharpest part of this cut.
+Two agents under one harness share their durable ancestor, so a DERIVED owner
+can be the SAME token for both -- and then the hook self-exclusion matches
+agent B against agent A's claim and the guard goes silently inert for exactly
+the case it exists for. That is the original defect wearing the fix's clothes.
+So `add` refuses a derived owner another live claim already holds under a
+different label, and names the remedy. The refusal is scoped to DERIVED owners
+only: two agents with distinct explicit tokens, and one agent re-claiming
+under its own token, both stay legal.
+
+BOTH HALVES SHIPPED TOGETHER BECAUSE HALF A ALONE IS WORSE THAN THE STATUS
+QUO. The hook called conflicts(pid=os.getppid()), and that is the per-commit
+bash process, spawned fresh every time -- it can never equal any stored claim,
+so the self-exclusion branch was UNREACHABLE from the only consumer.
+Demonstrated on pristine: a shell holding a claim on its own file was refused
+permission to commit it, "held by pid 18997 (me)", where 18997 was the
+committing shell. Fixing the key alone converts a silently-inert guard into
+one that locks the operator out. conflicts() now takes an owner SET; the hook
+prefers $BD_CLAIM_OWNER (measured to be inherited into git hooks) and falls
+back to its /proc ancestor set.
+
+show() now reports what it reaped and why ("reaped 2 stale claim(s): 1
+expired, 1 vanished"). A read that silently destroys evidence is its own trap:
+the operator cannot tell "no claims" from "your claim just expired".
+
+THE SELFTEST WAS GREEN THROUGHOUT, and its denominator is why. Every case ran
+in-process, so the claimant was the still-running test and nothing ever died;
+its "live foreign claim" case wrote a file named 999999.json whose pid FIELD
+was os.getpid() of the running process. No case had a claimant that exits --
+the same shape as the bug. It now spawns bd-claim as a real subprocess and
+asserts the claim OUTLIVES it, plus TTL expiry and pid recycling. The literal
+string "SELFTEST PASS" is preserved because test_toolchain_534.py:485 asserts
+on it.
+
+RED-first: 8 of 13 failed on pristine. Stated precisely rather than counted --
+six failed for the right reason; two (the crashed-claimant and expired-claim
+guards) failed because their fixtures use the new record schema that pristine
+cannot read, which is a signature red and proves nothing; and
+test_the_claimant_may_commit_its_own_claimed_path PASSED on pristine for the
+wrong reason, because a stillborn claim leaves nothing to refuse. Those three
+are constrained by mutant, not by their pristine result.
+
+bd-mutate: 10 caught, 0 escaped, 0 invalid, including the SHELL mutant that
+reverts the hook to the per-commit bash pid. Two escaped on the first run and
+both were real gaps: the explicit-owner test used two DIFFERENT tokens and so
+never reached the collision check it was meant to bound, and nothing outside
+the selftest covered pid recycling. Both closed with tests proven RED under
+their mutant.
+
 ## v3.66.871 - four tools, one defect wearing four hats
 
 Each of these already HAD a correct AGGREGATE CANNOT-EVALUATE concept. In all
