@@ -76,8 +76,25 @@ except Exception as e:                      # cannot check -> cannot pass
           f"UNVERIFIED. BD_SKIP_CLAIM_CHECK=1 to override.", file=sys.stderr)
     sys.exit(1)
 from pathlib import Path
+
+# WHO IS COMMITTING (@872). This used to be `pid=os.getppid()`, which is the
+# per-commit bash process -- spawned fresh every time and therefore never equal
+# to any stored claim. The self-exclusion branch was UNREACHABLE from the only
+# consumer, so fixing the claim key alone would have locked the claimant out of
+# committing its own claimed file. Both halves had to ship together.
+#
+# BD_CLAIM_OWNER is preferred and is exact: measured to be inherited into git
+# hooks. The ancestry fallback is second because a shared harness ancestor gives
+# two agents the SAME token, which would make this guard blind again.
+owners = set()
+_env_owner = os.environ.get("BD_CLAIM_OWNER")
+if _env_owner:
+    owners.add(mod._token(_env_owner))
+else:
+    for _p in mod.ancestor_pids(os.getpid()):
+        owners.add("pid-%d" % _p)
 try:
-    hits = mod.conflicts(Path(repo), staged, pid=os.getppid())
+    hits = mod.conflicts(Path(repo), staged, owners=owners)
 except Exception as e:
     print(f"pre-commit: could not read claims ({e}) -- UNKNOWN, refusing. "
           f"BD_SKIP_CLAIM_CHECK=1 to override.", file=sys.stderr)
@@ -86,7 +103,7 @@ if hits:
     print("pre-commit: REFUSING -- these staged paths are claimed by another "
           "live process:", file=sys.stderr)
     for path, c in hits:
-        print(f"    {path}   held by pid {c['pid']} "
+        print(f"    {path}   held by owner {c.get('owner', '?')} "
               f"({c.get('label') or 'no label'})", file=sys.stderr)
     print("\nThis is the `git add -A` sweep that put a RED battery on a branch "
           "without its implementation at v3.66.848.", file=sys.stderr)
