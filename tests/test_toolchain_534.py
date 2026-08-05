@@ -1034,7 +1034,19 @@ def test_salvaged_stub_detector_separates_a_marker_from_prose_about_one():
 # meant to move DOWN as retirements land -- unlike _PROSE_ONLY_BASELINE,
 # lowering it is the point, and leaving it at 246 would silently re-permit
 # the growth the retirement just paid for.
-_TOOL_BUDGET = 239
+# @882: 239 -> 240. bd-restart-check added, and NOTHING retired to pay for it --
+# which this gate is right to make explicit. The reason: it answers a standing
+# UNKNOWN that no existing tool can, and that no tool CAN answer by the usual
+# means. Whether a mid-session container restart fires SessionStart was assumed
+# by the hook's comments and by three test suites and established by none, and a
+# hook cannot log the runs it did not make -- so the instrument has to read
+# /proc/sys/kernel/random/boot_id from OUTSIDE the hook, on demand, mid-session.
+# Folding that into an existing tool would have hidden a single-purpose check
+# inside something with a different subject.
+# The debt is real and recorded: the retirement pool (SESSION_CARRY 15.30, item
+# 7a) is blocked on its over-sensitivity spec being reworked, so this is a
+# deliberate raise rather than a deferred retirement. Lower it when 7a lands.
+_TOOL_BUDGET = 240
 
 
 def test_the_toolchain_does_not_grow_unbudgeted():
