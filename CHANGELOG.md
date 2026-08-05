@@ -4,6 +4,64 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.873 - the reverted checkout now repairs itself when that is lossless
+
+This container reverts to a 2026-07-28 base image on restart. FOUR times the
+checkout has reappeared at an old commit; the latest was v3.66.850 while
+origin/main carried v3.66.872, twenty-two versions later, and it was found only
+because a spec file the session had committed was suddenly absent. Once before,
+a source read against that stale tree produced a confidently WRONG conclusion
+about a fix that was present on main all along.
+
+The hook already DETECTED this and printed a warning. It deliberately never
+repaired, and the reason was sound as far as it went: it also fires on `resume`
+and `compact`, where the checkout is legitimately ahead of origin and carries
+uncommitted mid-cut work, and a reset there would destroy exactly what the
+session is doing.
+
+But that put two different situations under one refusal. "The tree holds work I
+would lose" and "the tree is a reverted image with nothing of its own" are
+distinguishable, and only the first is dangerous -- while the second is the one
+that keeps happening.
+
+The repair is now gated on PROVABLE LOSSLESSNESS rather than on the trigger:
+
+  * no MODIFIED TRACKED files, and
+  * zero commits ahead of origin/main.
+
+Both true and every byte a reset would discard is reachable from origin/main by
+construction, so there is nothing to lose. Either false and it refuses and says
+WHICH -- an operator who sees only "behind" will re-run the reset by hand and
+lose the work, so the diagnostic is load-bearing and a mutant that reduces it
+to "not syncing" is caught.
+
+UNTRACKED FILES ARE DELIBERATELY NOT COUNTED (--untracked-files=no). `git reset
+--hard` does not touch them, so they cannot be lost by the repair, and counting
+them would refuse the common case -- a session almost always has scratch files
+-- for no safety gain at all. A mutant that counts them is caught.
+
+NOT GATED ON source=startup, deliberately. The rollback that prompted this cut
+landed mid-session, so a startup-only repair would leave exactly the observed
+case unfixed. The mid-session safety concern is already covered by the two
+bounds: real mid-cut work is either modified or committed, and both refuse.
+
+WHAT THIS DOES NOT FIX, SAID PLAINLY: the hook has to FIRE to help. The rollback
+this cut was written for was discovered by hand, not reported by the hook, and
+whether a worker restart re-fires SessionStart was not established. So this
+narrows the window rather than closing it, and a stale tree is still worth
+checking by hand (git log --oneline -1) before trusting any source read. The
+dependency half is unchanged and still loses lxml/cssselect on every revert.
+
+RED-first, stated precisely rather than counted: 5 of 6 failed on pristine, of
+which three for the right reason (no repair at all). The two refusal tests
+failed only on the new diagnostic MESSAGE -- pristine already declined to reset,
+correctly -- so they are weaker reds and are constrained by mutants M2/M3/M7
+rather than by their pristine result.
+
+bd-mutate: 7 caught, 0 escaped, 0 invalid, over a SHELL subject validated with
+bash -n. Both over-correction directions are covered: always-repair, and
+untracked-counted-as-dirty.
+
 ## v3.66.872 - the concurrent-writer guard was stillborn
 
 bd-claim keyed each claim on os.getpid() -- the pid of the bd-claim CLI itself,
