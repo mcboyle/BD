@@ -3573,6 +3573,68 @@ STILL OPEN, unchanged by any of this:
   166 bd-* tools remain prose-only. The ratchet stops that number growing;
       wiring or retiring them is its own work.
 
+### 15.31 | The cache-rebuild discriminator -- PROTOCOL, run it before any other work
+
+Written 2026-08-05T19:43Z, immediately after the operator pasted the
+cache-rebuild marker into the panel's setup-script box. This section exists to
+be executed by the NEXT session, not read by this one.
+
+WHY THERE IS A PROTOCOL AT ALL. CLAUDE.md section 5 now records the panel's
+cache mechanism -- setup script runs once per cache BUILD, filesystem is
+snapshotted, later sessions start from the snapshot with the script skipped,
+rebuild fires on a setup-script change / network-host change / ~7 day expiry.
+That is the operator's account plus one measurement of this container (the git
+reflog's oldest entry was 2026-07-28 18:42:12, the same minute
+.claude-env-report.md was generated, which a fresh clone would contradict).
+
+One measurement of one container is not a platform model. The docs say the repo
+is re-cloned fresh each session; the reflog here says otherwise. Both cannot be
+generally true, and which one holds decides whether the @881 session-start hook
+is load-bearing or belt-and-braces.
+
+THE REFERENCE TIME, which is the only thing this section adds that cannot be
+re-derived later:
+
+    panel setup-script edited (rebuild trigger)   2026-08-05T19:43Z
+    origin/main tip at that moment               7e5e6e5
+    snapshot in force BEFORE the trigger         2026-07-28T18:42Z
+
+RECORD THESE FOUR, BEFORE ANY OTHER WORK, IN THE FIRST NEW SESSION:
+
+    git log --oneline -1                                  # HEAD sha
+    git rev-list --count HEAD..origin/main                # how far behind
+    git reflog --date=iso | tail -1                       # reflog-OLDEST
+    # and: which hook blocks appeared at session start --
+    #   REPAIRED / *** STALE BASE *** / *** REPAIR FAILED *** / none
+
+HOW TO READ THEM:
+
+  * reflog-oldest ~= the rebuild time (after 2026-08-05T19:43Z), and the
+    operator's post-touch commit PRESENT
+        -> the snapshot carries .git. Snapshot-carried repo is the steady
+           state, the @881 hook is MANDATORY, and a stale base recurs every
+           cache cycle. Expect the hook to fire on the FOLLOWING cycle, not
+           this fresh one.
+  * reflog-oldest ~= this session's own start time
+        -> 2026-07-28 was a one-off; the docs' fresh-clone model holds and the
+           hook is a safety net rather than the mechanism.
+
+  Either way the hook's behaviour is already correct and loud. The
+  discriminator decides which platform model goes into CLAUDE.md section 5 as
+  MEASURED rather than inferred -- and section 1 is the reason that distinction
+  is worth a whole session's protocol.
+
+EXPECT `none` FROM THE HOOK ON THE DISCRIMINATOR SESSION ITSELF. The rebuild
+provisions from a current clone, so the checkout should already be at the tip. A
+REPAIRED or STALE BASE block appearing on that first session would mean the
+rebuild did not do what the docs say -- which is a useful reading, not a bug in
+the hook.
+
+FREEZE. The operator froze new-session starts until this protocol has been run
+and its readings recorded, because an accidental session consumes the rebuild
+and the discriminator loses its subject. Resuming a session never rebuilds, so
+resumed work is safe; starting a NEW one is what spends the trigger.
+
 ### 15.30 | Session close 2026-08-05 at 5e87c68 (v3.66.878 tip), carried by v3.66.879 -- SUPERSEDES 15.29's open set
 
 STATE: twelve cuts merged this session, #170-#180 plus this one.
