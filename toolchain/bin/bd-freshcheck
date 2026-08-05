@@ -51,6 +51,19 @@ _DOCS = ("CLAUDE.md", "project-knowledge/SESSION_CARRY.md")
 
 _ANCHOR = re.compile(r'\b([A-Za-z0-9_./-]+\.(?:py|sh|json|md|txt|yml))[:](\d+)(?:-(\d+))?\b')
 
+# How far to push a shallow clone's boundary back before re-asking an ancestry
+# question. MEASURED 2026-08-05 against a `--depth 1` clone of this repo:
+# --deepen=200 moved it to 332 commits and left it SHALLOW; --deepen=1000
+# reached the root (360 commits, `.git/shallow` removed) in 2.7s. Reaching the
+# root is what makes a re-asked NONZERO authoritative rather than merely
+# better-informed, and that is the only thing that lets a real typo stay STALE
+# instead of degrading to UNKNOWN.
+#
+# It is a FLOOR, not a promise. If a future history outgrows it the deepen
+# stops short, the clone stays shallow, and the verdict degrades to UNKNOWN --
+# never to a false STALE or a false OK. Raise it rather than reasoning about it.
+_DEEPEN = 1000
+
 
 def _run(cmd, root):
     try:
@@ -123,6 +136,72 @@ def check_anchors(root: pathlib.Path) -> dict:
                       + ("; BROKEN: " + "; ".join(broken[:6]) if broken else "")}
 
 
+def _is_shallow(root: pathlib.Path):
+    """True / False / None -- None meaning git could not be asked."""
+    rc, out = _run(["git", "rev-parse", "--is-shallow-repository"], root)
+    if rc != 0:
+        return None
+    return out.strip() == "true"
+
+
+def _decide_nonzero_ancestry(root: pathlib.Path, claimed: str):
+    """A nonzero `is-ancestor` means two different things. Tell them apart.
+
+    THE DEFECT THIS EXISTS TO REMOVE. `git merge-base --is-ancestor` exits 1
+    for "not in this history" and 128 for "not in this repository", and a
+    shallow clone produces 128 for perfectly good ancestors. Reported as STALE,
+    that is a confident false accusation against an innocent register section
+    -- CLAUDE.md section 0's gate firing on its own blindness. Measured in a
+    `--depth 1` clone of this repo: `5e87c68`, a genuine ancestor of `main`,
+    exits 128 and the tool said it "names a commit this branch does not
+    contain".
+
+    WHY NOT KEY ON THE EXIT CODE ITSELF. Because 1 is not trustworthy here
+    either. A by-sha fetch delivers the object WITHOUT its connecting history,
+    after which the same question answers 1 -- so the shallow boundary can
+    manufacture a 1 as readily as a 128, and only exit 0 cannot be faked.
+    Keying on the code, or on whether the object is present, ships the false
+    verdict unchanged; both were drafted and both are wrong (SESSION_CARRY
+    15.33). The boundary is the subject, so the boundary is what this moves.
+
+    WHY NOT CALL EVERY NONZERO UNKNOWN. That is the opposite error and it
+    destroys the gate: a typo, an abandoned-branch commit and a sha invented
+    from memory are all nonzero in a shallow clone too, so the check would
+    stop detecting anything in the environment sessions actually run in.
+
+    Returns (status, note).
+    """
+    shallow = _is_shallow(root)
+    if shallow is None:
+        return UNKNOWN, ("could not tell whether this clone is shallow, so a "
+                         "nonzero ancestry answer cannot be graded")
+    if not shallow:
+        # A complete history: nonzero is authoritative and means what it says.
+        # This is the box, and CI's `gates` job (`fetch-depth: 0`). Nothing
+        # below runs there -- no network, and `.git` is not touched.
+        return STALE, ""
+
+    rc, out = _run(["git", "fetch", "--deepen=%d" % _DEEPEN, "origin"], root)
+    if rc != 0:
+        return UNKNOWN, ("this clone is shallow and deepening it failed, so "
+                         "the commit may simply lie beyond the boundary: "
+                         + " ".join(out.split())[:120])
+
+    rc2, _ = _run(["git", "merge-base", "--is-ancestor", claimed, "HEAD"], root)
+    if rc2 == 0:
+        # Exit 0 is the one answer a shallow boundary cannot fabricate: a
+        # connected path was found.
+        return OK, " (resolved after deepening a shallow clone)"
+    if rc2 is None:
+        return UNKNOWN, "could not re-test ancestry after deepening"
+    if _is_shallow(root) is False:
+        # The deepen reached the root, so the history is complete and this
+        # nonzero is the real thing -- the true positive draft 2 threw away.
+        return STALE, " (confirmed against a fully deepened history)"
+    return UNKNOWN, ("this clone is STILL shallow after --deepen=%d, so a "
+                     "nonzero answer cannot be told from blindness" % _DEEPEN)
+
+
 def check_session_close_tip(root: pathlib.Path) -> dict:
     """The newest `### 15.N | ... close ... at <sha>` must name the current HEAD.
 
@@ -174,10 +253,24 @@ def check_session_close_tip(root: pathlib.Path) -> dict:
         return {"name": "register close tip", "status": UNKNOWN,
                 "detail": f"could not test whether {claimed} is in this history"}
     if rc2 != 0:
-        return {"name": "register close tip", "status": STALE,
-                "detail": f"{num} says 'close at {claimed}', which is NOT an ancestor "
-                          f"of HEAD ({head[:12]}) -- it names a commit this branch "
-                          f"does not contain"}
+        # NOT `rc2 != 0 -> STALE`. In a shallow clone -- which is what the
+        # cloud container is, and what any `--depth` CI checkout would be --
+        # only exit 0 is trustworthy. See _decide_nonzero_ancestry.
+        status, note = _decide_nonzero_ancestry(root, claimed)
+        if status == STALE:
+            return {"name": "register close tip", "status": STALE,
+                    "detail": f"{num} says 'close at {claimed}', which is NOT an "
+                              f"ancestor of HEAD ({head[:12]}) -- it names a commit "
+                              f"this branch does not contain{note}"}
+        if status == UNKNOWN:
+            return {"name": "register close tip", "status": UNKNOWN,
+                    "detail": f"{num} says 'close at {claimed}' and this checkout "
+                              f"cannot decide whether that is an ancestor of HEAD "
+                              f"({head[:12]}): {note}"}
+        # OK: the deepen found the connecting path. Fall through and report it
+        # exactly as an unobstructed run would, so the two are indistinguishable
+        # to a reader -- the boundary was an artefact, not a fact about the doc.
+        rc2 = 0
     at_tip = head.startswith(claimed)
     return {"name": "register close tip", "status": OK,
             "detail": f"{num} names {claimed}, in history"

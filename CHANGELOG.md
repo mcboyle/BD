@@ -4,6 +4,50 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.884 - bd-freshcheck accused an innocent section of being stale
+
+OPEN ITEM A, closed. In a shallow clone the freshness gate reported STALE
+about a register section that was correct. `git merge-base --is-ancestor`
+exits 1 for "not in this history" and 128 for "not in this repository";
+`check_session_close_tip` tested `rc2 != 0` and treated both alike. The cloud
+container is a shallow clone, so the gate was blind there and said so as a
+confident, specific accusation - CLAUDE.md section 0's gate firing on its own
+blindness. Measured before the fix: a `--depth 1` clone of this repo exits 1
+and names 15.30's `5e87c68`, a genuine ancestor of main.
+
+The repair moves the shallow BOUNDARY rather than reinterpreting the exit
+code, because the code cannot be trusted in either direction. A nonzero now
+resolves three ways: on a complete history it is authoritative and stays
+STALE; on a shallow one the clone is deepened and the question re-asked, where
+exit 0 is the one answer a boundary cannot fabricate; and if it is still
+shallow, or the deepen failed, the verdict is UNKNOWN. Nothing runs on the
+happy path - the box and CI's `gates` job (`fetch-depth: 0`) touch no network
+and do not modify `.git`, verified by computing both verdicts with `origin`
+pointing at nothing.
+
+Two drafts of this fix were wrong in opposite directions and both are pinned
+by tests. Keying on whether the object is PRESENT ships the false STALE
+unchanged, because a by-sha fetch delivers the object without its connecting
+history and `is-ancestor` then answers 1 rather than 128 - a detectable
+blindness converted into an undetectable false negative. Calling every nonzero
+UNKNOWN removes the false clean by removing the verdict, which stops the gate
+detecting a typo or an invented sha in the environment sessions actually run
+in.
+
+MEASURED HERE, and it changed the shipped design: SESSION_CARRY 15.33's spec
+ends with a by-sha existence probe to split the residual case. That probe
+cannot be applied to this register's own data. The close sections name SHORT
+shas, git reads a short sha as a ref name, and fetching `5e87c68` exits 128
+"couldn't find remote ref" for that same genuine ancestor - so the probe would
+have reproduced the false STALE it was written to remove. It is not
+implemented; `--deepen` carries the repair and the residual case degrades to
+UNKNOWN. A test asserts over the AST, not the source text, that no verdict is
+computed from a fetch of the claimed sha.
+
+Verification: 7 new tests, 2 proven RED on pristine source in both behavioural
+directions; 6 of 6 mutants caught by `bd-mutate` over the new band, baseline
+GREEN; `bd-freshcheck --selftest` PASS; `test_toolchain_534` 44/44.
+
 ## v3.66.883 - the discriminator ran, and could not discriminate
 
 The v3.66.882 protocol was executed in the first session started after the
