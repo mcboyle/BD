@@ -4,6 +4,72 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.868 - a band tool minted a green PASS for a file that does not exist
+
+bd-parband dispatched any argument ending in .py. It never asked whether the
+file was there. Both it and bd-retest shell out to `run_tests.py <suite>`, and
+run_tests_core.py:1277-1284 prints a WARN for a path it cannot find and then
+`continue`s -- so with every requested path missing, `filters` is empty, :1288
+takes the else branch and :1303 globs the WHOLE suite. The substituted run's
+verdict is then attributed to the path that was never run.
+
+Measured on pristine, both directions of the same defect:
+
+    bd-parband tests/test_ITEM1_no_such_file.py --jobs 1 --timeout 200
+    exit=0 ; PASS tests/test_ITEM1_no_such_file.py 0.3s
+    {"suite": "tests/test_ITEM1_no_such_file.py", "status": "pass",
+     "failed": 0, "passed": 5}
+
+A green verdict with passed=5, for a file that does not exist. The five named
+tests belonged to test_capture_dict_shape_tripwire.py.
+
+The @860 guard at run_tests_core.py:1605 (`total == 0 and requested`) cannot
+fire on this: the substituted full-suite run makes `total` huge. That guard
+catches "the requested file collected zero tests"; it is structurally blind to
+"the requested file does not exist". Section 0 -- the denominator excludes the
+subject.
+
+bd-retest had the SAME fall-through and grades it worse. It reads the results
+file, takes every non-pass row and calls run_one() on it with no existence
+check; if the substituted whole-tree run comes back green, `all(o == "pass")`
+prints FLAKE and the tool DELETES a real failure from the ledger. Reachable
+with no hand-editing: band fails, the test file is renamed as part of the fix,
+bd-retest re-reads the old results file. This is why the check lives in
+bdtools_sec.missing_suite_reason and both tools call it -- two copies of the
+predicate is exactly how the consumer half would have stayed open. Both
+headers already said "Edit them together or the pair breaks".
+
+Both now exit 2 (CANNOT-EVALUATE) with a discriminating marker, and bd-parband
+does not write the band-results file on a refusal: a refusal is not a band, and
+bd-retest reads that file back. The marker is load-bearing rather than
+decoration -- argparse also exits 2 on a bad argv, so the code alone cannot
+tell a caller which condition it hit.
+
+NOT delegated to bd-bandcheck.check(), which is the obvious single-source-of-
+truth move and already has the right MISSING logic. It also enforces LEAK_PAIRS:
+test_phases_195_199 + test_cut8_schedules must not co-band. That pair is
+bd-parband's whole reason to exist -- the per-process BD_HOME means the
+BD_INSTALL_DIR leak cannot cross suites -- so delegating would make the tool
+refuse the exact case it was built for. check() returns one rc, not per-reason,
+so selective delegation is not available without changing its API. A test pins
+that divergence so a future improvement cannot quietly take it.
+
+Three tests bound the fix from the over-sensitive side, all green before the
+change and required to stay green: a real suite still runs (with an explicit
+--work and a RELATIVE path, which is the only input that catches a validator
+resolving against cwd instead of work -- the defect's own shape one level
+down); the leak pair is still accepted; and bd-retest still grades a genuine
+flake.
+
+Also: .bd_last_band.json is now gitignored, anchored. bd-parband wrote it to
+the checkout root on every ordinary run, untracked and unignored.
+BD_TOOLCHAIN_REFERENCE.md said it went to /home/claude/.bd_last_band.json,
+which is zip-era and was never where the tool writes.
+
+Tests: tests/test_toolchain_534.py (6 new), tests/test_gitignore_rules_actually
+_match.py (_GENERATED entry). Mirrors re-synced: project-knowledge/bd-parband,
+bd-retest, bdtools_sec.py.
+
 ## v3.66.867 - the destructive-route gate asserted over 0 of 16 routes
 
 test_phase3_config_maintenance_mutations_are_gated pins sixteen

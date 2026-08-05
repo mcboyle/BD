@@ -43,6 +43,12 @@ vapid_keys.json
 .fts_optimize_last
 .integrity_check_last
 .integrity_last_run
+# Band-results file written by toolchain/bin/bd-parband:192 at the checkout root
+# (bdtools_sec.DEFAULT_WORK); bd-retest reads it back. Per-run state, not source.
+# Override the location with BD_LAST_BAND.
+# Anchored: bd-parband only ever writes it at DEFAULT_WORK, and an unanchored
+# rule would also swallow a same-named file anywhere in the tree.
+/.bd_last_band.json
 # Capture/draft dirs the app + DOM-analyzer write under the repo root when
 # capture_store_root is unset (default PROJECT_ROOT). Runtime artifacts, not source.
 /captures/

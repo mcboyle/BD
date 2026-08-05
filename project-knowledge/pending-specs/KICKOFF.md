@@ -177,6 +177,34 @@ Item 9 still carries its constraint and it is sharper: `capture.sh` **is** the
 release gate, so both its cuts need Matt's separate go, and only his box run is
 binding evidence. That authorization has **not** been given.
 
+## 4a | New findings, made while executing -- not in the recon spec
+
+**`bd-bandcheck` defaults `--work` to `/home/claude/work` and exits 0 anyway.**
+Found @868 while validating that cut's own band. **[primary]:**
+
+```
+$ venv/bin/python toolchain/bin/bd-bandcheck tests/test_toolchain_534.py ...
+  MISSING 'tests/test_toolchain_534.py' -- no such file under /home/claude/work.
+  ... (all 35 targets)
+=> fix the flagged targets before banding (else timeout/ABORT/false-fail).
+exit=0
+$ venv/bin/python toolchain/bin/bd-bandcheck --work "$PWD" <same 35>
+  ok  (all 35) ; all targets safe to band. ; exit=0
+```
+
+`toolchain/bin/bd-bandcheck:100` -- `ap.add_argument("--tree","--work",
+default="/home/claude/work")`. Two defects, and the second is worse: the
+zip-era default means a bare invocation can see none of its subjects, and it
+prints a wall of MISSING lines with a "fix these before banding" instruction
+**while returning 0**. Both directions of section 0 at once -- it cannot see
+its subject, and its exit code disagrees with its own text.
+
+This is **item 8's family** (`bd-band` carries zip-era `/home/claude` paths)
+but a DIFFERENT tool, so item 8's plan does not cover it. Fold it into item 8
+rather than opening a tenth item, and re-derive before acting: `bd-band`'s
+occurrences were measured at 3, this is a third tool, and nobody has counted
+the whole `toolchain/bin` population for that default.
+
 ## 5 | After 1-9: the order Matt chose, by speed x blast radius
 
 He explicitly approved **splitting s5 into three cuts**.

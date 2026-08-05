@@ -162,9 +162,16 @@ def test_a_directory_rule_matches_by_path_not_by_existence():
 # Also excluded: templates/reviewed/*.template.json (non-.bak). Two siblings are
 # tracked and shipped, so whether a new one is generated or hand-authored is an
 # operator question, not a derivable one.
+# .bd_last_band.json (@868) has a DIFFERENT provenance from the two above and
+# the difference is worth stating: those were measured in `git status
+# --porcelain` on test4, this one was derived from its WRITER plus a container
+# check-ignore, never from a box git status. toolchain/bin/bd-parband:192 dumps
+# it at bdtools_sec.DEFAULT_WORK -- the checkout root -- on every ordinary run,
+# and bd-retest reads it back. Override with BD_LAST_BAND.
 _GENERATED = [
     "vapid_keys.json",
     "tools/deployed_version.txt",
+    ".bd_last_band.json",
 ]
 
 

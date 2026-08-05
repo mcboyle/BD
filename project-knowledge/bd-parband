@@ -14,7 +14,9 @@ the SAME default/override; change one and you break the pair).
 
 Usage:
     bd-parband tests/a.py tests/b.py tests/c.py [--jobs 4] [--timeout 300] [--work DIR]
-Exit 0 = every suite Failed:0 ; 1 = any failure/timeout, or a refused hazard.
+Exit 0 = every suite Failed:0 ; 1 = any failure/timeout ; 2 = CANNOT-EVALUATE,
+nothing was dispatched (a refused hazard, or a suite path that does not exist).
+Exit 2 never writes the band-results file: a refusal is not a band.
 """
 import argparse
 import concurrent.futures as cf
@@ -159,19 +161,43 @@ def main():
     ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
     a = ap.parse_args()
 
-    # hazard refusal
-    refused = [s for s in a.suites
-               if any(h in s for h in HANGERS) or s.rstrip("/") in ("tests", "tests/")
-               or not s.endswith(".py")]
-    if refused:
-        print(f"{R}refusing hazardous/invalid target(s):{RST}")
-        for s in refused:
-            why = ("known hanger" if any(h in s for h in HANGERS)
-                   else "bare tests/ dir (hangs)" if "test" not in os.path.basename(s)
-                   else "not a .py file")
-            print(f"  {R}XX{RST} {s} {DIM}({why}){RST}")
-        print(f"{DIM}run hangers alone via bd-band with a big --timeout, or fix the path{RST}")
-        return 1
+    # Door check. Two tiers, ONE exit code: the known hazards (which this tool
+    # has always refused) and, since @868, existence. Both are CANNOT-EVALUATE
+    # -- a target that was not dispatched has no verdict, and exit 1 would say
+    # "the suite failed", which is a claim about a run that never happened.
+    #
+    # Per-target reason, computed in the loop. The old comprehension mislabelled
+    # a non-.py path whose basename lacked "test" as "bare tests/ dir".
+    #
+    # The .py check stays AHEAD of the existence check on purpose: pytest node
+    # ids (tests/x.py::TestY) are already rejected, and "improving" that by
+    # splitting on "::" would WIDEN accepted input inside a cut about narrowing
+    # it.
+    bad = []
+    for s in a.suites:
+        if any(h in s for h in HANGERS):
+            bad.append((s, "known hanger"))
+        elif s.rstrip("/") in ("tests", "tests/"):
+            bad.append((s, "bare tests/ dir (hangs)"))
+        elif not s.endswith(".py"):
+            bad.append((s, "not a .py file"))
+        else:
+            why = sec.missing_suite_reason(a.work, s)
+            if why:
+                bad.append((s, why))
+    if bad:
+        # Discriminating marker: argparse also exits 2 on a bad argv, so the
+        # code alone cannot tell a caller which condition it hit.
+        print(f"{R}BD-PARBAND UNEVALUABLE{RST} -- refusing to dispatch; "
+              f"no verdict minted:", file=sys.stderr)
+        for s, why in bad:
+            print(f"  {R}XX{RST} {s} {DIM}({why}){RST}", file=sys.stderr)
+        print(f"{DIM}run hangers alone via bd-band with a big --timeout, "
+              f"or fix the path{RST}", file=sys.stderr)
+        # Deliberately do NOT write RESULTS here. A refusal is not a band, and
+        # bd-retest reads that file back; leaving the previous run's file
+        # untouched is correct.
+        return sec.EXIT_CANNOT_EVALUATE
 
     print(f"{BOLD}parallel band{RST} {DIM}{len(a.suites)} suites, {a.jobs} jobs, "
           f"{a.timeout}s each{RST}")
