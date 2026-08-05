@@ -4,6 +4,93 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.875 - an interrupted mutation battery left the mutant on disk
+
+Item 6, both halves. Part (b) was authorized by the operator.
+
+THE MECHANISM, measured rather than read. bd-mutate's restore is a `finally:` in
+the per-mutant loop, so it runs on the normal path and on any Python-level
+exception -- and a signal whose default disposition is to terminate never
+becomes one:
+
+    SIGINT   exit=-2    RESTORED=True    orphaned pytest alive=False
+    SIGTERM  exit=-15   RESTORED=False   orphaned pytest alive=True
+    SIGKILL  exit=-9    RESTORED=False   orphaned pytest alive=True
+
+`timeout 30 bd-mutate ...` reproduces it exactly: exit 124, mutant still on
+disk. Every UNATTENDED way a battery dies is a way it dies dirty, and Ctrl-C --
+the one case `finally` covers -- is the case that does not happen when nobody is
+watching. This bit twice in one session.
+
+A FALSE PROBE WORTH RECORDING: the first SIGINT run reported a clean restore,
+and the signal had simply never arrived. Backgrounding with `&` from a
+non-interactive shell sets SIGINT to SIG_IGN (`SigIgn` bit 0x2 in
+/proc/<pid>/status), so `kill -INT` did nothing and the battery ran to
+completion looking healthy. The instrument, not the subject.
+
+THE COMPOUNDING DEFECT. `original` is read from the WORKING TREE, never from
+git, and the restore check compares that same text back -- so a battery started
+on a dirty tree adopts the mutant as pristine and puts it back, reporting a
+clean sha256-verified restore. Measured: a tree left at `len(hits) > 99` where
+`> 1` belonged scored an ESCAPE and restored `> 99`. Precise, well-evidenced,
+and about code that is not in git.
+
+A SIGNAL TRAP WAS CONSIDERED AND REJECTED AS THE PRIMARY FIX. It cannot cover
+SIGKILL, the OOM killer or container teardown, and a partial trap REPRODUCES THE
+SHAPE: it converts a reliable failure (every kill leaves residue) into a rare,
+SILENT one, so the tool would look crash-safe while retaining a class it can
+neither see nor report. The journal is on DISK, which is the property no handler
+can have.
+
+WHAT SHIPPED: a record under `<git-dir>/bd-mutate-inflight/<pid>.json` written
+before the first mutation and deleted only once the restore VERIFIES; a
+preflight in run_battery that resolves it three ways; and `--recover`. Inside
+git-dir on purpose -- invisible to `git status`, `git clean -fdx` and every
+axis-6 enumerator, so it needs no .gitignore entry and contaminates no gate.
+Resolved with `git rev-parse --git-dir`, not `work/".git"`, because in a
+WORKTREE `.git` is a FILE and the literal path fails.
+
+The three preflight branches, and the first is the one that keeps the tool
+usable: a journal whose file already matches its recorded ORIGINAL is REAPED and
+the run proceeds (bd-claim's precedent -- a dead claimant is reaped rather than
+wedging the repo). Matching the recorded MUTANT is exit 2 naming the file.
+Matching NEITHER is exit 2 saying it cannot tell and asking for a diff -- never
+a silent recover over an edit somebody made deliberately. Failing to WRITE the
+journal is also exit 2: a safety net that reports OK while absent is the defect
+it closes.
+
+WHAT THE JOURNAL DOES NOT COVER, MEASURED AND STATED RATHER THAN IMPLIED: it
+only sees residue from a battery that ran WITH it. A hand-left edit, or residue
+from a pre-@875 run, is still adopted as pristine and restored -- verified
+identical behaviour before and after on a tree with residue and no journal. So
+CLAUDE.md's "git status before you re-run" line is NOT retired by this fix, and
+the prose says so.
+
+RED evidence. The fix and its tests live in the same file, so a stash-and-run
+proves nothing; the honest proof is behavioural. Against PRISTINE bd-mutate on a
+residued tree whose band still passes (the residue sits in a function the band
+does not assert on, so the red-baseline guard cannot fire): `0 caught, 1
+escaped`, and the residue restored. My first attempt at that demonstration was
+WRONG -- the residue broke the baseline, so both versions exited 2 via the
+red-baseline guard for an unrelated reason, and it proved nothing about the
+journal. Selftest case 7 drives the real flow end to end: spawn, wait on a
+HEARTBEAT the band writes (never a fixed sleep -- that is a race), SIGTERM,
+assert the mutant is on disk, then assert the NEXT battery exits 2.
+
+Five selftest cases added, and three of them are over-sensitivity clamps: a
+clean run leaves no journal and the next run still reaches a verdict; an
+already-repaired tree is reaped rather than refused; and an unrecorded edit is
+refused by --recover rather than overwritten. Without those the journal wedges
+every subsequent run, which is the over-correction that passes the escape's own
+test and destroys the tool.
+
+No new tests/*.py file: tests/test_toolchain_534.py:484 already executes
+--selftest and asserts exit 0 plus the literal "SELFTEST PASS", so the new cases
+are wired into the suite for free AND the nine axis-6 gates and PIN_INDEX's
+test_files_scanned stay still. That is a real reduction in blast radius.
+
+bd-freshcheck green over the edited CLAUDE.md. bd-guardcheck 7 ok.
+
 ## v3.66.874 - a readiness run in flight was indistinguishable from one that failed
 
 bulk_downloader/ai_boot_readiness.py wrote NOTHING between process start and the
