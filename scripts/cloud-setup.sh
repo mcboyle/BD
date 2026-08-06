@@ -473,6 +473,52 @@ fi
 if skip EXTRAS; then
   row "extras" "WARN" "skipped via BD_SKIP_EXTRAS — GTK module-import gate cannot run"
 else
+  # @903: THE FRAGMENT OWNS FIVE GROUPS AND THIS FILE TOOK TWO. core, node and
+  # media were never requested here, so the cloud container was provisioned
+  # from a different list than the box -- install_linux.sh takes `all` and
+  # provision_test_host.sh installs all five by name. Measured: the box carried
+  # ffmpeg 6.1.1-3ubuntu5 (the `media` group) and this container had NONE, so
+  # bulk_downloader/integrity.py's ffprobe shell-out could not run and its
+  # check failed open. That is CLAUDE.md section 5's three-copies drift with
+  # the container as the copy nobody updated.
+  #
+  # Each group is captured and refused-if-empty for the reason the GTK step
+  # below spells out: command substitution DISCARDS the function's non-zero
+  # exit and `apt-get install` with zero arguments exits 0, so the obvious
+  # one-liner installs nothing and records OK.
+  if [ "$HAVE_SYSDEPS" = 1 ]; then
+    CORE_PKGS="$(bd_system_pkgs core)"   || CORE_PKGS=""
+    MEDIA_PKGS="$(bd_system_pkgs media)" || MEDIA_PKGS=""
+  else
+    CORE_PKGS=""; MEDIA_PKGS=""
+  fi
+  # THE `node` GROUP IS DELIBERATELY NOT INSTALLED HERE, and this comment is
+  # load-bearing: 4-of-5 reads like an oversight, and the obvious "fix" breaks
+  # both machines. bd_system_pkgs node is `nodejs npm` -- UBUNTU's packages --
+  # and NEITHER machine gets node from apt. This container runs
+  # /opt/node22/bin/node (v22.22.2, not dpkg-managed); the operator's box runs
+  # v22.23.2 from a non-apt source. Measured consequences of asking apt anyway:
+  #   * on the box apt REFUSES -- "nodejs : Conflicts: npm ... you have held
+  #     broken packages" -- the group is uninstallable beside a non-dpkg node
+  #   * here Ubuntu's candidate is nodejs 18.19.1, FOUR MAJORS behind the 22.x
+  #     actually in use, installed alongside it with PATH deciding which one
+  #     the frontend build gets
+  # Node IS required (npm run build produces frontend/dist, and a missing
+  # bundle is a silent 503) -- it is simply not apt's to provide here.
+  if [ -n "$CORE_PKGS" ]; then
+    # Word splitting is the point: one arg per package.
+    # shellcheck disable=SC2086
+    step "system packages (core)" optional apt_i $CORE_PKGS
+  else
+    row "system packages (core)" "WARN" "bd_system_pkgs core returned nothing -- refusing to run apt on an empty package list"
+  fi
+  if [ -n "$MEDIA_PKGS" ]; then
+    # shellcheck disable=SC2086
+    step "system packages (media)" optional apt_i $MEDIA_PKGS
+  else
+    row "system packages (media)" "WARN" "bd_system_pkgs media returned nothing -- ffprobe is absent, so integrity.py's media verification fails OPEN"
+  fi
+
   # GTK: test_v3_43_80_modules::test_all_modules_import false-fails without
   # typelibs AND a display. Environmental, never a code regression.
   #

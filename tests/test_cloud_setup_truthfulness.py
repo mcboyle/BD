@@ -439,3 +439,105 @@ def test_the_missing_bundle_branch_actually_fails(tmp_path):
         "with frontend/dist/index.html absent the provisioner still reported a "
         f"healthy host.\n{proc.stdout}"
     )
+
+
+# --------------------------------------------------------------------------
+# @903 -- the cloud provisioner installed 2 of the 5 declared package groups.
+# --------------------------------------------------------------------------
+# The fragment declares five. cloud-setup installs FOUR: `node` is excluded
+# deliberately and the exclusion is itself asserted below, because 4-of-5 reads
+# like an oversight and "fixing" it breaks both machines.
+_GROUPS = ("core", "gtk", "lint", "media")
+_EXCLUDED_GROUPS = ("node",)
+
+
+def _setup_code() -> str:
+    """cloud-setup.sh with whole-line comments removed.
+
+    Load-bearing: this file MENTIONS every group name in prose -- the lint step
+    explains why fd-find stays local, the GTK step explains what breaks without
+    typelibs. A bare grep for "media" matches the comment that describes ffmpeg
+    and reports the group installed when nothing installs it. Measured: 34 lines
+    mention a group name; far more than the calls.
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from shell_source import shell_code_only
+    return shell_code_only(CLOUD_SETUP)
+
+
+def test_cloud_setup_requests_every_declared_package_group() -> None:
+    """The container is provisioned from ONE list or it drifts from the box.
+
+    scripts/lib/system_deps.sh is the single source of truth and declares five
+    groups. install_linux.sh takes `all`; provision_test_host.sh installs all
+    five by name. cloud-setup.sh took only gtk and lint -- so the cloud
+    container ran without core, node and media, and hand-rolled substitutes
+    inline (fd-find, wireguard-tools nftables iproute2 iptables, pypy3 caddy
+    postgresql-client patchelf). That is the three-copies drift CLAUDE.md
+    section 5 records, with the container as the copy nobody updated.
+
+    MEASURED CONSEQUENCE: ffmpeg is in the `media` group, and the box carried
+    6.1.1-3ubuntu5 while this container had NONE -- so bulk_downloader/
+    integrity.py's ffprobe shell-out could not run here at all, and its check
+    fails open.
+    """
+    code = _setup_code()
+    requested = set(re.findall(r"bd_system_pkgs\s+([a-z]+)", code))
+    assert requested, (
+        "no bd_system_pkgs call found in comment-stripped source -- the scan "
+        "found nothing, which would make every assertion below vacuous")
+    missing = [g for g in _GROUPS if g not in requested and "all" not in requested]
+    assert not missing, (
+        f"cloud-setup.sh never requests {missing} from bd_system_pkgs, so the "
+        f"cloud container is provisioned from a different list than the box. "
+        f"Requested: {sorted(requested)}")
+
+
+def test_the_node_group_stays_excluded_and_says_why() -> None:
+    """4-of-5 must not read as an oversight, or someone closes the "gap".
+
+    bd_system_pkgs node is `nodejs npm` -- UBUNTU's packages -- and neither
+    machine gets node from apt. MEASURED: on the operator's box apt refuses
+    outright ("nodejs : Conflicts: npm ... you have held broken packages"), and
+    in this container Ubuntu's candidate is nodejs 18.19.1 against the v22.22.2
+    actually in use at /opt/node22, which would be installed alongside it with
+    PATH deciding which the frontend build gets.
+
+    Node IS required -- npm run build produces frontend/dist and a missing
+    bundle is a silent 503 from app.py. It is simply not apt's to provide here.
+    So this asserts BOTH halves: the call is absent, and the reason is written
+    down where the next reader would otherwise add it.
+    """
+    code = _setup_code()
+    requested = set(re.findall(r"bd_system_pkgs\s+([a-z]+)", code))
+    for group in _EXCLUDED_GROUPS:
+        assert group not in requested, (
+            f"cloud-setup.sh asks apt for the {group!r} group. On the box that "
+            f"is an outright apt refusal; here it shadows node v22 with 18.19.1")
+    raw = CLOUD_SETUP.read_text(encoding="utf-8")
+    assert "DELIBERATELY NOT INSTALLED" in raw and "Conflicts: npm" in raw, (
+        "the exclusion is undocumented, so it reads as a gap -- name the "
+        "measured consequence beside the code a reader would change")
+
+
+@pytest.mark.parametrize("group", _GROUPS)
+def test_each_group_install_refuses_an_empty_package_list(group: str) -> None:
+    """The guard the GTK step's own comment argues for, applied to every group.
+
+    Command substitution DISCARDS the function's non-zero exit, and
+    `apt-get install` with zero package arguments exits 0 -- so the obvious
+    one-liner installs nothing after a failed lookup and step() records OK.
+    That is CLAUDE.md section 0 in three lines of shell, and it must hold for
+    every group, not just the one whose author noticed.
+    """
+    code = _setup_code()
+    var = re.search(
+        r"([A-Z_]+)=\"\$\(bd_system_pkgs\s+%s\)\"" % group, code)
+    assert var, (
+        f"the {group} group is not captured into a variable; a bare "
+        f"$(bd_system_pkgs {group}) inside the apt call would install nothing "
+        f"on a failed lookup and still record OK")
+    name = var.group(1)
+    assert re.search(r'if\s+\[\s+-n\s+"\$%s"\s+\]' % name, code), (
+        f"{name} is captured but never checked non-empty before use")
