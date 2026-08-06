@@ -4,6 +4,29 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.915 - audit() reported two counts over two different windows
+
+Item 12(c). library_final.audit() returned `missing` and `size_drift` side by
+side as if they described one population. Both read `history` WHERE
+status='done' ORDER BY id DESC LIMIT n, but audit() passed no limit, so they
+inherited their callees' defaults of 500 and 1000 -- two windows, 500 rows
+apart, invisible at the call site because neither ceiling was reachable from
+any caller.
+
+The consequence was not a slightly low count. A row can sit inside
+size_drift's window and outside missing's, so one audit() call could examine a
+file for size drift and, in the same returned dict, report nothing missing
+about that file. Measured on the new fixture: pristine source returned
+missing=0 with 500 genuinely absent files in the population it had just read.
+
+audit() now takes one keyword-only `limit` (default 1000, a named constant)
+and passes it to both. The returned key set is unchanged -- deliberately.
+Disclosing that a count is saturated needs a new key, and that key would move
+test_library_audit_panel_contract.py and api-types.ts together, so it is filed
+with item 12(d) rather than smuggled in here; a test holds that line. Another
+test drives audit(limit=600), a value matching neither old default, so a
+repair that merely raised one module default fails it.
+
 ## v3.66.914 - register-only: session close, and CI never ran
 
 Records the three facts that otherwise lived only in a conversation.
