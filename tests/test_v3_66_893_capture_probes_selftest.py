@@ -323,3 +323,77 @@ def test_capture_sh_has_no_surviving_comment_lines() -> None:
         f"comment lines survived stripping -- a quoted multi-line program is "
         f"the usual cause: {survivors[:5]}"
     )
+
+
+# --------------------------------------------------------------------------
+# @897 -- the failing-check DIAGNOSIS read keys that do not exist.
+# --------------------------------------------------------------------------
+_REAL_SHAPE = {
+    "ok": False,
+    "summary": {"ok": 1, "warn": 0, "fail": 2},
+    "checks": [
+        {"status": "ok", "test": "disk_space", "message": "41.2 GB free",
+         "detail": {}, "ts": 1785988129.9},
+        {"status": "fail", "test": "cookie_jar_readable",
+         "message": "cookies/site.json is not readable",
+         "detail": {"error_class": "PermissionError"}, "ts": 1785988130.1},
+        {"status": "fail", "test": "egress_fail_closed",
+         "message": "egress guard did not refuse an unproxied request",
+         "detail": {"hint": "check BD_EGRESS_MODE"}, "ts": 1785988130.4},
+    ],
+}
+
+
+def test_failing_checks_are_named_in_the_log(tmp_path) -> None:
+    """The verdict was right and the diagnosis was blank.
+
+    MEASURED against a real box bundle at v3.66.894: /api/selftest check objects
+    carry exactly ['detail', 'message', 'status', 'test', 'ts'], and
+    bulk_downloader.selftest._result confirms it at the source -- `test` is the
+    name and `message` is the human string, while `detail` is a DICT of
+    structured data. The tool read `name` (always absent, so always '?') and
+    printed `detail` (a dict) where the message belonged.
+
+    Nothing about the verdict or the exit code was wrong, which is why it
+    survived a mutation battery: it degrades only the output someone reads while
+    debugging a RED capture -- the moment it is least affordable.
+    """
+    body = _write_json(tmp_path / "failing.json", _REAL_SHAPE)
+    done = subprocess.run([PYTHON, str(VERDICT_TOOL), str(body)],
+                          cwd=str(REPO_ROOT), capture_output=True, text=True,
+                          timeout=60)
+
+    assert done.returncode == 1, f"a body with fails must exit 1: {done.stdout!r}"
+    out = done.stdout
+
+    for name in ("cookie_jar_readable", "egress_fail_closed"):
+        assert name in out, (
+            f"failing check {name!r} was not named -- the operator gets a count "
+            f"and no way to act on it. Output:\n{out}"
+        )
+    assert "cookies/site.json is not readable" in out, (
+        f"the human-readable message never reached the log:\n{out}")
+    assert "?" not in out.split("FAIL")[-1].split("\n")[0], (
+        f"a failing check rendered as '?' -- the wrong key was read:\n{out}")
+    assert "disk_space" not in out, (
+        f"a PASSING check was listed among the failures:\n{out}")
+
+
+def test_a_structured_detail_does_not_crowd_out_the_message(tmp_path) -> None:
+    """`detail` is a dict and `message` is the sentence.
+
+    Printing the dict where the sentence belongs is what the defect did; the
+    over-correction is dropping the detail entirely, which loses error_class and
+    hint -- the two fields a reader actually acts on.
+    """
+    body = _write_json(tmp_path / "detail.json", _REAL_SHAPE)
+    done = subprocess.run([PYTHON, str(VERDICT_TOOL), str(body)],
+                          cwd=str(REPO_ROOT), capture_output=True, text=True,
+                          timeout=60)
+    out = done.stdout
+
+    assert "PermissionError" in out, (
+        f"structured detail was dropped; error_class is the field that says "
+        f"WHY:\n{out}")
+    assert "egress guard did not refuse" in out, (
+        f"the message was crowded out by the detail dict:\n{out}")

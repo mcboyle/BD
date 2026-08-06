@@ -4,6 +4,46 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.897 - the selftest diagnosis read two keys that do not exist
+
+A defect I shipped at v3.66.893, found by the box's own capture bundle three
+hours later.
+
+tools/selftest_verdict.py listed failing checks with check.get('name') and
+check.get('detail'). The response carries NEITHER as those.
+bulk_downloader/selftest.py:92-100 _result() builds every check as
+{status, test, message, detail, ts} - `test` is the name, `message` is the
+sentence, and `detail` is a DICT of structured fields (error_class, hint,
+free_gb). So the name was always absent and rendered '?', and a dict was
+printed where the message belonged:
+
+  before   FAIL  ?: {}
+  after    FAIL  cookie_jar_readable: cookies/site.json is not readable
+                 [error_class=PermissionError]
+
+CLAUDE.md section 1's read-the-callee rule, and its stated failure mode
+exactly: a call with the wrong shape SUCCEEDS QUIETLY on the wrong thing
+rather than raising. Nothing about the verdict, the exit code or the stage
+wiring was wrong, which is why v3.66.893's 6-mutant battery could not see it -
+it degrades only the output an operator reads while debugging a RED capture,
+the moment it is least affordable.
+
+Confirmed at the SOURCE, not only from the one bundle: the bundle showed keys
+['detail','message','status','test','ts'] and _result() constructs exactly
+that. Two instruments, same answer.
+
+The over-correction is dropping `detail` entirely - error_class and hint are
+the fields a reader acts on - so it is rendered as a bracketed key=value list
+beside the message, and a mutant proves it.
+
+VERIFIED, not asserted:
+  RED first    2 tests failed on pristine, 19 passed
+  mutation     4 caught, 0 escaped, 0 invalid
+
+Tests EXTEND tests/test_v3_66_893_capture_probes_selftest.py rather than
+adding a file: a new tracked test file moves ten axis-6 gates and PIN_INDEX's
+test_files_scanned, and this belongs beside the stage it diagnoses.
+
 ## v3.66.896 - check_requirements compares specifiers, and found live drift on the first run
 
 Item 18. Name resolution is not version satisfaction, and this tool only ever
