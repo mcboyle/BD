@@ -4,6 +4,50 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.899 - the mirror obligation is named BEFORE the band, not after it
+
+bd-band-derive now emits a `pk mirror` regen flag when a changed file has a
+project-knowledge twin.
+
+WHY: the obligation went unmet THREE times in one night. @889 (bd-band-derive),
+@895 (bd-fullsuite), and again while writing THIS cut -- editing bd-band-derive
+to add the flag drifted its own mirror, and test_pk_mirrors_do_not_drift caught
+it, correctly, after the fact. Each earlier instance cost a full 4-minute band
+and a re-run. The gate is sound; it is just LATE. Its own message is the
+argument: "a drifted mirror is worse than a missing one: it runs, it exits 0."
+
+THE PREDICATE IS COPIED FROM THE GATE, NOT INVENTED - a `.py` suffix, or no
+suffix at all with a `#!` shebang. The second clause is load-bearing: 239 of the
+mirrors are extensionless bd-* scripts, and the tool literally named `bd` was
+invisible to an older startswith("bd-") filter. Widening it to "any basename
+present in project-knowledge/" would buy five instant permanent false flags -
+README.md, SANDBOX.md, AUTOMATION_POLICY.md, BDSUITE_CHANGELOG.md and
+DECOMPOSITION_PROGRAM_ROADMAP.md all exist in both places with DIFFERENT content,
+legitimately.
+
+TWO IMPLEMENTATIONS THAT ARE NEVER COMPARED IS THE SECOND-DENOMINATOR BUG THIS
+FLAG EXISTS TO PREVENT. bd-pk-mirror owns the canonical classification;
+bd-band-derive does a fast O(1) check so it can run on every derive. A test
+therefore asks BOTH over the real tree and asserts they agree - 260 mirrors, no
+disagreement - rather than asserting that one was copied from the other.
+
+THE FLAG BANDS ITS OWN ENFORCING SUITE. Naming an obligation without banding the
+gate that enforces it is the trap the @889 comment in this same file describes:
+it converts a per-cut chore into a per-cut surprise on the box. A mutant that
+empties that mapping is caught.
+
+VERIFIED, not asserted:
+  RED first    2 failed with the tool reverted, 10 pass with it
+  mutation     4 caught, 0 escaped, 0 invalid - including the over-sensitive
+               direction, where the flag fires on every file
+
+ONE ERROR OF MINE, recorded because it invalidated a proof. The first RED run
+showed the two new tests failing - but with NameError: sys, because the test
+file imported neither os nor sys. They failed for a harness reason, not because
+the feature was absent, which is CLAUDE.md section 2a's shape exactly: a harness
+defect looking like the defect under test. The RED proof was redone after fixing
+the imports.
+
 ## v3.66.898 - a band contains only files the runner collects, and "nothing ran" says so
 
 Item 7, and neither half is what the register described.
