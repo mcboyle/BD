@@ -4,6 +4,50 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.916 - regen_nfos tested a recorded basename against the CWD
+
+Item 12(d). runner_transport records `final_path.name`, a bare basename, and
+regen_nfos_from_history fed it straight to `Path(fn).exists()` -- which
+resolves against the process CWD. The sibling readers in this module stopped
+doing that at cut25b; this one never did.
+
+MEASURED on the new fixture, calling it exactly as the shipped SPA does (no
+download_dir), where 4 of 6 rows are on disk and exactly 1 is genuinely gone:
+`{written: 1, skipped: 0, missing_files: 5, errors: 0}`.
+
+The defect had TWO expressions and the register records only one. Besides the
+existence check, `nfo_path = Path(fn).with_suffix(".nfo")` was equally
+CWD-relative, so the skip check never found an existing sidecar: `skipped`
+stayed 0 and overwrite=False silently rewrote every NFO it was meant to leave
+alone. Fixing only the first leaves that half live, and a test now fails a
+half-applied repair.
+
+regen_nfos_from_history gains an OPTIONAL keyword-only `download_dir` and
+routes rows through the existing _resolve_recorded. Its four states are now
+kept apart instead of all landing in missing_files: absent stays
+missing_files, and two new counters carry `ambiguous` (several files share the
+basename -- guessing would write a sidecar beside the wrong video) and
+`unknown` (no dir to resolve against). All six keys are initialised in the
+dict literal so the query-failure early return carries them; a key absent
+there reads as "no data" when the truth is "zero".
+
+Additive and non-breaking, verified rather than assumed: the only test on this
+shape checks key MEMBERSHIP, and RegenNfosResult carries an index signature.
+The endpoint takes download_dir optionally and does NOT 400 without it -- the
+shipped panel sends only {dry_run}, so requiring it would break the button.
+
+Two traps caught by reading the callee first. _resolve_recorded returns a
+Path, and write_nfo's first guard rejects any non-str by returning None, so an
+unwrapped hand-off would have banked every row as an error with nothing
+raised. And the guard must key on the STATE, not on the path: the path is None
+for both unknown and ambiguous, so `path is None` cannot tell them apart.
+
+Mutation battery, 4 mutants, 4 caught 0 escaped 0 invalid.
+
+Register correction: the anchor is library_final.py:496 at the pre-cut tip,
+not :474, and the frontend type lives at frontend/src/lib/api-types.ts --
+frontend/src/types/api-types.ts does not exist.
+
 ## v3.66.915 - audit() reported two counts over two different windows
 
 Item 12(c). library_final.audit() returned `missing` and `size_drift` side by

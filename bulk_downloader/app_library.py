@@ -60,8 +60,13 @@ def api_library_audit():
 @library_bp.route("/api/library/regen_nfos", methods=["POST"])
 def api_library_regen_nfos():
     """Bulk-regenerate NFO sidecars from the history table. Body:
-    {site_id?, overwrite?, dry_run?}. Useful after upgrades that
-    change the NFO schema, or to backfill files that never had NFOs."""
+    {site_id?, overwrite?, dry_run?, download_dir?}. Useful after upgrades
+    that change the NFO schema, or to backfill files that never had NFOs.
+
+    download_dir is OPTIONAL and is what a recorded basename resolves
+    against. Unlike /api/library/audit it does NOT 400 when absent: the
+    shipped panel sends only {dry_run}, so requiring it would break the
+    button. Absent, rows report as `unknown` rather than as missing."""
     _check_csrf()
     body = request.json or {}
     try:
@@ -69,7 +74,8 @@ def api_library_regen_nfos():
         return jsonify(_lf.regen_nfos_from_history(
             site_id=body.get("site_id") or None,
             overwrite=bool(body.get("overwrite", False)),
-            dry_run=bool(body.get("dry_run", True))))
+            dry_run=bool(body.get("dry_run", True)),
+            download_dir=body.get("download_dir") or ""))
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 @library_bp.route("/api/library/orphans", methods=["POST"])

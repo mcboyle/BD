@@ -496,13 +496,30 @@ def regen_nfos_from_history(
     overwrite: bool = False,
     max_files: int = 1000,
     dry_run: bool = False,
+    download_dir: str = "",
 ) -> dict:
     """Generate (or update) NFO sidecars for every existing file in
     history. Uses whatever metadata is recorded — TPDB if it was
     enriched, otherwise just filename + message.
 
-    Returns {written: N, skipped: N, missing_files: N, errors: N}."""
-    out = {"written": 0, "skipped": 0, "missing_files": 0, "errors": 0}
+    `download_dir` is what a recorded basename is resolved against.
+    runner_transport.py records `final_path.name`, so most rows carry a bare
+    basename; without a dir those resolve to "unknown" and are reported as
+    such rather than claimed missing. Keyword-only with a "" default so the
+    three existing call sites keep working -- the precedent at
+    list_missing_from_disk.
+
+    Returns {written, skipped, missing_files, errors, ambiguous, unknown}.
+    The three non-resolved states are kept APART: `missing_files` means
+    genuinely absent, `ambiguous` means several files share the basename and
+    guessing would write a sidecar next to the wrong video, `unknown` means
+    there was nothing to resolve against. Folding them together is what made
+    this endpoint report every relative row as missing."""
+    # Initialised in the literal, not lazily on first increment: the
+    # `except Exception: return out` below hands this dict back untouched, and
+    # a key that is absent there reads as "no data" when the truth is "zero".
+    out = {"written": 0, "skipped": 0, "missing_files": 0, "errors": 0,
+           "ambiguous": 0, "unknown": 0}
     try:
         from . import db as _db
         sql = "SELECT * FROM history WHERE status='done' AND filename != ''"
@@ -516,12 +533,22 @@ def regen_nfos_from_history(
             rows = [dict(r) for r in cx.execute(sql, params).fetchall()]
     except Exception:
         return out
+    # Built once, above the loop -- _basename_index rglobs the whole tree, so
+    # a per-row call would make this quadratic (its own docstring says so).
+    index = _basename_index(download_dir)
     for r in rows:
         fn = r.get("filename") or ""
-        if not fn or not Path(fn).exists():
-            out["missing_files"] += 1
+        path, state = _resolve_recorded(fn, download_dir, index)
+        # Dispatch on the STATE, never on `path`: it is None for BOTH
+        # "unknown" and "ambiguous", so a `path is None` test cannot tell the
+        # two apart and would merge the counters this cut exists to separate.
+        if state != "resolved" or path is None:
+            out["missing_files" if state == "absent" else state] += 1
             continue
-        nfo_path = Path(fn).with_suffix(".nfo")
+        # From the RESOLVED path, not from the recorded name. Built from a bare
+        # basename this is CWD-relative, so it never finds an existing sidecar:
+        # `skipped` stays 0 and overwrite=False silently rewrites every NFO.
+        nfo_path = path.with_suffix(".nfo")
         if nfo_path.exists() and not overwrite:
             out["skipped"] += 1
             continue
@@ -537,7 +564,10 @@ def regen_nfos_from_history(
         if dry_run:
             out["written"] += 1
             continue
-        if write_nfo(fn, meta, overwrite=overwrite):
+        # str(), not the Path: write_nfo's first guard is
+        # `not isinstance(video_path, str) -> return None`, so handing it the
+        # resolver's Path would bank EVERY row as an error with nothing raised.
+        if write_nfo(str(path), meta, overwrite=overwrite):
             out["written"] += 1
         else:
             out["errors"] += 1
