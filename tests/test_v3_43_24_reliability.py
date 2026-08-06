@@ -354,9 +354,16 @@ def test_selftest_runs_at_startup():
     db_init so auto-recover gets a chance."""
     src = _APP_PY.read_text(encoding="utf-8")
     selftest_pos = src.find("_selftest.run_all")
-    db_init_pos = src.find("\ndb_init()")
+    # v3.66.919: INDENTED. The boot block is now nested under the
+    # collection-time guard, so the call sits at four spaces. Measured after
+    # the move rather than assumed: "\ndb_init()" occurs 0 times and
+    # "\n    db_init()" exactly 1, and the assertion below would have passed a
+    # find() of -1 straight through if the `> 0` check were dropped.
+    db_init_pos = src.find("\n    db_init()")
     assert selftest_pos > 0
-    assert db_init_pos > 0
+    assert db_init_pos > 0, (
+        "db_init() not found at module scope in app.py -- if the boot block "
+        "moved again, re-derive this anchor rather than loosening it")
     assert selftest_pos < db_init_pos, (
         "self-test must run BEFORE db_init() so auto_recover_sqlite "
         "can move corrupt DBs aside before db_init tries to use them"

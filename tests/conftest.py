@@ -29,6 +29,24 @@ from capture_lanes import classify_capture_path
 PKG_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PKG_ROOT))
 
+# v3.66.919 -- COLLECTION-TIME BOOT SUPPRESSION. bulk_downloader/app.py runs its
+# database boot at module scope, and 22 tracked suites import it at module
+# scope, so `pytest --collect-only` -- which executes no test body at all --
+# still booted the app and wrote 471,095 bytes of database-class residue.
+#
+# MODULE SCOPE HERE IS MANDATORY, NOT STYLISTIC. A fixture cannot do this job:
+# --collect-only runs zero fixture bodies, and the residue is already on disk
+# by then. conftest is imported first, well before any collected module reaches
+# `import bulk_downloader.app`.
+#
+# A `sys` ATTRIBUTE rather than a BD_-prefixed env var, for two reasons that
+# both bite. A new BD_ name enters the config-surface ledger and bands
+# test_gui_parity (CLAUDE.md section 4). And an env var is INHERITED BY CHILD
+# PROCESSES -- suites that spawn a real server would get an app that never
+# initialised its database, with every symptom appearing far from here. A sys
+# attribute cannot cross a process boundary.
+sys._bd_collection_no_boot = True
+
 
 def _canonicalize_package_children(package_name, modules=None):
     """Make direct package-child attributes agree with the module table.
@@ -707,3 +725,21 @@ def _never_write_the_repo_plugins_dir(tmp_path_factory):
     finally:
         _pl._plugin_dir = _real_plugin_dir
         _pl._quarantine_state_path = _real_state_path
+
+
+def pytest_collection_finish(session):
+    """Collection is over -- let test BODIES boot the app normally.
+
+    The sentinel above suppresses the module-scope database boot while pytest
+    is IMPORTING modules. Once collection finishes, a test that imports or
+    reloads bulk_downloader.app must get the real thing, or this guard would
+    quietly change what the suite exercises -- trading a residue bug for a
+    coverage one, which is the worse trade.
+
+    Deleted rather than set False so `getattr(sys, "_bd_collection_no_boot",
+    False)` is the single spelling everywhere, and there is no third state.
+    """
+    try:
+        del sys._bd_collection_no_boot
+    except AttributeError:
+        pass

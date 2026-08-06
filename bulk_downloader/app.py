@@ -64,7 +64,24 @@ def _dom_analyzer_capture_store_root():
         return _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
 
 
-if not _os.environ.get("BD_DISABLE_KEEPALIVE"):
+# v3.66.919: one name for "pytest is IMPORTING modules right now", so the three
+# module-scope background-service gates below can all consult it. Read ONCE at
+# import, because that is when every one of those gates is evaluated.
+#
+# Suppressing background services during collection is part of the same defect,
+# not scope creep: the webhooks drain worker and bg_scheduler's saved-searches
+# task each call _ensure_tables(), which CREATES the database from a thread --
+# so gating the module-scope writers alone still left downloader_history.db on
+# disk. Measured: 5 residue paths became 1, and that 1 came from a thread.
+#
+# NOT done by setting BD_DISABLE_KEEPALIVE in os.environ, which would be the
+# obvious shortcut: os.environ mutations are inherited by every child process
+# this one later spawns, and several suites spawn a real server that must boot
+# normally.
+_BD_NO_BOOT = getattr(sys, "_bd_collection_no_boot", False)
+
+
+if not _os.environ.get("BD_DISABLE_KEEPALIVE") and not _BD_NO_BOOT:
     _STARTUP_SELFTEST = _selftest.run_all(
         sites_config_path=_SITES_CFG_PATH,
         db_path=_DB_PATH,
@@ -77,67 +94,77 @@ else:
     _STARTUP_SELFTEST = {"ok": True, "checks": [], "summary": {"ok": 0, "warn": 0, "fail": 0}, "elapsed_ms": 0.0}
 
 # ─── FLASK ────────────────────────────────────────────────────────────────────
-db_init()
-# B1 (post-365): run-history substrate tables (job_runs + run_events). Advisory
-# store — init failing is non-fatal (every writer no-ops if the store is absent).
-from . import run_history as _run_history
-_run_history.init()
-# v3.47.8 (#42): one-shot integrity check on boot (rate-limited to 24h
-# via sentinel file). Catches SQLite corruption from power loss or disk
-# errors before the user wonders why a download "completed" but vanished.
-try:
-    _ok, _problems = db_integrity_check()
-    if not _ok:
+# v3.66.919 -- COLLECTION-TIME BOOT SUPPRESSION. Everything below boots the
+# database at MODULE SCOPE, so merely importing this module ran it. 22 tracked
+# suites import bulk_downloader.app at module scope and `pytest --collect-only`
+# imports every module it collects, so a run executing ZERO test bodies wrote
+# 471,095 bytes of database-class residue. tests/conftest.py sets the sentinel
+# while pytest is importing and deletes it in pytest_collection_finish, so test
+# BODIES still get the real boot. A sys attribute, not a BD_ env var: the env
+# var would enter the config ledger AND be inherited by child processes, which
+# would hand a spawned server an app that never initialised its storage.
+if not getattr(sys, "_bd_collection_no_boot", False):
+    db_init()
+    # B1 (post-365): run-history substrate tables (job_runs + run_events). Advisory
+    # store — init failing is non-fatal (every writer no-ops if the store is absent).
+    from . import run_history as _run_history
+    _run_history.init()
+    # v3.47.8 (#42): one-shot integrity check on boot (rate-limited to 24h
+    # via sentinel file). Catches SQLite corruption from power loss or disk
+    # errors before the user wonders why a download "completed" but vanished.
+    try:
+        _ok, _problems = db_integrity_check()
+        if not _ok:
+            from . import log as _boot_log
+            _boot_log.get_logger(__name__).error(
+                "DB INTEGRITY CHECK FAILED — %d problem(s) reported by SQLite. "
+                "Consider running `bdctl db-vacuum` or restoring from backup. "
+                "First 3 problems: %s",
+                len(_problems), _problems[:3]
+            )
+    except Exception as _e:
         from . import log as _boot_log
-        _boot_log.get_logger(__name__).error(
-            "DB INTEGRITY CHECK FAILED — %d problem(s) reported by SQLite. "
-            "Consider running `bdctl db-vacuum` or restoring from backup. "
-            "First 3 problems: %s",
-            len(_problems), _problems[:3]
+        _boot_log.get_logger(__name__).warning(
+            "db_integrity_check raised: %s — skipping", _e
         )
-except Exception as _e:
-    from . import log as _boot_log
-    _boot_log.get_logger(__name__).warning(
-        "db_integrity_check raised: %s — skipping", _e
-    )
 
-# v3.48 (#75): weekly FTS5 index optimization. No-op if FTS isn't
-# present or if it ran recently (7-day sentinel rate limit).
-try:
-    from .db import db_fts_optimize as _fts_opt
-    _fts_ran, _fts_msg = _fts_opt()
-    if _fts_ran:
+    # v3.48 (#75): weekly FTS5 index optimization. No-op if FTS isn't
+    # present or if it ran recently (7-day sentinel rate limit).
+    try:
+        from .db import db_fts_optimize as _fts_opt
+        _fts_ran, _fts_msg = _fts_opt()
+        if _fts_ran:
+            from . import log as _boot_log
+            _boot_log.get_logger(__name__).info("FTS optimize: %s", _fts_msg)
+    except Exception as _e:
+        pass  # FTS optimize is best-effort
+
+    # v3.48 (#127): log queue-recovery summary so the operator can confirm
+    # no jobs were silently dropped across the restart.
+    try:
+        from .db import db_queue_recovery_summary
+        _recover = db_queue_recovery_summary()
         from . import log as _boot_log
-        _boot_log.get_logger(__name__).info("FTS optimize: %s", _fts_msg)
-except Exception as _e:
-    pass  # FTS optimize is best-effort
+        if _recover.get("total", 0) > 0:
+            _boot_log.get_logger(__name__).info(
+                "queue recovery: %d job(s) restored from persistence — %s",
+                _recover["total"], _recover.get("by_status", {})
+            )
+    except Exception as _e:
+        pass
 
-# v3.48 (#127): log queue-recovery summary so the operator can confirm
-# no jobs were silently dropped across the restart.
-try:
-    from .db import db_queue_recovery_summary
-    _recover = db_queue_recovery_summary()
-    from . import log as _boot_log
-    if _recover.get("total", 0) > 0:
-        _boot_log.get_logger(__name__).info(
-            "queue recovery: %d job(s) restored from persistence — %s",
-            _recover["total"], _recover.get("by_status", {})
-        )
-except Exception as _e:
-    pass
-
-# v3.47.8 (#42): fire a deep PRAGMA integrity_check on a background thread
-# once per 24 hours. Boot-time selftest already does PRAGMA quick_check
-# synchronously; this runs the slower, more thorough variant async so the
-# app comes up at full speed even on a multi-GB DB. Result goes to the
-# standard log; corruption is reported at ERROR.
-try:
-    from .db import run_integrity_check as _run_db_integrity
-    _run_db_integrity()  # debounced — does nothing if last run was <24h ago
-except Exception:
-    # Integrity scheduling failures must NOT break startup. The selftest
-    # quick_check already provided minimum coverage.
-    pass
+    # v3.47.8 (#42): fire a deep PRAGMA integrity_check on a background thread
+    # once per 24 hours. Boot-time selftest already does PRAGMA quick_check
+    # synchronously; this runs the slower, more thorough variant async so the
+    # app comes up at full speed even on a multi-GB DB. Result goes to the
+    # standard log; corruption is reported at ERROR.
+    try:
+        from .db import run_integrity_check as _run_db_integrity
+        _run_db_integrity()  # debounced — does nothing if last run was <24h ago
+    except Exception:
+        # Integrity scheduling failures must NOT break startup. The selftest
+        # quick_check already provided minimum coverage.
+        pass
 
 # Phase 44 (v3.37.0): templates and static files live alongside the package
 # now (extracted from the 5,500-line HTML constant that used to be inline).
@@ -1572,7 +1599,7 @@ def _heartbeat_to_disk_loop():
             sys.stderr.write(f"[heartbeat] write failed: {e}\n")
         _hb_time.sleep(60)
 
-if not _os.environ.get("BD_DISABLE_KEEPALIVE"):
+if not _os.environ.get("BD_DISABLE_KEEPALIVE") and not _BD_NO_BOOT:
     import threading as _th_hb
     _th_hb.Thread(target=_heartbeat_to_disk_loop, daemon=True,
                    name="heartbeat-disk").start()
@@ -1809,24 +1836,29 @@ _load_app_config()
 # Idempotent — each migration tracks its applied version so a repeat
 # run is a no-op. Fail-open: a broken migration logs but doesn't
 # prevent startup.
-try:
-    from . import migrations as _migrations
-    _mig_result = _migrations.apply_pending()
-    if _mig_result.get("applied", 0) > 0:
-        sys.stderr.write(
-            f"[migrations] applied {_mig_result['applied']} "
-            f"migration(s) at boot\n")
-    if _mig_result.get("errors", 0) > 0:
-        sys.stderr.write(
-            f"[migrations] WARNING: {_mig_result['errors']} "
-            f"migration error(s)\n")
-except Exception as e:
-    sys.stderr.write(f"migrations init failed: {e}\n")
+# v3.66.919: the SEVENTH module-scope writer, and the reason gating only the
+# block at the top of this file is not enough -- apply_pending() creates the
+# database by itself, 1700 lines below every previous attempt to gate this.
+# Measured: gating six leaves the residue test RED.
+if not getattr(sys, "_bd_collection_no_boot", False):
+    try:
+        from . import migrations as _migrations
+        _mig_result = _migrations.apply_pending()
+        if _mig_result.get("applied", 0) > 0:
+            sys.stderr.write(
+                f"[migrations] applied {_mig_result['applied']} "
+                f"migration(s) at boot\n")
+        if _mig_result.get("errors", 0) > 0:
+            sys.stderr.write(
+                f"[migrations] WARNING: {_mig_result['errors']} "
+                f"migration error(s)\n")
+    except Exception as e:
+        sys.stderr.write(f"migrations init failed: {e}\n")
 
 # v3.43.80: start background services. Gated on BD_DISABLE_KEEPALIVE
 # (same gate as the session keeper) so tests don't spawn timer threads
 # that race with their tmpdirs. Pattern matches existing keeper init.
-if not os.environ.get("BD_DISABLE_KEEPALIVE"):
+if not os.environ.get("BD_DISABLE_KEEPALIVE") and not _BD_NO_BOOT:
     # bg_scheduler: drives periodic tasks (saved_searches, bitrot scan,
     # cookie_relogin, alerts_engine, site_weather, discovery,
     # maintenance, scheduled_exports, vpn_stats auto-blacklist,

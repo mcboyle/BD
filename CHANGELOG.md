@@ -4,6 +4,65 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.919 - collecting the test suite booted the app and wrote a database
+
+Item 11 / s4#4, cut 1 of 2: the collection-time class.
+
+bulk_downloader/app.py boots the database at MODULE SCOPE, 22 tracked suites
+import it at module scope, and `pytest --collect-only` imports every module it
+collects -- so a run executing ZERO test bodies booted the whole application.
+
+MEASURED before the fix, collecting one importer with BD_INSTALL_DIR pointed at
+an empty directory: 471,095 bytes across 5 paths (downloader_history.db,
+a .premigration.bak, and three sentinels). A plain import adds app_config.json,
+logs/, live_recordings/ and state/heartbeat.json -- 471,992 bytes over 11.
+
+CLAUDE.md section 5 records that such a probe writes the database INTO THE REPO,
+gitignored, so git status stays clean and nothing warns you. The load-bearing
+detail behind this item's name: .gitignore's `*.db` does NOT match
+`downloader_history.db-wal`, so the WAL and SHM siblings are the only
+git-VISIBLE members of the class.
+
+tests/conftest.py sets sys._bd_collection_no_boot at module scope and deletes it
+in pytest_collection_finish, so test BODIES still get a real boot. A sys
+attribute, not a BD_ env var: a new BD_ name enters the config ledger and bands
+test_gui_parity, and an env var is inherited by child processes -- several
+suites spawn a real server that must boot normally.
+
+IT TOOK EIGHT WRITERS, NOT SIX. The original spec gates six calls at the top of
+app.py. Measured, gating those six left the database still created:
+
+  * apply_pending() is a SEVENTH module-scope writer 1700 lines below the gated
+    region -- the spec's own RED stays RED without it;
+  * and the last residue path came from neither. It came from THREADS: the
+    webhooks drain worker and bg_scheduler's saved-searches task each call
+    _ensure_tables(), which creates the database off the main thread. Those are
+    started behind three module-scope BD_DISABLE_KEEPALIVE gates, and that var
+    is set by a conftest FIXTURE BODY -- which --collect-only never runs. All
+    three gates now also consult the sentinel.
+
+The residue count went 5 paths -> 1 -> 0, and the 1 is the step that would have
+shipped had the RED not scrubbed BD_DISABLE_KEEPALIVE from its child env. As
+specced it scrubs only BD_INSTALL_DIR, so conftest's value rides into the child
+and the test certifies a denominator excluding part of its own subject.
+
+The over-correction guard is the direction that would break production: a child
+importing the app WITHOUT the sentinel must still create the database. A gate
+left permanently on would ship an app that never initialises its storage, and
+every symptom would appear far from here.
+
+test_v3_43_24_reliability's ordering assertion anchored on "\ndb_init()", which
+the guard indents. Repointed and re-measured: 0 occurrences of the old form, 1
+of the new -- and its `> 0` check is what stops a find() of -1 passing through.
+
+NOT GATED, DELIBERATELY: _selftest.run_all opens but never creates the DB, and
+the same suite asserts it runs BEFORE db_init. Also noted for the next reader:
+captcha_relay.start_sweeper is a further module-scope DB reacher whose call site
+is ungated and which self-gates on BD_DISABLE_KEEPALIVE == "1" exactly, a
+different predicate from the truthiness tests elsewhere. It is not a
+collection-time residue source (30s thread delay), so it is named rather than
+gated here.
+
 ## v3.66.918 - the retirement gates could not see most of this repo's source
 
 Item 16 / 7a, second half, and it completes the item. The three *_stays_retired
