@@ -346,15 +346,61 @@ class _CapSys:
 class _MonkeyPatch:
     def __init__(self):
         self._undo = []
+
+    @staticmethod
+    def _resolve_dotted(path):
+        """Split "pkg.mod.Class.attr" into (holder, attr_name).
+
+        Walks the LONGEST importable prefix rather than assuming everything
+        before the final dot is a module -- "json.JSONEncoder.item_separator"
+        has to import `json` and then getattr its way to the class. Refuses
+        loudly if nothing resolves: patching the wrong object, or silently
+        patching none, would let a test pass while asserting about code it
+        never replaced.
+        """
+        import importlib
+        parts = path.split(".")
+        if len(parts) < 2:
+            raise ValueError(
+                f"monkeypatch.setattr could not resolve {path!r}: a dotted "
+                f"path needs at least one dot (module.attr)")
+        for i in range(len(parts) - 1, 0, -1):
+            try:
+                obj = importlib.import_module(".".join(parts[:i]))
+            except ImportError:
+                continue
+            try:
+                for p in parts[i:-1]:
+                    obj = getattr(obj, p)
+            except AttributeError:
+                continue
+            return obj, parts[-1]
+        raise ValueError(
+            f"monkeypatch.setattr could not resolve {path!r}: no importable "
+            f"prefix of it exists")
     def setattr(self, target, name, value=None, raising=True):
-        # Support both setattr(obj, 'name', value) and
-        # setattr('mod.path.attr', value) forms; we only
-        # use the obj+name form internally.
-        if value is None and not callable(name):
-            # Single-arg dotted-path form: not implemented.
-            raise NotImplementedError(
-                "monkeypatch.setattr dotted-path form not implemented in shim"
-            )
+        # Two forms, exactly as real pytest:
+        #   setattr(obj, "name", value)       3-arg: target is an OBJECT
+        #   setattr("pkg.mod.attr", value)    2-arg: target is a STRING
+        #
+        # v3.66.911: the discriminator used to be
+        #     if value is None and not callable(name)
+        # which is wrong in both directions. In the 2-arg form `name` holds the
+        # REPLACEMENT, and a replacement is usually a function or lambda -- so
+        # callable(name) was true, the guard missed, and execution fell through
+        # to setattr(<str>, <function>, None):
+        #     TypeError: attribute name must be string, not 'function'
+        # The detector excluded the most common instance of its own subject.
+        # And when the replacement WAS non-callable the guard fired only to
+        # refuse, so the form was unreachable either way. That accounted for
+        # all 75 failures in test_coverage_map_frontend.
+        #
+        # isinstance(target, str) is what actually distinguishes the forms and
+        # cannot be confused by what the replacement happens to be.
+        if isinstance(target, str):
+            # 2-arg form: `name` is really the replacement VALUE.
+            value = name
+            target, name = self._resolve_dotted(target)
         orig = getattr(target, name) if hasattr(target, name) else _MISSING
         self._undo.append((target, name, orig))
         setattr(target, name, value)

@@ -4,6 +4,54 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.911 - the dotted-path detector excluded its own common case
+
+Item 4, sub-cut 4 of FOUR. The register describes item 4 as three root causes;
+this one was found by running the suites rather than reading the item.
+
+monkeypatch.setattr has two forms, as real pytest does:
+    setattr(obj, "name", value)       3-arg: target is an OBJECT
+    setattr("pkg.mod.attr", value)    2-arg: target is a STRING
+The shim discriminated with `value is None and not callable(name)`, which is
+wrong in BOTH directions. In the 2-arg form `name` holds the REPLACEMENT, and a
+replacement is usually a function or lambda -- so callable(name) was true, the
+guard missed, and execution fell through to setattr(<str>, <function>, None):
+
+    TypeError: attribute name must be string, not 'function'
+
+Section 0 in a predicate: the detector excluded the most common instance of its
+own subject. And when the replacement WAS non-callable the guard fired only to
+raise NotImplementedError, so the form was unreachable either way.
+
+The detector is now isinstance(target, str) -- what actually distinguishes the
+forms, and immune to what the replacement happens to be. Resolution walks the
+LONGEST importable prefix and getattrs the rest, so "json.JSONEncoder.item_
+separator" works and not just "pkg.mod.attr", and an unresolvable path refuses
+by name rather than patching nothing.
+
+ACCEPTANCE, ITEM 4 END TO END, in tests rather than suites -- the suite count
+stopped moving three cuts ago while the real number kept climbing:
+
+    stage           collected   passing
+    @907 baseline         340       243
+    @909                  545       468
+    @910                  646       536
+    @911                  646       603
+
+Suites went 3/16 -> 13/16. coverage_map alone went 0/75 -> 65/75 here.
+
+STILL OPEN, and none is a stub gap: 32 in fuzz_harness (31 are EOFError out of
+multiprocessing/connection.py -- the harness spawns processes), 10 in
+coverage_map, 1 in desandbox. Those are genuine test failures or environment,
+and want their own investigation rather than being folded into this item.
+
+A FOURTH ASSERTION IN FOUR CUTS MATCHED ITS OWN SUBJECT. The unresolvable-path
+test asserted the module name appeared in the error -- but the runner embeds
+the whole traceback, which echoes the source line containing that very name, so
+it passed on pristine source where the message is "dotted-path form not
+implemented". It now requires the resolution-failure PHRASE too. bd-mutate or a
+RED re-run caught every one of the four; reading the test caught none.
+
 ## v3.66.910 - discover_and_run never registered the module it was executing
 
 Item 4, sub-cut 3 of 3 -- the register's "module import path" root cause.
