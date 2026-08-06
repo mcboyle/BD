@@ -4,6 +4,56 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.888 - build_session_pack's two final gates both failed open
+
+Register item 13, which turned out not to be the item the register described.
+
+The item read "bd-state is still held behind tools/build_session_pack.py:128"
+and the question asked was whether bd-state still has a subject at all, since
+the deploy is git now with no zip overlay. Investigated first: it does.
+tools/build_release.py - a SHA-pinned guard - still builds a release zip
+CONTAINING STATE.json and stamps it in place. Section 7's "no zip overlay, no
+zip fallback" is about the DEPLOY path, not release packaging, and conflating
+the two would have retired a live gate. bd-handoff says so directly: "bd-state
++ bd-pack still gate the binding facts".
+
+The real defect is in the caller, and it is CLAUDE.md section 0 twice in one
+function, with each gate citing the other as its excuse:
+
+  schema_gate read a hardcoded /mnt/project/STATE_schema.json - a retired-era
+  absolute path that exists neither in a container nor on the box - and
+  returned [] when absent, excusing itself with "schema unavailable in this
+  env: skip (bd-state still gates)". MEASURED: /mnt/project does not exist,
+  and the schema IS tracked, at project-knowledge/STATE_schema.json. The gate
+  skipped itself while the file it needed sat in the repo.
+
+  bd-state was invoked as a BARE NAME through subprocess, which is
+  PATH-dependent. MEASURED: bd-state is not on PATH; toolchain/bin/bd-state is
+  present. The FileNotFoundError branch printed "not on PATH - run it manually
+  as the final gate" and execution fell through to "RESULT: pack ready" and
+  return 0. Advising the operator to run the gate by hand, in the middle of
+  stdout, is not a gate.
+
+So the binding final chain was inert end to end while the tool reported
+success. Both now resolve repo-local paths first, and an unlocatable gate
+exits non-zero: "nothing missing" and "nothing checked" no longer share an
+outcome. One cut rather than two because it is one function, one failure mode,
+one repair, and one blast radius - and fixing either alone leaves the other's
+comment still pointing at the fixed one as its excuse, which is how the pair
+got here.
+
+Verification: 10 new tests, 2 proven RED on pristine source; bd-mutate 5/5
+caught, 0 escaped, baseline GREEN. Band 16 files.
+
+TWO ERRORS IN THIS CUT'S OWN TESTS, both caught by the battery rather than by
+review, and recorded because neither was visible on reading. The first fixture
+was schema-INCOMPLETE, so after the repair main() exited at the schema gate and
+never reached bd-state - the bd-state case passed for the wrong reason and
+four mutants escaped. The second draft then asserted that a mismatched pack
+must fail, which can never happen: refresh_state rewrites STATE from the zip,
+so by the time the gate runs they agree. The gate is stubbed to fail instead,
+which is the only way to pin that its non-zero is honoured rather than printed.
+
 ## v3.66.887 - tier 1 executed; and v3.66.886's one "confirmation" is retracted
 
 Register-only. Four items close on measurement, and one of this session's own

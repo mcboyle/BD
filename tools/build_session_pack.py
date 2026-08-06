@@ -19,8 +19,15 @@ Refreshes from the zip: built_version, zip.{name,file,file_count,sha256},
 guards + guards_full_sha256 (from the zip's guard files). Prunes changes_<N>
 to the newest --keep-changes. Gates: STATE_schema required keys present, and
 tasktracker_sync --check IN-SYNC on the pack dir. Stdlib only (imports sibling
-tools). bd-state remains the final cross-check (run it after, or this calls it
-if present on PATH).
+tools).
+
+bd-state is the BINDING final cross-check and this runs it. Not "if present on
+PATH" -- v3.66.888: both of this tool's final gates resolved to absent
+locations and failed open. The schema gate read a retired-era absolute path
+while the schema sat tracked in project-knowledge/, and bd-state was invoked by
+bare name, so a PATH miss printed a note and fell through to "RESULT: pack
+ready". Each gate's excuse for skipping was the other one. Both now resolve
+repo-local paths, and an unlocatable gate exits non-zero rather than passing.
 """
 import argparse
 import hashlib
@@ -28,6 +35,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -77,10 +85,51 @@ def refresh_state(state, zip_path, keep_changes):
     return state, ver, len(names), full
 
 
+def _schema_path():
+    """The STATE schema, or None if it genuinely cannot be found.
+
+    v3.66.888: this used to be a hardcoded `/mnt/project/STATE_schema.json` --
+    a retired-era absolute path that exists neither here nor on the box -- and
+    `schema_gate` returned [] when it was absent, excusing itself with "schema
+    unavailable in this env: skip (bd-state still gates)". The schema is
+    TRACKED, at project-knowledge/STATE_schema.json, so the gate was skipping
+    itself while the file it needed sat in the repo. The repo copy is probed
+    FIRST and the legacy absolute path is kept only as a fallback.
+    """
+    for cand in (REPO / "project-knowledge" / "STATE_schema.json",
+                 Path("/mnt/project/STATE_schema.json")):
+        if cand.is_file():
+            return cand
+    return None
+
+
+def _bd_state_cmd():
+    """argv prefix for bd-state, or None if it cannot be located.
+
+    NOT a bare name. `subprocess.run(["bd-state", ...])` is PATH-dependent, and
+    bd-state is NOT on PATH -- so the call raised FileNotFoundError, the caller
+    swallowed it with a printed note, and main() fell through to "RESULT: pack
+    ready" and returned 0. The binding final gate never ran and the tool
+    reported success. Invoked through sys.executable because the tool is an
+    extensionless python script whose exec bit is not guaranteed by a checkout.
+    """
+    cand = REPO / "toolchain" / "bin" / "bd-state"
+    if cand.is_file():
+        return [sys.executable, str(cand)]
+    found = shutil.which("bd-state")
+    return [found] if found else None
+
+
 def schema_gate(state):
-    schema_path = Path("/mnt/project/STATE_schema.json")
-    if not schema_path.is_file():
-        return []  # schema unavailable in this env — skip (bd-state still gates)
+    """Required keys the state is missing. Returns a LIST -- main() prints it.
+
+    An unfindable schema is NOT an empty list; `main` checks `_schema_path()`
+    separately and fails, because "nothing missing" and "nothing checked" must
+    not share a return value.
+    """
+    schema_path = _schema_path()
+    if schema_path is None:
+        return []
     sch = json.loads(schema_path.read_text())
     return [k for k in sch.get("required", []) if k not in state]
 
@@ -99,6 +148,12 @@ def main(argv=None):
     state = json.loads(Path(a.state).read_text())
     state, ver, cnt, full = refresh_state(state, a.zip, a.keep_changes)
 
+    # UNKNOWN is a third state and it fails. "nothing missing" and "the schema
+    # could not be found" must not both read as clean.
+    if _schema_path() is None:
+        sys.exit("FAIL: STATE_schema.json not found (looked in "
+                 "project-knowledge/ and /mnt/project/); the schema gate "
+                 "cannot run, which is not the same as passing")
     missing = schema_gate(state)
     if missing:
         sys.exit(f"FAIL: STATE missing required schema keys: {missing}")
@@ -123,16 +178,22 @@ def main(argv=None):
                             p.read_bytes())
     print(f"  pack assembled: {os.path.basename(a.out)}")
 
-    # final cross-check via bd-state if available
-    try:
-        r = subprocess.run(["bd-state", "--state", str(out_state), "--zip", a.zip],
-                           capture_output=True, text=True)
-        tail = (r.stdout or r.stderr).strip().splitlines()[-1:] or [""]
-        print(f"  bd-state: {tail[0]}")
-        if r.returncode != 0:
-            sys.exit("FAIL: bd-state pin mismatch")
-    except FileNotFoundError:
-        print("  bd-state: not on PATH — run it manually as the final gate")
+    # THE BINDING FINAL GATE. Not "if available" -- unreachable is a failure.
+    # It was invoked by bare name, so it was PATH-dependent; bd-state is not on
+    # PATH, the FileNotFoundError branch printed a note, and execution fell
+    # through to "RESULT: pack ready" and return 0. Advising the operator to
+    # "run it manually" in the middle of stdout is not a gate.
+    cmd = _bd_state_cmd()
+    if cmd is None:
+        sys.exit("FAIL: bd-state could not be located (looked in "
+                 "toolchain/bin/ and on PATH); it is the binding final gate, "
+                 "so not running it is a failure, not a skip")
+    r = subprocess.run(cmd + ["--state", str(out_state), "--zip", a.zip],
+                       capture_output=True, text=True)
+    tail = (r.stdout or r.stderr).strip().splitlines()[-1:] or [""]
+    print(f"  bd-state: {tail[0]}")
+    if r.returncode != 0:
+        sys.exit("FAIL: bd-state pin mismatch")
     print("RESULT: pack ready")
     return 0
 
