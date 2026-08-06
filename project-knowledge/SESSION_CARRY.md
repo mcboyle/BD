@@ -3943,7 +3943,7 @@ ONGOING, NOT A FINISH LINE (33)
 15.36 orders the open items by what unblocks what. This is the OTHER axis --
 size and wall-clock -- which is what you want when picking the next CUT rather
 than the next dependency. Operator-approved 2026-08-06 and worked top-down:
-tier 1 and four of tier 2's five rows shipped the same day.
+**tiers 1 and 2 are both COMPLETE**, all eight rows, shipped the same day.
 
 It is written down because it was not. The plan lived only in a conversation
 and had to be recovered from the operator's screenshots to be acted on. A plan
@@ -3958,11 +3958,11 @@ TIER 1 -- no cut, or nearly none. ALL DONE at v3.66.887.
 | 24 | three stale >6h lock files | CLOSED OBSOLETE -- the box probe found ONE, inside site-packages |
 | 22 | library panel's 31 `missing` rows | CLOSED -- already correct behaviour, no code |
 
-TIER 2 -- small, container-only, well-specified. FOUR OF FIVE DONE.
+TIER 2 -- small, container-only, well-specified. ALL FIVE DONE.
 
 | # | item | disposition |
 | --- | --- | --- |
-| 19 | `rev-parse` into `01_sysinfo.log`, plus the selftest stage | **OPEN -- the only row left. TWO cuts, not one. Rides item 2, which the operator has GO'd.** |
+| 19 | `rev-parse` into `01_sysinfo.log`, plus the selftest stage | CLOSED as TWO cuts, v3.66.892 and v3.66.893 -- see 15.39 |
 | 5b+6 | band artifacts untracked AND un-ignored | CLOSED -- both ignore rules already existed; v3.66.886's "re-confirmation" is retracted at 887 |
 | 10 | `ai_boot_readiness.json` in-flight marker | CLOSED -- fixed at v3.66.874, verified this session |
 | 13 | `bd-state` reachable only via `build_session_pack` | CLOSED at v3.66.888 |
@@ -4002,6 +4002,92 @@ THE CAVEAT, and it OVERRIDES size. **Hold 15 and 14 back regardless of how
 small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
+
+### 15.39 | Session close 2026-08-06 at 1f096c4 (v3.66.893) -- tiers 1 and 2 are done
+
+Nine cuts merged across this session; the last three are recorded here because
+they close item 19 and finish the size-ordered plan in 15.38.
+
+| cut | commit | subject |
+| --- | --- | --- |
+| 891 | `e70a1b0` | the tier plan into the register; its chain was already stale |
+| 892 | `ef9f253` | capture bundles name their own commit (item 19, cut 1 of 2) |
+| 893 | `1f096c4` | capture probes the selftest battery (item 19, cut 2 of 2) |
+
+**Item 19 is CLOSED, as two cuts, per the spec's explicit "do not batch these".**
+15.38's tier 2 table is updated in place; it read four-of-five and now reads all
+five.
+
+WHAT A CAPTURE BUNDLE GAINS. Both halves land in the archive, which is the only
+thing that survives the run:
+
+  * `01_sysinfo.log` now opens with a `--- commit ---` block: sha, branch,
+    toplevel, commit date, clean/dirty, and `source`. Three states, mirroring
+    `app_health.build_identity`. **The MISMATCH state is the design, not a
+    nicety** -- `git rev-parse HEAD` searches UPWARD and capture.sh cds to
+    BD_HOME first, so a BD_HOME sitting below another checkout would have
+    emitted a valid-looking sha about a DIFFERENT tree. Confidently wrong is
+    worse than the silence it replaced.
+  * `07b_selftest.json` and `07b_selftest.log` from the new `[7b/9]` stage, and
+    `selftest=$SELFTEST_EXIT` is now a `--stage-exit`. So a battery reporting
+    FAILs turns the capture red; WARNs do not, deliberately, because
+    `capture_verdict.py` has no warn tier and gating warnings would fail a
+    healthy box for a condition no code change fixes.
+
+THE LOAD-BEARING CHECK IS THE DENOMINATOR, not the HTTP status. `curl -fsS`
+exits 0 on a 200 carrying `{"error":"endpoint not found"}` -- capture.sh's own
+header records step [7] probing `sse_smoke` that way for months with nothing
+noticing. `tools/selftest_verdict.py` requires `ok + warn + fail >= 1` and
+refuses a body that disagrees with itself. Exits 0 / 1 / 2, where 1 is real
+failures and 2 is cannot-evaluate; both are nonzero, and they are distinct so
+the log can tell a failing box from an unreadable answer.
+
+UNVERIFIED, AND IT IS THE FIRST THING TO CHECK ON THE BOX: the selftest stage
+has never run against the live service. It should pass -- the box's battery is
+15 checks, well past the `>= 1` floor -- but it is a NEW way for the release
+gate to fail, so a surprise there fails the whole capture rather than warning.
+`07b_selftest.json` holds the raw body and is the file to read first.
+
+MEASUREMENT FOR THE NEXT CAPTURE. The 889 capture was PASS at 14734 total /
+14649 passed / 85 skipped, live 36/0/0, and its delta reconciled exactly
+(+10 from 885, +8 from 888, +6 from 889 against 884's 14710/14625). 892 adds 7
+tests and 893 adds 19, so the next run should read **14760 / 14675 / 85**. A
+mismatch is signal. Re-pin the graph hash first -- two cuts changed source, and
+step [2b] turns drift into a whole-capture FAIL.
+
+METHOD -- THREE AUTHORING ERRORS, ALL INSTRUMENT-CAUGHT, NONE REVIEW-CAUGHT.
+The pattern is the finding, and all three were made by someone who had just read
+the section warning about them:
+
+  1. **Six of seven "must be nonzero" rows passed VACUOUSLY** on pristine source
+     (893). With no tool on disk, python exits 2 because it cannot open the
+     script -- nonzero for a reason that has nothing to do with grading. A
+     section-0 defect inside the RED battery written to close a section-0
+     defect. Fixed by asserting the tool EXISTS before grading anything. **A
+     "must fail" assertion needs a precondition that the subject is reachable**,
+     or it grades the harness.
+  2. **A mutant ignoring curl's exit code ESCAPED** (893). The fall-through fed
+     an empty body to the grader, which correctly returned CANNOT EVALUATE, so
+     the stage was still nonzero and `assert code != 0` could not discriminate
+     the two paths. What that branch actually buys is the DIAGNOSIS -- an
+     unreachable service and an unparseable answer are different problems -- so
+     the added test asserts the log names curl's exit and preserves its stderr.
+     Proven RED with the mutant and green without.
+  3. **`shell_source.blocks_containing` cannot cut a brace group** (892). It
+     resolves `for`/`while`...`done` and falls back to the SINGLE LINE for
+     anything else, so against `{ ... } > "$OUT/01_sysinfo.log"` it returned
+     only the closing redirect -- a denominator that structurally excluded the
+     calls it was asked about. It failed loudly rather than passing, so it cost
+     a round trip rather than shipping a blind gate. Worth knowing before
+     reaching for that helper on a non-loop construct.
+
+WHERE THE BOARD STANDS. Tiers 1 and 2 complete. Next is either **throughput
+`8 -> 5a+7`** (two cuts, three items, container-only, no capture, no operator
+decision) or **impact `4` alone** (`bd-band`'s three root causes, acceptance
+18 -> 0, the only item that unblocks what CLAUDE.md section 4 mandates on every
+future cut). **15 and 14 stay held regardless of size.** Tier 3 and 4 statuses
+remain INHERITED rather than re-measured -- section 1 applies before working any
+of them.
 
 ### 15.34 | Open item A is fixed; the spec's last step had to be dropped, and the reading was void again
 
