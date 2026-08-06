@@ -80,6 +80,10 @@ def _allowed_categories(tier: str) -> set[str]:
 _LOG_PATH = Path("ui_events.log")
 _logger: logging.Logger | None = None
 
+# Marks the handler _get_logger() attached, so its idempotency guard can ask
+# "is MINE already here?" rather than "is ANY handler here?". See the guard.
+_OWN_HANDLER_ATTR = "_bd_ui_events_own"
+
 
 def _get_logger() -> logging.Logger:
     """Return the singleton ui_events logger, initializing if needed.
@@ -91,7 +95,16 @@ def _get_logger() -> logging.Logger:
     lg.propagate = False  # don't double-log into main bulk_downloader.log
     # Idempotency: if somehow this gets called twice concurrently, the
     # second caller would add a second handler. Guard against it.
-    if lg.handlers:
+    #
+    # v3.66.907 — key on OUR OWN handler, not on `if lg.handlers:`. The subject
+    # of this guard is the handler this function attaches; `lg.handlers` is a
+    # denominator containing every handler ANYONE attached, so a foreign one
+    # arriving first made this return before opening the log. Nothing then
+    # writes ui_events.log, and propagate is False, so the events do not reach
+    # root either -- they are dropped silently, which is the feature failing
+    # quietly rather than loudly. pytest 9's logging plugin attaches such a
+    # handler, which is how it surfaced; the bug is not specific to pytest.
+    if any(getattr(h, _OWN_HANDLER_ATTR, False) for h in lg.handlers):
         _logger = lg
         return lg
     try:
@@ -100,6 +113,7 @@ def _get_logger() -> logging.Logger:
             encoding="utf-8", utc=False)
         # One JSON object per line — easy to grep, easy to parse.
         h.setFormatter(logging.Formatter("%(message)s"))
+        setattr(h, _OWN_HANDLER_ATTR, True)
         lg.addHandler(h)
     except Exception as e:
         # Fall back to a null handler so callers don't crash on
@@ -107,7 +121,11 @@ def _get_logger() -> logging.Logger:
         import sys
         sys.stderr.write(f"  ui_events: log file init failed ({e}); "
                          f"events will be silently dropped\n")
-        lg.addHandler(logging.NullHandler())
+        nh = logging.NullHandler()
+        # Tagged for the same reason the file handler is: the fallback is still
+        # OUR handler, and an untagged one would leave the guard blind to it.
+        setattr(nh, _OWN_HANDLER_ATTR, True)
+        lg.addHandler(nh)
     _logger = lg
     return lg
 

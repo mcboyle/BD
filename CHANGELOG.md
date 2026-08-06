@@ -4,6 +4,47 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.907 - a foreign log handler silently dropped every UI event
+
+_get_logger()'s idempotency guard read `if lg.handlers:`. Its own comment says
+the subject is the handler THIS FUNCTION attaches -- "if somehow this gets
+called twice concurrently, the second caller would add a second handler" -- but
+`lg.handlers` is a denominator holding every handler ANYONE attached. So a
+foreign handler arriving first made the function return before opening its
+TimedRotatingFileHandler: ui_events.log was never created, and because
+propagate is False the events did not reach root either. They went to the
+stranger's handler and the feature failed SILENTLY. Section 0, in product code
+rather than in a gate.
+
+It now keys on its own handler via a tagged attribute. The NullHandler fallback
+is tagged too -- it is still our handler, and leaving it untagged would keep the
+guard blind to it.
+
+pytest 9's logging plugin is one such attacher, which is how this surfaced: two
+failures on the box at v3.66.902 while the container's pytest 8.4.2 stayed
+green. THE DEFECT IS NOT ABOUT PYTEST, and the test says so by attaching the
+foreign handler itself -- it is RED on 8.4.2 and on 9.1.1 alike, so it does not
+depend on which plugins load.
+
+Verified both directions on both runners, in a pytest 9.1.1 venv built to match
+the box:
+  pristine + pytest 9.1.1 -> test_ingest_redacts_password_on_write fails with
+    FileNotFoundError, the box's symptom
+  pristine + pytest 8.4.2 -> the box tests PASS; only the new test is red
+  fixed + either            -> all pass
+Running the subset reproduced ONE of the box's two failures, not both -- which
+test creates the handler depends on order. Not claimed as a full reproduction.
+
+MUTATION 3/3, after 2 of 3 ESCAPED the first battery. Both escapes named the
+same uncovered behaviour, and it was the guard's ORIGINAL purpose: dropping the
+tag, and forcing the guard false, each leave the foreign-handler test green
+while every re-entry stacks ANOTHER file handler and duplicates every line
+written after it. Fixing the new half and testing only that half left the old
+half unconstrained. A second test asserts exactly one file handler survives
+re-entry, and it clears the _logger cache between calls -- otherwise
+_get_logger returns on its first line, the guard is never reached, and the
+assertion holds regardless of what the guard says.
+
 ## v3.66.906 - Radix discarded the Escape key, and the palette trusted it
 
 test_command_palette_opens failed one box capture and was chased as a playwright
