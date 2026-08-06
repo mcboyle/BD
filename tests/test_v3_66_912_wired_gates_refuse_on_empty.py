@@ -64,27 +64,66 @@ def _run(args, timeout=300):
     return cp.returncode, (cp.stdout or "") + (cp.stderr or "")
 
 
+def _fresh_report_tree(tmp):
+    """A POS denominator for bd-env-report-check that does not depend on the machine.
+
+    v3.66.919: this used to be `["--tree", str(_REPO)]`, and that
+    FAILED ON THE BOX -- the one place it matters. The box capture at
+    v3.66.913 returned `assert 2 != 2`: the tool answered UNKNOWN because
+    `.claude-env-report.md` there is absent or carries no provenance block.
+
+    That was a defect in this TEST, not in the tool. The verdict of
+    bd-env-report-check is a property of a gitignored, per-machine
+    provisioning artifact, and CLAUDE.md section 5 says outright that the
+    report is STALE after every cut BY DESIGN and must not be chased. So
+    "the repo tree" is not a real denominator for this tool -- it is
+    whatever provisioning last left behind. Measured the same day: this
+    container answered STALE (1), the box answered UNKNOWN (2), same commit
+    range. A test that passes or fails on that difference is testing the
+    machine.
+
+    So the POS case now BUILDS a tree the tool can actually evaluate: a
+    version to read, and a report whose provenance names that same version.
+    Verified to return FRESH (0) before being wired in here.
+
+    The NEG case is untouched and still points at a genuinely empty
+    directory, which is the real "nothing to examine" condition.
+    """
+    tree = tmp / "fresh_tree"
+    (tree / "bulk_downloader").mkdir(parents=True, exist_ok=True)
+    (tree / "bulk_downloader" / "__init__.py").write_text(
+        '__version__ = "9.9.9"\n', encoding="utf-8")
+    (tree / ".claude-env-report.md").write_text(
+        "# env report\n\ngenerated_at=2026-01-01T00:00:00Z\n"
+        "generated_against_version=9.9.9\n", encoding="utf-8")
+    return ["--tree", str(tree)]
+
+
 # (tool, neg_args_factory, neg_wording, pos_args_factory)
 #
 # neg_wording is the tool's OWN refusal phrasing. Asserting only on exit 2
 # would accept argparse's usage-error 2 as if it were a refusal.
+#
+# pos_args_factory takes a tmp directory. Most tools ignore it; the one that
+# does not is bd-env-report-check, whose verdict is a property of the MACHINE
+# unless the tree is built for it -- see _fresh_report_tree.
 _GATES = [
     ("bd-opv",
      lambda empty: ["--only", "bd_no_such_check_zzz"],
      "CANNOT-EVALUATE",
-     lambda: ["--selftest"]),
+     lambda tmp: ["--selftest"]),
     ("bd-env-report-check",
      lambda empty: ["--tree", empty],
      "UNKNOWN",
-     lambda: ["--tree", str(_REPO)]),
+     _fresh_report_tree),
     ("bd-equiv",
      lambda empty: ["--old", "echo x", "--new", "echo x", "--corpus", empty],
      "no inputs",
-     lambda: ["--selftest"]),
+     lambda tmp: ["--selftest"]),
     ("bd-fullsuite",
      lambda empty: ["--work", empty],
      "CANNOT-EVALUATE",
-     lambda: ["--work", str(_REPO), "--only", "test_v3_66_908_runner_param"]),
+     lambda tmp: ["--work", str(_REPO), "--only", "test_v3_66_908_runner_param"]),
     ("bd-docstale",
      lambda empty: ["--dir", empty, "--work", str(_REPO)],
      # Its own phrasing differs from the others: "BD-DOCSTALE UNEVALUABLE ...
@@ -93,7 +132,7 @@ _GATES = [
      # everything would stop distinguishing a refusal from a usage error, which
      # is the only reason it exists.
      "UNEVALUABLE",
-     lambda: ["--dir", str(_REPO / "project-knowledge"), "--work", str(_REPO)]),
+     lambda tmp: ["--dir", str(_REPO / "project-knowledge"), "--work", str(_REPO)]),
 ]
 
 _IDS = [g[0] for g in _GATES]
@@ -126,13 +165,13 @@ def test_an_empty_denominator_is_refused_not_passed(name, neg, wording, _pos):
 
 
 @pytest.mark.parametrize("name,_neg,_wording,pos", _GATES, ids=_IDS)
-def test_a_real_denominator_is_still_evaluable(name, _neg, _wording, pos):
+def test_a_real_denominator_is_still_evaluable(name, _neg, _wording, pos, tmp_path):
     """POS: the over-correction guard.
 
     A tool rewritten to refuse unconditionally would satisfy every NEG case
     above and be useless. This fails it.
     """
-    rc, out = _run([_BIN / name] + pos())
+    rc, out = _run([_BIN / name] + pos(tmp_path))
     assert rc != EXIT_CANNOT_EVALUATE, (
         f"{name} refused a REAL denominator -- a tool that can only refuse is "
         f"not an instrument.\n{out[-1500:]}")
