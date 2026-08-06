@@ -4,6 +4,43 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.910 - discover_and_run never registered the module it was executing
+
+Item 4, sub-cut 3 of 3 -- the register's "module import path" root cause.
+
+`discover_and_run` built the module with module_from_spec and called
+exec_module WITHOUT putting it in sys.modules first. That is the step the
+importlib docs call out and real pytest performs. Without it, anything
+resolving a name through sys.modules[cls.__module__] during import gets None --
+most often @dataclass under `from __future__ import annotations`, whose field
+types are strings looked up in the defining module's globals:
+
+    IMPORT ERROR: 'NoneType' object has no attribute '__dict__'
+
+MINIMAL REPRODUCER, so the test is about the runner rather than the suite that
+surfaced it: one dataclass with one annotated field, plus the future import.
+Proven both directions by one-variable experiment BEFORE the test was written --
+register=False raises, register=True imports.
+
+CLEANUP IS THE OVER-CORRECTION GUARD. Registering and leaving a FAILED module
+behind is worse than not registering: a later import of the same name finds a
+half-executed module and skips re-running it, so a suite could pass against a
+module whose import raised. The error path pops it, and a test pins that. That
+test passes on pristine source too -- deliberately, since it guards the
+direction the FIX could break rather than the defect being fixed.
+
+ACCEPTANCE, and the suite-level number hides it. Still 13/16 suites green, but
+test_fuzz_harness_frontend went from Total: 1 (a single import-error row) to
+Total: 102 | Passed: 68. Sixty-eight tests now execute that could not run at
+all. A suite count is a coarse instrument; report what it conceals.
+
+The 34 that still fail there are NOT stub gaps in this class: 31 are EOFError
+out of multiprocessing/connection.py (the harness spawns processes), and 3 are
+the dotted-path monkeypatch.setattr defect that also blocks coverage_map --
+whose detector `value is None and not callable(name)` misses whenever the
+replacement is callable, which is the common case. That is a FOURTH sub-cut;
+the register describes item 4 as three.
+
 ## v3.66.909 - MonkeyPatch, importorskip and an unknown mark
 
 Item 4, sub-cut 2 of 3. The rest of the API-surface root cause, each measured

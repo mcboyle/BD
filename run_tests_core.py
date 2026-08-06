@@ -799,9 +799,21 @@ def discover_and_run(test_file):
     spec = importlib.util.spec_from_file_location(
         f"test_{test_file.stem}", test_file)
     mod = importlib.util.module_from_spec(spec)
+    # v3.66.910: register BEFORE executing. Anything that resolves a name via
+    # sys.modules[cls.__module__] during import gets None otherwise -- most
+    # often @dataclass under `from __future__ import annotations`, whose field
+    # types are strings looked up in the defining module's globals. That
+    # surfaced as "IMPORT ERROR: 'NoneType' object has no attribute '__dict__'"
+    # and took the whole suite with it. This is the step the importlib docs
+    # call out and real pytest performs.
+    sys.modules[spec.name] = mod
     try:
         spec.loader.exec_module(mod)
     except Exception as e:
+        # Do NOT leave a half-executed module behind: a later import of the
+        # same name would find it and skip re-running it, so a suite could
+        # pass against a module whose import raised.
+        sys.modules.pop(spec.name, None)
         # NOTE: must be a 4-tuple (name, err, ok, duration) to match
         # every other result row this function emits. A 3-tuple here
         # crashes the serial-retry classifier in _retry_failures_serial,
