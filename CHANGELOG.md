@@ -4,6 +4,39 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.914 - register-only: session close, and CI never ran
+
+Records the three facts that otherwise lived only in a conversation.
+
+WHAT IS BOX-VERIFIED AND WHAT IS NOT. Two green captures this session:
+4c66bbe (@907, 14721 pass / 0 fail) closed the palette and ui_events fixes on
+real hardware -- including a pytest-9 logging defect a container on 8.4.2 could
+not reproduce. 3b1b656 (@911, 14736 pass / 0 fail, live 36/0/0) box-verified
+item 4, all 42 cases across the new runner suites passing. NEITHER covers @912
+or @913: the second ran before both merged. @912 is a test-only suite and @913
+changed no source, so the exposure is small -- but a reader must not assume the
+last capture covers the tip.
+
+GITHUB ACTIONS COULD NOT ALLOCATE A RUNNER, and #213, #214 and #215 merged with
+ZERO CI. Six failure modes, none ours: Service Unavailable resolving action
+download info; a 15-minute queue then cancel; a 17-minute cancel; a 58-minute
+queue at 0s duration; and a `synchronize` push that produced no run -- which is
+what establishes runner CAPACITY rather than event delivery. Also learned:
+`ready_for_review` is NOT in ci.yml's trigger list, so un-drafting never starts
+CI; only a push, a reopen, or a UI re-run will. 15.46 carries the local
+substitute that covers every step of the gates job.
+
+GITLEAKS MUST BE SCOPED TO THE PR RANGE. A whole-history scan reported 36 leaks
+and a --no-git directory scan 21 -- both wrong denominators, one covering 352
+untouched commits and the other 77MB including venv/ and node_modules/. Scoped
+to aa39d3b..HEAD, all 7 commits merged this session: NO LEAKS. That retroactively
+covers #213, which had merged unscanned. And a range whose commit count
+disagrees with the scan count needs explaining, not waving away -- a 2-commit
+range scanned 1 because the other commit was empty.
+
+No source changed. Tier 4 is all that remains: 11, 12-remnants, 16 open; 14
+held; 12(d) additionally needs an operator nod on the API shape.
+
 ## v3.66.913 - register-only: tiers 1-3 complete, and item 15 needed nothing
 
 Item 15 was filed as "improved, but the class stands". It does not stand, and
