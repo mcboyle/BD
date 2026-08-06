@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 1618,
+  "edge_count": 3750,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2038,6 +2038,4108 @@
     ],
     "bulk_downloader/ytdlp_extractor.py": [
       "bulk_downloader/plugins.py"
+    ],
+    "tests/conftest.py": [
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/macro_recorder.py",
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/vpn_config.py"
+    ],
+    "tests/test_2c_guard_zero_match_interlock.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/template_manager.py"
+    ],
+    "tests/test_3a_login_warning_reword.py": [
+      "bulk_downloader/site_editor.py"
+    ],
+    "tests/test_a6_dom_derivations.py": [
+      "bulk_downloader/template_normalize.py",
+      "bulk_downloader/wacz_export.py",
+      "tools/build_template_from_wacz.py",
+      "tools/builder_gap_report.py"
+    ],
+    "tests/test_a_manifest_is_not_a_finished_download.py": [
+      "bulk_downloader/hls_downloader.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_a_manifest_link_reaches_the_segmented_downloader.py": [
+      "bulk_downloader/hls_downloader.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_ai3_storage_promote_300.py": [
+      "tools/build_template_from_wacz.py",
+      "tools/player_recognition.py"
+    ],
+    "tests/test_ai_boot_readiness.py": [
+      "bulk_downloader/ai_boot_readiness.py",
+      "bulk_downloader/ai_boot_status.py"
+    ],
+    "tests/test_ai_boot_status.py": [
+      "bulk_downloader/ai_boot_status.py"
+    ],
+    "tests/test_ai_boot_status_api.py": [
+      "bulk_downloader/ai_boot_status.py",
+      "bulk_downloader/aiassist.py"
+    ],
+    "tests/test_analyzer_endpoints.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/dom_analyzer.py",
+      "bulk_downloader/template_registry.py"
+    ],
+    "tests/test_api.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_api_token_admin_reserved.py": [
+      "bulk_downloader/api_tokens.py",
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_app06_reveal_path_scope.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_file.py"
+    ],
+    "tests/test_app_auth.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_auth.py",
+      "bulk_downloader/user_accounts.py"
+    ],
+    "tests/test_app_semantic_search.py": [
+      "bulk_downloader/app_semantic_search.py"
+    ],
+    "tests/test_architecture_inventory.py": [
+      "tools/architecture_inventory.py"
+    ],
+    "tests/test_audit_f2_p13a.py": [
+      "bulk_downloader/template_manager.py",
+      "bulk_downloader/vpn_openvpn.py"
+    ],
+    "tests/test_audit_p3a.py": [
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_auth02_01_cookie_jar_isolation.py": [
+      "bulk_downloader/cookie_health.py"
+    ],
+    "tests/test_auth02_clipboard_netscape_injection.py": [
+      "bulk_downloader/cookie_clipboard.py"
+    ],
+    "tests/test_auth02_cookie_quality_site_id.py": [
+      "bulk_downloader/constants.py",
+      "bulk_downloader/cookie_quality.py",
+      "bulk_downloader/cookies.py"
+    ],
+    "tests/test_auth_state_buckets.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_sites_auth.py",
+      "bulk_downloader/cookies.py",
+      "tools/fixture_site.py"
+    ],
+    "tests/test_auth_throttle.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/auth_throttle.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_auto_refresh_trigger.py": [
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/lifecycle_automation.py",
+      "bulk_downloader/lifecycle_drift.py",
+      "bulk_downloader/template_manager.py"
+    ],
+    "tests/test_auto_submit_approval.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/learn.py"
+    ],
+    "tests/test_auto_teach_template.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_autofill.py": [
+      "bulk_downloader/login.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_b1_3_build_identity.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_b1_capture_selfheal.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_b1_event_bus.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/run_history.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_b1_global_config_origins.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_b1_run_history.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/run_history.py"
+    ],
+    "tests/test_b1_run_history_advisory.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/run_history.py"
+    ],
+    "tests/test_bad_terms_reconciliation.py": [
+      "bulk_downloader/bad_terms.py",
+      "bulk_downloader/pattern_hygiene.py",
+      "bulk_downloader/template_normalize.py",
+      "tools/promote_template.py",
+      "tools/template_inventory.py"
+    ],
+    "tests/test_bat_lint_parser.py": [
+      "bulk_downloader/_bat_lint.py"
+    ],
+    "tests/test_batch_b_dev_shell_authgate.py": [
+      "bulk_downloader/app.py",
+      "tools/cockpit_console.py"
+    ],
+    "tests/test_bd_decomp.py": [
+      "tools/bd_decomp_lib.py"
+    ],
+    "tests/test_bug1_idle_site_delete.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_sites_id_core.py",
+      "bulk_downloader/app_state.py"
+    ],
+    "tests/test_bug37_subfolder_capture_picker.py": [
+      "bulk_downloader/dom_analyzer.py"
+    ],
+    "tests/test_bug37b_scan_captures_bounded.py": [
+      "bulk_downloader/dom_analyzer.py"
+    ],
+    "tests/test_bug4_blank_model_fallback.py": [
+      "bulk_downloader/ai_provider.py"
+    ],
+    "tests/test_bug8_pick_media_guard.py": [
+      "bulk_downloader/element_pick.py"
+    ],
+    "tests/test_bug_audit.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_bug_capture_diagnostics_bounded.py": [
+      "bulk_downloader/app_data_layer.py",
+      "tools/capture_diagnostics.py",
+      "tools/replay_validator.py"
+    ],
+    "tests/test_build_identity_is_current.py": [
+      "bulk_downloader/app_health.py"
+    ],
+    "tests/test_builder_directstream_recognizer.py": [
+      "bulk_downloader/extraction_core.py",
+      "bulk_downloader/selector_lint.py",
+      "bulk_downloader/template_normalize.py",
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_builder_download_api_template.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/template_normalize.py",
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_builder_gap_report.py": [
+      "bulk_downloader/wacz_export.py",
+      "tools/builder_gap_report.py"
+    ],
+    "tests/test_builder_quality_194.py": [
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_builder_quality_195.py": [
+      "bulk_downloader/selector_lint.py",
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_builder_recognition_hints_persist.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_builder_rrweb_node_recognition.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_c6_gallerydl_shim.py": [
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/gallerydl_updater.py",
+      "bulk_downloader/runner_extractors.py"
+    ],
+    "tests/test_c7_11_1b_admin_routes.py": [
+      "bulk_downloader/app_auth.py"
+    ],
+    "tests/test_c7_11_2_fed_trust.py": [
+      "bulk_downloader/app_fed.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/federation.py"
+    ],
+    "tests/test_cap01_watch_override_host.py": [
+      "bulk_downloader/live_recorder.py"
+    ],
+    "tests/test_cap_cancel.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_cap_finish.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_capture_actions.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_captures.py",
+      "bulk_downloader/dom_analyzer.py",
+      "bulk_downloader/template_manager.py"
+    ],
+    "tests/test_capture_analytics_bounded.py": [
+      "bulk_downloader/app_data_layer.py",
+      "tools/capture_analytics.py"
+    ],
+    "tests/test_capture_bodies_json_cap.py": [
+      "bulk_downloader/capture_bodies.py"
+    ],
+    "tests/test_capture_diagnostics.py": [
+      "bulk_downloader/wacz_export.py",
+      "tools/capture_diagnostics.py"
+    ],
+    "tests/test_capture_dict_shape_tripwire.py": [
+      "tools/capture_model_golden.py"
+    ],
+    "tests/test_capture_goto_renav.py": [
+      "tools/cockpit_console.py"
+    ],
+    "tests/test_capture_model_golden.py": [
+      "tools/capture_model_golden.py"
+    ],
+    "tests/test_capture_multitab.py": [
+      "bulk_downloader/dom_recorder.py",
+      "bulk_downloader/session_capture.py",
+      "tools/capture_session.py"
+    ],
+    "tests/test_capture_path_redos.py": [
+      "bulk_downloader/inspect_pick.py",
+      "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_capture_pick_api.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/element_pick.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_capture_redact_deep_dom.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/capture_redact.py",
+      "bulk_downloader/wacz_export.py"
+    ],
+    "tests/test_capture_redact_nested.py": [
+      "bulk_downloader/capture_redact.py"
+    ],
+    "tests/test_capture_robustness.py": [
+      "tools/capture_session.py"
+    ],
+    "tests/test_capture_scan.py": [
+      "bulk_downloader/dom_analyzer.py"
+    ],
+    "tests/test_capture_scan_routes.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_captures.py",
+      "bulk_downloader/dom_analyzer.py"
+    ],
+    "tests/test_capture_scrub_hook.py": [
+      "bulk_downloader/capture_scrub_hook.py"
+    ],
+    "tests/test_capture_scrub_patches.py": [
+      "tools/capture_scrub.py"
+    ],
+    "tests/test_capture_session_nav_resilience.py": [
+      "tools/capture_session.py"
+    ],
+    "tests/test_capture_vault_is_isolated.py": [
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_capture_verdict.py": [
+      "tools/capture_verdict.py"
+    ],
+    "tests/test_capture_workbench_surface_lock.py": [
+      "bulk_downloader/capture_workbench.py"
+    ],
+    "tests/test_cbd03_dom_scrub_floor.py": [
+      "bulk_downloader/element_pick.py"
+    ],
+    "tests/test_cbd03_ollama_rebind_pin.py": [
+      "bulk_downloader/aiassist.py"
+    ],
+    "tests/test_census_file_size_drift.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/library_final.py",
+      "tools/census_file_size_drift.py"
+    ],
+    "tests/test_cloak_persistent_context_fallback.py": [
+      "bulk_downloader/cloak.py"
+    ],
+    "tests/test_cockpit01_report_html_sanitize.py": [
+      "tools/cockpit_console.py"
+    ],
+    "tests/test_cockpit02_posture_failclosed.py": [
+      "bulk_downloader/capture_ingest.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_cockpit02_redact_floor.py": [
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_cockpit_capture_options_parity.py": [
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_cockpit_capture_profile.py": [
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_cockpit_ui_prefs.py": [
+      "tools/cockpit_console.py"
+    ],
+    "tests/test_config_parity_ratchet.py": [
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_config_snapshot_diff.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_consolidation.py": [
+      "tools/kb_audit.py",
+      "tools/kb_core.py",
+      "tools/kb_duplicate_detector.py",
+      "tools/kb_link_validator.py",
+      "tools/kb_staleness_report.py",
+      "tools/report_core.py",
+      "tools/template_analytics.py",
+      "tools/template_completeness_score.py",
+      "tools/template_core.py",
+      "tools/template_health_report.py",
+      "tools/template_inventory.py",
+      "tools/template_warning_catalog.py"
+    ],
+    "tests/test_contracts.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_cookie_health_canonical_config.py": [
+      "bulk_downloader/cookie_health.py",
+      "bulk_downloader/cookies.py"
+    ],
+    "tests/test_core_bd05_plugin_verdict_isfinite.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_core_bd13_01_ip_whitelist_failclosed.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/shares.py"
+    ],
+    "tests/test_core_bd13_02_rate_limit_doc_consistency.py": [
+      "bulk_downloader/shares.py"
+    ],
+    "tests/test_corebd08_wg_conf_private_from_birth.py": [
+      "bulk_downloader/vpn_config.py",
+      "bulk_downloader/vpn_wireguard.py"
+    ],
+    "tests/test_corebd11_global_config_perms.py": [
+      "bulk_downloader/global_config.py"
+    ],
+    "tests/test_corebd13_diag_bundle_logs_redacted.py": [
+      "bulk_downloader/constants.py",
+      "bulk_downloader/diagnostics_bundle.py"
+    ],
+    "tests/test_corebd17_audit_secret_keys.py": [
+      "bulk_downloader/audit.py"
+    ],
+    "tests/test_corebd17_qs_header_floor.py": [
+      "bulk_downloader/capture_redact.py"
+    ],
+    "tests/test_corebd18_dom_serialize_escape_names.py": [
+      "bulk_downloader/dom_serialize.py"
+    ],
+    "tests/test_coverage_map_frontend.py": [
+      "tools/risk_score.py"
+    ],
+    "tests/test_credential_persistence.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_csrf_origin_guard.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_csv_bulk.py": [
+      "bulk_downloader/csv_bulk.py"
+    ],
+    "tests/test_ct1_capture_synth.py": [
+      "bulk_downloader/capture_redact.py",
+      "bulk_downloader/capture_synth.py",
+      "bulk_downloader/session_capture.py"
+    ],
+    "tests/test_ct1_corpus_validation.py": [
+      "bulk_downloader/capture_redact.py",
+      "bulk_downloader/capture_synth.py"
+    ],
+    "tests/test_ct2_capture_bodies.py": [
+      "bulk_downloader/capture_bodies.py",
+      "bulk_downloader/capture_redact.py"
+    ],
+    "tests/test_curl_cffi_api.py": [
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_curl_cffi_response_context.py": [
+      "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_cut25b_history_filename_resolves_under_download_dir.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/library_final.py"
+    ],
+    "tests/test_cut31_done_today_iso.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_util.py"
+    ],
+    "tests/test_cut35_csrf_meta_contract_retired.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_cut35_csrf_meta_premise_retired_in_tools.py": [
+      "bulk_downloader/app.py",
+      "tools/_probe_lib.py"
+    ],
+    "tests/test_cut3_import_preview_routes.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/marketplace.py",
+      "bulk_downloader/user_templates.py"
+    ],
+    "tests/test_cut3_marketplace_preview.py": [
+      "bulk_downloader/marketplace.py"
+    ],
+    "tests/test_cut3_user_templates_preview.py": [
+      "bulk_downloader/user_templates.py"
+    ],
+    "tests/test_cut40_dashboard_today_iso.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_cut41_ts_iso_producers.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_cut42_restart_ts_iso_is_local.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_util.py"
+    ],
+    "tests/test_cut4_failure_reasons.py": [
+      "bulk_downloader/failure_reasons.py"
+    ],
+    "tests/test_cut4_preflight_readiness.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_cut4_runs_filter.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/run_history.py"
+    ],
+    "tests/test_cut4_storage_validate.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_cut7_failure_triage.py": [
+      "bulk_downloader/failure_reasons.py"
+    ],
+    "tests/test_cut7_filename_metadata.py": [
+      "bulk_downloader/aiassist.py"
+    ],
+    "tests/test_cut7_form_batch2_endpoints.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_cut7_opv_bundle.py": [
+      "tools/opv_bundle.py"
+    ],
+    "tests/test_cut7_redaction_safetynet.py": [
+      "bulk_downloader/capture_artifact_redact.py"
+    ],
+    "tests/test_cut7_site_onboard.py": [
+      "tools/site_onboard.py"
+    ],
+    "tests/test_cut8_alert_job_rule.py": [
+      "bulk_downloader/alerts_engine.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_cut8_bulk_enqueue.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_cut8_global_budget.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/daily_budget.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_cut8_schedules.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/capture_schedules.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_d3_u10_bulk_select.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_d3_u11_drag_reorder.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_d3_u14_log_diff.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_d3_u15_site_health.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_d3_u1_scaffold.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_d3_u2_v2_endpoints.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_health.py",
+      "bulk_downloader/app_state.py"
+    ],
+    "tests/test_d3_u3_dashboard.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_d3_u4_sites.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/site_editor.py"
+    ],
+    "tests/test_d3_u5_queue.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_d3_u6_activity.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_d3_u9_opt_in.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_daily_digest.py": [
+      "bulk_downloader/daily_digest.py"
+    ],
+    "tests/test_data_layer_status.py": [
+      "bulk_downloader/app_data_layer.py"
+    ],
+    "tests/test_db_concurrency.py": [
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_db_replication.py": [
+      "bulk_downloader/db_replication.py"
+    ],
+    "tests/test_decomp_deletions.py": [
+      "tools/decomp_deletions.py"
+    ],
+    "tests/test_decomp_lint.py": [
+      "tools/decomp_lint.py"
+    ],
+    "tests/test_decomp_regen.py": [
+      "tools/decomp_regen.py"
+    ],
+    "tests/test_deep_detect_redos.py": [
+      "bulk_downloader/dom_honeypot.py"
+    ],
+    "tests/test_deep_detect_surface_lock.py": [
+      "bulk_downloader/__init__.py"
+    ],
+    "tests/test_dependency_graph_fails_closed.py": [
+      "tools/dependency_graph.py"
+    ],
+    "tests/test_dependency_graph_in_sync.py": [
+      "tools/dependency_graph.py"
+    ],
+    "tests/test_deploy_script.py": [
+      "tools/check_requirements.py"
+    ],
+    "tests/test_derive_api_a6_1.py": [
+      "bulk_downloader/template_normalize.py",
+      "bulk_downloader/wacz_export.py",
+      "tools/build_template_from_wacz.py",
+      "tools/builder_gap_report.py"
+    ],
+    "tests/test_dev_metrics.py": [
+      "bulk_downloader/dev_metrics.py"
+    ],
+    "tests/test_dev_suite.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_dev_suite_surface_lock.py": [
+      "bulk_downloader/__init__.py"
+    ],
+    "tests/test_dev_suite_tier0.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/_bat_lint.py",
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_dev_suite_tier1.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/session_keeper.py"
+    ],
+    "tests/test_dev_suite_tier1b.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/dev_metrics.py"
+    ],
+    "tests/test_diff_repair_commit.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_differential_oracle_frontend.py": [
+      "tools/differential_oracle.py"
+    ],
+    "tests/test_dispatch_chain.py": [
+      "bulk_downloader/__init__.py"
+    ],
+    "tests/test_dom_analyzer.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/dom_analyzer.py",
+      "bulk_downloader/dom_serialize.py"
+    ],
+    "tests/test_dom_overlay.py": [
+      "bulk_downloader/dom_overlay.py"
+    ],
+    "tests/test_dom_recorder_asi.py": [
+      "bulk_downloader/dom_capture.py",
+      "bulk_downloader/dom_recorder.py"
+    ],
+    "tests/test_dom_walker_depth_cap.py": [
+      "bulk_downloader/dom_analyzer.py",
+      "bulk_downloader/dom_serialize.py"
+    ],
+    "tests/test_dpp_cut1_config_seam.py": [
+      "tools/player_recognition.py"
+    ],
+    "tests/test_dpp_cut1_consolidation.py": [
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_dpp_cut2_protocol_ladder.py": [
+      "tools/player_recognition.py"
+    ],
+    "tests/test_dpp_cut3_protection.py": [
+      "tools/player_recognition.py"
+    ],
+    "tests/test_dpp_cut4_verdict_aux.py": [
+      "tools/build_template_from_wacz.py",
+      "tools/player_recognition.py"
+    ],
+    "tests/test_dpp_draft_wireup.py": [
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_draft_override_ttl_and_revert.py": [
+      "bulk_downloader/capture_login_wire.py",
+      "bulk_downloader/runner_teach.py"
+    ],
+    "tests/test_drift_repair_surface.py": [
+      "bulk_downloader/drift_repair.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/selector_drift.py"
+    ],
+    "tests/test_e1_capture_events.py": [
+      "bulk_downloader/plugins.py",
+      "tools/capture_session.py"
+    ],
+    "tests/test_e2e_smoke.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_edge_phase7_13.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_element_pick_bridge.py": [
+      "bulk_downloader/element_pick.py"
+    ],
+    "tests/test_element_pick_selector.py": [
+      "bulk_downloader/element_pick.py"
+    ],
+    "tests/test_embeddings.py": [
+      "bulk_downloader/embeddings.py"
+    ],
+    "tests/test_empty_id_in_selects_nothing.py": [
+      "bulk_downloader/batch_ops.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_endpoint_catalog_in_sync.py": [
+      "tools/build_endpoint_catalog.py"
+    ],
+    "tests/test_et1_fp_detect.py": [
+      "bulk_downloader/fp_detect.py"
+    ],
+    "tests/test_events_table_cleanup.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/diagnostics_bundle.py",
+      "bulk_downloader/eol_export.py",
+      "bulk_downloader/migrations.py",
+      "bulk_downloader/timeline.py"
+    ],
+    "tests/test_extension_endpoints.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_extension_live.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_extension_vault.py": [
+      "bulk_downloader/extension_vault.py"
+    ],
+    "tests/test_extraction_core.py": [
+      "bulk_downloader/capture_synth.py",
+      "bulk_downloader/capture_template.py",
+      "bulk_downloader/capture_workbench.py",
+      "bulk_downloader/extraction_core.py"
+    ],
+    "tests/test_extraction_core_characterization.py": [
+      "bulk_downloader/capture_template.py",
+      "bulk_downloader/capture_workbench.py"
+    ],
+    "tests/test_ffmpeg_capability_health.py": [
+      "bulk_downloader/healthcheck.py"
+    ],
+    "tests/test_fixture_serves_a_decodable_mp4.py": [
+      "tools/fixture_site.py"
+    ],
+    "tests/test_fixture_site.py": [
+      "tools/fixture_site.py"
+    ],
+    "tests/test_fixture_site2.py": [
+      "tools/fixture_site2.py"
+    ],
+    "tests/test_framework_gui.py": [
+      "tools/framework_dashboard.py",
+      "tools/framework_fleet.py"
+    ],
+    "tests/test_fresh_install_gui_smoke.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_fts_external_content_delete.py": [
+      "bulk_downloader/batch_ops.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_fts_stale_terms_on_update.py": [
+      "bulk_downloader/batch_ops.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/storage_rebalance.py"
+    ],
+    "tests/test_function_index_in_sync.py": [
+      "tools/build_function_index.py"
+    ],
+    "tests/test_fuzz_harness_frontend.py": [
+      "tools/fuzz_harness.py"
+    ],
+    "tests/test_global_config_defaults.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_graph_projections_v2.py": [
+      "tools/graph_build.py",
+      "tools/l0_extract.py"
+    ],
+    "tests/test_gui_parity.py": [
+      "tools/config_surface_inventory.py",
+      "tools/gui_parity_inventory.py"
+    ],
+    "tests/test_headless_default.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_healthcheck_disk_captures.py": [
+      "bulk_downloader/healthcheck.py"
+    ],
+    "tests/test_heartbeat_detects_a_logged_out_page.py": [
+      "bulk_downloader/session_keeper.py"
+    ],
+    "tests/test_history_columns_go_through_migrations.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/migrations.py"
+    ],
+    "tests/test_history_file_size_is_the_size_on_disk.py": [
+      "bulk_downloader/batch_ops.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/mp4_metadata.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_history_records_whether_bytes_were_fetched.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/migrations.py"
+    ],
+    "tests/test_home_config_stores_are_guarded.py": [
+      "bulk_downloader/macro_recorder.py"
+    ],
+    "tests/test_hooks.py": [
+      "bulk_downloader/hooks.py"
+    ],
+    "tests/test_hooks_webhook_ssrf.py": [
+      "bulk_downloader/hooks.py"
+    ],
+    "tests/test_i18n_phase191.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/i18n.py"
+    ],
+    "tests/test_integration_wiring.py": [
+      "bulk_downloader/app_cockpit_home.py",
+      "bulk_downloader/app_data_layer.py",
+      "bulk_downloader/app_report_center.py",
+      "bulk_downloader/app_template_manager_ui.py"
+    ],
+    "tests/test_integrity_checkmark_is_earned.py": [
+      "bulk_downloader/integrity.py"
+    ],
+    "tests/test_isfinite_numeric_backstop.py": [
+      "bulk_downloader/admission.py"
+    ],
+    "tests/test_jwplayer_template_robustness.py": [
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_kb_golden_questions.py": [
+      "bulk_downloader/__init__.py",
+      "tools/bd_kb.py"
+    ],
+    "tests/test_keepalive_browser.py": [
+      "bulk_downloader/session_keeper.py"
+    ],
+    "tests/test_l0_extract_v2.py": [
+      "tools/l0_extract.py"
+    ],
+    "tests/test_l12_sees_the_transfer_that_happened.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/migrations.py"
+    ],
+    "tests/test_l30_seeded_tunnel_integration.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app_vpn_api.py",
+      "bulk_downloader/vpn.py",
+      "bulk_downloader/vpn_config.py",
+      "bulk_downloader/vpn_runtime.py"
+    ],
+    "tests/test_l33_counts_orphans_not_processes.py": [
+      "bulk_downloader/perf_lab.py"
+    ],
+    "tests/test_learn_ancestor.py": [
+      "bulk_downloader/learn.py"
+    ],
+    "tests/test_learn_surface_lock.py": [
+      "bulk_downloader/learn.py"
+    ],
+    "tests/test_library_audit_panel_contract.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/library_final.py"
+    ],
+    "tests/test_library_forward_path_records_an_absolute_path.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/library.py",
+      "bulk_downloader/migrations.py"
+    ],
+    "tests/test_lifecycle_automation.py": [
+      "bulk_downloader/lifecycle_automation.py"
+    ],
+    "tests/test_lifecycle_drift.py": [
+      "bulk_downloader/bg_scheduler.py",
+      "bulk_downloader/lifecycle_automation.py",
+      "bulk_downloader/lifecycle_drift.py"
+    ],
+    "tests/test_lint_kb.py": [
+      "tools/lint_kb.py"
+    ],
+    "tests/test_live_seed.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_live_seed_payload_is_accepted.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_live_seed_urls_are_servable.py": [
+      "tools/fixture_site.py"
+    ],
+    "tests/test_live_telemetry.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/hooks.py",
+      "bulk_downloader/learn.py",
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/push.py",
+      "bulk_downloader/rate_limit.py",
+      "bulk_downloader/run_history.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_queue.py",
+      "bulk_downloader/runner_scheduler.py",
+      "bulk_downloader/runner_telemetry.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/sse_broker.py"
+    ],
+    "tests/test_login_classify_submit_shape.py": [
+      "bulk_downloader/learn.py"
+    ],
+    "tests/test_login_submit_robustness.py": [
+      "bulk_downloader/login.py"
+    ],
+    "tests/test_login_surface_lock.py": [
+      "bulk_downloader/login.py"
+    ],
+    "tests/test_macro_replay.py": [
+      "bulk_downloader/macro_recorder.py"
+    ],
+    "tests/test_macro_secret_scrub.py": [
+      "bulk_downloader/macro_recorder.py",
+      "bulk_downloader/macro_replay.py"
+    ],
+    "tests/test_mass_import_jobs_bounded.py": [
+      "bulk_downloader/mass_import.py"
+    ],
+    "tests/test_merge_url_attribute.py": [
+      "bulk_downloader/learn.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_mirror_probe_ssrf.py": [
+      "bulk_downloader/runner_telemetry.py"
+    ],
+    "tests/test_mod1_c10_netns_config_gui.py": [
+      "bulk_downloader/app_global_config.py",
+      "bulk_downloader/global_config.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_mod1_c11_predictive_relogin_gui.py": [
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/site_editor.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_mod1_c1_transport_registry.py": [
+      "bulk_downloader/captcha_relay.py",
+      "bulk_downloader/takeover.py"
+    ],
+    "tests/test_mod1_c2_mode_ladder.py": [
+      "bulk_downloader/runner_auth.py"
+    ],
+    "tests/test_mod1_c4_admit_ladder_wiring.py": [
+      "bulk_downloader/runner_auth.py",
+      "bulk_downloader/takeover.py"
+    ],
+    "tests/test_mod1_c5_admission_branch.py": [
+      "bulk_downloader/login.py",
+      "bulk_downloader/runner_auth.py",
+      "bulk_downloader/takeover.py",
+      "bulk_downloader/takeover_vnc.py"
+    ],
+    "tests/test_mod1_c5_vnc_transport.py": [
+      "bulk_downloader/takeover.py",
+      "bulk_downloader/takeover_vnc.py"
+    ],
+    "tests/test_mod1_c6_effective_mode_readout.py": [
+      "bulk_downloader/captcha_relay.py"
+    ],
+    "tests/test_mod1_c7_egress_containment.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/netns_isolation.py",
+      "bulk_downloader/takeover.py",
+      "bulk_downloader/takeover_vnc.py"
+    ],
+    "tests/test_mod1_c8_fingerprint_probe.py": [
+      "tools/kasm_fingerprint_probe.py"
+    ],
+    "tests/test_mod1_c9_vnc_config_gui.py": [
+      "bulk_downloader/app_global_config.py",
+      "bulk_downloader/global_config.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_multi_conn_ssrf.py": [
+      "bulk_downloader/multi_conn.py"
+    ],
+    "tests/test_nav_probe.py": [
+      "tools/nav_probe.py"
+    ],
+    "tests/test_negative.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/doctor.py",
+      "bulk_downloader/site_editor.py",
+      "bulk_downloader/widgets_config.py"
+    ],
+    "tests/test_no_test_writes_the_real_vpn_config.py": [
+      "bulk_downloader/vpn_config.py"
+    ],
+    "tests/test_no_test_writes_the_repo_plugins_dir.py": [
+      "bulk_downloader/constants.py",
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_not_exercisable_is_its_own_verdict.py": [
+      "tools/capture_verdict.py"
+    ],
+    "tests/test_novnc_url_defaults.py": [
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_o5_plugin_install.py": [
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_ollama_boot_probe.py": [
+      "bulk_downloader/llm_readiness.py",
+      "bulk_downloader/ollama_boot_probe.py"
+    ],
+    "tests/test_ollama_keepalive_warmup.py": [
+      "bulk_downloader/ai_provider.py",
+      "bulk_downloader/aiassist.py"
+    ],
+    "tests/test_ollama_unknown_model.py": [
+      "bulk_downloader/ai_provider.py"
+    ],
+    "tests/test_p01_csrf_bootstrap.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_p1_release_tooling.py": [
+      "tools/check_doc_drift.py",
+      "tools/check_version_consistency.py",
+      "tools/template_inventory.py",
+      "tools/verify_release.py"
+    ],
+    "tests/test_p3_t12_callsite.py": [
+      "bulk_downloader/challenge_handling.py",
+      "bulk_downloader/session_capture.py",
+      "tools/capture_session.py"
+    ],
+    "tests/test_p3_t12_challenge_handoff.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/challenge_classify.py"
+    ],
+    "tests/test_p3_t12_challenge_scrub.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/capture_redact.py",
+      "bulk_downloader/challenge_classify.py"
+    ],
+    "tests/test_p3_t12_challenge_statemachine.py": [
+      "bulk_downloader/challenge_handling.py"
+    ],
+    "tests/test_p3_t12_wire.py": [
+      "bulk_downloader/challenge_handling.py",
+      "bulk_downloader/session_capture.py"
+    ],
+    "tests/test_p3_template_manager_ui.py": [
+      "bulk_downloader/app_template_manager_ui.py"
+    ],
+    "tests/test_p4_cockpit_home.py": [
+      "bulk_downloader/app_cockpit_home.py"
+    ],
+    "tests/test_p7_openapi.py": [
+      "tools/build_endpoint_catalog.py",
+      "tools/build_openapi.py"
+    ],
+    "tests/test_p8_queue_intelligence.py": [
+      "bulk_downloader/db.py",
+      "tools/queue_intelligence.py"
+    ],
+    "tests/test_p9_analytics.py": [
+      "tools/capture_analytics.py",
+      "tools/document_schemas.py",
+      "tools/template_analytics.py"
+    ],
+    "tests/test_parity_method_aware.py": [
+      "tools/gui_parity_inventory.py"
+    ],
+    "tests/test_password_import.py": [
+      "bulk_downloader/password_import.py"
+    ],
+    "tests/test_perf_lab.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/perf_lab.py"
+    ],
+    "tests/test_phase0_supervisor_slowreq.py": [
+      "bulk_downloader/dev_metrics.py",
+      "bulk_downloader/healthcheck.py"
+    ],
+    "tests/test_phase1_cut11_captures_index.py": [
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_phase1_cut12_index_backed_consumers.py": [
+      "bulk_downloader/app_analyzer.py",
+      "bulk_downloader/app_captures.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/dom_analyzer.py"
+    ],
+    "tests/test_phase1_cut12b_captures_helpers_ensure.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_phase1_cut13_capture_store_root.py": [
+      "bulk_downloader/dom_analyzer.py",
+      "bulk_downloader/global_config.py"
+    ],
+    "tests/test_phase1_cut14_capture_retention.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/dom_analyzer.py",
+      "bulk_downloader/retention.py"
+    ],
+    "tests/test_phase1_root_flip.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_phase2_cut21_deadletter_routes.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_phase2_cut21_queue_lanes_deps_deadletter.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/queue_policy.py"
+    ],
+    "tests/test_phase3_coverage_fills.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/detect.py",
+      "bulk_downloader/push.py",
+      "bulk_downloader/secrets_store.py",
+      "bulk_downloader/vpn_config.py",
+      "bulk_downloader/vpn_kill_switch_system.py",
+      "bulk_downloader/vpn_leak_tests.py",
+      "bulk_downloader/vpn_wireguard.py"
+    ],
+    "tests/test_phase4_retired.py": [
+      "bulk_downloader/app_cockpit_home.py"
+    ],
+    "tests/test_phase9_0_exec_contract.py": [
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/llm_exec.py"
+    ],
+    "tests/test_phase9_10_ai_chat.py": [
+      "bulk_downloader/ai_chat.py",
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_phase9_11_doc_drift.py": [
+      "bulk_downloader/doc_drift.py"
+    ],
+    "tests/test_phase9_12_selector_check.py": [
+      "bulk_downloader/selector_check.py"
+    ],
+    "tests/test_phase9_13_challenge.py": [
+      "bulk_downloader/challenge_classify.py"
+    ],
+    "tests/test_phase9_14_login_assist.py": [
+      "bulk_downloader/login_assist.py"
+    ],
+    "tests/test_phase9_15_naming.py": [
+      "bulk_downloader/naming_template.py"
+    ],
+    "tests/test_phase9_16_dedup.py": [
+      "bulk_downloader/dedup_preview.py"
+    ],
+    "tests/test_phase9_1_model_registry.py": [
+      "bulk_downloader/model_registry.py"
+    ],
+    "tests/test_phase9_2_prompt_registry.py": [
+      "bulk_downloader/llm_exec.py",
+      "bulk_downloader/prompts.py"
+    ],
+    "tests/test_phase9_3_schemas.py": [
+      "bulk_downloader/llm_exec.py",
+      "bulk_downloader/llm_schemas.py"
+    ],
+    "tests/test_phase9_4_cache.py": [
+      "bulk_downloader/llm_cache.py",
+      "bulk_downloader/llm_exec.py"
+    ],
+    "tests/test_phase9_5_audit.py": [
+      "bulk_downloader/llm_audit.py",
+      "bulk_downloader/llm_cache.py",
+      "bulk_downloader/llm_exec.py"
+    ],
+    "tests/test_phase9_6_readiness.py": [
+      "bulk_downloader/llm_readiness.py"
+    ],
+    "tests/test_phase9_7_eval.py": [
+      "bulk_downloader/llm_eval.py"
+    ],
+    "tests/test_phase9_8_render_qa.py": [
+      "bulk_downloader/render_qa.py"
+    ],
+    "tests/test_phase9_9_ai_review.py": [
+      "bulk_downloader/ai_review.py"
+    ],
+    "tests/test_phases_195_199.py": [
+      "bulk_downloader/cookie_health.py",
+      "bulk_downloader/crash_recovery.py",
+      "bulk_downloader/daily_budget.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/mass_import.py",
+      "bulk_downloader/selector_drift.py"
+    ],
+    "tests/test_phc1_cockpit_csrf_send.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_phc1_csrf_coverage.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_phc1_secrets_posture.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_settings_center.py"
+    ],
+    "tests/test_phone_share_route_results.py": [
+      "bulk_downloader/app_route_urls.py"
+    ],
+    "tests/test_pin_host_filename_fallback.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/dom_analyzer.py",
+      "bulk_downloader/template_registry.py"
+    ],
+    "tests/test_pin_index_in_sync.py": [
+      "bulk_downloader/__init__.py",
+      "tools/build_pin_index.py"
+    ],
+    "tests/test_player_recognition_edge.py": [
+      "tools/player_recognition.py"
+    ],
+    "tests/test_player_recognition_families.py": [
+      "tools/player_recognition.py"
+    ],
+    "tests/test_player_recognition_generic.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "tools/build_template_from_wacz.py",
+      "tools/player_recognition.py"
+    ],
+    "tests/test_player_recognition_pack_bc.py": [
+      "tools/player_recognition.py"
+    ],
+    "tests/test_player_recognition_packs_dei.py": [
+      "tools/player_recognition.py"
+    ],
+    "tests/test_plugin_uninstall.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_preflight_checklist.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/migrations.py"
+    ],
+    "tests/test_promote_accept_api.py": [
+      "bulk_downloader/template_assist.py",
+      "bulk_downloader/template_manager.py"
+    ],
+    "tests/test_provider_resolve_surface_lock.py": [
+      "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_put_numeric_range_backstop.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/site_editor.py"
+    ],
+    "tests/test_pytest_capture_results.py": [
+      "tools/pytest_capture_results.py"
+    ],
+    "tests/test_pytest_module_graph.py": [
+      "bulk_downloader/provenance.py"
+    ],
+    "tests/test_qb_jd_completions_record_the_largest_media_file.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/library.py",
+      "bulk_downloader/migrations.py",
+      "bulk_downloader/runner_integrations.py"
+    ],
+    "tests/test_queue_load_missing_table.py": [
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_queue_ts_since_cursor_pin.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner_util.py"
+    ],
+    "tests/test_reap_orphan_tempdirs.py": [
+      "tools/reap_orphan_tempdirs.py"
+    ],
+    "tests/test_recognition_cockpit_display.py": [
+      "bulk_downloader/app_template_manager_ui.py"
+    ],
+    "tests/test_recognizer_ai2_ai7_260.py": [
+      "tools/player_recognition.py"
+    ],
+    "tests/test_recognizer_corpus.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "tools/build_recognizer_corpus.py",
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_recognizer_no_tell_markup_261.py": [
+      "tools/player_recognition.py"
+    ],
+    "tests/test_recognizer_scorecard.py": [
+      "tools/recognizer_scorecard.py"
+    ],
+    "tests/test_redact_sot_config_unify.py": [
+      "bulk_downloader/app_settings_center.py",
+      "bulk_downloader/site_editor.py",
+      "bulk_downloader/user_templates.py",
+      "bulk_downloader/vpn.py"
+    ],
+    "tests/test_redact_sot_export_unify.py": [
+      "bulk_downloader/diagnostics_bundle.py",
+      "bulk_downloader/marketplace.py"
+    ],
+    "tests/test_release_hygiene_gates.py": [
+      "tools/check_frontend_present.py",
+      "tools/diff_release_zips.py",
+      "tools/scan_version_pins.py"
+    ],
+    "tests/test_replay_validator.py": [
+      "bulk_downloader/wacz_export.py",
+      "tools/replay_validator.py"
+    ],
+    "tests/test_repos_F2_F9.py": [
+      "bulk_downloader/content_rights.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/fname.py"
+    ],
+    "tests/test_requeue_for_dedup_can_actually_dedup.py": [
+      "tools/live_seed.py"
+    ],
+    "tests/test_route_index_in_sync.py": [
+      "tools/build_route_index.py"
+    ],
+    "tests/test_rrweb_meta_retention.py": [
+      "bulk_downloader/dom_capture.py",
+      "bulk_downloader/dom_recorder.py",
+      "bulk_downloader/wacz_export.py",
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_run01_numeric_nan_gate.py": [
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_run01_ytdlp_argv_sep.py": [
+      "bulk_downloader/runner_extractors.py"
+    ],
+    "tests/test_run02_numeric_nan_gate.py": [
+      "bulk_downloader/runner_auth.py",
+      "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_run03_01_load_urls_no_accumulator_pollution.py": [
+      "bulk_downloader/content_rights.py",
+      "bulk_downloader/runner_queue.py"
+    ],
+    "tests/test_run03_resolve_safe_no_secret_log.py": [
+      "bulk_downloader/runner_util.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_runner_manual_characterization.py": [
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_manual.py"
+    ],
+    "tests/test_secret_display_never.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_settings_center.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_secret_rotation_age.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_secrets_audit.py": [
+      "bulk_downloader/secrets_audit.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_secrets_endpoints.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_secrets_store.py": [
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_security.py": [
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_seeded_runs_actually_fetch.py": [
+      "tools/live_seed.py"
+    ],
+    "tests/test_seeded_site_can_actually_download.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_selector_library.py": [
+      "bulk_downloader/selector_library.py"
+    ],
+    "tests/test_selector_versions.py": [
+      "bulk_downloader/selector_versions.py"
+    ],
+    "tests/test_selftest_captures_root_disk.py": [
+      "bulk_downloader/selftest.py"
+    ],
+    "tests/test_selftest_wal_firstrun.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/selftest.py"
+    ],
+    "tests/test_semantic_search.py": [
+      "bulk_downloader/semantic_search.py"
+    ],
+    "tests/test_sensitive_qs_widen.py": [
+      "bulk_downloader/capture_redact.py"
+    ],
+    "tests/test_session_keeper.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/session_keeper.py"
+    ],
+    "tests/test_session_keeper_persistent_context.py": [
+      "bulk_downloader/session_keeper.py"
+    ],
+    "tests/test_session_keeper_user_intervals.py": [
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/session_keeper.py"
+    ],
+    "tests/test_settings_center_secret_classifier.py": [
+      "bulk_downloader/app_settings_center.py",
+      "bulk_downloader/site_editor.py"
+    ],
+    "tests/test_settings_center_slice4.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app_settings_center.py"
+    ],
+    "tests/test_settings_center_slice5.py": [
+      "bulk_downloader/app_settings_center.py"
+    ],
+    "tests/test_settings_center_wiring.py": [
+      "bulk_downloader/app_settings_center.py"
+    ],
+    "tests/test_sites_config_honours_the_install_dir.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/constants.py"
+    ],
+    "tests/test_stale_locks_check_is_gone.py": [
+      "bulk_downloader/selftest.py"
+    ],
+    "tests/test_storage_capture.py": [
+      "bulk_downloader/capture_redact.py",
+      "bulk_downloader/dom_capture.py",
+      "bulk_downloader/wacz_export.py",
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_supplemental_recognizers_197.py": [
+      "bulk_downloader/extraction_core.py",
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_sweep_n4_csv_injection.py": [
+      "bulk_downloader/exports.py"
+    ],
+    "tests/test_sweep_n6_regex_redos_guard.py": [
+      "bulk_downloader/app_sites_id_core.py"
+    ],
+    "tests/test_t10_pipeline_inspectors.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_t11_approval_wired.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/learn.py"
+    ],
+    "tests/test_t11_dedup_partials.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_t11_pending_approvals.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/learn.py"
+    ],
+    "tests/test_t12_filename_template.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_t13_vpn_inspectors.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/vpn.py",
+      "bulk_downloader/vpn_config.py"
+    ],
+    "tests/test_t14_vpn_probe_egress.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/vpn.py",
+      "bulk_downloader/vpn_config.py"
+    ],
+    "tests/test_t15_network_health.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/captcha_relay.py"
+    ],
+    "tests/test_t16_stealth_audit.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/stealth.py"
+    ],
+    "tests/test_t17_filesystem_audit.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_t1_test_meta_tools.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_t2_fixture_controller.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/selftest.py"
+    ],
+    "tests/test_t34_dead_css.py": [
+      "bulk_downloader/__init__.py"
+    ],
+    "tests/test_t35_storage_tier_status.py": [
+      "bulk_downloader/__init__.py"
+    ],
+    "tests/test_t36_maintenance_mode.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/maintenance.py"
+    ],
+    "tests/test_t37_token_estimate.py": [
+      "bulk_downloader/__init__.py"
+    ],
+    "tests/test_t38_i18n_coverage.py": [
+      "bulk_downloader/__init__.py"
+    ],
+    "tests/test_t39_model_pull_check.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/ai_provider.py"
+    ],
+    "tests/test_t3_db_inspectors.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_t40_feature_flags.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/feature_flags.py"
+    ],
+    "tests/test_t41_window_simulate.py": [
+      "bulk_downloader/__init__.py"
+    ],
+    "tests/test_t42_golden_files.py": [
+      "bulk_downloader/__init__.py"
+    ],
+    "tests/test_t43_tls_check.py": [
+      "bulk_downloader/__init__.py"
+    ],
+    "tests/test_t44_request_replay.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/feature_flags.py",
+      "bulk_downloader/request_replay.py"
+    ],
+    "tests/test_t45_login_flow_recorder.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/login_flow_recorder.py",
+      "bulk_downloader/macro_recorder.py"
+    ],
+    "tests/test_t46_l29_vpn_kill_switch.py": [
+      "bulk_downloader/vpn_kill_switch.py"
+    ],
+    "tests/test_t47_storage_tier_utc_cutoff.py": [
+      "bulk_downloader/storage_tier.py"
+    ],
+    "tests/test_t4_db_growth_throughput.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_t50_test_timing.py": [
+      "bulk_downloader/__init__.py"
+    ],
+    "tests/test_t5_runner_inspectors.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_t6_login_security.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_t7_ai_inspection.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_t7_notifications_wired.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/capture_redact.py"
+    ],
+    "tests/test_t8_ai_metrics.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_t9_vision_test.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_template_assist_reptyle.py": [
+      "bulk_downloader/template_assist.py",
+      "bulk_downloader/template_registry.py"
+    ],
+    "tests/test_template_extractor_surface_lock.py": [
+      "bulk_downloader/template_extractor.py"
+    ],
+    "tests/test_template_keystone.py": [
+      "bulk_downloader/template_keystone.py"
+    ],
+    "tests/test_template_registry_filthykings.py": [
+      "bulk_downloader/template_assist.py",
+      "bulk_downloader/template_registry.py"
+    ],
+    "tests/test_template_registry_host_aliases.py": [
+      "bulk_downloader/template_registry.py"
+    ],
+    "tests/test_template_registry_reptyle.py": [
+      "bulk_downloader/template_registry.py"
+    ],
+    "tests/test_template_sandbox.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_templates_list_identity.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/templates.py"
+    ],
+    "tests/test_templates_v438.py": [
+      "bulk_downloader/templates.py"
+    ],
+    "tests/test_the_fixture_serves_decodable_segments.py": [
+      "bulk_downloader/ffmpeg_bin.py",
+      "bulk_downloader/integrity.py"
+    ],
+    "tests/test_tools_other02_review_host_confine.py": [
+      "bulk_downloader/template_normalize.py",
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_tools_other07_scrub_content.py": [
+      "tools/scrub_recon.py"
+    ],
+    "tests/test_toolso04_autonomy_secret_keys.py": [
+      "tools/autonomy_live.py",
+      "tools/autonomy_staging.py"
+    ],
+    "tests/test_toolso04_opaque_verify.py": [
+      "tools/capture_scrub.py"
+    ],
+    "tests/test_track_k_vpn_bind.py": [
+      "bulk_downloader/download_egress.py",
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/vpn_runtime.py"
+    ],
+    "tests/test_u15_config_import.py": [
+      "bulk_downloader/__init__.py"
+    ],
+    "tests/test_u16_drift.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/login_templates_data.py"
+    ],
+    "tests/test_u17_cookies.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/login.py"
+    ],
+    "tests/test_u18_login_creds.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/login_templates_data.py"
+    ],
+    "tests/test_u19_extractors.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/extractors.py"
+    ],
+    "tests/test_u20_pipeline_preview.py": [
+      "bulk_downloader/__init__.py"
+    ],
+    "tests/test_u21_manifest_probe.py": [
+      "bulk_downloader/__init__.py"
+    ],
+    "tests/test_u22_event_tap.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/dev_events.py",
+      "bulk_downloader/sse_broker.py"
+    ],
+    "tests/test_u23_db_perf.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_u24_migration_status.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/migrations.py"
+    ],
+    "tests/test_u25_tempdir_clean.py": [
+      "bulk_downloader/__init__.py"
+    ],
+    "tests/test_u26_test_meta.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/dev_tools.py"
+    ],
+    "tests/test_u27_security_cluster.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_u28_config_cache.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_status.py",
+      "bulk_downloader/hls_downloader.py"
+    ],
+    "tests/test_u29_config_snapshot.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_u30_runner_replay.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_u31_deploy_lint.py": [
+      "bulk_downloader/__init__.py"
+    ],
+    "tests/test_u33_wal_live_tests.py": [
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_u34_pipeline_live_tests.py": [
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_u36_login_live_tests.py": [
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_u38_hls_live_tests.py": [
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_u40_backup_live_test.py": [
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_u48_widgets_audit.py": [
+      "bulk_downloader/app_widgets_api.py",
+      "bulk_downloader/widgets_config.py"
+    ],
+    "tests/test_u49_workers_total_honest.py": [
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/app_widgets_api.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_u50_widget_backfills.py": [
+      "bulk_downloader/app_widgets_api.py"
+    ],
+    "tests/test_ui_events.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/ui_events.py"
+    ],
+    "tests/test_url_attribute_resolver.py": [
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_user_accounts.py": [
+      "bulk_downloader/user_accounts.py"
+    ],
+    "tests/test_user_templates.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/templates.py",
+      "bulk_downloader/user_templates.py"
+    ],
+    "tests/test_user_templates_secret_strip.py": [
+      "bulk_downloader/user_templates.py"
+    ],
+    "tests/test_v3_43_19_audit_fixes.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/cookies.py",
+      "bulk_downloader/extension_vault.py",
+      "bulk_downloader/push.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/secrets_store.py",
+      "bulk_downloader/session_keeper.py",
+      "bulk_downloader/user_templates.py"
+    ],
+    "tests/test_v3_43_20_fixes.py": [
+      "bulk_downloader/templates.py",
+      "bulk_downloader/ui_events.py"
+    ],
+    "tests/test_v3_43_21_jd_bridge.py": [
+      "bulk_downloader/jd_bridge.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_43_24_reliability.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/selftest.py"
+    ],
+    "tests/test_v3_43_25_backup.py": [
+      "bulk_downloader/backup.py"
+    ],
+    "tests/test_v3_43_26_qb_bridge.py": [
+      "bulk_downloader/qb_bridge.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_43_27_audit_fixes.py": [
+      "bulk_downloader/jd_bridge.py",
+      "bulk_downloader/qb_bridge.py",
+      "bulk_downloader/resume.py"
+    ],
+    "tests/test_v3_43_27_resume.py": [
+      "bulk_downloader/resume.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_43_28_stash_deep.py": [
+      "bulk_downloader/stash_deep.py"
+    ],
+    "tests/test_v3_43_29_plex_deep.py": [
+      "bulk_downloader/plex_deep.py"
+    ],
+    "tests/test_v3_43_30_watch_folder.py": [
+      "bulk_downloader/watch_folder.py"
+    ],
+    "tests/test_v3_43_31_rate_limit.py": [
+      "bulk_downloader/rate_limit.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_43_32_cookie_validation.py": [
+      "bulk_downloader/cookies.py"
+    ],
+    "tests/test_v3_43_33_ai_login.py": [
+      "bulk_downloader/ai_login.py",
+      "bulk_downloader/ai_provider.py",
+      "bulk_downloader/aiassist.py"
+    ],
+    "tests/test_v3_43_34_sse_broker.py": [
+      "bulk_downloader/sse_broker.py"
+    ],
+    "tests/test_v3_43_35_account_pool.py": [
+      "bulk_downloader/account_pool.py"
+    ],
+    "tests/test_v3_43_37_jellyfin_deep.py": [
+      "bulk_downloader/jellyfin_deep.py"
+    ],
+    "tests/test_v3_43_37_retry_policy.py": [
+      "bulk_downloader/retry_policy.py"
+    ],
+    "tests/test_v3_43_38_dashboard_widgets.py": [
+      "bulk_downloader/dashboard_widgets.py"
+    ],
+    "tests/test_v3_43_39_captcha_resolver.py": [
+      "bulk_downloader/captcha_resolver.py"
+    ],
+    "tests/test_v3_43_40_extension_routing.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_43_41_download_window.py": [
+      "bulk_downloader/download_window.py"
+    ],
+    "tests/test_v3_43_42_storage_tier.py": [
+      "bulk_downloader/storage_tier.py"
+    ],
+    "tests/test_v3_43_43_multi_provider_ai.py": [
+      "bulk_downloader/ai_provider.py",
+      "bulk_downloader/aiassist.py"
+    ],
+    "tests/test_v3_43_44_heuristic_scoring.py": [
+      "bulk_downloader/heuristic_scoring.py",
+      "bulk_downloader/learn.py"
+    ],
+    "tests/test_v3_43_45_template_extractor.py": [
+      "bulk_downloader/ai_provider.py",
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/template_extractor.py"
+    ],
+    "tests/test_v3_43_46_audit.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/storage_tier.py"
+    ],
+    "tests/test_v3_43_47_audit.py": [
+      "bulk_downloader/password_import.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_v3_43_48_audit.py": [
+      "bulk_downloader/backup.py",
+      "bulk_downloader/ui_events.py",
+      "bulk_downloader/user_templates.py"
+    ],
+    "tests/test_v3_43_49_teach_credentials.py": [
+      "bulk_downloader/learn.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_43_50_teach_urls.py": [
+      "bulk_downloader/learn.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_43_51_wizard.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/login.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_43_52_keeper_collision.py": [
+      "bulk_downloader/runner.py",
+      "bulk_downloader/session_keeper.py"
+    ],
+    "tests/test_v3_43_53_worker_feedback.py": [
+      "bulk_downloader/session_keeper.py"
+    ],
+    "tests/test_v3_43_54_resolution.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/heuristic_scoring.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/templates.py"
+    ],
+    "tests/test_v3_43_56_stealth.py": [
+      "bulk_downloader/runner.py",
+      "bulk_downloader/stealth.py"
+    ],
+    "tests/test_v3_43_56_templates.py": [
+      "bulk_downloader/templates.py"
+    ],
+    "tests/test_v3_43_57_more_templates.py": [
+      "bulk_downloader/templates.py"
+    ],
+    "tests/test_v3_43_60_captcha_relay.py": [
+      "bulk_downloader/app_captcha_relay.py",
+      "bulk_downloader/captcha_relay.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_43_60_coverage_gaps.py": [
+      "bulk_downloader/constants.py",
+      "bulk_downloader/fname.py",
+      "bulk_downloader/integrity.py",
+      "bulk_downloader/log.py"
+    ],
+    "tests/test_v3_43_60_vpn_backends.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/vpn.py",
+      "bulk_downloader/vpn_kill_switch.py",
+      "bulk_downloader/vpn_kill_switch_system.py",
+      "bulk_downloader/vpn_leak_tests.py",
+      "bulk_downloader/vpn_openvpn.py",
+      "bulk_downloader/vpn_socks.py",
+      "bulk_downloader/vpn_wireguard.py"
+    ],
+    "tests/test_v3_43_60_vpn_config.py": [
+      "bulk_downloader/secrets_store.py",
+      "bulk_downloader/vpn.py",
+      "bulk_downloader/vpn_config.py"
+    ],
+    "tests/test_v3_43_60_vpn_ui.py": [
+      "bulk_downloader/app_vpn_api.py",
+      "bulk_downloader/vpn_runtime.py"
+    ],
+    "tests/test_v3_43_60_widgets.py": [
+      "bulk_downloader/app_widgets_api.py",
+      "bulk_downloader/widgets_config.py"
+    ],
+    "tests/test_v3_43_61_templates.py": [
+      "bulk_downloader/templates.py"
+    ],
+    "tests/test_v3_43_62_live_recorder.py": [
+      "bulk_downloader/app_live_recorder.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/live_recorder.py",
+      "bulk_downloader/templates.py"
+    ],
+    "tests/test_v3_43_63_library_extractors.py": [
+      "bulk_downloader/extractors.py",
+      "bulk_downloader/hls_downloader.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/templates.py"
+    ],
+    "tests/test_v3_43_64_filename_template.py": [
+      "bulk_downloader/fname.py"
+    ],
+    "tests/test_v3_43_64_mp4_metadata.py": [
+      "bulk_downloader/mp4_metadata.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_43_65_cascade.py": [
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/constants.py",
+      "bulk_downloader/detect.py",
+      "bulk_downloader/heuristic_scoring.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_43_65_tier_probe.py": [
+      "bulk_downloader/runner.py",
+      "bulk_downloader/tier_probe.py"
+    ],
+    "tests/test_v3_43_66_aylo.py": [
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/extractors_aylo.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_43_67_vixen.py": [
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/extractors_vixen.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_43_68_jsonapi.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/extractors_jsonapi.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_43_69_dl8.py": [
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/extractors_dl8.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_43_70_notify.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/notify_apprise.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_43_71_tg_bot.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/tg_bot.py"
+    ],
+    "tests/test_v3_43_72_dedup.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/dedup.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_43_73_scrapling.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/scrapling_adapter.py"
+    ],
+    "tests/test_v3_43_74_flare_multiconn.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/flaresolverr_client.py",
+      "bulk_downloader/multi_conn.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_43_75_bundle.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/community_scrapers.py",
+      "bulk_downloader/lazy_player_wait.py",
+      "bulk_downloader/playlist_extractor.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/yt_dlp_archive.py"
+    ],
+    "tests/test_v3_43_76_phoenix_supervisor_thumbs.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/download_supervisor.py",
+      "bulk_downloader/multi_conn.py",
+      "bulk_downloader/phoenix_catalog.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/thumbnail_gen.py"
+    ],
+    "tests/test_v3_43_77_search.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/search_extractor.py"
+    ],
+    "tests/test_v3_43_78_static_analysis_fixes.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_43_79_resume_site_keepers.py": [
+      "bulk_downloader/runner.py",
+      "bulk_downloader/session_keeper.py"
+    ],
+    "tests/test_v3_43_80_modules.py": [
+      "bulk_downloader/accessibility.py",
+      "bulk_downloader/alerts_engine.py",
+      "bulk_downloader/backup_verify.py",
+      "bulk_downloader/bandwidth_shape.py",
+      "bulk_downloader/batch_ops.py",
+      "bulk_downloader/bw_chart.py",
+      "bulk_downloader/cleanup_helpers.py",
+      "bulk_downloader/cluster_rate.py",
+      "bulk_downloader/command_palette.py",
+      "bulk_downloader/constants.py",
+      "bulk_downloader/cookie_clipboard.py",
+      "bulk_downloader/cookie_quality.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/diagnostics_bundle.py",
+      "bulk_downloader/discovery.py",
+      "bulk_downloader/edge_deploy.py",
+      "bulk_downloader/eol_export.py",
+      "bulk_downloader/error_fingerprint.py",
+      "bulk_downloader/exports.py",
+      "bulk_downloader/federation.py",
+      "bulk_downloader/gamification.py",
+      "bulk_downloader/healthcheck.py",
+      "bulk_downloader/i18n.py",
+      "bulk_downloader/maintenance.py",
+      "bulk_downloader/marketplace.py",
+      "bulk_downloader/metrics_prom.py",
+      "bulk_downloader/migrations.py",
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/queue_priority.py",
+      "bulk_downloader/scheduled_exports.py",
+      "bulk_downloader/shares.py",
+      "bulk_downloader/site_weather.py",
+      "bulk_downloader/smart_wakeup.py",
+      "bulk_downloader/stream_relay.py",
+      "bulk_downloader/synthetic_tests.py",
+      "bulk_downloader/timeline.py",
+      "bulk_downloader/vpn_stats.py"
+    ],
+    "tests/test_v3_43_80_runner_hooks.py": [
+      "bulk_downloader/circuit_breaker.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/provenance.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/vpn_stats.py",
+      "bulk_downloader/webhooks.py"
+    ],
+    "tests/test_v3_45_8_macro_replay.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/macro_recorder.py",
+      "bulk_downloader/macro_replay.py"
+    ],
+    "tests/test_v3_49_phase2.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_v3_50_phase3.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/library.py",
+      "bulk_downloader/migrations.py"
+    ],
+    "tests/test_v3_51_phase4.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_widgets_api.py",
+      "bulk_downloader/audit.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/library.py",
+      "bulk_downloader/widgets_config.py"
+    ],
+    "tests/test_v3_52_phase5.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/secrets_store.py",
+      "bulk_downloader/site_editor.py"
+    ],
+    "tests/test_v3_53_phase6.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_54_phase7.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/doctor.py"
+    ],
+    "tests/test_v3_55_phase4_backlog.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_widgets_api.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/widgets_config.py"
+    ],
+    "tests/test_v3_56_phase8.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_57_phase9.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_58_phase10.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_widgets_api.py",
+      "bulk_downloader/widgets_config.py"
+    ],
+    "tests/test_v3_59_phase11.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/selector_drift.py"
+    ],
+    "tests/test_v3_60_phase12.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_61_phase13.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_62_2_guards.py": [
+      "bulk_downloader/ai_provider.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/login_templates_data.py"
+    ],
+    "tests/test_v3_62_2_login_extractor.py": [
+      "bulk_downloader/template_extractor.py"
+    ],
+    "tests/test_v3_62_2_login_fallback.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_62_3_model_dropdown.py": [
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_64_3_d5a_prebuild_spa.py": [
+      "tools/build_release.py"
+    ],
+    "tests/test_v3_64_3_per_site_widgets_roundtrip.py": [
+      "bulk_downloader/widgets_config.py"
+    ],
+    "tests/test_v3_64_3_release_zip_excludes_runtime_sentinels.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/dedup.py",
+      "bulk_downloader/migrations.py"
+    ],
+    "tests/test_v3_66_0_auto_detect.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/auto_detect.py",
+      "bulk_downloader/login_templates_data.py"
+    ],
+    "tests/test_v3_66_100_cockpit_wave2.py": [
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_101_cockpit_wave3.py": [
+      "bulk_downloader/capture_ingest.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_102_phase1_completion.py": [
+      "bulk_downloader/capture_ingest.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_103_phase2_reskins.py": [
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_104_cockpit_clickable.py": [
+      "tools/cockpit_console.py"
+    ],
+    "tests/test_v3_66_105_band_b.py": [
+      "bulk_downloader/capture_ingest.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_106_band_c_d.py": [
+      "bulk_downloader/capture_ingest.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_107_clickthrough_nav.py": [
+      "tools/cockpit_console.py"
+    ],
+    "tests/test_v3_66_108_console_shell.py": [
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py",
+      "tools/cockpit_shell.py"
+    ],
+    "tests/test_v3_66_109_band_f.py": [
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_110_template_intel.py": [
+      "tools/cockpit_console.py",
+      "tools/cockpit_templates.py"
+    ],
+    "tests/test_v3_66_111_login_template_intel.py": [
+      "tools/cockpit_console.py",
+      "tools/cockpit_templates.py"
+    ],
+    "tests/test_v3_66_112_drift_intel.py": [
+      "tools/cockpit_console.py",
+      "tools/cockpit_templates.py"
+    ],
+    "tests/test_v3_66_113_review_workbench.py": [
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py",
+      "tools/cockpit_templates.py"
+    ],
+    "tests/test_v3_66_114_site_playbooks.py": [
+      "tools/cockpit_console.py",
+      "tools/cockpit_templates.py"
+    ],
+    "tests/test_v3_66_115_family_intel.py": [
+      "tools/cockpit_console.py",
+      "tools/cockpit_templates.py"
+    ],
+    "tests/test_v3_66_116_template_autopilot.py": [
+      "tools/cockpit_console.py",
+      "tools/cockpit_templates.py"
+    ],
+    "tests/test_v3_66_117_capture_intel.py": [
+      "tools/cockpit_console.py",
+      "tools/cockpit_templates.py"
+    ],
+    "tests/test_v3_66_118_site_readiness.py": [
+      "tools/cockpit_console.py",
+      "tools/cockpit_templates.py"
+    ],
+    "tests/test_v3_66_119_mission_control.py": [
+      "tools/cockpit_console.py",
+      "tools/cockpit_templates.py"
+    ],
+    "tests/test_v3_66_120_autonomy_policy_foundation.py": [
+      "tools/autonomy_policy.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_121_class_b_automation.py": [
+      "tools/autonomy_housekeeping.py",
+      "tools/autonomy_policy.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_122_guardrails.py": [
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_policy.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_123_review_experience.py": [
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_policy.py",
+      "tools/autonomy_review.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_124_oracle_eligibility.py": [
+      "tools/autonomy_oracle.py",
+      "tools/autonomy_policy.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_125_class_b_autonomy.py": [
+      "tools/autonomy_center.py",
+      "tools/autonomy_policy.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_126_eligibility_governance.py": [
+      "tools/autonomy_eligibility.py",
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_oracle.py",
+      "tools/autonomy_policy.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_127_rollback_center.py": [
+      "tools/autonomy_eligibility.py",
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_policy.py",
+      "tools/autonomy_rollback.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_128_trust_decay.py": [
+      "tools/autonomy_eligibility.py",
+      "tools/autonomy_policy.py",
+      "tools/autonomy_trust.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_129_validation_ops.py": [
+      "tools/autonomy_eligibility.py",
+      "tools/autonomy_oracle.py",
+      "tools/autonomy_validation.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_12_phase1_p05_minimal_metrics.py": [
+      "bulk_downloader/metrics_prom.py"
+    ],
+    "tests/test_v3_66_12_phase1_p0_runner_integration.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_66_130_impact_analysis.py": [
+      "tools/autonomy_eligibility.py",
+      "tools/autonomy_impact.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_131_promotion_activity.py": [
+      "tools/autonomy_promotion.py",
+      "tools/autonomy_trust.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_132_staged_candidate_autonomy.py": [
+      "tools/autonomy_eligibility.py",
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_impact.py",
+      "tools/autonomy_promotion.py",
+      "tools/autonomy_staging.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_133_live_config_apply.py": [
+      "tools/autonomy_eligibility.py",
+      "tools/autonomy_grant.py",
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_live.py",
+      "tools/autonomy_oracle.py",
+      "tools/autonomy_policy.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py",
+      "tools/cockpit_templates.py"
+    ],
+    "tests/test_v3_66_134_authority_consolidation.py": [
+      "tools/autonomy_apply.py",
+      "tools/autonomy_eligibility.py",
+      "tools/autonomy_grant.py",
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_live.py",
+      "tools/autonomy_oracle.py",
+      "tools/autonomy_policy.py",
+      "tools/autonomy_staging.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py",
+      "tools/cockpit_templates.py"
+    ],
+    "tests/test_v3_66_135_queue_housekeeping.py": [
+      "tools/autonomy_apply.py",
+      "tools/autonomy_eligibility.py",
+      "tools/autonomy_grant.py",
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_queue_hk.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_136_library_reconcile.py": [
+      "tools/autonomy_apply.py",
+      "tools/autonomy_eligibility.py",
+      "tools/autonomy_grant.py",
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_library_reconcile.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_137_held_out_assist.py": [
+      "tools/autonomy_apply.py",
+      "tools/autonomy_designate.py",
+      "tools/autonomy_held_out_assist.py",
+      "tools/autonomy_oracle.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_139_build_template_route.py": [
+      "bulk_downloader/session_capture.py",
+      "tools/cockpit_console.py"
+    ],
+    "tests/test_v3_66_139_dom_recorder.py": [
+      "bulk_downloader/dom_capture.py",
+      "bulk_downloader/dom_recorder.py"
+    ],
+    "tests/test_v3_66_140_profile_sync.py": [
+      "bulk_downloader/profile_sync.py"
+    ],
+    "tests/test_v3_66_141_browser_backend.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/global_config.py"
+    ],
+    "tests/test_v3_66_141_candidate_filter.py": [
+      "bulk_downloader/candidate_filter.py"
+    ],
+    "tests/test_v3_66_141_local_capture.py": [
+      "bulk_downloader/dom_recorder.py"
+    ],
+    "tests/test_v3_66_141_profile_sync_cleanup.py": [
+      "bulk_downloader/profile_sync.py"
+    ],
+    "tests/test_v3_66_141_template_multi.py": [
+      "bulk_downloader/template_multi.py"
+    ],
+    "tests/test_v3_66_143_status_surface.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/dom_recorder.py",
+      "bulk_downloader/profile_sync.py",
+      "bulk_downloader/template_extractor.py"
+    ],
+    "tests/test_v3_66_144_template_endpoints.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_66_144_template_subsystem.py": [
+      "bulk_downloader/candidate_filter.py",
+      "bulk_downloader/profile_sync.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/template_assist.py",
+      "tools/onboard_site_template.py"
+    ],
+    "tests/test_v3_66_146_detection_safety.py": [
+      "bulk_downloader/candidate_filter.py",
+      "bulk_downloader/selector_lint.py",
+      "bulk_downloader/template_registry.py"
+    ],
+    "tests/test_v3_66_146_runtime_gate.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_v3_66_147_dry_run.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/dry_run.py"
+    ],
+    "tests/test_v3_66_148_backend_group.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/backup.py",
+      "bulk_downloader/diagnostics_bundle.py",
+      "bulk_downloader/profile_sync.py",
+      "bulk_downloader/template_manager.py",
+      "bulk_downloader/template_registry.py"
+    ],
+    "tests/test_v3_66_150_lint_and_hygiene.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/pattern_hygiene.py",
+      "bulk_downloader/template_manager.py",
+      "bulk_downloader/user_templates.py"
+    ],
+    "tests/test_v3_66_151_normalizer.py": [
+      "bulk_downloader/pattern_hygiene.py",
+      "bulk_downloader/template_normalize.py"
+    ],
+    "tests/test_v3_66_152_signed_url_and_noise_hardening.py": [
+      "bulk_downloader/pattern_hygiene.py",
+      "bulk_downloader/template_normalize.py"
+    ],
+    "tests/test_v3_66_153_capture_finish_sentinel.py": [
+      "tools/capture_session.py"
+    ],
+    "tests/test_v3_66_154_builder_resolution_ladder.py": [
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_v3_66_155_pipeline_roundtrip.py": [
+      "bulk_downloader/template_assist.py",
+      "bulk_downloader/template_normalize.py",
+      "bulk_downloader/template_registry.py",
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_v3_66_156_lint_player_control.py": [
+      "bulk_downloader/selector_lint.py"
+    ],
+    "tests/test_v3_66_157_observed_api_host_hint.py": [
+      "bulk_downloader/template_normalize.py",
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_v3_66_158_capture_finish_endpoint.py": [
+      "tools/cockpit_console.py"
+    ],
+    "tests/test_v3_66_158_review_candidate_workbench.py": [
+      "tools/cockpit_console.py"
+    ],
+    "tests/test_v3_66_15_phase4_p5_site_memory.py": [
+      "bulk_downloader/learn.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_66_161_required_present_gate.py": [
+      "bulk_downloader/__init__.py"
+    ],
+    "tests/test_v3_66_165_dom_drain.py": [
+      "bulk_downloader/dom_capture.py",
+      "bulk_downloader/dom_recorder.py",
+      "tools/capture_session.py"
+    ],
+    "tests/test_v3_66_166_artifact_redaction.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/template_normalize.py",
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_v3_66_16_phase4_p4_provider_resolve.py": [
+      "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_v3_66_170_dom_recorder_hardening.py": [
+      "bulk_downloader/dom_recorder.py"
+    ],
+    "tests/test_v3_66_171_launch_parity.py": [
+      "bulk_downloader/cloak.py"
+    ],
+    "tests/test_v3_66_171_recognizer_storage.py": [
+      "tools/player_recognition.py"
+    ],
+    "tests/test_v3_66_171_redaction_profile.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/capture_redact.py",
+      "bulk_downloader/redaction_profile.py",
+      "bulk_downloader/wacz_export.py"
+    ],
+    "tests/test_v3_66_17_phase4_wistia_and_cache.py": [
+      "bulk_downloader/learn.py",
+      "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_v3_66_18_phase4_jwplayer.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_v3_66_19_phase4_brightcove.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_v3_66_20_phase4_jwplayer_feeds.py": [
+      "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_v3_66_20_phase4_youtube.py": [
+      "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_v3_66_217_admission_f1a.py": [
+      "bulk_downloader/admission.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/download_window.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_66_218_predictive_relogin.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/relogin_predict.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_66_219_share_target.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_66_219_site_health_and_history_cursor.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_data_layer.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_v3_66_221_dedup_preflight.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_66_222_template_canary.py": [
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/synthetic_tests.py",
+      "bulk_downloader/template_canary.py"
+    ],
+    "tests/test_v3_66_223_watch_enqueue.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/saved_searches.py"
+    ],
+    "tests/test_v3_66_224_drift_repair.py": [
+      "bulk_downloader/drift_repair.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/selector_drift.py"
+    ],
+    "tests/test_v3_66_225_honeypot_suggestion.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/honeypot_threshold.py"
+    ],
+    "tests/test_v3_66_226_queue_site_drain.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_v3_66_226_saved_search_patch.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/saved_searches.py"
+    ],
+    "tests/test_v3_66_227_api_tokens.py": [
+      "bulk_downloader/api_tokens.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_v3_66_227_retention_preview_verbatim.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/retention.py"
+    ],
+    "tests/test_v3_66_230_hud_toggle.py": [
+      "tools/capture_session.py"
+    ],
+    "tests/test_v3_66_23_phase4_jwplayer_selfhosted.py": [
+      "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_v3_66_242_reduced_redaction.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/redaction_profile.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_245_floor_signed_url_nondom.py": [
+      "bulk_downloader/capture_artifact_redact.py"
+    ],
+    "tests/test_v3_66_245_test_extract_enqueue.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_v3_66_246_capture_sweep.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/template_manager.py",
+      "bulk_downloader/template_normalize.py",
+      "tools/build_template_from_wacz.py",
+      "tools/onboard_site_template.py"
+    ],
+    "tests/test_v3_66_247_learned_visibility.py": [
+      "bulk_downloader/detect.py"
+    ],
+    "tests/test_v3_66_248_direct_link_rows.py": [
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_v3_66_249_aylo_api_recognizer.py": [
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_v3_66_24_phase4_ssrf_hardening.py": [
+      "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_v3_66_252_dom_excerpt.py": [
+      "bulk_downloader/element_pick.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_254_promote_gate.py": [
+      "bulk_downloader/bad_terms.py",
+      "bulk_downloader/template_manager.py"
+    ],
+    "tests/test_v3_66_25_phase4_ssrf_rebinding.py": [
+      "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_v3_66_263_app_config_manifest_exclude.py": [
+      "bulk_downloader/global_config.py"
+    ],
+    "tests/test_v3_66_268_capture_maximize.py": [
+      "tools/capture_session.py"
+    ],
+    "tests/test_v3_66_26_phase4_youtube_cipher.py": [
+      "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_v3_66_271_gcw2_pick_overlay.py": [
+      "bulk_downloader/element_pick.py"
+    ],
+    "tests/test_v3_66_272_gcw3_setup_site.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/capture_bodies.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_v3_66_273_gcw_download_gate.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_v3_66_274_probe_mode.py": [
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/vpn_runtime.py"
+    ],
+    "tests/test_v3_66_276_row_selector_robust.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/element_pick.py",
+      "tools/build_template_from_wacz.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_27_phase5_honeypot_score.py": [
+      "bulk_downloader/honeypot_score.py",
+      "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_v3_66_282_force_redownload.py": [
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_66_282_media_verdict.py": [
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_66_284_integrity.py": [
+      "bulk_downloader/constants.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_66_285_cloak_parity.py": [
+      "bulk_downloader/cloak.py"
+    ],
+    "tests/test_v3_66_285_config_validation.py": [
+      "bulk_downloader/global_config.py"
+    ],
+    "tests/test_v3_66_287_username_classify_type.py": [
+      "bulk_downloader/learn.py"
+    ],
+    "tests/test_v3_66_288_recorder_nav_survival.py": [
+      "bulk_downloader/learn.py"
+    ],
+    "tests/test_v3_66_289_capture_login_wire.py": [
+      "bulk_downloader/capture_login_wire.py"
+    ],
+    "tests/test_v3_66_28_phase5_dom_honeypot.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/dom_honeypot.py"
+    ],
+    "tests/test_v3_66_290_inspect_state_bridge.py": [
+      "bulk_downloader/element_pick.py"
+    ],
+    "tests/test_v3_66_291_redaction_redos.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/capture_redact.py",
+      "bulk_downloader/wacz_export.py"
+    ],
+    "tests/test_v3_66_29_phase5_honeypot_log_event.py": [
+      "bulk_downloader/detect.py"
+    ],
+    "tests/test_v3_66_302_login_flow_nstep.py": [
+      "bulk_downloader/login_flow_recorder.py",
+      "bulk_downloader/macro_recorder.py"
+    ],
+    "tests/test_v3_66_302_rec3_autoplay.py": [
+      "bulk_downloader/inspect_pick.py"
+    ],
+    "tests/test_v3_66_303_import_preview_redaction.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/capture_artifact_redact.py"
+    ],
+    "tests/test_v3_66_303_ssrf_transport_guard.py": [
+      "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_v3_66_305_config_danger.py": [
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_306_queue_hk_parity.py": [
+      "bulk_downloader/global_config.py",
+      "tools/autonomy_queue_hk.py"
+    ],
+    "tests/test_v3_66_308_capture_parity.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/capture_bodies.py",
+      "bulk_downloader/capture_redactor.py",
+      "bulk_downloader/detect.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/redaction_profile.py",
+      "tools/capture_session.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_309_slow_query_parity.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/global_config.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_310_site_editor_parity.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app_settings_center.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_312_parity_abc.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app_settings_center.py",
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/global_config.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_313_challenge_parity.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app_settings_center.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/honeypot_threshold.py",
+      "bulk_downloader/provider_resolve.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_314_challenge_wait_guard.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/global_config.py",
+      "tools/capture_session.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_315_advanced_env_tranche.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/auth_throttle.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/provider_resolve.py",
+      "bulk_downloader/redaction_profile.py",
+      "bulk_downloader/secrets_audit.py",
+      "tools/autonomy_held_out_assist.py",
+      "tools/autonomy_library_reconcile.py",
+      "tools/config_surface_inventory.py",
+      "tools/framework_fleet.py"
+    ],
+    "tests/test_v3_66_316_bucket3_guard.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/global_config.py",
+      "tools/build_release.py",
+      "tools/capture_session.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_317_final_env_parity.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/dev_tools.py",
+      "bulk_downloader/global_config.py",
+      "tools/cockpit_core.py",
+      "tools/cockpit_shell.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_318_vidstack_over_hls.py": [
+      "tools/build_template_from_wacz.py",
+      "tools/player_recognition.py"
+    ],
+    "tests/test_v3_66_319_env_tranche_4_3a.py": [
+      "bulk_downloader/cross_site_selectors.py",
+      "bulk_downloader/global_config.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_319_env_tranche_4_3b.py": [
+      "bulk_downloader/global_config.py",
+      "tools/autonomy_center.py",
+      "tools/autonomy_policy.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_319_env_tranche_4_3c.py": [
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_319_env_tranche_4_3d.py": [
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_319_parity_4_4.py": [
+      "bulk_downloader/global_config.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_319_parity_4_5.py": [
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_320_player_struct_embed.py": [
+      "tools/player_recognition.py",
+      "tools/player_struct_embed.py"
+    ],
+    "tests/test_v3_66_320_synthetic_json_path.py": [
+      "bulk_downloader/synthetic_tests.py"
+    ],
+    "tests/test_v3_66_321_diff_gate_fixture_exempt.py": [
+      "tools/diff_release_zips.py"
+    ],
+    "tests/test_v3_66_321_struct_tiebreak.py": [
+      "tools/player_recognition.py",
+      "tools/player_struct_embed.py"
+    ],
+    "tests/test_v3_66_322_resolution_concurrency_defaults.py": [
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_66_323_phase4_gap_a1_a2.py": [
+      "bulk_downloader/app_settings_center.py"
+    ],
+    "tests/test_v3_66_324_phase4_gap_a3_a4_a5.py": [
+      "bulk_downloader/app_settings_center.py"
+    ],
+    "tests/test_v3_66_326_password_vault_routing.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_v3_66_328_spa_add_url.py": [
+      "tools/gui_parity_inventory.py"
+    ],
+    "tests/test_v3_66_329_spa_transform_clear.py": [
+      "tools/gui_parity_inventory.py"
+    ],
+    "tests/test_v3_66_32_phase5_selector_chains.py": [
+      "bulk_downloader/learn.py",
+      "bulk_downloader/selector_chains.py"
+    ],
+    "tests/test_v3_66_330_spa_site_integration_actions.py": [
+      "tools/gui_parity_inventory.py"
+    ],
+    "tests/test_v3_66_336_consolidated.py": [
+      "bulk_downloader/global_config.py",
+      "tools/gui_parity_inventory.py"
+    ],
+    "tests/test_v3_66_337_guided_capture_cut1.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/audit.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/template_manager.py"
+    ],
+    "tests/test_v3_66_34_netlog_classify.py": [
+      "bulk_downloader/netlog_classify.py"
+    ],
+    "tests/test_v3_66_353_staged_login.py": [
+      "bulk_downloader/login.py"
+    ],
+    "tests/test_v3_66_35_cross_site_selectors.py": [
+      "bulk_downloader/cross_site_selectors.py"
+    ],
+    "tests/test_v3_66_36_honeypot_threshold.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/honeypot_threshold.py",
+      "bulk_downloader/migrations.py",
+      "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_v3_66_38_pwmgr_hardening.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/extension_vault.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_v3_66_39_secrets_manifest_exclude.py": [
+      "bulk_downloader/extension_vault.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_v3_66_3_deep_detect_orchestrator.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_66_40_audit_idn_hardening.py": [
+      "bulk_downloader/audit.py",
+      "bulk_downloader/extension_vault.py"
+    ],
+    "tests/test_v3_66_41_pwmgr_audit_followups.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/extension_vault.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_v3_66_42_secret_file_perms.py": [
+      "bulk_downloader/cookies.py",
+      "bulk_downloader/extension_vault.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_v3_66_43_pwmgr_remainder.py": [
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/extension_vault.py",
+      "bulk_downloader/password_import.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/secrets_store.py",
+      "bulk_downloader/vpn_config.py"
+    ],
+    "tests/test_v3_66_446_scrape_listing_httpx.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_66_450_user_templates_overlay.py": [
+      "bulk_downloader/templates.py",
+      "bulk_downloader/user_templates.py"
+    ],
+    "tests/test_v3_66_461_cockpit_bugfix.py": [
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_462_warehouse_scandir.py": [
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_463_mc_memoize.py": [
+      "tools/cockpit_templates.py"
+    ],
+    "tests/test_v3_66_464_scandir_sweep.py": [
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_465_plugins_v2.py": [
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_466_plugin_config.py": [
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_468_capture_lifecycle.py": [
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/runner_manual.py"
+    ],
+    "tests/test_v3_66_468_chromium_ext.py": [
+      "bulk_downloader/runner_browser.py"
+    ],
+    "tests/test_v3_66_468_jd_gui.py": [
+      "bulk_downloader/app_settings_center.py",
+      "bulk_downloader/site_editor.py"
+    ],
+    "tests/test_v3_66_468_jd_processor.py": [
+      "bulk_downloader/jd_bridge.py",
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_468_node_plugins.py": [
+      "bulk_downloader/plugin_node.py",
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_46_session_resilience.py": [
+      "bulk_downloader/constants.py"
+    ],
+    "tests/test_v3_66_470_floor_failopen.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/capture_redact.py",
+      "bulk_downloader/wacz_export.py"
+    ],
+    "tests/test_v3_66_470_site_lifecycle_hooks.py": [
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_66_471_gold_backup.py": [
+      "bulk_downloader/template_backup.py",
+      "bulk_downloader/template_keystone.py"
+    ],
+    "tests/test_v3_66_472_drift_gate.py": [
+      "bulk_downloader/lifecycle_automation.py",
+      "bulk_downloader/lifecycle_drift.py",
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_473_quarantine_state.py": [
+      "bulk_downloader/lifecycle_automation.py",
+      "bulk_downloader/lifecycle_drift.py",
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_474_auto_onboard.py": [
+      "bulk_downloader/auto_onboard.py",
+      "bulk_downloader/lifecycle_automation.py"
+    ],
+    "tests/test_v3_66_475_self_heal.py": [
+      "bulk_downloader/lifecycle_automation.py",
+      "bulk_downloader/lifecycle_drift.py"
+    ],
+    "tests/test_v3_66_476_auto_promote.py": [
+      "bulk_downloader/auto_promote.py",
+      "bulk_downloader/lifecycle_automation.py"
+    ],
+    "tests/test_v3_66_478_auto_queue.py": [
+      "bulk_downloader/auto_queue.py",
+      "bulk_downloader/lifecycle_automation.py"
+    ],
+    "tests/test_v3_66_479_auto_recover.py": [
+      "bulk_downloader/auto_recover.py",
+      "bulk_downloader/lifecycle_automation.py"
+    ],
+    "tests/test_v3_66_480_auto_ci.py": [
+      "bulk_downloader/auto_ci.py",
+      "bulk_downloader/lifecycle_automation.py"
+    ],
+    "tests/test_v3_66_481_automation_controller.py": [
+      "bulk_downloader/automation_controller.py",
+      "bulk_downloader/lifecycle_automation.py"
+    ],
+    "tests/test_v3_66_482_py_bridge.py": [
+      "bulk_downloader/plugin_py_bridge.py",
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_483_exec_bridge.py": [
+      "bulk_downloader/plugin_exec.py",
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_484_api_range.py": [
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_485_quarantine_persist.py": [
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_486_hook_payload_golden.py": [
+      "bulk_downloader/plugins.py",
+      "tools/hook_payload_golden.py"
+    ],
+    "tests/test_v3_66_487_template_events.py": [
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/template_manager.py"
+    ],
+    "tests/test_v3_66_488_recognizer_plugins.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_489_prefilter_plugins.py": [
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_48_c2_signing_callback.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_v3_66_48_c4b_player_js.py": [
+      "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_v3_66_48_p5_2b_honeypot_wire.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/honeypot_threshold.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_66_48_resolve_providers_flag.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_66_490_namer_plugins.py": [
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_491_sink_plugins.py": [
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_492_source_plugins.py": [
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_493_enricher_plugins.py": [
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_494_event_tail.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/vpn.py",
+      "bulk_downloader/vpn_kill_switch.py",
+      "tools/hook_payload_golden.py"
+    ],
+    "tests/test_v3_66_495_plugin_test_harness.py": [
+      "bulk_downloader/plugins.py",
+      "tools/plugin_test.py"
+    ],
+    "tests/test_v3_66_496_plugin_metrics.py": [
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_497_plugin_kv.py": [
+      "bulk_downloader/plugin_kv.py",
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_498_config_auto_gui.py": [
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_49_f1_codec_res.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/heuristic_scoring.py"
+    ],
+    "tests/test_v3_66_49_f2_trap_vocab.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/honeypot_score.py"
+    ],
+    "tests/test_v3_66_4_deep_detect_live.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_66_503_hls_live_captcha_parity.py": [
+      "bulk_downloader/global_config.py"
+    ],
+    "tests/test_v3_66_504_envfile_editor.py": [
+      "bulk_downloader/_envfile.py",
+      "bulk_downloader/app_envfile_editor.py"
+    ],
+    "tests/test_v3_66_506_bucket3a_alias.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/global_config.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_507_bucket3b_store_raw.py": [
+      "bulk_downloader/app_store_raw_editor.py",
+      "bulk_downloader/secrets_store.py",
+      "bulk_downloader/vpn_config.py",
+      "bulk_downloader/widgets_config.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_509_plugin_install_route.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_50_at1_session_capture.py": [
+      "bulk_downloader/capture_redact.py",
+      "bulk_downloader/netlog_classify.py",
+      "bulk_downloader/session_capture.py"
+    ],
+    "tests/test_v3_66_50_at2_dom_capture.py": [
+      "bulk_downloader/dom_capture.py",
+      "bulk_downloader/wacz_export.py"
+    ],
+    "tests/test_v3_66_50_f11_duplicate_fields.py": [
+      "bulk_downloader/dom_honeypot.py",
+      "bulk_downloader/duplicate_fields.py"
+    ],
+    "tests/test_v3_66_50_f3_dom_visibility.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/dom_honeypot.py"
+    ],
+    "tests/test_v3_66_512_dom_provider.py": [
+      "bulk_downloader/drift_repair.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/selector_drift.py"
+    ],
+    "tests/test_v3_66_512_onboarding_session_reuse.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/profile_sync.py"
+    ],
+    "tests/test_v3_66_512_template_status_job_host.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_66_521_security_hotfix.py": [
+      "bulk_downloader/app_settings_center.py",
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/capture_redact.py",
+      "bulk_downloader/notify_apprise.py"
+    ],
+    "tests/test_v3_66_522_dead_endpoints.py": [
+      "bulk_downloader/admission.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/library_final.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/smart_wakeup.py"
+    ],
+    "tests/test_v3_66_523_input_validation.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/site_editor.py"
+    ],
+    "tests/test_v3_66_524_security_hardening.py": [
+      "bulk_downloader/batch_ops.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_v3_66_525_perf_and_robustness.py": [
+      "bulk_downloader/extraction_core.py",
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_v3_66_527_numeric_integer_backstop.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/site_editor.py"
+    ],
+    "tests/test_v3_66_528_test_isolation_guards.py": [
+      "tools/autonomy_queue_hk.py"
+    ],
+    "tests/test_v3_66_529_redact_nonjson_types.py": [
+      "bulk_downloader/capture_redact.py"
+    ],
+    "tests/test_v3_66_529_watch_priority_honored.py": [
+      "bulk_downloader/watch_folder.py"
+    ],
+    "tests/test_v3_66_540_ssrf_classifier_consolidation.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_66_541_jsonapi_probe_ssrf.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/extractors_jsonapi.py"
+    ],
+    "tests/test_v3_66_542_tier_probe_ssrf.py": [
+      "bulk_downloader/tier_probe.py"
+    ],
+    "tests/test_v3_66_550_weather_ssrf.py": [
+      "bulk_downloader/site_weather.py"
+    ],
+    "tests/test_v3_66_552_playground_ssrf.py": [
+      "bulk_downloader/selector_playground.py"
+    ],
+    "tests/test_v3_66_555_candidate_ssrf.py": [
+      "bulk_downloader/candidate_filter.py"
+    ],
+    "tests/test_v3_66_558_marketplace_export_secret_fields.py": [
+      "bulk_downloader/marketplace.py",
+      "bulk_downloader/site_editor.py"
+    ],
+    "tests/test_v3_66_559_validate_config_nonfinite.py": [
+      "bulk_downloader/site_editor.py"
+    ],
+    "tests/test_v3_66_569_backup_extract_confine.py": [
+      "bulk_downloader/backup_verify.py"
+    ],
+    "tests/test_v3_66_571_library_scan_boundary.py": [
+      "bulk_downloader/library.py"
+    ],
+    "tests/test_v3_66_59_redactor_seam.py": [
+      "bulk_downloader/capture_redactor.py",
+      "bulk_downloader/session_capture.py"
+    ],
+    "tests/test_v3_66_5_deep_detect_wiring.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/auto_detect.py"
+    ],
+    "tests/test_v3_66_5_settings_ui.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_66_60_capture_workbench.py": [
+      "bulk_downloader/capture_synth.py",
+      "bulk_downloader/capture_workbench.py"
+    ],
+    "tests/test_v3_66_635_replication_status_route.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_66_636_replication_controls.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_66_638_extension_gate.py": [
+      "bulk_downloader/interop_registry.py",
+      "bulk_downloader/runner_browser.py"
+    ],
+    "tests/test_v3_66_638_interop_registry.py": [
+      "bulk_downloader/interop_registry.py"
+    ],
+    "tests/test_v3_66_639_interop_api.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_66_640_interop_jd_gate.py": [
+      "bulk_downloader/interop_registry.py",
+      "bulk_downloader/runner_integrations.py"
+    ],
+    "tests/test_v3_66_641_request_budget.py": [
+      "bulk_downloader/dev_metrics.py"
+    ],
+    "tests/test_v3_66_642_selftest_battery.py": [
+      "bulk_downloader/download_egress.py",
+      "bulk_downloader/selftest.py"
+    ],
+    "tests/test_v3_66_643_migration_safety.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/migrations.py"
+    ],
+    "tests/test_v3_66_644_durable_state.py": [
+      "bulk_downloader/crash_recovery.py"
+    ],
+    "tests/test_v3_66_645_healthcheck_plugin.py": [
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/selftest.py"
+    ],
+    "tests/test_v3_66_646_backup_integrity.py": [
+      "bulk_downloader/backup.py"
+    ],
+    "tests/test_v3_66_647_library_doctor.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/library_final.py"
+    ],
+    "tests/test_v3_66_648_sites_affected.py": [
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/app_ytdlp_status.py"
+    ],
+    "tests/test_v3_66_649_search_facets.py": [
+      "bulk_downloader/app_search.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_v3_66_650_drm_detect.py": [
+      "bulk_downloader/drm_detect.py",
+      "bulk_downloader/netlog_classify.py"
+    ],
+    "tests/test_v3_66_651_manifest_drm_category.py": [
+      "bulk_downloader/drm_detect.py"
+    ],
+    "tests/test_v3_66_652_eme_hook.py": [
+      "bulk_downloader/constants.py",
+      "bulk_downloader/drm_detect.py",
+      "bulk_downloader/eme_detect.py",
+      "bulk_downloader/runner_browser.py"
+    ],
+    "tests/test_v3_66_654_redaction_dial_report.py": [
+      "bulk_downloader/redaction_profile.py"
+    ],
+    "tests/test_v3_66_655_interop_gh1_plugin_gate.py": [
+      "bulk_downloader/interop_registry.py",
+      "bulk_downloader/runner_extractors.py"
+    ],
+    "tests/test_v3_66_656_ideaharden_closers.py": [
+      "bulk_downloader/ai_chat.py",
+      "bulk_downloader/ai_provider.py",
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_data_layer.py",
+      "bulk_downloader/cookie_health.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/dev_metrics.py"
+    ],
+    "tests/test_v3_66_657_rob3_selftest_battery.py": [
+      "bulk_downloader/healthcheck.py",
+      "bulk_downloader/selftest.py"
+    ],
+    "tests/test_v3_66_658_obs2_route_timing.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/dev_metrics.py"
+    ],
+    "tests/test_v3_66_659_pos4_winbat.py": [
+      "bulk_downloader/notify_apprise.py"
+    ],
+    "tests/test_v3_66_661_healthcheck_ytdlp_shape.py": [
+      "bulk_downloader/healthcheck.py",
+      "bulk_downloader/ytdlp_updater.py"
+    ],
+    "tests/test_v3_66_662_obs3_storage_tiers.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_data_layer.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/storage_rebalance.py"
+    ],
+    "tests/test_v3_66_663_pos1_backup_scope.py": [
+      "bulk_downloader/backup.py"
+    ],
+    "tests/test_v3_66_665_ytdlp_download_flags.py": [
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/runner_extractors.py"
+    ],
+    "tests/test_v3_66_667_cap3_saved_search_export.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/exports.py",
+      "bulk_downloader/saved_searches.py",
+      "bulk_downloader/scheduled_exports.py"
+    ],
+    "tests/test_v3_66_668_redaction_mutation_gate.py": [
+      "tools/redaction_mutation_gate.py"
+    ],
+    "tests/test_v3_66_669_lib6_thumb_cascade.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/library.py",
+      "bulk_downloader/thumbnail_gen.py"
+    ],
+    "tests/test_v3_66_670_ai4_cost_tokens.py": [
+      "bulk_downloader/ai_provider.py"
+    ],
+    "tests/test_v3_66_671_run6_accounting.py": [
+      "bulk_downloader/cost_economics.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_v3_66_672_run3_budget.py": [
+      "bulk_downloader/run_budget.py"
+    ],
+    "tests/test_v3_66_673_ext3_adaptive_conn.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/multi_conn.py"
+    ],
+    "tests/test_v3_66_674_sch1_adaptive_cadence.py": [
+      "bulk_downloader/capture_schedules.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_v3_66_675_cap3_variant_select.py": [
+      "bulk_downloader/template_registry.py"
+    ],
+    "tests/test_v3_66_677_plugin_scaffold.py": [
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_680_coverage_gaps.py": [
+      "bulk_downloader/capture_bodies.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/provenance.py"
+    ],
+    "tests/test_v3_66_680_pia_wireguard.py": [
+      "bulk_downloader/vpn_wireguard.py"
+    ],
+    "tests/test_v3_66_680_vixen_graphql.py": [
+      "bulk_downloader/extractors_vixen.py"
+    ],
+    "tests/test_v3_66_680_vpn_runtime_disable.py": [
+      "bulk_downloader/vpn_runtime.py"
+    ],
+    "tests/test_v3_66_681_fed_templates.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/federation.py",
+      "bulk_downloader/template_registry.py"
+    ],
+    "tests/test_v3_66_681_oidc.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/oidc.py",
+      "bulk_downloader/user_accounts.py"
+    ],
+    "tests/test_v3_66_683_record_time_narrow.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/auto_detect.py"
+    ],
+    "tests/test_v3_66_684_pit_set_restore.py": [
+      "bulk_downloader/selector_versions.py",
+      "bulk_downloader/user_templates.py"
+    ],
+    "tests/test_v3_66_685_proxy_pool.py": [
+      "bulk_downloader/proxy_pool.py",
+      "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_v3_66_686_netns_isolation.py": [
+      "bulk_downloader/netns_isolation.py"
+    ],
+    "tests/test_v3_66_687_schedules_ics.py": [
+      "bulk_downloader/capture_schedules.py"
+    ],
+    "tests/test_v3_66_688_idle_scaling.py": [
+      "bulk_downloader/bg_scheduler.py"
+    ],
+    "tests/test_v3_66_689_netns_launch_routing.py": [
+      "bulk_downloader/netns_isolation.py",
+      "bulk_downloader/runner_extractors.py"
+    ],
+    "tests/test_v3_66_68_capture_template.py": [
+      "bulk_downloader/capture_synth.py",
+      "bulk_downloader/capture_template.py",
+      "bulk_downloader/capture_workbench.py"
+    ],
+    "tests/test_v3_66_690_ext4_crx_mv3.py": [
+      "bulk_downloader/extension_crx.py"
+    ],
+    "tests/test_v3_66_691_plugin_extractor_dispatch.py": [
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/runner_extractors.py"
+    ],
+    "tests/test_v3_66_693_ytdlp_extractor.py": [
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/ytdlp_extractor.py"
+    ],
+    "tests/test_v3_66_694_jd_host_coverage.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/jd_bridge.py"
+    ],
+    "tests/test_v3_66_695_plugin_extractor_hls.py": [
+      "bulk_downloader/hls_downloader.py",
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/runner_extractors.py"
+    ],
+    "tests/test_v3_66_696_jd_coverage_button.py": [
+      "tools/gui_parity_inventory.py"
+    ],
+    "tests/test_v3_66_697_netns_controlled_egress.py": [
+      "bulk_downloader/netns_isolation.py"
+    ],
+    "tests/test_v3_66_698_netns_dns.py": [
+      "bulk_downloader/netns_isolation.py"
+    ],
+    "tests/test_v3_66_699_browser_netns_launch.py": [
+      "bulk_downloader/netns_isolation.py"
+    ],
+    "tests/test_v3_66_69_rendition_drift.py": [
+      "bulk_downloader/capture_synth.py",
+      "bulk_downloader/capture_template.py",
+      "bulk_downloader/capture_workbench.py"
+    ],
+    "tests/test_v3_66_6_runner_deep_detect.py": [
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_66_700_netns_env_no_bd_prefix.py": [
+      "bulk_downloader/netns_isolation.py"
+    ],
+    "tests/test_v3_66_701_browser_netns_launch_wiring.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/netns_isolation.py"
+    ],
+    "tests/test_v3_66_702_jd_supported_hosts_field.py": [
+      "bulk_downloader/app_settings_center.py",
+      "bulk_downloader/site_editor.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_703_ffmpeg_binary_pin.py": [
+      "bulk_downloader/ffmpeg_bin.py",
+      "bulk_downloader/global_config.py"
+    ],
+    "tests/test_v3_66_704_coverage_gaps.py": [
+      "bulk_downloader/capture_bodies.py",
+      "bulk_downloader/capture_redact.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/provenance.py"
+    ],
+    "tests/test_v3_66_705_capture_floor_attr_leak.py": [
+      "bulk_downloader/capture_bodies.py",
+      "bulk_downloader/capture_redact.py"
+    ],
+    "tests/test_v3_66_706_restore_rehearsal.py": [
+      "bulk_downloader/backup_verify.py",
+      "bulk_downloader/daily_digest.py"
+    ],
+    "tests/test_v3_66_707_auto_cycle_ceiling.py": [
+      "bulk_downloader/automation_controller.py"
+    ],
+    "tests/test_v3_66_708_automation_pipeline.py": [
+      "bulk_downloader/automation_controller.py",
+      "bulk_downloader/automation_pipeline.py"
+    ],
+    "tests/test_v3_66_709_automation_gui_contract.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_global_config.py",
+      "bulk_downloader/automation_controller.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/lifecycle_automation.py"
+    ],
+    "tests/test_v3_66_70_decision_confidence.py": [
+      "bulk_downloader/capture_synth.py",
+      "bulk_downloader/capture_workbench.py"
+    ],
+    "tests/test_v3_66_710_config_denominator.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/global_config.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_711_automation_gui.py": [
+      "bulk_downloader/global_config.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_713_unscanned_surfaces.py": [
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_714_endpoint_reachability.py": [
+      "bulk_downloader/app.py",
+      "tools/endpoint_reachability.py"
+    ],
+    "tests/test_v3_66_716_decoys_and_shadow.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/lifecycle_automation.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_717_exec_bridge.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/tool_bridge.py"
+    ],
+    "tests/test_v3_66_719_tools_control.py": [
+      "tools/endpoint_reachability.py"
+    ],
+    "tests/test_v3_66_71_sensitivity.py": [
+      "bulk_downloader/capture_synth.py",
+      "bulk_downloader/capture_workbench.py"
+    ],
+    "tests/test_v3_66_720_oidc_and_ffmpeg.py": [
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_723_automation_status.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/automation_pipeline.py",
+      "bulk_downloader/automation_status.py",
+      "bulk_downloader/backup_verify.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_v3_66_724_site_queue_bulk_ops.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_66_726_body_contract.py": [
+      "bulk_downloader/app.py",
+      "tools/body_contract.py"
+    ],
+    "tests/test_v3_66_728_batch_ops.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_66_729_body_contract_fixtures.py": [
+      "bulk_downloader/app.py",
+      "tools/body_contract.py",
+      "tools/body_contract_fixtures.py",
+      "tools/onboard_site_template.py"
+    ],
+    "tests/test_v3_66_72_temporal_benchmark.py": [
+      "bulk_downloader/capture_synth.py",
+      "bulk_downloader/capture_template.py",
+      "bulk_downloader/capture_workbench.py",
+      "bulk_downloader/temporal_benchmark.py"
+    ],
+    "tests/test_v3_66_73_validation_corpus.py": [
+      "bulk_downloader/validation_corpus.py"
+    ],
+    "tests/test_v3_66_743_fed_review_id_400.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_66_747_exec_bridge_option_injection.py": [
+      "bulk_downloader/tool_bridge.py"
+    ],
+    "tests/test_v3_66_748_csrf_scanner_derives_from_hook.py": [
+      "bulk_downloader/app.py",
+      "tools/build_endpoint_catalog.py"
+    ],
+    "tests/test_v3_66_748_release_forbids_hypothesis.py": [
+      "tools/diff_release_zips.py"
+    ],
+    "tests/test_v3_66_74_multi_site_benchmark.py": [
+      "bulk_downloader/multi_site_benchmark.py"
+    ],
+    "tests/test_v3_66_754_parity_comment_harvest.py": [
+      "tools/gui_parity_inventory.py"
+    ],
+    "tests/test_v3_66_754_singleton_wiring.py": [
+      "tools/gui_parity_inventory.py"
+    ],
+    "tests/test_v3_66_754_thumbs_path_confine.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_66_757_takeover_fold.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/captcha_relay.py",
+      "bulk_downloader/takeover.py"
+    ],
+    "tests/test_v3_66_758_takeover_driver.py": [
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/runner_auth.py",
+      "bulk_downloader/takeover.py"
+    ],
+    "tests/test_v3_66_759_takeover_admission.py": [
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/runner_auth.py",
+      "bulk_downloader/takeover.py"
+    ],
+    "tests/test_v3_66_75_conclusion_class.py": [
+      "bulk_downloader/validation_corpus.py"
+    ],
+    "tests/test_v3_66_760_takeover_idle_sweep.py": [
+      "bulk_downloader/captcha_relay.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/takeover.py"
+    ],
+    "tests/test_v3_66_761_takeover_observability.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/audit.py",
+      "bulk_downloader/captcha_relay.py",
+      "bulk_downloader/metrics_prom.py",
+      "bulk_downloader/takeover.py"
+    ],
+    "tests/test_v3_66_762_redact_placeholder_derived.py": [
+      "bulk_downloader/capture_artifact_redact.py"
+    ],
+    "tests/test_v3_66_763_write_guard_csrf_derived.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_66_764_contract_probe_csrf_derived.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_66_765_injected_http_get_ssrf_guard.py": [
+      "bulk_downloader/provider_resolve.py",
+      "bulk_downloader/runner_extractors.py"
+    ],
+    "tests/test_v3_66_767_scrape_listing_wired.py": [
+      "tools/gui_parity_inventory.py"
+    ],
+    "tests/test_v3_66_768_vpn_diagnostics_wired.py": [
+      "tools/gui_parity_inventory.py"
+    ],
+    "tests/test_v3_66_76_fragility_correction.py": [
+      "bulk_downloader/capture_workbench.py",
+      "bulk_downloader/validation_corpus.py"
+    ],
+    "tests/test_v3_66_770_vpn_webrtc_killswitch.py": [
+      "tools/gui_parity_inventory.py"
+    ],
+    "tests/test_v3_66_773_vpn_secret_derive.py": [
+      "bulk_downloader/vpn.py",
+      "bulk_downloader/vpn_config.py"
+    ],
+    "tests/test_v3_66_774_plugin_permission_grant.py": [
+      "bulk_downloader/plugin_exec.py",
+      "bulk_downloader/plugin_node.py",
+      "bulk_downloader/plugin_py_bridge.py",
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_775_plugin_grant_ui.py": [
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_776_plugin_metrics_residual.py": [
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_777_manifest_richness.py": [
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_778_force_isolation.py": [
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_77_sharded_collapse.py": [
+      "bulk_downloader/capture_synth.py",
+      "bulk_downloader/capture_workbench.py",
+      "bulk_downloader/validation_corpus.py"
+    ],
+    "tests/test_v3_66_780_config_key_write_parity.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_global_config.py",
+      "bulk_downloader/global_config.py"
+    ],
+    "tests/test_v3_66_781_flaresolverr_ssrf.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_66_782_apple_icon_decomp.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_apple.py"
+    ],
+    "tests/test_v3_66_785_candidate_confidence.py": [
+      "bulk_downloader/candidate_filter.py"
+    ],
+    "tests/test_v3_66_786_host_enumerator.py": [
+      "bulk_downloader/host_enumerator.py"
+    ],
+    "tests/test_v3_66_787_disco_triage.py": [
+      "bulk_downloader/automation_controller.py",
+      "bulk_downloader/candidate_filter.py",
+      "bulk_downloader/disco_triage.py"
+    ],
+    "tests/test_v3_66_788_disco_activation.py": [
+      "bulk_downloader/automation_status.py",
+      "bulk_downloader/bg_scheduler.py",
+      "bulk_downloader/disco_runner.py",
+      "bulk_downloader/lifecycle_automation.py"
+    ],
+    "tests/test_v3_66_789_disco_manual_trigger.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/automation_controller.py",
+      "bulk_downloader/disco_runner.py",
+      "bulk_downloader/disco_triage.py"
+    ],
+    "tests/test_v3_66_78_corpus_debt.py": [
+      "bulk_downloader/validation_corpus.py"
+    ],
+    "tests/test_v3_66_794_waitress_swap.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_stream.py"
+    ],
+    "tests/test_v3_66_795_mod3_seam.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/push.py"
+    ],
+    "tests/test_v3_66_798_runtime_state_manifest_exclude.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_7_deep_detect_smoke.py": [
+      "bulk_downloader/__init__.py"
+    ],
+    "tests/test_v3_66_800_mod3_dual_write.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/pg_backend.py"
+    ],
+    "tests/test_v3_66_801_mod3_shadow_read.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/pg_backend.py"
+    ],
+    "tests/test_v3_66_803_mod3_migration_rehearsal.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/pg_backend.py"
+    ],
+    "tests/test_v3_66_804_mod3_cutover.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/pg_backend.py"
+    ],
+    "tests/test_v3_66_805_plugin_state_bd_home.py": [
+      "bulk_downloader/plugins.py"
+    ],
+    "tests/test_v3_66_80_failure_taxonomy.py": [
+      "bulk_downloader/validation_corpus.py"
+    ],
+    "tests/test_v3_66_819_bd_session_key_anchored_redaction.py": [
+      "tools/capture_scrub.py"
+    ],
+    "tests/test_v3_66_820_auth_health_reaped_on_site_delete.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_data_layer.py",
+      "bulk_downloader/app_sites_id_core.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/cookie_health.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_v3_66_82_confidence_admission.py": [
+      "bulk_downloader/capture_synth.py",
+      "bulk_downloader/capture_workbench.py"
+    ],
+    "tests/test_v3_66_834_login_on_done_always_fires.py": [
+      "bulk_downloader/cookies.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_auth.py"
+    ],
+    "tests/test_v3_66_835_phase_b_takeover_reentrancy.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_66_83_hls_manifest_preference.py": [
+      "bulk_downloader/capture_synth.py",
+      "bulk_downloader/capture_workbench.py"
+    ],
+    "tests/test_v3_66_840_extractor_dest_resolution.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/detect.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_v3_66_84_rendition_suffix.py": [
+      "bulk_downloader/capture_synth.py",
+      "bulk_downloader/capture_workbench.py"
+    ],
+    "tests/test_v3_66_85_signing_in_path.py": [
+      "bulk_downloader/capture_synth.py",
+      "bulk_downloader/capture_workbench.py"
+    ],
+    "tests/test_v3_66_87_temporal_harness.py": [
+      "bulk_downloader/temporal_harness.py"
+    ],
+    "tests/test_v3_66_88_perturbation_harness.py": [
+      "bulk_downloader/perturbation_harness.py"
+    ],
+    "tests/test_v3_66_89_offline_capture_ingest.py": [
+      "bulk_downloader/capture_ingest.py",
+      "bulk_downloader/validation_corpus.py",
+      "tools/offline_capture_analyze.py"
+    ],
+    "tests/test_v3_66_8_add_url_endpoint.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_v3_66_96_autopilot_cockpit.py": [
+      "bulk_downloader/capture_ingest.py",
+      "bulk_downloader/validation_corpus.py",
+      "tools/operator_layer.py"
+    ],
+    "tests/test_v3_66_98_cockpit_console.py": [
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_99_cockpit_wave1.py": [
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_wave2_input_redaction.py": [
+      "bulk_downloader/dom_capture.py"
+    ],
+    "tests/test_validators.py": [
+      "bulk_downloader/runner.py",
+      "bulk_downloader/templates.py"
+    ],
+    "tests/test_vector_index.py": [
+      "bulk_downloader/vector_index.py"
+    ],
+    "tests/test_video_magic_bytes.py": [
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_vpn_config_load_quarantine.py": [
+      "bulk_downloader/app_store_raw_editor.py",
+      "bulk_downloader/app_vpn_api.py",
+      "bulk_downloader/vpn.py",
+      "bulk_downloader/vpn_config.py",
+      "bulk_downloader/vpn_kill_switch.py",
+      "bulk_downloader/vpn_runtime.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_vpn_egress_followons.py": [
+      "bulk_downloader/multi_conn.py",
+      "bulk_downloader/runner_manual.py"
+    ],
+    "tests/test_vpn_runtime_startup_contract.py": [
+      "bulk_downloader/vpn_config.py",
+      "bulk_downloader/vpn_kill_switch.py",
+      "bulk_downloader/vpn_runtime.py"
+    ],
+    "tests/test_vpn_wireguard_stop_cleanup.py": [
+      "bulk_downloader/vpn_wireguard.py"
+    ],
+    "tests/test_wacz_zipbomb_cap.py": [
+      "bulk_downloader/capture_ingest.py"
+    ],
+    "tests/test_wave2_backlog.py": [
+      "bulk_downloader/app_data_layer.py",
+      "bulk_downloader/app_report_center.py",
+      "tools/capture_quality_report.py",
+      "tools/capture_statistics.py",
+      "tools/changelog_analyzer.py",
+      "tools/compat_shim_audit.py",
+      "tools/dependency_inventory.py",
+      "tools/environment_report.py",
+      "tools/function_inventory.py",
+      "tools/kb_audit.py",
+      "tools/kb_link_validator.py",
+      "tools/module_inventory.py",
+      "tools/offline_pack_report.py",
+      "tools/release_diff_summary.py",
+      "tools/search_index_builder.py",
+      "tools/technical_debt_report.py",
+      "tools/template_completeness_score.py",
+      "tools/template_health_report.py",
+      "tools/template_warning_catalog.py",
+      "tools/test_coverage_catalog.py",
+      "tools/test_inventory.py",
+      "tools/validate_templates.py"
+    ],
+    "tests/test_wave_b1_panel_ui.py": [
+      "tools/cockpit_console.py"
+    ],
+    "tests/test_wave_b1_review_panel_contract.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_template.py",
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/template_normalize.py",
+      "bulk_downloader/wacz_export.py",
+      "tools/build_template_from_wacz.py",
+      "tools/capture_model_golden.py"
+    ],
+    "tests/test_wave_b2_test_extract.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/template_assist.py",
+      "bulk_downloader/template_manager.py"
+    ],
+    "tests/test_wave_b_action_timeline_miner.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/wacz_export.py",
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_webhooks_subscription_ssrf.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/webhooks.py"
+    ],
+    "tests/test_websocket_capture.py": [
+      "bulk_downloader/capture_redact.py",
+      "bulk_downloader/session_capture.py",
+      "bulk_downloader/wacz_export.py",
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_widget_live_sources.py": [
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/app_widgets_api.py",
+      "bulk_downloader/dashboard_widgets.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/library.py",
+      "bulk_downloader/migrations.py",
+      "bulk_downloader/runner_challenge.py"
+    ],
+    "tests/test_worker_pipeline.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_workflow_derivation.py": [
+      "bulk_downloader/wacz_export.py",
+      "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_workflow_diagnostic.py": [
+      "bulk_downloader/wacz_export.py",
+      "tools/workflow_diagnostic.py"
+    ],
+    "tests/test_wow_promote_runtime_shape.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/template_manager.py",
+      "tools/wow_promote_golden.py"
     ],
     "tools/_probe_lib.py": [
       "bulk_downloader/app.py",

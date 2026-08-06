@@ -465,6 +465,20 @@ missed something, not instead of it.
   **same** cut: `venv/bin/python tools/decomp/import_graph_gate.py --update`, and band
   `tests/test_import_graph_no_new_edges.py`. This is separate from regenerating
   `DEPENDENCY_GRAPH.json`.
+
+  **INCLUDING AN EDGE FROM A TEST FILE, since v3.66.889.** The gate used to walk
+  `bulk_downloader/` and `tools/` only, so 2132 of 3750 edges -- 57% of the real
+  internal import surface, from 985 test files -- were outside the denominator
+  it gated on. Adding a test that imports any product or tool module is now a
+  baseline change, and `bd-band-derive` flags it: the gate and that flag widened
+  in the SAME cut, because widening the gate alone would leave an author owing a
+  re-freeze nothing told them about, failing on the box rather than in the
+  sandbox. That is the shape recorded three paragraphs down, where
+  `test_source_windows_do_not_shift` sat red on `main` for five releases.
+
+  **So `test_import_graph_no_new_edges.py` is now an axis-6 gate too** -- a cut
+  that touches no source at all still moves it. The table below predates that
+  and does not list it.
 - A `data_layer` route add must update **both** `test_wave2_backlog` **and**
   `test_v3_66_302_gui_parity_reconcile`.
 - **Editing a function body — even adding a COMMENT — bands the fixed-width

@@ -650,6 +650,16 @@ def regen_flags(changed, fe_mut=None):
     if any(c.endswith(".py") and c.startswith("bulk_downloader/") for c in changed):
         flags.append(("FUNCTION_INDEX/DEPENDENCY_GRAPH",
                       "bd-regen  (line-shift / new edge may drift the derived docs)"))
+    # v3.66.889: TESTS/ TOO. The import-graph gate widened to cover tests/ in
+    # that cut, and this flag keyed on bulk_downloader/ only -- so a tests/-only
+    # change would have produced NO flag and NOT banded the gate's own suite,
+    # leaving the author owing a baseline re-freeze nobody told them about and
+    # failing on the box rather than in the sandbox. CLAUDE.md section 4 records
+    # that shape costing five releases with test_source_windows_do_not_shift red
+    # on main. The gate and this flag widen in the SAME cut, deliberately: one
+    # without the other converts a per-cut chore into a per-cut trap.
+    if any(c.endswith(".py") and (c.startswith("bulk_downloader/")
+                                  or c.startswith("tests/")) for c in changed):
         flags.append(("import edges",
                       "bd-imports (new internal edge -> re-freeze baseline SAME cut)"))
     if any(("app_" in os.path.basename(c)) or c.endswith("app.py") or "/routes" in c
