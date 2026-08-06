@@ -23,6 +23,19 @@ SERIAL_EXACT_BASENAMES = frozenset(
         "test_v3_66_13_phase2_p2_snapshot_replay.py",
         "test_v3_66_729_body_contract_fixtures.py",
         "test_v3_66_797_runner_isolate.py",
+        # v3.66.921 -- PROVEN FRAGILE BY EXPERIMENT, not by heuristic. The
+        # whole serial lane (1059 files, 13,429 tests) was run under
+        # `-n $(nproc) --dist loadfile` ON THE BOX; exactly five files failed
+        # and every one passed on a serial retry. Three were already listed or
+        # source-flagged; these two were not, and they are the only files in
+        # the promotion set that the experiment refuted.
+        #
+        # Both also failed the same way in an independent 496-file xdist run in
+        # a cloud container, so this is two machines agreeing, not one flake.
+        # Do not promote them on a future green run: a race that resolves
+        # favourably passes, which is the whole reason this list is by name.
+        "test_dev_suite_tier1b.py",
+        "test_v3_66_717_exec_bridge.py",
     }
 )
 
@@ -142,9 +155,25 @@ def classify_capture_file(
     basename = candidate.name.lower()
     if basename in SERIAL_EXACT_BASENAMES:
         return "serial"
-    if any(token in basename for token in SERIAL_NAME_TOKENS):
-        return "serial"
 
+    # v3.66.921 -- A FILENAME IS NOT A BEHAVIOUR, so the name tokens are
+    # OVERRIDABLE by an explicit allowlist entry while the SOURCE checks below
+    # are not. The tokens are a proxy for "nobody has looked at this yet"; an
+    # allowlist entry IS someone having looked. Measured: 88 files were serial
+    # solely because their basename contained "capture" or "runner", with no
+    # risky construct anywhere in them.
+    #
+    # The source checks stay ABSOLUTE, and that asymmetry is the point. They
+    # match constructs that leak ACROSS FILES inside one xdist worker --
+    # os.environ mutation, sys.modules wiping, os.chdir, a run_tests import --
+    # and `--dist loadfile` does NOT prevent that: it keeps a file's tests
+    # together, it does not give a file its own worker. Whichever file lands
+    # next on that worker inherits the damage, and which files share a worker
+    # changes between runs. So a green parallel run is not evidence for those,
+    # and no allowlist entry may override them.
+    # The tokens still bite for every UNLISTED file, because the allowlist
+    # check at the bottom sends those to serial anyway. What changes is only
+    # that they no longer VETO an explicit review.
     if source is None:
         try:
             source = candidate.read_text(encoding="utf-8")
@@ -159,6 +188,9 @@ def classify_capture_file(
     key = _capture_test_key(candidate)
     if key is None or key not in parallel_allowlist():
         return "serial"
+    # Reached only when every SOURCE check above passed. An allowlisted file
+    # whose only flag was its name is promoted here; one carrying a real
+    # construct returned "serial" long before this point.
     return "parallel"
 
 
