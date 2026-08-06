@@ -622,6 +622,13 @@ REGEN_ENFORCING_SUITES = {
     "PIN_INDEX (version bump)": (
         "tests/test_pin_index_in_sync.py",
     ),
+    # @899: naming an obligation without banding the suite that ENFORCES it is
+    # the trap the @889 comment above describes -- it converts a per-cut chore
+    # into a per-cut surprise on the box. The flag and its enforcing suite land
+    # together or neither lands.
+    "pk mirror": (
+        "tests/test_pk_mirrors_do_not_drift.py",
+    ),
 }
 
 
@@ -632,14 +639,53 @@ def regen_suites(work, changed, fe_mut=None):
     file yields fewer suites rather than a band entry that cannot run.
     """
     out = set()
-    for name, _advice in regen_flags(changed, fe_mut=fe_mut):
+    for name, _advice in regen_flags(changed, fe_mut=fe_mut, work=work):
         for suite in REGEN_ENFORCING_SUITES.get(name, ()):
             if os.path.isfile(os.path.join(work, suite)):
                 out.add(suite)
     return out
 
 
-def regen_flags(changed, fe_mut=None):
+def has_pk_mirror(work, rel):
+    """@899 -- does this changed file have a project-knowledge twin?
+
+    A toolchain/bin edit owes its mirror in the SAME cut, and that obligation
+    went unmet TWICE in one night (@889 bd-band-derive, @895 bd-fullsuite),
+    each caught only by test_pk_mirrors_do_not_drift AFTER a 4-minute band. Its
+    own message is the argument: "a drifted mirror is worse than a missing one:
+    it runs, it exits 0."
+
+    THE PREDICATE IS COPIED FROM THE GATE, NOT INVENTED -- a `.py` suffix, or no
+    suffix at all with a `#!` shebang. That second clause is load-bearing: 239
+    of the mirrors are extensionless bd-* scripts, and the tool literally named
+    `bd` was invisible to an older startswith("bd-") filter. Widening it to "any
+    basename that exists in project-knowledge/" would buy five instant permanent
+    false flags (README.md, SANDBOX.md, AUTOMATION_POLICY.md,
+    BDSUITE_CHANGELOG.md, DECOMPOSITION_PROGRAM_ROADMAP.md all exist in both
+    places with DIFFERENT content, legitimately).
+
+    This is a fast O(1) check rather than a shell-out to bd-pk-mirror, which
+    owns the canonical classification -- so a test asserts the two AGREE over
+    the whole tree. Two implementations that are never compared is precisely the
+    second-denominator failure this flag exists to prevent.
+    """
+    if not rel or rel.startswith("project-knowledge/"):
+        return False
+    twin = os.path.join(work or ".", "project-knowledge", os.path.basename(rel))
+    if not os.path.isfile(twin):
+        return False
+    if twin.endswith(".py"):
+        return True
+    if os.path.splitext(twin)[1]:
+        return False
+    try:
+        with open(twin, "rb") as fh:
+            return fh.read(2) == b"#!"
+    except OSError:
+        return False
+
+
+def regen_flags(changed, fe_mut=None, work=None):
     flags = []
     # v3.66.789: a mutating FE call-site delta carries THREE regen obligations
     # beyond the band; skipping any of them is exactly the 789 first-capture RED.
@@ -667,6 +713,13 @@ def regen_flags(changed, fe_mut=None):
                                   or c.startswith("tests/")) for c in changed):
         flags.append(("import edges",
                       "bd-imports (new internal edge -> re-freeze baseline SAME cut)"))
+    mirrored = [c for c in changed if has_pk_mirror(work, c)]
+    if mirrored:
+        flags.append(("pk mirror",
+                      "cp %s project-knowledge/  -- the twin drifts SILENTLY and "
+                      "test_pk_mirrors_do_not_drift only catches it after the "
+                      "band (verify: bd-pk-mirror --check)"
+                      % " ".join(mirrored[:3])))
     if any(("app_" in os.path.basename(c)) or c.endswith("app.py") or "/routes" in c
            for c in changed):
         flags.append(("ROUTE_INDEX/ENDPOINT_CATALOG/route_map",
@@ -738,7 +791,8 @@ def emit_band(band):
 
 def report(work, changed, rows, label, deps=None, as_json=False, emit_only=False, zsha_src=None):
     band = derive(work, changed, rows, zsha_src)
-    flags = regen_flags(changed, fe_mut=fe_gate_hits(work, changed, zsha_src))
+    flags = regen_flags(changed, fe_mut=fe_gate_hits(work, changed, zsha_src),
+                        work=work)
     if emit_only:
         print(emit_band(band))
         return 0

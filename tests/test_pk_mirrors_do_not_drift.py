@@ -31,7 +31,9 @@ from __future__ import annotations
 
 import collections
 import hashlib
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -371,3 +373,82 @@ def test_ambiguous_detection_fires_on_a_tree_that_has_one():
             "origins with different content were not reported as ambiguous: "
             "%r" % (found,))
         assert len(found[0][1]) == 2, found
+
+
+def test_band_derive_flags_the_mirror_obligation_before_the_band_runs():
+    """@899 -- this gate only fires AFTER a 4-minute band. The derive warns first.
+
+    The obligation went unmet twice in one night (@889 bd-band-derive, @895
+    bd-fullsuite). Both were caught here, correctly, and both cost a full band
+    plus a re-run. bd-band-derive already names other regen obligations up
+    front; the mirror is now one of them.
+
+    BOTH DIRECTIONS. A file WITH a twin must flag; one WITHOUT must not -- a
+    flag that fires on everything is switched off, which is the same soundness
+    bug as one that never fires.
+    """
+    import json as _json
+    root = REPO_ROOT
+    derive = root / "toolchain" / "bin" / "bd-band-derive"
+    assert derive.is_file(), f"{derive} absent -- this test would prove nothing"
+
+    def flags_for(rel):
+        r = subprocess.run([sys.executable, str(derive), "--files", rel, "--json"],
+                           cwd=str(root), capture_output=True, text=True, timeout=300)
+        assert r.returncode == 0, r.stderr
+        return _json.loads(r.stdout)
+
+    mirrored = flags_for("toolchain/bin/bd-fullsuite")
+    assert any("mirror" in f for f in mirrored["regen_flags"]), (
+        "editing a toolchain/bin tool WITH a project-knowledge twin produced no "
+        f"mirror flag: {mirrored['regen_flags']}")
+    assert "tests/test_pk_mirrors_do_not_drift.py" in mirrored["band"], (
+        "the flag names an obligation but does not band the suite that ENFORCES "
+        "it -- that converts a per-cut chore into a per-cut surprise on the box")
+
+    plain = flags_for("bulk_downloader/db.py")
+    assert not any("mirror" in f for f in plain["regen_flags"]), (
+        "a file with no project-knowledge twin was flagged; a warning that "
+        f"fires on everything gets ignored: {plain['regen_flags']}")
+
+
+def test_the_derive_predicate_agrees_with_bd_pk_mirror_over_the_whole_tree():
+    """Two implementations that are never compared is the second-denominator bug.
+
+    bd-pk-mirror owns the canonical classification; bd-band-derive does a fast
+    O(1) check so it can run on every derive. They must not disagree -- and the
+    only way to know is to ask both over the real population rather than to
+    assert that one was copied from the other.
+    """
+    import json as _json
+    import importlib.machinery
+    import importlib.util
+
+    root = REPO_ROOT
+    tool = root / "toolchain" / "bin" / "bd-pk-mirror"
+    derive = root / "toolchain" / "bin" / "bd-band-derive"
+    for p in (tool, derive):
+        assert p.is_file(), f"{p} absent -- the comparison would range over nothing"
+
+    r = subprocess.run([sys.executable, str(tool), "--json"], cwd=str(root),
+                       capture_output=True, text=True, timeout=300)
+    canonical = set()
+    for row in _json.loads(r.stdout).get("rows", []):
+        for cp in row.get("counterparts", []):
+            path = cp.get("path", "")
+            if path and "/project-knowledge/" not in path:
+                canonical.add(os.path.relpath(path, str(root)))
+    assert len(canonical) > 50, (
+        f"bd-pk-mirror named only {len(canonical)} counterpart(s) -- too few to "
+        "be a real comparison; the denominator would not contain the subject")
+
+    spec = importlib.util.spec_from_loader(
+        "bdbd", importlib.machinery.SourceFileLoader("bdbd", str(derive)))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    disagree = [rel for rel in sorted(canonical)
+                if not mod.has_pk_mirror(str(root), rel)]
+    assert not disagree, (
+        f"{len(disagree)} of {len(canonical)} files bd-pk-mirror calls mirrored "
+        f"are invisible to the derive's flag: {disagree[:6]}")
