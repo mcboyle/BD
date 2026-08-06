@@ -4,6 +4,35 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.920 - register-only: tier 4 worked top-down, and three register claims were wrong
+
+SESSION_CARRY 15.47. No source change.
+
+Records six merged cuts (915-919) and, more importantly, the three register
+claims that had to be corrected rather than followed:
+
+  * Item 16 was never blocked on what 15.36 said. "Three gates red on four LIVE
+    tools" is one gate and two tools, and both were REAL stale references, so
+    no allowlist was needed. Its instruction to lower the toolchain budget from
+    240 is NOT EXECUTABLE -- that budget counts toolchain/bin, the survivors
+    lived in project-knowledge/, so n moves by zero and lowering the pin turns
+    the gate RED.
+  * Item 14 is NOT-REAL, fixed at v3.66.835, and the register contradicts
+    itself: 15.13 closed it, 15.36 re-lists it open.
+  * Item 12 is 19 producers across FOUR tables, not 8 across 3, proven by
+    running them -- three different answers over three disjoint row sets. Its
+    only WRITING producer, bitrot.verify_one, persists a false integrity_issues
+    row for a file that is present on disk.
+
+Also carries: why item 11 is measured but NOT shipped (its boot sentinel
+latches at import, so a module-scope importer leaves the process with an
+un-booted database -- a contract change that needs an explicit decision); the
+finding that CI's pyflakes denominator excludes tests/ entirely; that all seven
+E2E smoke tests fail in this container on the PRISTINE baseline; and that
+CLAUDE.md section 7's claim that CI's gates job runs "no pytest at all" is
+stale -- it runs 15 files, which is what made merging on local gates
+defensible while CI lagged 45 minutes.
+
 ## v3.66.919 - a gate test measured the machine, and only the box could tell
 
 The box capture at v3.66.913 came back FAIL on exactly one test out of 14832:

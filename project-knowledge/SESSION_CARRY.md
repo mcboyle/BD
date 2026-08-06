@@ -4012,6 +4012,177 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.47 | Session close 2026-08-06 at 3b73ccc (v3.66.919) -- tier 4 worked top-down; item 16 closed, item 14 was never real, item 12 is four times larger
+
+Continues 15.46. Six cuts merged. The operator approved four scope questions up
+front and the answers are recorded here because THREE OF THEM CORRECTED THE
+REGISTER rather than following it.
+
+| cut | item | what it actually was |
+| --- | --- | --- |
+| 915 | 12(c) | `audit()` reported `missing` and `size_drift` over TWO windows (newest 500 vs newest 1000 of one table) as sibling counts |
+| 916 | 12(d) | `regen_nfos_from_history` tested a bare basename against the CWD -- and had a SECOND expression nobody recorded |
+| 917 | 16 / 7a | three retired tools still tracked as extensionless project-knowledge files; deleted |
+| 918 | 16 / 7a | the retirement gates' denominator excluded 473 tracked files; widened, with content-typed routing |
+| 919 | -- | the box capture's only failure: a gate test that measured the MACHINE |
+
+**ITEM 16 IS CLOSED, and it was never blocked on what the register said.**
+15.36 says the spec "turns three gates red on four LIVE tools" and the item sat
+unstarted on that. Measured: the codex_handoff gate cannot go red under ANY
+widening (zero newly-entering files mention its subject), and after 917 the
+remaining damage was ONE gate and TWO tools -- both of which were REAL stale
+references, so no allowlist was needed. The block was an artefact of bundling
+two separable changes.
+
+**Two of item 16's instructions were NOT EXECUTABLE and are corrected here:**
+
+  * "Lower the toolchain budget from 240 when it lands." `_TOOL_BUDGET`'s
+    denominator is `os.listdir(toolchain/bin)` filtered to `bd-*`. The
+    survivors lived in `project-knowledge/`, so deleting them moves n by
+    **zero**. n is 240, exactly at the ceiling, and lowering the pin turns the
+    gate RED. Do not attempt it later either.
+  * The gates were blind for TWO reasons. The known one is the `'*.py' '*.sh'`
+    glob. The one nobody had noticed: each gate's EXISTENCE check is a
+    hardcoded path tuple that globs nothing, and every path in those tuples
+    named a spelling that does not exist.
+
+**ITEM 14 IS NOT-REAL -- ALREADY FIXED at v3.66.835 (`7a15c4b`, an ancestor of
+HEAD) -- and the register contradicts itself about it.** 15.13 recorded it
+CLOSED on 2026-08-02; 15.36 re-lists it as open; 15.35 re-derived its ANCHORS
+but never its STATUS. Nothing states a reason for the re-opening.
+
+Graded as the compound claim it is. Conjunct (b), "Phase B runs inside that
+thread", is CONFIRMED. Conjunct (a), "returns early while the login thread is
+alive", is REFUTED: the alive-guard carries an identity exemption added by @835
+(`... and self._login_thread is not threading.current_thread()`). The
+conclusion "the takeover can never open" is refuted by runtime probe in BOTH
+directions -- on its own login thread it returns `(True, 'Manual login window
+opened')` and reaches the opener; an external caller with a different login
+thread alive still gets `(False, 'An auto-login is already running')`.
+
+Treated as the higher-stakes verdict per section 1: every alternative reading
+was enumerated and none leaves a surviving defect under the item's own wording.
+
+Residue, both DOCUMENTATION:
+  * `tests/test_u36_login_live_tests.py` still asserts in prose that the
+    takeover "can never open from inside login_async's own _run thread". False
+    at HEAD. The test passes for an independent and still-sound reason, so it
+    is not urgent -- but it is the fossil the item's filing cites.
+  * NOT item 14, found beside it: `bulk_downloader/app_dashboard.py` calls
+    `runner.start_manual_login()` with the return value UNBOUND and then
+    reports `{'ok': True, ...}` unconditionally, so on the legitimate refusal
+    path the operator is told a window opened when none did. Same false-SUCCESS
+    class as v3.66.834.
+
+**ITEM 12 IS FOUR TIMES LARGER THAN FILED, AND ONE PRODUCER WRITES.** The
+register says eight producers across three tables. Re-derived by AST over 1344
+non-test tracked python sources: **19 producer functions across FOUR tables** --
+`library`, `history`, `provenance`, `integrity_issues` -- 14 leaves plus 5
+projections. Proven by RUNNING: on one synthetic DB the nine read-producers
+return **three different answers (1 / 2 / 3) over three disjoint row sets**.
+
+Exactly ONE producer resolves a recorded filename correctly. THREE tested a
+bare basename CWD-relative; 916 fixed one, leaving
+`cleanup_helpers.find_missing_metadata` and `bitrot.verify_one`.
+
+**Act on `bitrot.verify_one` first, because it is the only producer that
+WRITES.** Measured with the file PRESENT on disk it returned `kind='missing'`
+and PERSISTED a false `integrity_issues` row, which feeds four read surfaces
+and a Prometheus gauge. A false count is a wrong number; a false persisted row
+outlives the process.
+
+Named by nothing in the register: `timeline._entries_from_bitrot` selects
+`FROM bitrot_issues`, **a table that exists nowhere in the tree**, and its
+`_safe_query`'s bare `except` returns `[]` -- so that surface is silently
+always empty, measured empty with a real `integrity_issues` row present.
+
+**ITEM 12(c)'s SILENT-SATURATION HALF IS STILL OPEN, deliberately.** 915 made
+the two windows one; it did not disclose that a count is a floor once the
+library exceeds the cap. Disclosure needs a new key, which moves
+`test_library_audit_panel_contract.py` and `api-types.ts` together. The
+operator scoped 915 internal on purpose and a test holds that line -- file the
+disclosure with the 12(d) contract question rather than reopening 915.
+
+**ITEM 11 IS NOT SHIPPED, AND THE REASON IS WORTH MORE THAN THE CUT.** The work
+is real and measured: `pytest --collect-only` on any of the 22 module-scope app
+importers deposited **471,095 bytes** across 5 paths with zero test bodies run;
+a plain import, 471,992 across 11. It needed **eight** writers gated, not the
+spec's six -- `migrations.apply_pending()` is a seventh 1700 lines below the
+gated region, and the last residue path came from THREADS (the webhooks drain
+worker and bg_scheduler's saved-searches task, both behind
+`BD_DISABLE_KEEPALIVE` gates whose value is set by a conftest FIXTURE BODY that
+`--collect-only` never runs). Residue went 5 paths -> 1 -> 0.
+
+**It was held back because its own probe found a latent defect the 496-file
+band could not see.** `app.py` reads the sentinel ONCE at import; for a
+module-scope importer that import happens during COLLECTION, so the flag
+latches True and the boot stays suppressed for the whole process. A test body
+touching the DB then gets `no such table: history`. Nothing in the suite hits
+it today -- 6857 passed -- but it is a landmine, and the cut's own
+over-correction guard missed it because that guard tests a CHILD PROCESS
+without the sentinel, not the in-process latch.
+
+The obvious repairs do not work: completing the boot in
+`pytest_collection_finish` reintroduces the residue (no fixture has run, so
+`BD_INSTALL_DIR` still points at the repo), and wiping `bulk_downloader.*` from
+`sys.modules` rebinds nothing in an already-imported test module -- the missing
+thing is the SCHEMA, not the module object. The real question is a CONTRACT
+change: after this cut, importing the app no longer initialises the database as
+a side effect, so a test wanting storage must get it from a fixture. That is
+arguably correct, and it needs an explicit decision.
+
+Work preserved: PR #221 closed unmerged, commit `4b0916c` on its ref, blocker
+documented in its thread.
+
+**THE BOX FOUND SOMETHING NO CONTAINER COULD, AND 919 IS THAT FIX.** The
+v3.66.913 capture was 14832 tests, 14746 passed, ONE failed:
+`test_v3_66_912_wired_gates_refuse_on_empty ::
+test_a_real_denominator_is_still_evaluable[bd-env-report-check]`, `assert 2 !=
+2`. The TEST was wrong, not the tool: its POS case ran the checker against the
+repo tree, and that tool's verdict is a property of `.claude-env-report.md`, a
+gitignored per-machine artifact section 5 says is stale after every cut BY
+DESIGN. Same day, same commit range: this container answered STALE (1), the box
+answered UNKNOWN (2). A test whose verdict flips on that is testing the machine,
+and every container band called it green. The POS case now builds a tree the
+tool can evaluate. Section 7's "the box is the gate" -- demonstrated, not quoted.
+
+**A CLAUDE.md CLAIM IS STALE and it changed how this session was run.** Section
+7 says CI's `gates` job runs gitleaks, artifact sync, compileall, pyflakes and
+the CHANGELOG ASCII check -- "**no pytest at all**" -- and concludes CI's whole
+test denominator is four mod3 files. Read 2026-08-06: `gates` ALSO runs a
+"Repo-wide gates must pass" step of **15 pytest files**, plus version-pin
+coherence, guard-file checks and `bd-freshcheck --repo-only`. The four-file
+claim is true only of `postgres-integration`. Every cut here substituted that
+exact 15-file set locally, which is what made merging on local gates defensible.
+
+**NEW FINDINGS FILED, NOT FIXED:**
+  * **CI runs pyflakes over `bulk_downloader` and `tools` only, so `tests/` is
+    outside the denominator of the one instrument that reports undefined
+    names.** Measured over `tests/`: 4 reports, 2 deliberate (a
+    code-intelligence fixture), 2 REAL latent `NameError`s. One was fixed at
+    917; `RR_MOUSE_INTERACTION` in `tests/test_v3_66_50_at2_dom_capture.py`
+    remains. A gate over `tests/` is a cheap cut with one offender left.
+  * `project-knowledge/STATIC_KB_MANIFEST.json` still carries rows for the
+    three files 917 deleted. Generated, already stale (dated 2026-07-23 against
+    v3.66.817, `file_count` 363 vs 355 entries), and no test reads it.
+  * `test_e2e_smoke::_RealE2ESmoke` -- all 7 -- fail in this container on the
+    PRISTINE baseline as well as with changes: `#root` resolves to an empty
+    hidden div while `frontend/dist/index.html` exists. Pre-existing, unrelated
+    to any cut here, and NOT the palette flake @906 fixed.
+
+**CI RAN ~45 MINUTES BEHIND ALL SESSION.** Not broken -- lagged: no run was
+ever scheduled for any PR here, while the retroactive main-branch run for
+`c83bedc` (the 915 merge) completed SUCCESS. **A second-order effect to expect
+again:** because the branch name is reused per cut and the queue lags, a
+queued run can fire after its head commit has been squash-merged and the branch
+moved. `actions/checkout` fetches `refs/heads/*` only, the old commit survives
+solely as `refs/pull/N/head`, and gitleaks is handed a range it cannot resolve
+-- `fatal: ambiguous argument`, `scanned ~0 bytes`, exit 1. That red is an
+ARTEFACT. Gitleaks itself behaved correctly, refusing to report clean over an
+empty scan. Do not let the noise train anyone to ignore red.
+
+**NOT BOX-VERIFIED.** Everything except the 913 capture is container evidence.
+
 ### 15.46 | Session close 2026-08-06 at 9bf4d05 (v3.66.913) -- and CI never ran
 
 Nine cuts: @905 dependency ceilings, @906 the Radix Escape discard, @907 the
