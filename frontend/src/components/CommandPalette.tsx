@@ -66,9 +66,28 @@ export function CommandPalette() {
     },
   );
 
-  // Esc closes — cmdk's Dialog handles this natively, but a / shortcut
-  // also closes if the user wants to bail to focus search elsewhere.
-  // Skipped for now; the dialog primitive already covers Esc.
+  // v3.66.906 — Esc closes. The dialog primitive does NOT reliably cover this,
+  // which is what the old comment here assumed. Radix's DismissableLayer
+  // (react-dismissable-layer 1.1.11) guards its Escape handler with
+  //   const isHighestLayer = index === context.layers.size - 1;
+  //   if (!isHighestLayer) return;
+  // where `index` is captured at RENDER time and `layers.size` is read at
+  // EVENT time. Inside that settle window the guard is false and the handler
+  // RETURNS — the keypress is DISCARDED, not queued — so the dialog stays
+  // data-state="open" indefinitely and no timeout rescues it. Measured: Escape
+  // fired the instant the dialog node appears is swallowed 10/10, at 64ms it
+  // closes 5/5. This surfaced as a 1-in-10 capture failure (v3.66.902).
+  //
+  // Closing explicitly here does not depend on that guard. setOpen is
+  // idempotent, and returning `v` unchanged when already closed means React
+  // bails out of the re-render, so this stays a no-op app-wide until the
+  // palette is actually open. allowInInput is required: focus sits in cmdk's
+  // CommandInput, which the hook would otherwise skip.
+  useKeyboardShortcut(
+    "escape",
+    { allowInInput: true },
+    () => setOpen((v) => (v ? false : v)),
+  );
 
   const { data: sitesData } = useQuery<SitesV2>({
     queryKey: ["sites-v2"],

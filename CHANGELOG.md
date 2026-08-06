@@ -4,6 +4,58 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.906 - Radix discarded the Escape key, and the palette trusted it
+
+test_command_palette_opens failed one box capture and was chased as a playwright
+1.62 regression for most of a session. It is neither. The rollback freeze shows
+playwright was ALREADY 1.62.0 before the upgrade, and a teardown of the
+1.61->1.62 driver found the Escape keydef byte-identical, the visibility
+computation byte-identical, and the one input change making press MORE patient.
+
+The cause is in the SPA. react-dismissable-layer 1.1.11 guards its Escape
+handler with `isHighestLayer`, comparing an `index` captured at RENDER time
+against `layers.size` read at EVENT time. Inside that settle window the guard is
+false and the handler RETURNS -- the keypress is DISCARDED, not queued -- so the
+dialog stays data-state="open" indefinitely. THAT IS WHY A BIGGER TIMEOUT WOULD
+NOT HAVE HELPED, and the 2000ms budget was never tight: tailwindcss-animate is
+not installed, animate-in/animate-out compile to nothing, and the real close
+takes a median of 14ms (360ms at 20x CPU throttling).
+
+CommandPalette now closes on Escape itself, which does not depend on that guard.
+setOpen returns v unchanged when already closed, so React bails out of the
+re-render and the listener is a no-op app-wide until the palette is open.
+
+RED-first, and deterministic rather than flaky: firing Escape from a
+MutationObserver the instant the dialog node appears lands inside the window
+every time. 5/5 RED on pristine source with the box's exact signature (same
+id="radix-:r9:", same data-state="open"), 5/5 GREEN after. The pre-existing
+test is repaired too -- the baseline arm reproduced it at 1/3 while the fixed
+arm ran 0/10.
+
+The new test does NOT wait for the dialog to be visible: once fixed it closes in
+~14ms and may never be observed visible. Since "hidden" passes trivially when
+the palette never OPENED, the denominator is guarded by the observer's own fired
+flag, which can only be set if a [role=dialog] node was actually inserted.
+
+MUTATION: 3/3 caught -- but only after the FIRST battery found a real escape,
+and it was a HARNESS defect rather than a missing assertion. The probe dispatched
+Escape on the dialog DIV, so e.target was never an <input> and the mutant
+flipping allowInInput to false survived: a real user's Escape goes to the focused
+cmdk input, which isTextInput() would then skip. Retargeting the dispatch at
+[cmdk-input] (and asserting the target really was an INPUT) closed it. RED was
+re-proven 5/5 after the retarget, because waiting for the input to exist could
+have pushed the press out of the settle window.
+
+bd-mutate could not run this battery: it has no rebuild hook, so it would have
+scored every .tsx mutant against a STALE frontend/dist -- every mutant escaping
+for a reason unrelated to test quality. Hand-run with the same discipline
+(unique anchor, length arithmetic, baseline-green first, restore verified by
+sha256, an on-disk journal that survives SIGKILL).
+
+Unrelated and NOT introduced here: three route tests in the same file
+(add_site_modal, history_tab, needs_review) fail identically in both arms in a
+cloud container. Recorded, not fixed.
+
 ## v3.66.905 - the three dependency ceilings the box had already crossed
 
 The box was running pytest 9.1.1, psutil 7.2.2 and cryptography 50.0.0 while

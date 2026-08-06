@@ -251,6 +251,68 @@ class _RealE2ESmoke(unittest.TestCase):
         self.assertEqual(self.errors, [],
             f"JS errors during palette open: {self.errors}")
 
+    def test_escape_closes_palette_with_no_settle_delay(self):
+        """Escape must close the palette even pressed the instant it opens.
+
+        Radix's DismissableLayer (react-dismissable-layer 1.1.11) compares an
+        `index` captured at RENDER time against `layers.size` read at EVENT
+        time. Inside that settle window the guard is false and the handler
+        RETURNS -- the keypress is DISCARDED, not queued -- so the dialog
+        stays data-state="open" indefinitely and no timeout can rescue it.
+        That is the v3.66.902 capture failure, which reproduced at 1/10 on the
+        box and 4/65 in a container, always with data-state="open".
+
+        Firing Escape from a MutationObserver the moment the dialog node is
+        inserted lands inside the window deterministically: 10/10 swallowed on
+        pristine source, vs 5/5 closed once the press is delayed 64ms. So this
+        test is RED for the defect rather than flaky against it.
+        """
+        self.page.locator("body").click()
+        # Arm BEFORE opening: fire Escape the instant the dialog node appears,
+        # which is the tightest gap reachable and the one Radix loses.
+        # Dispatch on the cmdk INPUT, not on the dialog div. A real Escape goes
+        # to the focused element, which is that input, so targeting the div
+        # would leave useKeyboardShortcut's allowInInput flag unconstrained --
+        # a mutant flipping it to false escaped this test until the target was
+        # fixed. isTextInput() only sees an <input>/<textarea>/contenteditable.
+        self.page.evaluate("""
+            () => {
+              window.__bdEscapeFired = 0;
+              window.__bdEscapeTarget = '';
+              const obs = new MutationObserver(() => {
+                if (window.__bdEscapeFired) return;
+                const d = document.querySelector('[role="dialog"]');
+                if (!d) return;
+                const input = d.querySelector('[cmdk-input]');
+                if (!input) return;
+                window.__bdEscapeFired = 1;
+                window.__bdEscapeTarget = input.tagName;
+                input.dispatchEvent(new KeyboardEvent('keydown', {
+                  key: 'Escape', code: 'Escape', keyCode: 27,
+                  bubbles: true, cancelable: true,
+                }));
+              });
+              obs.observe(document.body, {childList: true, subtree: true});
+            }
+        """)
+        self.page.keyboard.press("Control+k")
+        # Do NOT wait for visible: once the defect is fixed the dialog closes
+        # in ~14ms and may never be observed visible. But "hidden" passes
+        # trivially if the palette never OPENED, so the denominator needs its
+        # own guard -- the observer only fires when a [role=dialog] node was
+        # actually inserted, so this proves both that it opened and that
+        # Escape was dispatched into the settle window.
+        self.page.wait_for_function(
+            "() => window.__bdEscapeFired === 1", timeout=5000)
+        self.assertEqual(
+            self.page.evaluate("() => window.__bdEscapeTarget"), "INPUT",
+            "Escape must be dispatched at the focused cmdk input, else the "
+            "allowInInput flag is unconstrained and a mutant removing it escapes")
+        dialog = self.page.get_by_role("dialog")
+        dialog.wait_for(state="hidden", timeout=2000)
+        self.assertEqual(self.errors, [],
+            f"JS errors during palette escape: {self.errors}")
+
     def test_add_site_modal_opens(self):
         """The Sites route's Add button opens the current add-site dialog."""
         self.page.goto(f"{self.harness.base_url}/sites",

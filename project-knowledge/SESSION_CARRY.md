@@ -4003,6 +4003,98 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.43 | The palette flake was ours, and three instruments were blind to it
+
+Close at b876613 (v3.66.906). A box capture failure chased as a playwright 1.62
+regression for most of a session turned out to be a defect in our own SPA. What
+the chase cost is worth more than the fix.
+
+**THE DEFECT.** `react-dismissable-layer` 1.1.11 guards its Escape handler with
+`isHighestLayer`, comparing an `index` captured at RENDER time against
+`layers.size` read at EVENT time. Inside that settle window the guard is false
+and the handler RETURNS -- the keypress is DISCARDED, not queued -- so the
+dialog stays `data-state="open"` indefinitely. `CommandPalette` closed on
+Escape only via that primitive, and a comment in the file asserted the primitive
+"already covers Esc". It does, except when it does not.
+
+**THE TELL WAS IN THE FAILURE TEXT ALL ALONG, AND IT WAS READ BACKWARDS.**
+`data-state` stayed `open` for all 20 polls. Radix sets `closed` SYNCHRONOUSLY
+in `onDismiss` and only then animates out -- so `open` means the close never
+STARTED, while `closed` would have meant a slow animate-out. The first three
+hypotheses (slow animation, tight timeout, parallel-lane load) were all about a
+close that ran slowly, and every one was excluded by the attribute printed in
+the error. `animate-in`/`animate-out` compile to NOTHING here --
+`tailwindcss-animate` is not installed -- so the real close is a median 14ms,
+360ms at 20x CPU throttling. **2000ms was ~70x the real cost; the budget was
+never the problem, and a bigger one could not have helped a discarded key.**
+
+**INSTRUMENT 1 -- `bd-band-derive` CANNOT BAND A DEPENDENCY BUMP, STRUCTURALLY.**
+Measured: for the three-ceiling change the band is 18 files, and the union of
+its signals EXACTLY equals the band (nothing hidden). For a non-`.py` path,
+`module_consumers()` matches the literal full basename, so S4 reaches every test
+that NAMES `requirements.txt` -- tests ABOUT the manifest -- and cannot reach one
+test about what the manifest INSTALLS, because such a test never spells that
+string. No signal keys on a package name at all (`grep` for playwright /
+cryptography / psutil in the tool: **0** non-comment hits). Every signal is a
+relationship between FILES; "runs under pytest" or "drives a browser" is a
+RUNTIME relationship to a PACKAGE, which no file-relationship signal can
+express. **So for a dependency bump, derive the band from the PACKAGE.** AST
+census (predicate = exact top-level module name, because `'playwright' in name`
+also matches `playwright_stealth`): 12 tests import playwright directly, 37
+first-party modules do, and **384 test files -- 31% of 1224 -- are reached
+transitively.**
+
+**INSTRUMENT 2 -- THE PAIRED-ARM EXPERIMENT PREDICTED ITS OWN BLIND SPOT AND WAS
+READ AS COVERAGE ANYWAY.** The "43 files, 603/603 both arms" result was NOT a
+derived band; it was a hand-scoped set, and 15.41 already recorded that it ran
+with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` against a preinstalled pool and is
+therefore "SILENT about browser-driver compatibility". The failure that followed
+was exactly that class. A caveat written down is not a caveat applied -- this
+session quoted the 603/603 as if it settled the question the caveat excluded.
+
+**INSTRUMENT 3 -- A 3/3 GREEN RE-RUN THAT COULD NOT SEE THE SUBJECT.** The first
+box re-run used `-k command_palette`, which deselects the five tests that share
+the browser. It passed 3/3 and was nearly read as exoneration. The full-file
+10-run tally reproduced it 1 in 10. **At a ~6-13% rate, 3 passes is worth almost
+nothing** -- state the power of a negative result before quoting it.
+
+**WHAT ACTUALLY DISCRIMINATED, and it was cheap.** The rollback freeze the
+operator saved before upgrading (`pip freeze > ~/bd-freeze-rollback-*.txt`) reads
+`playwright==1.62.0`. The version had NOT moved, so the two prior GREEN captures
+ran the same playwright as the failing one, and the whole version theory died in
+one line. **Take that freeze before every upgrade; it is the only artifact that
+can answer "did this actually change?" after the fact.**
+
+**AND THE 1.61-vs-1.62 A/B HAD NO POWER, WHICH IS NOT THE SAME AS NO
+DIFFERENCE.** Raw 4/65 vs 0/65 looks suggestive; Fisher two-sided is p=0.1192,
+the four failures cluster in one window, and a sibling agent was demonstrably
+downloading 641MB into the same container during it. Three matched interleaved
+A/B runs produced ZERO events in both arms. A zero-event experiment discriminates
+nothing -- report it as UNKNOWN, never as "the control arm is clean".
+
+**MUTATION FOUND A HARNESS DEFECT, NOT A MISSING ASSERTION.** The first battery
+scored `input-focus-skipped` as ESCAPED: the probe dispatched Escape at the
+dialog `<div>`, so `e.target` was never an `<input>` and `allowInInput` was
+unconstrained -- while a real Escape goes to the focused cmdk input, which
+`isTextInput()` would skip. Retargeted at `[cmdk-input]`, and RED re-proven 5/5
+afterwards because waiting for the input to exist could have pushed the press
+out of the window. **`bd-mutate` could not run this battery at all: it has no
+rebuild hook, so every `.tsx` mutant would be scored against a STALE
+`frontend/dist` and would escape for a reason unrelated to test quality.** That
+is a real gap in the tool, filed here rather than fixed.
+
+**CONTAINER FACT, DURABLE: the E2E suite has never been runnable in the cloud
+container, and it fails in `setUp` rather than saying so.**
+`frontend/dist/index.html` loads `fonts.googleapis.com` in `<head>` BEFORE the
+module script; the container's only egress is the agent proxy, which
+Playwright's chromium does not use, so the request hangs FOREVER -- it never even
+fails -- and the pending stylesheet blocks the module script, so React never
+mounts and `#root` stays hidden. Launching chromium with `proxy={server}` does
+NOT fix it. A pytest plugin that `page.route()`s the two font hosts and fulfils
+them via `urllib` (which does honour the proxy) makes the whole suite run. Three
+route tests (`add_site_modal`, `history_tab`, `needs_review`) still fail
+identically on PRISTINE source in-container -- open, and NOT introduced by @906.
+
 ### 15.42 | Next work, scoped and ordered, at v3.66.903
 
 Supersedes 15.38's tier plan for everything tiers 1-2 covered; tiers 3-5 there
