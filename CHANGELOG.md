@@ -4,6 +4,152 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.911 - the dotted-path detector excluded its own common case
+
+Item 4, sub-cut 4 of FOUR. The register describes item 4 as three root causes;
+this one was found by running the suites rather than reading the item.
+
+monkeypatch.setattr has two forms, as real pytest does:
+    setattr(obj, "name", value)       3-arg: target is an OBJECT
+    setattr("pkg.mod.attr", value)    2-arg: target is a STRING
+The shim discriminated with `value is None and not callable(name)`, which is
+wrong in BOTH directions. In the 2-arg form `name` holds the REPLACEMENT, and a
+replacement is usually a function or lambda -- so callable(name) was true, the
+guard missed, and execution fell through to setattr(<str>, <function>, None):
+
+    TypeError: attribute name must be string, not 'function'
+
+Section 0 in a predicate: the detector excluded the most common instance of its
+own subject. And when the replacement WAS non-callable the guard fired only to
+raise NotImplementedError, so the form was unreachable either way.
+
+The detector is now isinstance(target, str) -- what actually distinguishes the
+forms, and immune to what the replacement happens to be. Resolution walks the
+LONGEST importable prefix and getattrs the rest, so "json.JSONEncoder.item_
+separator" works and not just "pkg.mod.attr", and an unresolvable path refuses
+by name rather than patching nothing.
+
+ACCEPTANCE, ITEM 4 END TO END, in tests rather than suites -- the suite count
+stopped moving three cuts ago while the real number kept climbing:
+
+    stage           collected   passing
+    @907 baseline         340       243
+    @909                  545       468
+    @910                  646       536
+    @911                  646       603
+
+Suites went 3/16 -> 13/16. coverage_map alone went 0/75 -> 65/75 here.
+
+STILL OPEN, and none is a stub gap: 32 in fuzz_harness (31 are EOFError out of
+multiprocessing/connection.py -- the harness spawns processes), 10 in
+coverage_map, 1 in desandbox. Those are genuine test failures or environment,
+and want their own investigation rather than being folded into this item.
+
+A FOURTH ASSERTION IN FOUR CUTS MATCHED ITS OWN SUBJECT. The unresolvable-path
+test asserted the module name appeared in the error -- but the runner embeds
+the whole traceback, which echoes the source line containing that very name, so
+it passed on pristine source where the message is "dotted-path form not
+implemented". It now requires the resolution-failure PHRASE too. bd-mutate or a
+RED re-run caught every one of the four; reading the test caught none.
+
+## v3.66.910 - discover_and_run never registered the module it was executing
+
+Item 4, sub-cut 3 of 3 -- the register's "module import path" root cause.
+
+`discover_and_run` built the module with module_from_spec and called
+exec_module WITHOUT putting it in sys.modules first. That is the step the
+importlib docs call out and real pytest performs. Without it, anything
+resolving a name through sys.modules[cls.__module__] during import gets None --
+most often @dataclass under `from __future__ import annotations`, whose field
+types are strings looked up in the defining module's globals:
+
+    IMPORT ERROR: 'NoneType' object has no attribute '__dict__'
+
+MINIMAL REPRODUCER, so the test is about the runner rather than the suite that
+surfaced it: one dataclass with one annotated field, plus the future import.
+Proven both directions by one-variable experiment BEFORE the test was written --
+register=False raises, register=True imports.
+
+CLEANUP IS THE OVER-CORRECTION GUARD. Registering and leaving a FAILED module
+behind is worse than not registering: a later import of the same name finds a
+half-executed module and skips re-running it, so a suite could pass against a
+module whose import raised. The error path pops it, and a test pins that. That
+test passes on pristine source too -- deliberately, since it guards the
+direction the FIX could break rather than the defect being fixed.
+
+ACCEPTANCE, and the suite-level number hides it. Still 13/16 suites green, but
+test_fuzz_harness_frontend went from Total: 1 (a single import-error row) to
+Total: 102 | Passed: 68. Sixty-eight tests now execute that could not run at
+all. A suite count is a coarse instrument; report what it conceals.
+
+The 34 that still fail there are NOT stub gaps in this class: 31 are EOFError
+out of multiprocessing/connection.py (the harness spawns processes), and 3 are
+the dotted-path monkeypatch.setattr defect that also blocks coverage_map --
+whose detector `value is None and not callable(name)` misses whenever the
+replacement is callable, which is the common case. That is a FOURTH sub-cut;
+the register describes item 4 as three.
+
+## v3.66.909 - MonkeyPatch, importorskip and an unknown mark
+
+Item 4, sub-cut 2 of 3. The rest of the API-surface root cause, each measured
+by running the suite rather than read from the register:
+
+  pytest.MonkeyPatch   constructor form missing (test_live_seed, 11 cases)
+  pytest.importorskip  missing, and the call sites are MODULE-LEVEL, so all
+                       four suites imported as zero tests
+  pytest.mark.slow     "type object 'mark' has no attribute 'slow'"
+
+AN UNKNOWN MARK IS NOW INERT, AND THAT IS THE FAITHFUL ANSWER -- with a
+carve-out. This repo has no pytest.ini, pyproject or setup.cfg and no
+--strict-markers; markers are registered in tests/conftest.py via
+addinivalue_line. Under real pytest an UNREGISTERED mark is therefore metadata
+plus a warning, not an error, so an inert decorator mirrors the API the stub
+exists to imitate.
+
+That does NOT extend to marks that change the verdict or the setup.
+`usefixtures` would drop setup the test declares and `xfail` would inverta
+result; a blanket no-op for either is the false green section 0 is about. Those
+three names REFUSE. Faithful where real pytest is permissive, loud where
+silence would change the result.
+
+`importorskip` returns the MODULE. Returning None would turn a missing optional
+dependency into an AttributeError inside the test body, reading as a code
+defect rather than a skip. MonkeyPatch is bound to the SAME class the
+`monkeypatch` fixture already uses, so the two forms cannot drift.
+
+ACCEPTANCE: 8/16 -> 13/16 suites green under bd-band. test_live_seed went
+53/64 -> 64/64 and test_desandbox_tool_verifiers went from a total import
+failure to 10 passed / 1 failed -- that remaining one is a genuine test
+failure, not a stub gap.
+
+A TEST OF MINE PASSED FOR THE WRONG REASON AGAIN, THE SAME WAY AS @908. The
+xfail-refusal case asserted only that the error text named `xfail`, and the
+pristine AttributeError -- "type object 'mark' has no attribute 'xfail'" --
+already contains it. It now requires the refusal PHRASE too, so a missing
+feature and a deliberate refusal cannot look alike.
+
+MUTATION 3/3, after importorskip-returns-none ESCAPED the first battery -- and
+it escaped by the SAME self-matching shape as the two above. The assertion was
+`ok is None OR "SKIP" in err.upper()`; a stub returning None runs on into the
+synthetic AssertionError, whose message contained the word "skip", so the
+substring arm matched TEXT THE TEST ITSELF WROTE. Now both halves are required
+(ok is None AND err startswith "SKIP") and the message no longer contains it.
+Three cuts in a row have produced an assertion whose denominator included its
+own subject's name; the instrument that caught all three was bd-mutate, not
+review.
+
+THE REMAINING THREE ARE DIAGNOSED, NOT GUESSED, and neither is in the
+register's description of this item:
+  * coverage_map (75 cases): monkeypatch.setattr's dotted-path DETECTOR is
+    `value is None and not callable(name)`, but the 2-arg form's replacement is
+    usually a lambda -- so callable(name) is true, the guard misses, and it
+    calls setattr(<str>, <function>, None). The detector excludes the most
+    common instance of its own subject.
+  * fuzz_harness: discover_and_run never puts the module in sys.modules before
+    exec_module, so @dataclass under `from __future__ import annotations`
+    cannot resolve field types. Proven both directions by one-variable
+    experiment: registering it makes the import succeed.
+
 ## v3.66.908 - the runner's pytest stub had no `param`, so five suites could not import
 
 Item 4, sub-cut 1 of 3. CLAUDE.md section 4 mandates `bd-band` on every cut,

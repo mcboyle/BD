@@ -3801,10 +3801,11 @@ BLOCKED ON THE OPERATOR (1-3)
 
 WORK, NOT BLOCKED (4-19)
 
-  4. **`bd-band`'s three remaining root causes** -- stub API surface (`param`,
-     `importorskip`, `MonkeyPatch`, `mark.slow`), module import path
-     (`shell_source`, `conftest`, cross-test-module), parametrize injection.
-     18 of 93 suites. The `shell_source` group is the sharpest: that helper
+  4. **CLOSED at v3.66.911 (15.44).** Was: "`bd-band`'s three remaining root
+     causes". It was FOUR, the feature list was 4 of 7, and "18 of 93" did not
+     reproduce -- re-derived at @907 over `git ls-files -- 'tests/*.py'` (1239
+     files), 17 files use an unstubbed feature and 13 of 16 real suites failed.
+     Original text follows; do not work from it. The `shell_source` group is the sharpest: that helper
      landed at @880, so the suites guarding the last three cuts cannot run
      under `bd-band` at all.
   5. **Batch A** -- `bd-parband` attributes a verdict to a suite it never ran
@@ -4003,6 +4004,97 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.44 | Item 4 is CLOSED at @911, and its description was wrong in four ways
+
+Close at 627f5c3 (v3.66.911). Sub-cuts @908, @909, @910, @911. Container-only;
+no box capture covers any of them.
+
+**ACCEPTANCE, IN TESTS RATHER THAN SUITES -- and the suite count is the reason
+to distrust the headline.** Over the 16 suites that item 4's own scan
+identified:
+
+    stage           collected   passing     suites green
+    @907 baseline         340       243          3/16
+    @909                  545       468         13/16
+    @910                  646       536         13/16
+    @911                  646       603         13/16
+
+**The suite count stopped moving at @909 while 135 more tests started passing.**
+@910 took test_fuzz_harness_frontend from Total: 1 (a single import-error row)
+to Total: 102, and @911 took coverage_map from 0/75 to 65/75 -- neither moved
+the suite number at all. A pass/fail-per-suite metric cannot see a suite that
+goes from "cannot import" to "68 of 102 pass". Report what the headline hides.
+
+**THE ITEM'S DESCRIPTION WAS WRONG IN FOUR WAYS. Every correction came from
+running something, not from reading.**
+
+1. **"18 of 93 suites" does not reproduce.** Re-derived at @907 over a stated
+   denominator -- `git ls-files -- 'tests/*.py'`, 1239 files -- 17 files use a
+   feature the stub lacks, and 13 of the 16 that are real suites fail. The 93
+   came from a hand-scoped run nobody recorded the membership of.
+2. **It names FOUR unstubbed features; there are SEVEN.** `pytest.CaptureFixture`,
+   `pytest.main` and `pytest.mark.capture_serial` are absent from its list.
+3. **Two of the predicted-affected suites PASS anyway.** `pytest.main` sits in
+   `if __name__` blocks that never execute under the runner. The static scan
+   fixes the denominator; only running fixes the predicate.
+4. **There are FOUR root causes, not three.** The fourth --
+   `monkeypatch.setattr`'s dotted-path detector -- is in no version of the item.
+
+**THE TWO CAUSES THE ITEM DOES NOT DESCRIBE, both section-0 shaped:**
+
+  * `monkeypatch.setattr` discriminated its 2-arg and 3-arg forms with
+    `value is None and not callable(name)`. In the 2-arg form `name` holds the
+    REPLACEMENT, which is usually a lambda -- so `callable(name)` was true, the
+    guard MISSED, and it fell through to `setattr(<str>, <function>, None)`.
+    **The detector excluded the most common instance of its own subject**, and
+    on the rare non-callable replacement it fired only to refuse, so the form
+    was unreachable either way. All 75 coverage_map failures.
+  * `discover_and_run` never put the module in `sys.modules` before
+    `exec_module`, the step the importlib docs call out and real pytest
+    performs. `@dataclass` under `from __future__ import annotations` then
+    cannot resolve its field types -- "'NoneType' object has no attribute
+    '__dict__'".
+
+**THE DESIGN TRAP THE ITEM DID FLAG IS REAL, AND BIGGER THAN IT SAID.** It
+warned that a `param` returning `values[0]` would break "33 of 37" sites.
+Measured at @907: **45 of 49** carry 2-5 values. The correct implementation
+returns the TUPLE, which the existing injection already zips against argnames --
+so the sub-cut needed no change to the injection at all.
+
+**A RULE THIS SESSION EARNED THE HARD WAY, FOUR TIMES IN FOUR CUTS.** Every one
+of @908-@911 shipped a first draft whose assertion matched TEXT THE TEST ITSELF
+SUPPLIED, and every one passed on pristine source for the wrong reason:
+
+  * @908  searched the whole result blob for "marks"; matched the synthetic
+          module's FILENAME, test_marks.py
+  * @909a searched the error for "xfail"; matched the bare AttributeError
+          "type object 'mark' has no attribute 'xfail'"
+  * @909b accepted `"SKIP" in err.upper()`; matched the synthetic test's own
+          failure message, which contained the word "skip"
+  * @911  searched the error for the module name; the runner embeds the whole
+          TRACEBACK, which echoes the source line containing that name
+
+**bd-mutate or a RED re-run caught all four. Reading the test caught none.**
+The fix in each case was to assert over a NARROWER field (the error text only,
+not the row; a distinctive refusal phrase, not the subject's name) and to keep
+the subject's name out of the fixture where possible. When an assertion is
+about an error MESSAGE, ask what else in the denominator contains that string --
+filenames, tracebacks, and the test's own assertion text all do.
+
+**STILL OPEN in those 16 suites, and NONE is a stub gap:** 32 in fuzz_harness
+(31 are EOFError from multiprocessing/connection.py -- the harness spawns
+processes), 10 in coverage_map, 1 in desandbox. Genuine failures or
+environment; they want their own investigation rather than being folded into a
+closed item.
+
+**THE STUB'S CONTRACT, now explicit, for whoever extends it next.** Faithful
+where real pytest is permissive; loud where silence would change a result. An
+unknown mark is INERT because this repo has no --strict-markers and registers
+markers via addinivalue_line, so real pytest treats it as metadata. But
+`usefixtures`, `xfail` and `filterwarnings` REFUSE, `pytest.param` refuses any
+kwarg but `id`, and an unresolvable dotted path refuses by name. A stub that
+accepts what it does not implement is a false green.
+
 ### 15.43 | The palette flake was ours, and three instruments were blind to it
 
 Close at b876613 (v3.66.906). A box capture failure chased as a playwright 1.62
@@ -4108,11 +4200,13 @@ FIRST, AND MECHANICAL: land `claude/deps-latest`.
   silent on browser-driver compatibility, and the box's cryptography jump
   (45 -> 50) is larger than the container's (49 -> 50).
 
-THEN THE SUBSTANTIAL ONE: item 4, bd-band's three root causes.
-  18 of 93 suites cannot run under bd-band. It is the only remaining item that
-  unblocks what CLAUDE.md section 4 mandates on EVERY cut, and its acceptance is
-  one number measurable before and after (18 -> 0). Container-only; no operator
-  decision.
+THEN THE SUBSTANTIAL ONE: item 4 -- **CLOSED at v3.66.911, see 15.44.**
+  Shipped as FOUR sub-cuts (@908-@911), not the three described below, and the
+  "18 of 93" never reproduced. Acceptance measured in TESTS because the suite
+  count stopped moving three cuts before the work did: 340 collected / 243
+  passing -> 646 / 603, suites 3/16 -> 13/16. Everything from here to the end of
+  this item's description is SUPERSEDED by 15.44; it is left in place only
+  because the design trap it flagged was real.
 
   THREE SUB-CUTS, AND ONE HARD CONSTRAINT BETWEEN THEM. An adversarial review
   found `pytest.param` claimed by TWO of them, with the sub-cut that recommends

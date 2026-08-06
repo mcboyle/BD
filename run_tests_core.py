@@ -64,7 +64,43 @@ class _PytestStub:
             return args[0]
         return deco
 
-    class mark:
+    class _MarkMeta(type):
+        # v3.66.909: `mark` had only the four attributes it defined, so
+        # `@pytest.mark.slow` died at IMPORT with "type object 'mark' has no
+        # attribute 'slow'" and took its whole suite with it.
+        #
+        # An unknown mark is INERT, which is what real pytest does here: this
+        # repo has no pytest.ini/pyproject/setup.cfg and no --strict-markers,
+        # and tests/conftest.py registers markers via addinivalue_line, so an
+        # unregistered mark is metadata plus a warning rather than an error.
+        #
+        # But a blanket no-op would be a false green for marks that change the
+        # VERDICT or the SETUP. Those are refused by name instead: silently
+        # dropping `usefixtures` runs a test without the setup it declares, and
+        # silently dropping `xfail` reports an expected failure as a failure.
+        # Faithful where real pytest is permissive; loud where silence would
+        # change the result.
+        _VERDICT_CHANGING = ("usefixtures", "xfail", "filterwarnings")
+
+        def __getattr__(cls, name):
+            if name.startswith("__"):
+                raise AttributeError(name)
+            if name in cls._VERDICT_CHANGING:
+                raise NotImplementedError(
+                    f"the BulkDownloader pytest stub does not implement "
+                    f"pytest.mark.{name}; it would change which tests run or "
+                    f"how their result is graded. Use real pytest for this "
+                    f"suite, or extend the stub deliberately.")
+
+            def _inert(*a, **k):
+                # Bare @pytest.mark.foo -> called with the function.
+                if len(a) == 1 and not k and callable(a[0]):
+                    return a[0]
+                # Parameterised @pytest.mark.foo(...) -> return the decorator.
+                return lambda fn: fn
+            return _inert
+
+    class mark(metaclass=_MarkMeta):
         # v3.66.37: the project's custom `bd_module_wipe` marker, used as
         # `pytestmark = pytest.mark.bd_module_wipe` by ~112 test files
         # (registered in conftest.py, applied by the isolated_bd_home
@@ -161,6 +197,39 @@ class _PytestStub:
                 "which cases run. Use real pytest for this suite, or extend "
                 "the stub deliberately.")
         return values
+
+    @staticmethod
+    def importorskip(modname, minversion=None, reason=None):
+        # v3.66.909: absent, so four suites died at IMPORT -- and because the
+        # call sites are module-level, none of their tests ran at all.
+        #
+        # Returns the MODULE. A stub returning None would turn "this optional
+        # dependency is missing" into an AttributeError inside the test body,
+        # which reads as a code defect rather than a skip.
+        import importlib
+        try:
+            mod = importlib.import_module(modname)
+        except ImportError:
+            raise _Skipped(reason or f"could not import {modname!r}")
+        if minversion is not None:
+            have = getattr(mod, "__version__", None)
+            if have is None:
+                raise _Skipped(
+                    f"{modname!r} has no __version__ to compare against "
+                    f"minversion={minversion!r}")
+            # Numeric-tuple compare; good enough for the dotted releases in
+            # use, and it refuses rather than guessing on anything else.
+            def _parts(v):
+                try:
+                    return tuple(int(p) for p in str(v).split("."))
+                except ValueError:
+                    raise _Skipped(
+                        f"cannot compare {modname!r} version {v!r} against "
+                        f"minversion={minversion!r} in the stub")
+            if _parts(have) < _parts(minversion):
+                raise _Skipped(
+                    f"{modname!r} is {have}, need >= {minversion}")
+        return mod
 
     @staticmethod
     def skip(reason=""): raise _Skipped(reason)
@@ -277,15 +346,61 @@ class _CapSys:
 class _MonkeyPatch:
     def __init__(self):
         self._undo = []
+
+    @staticmethod
+    def _resolve_dotted(path):
+        """Split "pkg.mod.Class.attr" into (holder, attr_name).
+
+        Walks the LONGEST importable prefix rather than assuming everything
+        before the final dot is a module -- "json.JSONEncoder.item_separator"
+        has to import `json` and then getattr its way to the class. Refuses
+        loudly if nothing resolves: patching the wrong object, or silently
+        patching none, would let a test pass while asserting about code it
+        never replaced.
+        """
+        import importlib
+        parts = path.split(".")
+        if len(parts) < 2:
+            raise ValueError(
+                f"monkeypatch.setattr could not resolve {path!r}: a dotted "
+                f"path needs at least one dot (module.attr)")
+        for i in range(len(parts) - 1, 0, -1):
+            try:
+                obj = importlib.import_module(".".join(parts[:i]))
+            except ImportError:
+                continue
+            try:
+                for p in parts[i:-1]:
+                    obj = getattr(obj, p)
+            except AttributeError:
+                continue
+            return obj, parts[-1]
+        raise ValueError(
+            f"monkeypatch.setattr could not resolve {path!r}: no importable "
+            f"prefix of it exists")
     def setattr(self, target, name, value=None, raising=True):
-        # Support both setattr(obj, 'name', value) and
-        # setattr('mod.path.attr', value) forms; we only
-        # use the obj+name form internally.
-        if value is None and not callable(name):
-            # Single-arg dotted-path form: not implemented.
-            raise NotImplementedError(
-                "monkeypatch.setattr dotted-path form not implemented in shim"
-            )
+        # Two forms, exactly as real pytest:
+        #   setattr(obj, "name", value)       3-arg: target is an OBJECT
+        #   setattr("pkg.mod.attr", value)    2-arg: target is a STRING
+        #
+        # v3.66.911: the discriminator used to be
+        #     if value is None and not callable(name)
+        # which is wrong in both directions. In the 2-arg form `name` holds the
+        # REPLACEMENT, and a replacement is usually a function or lambda -- so
+        # callable(name) was true, the guard missed, and execution fell through
+        # to setattr(<str>, <function>, None):
+        #     TypeError: attribute name must be string, not 'function'
+        # The detector excluded the most common instance of its own subject.
+        # And when the replacement WAS non-callable the guard fired only to
+        # refuse, so the form was unreachable either way. That accounted for
+        # all 75 failures in test_coverage_map_frontend.
+        #
+        # isinstance(target, str) is what actually distinguishes the forms and
+        # cannot be confused by what the replacement happens to be.
+        if isinstance(target, str):
+            # 2-arg form: `name` is really the replacement VALUE.
+            value = name
+            target, name = self._resolve_dotted(target)
         orig = getattr(target, name) if hasattr(target, name) else _MISSING
         self._undo.append((target, name, orig))
         setattr(target, name, value)
@@ -343,6 +458,15 @@ class _MonkeyPatch:
                     except AttributeError: pass
                 else:
                     setattr(target, name, orig)
+
+
+# v3.66.909: `pytest.MonkeyPatch()` is the CONSTRUCTOR form, used where a test
+# needs a patcher outside the fixture protocol (a helper, or a with-block).
+# Bound here rather than inside _PytestStub because _MonkeyPatch is defined
+# after that class body -- an in-class `MonkeyPatch = _MonkeyPatch` raises
+# NameError at import. Pointing the name at the SAME class the `monkeypatch`
+# fixture uses means the two forms cannot drift apart.
+_PytestStub.MonkeyPatch = _MonkeyPatch
 
 
 # ── Fixture implementations (mirror conftest.py) ────────────────────────
@@ -721,9 +845,21 @@ def discover_and_run(test_file):
     spec = importlib.util.spec_from_file_location(
         f"test_{test_file.stem}", test_file)
     mod = importlib.util.module_from_spec(spec)
+    # v3.66.910: register BEFORE executing. Anything that resolves a name via
+    # sys.modules[cls.__module__] during import gets None otherwise -- most
+    # often @dataclass under `from __future__ import annotations`, whose field
+    # types are strings looked up in the defining module's globals. That
+    # surfaced as "IMPORT ERROR: 'NoneType' object has no attribute '__dict__'"
+    # and took the whole suite with it. This is the step the importlib docs
+    # call out and real pytest performs.
+    sys.modules[spec.name] = mod
     try:
         spec.loader.exec_module(mod)
     except Exception as e:
+        # Do NOT leave a half-executed module behind: a later import of the
+        # same name would find it and skip re-running it, so a suite could
+        # pass against a module whose import raised.
+        sys.modules.pop(spec.name, None)
         # NOTE: must be a 4-tuple (name, err, ok, duration) to match
         # every other result row this function emits. A 3-tuple here
         # crashes the serial-retry classifier in _retry_failures_serial,
