@@ -4,6 +4,41 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.894 - session close: tiers 1 and 2 are done, item 19 closed as two cuts
+
+Register-only. SESSION_CARRY 15.39 carries the close; 15.38's tier 2 table is
+corrected in place from four-of-five to all five.
+
+ITEM 19 IS CLOSED, as two cuts, per the spec's explicit "do not batch these".
+892 put commit identity into 01_sysinfo.log; 893 added the [7b/9] selftest stage
+and tools/selftest_verdict.py.
+
+WHAT A BUNDLE GAINS. 01_sysinfo.log now opens with a --- commit --- block (sha,
+branch, toplevel, commit date, clean/dirty, source) in three states mirroring
+app_health.build_identity. The MISMATCH state is the design rather than a
+nicety: git rev-parse HEAD searches UPWARD and capture.sh cds to BD_HOME first,
+so a BD_HOME below another checkout would have emitted a valid-looking sha about
+a DIFFERENT tree. And 07b_selftest.json/.log arrive from the new stage, with
+selftest=$SELFTEST_EXIT wired as a --stage-exit - so a battery reporting FAILs
+turns the capture red while WARNs do not, because capture_verdict.py has no warn
+tier and gating warnings would fail a healthy box.
+
+UNVERIFIED AND RECORDED AS SUCH: the selftest stage has never run against the
+live service. It is a NEW way for the release gate to fail, so a surprise there
+fails the whole capture rather than warning; 07b_selftest.json holds the raw
+body and is the file to read first.
+
+NEXT CAPTURE ARITHMETIC. The 889 run was PASS at 14734/14649/85 and reconciled
+exactly. 892 adds 7 tests and 893 adds 19, so the next run should read
+14760/14675/85. Re-pin the graph hash first - two cuts changed source, and step
+[2b] turns drift into a whole-capture FAIL.
+
+THREE AUTHORING ERRORS are recorded in 15.39, all instrument-caught and none
+review-caught: six "must be nonzero" rows that passed vacuously against a
+missing tool; a curl-exit mutant that escaped because the fall-through was
+caught by the grader anyway; and shell_source.blocks_containing returning only
+the closing line of a brace group.
+
 ## v3.66.893 - capture.sh probes the selftest battery, and is not fooled by a 200
 
 Cut 2 of 2 for the capture.sh work, and it closes the item. New stage [7b/9]
