@@ -4,6 +4,53 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.904 - the parity sweep, the dependency experiment, and the work that is next
+
+Register-only. SESSION_CARRY 15.41 records what the box/container diff found;
+15.42 is the ordered scope for what comes next.
+
+EVERYTHING IN 15.41 CAME FROM ONE FIELD ADDED AT v3.66.892 - the commit block
+that made a capture bundle name its own tree. It reported `tree: dirty`, and the
+chain from there was: rotated logs -> box/container diff -> ffmpeg absent ->
+cloud-setup installing 2 of 5 package groups. None of it was on any list.
+
+THE BOX WAS CLEAN AND THE CONTAINER WAS NOT. check_requirements exited 0 on the
+box for both manifests, so the cryptography drift 15.40 left as an operator
+decision was CONTAINER-ONLY. That decision is closed and no bound changed for it.
+
+THE DEPENDENCY EXPERIMENT ran paired arms over the same 43 files - latest deps
+603 passed / 1 skipped / 0 failed, control identical. Same collected count both
+ways, which is what makes the zero delta attributable to the dependencies rather
+than to two different runs. Only three of nineteen declared packages were held
+back by their ceiling. Branch claude/deps-latest raises those three and carries
+NO version bump and NO changelog deliberately, so it cannot land by accident.
+
+WHAT THAT EXPERIMENT CANNOT SAY is recorded beside it: it ran with
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1, so it is honest about import-time and API
+breakage and silent about browser-driver compatibility - and the box's jump is
+larger (45 -> 50 on the crypto package) than the container's (49 -> 50).
+
+THE PROVISIONER CORRECTION IS THE METHOD LESSON. The first draft of v3.66.903
+added all three missing groups - "install all five" - and the operator's own run
+of install_linux.sh failed exactly there: "nodejs : Conflicts: npm ... you have
+held broken packages". Neither machine gets node from apt, and Ubuntu's
+candidate is four majors behind the v22 both actually run. Widening a
+provisioner without asking whether each group SUITS that environment is the
+section 0 shape wearing a fix's clothes, and it was caught by a real run rather
+than by review.
+
+THREE MORE OF MY OWN ERRORS are recorded in 15.41, all caught by running
+something: git check-ignore misused a SECOND time after being retracted at
+v3.66.887; a re-pin instruction stated as fact that l0_extract's own PROD tuple
+disproves; and a hardcoded `playwright install chromium` handed over an hour
+after shipping a cut whose whole point was that lists belong in the fragment.
+
+15.42 SCOPES WHAT IS NEXT in order: land claude/deps-latest once a box capture
+is green, then item 4 (bd-band's three root causes, 18 of 93 suites) with the
+constraint that pytest.param belongs to ONE sub-cut - 33 of 37 param sites carry
+more than one value, so the naive identity design would turn five suites green
+on a scalar fed to multi-arg tests.
+
 ## v3.66.903 - cloud-setup installed 2 of the declared package groups
 
 Found by diffing the operator's box against this container. scripts/lib/
