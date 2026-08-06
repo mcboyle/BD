@@ -4,6 +4,49 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.889 - the import-graph gate was blind to tests/, and the band tool hid it
+
+Register item 20, widened on operator decision - and widened together with the
+thing that would otherwise have made it a trap.
+
+THE BLIND SPOT, MEASURED. The gate compares an edge set against a frozen
+baseline, but the edge set came from dependency_graph.build(), whose _py_files
+walks a hardcoded ("bulk_downloader", "tools"). The baseline held 1618 edges
+over 506 source keys; including tests/ adds 2132 more from 985 contributing
+test files (1234 parsed, 0 parse failures). So 57% of the real internal import
+surface sat outside the denominator the gate reported on.
+
+THE TRAP, AND WHY IT SHIPS IN THE SAME CUT. bd-band-derive fired its "import
+edges" regen flag only for changes under bulk_downloader/. Widening the gate
+alone would mean a tests/-only cut gets NO flag and does NOT band the gate's
+own suite - so the author is never told they owe a re-freeze, and the failure
+surfaces on the box instead of in the sandbox. CLAUDE.md section 4 records that
+exact shape costing five releases with test_source_windows_do_not_shift red on
+main. One without the other converts a per-cut chore into a per-cut trap, so
+neither ships alone.
+
+WHY THE ENUMERATOR AND NOT THE WALKER. dependency_graph._py_files also feeds
+DEPENDENCY_GRAPH.json AND the config sub-graph, so widening it there would make
+test files count as config readers and writers - a semantic change to a
+DIFFERENT gate's denominator, riding along invisibly. The gate gets its own
+file list instead and still reuses dependency_graph's _parse,
+_internal_imports, _bd_mods and _tool_stems. The predicate that decides what
+counts as an edge stays single-sourced; only the list of files widens, and a
+test asserts the gate never grows its own _internal_imports.
+
+Baseline re-frozen in the same cut: 1618 -> 3750 edges, 506 -> 1491 source
+keys, 985 of them under tests/. Pure growth, so the shrink guard never fires.
+test_import_graph_no_new_edges.py is now an axis-6 gate and CLAUDE.md says so.
+
+Verification: 6 new tests, 4 proven RED on pristine source; band 18 files.
+
+AN ERROR IN THIS CUT'S OWN TEST, recorded because it is the second time this
+session a test certified itself. The band-derive assertion first read
+`"import_graph" in " ".join(band)` and PASSED on pristine source - because this
+very file's NAME contains "import_graph", so bd-band-derive's filename-stem
+signal pulled it into the band and the test proved nothing. Naming the gate's
+own suite exactly turns it RED.
+
 ## v3.66.888 - build_session_pack's two final gates both failed open
 
 Register item 13, which turned out not to be the item the register described.

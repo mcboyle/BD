@@ -104,6 +104,65 @@ def _load_dependency_graph(root: Path | None = None):
     return mod
 
 
+def _test_files(root: Path) -> list[Path]:
+    """tests/*.py, pruned exactly as dependency_graph._py_files prunes.
+
+    v3.66.889: tests/ was outside this gate's denominator entirely. MEASURED at
+    v3.66.888: the baseline held 1618 edges over 506 source keys, and including
+    tests/ adds 2132 more from 1234 files (0 parse failures) -- 57% of the real
+    internal import surface was ungated.
+
+    THE ENUMERATOR WIDENS HERE, NOT IN `dependency_graph._py_files`, and that is
+    deliberate. That walker also feeds DEPENDENCY_GRAPH.json AND the config
+    sub-graph, so widening it there would make test files count as config
+    readers/writers -- a semantic change to a DIFFERENT gate's denominator,
+    riding along invisibly. Only this gate's file list grows; the predicate
+    that decides what counts as an edge stays single-sourced in
+    dependency_graph._internal_imports.
+    """
+    files: list[Path] = []
+    for dirpath, _dirs, names in os.walk(root / "tests"):
+        if "__pycache__" in dirpath:
+            continue
+        for nm in names:
+            if nm.endswith(".py"):
+                files.append(Path(dirpath) / nm)
+    return sorted(files)
+
+
+def _tests_out_map(root: Path, dep) -> dict[str, list[str]]:
+    """Edges out of tests/, derived with the BUILDER's parse and predicate.
+
+    Reuses dep._parse / dep._internal_imports / dep._bd_mods / dep._tool_stems
+    rather than reimplementing them, so the only difference between this and
+    `dep.build()`'s edge loop is which files it runs over. A forked predicate
+    would be two denominators that drift -- CLAUDE.md section 8's "two
+    populations named tools" defect, in a gate.
+    """
+    needed = ("_parse", "_internal_imports", "_bd_mods", "_tool_stems")
+    if dep is None or not all(callable(getattr(dep, n, None)) for n in needed):
+        # Unknown is a third state. Returning {} here would silently narrow the
+        # denominator back to the pre-889 set while still reporting a verdict.
+        raise UnparseableSourceError(
+            "dependency_graph is missing one of %s, so tests/ edges cannot be "
+            "derived with the builder's own predicate; refusing to report a "
+            "verdict over a narrower denominator than the baseline declares"
+            % (needed,))
+    bd_mods, tool_stems = dep._bd_mods(root), dep._tool_stems(root)
+    out: dict[str, set[str]] = {}
+    for p in _test_files(root):
+        tree, _reason = dep._parse(p)
+        if tree is None:
+            # assert_fully_parseable already fails closed over this same set;
+            # skipping here would be unreachable, and silent if it were not.
+            continue
+        rp = p.relative_to(root).as_posix()
+        for nid in dep._internal_imports(tree, bd_mods, tool_stems):
+            if nid != rp:
+                out.setdefault(rp, set()).add(nid)
+    return {k: sorted(v) for k, v in out.items()}
+
+
 def _source_files(root: Path, dep=None) -> tuple[list[Path], str]:
     """The files the graph walks, and the name of where that list came from.
 
@@ -112,8 +171,9 @@ def _source_files(root: Path, dep=None) -> tuple[list[Path], str]:
     faithful copy of that walk, used only if the private helper is renamed; it
     is never a narrower set, and the label says which one ran."""
     if dep is not None and callable(getattr(dep, "_py_files", None)):
-        return sorted(Path(p) for p in dep._py_files(root)), "dependency_graph._py_files"
-    files: list[Path] = []
+        return (sorted(list(Path(p) for p in dep._py_files(root)) + _test_files(root)),
+                "dependency_graph._py_files + tests/")
+    files: list[Path] = list(_test_files(root))
     for rel in ("bulk_downloader", "tools"):
         for dirpath, _dirs, names in os.walk(root / rel):
             if "__pycache__" in dirpath:
@@ -160,7 +220,12 @@ def current_out_map(root: Path | None = None) -> dict:
     dep = _load_dependency_graph(root)
     assert_fully_parseable(root, dep)
     g = dep.build(root)
-    return {k: sorted(v) for k, v in g["package"]["out"].items()}
+    merged = {k: sorted(v) for k, v in g["package"]["out"].items()}
+    # tests/ edges, same predicate, wider file list. A test file cannot collide
+    # with a bulk_downloader/ or tools/ key, so this is a disjoint union.
+    for src, dsts in _tests_out_map(root, dep).items():
+        merged[src] = sorted(set(merged.get(src, [])) | set(dsts))
+    return merged
 
 
 def current_edge_set(root: Path | None = None) -> set[tuple[str, str]]:
