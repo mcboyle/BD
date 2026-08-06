@@ -4,6 +4,57 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.887 - tier 1 executed; and v3.66.886's one "confirmation" is retracted
+
+Register-only. Four items close on measurement, and one of this session's own
+claims is withdrawn.
+
+RETRACTION FIRST, because it is the most important line here. v3.66.886 wrote
+that S2 #2 was "CONFIRMED OPEN BY DIRECT PROBE -- all three of
+plugins/ackgate.py, plugins/handdropped.py and plugins/registry.json are
+tracked=no AND ignored=no". The words were true and the conclusion did not
+follow: `git check-ignore` answers about a RULE, not a FILE, none of those
+three files exists in this container, and no band run here ever created one.
+The probe could not see its subject and returned a confident "still open" -
+CLAUDE.md section 0, written into the register by the session that had just
+written a section about that exact defect class.
+
+Measured now, S2 #2 is substantially closed: .bd_last_band.json has an ignore
+rule (.gitignore:51, landed @868); plugins.registry.json - the path plugins.py
+actually writes - is ignored (.gitignore:87); the repo plugins dir is
+redirected to a sandbox by tests/conftest.py's
+_never_write_the_repo_plugins_dir and gated by
+test_no_test_writes_the_repo_plugins_dir.py, both green; and nothing in the
+tree creates ackgate.py or handdropped.py at the repo root. The observation
+was true when made and has been fixed since. A stale item and a live one are
+indistinguishable until something is RUN, so a confirmation needs the same
+instrument discipline as a closure.
+
+TIER 1, executed on the box:
+
+Item 24 closes as OBSOLETE. The census selftest's stale-lock check was deleted
+at v3.66.844 because nothing writes a *.lock. Probed on the box: ONE hit, not
+three - setuptools' own vendored .lock inside the gitignored venv. Deleting it
+would have reached into site-packages. The predicted identity was also wrong -
+npm manifests were expected, per @844's recorded reason - which is why the
+probe was run rather than the item closed on the comment alone.
+
+Item 25: the orphan bundle is VERIFIED intact - exit 0, "records a complete
+history", 20M, and its 22 non-main refs reconcile exactly with CLAUDE.md
+section 7's "21 no-merge-base branches plus a stale merged handoff branch".
+Only the copy-into-rotation remains. Verified before being trusted, because a
+sole copy that cannot be cloned from is not a backup.
+
+Item 22 closes as correct behaviour: the library panel's missing rows are
+done-status history rows whose file is genuinely gone, and _resolve_recorded
+deliberately keeps unknown and ambiguous out of absent so a first-match guess
+cannot manufacture a row. The "31 rows" figure is box-local and was NOT
+verified; it is recorded as not-inheritable.
+
+Item 23: v3.66.884 IS captured, PASS at 6262b19e0a08, 14710/14625/0/0/85, live
+36/0/0. The delta reconciles exactly - 883 was 14703/14618 and 884 added seven
+tests, so the box moved +7/+7 with nothing unexplained in either direction.
+
 ## v3.66.886 - three numbering schemes reconciled; five "open" items were closed
 
 Register-only. The operator supplied seventeen screenshots of THREE different

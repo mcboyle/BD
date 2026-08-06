@@ -3601,11 +3601,38 @@ S1 and S2 are historical and should not be worked from.
 | S1 #8: `bd-band` carries three `/home/claude` paths | ZERO, in the tool and in its project-knowledge mirror |
 | S1 #8: `test_contracts` gives 4/10 under `bd-band` | 14/14 since v3.66.885, matching bare pytest exactly |
 
-**ONE ITEM CONFIRMED OPEN BY DIRECT PROBE**, because a confirmation is worth as
-much as a closure: S2 #2, band runs writing into the working tree. All three of
-`plugins/ackgate.py`, `plugins/handdropped.py` and `plugins/registry.json` are
-tracked=no AND ignored=no. And S3's zero-collect item reproduced in this
-session's own band output -- a helper module with zero tests is graded FAIL.
+**THE "CONFIRMED OPEN" CLAIM IN THIS SECTION WAS WRONG. RETRACTED at v3.66.887,
+and the way it was wrong is the section's own subject.** It read: "S2 #2, band
+runs writing into the working tree -- all three of `plugins/ackgate.py`,
+`plugins/handdropped.py` and `plugins/registry.json` are tracked=no AND
+ignored=no." Every one of those three words was true and the conclusion did not
+follow. `git check-ignore` answers about a RULE, not a FILE; none of the three
+files exists in this container, and no band run here ever created one. The probe
+could not see its subject and returned a confident "still open" -- CLAUDE.md
+section 0, committed to the register by the session that had just written a
+section about it.
+
+MEASURED at v3.66.887, and S2 #2 is substantially CLOSED:
+
+  * `.bd_last_band.json` HAS an ignore rule (`.gitignore:51`), landed at @868.
+  * `plugins.registry.json` -- the path `plugins.py:1745` actually writes -- is
+    ignored (`.gitignore:87`). `plugins/registry.json`, the path the retracted
+    probe asked about, is a DIFFERENT path that nothing writes.
+  * the repo plugins dir is guarded by `tests/conftest.py:651`
+    `_never_write_the_repo_plugins_dir`, which redirects it to a sandbox, and by
+    a dedicated gate, `test_no_test_writes_the_repo_plugins_dir.py`. Both green.
+  * nothing in the tree creates `ackgate.py` or `handdropped.py` at the repo
+    root; they are fixture names the guard sandboxes.
+
+S2's observation was true when made and has been fixed since. **A stale item and
+a live one are indistinguishable until something is run** -- which is the whole
+argument for verify-then-act, and the reason a "confirmation" needs the same
+instrument discipline as a closure. The higher-stakes verdict is not always the
+closure.
+
+S3's zero-collect item DID reproduce in this session's own band output -- a
+helper module with zero tests graded FAIL. That one is genuinely open, and it
+was observed rather than inferred.
 
 **ANCHORS THAT HAVE DRIFTED.** Every one of these was cited with a `file:line`
 that no longer points at its subject. Section 1 applies: re-derive before
@@ -3669,9 +3696,13 @@ WORK, NOT BLOCKED (4-19)
   5. **Batch A** -- `bd-parband` attributes a verdict to a suite it never ran
      (a bad path falls through to a broad run); `.bd_last_band.json` has no
      ignore rule. Small, confirmed open.
-  6. **Band runs write into the working tree** -- `plugins/ackgate.py`,
-     `plugins/handdropped.py`, `plugins/registry.json`, none tracked and none
-     ignored. RE-CONFIRMED by probe this session.
+  6. **CLOSED 2026-08-06, and the v3.66.886 "re-confirmation" is RETRACTED**
+     -- see 15.35. `.bd_last_band.json` and `plugins.registry.json` both have
+     ignore rules (`.gitignore:51`, `:87`); the repo plugins dir is redirected
+     to a sandbox by `tests/conftest.py:651` and gated by
+     `test_no_test_writes_the_repo_plugins_dir.py`, both green. The retracted
+     probe asked `git check-ignore` about three paths that do not exist in
+     this container, which answers about a rule and not a file.
   7. **Zero-collect classification** -- `bd-band` grades a zero-test helper
      module FAIL, and the derive sweeps helper modules into bands.
      Reproduced in this session's own run.
@@ -3721,17 +3752,44 @@ DELIBERATE DEFERRALS -- OPERATOR DECISIONS, NOT DEFECTS (20-22)
      carry a baseline re-freeze. Standing-cost call.
  21. **The pre-force line `b4f0c80`** of the deleted preflight branch --
      unexamined, no verdict, exists only in the box's object store.
- 22. **Library panel shows the 31 fixture rows as `missing`** -- correct
-     behaviour, cosmetic noise, grows 1-2 per capture run.
+ 22. **CLOSED 2026-08-06, verified correct behaviour.** The library panel's
+     `missing` rows are `status='done'` history rows whose file is genuinely
+     gone, and `_resolve_recorded` deliberately keeps `unknown` and
+     `ambiguous` OUT of `absent` (`library_final.py:218-235`) so a
+     first-match guess cannot manufacture a row. Not a defect; no code. The
+     "31, growing 1-2 per capture" figure is box-local history state and was
+     NOT verified -- do not inherit it as a measurement.
 
 BOX-ROUTINE (23-25)
 
- 23. **The capture gap is two cuts wide** -- 884 and 885. 885 IS covered by a
-     capture (see 15.35's correction), so this is real coverage, not a formality.
- 24. **Three stale >6h lock files** flagged by the census selftest -- remove
-     only after confirming nothing holds them.
- 25. **`~/bd-orphans-2026-08-01.bundle` is the SOLE copy** of the deleted branch
-     family -- give it normal backup rotation.
+ 23. **The capture gap is 885 and 886.** v3.66.884 IS captured, PASS at
+     `6262b19e0a08`: 14710 total / 14625 passed / 0 failed / 0 errors / 85
+     skipped, live 36/0/0, graph pin re-armed to `b5a1e5d5...`. **The delta
+     reconciles exactly** -- 883 was 14703/14618, 884 added seven tests, and
+     the box moved +7/+7 with nothing unexplained in either direction, which
+     is the check worth doing on any capture. 885 adds ten more, so the next
+     capture should read 14720 / 14635 / 85; a mismatch is signal.
+ 24. **CLOSED 2026-08-06 as OBSOLETE. Do not act on the original wording.**
+     The census selftest's stale-lock check was DELETED at v3.66.844
+     (`selftest.py:622`) because nothing in the tree writes a `*.lock` and its
+     rglob only ever found vendored manifests. Probed on the box: **one** hit,
+     not three -- `venv/lib/python3.12/site-packages/setuptools/_vendor/.lock`,
+     setuptools' own vendored lock inside the gitignored venv. Deleting it
+     would have reached into site-packages. **The predicted identity was also
+     wrong** -- this session expected npm `yarn.lock` files, per @844's
+     recorded reason; the disposition survived that error and the file name
+     did not, which is why the probe was run instead of the item being closed
+     on the comment alone.
+ 25. **`~/bd-orphans-2026-08-01.bundle` VERIFIED intact 2026-08-06**; the
+     copy-into-rotation is the only step left and its destination is the
+     operator's call. `git bundle verify` exit 0, "records a complete
+     history", 20M, sha256
+     `a86a8fc4a31a4e1e5367910733f37e34e62a263951fad61e92a00c53eeccde8a`.
+     It carries **22 non-`main` refs** (24 lines, `origin/main` listed twice),
+     which reconciles exactly with CLAUDE.md section 7's "21 no-merge-base
+     branches plus a stale merged handoff branch", and `origin/main` itself at
+     `2fdc0b0` as of 2026-08-01. Verified BEFORE trusting it, because a sole
+     copy that cannot be cloned from is not a backup.
 
 STANDALONE REGISTER FINDINGS, STILL OPEN (26-28)
 
