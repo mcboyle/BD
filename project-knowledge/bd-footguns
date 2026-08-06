@@ -69,18 +69,24 @@ SEED = [
      "fix": "python3 tools/build_endpoint_catalog.py + tools/check_route_counts.py.",
      "provenance": {"review_id": "route-add discipline"}},
 
-    {"id": "FG-OVERLAY-ORPHAN-ON-DELETE", "severity": "advisory", "status": "active",
-     "rule": "Deploy is `unzip -o` over the live tree: it overwrites and adds, NEVER "
-             "removes. A file DELETED in a cut keeps living on stash, and because the "
-             "graph gates (dependency_graph, import_graph_gate) GLOB THE DISK, the orphan "
-             "is scanned as live source and its stale edge trips the frozen baseline. "
-             "bit@718: app_sched_exports.py, deleted at 716, was still on stash and put "
+    {"id": "FG-OVERLAY-ORPHAN-ON-DELETE", "severity": "advisory", "status": "retired",
+     "rule": "RETIRED at v3.66.918: the class cannot occur under the current deploy. "
+             "It described `unzip -o` over the live tree, which overwrites and adds but "
+             "NEVER removes -- so a file DELETED in a cut kept living on the box, and "
+             "because the graph gates (dependency_graph, import_graph_gate) GLOB THE "
+             "DISK, the orphan was scanned as live source and its stale edge tripped the "
+             "frozen baseline. bit@718: app_sched_exports.py, deleted at 716, put "
              "test_import_graph_no_new_edges RED even though the release zip was correct. "
-             "This is a DEPLOY defect, not a code defect -- the fix is on the deploy side.",
-     "detector": {"kind": "advisory", "note": "run bd-deploy-manifest --zip <rel> on stash"},
+             "The box now deploys with `git fetch` + `git reset --hard`, which propagates "
+             "deletions natively, so no orphan survives for anything to enumerate. The "
+             "sweeper this entry used to name was retired with the class, and is cited by "
+             "MECHANISM rather than by name because a retirement gate scans this file for "
+             "that name -- naming a removed thing to explain its removal recreates it.",
+     "detector": {"kind": "advisory", "note": "no detector -- the class is structurally gone"},
      "protects": ["test_import_graph_no_new_edges", "test_dependency_graph_in_sync"],
-     "fix": "on stash, before/with the overlay: bd-deploy-manifest --zip <release.zip> "
-            "--script | sh   (deletes the orphans the overlay leaves behind).",
+     "fix": "nothing to do under a git deploy. If a zip overlay is ever restored, "
+            "restore an orphan sweep with it -- this entry going quiet is not evidence "
+            "the problem was solved, only that the deploy model changed.",
      "provenance": {"review_id": "718 stash RED: overlay deploy never deletes"}},
 
     {"id": "FG-SPA-WIRING-ROUTE-INDEX", "severity": "blocking", "status": "active",
