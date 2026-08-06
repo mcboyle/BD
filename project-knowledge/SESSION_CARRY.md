@@ -3938,6 +3938,71 @@ ONGOING, NOT A FINISH LINE (33)
  33. **The prose-only pool** -- baseline 184 of a 240-tool population.
      A ratchet, not a target.
 
+### 15.38 | The tier plan -- 15.36's list re-ordered by size and speed
+
+15.36 orders the open items by what unblocks what. This is the OTHER axis --
+size and wall-clock -- which is what you want when picking the next CUT rather
+than the next dependency. Operator-approved 2026-08-06 and worked top-down:
+tier 1 and four of tier 2's five rows shipped the same day.
+
+It is written down because it was not. The plan lived only in a conversation
+and had to be recovered from the operator's screenshots to be acted on. A plan
+that must be screenshotted back to its author was never persistent, and this
+register is where that is supposed to stop happening.
+
+TIER 1 -- no cut, or nearly none. ALL DONE at v3.66.887.
+
+| # | item | disposition |
+| --- | --- | --- |
+| 25 | orphan bundle backup rotation | VERIFIED intact; the copy-into-rotation is the operator's call |
+| 24 | three stale >6h lock files | CLOSED OBSOLETE -- the box probe found ONE, inside site-packages |
+| 22 | library panel's 31 `missing` rows | CLOSED -- already correct behaviour, no code |
+
+TIER 2 -- small, container-only, well-specified. FOUR OF FIVE DONE.
+
+| # | item | disposition |
+| --- | --- | --- |
+| 19 | `rev-parse` into `01_sysinfo.log`, plus the selftest stage | **OPEN -- the only row left. TWO cuts, not one. Rides item 2, which the operator has GO'd.** |
+| 5b+6 | band artifacts untracked AND un-ignored | CLOSED -- both ignore rules already existed; v3.66.886's "re-confirmation" is retracted at 887 |
+| 10 | `ai_boot_readiness.json` in-flight marker | CLOSED -- fixed at v3.66.874, verified this session |
+| 13 | `bd-state` reachable only via `build_session_pack` | CLOSED at v3.66.888 |
+| 20 | widen the import-graph gate to `tests/` edges | CLOSED at v3.66.889 |
+
+TIER 3 -- moderate, well-specified. All open: **8, 5a+7, 18, 15, 9, 26**.
+
+TIER 4 -- large. All open: **4, 14, 28, 11, 12, 16**.
+
+TIER 5 -- cannot be sized from here, or blocked: **1, 2, 3** (operator) *
+**27** (a product decision) * **17** (needs an observation that has not
+occurred) * **21** (box object store only, unreachable from a container) *
+**23** (a capture run) * **31, 32** (the parallel program -- very large,
+operator- and capture-bound) * **33** (a ratchet, never "done").
+
+**Tier 3 and tier 4 statuses are INHERITED, not re-measured.** Only what this
+session touched was verified. Section 1 applies before working any of them --
+several of 15.36's own statuses were stale within days, and four of them were
+wrong by the end of the session that wrote them.
+
+THE TWO RECOMMENDATIONS, with this session's closures folded in.
+
+  * **Throughput: `8 -> 5a+7`.** As first written the chain was
+    `8 -> 5a+7 -> 5b+6 -> 10` -- four cuts closing six numbered items. Half of
+    it closed the same day (5b+6 by ignore rules that already existed, 10 at
+    v3.66.874), so it is now **two cuts closing three items** (8, 5a, 7), still
+    container-only, still no capture needed, still no operator decision. **Do
+    not inherit the four-cut form**; correcting it is why this section exists.
+  * **Impact: `4` alone.** The only item that unblocks what CLAUDE.md section 4
+    mandates on every future cut, and the only one whose acceptance is a single
+    number measurable in advance -- 18 of 93 suites cannot run under `bd-band`
+    today, target 0. The `shell_source` group is the sharpest of its three root
+    causes: that helper landed at @880, so the suites guarding the three most
+    recent cuts are exactly the ones `bd-band` cannot run.
+
+THE CAVEAT, and it OVERRIDES size. **Hold 15 and 14 back regardless of how
+small they look.** Both change live box behaviour -- a service startup path and
+a login thread -- and a small diff on either is not a cheap one. Neither is
+bounded by its line count, and neither can be judged from a container.
+
 ### 15.34 | Open item A is fixed; the spec's last step had to be dropped, and the reading was void again
 
 Session of 2026-08-05, v3.66.884, branch `claude/bulkdownloader-resume-tpi03q`.

@@ -4,6 +4,37 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.891 - the tier plan is now in the register, and its chain was stale
+
+Register-only. SESSION_CARRY 15.38 records the size-and-speed ordering of
+15.36's items 1-33 as a section beside it.
+
+WHY IT IS BEING WRITTEN DOWN AT ALL. The plan existed only in a conversation
+and had to be recovered from the operator's screenshots before it could be
+acted on. A plan that must be screenshotted back to its author was never
+persistent. 15.36 orders the items by what unblocks what; this is the other
+axis, size and wall-clock, which is the one you want when choosing the next cut
+rather than the next dependency.
+
+THE CHAIN WAS ALREADY STALE, from the same session that produced it. The
+throughput recommendation was written as 8 -> 5a+7 -> 5b+6 -> 10: four cuts
+closing six items. Two of those four closed the same day - 5b+6 by ignore rules
+that already existed, and 10 at v3.66.874 - so the recommendation is now two
+cuts closing three items (8, 5a, 7). The four-cut form is recorded as the thing
+NOT to inherit, because a stale plan reads exactly like a current one.
+
+STATUS FOLDED IN. Tier 1 is fully done at v3.66.887 (items 25, 24, 22). Tier 2
+is four of five done (5b+6, 10 at 874, 13 at 888, 20 at 889); the single
+remaining row is 19, the capture.sh work, which is two cuts and rides item 2.
+Tiers 3, 4 and 5 are unchanged and their statuses are marked INHERITED rather
+than re-measured, because only what this session touched was verified - section
+1 applies before working any of them, and four of 15.36's own statuses were
+wrong by the end of the session that wrote them.
+
+THE ONE THING THAT OVERRIDES SIZE is recorded with the plan: hold 15 and 14
+back however small they look. Both change live box behaviour - a service
+startup path and a login thread - and neither can be judged from a container.
+
 ## v3.66.890 - session close: statuses corrected, next action fully scoped
 
 Register-only. SESSION_CARRY 15.37 supersedes 15.36's statuses and carries the
