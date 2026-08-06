@@ -1,3 +1,9 @@
+# Changelog
+
+Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
+phase number. Notes here cover recent releases. The former pre-v3.46
+archive is not present in this repository; consult source-control history.
+
 ## v3.66.897 - the selftest diagnosis read two keys that do not exist
 
 A defect I shipped at v3.66.893, found by the box's own capture bundle three
@@ -37,12 +43,6 @@ VERIFIED, not asserted:
 Tests EXTEND tests/test_v3_66_893_capture_probes_selftest.py rather than
 adding a file: a new tracked test file moves ten axis-6 gates and PIN_INDEX's
 test_files_scanned, and this belongs beside the stage it diagnoses.
-
-# Changelog
-
-Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
-phase number. Notes here cover recent releases. The former pre-v3.46
-archive is not present in this repository; consult source-control history.
 
 ## v3.66.896 - check_requirements compares specifiers, and found live drift on the first run
 
