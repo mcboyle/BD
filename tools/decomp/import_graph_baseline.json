@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3752,
+  "edge_count": 3754,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -6008,6 +6008,10 @@
       "bulk_downloader/app.py"
     ],
     "tests/test_v3_66_915_audit_caps_are_one_window.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/library_final.py"
+    ],
+    "tests/test_v3_66_916_regen_nfos_resolves.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/library_final.py"
     ],
