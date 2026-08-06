@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 RETIRED = (
@@ -27,9 +29,46 @@ RETIRED = (
     "toolchain/bin/bd-deploy-manifest",
     "project-knowledge/deploy_manifest.py",
     "tests/test_v3_66_722_deploy_manifest_ships.py",
+    # v3.66.917. This tuple is the gate's ENTIRE denominator for existence --
+    # it globs nothing -- so a retired tool survives simply by living at a path
+    # nobody listed. All four names above are paths that do not exist and never
+    # did under this spelling, while the real survivor sat one directory away
+    # as an extensionless, python-shebang, TRACKED file for 59 releases. The
+    # gate was green the whole time, which is exactly CLAUDE.md section 0: a
+    # check whose denominator cannot contain its subject reports OK.
+    "project-knowledge/bd-deploy-manifest",
 )
 
 TOMBSTONE = REPO_ROOT / "project-knowledge" / "BD_TOOLCHAIN_REFERENCE.md"
+
+
+def test_the_fail_safe_branch_is_executable():
+    """The git-unavailable branch below raised NameError instead of skipping.
+
+    `pytest.skip(...)` sits in the `proc.returncode != 0` arm of the scan
+    below, and this module never imported pytest -- so the one path written to
+    make the gate fail SAFE was itself broken. It is unreachable while git
+    works, which is why it survived: the branch that only runs when something
+    else has already gone wrong is the branch nothing exercises.
+
+    Asserting the binding rather than driving the branch is deliberate. Forcing
+    `git ls-files` to fail means monkeypatching subprocess inside the module
+    under test, and a harness that fakes the failure it is checking for is the
+    shape CLAUDE.md section 6 warns about. The name either resolves or it does
+    not.
+
+    NOTE, and it is the wider finding: CI runs pyflakes over `bulk_downloader`
+    and `tools` only, so `tests/` is outside the denominator of the one
+    instrument that reports undefined names. Measured at v3.66.917, pyflakes
+    over tests/ finds exactly two real ones -- this, and RR_MOUSE_INTERACTION
+    at tests/test_v3_66_50_at2_dom_capture.py:120. Both are filed; a gate over
+    tests/ is its own cut, not a rider on this one.
+    """
+    import sys
+    mod = sys.modules[__name__]
+    assert getattr(mod, "pytest", None) is not None, (
+        "this module calls pytest.skip() in its fail-safe branch but does not "
+        "import pytest -- that branch raises NameError instead of skipping")
 
 
 def test_the_retired_files_are_gone():
