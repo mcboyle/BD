@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tracked_source import tracked_source_files
+
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -106,7 +108,6 @@ def test_nothing_still_calls_the_retired_tool():
     not survive is an executable reference: a shell line or a python import.
     """
     import ast
-    import subprocess
 
     # Denominator: files GIT TRACKS in this repository. Not an rglob with a
     # hand-written blocklist -- that shipped and failed on the box, which has
@@ -120,20 +121,21 @@ def test_nothing_still_calls_the_retired_tool():
     # question actually being asked -- what is IN this repository -- so
     # worktrees, venv, node_modules and untracked scratch are excluded because
     # they are not tracked here, not because they were enumerated.
-    proc = subprocess.run(
-        ["git", "ls-files", "-z", "--", "*.py", "*.sh"],
-        cwd=str(REPO_ROOT), capture_output=True, timeout=120,
-    )
-    if proc.returncode != 0:
+    # @918: NOT `-- '*.py' '*.sh'`. That glob misses 473 tracked
+    # extensionless shebang scripts -- the entire toolchain/bin suite and its
+    # project-knowledge mirror -- which is how three retired tools survived
+    # 59 releases with this gate green. See tests/tracked_source.py.
+    entries = tracked_source_files(REPO_ROOT)
+    if not entries:
         pytest.skip("git ls-files unavailable; cannot establish the denominator")
-    tracked = [p for p in proc.stdout.decode("utf-8", "replace").split("\0") if p]
+    tracked = [rel for rel, _kind in entries]
     assert len(tracked) > 100, (
         f"git ls-files returned only {len(tracked)} source files -- the "
         f"denominator collapsed and a pass below would mean nothing."
     )
 
     offenders = []
-    for rel in tracked:
+    for rel, kind in entries:
         path = REPO_ROOT / rel
         if not path.is_file():
             continue
@@ -145,7 +147,7 @@ def test_nothing_still_calls_the_retired_tool():
         if "deploy_manifest" not in source and "deploy-manifest" not in source:
             continue
 
-        if path.suffix == ".py":
+        if kind == "python":
             # AST, so DOCSTRINGS are excluded. An earlier version of this test
             # grepped lines and flagged a docstring in a sibling test that was
             # merely describing the history -- the same predicate-too-broad

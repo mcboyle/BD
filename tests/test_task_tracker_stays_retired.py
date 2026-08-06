@@ -34,8 +34,9 @@ failed, read the tombstone in BD_TOOLCHAIN_REFERENCE.md before deciding.
 from __future__ import annotations
 
 import ast
-import subprocess
 from pathlib import Path
+
+from tracked_source import tracked_source_files
 
 import pytest
 
@@ -124,20 +125,21 @@ def test_nothing_still_executes_against_the_tracker():
     Prose mentions are fine -- history and tombstones are prose. What must not
     survive is an EXECUTABLE reference.
     """
-    proc = subprocess.run(
-        ["git", "ls-files", "-z", "--", "*.py", "*.sh"],
-        cwd=str(REPO_ROOT), capture_output=True, timeout=120,
-    )
-    if proc.returncode != 0:
+    # @918: NOT `-- '*.py' '*.sh'`. That glob misses 473 tracked
+    # extensionless shebang scripts -- the entire toolchain/bin suite and its
+    # project-knowledge mirror -- which is how three retired tools survived
+    # 59 releases with this gate green. See tests/tracked_source.py.
+    entries = tracked_source_files(REPO_ROOT)
+    if not entries:
         pytest.skip("git ls-files unavailable; cannot establish the denominator")
-    tracked = [p for p in proc.stdout.decode("utf-8", "replace").split("\0") if p]
+    tracked = [rel for rel, _kind in entries]
     assert len(tracked) > 100, (
         f"git ls-files returned only {len(tracked)} source files -- the "
         f"denominator collapsed and a pass here would mean nothing."
     )
 
     offenders = []
-    for rel in tracked:
+    for rel, kind in entries:
         if rel in PROSE_EXEMPT:
             continue
         path = REPO_ROOT / rel
@@ -147,7 +149,7 @@ def test_nothing_still_executes_against_the_tracker():
         if "TASK_TRACKER" not in source and "tasktracker" not in source:
             continue
 
-        if path.suffix == ".py":
+        if kind == "python":
             try:
                 tree = ast.parse(source)
             except SyntaxError:

@@ -198,7 +198,7 @@ def main():
         print("  %sno public symbol vanished from a surviving file%s" % (G, RST))
     if fil:
         print("  %s%d symbol(s) lost with a DELETED FILE%s %s(a different decision -- "
-              "check bd-deploy-manifest for the stash orphan)%s"
+              "a git deploy removes the file itself, so there is no orphan)%s"
               % (Y, len(fil), RST, DIM, RST))
     print("  %s+%d public symbol(s) added%s" % (DIM, d["counts"]["added"], RST))
     return 1 if (a.gate and sym) else 0

@@ -4,6 +4,50 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.918 - the retirement gates could not see most of this repo's source
+
+Item 16 / 7a, second half, and it completes the item. The three *_stays_retired
+gates scanned `git ls-files -z -- '*.py' '*.sh'` for live references to a dead
+tool. MEASURED: that glob returns 2180 tracked files while a further 473
+tracked files are python- or shell-shebang scripts with NO extension -- the
+whole toolchain/bin bd-* suite and its project-knowledge mirror. All 473 sat
+outside every gate that used it. That is how the three tools deleted at
+v3.66.917 survived 59 releases with every gate green.
+
+WIDENING ALONE WOULD HAVE MADE THEM WORSE. Each gate branches on
+`path.suffix == ".py"` to choose an AST walk (which excludes docstrings) over a
+line scan (which cannot). Let an extensionless python script into the
+denominator without fixing that predicate and it is read as shell, so its
+DOCSTRINGS become "executable references" and honest tools fail for their lack
+of a file extension. Measured both ways: naive routing flags 4 live tools
+across 2 gates; content routing flags 2 tools on 1 gate. A gate made
+over-sensitive is not a safer gate -- it is one that gets switched off.
+
+tests/tracked_source.py is the shared enumerator, typing each file on its
+SHEBANG and returning that type so callers branch on what a file IS rather than
+what it is named. Shared because three near-identical copies already existed
+and a fourth was the obvious next step.
+
+NO ALLOWLIST WAS NEEDED. The 2 remaining offenders were not false positives:
+bd-footguns and bd-lost-symbol still told the operator to run a tool deleted at
+v3.66.917, via a zip-overlay deploy that no longer exists either. Both fixed in
+both mirror copies, and the obsolete FG-OVERLAY-ORPHAN-ON-DELETE footgun is now
+status "retired" -- deletions propagate natively under `git reset --hard`, so
+the class is structurally gone. The replacement text cites the removed tool by
+MECHANISM, never by name: naming it to explain its removal would put it back
+inside the very gate's denominator.
+
+REGISTER CORRECTED, twice over. "Turns three gates red on four LIVE tools" is
+now one gate and two tools, and the codex_handoff gate cannot go red under any
+widening -- zero newly-entering files mention its subject.
+
+Found while writing the guard: the helper's own claim that it returns [] when
+git is unavailable was FALSE -- subprocess raises FileNotFoundError on a
+missing cwd rather than returning non-zero. Its own test caught it before the
+cut shipped. Also removed three imports the change orphaned.
+
+Mutation battery, 4 mutants, 4 caught 0 escaped 0 invalid.
+
 ## v3.66.917 - three retired tools survived where no gate could see them
 
 Item 16 / 7a, first half. bd-reconcile, bd-tracker-recon and bd-deploy-manifest
