@@ -12,7 +12,7 @@ def test_pytest_is_installed_by_core_requirements() -> None:
         if line.strip() and not line.lstrip().startswith("#")
     }
 
-    assert "pytest>=7.0,<9.0" in declared, (
+    assert "pytest>=7.0,<10.0" in declared, (
         "requirements.txt must install real pytest so capture and validation "
         "use pytest rather than depending on the custom fallback runner"
     )
