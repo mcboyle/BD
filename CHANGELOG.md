@@ -4,6 +4,59 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.892 - a capture bundle can finally say which tree it graded
+
+capture.sh step [1] now writes commit identity into 01_sysinfo.log. This is cut
+1 of 2 for the capture.sh work; the /api/selftest stage is cut 2 and is not in
+this change.
+
+THE GAP. capture.sh executed no git command anywhere in its ~1100 lines - every
+"git" hit in the file was a comment. So 01_sysinfo.log carried date, uname,
+os-release, python, pip freeze, disk, memory and ports, and no commit identity
+of any kind: zero 40-hex shas, zero mentions of commit or branch. A bundle could
+not say which tree it graded. The register filed this four times; one session
+paid for it twice when two uploads arrived together and were separable only by
+reading 02_SUMMARY.txt and 09_http_smoke.log.
+
+The banner was never a workaround. capture.sh echoes "version : $VERSION" to
+STDOUT, and the archive tars only $OUT, so the operator's redirect lands outside
+the bundle. 09_http_smoke.log does carry a sha via /api/health - but only when
+the service stage ran, so a capture that dies at step [2] carried no identity at
+all. It had to go in 01_sysinfo.log.
+
+THE TRAP, AND IT IS THE WHOLE DESIGN. `git rev-parse HEAD` searches UPWARD, and
+capture.sh cds to BD_HOME before step [1]. So a bare rev-parse in a BD_HOME that
+sits below some other checkout emits a valid-looking sha about a DIFFERENT tree
+- a confident wrong answer, which is strictly worse than the honest silence it
+replaces. The emitter compares `--show-toplevel` against the directory it
+actually ran in and reports MISMATCH rather than a plausible sha. All three
+directions are executable tests, not review: real work tree, non-work-tree, and
+a work tree entered from a subdirectory.
+
+Reports `source` (git | unknown) for the reason app_health.build_identity does:
+a fallback is indistinguishable from a live read unless it says so.
+
+NOT WIRED TO --stage-exit, deliberately. A non-git tree is a legitimate way to
+run capture.sh, so gating the release verdict on this would fail the whole
+capture for a reason no code change can fix. A test asserts that, over a
+non-empty denominator of the --stage-exit lines.
+
+VERIFIED, not asserted:
+  RED first          6 of 7 failed on pristine source; the 7th is the
+                     --stage-exit guard, which is a regression guard and
+                     correctly passes before the feature exists
+  mutation           5 caught, 0 escaped, 0 invalid - including the
+                     over-sensitive direction, where reading HEAD instead of
+                     --show-toplevel makes a correct tree report MISMATCH
+  bash -n            exit 0
+
+One instrument defect found and fixed while writing the tests, recorded because
+it is this project's recurring shape: shell_source.blocks_containing resolves
+for/while...done constructs and falls back to the single line for anything else,
+so against the `{ ... } > "$OUT/01_sysinfo.log"` brace group it returned only the
+closing redirect line - a denominator that structurally excluded the calls it
+was being asked about. Replaced with a brace-structure cut.
+
 ## v3.66.891 - the tier plan is now in the register, and its chain was stale
 
 Register-only. SESSION_CARRY 15.38 records the size-and-speed ordering of
