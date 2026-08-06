@@ -20,6 +20,7 @@ import ast
 import functools
 import json
 import os
+import pathlib
 import re
 import subprocess
 import sys
@@ -2342,3 +2343,132 @@ def test_bd_band_reports_nothing_ran_without_calling_it_a_pass():
                             cwd=root, capture_output=True, text=True, timeout=300)
         assert ok.returncode == 0, (
             "a real passing suite must stay green:\n" + ok.stdout + ok.stderr)
+
+
+def _freshcheck_mod():
+    import importlib.machinery
+    import importlib.util
+    p = os.path.join(str(_REPO_ROOT), "toolchain", "bin", "bd-freshcheck")
+    assert os.path.isfile(p), f"{p} absent -- this test would prove nothing"
+    spec = importlib.util.spec_from_loader(
+        "bdfresh", importlib.machinery.SourceFileLoader("bdfresh", p))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _carry_fixture(root, sections):
+    """A SESSION_CARRY.md whose sections are deliberately OUT of numeric order."""
+    pk = os.path.join(root, "project-knowledge")
+    os.makedirs(pk, exist_ok=True)
+    body = "\n".join("### %s | %s\n\nbody\n" % (n, t) for n, t in sections)
+    with open(os.path.join(pk, "SESSION_CARRY.md"), "w", encoding="utf-8") as fh:
+        fh.write("# carry\n\n" + body)
+
+
+def test_close_tip_grades_the_highest_numbered_section_not_the_last_one():
+    """@899 -- the check took closes[-1], which is FILE order, not NEWEST.
+
+    SESSION_CARRY's sections are not written in numeric order: measured on the
+    real register, 15.39 sits ~900 lines ABOVE 15.30. So the check graded 15.30
+    (2026-08-05) and 15.37 and 15.39 were structurally INVISIBLE to it -- a
+    fabricated sha in the newest section would pass unnoticed. Its own docstring
+    says "the NEWEST", which is not what closes[-1] computes.
+
+    THE FIXTURE PROVES THE BLINDNESS, not the ordering: the highest-numbered
+    close section names a BOGUS sha and appears FIRST, while a lower-numbered
+    one naming a real ancestor appears LAST. Pristine grades the real one and
+    says OK; only a fix that sorts NUMERICALLY can see the bogus one.
+
+    AND NOT BY STRING: max("15.7", "15.39") is "15.7" -- the naive sort lands on
+    a section that is real, old, and (see below) not even in the at-<sha> form.
+    """
+    import tempfile
+    mod = _freshcheck_mod()
+    with tempfile.TemporaryDirectory() as td:
+        subprocess.run(["git", "init", "-q"], cwd=td, check=True)
+        subprocess.run(["git", "config", "user.email", "p@example.test"], cwd=td, check=True)
+        subprocess.run(["git", "config", "user.name", "p"], cwd=td, check=True)
+        with open(os.path.join(td, "seed.txt"), "w") as fh:
+            fh.write("seed\n")
+        subprocess.run(["git", "add", "seed.txt"], cwd=td, check=True)
+        subprocess.run(["git", "commit", "-qm", "seed"], cwd=td, check=True)
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=td,
+                              capture_output=True, text=True, check=True).stdout.strip()
+
+        _carry_fixture(td, [
+            ("15.40", "Session close 2026-09-01 at deadbeefdeadbeef -- newest"),
+            ("15.9",  "Session close 2026-08-01 at %s -- older, LAST in file" % head[:12]),
+        ])
+        r = mod.check_session_close_tip(pathlib.Path(td))
+        assert r["status"] != mod.OK, (
+            "the newest close section names a commit this repo does not "
+            "contain and the check reported %s -- it graded the wrong "
+            "section: %s" % (r["status"], r["detail"]))
+        assert "15.40" in r["detail"], (
+            "the verdict must name the section it graded, and it graded the "
+            "wrong one: %s" % r["detail"])
+
+
+def test_close_tip_reads_the_comma_form_too():
+    """4 of the 10 live close sections write ', <sha>' rather than 'at <sha>'.
+
+    Measured on the real register: 15.7, 15.13, 15.14 and 15.16 all read
+    "Session close <date>, <sha> (<version>)". The regex only accepted
+    `at <sha>`, so once the selection is fixed to take the highest-numbered
+    section, a future close written in that style resolves to UNKNOWN -- and
+    ci.yml runs bd-freshcheck --repo-only with NO continue-on-error, so exit 2
+    is red exactly like exit 1. Fixing the selection without widening the regex
+    converts a blind gate into a loudly wrong one.
+    """
+    import tempfile
+    mod = _freshcheck_mod()
+    with tempfile.TemporaryDirectory() as td:
+        subprocess.run(["git", "init", "-q"], cwd=td, check=True)
+        subprocess.run(["git", "config", "user.email", "p@example.test"], cwd=td, check=True)
+        subprocess.run(["git", "config", "user.name", "p"], cwd=td, check=True)
+        with open(os.path.join(td, "seed.txt"), "w") as fh:
+            fh.write("seed\n")
+        subprocess.run(["git", "add", "seed.txt"], cwd=td, check=True)
+        subprocess.run(["git", "commit", "-qm", "seed"], cwd=td, check=True)
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=td,
+                              capture_output=True, text=True, check=True).stdout.strip()
+
+        _carry_fixture(td, [
+            ("15.41", "Session close 2026-09-02, %s (v3.66.900)" % head[:12]),
+        ])
+        r = mod.check_session_close_tip(pathlib.Path(td))
+        assert r["status"] == mod.OK, (
+            "a comma-form close section naming the real HEAD resolved to %s -- "
+            "CI has no continue-on-error, so that is a red build for a section "
+            "that is correct: %s" % (r["status"], r["detail"]))
+
+
+def test_close_tip_still_tolerates_an_ancestor_that_is_not_head():
+    """The over-sensitive direction, and it is the normal case.
+
+    A close section names the tip it closed AT; further cuts move HEAD past it.
+    That must stay OK -- a gate that fires on every subsequent commit is one
+    that gets switched off.
+    """
+    import tempfile
+    mod = _freshcheck_mod()
+    with tempfile.TemporaryDirectory() as td:
+        subprocess.run(["git", "init", "-q"], cwd=td, check=True)
+        subprocess.run(["git", "config", "user.email", "p@example.test"], cwd=td, check=True)
+        subprocess.run(["git", "config", "user.name", "p"], cwd=td, check=True)
+        for n in ("a", "b"):
+            with open(os.path.join(td, n + ".txt"), "w") as fh:
+                fh.write(n)
+            subprocess.run(["git", "add", n + ".txt"], cwd=td, check=True)
+            subprocess.run(["git", "commit", "-qm", n], cwd=td, check=True)
+        first = subprocess.run(["git", "rev-list", "--max-parents=0", "HEAD"],
+                               cwd=td, capture_output=True, text=True,
+                               check=True).stdout.strip()
+        _carry_fixture(td, [
+            ("15.42", "Session close 2026-09-03 at %s -- an ancestor" % first[:12]),
+        ])
+        r = mod.check_session_close_tip(pathlib.Path(td))
+        assert r["status"] == mod.OK, (
+            "naming an ANCESTOR of HEAD is the normal state after further cuts "
+            "and must not be STALE: %s" % r["detail"])
