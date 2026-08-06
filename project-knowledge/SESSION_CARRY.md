@@ -1196,8 +1196,10 @@ register, each re-verified against source today (see sections 4 and 5 for the
 evidence):
 
   OPEN, real, unscheduled:
-  - s4#3  install_service.sh polls is-active, not serving (improved, class
-          stands)
+  - s4#3  CLOSED at v3.66.913 (15.45). Was "install_service.sh polls
+          is-active, not serving (improved, class stands)". The class does NOT
+          stand: the /api/health probe landed at @836 and
+          test_install_service_waits_for_serving.py pins it, 7 passing.
   - s4#4  band runs write into the working tree (plugins/ackgate.py et al,
           neither tracked nor ignored)
   - s5    Phase B manual-takeover early-return (runner_auth.py:177/:331)
@@ -3841,9 +3843,13 @@ WORK, NOT BLOCKED (4-19)
  14. **Phase B manual-takeover early-return** -- `start_manual_login` returns
      while the login thread is alive and Phase B runs inside that thread, so the
      advertised takeover can never open. ANCHORS DRIFTED -- re-derive.
- 15. **`install_service.sh` polls started, not serving** -- the loop watches
-     `systemctl is-active`, so the vault unlock can fire before the socket
-     binds. Improved, but the class stands.
+ 15. **CLOSED at v3.66.913 (15.45).** Was: "polls started, not serving --
+     the loop watches `systemctl is-active`, so the vault unlock can fire
+     before the socket binds. Improved, but the class stands." It does not
+     stand. The probe IS the fix (@836: /api/health, 15s, three states with an
+     honest `unknown` when curl is absent), and BOTH halves are pinned --
+     test_install_service_waits_for_serving.py for this file,
+     test_capture_step4_waits_for_serving.py for capture.sh step [4].
  16. **7a -- retirement completion.** Three pre-@858 retired tools survive as
      tracked runnable extensionless `project-knowledge/` files that the three
      `*_stays_retired` gates cannot see. BLOCKED ON SPEC REWORK: as written it
@@ -3969,7 +3975,9 @@ TIER 2 -- small, container-only, well-specified. ALL FIVE DONE.
 | 13 | `bd-state` reachable only via `build_session_pack` | CLOSED at v3.66.888 |
 | 20 | widen the import-graph gate to `tests/` edges | CLOSED at v3.66.889 |
 
-TIER 3 -- moderate, well-specified. All open: **8, 5a+7, 18, 15, 9, 26**.
+TIER 3 -- moderate, well-specified. **ALL SIX DONE at v3.66.913.**
+5a+7 (7 at @898), 18 (@896), 9 (@872), 26 (@845), 8 (pinned at @912, 15.44),
+15 (fixed @836, found already pinned -- 15.45). TIERS 1, 2 AND 3 ARE COMPLETE.
 
 TIER 4 -- large. All open: **4, 14, 28, 11, 12, 16**.
 
@@ -4003,6 +4011,50 @@ THE CAVEAT, and it OVERRIDES size. **Hold 15 and 14 back regardless of how
 small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
+
+### 15.45 | Tiers 1-3 are complete, and item 15's "class stands" was false
+
+Close at a85abf3 (v3.66.912). Item 8 was pinned at @912; item 15 needed nothing
+and this section says why, so nobody re-derives it a third time.
+
+**ITEM 15 WAS FIXED AND PINNED ALREADY.** Its text said "improved, but the
+class stands". Both halves of the class are closed:
+
+  * `install_service.sh` -- the /api/health probe landed at @836. It polls for
+    15s and reports THREE states, with `unknown` distinguished when curl is
+    absent rather than folded into a pass. Pinned by
+    `test_install_service_waits_for_serving.py`, 7 passing, and it is a
+    both-directions suite: a serving service is still reported RUNNING,
+    active-but-not-serving is NOT, the problem is surfaced, and the probe is
+    shown to have reached the endpoint.
+  * `capture.sh` step [4] -- the vault-unlock gate. Pinned by
+    `test_capture_step4_waits_for_serving.py`, 6 passing.
+
+**AND THE HOLD ON 15 NO LONGER APPLIES TO ANYTHING.** The tier plan's caveat
+says hold 15 and 14 back because they change live box behaviour and cannot be
+judged from a container. True when written; for 15 there is now no change left
+to make, so the caveat protects nothing. **14 is unaffected and still held.**
+
+**A TRAP THIS NEARLY WALKED INTO, worth more than the closure.**
+`test_capture_step4_waits_for_serving.py` reads `capture.sh` and ONLY
+`capture.sh` (`CAPTURE_SH.read_text()`), while its own docstring says
+"install_service.sh has the same shape" -- naming a file its denominator
+excludes. Reading that test alone gives every impression the installer is
+covered, and it is not; a SEPARATE suite covers it. The near-miss was writing a
+duplicate gate for behaviour already pinned. **Before building a missing test,
+grep for tests that merely TOUCH the subject file, not just ones whose name or
+docstring matches it** -- section 8's "look before you hand-roll", generalised
+from tools to tests.
+
+**FOUR ITEMS TODAY WERE ALREADY DONE AND REPORTED OPEN**: 9, 26, 5a and 28 (the
+@871/872 sweep), all five tools of item 8, and now 15. Every one cost minutes to
+re-derive by running or reading the real thing, and would have cost a wasted cut
+to take on trust. Three of them were fixed with NO test, which is why the
+register kept reporting them open; 15 is the opposite case -- fixed AND pinned,
+and the register still said the class stands. **Both directions of staleness
+happen. Re-derive before costing anything.**
+
+TIER 4 IS WHAT REMAINS: 11, 12-remnants, 16 open; 14 held; 4 and 28 done.
 
 ### 15.44 | Item 4 is CLOSED at @911, and its description was wrong in four ways
 
