@@ -278,6 +278,50 @@ run_with_heartbeat() {
   return "$command_exit"
 }
 
+# Which tree did this bundle grade? Nothing else in the archive answers that:
+# the banner goes to stdout and only $OUT is tarred, and 09_http_smoke.log
+# carries a sha only when the service stage ran, so a capture that dies at
+# step [2] used to carry no identity at all.
+#
+# THE WALK-UP TRAP, and it is the reason for the toplevel comparison. `git
+# rev-parse HEAD` searches UPWARD, so when BD_HOME sits below some other
+# checkout this would emit a valid-looking sha about a DIFFERENT tree. A
+# confident wrong answer is worse than the honest silence it replaces, so
+# compare the repository root against the directory we actually ran in and
+# refuse to report rather than report something plausible.
+#
+# `source` is reported for the same reason app_health.build_identity reports
+# it: a fallback is indistinguishable from a live read unless it says so.
+# Never wired to --stage-exit -- a non-git tree is a legitimate way to run
+# this script, and gating the release verdict on it would fail for a reason no
+# code change can fix.
+emit_commit_identity() {
+  local sha top branch when state here
+  here="$(pwd -P)"
+  if ! sha="$(git rev-parse HEAD 2>/dev/null)" || [ -z "$sha" ]; then
+    echo "commit    : UNKNOWN (not a git work tree; capture cannot identify its source)"
+    echo "ran in    : $here"
+    echo "source    : unknown"
+    return 0
+  fi
+  top="$(git rev-parse --show-toplevel 2>/dev/null)" || top=""
+  if [ -z "$top" ] || [ "$(cd "$top" 2>/dev/null && pwd -P)" != "$here" ]; then
+    echo "commit    : MISMATCH -- $sha is the head of $top, but capture ran in $here"
+    echo "ran in    : $here"
+    echo "source    : unknown (the answer was about a different tree)"
+    return 0
+  fi
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" || branch="?"
+  when="$(git log -1 --format=%cI 2>/dev/null)" || when="?"
+  if [ -n "$(git status --porcelain 2>/dev/null)" ]; then state="dirty"; else state="clean"; fi
+  echo "commit    : $sha"
+  echo "branch    : $branch"
+  echo "toplevel  : $top"
+  echo "committed : $when"
+  echo "tree      : $state"
+  echo "source    : git"
+}
+
 # Private WACZ/JSON evidence is intentionally outside the release. Validate
 # opt-in roots once, before the long run, so a typo cannot silently turn the
 # integration lane back into dozens of skips. The helper owns these test-only
@@ -335,6 +379,7 @@ echo "================================================================"
 echo "=== [1/9] System fingerprint ==="
 {
  echo "--- date ---"; date -Iseconds
+ echo "--- commit ---"; emit_commit_identity
  echo "--- uname ---"; uname -a
  echo "--- os-release ---"; cat /etc/os-release 2>/dev/null
  echo "--- python ---"; venv/bin/python --version 2>&1
