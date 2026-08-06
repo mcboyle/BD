@@ -3671,6 +3671,120 @@ capture DOES yield box evidence about 885.
 
 THE CANONICAL ORDERED LIST is in 15.36.
 
+### 15.37 | Session close 2026-08-06 at bfe4ac7 (v3.66.889) -- SUPERSEDES 15.36's statuses
+
+Six cuts merged in one session. This section carries the deltas; 15.36 remains
+the canonical list SHAPE but four of its statuses are now wrong, corrected here.
+
+WHAT MERGED
+
+| cut | commit | subject |
+| --- | --- | --- |
+| 884 | `6262b19` | bd-freshcheck's shallow-clone false STALE + the ci.yml comment |
+| 885 | `ea524f7` | run_tests_core fixture resolution (items B and B2) |
+| 886 | `60d7f7d` | three numbering schemes reconciled into 15.35/15.36 |
+| 887 | `0e86884` | tier 1 executed, plus a retraction (below) |
+| 888 | `883808f` | build_session_pack's two final gates both failed open |
+| 889 | `bfe4ac7` | import-graph gate widened to tests/, with the band-derive trap closed |
+
+STATUS DELTAS AGAINST 15.36 -- these four are CLOSED and its text is stale:
+
+  * **item 10** -- CLOSED, and it was already closed before this session. The
+    line describes a defect fixed at v3.66.874 (`8498558`). VERIFIED: the
+    `final` marker is stamped (`ai_boot_status.py:104`), the in-flight write
+    precedes attempt 1, and `read_status` grades both `no_finality_marker` and
+    `abandoned`. **The residual is DELIBERATE, not an oversight**: a SIGKILLed
+    writer reads `retrying` for up to 300s, and the 874 entry states the
+    trade-off ("TTL and heartbeat ship together or neither ships") and sizes
+    300 from a MEASURED ~108s run. Narrowing it with a PID liveness check is a
+    NEW proposal needing operator sign-off, not this item.
+  * **item 13** -- CLOSED at 888, and it was not the item 15.36 described. See
+    the changelog: bd-state is live (build_release.py still ships a zip
+    containing STATE.json); the defect was both of build_session_pack's final
+    gates failing open, each citing the other as its excuse.
+  * **item 20** -- CLOSED at 889. Baseline 1618 -> 3750 edges, 506 -> 1491
+    source keys, 985 under tests/.
+  * **items 5b + 6** -- already closed before this session; 15.35 carries the
+    retraction of the false "confirmed open".
+
+**A NEW OBLIGATION ON EVERY FUTURE CUT, created by 889.** `bd-band-derive` now
+fires the `import edges` regen flag for a **tests/** change, not just
+`bulk_downloader/`. Verified immediately after the merge:
+`bd-band-derive --files tests/test_contracts.py --json` -> `regen_flags:
+['import edges']`. So **any cut adding a test file that imports a product or
+tool module owes `import_graph_gate.py --update` in the SAME cut.` That is new
+since 2026-08-06 and no older register section mentions it.
+
+NEXT ACTION, fully scoped -- capture.sh, and it is TWO cuts, not one
+
+The operator gave GO for item 2 (register) = "Item 9" (older scheme). **A
+complete, adversarially-reviewed spec already exists in-repo at
+`project-knowledge/pending-specs/recon-queue-items-1-9.md` -- read it before
+re-deriving anything.** It says verbatim "TWO CUTS, TWO RED TESTS ... do not
+batch these", and the operator confirmed that split after this session's first
+framing (one cut) was found to contradict it.
+
+  * **CUT 1 -- commit identity into `01_sysinfo.log`.** ~20 lines of shell,
+    inserted INSIDE the existing brace block after the `--- date ---` pair.
+    THE TRAP, MEASURED IN THE SPEC: a bare `git rev-parse HEAD` walks UP, so if
+    BD_HOME sits inside another repo the stage emits a confident sha for a
+    DIFFERENT tree -- worse than today's honest silence. The snippet needs the
+    explicit MISMATCH branch comparing `--show-toplevel` against `$PWD`.
+    **It must NOT be wired to `--stage-exit`**: a non-git tree would then fail
+    the release gate for a reason no code change can fix.
+    `capture.sh:8` records the version-bump exemption for capture.sh-only edits.
+  * **CUT 2 -- the `/api/selftest` stage.** Adds `tools/selftest_verdict.py`, a
+    new `--stage-exit`, and a new way for the release gate to fail; wants its
+    own band and its own box run. The load-bearing line is the non-empty
+    denominator `(ok+warn+fail) >= 1` -- without it `{"error":"endpoint not
+    found"}` behind an HTTP 200 yields a reassuring log that makes the blind
+    spot INVISIBLE. Not capture.sh-only, so the bump exemption probably does
+    not reach it; the spec does not resolve that.
+
+BLAST RADIUS, RE-DERIVED 2026-08-06 (not inherited): `bd-band-derive --file
+capture.sh` = **100 suites**, a floor. On top: the ten axis-6 gates (both cuts
+add a test file), `PIN_INDEX` regen, and now the **import-graph re-freeze**
+above. Cut 2 additionally moves the GUI-parity denominator, because
+`gui_parity_inventory.py` globs `tools/*.py`.
+
+THE SHARP CONSTRAINT, and it bites CUT 2 only:
+`tests/test_provision_test_host.py:798-800` asserts the comment-stripped
+`capture.sh` contains **zero** lines starting with `#`. `_strip_shell_comments`
+carries quote state across lines, so a `#` inside a multi-line quoted PYTHON
+program survives stripping and turns it red. Cut 1 is pure shell and safe; this
+is why cut 2's JSON parsing belongs in a `tools/` file, never an inline
+`python -c`. Cut 1's RED harness DOES reach its subject:
+`test_capture_shell_runtime.py:28` cuts at `# -- [2b/9]`, so step [1] is in
+probe range; cut 2's stage near line 1035 is not, and must be extracted on
+structure between the `[7/9]` and `[8/9]` banners.
+
+METHOD -- THREE OF THIS SESSION'S OWN ERRORS, all instrument-caught, none
+review-caught. Recorded because the pattern is the finding:
+
+  1. **A false CONFIRMATION merged into the register** (retracted at 887). A
+     `git check-ignore` probe was run against three paths that do not exist in
+     the container; it answers about a RULE, not a FILE, and "ignored=no" was
+     read as "the defect is live". Section 0, written by the session that had
+     just written a section about section 0. **A confirmation needs the same
+     instrument discipline as a closure** -- the higher-stakes verdict is not
+     always the closure.
+  2. **A fixture that never reached the gate under test** (888). The state was
+     schema-INCOMPLETE, so after the repair `main()` exited at the schema gate
+     and never reached bd-state; the case passed for the wrong reason and FOUR
+     of five mutants escaped. `bd-mutate` found it; reading did not.
+  3. **A test matched by its own filename** (889). The assertion read
+     `"import_graph" in " ".join(band)` and passed on pristine source because
+     the test FILE's name contains `import_graph`, so bd-band-derive's
+     filename-stem signal pulled it into its own band. Found by reading the
+     tool's raw JSON instead of trusting the green.
+
+BOX. v3.66.884 CAPTURED PASS at `6262b19e0a08`: 14710 total / 14625 passed / 0
+failed / 0 errors / 85 skipped, live 36/0/0, graph pin `b5a1e5d5...`. **The
+delta reconciles exactly** -- 883 was 14703/14618 and 884 added seven tests, so
+the box moved +7/+7 with nothing unexplained. A capture of 885/886 was running
+at session close; expect 14720 / 14635 / 85. 887-889 have no box evidence, and
+889 changes a gate the capture exercises, so it wants one.
+
 ### 15.36 | The canonical open list, 1-33, at ea524f7
 
 Ordered by what unblocks what, not by age. Re-derive each from source before
