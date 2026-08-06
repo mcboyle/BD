@@ -4,6 +4,54 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.902 - the ignore rule covered the active log and none of its rotations
+
+Found on the deploy host, by the commit block v3.66.892 added: the working tree
+read `dirty` on three consecutive captures. `git status --porcelain` named six
+untracked entries, and the largest was a 10.5 MB logs/bulk_downloader.log.1.
+
+THE RULE AND THE WRITER DISAGREED. `.gitignore` carried `*.log`, which matches
+the ACTIVE file and not one rotation of it. bulk_downloader/log.py:74-75 runs
+RotatingFileHandler(_LOG_FILE, maxBytes=..., backupCount=5), so the app writes
+bulk_downloader.log.1 .. .log.5 BY DESIGN - up to five files the rule cannot
+see, permanently dirtying the deploy host and one `git add -A` from being
+committed.
+
+  bulk_downloader.log       *.log -> True
+  bulk_downloader.log.1     *.log -> False
+  bulk_downloader.log.2.gz  *.log -> False
+
+The whole runtime directory is ignored rather than widening to `*.log*`, the way
+/captures/ already is - and a test asserts `git ls-files logs/` is EMPTY first,
+because ignoring a directory that carries tracked content would hide real files
+instead of runtime output. That is the over-sensitive direction and it is
+checked, not assumed.
+
+WHY THIS MATTERS BEYOND THE 10 MB. `tree: dirty` fired on every capture,
+permanently, which makes the field useless - a signal that is always on is no
+signal. This closes the largest contributor.
+
+TWO ENTRIES ARE DELIBERATELY LEFT, because they are not repo defects:
+bd-prune/ is a NESTED GIT REPOSITORY (it contains only .git, dated 2026-08-01,
+and nothing in this repo creates it), and two templates/reviewed/*.template.json
+carry schema "bulk_downloader.template.review_candidate.v1" - tool-generated
+review candidates whose disposition is an operator call. Both are named in the
+register rather than guessed at.
+
+VERIFIED, not asserted:
+  RED first    3 of 4 rotation cases failed; the ACTIVE .log correctly passed,
+               which is what proves the rule covered one name and not the family
+  mutation     2 caught, 0 escaped, 0 invalid
+
+METHOD NOTE, and it is the second time tonight I made this exact error. I first
+read `git check-ignore -v logs/` as "NOT IGNORED" and reported it as a missing
+rule. check-ignore answers about a RULE against a PATH STRING, not about files
+that exist - testing the real path showed `.gitignore:123 *.log` DOES match
+logs/bulk_downloader.log. The same instrument misuse was retracted at v3.66.887
+against three plugins paths. The correct question was always which files the
+WRITER produces, which is why this entry cites log.py's handler config rather
+than a directory probe.
+
 ## v3.66.901 - the overnight record: six of eight "open" items were already fixed
 
 Register-only. SESSION_CARRY 15.40 carries the overnight run, v3.66.891-900.

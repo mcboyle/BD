@@ -121,6 +121,14 @@ audit_carry/
 !.env.example
 .DS_Store
 *.log
+# @902: `*.log` matches the ACTIVE file and none of its rotations.
+# bulk_downloader/log.py:74-75 runs RotatingFileHandler with
+# backupCount=5, so the app writes bulk_downloader.log.1 .. .log.5 by
+# design -- found on the deploy host as an untracked 10.5 MB .log.1 that
+# made the tree read dirty on every capture. logs/ carries zero tracked
+# files (asserted by test_nothing_under_logs_is_tracked), so the whole
+# runtime directory goes, the way /captures/ already does.
+/logs/
 .claude-env-report.md
 audit-venv/
 audit_venv/
