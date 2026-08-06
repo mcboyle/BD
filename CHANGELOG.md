@@ -4,6 +4,71 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.893 - capture.sh probes the selftest battery, and is not fooled by a 200
+
+Cut 2 of 2 for the capture.sh work, and it closes the item. New stage [7b/9]
+plus tools/selftest_verdict.py.
+
+THE GAP. `grep -n selftest capture.sh` returned nothing. So no capture bundle
+could confirm or refute ANY selftest change, and every selftest check on the box
+sat permanently outside the capture's denominator. SESSION_CARRY 15.19 records
+what that cost: a session grepped the 844 bundle for "stale lock", got silence,
+and reported the WARN as gone. The claim was true and the evidence was
+worthless - a denominator that structurally cannot contain the subject,
+reporting clean.
+
+WHY THE GRADING IS A FILE AND NOT `curl && echo ok`. capture.sh's own header
+records step [7] probing sse_smoke, a route that is not registered: it returned
+{"error":"endpoint not found"} on every run and nothing noticed, because
+curl -fsS exits 0 on a 200 carrying an error body. A stage keyed on curl's exit
+code would have written a reassuring log for a battery that never ran - which
+makes a blind spot INVISIBLE rather than absent, and is strictly worse than not
+probing at all. That exact shape is now a test.
+
+THE LOAD-BEARING CHECK IS THE DENOMINATOR, not the HTTP status: ok + warn + fail
+must be at least 1. A body reporting zero checks has verified nothing, and
+"verified nothing" is not a pass. The grader also refuses a body that disagrees
+with itself - summary counts that do not match the length of `checks`, or an
+`ok` flag that contradicts the failure count.
+
+WARN DOES NOT FAIL THE CAPTURE, deliberately, and there is a test for that
+direction too. capture_verdict.py collapses any nonzero stage exit to FAIL and
+has no warn tier, and its own comments record why live WARNs were ungated:
+gating them reported FAIL on a healthy box that no code change could ever turn
+green. Over-sensitivity is a soundness bug in the same way blindness is.
+
+Exit codes are 0 clean, 1 real failures, 2 cannot-evaluate. Both nonzero values
+turn the capture red; they are distinct so the operator can tell a failing box
+from an unreadable answer.
+
+It lives in tools/ rather than an inline `python -c` because
+test_provision_test_host asserts comment-stripped capture.sh has no surviving
+comment lines, and the stripper carries quote state across lines - so a `#`
+inside a multi-line quoted program would survive stripping and turn that gate
+red. A test now pins that property directly.
+
+VERIFIED, not asserted:
+  RED first      17 of 18 failed on pristine; the 1 pass is the comment-survival
+                 regression guard, which correctly passes before the feature
+  mutation       6 caught, 0 escaped, 0 invalid - including the over-sensitive
+                 direction, where treating WARN as failure is caught
+
+TWO OF THIS SESSION'S OWN ERRORS, both instrument-caught, neither review-caught.
+
+First, six of seven "must be nonzero" rows passed VACUOUSLY on pristine source:
+with no tool on disk python exits 2 because it cannot open the script, which is
+nonzero for a reason that has nothing to do with grading. The battery written to
+close a section-0 defect contained one. Fixed by asserting the tool EXISTS
+before grading anything.
+
+Second, a mutant that ignored curl's exit code ESCAPED. The fall-through fed an
+empty body to the grader, which correctly returned CANNOT EVALUATE, so the stage
+was still nonzero and `assert code != 0` could not distinguish the paths. What
+that branch actually buys is the DIAGNOSIS - an unreachable service and an
+unparseable answer are different problems - so the added test asserts the log
+names curl's exit and preserves its stderr. Proven RED with the mutant and green
+without.
+
 ## v3.66.892 - a capture bundle can finally say which tree it graded
 
 capture.sh step [1] now writes commit identity into 01_sysinfo.log. This is cut

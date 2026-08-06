@@ -1077,6 +1077,36 @@ DEV_EXIT=0
 } > "$OUT/07_dev_tools.log" 2>&1
 echo "  done"
 
+# ── [7b/9] Live selftest battery ─────────────────────────────────
+# Until this stage existed, every selftest check on the box sat permanently
+# outside the capture's denominator: no bundle could confirm or refute ANY
+# selftest change. A session once grepped a bundle for a WARN, got silence, and
+# reported the warning as gone -- true, and worthless.
+#
+# It is its own stage rather than a row in step [7] because that loop is
+# hardcoded to the /api/dev/ prefix, and the grading is NOT `curl && echo ok`
+# because curl exits 0 on a 200 carrying {"error":"endpoint not found"} -- the
+# defect this script's own header records against sse_smoke. The body is graded
+# by tools/selftest_verdict.py, which fails on an empty denominator and passes
+# on WARNs.
+echo "=== [7b/9] Live selftest battery ==="
+SELFTEST_EXIT=0
+curl -fsS --max-time 120 "http://localhost:5555/api/selftest" \
+    > "$OUT/07b_selftest.json" 2> "$OUT/07b_selftest.err"
+SELFTEST_CURL_EXIT=$?
+if [ "$SELFTEST_CURL_EXIT" -ne 0 ]; then
+  SELFTEST_EXIT="$SELFTEST_CURL_EXIT"
+  {
+    echo "CANNOT EVALUATE: curl exit=$SELFTEST_CURL_EXIT probing /api/selftest"
+    cat "$OUT/07b_selftest.err" 2>/dev/null
+  } > "$OUT/07b_selftest.log" 2>&1
+else
+  venv/bin/python tools/selftest_verdict.py "$OUT/07b_selftest.json" \
+      > "$OUT/07b_selftest.log" 2>&1
+  SELFTEST_EXIT=$?
+fi
+echo "  exit=$SELFTEST_EXIT"
+
 # ── [8/9] T51 regenerate_goldens dry-run ─────────────────────────
 echo "=== [8/9] T51 regenerate_goldens dry-run ==="
 venv/bin/python tools/regenerate_goldens.py > "$OUT/08_t51_dryrun.log" 2>&1
@@ -1119,6 +1149,7 @@ venv/bin/python tools/capture_verdict.py \
   --stage-exit "service-active=$SERVICE_EXIT" \
   --stage-exit "service-ready=$SERVICE_READY_EXIT" \
   --stage-exit "dev-tools=$DEV_EXIT" \
+  --stage-exit "selftest=$SELFTEST_EXIT" \
   --stage-exit "goldens=$T51_EXIT" \
   --stage-exit "http-smoke=$SMOKE_EXIT" \
   > "$OUT/10_VERDICT.txt" 2>&1
