@@ -4012,6 +4012,61 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.46 | Session close 2026-08-06 at 9bf4d05 (v3.66.913) -- and CI never ran
+
+Nine cuts: @905 dependency ceilings, @906 the Radix Escape discard, @907 the
+foreign log handler, @908-911 item 4, @912 item 8, @913 this register. Tiers 1,
+2 and 3 of the 15.38 plan are COMPLETE.
+
+**WHAT IS BOX-VERIFIED, AND WHAT IS NOT.** Two green captures:
+
+  * `4c66bbe` (v3.66.907) -- 14721 pass / 0 fail. Closed the @906 palette fix
+    and the @907 ui_events fix on real hardware, including the pytest-9 logging
+    defect that a container running 8.4.2 structurally could not reproduce.
+  * `3b1b656` (v3.66.911) -- 14736 pass / 0 fail, live 36/0/0. All 42 cases
+    across the new runner suites pass. Item 4 is box-verified.
+
+**@912 AND @913 ARE NOT IN EITHER CAPTURE.** The second ran at @911, before both
+merged. @912 adds a test-only suite; @913 changed no source at all. Small
+exposure, but state it rather than let a reader assume the last capture covers
+the tip.
+
+**GITHUB ACTIONS COULD NOT ALLOCATE A RUNNER ALL AFTERNOON, and #213, #214 and
+#215 merged with ZERO CI.** Six failure modes observed, none of them ours: a
+`Service Unavailable` resolving action download info; a 15-minute queue then a
+cancel; a 17-minute cancel; a 58-minute queue at 0s duration; and a
+`synchronize` push that produced no run either -- which is what establishes it
+was runner CAPACITY and not event delivery. `ready_for_review` is NOT in
+ci.yml's trigger list (a bare `pull_request:` defaults to opened/synchronize/
+reopened), so un-drafting a PR will never start CI; only a push, a reopen, or a
+UI re-run will.
+
+**THE LOCAL SUBSTITUTE FOR THE `gates` JOB, which covers every one of its
+steps.** Worth keeping because it will be needed again:
+
+    venv/bin/python -m compileall -q bulk_downloader tools tests
+    venv/bin/python toolchain/bin/bd-regen-order --work "$PWD" && git status --porcelain
+    venv/bin/python toolchain/bin/bd-guardcheck
+    venv/bin/python toolchain/bin/bd-freshcheck --repo-only
+    gitleaks detect --source . --log-opts "$(git rev-parse origin/main)..HEAD"
+    venv/bin/python -m pytest -q -p no:randomly <the 15 suites named in ci.yml>
+
+**GITLEAKS: SCOPE IT TO THE PR RANGE, and nothing else.** A whole-history scan
+reported 36 leaks and a `--no-git` directory scan 21 -- both wrong
+denominators. The first covers 352 commits the PR does not touch; the second
+walks 77MB including `venv/` and `node_modules/`. The question is whether THIS
+change introduces one. Measured over `aa39d3b..HEAD`, all 7 commits merged this
+session: **no leaks**. That retroactively covers #213, which merged unscanned.
+
+A count that disagrees with its range needs explaining, not waving away: a
+2-commit range reported "1 commits scanned" because one commit was EMPTY and
+had no diff to scan. Verified per-commit rather than assumed.
+
+**TIER 4 IS ALL THAT REMAINS**: 11, 12-remnants and 16 open; 14 held (it changes
+a login thread and cannot be judged from a container); 4 and 28 done. Item 12(d)
+additionally needs an OPERATOR NOD on the API shape -- additive and
+non-breaking, but product-facing.
+
 ### 15.45 | Tiers 1-3 are complete, and item 15's "class stands" was false
 
 Close at a85abf3 (v3.66.912). Item 8 was pinned at @912; item 15 needed nothing
