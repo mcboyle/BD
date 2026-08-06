@@ -2239,3 +2239,106 @@ def test_the_env_refusal_has_an_override_and_a_present_env_is_silent():
             "the tool complained even though its env file was present -- a "
             "guard that speaks when nothing is wrong gets switched off:\n%s"
             % out[-600:])
+
+
+def test_a_derived_band_contains_only_files_the_runner_collects():
+    """@897 -- bd-band-derive emitted non-suites, and bd-band then EXECUTED them.
+
+    Two emitters, neither ranging over suites: tests_for_file() globs
+    tests/**/*<stem>*.py, so a changed file under tests/ always matches ITSELF;
+    module_consumers() os.walks tests/ keeping every `.py`. Measured before the
+    fix, one --file run each:
+        tests/conftest.py      -> band contained conftest.py
+        tests/capture_lanes.py -> band contained capture_lanes.py AND conftest.py
+        tests/_env.py          -> band contained _env.py
+        .../semantic/after/sample.py -> band contained both fixture sample.py
+
+    THE HAZARD IS EXECUTION, NOT NOISE. run_tests_core.py:694 is
+    `spec.loader.exec_module(mod)` -- a requested path is EXECUTED. So a derived
+    band could execute a test FIXTURE.
+
+    The predicate is run_tests_core.py:1360's own -- TESTS_DIR.glob("test_*.py")
+    -- deliberately, so the derive and the runner cannot disagree about what a
+    suite is. Measured over `git ls-files tests/`: 1224 of 1239 tracked .py match,
+    and all 15 filtered are genuinely non-suites (conftest, _env, _phase_scripts,
+    capture_lanes, shell_source, two fixture sample.py). No real suite is lost.
+
+    NOT THE SAME SHAPE as the extension allowlist forbidden above at
+    test_v3_66_820's should_scan gate. That one is wrong because a SECRET can
+    live in any file type, so content must decide. This one is a COLLECTION
+    question, and filename is how the runner itself answers it -- copying the
+    runner's rule is the opposite of inventing a private one.
+    """
+    import fnmatch
+    root = str(_REPO_ROOT)
+    derive = os.path.join(root, "toolchain", "bin", "bd-band-derive")
+    for changed in ("tests/conftest.py", "tests/capture_lanes.py",
+                    "tests/shell_source.py"):
+        if not os.path.isfile(os.path.join(root, changed)):
+            continue
+        r = subprocess.run([sys.executable, derive, "--file", changed, "--json"],
+                           cwd=root, capture_output=True, text=True, timeout=300)
+        assert r.returncode == 0, r.stderr
+        band = json.loads(r.stdout)["band"]
+        strays = [b for b in band
+                  if not fnmatch.fnmatch(os.path.basename(b), "test_*.py")]
+        assert not strays, (
+            "band derived for %s contains files the runner does not collect, "
+            "and bd-band would EXECUTE them: %s" % (changed, strays))
+        assert band, (
+            "filtering must not empty the band for %s -- an empty band is a "
+            "denominator that cannot contain any subject" % changed)
+
+
+def test_bd_band_reports_nothing_ran_without_calling_it_a_pass():
+    """The runner already mints a third state; bd-band flattened it to two.
+
+    run_tests_core.py:1663-1668 prints "BD-RUNNER UNEVALUABLE ... This is not a
+    pass. Nothing ran, so nothing was proven" and exits 2. bd-band graded
+    `ok = "Failed: 0" in blob and rc == 0`, so it printed FAIL beside the
+    reassuring `Total: 0 | ... | Failed: 0` line and DISCARDED the banner saying
+    why.
+
+    BOTH DIRECTIONS MATTER AND ONE OF THEM IS @860. The test above,
+    test_a_file_that_collects_nothing_is_not_a_pass, exists precisely because
+    zero-collect used to exit 0, and its docstring names bd-band as a grader of
+    that shape. So a zero-collect suite must stay NON-GREEN here. The fix is to
+    NAME the state correctly, never to excuse it -- making it pass would undo
+    @860 while appearing to fix its neighbour.
+    """
+    import tempfile
+    root = str(_REPO_ROOT)
+    band_tool = os.path.join(root, "toolchain", "bin", "bd-band")
+    with tempfile.TemporaryDirectory() as td:
+        os.makedirs(os.path.join(td, "tests"))
+        with open(os.path.join(td, "tests", "test_zero.py"), "w") as fh:
+            fh.write("class Helper:\n    def test_would_fail(self):\n        assert False\n")
+        with open(os.path.join(td, "tests", "test_real.py"), "w") as fh:
+            fh.write("def test_ok():\n    assert True\n")
+        for f in ("run_tests_core.py", "run_tests.py"):
+            src = os.path.join(root, f)
+            if os.path.isfile(src):
+                with open(src) as a, open(os.path.join(td, f), "w") as b:
+                    b.write(a.read())
+        os.makedirs(os.path.join(td, "venv", "bin"), exist_ok=True)
+        try:
+            os.symlink(sys.executable, os.path.join(td, "venv", "bin", "python"))
+        except OSError:
+            pass
+
+        r = subprocess.run([sys.executable, band_tool, "--work", td,
+                            "--skip-bandcheck", "tests/test_zero.py"],
+                           cwd=root, capture_output=True, text=True, timeout=300)
+        out = r.stdout + r.stderr
+        assert r.returncode != 0, (
+            "a zero-collect SUITE went green -- that undoes @860, which exists "
+            "because exactly this used to pass:\n" + out)
+        assert "NOTHING RAN" in out.upper(), (
+            "the runner said 'nothing was proven' and bd-band did not pass it "
+            "on; the operator sees FAIL beside 'Failed: 0':\n" + out)
+
+        ok = subprocess.run([sys.executable, band_tool, "--work", td,
+                             "--skip-bandcheck", "tests/test_real.py"],
+                            cwd=root, capture_output=True, text=True, timeout=300)
+        assert ok.returncode == 0, (
+            "a real passing suite must stay green:\n" + ok.stdout + ok.stderr)

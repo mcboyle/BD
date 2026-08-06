@@ -38,6 +38,7 @@ bd-blast and (b) distinct files -> distinct bands.
   bd-band-derive --json / --selftest
 """
 import argparse
+import fnmatch
 import glob
 import hashlib
 import json
@@ -564,7 +565,11 @@ def derive(work, changed, rows, zsha_src=None):
                          fe_mut=fe_gate_hits(work, changed, zsha_src))
     # the CONTRACT FLOOR rides on every derived band (see FLOOR)
     band |= {f for f in FLOOR if os.path.isfile(os.path.join(work, f))}
-    return sorted(band)
+    # @897 -- filtered HERE, at the single return, not in emit_band(): the JSON
+    # payload publishes `band` raw and only band_cmd goes through emit_band, so
+    # filtering there would leave two denominators that disagree -- the exact
+    # shape this filter exists to remove.
+    return sorted(b for b in band if is_suite(b))
 
 
 def rev_deps(work, rel):
@@ -695,6 +700,33 @@ def regen_flags(changed, fe_mut=None):
     if any(re.search(r"BD_[A-Z0-9_]+", c) for c in changed):
         pass
     return flags
+
+
+def is_suite(rel):
+    """Would the runner COLLECT this file? Anything else must not be banded.
+
+    @897 -- two emitters put non-suites in the band and neither ranged over
+    suites: tests_for_file() globs tests/**/*<stem>*.py so a changed file under
+    tests/ always matches ITSELF, and module_consumers() os.walks tests/ keeping
+    every `.py`. Measured, one --file run each: conftest.py, capture_lanes.py,
+    _env.py and a fixtures/.../sample.py all reached the band.
+
+    THE HAZARD IS EXECUTION, NOT NOISE: run_tests_core.py:694 is
+    `spec.loader.exec_module(mod)`, so a requested path is EXECUTED. A derived
+    band could execute a test FIXTURE.
+
+    The predicate is run_tests_core.py:1360's own -- TESTS_DIR.glob("test_*.py")
+    -- deliberately COPIED rather than invented, so the derive and the runner
+    cannot disagree about what a suite is. Measured over `git ls-files tests/`:
+    1224 of 1239 tracked .py match; all 15 filtered are genuine non-suites
+    (conftest, _env, _phase_scripts/*, capture_lanes, shell_source, two fixture
+    sample.py). No real suite is lost.
+
+    NOT the extension-allowlist shape forbidden for sec.should_scan: that one
+    must read CONTENT because a secret can live in any file type. This is a
+    collection question, and filename is how the runner itself answers it.
+    """
+    return fnmatch.fnmatch(os.path.basename(rel), "test_*.py")
 
 
 def emit_band(band):

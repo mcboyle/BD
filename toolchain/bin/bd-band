@@ -222,8 +222,26 @@ def main(argv=None):
         line = next((l for l in reversed(tail) if "Failed:" in l or "Total:" in l), "(no summary)")
         ok = "Failed: 0" in blob and r.returncode == 0
         allok = allok and ok
+        # @897 -- the runner mints THREE states and this graded two. It exits 2
+        # with "BD-RUNNER UNEVALUABLE ... Nothing ran, so nothing was proven"
+        # (run_tests_core.py:1663-1668), and the summary line it prints beside
+        # that is the reassuring `Total: 0 | ... | Failed: 0`. Selecting the
+        # summary by "Failed:" therefore printed FAIL next to Failed: 0 and
+        # DISCARDED the banner saying why -- a real failure and a suite that
+        # ran nothing were indistinguishable in the output.
+        #
+        # NOTHING RAN STAYS NON-GREEN. test_toolchain_534's @860 guard exists
+        # because zero-collect used to exit 0, and its docstring names bd-band
+        # as a grader of exactly this shape. Naming the state is the fix;
+        # excusing it would undo @860 while appearing to repair its neighbour.
+        nothing_ran = r.returncode == 2 and "UNEVALUABLE" in blob
+        if nothing_ran:
+            label, detail = Y + "NOTHING RAN" + RST, "nothing was proven"
+        else:
+            label, detail = (G + "PASS" + RST) if ok else (R + "FAIL" + RST), ""
         results.append((s, ok, line.strip()))
-        print(f"  {G+'PASS'+RST if ok else R+'FAIL'+RST}  {s}: {line.strip()}")
+        print(f"  {label}  {s}: {line.strip()}"
+              + (f"  {DIM}({detail}){RST}" if detail else ""))
 
     npass = sum(1 for _, ok, _ in results if ok)
     print(f"\n{'%sALL PASS%s' % (G, RST) if allok else '%sFAILURES%s' % (R, RST)} "
