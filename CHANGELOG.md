@@ -4,6 +4,57 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.900 - the close-tip gate has never graded the newest section
+
+bd-freshcheck's register close-tip check took closes[-1] -- FILE order, not
+newest. SESSION_CARRY is not written in numeric order: measured on the real
+file, 15.39 sits about 900 lines ABOVE 15.30. So the check graded 15.30
+(2026-08-05), and 15.37 and 15.39 were structurally INVISIBLE to it. A
+fabricated sha in the newest section would have passed unnoticed, and 15.39 is
+the section written earlier tonight - this gate had never once checked this
+session's close claim.
+
+Its own docstring already said "The newest `### 15.N | ... close ... at <sha>`",
+which is not what closes[-1] computes. The code and its stated contract
+disagreed, and the code won silently.
+
+  before   OK  15.30 names 5e87c68 ...
+  after    OK  15.39 names 1f096c4 ...
+
+SORTED NUMERICALLY, NOT AS STRINGS. max("15.7", "15.39") is "15.7" - a string
+sort lands on a real but ancient section, and on one of the four that use the
+comma form below, which would then resolve UNKNOWN. A mutant proves it.
+
+BOTH SHA FORMS ARE NOW ACCEPTED, and this half is what stops the fix from being
+worse than the defect. Measured on the real register: 4 of the 10 live close
+sections write ", <sha>" rather than "at <sha>" - 15.7, 15.13, 15.14, 15.16.
+The regex accepted only the at-form, so once the selection is corrected a
+future close written in that style resolves UNKNOWN. ci.yml runs
+bd-freshcheck --repo-only with NO continue-on-error, so exit 2 is red exactly
+like exit 1. Fixing the selection alone would have converted a blind gate into
+a loudly wrong one - the same soundness bug facing the other way.
+
+THE RED TEST PROVES THE BLINDNESS, NOT THE ORDERING. Its fixture puts the
+highest-numbered close section FIRST naming a bogus sha, and a lower-numbered
+one naming the real HEAD LAST. Pristine grades the real one and says OK; only a
+numeric sort can see the bogus one. An ordering-only test would have passed on
+pristine source.
+
+VERIFIED, not asserted:
+  RED first    2 failed on pristine; the 3rd (ancestor tolerance) passed, which
+               is correct - that behaviour already worked and is a regression
+               guard, not a defect
+  mutation     4 caught, 0 escaped, 0 invalid
+
+bd-freshcheck has no project-knowledge twin, checked rather than assumed.
+
+ONE ERROR OF MINE, AND IT IS THE SECOND CONSECUTIVE CUT WITH THE SAME SHAPE.
+The first RED run failed with NameError: pathlib, because these tests were
+appended to a file that does not import it - so they failed for a HARNESS
+reason, not because the feature was absent. The previous cut made the identical
+mistake with `sys`. Appending tests to an existing file without first reading
+its imports is now a recorded personal footgun, not a one-off.
+
 ## v3.66.899 - the mirror obligation is named BEFORE the band, not after it
 
 bd-band-derive now emits a `pk mirror` regen flag when a changed file has a

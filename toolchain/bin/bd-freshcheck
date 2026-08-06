@@ -220,8 +220,24 @@ def check_session_close_tip(root: pathlib.Path) -> dict:
     if not closes:
         return {"name": "register close tip", "status": UNKNOWN,
                 "detail": "no section title contains 'close' -- nothing to check"}
-    num, title = closes[-1]
-    m = re.search(r"\bat ([0-9a-f]{7,40})\b", title)
+    # @899 -- this was closes[-1], which is FILE order, not NEWEST. The register
+    # is not written in numeric order: measured on the real file, 15.39 sits
+    # ~900 lines ABOVE 15.30, so the check graded 15.30 (2026-08-05) and 15.37
+    # and 15.39 were structurally INVISIBLE -- a fabricated sha in the newest
+    # section passed unnoticed. The docstring above says "the newest", which is
+    # what this now computes.
+    #
+    # SORTED NUMERICALLY, NOT AS STRINGS: max("15.7", "15.39") is "15.7", so a
+    # string sort lands on a real but ancient section -- and on one of the four
+    # that use the comma form below, which would then resolve UNKNOWN.
+    num, title = max(closes, key=lambda c: tuple(int(x) for x in c[0].split(".")))
+    # BOTH FORMS. 4 of the 10 live close sections write ", <sha>" rather than
+    # "at <sha>" (15.7, 15.13, 15.14, 15.16). Accepting only the at-form meant a
+    # close written that way resolved UNKNOWN -- and ci.yml runs this with no
+    # continue-on-error, so exit 2 is red exactly like exit 1. Fixing the
+    # selection without widening this would convert a blind gate into a loud
+    # wrong one, which is the same soundness bug facing the other way.
+    m = re.search(r"(?:\bat |,\s*)([0-9a-f]{7,40})\b", title)
     if not m:
         return {"name": "register close tip", "status": UNKNOWN,
                 "detail": f"section {num} is a close section but names no commit"}
