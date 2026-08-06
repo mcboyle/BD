@@ -4003,6 +4003,98 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.40 | Overnight 2026-08-06, v3.66.891-900 -- and SIX of eight "open" items were already fixed
+
+Ten cuts in one night. The cut list is in CHANGELOG; this section carries what
+outlives it.
+
+THE HEADLINE IS NOT A CUT. **Six of the eight register items re-derived tonight
+were ALREADY CLOSED**, most of them at v3.66.871/872, and **not one of them had
+a TEST**. That is why nobody knew: the repairs were real, nothing pinned them,
+and the register kept reporting them open. Verified by RUNNING each tool, never
+by reading its fix comment -- a comment claiming a fix is exactly what satisfies
+an assertion written to test for one.
+
+| item | filed as | measured 2026-08-06 |
+| --- | --- | --- |
+| 5b, 6 | band artifacts un-ignored | CLOSED -- `.gitignore:51`, `:87` |
+| 10 | ai_boot in-flight marker | CLOSED at @874 |
+| 13 | bd-state unreachable | not the filed defect; real one fixed at @888 |
+| 9 | bd-claim inert from a shell | CLOSED at @872 |
+| 5a | bd-parband mints a verdict | CLOSED -- refuses, exit 2, "no verdict minted" |
+| 26 | census counts unexamined rows | CLOSED at @845 |
+| 28 | six extractor paths dead | CLOSED |
+| 18 | venv specifier drift | **REAL** -- fixed at @896 |
+| 7 | zero-collect classification | **REAL** -- fixed at @898, and not as filed |
+
+**THE RULE THIS BUYS: re-derive any item filed before @871 by RUNNING it, before
+costing or scheduling it.** Two batches were scoped as four-tool and three-tool
+cuts and each collapsed to one real fix. A wrong "still open" costs a wasted
+cut; the sweep costs minutes.
+
+**AND A CLOSED ITEM WITH NO TEST IS NOT CLOSED.** Every one of the six could
+regress silently tomorrow. @895 pins four of them; the rest are still bare.
+
+THREE DEFECTS FOUND THAT WERE ON NO LIST
+
+  1. **bd-freshcheck had never graded this session's close claim** (@900). It
+     took `closes[-1]` -- FILE order -- and SESSION_CARRY is not written in
+     numeric order, so 15.39 sat ~900 lines ABOVE 15.30 and was invisible. Its
+     own docstring said "the newest". The code and its contract disagreed
+     silently, for an unknown number of releases.
+  2. **check_requirements never compared specifiers** (@896) -- `version(name)`
+     called and discarded. `flask==0.0.1` against installed 3.1.3 exited 0 with
+     silent stdout, in the SOLE instrument of all three recovery paths.
+  3. **selftest_verdict read two keys that do not exist** (@897) -- mine, from
+     @893, found by the operator's own capture bundle three hours later.
+
+TWO LIVE FINDINGS THAT NEED AN OPERATOR DECISION -- deliberately not acted on
+
+  * **cryptography 49.0.0 is installed against a declared `>=42.0,<46.0`.**
+     Found by @896 on its first real run. Which version this project wants is a
+     dependency decision, not a test fix. The box is unmeasured from here:
+     `venv/bin/python tools/check_requirements.py requirements.txt` answers it.
+  * **The box's working tree reads `dirty`.** Surfaced by @892's commit block on
+     the first capture that carried it. `tools/deployed_version.txt` was the
+     obvious suspect and is NOT it -- gitignored at `.gitignore:37`, checked.
+     `cd ~/BulkDownloader && git status --porcelain` names it.
+
+THE MIRROR OBLIGATION BROKE THREE TIMES IN ONE NIGHT -- @889, @895, and again
+while writing @899, the cut that prevents it. `test_pk_mirrors_do_not_drift`
+caught all three correctly and LATE, each costing a 4-minute band. @899 makes
+bd-band-derive flag it up front AND band the enforcing suite, because naming an
+obligation without banding its gate is the same trap one comment further up that
+file already describes.
+
+METHOD -- FOUR OF MY OWN ERRORS, ALL INSTRUMENT-CAUGHT, NONE REVIEW-CAUGHT
+
+  1. **A "must be nonzero" battery that passed VACUOUSLY** (@893): with no tool
+     on disk python exits 2 for a reason unrelated to grading. Six of seven rows
+     were green before a precondition asserted the subject EXISTS.
+  2. **A mutant escaped because two paths produced the same exit code** (@896,
+     @893): `assert code != 0` cannot discriminate when the fall-through is
+     caught by something else downstream. Assert on the DIAGNOSIS, not only the
+     verdict.
+  3. **A CI failure caused by an entry's POSITION, not its content**: the ASCII
+     gate takes everything from the first `## ` header to the next, and a naive
+     prepend put the entry above the title so the preamble's em dash fell inside
+     the window. CLAUDE.md section 3 says "anchored on the PREVIOUS `## v...`
+     header" for exactly this reason. **The band could not have caught it** --
+     that check lives in ci.yml, not in a test.
+  4. **The same missing-import mistake in two consecutive cuts** (@899 `sys`,
+     @900 `pathlib`). Appending tests to an existing file without first reading
+     its imports makes the new tests fail for a HARNESS reason, which reads as a
+     valid RED and is not one. Both proofs had to be redone.
+
+WHAT REMAINS, and none of it is blocked on anything but time: item 12 splits
+into four REAL subjects (subject (d), `regen_nfos_from_history` resolving a bare
+basename CWD-relative, is a live dead endpoint in library_final.py:468-518 and
+needs no operator decision); item 4 is bd-band's three root causes, 18 of 93
+suites, and its `pytest.param` scope must sit in ONE sub-cut -- an adversarial
+review found two sub-cuts both claiming it, with the one recommending it land
+first shipping an identity function while 33 of 37 param sites carry more than
+one value.
+
 ### 15.39 | Session close 2026-08-06 at 1f096c4 (v3.66.893) -- tiers 1 and 2 are done
 
 Nine cuts merged across this session; the last three are recorded here because

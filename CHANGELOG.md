@@ -4,6 +4,40 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.901 - the overnight record: six of eight "open" items were already fixed
+
+Register-only. SESSION_CARRY 15.40 carries the overnight run, v3.66.891-900.
+
+THE HEADLINE IS NOT A CUT. Six of the eight register items re-derived tonight
+were ALREADY CLOSED - most at v3.66.871/872 - and not one of them had a TEST.
+That is why nobody knew: the repairs were real, nothing pinned them, and the
+register kept reporting them open. Verified by RUNNING each tool, never by
+reading its fix comment.
+
+The rule it buys: re-derive any item filed before @871 by RUNNING it, before
+costing or scheduling it. Two batches were scoped as four-tool and three-tool
+cuts and each collapsed to one real fix. And a closed item with no test is not
+closed - every one of the six could regress silently tomorrow.
+
+THREE DEFECTS FOUND THAT WERE ON NO LIST: bd-freshcheck had never graded this
+session's close claim (@900); check_requirements never compared specifiers
+(@896); selftest_verdict read two keys that do not exist (@897, mine, found by
+the operator's own capture bundle).
+
+TWO LIVE FINDINGS NEEDING AN OPERATOR DECISION, deliberately not acted on:
+cryptography 49.0.0 installed against a declared >=42.0,<46.0, and the box's
+working tree reading `dirty`. Both have the exact command that answers them.
+
+THE MIRROR OBLIGATION BROKE THREE TIMES IN ONE NIGHT, the third while writing
+the cut that prevents it.
+
+FOUR OF MY OWN ERRORS are recorded there in full, all instrument-caught and
+none review-caught: a battery that passed vacuously against a missing tool; a
+mutant that escaped because two paths shared an exit code; a CI failure caused
+by a changelog entry's POSITION rather than its content, which no band could
+have caught because that check lives in ci.yml; and the SAME missing-import
+mistake in two consecutive cuts, which made two RED proofs invalid until redone.
+
 ## v3.66.900 - the close-tip gate has never graded the newest section
 
 bd-freshcheck's register close-tip check took closes[-1] -- FILE order, not
