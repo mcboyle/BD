@@ -423,8 +423,32 @@ def list_size_drift(download_dir: str, *, site_id: Optional[str] = None,
                            tolerance_bytes=tolerance_bytes)["rows"]
 
 
-def audit(*, download_dir: str, site_id: Optional[str] = None) -> dict:
+# One cap for every DB-derived figure audit() returns. It exists as a single
+# named constant because the defect it closes was two DIFFERENT caps -- 500 for
+# missing, 1000 for size_drift -- reached only through the callees' own
+# defaults, so nothing at the call site showed that the two counts described
+# different populations. Two defaults that happen to agree would recreate that
+# the next time either is touched; one knob cannot.
+_AUDIT_ROW_LIMIT = 1000
+
+
+def audit(*, download_dir: str, site_id: Optional[str] = None,
+          limit: int = _AUDIT_ROW_LIMIT) -> dict:
     """One-call library-doctor summary for the dashboard.
+
+    `missing` and `size_drift` are both read from `history` WHERE
+    status='done', ORDER BY id DESC LIMIT `limit` -- ONE window, so the two
+    counts describe the same population. They did not always: the callees
+    default to 500 and 1000 respectively and this function passed neither, so a
+    row could sit inside size_drift's window and outside missing's. audit()
+    then examined that row for drift and reported nothing missing about it.
+
+    THE COUNTS ARE STILL FLOORS once a library exceeds `limit`, and this
+    function does not say which are saturated -- disclosing that needs a new
+    key, and the key set below is pinned by
+    tests/test_library_audit_panel_contract.py alongside api-types.ts. Raise
+    `limit` to widen the window. `orphans` and `duplicate_groups` are disk
+    walks and are not capped at all, so `limit` does not govern them.
 
     Returns COUNTS, not lists -- the lists are the capped sample_* fields.
     Exact keys (the SPA panel and api-types.ts LibraryAuditResult must agree
@@ -444,9 +468,10 @@ def audit(*, download_dir: str, site_id: Optional[str] = None) -> dict:
       sample_size_drift        list  first 10 rows of each
     """
     o = list_orphans(download_dir, site_id=site_id)
-    m = list_missing_from_disk(site_id=site_id, download_dir=download_dir)
+    m = list_missing_from_disk(site_id=site_id, download_dir=download_dir,
+                               limit=limit)
     dupes = list_duplicate_candidates(download_dir)
-    drift = list_size_drift(download_dir, site_id=site_id)
+    drift = list_size_drift(download_dir, site_id=site_id, limit=limit)
     total_orphan = sum(x["size_bytes"] for x in o)
     reclaimable = sum(g["size_bytes"] * (g["count"] - 1) for g in dupes)
     return {
