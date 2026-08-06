@@ -306,3 +306,95 @@ def test_api_global_config_default_is_basic():
     r = c.get('/api/global_config')
     d = r.get_json()
     assert d.get('ui_logging_level') == 'basic'
+
+
+def test_foreign_handler_does_not_suppress_the_ui_events_log():
+    """A handler someone ELSE attached must not stop ui_events opening its own.
+
+    The guard's own comment says it exists so a concurrent second caller does
+    not add a SECOND handler -- its subject is OUR handler. It keyed on
+    ``if lg.handlers:`` instead, whose denominator is EVERY handler, so anything
+    attaching to the named logger first makes _get_logger() return before
+    creating its TimedRotatingFileHandler. ui_events.log is then never written,
+    and because propagate is False the events do not reach root either: they are
+    silently dropped, which is the whole feature failing quietly.
+
+    pytest 9's logging plugin is one such attacher, which is how this surfaced
+    (two failures on the box at v3.66.902 while the container's pytest 8.4.2
+    stayed green). THE DEFECT IS NOT ABOUT PYTEST -- this test attaches the
+    foreign handler itself, so it is RED on any runner and does not depend on
+    which plugins happen to be loaded.
+    """
+    import logging
+    import logging.handlers
+    with _with_temp_log() as (uie, path):
+        lg = logging.getLogger("bulk_downloader.ui_events")
+        saved = list(lg.handlers)
+        for h in saved:
+            lg.removeHandler(h)
+        foreign = logging.StreamHandler()
+        lg.addHandler(foreign)
+        try:
+            accepted, _ = uie.ingest(
+                [{"ts": 1, "category": "click", "event": "c1", "data": {}}],
+                "basic")
+            assert accepted == 1, accepted
+            for h in lg.handlers:
+                try: h.flush()
+                except Exception: pass
+            own = [h for h in lg.handlers
+                   if isinstance(h, logging.handlers.TimedRotatingFileHandler)]
+            assert own, (
+                "ui_events never opened its own file handler because a foreign "
+                f"one was present: {[type(h).__name__ for h in lg.handlers]}")
+            assert path.exists(), f"{path} was never created"
+            body = path.read_text(encoding="utf-8")
+            assert "c1" in body, f"event never reached the log file: {body!r}"
+        finally:
+            lg.removeHandler(foreign)
+            try: foreign.close()
+            except Exception: pass
+            for h in saved:
+                lg.addHandler(h)
+
+
+def test_get_logger_attaches_its_own_handler_exactly_once():
+    """Re-entering _get_logger must not stack a second file handler.
+
+    This is the guard's ORIGINAL purpose, and the foreign-handler test above
+    does not constrain it: two mutants (dropping the tag, and forcing the guard
+    false) leave that test green while every re-entry piles on another
+    TimedRotatingFileHandler -- duplicating every line written thereafter.
+
+    The module-level _logger cache HIDES this, so the cache is cleared between
+    the two calls. That is not an impossible state: the guard's own comment is
+    about being "called twice concurrently", which is precisely two callers
+    passing `if _logger is not None` before either assigns it. Without clearing
+    it, _get_logger returns on its first line, the guard is never reached, and
+    the assertion would hold no matter what the guard says -- a test that
+    cannot see its subject.
+    """
+    import logging
+    import logging.handlers
+    with _with_temp_log() as (uie, _):
+        lg = logging.getLogger("bulk_downloader.ui_events")
+        saved = list(lg.handlers)
+        for h in saved:
+            lg.removeHandler(h)
+        try:
+            uie._logger = None
+            uie._get_logger()
+            uie._logger = None      # force the guard, not the cache, to decide
+            uie._get_logger()
+            own = [h for h in lg.handlers
+                   if isinstance(h, logging.handlers.TimedRotatingFileHandler)]
+            assert len(own) == 1, (
+                f"expected exactly one file handler after re-entry, got "
+                f"{len(own)}: {[type(h).__name__ for h in lg.handlers]}")
+        finally:
+            for h in list(lg.handlers):
+                try: h.close()
+                except Exception: pass
+                lg.removeHandler(h)
+            for h in saved:
+                lg.addHandler(h)
