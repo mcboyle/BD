@@ -4,6 +4,70 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.895 - Batch B: three of four were already fixed, and the fourth was mis-filed
+
+Item 8, "every wired gate refuses rather than passes when its denominator is
+empty", across bd-opv, bd-equiv, bd-env-report-check and bd-fullsuite.
+
+THREE OF THE FOUR WERE ALREADY FIXED AT v3.66.871. Re-derived by RUNNING each
+tool, not by reading its comments - a comment claiming a fix is exactly what
+satisfies an assertion written to test for one. Measured:
+
+  bd-env-report-check   version UNKNOWN + an advisory commit now returns
+                        UNKNOWN exit 2, where the register measured FRESH exit 0
+  bd-equiv              a crashed comparison now returns CANNOT-EVALUATE exit 2
+                        with errored=true, where it returned SUPERSET exit 0
+  bd-opv                a raised check now grades BROKE with its own
+                        CANNOT-EVALUATE exit 2, where it was folded into SKIP
+
+None of the three had a TEST. The repairs were real and nothing would have
+caught them regressing, so this cut pins all three as the parametrized invariant
+the item asked for.
+
+THE FOURTH IS REAL, AND IT IS NOT THE DEFECT THAT WAS FILED. The register
+described "one env-looking line anywhere in a file's output suppresses every
+genuine failure in that file". On this tree @871's per-test segmentation already
+handles that: the SAME env line placed BEFORE the failing marker grades REAL
+correctly. What still breaks is that the LAST failing block runs to
+end-of-output, so anything printed AFTER the final FAIL row - a teardown
+warning, an atexit message, a GTK warning at interpreter shutdown - is absorbed
+into that test's excerpt and excuses it. Discriminated by moving one line:
+
+  env line BEFORE the marker   REAL failed 1 | env 0     (already correct)
+  env line AFTER the summary   REAL failed 0 | env 1     (GREEN, exit 0)
+
+Same consequence, different mechanism. A fix aimed at the filed description
+would have missed it, which is why the reproduction was run before the fix was
+written.
+
+THE FIX bounds every failing block by the next test marker OR the next RUN-LEVEL
+line, whichever comes first - the `Total:` summary and the `--- <file> ---`
+header that run_tests_core actually writes, not a guessed delimiter.
+
+NOT BOUNDED BY INDENTATION, which is the tempting alternative and is wrong in
+the over-sensitive direction: run_tests_core prints the excerpt as
+`f"          {short}"` where short is the last THREE error lines joined, so only
+the FIRST line is indented and the other two sit at column 0. An indent bound
+would cut a genuine GTK traceback before its identifying line and report a code
+defect on a box with no typelibs - failing a healthy environment for a condition
+no code change can fix. That direction is a test, not a footnote.
+
+VERIFIED, not asserted:
+  RED first    1 of 10 failed on pristine - the one real defect. The other nine
+               pin behaviour @871 already fixed and correctly passed
+  mutation     4 caught, 0 escaped, 0 invalid, including the over-sensitive
+               indent-bound mutant
+  selftest     bd-fullsuite --selftest PASS
+
+TWO ERRORS OF MINE, both instrument-caught. A fixture reported "Passed: 1" while
+the test asserted nothing had earned a pass, so the failure was my harness and
+not the tool - a genuine GTK import failure passes nothing, and the fixture now
+says so. And the first battery let a mutant ESCAPE that graded an unattributable
+failure as "env" instead of UNKNOWN: that branch is the safety property the
+whole per-test approach rests on - if the marker format ever drifts the
+segmentation becomes its own blind denominator and must fail CLOSED - and
+nothing exercised it. Now tested, proven RED with the mutant and green without.
+
 ## v3.66.894 - session close: tiers 1 and 2 are done, item 19 closed as two cuts
 
 Register-only. SESSION_CARRY 15.39 carries the close; 15.38's tier 2 table is

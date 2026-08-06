@@ -146,12 +146,45 @@ def classify(out):
 # GTK-import case still segments to a single env block and stays excused.
 _TEST_MARKER = re.compile(r"^  (PASS|FAIL|SKIP)  ", re.M)
 
+# @895 -- RUN-LEVEL DELIMITERS CLOSE A BLOCK. Segmenting on markers alone left
+# the LAST block running to end-of-output, so anything printed after the final
+# FAIL row -- a teardown warning, an atexit message, a GTK warning emitted at
+# interpreter shutdown -- was absorbed into that test's text and excused it.
+# Measured: a real AssertionError plus a trailing env line reported
+# "REAL failed 0 ... GREEN", while the SAME env line placed before the marker
+# correctly reported REAL. Same consequence as the originally-filed defect, a
+# different mechanism, and @871's per-test segmentation did not reach it.
+#
+# These are the run-level lines run_tests_core actually writes, not a guess: the
+# `Total:` summary, and the `--- <file> ---` header that opens each file's
+# failure section (run_tests_core.py:1418).
+_RUN_LEVEL = re.compile(r"^(?:Total:\s*\d|--- .* ---\s*$|=== )", re.M)
+
 
 def failing_blocks(out):
-    """Each FAIL row's own text: its marker line plus its indented excerpt."""
+    """Each FAIL row's own text: its marker line plus its excerpt.
+
+    Bounded by the next test marker OR the next run-level line, whichever comes
+    first. NOT bounded by indentation, which is the tempting alternative and is
+    wrong: run_tests_core prints `f"          {short}"` where short is the last
+    THREE error lines joined (:1421-1422), so only the FIRST excerpt line is
+    indented and the other two sit at column 0. An indent bound would cut a
+    genuine GTK traceback before its identifying line and report a code defect
+    on a box with no typelibs -- failing a healthy environment for a condition
+    no code change can fix, which is the same soundness bug as the blindness it
+    would be fixing.
+    """
     marks = [(m.start(), m.group(1)) for m in _TEST_MARKER.finditer(out)]
-    return [out[pos:(marks[i + 1][0] if i + 1 < len(marks) else len(out))]
-            for i, (pos, kind) in enumerate(marks) if kind == "FAIL"]
+    blocks = []
+    for i, (pos, kind) in enumerate(marks):
+        if kind != "FAIL":
+            continue
+        end = marks[i + 1][0] if i + 1 < len(marks) else len(out)
+        closer = _RUN_LEVEL.search(out, pos + 1, end)
+        if closer:
+            end = closer.start()
+        blocks.append(out[pos:end])
+    return blocks
 
 
 def classify_run(out, rc, failed):
