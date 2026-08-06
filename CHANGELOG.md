@@ -4,6 +4,63 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.898 - a band contains only files the runner collects, and "nothing ran" says so
+
+Item 7, and neither half is what the register described.
+
+HALF ONE -- THE DERIVE EMITTED NON-SUITES, AND bd-band EXECUTED THEM. Two
+emitters, neither ranging over suites: tests_for_file() globs
+tests/**/*<stem>*.py so a changed file under tests/ always matches ITSELF, and
+module_consumers() os.walks tests/ keeping every `.py`. Measured, one --file run
+each - conftest.py, capture_lanes.py, _env.py and a fixtures/.../sample.py all
+reached the band.
+
+THE HAZARD IS EXECUTION, NOT NOISE: run_tests_core.py:694 is
+`spec.loader.exec_module(mod)`, so a requested path is EXECUTED. A derived band
+could execute a test FIXTURE.
+
+The predicate is run_tests_core.py:1360's own - TESTS_DIR.glob("test_*.py") -
+COPIED rather than invented, so the derive and the runner cannot disagree about
+what a suite is. Measured over `git ls-files tests/`: 1224 of 1239 tracked .py
+match, and all 15 filtered are genuine non-suites (conftest, _env,
+_phase_scripts/*, capture_lanes, shell_source, two fixture sample.py). No real
+suite is lost.
+
+It is NOT the extension-allowlist shape that sec.should_scan forbids three
+functions away in the same test file. That one must read CONTENT because a
+secret can live in any file type. This is a COLLECTION question, and filename is
+how the runner itself answers it - copying the runner's rule is the opposite of
+inventing a private one. Filtered at derive()'s single return, not in
+emit_band(): the JSON publishes `band` raw and only band_cmd goes through
+emit_band, so filtering there would leave two denominators that disagree - the
+exact shape the filter exists to remove.
+
+HALF TWO -- THE RUNNER MINTS THREE STATES AND bd-band GRADED TWO. run_tests_core
+exits 2 with "BD-RUNNER UNEVALUABLE ... Nothing ran, so nothing was proven"
+(:1663-1668), and the summary line beside it is the reassuring
+`Total: 0 | ... | Failed: 0`. bd-band selected the summary by "Failed:", so it
+printed FAIL next to Failed: 0 and DISCARDED the banner saying why. A real
+failure and a suite that ran nothing were indistinguishable in the output.
+
+NOTHING RAN STAYS NON-GREEN, and this is the half the item as filed would have
+got wrong. test_toolchain_534's @860 guard exists BECAUSE zero-collect used to
+exit 0, and its docstring names bd-band as a grader of exactly that shape.
+Making it pass would have undone @860 while appearing to repair its neighbour.
+Naming the state is the fix; excusing it is not.
+
+VERIFIED, not asserted:
+  RED first    2 tests failed on pristine, 44 passed
+  mutation     4 caught, 0 escaped, 0 invalid - including the inverted filter,
+               which drops every REAL suite instead of every non-suite
+
+BOTH project-knowledge MIRRORS synced in this commit. A toolchain/bin edit owes
+its twin, and that obligation went unmet twice tonight (@889 bd-band-derive,
+@895 bd-fullsuite), each caught only by a 4-minute band.
+
+Tests EXTEND tests/test_toolchain_534.py rather than adding a file: a new
+tracked test file moves ten axis-6 gates and PIN_INDEX's test_files_scanned,
+and these belong beside the @860 guard they must not weaken.
+
 ## v3.66.897 - the selftest diagnosis read two keys that do not exist
 
 A defect I shipped at v3.66.893, found by the box's own capture bundle three
