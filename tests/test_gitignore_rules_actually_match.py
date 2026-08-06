@@ -182,3 +182,51 @@ def test_generated_artifacts_are_ignored(rel):
         f"tracked nor ignored, so it makes the deployed tree read dirty and is "
         f"one `git add -A` from being committed."
     )
+
+
+# @902: the ROTATED log. bulk_downloader/log.py:74-75 configures
+# RotatingFileHandler(_LOG_FILE, maxBytes=..., backupCount=5), so the app
+# produces bulk_downloader.log.1 .. .log.5 BY DESIGN -- but the ignore rule was
+# written as `*.log`, which matches the active file and NONE of the rotations.
+# Found on the deploy host: a 10.5 MB bulk_downloader.log.1 sitting untracked,
+# and it is one `git add -A` from being committed.
+_ROTATED_LOGS = [
+    "logs/bulk_downloader.log",
+    "logs/bulk_downloader.log.1",
+    "logs/bulk_downloader.log.5",
+    "logs/bulk_downloader.log.2.gz",
+]
+
+
+@pytest.mark.parametrize("rel", _ROTATED_LOGS)
+def test_rotated_logs_are_ignored(rel):
+    """`*.log` matches the active file and not one rotation of it.
+
+    A rule that covers only the un-rotated name is a denominator that excludes
+    most of what the writer actually creates: backupCount=5 means up to five
+    files the rule cannot see, permanently dirtying the deploy host's tree.
+
+    Asserted over the names the HANDLER produces, not a guess -- .log.N is
+    logging's own rotation suffix, and .gz covers a future compressing rotator.
+    """
+    assert _git("check-ignore", "-q", rel).returncode == 0, (
+        f"{rel} is written by the app's own rotating handler "
+        f"(bulk_downloader/log.py:74-75, backupCount=5) and is neither tracked "
+        f"nor ignored. Measured on the box: a 10.5 MB .log.1 made the working "
+        f"tree read dirty on every capture, which is exactly the signal "
+        f"v3.66.892's commit block exists to give."
+    )
+
+
+def test_nothing_under_logs_is_tracked():
+    """The over-sensitive direction: ignoring logs/ must not orphan real content.
+
+    Measured before widening the rule -- `git ls-files logs/` returned zero. If
+    that ever stops being true, ignoring the directory would hide a tracked
+    file rather than runtime output.
+    """
+    tracked = [p for p in _git("ls-files", "logs/").stdout.splitlines() if p]
+    assert not tracked, (
+        f"logs/ carries tracked file(s) {tracked} -- ignoring the directory "
+        f"would hide real content, not runtime output"
+    )
