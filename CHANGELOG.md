@@ -4,6 +4,61 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.921 - capture's parallel allowlist was never backfilled, so 86% of the suite went serial
+
+The operator reported capture used to finish in 5-10 minutes and now takes ~45.
+It is a regression, and it was silent because a fail-closed default raises no
+error.
+
+Lane assignment became fail-closed at 1ae076a with 173 files reviewed into
+tests/capture_parallel_files.txt. Nothing ever backfilled it -- the file has
+been edited four times since, two of them retirements that only REMOVED
+entries -- while the suite grew to 1232 files. Everything unreviewed defaulted
+to serial. MEASURED before this cut: 173 parallel, 1059 serial, of which 526
+matched no risk criterion at all.
+
+EVIDENCE, measured ON THE BOX at v3.66.920: the entire serial lane -- 1059
+files, 13,429 tests -- was run under `-n $(nproc) --dist loadfile`. It finished
+in 4m05s with 13,338 passed and exactly 6 failures across 5 files, EVERY ONE of
+which passed on a serial retry. Totals reconcile against the v3.66.913 capture:
+13,429 here plus ~1,403 in the parallel lane equals its 14,832 collected.
+
+617 files are promoted: they passed in that run AND carry no source-level
+hazard. Lane split is now 783 parallel / 449 files, and at test granularity the
+serial lane drops from 13,429 to 6,251 while parallel rises from ~1,458 to
+8,605.
+
+A FILENAME IS NOT A BEHAVIOUR, so SERIAL_NAME_TOKENS is now overridable by an
+explicit allowlist entry -- 88 files were serial solely because their basename
+contained "capture" or "runner". The tokens still route every UNLISTED file to
+serial, so the fail-closed default is intact.
+
+THE SOURCE CHECKS STAY ABSOLUTE, and the asymmetry is the whole design. They
+match constructs that leak ACROSS FILES inside one xdist worker -- os.environ
+mutation, sys.modules wiping, os.chdir, a run_tests import, playwright,
+sockets. `--dist loadfile` keeps a file's tests together; it does NOT give a
+file its own worker, so the next file on that worker inherits the damage and
+worker assignment varies between runs. A single green parallel run is therefore
+not evidence for those 437 files, and no allowlist entry may override them.
+
+The two files the experiment REFUTED -- test_dev_suite_tier1b and
+test_v3_66_717_exec_bridge, which also failed the same way in an independent
+container run -- are named in SERIAL_EXACT_BASENAMES rather than merely
+omitted, because the backfill is generated and omission would be regenerated
+away.
+
+TWO MISTAKES MADE WHILE BUILDING THIS, both caught by the gates rather than by
+reading. A hand-picked subset of SERIAL_SOURCE_SNIPPETS omitted five entries,
+so seven files were promoted that the real predicate refuses; the fix uses the
+classifier's own constants. And test_classifier_defaults_unreviewed_files_to_serial
+NAMED two real files as exemplars of "risky", which pinned the allowlist's
+contents instead of the classifier's behaviour -- it failed the moment one was
+promoted. It now derives its subject and asserts the property over the whole
+tree, which is strictly stronger.
+
+A ratchet pins the parallel lane at >= 700 files so this cannot erode silently
+a second time.
+
 ## v3.66.920 - register-only: tier 4 worked top-down, and three register claims were wrong
 
 SESSION_CARRY 15.47. No source change.

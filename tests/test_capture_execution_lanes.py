@@ -97,6 +97,25 @@ def test_allowlisted_file_cannot_bypass_dynamic_runner_import_risk() -> None:
         )
 
 
+def _has_source_hazard(lanes, path) -> bool:
+    """True when a file's SOURCE trips a check the allowlist may not override.
+
+    Deliberately reuses the classifier's own constants rather than restating
+    them. A restatement drifts: while backfilling the allowlist at v3.66.921 a
+    hand-picked subset of SERIAL_SOURCE_SNIPPETS omitted five entries, and
+    seven files were promoted that the real predicate refuses. The instrument
+    fixes the denominator; borrowing it fixes the predicate too.
+    """
+    try:
+        source = path.read_text(encoding="utf-8")
+    except OSError:
+        return True
+    lowered = source.lower()
+    if any(snippet in lowered for snippet in lanes.SERIAL_SOURCE_SNIPPETS):
+        return True
+    return any(pattern.search(source) for pattern in lanes.SERIAL_SOURCE_PATTERNS)
+
+
 def test_classifier_defaults_unreviewed_files_to_serial() -> None:
     lanes = _load_lanes_module()
 
@@ -113,14 +132,33 @@ def test_classifier_defaults_unreviewed_files_to_serial() -> None:
         )
         == "parallel"
     )
-    for risky in (
-        "test_v3_43_21_jd_bridge.py",
-        "test_v3_66_446_scrape_listing_httpx.py",
-    ):
-        assert (
-            lanes.classify_capture_file(REPO_ROOT / "tests" / risky)
-            == "serial"
-        ), risky
+    # v3.66.921: these two assertions used to NAME two real files as exemplars
+    # of "risky". That pinned the allowlist's contents rather than the
+    # classifier's behaviour, so the moment either file was reviewed and
+    # promoted the test failed for a reason that had nothing to do with the
+    # property it exists to protect. It fired exactly that way when the
+    # allowlist was backfilled from 173 to 783.
+    #
+    # The property is now asserted over the whole tree and derives its own
+    # subject: EVERY file carrying a source-level hazard must classify serial,
+    # allowlisted or not. That cannot go stale as the allowlist grows, and it
+    # is a strictly stronger claim than two filenames were.
+    hazardous = [
+        path
+        for path in sorted((REPO_ROOT / "tests").rglob("test_*.py"))
+        if _has_source_hazard(lanes, path)
+    ]
+    assert len(hazardous) > 100, (
+        f"only {len(hazardous)} hazardous files found -- the denominator "
+        f"collapsed and the assertion below would mean nothing"
+    )
+    for path in hazardous:
+        assert lanes.classify_capture_file(path) == "serial", (
+            f"{path.name} carries a source-level hazard but classified "
+            f"parallel. Source checks are ABSOLUTE: an allowlist entry may "
+            f"override a filename token, never a construct that leaks across "
+            f"files inside an xdist worker."
+        )
 
 
 def test_parallel_manifest_is_explicit_complete_and_risk_free() -> None:
@@ -165,3 +203,88 @@ def test_capture_script_gives_workers_only_to_parallel_lane() -> None:
     assert source.count("--junit ") >= 2
     assert '"$OUT/02_pytest_parallel.xml"' in source
     assert '"$OUT/02_pytest_serial.xml"' in source
+
+
+def test_an_allowlist_entry_overrides_a_filename_token() -> None:
+    """v3.66.921: the capability the backfill needed, pinned.
+
+    A filename is not a behaviour. `SERIAL_NAME_TOKENS` matches substrings like
+    "capture" and "runner", and 88 files were serial for that reason alone with
+    no risky construct in them. The tokens are a proxy for "nobody has reviewed
+    this"; an allowlist entry IS a review, so it now wins.
+
+    The tokens still bite for every UNLISTED file -- the assertion below
+    re-checks that, because a change making them inert entirely would satisfy
+    the first half and destroy the fail-closed default.
+    """
+    lanes = _load_lanes_module()
+    tests_root = REPO_ROOT / "tests"
+    allowlist = lanes.parallel_allowlist()
+
+    promoted = [
+        tests_root / rel
+        for rel in sorted(allowlist)
+        if any(tok in rel.lower() for tok in lanes.SERIAL_NAME_TOKENS)
+    ]
+    assert promoted, (
+        "no allowlisted file carries a name token, so this test is asserting "
+        "over an empty set and proves nothing"
+    )
+    for path in promoted:
+        assert lanes.classify_capture_file(path) == "parallel", path.name
+
+    # ...and the token still routes an UNREVIEWED file to serial.
+    assert (
+        lanes.classify_capture_file(
+            "tests/test_capture_not_reviewed_probe.py",
+            source="def test_pure(): assert True",
+        )
+        == "serial"
+    )
+
+
+def test_files_the_experiment_refuted_stay_serial() -> None:
+    """Named, not merely omitted, so a later green run cannot promote them.
+
+    The whole serial lane was run in parallel on the box at v3.66.920: five
+    files failed and all five passed on a serial retry. Three were already
+    source-flagged or listed; these two were neither, and they failed the same
+    way in an independent container run. Two machines agreeing is the evidence.
+
+    Omission would not have held -- the backfill is generated, so anything not
+    explicitly refused gets regenerated back in. This is why the refusal lives
+    in SERIAL_EXACT_BASENAMES rather than in a comment.
+    """
+    lanes = _load_lanes_module()
+    for name in ("test_dev_suite_tier1b.py", "test_v3_66_717_exec_bridge.py"):
+        assert name in lanes.SERIAL_EXACT_BASENAMES, name
+        assert (
+            lanes.classify_capture_file(
+                REPO_ROOT / "tests" / name,
+                source="def test_pure_looking(): assert True",
+            )
+            == "serial"
+        ), name
+
+
+def test_the_parallel_lane_did_not_collapse_back() -> None:
+    """A ratchet on the backfill, because its value is entirely in its size.
+
+    The lane split became fail-closed at 1ae076a with 173 files reviewed, and
+    nothing ever backfilled it -- so as the suite grew to 1232 files, 86% of it
+    drifted into the serial lane and capture went from ~10 minutes to ~45. That
+    regression was silent precisely because a fail-closed default raises no
+    error. This makes a repeat loud.
+    """
+    lanes = _load_lanes_module()
+    parallel = sum(
+        1
+        for path in (REPO_ROOT / "tests").rglob("test_*.py")
+        if lanes.classify_capture_file(path) == "parallel"
+    )
+    assert parallel >= 700, (
+        f"the parallel lane is down to {parallel} files. It was 783 at "
+        f"v3.66.921. If files were legitimately demoted, lower this floor in "
+        f"the same commit and say which and why -- do not let it erode "
+        f"silently, which is how the 45-minute capture happened."
+    )
