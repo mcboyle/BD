@@ -4,6 +4,48 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.917 - three retired tools survived where no gate could see them
+
+Item 16 / 7a, first half. bd-reconcile, bd-tracker-recon and bd-deploy-manifest
+were retired before v3.66.858, and all three were still tracked -- as
+extensionless, python-shebang files under project-knowledge/. Deleted, and the
+gates that certify their retirement can now see them.
+
+THE GATES WERE BLIND FOR TWO REASONS, and the register records only one. The
+known one is the executable-reference scan, which enumerates
+`git ls-files -- '*.py' '*.sh'` and so structurally excludes every
+extensionless file. The one nobody had noticed is that each gate's EXISTENCE
+check is a hardcoded path tuple that globs nothing at all -- and every path in
+those tuples names a spelling that does not exist, while the real survivors sat
+one directory away for 59 releases. Both gates were green the whole time. That
+is section 0 twice over in the same file.
+
+RED first: the three paths were added to the tuples and both gates proved red,
+naming exactly the three survivors, before anything was deleted.
+
+Also removed the registry rows for all three from bd-tools -- BOTH mirror
+copies in the same commit, verified with bd-pk-mirror --check.
+
+FIXED IN PASSING, in a gate this cut already edits: test_deploy_manifest_stays_
+retired called pytest.skip() in its git-unavailable branch and never imported
+pytest, so the one path written to make the gate fail SAFE raised NameError
+instead. Unreachable while git works, which is why it survived.
+
+THE REGISTER'S "lower the toolchain budget from 240 when it lands" IS NOT
+EXECUTABLE and is corrected rather than followed. That budget's denominator is
+os.listdir(toolchain/bin) filtered to bd-*; the survivors lived in
+project-knowledge/, so deleting them changes n by 0. n is 240, exactly at the
+ceiling, and lowering the pin would turn the gate RED.
+
+TWO FINDINGS FILED, NOT FIXED HERE. CI runs pyflakes over bulk_downloader and
+tools only, so tests/ is outside the denominator of the one instrument that
+reports undefined names; measured, it finds exactly two real ones -- the
+pytest import above and RR_MOUSE_INTERACTION at
+tests/test_v3_66_50_at2_dom_capture.py:120. A gate over tests/ is its own cut.
+project-knowledge/STATIC_KB_MANIFEST.json still carries rows for the three
+deleted files; it is generated, already stale (dated 2026-07-23 against
+v3.66.817, file_count 363 vs 355 entries), and no test reads it.
+
 ## v3.66.916 - regen_nfos tested a recorded basename against the CWD
 
 Item 12(d). runner_transport records `final_path.name`, a bare basename, and

@@ -60,6 +60,13 @@ RETIRED = (
     "tests/test_v3_66_721_tasktracker_audit.py",
     # the project-knowledge mirror of the generator
     "project-knowledge/tasktracker_gen.py",
+    # v3.66.917: the surviving copies. The two toolchain/bin paths above were
+    # listed from the start and are genuinely gone, but the tools were MIRRORED
+    # into project-knowledge/ without an extension, so neither this tuple nor
+    # the '*.py *.sh' scan below could see them. Retiring a tool from one of
+    # two homes is not retiring it.
+    "project-knowledge/bd-tracker-recon",
+    "project-knowledge/bd-reconcile",
 )
 
 TOMBSTONE = REPO_ROOT / "project-knowledge" / "BD_TOOLCHAIN_REFERENCE.md"
