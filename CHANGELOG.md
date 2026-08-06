@@ -4,6 +4,53 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.912 - every wired gate refuses on an empty denominator, and now it is pinned
+
+Item 8 (Batch B), CLOSED -- as a GATE, not a repair.
+
+RE-DERIVED BEFORE WORKING IT, and the register was wrong. It reports "one of
+five done, four remain". Measured at @911 by RUNNING each tool with a genuinely
+empty denominator: ALL FIVE already refuse.
+
+  bd-opv               --only matching no check   -> 2  CANNOT-EVALUATE reason=ABSENT
+  bd-env-report-check  tree with no report        -> 2  UNKNOWN: no report at ...
+  bd-equiv             empty corpus               -> 2  no inputs
+  bd-fullsuite         no test file selected      -> 2  CANNOT-EVALUATE reason=EMPTY
+  bd-docstale          no marked doc              -> 2  BD-DOCSTALE UNEVALUABLE
+
+That is the @871/872 pattern for the third time: the fix landed, nothing pinned
+it, and the register kept reporting it open. Its own rule applies -- a closed
+item with no test is not closed -- so this ships the test rather than a fix.
+
+NO RED WAS AVAILABLE, AND THAT IS THE INTERESTING PART. The suite passed the
+moment it was written, which section 2 says proves nothing. For a ratchet over
+already-correct behaviour the only honest proof is MUTATION: one mutant per
+tool, each making that tool RETURN 0 on its empty denominator. 5 of 5 CAUGHT.
+The gate demonstrably fails the moment any of the five stops refusing.
+
+BOTH DIRECTIONS. The NEG case pins exit 2; the POS case pins that a real
+denominator is still evaluable, because a tool rewritten to refuse
+unconditionally would satisfy every NEG case and be useless -- section 0's
+inverse defect. bd-docstale's own selftest says it: "a tool that can only refuse
+is not an instrument".
+
+THE ASSERTION CHECKS WORDING, NOT JUST THE CODE, and it had to. argparse ALSO
+exits 2 on an unrecognised flag: `bd-env-report-check --work` returned 2 for
+that reason during development and briefly read as a refusal (its flag is
+--tree). A bare exit-2 assertion cannot tell a refusal from a usage error. The
+per-tool wording also caught that bd-docstale phrases its refusal
+"UNEVALUABLE" rather than "CANNOT-EVALUATE" -- kept per-tool rather than
+loosened to a shared substring, since a pattern matching everything would stop
+distinguishing anything.
+
+The suite gates its own denominator too: deleting every row would leave a
+parametrized file that collects nothing and reports green, which is the exact
+defect it exists to forbid.
+
+MEASUREMENT TRAP RE-HIT: `cmd | tail` then `echo $?` reports TAIL's status.
+Section 5 names it and it still bit -- an early probe read exit 0 from a tool
+that had returned 2. Every probe in this suite is unpiped.
+
 ## v3.66.911 - the dotted-path detector excluded its own common case
 
 Item 4, sub-cut 4 of FOUR. The register describes item 4 as three root causes;
