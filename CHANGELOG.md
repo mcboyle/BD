@@ -4,6 +4,71 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.903 - cloud-setup installed 2 of the declared package groups
+
+Found by diffing the operator's box against this container. scripts/lib/
+system_deps.sh is the single source of truth and declares FIVE groups - core,
+node, gtk, lint, media. install_linux.sh takes `all`; provision_test_host.sh
+installs all five by name. cloud-setup.sh requested only gtk and lint.
+
+So the cloud container was provisioned from a different list than the box, and
+hand-rolled substitutes inline for the rest - fd-find, wireguard-tools nftables
+iproute2 iptables, pypy3 caddy postgresql-client patchelf. That is exactly the
+three-copies drift CLAUDE.md section 5 records ("never inline a package list
+again"), with the CONTAINER as the copy nobody updated.
+
+MEASURED CONSEQUENCE, not hypothetical: the `media` group is ffmpeg. The box
+carried 6.1.1-3ubuntu5 and this container had NONE, so
+bulk_downloader/integrity.py's ffprobe shell-out could not run here at all -
+and system_deps.sh's own comment says absent ffprobe makes the integrity check
+FAIL OPEN. Every container run of that check was silent about media it never
+verified.
+
+THE `node` GROUP IS EXCLUDED, AND THAT IS A CORRECTION TO THIS CUT'S FIRST
+DRAFT. It originally added core, node and media - "install all five" - and the
+operator ran install_linux.sh on the box within the hour, which failed exactly
+there: "nodejs : Conflicts: npm ... you have held broken packages". The group
+is `nodejs npm`, UBUNTU's packages, and NEITHER machine gets node from apt: the
+box runs v22.23.2 and this container /opt/node22/bin/node v22.22.2, neither
+dpkg-managed. Ubuntu's candidate here is nodejs 18.19.1 - four majors behind -
+which apt would install ALONGSIDE the real one, leaving PATH to decide which
+the frontend build gets.
+
+Node IS required; npm run build produces frontend/dist and a missing bundle is
+a silent 503 from app.py. It is simply not apt's to provide on either machine.
+
+So "install every declared group" was the wrong contract, and widening a
+provisioner without asking whether each group SUITS that environment is the
+section 0 shape wearing a fix's clothes. The test now asserts BOTH halves - the
+call is absent, and the measured reason is written beside the code a reader
+would otherwise change - because 4-of-5 reads like an oversight.
+
+THE GUARD IS COPIED, NOT REINVENTED. Each group is captured into a variable and
+refused if empty, for the reason the GTK step's comment already spells out:
+command substitution DISCARDS the function's non-zero exit, and `apt-get
+install` with zero arguments exits 0 - so the obvious one-liner installs
+nothing after a failed lookup and step() records OK. A mutant removing that
+guard is caught.
+
+THE TEST READS COMMENT-STRIPPED SOURCE. cloud-setup.sh mentions every group
+name in prose - 34 lines match - so a bare grep for "media" finds the comment
+describing ffmpeg and reports the group installed when nothing installs it.
+tests/shell_source.py fixes the denominator.
+
+A straight-line assignment block was chosen over a `for` loop deliberately: a
+loop that does nothing three assignments would not is the form CLAUDE.md
+section 0 records tripping line-scoped assertions three separate times.
+
+VERIFIED, not asserted:
+  RED first    4 failed on pristine; the gtk and lint guard cases PASSED, which
+               is what proves the two handled groups were already correct
+  mutation     4 caught, 0 escaped, 0 invalid
+  bash -n      exit 0;  shellcheck -S error clean
+
+ffmpeg was also installed into the live container, but that is a session-local
+act: CLAUDE.md section 5 records that anything installed by hand is absent from
+the snapshot and gone next session. The durable half is this provisioner change.
+
 ## v3.66.902 - the ignore rule covered the active log and none of its rotations
 
 Found on the deploy host, by the commit block v3.66.892 added: the working tree
