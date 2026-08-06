@@ -132,6 +132,37 @@ class _PytestStub:
             return deco
 
     @staticmethod
+    def param(*values, **kwargs):
+        # v3.66.908: absent until now, so all 49 `pytest.param` sites -- across
+        # 5 suites, one of them an axis-6 gate -- died at IMPORT with
+        # "'_PytestStub' object has no attribute 'param'", and bd-band could
+        # not run them at all.
+        #
+        # RETURN THE TUPLE, NOT values[0]. Real pytest returns a ParameterSet
+        # whose .values tuple is zipped against argnames, and the injection in
+        # discover_and_run already wraps a scalar and zips a tuple -- so the
+        # tuple IS the correct semantics and that code needs no change. The
+        # tempting `return values[0]` silently feeds one value to a
+        # multi-argument test: measured over `git ls-files -- 'tests/*.py'`,
+        # 45 of the 49 sites carry 2-5 values, so it would be wrong nearly
+        # everywhere and right only on the 4 single-value sites.
+        #
+        # `id=` is accepted and ignored, exactly as parametrize ignores `ids=`,
+        # because the runner labels cases by index. Anything else is REFUSED:
+        # `marks=` would change WHICH cases run, and a stub that quietly drops
+        # it turns a skipped case into a silently-executed one. An unimplemented
+        # feature that fails loudly is a stub; one that pretends is a false
+        # green. Measured: `id` is the only kwarg in use, on 49 of 49 sites.
+        unsupported = sorted(set(kwargs) - {"id"})
+        if unsupported:
+            raise NotImplementedError(
+                "the BulkDownloader pytest stub does not implement "
+                f"pytest.param({', '.join(unsupported)}=...); it would change "
+                "which cases run. Use real pytest for this suite, or extend "
+                "the stub deliberately.")
+        return values
+
+    @staticmethod
     def skip(reason=""): raise _Skipped(reason)
 
     @staticmethod
