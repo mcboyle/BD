@@ -4,6 +4,67 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.909 - MonkeyPatch, importorskip and an unknown mark
+
+Item 4, sub-cut 2 of 3. The rest of the API-surface root cause, each measured
+by running the suite rather than read from the register:
+
+  pytest.MonkeyPatch   constructor form missing (test_live_seed, 11 cases)
+  pytest.importorskip  missing, and the call sites are MODULE-LEVEL, so all
+                       four suites imported as zero tests
+  pytest.mark.slow     "type object 'mark' has no attribute 'slow'"
+
+AN UNKNOWN MARK IS NOW INERT, AND THAT IS THE FAITHFUL ANSWER -- with a
+carve-out. This repo has no pytest.ini, pyproject or setup.cfg and no
+--strict-markers; markers are registered in tests/conftest.py via
+addinivalue_line. Under real pytest an UNREGISTERED mark is therefore metadata
+plus a warning, not an error, so an inert decorator mirrors the API the stub
+exists to imitate.
+
+That does NOT extend to marks that change the verdict or the setup.
+`usefixtures` would drop setup the test declares and `xfail` would inverta
+result; a blanket no-op for either is the false green section 0 is about. Those
+three names REFUSE. Faithful where real pytest is permissive, loud where
+silence would change the result.
+
+`importorskip` returns the MODULE. Returning None would turn a missing optional
+dependency into an AttributeError inside the test body, reading as a code
+defect rather than a skip. MonkeyPatch is bound to the SAME class the
+`monkeypatch` fixture already uses, so the two forms cannot drift.
+
+ACCEPTANCE: 8/16 -> 13/16 suites green under bd-band. test_live_seed went
+53/64 -> 64/64 and test_desandbox_tool_verifiers went from a total import
+failure to 10 passed / 1 failed -- that remaining one is a genuine test
+failure, not a stub gap.
+
+A TEST OF MINE PASSED FOR THE WRONG REASON AGAIN, THE SAME WAY AS @908. The
+xfail-refusal case asserted only that the error text named `xfail`, and the
+pristine AttributeError -- "type object 'mark' has no attribute 'xfail'" --
+already contains it. It now requires the refusal PHRASE too, so a missing
+feature and a deliberate refusal cannot look alike.
+
+MUTATION 3/3, after importorskip-returns-none ESCAPED the first battery -- and
+it escaped by the SAME self-matching shape as the two above. The assertion was
+`ok is None OR "SKIP" in err.upper()`; a stub returning None runs on into the
+synthetic AssertionError, whose message contained the word "skip", so the
+substring arm matched TEXT THE TEST ITSELF WROTE. Now both halves are required
+(ok is None AND err startswith "SKIP") and the message no longer contains it.
+Three cuts in a row have produced an assertion whose denominator included its
+own subject's name; the instrument that caught all three was bd-mutate, not
+review.
+
+THE REMAINING THREE ARE DIAGNOSED, NOT GUESSED, and neither is in the
+register's description of this item:
+  * coverage_map (75 cases): monkeypatch.setattr's dotted-path DETECTOR is
+    `value is None and not callable(name)`, but the 2-arg form's replacement is
+    usually a lambda -- so callable(name) is true, the guard misses, and it
+    calls setattr(<str>, <function>, None). The detector excludes the most
+    common instance of its own subject.
+  * fuzz_harness: discover_and_run never puts the module in sys.modules before
+    exec_module, so @dataclass under `from __future__ import annotations`
+    cannot resolve field types. Proven both directions by one-variable
+    experiment: registering it makes the import succeed.
+
 ## v3.66.908 - the runner's pytest stub had no `param`, so five suites could not import
 
 Item 4, sub-cut 1 of 3. CLAUDE.md section 4 mandates `bd-band` on every cut,

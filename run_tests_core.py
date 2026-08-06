@@ -64,7 +64,43 @@ class _PytestStub:
             return args[0]
         return deco
 
-    class mark:
+    class _MarkMeta(type):
+        # v3.66.909: `mark` had only the four attributes it defined, so
+        # `@pytest.mark.slow` died at IMPORT with "type object 'mark' has no
+        # attribute 'slow'" and took its whole suite with it.
+        #
+        # An unknown mark is INERT, which is what real pytest does here: this
+        # repo has no pytest.ini/pyproject/setup.cfg and no --strict-markers,
+        # and tests/conftest.py registers markers via addinivalue_line, so an
+        # unregistered mark is metadata plus a warning rather than an error.
+        #
+        # But a blanket no-op would be a false green for marks that change the
+        # VERDICT or the SETUP. Those are refused by name instead: silently
+        # dropping `usefixtures` runs a test without the setup it declares, and
+        # silently dropping `xfail` reports an expected failure as a failure.
+        # Faithful where real pytest is permissive; loud where silence would
+        # change the result.
+        _VERDICT_CHANGING = ("usefixtures", "xfail", "filterwarnings")
+
+        def __getattr__(cls, name):
+            if name.startswith("__"):
+                raise AttributeError(name)
+            if name in cls._VERDICT_CHANGING:
+                raise NotImplementedError(
+                    f"the BulkDownloader pytest stub does not implement "
+                    f"pytest.mark.{name}; it would change which tests run or "
+                    f"how their result is graded. Use real pytest for this "
+                    f"suite, or extend the stub deliberately.")
+
+            def _inert(*a, **k):
+                # Bare @pytest.mark.foo -> called with the function.
+                if len(a) == 1 and not k and callable(a[0]):
+                    return a[0]
+                # Parameterised @pytest.mark.foo(...) -> return the decorator.
+                return lambda fn: fn
+            return _inert
+
+    class mark(metaclass=_MarkMeta):
         # v3.66.37: the project's custom `bd_module_wipe` marker, used as
         # `pytestmark = pytest.mark.bd_module_wipe` by ~112 test files
         # (registered in conftest.py, applied by the isolated_bd_home
@@ -161,6 +197,39 @@ class _PytestStub:
                 "which cases run. Use real pytest for this suite, or extend "
                 "the stub deliberately.")
         return values
+
+    @staticmethod
+    def importorskip(modname, minversion=None, reason=None):
+        # v3.66.909: absent, so four suites died at IMPORT -- and because the
+        # call sites are module-level, none of their tests ran at all.
+        #
+        # Returns the MODULE. A stub returning None would turn "this optional
+        # dependency is missing" into an AttributeError inside the test body,
+        # which reads as a code defect rather than a skip.
+        import importlib
+        try:
+            mod = importlib.import_module(modname)
+        except ImportError:
+            raise _Skipped(reason or f"could not import {modname!r}")
+        if minversion is not None:
+            have = getattr(mod, "__version__", None)
+            if have is None:
+                raise _Skipped(
+                    f"{modname!r} has no __version__ to compare against "
+                    f"minversion={minversion!r}")
+            # Numeric-tuple compare; good enough for the dotted releases in
+            # use, and it refuses rather than guessing on anything else.
+            def _parts(v):
+                try:
+                    return tuple(int(p) for p in str(v).split("."))
+                except ValueError:
+                    raise _Skipped(
+                        f"cannot compare {modname!r} version {v!r} against "
+                        f"minversion={minversion!r} in the stub")
+            if _parts(have) < _parts(minversion):
+                raise _Skipped(
+                    f"{modname!r} is {have}, need >= {minversion}")
+        return mod
 
     @staticmethod
     def skip(reason=""): raise _Skipped(reason)
@@ -343,6 +412,15 @@ class _MonkeyPatch:
                     except AttributeError: pass
                 else:
                     setattr(target, name, orig)
+
+
+# v3.66.909: `pytest.MonkeyPatch()` is the CONSTRUCTOR form, used where a test
+# needs a patcher outside the fixture protocol (a helper, or a with-block).
+# Bound here rather than inside _PytestStub because _MonkeyPatch is defined
+# after that class body -- an in-class `MonkeyPatch = _MonkeyPatch` raises
+# NameError at import. Pointing the name at the SAME class the `monkeypatch`
+# fixture uses means the two forms cannot drift apart.
+_PytestStub.MonkeyPatch = _MonkeyPatch
 
 
 # ── Fixture implementations (mirror conftest.py) ────────────────────────
