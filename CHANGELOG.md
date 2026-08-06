@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.905 - the three dependency ceilings the box had already crossed
+
+The box was running pytest 9.1.1, psutil 7.2.2 and cryptography 50.0.0 while
+requirements.txt declared <9.0, <7.0 and <46.0. Every one of those was above
+the declared ceiling, so the manifest was not describing the machine.
+
+That was invisible until v3.66.896. check_requirements.py called version(name)
+and DISCARDED the result, so it graded name resolution and never compared a
+specifier -- three crossed ceilings resolved by name and reported OK. Now that
+it compares, scripts/deploy.sh on main FAILS its own requirement check on the
+box. Measured in a container against main's manifest: reports cryptography,
+exit 1. Raising the ceilings is what makes the manifest true again.
+
+The paired-arm experiment behind these numbers ran 603/603 in both arms; only
+these three ceilings were binding. Verified on the box at playwright 1.62.0 --
+which the rollback freeze shows was ALREADY installed before the upgrade, so
+the browser stack did not move and the only install delta was cryptography
+49.0.0 -> 50.0.0.
+
+NOT a dependency regression: test_command_palette_opens. It failed one box
+capture and was chased as a playwright 1.62 fault. The rollback freeze
+exonerates the version, and a 10-run full-file tally on the box reproduced it
+1 time in 10 -- a pre-existing SPA flake in the Escape-to-close path, tracked
+separately. Two prior green captures do not distinguish "new" from "10% and
+previously lucky".
+
 ## v3.66.904 - the parity sweep, the dependency experiment, and the work that is next
 
 Register-only. SESSION_CARRY 15.41 records what the box/container diff found;

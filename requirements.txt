@@ -123,7 +123,7 @@ curl_cffi>=0.7,<1.0
 # the app falls back to plaintext storage in sites_config.json — same
 # behavior as v3.43.13 and earlier — but the migration UI won't appear.
 keyring>=24.0,<26.0
-cryptography>=42.0,<46.0
+cryptography>=42.0,<51.0
 
 # v3.66.681 (B2/P6): OIDC / SSO login. authlib.jose verifies the provider's
 # id_token (RS256) against its JWKS. Only needed when SSO is enabled;
@@ -153,7 +153,7 @@ openpyxl>=3.1,<4.0
 # pinned anywhere, so fresh installs always missed it and the widget
 # always displayed 0% / 0%. Stash diagnosis 2026-05-21 confirmed.
 # Pure Python wheel; no compilation step on Linux or Windows.
-psutil>=5.9,<7.0
+psutil>=5.9,<8.0
 
 # v3.66.794 (F0.4): production WSGI server. The werkzeug dev server that
 # app.run() starts is single-process and crashes under concurrent load
@@ -168,7 +168,7 @@ waitress>=3.0,<4.0
 # Capture and validation must use the real pytest runner on every supported
 # install, including production/test-box deployments that install only this
 # core manifest.
-pytest>=7.0,<9.0
+pytest>=7.0,<10.0
 pytest-xdist>=3.6,<4.0
 # PEP 440 comparison for tools/check_requirements.py, which imports it
 # directly. It arrives transitively via pytest today -- but that is in a
