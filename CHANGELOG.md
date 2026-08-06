@@ -4,6 +4,39 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.913 - register-only: tiers 1-3 complete, and item 15 needed nothing
+
+Item 15 was filed as "improved, but the class stands". It does not stand, and
+this cut exists so the next session does not re-derive that a third time.
+
+BOTH HALVES WERE ALREADY FIXED AND PINNED. install_service.sh got its
+/api/health probe at @836 -- 15s, three states, `unknown` distinguished from a
+pass when curl is absent -- and test_install_service_waits_for_serving.py pins
+it with 7 passing cases in both directions. capture.sh step [4]'s vault-unlock
+gate is pinned by test_capture_step4_waits_for_serving.py, 6 passing.
+
+THE TIER PLAN'S HOLD ON 15 NOW PROTECTS NOTHING. It says hold 15 and 14 because
+they change live box behaviour and cannot be judged from a container. That was
+true when written; for 15 there is no change left to make. 14 is unaffected and
+still held.
+
+THE NEAR-MISS IS WORTH MORE THAN THE CLOSURE.
+test_capture_step4_waits_for_serving.py reads capture.sh and ONLY capture.sh,
+while its own docstring says "install_service.sh has the same shape" -- naming
+a file its denominator excludes. Reading that test alone suggests the installer
+is uncovered, and a duplicate gate was nearly written for behaviour a SEPARATE
+suite already pins. Before building a missing test, grep for tests that merely
+TOUCH the subject file, not only ones whose name matches it.
+
+FOUR ITEMS TODAY WERE ALREADY DONE AND REPORTED OPEN: 9, 26, 5a, 28 (the
+@871/872 sweep), all five tools of item 8, and 15. Three were fixed with NO
+test, which is why the register kept reporting them open. 15 is the opposite --
+fixed AND pinned, with the register still calling it open. Staleness runs both
+ways; re-derive before costing anything.
+
+No source changed. Tiers 1, 2 and 3 are complete; tier 4 has 11, 12-remnants
+and 16 open with 14 held.
+
 ## v3.66.912 - every wired gate refuses on an empty denominator, and now it is pinned
 
 Item 8 (Batch B), CLOSED -- as a GATE, not a repair.
