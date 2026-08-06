@@ -61,6 +61,24 @@ DEFAULT_REQUIREMENTS = "requirements.txt"
 _NAME_END = re.compile(r"[<>=!~\[; ]")
 
 
+def requirement_lines(text):
+    """Whole requirement lines, in file order, under the same skipping rules.
+
+    `requirement_names` keeps only the stem, which is all the pre-@896 check
+    needed and is the one thing a specifier comparison cannot work from. Both
+    exist because tests/test_deploy_script.py imports the name-level parse
+    directly; they share their skipping rules so the two cannot disagree about
+    what counts as a requirement.
+    """
+    out = []
+    for raw in text.splitlines():
+        line = raw.split("#")[0].strip()
+        if not line or line.startswith("-"):
+            continue
+        out.append(line)
+    return out
+
+
 def requirement_names(text):
     """Distribution names declared in a requirements.txt body, in file order.
 
@@ -88,6 +106,58 @@ def unresolved(names):
         except PackageNotFoundError:
             missing.append(name)
     return missing
+
+
+class Unevaluable(Exception):
+    """The question could not be asked. Never rendered as 'satisfied'."""
+
+
+def unsatisfied(lines):
+    """Requirement lines this interpreter does not SATISFY, in file order.
+
+    @896 -- NAME RESOLUTION IS NOT VERSION SATISFACTION, and `unresolved` above
+    only ever answered the first question: it called `version(name)` and threw
+    the result away, so the specifier was never compared. Measured before the
+    fix: a manifest containing `flask==0.0.1` against an installed flask 3.1.3
+    exited 0 with silent stdout -- "every entry resolves", over a version that
+    satisfies nothing. Every one of the 19 requirements this repo declares
+    carries a specifier, so the blind spot covered all of them, and this tool is
+    the sole instrument in all three recovery paths (deploy.sh, cloud-setup.sh).
+    A reverted image restoring correct NAMES at wrong VERSIONS passed every one.
+
+    Comparison is PEP 440 and is NOT hand-rolled: `1.10 > 1.9`, `2.0rc1 < 2.0`
+    and `!=1.4.*` are not string operations, and a comparator that got them
+    subtly wrong would fail correct manifests on the box -- the over-sensitive
+    direction, which for a gate on every deploy is the worse one. So
+    `packaging` absent raises Unevaluable rather than falling back to the
+    name-only answer, which cannot be labelled as partial once it is on stdout.
+    """
+    try:
+        from packaging.requirements import InvalidRequirement, Requirement
+    except ImportError as exc:
+        raise Unevaluable(
+            "packaging is not importable (%s), so version specifiers cannot be "
+            "compared; a name-only answer would be indistinguishable from a "
+            "satisfied one" % exc)
+
+    bad = []
+    for line in lines:
+        try:
+            req = Requirement(line)
+        except InvalidRequirement as exc:
+            raise Unevaluable("cannot parse requirement %r: %s" % (line, exc))
+        try:
+            have = version(req.name)
+        except PackageNotFoundError:
+            bad.append(req.name)
+            continue
+        # why: prereleases satisfy a specifier here even when it does not say
+        # so. A venv legitimately holding 2.0rc1 for `>=1.9` is satisfied, and
+        # reporting it unsatisfied would send the caller into a reinstall loop
+        # that cannot converge.
+        if req.specifier and not req.specifier.contains(have, prereleases=True):
+            bad.append(req.name)
+    return bad
 
 
 def main(argv=None):
@@ -122,7 +192,15 @@ def main(argv=None):
               file=sys.stderr)
         return 2
 
-    missing = unresolved(names)
+    try:
+        missing = unsatisfied(requirement_lines(text))
+    except Unevaluable as exc:
+        # UNEVALUABLE, not satisfied. stdout stays empty so a caller reading it
+        # for package names sees none; both callers already treat exit 2 as
+        # "treat as NOT satisfied", so this needs no wiring on their side.
+        print("cannot evaluate %s: %s" % (path, exc), file=sys.stderr)
+        return 2
+
     if not missing:
         return 0
     print(" ".join(missing))

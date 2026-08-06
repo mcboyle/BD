@@ -170,3 +170,8 @@ waitress>=3.0,<4.0
 # core manifest.
 pytest>=7.0,<9.0
 pytest-xdist>=3.6,<4.0
+# PEP 440 comparison for tools/check_requirements.py, which imports it
+# directly. It arrives transitively via pytest today -- but that is in a
+# DIFFERENT manifest than the one deploy.sh checks first, so a fresh venv would
+# exit 2 on the first check.
+packaging>=23.0,<27.0

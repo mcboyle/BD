@@ -4,6 +4,66 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.896 - check_requirements compares specifiers, and found live drift on the first run
+
+Item 18. Name resolution is not version satisfaction, and this tool only ever
+answered the first question.
+
+THE GAP, MEASURED. `unresolved()` called `version(name)` and threw the result
+away. A manifest containing `flask==0.0.1` against an installed flask 3.1.3
+exited 0 WITH SILENT STDOUT - "every entry resolves", over a version that
+satisfies nothing. All 19 requirements this repo declares carry a specifier, so
+the blind spot covered 100% of them.
+
+WHY IT MATTERS MORE THAN IT LOOKS: this is the SOLE instrument in all three
+recovery paths - deploy.sh:321 and :334, cloud-setup.sh:614 and :661. CLAUDE.md
+section 5 records the consequence and it was exactly right: a reverted image can
+restore correct NAMES at wrong VERSIONS and every gate reports OK. The tool
+exists because `pip check` cannot see an uninstalled requirement; it carried the
+mirror-image blind spot for an unsatisfied one.
+
+AND IT FOUND ONE ON ITS FIRST REAL RUN. This container has cryptography 49.0.0
+installed against a declared >=42.0,<46.0 - outside the range, and previously
+graded OK because the name resolved. The constraint was deliberately NOT
+widened: which version this project wants is a dependency decision, not a test
+fix. Whether the box shows the same drift is unmeasured from here.
+
+THE CALLER CONTRACT IS UNCHANGED, deliberately, which is why neither script
+needed an edit. Exit 1 with names on stdout already means "these need
+installing", and `pip install -r` is the right remedy for a version failing its
+specifier; both callers then RE-ASK with the same instrument, so the fix is a
+converging loop rather than a louder complaint.
+
+PACKAGING IS NOW DECLARED, AND ITS ABSENCE IS UNEVALUABLE. PEP 440 comparison is
+not hand-rolled - `1.10 > 1.9`, `2.0rc1 < 2.0` and `!=1.4.*` are not string
+operations, and a comparator subtly wrong about them would fail CORRECT
+manifests on the box. So a missing `packaging` exits 2, which both callers
+already treat as "treat as NOT satisfied". It arrived transitively via pytest,
+which lives in a DIFFERENT manifest than the one deploy.sh checks first, so a
+fresh venv would have exited 2 on the first check.
+
+VERIFIED, not asserted:
+  RED first    6 of 13 failed on pristine; the 7 passing were the
+               over-sensitivity and already-correct cases
+  mutation     5 caught, 0 escaped, 0 invalid
+
+THE OVER-SENSITIVE DIRECTION CAUGHT A REAL ONE. packaging excludes prereleases
+by DEFAULT, so `2.0rc1` does not satisfy `>=1.9` unless asked. A venv
+legitimately holding a prerelease would be reported unsatisfied, and since both
+callers reinstall and re-ask, that loop cannot converge - the deploy would die
+on a box that is fine. `prereleases=True` is load-bearing and a mutant proves
+it; it ESCAPED the first battery and the test that closes it is a unit test,
+because no prerelease is installed here and the CLI could not reach the branch.
+
+ONE TEST WAS DELIBERATELY WEAKENED, and the reason is the point. The first draft
+asserted the real manifests are SATISFIED here. That asserts the ENVIRONMENT is
+correct, which is a different question from whether the TOOL is correct, and the
+cryptography drift above makes this container a live counter-example. It now
+asserts they are EVALUABLE - exit 2 is the failure that would indict the
+comparator - so it cannot be "fixed" later by loosening a real constraint. The
+over-sensitivity coverage moved to a generated manifest pinning every package to
+its own installed version, which no environment drift can skew.
+
 ## v3.66.895 - Batch B: three of four were already fixed, and the fourth was mis-filed
 
 Item 8, "every wired gate refuses rather than passes when its denominator is
