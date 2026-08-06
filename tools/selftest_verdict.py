@@ -152,7 +152,23 @@ def main(argv: list[str]) -> int:
         except (ValueError, TypeError, AttributeError):
             pass
         for check in failing:
-            print(f"  FAIL  {check.get('name', '?')}: {check.get('detail', '')}")
+            # @897: this read `name` and `detail`, and the response carries
+            # NEITHER as those. bulk_downloader.selftest._result builds every
+            # check as {status, test, message, detail, ts} -- `test` is the
+            # name, `message` is the sentence, and `detail` is a DICT of
+            # structured fields (error_class, hint, free_gb). So `name` was
+            # always absent and rendered '?', and a dict was printed where the
+            # message belonged. The verdict and the exit code were right, which
+            # is why a mutation battery could not see it: it degrades only the
+            # output someone reads while debugging a RED capture.
+            line = f"  FAIL  {check.get('test', '?')}: {check.get('message', '')}"
+            extra = check.get("detail")
+            if isinstance(extra, dict) and extra:
+                # why: error_class and hint are the fields a reader acts on;
+                # dropping detail entirely is the over-correction.
+                line += "  [" + ", ".join(
+                    f"{k}={v}" for k, v in sorted(extra.items())) + "]"
+            print(line)
     return code
 
 
