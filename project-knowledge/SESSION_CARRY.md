@@ -4003,6 +4003,193 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.42 | Next work, scoped and ordered, at v3.66.903
+
+Supersedes 15.38's tier plan for everything tiers 1-2 covered; tiers 3-5 there
+still stand. Re-derive any item filed before @871 by RUNNING it first -- 15.40's
+rule, which turned two multi-tool batches into one real fix each.
+
+FIRST, AND MECHANICAL: land `claude/deps-latest`.
+  Blocked ONLY on a green box capture. Needs three things it deliberately
+  lacks -- a version bump, a CHANGELOG entry, and a rebase (it branched at 902,
+  main is 903). Do not merge it without the capture: the container experiment is
+  silent on browser-driver compatibility, and the box's cryptography jump
+  (45 -> 50) is larger than the container's (49 -> 50).
+
+THEN THE SUBSTANTIAL ONE: item 4, bd-band's three root causes.
+  18 of 93 suites cannot run under bd-band. It is the only remaining item that
+  unblocks what CLAUDE.md section 4 mandates on EVERY cut, and its acceptance is
+  one number measurable before and after (18 -> 0). Container-only; no operator
+  decision.
+
+  THREE SUB-CUTS, AND ONE HARD CONSTRAINT BETWEEN THEM. An adversarial review
+  found `pytest.param` claimed by TWO of them, with the sub-cut that recommends
+  landing FIRST shipping the naive design: `param` as an identity returning
+  v[0]. **33 of 37 in-literal param sites carry more than one value**, so five
+  suites would go green feeding a scalar to multi-arg tests, and the other
+  sub-cut would then have to undo shipped code. `param` belongs to the
+  PARAMETRIZE sub-cut alone -- strike it from the API-surface scope, or land
+  parametrize first.
+
+  Sharpest sub-group is `shell_source`: that helper landed @880, so the suites
+  guarding the four most recent cuts are exactly the ones bd-band cannot run.
+
+  THE STUB MUST STAY A STUB. It exists because real pytest is not always
+  available. A stub that silently ACCEPTS an unimplemented feature and runs the
+  test wrong is far worse than one that refuses -- a false green. Any design
+  must say what it is NOT implementing and fail loudly there.
+
+QUEUED BEHIND THAT
+  * **item 12(d)** -- regen_nfos_from_history resolves a bare basename
+    CWD-relative. library_final.py:468-518. The fix is to route rows through the
+    EXISTING _resolve_recorded (same file, already tested) with an OPTIONAL
+    download_dir. NEEDS AN OPERATOR NOD, not a design: `ambiguous` and `unknown`
+    must not fold into missing_files -- the resolver's own docstring calls
+    first-match-wins the defect -- so the endpoint gains two counters, changing
+    the JSON shape of POST /api/library/regen_nfos. Additive and non-breaking
+    (api-types.ts:1156 RegenNfosResult carries an index signature and does not
+    even declare missing_files today), but it is a product-facing surface.
+  * **item 12(a)** -- the eight-producer divergence. Confirmed REAL by the
+    2026-08-06 recon; five product files named in its report.
+  * **cloud-setup.sh's remaining inline package lists** -- fd-find,
+    `wireguard-tools nftables iproute2 iptables`, `pypy3 caddy postgresql-client
+    patchelf`, fonts. @903 fixed the declared groups; these are the same
+    section-5 violation one layer down and belong in the fragment as new groups.
+  * **tests/test_pytest_runtime_requirement.py pins a LITERAL specifier
+    string** ("pytest>=7.0,<9.0"). Its own message says the intent is that real
+    pytest is installed rather than the fallback runner -- PRESENCE, not the
+    bound. It had to be edited to move a ceiling on 2026-08-06. A semantic
+    assertion (parse the requirement, check the NAME is declared) would not.
+
+HELD, AND NOT BY SIZE: items 15 and 14 change live box behaviour -- a service
+startup path and a login thread. Neither can be judged from a container. Item 16
+(7a retirement) stays blocked on spec rework: as written it turns three gates red
+on four LIVE tools.
+
+### 15.41 | The box/container parity sweep, the dependency experiment, and what it cost to find
+
+Continues 15.40. Cuts v3.66.901-903 plus one branch left UNMERGED pending a box
+capture. Everything here came from ONE field added at v3.66.892 -- the commit
+block that made a capture bundle name its own tree. It reported `tree: dirty`,
+and the chain from there was: rotated logs -> box/container diff -> ffmpeg
+absent -> cloud-setup installing 2 of 5 package groups. **None of it was on any
+list.**
+
+THE ENVIRONMENT DIFF, AND THE TWO ONE-LINERS THAT PRODUCE IT
+
+A fresh session should not re-derive these. `bd-env-parity --write` is the
+purpose-built tool (section 8: look before hand-rolling) and it already solves
+the browser-pool trap -- PLAYWRIGHT_BROWSERS_PATH wins, because guessing
+~/.cache/ms-playwright names a directory nobody uses. But it captures
+CAPABILITIES only -- browsers, node, python, ffmpeg, netns tools -- and NOT
+package versions, so on its own it misses exactly the drift that mattered.
+Pair it with pip freeze and check_requirements:
+
+    bd-env-parity --write --out /tmp/bd-env.json
+    venv/bin/pip freeze > /tmp/bd-freeze.txt
+    venv/bin/python tools/check_requirements.py requirements.txt      # @896: now
+    venv/bin/python tools/check_requirements.py requirements-test.txt # compares
+                                                                      # SPECIFIERS
+
+MEASURED 2026-08-06, box vs container: 110 vs 101 packages, 21 differing, of
+which FIVE are declared -- cryptography 45.0.7/49.0.0, playwright 1.61.0/1.62.0,
+curl-cffi 0.15.0/0.16.0, cssselect 1.4.0/1.5.0, packaging 26.2/26.3.
+
+**THE BOX WAS CLEAN AND THE CONTAINER WAS NOT.** `check_requirements` exited 0
+on the box for both manifests. So the cryptography drift 15.40 left as an
+operator decision was CONTAINER-ONLY -- that decision is closed, and no bound
+needed changing for it.
+
+Also unequal and worth knowing: the box runs pool=default
+(~/.cache/ms-playwright), the container PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers.
+Section 5's "two pools, different chromium revisions" is live between these two
+machines, so a capture-related divergence can be about the browser build.
+
+THE DEPENDENCY EXPERIMENT -- latest stable, paired arms
+
+Only THREE of nineteen declared packages were held back by their ceiling; the
+other sixteen were already at latest. Isolated venv, same 43 files both ways:
+
+    latest deps   603 passed / 1 skipped / 0 failed
+    control       603 passed / 1 skipped / 0 failed
+
+Same collected count in both arms, which is what makes the zero delta
+attributable to the dependencies rather than to two different runs (section 5's
+change-one-variable rule -- a session once got two spurious signals from a
+baseline run in a different directory). 49/49 modules imported under
+cryptography 50 / psutil 7 / pytest 9. pytest 9 + pytest-xdist 3.8 verified
+under the capture's own flags (`-n 4 --dist loadfile`); xdist declares only
+pytest>=7.0.0, so there is no upper-bound conflict.
+
+Branch `claude/deps-latest` raises cryptography <46->51, psutil <7->8,
+pytest <9->10. Deliberately NO version bump and NO changelog, so it cannot land
+by accident. RAISED TO THE NEXT MAJOR, NOT REMOVED: an unbounded requirement is
+how a future major lands silently during a routine `pip install -r`.
+
+WHAT THAT EXPERIMENT CANNOT SAY, and it is the reason the branch is not merged:
+it ran with PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 against a preinstalled pool, so
+it is honest about import-time and API breakage and SILENT about browser-driver
+compatibility. And the box's jump is LARGER -- 45 -> 50 on the crypto package
+against the container's 49 -> 50.
+
+THE PROVISIONER FINDING, AND THE CORRECTION THE OPERATOR'S OWN RUN FORCED
+
+cloud-setup.sh requested `gtk` and `lint` and nothing else, while install_linux
+takes `all` and provision_test_host names all five. The `media` group is ffmpeg;
+the box had 6.1.1-3ubuntu5 and the container had NONE, so integrity.py's ffprobe
+shell-out could not run at all -- and system_deps.sh's own comment says absent
+ffprobe makes that check FAIL OPEN.
+
+**THE FIRST DRAFT OF THAT FIX ADDED ALL THREE MISSING GROUPS AND WAS WRONG.**
+The operator ran install_linux.sh on the box within the hour and it failed
+exactly there: "nodejs : Conflicts: npm ... you have held broken packages". The
+`node` group is UBUNTU's `nodejs npm`, and NEITHER machine gets node from apt --
+box v22.23.2, container /opt/node22 v22.22.2, neither dpkg-managed, and Ubuntu's
+candidate is 18.19.1, four majors behind. Node IS required (npm run build
+produces frontend/dist; a missing bundle is a silent 503) -- it is simply not
+apt's to provide. **"Install every declared group" was the wrong contract:
+widening a provisioner without asking whether each group SUITS that environment
+is the section 0 shape wearing a fix's clothes.** Caught by a real run, not by
+review. @903 excludes it and asserts BOTH the absence and the written reason,
+because 4-of-5 otherwise reads as a gap someone closes.
+
+STILL HAND-ROLLED IN cloud-setup.sh, and it is the same violation one layer
+down: fd-find, `wireguard-tools nftables iproute2 iptables`, `pypy3 caddy
+postgresql-client patchelf`, the font packages. @903 fixed the DECLARED groups;
+these belong in the fragment as new groups.
+
+THREE MORE ERRORS OF MINE, all caught by running something rather than by review
+
+  1. **`git check-ignore` misused a SECOND time**, after retracting the same
+     misuse at @887. I read `check-ignore -v logs/` as "NOT IGNORED" and
+     reported a missing rule; testing the real path showed `*.log` DOES match
+     logs/bulk_downloader.log. It answers about a RULE against a PATH STRING,
+     never about files that exist. The real defect was narrower and only a
+     WRITER-side question could find it: log.py runs RotatingFileHandler with
+     backupCount=5, so `.log.1` .. `.log.5` exist by design and `*.log` matches
+     none of them.
+  2. **I told the operator to re-pin the graph hash and that was a guess.**
+     tools/l0_extract.py's PROD tuple walks bulk_downloader/, tools/ and
+     frontend/src ONLY -- a tests/ change cannot move the content hash. Stated
+     as fact, wrong, and it would have cost a needless sudo step.
+  3. **I handed over `playwright install chromium` -- a hardcoded engine list**
+     -- an hour after shipping a cut whose whole point was that lists belong in
+     the fragment. install_linux.sh:387 uses bd_playwright_engines, which
+     declares core=(chromium) and extra=(firefox webkit) SEPARATELY, and live
+     check L4 audits the extras' presence. The hand-rolled command would have
+     left L4 checking for browsers playwright 1.62 could no longer find.
+
+TWO OPERATOR DECISIONS STILL OPEN, both keeping `tree: dirty` alive
+
+  * **bd-prune/ is a NESTED GIT REPOSITORY** on the box -- it contains only
+    .git, dated 2026-08-01, and nothing in this repo creates it.
+  * **Two templates/reviewed/*.template.json** carry schema
+    "bulk_downloader.template.review_candidate.v1" -- tool-generated review
+    candidates. Committing or discarding them is a product call.
+
+Until both are resolved `tree: dirty` fires on every capture, which makes the
+field added at @892 useless: a signal that is always on is no signal.
+
 ### 15.40 | Overnight 2026-08-06, v3.66.891-900 -- and SIX of eight "open" items were already fixed
 
 Ten cuts in one night. The cut list is in CHANGELOG; this section carries what
