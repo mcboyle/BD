@@ -4,6 +4,45 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.890 - session close: statuses corrected, next action fully scoped
+
+Register-only. SESSION_CARRY 15.37 supersedes 15.36's statuses and carries the
+handoff.
+
+Six cuts merged this session: 884 (bd-freshcheck's shallow-clone false STALE +
+the ci.yml comment), 885 (run_tests_core fixture resolution, items B and B2),
+886 (three numbering schemes reconciled), 887 (tier 1 plus a retraction), 888
+(build_session_pack's two final gates both failed open), 889 (import-graph gate
+widened to tests/, with the band-derive trap closed in the same cut).
+
+FOUR OF 15.36's STATUSES WERE STALE and are corrected: items 10, 13, 20 and
+5b+6 are closed. Item 10 was already closed BEFORE this session, at v3.66.874 -
+its residual 300s window is a deliberate documented trade-off sized from a
+measured ~108s run, not an oversight, and narrowing it is a new proposal rather
+than that item.
+
+A NEW OBLIGATION ON EVERY FUTURE CUT, created by 889 and recorded because no
+older section mentions it: bd-band-derive now fires the "import edges" regen
+flag for a tests/ change, not just bulk_downloader/. Any cut adding a test file
+that imports a product or tool module owes import_graph_gate.py --update in the
+SAME cut. Verified immediately after the merge.
+
+NEXT ACTION is scoped in full: capture.sh, TWO cuts not one, per the
+adversarially-reviewed spec already in-repo at
+project-knowledge/pending-specs/recon-queue-items-1-9.md. Blast radius
+re-derived rather than inherited - 100 suites as a floor, plus ten axis-6
+gates, PIN_INDEX, and now the import-graph re-freeze. The measured trap: a bare
+git rev-parse HEAD walks UP, so inside another repo the stage emits a confident
+sha for a DIFFERENT tree - worse than today's silence. It must not be wired to
+--stage-exit.
+
+METHOD. Three of this session's own errors are recorded in 15.37, all caught by
+instruments and none by review: a false CONFIRMATION merged into the register
+(check-ignore answers about a rule, not a file); a fixture that never reached
+the gate under test (four of five mutants escaped); and an assertion matched by
+its own filename. A confirmation needs the same instrument discipline as a
+closure.
+
 ## v3.66.889 - the import-graph gate was blind to tests/, and the band tool hid it
 
 Register item 20, widened on operator decision - and widened together with the
