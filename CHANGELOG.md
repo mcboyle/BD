@@ -4,6 +4,39 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.919 - a gate test measured the machine, and only the box could tell
+
+The box capture at v3.66.913 came back FAIL on exactly one test out of 14832:
+
+    test_v3_66_912_wired_gates_refuse_on_empty
+      :: test_a_real_denominator_is_still_evaluable[bd-env-report-check]
+    assert 2 != 2
+
+That is the @912 suite's OVER-CORRECTION half -- the assertion that a gate
+which refuses an empty denominator has not become a tool that refuses
+everything. Its POS case ran `bd-env-report-check --tree <the repo>`.
+
+THE TEST WAS WRONG, NOT THE TOOL. bd-env-report-check's verdict is a property
+of `.claude-env-report.md`, a GITIGNORED per-machine provisioning artifact.
+CLAUDE.md section 5 says outright that this report is STALE after every cut BY
+DESIGN and that chasing it is a mistake. So "the repo tree" was never a real
+denominator for that tool -- it is whatever provisioning last left behind.
+
+Measured the same day, same commit range: this container answered STALE (1),
+the box answered UNKNOWN (2). A test whose verdict flips on that difference is
+testing the machine, and only the machine that happened to disagree could
+reveal it. Every container band called it green.
+
+The POS case now BUILDS a tree the tool can evaluate -- a version to read and a
+report whose provenance names that same version -- verified to return FRESH (0)
+before being wired in. Reproduced the box condition locally by moving
+.claude-env-report.md aside: the old form returns exit 2 (the capture's
+`assert 2 != 2` exactly), the new form returns 0.
+
+The NEG case is untouched and still points at a genuinely empty directory,
+which is the real "nothing to examine" condition. The POS factories now take a
+tmp directory; four of the five ignore it.
+
 ## v3.66.918 - the retirement gates could not see most of this repo's source
 
 Item 16 / 7a, second half, and it completes the item. The three *_stays_retired
