@@ -4,6 +4,46 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.908 - the runner's pytest stub had no `param`, so five suites could not import
+
+Item 4, sub-cut 1 of 3. CLAUDE.md section 4 mandates `bd-band` on every cut,
+and it could not run these at all: every one of the 49 `pytest.param` sites
+died at IMPORT with "'_PytestStub' object has no attribute 'param'". One of the
+five is test_playwright_engines_single_source.py, an axis-6 gate that joins any
+cut touching a shell script.
+
+MEASURED, not inherited. The register said "18 of 93 suites"; re-derived at
+@907 over `git ls-files -- 'tests/*.py'` (1239 files), 17 files use a feature
+the stub lacks and 13 of 16 runnable ones actually fail. The register also
+named FOUR unstubbed features; there are SEVEN -- pytest.CaptureFixture,
+pytest.main and pytest.mark.capture_serial are absent from its list. And two
+of the predicted-affected suites PASS: `pytest.main` sits in `if __name__`
+blocks that never execute. The static scan sets the denominator; running sets
+the predicate.
+
+THE OBVIOUS IMPLEMENTATION IS WRONG AND FAILS QUIETLY. An earlier design
+proposed `param` returning values[0]. Real pytest returns a ParameterSet whose
+.values tuple is zipped against argnames, and the runner's injection already
+wraps a scalar and zips a tuple -- so returning the TUPLE is correct and needs
+no change there. values[0] would feed one value to a multi-argument test:
+measured, 45 of 49 sites carry 2-5 values, so it is wrong nearly everywhere
+and looks right only on the 4 single-value sites.
+
+THE STUB STAYS A STUB. `id=` is accepted and ignored, as parametrize already
+ignores `ids=`, because cases are labelled by index. Anything else is REFUSED
+loudly -- `marks=` would change WHICH cases run, and quietly dropping it turns
+a skipped case into a silently-executed one. Measured: `id` is the only kwarg
+in use, on 49 of 49 sites; `marks` appears zero times.
+
+ACCEPTANCE: the 16 suites went 3/16 -> 8/16 green under bd-band, and the five
+that flipped are exactly the five `param` sites. The other 8 are the remaining
+root causes and are not touched here.
+
+A TEST OF MINE PASSED FOR THE WRONG REASON FIRST. The marks-refusal case named
+its synthetic module test_marks.py and searched the whole result blob, so it
+matched the FILENAME and went green on pristine source where no refusal
+existed. It now asserts over the error text only.
+
 ## v3.66.907 - a foreign log handler silently dropped every UI event
 
 _get_logger()'s idempotency guard read `if lg.handlers:`. Its own comment says
