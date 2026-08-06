@@ -407,7 +407,6 @@ test_u43_sse_live_test.py
 test_u45_capture_sh_shipped.py
 test_u47_widgets_data_psutil.py
 test_u49_workers_total_honest.py
-test_u50_widget_backfills.py
 test_url_attribute_resolver.py
 test_user_accounts.py
 test_user_templates.py

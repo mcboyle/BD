@@ -4,6 +4,37 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.922 - one promoted file depended on another file creating its tables
+
+The first real capture after the @921 backfill ran the parallel lane in 3m54s
+-- 8,518 passed, 85 skipped, and 2 failures in ONE file:
+
+    test_u50_widget_backfills :: test_eta_clear_absent_when_no_throughput
+    test_u50_widget_backfills :: test_eta_clear_hours_format_for_short_queues
+    [widgets-api] history metrics failed: no such table: history
+
+app_widgets_api._collect_data reads `history` and `library` DIRECTLY. The test
+patches db_stats and dashboard_widgets.snapshot, which do not cover that path,
+so the eta is computed from real rows. Serially it passed because an EARLIER
+FILE had created those tables; in the parallel lane it lands on a worker where
+nothing did, and eta_clear_fmt falls back to "now" instead of None / "30m".
+
+IT PASSED THE @921 PROMOTION EXPERIMENT, and that is the whole lesson. In that
+run the entire serial lane went parallel TOGETHER, so whichever file seeded the
+tables was still present. Splitting the lane moved that file to the other side.
+A green parallel run is evidence about ONE LANE COMPOSITION, not about a file --
+which is exactly why @921 refused to promote the 437 source-hazard files on the
+strength of a single run.
+
+Demoted by NAME in SERIAL_EXACT_BASENAMES, not by omission, because the
+backfill is generated and an omission would be regenerated away. Parallel lane
+783 -> 782 files; the >= 700 ratchet is unaffected.
+
+NOT FIXED HERE, and filed: the test's real defect is that it depends on ambient
+database state at all. It should build its own schema, as its siblings do with
+db.DB_PATH + db_init. That is a test change with its own blast radius, not a
+rider on a lane fix.
+
 ## v3.66.921 - capture's parallel allowlist was never backfilled, so 86% of the suite went serial
 
 The operator reported capture used to finish in 5-10 minutes and now takes ~45.

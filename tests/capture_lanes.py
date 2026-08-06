@@ -36,6 +36,22 @@ SERIAL_EXACT_BASENAMES = frozenset(
         # favourably passes, which is the whole reason this list is by name.
         "test_dev_suite_tier1b.py",
         "test_v3_66_717_exec_bridge.py",
+        # v3.66.922 -- REFUTED BY THE FIRST REAL CAPTURE after the @921
+        # backfill, and it is the hazard @921 predicted rather than a new
+        # one. app_widgets_api._collect_data reads `history` and `library`
+        # DIRECTLY; the test patches db_stats and dashboard_widgets.snapshot,
+        # which do not cover that path. Serially it passed because an EARLIER
+        # FILE had created those tables, so the eta computed from real rows.
+        # In the parallel lane it lands on a worker where nothing did, the
+        # query fails with "no such table: history", and eta_clear_fmt falls
+        # back to "now" instead of None/"30m".
+        #
+        # IT PASSED THE @921 PROMOTION EXPERIMENT, and that is the lesson: in
+        # that run the WHOLE serial lane went parallel together, so whichever
+        # file seeded the tables was still present. Splitting the lane moved
+        # that file to the other side. A green parallel run is evidence about
+        # ONE lane composition, not about the file.
+        "test_u50_widget_backfills.py",
     }
 )
 
