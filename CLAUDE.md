@@ -150,6 +150,22 @@ import the_module_under_test        # in a SUBPROCESS, with cwd + env controlled
 Run it with the gating flag both set and unset. Three of the four sites here
 were invisible in one of those two configurations.
 
+**THE FRESHNESS GATE CANNOT SEE THIS FILE, WHICH IS WHY THIS FILE WENT STALE.**
+Measured at v3.66.927: `bd-freshcheck`'s doc-truth check reports "65 document(s)
+scanned in `/home/user/BD/project-knowledge`" — CLAUDE.md is **not in its
+denominator**. So the one document that outranks everything the gate does check
+is the one document nothing checks. That is not hypothetical: section 5 asserted
+for weeks that `check_requirements.py` "calls `version(name)` and discards the
+result — specifiers are never compared… **Open, and nothing here can see it**",
+while the tool had already grown `Requirement()` + `specifier.contains()`. The
+sentence was self-refuting — "nothing here can see it" was true of the gate, and
+the gate's blindness is why the claim survived.
+
+It was caught only because a register re-derivation **ran the tool instead of
+quoting the note**. Until the gate is widened, that is the only defence: this
+file's factual claims are unverified by machine, so re-derive before citing one,
+**including from here**.
+
 **Reading this section does not inoculate you against it.** The same session
 that wrote the five items above also re-derived an import census with `grep`
 after reading section 1's warning about exactly that, and got it wrong in both
@@ -184,6 +200,26 @@ been wrong. Every figure obtained by *running the tool* was right.
   enumerator forgets. Type on the shebang as well as the extension, or state
   that the extensionless population is excluded. Seventeen tracked *shell*
   scripts also embed Python heredocs no AST walk over files will ever read.
+- **A GREP OVER PROSE MISSES ANY PHRASE THE LINE WRAP SPLIT.** Hit THREE times
+  in the v3.66.915-927 session, every time while verifying that something was
+  recorded. `grep 'Four frames'` returns nothing for a document containing
+  "Four\nframes", so the checker concludes UNRECORDED and rewrites a note that
+  already exists — or, worse, concludes a finding was lost and goes looking for
+  it. Twice it produced a confident "*** UNRECORDED ***" for text sitting in the
+  file. Normalise whitespace before asserting a phrase is absent
+  (`tr '\n' ' '`, or a regex with `\s+` between words), and treat a
+  single-token probe as a floor rather than an answer: `grep '97'` matches any
+  number containing 97.
+- **AND A PREDICATE OVER THE WRONG PART OF THE SYNTAX IS WORSE THAN A GREP,
+  because it looks rigorous.** Same session: an AST scan for "tests that write
+  to the ambient database without isolation" examined each test function's
+  PARAMETER LIST for a fixture name, and reported **97** offenders. The measured
+  truth was **2**. Isolation established inside the body — `db.DB_PATH = ...`,
+  `mkdtemp()`, a module-scope fixture — is invisible to a parameter check, so
+  the denominator was right and the predicate was wrong. The tell was
+  arithmetic: 97 leaking tests cannot produce a 2-row delta. **When an
+  instrument's count disagrees with a direct measurement by an order of
+  magnitude, the instrument is wrong — check it before acting on it.**
 - **Say which denominator a count is over, in the same sentence as the count.**
   A requirements note stated its instrument as "every tracked .py file (2108
   files)" and two lines later said "All three importers" — a number true only
@@ -774,6 +810,17 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   true rather than assuming the worst. `BD_DISABLE_KEEPALIVE` stops background
   threads outliving a test run.
 
+  **THE BOX IS A CURATED SUBSET, NOT THE FULL SET.** Measured at v3.66.927:
+  `scripts/cloud-setup.sh` reads **nine** `BD_*` variables and the box above
+  names four of them. The five it does not name are all optional skips with
+  working defaults — `BD_SKIP_AUDIT`, `BD_SKIP_CLOAK`, `BD_SKIP_EXTRAS`,
+  `BD_SKIP_NET`, `BD_SKIP_SECTOOLS` — so they belong in the provisioner's own
+  documentation, not in a box you paste once. They are named here so a future
+  session knows the knobs exist rather than re-deriving them from the script.
+  Note also that `BD_DISABLE_KEEPALIVE` runs the other way: it is IN the box and
+  the provisioner never reads it, because its consumers are the app and the test
+  suite. Neither direction is a defect; both look like one until you check.
+
   `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2` caps how deep agents may spawn
   agents. Two is deliberate: the top-level session orchestrates, its agents do
   work, and nothing below that spawns further. Depth buys little here and costs
@@ -809,6 +856,27 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   `monkeypatch.chdir(tmp_path)` **and** `monkeypatch.setenv("BD_INSTALL_DIR", ...)`,
   belt and braces, "even if subsequent code chdirs away". Hand-rolled probes get
   neither for free — set `BD_INSTALL_DIR` to a tmpdir, or use the fixture.
+- **`sqlite3` `immutable=1` SKIPS THE WAL, so it cannot see a committed row that
+  has not been checkpointed.** Measured twice in one day at v3.66.927, in
+  opposite directions, and both cost real time:
+
+  | reading | rows |
+  | --- | --- |
+  | `file:db?immutable=1` (WAL ignored) | 114 |
+  | plain `sqlite3.connect(db)` (WAL replayed) | 151 |
+
+  The first was a survey of quarantined databases, where `immutable=1` is
+  exactly right — it takes no lock and cannot replay a stray `-wal` into a file
+  you are trying not to disturb — but its count is a **floor**, not the answer,
+  and reporting it as the answer would have written off 37 real rows. The second
+  was a test asserting what a writer had just committed, where `immutable=1` is
+  exactly wrong and produced `no such table` for a table that existed. Written
+  by the person who had measured the first case an hour earlier.
+
+  **Rule: `immutable=1` for surveying a file you must not touch; a normal open
+  for asserting what was written.** And when recovering a quarantined database,
+  carry the `-wal`/`-shm` companions across under the NEW basename or the tail
+  of the history is silently dropped.
 - **`pip check` cannot see an uninstalled requirement.** Its denominator is what
   *is* installed. `runtime deps OK` was reported with `beautifulsoup4` and
   `pytest-xdist` both absent. To ask whether requirements are satisfied, parse
