@@ -4017,6 +4017,65 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.52 | Operator decisions 2026-08-07 on the three items that needed a call
+
+Recorded so the next session does not re-ask, and so nobody guesses. All three
+were put to the operator interactively after 15.51's re-derivation left five
+items open.
+
+ITEM 27 -- qB/JD library rows: **N ROWS, ONE PER FILE INSIDE THE DIRECTORY.**
+The bridges record `st['filename']` as a bare name that may be a torrent
+DIRECTORY (qb_bridge.py:514, jd_bridge.py:483). v3.66.837's contract -- record
+a library row only when an absolute FILE path exists -- currently produces NO
+row for these sites at all. The decision is to walk the directory at completion
+and record one row per real file, because that is what a library row means
+everywhere else in the panel; a directory row would make `file_path` mean two
+different things depending on the source.
+
+  WHAT THE IMPLEMENTOR MUST HANDLE, and none of it is optional: the walk can be
+  large, and it RACES AN IN-PROGRESS SEED -- a torrent that is still seeding
+  has its files on disk but may still be written to, so file_size captured at
+  completion can go stale. Decide explicitly whether a row is recorded once at
+  completion or refreshed, and say which. Also: this is the FIRST writer that
+  turns one completion event into N rows, so anything counting completions by
+  library rows changes meaning. Re-derive those consumers before writing code.
+
+ITEM 3 -- /home/claude references: **SWEEP THE NON-TEST REFERENCES ONLY.**
+Measured at 28cc9de: 246 tracked files reference the path, of which NINETEEN
+are tracked test files that positively pin the string. Clean the ~227 non-test
+files; leave the 19 tests alone and documented as a deliberate exception. No
+gate goes red and no test is rewritten, which is the whole reason this scope
+was chosen -- the register's original wording ("a test", singular) understated
+the blocker by ~19x and would have sized the cut wrong.
+
+  NOTE FOR WHOEVER RUNS IT: /home/claude is the LIVE agent home in a cloud
+  container (140 entries incl. .ssh, .gitconfig, .claude/skills). It is not
+  residue and must not be deleted. The subject is repo REFERENCES only.
+
+NEXT CUT -- **NEITHER 30 NOR 14; STOP HERE.** The operator closed the session
+after the pending merges rather than starting another cut. Both remain open and
+tractable with no decision owed:
+
+  * item 30 -- build `.githooks/pre-push` enforcing CLAUDE.md section 7's
+    two-dot diff before a force-push. Small and self-contained; the test idiom
+    is already established by tests/test_v3_66_872_claim_survives_the_shell.py,
+    which builds a throwaway repo, copies the hook in and drives real git.
+    `.githooks/` currently holds `pre-commit` only.
+  * item 14 -- `start_manual_login` (runner_auth.py:379) still returns
+    `(False, "An auto-login is already running")` while the login thread is
+    alive, so the advertised Phase B takeover cannot open. Larger: the fix
+    changes threading behaviour in the login path, and the register already
+    records its anchors drifting once.
+
+AND THE HIGHEST-VALUE ITEM IS IN NEITHER LIST. 15.50 item A --
+`auto_recover_sqlite` quarantining HEALTHY databases -- is the defect that
+actually destroyed the operator's history on 2026-08-07. `selftest.py:522`
+catches `sqlite3.DatabaseError`, and OperationalError (`disk I/O error`,
+`database is locked`) is a SUBCLASS, so transient contention under load reads
+as confirmed corruption. The recovered file was 3.7 MiB with `integrity=ok`
+when it was renamed aside. Item 11 supplied the contention; this is what turned
+it into destruction, and it is untouched.
+
 ### 15.51 | Re-derivation of 15.36, 2026-08-07 at 28cc9de -- 15 of 23 measured items were ALREADY CLOSED
 
 SUPERSEDES 15.36's status column. The list itself stands; what follows is each
