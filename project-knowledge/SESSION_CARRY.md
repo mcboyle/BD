@@ -4075,6 +4075,39 @@ FOUR THINGS THIS SESSION DERIVED AND NEVER RECORDED, now fixed:
     only). Recorded in CLAUDE.md section 0 as the reason its own section 5 went
     stale for weeks. This is the highest-value doc-tooling item available.
 
+CLAUDE.md's OWN NUMBERS WERE RE-DERIVED, and this is the half the audit nearly
+got wrong. Section 1's worked example -- the one that teaches "the instrument
+fixes the denominator; the predicate fixes the subject" -- carried a predicate
+error of exactly that kind:
+
+  | claim | measured at 803a39a |
+  | --- | --- |
+  | 2108 files end in .py | 2136 |
+  | 469 extensionless bd-* scripts | 456 (231 toolchain, 225 project-knowledge) |
+  | "...EXECUTABLE, python-shebang..." | only 232 of 456 are mode 100755 |
+  | 234 / 235 per directory | 231 / 225 |
+  | section 8: ~249 bd-* tools | 240 |
+  | "seventeen shell scripts embed py heredocs" | 3, under two predicates |
+
+  THE WORD "EXECUTABLE" WAS THE DEFECT. 224 of the 456 -- almost all of
+  project-knowledge/ -- are tracked 100644, not 100755. An auditor who filtered
+  on the exec bit BECAUSE THE PROSE SAID TO measured ONE file under
+  project-knowledge and concluded the paragraph had rotted by 200x. It had not.
+  The prose over-specified its own subject.
+
+  THREE SUCCESSIVE READINGS OF THAT ONE BULLET WERE WRONG IN A SINGLE AUDIT --
+  a predicate ignoring `bd-*`; one requiring mode 100755; then reading the
+  survivor count as deletion drift when git showed only TEN files ever removed
+  (seven at @858, three at @917). Each was stated confidently before the next
+  measurement overturned it. That is section 1 failing inside section 1's own
+  example, and it is the argument for the arithmetic check: 2136 + 456 = 2592
+  reconciles, and the "1 under project-knowledge" reading never did.
+
+  The heredoc count is left UNKNOWN rather than corrected. The class is real --
+  a heredoc is invisible to an AST walk over files -- but 17 did not reproduce
+  under two predicates, and replacing it with a number nobody has stood behind
+  would just restart the cycle.
+
 THE OVERNIGHT LIST, so it survives this conversation. Ranked, each
 independently mergeable, all container-verifiable:
 

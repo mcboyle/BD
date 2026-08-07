@@ -61,7 +61,7 @@ read this section, in order to fix an instance of it:
   nothing.
 - The declaration gate written to constrain that fix shipped with a
   denominator excluding `tests/`. Repaired, it then claimed to cover
-  `toolchain/` and `project-knowledge/` -- where **469 of 509** tracked Python
+  `toolchain/` and `project-knowledge/` -- where **456 of 2592** tracked Python
   files are extensionless `bd-*` scripts a `*.py` glob cannot see. Repaired
   again, it still cannot read the 17 tracked shell scripts that embed Python
   heredocs.
@@ -191,15 +191,33 @@ been wrong. Every figure obtained by *running the tool* was right.
   of 12 because the predicate was `'playwright' in name`, which also matches
   `playwright_stealth` — a different distribution. **The instrument fixes the
   denominator; the predicate fixes the subject. Say which you used.**
-- **`git ls-files -- '*.py'` is NOT "the Python files in this repo."** Measured
-  at v3.66.848: **2108** files end in `.py`, and a further **469** are tracked,
-  executable, python-shebang, extensionless `bd-*` scripts — 234 under
-  `toolchain/`, 235 under `project-knowledge/`. A `*.py` glob reaches **2.5%**
-  of `toolchain/` and **14.5%** of `project-knowledge/`. Section 8 already says
-  `toolchain/bin` is its own population; this is what that costs you when the
-  enumerator forgets. Type on the shebang as well as the extension, or state
-  that the extensionless population is excluded. Seventeen tracked *shell*
-  scripts also embed Python heredocs no AST walk over files will ever read.
+- **`git ls-files -- '*.py'` is NOT "the Python files in this repo."**
+  Re-measured at v3.66.927 (`803a39a`): **2136** files end in `.py`, and a
+  further **456** are tracked, python-shebang, extensionless `bd-*` scripts —
+  **231** under `toolchain/`, **225** under `project-knowledge/`. A `*.py` glob
+  reaches essentially none of them. Section 8 already says `toolchain/bin` is
+  its own population; this is what that costs you when the enumerator forgets.
+  Type on the shebang as well as the extension, or state that the extensionless
+  population is excluded.
+
+  **The word "executable" was WRONG here for weeks, and the way it was wrong is
+  the point.** This bullet used to say "tracked, **executable**, python-shebang"
+  — but only **232** of the 456 carry mode `100755`; the other **224**, almost
+  all of `project-knowledge/`, are tracked `100644`. An auditor who filtered on
+  the exec bit — as the prose instructed — measured **1** file under
+  `project-knowledge/` and concluded the paragraph had rotted by 200x. It had
+  not. The predicate was over-specified, and *the prose was the thing that
+  over-specified it*. Three successive readings of this one bullet were wrong
+  during a single audit (ignoring `bd-*`; requiring `100755`; then reading the
+  survivor count as drift), which is section 1's own lesson landing inside
+  section 1's own worked example. **Filter on the shebang, not the mode.**
+
+  *(Unverified: an earlier revision claimed "seventeen tracked shell scripts
+  also embed Python heredocs no AST walk will ever read". Two independent
+  predicates find **3** at `803a39a`. The CLASS is real — a heredoc is
+  invisible to an AST walk over files — but the count did not reproduce, so it
+  is stated as unknown rather than corrected to a number nobody has stood
+  behind.)*
 - **A GREP OVER PROSE MISSES ANY PHRASE THE LINE WRAP SPLIT.** Hit THREE times
   in the v3.66.915-927 session, every time while verifying that something was
   recorded. `grep 'Four frames'` returns nothing for a document containing
@@ -1654,7 +1672,7 @@ other; removing the second contract removes the failure class the gate was
 watching for, which is the stronger fix. If you find a second agent-facing
 document, that is the defect — not a resource.
 
-**LOOK IN `toolchain/bin` BEFORE YOU HAND-ROLL ANYTHING.** There are ~249 bd-*
+**LOOK IN `toolchain/bin` BEFORE YOU HAND-ROLL ANYTHING.** There are **240** bd-*
 tools. A session spent a day hand-rolling band derivation and mutation
 harnesses that already existed, got a narrower band every time, and rebuilt the
 same defective harness repeatedly. The ones that answer questions THIS FILE
