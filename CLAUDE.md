@@ -763,6 +763,7 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   BD_SKIP_ARCHB=1
   BD_SKIP_BROWSERS=1
   BD_DISABLE_KEEPALIVE=1
+  CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2
   ```
 
   `BD_REPO` is the first probe rung, so setting it makes checkout location
@@ -772,6 +773,17 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   provisioner says which of "skipped but present" and "skipped and absent" is
   true rather than assuming the worst. `BD_DISABLE_KEEPALIVE` stops background
   threads outliving a test run.
+
+  `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2` caps how deep agents may spawn
+  agents. Two is deliberate: the top-level session orchestrates, its agents do
+  work, and nothing below that spawns further. Depth buys little here and costs
+  a lot -- this container has **4 cores**, so the workflow concurrency cap is
+  `min(16, nproc - 2)` = **2**, and a third tier only lengthens the queue behind
+  that same 2-wide gate. Measured at v3.66.926: eleven agents were SLOWER at a
+  register re-derivation than doing it inline, 3 items against 12, because most
+  of the work was one grep or one tool invocation apiece. Depth also multiplies
+  the residue problem in section 2b -- every additional tier is another writer
+  in a shared tree you did not start.
 
   Note what these do **not** buy: `BD_HOME` does not protect
   `~/.config/bulk-downloader`, which resolves from `$HOME`, not `BD_HOME`.
