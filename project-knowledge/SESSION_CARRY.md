@@ -4017,6 +4017,109 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.60 | The operator-queued sweep 2026-08-07, close at d670271 -- three cuts, and item 27 was already done
+
+The operator queued D, B, A and 27 interactively and ratified dispositions for
+items 3 and 27. Three cuts shipped. The fourth item needed no work, and the way
+that was discovered is the finding.
+
+SHIPPED
+
+| cut | subject | band | mutation |
+| --- | --- | --- | --- |
+| v3.66.939 | the CI gate lane is sharded, and a shard can silently lose a file | 1641 passed | 7 caught / 0 escaped |
+| v3.66.940 | the .env loader applied every key it found, not the declared set | 570 passed | 6 caught / 0 escaped |
+| v3.66.941 | a cancelled scan's worker wrote its counters into the NEXT scan | 1494 passed | 5 caught / 0 escaped |
+
+**ITEM 27 WAS ALREADY CLOSED, AND I ASKED THE OPERATOR TO RATIFY A SUPERSEDED
+RECOMMENDATION.** 15.51 records "ITEM 27 -- qB/JD library rows: **N ROWS, ONE
+PER FILE INSIDE THE DIRECTORY**" with a paragraph of implementor guidance. The
+tree ships something else and has for some time: `library_path_for_completion`
+(`library.py:88`), documented in its own docstring as "15.11 (option b)",
+resolves a backend-reported completion NAME to the absolute path of ONE file --
+the largest `_VIDEO_EXTS` file inside a directory, ties broken
+lexicographically so the answer cannot depend on `os.walk` order. It is wired
+at both qB/JD done-sites (`runner_integrations.py:575`, `:827`) and its suite
+(`test_qb_jd_completions_record_the_largest_media_file.py`, 11 tests) passes.
+
+So option b won, option a's write-up stayed in the register, and I read the
+register instead of the tree before putting the question to the operator. That
+is CLAUDE.md section 1's rule -- re-derive before working a queued item -- and
+I broke it in the act of ASKING about the item, which is worse than breaking it
+while working one: a wrong answer here spends the operator's judgement on a
+decision that was already made. Re-derive before you ASK, not just before you
+CUT.
+
+Note what a careful reading of the options would NOT have caught: the operator
+chose "record once at completion, accept staleness", and that IS what option b
+does. The answer was right; the question was void.
+
+WHAT THE CONSUMER RE-DERIVATION FOUND ANYWAY, and it is worth keeping because
+it is the reason option a would have been expensive. `library_record` backfills
+`history.library_id` (`library.py:240-245`), and that column is a single
+INTEGER added by `migrations.py:455-460` explicitly "so we can navigate from a
+history row to its library row". It is one-to-one BY SCHEMA. Writing N rows for
+one `history_id` would have left the history row pointing at whichever member
+was recorded last -- an arbitrary one of N -- unless the cut also chose a
+representative and migrated the link. Option b picks the representative
+up front instead, which is the same problem solved before it is created.
+
+THE OTHER THREE
+
+- **D** -- the operator chose the 3-way matrix in a separate job. Boundaries
+  drawn from measured time: `test_toolchain_534` is 72.5s of 179.8s, 40% of the
+  lane alone, so no two-way split could meet the 60s budget while it stayed
+  whole. FIRST CI RUN CONFIRMED IT WORKS: gates 60s, toolchain 73s,
+  parity-graph 73s, artifacts-pins 44s, postgres 59s -- the gates check now
+  completes in ~77s wall against 194s before. Those are JOB totals including
+  setup; the per-STEP pytest times were not read, so "every shard's step is
+  under 60s" is unverified.
+- **B** -- `_envfile`. The writer was already allow-listed; the reader applied
+  everything. `SEEDABLE_KEYS` is now bound to `EDITOR_KEY_NAMES` rather than
+  restated.
+- **A** -- `scan_start`. Both halves: the worker is bound to its ScanState (13
+  global references gone) and `scan_start` refuses while the previous thread is
+  alive.
+
+METHOD -- FIVE HARNESS DEFECTS, ALL CAUGHT BY AN INSTRUMENT, NONE BY REVIEW
+
+1. **A subprocess probe without `env=`** inherited the runner's environment and
+   "failed" by reporting the runner's own `PATH` as a leak -- a convincing red
+   for entirely the wrong reason. CLAUDE.md section 0 names this exact shape.
+2. **An AST predicate that counted COMMAS.** Pristine source is
+   `args=(roots,)`; the trailing comma made the check pass vacuously. It counts
+   tuple ELEMENTS now.
+3. **A fixture that reset module globals under a live worker**, so the defect
+   under test surfaced as `AttributeError` on a daemon thread -- harness noise
+   masking the real failures. It joins before resetting.
+4. **`print()` in library code.** `test_v3_43_78_static_analysis_fixes` sweeps
+   every `bulk_downloader/*.py` and forbids it. The BAND caught that; nothing
+   in the cut would have.
+5. **@935's own ratchet caught @941**, correctly: the new tests hand-rolled a
+   scan poll loop three times. Those loops wait for a scan to be demonstrably
+   RUNNING, a different question from the convergence both helpers answer, so
+   the response was a third helper (`scan_wait.wait_for_progress`) rather than
+   an exemption. **A ratchet that keeps catching the same legitimate need is
+   naming a missing tool.**
+
+Two mutation escapes were also closed, both the same shape as v3.66.938's: a
+verdict's comparison could be severed from its own measurement with no test
+noticing, because the only assertions lived inside the mutated test. Extract a
+verdict's comparison into a named helper with a positive control ON SIGHT
+rather than waiting for a battery to find it -- that is now three cuts running.
+
+OPERATOR DISPOSITIONS RECORDED
+
+- **Item 3** -- DEFER until after mirror retirement step 2. 245 tracked files
+  reference the path and 109 of them are under `project-knowledge/`, which the
+  retirement is about to delete; sweeping them first would be work done twice.
+- **Item 27** -- ratified "record once at completion, accept staleness", which
+  is what the shipped option b already does. No work.
+
+STILL OPEN: 3 (behind mirror retirement), 11, 12(c), 14, 31, 32, 33; 17/21/25
+not evaluable from a container. A box re-capture is due -- main has moved
+v3.66.936 -> v3.66.941 since the last one.
+
 ### 15.59 | Tier-1/tier-2 sweep 2026-08-07, close at d670271 -- four of four "open" items were already closed, and the re-derivation found the real ones
 
 The operator asked for tier 1 and tier 2 of a speed-sorted register list "in
