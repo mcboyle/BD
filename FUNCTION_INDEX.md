@@ -551,58 +551,58 @@ Schema version: 2
   - L0526 `_DualWriteCursor.__setattr__` `[dunder]`
   - L0529 `_DualWriteCursor.__iter__` `[dunder]`
 - L0533 `_open_history_conn` `[private]` — v3.66.795 (MOD-3 cut 1): THE single history-DB connection point.
-- L0602 `db_conn`
-- L0625 `_slow_query_log_enabled` `[private]` — Check store/env override; default on. Set BD_SLOW_QUERY_LOG=0 to silence.
-- L0646 `_slow_query_threshold_ms` `[private]` — Override via store key `slow_query_ms` (v3.66.309) or BD_SLOW_QUERY_MS
-- L0666 `_make_slow_query_trace` `[private]` — Build a fresh tracer closure per connection. Each connection has its
-- L0711 `db_explain` — Helper: run EXPLAIN QUERY PLAN against a candidate SQL and return
-- L0721 `db_fts_optimize` — v3.48 (#75): periodically optimize the FTS5 history index.
-- L0764 `_fts_indexed_docs` `[private]` — Rowids the history_fts inverted index actually holds, or None when
-- L0794 `db_fts_snapshot` — The PRE-UPDATE rows an FTS re-sync will need, on `cx`.
-- L0815 `db_fts_resync` — Re-point history_fts at the CURRENT values of `old_rows`, on `cx`.
-- L0854 `db_fts_forget` — Drop `rows` from the history_fts inverted index, on `cx`.
-- L0936 `db_queue_recovery_summary` — v3.48 (#127): on boot, report how many queue rows were recovered.
-- L0962 `db_log` — Append one row to the history table. Called on every job-level
-- L1096 `db_search_fts` — v3.43.80 Phase 92: full-text search over history via FTS5.
-- L1170 `db_search` — Read recent history rows with optional filters. `query` substring-
-- L1185 `db_search_cursor` — v3.48 (#74): cursor-based pagination on the history table.
-- L1225 `db_find_url_in_history` — F1.5: exact-URL pre-download dedup. Returns the most recent
-- L1253 `db_find_filename_duplicate` — Phase 66 (v3.41.0): cross-site filename duplicate detection. Returns
-- L1292 `db_stats` — Aggregate history counts and total downloaded bytes for the
-- L1310 `db_hourly_success_rate` — Phase 74 (v3.41.0): time-of-day analytics. Aggregates from history
-- L1356 `db_prune` — Delete history rows older than `days` days. Returns the count
-- L1381 `db_vacuum` — Run SQLite VACUUM to reclaim space from deleted rows. Returns
-- L1401 `queue_load` — Return all queue entries for a site, ordered by `ord` then ts_added.
-- L1430 `queue_search` — v3.49 (#71): Server-side queue filtering with cursor pagination.
-- L1468 `queue_count_by_status` — v3.49: aggregate queue counts by status for a site (or globally).
-- L1482 `queue_group_by` — v3.49 (#57): bucket queue rows into groups for collapsible-section
-- L1532 `queue_upsert` — Insert or update a single queue row. Stamps ts_updated automatically.
-- L1575 `queue_bulk_upsert` — Bulk-insert URLs in one transaction. Massively faster than per-URL
-- L1583 `queue_delete` — Remove one URL from the queue table. Used when a user deletes
-- L1589 `queue_delete_status` — For "Clear Done" / "Clear Failed" bulk actions.
-- L1595 `queue_delete_site` — Called when a site is removed.
-- L1610 `queue_bulk_delete` — Delete N rows in one transaction. Returns rowcount.
-- L1632 `queue_bulk_mark` — Set status (and optionally message) on N URLs in one transaction.
-- L1656 `queue_reorder` — v3.49 (#56): bulk-update `ord` column for drag-to-reorder.
-- L1678 `queue_set_priority` — v3.49 (#71): tag a set of URLs with a priority label.
-- L1703 `queue_bulk_update` — v3.62.x: set the SAME column values on N URLs in ONE (chunked)
-- L1754 `db_queue_dead_letter` — Move a job to the terminal 'dead_letter' status with a reason. Returns
-- L1766 `db_queue_requeue_dead_letter` — Requeue a dead-lettered job: back to 'pending', retry counters cleared.
-- L1780 `queue_count` — Return the number of queue rows for a site. With `status` set,
-- L1793 `queue_paginate` — Server-side pagination for the queue UI (Phase 4.5/4.6).
-- L1806 `queue_changed_since` — Return queue rows updated since the given ISO timestamp. Used by
-- L1819 `session_event_record` — Append one row to session_history. event_type is one of:
-- L1839 `session_event_recent` — Return recent session_history rows. Used by the UI event log.
-- L1852 `session_lifetime_observations` — For a given (site, account), find all session lifetimes we've
-- L1899 `db_session_failure_clusters` — F2.1: cluster session_history failure events by (site, event_type)
-- L1990 `_integrity_state_path` `[private]` — Where we record the last successful check timestamp. Lives next to
-- L1997 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
-- L2008 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
-- L2020 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
-- L2082 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
-- L2095 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
-- L2106 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
-- L2126 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
+- L0612 `db_conn`
+- L0635 `_slow_query_log_enabled` `[private]` — Check store/env override; default on. Set BD_SLOW_QUERY_LOG=0 to silence.
+- L0656 `_slow_query_threshold_ms` `[private]` — Override via store key `slow_query_ms` (v3.66.309) or BD_SLOW_QUERY_MS
+- L0676 `_make_slow_query_trace` `[private]` — Build a fresh tracer closure per connection. Each connection has its
+- L0721 `db_explain` — Helper: run EXPLAIN QUERY PLAN against a candidate SQL and return
+- L0731 `db_fts_optimize` — v3.48 (#75): periodically optimize the FTS5 history index.
+- L0774 `_fts_indexed_docs` `[private]` — Rowids the history_fts inverted index actually holds, or None when
+- L0804 `db_fts_snapshot` — The PRE-UPDATE rows an FTS re-sync will need, on `cx`.
+- L0825 `db_fts_resync` — Re-point history_fts at the CURRENT values of `old_rows`, on `cx`.
+- L0864 `db_fts_forget` — Drop `rows` from the history_fts inverted index, on `cx`.
+- L0946 `db_queue_recovery_summary` — v3.48 (#127): on boot, report how many queue rows were recovered.
+- L0972 `db_log` — Append one row to the history table. Called on every job-level
+- L1106 `db_search_fts` — v3.43.80 Phase 92: full-text search over history via FTS5.
+- L1180 `db_search` — Read recent history rows with optional filters. `query` substring-
+- L1195 `db_search_cursor` — v3.48 (#74): cursor-based pagination on the history table.
+- L1235 `db_find_url_in_history` — F1.5: exact-URL pre-download dedup. Returns the most recent
+- L1263 `db_find_filename_duplicate` — Phase 66 (v3.41.0): cross-site filename duplicate detection. Returns
+- L1302 `db_stats` — Aggregate history counts and total downloaded bytes for the
+- L1320 `db_hourly_success_rate` — Phase 74 (v3.41.0): time-of-day analytics. Aggregates from history
+- L1366 `db_prune` — Delete history rows older than `days` days. Returns the count
+- L1391 `db_vacuum` — Run SQLite VACUUM to reclaim space from deleted rows. Returns
+- L1411 `queue_load` — Return all queue entries for a site, ordered by `ord` then ts_added.
+- L1440 `queue_search` — v3.49 (#71): Server-side queue filtering with cursor pagination.
+- L1478 `queue_count_by_status` — v3.49: aggregate queue counts by status for a site (or globally).
+- L1492 `queue_group_by` — v3.49 (#57): bucket queue rows into groups for collapsible-section
+- L1542 `queue_upsert` — Insert or update a single queue row. Stamps ts_updated automatically.
+- L1585 `queue_bulk_upsert` — Bulk-insert URLs in one transaction. Massively faster than per-URL
+- L1593 `queue_delete` — Remove one URL from the queue table. Used when a user deletes
+- L1599 `queue_delete_status` — For "Clear Done" / "Clear Failed" bulk actions.
+- L1605 `queue_delete_site` — Called when a site is removed.
+- L1620 `queue_bulk_delete` — Delete N rows in one transaction. Returns rowcount.
+- L1642 `queue_bulk_mark` — Set status (and optionally message) on N URLs in one transaction.
+- L1666 `queue_reorder` — v3.49 (#56): bulk-update `ord` column for drag-to-reorder.
+- L1688 `queue_set_priority` — v3.49 (#71): tag a set of URLs with a priority label.
+- L1713 `queue_bulk_update` — v3.62.x: set the SAME column values on N URLs in ONE (chunked)
+- L1764 `db_queue_dead_letter` — Move a job to the terminal 'dead_letter' status with a reason. Returns
+- L1776 `db_queue_requeue_dead_letter` — Requeue a dead-lettered job: back to 'pending', retry counters cleared.
+- L1790 `queue_count` — Return the number of queue rows for a site. With `status` set,
+- L1803 `queue_paginate` — Server-side pagination for the queue UI (Phase 4.5/4.6).
+- L1816 `queue_changed_since` — Return queue rows updated since the given ISO timestamp. Used by
+- L1829 `session_event_record` — Append one row to session_history. event_type is one of:
+- L1849 `session_event_recent` — Return recent session_history rows. Used by the UI event log.
+- L1862 `session_lifetime_observations` — For a given (site, account), find all session lifetimes we've
+- L1909 `db_session_failure_clusters` — F2.1: cluster session_history failure events by (site, event_type)
+- L2000 `_integrity_state_path` `[private]` — Where we record the last successful check timestamp. Lives next to
+- L2007 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
+- L2018 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
+- L2030 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
+- L2109 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
+- L2122 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
+- L2133 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
+- L2153 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
 ```
 
 

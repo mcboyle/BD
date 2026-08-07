@@ -4,6 +4,43 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.927 - item 11's last writer: the integrity thread verified whichever database DB_PATH named when it woke
+
+v3.66.926 moved every module-scope database operation into boot_once(), so a
+bare import creates nothing -- measured, zero on-disk opens with
+BD_DISABLE_KEEPALIVE set AND unset, and still zero 45 seconds later. A band
+still left `downloader_history.db` at the repo root, and the file had NO TABLES
+AT ALL. That is the tell: a connection opened without db_init, and
+sqlite3.connect() creates the file on contact.
+
+TRACED, NOT REASONED. Wrapping sqlite3.connect with a stack recorder and
+running one test file pinned it to exactly one frame: `_do_check`, the body of
+`run_integrity_check()`. That schedules a FIRE-AND-FORGET daemon thread which
+is never joined, and everything inside it re-resolved DB_PATH at CALL time --
+which, on a thread nobody waits for, means "whenever the scheduler got round to
+it". A test that pointed DB_PATH at a tmpdir, called boot_once() and then
+restored DB_PATH had already moved the target before the thread ran, so the
+check verified a database nobody asked about, reported OK for it, and left the
+file behind.
+
+The path is now resolved ONCE, in the calling thread, and handed down. Four
+frames needed it, not one -- db_conn, _open_history_conn, _row_count_estimate
+and _integrity_state_path/_record_integrity_check_ts -- and the first fix
+missed three of them, which the tests caught. Each takes an OPTIONAL path
+defaulting to None, so every existing caller resolves exactly as before.
+
+Threaded through _open_history_conn rather than opened directly because that is
+the single connection point the MOD-3 Postgres seam depends on:
+test_v3_66_795_mod3_seam.py enforces exactly one sqlite3.connect in db.py, and
+a second would silently escape dual-write when that migration lands.
+
+NOT gated on BD_DISABLE_KEEPALIVE, deliberately. That would be suppression: the
+leak would persist for the service, which runs with the flag unset, and the
+tests would go green over a defect that still ships.
+
+Verified: the band that leaked now leaves the repo root clean, and the
+over-correction guard pins that the check still runs and still answers.
+
 ## v3.66.926 - item 11: importing bulk_downloader.app no longer boots the database
 
 The defect SESSION_CARRY 15.48 filed as a worker-count ceiling. 15.49 records
