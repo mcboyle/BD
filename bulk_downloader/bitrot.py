@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import os
 import random
+import sqlite3
 import time
 from pathlib import Path
 from typing import Optional
@@ -68,10 +69,28 @@ def _ensure_integrity_table():
             cx.execute("CREATE INDEX IF NOT EXISTS idx_ii_ts ON integrity_issues(ts DESC)")
             # Also ensure provenance has the extra column we need to
             # avoid re-scanning recently-verified rows. Add if missing.
-            try:
-                cx.execute("ALTER TABLE provenance ADD COLUMN last_verified_ts REAL DEFAULT 0")
-            except Exception:
-                pass  # column already exists
+            #
+            # Ask FIRST rather than guess from the failure. Until v3.66.931
+            # this was a bare `except Exception: pass`, so every failure read
+            # as "column already exists" -- a missing provenance table, a
+            # locked database and a read-only mount all returned quietly and
+            # the init reported a schema it had not created. _candidates then
+            # SELECTs last_verified_ts (below), so the real fault surfaced
+            # later and somewhere else.
+            #
+            # The SQLite result code cannot separate these: `duplicate column
+            # name` and `no such table` are BOTH SQLITE_ERROR (1), measured.
+            # So the structural check carries the common path, and the
+            # message-matched tolerance underneath it covers only the genuine
+            # race where two processes pass the check and both ALTER.
+            have = {r[1] for r in cx.execute("PRAGMA table_info(provenance)")}
+            if "last_verified_ts" not in have:
+                try:
+                    cx.execute("ALTER TABLE provenance "
+                               "ADD COLUMN last_verified_ts REAL DEFAULT 0")
+                except sqlite3.OperationalError as e:
+                    if "duplicate column name" not in str(e).lower():
+                        raise
     except Exception as e:
         import sys
         sys.stderr.write(f"[bitrot] schema init failed: {e}\n")

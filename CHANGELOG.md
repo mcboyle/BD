@@ -4,6 +4,43 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.931 - bitrot's schema init could not tell "already there" from "could not be done"
+
+`_ensure_integrity_table` wrapped its ALTER TABLE in `except Exception: pass`,
+so every failure read as the benign duplicate-column case. A missing
+`provenance` table, a locked database and a read-only mount all returned
+quietly, and the function reported a schema it had not created. `_candidates`
+then SELECTs `last_verified_ts`, so the real fault surfaced later and somewhere
+else, as a query error against a column the init had certified present.
+
+MEASURED, because the discriminator that worked for v3.66.928 does not work
+here. The SQLite result code cannot separate the benign case from the most
+likely real one -- `duplicate column name` and `no such table` are BOTH
+SQLITE_ERROR (1); only `database is locked` (5) and `attempt to write a
+readonly database` (8) carry distinct codes. So the fix leads with a
+STRUCTURAL check that needs no exception at all -- PRAGMA table_info -- and
+keeps a narrow message-matched tolerance underneath it for the genuine race
+where two processes pass the check and both issue the ALTER.
+
+Everything else now propagates to the existing outer reporter, which logs one
+line and returns. The init still never raises: it is called at the top of
+run_scan and from a scheduled job, so a raising init would take the nightly
+task down instead of recording the fault.
+
+THE REGISTER CALLED THIS "a bare except". It is `except Exception`, which is a
+materially different bug -- a bare `except:` would also swallow
+KeyboardInterrupt and SystemExit. The narrower defect is what was measured and
+what is tested; the register entry was imprecise, not wrong.
+
+`sqlite3` was not imported in this module. `ast.parse` would not have caught
+that, and neither would a source-text assertion; importing the module did.
+
+Tests: `tests/test_v3_66_931_bitrot_schema_init_reports_real_errors.py`, 7
+cases over real throwaway databases. Proven RED on pristine source (2 failing,
+5 passing -- the passing ones are the over-correction guards: a normal second
+run must stay silent, the column must still be added, and the duplicate-column
+race must still be tolerated). 4 mutants, 4 caught, 0 escaped.
+
 ## v3.66.930 - the nightly bit-rot scan had nothing to resolve against, so it decided nothing
 
 `bg_scheduler._run_bitrot` called `run_scan()` with no download_dir at all.
