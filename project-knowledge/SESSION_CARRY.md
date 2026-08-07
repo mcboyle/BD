@@ -4017,6 +4017,104 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.56 | Session 2026-08-07: six cuts (928-933), and the mirror retirement that is half done
+
+STATE AT CLOSE. main at 4f141f6 = v3.66.933, dirty 0, behind 0, one branch.
+Guards 7 ok, bd-freshcheck exit 0, regen in sync. v3.66.928 was verified on the
+box: capture PASS, 14894 total / 14809 passed / 0 failed / 85 skipped, live
+36/0/0, /api/health reporting sha be66cba4163a and db_ok true.
+
+WHAT SHIPPED. Every cut RED-first, 0 mutants escaped, band green.
+
+  928  auto_recover_sqlite quarantined HEALTHY databases. OperationalError is
+       a SUBCLASS of DatabaseError, so `database is locked` read as confirmed
+       corruption. REPRODUCED: a 500-row db with integrity_check=ok, held by
+       one BEGIN EXCLUSIVE, was renamed aside. Also the one-second quarantine
+       name collision -- reproduced, first file destroyed with no trace.
+       15.55 has the detail. THE REGISTER'S HIGHEST-VALUE ITEM, closed.
+  929  bd-doc-truth could not see CLAUDE.md. Corpus 65 -> 78 documents.
+  930  the nightly bit-rot scan had no download roots, so it decided nothing.
+  931  bitrot schema init could not tell "already there" from "could not be
+       done". Register called it a bare except; it was `except Exception`.
+  932  .githooks/pre-push enforcing section 7's two-dot diff (item 30).
+  933  mirror retirement step 1 of 2 -- the five files carrying baselined
+       secrets, isolated deliberately.
+
+FINDINGS WORTH MORE THAN THE CUTS.
+
+  * GITLEAKS DOES NOT FLAG A SECRET ON A REMOVED LINE. Measured on PR #238,
+    which deleted five gitleaks-baselined files (2062 lines) and passed the
+    gates job -- gitleaks-action@v2 confirmed to have run, named in its own
+    Node-deprecation warning. Section 7 warns a leak in branch history cannot
+    be fixed forward, which is why this was isolated rather than assumed. It
+    de-risks any future bulk deletion.
+  * THE SQLITE RESULT CODE DOES NOT ALWAYS DISCRIMINATE. It cleanly separated
+    corruption from contention in 928 (SQLITE_CORRUPT 11 / SQLITE_NOTADB 26 vs
+    SQLITE_BUSY 5), and CANNOT in 931: `duplicate column name` and `no such
+    table` are BOTH SQLITE_ERROR (1). Reusing 928's pattern on the assumption
+    it generalised would have shipped a fix that was wrong on the exact case
+    it existed to catch. Measure per site.
+  * TWO FIXES REPRODUCED THE SHAPE OF THEIR OWN DEFECT, both caught by their
+    own tests, neither by review. 930's first multi-root flat join returned
+    the FIRST matching root -- the first-match-wins guess _resolve_recorded
+    exists to refuse. 928's `cx.close()` in a finally deleted the -wal before
+    it could be quarantined (harmless as it turns out: a clean close
+    CHECKPOINTS the WAL into the db, so data is merged not lost -- but the
+    test's premise was wrong, not the code).
+  * A NEW-FILE CUT HAS NO MEANINGFUL RED PHASE. 932's nine tests all failed
+    because the file did not exist. The mutants were the only real evidence,
+    and one ESCAPED: the deletion test used a branch whose content matched
+    main, so the diff was empty either way.
+
+THE MIRROR RETIREMENT IS HALF DONE, AND STEP 2 IS FULLY SPECIFIED.
+
+Operator confirmed 2026-08-07 that project-knowledge/ is NOT used as an
+uploadable self-contained bundle -- the only reason a second copy of the
+executable toolchain existed. 239 mirrors, ~2.1 MiB, never generated, kept in
+sync by a test. The cost is on record: at v3.66.818
+`project-knowledge/bd-guardcheck` reported "0 ok, 0 drifted, 0 missing" and
+EXITED 0 while the real one reported 7 ok -- a cut had repaired one copy of a
+two-copy tool and the tree reported success. This session paid it again at 929.
+
+Step 2 was written, BANDED, AND REVERTED. The band found the real blast radius:
+the mirror concept is wired into FIVE sites, not one, and one of them is
+bd-band-derive itself. Reverted rather than half-finish a change to the tool
+every future cut uses to compute its band. CI would NOT have caught it -- the
+gates job runs no pytest over these files.
+
+  1. tests/test_versync_gate.py:12,170 -- PK_MIRROR + test_pk_mirror_matches
+     _toolchain_copy, a SECOND sha256 mirror gate, for bd-versync only.
+  2. toolchain/bin/bd-band-derive:164,167,502 -- _PK_MIRROR_GATE,
+     pk_mirror_coupled(), SIGNAL 8. Remove the signal with the gate.
+  3. tests/test_toolchain_534.py::test_band_derive_reaches_the_pk_mirror_gate
+     -- pins that signal; retires with it.
+  4. tests/test_v3_66_918_tracked_source_denominator.py:74 -- `> 300` must
+     become `> 200`; MEASURED 241 after the mirrors go.
+  5. tests/test_capture_execution_lanes.py -- lane manifest names the retired
+     file.
+  Plus: delete the 234 mirrors (all VERIFIED byte-identical to their origin
+  before deletion), add tests/test_pk_mirrors_stay_retired.py, and correct
+  CLAUDE.md section 1 again to 231 / 2365.
+
+ITEM 3 (/home/claude) IS STILL UNDECIDED, and the register's framing is wrong.
+"~227 non-test references" counts FILES. MEASURED at 4f141f6: 977 occurrences
+across 226 files, of which ZERO are in bulk_downloader/ -- no application code
+touches it at all. 60 of 60 toolchain files carrying the string are
+byte-identical mirrors, so those occurrences are the same text counted twice
+and will vanish with step 2. About 53 occurrences are COMMENTS recording the
+removal of these very paths ("@876: was /home/claude/work, a zip-era path
+absent from any git"); rewriting those destroys the explanation that stops
+someone re-adding them. Roughly 20 are live assignment defaults, and
+/home/claude is the LIVE agent home which must not be deleted -- this is a
+substitution question, not a removal one.
+
+RECOMMENDATION, not a decision: centralise the ~20 live defaults through one
+constant in bdtools_sec.py, which already owns require_bundle's default. No
+behaviour change, no env surface, 977 sites become one point of change, and
+the comments and history stay intact. Then "should the bundle root be
+configurable" is a one-line edit whenever it is wanted, instead of a 977-site
+sweep. Re-measure before acting; step 2 moves the numbers.
+
 ### 15.55 | Item 1 -- auto_recover_sqlite quarantined HEALTHY databases (v3.66.928)
 
 15.54's item 1, the register's highest-value entry and the defect that actually
