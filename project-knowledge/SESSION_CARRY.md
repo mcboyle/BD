@@ -4017,6 +4017,72 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.55 | Item 1 -- auto_recover_sqlite quarantined HEALTHY databases (v3.66.928)
+
+15.54's item 1, the register's highest-value entry and the defect that actually
+destroyed the operator's history on 2026-08-07. RE-DERIVED before working it,
+per 15.51's finding that 15 of 23 items were already closed: this one was NOT.
+The pristine code at bb41b5b still caught the parent exception class.
+
+MEASURED, NOT READ. The hierarchy claim was checked by reproducing the loss:
+a 500-row database with `integrity_check = ok`, with one competing EXCLUSIVE
+transaction held on it, was renamed aside and the caller told a fresh schema
+would be created. `sqlite3.OperationalError` is a subclass of
+`sqlite3.DatabaseError`, so `database is locked` and `disk I/O error` -- what
+parallel load produces -- were indistinguishable from `file is not a database`.
+
+THE DISCRIMINATOR IS STRUCTURAL, and it was derived rather than assumed. A
+probe over five failure modes read SQLite's own result codes: SQLITE_NOTADB
+(26) and SQLITE_CORRUPT (11) for genuine damage, SQLITE_BUSY (5) for
+contention. Masked to the low 8 bits so extended codes -- SQLITE_CORRUPT_VTAB
+is 267, not 11 -- are recognised. A message-text fallback covers an
+interpreter that does not populate `sqlite_errorcode`, because WITHOUT one an
+unavailable code makes every verdict UNKNOWN, which passes every contention
+test by turning the tool off. That is section 0's inverse defect and it was
+nearly shipped.
+
+UNKNOWN IS A THIRD STATE AND IT DOES NOT QUARANTINE. A database that could not
+be read is reported WARN naming the reason and left exactly where it is. This
+fails safe: a genuinely corrupt file that survives one startup fails loudly at
+the next, which is strictly better than silently replacing good data.
+
+THE COLLISION WAS ALSO REPRODUCED, not argued. Two quarantines in the same
+wall-clock second: the first file was destroyed and only the second survived,
+with the first's `-wal`/`-shm` left orphaned beside it -- exactly the
+incomplete companion sets 15.49 observed in the operator's listing, so that
+observation now has a demonstrated cause rather than a suspected one. The name
+is now claimed with `O_CREAT|O_EXCL` before the move.
+
+A DEFECT THE FIX INTRODUCED, caught by its own test rather than by reading.
+Adding `cx.close()` in a `finally` -- ordinary hygiene, replacing a leaked
+connection -- made SQLite delete the `-wal`/`-shm` before they could be
+quarantined. Measured what that costs: a clean close CHECKPOINTS the WAL into
+the database, so the data is merged into the file being quarantined rather
+than lost, and SQLite only removes companions whose contents it just merged.
+The code was right; the TEST's premise was not -- a hand-written `-wal` beside
+garbage bytes measures SQLite's lifecycle, not the mover. Split into two
+honest properties: a stubbed-connect test that SQLite never touches, proving
+the mover carries companions under the unique basename; and a realistic test
+that no companion is left orphaned at the old path, which is the actual hazard
+(a stale `-wal` beside the fresh database `db_init()` is about to create).
+
+EVIDENCE. RED proven on pristine source: 6 failing, 7 passing -- and the 7 are
+the point, because a fix that merely stopped quarantining satisfies every
+failing test and destroys the tool. 18 cases green after the fix. `bd-mutate`:
+7 mutants, 7 caught, 0 escaped, including both predicate inversions, the
+extended-code mask, and the O_EXCL removal. Band of 50 files: 559 passed, 0
+failed, 273s -- long enough that the default two-minute command timeout would
+have reaped it, per CLAUDE.md section 5.
+
+STILL OPEN, and deliberately not folded in. 15.50-B: importing app writes
+`app_config.json`, `logs/`, `live_recordings/` and `state/` into the cwd. The
+`-wal`/`-shm` companions still move in a step separate from the database; the
+collision that made that observable is fixed, but the move is not atomic as a
+set, and a crash between the two steps still splits one.
+
+NOT VERIFIED ON THE BOX. Container-green only. `./capture.sh` on test4 is the
+gate and only the operator runs it.
+
 ### 15.54 | Session close 2026-08-07 at 5acd7c7 (v3.66.927) -- SUPERSEDES 15.48's open set
 
 THIRTEEN CUTS, 915-927. The box capture at v3.66.927 is PASS: 14873 total /

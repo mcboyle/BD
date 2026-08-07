@@ -67,7 +67,7 @@ def _dom_analyzer_capture_store_root():
 # v3.66.926 (item 11): the startup self-test is DEFERRED with the rest of the
 # boot, and of the three sites this is the one that mattered most. It opens the
 # database (selftest.check_database) and it can RENAME IT ASIDE
-# (selftest.auto_recover_sqlite, :525) -- so a bare import could quarantine the
+# (selftest.auto_recover_sqlite) -- so a bare import could quarantine the
 # operator's live history. That is exactly what happened on 2026-08-07.
 #
 # It was gated on BD_DISABLE_KEEPALIVE, which is why the first pass of this cut
