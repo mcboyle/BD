@@ -76,19 +76,25 @@ def test_envfile_parse_skips_blanks_and_comments():
 
 
 def test_load_envfile_setdefault_real_env_wins():
+    # @940: these must be DECLARED editor keys. This test used synthetic names
+    # (BD_ENVTEST_NEW / BD_ENVTEST_PRESET) back when load_envfile seeded every
+    # key it found; the seed is now allow-listed to EDITOR_KEY_NAMES, so a
+    # made-up name is skipped and the assertions below would fail for a reason
+    # that has nothing to do with their subject. The subject is setdefault
+    # PRECEDENCE -- real env beats file -- and real keys demonstrate it exactly.
     d = tempfile.mkdtemp()
     envpath = Path(d) / ".env"
-    envpath.write_text("BD_ENVTEST_NEW=fromfile\nBD_ENVTEST_PRESET=fromfile\n")
+    envpath.write_text("BD_HOST=fromfile\nBD_PORT=fromfile\n")
     saved = dict(os.environ)
     try:
-        os.environ.pop("BD_ENVTEST_NEW", None)
-        os.environ["BD_ENVTEST_PRESET"] = "fromenv"   # real env already set
+        os.environ.pop("BD_HOST", None)
+        os.environ["BD_PORT"] = "fromenv"             # real env already set
         os.environ["BD_ENVFILE"] = str(envpath)
         n = EF.load_envfile()
         # unset key gets seeded from the file
-        assert os.environ.get("BD_ENVTEST_NEW") == "fromfile"
+        assert os.environ.get("BD_HOST") == "fromfile"
         # already-set key is NOT overwritten (setdefault semantics)
-        assert os.environ.get("BD_ENVTEST_PRESET") == "fromenv"
+        assert os.environ.get("BD_PORT") == "fromenv"
         assert isinstance(n, int) and n >= 1
     finally:
         os.environ.clear()

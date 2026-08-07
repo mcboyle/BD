@@ -4,6 +4,62 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.940 - the .env loader applied every key it found, not the declared set
+
+app_envfile_editor allow-lists what it will WRITE: "Writable keys are
+allow-listed to _envfile.EDITOR_KEYS - the endpoint can't be used" to write
+anything else. The READER had no such restriction. load_envfile walked every
+KEY=VALUE pair and os.environ-seeded it, whatever the key was.
+
+Measured with a .env at $BD_ENVFILE and a fresh interpreter importing
+bulk_downloader: BD_PORT (an editor key) and six others - PATH, LD_PRELOAD,
+PYTHONPATH, HTTPS_PROXY, BD_SECRETS_FILE and a wholly arbitrary name - all
+applied. LD_PRELOAD and PYTHONPATH change what code the process loads, and
+this runs at import before any other import in the package.
+
+PRECISION ABOUT PATH, because the first draft of the finding overstated it.
+The seed is setdefault, so a variable the service ALREADY has is never
+overwritten - and PATH is essentially always set. The subprocess test therefore
+finds LD_PRELOAD, PYTHONPATH, HTTPS_PROXY and an arbitrary key leaking but NOT
+PATH; the original measurement had popped PATH by hand, which is not the
+ordinary case. The exposure is real for the many variables a service does not
+normally carry; for PATH it needs a unit file with a cleared environment.
+
+WHY THAT FILE IS REACHABLE. _candidate_paths() tries $BD_ENVFILE, then cwd/.env,
+then ~/BulkDownloader/.env. On the deploy host the systemd unit sets
+WorkingDirectory=APP_DIR and the install directory IS ~/BulkDownloader, so the
+last two are the same path - and that path is the GUI env-editor's persistence
+target. No test fixture chdir reaches it, which is why nothing noticed.
+
+- bulk_downloader/_envfile.py: SEEDABLE_KEYS, bound to EDITOR_KEY_NAMES rather
+  than restated. Two lists of the same thing drift and the copy nobody reads is
+  the one that rots; test_v3_66_504_envfile_editor already re-derives that set
+  from source, so the gate inherits the guarantee instead of duplicating it. An
+  undeclared key is now SKIPPED and REPORTED on stderr - silence is the section
+  0 shape even when the silent behaviour is the safe one - and the message only
+  fires when a .env actually carries one, so a healthy install stays quiet.
+  The message goes out through sys.stderr.write rather than print():
+  test_v3_43_78_static_analysis_fixes sweeps every bulk_downloader/*.py for
+  `print(` and forbids it in library code. The band caught that; nothing
+  else in the cut would have.
+- tests/test_v3_66_940_envfile_seeds_only_declared_keys.py: 9 tests, 5 RED.
+  Includes a subprocess probe through the real package import, an
+  over-correction guard that every declared key can still be seeded, and an
+  over-sensitivity guard that a clean file produces no message.
+- tests/test_v3_66_504_envfile_editor.py: the setdefault-precedence test used
+  synthetic key names from the era when the loader accepted anything. Its
+  subject is precedence, not arbitrary-key acceptance, so it now demonstrates
+  the same thing with real declared keys.
+
+A HARNESS BUG CAUGHT WHILE WRITING THIS, and it is the reusable part: the
+subprocess probe first ran WITHOUT env=, so it inherited the runner's
+environment and "failed" by reporting the runner's own PATH as a leak - a
+true-looking red for entirely the wrong reason. That is the trap CLAUDE.md
+section 0 names about subprocess harnesses that copy os.environ. PATH is now
+set explicitly in the child rather than popped, because an interpreter launched
+with no PATH is a different experiment, and the assertion is that PATH is not
+the rogue VALUE rather than that PATH is absent.
+
 ## v3.66.939 - the CI gate lane is sharded, and a shard can silently lose a file
 
 ci.yml's own rule, set 2026-08-03: "81 tests, 52s -- keep it under a minute; if
