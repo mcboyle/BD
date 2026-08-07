@@ -4017,6 +4017,137 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.59 | Tier-1/tier-2 sweep 2026-08-07, close at 7db669c -- four of four "open" items were already closed, and the re-derivation found the real ones
+
+The operator asked for tier 1 and tier 2 of a speed-sorted register list "in
+however many cuts it needs". The headline is that the SORTING was worth more
+than the list: re-deriving before working (CLAUDE.md section 1) closed six
+items without a line of code, and the two cuts that shipped were both found
+DURING that re-derivation rather than being on the list at all.
+
+SHIPPED
+
+| cut | subject | band | mutation |
+| --- | --- | --- | --- |
+| v3.66.937 (a25afe6) | bd-band-derive derived its contract floor in two places | 545 passed | 7 caught / 0 escaped |
+| v3.66.938 (7db669c) | an atomic write leaves a sidecar; .gitignore covered only the destination | 3491 passed / 7 env | 8 caught / 0 escaped |
+
+CLOSED BY MEASUREMENT, NO CODE (six items)
+
+- **5** -- bd-parband attributing a verdict to a suite it never ran. CLOSED.
+  Its docstring states exit 2 for "a suite path that does not exist" and "exit
+  2 never writes the band-results file"; `_py()` makes a null interpreter FATAL
+  rather than a silent fallback. The `.bd_last_band.json` half was already
+  closed by item 6 (`.gitignore:51`) -- and this session RE-PROPOSED that rule
+  from memory before checking, which is the reason item 6 exists.
+- **7** -- bd-band grading a zero-collect helper FAIL, and the derive sweeping
+  helpers into bands. BOTH halves CLOSED at @897: `bd-band` names NOTHING RAN
+  as a distinct state, and `is_suite()` (bd-band-derive:758, applied at :572)
+  filters to the runner's own `test_*.py` predicate. Measured: two `--file`
+  runs returned zero non-`test_*` entries.
+- **26** -- census coverage counting rows it never examined. CLOSED. The tool
+  now computes `uncompared_rows` (:396), reports it (:436-438), and the sweep
+  prints "rows examined : %d of %d" (:485) with a "complete -- every done row
+  was compared" line (:521).
+- **28** -- six extractor completion paths that cannot execute. CLOSED.
+  `runner_extractors.py:33` is a single local `safe_dest(_P(dl_dir) / rendered)`
+  taking a Path; the six bare-str assignments are gone. 15.51 already said this
+  and the register still carried the item.
+- **9** -- `bd-claim` inert from a shell. CLOSED at @872: durable owner keyed
+  off `/proc` start time, a TTL, and `add` REFUSING a derived owner another
+  live claim already holds.
+- **19** -- `git rev-parse HEAD` into the capture sysinfo, plus a selftest
+  stage. CLOSED: `capture.sh` has `emit_commit_identity` (:298, with the
+  walk-up guard) and the `[7b/9] Live selftest battery` (:1080). **The register
+  said "re-confirmed ABSENT against the 883 bundle" -- a reading taken against
+  an OUTPUT ARTIFACT rather than against source.** A bundle is evidence about
+  the capture that produced it, never about the tree now.
+- **10** (tier 1) -- `ai_boot_readiness.json` has no in-flight marker. CLOSED
+  at @874, and the way this session got it wrong is the lesson: a grep for
+  `in_flight|inflight|running|started` found nothing, so it was filed as fast
+  and open. The marker is called **`final`**. `write_status` stamps it,
+  `_persist` makes it required at every call site, and `read_status` returns
+  `unknown/no_finality_marker` for a document without it -- unknown as a third
+  state, exactly as the item asked. **A predicate over the wrong vocabulary is
+  a grep that reports absence over a denominator that never contained the
+  subject.**
+
+That is 4 of 4 tier-2 items closed, plus 3 more. CLAUDE.md section 1 says "~half
+of a stale register's open items are already closed or mis-scoped". Here it was
+all of them.
+
+WHAT THE RE-DERIVATION FOUND INSTEAD
+
+- **@937.** Re-deriving item 7 meant reading bd-band-derive, where `emit_band`
+  unioned FLOOR against a hardcoded sandbox home. `derive()` already unions the
+  same FLOOR against the real `work`, so the floor DID reach every band and the
+  second union was dead. The defect is the duplicate denominator, not the dead
+  literal: had derive()'s union been removed, emit_band's would not have covered
+  it. Its live half is that derive() dropped an absent floor in SILENCE.
+- **@938.** Item C was filed as "gitignore misses `.integrity_last_run.tmp`" --
+  trivial, one line. It is FOUR, and two are credential files:
+  `vapid_keys.json.tmp` (the web-push PRIVATE key) and `secrets.json.tmp` /
+  `secrets_meta.json.tmp` (the vault). All four destinations ignored, all four
+  sidecars not. The existing gitignore gate could not see it because its subject
+  is the RULES; a path with no rule is outside that denominator.
+
+METHOD -- TWO WRONG MEASUREMENTS THIS SESSION, BOTH CAUGHT BEFORE SHIPPING
+
+1. **A probe run from outside its own directory reported the answer expected of
+   it.** `bd-band-derive` does `sys.path.insert(0, dirname(realpath(__file__)))`
+   to import `bdtools_sec`. A "pristine" copy placed in the scratchpad therefore
+   CRASHED, and `2>/dev/null` hid the traceback, so an empty stdout read as "a
+   band without the floor" -- confirming the hypothesis under test. Four
+   separate readings were void, and a CHANGELOG entry stating the false claim
+   was written before the contradiction surfaced. The tell was arithmetic: the
+   copy emitted ZERO suites where the real tool emits 23. **A pristine baseline
+   must run from the path the code resolves against, and never with stderr
+   discarded.**
+2. **A predicate over the wrong part of the syntax.** A first pass asked whether
+   a function's text contained both `FLOOR` and `isfile`, and flagged
+   `selftest()`, which does `ref -= set(FLOOR)` and stats the disk for unrelated
+   reasons. Mentioning the floor is not deriving it. Replaced with a structural
+   AST predicate: a comprehension iterating FLOOR whose `ifs` call a disk probe.
+3. **A cross product is not a denominator.** An early scan for the @938 subject
+   crossed every `.gitignore` rule with every sidecar suffix and returned 330
+   "hits" including `venv.tmp` and `node_modules.tmp`. The real denominator is
+   the paths the CODE WRITES; derived from source it is four, plus one false
+   positive that is now a declared exception rather than a silent inclusion.
+4. **A detector with no detector.** @938's discovery gate could have its verdict
+   severed from its own measurement, and NO test noticed, because the only
+   assertion about it lived inside the test being mutated. Caught by the
+   mutation battery, not by review. Closed with a named helper and a positive
+   control.
+
+ENVIRONMENTAL, CONTAINER-ONLY -- A THIRD ONE
+
+`tests/test_e2e_smoke.py` fails 7/7 here (`_RealE2ESmoke`, playwright
+`wait_for_selector` timeouts). PROVEN pre-existing: the same 7 fail on a
+pristine HEAD with **0 modified paths** in the same directory. Note the method
+trap hit on the way -- the first attempt used `git stash push --keep-index`,
+which for a fully-staged tree leaves the working tree UNCHANGED, so it measured
+the cut against itself and "proved" nothing. **Not verified on the box**; this
+is a container reading only, and it joins the GTK typelib case and the
+`no_backend` live-recording case in CLAUDE.md section 5.
+
+STILL OPEN
+
+- **D** (CI gate lane budget) -- MEASURED and the picture changed. Per-file
+  timings on this container: `test_toolchain_534` **72.5s of 179.8s** (40% of
+  the lane on its own), `test_gui_parity` 30.6s, the other thirteen 76.7s
+  combined. In CI's single-process run (140s total) that scales to roughly 56s
+  and 24s. **So no two-way split can meet the 60s budget** -- the rule's own
+  remedy does not reach its own target while `test_toolchain_534` stays whole,
+  and profiling it shows 59s of its 68s in four subprocess-heavy tests that
+  walk the 240-tool suite, which is not a cheap win and not safe to trim. A
+  three-way matrix in a SEPARATE job (so gitleaks/regen/compileall stay
+  single-run) does fit, at the cost of two extra runners per PR. Split shape vs.
+  raising the number is an operator cost decision and is left to the operator.
+- **A** (`scan_start` over a live cancelled worker), **B** (`_envfile` has no
+  allow-list), **3** / **27** (blocked on a scope call), **11**, **12(c)**,
+  **14**, **31**, **32**, **33** -- unchanged.
+- **17**, **21**, **25** -- still not evaluable from a container.
+
 ### 15.58 | Session close 2026-08-07 at b24e675 (v3.66.936) -- the three box-capture failures, and three defects found underneath them
 
 Closes the three unit failures in the operator's 2026-08-07 capture (48707ad,

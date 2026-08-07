@@ -4,6 +4,104 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.938 - an atomic write leaves a sidecar, and .gitignore covered only the destination
+
+The idiom is everywhere in this tree: write `path.with_suffix(".json.tmp")`,
+then replace it onto `path`. The destination is gitignored. The sidecar is a
+DIFFERENT path, and it was not. The window is narrow - a crash, an OSError, a
+kill between the write and the replace - but what sits in it is the file the
+ignore rule exists to keep out of the index, under a name git does not know
+about. Untracked-and-unignored is exactly the state where one `git add -A`
+commits it.
+
+Measured: all four bases ignored, all four sidecars not.
+
+    .integrity_last_run   -> .integrity_last_run.tmp     db.py
+    vapid_keys.json       -> vapid_keys.json.tmp         push.py:127
+    secrets.json          -> secrets.json.tmp            secrets_store.py:509
+    secrets_meta.json     -> secrets_meta.json.tmp       secrets_store.py:175, :342
+
+The register carried this as "gitignore misses .integrity_last_run.tmp" -
+trivial, one line. It is four, and two of them are the credential files.
+vapid_keys.json holds the web-push PRIVATE key, and
+tests/test_gitignore_rules_actually_match.py already names that file as the one
+whose exposure matters most; it was gated on the destination alone. Both
+credential paths resolve through a bare relative default, so they land in
+whatever directory the service was started from - on the deploy host, the
+checkout.
+
+WHY THE EXISTING GATE COULD NOT SEE IT. Its subject is the RULES: does every
+line in .gitignore match something? A path with no rule at all is outside that
+denominator by construction, so it answered truthfully and uselessly. The new
+gate's subject is the other side - the paths the CODE WRITES. Neither alone is
+the pair.
+
+- .gitignore: four sidecar rules, each beside the destination it protects and
+  each naming the write site, so the next reader does not have to rediscover
+  why the line is there.
+- tests/test_v3_66_938_atomic_write_sidecars_are_ignored.py: 9 tests, 5 RED.
+  Four measured instances plus a discovery scan over every tracked .py. The
+  scan is deliberately over-broad - it associates a suffix with a filename
+  constant at MODULE level rather than by dataflow, which found the four real
+  cases and one false one (push.py declares _DB_REL far from its only .tmp
+  site, so the scan proposed downloader_history.json.tmp, which nothing
+  writes). Rather than ship false precision the imprecision is declared: every
+  candidate must be ignored or listed in _NOT_WRITTEN with the reading that
+  shows why. Three further tests keep that table honest - the scan must still
+  reach all four known instances, no exception may be dead, and no exception
+  may cover an already-ignored path.
+- A mutation escape closed during the cut, and it is the reusable part. The
+  discovery gate's verdict could be severed from its own measurement -
+  replacing the unhandled-filter's condition with a constant made the gate
+  pass unconditionally and NO test noticed, because the only assertion about
+  it lived inside the test being mutated. A detector with no detector. The
+  filter is now a named helper with a positive control: two synthetic
+  candidates whose status is not in doubt, one that must be reported and one
+  that must not. 8 mutants caught, 0 escaped.
+
+## v3.66.937 - bd-band-derive derived its contract floor in two places
+
+derive() unions the contract FLOOR into every band, probed against the tree
+under derivation. That was correct and always worked. emit_band() then unioned
+the SAME floor in again, probed against a hardcoded sandbox home - a directory
+that exists on no machine this repository runs on - so the second union matched
+nothing and was dead code in every environment.
+
+THE FLOOR DID REACH EVERY BAND. Measured on the pristine tool, in place:
+--file bulk_downloader/aiassist.py --emit gave 23 suites with
+tests/test_contracts.py present, and 22 with it absent once derive()'s union
+alone was neutralised. That pair identifies derive() as the supplier and
+emit_band's copy as the spare. An earlier reading of this cut claimed the floor
+never reached a band; it was taken against a copy of the tool outside
+toolchain/bin, where the bdtools_sec import fails, with stderr discarded - so
+an empty stdout read as a band without the floor. The claim was wrong and is
+recorded here because the measurement that produced it looked clean.
+
+So the defect is the duplicate denominator, not the dead literal inside it. Two
+places computing band membership can disagree, and the copy nobody reads is the
+one that rots: had derive()'s union ever been removed, emit_band's would not
+have covered it. This is the argument v3.66.897 made when it put the is_suite
+filter at derive()'s single return rather than in emit_band, because the JSON
+payload publishes band raw while only band_cmd passes through emit_band.
+
+The second half has live consequence. derive()'s existence check dropped an
+absent floor entry in silence. The check is right - naming a suite that is not
+on disk would emit a command that cannot run - but a band quietly narrower than
+the caller was promised is the shape CLAUDE.md section 0 describes, and section
+4 tells every agent to treat this tool's output as their floor.
+
+- toolchain/bin/bd-band-derive: emit_band is now a formatter and derives
+  nothing; the hardcoded root goes with it. derive() keeps the single floor
+  union and announces an omitted entry on stderr, so stdout stays the one
+  bd-band line --emit exists to produce.
+- tests/test_v3_66_937_band_floor_is_not_dropped.py: 9 tests, 4 RED against the
+  previous commit. An AST predicate that counts floor DERIVATIONS structurally
+  (a comprehension over FLOOR filtered by a disk probe) rather than by text -
+  a text predicate flagged selftest(), which mentions FLOOR without deriving
+  it. Both directions of the existence check, an over-sensitivity guard, an
+  over-correction guard, and a regression guard for behaviour that was already
+  correct.
+
 ## v3.66.936 - the "synthetic only" capture golden embedded live state
 
 Last of the three unit failures in the 2026-08-07 box capture (48707ad,
