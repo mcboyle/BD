@@ -110,6 +110,46 @@ Explaining a removal by naming the removed thing recreates it. Assert over
 the discipline §7 already states for secrets, generalised. Note which instrument
 caught each: review caught none of the four.
 
+**A SUBPROCESS HARNESS THAT COPIES `os.environ` CANNOT TEST THE ABSENCE OF A
+FLAG THE BAND SETS.** Measured at v3.66.926, and it is the cheapest instance of
+section 0 yet found. A test existed specifically to check the path where
+`BD_DISABLE_KEEPALIVE` is UNSET -- its docstring said so, in as many words --
+and its helper built the child env with `env = dict(os.environ)`, popping only
+`BD_TEST_MODE`. Every band in this repo runs
+`BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest ...`, and `tests/conftest.py`
+sets the same flag in an autouse fixture, so the child inherited it and the test
+written for the unflagged half exercised the flagged half. It passed. It could
+not have failed. Two real defects shipped behind it and were found by an
+adversarial agent instead.
+
+Generalise it: **a test that varies an environment variable must POP that
+variable, not merely refrain from setting it** -- the parent's value is part of
+the denominator. The same applies to `subprocess` without `env=`, to
+`pytest.MonkeyPatch.setenv` without a matching `delenv`, and to any harness
+that inherits ambient state it is supposed to be controlling.
+
+**TO ASK WHETHER IMPORTING SOMETHING TOUCHES A RESOURCE, MONKEYPATCH THE
+RESOURCE -- DO NOT READ.** Same cut, and the numbers are the argument: reading
+`app.py` found ONE of four module-scope database writers. Wrapping
+`sqlite3.connect` with a stack-trace recorder and importing the module in a
+fresh subprocess found all four, including one ~1700 lines below the obvious
+block and two that only fire when a flag is unset. The instrument fixes the
+denominator here exactly as AST does for imports (section 1): a reader's
+denominator is "the code I thought to look at", which is never the whole module.
+
+```python
+_real = sqlite3.connect
+def traced(*a, **k):
+    if str(a[0]) != ":memory:":
+        hits.append(traceback.extract_stack()[:-1])
+    return _real(*a, **k)
+sqlite3.connect = traced
+import the_module_under_test        # in a SUBPROCESS, with cwd + env controlled
+```
+
+Run it with the gating flag both set and unset. Three of the four sites here
+were invisible in one of those two configurations.
+
 **Reading this section does not inoculate you against it.** The same session
 that wrote the five items above also re-derived an import census with `grep`
 after reading section 1's warning about exactly that, and got it wrong in both
@@ -330,7 +370,27 @@ The failure it models: a regen commit
 swept a concurrent workflow's uncommitted RED battery into itself; the branch
 tip then carried tests whose implementation was not committed and **failed its
 own guard tests** until someone noticed. `git add <explicit paths>`, always,
-and check `git status` first. One agent avoided this correctly by staging a
+and check `git status` first.
+
+**A NEAR-MISS AT v3.66.926 SHOWS WHAT THAT RULE ACTUALLY BUYS.** A review agent
+running a mutation probe appended this to `bulk_downloader/app.py` in the shared
+working tree, and did not remove it:
+
+```python
+# --- MUTANT (latch): boot at module scope unless the flag is set ---
+if not _os.environ.get("BD_DISABLE_KEEPALIVE"):
+    boot_once()
+```
+
+That is a verbatim re-introduction of the defect the cut had just removed. It
+landed between a `git add` and the next `git status`, so `git add -A` would have
+committed it, CI would have passed it (no gate covers it), and the PR would have
+shipped a fix that undoes itself. The explicit-path staging is the only reason
+it did not. **A read-only-sounding "review" agent still has a writable tree** --
+mutation, probing and bisection all edit files. After any agent run, `git diff`
+before you believe your own tree, and sweep for stray files as well as stray
+edits: the same run also left a copied `tests/test_*_probe_*.py`, which
+`tests/`-enumerating axis-6 gates and `build_pin_index.py` would have counted. One agent avoided this correctly by staging a
 blob derived from `git show HEAD:CHANGELOG.md` rather than adding the file.
 
 **`git fetch --prune` does NOT delete the LOCAL branch.** After a squash merge
