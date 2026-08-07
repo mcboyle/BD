@@ -64,80 +64,198 @@ def _dom_analyzer_capture_store_root():
         return _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
 
 
-if not _os.environ.get("BD_DISABLE_KEEPALIVE"):
-    _STARTUP_SELFTEST = _selftest.run_all(
-        sites_config_path=_SITES_CFG_PATH,
-        db_path=_DB_PATH,
-        cookies_dir="cookies",
-        download_dirs=_DOWNLOAD_DIRS_FOR_SELFTEST,
-        captures_root=str(_dom_analyzer_capture_store_root()),
-    )
-    _selftest.log_to_stderr(_STARTUP_SELFTEST)
-else:
-    _STARTUP_SELFTEST = {"ok": True, "checks": [], "summary": {"ok": 0, "warn": 0, "fail": 0}, "elapsed_ms": 0.0}
+# v3.66.926 (item 11): the startup self-test is DEFERRED with the rest of the
+# boot, and of the three sites this is the one that mattered most. It opens the
+# database (selftest.check_database) and it can RENAME IT ASIDE
+# (selftest.auto_recover_sqlite, :525) -- so a bare import could quarantine the
+# operator's live history. That is exactly what happened on 2026-08-07.
+#
+# It was gated on BD_DISABLE_KEEPALIVE, which is why the first pass of this cut
+# missed it: every band in this repo exports that flag, so the test written to
+# check the unflagged path silently inherited it and passed over a denominator
+# that excluded its subject. The SERVICE runs with the flag unset, which is the
+# case that was never covered.
+#
+# _STARTUP_SELFTEST stays a module attribute with an empty default because
+# app_selftest.py:38 reaches it by getattr on the live module; deferring the
+# WORK must not remove the NAME.
+_STARTUP_SELFTEST = {"ok": True, "checks": [],
+                     "summary": {"ok": 0, "warn": 0, "fail": 0},
+                     "elapsed_ms": 0.0}
 
 # ─── FLASK ────────────────────────────────────────────────────────────────────
-db_init()
-# B1 (post-365): run-history substrate tables (job_runs + run_events). Advisory
-# store — init failing is non-fatal (every writer no-ops if the store is absent).
-from . import run_history as _run_history
-_run_history.init()
-# v3.47.8 (#42): one-shot integrity check on boot (rate-limited to 24h
-# via sentinel file). Catches SQLite corruption from power loss or disk
-# errors before the user wonders why a download "completed" but vanished.
-try:
-    _ok, _problems = db_integrity_check()
-    if not _ok:
-        from . import log as _boot_log
-        _boot_log.get_logger(__name__).error(
-            "DB INTEGRITY CHECK FAILED — %d problem(s) reported by SQLite. "
-            "Consider running `bdctl db-vacuum` or restoring from backup. "
-            "First 3 problems: %s",
-            len(_problems), _problems[:3]
-        )
-except Exception as _e:
-    from . import log as _boot_log
-    _boot_log.get_logger(__name__).warning(
-        "db_integrity_check raised: %s — skipping", _e
-    )
+# v3.66.926 (item 11): every DB operation below used to run HERE, at module
+# scope, so merely IMPORTING this module created and migrated a database.
+#
+# WHAT THAT COST. install_service.py's unit sets WorkingDirectory to the app
+# dir and constants.DB_PATH is a bare relative string, so the service's DB and
+# a pytest run started from the deploy directory are THE SAME FILE. pytest
+# imports every collected module in every xdist worker, and `-m` marker
+# filtering happens AFTER collection -- so no lane assignment can prevent it.
+# On 2026-08-07 that raced 64 ways over the operator's live history: ten
+# quarantines in twenty-five minutes and an empty database. SESSION_CARRY 15.49
+# has the full reading.
+#
+# DEFERRED, NOT SUPPRESSED. Gating this on BD_DISABLE_KEEPALIVE would make
+# capture green and leave a latch -- a test that genuinely needed a booted DB
+# would get an unmigrated one, silently, and fail somewhere else entirely. The
+# work is unchanged and still runs; it now runs on first REQUEST rather than on
+# first import, which is the earliest moment it is actually needed.
+#
+# THE LOCK IS LOAD-BEARING. Deferring without it moves the race rather than
+# removing it: several threads' first request would boot concurrently, which is
+# the same concurrent db_init() that quarantined the database.
+import threading as _threading
 
-# v3.48 (#75): weekly FTS5 index optimization. No-op if FTS isn't
-# present or if it ran recently (7-day sentinel rate limit).
-try:
-    from .db import db_fts_optimize as _fts_opt
-    _fts_ran, _fts_msg = _fts_opt()
-    if _fts_ran:
-        from . import log as _boot_log
-        _boot_log.get_logger(__name__).info("FTS optimize: %s", _fts_msg)
-except Exception as _e:
-    pass  # FTS optimize is best-effort
+_BOOT_LOCK = _threading.Lock()
+_BOOTED_PATHS: set = set()
 
-# v3.48 (#127): log queue-recovery summary so the operator can confirm
-# no jobs were silently dropped across the restart.
-try:
-    from .db import db_queue_recovery_summary
-    _recover = db_queue_recovery_summary()
-    from . import log as _boot_log
-    if _recover.get("total", 0) > 0:
-        _boot_log.get_logger(__name__).info(
-            "queue recovery: %d job(s) restored from persistence — %s",
-            _recover["total"], _recover.get("by_status", {})
-        )
-except Exception as _e:
-    pass
 
-# v3.47.8 (#42): fire a deep PRAGMA integrity_check on a background thread
-# once per 24 hours. Boot-time selftest already does PRAGMA quick_check
-# synchronously; this runs the slower, more thorough variant async so the
-# app comes up at full speed even on a multi-GB DB. Result goes to the
-# standard log; corruption is reported at ERROR.
-try:
-    from .db import run_integrity_check as _run_db_integrity
-    _run_db_integrity()  # debounced — does nothing if last run was <24h ago
-except Exception:
-    # Integrity scheduling failures must NOT break startup. The selftest
-    # quick_check already provided minimum coverage.
-    pass
+def boot_once(*, force: bool = False) -> bool:
+    """Run the one-time startup DB work. Returns True iff this call did it.
+
+    Idempotent and thread-safe. Called from the before_request hook below, and
+    explicitly by downloader_ui.py before it serves. Safe to call directly --
+    a caller that needs a booted schema should, rather than importing this
+    module and hoping.
+
+    THE LATCH IS KEYED ON THE RESOLVED DB PATH, not on a bare bool, and that
+    distinction is load-bearing. `db._resolve_db_path()` resolves at CALL time
+    from BD_INSTALL_DIR / a monkeypatched DB_PATH / the cwd, so "have we
+    booted?" is not a property of the process -- it is a property of the
+    database. A bool would answer True for a database this process has never
+    opened: the first caller boots tmpdir A, and a later caller pointed at
+    tmpdir B is told the boot already happened and gets an empty schema,
+    silently. That is precisely the latch this cut exists to avoid, and it
+    showed up in tests/test_library_forward_path_records_an_absolute_path.py,
+    whose clean_workdir fixture gives every test its own tmpdir.
+
+    In production the path never moves, so this behaves exactly like a bool.
+    """
+    from .db import _resolve_db_path
+    try:
+        key = _os.path.abspath(_resolve_db_path())
+    except Exception:
+        key = "<unresolved>"
+    global _STARTUP_SELFTEST
+    with _BOOT_LOCK:
+        if key in _BOOTED_PATHS and not force:
+            return False
+        # force=True DISCARDS the latch before re-running, so a re-boot that
+        # RAISES leaves the database marked un-booted and the next caller
+        # retries. Without this the key survives from the earlier successful
+        # boot, and a half-completed force re-boot would report "booted"
+        # forever -- a latch asserting a state it did not reach. (The normal
+        # path self-heals already: the key is only added after every step
+        # succeeds, so a raise leaves it absent.)
+        _BOOTED_PATHS.discard(key)
+        # v3.43.24: the self-test runs FIRST, before db_init(), so
+        # auto_recover_sqlite() gets a chance to move a corrupt database aside
+        # before db_init() tries to use it. That ordering is the whole reason
+        # it sits above; tests/test_v3_43_24_reliability.py pins it.
+        if not _os.environ.get("BD_DISABLE_KEEPALIVE"):
+            _STARTUP_SELFTEST = _selftest.run_all(
+                sites_config_path=_SITES_CFG_PATH,
+                db_path=_DB_PATH,
+                cookies_dir="cookies",
+                download_dirs=_DOWNLOAD_DIRS_FOR_SELFTEST,
+                captures_root=str(_dom_analyzer_capture_store_root()),
+            )
+            _selftest.log_to_stderr(_STARTUP_SELFTEST)
+        db_init()
+        # B1 (post-365): run-history substrate tables (job_runs + run_events).
+        # Advisory store — init failing is non-fatal (every writer no-ops if
+        # the store is absent).
+        from . import run_history as _run_history
+        _run_history.init()
+        # v3.47.8 (#42): one-shot integrity check on boot (rate-limited to 24h
+        # via sentinel file). Catches SQLite corruption from power loss or disk
+        # errors before the user wonders why a download "completed" but vanished.
+        try:
+            _ok, _problems = db_integrity_check()
+            if not _ok:
+                from . import log as _boot_log
+                _boot_log.get_logger(__name__).error(
+                    "DB INTEGRITY CHECK FAILED — %d problem(s) reported by SQLite. "
+                    "Consider running `bdctl db-vacuum` or restoring from backup. "
+                    "First 3 problems: %s",
+                    len(_problems), _problems[:3]
+                )
+        except Exception as _e:
+            from . import log as _boot_log
+            _boot_log.get_logger(__name__).warning(
+                "db_integrity_check raised: %s — skipping", _e
+            )
+
+        # v3.48 (#75): weekly FTS5 index optimization. No-op if FTS isn't
+        # present or if it ran recently (7-day sentinel rate limit).
+        try:
+            from .db import db_fts_optimize as _fts_opt
+            _fts_ran, _fts_msg = _fts_opt()
+            if _fts_ran:
+                from . import log as _boot_log
+                _boot_log.get_logger(__name__).info("FTS optimize: %s", _fts_msg)
+        except Exception as _e:
+            pass  # FTS optimize is best-effort
+
+        # v3.48 (#127): log queue-recovery summary so the operator can confirm
+        # no jobs were silently dropped across the restart.
+        try:
+            from .db import db_queue_recovery_summary
+            _recover = db_queue_recovery_summary()
+            from . import log as _boot_log
+            if _recover.get("total", 0) > 0:
+                _boot_log.get_logger(__name__).info(
+                    "queue recovery: %d job(s) restored from persistence — %s",
+                    _recover["total"], _recover.get("by_status", {})
+                )
+        except Exception as _e:
+            pass
+
+        # v3.47.8 (#42): fire a deep PRAGMA integrity_check on a background
+        # thread once per 24 hours. Boot-time selftest already does PRAGMA
+        # quick_check synchronously; this runs the slower, more thorough
+        # variant async so the app comes up at full speed even on a multi-GB
+        # DB. Result goes to the standard log; corruption is reported at ERROR.
+        try:
+            from .db import run_integrity_check as _run_db_integrity
+            _run_db_integrity()  # debounced — nothing if last run was <24h ago
+        except Exception:
+            # Integrity scheduling failures must NOT break startup. The
+            # selftest quick_check already provided minimum coverage.
+            pass
+
+        # v3.43.80 Phase 155: apply any pending schema migrations. Idempotent
+        # — each migration tracks its applied version so a repeat run is a
+        # no-op. Fail-open: a broken migration logs but doesn't prevent
+        # startup. Lived at module scope ~1700 lines below until v3.66.926;
+        # it runs last here because it ran last there.
+        try:
+            from . import migrations as _migrations
+            _mig_result = _migrations.apply_pending()
+            if _mig_result.get("applied", 0) > 0:
+                sys.stderr.write(
+                    f"[migrations] applied {_mig_result['applied']} "
+                    f"migration(s) at boot\n")
+            if _mig_result.get("errors", 0) > 0:
+                sys.stderr.write(
+                    f"[migrations] WARNING: {_mig_result['errors']} "
+                    f"migration error(s)\n")
+        except Exception as e:
+            sys.stderr.write(f"migrations init failed: {e}\n")
+
+        _BOOTED_PATHS.add(key)
+        # Background services start LAST, and after the latch is set. Last,
+        # because the scheduler's tasks read tables the migrations above
+        # create. After the latch, because a service thread that immediately
+        # issues a request would otherwise re-enter boot_once, find the key
+        # absent, and queue behind a lock this thread still holds.
+        #
+        # Resolved at CALL time, so being defined ~1800 lines below is fine --
+        # boot_once never runs during module execution, which is the entire
+        # point of this cut.
+        _start_background_services()
+        return True
 
 # Phase 44 (v3.37.0): templates and static files live alongside the package
 # now (extracted from the 5,500-line HTML constant that used to be inline).
@@ -147,6 +265,25 @@ app = Flask(__name__,
             template_folder="templates",
             static_folder="static",
             static_url_path="/static")
+
+
+@app.before_request
+def _bd_boot_before_request():
+    """Boot the DB on the first request rather than at import (item 11).
+
+    Flask 3 removed before_first_request, so this is a plain before_request
+    plus the idempotence check inside boot_once().
+
+    Deliberately UNCONDITIONAL -- no `if not booted` fast path out here. Such a
+    check would have to read the latch outside the lock, which is the
+    check-then-act race this cut exists to remove, and it would re-introduce
+    the process-wide-bool bug boot_once was just fixed for: a fast path keyed
+    on "anything booted" cannot notice that the resolved DB path has changed.
+    The cost of getting it right is a lock acquire and a set lookup per
+    request, which is nanoseconds against millisecond request handling.
+    """
+    boot_once()
+
 
 # v3.47.8 (#26): record boot timestamp for /api/health uptime calc.
 _app_boot_time = time.time()
@@ -1806,27 +1943,45 @@ def _save_app_config():
 _load_app_config()
 
 # v3.43.80 Phase 155: apply any pending schema migrations on boot.
-# Idempotent — each migration tracks its applied version so a repeat
-# run is a no-op. Fail-open: a broken migration logs but doesn't
-# prevent startup.
-try:
-    from . import migrations as _migrations
-    _mig_result = _migrations.apply_pending()
-    if _mig_result.get("applied", 0) > 0:
-        sys.stderr.write(
-            f"[migrations] applied {_mig_result['applied']} "
-            f"migration(s) at boot\n")
-    if _mig_result.get("errors", 0) > 0:
-        sys.stderr.write(
-            f"[migrations] WARNING: {_mig_result['errors']} "
-            f"migration error(s)\n")
-except Exception as e:
-    sys.stderr.write(f"migrations init failed: {e}\n")
+#
+# v3.66.926 (item 11): MOVED into boot_once(). This block was the second
+# module-scope DB writer and the one that actually created the file -- found by
+# tracing sqlite3.connect during a bare import, not by reading, because the
+# first fix moved the obvious block at the top of the file and the import still
+# created a database. `_ensure_history_table` sits under apply_pending, so this
+# line migrated whatever schema the cwd resolved to, in every xdist worker,
+# during collection.
+#
+# It runs LAST inside boot_once(), preserving the order it had here: the block
+# it follows used to sit at module scope ~1700 lines above.
 
 # v3.43.80: start background services. Gated on BD_DISABLE_KEEPALIVE
 # (same gate as the session keeper) so tests don't spawn timer threads
 # that race with their tmpdirs. Pattern matches existing keeper init.
-if not os.environ.get("BD_DISABLE_KEEPALIVE"):
+def _start_background_services():
+    """Start bg_scheduler + the webhook drain worker. Called from boot_once().
+
+    v3.66.926 (item 11): these used to start at MODULE SCOPE, and they are the
+    fourth import-time DB writer -- found by tracing sqlite3.connect with
+    BD_DISABLE_KEEPALIVE UNSET, after three other sites had already been moved.
+    The scheduler's tasks reach the database within milliseconds of starting
+    (measured: vpn_stats.auto_blacklist_check via bg_scheduler.py:473, and
+    federation.expire_old_claims via :483), so a bare `import
+    bulk_downloader.app` spawned threads that wrote to whatever database the
+    cwd resolved to.
+
+    The BD_DISABLE_KEEPALIVE gate stays -- it is what stops tests spawning
+    timer threads that race their tmpdirs -- but it is no longer the ONLY thing
+    standing between an import and the operator's database. Relying on an
+    environment variable for that was the latch this cut exists to remove: the
+    flag is set by capture.sh and by the session env, so the unflagged path was
+    never exercised and the gap survived three rounds of fixing.
+
+    Called at the END of boot_once, after every DB step, so the scheduler never
+    races the migrations it depends on.
+    """
+    if os.environ.get("BD_DISABLE_KEEPALIVE"):
+        return
     # bg_scheduler: drives periodic tasks (saved_searches, bitrot scan,
     # cookie_relogin, alerts_engine, site_weather, discovery,
     # maintenance, scheduled_exports, vpn_stats auto-blacklist,

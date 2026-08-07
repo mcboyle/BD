@@ -12,6 +12,26 @@ import sys
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _bd_boot_app():
+    """v3.66.926 (item 11): the DB boot is no longer an import side effect.
+
+    Tests in this file used to get a migrated schema because `import
+    bulk_downloader.app` did db_init() + migrations.apply_pending() at MODULE
+    scope -- which is exactly what raced 64 ways across xdist workers and
+    destroyed the operator's live history. The work still happens; it is now
+    explicit. Production does the same thing (downloader_ui.py calls
+    boot_once() before serving), so this asks for the real contract rather
+    than re-creating the side effect.
+
+    boot_once() is idempotent and keyed on the RESOLVED DB PATH, so a file
+    whose fixtures give each test its own tmpdir gets a boot per database
+    rather than one for the whole file.
+    """
+    from bulk_downloader.app import boot_once
+    boot_once()
+
+
 
 # v3.66.13: this file used to define its own autouse isolated_bd_home
 # fixture; the canonical one lives in tests/conftest.py. The marker

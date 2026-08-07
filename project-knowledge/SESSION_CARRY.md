@@ -4012,6 +4012,105 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.50 | Item 11 closed in four sites, not one -- and three defects the fix introduced
+
+v3.66.926 (PR #229). `import bulk_downloader.app` now performs ZERO on-disk
+database opens and creates no database, MEASURED with BD_DISABLE_KEEPALIVE both
+set and UNSET. 15.49 has the damage this caused; this is the repair and what it
+cost to get right.
+
+FOUR MODULE-SCOPE DATABASE WRITERS, and how each was found. The count is the
+finding: a reader's denominator is "the code I thought to look at".
+
+  1. db_init() + run_history.init + db_integrity_check + db_fts_optimize +
+     db_queue_recovery_summary + run_integrity_check -- found by READING.
+  2. migrations.apply_pending(), ~1700 lines below (1) -- found by TRACING
+     sqlite3.connect during a bare import. It is the one that actually created
+     the file, since _ensure_history_table sits underneath it. Reading had
+     already "finished" and the import still made a database.
+  3. The startup self-test -- found by an ADVERSARIAL REVIEW AGENT. The most
+     dangerous of the four: it opens the DB and can RENAME IT ASIDE via
+     `selftest.py:525`, so a bare import could quarantine live history. That
+     is exactly the mechanism of 15.49.
+  4. bg_scheduler + the webhook drain worker -- same agent. Their tasks reach
+     the DB within milliseconds (vpn_stats.auto_blacklist_check,
+     federation.expire_old_claims).
+
+Sites 3 and 4 fire only when BD_DISABLE_KEEPALIVE is UNSET -- the SERVICE's own
+configuration. All four now live in boot_once(): idempotent, lock-guarded,
+latched on the RESOLVED DB PATH, called from an app.before_request hook and
+explicitly by downloader_ui.py before it serves.
+
+FOUR DEFECTS THE FIX ITSELF INTRODUCED. Every one is section 0's shape, and
+ZERO were caught by reading the diff:
+
+  * A process-wide `_BOOTED = True` latch. It answers "already booted" for a
+    database this process has never opened -- boot tmpdir A, point DB_PATH at
+    tmpdir B, get an EMPTY SCHEMA silently. Now keyed on the resolved path.
+    Caught by asking what clean_workdir does to the latch BEFORE running.
+  * An autouse boot fixture that fixed 10 tests and BROKE 2 that were passing
+    (test_phase3_migrations_apply_cleanly asserts `applied >= 6`; the fixture
+    had already applied them). Net-zero reads as progress until you read the
+    failure NAMES. Caught by the names changing.
+  * boot_once(force=True) could latch a state it never reached: the key
+    survived from the earlier successful boot, so a raising re-boot reported
+    "booted" forever. force now discards the key first. Caught by an agent.
+  * THE TEST WRITTEN TO CHECK THE UNFLAGGED PATH INHERITED THE FLAG. Its
+    subprocess harness did `env = dict(os.environ)`; every band exports
+    BD_DISABLE_KEEPALIVE=1. It passed over a denominator excluding its subject
+    and let sites 3 and 4 ship. Caught by an agent. Generalised into CLAUDE.md
+    section 0.
+
+A REVIEW AGENT LEFT A MUTANT IN THE SHARED TREE that re-introduced the defect
+verbatim (`if not BD_DISABLE_KEEPALIVE: boot_once()` appended to app.py), plus a
+copied probe test file. It landed between a `git add` and the next
+`git status`. Explicit-path staging is the only reason it did not ship; no gate
+covers it and CI would have passed. Recorded in CLAUDE.md section 2b.
+
+BAND. 498 files: 9 failed / 6872 passed, every failure attributed by
+measurement -- 7 e2e_smoke PRE-EXISTING (the identical 7 fail on main), 2
+parallel artifacts (pass serially), 0 from the change. Ownership of the earlier
+12-test fallout was PROVEN rather than assumed: the same set on pristine main
+(584432e) in the same directory returned 131 passed / 0 failed, and the totals
+reconcile exactly (152 - 131 = 21 = the two files dropped from the baseline).
+
+THREE OPEN ITEMS, named rather than silently dropped:
+
+  A. `auto_recover_sqlite` QUARANTINES HEALTHY DATABASES. The highest-value of
+     the three, and the defect that actually cost the operator their history on
+     2026-08-07. `selftest.py:522` catches `sqlite3.DatabaseError`, and
+     OperationalError -- `disk I/O error`, `database is locked` -- is a
+     SUBCLASS. So transient contention under parallel load reads as confirmed
+     corruption and a healthy DB is renamed aside and replaced with an empty
+     one. Evidence it is real, not theoretical: the recovered file was 3.7 MiB
+     with `integrity=ok` and 114 history rows when it was quarantined. Nine of
+     the ten quarantine events were the system re-corrupting its own empty
+     replacements. The quarantine is ALSO racy -- keyed on `int(time.time())`
+     at one-second resolution while `Path.rename` silently overwrites on POSIX,
+     and the -wal/-shm companions move in a separate non-atomic step (three
+     incomplete sets observed). Collisions leave no trace, so data may already
+     have been lost to them.
+
+  B. Importing app still writes `app_config.json`, `logs/`, `live_recordings/`
+     and `state/` into the cwd, even with the flag set. Out of item 11's scope
+     (that was the DATABASE) and the tests assert over `*.db*` only, so nothing
+     overclaims -- but "importing has no durable side effect" remains FALSE.
+
+  C. The boot hook is registered FIRST, so it precedes auth and CSRF and an
+     unauthenticated request can trigger migrations plus PRAGMA
+     integrity_check, under a lock now taken on every request. Measured hook
+     order: _bd_boot_before_request, _check_token, _check_csrf,
+     _dev_metrics_start. Accepted: downloader_ui.py boots explicitly before
+     app.run(), so in production the first request never boots, and the work
+     happens exactly once.
+
+OPERATOR STATE. The recovered database was restored 2026-08-07: 116 history /
+101 provenance / 1 queue, integrity ok, service answering 200 on /api/health.
+Contiguous filename numbering across the corruption gap (2_43 -> 2_44) is
+independent evidence the merge lost nothing. Originals kept in
+~/db-rescue-20260807T012728Z/. Once #229 is merged AND deployed, running
+capture.sh in ~/BulkDownloader is safe again; until then it is not.
+
 ### 15.49 | The box's history DB was quarantined 10 times in 25 minutes -- item 11, on production data
 
 `history: 0 rows` (15.48's open question) is ANSWERED and it is not bit rot: the

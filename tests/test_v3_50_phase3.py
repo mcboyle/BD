@@ -535,7 +535,8 @@ def test_db_log_done_creates_library_row():
     """v3.50: a 'done' history row with a filename auto-creates a
     library row, and the history↔library back-references are linked
     both directions."""
-    from bulk_downloader import app as a  # boot triggers migrations
+    from bulk_downloader import app as a
+    a.boot_once()  # v3.66.926: the import no longer triggers migrations
     from bulk_downloader.db import db_log, db_conn
     from bulk_downloader import library as lib
     db_log("siteA", "Site A", "https://example.com/v1", "done",
@@ -556,6 +557,7 @@ def test_db_log_failed_does_not_create_library_row():
     """A 'failed' status must NOT create a library row — there's no
     file on disk to track."""
     from bulk_downloader import app as a
+    a.boot_once()  # v3.66.926: the import no longer boots the DB
     from bulk_downloader.db import db_log
     from bulk_downloader import library as lib
     db_log("siteA", "Site A", "https://example.com/v2", "failed",
