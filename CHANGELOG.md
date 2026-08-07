@@ -49,6 +49,29 @@ workers by count, so another -n shuffles which files share a worker. Re-runs at
 other widths are how that gets covered, and anything they refute is a one-line
 addition to SERIAL_EXACT_BASENAMES.
 
+A FOURTH REFUTATION, and the argument for more than one width: 
+test_t14_vpn_probe_egress failed ONLY at -n 32 and passed at -n 64. xdist
+assigns files to workers by count, so halving the workers changed who shares a
+worker and exposed it. One packing would have shipped it.
+
+AND A LOAD LIMIT FOUND WHILE MEASURING, which is item 11 and not a lane
+problem. Repeat all-parallel runs abort during COLLECTION at higher widths:
+
+    bulk_downloader/app.py:80: in <module>
+        db_init()
+    sqlite3.OperationalError: disk I/O error
+
+pytest imports every test module in every worker at collection -- `-m` filters
+AFTER collection, so lanes do not change this -- and app.py boots the database
+at module scope. At -n 32 it holds; at -n 64 it is marginal (one run of 14,856
+tests completed in 4m06s, a later one aborted); at -n 128 it aborts, once
+reporting `database disk image is malformed`. The downstream "Different tests
+were collected between gwX and gwY" errors follow from the failed import
+diverging one worker's collection.
+
+Until the collection-time boot suppression lands, prefer a moderate
+--workers on the box. The lane split here is independent of that limit.
+
 The ratchet rises from >= 700 to >= 1000 parallel files.
 
 ## v3.66.922 - one promoted file depended on another file creating its tables

@@ -469,7 +469,6 @@ test_t10_pipeline_inspectors.py
 test_t11_dedup_partials.py
 test_t12_filename_template.py
 test_t13_vpn_inspectors.py
-test_t14_vpn_probe_egress.py
 test_t15_network_health.py
 test_t16_stealth_audit.py
 test_t17_filesystem_audit.py

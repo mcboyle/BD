@@ -64,6 +64,11 @@ SERIAL_EXACT_BASENAMES = frozenset(
         "test_differential_oracle_frontend.py",
         "test_perf_lab.py",
         "test_u30_runner_replay.py",
+        # v3.66.923 -- refuted by the N/2 packing (-n 32) and by NOTHING ELSE.
+        # The full-width run at -n 64 passed it. That is the entire case for
+        # running more than one width: file-to-worker assignment is by count,
+        # so halving the workers changed who shares a worker and exposed it.
+        "test_t14_vpn_probe_egress.py",
     }
 )
 
