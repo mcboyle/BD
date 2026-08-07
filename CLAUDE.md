@@ -1492,17 +1492,50 @@ system match them, which is the first item below.
   just the optimistic one: `test_v3_43_80_modules` false-FAILS in a container
   without GTK typelibs and passes 49/49 on the box, so a container result can be
   pessimistic about real code and optimistic about the environment at once.
-- **GitHub CI green is not test evidence, and it never was.** Read
-  `.github/workflows/ci.yml` before treating a green check as a result. The
-  `gates` job runs gitleaks, the generated-artifacts sync check, `compileall`,
-  advisory `pyflakes` and the CHANGELOG ASCII check -- **no pytest at all**. The
-  only job that runs tests is `postgres-integration`, whose list is four mod3
-  files. So CI's entire test denominator is four files, and a cut can be green
-  there while its own battery is red. Measured at v3.66.847: both checks passed
-  on a commit carrying **14 deliberately failing tests**. What CI does catch is
-  real and worth having -- a stale generated artifact fails it reliably, which
-  is why `bd-regen-order` must run after the LAST source edit. Just do not read
-  the tick as "the tests pass"; the derived band is that evidence.
+- **GitHub CI green is not YOUR CUT'S test evidence -- but it is no longer "no
+  tests at all", and this bullet said so for 85 releases after it stopped being
+  true.** Read `.github/workflows/ci.yml` before treating a green check as a
+  result; do not read this paragraph instead, which is the mistake it used to
+  cause.
+
+  **What it actually runs, re-measured 2026-08-07 at v3.66.934.** Two jobs.
+  `postgres-integration` runs four mod3 files. `gates` runs gitleaks, the
+  generated-artifacts sync check, `compileall`, advisory `pyflakes`, the
+  CHANGELOG ASCII check **and, since v3.66.849, a pytest lane of 15 repo-wide
+  gate files** -- `test_all_sources_parse`, `test_pin_index_in_sync`,
+  `test_route_index_in_sync`, `test_import_graph_no_new_edges`,
+  `test_source_windows_do_not_shift`, `test_generated_artifacts_are_not_tracked`,
+  `test_settings_center_slice4`, `test_versync_gate`,
+  `test_release_hygiene_gates`, `test_scan_version_pins_fixture`,
+  `test_gui_parity`, `test_pk_mirrors_do_not_drift`, `test_toolchain_534`,
+  `test_v3_66_799_audit_tool_selftests`, `test_v3_66_653_dep_freshness`.
+  **161 tests, 140s in CI / 130s in this container.**
+
+  **The prior text was written at v3.66.847 and was correct then**; @849 added
+  the lane and nothing updated this bullet, so for 85 releases the contract told
+  every agent that a red gates job could not be about their tests. Measured
+  consequence, 2026-08-07: CI failed v3.66.934 on `test_import_graph_no_new_edges`
+  -- a real, correct catch of a missing baseline re-freeze -- while this file
+  said the job ran no pytest. **This bullet is now the worked example of section
+  1's own rule: re-derive from `ci.yml`, do not quote from here.**
+
+  **What is still true, and is the point.** CI's denominator is
+  file-INDEPENDENT: gates whose subject is the tree itself, chosen because CI
+  does not know what your cut changed. It says nothing about the changed
+  module's own suites, so a cut can still be green there while its battery is
+  red -- measured at v3.66.847, both checks passed on a commit carrying **14
+  deliberately failing tests**, and that remains possible for any failure
+  outside the 15. The derived band is that evidence, and the box is still the
+  gate. What CI does catch is real: a stale generated artifact, an unbumped
+  pin, a new import edge, a shifted source window -- exactly what a cut
+  forgets, which is why `bd-regen-order` must run after the LAST source edit.
+
+  **Its own budget is breached and the decision is open.** The step's comment
+  says "Measured 2026-08-03: 81 tests, 52s. Keep it under a minute; if it grows
+  past that, split rather than silently dropping files." It is now 161 tests
+  and 140s -- double the tests, and well past the minute. Recorded in
+  SESSION_CARRY as an open decision (split the job vs. raise the budget)
+  because changing a CI job is a build change and needs the operator.
 
 **The post-deploy checklist, and the step that keeps getting left off it.**
 A v3.66.824 handoff listed four box actions -- deploy + clear `__pycache__`,

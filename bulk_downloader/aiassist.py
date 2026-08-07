@@ -51,6 +51,33 @@ _config = {
     "enabled": False,                   # off by default — opt-in
 }
 
+# v3.66.934: the pristine snapshot, taken here in the module body because this
+# is the last moment at which `_config` is guaranteed to still be the literal
+# above. `bulk_downloader/app.py` calls `_load_app_config()` at MODULE SCOPE,
+# and that ends in `configure(...)` — so by the time any other importer can
+# look, `_config` may already carry an operator's saved settings, and there is
+# no other pristine copy anywhere in the process. Same shape as
+# `app_kernel._APP_CFG_DEFAULTS`, but deliberately private: that one is
+# exported and served at /api/global_config/defaults, this one has no consumer
+# outside the test harnesses and should not grow one.
+_CONFIG_DEFAULTS = dict(_config)
+
+
+def _reset_config_to_defaults() -> None:
+    """Restore `_config` to the module defaults, in place.
+
+    In place rather than by rebinding, so a caller holding a reference to the
+    dict (the tests do) sees the restore.
+
+    ONE implementation, called by BOTH test runners — `tests/conftest.py`
+    under real pytest and `run_tests_core.py` under `bd-band`. Those two
+    already carry divergent hand-copies of the `aiassist_module` fixture, and
+    this repo's recorded failure mode for duplicated logic is that the copy
+    nobody updated is the one the box runs.
+    """
+    _config.clear()
+    _config.update(_CONFIG_DEFAULTS)
+
 # ── Latency / health tracking ────────────────────────────────────────
 _health = {
     "last_check_at": 0,

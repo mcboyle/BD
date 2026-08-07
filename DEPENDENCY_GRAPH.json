@@ -2194,6 +2194,7 @@
     "global_config": {
       "readers": [
         "bulk_downloader/ai_boot_status.py",
+        "bulk_downloader/aiassist.py",
         "bulk_downloader/api_tokens.py",
         "bulk_downloader/app.py",
         "bulk_downloader/app_fed.py",

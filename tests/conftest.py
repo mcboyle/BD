@@ -286,6 +286,66 @@ def fresh_app(clean_workdir, monkeypatch):
         app_mod.runners.clear()
 
 
+# ─── The operator's real AI settings are off limits to the whole suite ───────
+#
+# Caught 2026-08-07 by the box capture at 48707ad (v3.66.932), where
+# test_t7_ai_inspection asserted `get_config()["enabled"] is False` and got
+# True. The operator had turned AI on in the Global Config UI between two
+# captures -- the earlier capture's ollama log carries zero /api/generate
+# calls, the later one carries a real inference. Turning a feature ON broke
+# the test suite, and the test that broke was not the one that changed.
+#
+# The mechanism is entirely outside any test's control:
+#
+#   bulk_downloader/app.py calls _load_app_config() at MODULE SCOPE, and
+#   APP_CFG_FILE = Path("app_config.json") is RELATIVE, so it resolves against
+#   the CURRENT WORKING DIRECTORY. At pytest COLLECTION time that is the
+#   rootdir -- on the box, the operator's install directory. Importing any of
+#   the 52 tracked test modules that import bulk_downloader.app* at module
+#   scope therefore reads the operator's real config and ends in
+#   aiassist.configure(enabled=..., api_key=..., ...).
+#
+# `isolated_bd_home` cannot help: it chdirs per TEST, and the import already
+# happened during COLLECTION. Under xdist every worker collects the whole
+# suite, so every worker inherits the setting before a single test runs.
+#
+# NAME, NOT PLACEMENT. Autouse fixtures declared in one conftest are ordered
+# by SCOPE first, then declared dependency, then ALPHABETICALLY BY FIXTURE
+# NAME -- never by definition order (pytest 8.4.2; the mechanism is
+# `for name in dir(holderobj)` in _pytest/fixtures.py, and dir() sorts). This
+# name sorts before `isolated_bd_home` on purpose, and moving this def has no
+# effect at all. Renaming it does.
+#
+# WHY sys.modules RATHER THAN AN IMPORT. `isolated_bd_home` drops
+# bulk_downloader.* from sys.modules for the 85 files carrying the
+# bd_module_wipe marker. A fixture that imported aiassist in its body would
+# RESURRECT bulk_downloader (and with it _envfile's one-shot .env seed) into a
+# just-wiped sys.modules -- measured at 221 of 230 setups in a 17-file sample.
+# Looking the module up instead means this is a no-op exactly when there is
+# nothing to reset, and the test's own fresh import gets the literal defaults.
+#
+# WHAT IT DOES NOT PROMISE: it restores `_config` before each test. A fixture
+# that re-runs _load_app_config() afterwards -- `fresh_app` does -- runs later
+# and wins; 4 of the 5 tests using fresh_app see model_vision/model_text as ""
+# because _load_app_config reads them off a cleared _app_cfg. `enabled` is
+# correctly False in all five, which is the half this exists for. It does not
+# touch `_health`, `_warmed` or `_FILENAME_META_CACHE`: those persist across
+# tests deliberately and three test files depend on that.
+#
+# NOT OPT-IN, for the same reason the VPN guard below is not: a protection
+# each test opts into has a denominator that excludes every test which forgot,
+# and here the module that forgot is every module that imports the app.
+#
+# The mirror of this lives in run_tests_core.run_test -- `bd-band` does not
+# read this file at all. Both call aiassist._reset_config_to_defaults().
+@pytest.fixture(autouse=True)
+def _aiassist_config_is_never_inherited():
+    mod = sys.modules.get("bulk_downloader.aiassist")
+    if mod is not None:
+        mod._reset_config_to_defaults()
+    yield
+
+
 @pytest.fixture
 def aiassist_module():
     """Import the aiassist module fresh + reset its config state."""
