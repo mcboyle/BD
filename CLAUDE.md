@@ -802,12 +802,29 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   `pytest-xdist` both absent. To ask whether requirements are satisfied, parse
   `requirements.txt` and resolve each name.
 
-  **And name resolution is not version satisfaction.**
-  `tools/check_requirements.py` calls `version(name)` and *discards the result* —
-  specifiers are never compared — yet it is the sole instrument in all three
-  recovery paths (`session-start.sh`, `cloud-setup.sh`, `deploy.sh`). A reverted
-  image can restore correct NAMES at wrong VERSIONS and every gate reports OK.
-  **Open, and nothing here can see it.**
+  **And name resolution is not version satisfaction — FIXED, and this paragraph
+  was stale about it for weeks.** `tools/check_requirements.py` used to call
+  `version(name)` and *discard the result*, so specifiers were never compared,
+  and a reverted image could restore correct NAMES at wrong VERSIONS with every
+  gate reporting OK. It is the sole instrument in all three recovery paths
+  (`session-start.sh`, `cloud-setup.sh`, `deploy.sh`), which is what made that
+  serious.
+
+  It now builds `Requirement(line)` and asserts
+  `req.specifier.contains(have, prereleases=True)`, and it **raises
+  `Unevaluable` when `packaging` is not importable** rather than falling back to
+  a name-only answer — because "resolved a name" and "satisfies the pin" would
+  otherwise be indistinguishable, which is section 0's whole subject.
+  (`prereleases=True` is deliberate: a venv legitimately holding `2.0rc1` for
+  `>=1.9` IS satisfied, and reporting otherwise sends the caller into a
+  reinstall loop that cannot converge.)
+
+  **Kept rather than deleted, because the staleness is the lesson.** This file
+  asserted "Open, and nothing here can see it" while the tool it names had
+  already grown the exact instrument. Section 1 says documents go stale
+  silently and are then read as authority — that applies to THIS document, and
+  the only reason it was caught is that a register re-derivation ran the tool
+  instead of quoting the note. Re-derive before citing, including from here.
 
 - **WHY the container "rolls back": the panel snapshots the filesystem, and the
   setup script runs once per CACHE BUILD -- not per session.** Stated by the

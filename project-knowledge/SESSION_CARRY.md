@@ -3787,7 +3787,12 @@ the box moved +7/+7 with nothing unexplained. A capture of 885/886 was running
 at session close; expect 14720 / 14635 / 85. 887-889 have no box evidence, and
 889 changes a gate the capture exercises, so it wants one.
 
-### 15.36 | The canonical open list, 1-33, at ea524f7
+### 15.36 | The canonical open list, 1-33, at ea524f7 -- STATUS SUPERSEDED by 15.51
+
+The LIST below still stands as the enumeration. Its STATUS column does
+not: a re-derivation at 28cc9de (15.51) measured 23 of these items and
+found FIFTEEN already closed, two mis-scoped and five genuinely open.
+Read 15.51 before acting on any row here.
 
 Ordered by what unblocks what, not by age. Re-derive each from source before
 working it (section 1); several of the anchors above were stale within days.
@@ -4011,6 +4016,135 @@ THE CAVEAT, and it OVERRIDES size. **Hold 15 and 14 back regardless of how
 small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
+
+### 15.51 | Re-derivation of 15.36, 2026-08-07 at 28cc9de -- 15 of 23 measured items were ALREADY CLOSED
+
+SUPERSEDES 15.36's status column. The list itself stands; what follows is each
+item's MEASURED state, and the headline is the same one 15.40 found: the
+register reports work that is already done. 15.40 measured six of eight. This
+pass measured 23 items and found FIFTEEN closed, two mis-scoped, five genuinely
+open and three unevaluable from a container.
+
+EVERY VERDICT BELOW WAS OBTAINED BY RUNNING SOMETHING, never by reading a fix
+comment -- a comment claiming a fix is exactly what satisfies an assertion
+written to test for one.
+
+CLOSED (15)
+
+  2, 19  capture.sh commit identity + selftest stage. `emit_commit_identity()`
+         at capture.sh:298, called :382, redirected into 01_sysinfo.log at
+         :392, and the `[7b/9] Live selftest battery` stage exists. VERIFIED IN
+         THE SHIPPED BUNDLE: the v3.66.926 capture's 01_sysinfo.log carries
+         `commit : 28cc9de...`, branch, toplevel and commit date. Item 2 was
+         filed as BLOCKED ON THE OPERATOR for a GO that was evidently given.
+  5      bd-parband no longer mints a verdict for a suite it never ran. A
+         nonexistent path now exits 2 with "BD-PARBAND UNEVALUABLE -- refusing
+         to dispatch; no verdict minted". The register said "Small, confirmed
+         open".
+  7      Zero-collect classification. Subject chosen by AST over the 1250
+         tracked tests/*.py, not by grep.
+  8      Batch B as ONE parametrized invariant --
+         tests/test_v3_66_912_wired_gates_refuse_on_empty.py, 11 passed
+         (1 registry floor + 5 NEG + 5 POS), covering all five wired gates.
+  9      bd-claim is NOT inert from a shell: `bd-claim add` exited 0 and a
+         SEPARATE process saw the claim (`pid-512`). Released cleanly after.
+  10     ai_boot_readiness in-flight marker EXISTS. `_persist(..., final: bool)`
+         is keyword-only with NO default, and its docstring states the reason:
+         "a silent True on an in-flight write is precisely the defect this
+         closes."
+  13     bd-state has FOUR callers, not one: build_release.py,
+         build_pin_index.py, build_session_pack.py, verify_release.py.
+  16     7a retirement. Tracked executable extensionless project-knowledge
+         python files went 3 -> 1 (`bd-ready`), and all three *_stays_retired
+         gates pass (11 passed).
+  18     Venv specifier drift. check_requirements.py now builds
+         `Requirement(line)`, compares `req.specifier.contains(have,
+         prereleases=True)`, and RAISES Unevaluable when packaging is not
+         importable rather than answering name-only.
+         **CLAUDE.md section 5 IS STALE ON THIS** -- it still says specifiers
+         are never compared and calls the item "Open, and nothing here can see
+         it". Corrected in the same cut as this section.
+  20     Import-graph gate is NOT blind to tests/: it walks `root / "tests"` at
+         import_graph_gate.py:124, and 997 of the 1494 baseline edges have a
+         tests/ source.
+  23     The 885/886 capture gap is superseded -- v3.66.913 and v3.66.926 are
+         both captured. The item's durable half, the delta reconciliation,
+         PASSES on the newest pair: all three captures are internally
+         consistent (passed+failed+skipped == total), and 913 -> 926 moves
+         total +41 / passed +42, which reconciles exactly as 41 new tests all
+         passing PLUS the one previously-FAILED test now passing.
+  26     Census coverage. RUN against a seeded fixture (5 configured + 1
+         unconfigured done row, no files on disk), the tool now prints
+         "rows attributed but NEVER COMPARED : 5", "rows whose site_id is not
+         in sites_config : 1", and "SWEEP EXAMINED NOTHING -- 0 of 6 rows
+         resolved ... This is UNKNOWN, not clean". It also REFUSES to connect
+         to an absent DB, "because connecting would create an empty one and
+         this census would then report a clean library it never looked at".
+  28     Six extractor completion paths. A helper `_dest_in_dir()`
+         (runner_extractors.py:29-34) does `safe_dest(_P(dl_dir) / rendered)`
+         and returns (path, basename); call sites use it (:1015). The leftover
+         `from .detect import safe_dest` imports are DEAD, not evidence -- the
+         grep that finds them is not the measurement.
+  12     THREE OF FOUR sub-subjects closed: audit()'s two caps (@915),
+         regen_nfos_from_history (@916), bitrot.verify_one (@925), each with a
+         test. The producer-divergence subject was re-scoped by 15.47 (19
+         producers across 4 tables, not 8 across 3) and 12(c)'s
+         silent-saturation half remains open by decision.
+
+STILL OPEN (5)
+
+  11     Repo-root database writer. v3.66.926 removed every MODULE-SCOPE writer,
+         so a bare import creates nothing (measured: 0 on-disk opens with the
+         flag set AND unset, and still 0 after a 45s wait for scheduler
+         timers). But test EXECUTION still lands `downloader_history.db` at the
+         repo root -- measured by running a two-file band on a clean tree. That
+         is the same mechanism that put 2 test rows into the operator's
+         production history during the v3.66.926 capture (116 -> 118 history,
+         101 -> 103 provenance). The item's specific `.db-wal` wording is
+         narrower than what is actually happening.
+  14     Phase B manual-takeover early-return STANDS. runner_auth.py:379
+         start_manual_login still returns `(False, "An auto-login is already
+         running")` when the login thread is alive, so the advertised takeover
+         cannot open.
+  27     qB/JD library rows unchanged: qb_bridge and jd_bridge still record
+         `"filename": <name>` -- a bare NAME -- and neither records a library
+         row (zero library_record call sites in either). Still a PRODUCT
+         decision, so it needs an operator call rather than a fix.
+  30     No `.githooks/pre-push` exists -- `.githooks/` contains pre-commit
+         only. The repo-local mitigation for the launcher hook's advice is
+         unbuilt.
+  3      /home/claude residue, and IT IS MIS-SCOPED BY ROUGHLY 19x. The item
+         says a blanket sweep "turns red a test that positively pins the
+         string" -- singular. Measured: 246 tracked files reference the path
+         and NINETEEN tracked test files pin it. Separately, /home/claude is
+         the LIVE agent home in a cloud container (140 entries incl. .ssh,
+         .gitconfig, .claude/skills), not sweepable residue -- so the subject
+         is repo REFERENCES, not the directory. Still blocked on the operator's
+         scope call, but the call is bigger than the item implies.
+
+CANNOT EVALUATE FROM A CONTAINER (3)
+
+  17     Does a container restart fire SessionStart? bd-restart-check returned
+         OK exit 0, `source=resume`. The item needs an exit 1 mid-session and
+         this session cannot manufacture one.
+  21     The pre-force line b4f0c80 lives only in the box's object store.
+  25     ~/bd-orphans-2026-08-01.bundle is box-local; absent here.
+
+NOT RE-DERIVED (operator-bound or program-scale): 1 (name the twelve retired
+tools -- unrecoverable from the tree), 29 (archive sequence), 31 (TASK_TRACKER,
+11 rows), 32 (CODEX_HANDOFF, 23 groups). 33 (prose-only pool) is a ratchet, not
+a target; toolchain/bin currently holds exactly 240 bd-* tools, matching the
+population the item cites.
+
+METHOD NOTE, because it is the reusable part. Eleven review agents were
+launched for this and were SLOWER than measuring inline: this container has 4
+cores, so the workflow concurrency cap is min(16, nproc-2) = 2, and most of
+these items are greps or a single tool invocation. The agents completed 3 items
+in the time inline measurement completed 12. Agents earn their cost on items
+needing real investigation (14, 11), not on "does this file contain X". ALSO:
+a re-derivation agent left a MUTANT in bulk_downloader/app.py -- the second such
+residue this session -- re-introducing item 11's defect verbatim. The stop hook
+caught it; committing would have shipped it. See CLAUDE.md section 2b.
 
 ### 15.50 | Item 11 closed in four sites, not one -- and three defects the fix introduced
 
