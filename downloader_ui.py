@@ -214,13 +214,23 @@ if __name__ == "__main__":
     # Import AFTER logging is configured so the import-time stderr writes
     # (watcher thread start, restored sites count, etc.) get teed.
     from bulk_downloader.app import app, boot_once
-    # v3.66.926 (item 11): this used to be a bare db_init(). The startup DB
-    # work no longer runs at import, so the SERVICE must ask for it explicitly
-    # rather than wait for the first request -- bg_scheduler starts at import
-    # and its periodic tasks touch the DB on timers, so a request-triggered
-    # boot would leave a window where a scheduled task meets an unmigrated
-    # schema. boot_once() is a superset of db_init() and is idempotent, so the
-    # before_request hook downstream is a no-op after this.
+    # v3.66.926 (item 11): this used to be a bare db_init(). The startup work
+    # no longer runs at import, so the SERVICE asks for it explicitly instead
+    # of waiting for a first request to trigger it.
+    #
+    # boot_once() is a superset of db_init() -- self-test, db_init,
+    # migrations, integrity checks, THEN bg_scheduler and the webhook drain
+    # worker -- and it is idempotent, so the before_request hook is a no-op
+    # after this. Calling it here rather than leaning on that hook is what
+    # keeps the background services running under systemd even if no request
+    # ever arrives, and it means the scheduler's first tick happens after the
+    # migrations it depends on rather than racing them.
+    #
+    # (An earlier draft of this comment justified the call by saying
+    # bg_scheduler starts at import. That was true of the tree it was written
+    # against and stopped being true two commits later, when the scheduler
+    # moved inside boot_once. Corrected rather than deleted, because the
+    # reasoning is the reason the call is here.)
     boot_once()
     # v3.43.16: respect BD_HOST and BD_PORT env vars so deployments can
     # restrict the bind interface (e.g. 127.0.0.1 for ssh-tunnel-only)

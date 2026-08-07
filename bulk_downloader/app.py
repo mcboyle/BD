@@ -141,6 +141,14 @@ def boot_once(*, force: bool = False) -> bool:
     with _BOOT_LOCK:
         if key in _BOOTED_PATHS and not force:
             return False
+        # force=True DISCARDS the latch before re-running, so a re-boot that
+        # RAISES leaves the database marked un-booted and the next caller
+        # retries. Without this the key survives from the earlier successful
+        # boot, and a half-completed force re-boot would report "booted"
+        # forever -- a latch asserting a state it did not reach. (The normal
+        # path self-heals already: the key is only added after every step
+        # succeeds, so a raise leaves it absent.)
+        _BOOTED_PATHS.discard(key)
         # v3.43.24: the self-test runs FIRST, before db_init(), so
         # auto_recover_sqlite() gets a chance to move a corrupt database aside
         # before db_init() tries to use it. That ordering is the whole reason
