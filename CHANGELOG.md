@@ -4,6 +4,62 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.936 - the "synthetic only" capture golden embedded live state
+
+Last of the three unit failures in the 2026-08-07 box capture (48707ad,
+v3.66.932). test_golden_matches_current_readers failed with exactly:
+
+    -      "arm_fail_streak": 0,
+    +      "arm_fail_streak": 3,
+
+tools/capture_model_golden.py fabricates a capture in-process and pins the three
+readers' derived output; its docstring says "Synthetic only; browser-free". But
+_proj_workflow kept two blocks verbatim, and EIGHT of the projection's 192
+leaves are not a function of the fixture:
+
+  capture_health.arm_fail_streak      dom_recorder._ARM_FAIL_STREAK    process
+  capture_health.dom_events_dropped   dom_recorder._DOM_DROPPED_TOTAL  process
+  capture_health.rrweb_present        a vendored file's existence      filesystem
+  redaction_profile.emails                   BD_REDACT_EMAILS          environment
+  redaction_profile.network_signed_urls      BD_REDACT_NETWORK_URLS    environment
+  redaction_profile.dom_embedded_urls        BD_REDACT_DOM_URLS        environment
+  redaction_profile.custom_sensitive_headers BD_REDACT_EXTRA_HEADERS   environment
+  redaction_profile.reduced_redaction        second-order on the three above
+
+tests/test_v3_66_165_dom_drain.py ends with three failing arm probes and no
+teardown, leaving the streak at 3, so whether the gate fires is a property of
+which files `--dist loadfile` puts on a worker -- not of the code under test.
+
+THE HALF THE CAPTURE DID NOT SHOW IS WIDER. bulk_downloader/__init__ calls
+_envfile.load_envfile() at IMPORT, applying every KEY=VALUE from $BD_ENVFILE,
+else cwd/.env, else $HOME/BulkDownloader/.env into os.environ with no
+allow-list. BD_REDACT_* passes straight through, and on the box that last path
+IS the install directory and IS the GUI env-editor's persistence target.
+isolated_bd_home's chdir closes the cwd candidate and cannot close the HOME one.
+Measured with cwd deliberately elsewhere:
+
+    control (clean):                            OK
+    env BD_REDACT_EMAILS=keep:                  DRIFT (emails, reduced_redaction)
+    $HOME/BulkDownloader/.env, cwd elsewhere:   DRIFT (the same two)
+
+FIXED WITH ALLOW-LISTS IN _proj_workflow, not by dropping the blocks: six
+capture_health keys are genuine derived behaviour, and a mutation probe of
+_capture_health's derivation logic showed 4 of 5 mutants caught by this golden.
+Dropping the block would pass every ambient-state assertion and retire a working
+gate.
+
+AND NOT AT THE SOURCE. wacz_export._capture_health is RIGHT to persist the
+counters into capture.json -- test_v3_66_171_redaction_profile.py asserts they
+are present in a real WACZ, and that still passes 10/10 with the product output
+unchanged. dom_recorder.py, tools/capture_session.py and tools/build_release.py
+are all SHA-pinned guard files; build_release.py is also the caller that runs
+this gate as a subprocess with cwd=root and inherited env, where both ambient
+channels are live, so sanitising at the call site was not available either.
+
+RECORDED: the `.env` seed reaches os.environ with no allow-list at all, so any
+BD_* key an operator writes there is applied process-wide at import. That is a
+wider surface than this cut touches and belongs to whoever owns _envfile.
+
 ## v3.66.935 - a scan wait that gave up was indistinguishable from one that finished
 
 Second of the three unit failures in the 2026-08-07 box capture (48707ad,

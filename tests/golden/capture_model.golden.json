@@ -279,29 +279,19 @@
   },
   "workflow_diagnostic.load_capture": {
     "capture_health": {
-      "arm_fail_streak": 0,
-      "dom_events_dropped": 0,
       "dom_full_snapshots": 1,
       "dom_integrity_ok": null,
       "dom_log_count": null,
       "dom_log_len": 2,
       "network_error_count": 0,
-      "network_log_len": 3,
-      "rrweb_present": true
+      "network_log_len": 3
     },
     "captured_at": "2020-01-01T00:00:00Z",
     "dom_log_len": 2,
     "host": "demo.example",
     "network_log_len": 3,
     "redaction_profile": {
-      "custom_sensitive_headers": [
-        "instance"
-      ],
-      "dom_embedded_urls": "keep_structure",
-      "emails": "redact",
       "forced_floor_scrub": 0,
-      "network_signed_urls": "keep_structure",
-      "reduced_redaction": false,
       "schema": "v3.66.171"
     },
     "title": "t",
