@@ -178,73 +178,6 @@ jobs:
       # says nothing about the changed module's own suites; derive and run those
       # locally. And the box remains the gate (§7) -- these lanes pass in a
       # container that differs from test4 in both directions.
-      #
-      # BUDGET, AND IT IS CURRENTLY BREACHED. The rule set 2026-08-03 was
-      # "81 tests, 52s -- keep it under a minute; if it grows past that, split
-      # rather than silently dropping files, because a truncated list here reads
-      # as coverage it does not have."
-      #
-      # RE-MEASURED 2026-08-07 at v3.66.934: 161 tests, 140s in CI (130s in a
-      # cloud container). Double the tests, more than double the budget. The
-      # rule's own remedy is to SPLIT, not to raise the number here -- raising
-      # it silently is how a budget stops being one. Left as an operator
-      # decision (split vs. raise) and recorded in
-      # project-knowledge/SESSION_CARRY.md rather than decided here, because
-      # changing the shape of a CI job is a build change.
-      #
-      # Do not "fix" this by trimming the file list. Every entry is a gate that
-      # was RED somewhere nothing else could see; see the @850 note below.
-      - name: Repo-wide gates must pass
-        run: |
-          python -m pytest -q -p no:randomly \
-            tests/test_all_sources_parse.py \
-            tests/test_pin_index_in_sync.py \
-            tests/test_route_index_in_sync.py \
-            tests/test_import_graph_no_new_edges.py \
-            tests/test_source_windows_do_not_shift.py \
-            tests/test_generated_artifacts_are_not_tracked.py \
-            tests/test_settings_center_slice4.py \
-            tests/test_versync_gate.py \
-            tests/test_release_hygiene_gates.py \
-            tests/test_scan_version_pins_fixture.py \
-            tests/test_gui_parity.py \
-            tests/test_pk_mirrors_do_not_drift.py \
-            tests/test_toolchain_534.py \
-            tests/test_v3_66_799_audit_tool_selftests.py \
-            tests/test_v3_66_653_dep_freshness.py
-          # @850: the last two are new here, and both were added because they
-          # were RED somewhere nothing could see.
-          #   test_pk_mirrors_do_not_drift -- three project-knowledge mirrors
-          #     (bd-band, bd-band-derive, bd-bandcheck) drifted from their
-          #     toolchain/bin originals across v3.66.847-849 and sat red on main
-          #     the whole time, because no band derived from a changed module
-          #     reaches a gate that enumerates the tree.
-          #   test_toolchain_534 -- carries the four tool selftests, the
-          #     prose-only ratchet, and bd-freshcheck --repo-only.
-          # DEPENDS ON `fetch-depth: 0` ABOVE, and the REASON changed at
-          # v3.66.884. bd-freshcheck asserts the register's close-tip commit is
-          # an ancestor of HEAD. Under a depth-1 checkout that commit is absent
-          # and `merge-base --is-ancestor` exits 128 ("I cannot see it"), which
-          # is a different thing from 1 ("not in this history").
-          #
-          # This comment used to say the check then returned UNKNOWN (exit 2),
-          # failing environmentally rather than really. That was never true.
-          # MEASURED in a depth-1 clone: it returned STALE (exit 1) -- fail-
-          # WRONG, not fail-safe, and a confident false accusation against an
-          # innocent register section. v3.66.884 repaired that: a nonzero on a
-          # shallow clone now deepens and re-asks, so with the remote reachable
-          # it returns OK. Both the old sentence and its replacement matter here
-          # because this comment is the stated reason the depth is load-bearing,
-          # and it invites a future editor to revisit it.
-          #
-          # So the reason to keep full history is no longer "avoid a wrong
-          # answer". It is that a depth-1 checkout would make this step reach
-          # the network and DEEPEN the checkout in order to answer at all, and
-          # whether that fetch can reach the remote from inside Actions is
-          # UNMEASURED -- the OK above was measured in a cloud container, not in
-          # CI. The depth is currently set for gitleaks; if that ever changes,
-          # keep it for this step and RE-MEASURE rather than reasoning from
-          # here. Runtime measured at 15s locally.
 
       # Staleness is not caught by any test above: a doc can cite a file that no
       # longer exists, or a register can name a commit this branch never had,
@@ -254,3 +187,140 @@ jobs:
       # not exist in CI, and gating on that would be UNKNOWN forever.
       - name: Docs and register must not be stale
         run: python toolchain/bin/bd-freshcheck --repo-only
+
+  # ── The job that makes a green tick mean something ──────────────────────────
+  #
+  # Until v3.66.849 CI ran NO pytest outside postgres-integration's four files,
+  # so a green tick meant "no secrets, artifacts in sync, everything parses,
+  # CHANGELOG ASCII" -- nothing about whether the cut's own tests passed.
+  # MEASURED at v3.66.847: both checks went green on a commit carrying 14
+  # deliberately failing tests. A gate reporting OK over a denominator that
+  # structurally excludes its subject (CLAUDE.md section 0), and it was the CI
+  # job itself.
+  #
+  # WHY THIS SUBSET AND NOT A DERIVED BAND. A band is derived from what a cut
+  # CHANGED (CLAUDE.md section 4, bd-band-derive), and getting that right needs
+  # the cut's subject. CI does not have it. What CI can run soundly is the
+  # file-INDEPENDENT half: the repo-wide gates whose subject is the tree itself,
+  # which are exactly the ones a cut forgets -- a skipped regen, an unbumped
+  # pin, a new import edge, a source window that shifted.
+  #
+  # THIS IS NOT THE BAND AND DOES NOT REPLACE IT. A green run still says nothing
+  # about the changed module's own suites; derive and run those locally. The box
+  # remains the gate (section 7).
+  #
+  # WHY IT IS SHARDED, v3.66.939. The rule set 2026-08-03 was "81 tests, 52s --
+  # keep it under a minute; if it grows past that, SPLIT rather than silently
+  # dropping files, because a truncated list here reads as coverage it does not
+  # have." Re-measured 2026-08-07 at v3.66.938: 161 tests, 140s. The rule's own
+  # remedy is split, and the operator chose it.
+  #
+  # THE BOUNDARIES ARE DRAWN FROM MEASURED TIME, NOT COUNT, because the lane is
+  # nowhere near evenly distributed. Per-file, in a 4-core cloud container:
+  #
+  #     test_toolchain_534               72.5s    <- 40% of the lane alone
+  #     test_gui_parity                  30.6s
+  #     test_import_graph_no_new_edges   16.6s
+  #     test_v3_66_653_dep_freshness     11.2s
+  #     test_route_index_in_sync         10.8s
+  #     the remaining ten, combined      38.1s
+  #
+  # toolchain_534 therefore gets a shard to itself: no two-way split could put
+  # every lane under the budget while that file stays whole, and 59s of its 68s
+  # is four subprocess-heavy tests walking the 240-tool suite -- not a cheap
+  # win, and not safe to trim.
+  #
+  # A SEPARATE JOB rather than a matrix over `gates`, deliberately: gitleaks,
+  # the artifact-sync regen, compileall and the CHANGELOG checks must run ONCE.
+  # Sharding those would triple their cost and, for gitleaks, triple an API
+  # call for no coverage at all.
+  #
+  # THE SHARD LISTS ARE GATED. tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py
+  # asserts the union is exactly the declared set, that nothing is listed twice,
+  # and that every path exists and is tracked. Sharding adds exactly one new
+  # failure mode -- a file that falls out of every shard still leaves a GREEN
+  # tick -- and that test is the only thing that would notice.
+  #
+  # Do not "fix" a slow shard by trimming its list. Every entry is a gate that
+  # was RED somewhere nothing else could see; see the @850 note below.
+  gate-suites:
+    runs-on: ubuntu-latest
+    strategy:
+      # One shard's failure must not cancel the others: a cut usually wants to
+      # see every gate that is red, not the first one.
+      fail-fast: false
+      matrix:
+        include:
+          - name: toolchain
+            suites: >-
+              tests/test_toolchain_534.py
+          - name: parity-graph
+            suites: >-
+              tests/test_gui_parity.py
+              tests/test_import_graph_no_new_edges.py
+              tests/test_v3_66_653_dep_freshness.py
+              tests/test_route_index_in_sync.py
+          - name: artifacts-pins
+            suites: >-
+              tests/test_generated_artifacts_are_not_tracked.py
+              tests/test_source_windows_do_not_shift.py
+              tests/test_pk_mirrors_do_not_drift.py
+              tests/test_pin_index_in_sync.py
+              tests/test_all_sources_parse.py
+              tests/test_versync_gate.py
+              tests/test_settings_center_slice4.py
+              tests/test_v3_66_799_audit_tool_selftests.py
+              tests/test_release_hygiene_gates.py
+              tests/test_scan_version_pins_fixture.py
+    name: gate-suites (${{ matrix.name }})
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # LOAD-BEARING for the toolchain shard, and the reason changed at
+          # v3.66.884. test_toolchain_534 runs bd-freshcheck, which asserts the
+          # register's close-tip commit is an ancestor of HEAD. Under a depth-1
+          # checkout that commit is absent and `merge-base --is-ancestor` exits
+          # 128 ("I cannot see it"), which is a different thing from 1 ("not in
+          # this history").
+          #
+          # An older comment said the check then returned UNKNOWN (exit 2),
+          # failing environmentally rather than really. That was never true.
+          # MEASURED in a depth-1 clone: it returned STALE (exit 1) -- fail-
+          # WRONG, a confident false accusation against an innocent register
+          # section. v3.66.884 repaired it: a nonzero on a shallow clone now
+          # deepens and re-asks, so with the remote reachable it returns OK.
+          #
+          # So the reason to keep full history is no longer "avoid a wrong
+          # answer". It is that a depth-1 checkout would make the step reach the
+          # NETWORK and DEEPEN the checkout in order to answer at all, and
+          # whether that fetch can reach the remote from inside Actions is
+          # UNMEASURED -- the OK above was measured in a cloud container, not in
+          # CI. Kept on every shard rather than only the toolchain one, because
+          # a future re-shuffle of the lists must not silently downgrade it.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        # BOTH manifests. requirements-test.txt carries the test-only chain
+        # (PyYAML among them, which the shard-coverage gate imports), and
+        # omitting it would present as a SKIP rather than a failure -- a gate
+        # that cannot see its subject reporting OK.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-test.txt
+
+      - name: ${{ matrix.name }} gates
+        run: python -m pytest -q -p no:randomly ${{ matrix.suites }}
+        # @850: two of these were added because they were RED somewhere nothing
+        # could see.
+        #   test_pk_mirrors_do_not_drift -- three project-knowledge mirrors
+        #     (bd-band, bd-band-derive, bd-bandcheck) drifted from their
+        #     toolchain/bin originals across v3.66.847-849 and sat red on main
+        #     the whole time, because no band derived from a changed module
+        #     reaches a gate that enumerates the tree.
+        #   test_toolchain_534 -- carries the four tool selftests, the
+        #     prose-only ratchet, and bd-freshcheck --repo-only.

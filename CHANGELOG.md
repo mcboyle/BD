@@ -4,6 +4,191 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.941 - a cancelled scan's worker wrote its counters into the NEXT scan
+
+Three facts, individually reasonable:
+
+1. scan_cancel() sets cancelled=True and returns. Nothing stops the thread; it
+   breaks at the next file or root boundary, which on a large tree is a long
+   way off.
+2. scan_start() refuses only while `finished_at is None and not cancelled`.
+   After a cancel the second clause is False, so a NEW scan is ACCEPTED while
+   the old worker is still alive.
+3. _scan_worker's _mut, _bump and _record_error all resolved the MODULE GLOBAL
+   _scan_state at call time - thirteen references, none bound to the state the
+   worker was started for.
+
+So the old worker's seen/added/updated/errors, and finally its finished_at,
+landed in the NEW ScanState. Measured at v3.66.935 after a cancel: running read
+False while seen climbed 70 -> 190 and on to 4000, finished_at still None. To
+an operator the second scan reports counts it did not produce, and is then
+marked finished by the first worker while it is still walking.
+
+Both routes are live: app_library.py:244 (scan_start) and :278 (scan_cancel).
+NO test in the suite calls scan_cancel - an AST census finds zero call sites -
+which is why green bands never touched this interleaving.
+tests/scan_wait.py:start_and_wait refuses to start on top of an unfinished
+worker, and was written at v3.66.935 precisely because the product would not,
+so the harness was safe while the product was not.
+
+BOTH HALVES, and the second is the one that matters:
+
+- _scan_worker now takes the ScanState it is walking for; all thirteen global
+  references are gone. `state` IS the object scan_start publishes as the
+  global, so scan_cancel still reaches the running thread - what changes is
+  that a LATER scan's state can no longer be the target.
+- scan_start refuses while the previous worker thread is alive. A liveness
+  check alone races the thread's actual exit; binding alone would still let two
+  workers hammer the same rows. Neither replaces the other.
+
+- tests/test_v3_66_941_scan_start_refuses_a_live_worker.py: 6 tests, 4 RED.
+  Structural assertions that the worker resolves no global and that scan_start
+  actually passes the state, behavioural ones over a real 4000-file tree (not a
+  stubbed os.walk - a stub would let the test pass against an implementation
+  that never races), an over-correction guard that ordinary sequential scans
+  still work, and a guard that binding did not sever the cancel path.
+
+TWO HARNESS DEFECTS FOUND WHILE WRITING IT, both the kind that produce a
+confident wrong reading. The AST check on the thread's args= counted COMMAS,
+and pristine source is `args=(roots,)` - whose trailing comma made the check
+pass vacuously; it now counts tuple ELEMENTS. And the fixture reset the module
+globals while a previous test's worker was still alive, so the worker raised
+AttributeError on a daemon thread - the defect under test surfacing as harness
+noise. It now joins before resetting.
+
+AND THE RATCHET FROM v3.66.935 CAUGHT THIS CUT, correctly. The new tests
+hand-rolled a scan poll loop three times and
+test_no_test_file_hand_rolls_a_scan_poll_loop failed them. Those loops were
+waiting for the scan to be demonstrably RUNNING, which is a different
+question from the convergence both existing helpers answer - so the response
+was a third helper, tests/scan_wait.py::wait_for_progress, rather than an
+exemption. A ratchet that keeps catching the same legitimate need is naming
+a missing tool. It keeps the siblings' discipline: running out of budget
+RAISES, and convergence before the minimum is returned rather than treated
+as progress, so the caller can tell the two apart.
+
+## v3.66.940 - the .env loader applied every key it found, not the declared set
+
+app_envfile_editor allow-lists what it will WRITE: "Writable keys are
+allow-listed to _envfile.EDITOR_KEYS - the endpoint can't be used" to write
+anything else. The READER had no such restriction. load_envfile walked every
+KEY=VALUE pair and os.environ-seeded it, whatever the key was.
+
+Measured with a .env at $BD_ENVFILE and a fresh interpreter importing
+bulk_downloader: BD_PORT (an editor key) and six others - PATH, LD_PRELOAD,
+PYTHONPATH, HTTPS_PROXY, BD_SECRETS_FILE and a wholly arbitrary name - all
+applied. LD_PRELOAD and PYTHONPATH change what code the process loads, and
+this runs at import before any other import in the package.
+
+PRECISION ABOUT PATH, because the first draft of the finding overstated it.
+The seed is setdefault, so a variable the service ALREADY has is never
+overwritten - and PATH is essentially always set. The subprocess test therefore
+finds LD_PRELOAD, PYTHONPATH, HTTPS_PROXY and an arbitrary key leaking but NOT
+PATH; the original measurement had popped PATH by hand, which is not the
+ordinary case. The exposure is real for the many variables a service does not
+normally carry; for PATH it needs a unit file with a cleared environment.
+
+WHY THAT FILE IS REACHABLE. _candidate_paths() tries $BD_ENVFILE, then cwd/.env,
+then ~/BulkDownloader/.env. On the deploy host the systemd unit sets
+WorkingDirectory=APP_DIR and the install directory IS ~/BulkDownloader, so the
+last two are the same path - and that path is the GUI env-editor's persistence
+target. No test fixture chdir reaches it, which is why nothing noticed.
+
+- bulk_downloader/_envfile.py: SEEDABLE_KEYS, bound to EDITOR_KEY_NAMES rather
+  than restated. Two lists of the same thing drift and the copy nobody reads is
+  the one that rots; test_v3_66_504_envfile_editor already re-derives that set
+  from source, so the gate inherits the guarantee instead of duplicating it. An
+  undeclared key is now SKIPPED and REPORTED on stderr - silence is the section
+  0 shape even when the silent behaviour is the safe one - and the message only
+  fires when a .env actually carries one, so a healthy install stays quiet.
+  The message goes out through sys.stderr.write rather than print():
+  test_v3_43_78_static_analysis_fixes sweeps every bulk_downloader/*.py for
+  `print(` and forbids it in library code. The band caught that; nothing
+  else in the cut would have.
+- tests/test_v3_66_940_envfile_seeds_only_declared_keys.py: 9 tests, 5 RED.
+  Includes a subprocess probe through the real package import, an
+  over-correction guard that every declared key can still be seeded, and an
+  over-sensitivity guard that a clean file produces no message.
+- tests/test_v3_66_504_envfile_editor.py: the setdefault-precedence test used
+  synthetic key names from the era when the loader accepted anything. Its
+  subject is precedence, not arbitrary-key acceptance, so it now demonstrates
+  the same thing with real declared keys.
+
+A HARNESS BUG CAUGHT WHILE WRITING THIS, and it is the reusable part: the
+subprocess probe first ran WITHOUT env=, so it inherited the runner's
+environment and "failed" by reporting the runner's own PATH as a leak - a
+true-looking red for entirely the wrong reason. That is the trap CLAUDE.md
+section 0 names about subprocess harnesses that copy os.environ. PATH is now
+set explicitly in the child rather than popped, because an interpreter launched
+with no PATH is a different experiment, and the assertion is that PATH is not
+the rogue VALUE rather than that PATH is absent.
+
+## v3.66.939 - the CI gate lane is sharded, and a shard can silently lose a file
+
+ci.yml's own rule, set 2026-08-03: "81 tests, 52s -- keep it under a minute; if
+it grows past that, SPLIT rather than silently dropping files, because a
+truncated list here reads as coverage it does not have." Re-measured at
+v3.66.938: 161 tests, 140s. The operator chose the split.
+
+THE BOUNDARIES ARE DRAWN FROM MEASURED TIME, NOT COUNT, because the lane is
+nowhere near evenly distributed. Per-file, in a 4-core cloud container:
+
+    test_toolchain_534               72.5s    <- 40% of the lane alone
+    test_gui_parity                  30.6s
+    test_import_graph_no_new_edges   16.6s
+    test_v3_66_653_dep_freshness     11.2s
+    test_route_index_in_sync         10.8s
+    the remaining ten, combined      38.1s
+
+test_toolchain_534 gets a shard to itself: no two-way split could put every
+lane under the budget while that file stays whole, and 59s of its 68s is four
+subprocess-heavy tests walking the 240-tool suite - not a cheap win, and not
+safe to trim. Measured after the split, locally: 74.7s / 61.8s / 29.4s, which
+in CI's faster single-process runner scales to roughly 56 / 48 / 23.
+
+A SEPARATE JOB rather than a matrix over `gates`, deliberately: gitleaks, the
+artifact-sync regen, compileall and the CHANGELOG checks must run ONCE.
+Sharding those would triple their cost and, for gitleaks, triple an API call
+for no coverage at all.
+
+WHAT THE NEW TEST GUARDS IS NOT THE TIMING. Sharding introduces exactly one new
+failure mode, and it is the one the original comment named: a file that falls
+out of every shard still leaves a GREEN tick. Nothing else in the tree would
+notice. The assertions are about coverage only - the union is exactly the
+declared set, nothing is listed twice, every path exists and is tracked, and
+the declared set is non-empty. Duration is deliberately not asserted: that
+would fire on a slow runner, which is a gate firing on identity rather than
+content.
+
+- .github/workflows/ci.yml: new `gate-suites` job, 3 shards, fail-fast off so
+  one red shard does not hide the others. fetch-depth: 0 is kept on every
+  shard rather than only the toolchain one, so a future re-shuffle of the lists
+  cannot silently downgrade it. Both requirements manifests are installed -
+  requirements-test.txt carries PyYAML, which the new gate imports, and
+  omitting it would present as a SKIP rather than a failure.
+- tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py: 7 tests, 4 RED.
+  The declared set is pinned in the test rather than derived from ci.yml,
+  because deriving the expectation from the thing under test is exactly how a
+  dropped file passes - the union would simply shrink to match.
+- Two mutation escapes closed during the cut, both the same shape as the one
+  v3.66.938 closed a cut earlier: each direction of the coverage comparison
+  could be severed from its meaning and NO test noticed, because the only
+  assertions about them lived inside the test being mutated. A detector with no
+  detector. The comparison is now a named helper with a positive control over
+  synthetic sets. 7 mutants caught, 0 escaped. Worth extracting a verdict's
+  comparison on sight rather than waiting for a battery to find it.
+
+ALSO FIXED HERE, and it had already gone red on main: a register section must
+never name its own unmerged branch tip. 15.59 named 7db669c, a genuine ancestor
+of the PR head, so bd-freshcheck passed and the PR merged green - and then the
+squash wrote a new commit and 7db669c ceased to exist in main's history, so the
+push build of main failed on the section that had just been certified. 15.58
+survived the same treatment only because it named the PREVIOUS PR's squash
+commit, which was already on main. The rule is now in CLAUDE.md section 4:
+name a commit that is ALREADY on main, never one that exists only on your
+branch. Nothing catches this before the merge by construction, because every
+pre-merge check runs on a tree where the branch tip still exists.
+
 ## v3.66.938 - an atomic write leaves a sidecar, and .gitignore covered only the destination
 
 The idiom is everywhere in this tree: write `path.with_suffix(".json.tmp")`,

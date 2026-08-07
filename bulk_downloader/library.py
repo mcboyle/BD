@@ -818,14 +818,30 @@ def scan_start(roots: Iterable[str]) -> dict:
     with _scan_lock:
         if _scan_state and _scan_state.finished_at is None and not _scan_state.cancelled:
             return {"ok": False, "error": "scan already running"}
+        # @941: ...and refuse while a CANCELLED scan's thread is still alive.
+        # scan_cancel() only sets a flag; the worker stops at the next file or
+        # root boundary, which on a large tree is a long way off. The clause
+        # above stops matching the moment `cancelled` flips, so without this a
+        # second walk started immediately over the same database.
+        #
+        # Binding the worker to its own state (see _scan_worker) is what makes
+        # the corruption impossible; this refusal is what stops two walks
+        # running at once. Neither replaces the other -- a liveness check alone
+        # races the thread's actual exit, and binding alone would still let two
+        # workers hammer the same rows.
+        if _scan_thread is not None and _scan_thread.is_alive():
+            return {"ok": False,
+                    "error": "previous scan is still stopping; try again"}
         _scan_state = ScanState(
             started_at=time.time(),
             roots=list(roots),
             current_root=roots[0],
         )
-        # Daemon so the scanner doesn't keep the process alive on shutdown
+        # Daemon so the scanner doesn't keep the process alive on shutdown.
+        # `_scan_state` is passed BY REFERENCE, so scan_cancel() -- which sets
+        # the flag on the global -- still reaches this thread.
         _scan_thread = threading.Thread(
-            target=_scan_worker, args=(roots,), daemon=True,
+            target=_scan_worker, args=(roots, _scan_state), daemon=True,
             name="library-scanner")
         _scan_thread.start()
     return {"ok": True, "started": True}
@@ -841,35 +857,42 @@ def _fp_under_root(fp: str, root: str) -> bool:
     return fp == root or fp.startswith(root + os.sep)
 
 
-def _scan_worker(roots: list[str]):
+def _scan_worker(roots: list[str], state: ScanState):
     """The actual scan loop. Runs on a daemon thread."""
-    global _scan_state
-    # Helper: lock-protected mutation of _scan_state. We hold the lock
-    # only for the assignment itself; the file work happens outside.
+    # @941: BOUND to the ScanState this worker was started for, never the
+    # module global. scan_cancel() clears the refusal in scan_start, so a
+    # NEW scan could be accepted while this thread was still walking -- and
+    # every write below resolved the global at CALL time, so this worker's
+    # counters, and finally its finished_at, landed in the NEXT scan's
+    # state. `state` IS the object scan_start published as the global, so
+    # scan_cancel still reaches this thread; what changes is that a LATER
+    # scan's state can no longer be the target.
+    # Helper: lock-protected mutation of `state`. We hold the lock only for
+    # the assignment itself; the file work happens outside.
     def _mut(**kw):
         with _scan_lock:
             for k, v in kw.items():
-                setattr(_scan_state, k, v)
+                setattr(state, k, v)
     def _bump(field_name):
         with _scan_lock:
-            setattr(_scan_state, field_name,
-                    getattr(_scan_state, field_name) + 1)
+            setattr(state, field_name,
+                    getattr(state, field_name) + 1)
     def _record_error(msg):
         with _scan_lock:
-            _scan_state.errors += 1
-            if len(_scan_state.error_samples) < 5:
-                _scan_state.error_samples.append(msg[:200])
+            state.errors += 1
+            if len(state.error_samples) < 5:
+                state.error_samples.append(msg[:200])
 
     seen_paths: set[str] = set()
     try:
         for root in roots:
             with _scan_lock:
-                if _scan_state.cancelled:
+                if state.cancelled:
                     break
-                _scan_state.current_root = root
+                state.current_root = root
             for dirpath, _dirnames, filenames in os.walk(root):
                 with _scan_lock:
-                    if _scan_state.cancelled:
+                    if state.cancelled:
                         break
                 for fn in filenames:
                     if fn in _SKIP_FILES:
@@ -919,8 +942,8 @@ def _scan_worker(roots: list[str]):
         # one of our scan roots — paths outside the roots aren't
         # invalidated by a scan that didn't cover them).
         with _scan_lock:
-            if _scan_state.cancelled:
-                _scan_state.finished_at = time.time()
+            if state.cancelled:
+                state.finished_at = time.time()
                 return
         try:
             with db_conn() as cx:

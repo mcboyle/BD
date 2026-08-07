@@ -26,6 +26,7 @@ Imported at the very top of ``bulk_downloader/__init__.py`` so the seed is appli
 before any env-reading import (Bucket 1's call-time getters read env too).
 """
 import os
+import sys
 from pathlib import Path
 
 # ── editable key set (canonical) ─────────────────────────────────────────────
@@ -84,6 +85,16 @@ EDITOR_KEYS = (
 )
 
 EDITOR_KEY_NAMES = [e["name"] for e in EDITOR_KEYS]
+# @940: the SEED allow-list, and deliberately the SAME set the editor writes.
+# The writer was already allow-listed (app_envfile_editor: "the endpoint can't
+# be used" to write anything else) while the READER applied every key it
+# found -- so a `.env` in the install directory could set LD_PRELOAD,
+# PYTHONPATH or HTTPS_PROXY into the service at import, before any other
+# import in this package runs. Bound to EDITOR_KEY_NAMES rather than
+# restated, because two lists of the same thing drift and the copy nobody
+# reads is the one that rots; test_v3_66_504_envfile_editor already
+# re-derives that set from source, so this inherits the guarantee.
+SEEDABLE_KEYS = frozenset(EDITOR_KEY_NAMES)
 FOUNDATION_KEYS = frozenset(_FOUNDATION)
 PORT_KEYS = frozenset(_PORTS)
 BOOL_KEYS = frozenset(_BOOL + _VPN_DISABLE)
@@ -143,9 +154,25 @@ def load_envfile(path=None):
         except (OSError, UnicodeDecodeError):
             continue
         applied = 0
+        skipped = []
         for k, v in parse_envfile(text).items():
+            if k not in SEEDABLE_KEYS:
+                skipped.append(k)
+                continue
             if k not in os.environ:
                 os.environ[k] = v
                 applied += 1
+        if skipped:
+            # SAID, not dropped in silence. An operator who hand-adds a line and
+            # gets neither effect nor message has to read source to find out why
+            # -- the section 0 shape, even though the silent behaviour here is
+            # the safe one. Only fires when a `.env` carries an undeclared key,
+            # so a healthy install stays quiet and the warning keeps its meaning.
+            # sys.stderr.write, not print(): test_v3_43_78_static_analysis_fixes
+            # sweeps every bulk_downloader/*.py for `print(` and forbids it in
+            # library code. The band caught this; nothing else would have.
+            sys.stderr.write(
+                "bulk_downloader: ignoring %d undeclared key(s) in %s: %s\n"
+                % (len(skipped), p, ", ".join(sorted(skipped))))
         return applied
     return 0
