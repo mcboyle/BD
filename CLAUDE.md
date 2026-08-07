@@ -763,6 +763,21 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   the environment or discount it, do not chase it as a code defect. And note
   what it costs in the other direction: a container band cannot tell you
   anything about that endpoint at all.
+- **A THIRD environmental false-failure, container-only: `tests/test_e2e_smoke.py`
+  fails 7/7 here.** The `_RealE2ESmoke` class drives a real browser at a real
+  SPA; every failure is a playwright `wait_for_selector` timeout. PROVEN
+  pre-existing 2026-08-07 at v3.66.938: the same 7 fail on a pristine HEAD with
+  **0 modified paths** in the same directory. Same disposition as the GTK and
+  `no_backend` cases above -- discount it, do not chase it -- and the same cost
+  in the other direction: a container band says nothing about the SPA.
+
+  **The method trap hit while proving it is worth more than the finding.**
+  `git stash push --keep-index` on a fully-STAGED tree leaves the working tree
+  unchanged, so the "pristine" run measured the cut against itself and proved
+  nothing. It exits 0 and prints a stash entry, so it looks like it worked.
+  Check `git status --porcelain | wc -l` reads **0** before believing a
+  baseline run, and stash without `--keep-index` when the cut is staged.
+
 - Three Python resolution paths exist (system / prestaged / service venv) and
   they carry **different playwright versions**. `import playwright` succeeding at
   a bare prompt proves nothing about what BD runs.
