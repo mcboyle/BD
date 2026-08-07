@@ -530,7 +530,7 @@ class _DualWriteCursor:
         return iter(self._cur)
 
 
-def _open_history_conn():
+def _open_history_conn(path=None):
     """v3.66.795 (MOD-3 cut 1): THE single history-DB connection point.
 
     Every history-DB connection in the app is created here. MOD-3 migrates this
@@ -544,8 +544,18 @@ def _open_history_conn():
     Behaviour is unchanged from when this lived inline in `db_conn()` -- this is
     a pure extraction. Returns a live connection; the caller owns commit/close
     (see `db_conn()`, which is the context manager everything else uses).
+
+    v3.66.927: `path` is optional and defaults to None, which resolves at call
+    time exactly as before -- every existing caller is unaffected. It exists
+    for ONE caller: `run_integrity_check`, which schedules work on a
+    fire-and-forget thread and must verify the database it was scheduled FOR,
+    not whichever one DB_PATH happens to name when the thread finally runs.
+    Threaded through here rather than opened directly because this is the
+    single connection point the MOD-3 seam depends on -- a second
+    sqlite3.connect in this module fails test_v3_66_795_mod3_seam.py, and would
+    escape dual-write when the Postgres migration lands.
     """
-    cx = sqlite3.connect(_resolve_db_path(), timeout=10.0)
+    cx = sqlite3.connect(path or _resolve_db_path(), timeout=10.0)
     cx.row_factory = sqlite3.Row
     # v3.43.13 / v3.47.1: SQLite contention fix.
     #
@@ -599,8 +609,8 @@ def _open_history_conn():
 
 
 @contextmanager
-def db_conn():
-    cx = _open_history_conn()
+def db_conn(path=None):
+    cx = _open_history_conn(path)
     try: yield cx; cx.commit()
     finally: cx.close()
 
@@ -1987,10 +1997,10 @@ from pathlib import Path as _Path
 _INTEGRITY_STATE_FILE = ".integrity_last_run"
 _INTEGRITY_INTERVAL_S = 24 * 60 * 60  # 24 hours
 
-def _integrity_state_path():
+def _integrity_state_path(path=None):
     """Where we record the last successful check timestamp. Lives next to
     the DB so it travels with backups + survives BD_HOME changes."""
-    _resolved = _resolve_db_path()
+    _resolved = path or _resolve_db_path()
     db_dir = _Path(_resolved).parent if _resolved else _Path.cwd()
     return db_dir / _INTEGRITY_STATE_FILE
 
@@ -2005,11 +2015,11 @@ def _last_integrity_check_ts():
     except (OSError, ValueError):
         return 0
 
-def _record_integrity_check_ts(ts):
+def _record_integrity_check_ts(ts, path=None):
     """Atomic write of the timestamp marker. Best-effort — a failed write
     just means we'll re-run the check sooner than 24h next time, which
     is harmless."""
-    p = _integrity_state_path()
+    p = _integrity_state_path(path)
     tmp = p.with_suffix(p.suffix + ".tmp")
     try:
         tmp.write_text(f"{ts}\n")
@@ -2034,12 +2044,29 @@ def run_integrity_check(force=False, sync=False):
     if not force and (now - _last_integrity_check_ts()) < _INTEGRITY_INTERVAL_S:
         return None  # within debounce window, skipped
 
+    # v3.66.927: RESOLVE THE PATH HERE, in the CALLING thread, and hand it to
+    # _do_check. It used to call db_conn() with no argument, which re-resolves
+    # DB_PATH at CALL time -- and this runs on a fire-and-forget daemon thread
+    # that is never joined, so "call time" is whenever the scheduler gets
+    # around to it. If DB_PATH moved in between, the check verified a database
+    # nobody asked about and sqlite3.connect() CREATED it on contact.
+    #
+    # Traced, not reasoned: wrapping sqlite3.connect with a stack recorder
+    # pinned the repo-root `downloader_history.db` that survived v3.66.926 to
+    # exactly this frame. The file had no tables at all, which is the tell --
+    # a connection opened without db_init.
+    #
+    # Capturing at schedule time is the only reading of "check the database"
+    # that stays true across a thread boundary: a check scheduled for database
+    # A verifies A even if the process later points DB_PATH elsewhere.
+    _scheduled_path = _resolve_db_path()
+
     def _do_check():
         from . import log as _log
         llog = _log.get_logger("bulk_downloader.db.integrity")
         t0 = _time.time()
         try:
-            with db_conn() as cx:
+            with db_conn(_scheduled_path) as cx:
                 # integrity_check returns one row per problem; "ok" if clean.
                 # Wrap in list() so the connection isn't held open longer
                 # than necessary.
@@ -2049,8 +2076,8 @@ def run_integrity_check(force=False, sync=False):
             if messages == ["ok"]:
                 llog.info(
                     "integrity_check: OK (%.2fs, %d rows scanned)",
-                    elapsed, _row_count_estimate())
-                _record_integrity_check_ts(_time.time())
+                    elapsed, _row_count_estimate(_scheduled_path))
+                _record_integrity_check_ts(_time.time(), _scheduled_path)
                 return {"ok": True, "result": ["ok"], "elapsed_s": elapsed}
             else:
                 # Log every problem at ERROR so the operator sees it in
@@ -2079,11 +2106,11 @@ def run_integrity_check(force=False, sync=False):
     t.start()
     return t
 
-def _row_count_estimate():
+def _row_count_estimate(path=None):
     """Cheap estimate of total history+queue rows for the log message —
     informational only, doesn't fail the check if it errors."""
     try:
-        with db_conn() as cx:
+        with db_conn(path) as cx:
             h = cx.execute("SELECT COUNT(*) FROM history").fetchone()[0]
             q = cx.execute("SELECT COUNT(*) FROM queue").fetchone()[0]
         return h + q

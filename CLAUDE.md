@@ -763,6 +763,7 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   BD_SKIP_ARCHB=1
   BD_SKIP_BROWSERS=1
   BD_DISABLE_KEEPALIVE=1
+  CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2
   ```
 
   `BD_REPO` is the first probe rung, so setting it makes checkout location
@@ -772,6 +773,17 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   provisioner says which of "skipped but present" and "skipped and absent" is
   true rather than assuming the worst. `BD_DISABLE_KEEPALIVE` stops background
   threads outliving a test run.
+
+  `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2` caps how deep agents may spawn
+  agents. Two is deliberate: the top-level session orchestrates, its agents do
+  work, and nothing below that spawns further. Depth buys little here and costs
+  a lot -- this container has **4 cores**, so the workflow concurrency cap is
+  `min(16, nproc - 2)` = **2**, and a third tier only lengthens the queue behind
+  that same 2-wide gate. Measured at v3.66.926: eleven agents were SLOWER at a
+  register re-derivation than doing it inline, 3 items against 12, because most
+  of the work was one grep or one tool invocation apiece. Depth also multiplies
+  the residue problem in section 2b -- every additional tier is another writer
+  in a shared tree you did not start.
 
   Note what these do **not** buy: `BD_HOME` does not protect
   `~/.config/bulk-downloader`, which resolves from `$HOME`, not `BD_HOME`.
@@ -802,12 +814,29 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   `pytest-xdist` both absent. To ask whether requirements are satisfied, parse
   `requirements.txt` and resolve each name.
 
-  **And name resolution is not version satisfaction.**
-  `tools/check_requirements.py` calls `version(name)` and *discards the result* —
-  specifiers are never compared — yet it is the sole instrument in all three
-  recovery paths (`session-start.sh`, `cloud-setup.sh`, `deploy.sh`). A reverted
-  image can restore correct NAMES at wrong VERSIONS and every gate reports OK.
-  **Open, and nothing here can see it.**
+  **And name resolution is not version satisfaction — FIXED, and this paragraph
+  was stale about it for weeks.** `tools/check_requirements.py` used to call
+  `version(name)` and *discard the result*, so specifiers were never compared,
+  and a reverted image could restore correct NAMES at wrong VERSIONS with every
+  gate reporting OK. It is the sole instrument in all three recovery paths
+  (`session-start.sh`, `cloud-setup.sh`, `deploy.sh`), which is what made that
+  serious.
+
+  It now builds `Requirement(line)` and asserts
+  `req.specifier.contains(have, prereleases=True)`, and it **raises
+  `Unevaluable` when `packaging` is not importable** rather than falling back to
+  a name-only answer — because "resolved a name" and "satisfies the pin" would
+  otherwise be indistinguishable, which is section 0's whole subject.
+  (`prereleases=True` is deliberate: a venv legitimately holding `2.0rc1` for
+  `>=1.9` IS satisfied, and reporting otherwise sends the caller into a
+  reinstall loop that cannot converge.)
+
+  **Kept rather than deleted, because the staleness is the lesson.** This file
+  asserted "Open, and nothing here can see it" while the tool it names had
+  already grown the exact instrument. Section 1 says documents go stale
+  silently and are then read as authority — that applies to THIS document, and
+  the only reason it was caught is that a register re-derivation ran the tool
+  instead of quoting the note. Re-derive before citing, including from here.
 
 - **WHY the container "rolls back": the panel snapshots the filesystem, and the
   setup script runs once per CACHE BUILD -- not per session.** Stated by the
