@@ -4012,6 +4012,76 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.49 | The box's history DB was quarantined 10 times in 25 minutes -- item 11, on production data
+
+`history: 0 rows` (15.48's open question) is ANSWERED and it is not bit rot: the
+operator's DB was quarantined and replaced with a fresh empty one. The data is
+in the quarantine files, not lost.
+
+MEASURED CHAIN, every link from source, none inferred:
+
+  * the service's DB is `${APP_DIR}/downloader_history.db` --
+    `install_service.sh:214` sets `WorkingDirectory=${APP_DIR}`, and
+    `constants.py:24` is `DB_PATH = "downloader_history.db"`, a BARE RELATIVE
+    string that `sqlite3.connect()` resolves against the CWD;
+  * pytest run from the deploy directory resolves THE SAME FILE. `capture.sh`
+    sets no `BD_INSTALL_DIR`, so `db._resolve_db_path()` falls to rung 3;
+  * isolation is OPT-IN. `conftest.py:232` `clean_workdir` is a plain fixture,
+    not autouse -- a test gets a tmpdir only if it asks for one;
+  * the DB boots during COLLECTION. `app.py:80` calls `db_init()` at module
+    scope, before any fixture can run, and pytest imports every module in every
+    xdist worker. That is item 11, and `-m` filtering happens after collection
+    so no lane assignment can prevent it;
+  * `selftest.py:525` then renames the malformed DB aside and `db_init()`
+    recreates it empty.
+
+THE TIMESTAMPS CONFIRM THE MECHANISM RATHER THAN MERELY FITTING IT. Ten
+quarantines between 2026-08-06 23:51:05Z and 2026-08-07 00:16:57Z, in bursts of
+THREE within 11 seconds and FOUR within 8 seconds. Sequential service restarts
+cannot produce that; a systemd restart loop racing a still-running parallel
+pytest can. The window matches the all-parallel experiment (N=16/24/64) run in
+the deploy directory.
+
+SO ITEM 11 IS MIS-FILED IN 15.48 AND IN THIS SESSION'S OWN FRAMING. It was
+recorded as a worker-count CEILING -- "all-parallel aborts at collection at
+-n 64+". The ceiling is a symptom. The property is that RUNNING THE TEST SUITE
+IN THE DEPLOY DIRECTORY CAN DESTROY PRODUCTION HISTORY, at any N large enough
+to race. Re-rate it accordingly: it is a data-integrity defect that happens to
+also cap concurrency, not a concurrency defect.
+
+A SECOND, INDEPENDENT DEFECT IS VISIBLE IN THE QUARANTINE FILE LIST, and it may
+already have cost data:
+
+  * `selftest.py:525` keys the backup name on `int(time.time())` -- ONE-SECOND
+    resolution -- and `Path.rename` SILENTLY OVERWRITES an existing destination
+    on POSIX. Two concurrent recoveries in the same second destroy one of the
+    two quarantine files, invisibly. Collisions are undetectable after the fact
+    precisely because the loser leaves no trace;
+  * the `.db` and its `-wal`/`-shm` are moved in SEPARATE, non-atomic steps
+    (`selftest.py:529-533`). The observed listing has incomplete sets --
+    `.1786061276` with no `-shm`, `.1786061278` with no `-wal`, `.1786061482`
+    with neither -- and a quarantined DB separated from its WAL has lost its
+    most recent transactions.
+
+RECOVERY IS MEASURE-FIRST, not assume-first. The earliest file is the LIKELY
+data-bearing one (the first quarantine moves the real DB aside; later ones move
+fresh empty DBs), but that is a prediction. Count rows in every candidate
+before choosing, with the service STOPPED.
+
+NOT FIXED HERE, and each needs its own cut: item 11 proper (deferred and
+idempotent DB boot, per 15.48); the racy quarantine above; and whether
+`capture.sh` should isolate the DB at all -- note `BD_INSTALL_DIR` is read by a
+dozen modules (`constants.py:15`, `macro_recorder.py:139`, `drift_repair.py:57`,
+`push.py:57`, `app_health.py:175`, `app.py:1199`) and `app.py:1191` documents
+UNSET as how the service runs, so exporting it for capture is not the one-line
+fix it looks like.
+
+v3.66.925 fixed a DIFFERENT bitrot defect the same session -- `verify_one`
+resolving a bare basename against the CWD and PERSISTING a false
+`integrity_issues` row for a present file, measured at 3 -> 6 -> 9 rows over
+three scans. That is unrelated to the quarantine story above except that both
+are the recorded-basename trap and both were found chasing `history: 0`.
+
 ### 15.48 | Session close 2026-08-07 at 5a6b9a6 (v3.66.923) -- capture went 45min -> 4min, and item 11 turned out to be the ceiling
 
 Continues 15.47, same session. The operator reported that capture "used to be
