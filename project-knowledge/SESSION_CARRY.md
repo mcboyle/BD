@@ -4017,6 +4017,116 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.58 | Session close 2026-08-07 at b24e675 (v3.66.936) -- the three box-capture failures, and three defects found underneath them
+
+Closes the three unit failures in the operator's 2026-08-07 capture (48707ad,
+v3.66.932). Three cuts, each RED-first with a counterfactual, guards 7 ok / 0
+drifted throughout.
+
+| cut | subject | band | mutation |
+| --- | --- | --- | --- |
+| v3.66.934 (#240) | the suite inherited the operator's live AI config | 631 passed | 7 caught / 0 escaped |
+| v3.66.935 (#241) | a scan wait that gave up read as one that finished | 1326 passed | 10 caught / 0 escaped |
+| v3.66.936 (#242) | the "synthetic only" golden embedded live state | 503 passed | 7 caught / 0 escaped |
+
+NONE OF THE THREE WAS A PRODUCT BUG. All three were checks that could not see
+their own subject -- section 0, three times, in the gates rather than in the
+app. The one with real operator cost was @934: turning AI ON in the Global
+Config UI broke the test suite, and the test that broke was not the one that
+changed.
+
+**A | OPEN, PRODUCT: `scan_start` accepts a new scan over a live cancelled
+worker, and the old worker corrupts the new state.**
+
+`library.scan_start` refuses only while `finished_at is None and not
+cancelled`. `scan_cancel()` sets `cancelled = True` and returns; nothing stops
+the thread until the next file boundary. So between the cancel and the thread
+actually leaving, a NEW `scan_start` is ACCEPTED -- and the old worker's
+`_mut`/`_bump` resolve `_scan_state` at call time, so its counter writes land
+in the NEW ScanState.
+
+MEASURED at v3.66.935: after `scan_cancel()`, `running` reads False while
+`seen` climbed 70 -> 190 and went on to 4000; `finished_at` stayed None
+throughout.
+
+NOT REACHABLE FROM ANY TEST -- an AST census over the 1256 tracked `tests/*.py`
+finds ZERO callers of `scan_cancel`. It IS reachable in production from the
+library scan route. `tests/scan_wait.py:start_and_wait` refuses to start while
+the previous worker is unfinished rather than racing it, so the test surface is
+closed; the product surface is not. Fixing it means either having the worker
+hold its own ScanState reference, or having `scan_start` refuse while the
+thread is alive. Not started -- it is a runtime change and needs the operator.
+
+**B | OPEN, INFRA: `_envfile` applies every KEY=VALUE it finds into
+os.environ, at import, with no allow-list.**
+
+`bulk_downloader/__init__.py` calls `_envfile.load_envfile()` in the module
+body. It reads the first existing candidate of `$BD_ENVFILE`, else `cwd/.env`,
+else `$HOME/BulkDownloader/.env`, and applies EVERY key by `setdefault` with no
+filtering. On the box `$HOME/BulkDownloader` IS the install directory, and the
+module's own docstring names that file as the GUI env-editor's persistence
+target -- so it is operator-writable through the UI.
+
+`tests/conftest.py`'s `isolated_bd_home` chdirs per test, which closes the
+`cwd/.env` candidate and CANNOT close the HOME one. No fixture can chdir away
+from $HOME.
+
+MEASURED at v3.66.936, with cwd deliberately elsewhere so only the HOME
+fallback was live:
+
+    control (clean):                            OK
+    env BD_REDACT_EMAILS=keep:                  DRIFT (emails, reduced_redaction)
+    $HOME/BulkDownloader/.env, cwd elsewhere:   DRIFT (the same two)
+
+@936 immunised the capture-model golden against the `BD_REDACT_*` slice by
+projecting an allow-list. The general surface is untouched: any `BD_*` key an
+operator writes there is applied process-wide at import, to tests and to the
+service alike. Whoever owns `_envfile` should decide whether an allow-list
+belongs there.
+
+**C | OPEN, TRIVIAL: .gitignore misses the sidecar its own atomic write
+creates.** `.gitignore` covers `.integrity_last_run`; `db.py`'s writer produces
+`.integrity_last_run.tmp`, which is NOT covered, so a test run leaves an
+untracked stray in the repo root. One line. Not folded into any of the three
+cuts because it is a different feature.
+
+**D | ENVIRONMENTAL, container-only: no live-recording backend here.**
+`tests/test_v3_66_729_body_contract_fixtures.py::test_the_app_never_5xxs_on_a_
+well_formed_request` fails in this container with `/api/live/watch  app 5xx'd
+on OUR fixture -> no_backend`. It is NOT a regression: it reproduces on the
+pristine base in the same directory, and all 10 tests in that file PASS on the
+box in the v3.66.932 capture. `which streamlink ffmpeg yt-dlp` returns nothing
+here. Same class as the GTK false-failure section 5 already records; added
+there so the next session does not chase it.
+
+**E | METHOD: two mutation escapes worth more than the fixes they closed.**
+Both were found by `bd-mutate` and neither was visible by reading.
+
+- @935: a test asserted `"never_run" in str(ei.value)`, and the TIMEOUT
+  branch's message embeds `_describe(st)`, which prints `never_run = True` as
+  one of its fields. BOTH failure paths satisfied it, so deleting the branch it
+  was written for left it green. Closed by matching the sentence only that
+  branch emits, asserting the other path's sentence is ABSENT, and pinning the
+  behaviour that actually differs (it must fail at once, not burn the budget).
+- @936: there are TWO `dom_log_len` fields -- one `_proj_workflow` computes,
+  one `_capture_health` derives -- and both are `2` on the fixture. A mutant
+  aimed at the top-level one LOOKED correctly aimed while every assertion in
+  the file read the health one, so the projection's own derived fields had no
+  test at all. **When two fields share a name and a value, a mutant and a test
+  can disagree about which one they mean and nothing shows it.**
+
+The generalisation for both: an assertion that matches a SUBSTRING of a
+diagnostic dump is not an assertion about the branch that produced it.
+
+**F | The register cut that was already done.** 15.57 and the CLAUDE.md
+section 7 correction landed inside @934 (`25131a4`), not as a separate
+register-only cut. A later reading of this session mistakenly reported them as
+unwritten; they are in the file. Re-derive before citing, including from a
+session summary.
+
+**Still open from 15.56, unchanged:** the mirror retirement step 2 (specified,
+not executed) and item 3's `/home/claude` scope decision.
+
 ### 15.57 | Two stale facts found while cutting v3.66.934, both fixed at source; one open operator decision
 
 Found 2026-08-07 at v3.66.934 while working the three box-capture failures.
