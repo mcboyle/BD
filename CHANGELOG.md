@@ -4,6 +4,64 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.934 - the test suite inherited the operator's live AI settings
+
+MEASURED on the box 2026-08-07 (capture at 48707ad, v3.66.932):
+test_t7_ai_inspection asserted `get_config()["enabled"] is False` and got True.
+The operator had turned AI on in the Global Config UI between two captures --
+the earlier capture's ollama log carries zero /api/generate calls, the later
+one carries a real inference. Turning a feature ON broke the test suite, and
+the test that broke was not the one that changed.
+
+THE MECHANISM is outside any test's control. bulk_downloader/app.py calls
+_load_app_config() at MODULE SCOPE, and APP_CFG_FILE = Path("app_config.json")
+is RELATIVE, so it resolves against the CURRENT WORKING DIRECTORY. At pytest
+COLLECTION time that is the rootdir -- on the box, the operator's install
+directory. Importing any of the 52 tracked test modules that import
+bulk_downloader.app* at module scope reads the operator's real config and ends
+in aiassist.configure(enabled=..., api_key=..., ...), mutating a process
+global. `isolated_bd_home` cannot help: it chdirs per TEST and the import
+already happened during COLLECTION. Under xdist every worker collects the whole
+suite, so every worker inherits the setting before a single test runs.
+
+THE FIX takes the shape conftest.py already uses for the operator's real VPN
+config -- a session-wide guarantee, not a protection each test opts into,
+because an opt-in has a denominator that excludes every test which forgot, and
+here the module that forgot is every module that imports the app.
+
+- aiassist.py snapshots _CONFIG_DEFAULTS in the module body (the last moment
+  _config is guaranteed to be the literal) and exposes
+  _reset_config_to_defaults(). Same shape as app_kernel._APP_CFG_DEFAULTS, but
+  private: that one is exported and route-served, this one has no consumer
+  outside the harnesses.
+- tests/conftest.py restores it before every test, autouse.
+- run_tests_core.py does the same. THERE ARE TWO RUNNERS: bd-band-derive's
+  --emit produces a `bd-band` line, bd-band runs run_tests.py, and that runner
+  collects autouse fixtures from the TEST MODULE only, never from conftest.
+  A conftest-only fix would have been inert under the tool CLAUDE.md section 4
+  mandates for deriving a band, while capture.sh (real pytest) would have shown
+  it working. Both call the same function so the two cannot drift.
+
+The reset resolves the module through sys.modules and does nothing if it is
+absent, rather than importing it: isolated_bd_home wipes bulk_downloader.* for
+the 85 bd_module_wipe files, and an import inside the fixture body would
+resurrect the package -- and _envfile's one-shot .env seed with it -- into a
+just-wiped sys.modules, measured at 221 of 230 setups. The fixture name sorts
+before isolated_bd_home deliberately: autouse fixtures in one conftest are
+ordered by scope, then declared dependency, then ALPHABETICALLY BY NAME, never
+by definition order.
+
+Scope: restores _config only. _health, _warmed and _FILENAME_META_CACHE persist
+across tests deliberately and three test files depend on that. A fixture that
+re-runs _load_app_config() afterwards (fresh_app) runs later and wins.
+
+RECORDED, NOT FIXED: _load_app_config() also mutates app_kernel._app_cfg (the
+same dict object as app._app_cfg, not a copy), runner._global_sem and
+_global_sem_size, daily_budget._GLOBAL_BUDGET, and the process-wide
+bulk_downloader logger level -- all from the same CWD-relative read. On first
+run it additionally WRITES app_config.json, live_recordings/ and logs/ into the
+current directory, which is gitignored, so nothing warns you.
+
 ## v3.66.933 - retiring the project-knowledge mirror set, step 1 of 2: the five files carrying baselined secrets
 
 OPERATOR DECISION, 2026-08-07: project-knowledge/ is no longer used as an

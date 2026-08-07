@@ -565,6 +565,26 @@ def run_test(test_fn, owner=None, autouse_fixtures=(), module_wipe=False,
     ``bulk_downloader.*`` modules from sys.modules around the test, so an
     import inside the test body re-reads env vars at load time — mirroring
     conftest.py's isolated_bd_home behaviour under real pytest."""
+    # v3.66.934: the mirror of conftest.py's `_aiassist_config_is_never_
+    # inherited`. THIS RUNNER DOES NOT READ tests/conftest.py -- autouse
+    # fixtures are collected from the TEST MODULE only (`for name in
+    # dir(mod)` in discover_and_run), and conftest's shims are hand-copied
+    # into this file. So a conftest-only fix is inert here, and `bd-band` is
+    # the tool CLAUDE.md section 4 mandates for deriving a band.
+    #
+    # Importing bulk_downloader.app reads a CWD-relative app_config.json and
+    # pushes the operator's live AI settings -- including api_key -- into a
+    # process global. Reset it before every test, unconditionally, and before
+    # the module_wipe below, matching conftest's ordering.
+    #
+    # sys.modules rather than an import, for the same reason conftest uses
+    # one: an import here would resurrect bulk_downloader into a sys.modules
+    # this function is about to wipe. The restore itself lives in aiassist so
+    # the two runners cannot drift apart.
+    _ai = sys.modules.get("bulk_downloader.aiassist")
+    if _ai is not None:
+        _ai._reset_config_to_defaults()
+
     sig = inspect.signature(test_fn)
     params = list(sig.parameters)
 
