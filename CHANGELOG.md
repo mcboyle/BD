@@ -4,6 +4,72 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.935 - a scan wait that gave up was indistinguishable from one that finished
+
+Second of the three unit failures in the 2026-08-07 box capture (48707ad,
+v3.66.932). test_scanner_idempotency failed with `assert 4 == 5` -- one file
+short of a scan that had not finished.
+
+THE DEFECT. Eight copies of this loop lived across three test files:
+
+    for _ in range(30):
+        if not lib.scan_status().get("running"):
+            break
+        time.sleep(0.05)
+
+Two exits, and the code after it cannot tell them apart: the scan finished, or
+the 1.5-second budget ran out while it was still going. The caller asserts on
+the snapshot either way. In a quiet container that scan takes 0.098s over two
+polls -- fifteen times the headroom -- so the defect is invisible everywhere
+except the machine that gates the release. Demonstrated by holding the budget
+fixed and widening the tree: running=True, added=395/4000.
+
+tests/scan_wait.py replaces all eight. Three properties, each MEASURED against
+bulk_downloader/library.py rather than reasoned about:
+
+1. IT WAITS ON finished_at, NOT running. to_dict computes
+   `running = finished_at is None and not cancelled`, so scan_cancel() clears
+   `running` while the worker keeps walking and keeps mutating the counters --
+   seen climbed 70 -> 190 with running == False, and reached 4000 by the time
+   finished_at was set. finished_at is assigned in a finally: on every exit
+   path, so it is the only field that means the worker is gone.
+
+2. IT CHECKS THE SCAN STARTED, AND THAT THE ONE THAT FINISHED IS THE ONE IT
+   STARTED. scan_start RETURNS {"ok": False} rather than raising and leaves
+   _scan_state untouched, so the previous run's terminal counters stay in place
+   and a wait returns instantly on them (measured: added=3 seen=3 from an
+   earlier scan, reported as final after a refused start). That is what turns a
+   truncated wait into a CASCADE -- in test_scanner_marks_missing the first
+   wait exhausted, the second scan_start was refused, the second wait polled
+   the FIRST scan, and `assert missing_marked == 1` was made about a scan that
+   never ran. So start_and_wait calls scan_start itself and pins started_at
+   across the wait.
+
+3. IT REFUSES TO START ON TOP OF A LIVE WORKER.
+
+It deliberately does NOT assert errors == 0: _scan_worker's outer try: has no
+except, only a finally: that sets finished_at, so a worker that dies on an
+uncaught exception leaves errors == 0 and error_samples == [] with partial
+counts. Clean and crashed are indistinguishable by any exposed field. Errors are
+always dumped in the failure message; require_clean=True is opt-in.
+
+An AST ratchet over every tracked tests/*.py fails any future hand-rolled scan
+poll loop. AST rather than source text because this cut's own docstrings quote
+the defective loop -- a comment is inside the denominator of every gate that
+reads source text.
+
+PRODUCT DEFECT RECORDED, NOT FIXED HERE (test-only cut): scan_start refuses only
+while `finished_at is None and not cancelled`, so after scan_cancel() it ACCEPTS
+a new scan while the cancelled worker is still alive -- and that worker's _mut
+writes land in the NEW ScanState. started_at cannot catch it, because the new
+state legitimately carries the new stamp. No test in the suite calls
+scan_cancel; it is reachable from the library scan route. The helper refuses
+rather than racing. SESSION_CARRY carries it.
+
+ALSO RECORDED: .gitignore covers `.integrity_last_run` but not the
+`.integrity_last_run.tmp` sidecar its own atomic write creates, so a test run
+can leave an untracked stray in the repo root.
+
 ## v3.66.934 - the test suite inherited the operator's live AI settings
 
 MEASURED on the box 2026-08-07 (capture at 48707ad, v3.66.932):

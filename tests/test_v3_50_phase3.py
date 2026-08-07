@@ -21,6 +21,8 @@ from pathlib import Path
 
 import pytest
 
+import scan_wait
+
 
 
 # v3.66.13: this file used to define its own autouse isolated_bd_home
@@ -360,21 +362,11 @@ def test_scanner_idempotency(tmp_path):
     # Build a small tree
     for i in range(5):
         (tmp_path / f"v{i}.mp4").write_bytes(b"video")
-    lib.scan_start([str(tmp_path)])
-    for _ in range(30):
-        if not lib.scan_status().get("running"):
-            break
-        time.sleep(0.05)
-    s = lib.scan_status()
+    s = scan_wait.start_and_wait(lib, [str(tmp_path)])
     assert s["added"] == 5
     assert s["updated"] == 0
     # Rescan — all should now be updates, no new
-    lib.scan_start([str(tmp_path)])
-    for _ in range(30):
-        if not lib.scan_status().get("running"):
-            break
-        time.sleep(0.05)
-    s = lib.scan_status()
+    s = scan_wait.start_and_wait(lib, [str(tmp_path)])
     assert s["added"] == 0
     assert s["updated"] == 5
 
@@ -385,19 +377,14 @@ def test_scanner_marks_missing(tmp_path):
     fp1.write_bytes(b"video")
     fp2 = tmp_path / "b.mp4"
     fp2.write_bytes(b"video")
-    lib.scan_start([str(tmp_path)])
-    for _ in range(30):
-        if not lib.scan_status().get("running"):
-            break
-        time.sleep(0.05)
+    scan_wait.start_and_wait(lib, [str(tmp_path)])
     # Delete one
     fp1.unlink()
-    lib.scan_start([str(tmp_path)])
-    for _ in range(30):
-        if not lib.scan_status().get("running"):
-            break
-        time.sleep(0.05)
-    s = lib.scan_status()
+    # The cascade site. Both scan_start returns used to be discarded: when the
+    # first wait exhausted, this second start was REFUSED ("scan already
+    # running"), the second wait polled the FIRST scan, and the assertion below
+    # was made about a scan that never ran.
+    s = scan_wait.start_and_wait(lib, [str(tmp_path)])
     assert s["missing_marked"] == 1
 
 
@@ -408,12 +395,7 @@ def test_scanner_skips_decoy_files(tmp_path):
     (tmp_path / "v.mp4.part").write_bytes(b"in flight")
     (tmp_path / "notes.txt").write_bytes(b"")
     (tmp_path / "v.bdseg.json").write_bytes(b"{}")
-    lib.scan_start([str(tmp_path)])
-    for _ in range(30):
-        if not lib.scan_status().get("running"):
-            break
-        time.sleep(0.05)
-    s = lib.scan_status()
+    s = scan_wait.start_and_wait(lib, [str(tmp_path)])
     assert s["seen"] == 1
     assert s["added"] == 1
 
@@ -430,11 +412,10 @@ def test_scanner_refuses_concurrent_runs(tmp_path):
     # If the first finished too fast, r2 might also succeed — accept
     # either as long as we don't get a crash
     assert isinstance(r2.get("ok"), bool)
-    # Drain
-    for _ in range(50):
-        if not lib.scan_status().get("running"):
-            break
-        time.sleep(0.05)
+    # Drain. A best-effort loop here left a RUNNING scan in module-global
+    # state on exhaustion; wait_for_scan raises instead. Not start_and_wait --
+    # this test starts its own scans deliberately and asserts on the refusal.
+    scan_wait.wait_for_scan(lib)
 
 
 def test_scanner_rejects_empty_roots():

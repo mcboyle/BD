@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3770,
+  "edge_count": 3771,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -6042,6 +6042,9 @@
     ],
     "tests/test_v3_66_934_ai_config_is_not_inherited.py": [
       "bulk_downloader/aiassist.py"
+    ],
+    "tests/test_v3_66_935_scan_wait_reports_non_convergence.py": [
+      "bulk_downloader/library.py"
     ],
     "tests/test_v3_66_96_autopilot_cockpit.py": [
       "bulk_downloader/capture_ingest.py",

@@ -68,6 +68,8 @@ import time
 
 import pytest
 
+import scan_wait
+
 
 @pytest.fixture(autouse=True)
 def _bd_boot_app():
@@ -126,14 +128,10 @@ def forward_path_probe(clean_workdir):
     db_log("site1", "Site One", "https://example.invalid/b", "done",
            os.path.join("Studio", "nested.mp4"), _NESTED_BYTES, "")
 
-    started = lib.scan_start([str(dl)])
-    assert started.get("ok") is True, f"scan did not start: {started}"
-    for _ in range(200):
-        if not lib.scan_status().get("running"):
-            break
-        time.sleep(0.05)
-    status = lib.scan_status()
-    assert status.get("running") is False, "scan never finished; probe invalid"
+    # Was a 10s poll that checked `running is False` afterwards. That check
+    # is unsound on its own -- scan_cancel() clears `running` while the worker
+    # keeps walking -- and start_and_wait waits on `finished_at` instead.
+    status = scan_wait.start_and_wait(lib, [str(dl)])
 
     return {
         "lib": lib,
