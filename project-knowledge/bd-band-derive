@@ -564,7 +564,19 @@ def derive(work, changed, rows, zsha_src=None):
     band |= regen_suites(work, changed,
                          fe_mut=fe_gate_hits(work, changed, zsha_src))
     # the CONTRACT FLOOR rides on every derived band (see FLOOR)
-    band |= {f for f in FLOOR if os.path.isfile(os.path.join(work, f))}
+    _floor_here = [f for f in FLOOR
+                   if os.path.isfile(os.path.join(work, f))]
+    _floor_gone = [f for f in FLOOR if f not in _floor_here]
+    if _floor_gone:
+        # @937: dropping the contract floor is a NARROWER band than the
+        # caller was promised, and it used to happen without a word. The
+        # existence check stays -- naming a suite that is not there would
+        # emit a command that cannot run -- but the omission is now said.
+        # stderr, because stdout is the line `--emit` exists to produce.
+        print("bd-band-derive: contract floor absent under %s, omitted "
+              "from the band: %s" % (work, ", ".join(_floor_gone)),
+              file=sys.stderr)
+    band |= set(_floor_here)
     # @897 -- filtered HERE, at the single return, not in emit_band(): the JSON
     # payload publishes `band` raw and only band_cmd goes through emit_band, so
     # filtering there would leave two denominators that disagree -- the exact
@@ -783,8 +795,27 @@ def is_suite(rel):
 
 
 def emit_band(band):
-    full = sorted(set(band) | {f for f in FLOOR
-                               if os.path.isfile(os.path.join("/home/claude/work", f))})
+    """Format an already-derived band as the bd-band command line.
+
+    A FORMATTER, NOT A SECOND DERIVATION (@937). This used to union FLOOR in
+    again, probed against a hardcoded sandbox home -- a path that exists on no
+    machine this repository runs on, so the union matched nothing and the
+    expression was dead. It was harmless only by luck: derive() already unions
+    the same FLOOR against the real `work` (see the CONTRACT FLOOR line), so
+    the floor reached every band from there. Measured on the pristine tool --
+    23 suites with the floor present, and 22 with the floor absent once
+    derive()'s union alone was neutralised, which is what proves derive() was
+    the supplier and this was the spare.
+
+    A DUPLICATE DENOMINATOR IS THE DEFECT, not the wrong literal inside it.
+    Two places computing band membership can disagree, and the one nobody
+    reads is the one that rots -- exactly what @897 argued when it put the
+    is_suite filter at derive()'s single return rather than here, because the
+    JSON payload publishes `band` raw while only band_cmd passes through this
+    function. Deriving in one place and formatting in the other keeps those
+    two outputs describing the same set.
+    """
+    full = sorted(set(band))
     return ("bd-band " + " ".join(full)) if full else \
         "bd-band  (no mapped suite -- band this cut's own new tests + test_contracts)"
 
