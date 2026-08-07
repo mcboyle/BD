@@ -4017,6 +4017,80 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.57 | Two stale facts found while cutting v3.66.934, both fixed at source; one open operator decision
+
+Found 2026-08-07 at v3.66.934 while working the three box-capture failures.
+Recorded because the OPERATOR asked that stale information be fixed rather
+than noted, and because one of the two is a decision that is not mine.
+
+**A | CLAUDE.md said CI runs no tests. It has run 161 since v3.66.849.**
+
+The section 7 bullet read: "The `gates` job runs gitleaks, the
+generated-artifacts sync check, `compileall`, advisory `pyflakes` and the
+CHANGELOG ASCII check -- **no pytest at all**. The only job that runs tests is
+`postgres-integration`, whose list is four mod3 files. So CI's entire test
+denominator is four files."
+
+That was CORRECT when written at v3.66.847. `.github/workflows/ci.yml` gained
+a 15-file repo-wide pytest lane at v3.66.849 and nothing updated the bullet, so
+for 85 releases the contract told every agent that a red `gates` job could not
+be about their tests.
+
+MEASURED 2026-08-07, by running the lane rather than reading it:
+
+    161 passed in 130.25s      (this container)
+    1 failed, 160 passed in 140.07s   (CI, on 90c5d9b)
+
+The CI failure was `test_import_graph_no_new_edges` -- a real and correct catch
+of a baseline re-freeze that had not been committed. So the bullet was actively
+misleading at the exact moment it mattered: it would have told the reader that
+a red gates job was not about their cut, when it was.
+
+FIXED in CLAUDE.md section 7, with the 15 file names enumerated and the
+measurement dated. The bullet now leads with "do not read this paragraph
+instead of ci.yml", and carries its own staleness as the worked example of
+section 1's rule. What survives unchanged is the part that was always the
+point: CI's denominator is file-INDEPENDENT, so a green tick still says nothing
+about the changed module's own suites.
+
+**B | The CI lane has doubled and breached its own stated budget. OPEN --
+operator decision.**
+
+`.github/workflows/ci.yml`'s comment on that step sets a rule:
+
+    Measured 2026-08-03: 81 tests, 52s. Keep it under a minute; if it grows
+    past that, split rather than silently dropping files, because a truncated
+    list here reads as coverage it does not have.
+
+Re-measured at v3.66.934: **161 tests, 140s in CI, 130s in a container.**
+Double the tests and more than double the budget.
+
+The rule's own remedy is to SPLIT the job, not to raise the number -- raising
+it silently is how a budget stops being a budget. I did neither: changing the
+shape of a CI job is a build change and needs the operator (CLAUDE.md section
+9). The comment in `ci.yml` now records the breach, the re-measurement, and
+that the decision is deferred here, so the next reader does not find an
+unexplained 140s against a 60s rule and quietly edit the number.
+
+DO NOT resolve this by trimming the file list. Every entry is a gate that was
+RED somewhere nothing else could see -- the @850 note in `ci.yml` names two
+that sat red on `main` for three releases.
+
+THE DECISION: split into two jobs (parallel, each under the minute) vs. raise
+the budget to ~3 minutes and say why. Not started.
+
+**C | Process finding, not a defect: staging is publication in this
+environment.**
+
+The stop hook commits and pushes whatever is STAGED. During this cut it fired
+between `git add` and the import-graph re-freeze, so `90c5d9b` went out and
+opened PR #240 carrying a tree my own band had already proven red. Nothing was
+lost and the follow-up commit `ad2f2d3` closed it, but the ordering rule is now
+sharper than CLAUDE.md section 2a states: **re-freeze and regen BEFORE staging,
+not merely before the band.** Section 2a's existing advice -- `git add` before
+the final band run so the `git ls-files` gates can see a new test file -- still
+holds, and the two together mean: regen, re-freeze, THEN stage, THEN band.
+
 ### 15.56 | Session 2026-08-07: six cuts (928-933), and the mirror retirement that is half done
 
 STATE AT CLOSE. main at 4f141f6 = v3.66.933, dirty 0, behind 0, one branch.

@@ -179,9 +179,21 @@ jobs:
       # locally. And the box remains the gate (§7) -- these lanes pass in a
       # container that differs from test4 in both directions.
       #
-      # Measured 2026-08-03: 81 tests, 52s. Keep it under a minute; if it grows
-      # past that, split rather than silently dropping files, because a
-      # truncated list here reads as coverage it does not have.
+      # BUDGET, AND IT IS CURRENTLY BREACHED. The rule set 2026-08-03 was
+      # "81 tests, 52s -- keep it under a minute; if it grows past that, split
+      # rather than silently dropping files, because a truncated list here reads
+      # as coverage it does not have."
+      #
+      # RE-MEASURED 2026-08-07 at v3.66.934: 161 tests, 140s in CI (130s in a
+      # cloud container). Double the tests, more than double the budget. The
+      # rule's own remedy is to SPLIT, not to raise the number here -- raising
+      # it silently is how a budget stops being one. Left as an operator
+      # decision (split vs. raise) and recorded in
+      # project-knowledge/SESSION_CARRY.md rather than decided here, because
+      # changing the shape of a CI job is a build change.
+      #
+      # Do not "fix" this by trimming the file list. Every entry is a gate that
+      # was RED somewhere nothing else could see; see the @850 note below.
       - name: Repo-wide gates must pass
         run: |
           python -m pytest -q -p no:randomly \

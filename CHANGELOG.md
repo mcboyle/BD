@@ -55,6 +55,18 @@ Scope: restores _config only. _health, _warmed and _FILENAME_META_CACHE persist
 across tests deliberately and three test files depend on that. A fixture that
 re-runs _load_app_config() afterwards (fresh_app) runs later and wins.
 
+ALSO IN THIS CUT, doc-only, because stale contract text is what makes the next
+session wrong: CLAUDE.md section 7 said CI's `gates` job runs "no pytest at
+all" and that CI's entire test denominator is four mod3 files. That was true
+when written at v3.66.847 and stopped being true at v3.66.849, which added a
+15-file repo-wide pytest lane. Re-measured 2026-08-07: 161 tests, 140s in CI,
+130s in a container -- and CI failed THIS cut on test_import_graph_no_new_edges,
+a correct catch, while the contract said a red gates job could not be about
+your tests. Corrected with the file list enumerated and the measurement dated.
+The lane has also breached its own stated budget (81 tests / 52s, "keep it
+under a minute"); ci.yml now records the breach and defers split-vs-raise to
+the operator, since changing a CI job is a build change. SESSION_CARRY 15.57.
+
 RECORDED, NOT FIXED: _load_app_config() also mutates app_kernel._app_cfg (the
 same dict object as app._app_cfg, not a copy), runner._global_sem and
 _global_sem_size, daily_budget._GLOBAL_BUDGET, and the process-wide
