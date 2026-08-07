@@ -4017,6 +4017,127 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.53 | Persistence audit at 803a39a -- what was NOT written down, and the panel verified current
+
+Run because "is it all saved?" is exactly the question that gets answered from
+memory. Everything below was checked against the tree, not recalled.
+
+STATE. main at 803a39a = v3.66.927: dirty 0, unpushed 0, behind 0, stashes 0,
+one branch. 15.47 through 15.52 all present on origin/main. Guards 7 ok,
+bd-freshcheck exit 0, bootstrap gates 29 passed / 1 skipped.
+
+THE CLOUD PANEL IS CURRENT -- VERIFIED, NOT ASSUMED, AND THE OBVIOUS WORRY IS
+WRONG. `scripts/cloud-bootstrap.sh` line 2 carries
+`[cache-rebuild: 2026-08-05 v3.66.881]` against a v3.66.927 tree, which looks
+stale. It is not:
+
+  * NOTHING READS THE MARKER. It occurs exactly once in the repo, in the file
+    itself. Its only function is to change the pasted TEXT so the panel hashes
+    differently and rebuilds -- a manual lever. It therefore records WHEN A
+    REBUILD WAS LAST FORCED, not the current version, and lagging is correct.
+  * The bootstrap last changed at PR #185 (the commit that set the marker).
+    `cloud-setup.sh` changed later, at v3.66.903 -- but the bootstrap EXECS the
+    provisioner from the repo, so provisioner changes reach the next session
+    with nothing to re-paste. **No re-paste is owed.**
+  * Do not "fix" the marker by bumping it to the current version. That forces a
+    cache rebuild for no reason and destroys the one piece of information it
+    carries.
+
+THE ENV BOX IS A CURATED SUBSET, and CLAUDE.md now says so. cloud-setup.sh
+reads NINE BD_ variables; the box names four of them. The five unnamed are
+optional skips with working defaults (BD_SKIP_AUDIT, BD_SKIP_CLOAK,
+BD_SKIP_EXTRAS, BD_SKIP_NET, BD_SKIP_SECTOOLS). Conversely BD_DISABLE_KEEPALIVE
+is IN the box and the provisioner never reads it -- its consumers are the app
+and the test suite. Neither direction is a defect; both read like one until
+checked.
+
+FOUR THINGS THIS SESSION DERIVED AND NEVER RECORDED, now fixed:
+
+  * **Item 1 (7b, name the twelve retired tools) HAS A MEASUREMENT.** 240 bd-*
+    tools in toolchain/bin; exactly TWO (`bd-audit-gate.py`, `bd-triage.py`)
+    are never referenced anywhere outside toolchain/bin. So the twelve are NOT
+    derivable from the tracked tree -- the register's "unrecoverable" is
+    CONFIRMED with a number rather than asserted. The disposition follows: it
+    needs the operator's records or it should be closed won't-fix. Nothing
+    depends on it; the cost of leaving twelve unnamed tools in place is that
+    they sit there, which is already the status quo.
+  * **`bitrot.py:72-74` wraps an `ALTER TABLE` in a bare `except Exception:
+    pass`,** so it cannot distinguish "column already exists" (fine) from "the
+    provenance table does not exist yet" (not fine) and `last_verified_ts` can
+    silently never be added. Hit directly while writing @925's fixture and
+    worked around rather than fixed. OPEN, small.
+  * **The nightly bitrot scan is inert and it is only in the CHANGELOG.** @926
+    left `bg_scheduler.py:252` calling `run_scan()` with no download_dir, so it
+    reports `unknown=N` and decides nothing. That was a deliberate, stated
+    deferral -- but a deferral recorded only in a per-cut changelog entry is not
+    in anybody's open list. OPEN.
+  * **`bd-doctruth` does not scan CLAUDE.md** (65 documents, project-knowledge
+    only). Recorded in CLAUDE.md section 0 as the reason its own section 5 went
+    stale for weeks. This is the highest-value doc-tooling item available.
+
+CLAUDE.md's OWN NUMBERS WERE RE-DERIVED, and this is the half the audit nearly
+got wrong. Section 1's worked example -- the one that teaches "the instrument
+fixes the denominator; the predicate fixes the subject" -- carried a predicate
+error of exactly that kind:
+
+  | claim | measured at 803a39a |
+  | --- | --- |
+  | 2108 files end in .py | 2136 |
+  | 469 extensionless bd-* scripts | 456 (231 toolchain, 225 project-knowledge) |
+  | "...EXECUTABLE, python-shebang..." | only 232 of 456 are mode 100755 |
+  | 234 / 235 per directory | 231 / 225 |
+  | section 8: ~249 bd-* tools | 240 |
+  | "seventeen shell scripts embed py heredocs" | 3, under two predicates |
+
+  THE WORD "EXECUTABLE" WAS THE DEFECT. 224 of the 456 -- almost all of
+  project-knowledge/ -- are tracked 100644, not 100755. An auditor who filtered
+  on the exec bit BECAUSE THE PROSE SAID TO measured ONE file under
+  project-knowledge and concluded the paragraph had rotted by 200x. It had not.
+  The prose over-specified its own subject.
+
+  THREE SUCCESSIVE READINGS OF THAT ONE BULLET WERE WRONG IN A SINGLE AUDIT --
+  a predicate ignoring `bd-*`; one requiring mode 100755; then reading the
+  survivor count as deletion drift when git showed only TEN files ever removed
+  (seven at @858, three at @917). Each was stated confidently before the next
+  measurement overturned it. That is section 1 failing inside section 1's own
+  example, and it is the argument for the arithmetic check: 2136 + 456 = 2592
+  reconciles, and the "1 under project-knowledge" reading never did.
+
+  The heredoc count is left UNKNOWN rather than corrected. The class is real --
+  a heredoc is invisible to an AST walk over files -- but 17 did not reproduce
+  under two predicates, and replacing it with a number nobody has stood behind
+  would just restart the cycle.
+
+THE OVERNIGHT LIST, so it survives this conversation. Ranked, each
+independently mergeable, all container-verifiable:
+
+  1. auto_recover_sqlite quarantines HEALTHY databases (15.50 item A) -- the
+     defect that actually destroyed the operator's history. Fails loud if
+     wrong, unlike today.
+  2. Widen bd-doctruth to CLAUDE.md, then re-derive its checkable claims.
+  3. Re-derive registers 31 and 32 (TASK_TRACKER 11 rows, CODEX_HANDOFF 23
+     groups) -- expect a similar rate to 15.51's 15-of-23.
+  4. Wire run_scan's download_dir (above).
+  5. Item 30 pre-push hook; 15.50-B cwd writes; the bitrot bare except.
+  6. Slow detection jobs: attribute the +2 rows capture wrote to production,
+     mutation batteries over this session's modules, a full-suite run.
+
+  DRAFT-ONLY (operator approves the call): item 3's sweep -- 20 of the 246
+  references live in CHANGELOG.md as HISTORICAL entries and rewriting those
+  falsifies the record, so the rule is "live references only"; item 27's N-rows
+  implementation; the 7 pre-existing e2e_smoke failures.
+
+  NOT ALONE: item 14 (threading in the login path), items 1/21/25/29 (operator
+  or box), item 17 (needs a restart that cannot be manufactured).
+
+METHOD, recorded because it recurred: three of this audit's "*** UNRECORDED
+***" verdicts were WRONG, and all three for the same reason -- grep across a
+wrapped document misses a phrase the line break split. `grep 'Four frames'`
+finds nothing in a file containing "Four
+frames". Generalised into CLAUDE.md
+section 1 alongside the parameter-only AST predicate that reported 97 offenders
+where the truth was 2.
+
 ### 15.52 | Operator decisions 2026-08-07 on the three items that needed a call
 
 Recorded so the next session does not re-ask, and so nobody guesses. All three
