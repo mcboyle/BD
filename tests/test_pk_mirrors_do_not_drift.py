@@ -51,7 +51,12 @@ PK = REPO_ROOT / "project-knowledge"
 # spare, so the floor could not see a narrowing it was written to catch. A
 # floor alone never can -- that is what the coverage canary below is for.
 # Measured at v3.66.870: 258 distinct mirrors, 260 flat pairs.
-_MIN_PLAUSIBLE_MIRRORS = 250
+# @933: the five mirrors carrying gitleaks-baselined secrets were deleted,
+# 239 -> 234, as the first step of retiring the mirror set entirely. The
+# floor moves with it rather than being removed: the remaining 234 are
+# still a real subject, and a floor of 0 would be the blind gate this
+# canary exists to prevent. It goes when the last mirror does.
+_MIN_PLAUSIBLE_MIRRORS = 230
 
 
 def _sha(path: Path) -> str:
