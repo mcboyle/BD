@@ -4,6 +4,35 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.924 - register-only: the capture regression, and item 11 as the ceiling
+
+SESSION_CARRY 15.48. No source change.
+
+Records v3.66.920-923: capture went from ~45 minutes back to 4m06s for the
+whole suite, why it had regressed (a fail-closed lane default nobody
+backfilled, silent because a fail-closed default raises no error), and the
+method that produced the evidence -- run everything in one parallel lane, then
+re-run only the failures serially.
+
+Carries three things a future session would otherwise re-derive:
+
+  * THE METHOD'S LIMIT. Four widths produced ten refuted files and the list did
+    NOT converge, because the *_frontend family is LOAD-sensitive rather than
+    order-sensitive -- one-second wall-clock budgets under 16-64 concurrent
+    workers. Enumerating those one width at a time never terminates; they are
+    named by mechanism instead.
+  * ITEM 11 IS NOW THE CEILING. All-parallel runs abort during COLLECTION at
+    -n 64+ because app.py boots the database at module scope and pytest imports
+    every module in every worker; `-m` filters after collection, so lanes
+    cannot change it. Filed at 15.47 as a residue problem, it is also a
+    concurrency limit and a corruption risk.
+  * A TRAP IN THE MEASUREMENT HARNESS. An aborted run writes an EMPTY failure
+    file, which contributes nothing to a union while looking like "found
+    nothing" -- so the union named 5 files when the truth was 8.
+
+Also records four bugs the gates caught while building the lane cuts, including
+one commit that landed on main locally and was saved only by a missing refspec.
+
 ## v3.66.923 - the whole suite runs in 4 minutes, so explicit review now outranks the heuristics
 
 MEASURED ON THE BOX: the entire tree in ONE parallel lane -- 1232 files, 14,856

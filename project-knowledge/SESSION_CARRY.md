@@ -4012,6 +4012,111 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.48 | Session close 2026-08-07 at 5a6b9a6 (v3.66.923) -- capture went 45min -> 4min, and item 11 turned out to be the ceiling
+
+Continues 15.47, same session. The operator reported that capture "used to be
+all parallel and done in 5-10 minutes" and now took ~45. That was true, it was a
+REGRESSION, and chasing it produced a better finding than the speedup.
+
+**THE REGRESSION.** Lane assignment became fail-closed at `1ae076a` with 173
+files reviewed into `tests/capture_parallel_files.txt`. Nothing ever backfilled
+it -- four edits since, two of them retirements that only REMOVED entries --
+while the suite grew to 1232 files. Everything unreviewed defaulted to serial.
+It was silent because **a fail-closed default raises no error**: the gate was
+green the whole time, doing less and less.
+
+Measured before the fix: 173 parallel / 1059 serial, and of the 1059, **526
+matched no risk criterion at all**.
+
+| cut | what it did |
+| --- | --- |
+| 921 | backfilled 617 evidence-clean files; made SERIAL_NAME_TOKENS overridable |
+| 922 | demoted test_u50_widget_backfills -- the hazard 921 predicted, arriving |
+| 923 | allowlist outranks all heuristics but one; 1074 parallel / 158 serial |
+
+**THE HEADLINE NUMBER: the whole suite runs in 4m06s.** 1232 files, 14,856
+tests, `-n 64 --dist loadfile`, user time 84m29s -- about 20x. Also 4m40s at
+-n 24 and 5m56s at -n 16. Against ~45 minutes.
+
+**HOW THE EVIDENCE WAS BUILT, because the method is reusable.** Run everything
+in ONE parallel lane, then re-run only the failures SERIALLY. Anything that
+passes serially was lane placement, not a bug. Across four widths: 0 real
+failures, every single time.
+
+**AND THE METHOD'S LIMIT, which is the part worth carrying.** Four widths
+(-n 64/32/24/16) produced TEN distinct refuted files, and the list DID NOT
+CONVERGE -- -n 32 added one, -n 16 added two more. Three fail at every width and
+are deterministic; the rest appear in one or two runs each.
+
+The reason: they are **LOAD-sensitive, not order-sensitive**. The `*_frontend`
+family spawns workers and asserts against `AdapterBudget.timeout_seconds` -- a
+ONE-SECOND wall clock -- with failures like `test_worker_ipc_bytes_are_bounded`.
+Under 16-64 concurrent pytest processes that is a coin flip. No packing makes
+them safe and each run samples a different subset, so enumerating them one width
+at a time never terminates. All five were named by MECHANISM instead.
+
+That is a DIFFERENT class from `test_u50_widget_backfills`, which was a genuine
+cross-file dependency (it needed a table an earlier file had created) and IS
+fixed by placement. Do not conflate them: one is fixed by naming, the other
+would be fixed by giving the test its own schema.
+
+**ITEM 11 IS THE CEILING, AND ITS PRIORITY CHANGED.** Repeat all-parallel runs
+ABORT during collection at higher widths:
+
+    bulk_downloader/app.py:80: in <module>
+        db_init()
+    sqlite3.OperationalError: disk I/O error
+
+pytest imports every test module in EVERY worker at collection -- `-m` filters
+AFTER collection, so **lanes cannot change this** -- and app.py boots the
+database at module scope. Measured: -n 32 completes; -n 64 is marginal (one full
+run finished, a later one aborted); -n 128 aborts, once reporting `database disk
+image is malformed`. The downstream "Different tests were collected between gwX
+and gwY" errors follow from the failed import diverging a worker's collection.
+
+15.47 files item 11 as a RESIDUE problem (471,095 bytes of junk). It is also a
+**concurrency limit and a corruption risk**, and that is the argument for taking
+its contract change rather than deferring it again. The @919 attempt is still
+unmerged on PR #221's ref (`4b0916c`) with its latch defect documented; the
+right shape is a boot that is DEFERRED AND IDEMPOTENT rather than SUPPRESSED,
+which is what the latch got wrong.
+
+Box DB checked afterwards: `integrity: ok`. The varying table counts in those
+logs (34/32/26) are NOT damage -- db_init creates 8 tables and 60 distinct
+`CREATE TABLE IF NOT EXISTS` statements live across the package, created lazily
+by whichever module a process imported. **Left open: `history` reported 0 rows.**
+Nobody established whether that is normal for this box.
+
+**A TRAP IN THE MEASUREMENT HARNESS, worth more than the runs.** The sweep
+unions each run's `.fail` file. A run that ABORTS at collection produces an
+EMPTY `.fail`, which contributes nothing to a union while looking exactly like
+"this run found nothing". Two of four runs aborted, and the union file therefore
+named 5 files when the true union was 8. Acting on it would have silently
+dropped three. Section 0, inside the instrument built to apply section 0.
+
+**FOUR BUGS THE GATES CAUGHT WHILE BUILDING THIS, none by reading:**
+
+  * moving the allowlist above the heuristics left the function's tail returning
+    "parallel", which promoted EVERY unreviewed file in the repo. Two tests
+    failed on the first run.
+  * a hand-picked subset of SERIAL_SOURCE_SNIPPETS omitted five entries, so 7
+    files were promoted that the real predicate refuses. Fix: borrow the
+    classifier's own constants, never restate them.
+  * `test_generated_artifact_workflow.py` was used as a SYNTHETIC exemplar and
+    is a REAL file -- once the allowlist covered the tree it classified parallel
+    and failed a test for reasons unrelated to the classifier. The same
+    stale-exemplar trap appeared TWICE in sibling tests. Synthetic cases now
+    carry a `_zzsynth_` marker.
+  * a commit landed on `main` locally because the topic branch had been deleted
+    after the previous merge and never re-created. The push failed on a missing
+    refspec, which is the ONLY reason it did not land. Re-create the branch
+    immediately after every post-merge reset.
+
+**WHAT TO DO NEXT, in order:** (1) confirm whether `history: 0` is expected on
+the box; (2) build item 11 as a deferred-idempotent boot -- it is now the thing
+capping worker count; (3) `bitrot.verify_one` from 15.47 remains the highest-
+value correctness find and is untouched.
+
 ### 15.47 | Session close 2026-08-06 at 3b73ccc (v3.66.919) -- tier 4 worked top-down; item 16 closed, item 14 was never real, item 12 is four times larger
 
 Continues 15.46. Six cuts merged. The operator approved four scope questions up
