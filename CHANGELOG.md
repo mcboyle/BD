@@ -4,6 +4,53 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.923 - the whole suite runs in 4 minutes, so explicit review now outranks the heuristics
+
+MEASURED ON THE BOX: the entire tree in ONE parallel lane -- 1232 files, 14,856
+tests, `-n $(nproc) --dist loadfile` -- finished in **4m06s** (user 84m29s,
+about 20x). Nine tests failed across seven files and ZERO survived a serial
+retry, so not one was a real defect. Every failure was lane placement.
+
+That is a different KIND of evidence from @921's, and it is why the posture
+flips here. @921 ran the serial lane ALONE, which is not the configuration that
+ships -- and splitting the lane duly broke test_u50_widget_backfills at @922,
+whose table-seeding dependency landed on the other side. An all-parallel sweep
+has no other side: it IS the shipping configuration, measured directly.
+
+So the allowlist now OUTRANKS the name tokens and the source heuristics.
+Unlisted files are still serial, so fail-closed survives untouched. Lane split
+goes 783/449 -> 1079/153.
+
+ONE SOURCE CHECK STAYS ABSOLUTE and an allowlist entry cannot override it:
+importing the fallback runner (ABSOLUTE_SERIAL_SNIPPETS), which rewires global
+interpreter state and already had its own dedicated test. That accounts for 141
+of the 153 files left serial; the other 12 are named refutations.
+
+THREE FILES NEWLY REFUTED, named rather than omitted because this allowlist is
+generated: test_differential_oracle_frontend, test_u30_runner_replay, and
+test_perf_lab -- which CLAUDE.md section 5 records as a HANGER when the tree is
+run whole. It did not hang here, it failed; serial for both reasons now.
+
+THREE BUGS THE GATES CAUGHT WHILE BUILDING THIS, none by reading:
+
+  * moving the allowlist above the heuristics left the tail returning
+    "parallel", which promoted EVERY unreviewed file in the repo and destroyed
+    the property this module exists for. Two tests failed on the first run.
+  * test_generated_artifact_workflow.py was used as a SYNTHETIC exemplar and is
+    a REAL file; once the allowlist covered the tree it classified parallel and
+    failed a test for reasons unrelated to the classifier. Same stale-exemplar
+    trap @921 fixed in a sibling test. Synthetic cases now carry a _zzsynth_
+    marker so they cannot collide with real filenames.
+  * the _has_source_hazard helper still asserted every source heuristic was
+    absolute, which stopped being true here.
+
+WHAT THIS EVIDENCE IS STILL NOT: more than one PACKING. xdist assigns files to
+workers by count, so another -n shuffles which files share a worker. Re-runs at
+other widths are how that gets covered, and anything they refute is a one-line
+addition to SERIAL_EXACT_BASENAMES.
+
+The ratchet rises from >= 700 to >= 1000 parallel files.
+
 ## v3.66.922 - one promoted file depended on another file creating its tables
 
 The first real capture after the @921 backfill ran the parallel lane in 3m54s

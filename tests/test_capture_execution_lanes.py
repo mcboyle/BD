@@ -47,13 +47,20 @@ def _collect(marker: str, test_path: str) -> subprocess.CompletedProcess[str]:
 def test_classifier_routes_each_risky_category_to_serial() -> None:
     lanes = _load_lanes_module()
 
+    # v3.66.923: every path here carries a _zzsynth_ marker so it CANNOT be a
+    # real file. Three of these names were real, and once the allowlist covered
+    # the tree they classified parallel and failed this test for a reason that
+    # had nothing to do with the classifier -- the same stale-exemplar trap
+    # test_classifier_defaults_unreviewed_files_to_serial hit at v3.66.921.
+    # A synthetic case must be synthetic.
     cases = [
-        ("tests/test_global_probe.py", "pytestmark = pytest.mark.bd_module_wipe"),
-        ("tests/test_run_tests_contract.py", "RUNNER = 'run_tests.py'"),
-        ("tests/test_browser_flow.py", ""),
-        ("tests/test_service_install.py", ""),
-        ("tests/test_generated_artifact_workflow.py", ""),
-        ("tests/test_network_probe.py", ""),
+        ("tests/test_zzsynth_global_probe.py",
+         "pytestmark = pytest.mark.bd_module_wipe"),
+        ("tests/test_zzsynth_runner_contract.py", "RUNNER = 'run_tests.py'"),
+        ("tests/test_zzsynth_browser_flow.py", ""),
+        ("tests/test_zzsynth_service_install.py", ""),
+        ("tests/test_zzsynth_artifact_workflow.py", ""),
+        ("tests/test_zzsynth_network_probe.py", ""),
     ]
     for path, source in cases:
         assert lanes.classify_capture_file(path, source=source) == "serial", path
@@ -70,13 +77,16 @@ def test_classifier_routes_each_risky_category_to_serial() -> None:
 def test_classifier_serializes_unscoped_state_and_external_io_signals() -> None:
     lanes = _load_lanes_module()
 
+    # Synthetic for the same reason as above -- these assert the UNLISTED
+    # default, so a real (and therefore possibly allowlisted) name would test
+    # the allowlist instead of the heuristic.
     cases = [
-        ("tests/test_state_probe.py", 'sys.modules["probe"] = object()'),
-        ("tests/test_env_probe.py", 'os.environ["PROBE"] = "dirty"'),
-        ("tests/test_cwd_probe.py", 'os.chdir("/tmp")'),
-        ("tests/test_client_probe.py", 'import httpx\nhttpx.get("https://example")'),
-        ("tests/test_transport_probe.py", "import socket\nsocket.create_connection(addr)"),
-        ("tests/test_index_sync.py", 'Path("PIN_INDEX.json").read_text()'),
+        ("tests/test_zzsynth_state_probe.py", 'sys.modules["probe"] = object()'),
+        ("tests/test_zzsynth_env_probe.py", 'os.environ["PROBE"] = "dirty"'),
+        ("tests/test_zzsynth_cwd_probe.py", 'os.chdir("/tmp")'),
+        ("tests/test_zzsynth_client_probe.py", 'import httpx\nhttpx.get("https://example")'),
+        ("tests/test_zzsynth_transport_probe.py", "import socket\nsocket.create_connection(addr)"),
+        ("tests/test_zzsynth_index_sync.py", 'Path("PIN_INDEX.json").read_text()'),
     ]
     for path, source in cases:
         assert lanes.classify_capture_file(path, source=source) == "serial", path
@@ -98,10 +108,15 @@ def test_allowlisted_file_cannot_bypass_dynamic_runner_import_risk() -> None:
 
 
 def _has_source_hazard(lanes, path) -> bool:
-    """True when a file's SOURCE trips a check the allowlist may not override.
+    """True when a file's SOURCE trips the one check the allowlist may not override.
 
-    Deliberately reuses the classifier's own constants rather than restating
-    them. A restatement drifts: while backfilling the allowlist at v3.66.921 a
+    NARROWED at v3.66.923. It used to cover every source heuristic, which was
+    right while those were absolute. They are not any more: whole-tree
+    experimental evidence promoted them, and only the fallback-runner import --
+    which rewires global interpreter state -- stayed absolute.
+
+    Still reuses the classifier's own constants rather than restating them. A
+    restatement drifts: while backfilling the allowlist at v3.66.921 a
     hand-picked subset of SERIAL_SOURCE_SNIPPETS omitted five entries, and
     seven files were promoted that the real predicate refuses. The instrument
     fixes the denominator; borrowing it fixes the predicate too.
@@ -111,9 +126,9 @@ def _has_source_hazard(lanes, path) -> bool:
     except OSError:
         return True
     lowered = source.lower()
-    if any(snippet in lowered for snippet in lanes.SERIAL_SOURCE_SNIPPETS):
+    if any(snippet in lowered for snippet in lanes.ABSOLUTE_SERIAL_SNIPPETS):
         return True
-    return any(pattern.search(source) for pattern in lanes.SERIAL_SOURCE_PATTERNS)
+    return bool(lanes.RUNTESTS_LITERAL.search(source))
 
 
 def test_classifier_defaults_unreviewed_files_to_serial() -> None:
@@ -282,9 +297,9 @@ def test_the_parallel_lane_did_not_collapse_back() -> None:
         for path in (REPO_ROOT / "tests").rglob("test_*.py")
         if lanes.classify_capture_file(path) == "parallel"
     )
-    assert parallel >= 700, (
-        f"the parallel lane is down to {parallel} files. It was 783 at "
-        f"v3.66.921. If files were legitimately demoted, lower this floor in "
+    assert parallel >= 1000, (
+        f"the parallel lane is down to {parallel} files. It was 1079 at "
+        f"v3.66.923. If files were legitimately demoted, lower this floor in "
         f"the same commit and say which and why -- do not let it erode "
         f"silently, which is how the 45-minute capture happened."
     )
