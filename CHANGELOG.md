@@ -4,6 +4,61 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.938 - an atomic write leaves a sidecar, and .gitignore covered only the destination
+
+The idiom is everywhere in this tree: write `path.with_suffix(".json.tmp")`,
+then replace it onto `path`. The destination is gitignored. The sidecar is a
+DIFFERENT path, and it was not. The window is narrow - a crash, an OSError, a
+kill between the write and the replace - but what sits in it is the file the
+ignore rule exists to keep out of the index, under a name git does not know
+about. Untracked-and-unignored is exactly the state where one `git add -A`
+commits it.
+
+Measured: all four bases ignored, all four sidecars not.
+
+    .integrity_last_run   -> .integrity_last_run.tmp     db.py
+    vapid_keys.json       -> vapid_keys.json.tmp         push.py:127
+    secrets.json          -> secrets.json.tmp            secrets_store.py:509
+    secrets_meta.json     -> secrets_meta.json.tmp       secrets_store.py:175, :342
+
+The register carried this as "gitignore misses .integrity_last_run.tmp" -
+trivial, one line. It is four, and two of them are the credential files.
+vapid_keys.json holds the web-push PRIVATE key, and
+tests/test_gitignore_rules_actually_match.py already names that file as the one
+whose exposure matters most; it was gated on the destination alone. Both
+credential paths resolve through a bare relative default, so they land in
+whatever directory the service was started from - on the deploy host, the
+checkout.
+
+WHY THE EXISTING GATE COULD NOT SEE IT. Its subject is the RULES: does every
+line in .gitignore match something? A path with no rule at all is outside that
+denominator by construction, so it answered truthfully and uselessly. The new
+gate's subject is the other side - the paths the CODE WRITES. Neither alone is
+the pair.
+
+- .gitignore: four sidecar rules, each beside the destination it protects and
+  each naming the write site, so the next reader does not have to rediscover
+  why the line is there.
+- tests/test_v3_66_938_atomic_write_sidecars_are_ignored.py: 9 tests, 5 RED.
+  Four measured instances plus a discovery scan over every tracked .py. The
+  scan is deliberately over-broad - it associates a suffix with a filename
+  constant at MODULE level rather than by dataflow, which found the four real
+  cases and one false one (push.py declares _DB_REL far from its only .tmp
+  site, so the scan proposed downloader_history.json.tmp, which nothing
+  writes). Rather than ship false precision the imprecision is declared: every
+  candidate must be ignored or listed in _NOT_WRITTEN with the reading that
+  shows why. Three further tests keep that table honest - the scan must still
+  reach all four known instances, no exception may be dead, and no exception
+  may cover an already-ignored path.
+- A mutation escape closed during the cut, and it is the reusable part. The
+  discovery gate's verdict could be severed from its own measurement -
+  replacing the unhandled-filter's condition with a constant made the gate
+  pass unconditionally and NO test noticed, because the only assertion about
+  it lived inside the test being mutated. A detector with no detector. The
+  filter is now a named helper with a positive control: two synthetic
+  candidates whose status is not in doubt, one that must be reported and one
+  that must not. 8 mutants caught, 0 escaped.
+
 ## v3.66.937 - bd-band-derive derived its contract floor in two places
 
 derive() unions the contract FLOOR into every band, probed against the tree

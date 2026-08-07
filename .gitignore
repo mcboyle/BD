@@ -32,6 +32,12 @@ cookies/
 # as `??` on the deploy host. The line asserting the protection is exactly why
 # nobody checked whether it worked.
 vapid_keys.json
+# ...and the sidecar its own atomic write creates. push.py:127 does
+# `tmp = vapid_path.with_suffix('.json.tmp')` then `tmp.replace(vapid_path)`;
+# a crash in that window leaves the PRIVATE key under a name no rule above
+# covered -- untracked AND unignored, which is one `git add -A` from being
+# committed. The rule above gated the destination only.
+vapid_keys.json.tmp
 
 # Written by install_service.sh on every deploy.
 /tools/deployed_version.txt
@@ -43,6 +49,8 @@ vapid_keys.json
 .fts_optimize_last
 .integrity_check_last
 .integrity_last_run
+# db.py's _record_integrity_check_ts writes `<name>.tmp` and os.replace()s it.
+.integrity_last_run.tmp
 # Band-results file written by toolchain/bin/bd-parband:192 at the checkout root
 # (bdtools_sec.DEFAULT_WORK); bd-retest reads it back. Per-run state, not source.
 # Override the location with BD_LAST_BAND.
@@ -81,6 +89,12 @@ vapid_keys.json
 /secrets.json
 /secrets_meta.json
 /secrets.json.bak
+# secrets_store.py writes both vault files through a `.json.tmp` sidecar
+# (:509 for the store, :175 and :342 for the meta) and replaces it onto the
+# destination. Same window, same consequence as vapid_keys.json.tmp above:
+# the credential store, under a name the three rules here did not reach.
+/secrets.json.tmp
+/secrets_meta.json.tmp
 /profiles/
 /state/
 /live_tests/results/
