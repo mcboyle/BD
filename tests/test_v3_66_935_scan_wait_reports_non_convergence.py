@@ -143,11 +143,36 @@ def test_it_converges_after_polling_rather_than_only_on_the_first_look():
 def test_a_never_run_status_is_not_a_converged_scan():
     """The never-run stub is `{"running": False, "never_run": True}` -- no
     finished_at key at all. The old loop read it as 'finished' on its first
-    poll."""
+    poll.
+
+    THIS TEST ESCAPED ITS OWN MUTANT ONCE, and the way it did is why the
+    assertion below is shaped as it is. Deleting the `never_run` branch does
+    NOT stop wait_for_scan raising: the dict has no finished_at, so it never
+    converges and the TIMEOUT branch raises instead -- and that message
+    embeds `_describe(st)`, which prints `never_run = True` as one of its
+    fields. An assertion matching the bare token `never_run` is therefore
+    satisfied by BOTH paths and cannot tell them apart.
+
+    So match the sentence only the never-run branch emits, and pin the
+    behaviour that actually differs: it must fail IMMEDIATELY rather than
+    burning the whole budget on a scan that was never started.
+    """
     lib = _StubLib(statuses=[{"running": False, "never_run": True}])
+    t0 = time.monotonic()
     with pytest.raises(AssertionError) as ei:
-        scan_wait.wait_for_scan(lib, timeout=0.15)
-    assert "never_run" in str(ei.value)
+        scan_wait.wait_for_scan(lib, timeout=5)
+    elapsed = time.monotonic() - t0
+
+    msg = str(ei.value)
+    assert "no scan has ever been started" in msg, (
+        f"the never-run case did not report itself; it fell through to some "
+        f"other failure path. message was: {msg!r}")
+    assert "did NOT converge" not in msg, (
+        "the never-run case was reported as a non-convergent scan -- it is "
+        "not one, and the remedy the caller needs is different")
+    assert elapsed < 1.0, (
+        f"the never-run case took {elapsed:.2f}s of a 5s budget: it polled "
+        f"instead of failing at once")
 
 
 def test_start_and_wait_refuses_a_rejected_start():
@@ -265,14 +290,61 @@ def test_the_real_never_run_stub_still_has_no_finished_at():
 
 # ── the adoption ratchet ─────────────────────────────────────────────────────
 
-def test_no_test_file_hand_rolls_a_scan_poll_loop():
-    """AST, not source text: the docstrings in this file and in scan_wait.py
-    both QUOTE the defective loop, and a grep would count them. A comment is
-    inside the denominator of every gate that reads source text.
+def _poll_loops_in(src: str) -> list[int]:
+    """Line numbers of every loop whose body polls `.scan_status()`.
 
-    Denominator is every tracked tests/*.py, so a NEW file that hand-rolls the
-    loop fails this rather than passing unseen.
+    AST, not source text: the docstrings in this file and in scan_wait.py both
+    QUOTE the defective loop, and a grep would count them. A comment is inside
+    the denominator of every gate that reads source text.
     """
+    hits = []
+    for node in ast.walk(ast.parse(src)):
+        if not isinstance(node, (ast.For, ast.While)):
+            continue
+        for inner in ast.walk(node):
+            if (isinstance(inner, ast.Call)
+                    and isinstance(inner.func, ast.Attribute)
+                    and inner.func.attr == "scan_status"):
+                hits.append(node.lineno)
+                break
+    return hits
+
+
+# The defect, verbatim, as a string rather than as code -- so the positive
+# control below exercises the real predicate without the ratchet finding a
+# genuine offender inside its own gate.
+_THE_DEFECT = '''
+def old_style(lib, tmp_path):
+    lib.scan_start([str(tmp_path)])
+    for _ in range(30):
+        if not lib.scan_status().get("running"):
+            break
+        time.sleep(0.05)
+    return lib.scan_status()
+'''
+
+
+def test_the_ratchets_predicate_can_actually_see_the_defect():
+    """POSITIVE CONTROL, and it is the reason this exists.
+
+    A ratchet that reports "no offenders" is indistinguishable from one whose
+    predicate stopped matching or whose file loop collapsed to nothing -- it
+    goes green either way, truthfully and uselessly. Pin that the predicate
+    finds the shape it is hunting, and that it does not fire on the fix.
+    """
+    assert _poll_loops_in(_THE_DEFECT) == [4], (
+        "the ratchet's predicate no longer recognises the loop this cut "
+        "removed, so its clean verdict below means nothing")
+    assert _poll_loops_in(
+        "def new_style(lib, p):\n"
+        "    return scan_wait.start_and_wait(lib, [str(p)])\n") == [], (
+        "the predicate fires on the adopted form -- it would fail a correct "
+        "call site for its shape")
+
+
+def test_no_test_file_hand_rolls_a_scan_poll_loop():
+    """Denominator is every tracked tests/*.py, so a NEW file that hand-rolls
+    the loop fails this rather than passing unseen."""
     import subprocess
     out = subprocess.run(["git", "ls-files", "-z", "--", "tests/*.py",
                           "tests/**/*.py"], cwd=str(_REPO),
@@ -280,23 +352,25 @@ def test_no_test_file_hand_rolls_a_scan_poll_loop():
     files = [f for f in out.split("\0") if f]
     assert len(files) > 500, f"denominator collapsed to {len(files)} files"
 
-    offenders = []
+    scanned, offenders = 0, []
     for rel in files:
         if rel == "tests/scan_wait.py":
             continue                     # the helper's own loop is the fix
         try:
-            tree = ast.parse((_REPO / rel).read_text("utf-8"))
+            src = (_REPO / rel).read_text("utf-8")
+        except OSError:
+            continue
+        try:
+            hits = _poll_loops_in(src)
         except SyntaxError:              # covered by test_all_sources_parse
             continue
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.For, ast.While)):
-                continue
-            for inner in ast.walk(node):
-                if (isinstance(inner, ast.Call)
-                        and isinstance(inner.func, ast.Attribute)
-                        and inner.func.attr == "scan_status"):
-                    offenders.append(f"{rel}:{node.lineno}")
-                    break
+        scanned += 1
+        offenders += [f"{rel}:{n}" for n in hits]
+
+    assert scanned > 500, (
+        f"only {scanned} of {len(files)} files were actually parsed and "
+        f"scanned -- the clean verdict below would be over a denominator that "
+        f"excludes its subject")
     assert not offenders, (
         "hand-rolled scan poll loop(s) -- use scan_wait.start_and_wait or "
         "scan_wait.wait_for_scan, which fail on non-convergence instead of "
