@@ -752,6 +752,17 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   available`; it passes 49/49 with GTK typelibs and `DISPLAY=:99`. Fix the
   environment (`scripts/provision_test_host.sh`, below), then re-band — do not
   chase it as a code defect.
+- **A SECOND environmental false-failure, container-only: there is no
+  live-recording backend here.**
+  `test_v3_66_729_body_contract_fixtures::test_the_app_never_5xxs_on_a_well_formed_request`
+  fails with `/api/live/watch  app 5xx'd on OUR fixture -> no_backend`, and it
+  is NOT a regression. Measured 2026-08-07: it reproduces identically on the
+  pristine base **in the same directory**, all 10 tests in that file PASS on
+  the box in the v3.66.932 capture, and `which streamlink ffmpeg yt-dlp`
+  returns nothing in this container. Same shape as the GTK case above -- fix
+  the environment or discount it, do not chase it as a code defect. And note
+  what it costs in the other direction: a container band cannot tell you
+  anything about that endpoint at all.
 - Three Python resolution paths exist (system / prestaged / service venv) and
   they carry **different playwright versions**. `import playwright` succeeding at
   a bare prompt proves nothing about what BD runs.
