@@ -249,7 +249,14 @@ def register_default_tasks(*, s_cfg_getter: Optional[Callable] = None,
     # IO budget; the run_scan default scans 5% of the library per run.
     def _run_bitrot():
         from . import bitrot as _br
-        _br.run_scan(scan_fraction=0.05, min_age_days=7, max_files=100)
+        from . import library_final as _lf
+        # Read the roots LAZILY, like every other task here, so the scheduler
+        # does not pin a snapshot taken before the operator configured a site.
+        # Without them every relative row resolves to "unknown" and the scan
+        # decides nothing -- which is what it did until v3.66.930.
+        roots = _lf.download_roots(s_cfg_getter()) if s_cfg_getter else []
+        _br.run_scan(scan_fraction=0.05, min_age_days=7, max_files=100,
+                     download_dirs=roots)
 
     register("bitrot.nightly_scan", _run_bitrot,
              interval_seconds=86400)

@@ -254,7 +254,8 @@ def run_scan(*,
             min_age_days: int = 7,
             max_files: int = 100,
             reverify_after_days: int = 90,
-            download_dir: str = "") -> dict:
+            download_dir: str = "",
+            download_dirs=()) -> dict:
     """Verify a random subset of provenance rows. Returns summary.
 
     Designed to run from a nightly scheduler. The fraction × library
@@ -305,11 +306,17 @@ def run_scan(*,
     summary = {"checked": 0, "intact": 0, "missing": 0, "modified": 0,
                "truncated": 0, "errors": 0, "ambiguous": 0, "unknown": 0,
                "total_library": total}
-    from .library_final import _basename_index
-    index = _basename_index(download_dir)
+    from . import library_final as _lf
+    # `download_dirs` is the multi-site form and `download_dir` the original
+    # single one; a caller may pass either. Both are threaded to verify_one so
+    # the flat join and the index agree on the same root set -- handing the
+    # index every root while verify_one saw only one would resolve a row the
+    # per-row call could not place.
+    roots = list(download_dirs) or ([download_dir] if download_dir else [])
+    index = _lf._basename_index(roots)
     for row in candidates:
         try:
-            r = verify_one(row, download_dir=download_dir, index=index)
+            r = verify_one(row, download_dir=roots, index=index)
             summary["checked"] += 1
             kind = r.get("kind", "error")
             if kind in summary:

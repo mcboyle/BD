@@ -4,6 +4,48 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.930 - the nightly bit-rot scan had nothing to resolve against, so it decided nothing
+
+`bg_scheduler._run_bitrot` called `run_scan()` with no download_dir at all.
+`final_filename` is a bare BASENAME (v3.66.925), so `_resolve_recorded`
+returned "unknown" for every relative row and the nightly job reported
+`unknown: N`. Honest -- a scan saying it cannot see its subject -- but it means
+the scan has never verified a relative row, while `alerts_engine` watches a
+signal it could not produce. run_scan's own docstring named this as a separate
+cut; this is that cut.
+
+MULTI-ROOT IS THE POINT, not generality for its own sake. `download_dir` is
+configured PER SITE, so a single string cannot express the library on a
+multi-site install: handing the scan one root would verify part of the library
+and report the rest as unknown, which is the same blindness being removed.
+Resolution now takes a sequence, and the five existing single-string call
+sites are untouched -- `_as_roots` normalises str, PathLike or sequence, so
+backward compatibility is a property of the code rather than of five edits.
+
+A DEFECT THE FIX INTRODUCED, caught by its own test rather than by review. The
+first multi-root flat join returned the FIRST root whose join existed --
+reintroducing exactly the first-match-wins guess `_resolve_recorded` was
+written to refuse. Across two roots that hashes one site's file against
+another site's recorded hash and calls the difference a modification. It now
+collects every direct hit and reports "ambiguous" on more than one, matching
+what the index path already did.
+
+ONE ENUMERATOR, NOT THREE. `healthcheck._check_disk` built the same
+configured-root list inline; three copies is how the copy nobody updated
+becomes the one that runs (S0/S8). `download_roots()` and
+`download_roots_by_site()` are two shapes over ONE enumeration -- the second
+exists because healthcheck names the site owning a bad path, and making it
+re-derive the list to get that label back would restore the copy this removes.
+The roots are returned RAW rather than filtered for existence, deliberately:
+healthcheck must REPORT a missing directory, while the bit-rot index treats it
+as contributing no files, and filtering would take that choice from both.
+
+Tests: `tests/test_v3_66_930_bitrot_scan_gets_its_roots.py`, 13 cases. Proven
+RED on pristine source (10 failing, 3 passing -- the passing ones are the
+single-string backward-compatibility guards and the no-roots-is-unknown
+guard). 6 mutants, 6 caught, 0 escaped, including the short-circuit above and
+one that reverts the scheduler to passing no roots.
+
 ## v3.66.929 - bd-doc-truth could not see CLAUDE.md, the document that outranks every document it checked
 
 `default_docs()` returned `<work>/project-knowledge` and `scan()` globbed

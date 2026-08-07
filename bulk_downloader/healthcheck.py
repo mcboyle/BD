@@ -85,8 +85,13 @@ def _check_disk(s_cfg: Optional[dict]) -> dict:
     issues = []
     paths_checked = 0
     seen = set()
-    dirs = [(sid, (cfg or {}).get("download_dir", ""))
-            for sid, cfg in (s_cfg or {}).items()]
+    # One enumerator, shared with the bit-rot scan (v3.66.930). It returns the
+    # RAW configured paths precisely so this check can still report a missing
+    # directory as an issue -- filtering for existence there would delete the
+    # thing this function exists to find. The _by_site shape keeps the owner,
+    # so the issue text still names which site the bad path belongs to.
+    from .library_final import download_roots_by_site
+    dirs = list(download_roots_by_site(s_cfg))
     # capture-store / install root (bulk_downloader/.. == PROJECT_ROOT)
     dirs.append(("capture_store",
                  os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
