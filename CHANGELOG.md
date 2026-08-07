@@ -4,6 +4,48 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.926 - item 11: importing bulk_downloader.app no longer boots the database
+
+The defect SESSION_CARRY 15.48 filed as a worker-count ceiling. 15.49 records
+what it actually cost, and it is a data-integrity defect that happens to also
+cap concurrency, not the other way round.
+
+install_service.sh sets WorkingDirectory to the app dir and constants.py:24 is
+a BARE RELATIVE DB_PATH, so the service's database and a pytest run started
+from the deploy directory are THE SAME FILE. conftest.py's clean_workdir is
+opt-in rather than autouse. And app.py did its startup DB work at MODULE
+SCOPE, so every xdist worker did it concurrently while merely COLLECTING --
+`-m` marker filtering happens after collection, so no lane assignment could
+prevent it. Measured: 22 tracked test files import bulk_downloader.app at
+module scope; 0 product modules do. On 2026-08-07 that raced 64 ways over the
+operator's live history: ten quarantines in twenty-five minutes and an empty
+database.
+
+TWO module-scope boot sites, not one. The obvious block at the top of the file
+(db_init, run_history.init, db_integrity_check, db_fts_optimize,
+db_queue_recovery_summary, run_integrity_check) was moved first -- and a bare
+import STILL created a database. The second was migrations.apply_pending()
+about 1700 lines lower, found by tracing sqlite3.connect during an import
+rather than by reading. It is the one that actually created the file, since
+_ensure_history_table sits underneath it.
+
+Both now live in boot_once(), which is idempotent and lock-guarded, and runs
+from an app.before_request hook (Flask 3 removed before_first_request). The
+lock is load-bearing: deferring without it moves the race rather than removing
+it. downloader_ui.py calls boot_once() explicitly instead of the bare db_init()
+it called before, because bg_scheduler starts at import and its periodic tasks
+would otherwise have a window in which to meet an unmigrated schema.
+
+DEFERRED, NOT SUPPRESSED. Gating the boot on BD_DISABLE_KEEPALIVE would have
+made capture green and left a latch -- a test needing a booted DB would get an
+unmigrated one silently. The work is unchanged and still runs; it runs at the
+first moment it is actually needed.
+
+Verified by the instrument that found the second site: on-disk sqlite opens
+during a bare import go 6 -> 0, no database file exists after import, and
+boot_once() then applies 9 migrations and creates the schema. Side benefit:
+the ten route-inspection tools that import app stop creating stray databases.
+
 ## v3.66.925 - bitrot.verify_one resolved a bare basename against the CWD, and WROTE
 
 Item 12's last producer, and the only one that PERSISTED its wrong answer.

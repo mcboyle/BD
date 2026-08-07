@@ -213,9 +213,15 @@ if __name__ == "__main__":
     log_path = _configure_logging(debug)
     # Import AFTER logging is configured so the import-time stderr writes
     # (watcher thread start, restored sites count, etc.) get teed.
-    from bulk_downloader.app import app
-    from bulk_downloader.db import db_init
-    db_init()
+    from bulk_downloader.app import app, boot_once
+    # v3.66.926 (item 11): this used to be a bare db_init(). The startup DB
+    # work no longer runs at import, so the SERVICE must ask for it explicitly
+    # rather than wait for the first request -- bg_scheduler starts at import
+    # and its periodic tasks touch the DB on timers, so a request-triggered
+    # boot would leave a window where a scheduled task meets an unmigrated
+    # schema. boot_once() is a superset of db_init() and is idempotent, so the
+    # before_request hook downstream is a no-op after this.
+    boot_once()
     # v3.43.16: respect BD_HOST and BD_PORT env vars so deployments can
     # restrict the bind interface (e.g. 127.0.0.1 for ssh-tunnel-only)
     # or pick a different port without code changes. Defaults preserve
