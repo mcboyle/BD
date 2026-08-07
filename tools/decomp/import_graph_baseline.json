@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3754,
+  "edge_count": 3758,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -984,6 +984,7 @@
     ],
     "bulk_downloader/bitrot.py": [
       "bulk_downloader/db.py",
+      "bulk_downloader/library_final.py",
       "bulk_downloader/provenance.py"
     ],
     "bulk_downloader/bw_chart.py": [
@@ -6014,6 +6015,11 @@
     "tests/test_v3_66_916_regen_nfos_resolves.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/library_final.py"
+    ],
+    "tests/test_v3_66_925_bitrot_resolves_basenames.py": [
+      "bulk_downloader/bitrot.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/provenance.py"
     ],
     "tests/test_v3_66_96_autopilot_cockpit.py": [
       "bulk_downloader/capture_ingest.py",

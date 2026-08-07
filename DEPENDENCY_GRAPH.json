@@ -2334,7 +2334,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1618,
+    "edge_count": 1619,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3858,6 +3858,7 @@
       "bulk_downloader/library_final.py": [
         "bulk_downloader/app_library.py",
         "bulk_downloader/app_tpdb.py",
+        "bulk_downloader/bitrot.py",
         "bulk_downloader/cleanup_helpers.py",
         "bulk_downloader/runner.py",
         "tools/census_file_size_drift.py"
@@ -6020,6 +6021,7 @@
       ],
       "bulk_downloader/bitrot.py": [
         "bulk_downloader/db.py",
+        "bulk_downloader/library_final.py",
         "bulk_downloader/provenance.py"
       ],
       "bulk_downloader/bw_chart.py": [

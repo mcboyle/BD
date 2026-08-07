@@ -121,10 +121,30 @@ def _mark_verified(prov_id: int):
 
 def _record_issue(*, provenance_id: int, path: str, expected: str,
                   actual: str, kind: str, notes: str = ""):
-    """Append one integrity_issues row."""
+    """Append one integrity_issues row, unless that finding is already open.
+
+    v3.66.925 -- the dedup half. A non-intact verdict returns before
+    _mark_verified, so the row keeps its last_verified_ts of 0 and _candidates
+    re-selects it on the very next scan. Without this guard ONE genuinely
+    missing file adds one row per night, forever: `stats()` counts unrepaired
+    rows as `open_issues`, so alerts_engine.py:75's `bitrot_growing` rule fires
+    on a library whose only fault is a single file that has been gone for a
+    week and is being re-noticed nightly.
+
+    Keyed on (provenance_id, kind) rather than including the path, so the same
+    finding stays one row even if download_dir moves. `repaired=0` is part of
+    the key on purpose: once the operator resolves an issue, a later
+    recurrence opens a FRESH row, which is the signal they want.
+    """
     try:
         from . import db as _db
         with _db.db_conn() as cx:
+            already_open = cx.execute(
+                """SELECT 1 FROM integrity_issues
+                   WHERE provenance_id = ? AND kind = ? AND repaired = 0
+                   LIMIT 1""", (int(provenance_id), kind)).fetchone()
+            if already_open:
+                return
             cx.execute("""INSERT INTO integrity_issues(
                 ts, provenance_id, path, expected_sha256, actual_sha256,
                 kind, notes
@@ -136,28 +156,65 @@ def _record_issue(*, provenance_id: int, path: str, expected: str,
         sys.stderr.write(f"[bitrot] record_issue failed: {e}\n")
 
 
-def verify_one(row: dict) -> dict:
+def verify_one(row: dict, *, download_dir: str = "",
+               index: Optional[dict] = None) -> dict:
     """Verify one provenance row's file against its recorded hash.
 
     Returns {ok, kind, message}:
-      ok=True, kind='intact': hash matches
-      ok=False, kind='missing': file gone from disk
-      ok=False, kind='modified': hash mismatch
+      ok=True,  kind='intact':    hash matches
+      ok=False, kind='missing':   file genuinely gone from disk
+      ok=False, kind='modified':  hash mismatch
       ok=False, kind='truncated': size mismatch (caught before hash)
-      ok=False, kind='error': couldn't read the file
+      ok=False, kind='error':     couldn't read the file
+      ok=False, kind='ambiguous': several files share the recorded basename
+      ok=False, kind='unknown':   no download_dir to resolve against
 
-    Records an integrity_issues row on any non-intact outcome.
-    Stamps last_verified_ts on intact outcomes."""
-    path = row.get("final_filename") or ""
-    if not path:
-        return {"ok": False, "kind": "missing", "message": "no path"}
-    p = Path(path)
-    if not p.exists():
-        _record_issue(provenance_id=row["id"], path=path,
+    Records an integrity_issues row for missing/modified/truncated/error.
+    Records NOTHING for ambiguous/unknown. Stamps last_verified_ts on intact.
+
+    v3.66.925 -- `final_filename` IS A BARE BASENAME. runner.py:2040 records
+    `extra["filename"]`, and runner_transport.py:1297 shows that key is the
+    basename ("path" is the separate key holding the full path). This function
+    fed it to `Path(path).exists()`, which resolves against the PROCESS CWD, so
+    every relative row missed and took the branch that WRITES a "your file is
+    gone" row for a file sitting on disk.
+
+    That made this the only producer in item 12 that persisted its wrong
+    answer, and it did not converge: the missing branch returns before
+    _mark_verified, so last_verified_ts stayed 0, _candidates re-selected the
+    same rows the next night, and the false rows were written again. Measured
+    before the fix -- three present files, three consecutive scans, 3 -> 6 -> 9
+    rows. bg_scheduler.py:254 runs it nightly and alerts_engine.py:75 alarms on
+    exactly that growth, so the system reported its own bookkeeping as rot.
+
+    Resolution goes through library_final._resolve_recorded rather than a sixth
+    hand-rolled `download_dir / fn` join -- a flat join cannot find a file the
+    filename template put in a subdirectory, since the recorded basename has
+    already lost it. Its "ambiguous" and "unknown" states are deliberately NOT
+    folded into "missing": a row this scanner cannot place is not evidence of
+    rot, and guessing first-match-wins would hash the wrong twin and report a
+    modification that is an artefact of the guess.
+    """
+    from .library_final import _basename_index, _resolve_recorded
+
+    recorded = row.get("final_filename") or ""
+    if index is None:
+        index = _basename_index(download_dir)
+    p, state = _resolve_recorded(recorded, download_dir, index)
+    if state == "ambiguous":
+        return {"ok": False, "kind": "ambiguous",
+                "message": f"several files match {recorded!r}; refusing to guess"}
+    if state == "unknown":
+        return {"ok": False, "kind": "unknown",
+                "message": f"nothing to resolve {recorded!r} against"}
+    if state == "absent" or p is None:
+        shown = str(p) if p is not None else recorded
+        _record_issue(provenance_id=row["id"], path=shown,
                       expected=row.get("sha256", ""), actual="",
                       kind="missing")
         return {"ok": False, "kind": "missing",
-                "message": f"file gone: {path}"}
+                "message": f"file gone: {shown}"}
+    path = str(p)
     expected_size = int(row.get("file_size", 0) or 0)
     try:
         actual_size = p.stat().st_size
@@ -196,12 +253,30 @@ def run_scan(*,
             scan_fraction: float = 0.05,
             min_age_days: int = 7,
             max_files: int = 100,
-            reverify_after_days: int = 90) -> dict:
+            reverify_after_days: int = 90,
+            download_dir: str = "") -> dict:
     """Verify a random subset of provenance rows. Returns summary.
 
     Designed to run from a nightly scheduler. The fraction × library
     size produces the candidate count, capped at max_files to keep
     each run bounded.
+
+    `download_dir` is what a recorded BASENAME is resolved against; see
+    verify_one. It is optional and defaults to "" so every existing caller
+    keeps working -- but omitted, no relative row can be placed and the summary
+    reports them under `unknown` rather than writing them off as missing.
+
+    THAT NO-OP IS DELIBERATE AND IT IS VISIBLE. bg_scheduler.py:254 calls this
+    with no download_dir, so until that call site is given one the nightly scan
+    decides nothing on a relative library. A scan that reports `unknown: N` is
+    saying it could not see its subject; the behaviour this replaced reported
+    `missing: N` and persisted it, which is the same blindness wearing a
+    verdict. Sourcing the configured roots belongs with the path-allowlist
+    validation the library routes already do (app_library.py:262) and is a
+    separate cut, not a line here.
+
+    The index is built ONCE per scan rather than per row: a library is a few
+    thousand files and a per-row rglob would make the nightly job quadratic.
     """
     _ensure_integrity_table()
     # Determine total candidate pool size to compute the fraction
@@ -215,16 +290,26 @@ def run_scan(*,
         total = 0
     if total == 0:
         return {"checked": 0, "intact": 0, "missing": 0, "modified": 0,
-                "truncated": 0, "errors": 0, "total_library": 0}
+                "truncated": 0, "errors": 0, "ambiguous": 0, "unknown": 0,
+                "total_library": 0}
     target = max(1, int(total * scan_fraction))
     target = min(target, max_files)
     candidates = _candidates(min_age_days=min_age_days, limit=target,
                             reverify_after_days=reverify_after_days)
+    # Additive keys, verified rather than assumed: no test references this
+    # module, `/api/bitrot/scan` hands the dict straight to jsonify
+    # (app_bitrot.py:28), and frontend/src/lib/api-types.ts declares no bitrot
+    # scan type -- so `ambiguous` and `unknown` cost zero TS edits. They are
+    # _resolve_recorded's own state strings verbatim, matching the v3.66.916
+    # precedent, so a reader maps counter to state with no translation step.
     summary = {"checked": 0, "intact": 0, "missing": 0, "modified": 0,
-               "truncated": 0, "errors": 0, "total_library": total}
+               "truncated": 0, "errors": 0, "ambiguous": 0, "unknown": 0,
+               "total_library": total}
+    from .library_final import _basename_index
+    index = _basename_index(download_dir)
     for row in candidates:
         try:
-            r = verify_one(row)
+            r = verify_one(row, download_dir=download_dir, index=index)
             summary["checked"] += 1
             kind = r.get("kind", "error")
             if kind in summary:

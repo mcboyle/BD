@@ -4,6 +4,48 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.925 - bitrot.verify_one resolved a bare basename against the CWD, and WROTE
+
+Item 12's last producer, and the only one that PERSISTED its wrong answer.
+
+runner.py:2040 records extra["filename"] into provenance.final_filename, and
+runner_transport.py:1297 shows that key is the bare BASENAME -- "path" is the
+separate key holding the full path. verify_one fed it to Path(path).exists(),
+which resolves against the PROCESS CWD, so every relative row missed and took
+the branch that calls _record_issue(kind="missing") -- persisting a "your file
+is gone" row for a file sitting on disk.
+
+MEASURED before the fix, on the production run_scan path: three present files,
+three consecutive scans, integrity_issues 3 -> 6 -> 9. It never converged
+because the missing branch returns before _mark_verified, so last_verified_ts
+stayed 0 and _candidates re-selected the same rows every run. bg_scheduler.py
+runs this nightly, and alerts_engine's bitrot_growing rule alarms on exactly
+that growth -- so the system reported its own bookkeeping as bit rot.
+
+The scanner's other three verdicts were structurally unreachable: missing
+returned first, so intact, modified and truncated could never be produced on a
+relative library. A scan reporting 100% missing was not measuring anything.
+
+Resolution now goes through library_final._resolve_recorded rather than a sixth
+hand-rolled join -- a flat download_dir/fn join cannot find a file the filename
+template put in a subdirectory. Its ambiguous and unknown states are NOT folded
+into missing: a row the scanner cannot place is not evidence of rot, and
+guessing first-match-wins would hash the wrong twin. run_scan gained
+download_dir plus ambiguous/unknown counters (additive; no test or TS type
+pins the shape).
+
+Also fixed, same symptom: _record_issue now skips a finding that is already
+open, keyed on (provenance_id, kind, repaired=0). Without it one genuinely
+missing file added one row per night forever.
+
+Left undone deliberately, and visible rather than silent: bg_scheduler calls
+run_scan with no download_dir, so the nightly scan now reports unknown=N
+instead of deciding. Sourcing the configured roots belongs with the
+path-allowlist validation the library routes already do, and is a separate cut.
+
+After: intact=3 (including a nested file), one real finding, no growth across
+three scans. Mutation battery 5 caught / 0 escaped.
+
 ## v3.66.924 - register-only: the capture regression, and item 11 as the ceiling
 
 SESSION_CARRY 15.48. No source change.
