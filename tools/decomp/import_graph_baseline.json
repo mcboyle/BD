@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3771,
+  "edge_count": 3773,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -6045,6 +6045,10 @@
     ],
     "tests/test_v3_66_935_scan_wait_reports_non_convergence.py": [
       "bulk_downloader/library.py"
+    ],
+    "tests/test_v3_66_936_golden_carries_no_ambient_state.py": [
+      "bulk_downloader/dom_recorder.py",
+      "tools/capture_model_golden.py"
     ],
     "tests/test_v3_66_96_autopilot_cockpit.py": [
       "bulk_downloader/capture_ingest.py",

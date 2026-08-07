@@ -112,13 +112,64 @@ def _proj_ingest(m):
     return m
 
 
+# v3.66.936: eight leaves in these two blocks are NOT a function of the
+# synthetic fixture, so pinning them made a "synthetic only, browser-free"
+# golden fail for reasons that have nothing to do with the readers.
+#
+#   capture_health.arm_fail_streak     dom_recorder._ARM_FAIL_STREAK   process
+#   capture_health.dom_events_dropped  dom_recorder._DOM_DROPPED_TOTAL process
+#   capture_health.rrweb_present       a vendored file's existence     filesystem
+#   redaction_profile.emails                  BD_REDACT_EMAILS         environment
+#   redaction_profile.network_signed_urls     BD_REDACT_NETWORK_URLS   environment
+#   redaction_profile.dom_embedded_urls       BD_REDACT_DOM_URLS       environment
+#   redaction_profile.custom_sensitive_headers BD_REDACT_EXTRA_HEADERS environment
+#   redaction_profile.reduced_redaction       second-order on the three URL/email modes
+#
+# MEASURED on the box (capture at 48707ad, v3.66.932): the golden failed with
+# `arm_fail_streak: 0 -> 3`, left dirty by tests/test_v3_66_165_dom_drain.py's
+# three failing arm probes, whenever `--dist loadfile` put that file on the same
+# worker first. The environment half never fired there but is the wider hole:
+# bulk_downloader/__init__ seeds os.environ at IMPORT from $BD_ENVFILE, else
+# cwd/.env, else $HOME/BulkDownloader/.env -- and on the box that last path IS
+# the install directory and is the GUI env-editor's persistence target. No
+# fixture chdir can reach it.
+#
+# ALLOW-LISTS, NOT A BLOCK DROP. Six capture_health keys are genuine derived
+# behaviour: a mutation probe of _capture_health's derivation logic showed 4 of
+# 5 mutants caught by this golden. Dropping the block would pass every
+# ambient-state assertion and silently retire a working gate.
+#
+# THE FIX IS HERE AND NOT AT THE SOURCE, deliberately. wacz_export's
+# _capture_health is RIGHT to persist the counters -- tests/test_v3_66_171_
+# redaction_profile.py asserts they are present in a real WACZ -- and
+# dom_recorder.py, tools/capture_session.py and tools/build_release.py are all
+# SHA-pinned guard files. build_release.py is also the caller that runs this
+# gate as a subprocess with cwd=root and inherited env, where BOTH ambient
+# channels are live, so sanitising at the call site is not available either.
+_HEALTH_KEEP = ("dom_log_len", "dom_log_count", "dom_full_snapshots",
+                "network_log_len", "network_error_count", "dom_integrity_ok")
+_PROFILE_KEEP = ("schema", "forced_floor_scrub")
+
+
+def _keep(block, names):
+    """Project an allow-listed sub-dict, preserving absence.
+
+    A key the reader did not emit stays absent rather than becoming None: the
+    difference between "the reader stopped emitting dom_integrity_ok" and "it
+    emitted null" is exactly the kind of change this golden exists to catch.
+    """
+    if not isinstance(block, dict):
+        return block
+    return {k: block[k] for k in names if k in block}
+
+
 def _proj_workflow(wc):
     # the readers echo dom_log/network_log unchanged; pin the DERIVED fields only
     return {
         "host": wc.get("host"), "url": wc.get("url"), "title": wc.get("title"),
         "captured_at": wc.get("captured_at"),
-        "capture_health": wc.get("capture_health"),
-        "redaction_profile": wc.get("redaction_profile"),
+        "capture_health": _keep(wc.get("capture_health"), _HEALTH_KEEP),
+        "redaction_profile": _keep(wc.get("redaction_profile"), _PROFILE_KEEP),
         "dom_log_len": len(wc.get("dom_log") or []),
         "network_log_len": len(wc.get("network_log") or []),
     }
