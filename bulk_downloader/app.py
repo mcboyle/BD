@@ -101,7 +101,7 @@ else:
 import threading as _threading
 
 _BOOT_LOCK = _threading.Lock()
-_BOOTED = False
+_BOOTED_PATHS: set = set()
 
 
 def boot_once(*, force: bool = False) -> bool:
@@ -111,10 +111,27 @@ def boot_once(*, force: bool = False) -> bool:
     explicitly by downloader_ui.py before it serves. Safe to call directly --
     a caller that needs a booted schema should, rather than importing this
     module and hoping.
+
+    THE LATCH IS KEYED ON THE RESOLVED DB PATH, not on a bare bool, and that
+    distinction is load-bearing. `db._resolve_db_path()` resolves at CALL time
+    from BD_INSTALL_DIR / a monkeypatched DB_PATH / the cwd, so "have we
+    booted?" is not a property of the process -- it is a property of the
+    database. A bool would answer True for a database this process has never
+    opened: the first caller boots tmpdir A, and a later caller pointed at
+    tmpdir B is told the boot already happened and gets an empty schema,
+    silently. That is precisely the latch this cut exists to avoid, and it
+    showed up in tests/test_library_forward_path_records_an_absolute_path.py,
+    whose clean_workdir fixture gives every test its own tmpdir.
+
+    In production the path never moves, so this behaves exactly like a bool.
     """
-    global _BOOTED
+    from .db import _resolve_db_path
+    try:
+        key = _os.path.abspath(_resolve_db_path())
+    except Exception:
+        key = "<unresolved>"
     with _BOOT_LOCK:
-        if _BOOTED and not force:
+        if key in _BOOTED_PATHS and not force:
             return False
         db_init()
         # B1 (post-365): run-history substrate tables (job_runs + run_events).
@@ -198,7 +215,7 @@ def boot_once(*, force: bool = False) -> bool:
         except Exception as e:
             sys.stderr.write(f"migrations init failed: {e}\n")
 
-        _BOOTED = True
+        _BOOTED_PATHS.add(key)
         return True
 
 # Phase 44 (v3.37.0): templates and static files live alongside the package
@@ -216,12 +233,17 @@ def _bd_boot_before_request():
     """Boot the DB on the first request rather than at import (item 11).
 
     Flask 3 removed before_first_request, so this is a plain before_request
-    plus the idempotence check inside boot_once(). The `if not _BOOTED` here is
-    only a fast path -- correctness lives in boot_once's lock, because reading
-    a bool outside it is exactly the check-then-act race this cut removes.
+    plus the idempotence check inside boot_once().
+
+    Deliberately UNCONDITIONAL -- no `if not booted` fast path out here. Such a
+    check would have to read the latch outside the lock, which is the
+    check-then-act race this cut exists to remove, and it would re-introduce
+    the process-wide-bool bug boot_once was just fixed for: a fast path keyed
+    on "anything booted" cannot notice that the resolved DB path has changed.
+    The cost of getting it right is a lock acquire and a set lookup per
+    request, which is nanoseconds against millisecond request handling.
     """
-    if not _BOOTED:
-        boot_once()
+    boot_once()
 
 
 # v3.47.8 (#26): record boot timestamp for /api/health uptime calc.

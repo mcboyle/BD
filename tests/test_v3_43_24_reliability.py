@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 # [SAST 3:13pm 13 may] removed unused: import os
+import re
 import sqlite3
 import tempfile
 import time
@@ -354,10 +355,25 @@ def test_selftest_runs_at_startup():
     db_init so auto-recover gets a chance."""
     src = _APP_PY.read_text(encoding="utf-8")
     selftest_pos = src.find("_selftest.run_all")
-    db_init_pos = src.find("\ndb_init()")
+    # v3.66.926 (item 11): db_init() moved OUT of module scope into
+    # boot_once(), so it is now indented and the old `"\ndb_init()"` anchor --
+    # which required column 0 -- can never match. That is a stale MECHANISM,
+    # not a lost property: the ordering this test protects is now guaranteed
+    # by construction rather than by textual position, because the selftest
+    # still runs at import while db_init() cannot run before the first request
+    # (or an explicit boot_once()). Anchoring on the def keeps the assertion
+    # honest without pinning an indentation level that will drift again.
+    boot_pos = src.find("def boot_once(")
+    db_init_pos = re.search(r"^\s+db_init\(\)", src, re.M)
     assert selftest_pos > 0
-    assert db_init_pos > 0
-    assert selftest_pos < db_init_pos, (
+    assert boot_pos > 0, "boot_once() is gone -- the boot moved again"
+    assert db_init_pos is not None, "db_init() is no longer called at boot"
+    assert db_init_pos.start() > boot_pos, (
+        "db_init() must live INSIDE boot_once(); at module scope it runs on "
+        "import, which is what raced across xdist workers and destroyed the "
+        "operator's live history (SESSION_CARRY 15.49)"
+    )
+    assert selftest_pos < boot_pos, (
         "self-test must run BEFORE db_init() so auto_recover_sqlite "
         "can move corrupt DBs aside before db_init tries to use them"
     )

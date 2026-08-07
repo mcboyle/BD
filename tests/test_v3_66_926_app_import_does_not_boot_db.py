@@ -164,6 +164,52 @@ def test_boot_once_is_idempotent(tmp_path):
     assert out.get("THIRD") == "False", cp.stdout
 
 
+def test_a_different_database_boots_again(tmp_path):
+    """The latch is keyed on WHICH database, not on a process-wide bool.
+
+    Found while fixing the fallout from this very cut, not by design. A bare
+    `_BOOTED = True` answers "already booted" for a database this process has
+    never opened: boot tmpdir A, point DB_PATH at tmpdir B, and the second
+    caller is told the work is done and gets an EMPTY SCHEMA, silently. That
+    is the same shape as the defect being fixed -- a check that cannot see its
+    subject reporting OK.
+
+    Real instance: tests/test_library_forward_path_records_an_absolute_path.py
+    uses clean_workdir, so every test gets its own tmpdir; with a bool latch
+    only the first test in the file would have had a booted database.
+    """
+    cp = _run_isolated("""
+        import sys, os, sqlite3
+        sys.path.insert(0, {repo!r})
+        import bulk_downloader.app as A
+        import bulk_downloader.db as D
+
+        a = os.path.join(os.getcwd(), 'a', 'q.db')
+        b = os.path.join(os.getcwd(), 'b', 'q.db')
+        os.makedirs(os.path.dirname(a)); os.makedirs(os.path.dirname(b))
+
+        D.DB_PATH = a
+        print('A_FIRST=%s' % A.boot_once())
+        print('A_AGAIN=%s' % A.boot_once())
+        D.DB_PATH = b
+        print('B_FIRST=%s' % A.boot_once())
+        cx = sqlite3.connect(b)
+        n = len(cx.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'").fetchall())
+        print('B_TABLES=%d' % n)
+    """.format(repo=str(_REPO)), tmp_path, BD_DISABLE_KEEPALIVE="1")
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    out = dict(l.split("=", 1) for l in cp.stdout.splitlines() if "=" in l)
+    assert out.get("A_FIRST") == "True", cp.stdout
+    assert out.get("A_AGAIN") == "False", cp.stdout
+    assert out.get("B_FIRST") == "True", (
+        "a SECOND database was reported already-booted. The latch is keyed on "
+        f"the process rather than the database.\n{cp.stdout}")
+    assert int(out.get("B_TABLES", 0)) > 5, (
+        f"the second database has {out.get('B_TABLES')} tables -- it was "
+        f"latched out of its own boot and left empty")
+
+
 def test_concurrent_boot_runs_the_work_exactly_once(tmp_path):
     """The property the whole cut is about: N callers, one boot.
 
