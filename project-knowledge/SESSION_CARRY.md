@@ -4017,7 +4017,7 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
-### 15.59 | Tier-1/tier-2 sweep 2026-08-07, close at 7db669c -- four of four "open" items were already closed, and the re-derivation found the real ones
+### 15.59 | Tier-1/tier-2 sweep 2026-08-07, close at d670271 -- four of four "open" items were already closed, and the re-derivation found the real ones
 
 The operator asked for tier 1 and tier 2 of a speed-sorted register list "in
 however many cuts it needs". The headline is that the SORTING was worth more

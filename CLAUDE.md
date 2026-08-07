@@ -652,8 +652,28 @@ Two failure shapes, both hit in one cut:
   form; never spell it.
 - **A section titled "…close…" must name a commit**, not a version. The
   predicate is **ancestry, not identity** — deliberately, because identity would
-  go stale on the very next commit — so naming the tip the session closed at is
-  both true and stable.
+  go stale on the very next commit.
+
+  **BUT NEVER NAME YOUR OWN UNMERGED BRANCH TIP: the squash DESTROYS it, and
+  the gate goes red on `main` where no band reaches it.** Measured at
+  v3.66.939. 15.59 was written naming `7db669c`, its own second branch commit.
+  That is a genuine ancestor of the PR head, so `bd-freshcheck` passed, CI
+  passed, and the PR merged green. The squash then wrote a NEW commit
+  (`d670271`) and `7db669c` ceased to be in `main`'s history at all — so the
+  push build of `main` failed on the register section that had just been
+  certified. Green pre-merge, red post-merge, for a claim that was true when
+  checked.
+
+  15.58 survived the identical treatment because it named `b24e675`, the squash
+  commit of the PREVIOUS PR — already on `main` when it was written, and
+  therefore still an ancestor afterwards. **That is the rule: name a commit
+  that is ALREADY on `main`** (the tip you branched from, or a
+  previously-merged squash), never one that exists only on your branch. If you
+  want the section to name the commit that contains it, the only safe moment
+  is AFTER the merge — which means a follow-up edit, not a pre-merge guess.
+
+  Nothing catches this before the merge, by construction: every pre-merge check
+  runs on a tree where your branch tip still exists.
 
 So when a cut touches `CLAUDE.md`, `project-knowledge/**`, or any tracked doc:
 

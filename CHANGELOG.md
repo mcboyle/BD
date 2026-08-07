@@ -4,6 +4,72 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.939 - the CI gate lane is sharded, and a shard can silently lose a file
+
+ci.yml's own rule, set 2026-08-03: "81 tests, 52s -- keep it under a minute; if
+it grows past that, SPLIT rather than silently dropping files, because a
+truncated list here reads as coverage it does not have." Re-measured at
+v3.66.938: 161 tests, 140s. The operator chose the split.
+
+THE BOUNDARIES ARE DRAWN FROM MEASURED TIME, NOT COUNT, because the lane is
+nowhere near evenly distributed. Per-file, in a 4-core cloud container:
+
+    test_toolchain_534               72.5s    <- 40% of the lane alone
+    test_gui_parity                  30.6s
+    test_import_graph_no_new_edges   16.6s
+    test_v3_66_653_dep_freshness     11.2s
+    test_route_index_in_sync         10.8s
+    the remaining ten, combined      38.1s
+
+test_toolchain_534 gets a shard to itself: no two-way split could put every
+lane under the budget while that file stays whole, and 59s of its 68s is four
+subprocess-heavy tests walking the 240-tool suite - not a cheap win, and not
+safe to trim. Measured after the split, locally: 74.7s / 61.8s / 29.4s, which
+in CI's faster single-process runner scales to roughly 56 / 48 / 23.
+
+A SEPARATE JOB rather than a matrix over `gates`, deliberately: gitleaks, the
+artifact-sync regen, compileall and the CHANGELOG checks must run ONCE.
+Sharding those would triple their cost and, for gitleaks, triple an API call
+for no coverage at all.
+
+WHAT THE NEW TEST GUARDS IS NOT THE TIMING. Sharding introduces exactly one new
+failure mode, and it is the one the original comment named: a file that falls
+out of every shard still leaves a GREEN tick. Nothing else in the tree would
+notice. The assertions are about coverage only - the union is exactly the
+declared set, nothing is listed twice, every path exists and is tracked, and
+the declared set is non-empty. Duration is deliberately not asserted: that
+would fire on a slow runner, which is a gate firing on identity rather than
+content.
+
+- .github/workflows/ci.yml: new `gate-suites` job, 3 shards, fail-fast off so
+  one red shard does not hide the others. fetch-depth: 0 is kept on every
+  shard rather than only the toolchain one, so a future re-shuffle of the lists
+  cannot silently downgrade it. Both requirements manifests are installed -
+  requirements-test.txt carries PyYAML, which the new gate imports, and
+  omitting it would present as a SKIP rather than a failure.
+- tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py: 7 tests, 4 RED.
+  The declared set is pinned in the test rather than derived from ci.yml,
+  because deriving the expectation from the thing under test is exactly how a
+  dropped file passes - the union would simply shrink to match.
+- Two mutation escapes closed during the cut, both the same shape as the one
+  v3.66.938 closed a cut earlier: each direction of the coverage comparison
+  could be severed from its meaning and NO test noticed, because the only
+  assertions about them lived inside the test being mutated. A detector with no
+  detector. The comparison is now a named helper with a positive control over
+  synthetic sets. 7 mutants caught, 0 escaped. Worth extracting a verdict's
+  comparison on sight rather than waiting for a battery to find it.
+
+ALSO FIXED HERE, and it had already gone red on main: a register section must
+never name its own unmerged branch tip. 15.59 named 7db669c, a genuine ancestor
+of the PR head, so bd-freshcheck passed and the PR merged green - and then the
+squash wrote a new commit and 7db669c ceased to exist in main's history, so the
+push build of main failed on the section that had just been certified. 15.58
+survived the same treatment only because it named the PREVIOUS PR's squash
+commit, which was already on main. The rule is now in CLAUDE.md section 4:
+name a commit that is ALREADY on main, never one that exists only on your
+branch. Nothing catches this before the merge by construction, because every
+pre-merge check runs on a tree where the branch tip still exists.
+
 ## v3.66.938 - an atomic write leaves a sidecar, and .gitignore covered only the destination
 
 The idiom is everywhere in this tree: write `path.with_suffix(".json.tmp")`,
