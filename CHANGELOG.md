@@ -4,6 +4,49 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.933 - retiring the project-knowledge mirror set, step 1 of 2: the five files carrying baselined secrets
+
+OPERATOR DECISION, 2026-08-07: project-knowledge/ is no longer used as an
+uploadable self-contained bundle, which was the only reason a second copy of
+the executable toolchain existed. So the 239 mirrors go, and
+test_pk_mirrors_do_not_drift goes with them -- its own floor message says
+"Either the mirrors were deliberately removed -- in which case delete this
+test in the same cut, and say so." This is that, said.
+
+WHY THE SECOND COPY WAS A DEFECT AND NOT A CONVENIENCE. Measured at
+v3.66.818, on an otherwise-green tree:
+
+    project-knowledge/bd-guardcheck --tree .  -> exit=0 "0 ok, 0 drifted, 0 missing."
+    toolchain/bin/bd-guardcheck    --tree .  -> exit=0 "7 ok, 0 drifted, 0 missing, 0 unpinned."
+
+The project-knowledge copy was the PRE-FIX build of the guard checker -- the
+zero-in-every-bucket blindness the contract records as FIXED, still shipping,
+still exiting 0 while certifying nothing. A cut repaired one copy of a
+two-copy tool and the tree reported success. The mirrors were never generated;
+they were committed once and left behind. This session paid the cost again at
+v3.66.929, where changing toolchain/bin/bd-doc-truth drifted its mirror
+immediately and only the gate caught it.
+
+Removing the second copy removes the failure class the gate was watching for,
+which is the stronger fix -- the same reasoning that retired CODEX_HANDOFF.
+
+SPLIT INTO TWO CUTS ON PURPOSE, AND THIS IS THE SMALL RISKY HALF. Five of the
+239 mirrors carry gitleaks-baselined secrets. The baseline is PATH-scoped
+(file:rule:line) while gitleaks-action emits COMMIT-scoped fingerprints, and
+the forms never match, so the baseline cannot suppress a finding on a line a
+commit touches -- and deleting a file touches every line in it. Whether
+gitleaks flags a secret on a REMOVED line is NOT VERIFIED here, and a leak
+already in branch history cannot be fixed forward. Isolating these five means
+that if CI does fire, the blast radius is five files and abandoning costs
+nothing; the other 234 ship regardless.
+
+The floor moves 250 -> 230 rather than being deleted: 234 mirrors remain and
+are still a real subject, so a floor of 0 would be the blind gate that canary
+exists to prevent. It goes when the last mirror does, in the next cut, along
+with the corrected extensionless-source figures in CLAUDE.md section 1 --
+those are stated per-commit and re-derived at decision time, so they are
+corrected once when the bulk moves rather than twice.
+
 ## v3.66.932 - a pre-push hook for section 7's two-dot diff (item 30)
 
 A squash merge writes a NEW commit on main, so a topic branch never follows it
