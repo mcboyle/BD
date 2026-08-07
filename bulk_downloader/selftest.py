@@ -498,6 +498,94 @@ def check_egress_fail_closed() -> dict:
 
 # ── Auto-recovery for corrupt SQLite ─────────────────────────────────
 
+# The only SQLite primary result codes that mean the FILE ITSELF is damaged.
+# Every other code -- SQLITE_BUSY, SQLITE_IOERR, SQLITE_CANTOPEN,
+# SQLITE_READONLY -- reports contention or environment, and all of them are
+# raised as OperationalError, a SUBCLASS of DatabaseError. Catching the
+# parent read ordinary parallel-load contention as confirmed corruption and
+# destroyed a healthy 3.7 MiB database with integrity=ok.
+_CORRUPTION_CODES = frozenset({11, 26})  # SQLITE_CORRUPT, SQLITE_NOTADB
+
+# Fallback for interpreters that do not populate sqlite_errorcode. Without
+# it an unavailable code would make every verdict UNKNOWN, which passes the
+# contention tests by turning the tool off.
+_CORRUPTION_TEXT = (
+    "file is not a database",
+    "database disk image is malformed",
+    "malformed database schema",
+    "file is encrypted or is not a database",
+)
+
+_CLEAN = "clean"
+_CORRUPT = "corrupt"
+_UNKNOWN = "unknown"
+
+# A quarantine name is keyed on a one-second clock, so two recoveries in the
+# same second want the same name. Bounded so a wedged directory cannot spin.
+_QUARANTINE_NAME_ATTEMPTS = 1000
+
+
+def _is_corruption(exc: sqlite3.Error) -> bool:
+    """Does this exception positively identify a damaged FILE?"""
+    code = getattr(exc, "sqlite_errorcode", None)
+    if isinstance(code, int):
+        # Extended result codes carry the primary code in the low 8 bits
+        # (SQLITE_CORRUPT_VTAB is 267, not 11).
+        return (code & 0xFF) in _CORRUPTION_CODES
+    text = str(exc).lower()
+    return any(sig in text for sig in _CORRUPTION_TEXT)
+
+
+def _classify_db(db_path: str) -> tuple[str, str]:
+    """Return (verdict, why) where verdict is clean / corrupt / unknown.
+
+    UNKNOWN is a real third state and it is the one that keeps data alive:
+    only a POSITIVE corruption signal may move a file aside. An answer we
+    could not obtain is not an answer that the database is broken.
+    """
+    try:
+        cx = sqlite3.connect(db_path, timeout=2.0)
+    except sqlite3.Error as e:
+        verdict = _CORRUPT if _is_corruption(e) else _UNKNOWN
+        return verdict, f"{type(e).__name__}: {e}"
+    try:
+        check = cx.execute("PRAGMA quick_check").fetchone()[0]
+    except sqlite3.Error as e:
+        verdict = _CORRUPT if _is_corruption(e) else _UNKNOWN
+        return verdict, f"{type(e).__name__}: {e}"
+    finally:
+        try:
+            cx.close()
+        except sqlite3.Error:
+            pass
+    if check == "ok":
+        return _CLEAN, "quick_check ok"
+    return _CORRUPT, f"quick_check: {str(check).splitlines()[0]}"
+
+
+def _reserve_quarantine_path(p: Path) -> Path:
+    """Claim a quarantine name no concurrent recovery can also take.
+
+    `Path.rename` overwrites its destination silently on POSIX, so two
+    recoveries landing on the same one-second stamp destroyed one of the two
+    files with no trace that it had existed. O_CREAT|O_EXCL makes the claim
+    atomic: whoever creates the placeholder owns that name, and the loser
+    moves on to the next one instead of overwriting the winner.
+    """
+    base = f"{p.name}.corrupt.{int(time.time())}"
+    for n in range(_QUARANTINE_NAME_ATTEMPTS):
+        candidate = p.parent / (base if n == 0 else f"{base}.{n}")
+        try:
+            fd = os.open(candidate,
+                         os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            continue
+        os.close(fd)
+        return candidate
+    raise OSError(f"no free quarantine name for {p.name} after "
+                  f"{_QUARANTINE_NAME_ATTEMPTS} attempts")
+
+
 def auto_recover_sqlite(db_path: str) -> dict:
     """If db is unrecoverably corrupt, move it aside and let db_init()
     recreate. Triggered by the startup self-test when check_database()
@@ -507,34 +595,46 @@ def auto_recover_sqlite(db_path: str) -> dict:
     bad outcome than the app refusing to start. The corrupt file is
     preserved as `queue.db.corrupt.<timestamp>` so the user can try to
     recover it offline if they want.
+
+    That trade is only acceptable when corruption is CONFIRMED. A database
+    we merely failed to read is left exactly where it is and reported as an
+    unverified WARN: a genuinely corrupt file that survives one startup
+    fails loudly on the next, which is strictly better than silently
+    replacing good data with an empty schema.
     """
     p = Path(db_path)
     if not p.exists():
         # No db at all — db_init() will create it cleanly on startup
         return _result(OK, "auto_recover_sqlite", "no db file present")
-    # First try opening normally to see if it's still corrupt
+
+    verdict, why = _classify_db(db_path)
+    if verdict == _CLEAN:
+        return _result(OK, "auto_recover_sqlite", "db not corrupt")
+    if verdict == _UNKNOWN:
+        return _result(WARN, "auto_recover_sqlite",
+            f"could not verify database integrity ({why}); leaving it in "
+            f"place — this is contention or environment, not proof of "
+            f"corruption",
+            reason=why,
+            hint="Nothing was moved. If this persists, stop the app and "
+                 "run 'sqlite3 <db> \"PRAGMA integrity_check\"' with no "
+                 "other process holding the database.")
+
     try:
-        cx = sqlite3.connect(db_path, timeout=2.0)
-        check = cx.execute("PRAGMA quick_check").fetchone()[0]
-        cx.close()
-        if check == "ok":
-            return _result(OK, "auto_recover_sqlite", "db not corrupt")
-    except sqlite3.DatabaseError:
-        pass  # Confirmed corrupt; fall through to recovery
-    # Move aside with timestamp
-    backup_path = p.with_suffix(f"{p.suffix}.corrupt.{int(time.time())}")
-    try:
-        p.rename(backup_path)
-        # Also move WAL + SHM files so the new db starts clean
+        backup_path = _reserve_quarantine_path(p)
+        p.replace(backup_path)
+        # Also move WAL + SHM files so the new db starts clean. A
+        # quarantined database separated from its -wal has lost its most
+        # recent transactions, so they travel under the new basename.
         for suffix in ("-wal", "-shm"):
             companion = Path(str(p) + suffix)
             if companion.exists():
-                companion.rename(
-                    Path(str(backup_path) + suffix))
+                companion.replace(Path(str(backup_path) + suffix))
         return _result(WARN, "auto_recover_sqlite",
             f"corrupt db moved aside to {backup_path.name}; "
             f"a fresh schema will be created on next db_init()",
             backup_path=str(backup_path),
+            reason=why,
             hint="Your history was preserved in the corrupt file but "
                  "isn't readable through normal queries. Use 'sqlite3 "
                  f"{backup_path.name} .recover' to attempt offline "

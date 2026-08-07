@@ -4,6 +4,50 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.928 - auto_recover_sqlite quarantined HEALTHY databases on ordinary lock contention
+
+`selftest.py` caught `sqlite3.DatabaseError` around its integrity probe, and
+`OperationalError` is a SUBCLASS of it. So `database is locked` and `disk I/O
+error` -- the ordinary signatures of parallel load, which v3.66.926's four
+module-scope database writers supplied in quantity -- read as CONFIRMED
+corruption. The operator's history database was renamed aside and replaced with
+an empty schema; the recovered file was 3.7 MiB with `integrity_check = ok` and
+114 history rows. Nine of the ten quarantine events on 2026-08-06/07 were the
+system re-corrupting its own empty replacements.
+
+MEASURED, not inferred from reading the hierarchy: a 500-row database with
+`integrity_check = ok`, held by one competing EXCLUSIVE transaction, was
+quarantined and replaced.
+
+The probe now returns one of three verdicts, and UNKNOWN is a real third state:
+only a POSITIVE corruption signal may move a file aside. The discriminator is
+structural rather than textual -- SQLite's primary result code, `SQLITE_CORRUPT`
+(11) and `SQLITE_NOTADB` (26), masked to the low 8 bits so extended codes such
+as `SQLITE_CORRUPT_VTAB` (267) are recognised too. `SQLITE_BUSY`,
+`SQLITE_IOERR`, `SQLITE_CANTOPEN` and `SQLITE_READONLY` now leave the database
+exactly where it is and report WARN naming the reason. A message-text fallback
+covers an interpreter that does not populate `sqlite_errorcode`, because
+without one an unavailable code would make every verdict UNKNOWN -- turning the
+tool off while passing every contention test.
+
+SECOND DEFECT, same call: the quarantine name was keyed on `int(time.time())`
+at one-second resolution while `Path.rename` overwrites its destination
+silently on POSIX. Measured -- two recoveries in the same second, and the first
+file was destroyed with no trace, leaving its `-wal`/`-shm` orphaned beside the
+survivor. That is the incomplete companion set observed in the operator's
+quarantine listing. The name is now claimed with `O_CREAT|O_EXCL`, so the loser
+of a race takes the next name instead of overwriting the winner, and the
+companions follow under the unique basename.
+
+It fails safe in the direction that matters: a genuinely corrupt database that
+is not quarantined fails loudly at the next startup, which is strictly better
+than silently replacing good data with an empty schema.
+
+Tests: `tests/test_v3_66_928_quarantine_needs_confirmed_corruption.py`, 18
+cases. Proven RED on pristine source (6 failing, 7 passing -- the passing ones
+are the over-correction guards, which a fix that merely stopped quarantining
+would also satisfy). 7 mutants, 7 caught, 0 escaped.
+
 ## v3.66.927 - item 11's last writer: the integrity thread verified whichever database DB_PATH named when it woke
 
 v3.66.926 moved every module-scope database operation into boot_once(), so a
