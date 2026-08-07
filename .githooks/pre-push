@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# pre-push -- refuse a force-push that would discard unmerged work.
+#
+# THE FAILURE, CLAUDE.md section 7. A squash merge writes a NEW commit on main,
+# so a topic branch never follows it and `origin/<branch>` still points at the
+# pre-squash commit. The next ordinary push is rejected non-fast-forward, and
+# the tempting reflex -- `--force` -- is the one that can discard someone
+# else's work. The rule is that
+#
+#     git diff --stat origin/main origin/<branch>
+#
+# must be EMPTY first: empty means the remote branch carries nothing main
+# lacks, so replacing it loses nothing. Non-empty means stop.
+#
+# INERT BY DEFAULT, AND DELIBERATELY QUIET. Git only runs this if
+# core.hooksPath points here, and even then it says NOTHING unless the push is
+# NON-FAST-FORWARD -- the only case where --force is required to get through.
+# GitHub's auto-delete-head-branches has been on since 2026-08-01, so the
+# stale-ref case is largely gone; a hook that fired on ordinary pushes would be
+# trained past within a day, and CLAUDE.md section 0 counts over-sensitivity as
+# a soundness bug equal to a false clean.
+#
+#     git config core.hooksPath .githooks        # opt in, once per checkout
+#
+# UNKNOWN IS A THIRD STATE. If the two-dot diff cannot be computed -- no
+# remote-tracking main, an object this clone does not have -- this REFUSES
+# rather than assuming the branch is safe to overwrite. "The checker could not
+# run" is not "there is nothing to lose". Override deliberately, in one place:
+#
+#     BD_SKIP_PREPUSH_CHECK=1 git push --force-with-lease ...
+#
+# ANCESTRY IN A SHALLOW CLONE. Section 5: only `--is-ancestor` exit 0 is
+# trustworthy. A 1 means "not in this history" and a 128 means "I cannot see
+# it", and conflating them is a gate firing on its own blindness. The polarity
+# below is chosen for that: exit 0 short-circuits to ALLOW, because a found
+# path cannot be faked by a shallow boundary, and every nonzero falls through
+# to the two-dot check rather than being read as a verdict.
+set -u
+
+if [ "${BD_SKIP_PREPUSH_CHECK:-0}" = "1" ]; then
+  exit 0
+fi
+
+git rev-parse --show-toplevel >/dev/null 2>&1 || exit 0
+
+remote_name="${1:-origin}"
+status=0
+
+# Every `git` below takes </dev/null: this loop reads the ref list from stdin,
+# and a child that consumes it would silently swallow the remaining refs.
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "${local_sha:-}" ] || continue
+
+  # A deletion (local all-zero) is the operator saying so explicitly.
+  case "$local_sha" in *[!0]*) ;; *) continue ;; esac
+  # A brand-new branch (remote all-zero) has nothing that could be discarded.
+  case "$remote_sha" in *[!0]*) ;; *) continue ;; esac
+
+  # Fast-forward: the remote tip is contained in what we are pushing, so
+  # nothing is being replaced. This is the overwhelmingly common case and it
+  # must cost nothing and print nothing.
+  if git merge-base --is-ancestor "$remote_sha" "$local_sha" </dev/null 2>/dev/null; then
+    continue
+  fi
+
+  # Non-fast-forward from here down: --force is the only way through, so the
+  # two-dot diff decides whether that is safe.
+  if ! diff_out="$(git diff --stat "$remote_name/main" "$remote_sha" </dev/null 2>/dev/null)"; then
+    printf '%s\n' \
+      "BD-PREPUSH UNKNOWN  $remote_ref" \
+      "  could not compare $remote_name/main against ${remote_sha} --" \
+      "  the two-dot diff could not be computed, so whether this force-push" \
+      "  discards unmerged work is UNKNOWN, not safe. Fetch first:" \
+      "      git fetch origin && git fetch --deepen=200 origin main" \
+      "  Override once you are sure: BD_SKIP_PREPUSH_CHECK=1 git push ..." >&2
+    status=1
+    continue
+  fi
+
+  if [ -n "$diff_out" ]; then
+    printf '%s\n' \
+      "BD-PREPUSH REFUSED  $remote_ref" \
+      "  This push is NOT a fast-forward, and" \
+      "      git diff --stat $remote_name/main $remote_ref" \
+      "  is NOT empty -- the remote branch carries content $remote_name/main" \
+      "  does not have. Forcing over it DELETES that work." \
+      "" \
+      "$diff_out" \
+      "" \
+      "  If it really is already merged, prove it and the diff goes empty." \
+      "  Override once you are sure: BD_SKIP_PREPUSH_CHECK=1 git push ..." >&2
+    status=1
+  fi
+done
+
+exit "$status"

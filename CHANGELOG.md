@@ -4,6 +4,45 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.932 - a pre-push hook for section 7's two-dot diff (item 30)
+
+A squash merge writes a NEW commit on main, so a topic branch never follows it
+and `origin/<branch>` still points at the pre-squash commit. The next ordinary
+push is rejected non-fast-forward, and the reflex -- `--force` -- is the one
+that can discard someone else's work. Section 7's rule is that
+`git diff --stat origin/main origin/<branch>` must be EMPTY first. Nothing
+enforced it.
+
+SCOPED TIGHTLY, BECAUSE THE OBVIOUS VERSION WOULD BE WORSE THAN NOTHING.
+GitHub's auto-delete-head-branches has been on since 2026-08-01, so the
+stale-ref case is largely gone. The hook says NOTHING unless the push is
+non-fast-forward -- the only case where --force is required to get through --
+and the everyday push of more commits to an open PR branch is untouched even
+though its two-dot diff against main is non-empty. A hook that consulted the
+diff without checking ancestry first would refuse every push to every open
+branch in the repository; that is a test, and a mutant.
+
+UNKNOWN IS A THIRD STATE. If the two-dot diff cannot be computed -- no
+remote-tracking main, an object this clone does not have -- it REFUSES rather
+than assuming the branch is safe to overwrite. Ancestry is read with section
+5's polarity: only `--is-ancestor` exit 0 is trustworthy, so exit 0
+short-circuits to ALLOW (a found path cannot be faked by a shallow boundary)
+and every nonzero falls through to the two-dot check rather than being read as
+a verdict. This container is a depth-50 clone, so that is not hypothetical.
+
+INERT BY DEFAULT, like `.githooks/pre-commit`: git runs it only if
+core.hooksPath points at .githooks, and `BD_SKIP_PREPUSH_CHECK=1` is the one
+named override.
+
+Tests: `tests/test_v3_66_932_pre_push_guards_the_two_dot_diff.py`, 10 cases
+driving the hook through the real pre-push stdin protocol against real
+throwaway repositories. RED was weak by nature -- a new file, so every case
+failed for one reason -- so the discrimination is carried by the mutants: 7
+mutants, 7 caught, 0 escaped. One ESCAPED on the first run and is recorded in
+the test that closed it: the deletion case used a branch whose content matched
+main, so the diff was empty either way and it passed over a hook that had lost
+the skip entirely.
+
 ## v3.66.931 - bitrot's schema init could not tell "already there" from "could not be done"
 
 `_ensure_integrity_table` wrapped its ALTER TABLE in `except Exception: pass`,
