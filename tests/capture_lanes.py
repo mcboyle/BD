@@ -69,6 +69,34 @@ SERIAL_EXACT_BASENAMES = frozenset(
         # running more than one width: file-to-worker assignment is by count,
         # so halving the workers changed who shares a worker and exposed it.
         "test_t14_vpn_probe_egress.py",
+        # v3.66.923 -- THE *_frontend FAMILY, named by MECHANISM rather than
+        # enumerated run by run, because enumeration does not converge here.
+        #
+        # Four all-parallel widths on the box (-n 64/32/24/16) produced TEN
+        # distinct refuted files. Three failed at every width -- deterministic.
+        # The rest appeared in one or two runs each, and kept ARRIVING: -n 32
+        # added one, -n 16 added two more. A fifth width would add others.
+        #
+        # The reason is that these are LOAD-sensitive, not order-sensitive.
+        # They spawn workers and assert against AdapterBudget.timeout_seconds
+        # -- a ONE-SECOND wall clock (adapters.py:83-84) -- with failures like
+        # test_worker_ipc_bytes_are_bounded and
+        # test_timeout_and_child_crash_are_explicit_non_pass_states. Under 16
+        # to 64 concurrent pytest processes a one-second budget is a coin
+        # flip, so no packing makes them safe and each run samples a different
+        # subset. That is a different failure class from test_u50, which was a
+        # genuine cross-file dependency.
+        #
+        # All five are listed. Three were refuted directly; the other two share
+        # the worker-spawn shape (18 and 19 worker/child references) and
+        # semantic_diff carries the same budget assertions. Five files out of
+        # 1232 is a cheap price for a gate that does not go red at random --
+        # section 0: over-sensitivity is a soundness bug, and a gate that cries
+        # wolf gets switched off.
+        "test_coverage_map_frontend.py",
+        "test_fuzz_harness_frontend.py",
+        "test_reachability_frontend.py",
+        "test_semantic_diff_frontend.py",
     }
 )
 

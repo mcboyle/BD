@@ -158,7 +158,6 @@ test_corebd17_audit_secret_keys.py
 test_corebd17_qs_header_floor.py
 test_corebd18_dom_serialize_escape_names.py
 test_corpus_disposition_buckets.py
-test_coverage_map_frontend.py
 test_credential_persistence.py
 test_csrf_origin_guard.py
 test_csv_bulk.py
@@ -260,7 +259,6 @@ test_frontend_dependency_security_floor.py
 test_frontend_secret_keys_in_sync.py
 test_fts_external_content_delete.py
 test_fts_stale_terms_on_update.py
-test_fuzz_harness_frontend.py
 test_generated_artifact_workflow.py
 test_generated_artifacts_are_not_tracked.py
 test_git_deploy_gaps_are_documented.py
@@ -412,7 +410,6 @@ test_pytest_runtime_requirement.py
 test_qb_jd_completions_record_the_largest_media_file.py
 test_queue_load_missing_table.py
 test_queue_ts_since_cursor_pin.py
-test_reachability_frontend.py
 test_reap_orphan_tempdirs.py
 test_rec01_02_deep_detect_probe_ssrf.py
 test_rec01_build_template_host_confine.py
@@ -449,7 +446,6 @@ test_selector_library.py
 test_selector_versions.py
 test_selftest_captures_root_disk.py
 test_selftest_wal_firstrun.py
-test_semantic_diff_frontend.py
 test_semantic_search.py
 test_sensitive_qs_widen.py
 test_session_keeper_persistent_context.py

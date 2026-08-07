@@ -72,6 +72,30 @@ diverging one worker's collection.
 Until the collection-time boot suppression lands, prefer a moderate
 --workers on the box. The lane split here is independent of that limit.
 
+FOUR WIDTHS LATER, THE REFUTATION LIST DID NOT CONVERGE -- and the reason is
+the most useful thing this cut learned. Runs at -n 64/32/24/16 produced TEN
+distinct refuted files. Three fail at EVERY width and are deterministic. The
+rest appear in one or two runs each and kept arriving: -n 32 added one, -n 16
+added two more.
+
+They are LOAD-sensitive, not order-sensitive. The *_frontend family spawns
+workers and asserts against AdapterBudget.timeout_seconds -- a ONE-SECOND wall
+clock (tools/code_intelligence/adapters.py:83-84) -- with failures like
+test_worker_ipc_bytes_are_bounded and
+test_timeout_and_child_crash_are_explicit_non_pass_states. Under 16 to 64
+concurrent pytest processes a one-second budget is a coin flip. No packing
+makes them safe, and each run samples a different subset, so enumerating them
+one width at a time never terminates.
+
+So all five *_frontend files are named by MECHANISM. Three were refuted
+directly; the other two share the worker-spawn shape and the budget
+assertions. Five files out of 1232 is a cheap price for a gate that does not go
+red at random -- section 0's inverse defect, where over-sensitivity is a
+soundness bug because a gate that cries wolf gets switched off.
+
+Final split: 1074 parallel / 158 serial. Whole-suite wall clock at the widths
+that complete: 4m06s at -n 64, 4m40s at -n 24, 5m56s at -n 16.
+
 The ratchet rises from >= 700 to >= 1000 parallel files.
 
 ## v3.66.922 - one promoted file depended on another file creating its tables
