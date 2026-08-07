@@ -4017,6 +4017,89 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.54 | Session close 2026-08-07 at 5acd7c7 (v3.66.927) -- SUPERSEDES 15.48's open set
+
+THIRTEEN CUTS, 915-927. The box capture at v3.66.927 is PASS: 14873 total /
+14788 passed / 0 failed / 0 errors / 85 skipped, live 36/0/0, graph pin
+matched, /api/health reporting sha 28cc9de and db_ok true.
+
+READ FIRST, BEFORE ANY WORK. A fresh cloud session almost certainly starts from
+a filesystem SNAPSHOT at an older commit, and the platform's lifecycle means the
+session is never on `main` by the time the SessionStart hook runs -- so the
+hook's auto-repair is structurally unreachable and you will get a
+`*** STALE BASE ***` block instead. REBASE BEFORE DOING ANYTHING. Branching
+from a snapshot-era commit and opening a PR makes GitHub diff it against
+current main, and every commit merged since the snapshot appears as a REMOVAL:
+the PR silently reverts the work below. CLAUDE.md section 5 carries the full
+reading. Do not let the block's familiarity train you past it.
+
+    git fetch origin main && git status && git log --oneline -1
+    # HEAD should be 5acd7c7 or later. If it is behind, rebase.
+
+WHAT SHIPPED, and the through-line is that every real finding came from an
+INSTRUMENT and every wrong one came from reading:
+
+  915/916  audit()'s two caps in one dict; regen_nfos_from_history resolving a
+           bare basename CWD-relative.
+  917-923  item 16 retirement, wired-gate invariants, and the capture
+           regression: lane assignment had gone fail-closed at 1ae076a with 173
+           files reviewed and nothing ever backfilled it, so 86% of the suite
+           drifted serial. Capture went ~45min -> 4m06s.
+  925      bitrot.verify_one resolved a bare basename against the CWD and WROTE
+           a false integrity_issues row for a PRESENT file. Measured 3 -> 6 -> 9
+           rows over three scans; nightly, and alerts_engine alarms on exactly
+           that growth.
+  926      Importing bulk_downloader.app booted the database at MODULE SCOPE in
+           FOUR sites. Reading found one; tracing sqlite3.connect found the
+           rest. This is what raced 64 xdist workers over the operator's live
+           history on 2026-08-07.
+  927      run_integrity_check scheduled a fire-and-forget thread that
+           re-resolved DB_PATH at fire time, so it verified whichever database
+           DB_PATH named when it woke -- and created it on contact. Four frames
+           needed the path threaded, not one.
+
+OPERATOR DATA WAS RECOVERED AND IS INTACT. 116 -> 118 history / 101 -> 103
+provenance after the capture (the +2 are test rows; see 15.50 item B's
+neighbour, not corruption). Originals remain in ~/db-rescue-20260807T012728Z/.
+Contiguous filename numbering across the corruption gap (2_43 -> 2_44) is the
+independent evidence the merge lost nothing.
+
+THE OPEN SET, superseding 15.48. Re-derive each before working it -- 15.51
+measured 15 of 23 register items ALREADY CLOSED, so assume the same here:
+
+  1. **auto_recover_sqlite quarantines HEALTHY databases** (15.50 item A). THE
+     HIGHEST-VALUE ITEM IN THE REGISTER. selftest.py:522 catches
+     sqlite3.DatabaseError and OperationalError is a SUBCLASS, so transient
+     contention reads as confirmed corruption. The recovered file was 3.7 MiB
+     with integrity=ok when it was renamed aside. The quarantine is also racy:
+     int(time.time()) at one-second resolution while Path.rename silently
+     overwrites, with -wal/-shm moved non-atomically. Item 11 supplied the
+     contention; THIS is what turned it into destruction.
+  2. **bd-doctruth does not scan CLAUDE.md** (65 docs, project-knowledge only).
+     Why the contract's own section 5 stayed wrong for weeks.
+  3. **Registers 31 and 32 need re-deriving** -- TASK_TRACKER's 11 rows and
+     CODEX_HANDOFF's 23 groups, both untouched by 15.51.
+  4. **The nightly bitrot scan is inert** -- bg_scheduler.py:252 calls
+     run_scan() with no download_dir, so it reports unknown=N and decides
+     nothing. Deliberate at @925, still owed.
+  5. **Item 30** -- no .githooks/pre-push enforcing section 7's two-dot diff.
+  6. **Item 14** -- start_manual_login returns while the login thread is alive,
+     so the Phase B takeover cannot open. NOT a solo cut: it changes threading
+     in the login path.
+  7. **Item 27** -- DECIDED (N rows per file, 15.52), not implemented.
+  8. **Item 3** -- DECIDED (sweep the ~227 non-test references only, 15.52),
+     not implemented.
+  9. **15.50-B** -- importing app still writes app_config.json, logs/,
+     live_recordings/ and state/ into the cwd.
+  10. **bitrot.py:72-74** -- bare except on an ALTER TABLE.
+  11. Operator- or box-bound: items 1, 21, 25, 29. Item 1 now HAS a measurement
+      (240 tools, exactly 2 unreferenced) proving the twelve are not derivable
+      from the tree; close it won't-fix or answer it from your records.
+  12. Unevaluable from a container: item 17 (needs a bd-restart-check exit 1).
+
+The ranked overnight plan is in 15.53. Nothing in this session is blocked on
+anything in it.
+
 ### 15.53 | Persistence audit at 803a39a -- what was NOT written down, and the panel verified current
 
 Run because "is it all saved?" is exactly the question that gets answered from
