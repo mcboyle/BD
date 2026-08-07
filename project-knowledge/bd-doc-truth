@@ -2,8 +2,26 @@
 """bd-doc-truth -- compare docs to source behavior.
 
 WHAT IT ACTUALLY CHECKS, stated narrowly on purpose: backticked
-`bulk_downloader/...py` file-path claims in the PK docs that no longer resolve
-against the work tree -> BD-DOC-STALE. That is ONE detector.
+`bulk_downloader/...py` file-path claims that no longer resolve against the
+work tree -> BD-DOC-STALE. That is ONE detector.
+
+THE CORPUS IS THE PK DOCS *PLUS* THE ROOT-LEVEL DOCUMENTS (@929). Until then
+it was project-knowledge only -- 65 documents, and CLAUDE.md in none of them.
+The operating contract, which outranks every document this gate did check, was
+the one document nothing checked, and CLAUDE.md section 0 records what that
+cost in its own words: "THE FRESHNESS GATE CANNOT SEE THIS FILE, WHICH IS WHY
+THIS FILE WENT STALE."
+
+The widening is DERIVED rather than keyed on a filename: every `*.md` at the
+work root joins the corpus. A gate that can see the contract only because
+someone typed its name goes blind again the next time a root document appears.
+
+CHANGELOG.md is EXCLUDED, and the exclusion is REPORTED rather than silent.
+Measured at v3.66.928: 53 backticked references, of which 2 no longer resolve
+(`deep_detect.py`, `dev_suite.py` -- both since split into packages). Those
+entries were true when written; rewriting history to satisfy a gate falsifies
+the record. A silent exclusion is how a denominator rots, so both the count
+and the reason are printed.
 
 This docstring used to also advertise version-claim, tool-count and route-count
 checks. The code has never implemented them. A tool's own docstring is a
@@ -38,13 +56,38 @@ def current_version(work):
         if m: return m.group(1)
     return None
 
-def scan(docs, work):
+# Documents that are an APPEND-ONLY HISTORICAL RECORD. Their claims were true
+# when written, so a reference that no longer resolves is a fact about the
+# past, not a stale claim -- and "fixing" one to satisfy a gate falsifies the
+# record. Excluded by name, reported by main(), never dropped silently.
+HISTORICAL_DOCS={
+    "CHANGELOG.md": "append-only historical record; its references describe "
+                    "the tree as it was, not as it is",
+}
+
+
+def contract_docs(work):
+    """The root-level documents, split into (included, excluded).
+
+    Returns excluded as [(path, why)] so the caller can NAME what it did not
+    look at. A corpus that quietly omits a document reports a count the reader
+    will over-read as coverage -- section 0's subject, applied to this tool's
+    own denominator.
+    """
+    included, excluded = [], []
+    for f in sorted(glob.glob(os.path.join(work,"*.md"))):
+        why=HISTORICAL_DOCS.get(os.path.basename(f))
+        (excluded.append((f,why)) if why else included.append(f))
+    return included, excluded
+
+
+def scan(docs, work, extra=()):
     cur=current_version(work)
     stale=[]
     # docs_scanned is not cosmetic: it is the DENOMINATOR, and reporting a
     # count without it is exactly how "0 stale claims" over zero documents read
     # as clean for as long as it did.
-    files=sorted(glob.glob(os.path.join(docs,"*.md")))
+    files=sorted(glob.glob(os.path.join(docs,"*.md")))+list(extra)
     # file-path claims: `some/path.py` references that don't exist
     for f in files:
         name=os.path.basename(f)
@@ -123,8 +166,15 @@ def default_docs(work):
 
 def verdict(r):
     """0 clean / 1 stale / 2 cannot-evaluate. Split out so the selftest can
-    assert the mapping directly instead of only through a subprocess."""
-    if not r["docs_dir_exists"] or r["docs_scanned"]==0:
+    assert the mapping directly instead of only through a subprocess.
+
+    Keyed on the TOTAL scanned rather than on docs_dir_exists, so the @850
+    negative controls survive the @929 widening: an explicitly empty --docs
+    corpus still scans zero documents and is still UNKNOWN. Keying it on the
+    directory alone would have let root documents from --work mask an empty
+    corpus, which is the exact defect @850 fixed.
+    """
+    if r["docs_scanned"]==0:
         return sec.EXIT_CANNOT_EVALUATE
     return 1 if r["stale_count"] else 0
 
@@ -136,8 +186,15 @@ def main():
     a=ap.parse_args()
     if a.selftest: return selftest()
     sec.require_source_tree(a.work)
-    docs=a.docs if a.docs is not None else default_docs(a.work)
-    r=scan(docs,a.work)
+    # An explicit --docs means "scan exactly this corpus", so the root
+    # documents join only the DEFAULT invocation -- the one bd-freshcheck runs.
+    # That keeps @850's empty/absent-corpus controls meaningful.
+    explicit=a.docs is not None
+    docs=a.docs if explicit else default_docs(a.work)
+    included,excluded=((),()) if explicit else contract_docs(a.work)
+    r=scan(docs,a.work,extra=included)
+    r["contract_scanned"]=len(included)
+    r["excluded"]=[{"doc":os.path.basename(f),"why":w} for f,w in excluded]
     rc=verdict(r)
     # The verdict is computed BEFORE emit(), because emit() returns True for
     # --json and the old code returned 0 on that branch without ever grading.
@@ -147,8 +204,13 @@ def main():
         print("%sBD-DOC-TRUTH UNEVALUABLE%s %s %s -- 0 documents scanned. That is "
               "UNKNOWN, not clean."%(R,RST,docs,why))
         return rc
-    print("current version %s; %d document(s) scanned in %s; %d stale doc claim(s):"
-          %(r["current_version"],r["docs_scanned"],docs,r["stale_count"]))
+    print("current version %s; %d document(s) scanned in %s (+%d root document(s)); "
+          "%d stale doc claim(s):"
+          %(r["current_version"],r["docs_scanned"]-r.get("contract_scanned",0),
+            docs,r.get("contract_scanned",0),r["stale_count"]))
+    # Never silent: what was NOT looked at is part of the denominator too.
+    for x in r.get("excluded",[]):
+        print("  %sexcluded%s %s -- %s"%(DIM,RST,x["doc"],x["why"]))
     for x in r["stale"][:40]: print("  %sBD-DOC-STALE%s %s: %s (%s)"%(Y,RST,x["doc"],x["claim"],x["kind"]))
     if not r["stale"]: print(G+"no stale file-path claims in %d document(s)"%r["docs_scanned"]+RST)
     return rc

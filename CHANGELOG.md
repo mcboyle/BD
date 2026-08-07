@@ -4,6 +4,43 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.929 - bd-doc-truth could not see CLAUDE.md, the document that outranks every document it checked
+
+`default_docs()` returned `<work>/project-knowledge` and `scan()` globbed
+`*.md` there, so the corpus was 65 documents and the operating contract was in
+none of them. CLAUDE.md section 0 already recorded the consequence in its own
+words -- "THE FRESHNESS GATE CANNOT SEE THIS FILE, WHICH IS WHY THIS FILE WENT
+STALE" -- and the worked example is section 5's claim that
+`check_requirements.py` "calls version(name) and discards the result", which
+survived for weeks after the tool grew specifier comparison.
+
+The widening is DERIVED, not keyed on a filename: every `*.md` at the work root
+joins the corpus, so a gate that can see the contract only because someone
+typed its name does not go blind the next time a root document appears. That
+property is pinned by its own test and by a mutant.
+
+MEASURED BEFORE CHOOSING THE SCOPE, because the naive widening breaks: of the
+14 root documents, 13 are clean and CHANGELOG.md carries 53 backticked
+references of which 2 no longer resolve -- `bulk_downloader/deep_detect.py` and
+`bulk_downloader/dev_suite.py`, both since split into packages. Those entries
+were true when written, and rewriting history to satisfy a gate falsifies the
+record. CHANGELOG.md is therefore excluded BY NAME, WITH A REASON, and the
+exclusion is PRINTED: a silent omission is how a denominator rots, and a count
+a reader over-reads as coverage is this tool's own subject turned on itself.
+
+The corpus goes 65 -> 78 documents. `verdict()` is now keyed on the TOTAL
+scanned rather than on `docs_dir_exists`, so @850's negative controls survive:
+an explicitly empty `--docs` corpus still scans zero documents and is still
+UNKNOWN. Root documents join the DEFAULT invocation only -- the one
+bd-freshcheck actually runs -- so `--docs DIR` still means "scan exactly this
+corpus" and cannot be masked by the tree.
+
+Tests: `tests/test_v3_66_929_doctruth_sees_the_contract.py`, 12 cases. Proven
+RED on pristine source (5 failing, 6 passing -- the passing ones are @850's
+empty/absent-corpus controls and the over-sensitivity guard). 6 mutants, 6
+caught, 0 escaped, including one that keys the corpus on the literal filename
+and one that drops the historical exclusion.
+
 ## v3.66.928 - auto_recover_sqlite quarantined HEALTHY databases on ordinary lock contention
 
 `selftest.py` caught `sqlite3.DatabaseError` around its integrity probe, and
