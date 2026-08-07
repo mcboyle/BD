@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3760,
+  "edge_count": 3767,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -971,6 +971,7 @@
       "bulk_downloader/drift_repair.py",
       "bulk_downloader/federation.py",
       "bulk_downloader/global_config.py",
+      "bulk_downloader/library_final.py",
       "bulk_downloader/lifecycle_drift.py",
       "bulk_downloader/maintenance.py",
       "bulk_downloader/ramdisk_stage.py",
@@ -1344,6 +1345,7 @@
       "bulk_downloader/db.py",
       "bulk_downloader/download_supervisor.py",
       "bulk_downloader/ffmpeg_bin.py",
+      "bulk_downloader/library_final.py",
       "bulk_downloader/ytdlp_updater.py"
     ],
     "bulk_downloader/hls_downloader.py": [
@@ -6026,6 +6028,13 @@
     ],
     "tests/test_v3_66_928_quarantine_needs_confirmed_corruption.py": [
       "bulk_downloader/selftest.py"
+    ],
+    "tests/test_v3_66_930_bitrot_scan_gets_its_roots.py": [
+      "bulk_downloader/bg_scheduler.py",
+      "bulk_downloader/bitrot.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/healthcheck.py",
+      "bulk_downloader/library_final.py"
     ],
     "tests/test_v3_66_96_autopilot_cockpit.py": [
       "bulk_downloader/capture_ingest.py",

@@ -170,31 +170,86 @@ def list_orphans(download_dir: str, *, site_id: Optional[str] = None) -> list:
     return out
 
 
-def _basename_index(download_dir: str) -> dict:
-    """{basename: [paths]} for every file under download_dir.
+def download_roots(s_cfg) -> list:
+    """Every configured download_dir, in config order, deduped, blanks out.
+
+    ONE enumerator. healthcheck._check_disk built this list inline and
+    app_library builds it again for its scan route; a third copy is how the
+    one nobody updated becomes the one that runs (CLAUDE.md section 5, S0/S8).
+
+    Returns the RAW configured paths -- existence is deliberately NOT filtered
+    here, because callers disagree about what a missing directory means.
+    healthcheck must REPORT it as an issue; the bit-rot index treats it as
+    contributing no files. Filtering here would take that choice away from
+    both.
+    """
+    return [d for _sid, d in download_roots_by_site(s_cfg)]
+
+
+def download_roots_by_site(s_cfg) -> list:
+    """[(site_id, download_dir)] -- the same enumeration, keeping the owner.
+
+    healthcheck reports a missing directory and names the site responsible, so
+    it needs the attribution that download_roots() drops. Two shapes, ONE
+    enumeration: the alternative is healthcheck re-deriving the list to get a
+    label back, which is the copy this function exists to remove.
+
+    Where several sites share a directory the FIRST wins the label; the
+    directory is still listed once, because the check is about the path.
+    """
+    pairs: list = []
+    seen = set()
+    for sid, cfg in (s_cfg or {}).items():
+        d = (cfg or {}).get("download_dir") or ""
+        if d and d not in seen:
+            seen.add(d)
+            pairs.append((sid, d))
+    return pairs
+
+
+def _as_roots(download_dir) -> list:
+    """Normalise str | PathLike | sequence -> list[str].
+
+    The five existing call sites pass a single string and keep working
+    unchanged; only callers that HAVE several roots pass a sequence.
+    """
+    if not download_dir:
+        return []
+    if isinstance(download_dir, (str, os.PathLike)):
+        return [str(download_dir)]
+    return [str(d) for d in download_dir if d]
+
+
+def _basename_index(download_dir) -> dict:
+    """{basename: [paths]} for every file under each download root.
 
     Built once per check rather than per row: a library is a few thousand
     files and a per-row rglob would make the doctor quadratic.
+
+    Accepts one root or several. download_dir is configured PER SITE, so a
+    single string cannot express the library on a multi-site install -- and
+    the merge is what makes a cross-root basename collision land in the
+    `[paths]` list, where _resolve_recorded reports it as "ambiguous" instead
+    of guessing.
     """
     idx: dict = {}
-    if not download_dir:
-        return idx
-    try:
-        root = Path(download_dir)
-        if not root.is_dir():
-            return idx
-        for p in root.rglob("*"):
-            try:
-                if p.is_file():
-                    idx.setdefault(p.name, []).append(p)
-            except OSError:
+    for root_str in _as_roots(download_dir):
+        try:
+            root = Path(root_str)
+            if not root.is_dir():
                 continue
-    except OSError:
-        return idx
+            for p in root.rglob("*"):
+                try:
+                    if p.is_file():
+                        idx.setdefault(p.name, []).append(p)
+                except OSError:
+                    continue
+        except OSError:
+            continue
     return idx
 
 
-def _resolve_recorded(fn: str, download_dir: str, index: dict):
+def _resolve_recorded(fn: str, download_dir, index: dict):
     """(path, state) for a `history.filename` value.
 
     state is one of:
@@ -224,17 +279,28 @@ def _resolve_recorded(fn: str, download_dir: str, index: dict):
     p = Path(fn)
     if p.is_absolute():
         return (p, "resolved") if p.exists() else (p, "absent")
-    if not download_dir:
+    roots = _as_roots(download_dir)
+    if not roots:
         return None, "unknown"
-    direct = Path(download_dir) / fn
-    if direct.exists():
-        return direct, "resolved"
+    # Flat join first -- the cheap common case, and it does not need the tree
+    # walked. It must NOT short-circuit on the first root: returning the first
+    # hit across several roots is precisely the first-match-wins guess this
+    # function refuses to make, and it would hash one site's file against
+    # another site's recorded hash and call the difference a modification.
+    direct_hits = [Path(root) / fn for root in roots
+                   if (Path(root) / fn).exists()]
+    if len(direct_hits) == 1:
+        return direct_hits[0], "resolved"
+    if len(direct_hits) > 1:
+        return None, "ambiguous"
     hits = index.get(p.name) or []
     if len(hits) == 1:
         return hits[0], "resolved"
     if len(hits) > 1:
         return None, "ambiguous"
-    return direct, "absent"
+    # "absent" is reported against the FIRST root: there is no way to say
+    # which one it should have been under, and the caller only shows the path.
+    return Path(roots[0]) / fn, "absent"
 
 
 def list_missing_from_disk(*, site_id: Optional[str] = None,

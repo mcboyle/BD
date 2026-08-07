@@ -2334,7 +2334,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1619,
+    "edge_count": 1621,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3858,8 +3858,10 @@
       "bulk_downloader/library_final.py": [
         "bulk_downloader/app_library.py",
         "bulk_downloader/app_tpdb.py",
+        "bulk_downloader/bg_scheduler.py",
         "bulk_downloader/bitrot.py",
         "bulk_downloader/cleanup_helpers.py",
+        "bulk_downloader/healthcheck.py",
         "bulk_downloader/runner.py",
         "tools/census_file_size_drift.py"
       ],
@@ -6008,6 +6010,7 @@
         "bulk_downloader/drift_repair.py",
         "bulk_downloader/federation.py",
         "bulk_downloader/global_config.py",
+        "bulk_downloader/library_final.py",
         "bulk_downloader/lifecycle_drift.py",
         "bulk_downloader/maintenance.py",
         "bulk_downloader/ramdisk_stage.py",
@@ -6381,6 +6384,7 @@
         "bulk_downloader/db.py",
         "bulk_downloader/download_supervisor.py",
         "bulk_downloader/ffmpeg_bin.py",
+        "bulk_downloader/library_final.py",
         "bulk_downloader/ytdlp_updater.py"
       ],
       "bulk_downloader/hls_downloader.py": [
