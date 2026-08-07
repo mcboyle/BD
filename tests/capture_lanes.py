@@ -52,6 +52,51 @@ SERIAL_EXACT_BASENAMES = frozenset(
         # that file to the other side. A green parallel run is evidence about
         # ONE lane composition, not about the file.
         "test_u50_widget_backfills.py",
+        # v3.66.923 -- REFUTED by an ALL-PARALLEL sweep of the whole tree on
+        # the box: 1232 files, 14,856 tests, `-n $(nproc) --dist loadfile`,
+        # 4m06s. Nine failures across seven files and ZERO of them survived a
+        # serial retry, so nothing here is a real bug -- these three are the
+        # ones not already named.
+        #
+        # test_perf_lab is the file CLAUDE.md section 5 records as a HANGER
+        # when the tree is run whole. It did not hang here; it failed. Keep it
+        # serial for both reasons.
+        "test_differential_oracle_frontend.py",
+        "test_perf_lab.py",
+        "test_u30_runner_replay.py",
+        # v3.66.923 -- refuted by the N/2 packing (-n 32) and by NOTHING ELSE.
+        # The full-width run at -n 64 passed it. That is the entire case for
+        # running more than one width: file-to-worker assignment is by count,
+        # so halving the workers changed who shares a worker and exposed it.
+        "test_t14_vpn_probe_egress.py",
+        # v3.66.923 -- THE *_frontend FAMILY, named by MECHANISM rather than
+        # enumerated run by run, because enumeration does not converge here.
+        #
+        # Four all-parallel widths on the box (-n 64/32/24/16) produced TEN
+        # distinct refuted files. Three failed at every width -- deterministic.
+        # The rest appeared in one or two runs each, and kept ARRIVING: -n 32
+        # added one, -n 16 added two more. A fifth width would add others.
+        #
+        # The reason is that these are LOAD-sensitive, not order-sensitive.
+        # They spawn workers and assert against AdapterBudget.timeout_seconds
+        # -- a ONE-SECOND wall clock (adapters.py:83-84) -- with failures like
+        # test_worker_ipc_bytes_are_bounded and
+        # test_timeout_and_child_crash_are_explicit_non_pass_states. Under 16
+        # to 64 concurrent pytest processes a one-second budget is a coin
+        # flip, so no packing makes them safe and each run samples a different
+        # subset. That is a different failure class from test_u50, which was a
+        # genuine cross-file dependency.
+        #
+        # All five are listed. Three were refuted directly; the other two share
+        # the worker-spawn shape (18 and 19 worker/child references) and
+        # semantic_diff carries the same budget assertions. Five files out of
+        # 1232 is a cheap price for a gate that does not go red at random --
+        # section 0: over-sensitivity is a soundness bug, and a gate that cries
+        # wolf gets switched off.
+        "test_coverage_map_frontend.py",
+        "test_fuzz_harness_frontend.py",
+        "test_reachability_frontend.py",
+        "test_semantic_diff_frontend.py",
     }
 )
 
@@ -75,11 +120,19 @@ SERIAL_NAME_TOKENS = (
     "systemd",
 )
 
-SERIAL_SOURCE_SNIPPETS = (
-    "pytest.mark.bd_module_wipe",
+# The ONE source risk an allowlist entry may not override. Importing the
+# fallback runner rewires global interpreter state, and a dedicated test
+# (test_allowlisted_file_cannot_bypass_dynamic_runner_import_risk) exists
+# to keep it that way. Named separately at v3.66.923 so the rest of the
+# heuristics could become overridable without taking this with them.
+ABSOLUTE_SERIAL_SNIPPETS = (
     "import run_tests",
     "from run_tests",
     "run_tests.py",
+)
+
+SERIAL_SOURCE_SNIPPETS = (
+    "pytest.mark.bd_module_wipe",
     "playwright.",
     "from playwright",
     "import playwright",
@@ -117,8 +170,9 @@ SERIAL_SOURCE_PATTERNS = (
         r"^\s*(?:from\s+socket\s+import|import\s+socket\b)",
         re.IGNORECASE | re.MULTILINE,
     ),
-    re.compile(r"""["']run_tests(?:_core)?["']""", re.IGNORECASE),
 )
+
+RUNTESTS_LITERAL = re.compile(r"""["']run_tests(?:_core)?["']""", re.IGNORECASE)
 
 
 @lru_cache(maxsize=1)
@@ -197,17 +251,53 @@ def classify_capture_file(
             # A path pytest collected but we cannot inspect is not proven safe.
             return "serial"
     lowered = source.lower()
+
+    # ABSOLUTE, and the only source check that still is. See the constant.
+    if any(snippet in lowered for snippet in ABSOLUTE_SERIAL_SNIPPETS):
+        return "serial"
+    if RUNTESTS_LITERAL.search(source):
+        return "serial"
+
+    # v3.66.923: EXPLICIT REVIEW NOW OUTRANKS THE REMAINING HEURISTICS, on
+    # whole-tree experimental evidence rather than on none. The entire tree was
+    # run in ONE parallel lane on the box -- 1232 files, 14,856 tests, 4m06s --
+    # and of nine failures across seven files, ZERO survived a serial retry.
+    # Every file promoted below was in that run.
+    #
+    # This is the reverse of the v3.66.921 posture, and deliberately so. There
+    # the evidence was a run of the serial lane ALONE, which is a different
+    # composition from what ships -- and splitting the lane duly broke
+    # test_u50_widget_backfills, whose table-seeding dependency ended up on the
+    # other side. An all-parallel sweep has no other side: it is the shipping
+    # configuration, measured directly.
+    #
+    # What it is still NOT evidence for is a different PACKING. xdist assigns
+    # files to workers by count, so a second run at another -n shuffles who
+    # shares a worker. Anything that surfaces there is a one-line addition to
+    # SERIAL_EXACT_BASENAMES above, which is where every refutation is recorded
+    # BY NAME rather than by omission -- the allowlist is generated, so an
+    # omission would simply be regenerated away.
+    key = _capture_test_key(candidate)
+    if key is not None and key in parallel_allowlist():
+        return "parallel"
+
+    # Unlisted: the heuristics still decide, and they still fail closed.
     if any(snippet in lowered for snippet in SERIAL_SOURCE_SNIPPETS):
         return "serial"
     if any(pattern.search(source) for pattern in SERIAL_SOURCE_PATTERNS):
         return "serial"
-    key = _capture_test_key(candidate)
-    if key is None or key not in parallel_allowlist():
+    if any(token in basename for token in SERIAL_NAME_TOKENS):
         return "serial"
-    # Reached only when every SOURCE check above passed. An allowlisted file
-    # whose only flag was its name is promoted here; one carrying a real
-    # construct returned "serial" long before this point.
-    return "parallel"
+
+    # FAIL-CLOSED, and this line is load-bearing. Everything reaching here is
+    # UNLISTED -- the allowlist returned above -- so an unreviewed file is
+    # serial even when it looks pure.
+    #
+    # v3.66.923: moving the allowlist check above the heuristics briefly left
+    # this as `return "parallel"`, which promoted every unreviewed file in the
+    # repo and destroyed the property this module exists for. Two tests caught
+    # it on the first run. Do not "simplify" it back.
+    return "serial"
 
 
 @lru_cache(maxsize=None)
