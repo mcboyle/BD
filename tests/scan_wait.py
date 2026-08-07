@@ -148,6 +148,51 @@ def wait_for_scan(lib: Any, *, timeout: float = DEFAULT_TIMEOUT_S,
         time.sleep(_POLL_S)
 
 
+def wait_for_progress(lib: Any, *, minimum: int = 1,
+                      timeout: float = DEFAULT_TIMEOUT_S) -> dict:
+    """Block until the scan has SEEN at least `minimum` files. Return its status.
+
+    A DIFFERENT QUESTION FROM `wait_for_scan`, which waits for the worker to
+    LEAVE. This waits for it to be demonstrably RUNNING -- what a test needs
+    when it intends to act on a live worker (cancel it, race a second start
+    against it) rather than assert on a finished one.
+
+    ADDED AT v3.66.941 BECAUSE THE RATCHET ASKED FOR IT. That cut hand-rolled
+    this loop three times and `test_no_test_file_hand_rolls_a_scan_poll_loop`
+    failed it -- correctly. The gate's message says "use start_and_wait or
+    wait_for_scan", and neither answers this question, so the honest response
+    was a third helper rather than an exemption. A ratchet that keeps catching
+    the same legitimate need is naming a missing tool.
+
+    Same discipline as its siblings: the budget bounds a HANG, and running out
+    of it RAISES rather than falling through, because the caller is about to
+    act on the assumption that a worker is alive. Convergence before `minimum`
+    is NOT an error -- a small tree can finish first -- so the status is
+    returned and the caller decides; `finished_at` tells them which happened.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        st = lib.scan_status()
+        if st.get("never_run"):
+            raise AssertionError(
+                "wait_for_progress: no scan has ever been started in this "
+                "process. scan_start returns {'ok': False} instead of raising; "
+                "check its return value.")
+        if st.get("seen", 0) >= minimum:
+            return st
+        if _converged(st):
+            # Finished before reaching `minimum`. Legitimate, and the caller
+            # must be able to tell -- returning it silently as though progress
+            # had been observed would be the fall-through this module exists
+            # to remove.
+            return st
+        if time.monotonic() >= deadline:
+            raise AssertionError(
+                f"wait_for_progress: the scan neither reached seen >= "
+                f"{minimum} nor finished within {timeout}s:\n{_describe(st)}")
+        time.sleep(_POLL_S)
+
+
 def start_and_wait(lib: Any, roots: Iterable[str], *,
                    timeout: float = DEFAULT_TIMEOUT_S,
                    require_clean: bool = False) -> dict:

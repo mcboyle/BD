@@ -4,6 +4,69 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.941 - a cancelled scan's worker wrote its counters into the NEXT scan
+
+Three facts, individually reasonable:
+
+1. scan_cancel() sets cancelled=True and returns. Nothing stops the thread; it
+   breaks at the next file or root boundary, which on a large tree is a long
+   way off.
+2. scan_start() refuses only while `finished_at is None and not cancelled`.
+   After a cancel the second clause is False, so a NEW scan is ACCEPTED while
+   the old worker is still alive.
+3. _scan_worker's _mut, _bump and _record_error all resolved the MODULE GLOBAL
+   _scan_state at call time - thirteen references, none bound to the state the
+   worker was started for.
+
+So the old worker's seen/added/updated/errors, and finally its finished_at,
+landed in the NEW ScanState. Measured at v3.66.935 after a cancel: running read
+False while seen climbed 70 -> 190 and on to 4000, finished_at still None. To
+an operator the second scan reports counts it did not produce, and is then
+marked finished by the first worker while it is still walking.
+
+Both routes are live: app_library.py:244 (scan_start) and :278 (scan_cancel).
+NO test in the suite calls scan_cancel - an AST census finds zero call sites -
+which is why green bands never touched this interleaving.
+tests/scan_wait.py:start_and_wait refuses to start on top of an unfinished
+worker, and was written at v3.66.935 precisely because the product would not,
+so the harness was safe while the product was not.
+
+BOTH HALVES, and the second is the one that matters:
+
+- _scan_worker now takes the ScanState it is walking for; all thirteen global
+  references are gone. `state` IS the object scan_start publishes as the
+  global, so scan_cancel still reaches the running thread - what changes is
+  that a LATER scan's state can no longer be the target.
+- scan_start refuses while the previous worker thread is alive. A liveness
+  check alone races the thread's actual exit; binding alone would still let two
+  workers hammer the same rows. Neither replaces the other.
+
+- tests/test_v3_66_941_scan_start_refuses_a_live_worker.py: 6 tests, 4 RED.
+  Structural assertions that the worker resolves no global and that scan_start
+  actually passes the state, behavioural ones over a real 4000-file tree (not a
+  stubbed os.walk - a stub would let the test pass against an implementation
+  that never races), an over-correction guard that ordinary sequential scans
+  still work, and a guard that binding did not sever the cancel path.
+
+TWO HARNESS DEFECTS FOUND WHILE WRITING IT, both the kind that produce a
+confident wrong reading. The AST check on the thread's args= counted COMMAS,
+and pristine source is `args=(roots,)` - whose trailing comma made the check
+pass vacuously; it now counts tuple ELEMENTS. And the fixture reset the module
+globals while a previous test's worker was still alive, so the worker raised
+AttributeError on a daemon thread - the defect under test surfacing as harness
+noise. It now joins before resetting.
+
+AND THE RATCHET FROM v3.66.935 CAUGHT THIS CUT, correctly. The new tests
+hand-rolled a scan poll loop three times and
+test_no_test_file_hand_rolls_a_scan_poll_loop failed them. Those loops were
+waiting for the scan to be demonstrably RUNNING, which is a different
+question from the convergence both existing helpers answer - so the response
+was a third helper, tests/scan_wait.py::wait_for_progress, rather than an
+exemption. A ratchet that keeps catching the same legitimate need is naming
+a missing tool. It keeps the siblings' discipline: running out of budget
+RAISES, and convergence before the minimum is returned rather than treated
+as progress, so the caller can tell the two apart.
+
 ## v3.66.940 - the .env loader applied every key it found, not the declared set
 
 app_envfile_editor allow-lists what it will WRITE: "Writable keys are
