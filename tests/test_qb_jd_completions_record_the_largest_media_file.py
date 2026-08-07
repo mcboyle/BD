@@ -56,6 +56,8 @@ import time
 
 import pytest
 
+import scan_wait
+
 pytestmark = pytest.mark.bd_module_wipe
 
 # Distinct, non-round sizes: a doubled or substituted value cannot collide.
@@ -165,15 +167,9 @@ def _history_done_rows(db_conn):
 
 
 def _run_scan(lib, root):
-    started = lib.scan_start([str(root)])
-    assert started.get("ok") is True, f"scan did not start: {started}"
-    for _ in range(200):
-        if not lib.scan_status().get("running"):
-            break
-        time.sleep(0.05)
-    status = lib.scan_status()
-    assert status.get("running") is False, "scan never finished; probe invalid"
-    return status
+    # Was a 10s poll that checked `running is False` afterwards -- unsound on
+    # its own, since scan_cancel() clears `running` while the worker walks.
+    return scan_wait.start_and_wait(lib, [str(root)])
 
 
 def _make_pack(dl):
