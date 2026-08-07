@@ -65,6 +65,15 @@ def _run_isolated(body: str, tmp_path: Path, **env_extra) -> subprocess.Complete
     env["BD_INSTALL_DIR"] = str(tmp_path)
     env["BD_HOME"] = str(tmp_path)
     env.pop("BD_TEST_MODE", None)
+    # INHERITED FLAGS MUST BE CLEARED, and this line is the whole reason the
+    # "without the keepalive flag" case is meaningful. `dict(os.environ)`
+    # carries whatever the pytest invocation exported, and every band in this
+    # repo runs `BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest ...` -- so
+    # the subprocess silently inherited the flag and the test that exists to
+    # check the UNFLAGGED path was checking the flagged one. It passed, over a
+    # denominator that excluded its subject. Caught by an adversarial review
+    # agent, not by the test suite and not by review.
+    env.pop("BD_DISABLE_KEEPALIVE", None)
     env.update(env_extra)
     interp = _PY if _PY.exists() else Path(sys.executable)
     return subprocess.run(

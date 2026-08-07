@@ -64,17 +64,24 @@ def _dom_analyzer_capture_store_root():
         return _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
 
 
-if not _os.environ.get("BD_DISABLE_KEEPALIVE"):
-    _STARTUP_SELFTEST = _selftest.run_all(
-        sites_config_path=_SITES_CFG_PATH,
-        db_path=_DB_PATH,
-        cookies_dir="cookies",
-        download_dirs=_DOWNLOAD_DIRS_FOR_SELFTEST,
-        captures_root=str(_dom_analyzer_capture_store_root()),
-    )
-    _selftest.log_to_stderr(_STARTUP_SELFTEST)
-else:
-    _STARTUP_SELFTEST = {"ok": True, "checks": [], "summary": {"ok": 0, "warn": 0, "fail": 0}, "elapsed_ms": 0.0}
+# v3.66.926 (item 11): the startup self-test is DEFERRED with the rest of the
+# boot, and of the three sites this is the one that mattered most. It opens the
+# database (selftest.check_database) and it can RENAME IT ASIDE
+# (selftest.auto_recover_sqlite, :525) -- so a bare import could quarantine the
+# operator's live history. That is exactly what happened on 2026-08-07.
+#
+# It was gated on BD_DISABLE_KEEPALIVE, which is why the first pass of this cut
+# missed it: every band in this repo exports that flag, so the test written to
+# check the unflagged path silently inherited it and passed over a denominator
+# that excluded its subject. The SERVICE runs with the flag unset, which is the
+# case that was never covered.
+#
+# _STARTUP_SELFTEST stays a module attribute with an empty default because
+# app_selftest.py:38 reaches it by getattr on the live module; deferring the
+# WORK must not remove the NAME.
+_STARTUP_SELFTEST = {"ok": True, "checks": [],
+                     "summary": {"ok": 0, "warn": 0, "fail": 0},
+                     "elapsed_ms": 0.0}
 
 # ─── FLASK ────────────────────────────────────────────────────────────────────
 # v3.66.926 (item 11): every DB operation below used to run HERE, at module
@@ -130,9 +137,23 @@ def boot_once(*, force: bool = False) -> bool:
         key = _os.path.abspath(_resolve_db_path())
     except Exception:
         key = "<unresolved>"
+    global _STARTUP_SELFTEST
     with _BOOT_LOCK:
         if key in _BOOTED_PATHS and not force:
             return False
+        # v3.43.24: the self-test runs FIRST, before db_init(), so
+        # auto_recover_sqlite() gets a chance to move a corrupt database aside
+        # before db_init() tries to use it. That ordering is the whole reason
+        # it sits above; tests/test_v3_43_24_reliability.py pins it.
+        if not _os.environ.get("BD_DISABLE_KEEPALIVE"):
+            _STARTUP_SELFTEST = _selftest.run_all(
+                sites_config_path=_SITES_CFG_PATH,
+                db_path=_DB_PATH,
+                cookies_dir="cookies",
+                download_dirs=_DOWNLOAD_DIRS_FOR_SELFTEST,
+                captures_root=str(_dom_analyzer_capture_store_root()),
+            )
+            _selftest.log_to_stderr(_STARTUP_SELFTEST)
         db_init()
         # B1 (post-365): run-history substrate tables (job_runs + run_events).
         # Advisory store — init failing is non-fatal (every writer no-ops if
@@ -216,6 +237,16 @@ def boot_once(*, force: bool = False) -> bool:
             sys.stderr.write(f"migrations init failed: {e}\n")
 
         _BOOTED_PATHS.add(key)
+        # Background services start LAST, and after the latch is set. Last,
+        # because the scheduler's tasks read tables the migrations above
+        # create. After the latch, because a service thread that immediately
+        # issues a request would otherwise re-enter boot_once, find the key
+        # absent, and queue behind a lock this thread still holds.
+        #
+        # Resolved at CALL time, so being defined ~1800 lines below is fine --
+        # boot_once never runs during module execution, which is the entire
+        # point of this cut.
+        _start_background_services()
         return True
 
 # Phase 44 (v3.37.0): templates and static files live alongside the package
@@ -1919,7 +1950,30 @@ _load_app_config()
 # v3.43.80: start background services. Gated on BD_DISABLE_KEEPALIVE
 # (same gate as the session keeper) so tests don't spawn timer threads
 # that race with their tmpdirs. Pattern matches existing keeper init.
-if not os.environ.get("BD_DISABLE_KEEPALIVE"):
+def _start_background_services():
+    """Start bg_scheduler + the webhook drain worker. Called from boot_once().
+
+    v3.66.926 (item 11): these used to start at MODULE SCOPE, and they are the
+    fourth import-time DB writer -- found by tracing sqlite3.connect with
+    BD_DISABLE_KEEPALIVE UNSET, after three other sites had already been moved.
+    The scheduler's tasks reach the database within milliseconds of starting
+    (measured: vpn_stats.auto_blacklist_check via bg_scheduler.py:473, and
+    federation.expire_old_claims via :483), so a bare `import
+    bulk_downloader.app` spawned threads that wrote to whatever database the
+    cwd resolved to.
+
+    The BD_DISABLE_KEEPALIVE gate stays -- it is what stops tests spawning
+    timer threads that race their tmpdirs -- but it is no longer the ONLY thing
+    standing between an import and the operator's database. Relying on an
+    environment variable for that was the latch this cut exists to remove: the
+    flag is set by capture.sh and by the session env, so the unflagged path was
+    never exercised and the gap survived three rounds of fixing.
+
+    Called at the END of boot_once, after every DB step, so the scheduler never
+    races the migrations it depends on.
+    """
+    if os.environ.get("BD_DISABLE_KEEPALIVE"):
+        return
     # bg_scheduler: drives periodic tasks (saved_searches, bitrot scan,
     # cookie_relogin, alerts_engine, site_weather, discovery,
     # maintenance, scheduled_exports, vpn_stats auto-blacklist,

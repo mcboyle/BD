@@ -368,12 +368,14 @@ def test_selftest_runs_at_startup():
     assert selftest_pos > 0
     assert boot_pos > 0, "boot_once() is gone -- the boot moved again"
     assert db_init_pos is not None, "db_init() is no longer called at boot"
-    assert db_init_pos.start() > boot_pos, (
-        "db_init() must live INSIDE boot_once(); at module scope it runs on "
-        "import, which is what raced across xdist workers and destroyed the "
-        "operator's live history (SESSION_CARRY 15.49)"
-    )
-    assert selftest_pos < boot_pos, (
+    # BOTH must live inside boot_once(). At module scope either one runs on
+    # import, which is what raced across xdist workers and destroyed the
+    # operator's live history (SESSION_CARRY 15.49). The self-test is the more
+    # dangerous of the two: it can RENAME the database aside via
+    # auto_recover_sqlite, so a bare import could quarantine live data.
+    assert db_init_pos.start() > boot_pos, "db_init() escaped boot_once()"
+    assert selftest_pos > boot_pos, "_selftest.run_all escaped boot_once()"
+    assert selftest_pos < db_init_pos.start(), (
         "self-test must run BEFORE db_init() so auto_recover_sqlite "
         "can move corrupt DBs aside before db_init tries to use them"
     )
