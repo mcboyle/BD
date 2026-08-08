@@ -4,6 +4,55 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.951 - session close: item 11's denominator answered, item 36 opened
+
+Record-only. No source change; the register and the contract are the deliverable.
+
+ITEM 11's OPEN HALF IS CLOSED. @942 fixed the integrity thread capturing a
+relative DB_PATH across a thread boundary and left two things unestablished in
+its own words: whether other populations leak, and whether any other consumer of
+_resolve_db_path() does the same. Measured with a sqlite3.connect wrapper proven
+in BOTH directions first, plugin load confirmed in every process:
+
+    full suite, parallel (-n 4 --dist loadfile), 14956 passed  -> 0 hits
+    full 113-file band, SERIAL, one process, 1460 passed       -> 0 hits
+
+Both configurations were run deliberately. @942's mechanism is a background
+thread firing after a test restores cwd, and worker lifetimes differ between
+serial and --dist loadfile -- reporting only the parallel run would have been a
+denominator excluding the shape most likely to reproduce.
+
+ITEM 36 OPENED, because the sweep found something it could not attribute. A
+downloader_history.db was already in the repo root, created 2026-08-08 17:13:40
+-- hours AFTER @942 shipped -- holding one table, selector_drift. That is item
+11's operator-visible harm recurring, so it is numbered rather than waved off.
+Four candidate populations are ruled out by measurement and listed in the item
+so nobody re-walks them: the suite in both configurations, gui_parity_inventory,
+the full bd-regen-order chain, and five tools swept with a .pth hook that
+survives every subprocess. The writer remains UNKNOWN. Section 5's warning about
+ad-hoc probes importing from the repo root is the most probable explanation and
+there is no evidence for it, so it is recorded as a hypothesis. Unknown is a
+third state.
+
+CLAUDE.md section 8 gains the lesson that cost a wrong recommendation to the
+operator today: A DOCSTRING IS A CLAIM, NOT A MEASUREMENT. bd-fullsuite opened
+"run the ENTIRE tests/ suite in-sandbox, CORRECTLY" and argued convincingly for
+per-file isolation -- all true, and it never mentioned delegating to a pytest
+stub. Reading one docstring and stopping produced "this tool already does what
+you want, point the contract at it", which was exactly backwards. Two questions,
+and the second gets skipped: what does the tool CLAIM, and what does it EXECUTE.
+The same check found bd-band and bd-parband routing through that stub.
+
+Also recorded there: presence of a file is not reachability of a runner.
+bd-parband's selftest asserted its delegation target was PRESENT -- true
+unconditionally in a checkout -- and so reported PASS over the wrong runner.
+
+SESSION CLOSE in register 15.68, superseding 15.59's open set: seventeen cuts
+(934-950), four box captures each reconciling to zero, and the state a fresh
+session needs. Closed: 5, 7, 9, 10, 14, 19, 21, 25, 26, 27, 28, 34, 35, item
+29's database recovery, item 11's denominator. Open: 36, 3, 12(c), the
+register-promise gate, 31, 32, 33, 17.
+
 ## v3.66.950 - the band tool CLAUDE.md mandates was running a pytest STUB
 
 bd-band and bd-parband shelled out to run_tests.py, whose run_tests_core
