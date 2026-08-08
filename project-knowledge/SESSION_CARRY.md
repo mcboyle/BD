@@ -4017,6 +4017,155 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.61 | Box capture at f7367487 (v3.66.941) -- PASS, and it settles three claims a container could not
+
+The operator captured the merge commit directly. Everything below is read from
+the bundle, not inferred.
+
+VERDICT: **PASS**. unit 14945 passed / 0 failed / 0 errors / 85 skipped;
+live 36 / 0 / 0. `/api/health` reports version 3.66.941, sha f7367487e312,
+db_ok true, 1002 routes. Graph pin OK (content hash matches). Selftest 12
+checks: 11 ok, 1 warn, 0 fail.
+
+THE DELTA RECONCILES EXACTLY, WHICH IS THE CHECK WORTH DOING. The previous box
+capture was at **v3.66.928** (not 933 -- 15.56's sentence says "v3.66.928 was
+verified on the box" and it is easy to misread as the section's close version):
+
+    14894  @928 capture
+    +  42  cuts 929-933   (929:12, 930:13, 931:7, 932:10, 933:0)
+    +  94  cuts 934-941   (934:16 935:18 936:17 937:9 938:11 939:8 940:9 941:6)
+    -----
+    15030  predicted
+    15030  ACTUAL          delta 0
+
+Skips unchanged at 85 across all thirteen cuts. Nothing unexplained in either
+direction -- a surplus would mean something ran that should not, a deficit that
+something silently stopped collecting. The per-suite counts were read from the
+JUnit XML rather than from the cuts' own claims, so they are a measurement of
+what the box collected, not a restatement of what was written down.
+
+THREE CLAIMS SETTLED THAT THIS CONTAINER STRUCTURALLY COULD NOT
+
+1. **`tests/test_e2e_smoke.py` is environmental -- CONFIRMED.** 7 testcases, 0
+   failed, 0 skipped on the box. CLAUDE.md section 5 carried it as a
+   container-only failure with an explicit caveat that there was no box
+   evidence. There is now. The caveat can go; the entry stands.
+2. **The `no_backend` `/api/live/watch` case is environmental -- CONFIRMED.**
+   Zero failures anywhere in the run, so
+   test_v3_66_729_body_contract_fixtures passed. Same disposition.
+3. **Item 19 works on the box, not merely present in the tree.**
+   `01_sysinfo.log` opens with `commit : f7367487...` / `branch : main`. 15.59
+   recorded item 19 as closed after finding `emit_commit_identity` in source;
+   the register had said ABSENT on a reading taken against an output BUNDLE.
+   The box now demonstrates the behaviour, which is a stronger fact than the
+   source reading that closed it.
+
+**AND v3.66.940 IS INERT ON THE BOX.** `cat ~/BulkDownloader/.env` returns "No
+such file or directory" -- there is no `.env` there at all, so the seed
+allow-list skips nothing, warns about nothing, and changes no behaviour. That
+was the single riskiest thing in the sweep (it governs what reaches the running
+service's environment at import) and it is a no-op in the only deployment that
+matters. Recorded because "the risky change turned out inert" is exactly the
+kind of fact that gets assumed rather than checked next time.
+
+TWO OBSERVATIONS, NEITHER A FAILURE
+
+- **The live lane's tail looks alarming and is not.** `06_live_tests.log` ends
+  with a playwright `TargetClosedError` and "Future exception was never
+  retrieved", while the lane itself reports 36/0/0. Teardown noise after a
+  green run. Written down so the next reader does not chase it.
+- **Selftest warn: `extractor_freshness` -- "yt-dlp is 35 days old, consider
+  updating".** Operational, non-gating, and the operator's call.
+
+ITEM 11 IS CONFIRMED REAL, AND THE ATTRIBUTION IS AN ORDERING INTERACTION
+
+Measured with the instrument CLAUDE.md section 0 prescribes -- a pytest plugin
+wrapping `sqlite3.connect` and recording any path that resolves inside the
+checkout. The wrapper was proven in BOTH directions first: a deliberate
+relative connect from the repo root is RECORDED, while `/tmp/elsewhere.db` and
+`:memory:` are not. A clean result from an unproven instrument is worth
+nothing.
+
+  * A 156-suite band over the DB-consumer population (derived by grepping
+    tests for `db_conn|downloader_history|library_record|db_log`) produced
+    **one** hit: `/home/user/BD/downloader_history.db`, cwd `/home/user/BD` at
+    connect time. The file was on disk afterwards, 4096 bytes, gitignored at
+    `.gitignore:20` so `git status` stayed clean. 1902 tests ran.
+  * **The named test does NOT reproduce it alone.** Running
+    `tests/test_v3_50_phase3.py` by itself: 44 passed, ZERO hits. So the leak
+    needs a prior test to have run, which is why 15.51 could only reproduce it
+    with a multi-file band and never with one file.
+
+WHY THE FIRST ATTRIBUTION WAS UNSAFE, and it is the reusable part. The plugin
+recorded the nodeid whose *protocol was active*, which is not the same claim as
+"this test's body did it": a connect during fixture TEARDOWN happens after
+`isolated_bd_home` restores cwd to the repo root, and a connect on a background
+thread has no nodeid at all. The mechanism matters here --
+`isolated_bd_home` IS autouse and DOES `os.chdir(tmp_path)`, so a test body
+cannot easily produce cwd=repo; teardown and background threads can. Naming a
+test on that evidence would have been a confident wrong answer of exactly the
+kind this session kept producing. The plugin now captures
+`traceback.format_stack()` and the thread name, and the band is being re-run
+with it.
+
+**ROOT-CAUSED. It is not a test at all -- it is the integrity-check thread,
+and the defect is a promise a relative path cannot keep.**
+
+The stack capture named it outright. Thread `bd-db-integrity`, not a test body:
+
+    db.py:2079  _do_check
+    db.py:2113  _row_count_estimate  ->  db_conn(path)
+    db.py:558   sqlite3.connect(path or _resolve_db_path(), timeout=10.0)
+
+`db.py:2062` does `_scheduled_path = _resolve_db_path()`, directly under a
+comment that states the intent: *"a check scheduled for database A verifies A
+even if the process later points DB_PATH elsewhere."* The intent is right and
+the capture-at-schedule-time design is right. **But `_resolve_db_path()`
+returns a bare RELATIVE path when `BD_INSTALL_DIR` is unset** -- measured:
+`'downloader_history.db'`, `isabs == False`, and its own docstring says so
+("use DB_PATH as-is, which sqlite3.connect() resolves against cwd"). A relative
+string captured across a thread boundary captures nothing: it is re-resolved
+against whatever cwd exists WHEN THE THREAD RUNS.
+
+So the sequence is:
+
+  1. A test runs; autouse `isolated_bd_home` has chdir'd to its tmp_path.
+  2. An integrity check is scheduled; `_scheduled_path` = the relative name.
+  3. The test ends; the fixture's `finally` restores cwd to the checkout.
+  4. The background thread wakes and connects -- resolving that relative name
+     against the REPO ROOT, and creating `downloader_history.db` there.
+
+**THIS IS THE SHAPE OF THE WHOLE SESSION, in product code.** A fix written
+specifically to survive a boundary captures a value that cannot survive it, and
+the comment above it states the guarantee confidently enough that no reader
+re-derives it. Compare @937's `emit_band` (a union whose root made it dead) and
+@941's `_scan_worker` (writes bound to a global rather than to their own
+state).
+
+It also explains the operator-visible incident 15.51 recorded without a
+mechanism: two test rows reaching the operator's PRODUCTION history during the
+v3.66.926 capture (history 116 -> 118, provenance 101 -> 103). Same thread,
+same relative path, resolved against the capture's cwd.
+
+**THE ATTRIBUTION IS NON-DETERMINISTIC, WHICH IS THE PROOF.** Two runs of the
+identical band named two DIFFERENT tests -- `test_api_library_stats_endpoint`
+and `test_api_library_tag_add_requires_name` -- because the nodeid is only
+whichever test's protocol was active when the thread happened to wake. Either
+name, reported as "the leaking test", would have been a confident wrong answer.
+
+**THE FIX IS ONE LINE**, and it is deliberately NOT taken here: make the
+capture absolute at schedule time (`_os.path.abspath(_resolve_db_path())`), so
+the value actually carries the guarantee the comment claims. It wants a RED
+test that drives the thread with a cwd change between schedule and run, which
+is fiddly enough to deserve its own cut rather than a tail-end edit.
+
+WHAT IS ESTABLISHED vs NOT. **Established:** real, root-caused to
+`db.py:2062`, reproducible on a 156-suite band, mechanism confirmed by stack
+capture and by measuring `_resolve_db_path()` directly. **Not established:**
+whether other populations leak (the denominator was 156 of ~1260 test files),
+and whether any OTHER consumer of `_resolve_db_path()` captures it across a
+boundary the same way. Both are worth asking in the cut that fixes this.
+
 ### 15.60 | The operator-queued sweep 2026-08-07, close at d670271 -- three cuts, and item 27 was already done
 
 The operator queued D, B, A and 27 interactively and ratified dispositions for
