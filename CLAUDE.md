@@ -854,15 +854,46 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   is not evidence of a hang unless the bound exceeds the legitimate runtime**;
   set it from the slowest known file (75s here), not from a guess.
 
-  **THE RULE STANDS ANYWAY, AND THE REASON IS WHY IT CANNOT BE RETIRED BY
-  MEASUREMENT.** What is untested is whether a hang emerges only in a
-  FULL-SUITE run, through order or resource interaction that no per-file probe
-  can reproduce — and testing that requires running the full suite, which is
-  the rule itself. Circular by construction. So the basis is now "an untested
-  interaction case", not "two named files"; the named files are gone and citing
-  them is citing nothing. Section 4 already records four order-dependent
-  failures that appear only in a multi-file band and vanish in isolation
-  (register item 34), which is exactly the class this is about.
+  **THE CIRCULARITY WAS BROKEN BY AN OPERATOR EXEMPTION, AND THE SUITE DOES NOT
+  HANG.** The untested case was a hang emerging only in a FULL-SUITE run,
+  through interaction no per-file probe can reproduce — untestable without
+  running the suite, which was the rule. Matt granted a one-time exemption on
+  2026-08-08; measured at v3.66.948 with `pytest-timeout` armed specifically to
+  name a hanging test and dump its stack:
+
+  ```
+  14 failed, 14943 passed, 91 skipped in 635.42s (10m35s)   # 4 workers
+  tests exceeding the 240s per-test cap: ZERO — the guard never fired
+  ```
+
+  The 14 are the documented container-only set (`test_e2e_smoke` ×7, the
+  `no_backend` body-contract case, absent-interpreter `exec_bridge` ×5, a
+  no-tunnel vpn probe). Item 34's four order-dependent failures are **absent**,
+  which is @945's fix holding at full denominator.
+
+  **SO THE SWEEP IS PERMITTED, IN EXACTLY ONE FORM. Never bare `pytest tests/`.**
+
+  ```bash
+  BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest tests/ \
+      -n 4 --dist loadfile --timeout=240 --timeout-method=thread \
+      -q -p no:randomly
+  ```
+
+  Every flag is load-bearing and a different one is a different experiment:
+  `--timeout` is what turns a hang into a named test instead of a stall,
+  `--timeout-method=thread` dumps its stack, `--dist loadfile` is the
+  distribution that was actually measured, and `-n 4` matches this container's
+  core count. Run it under a whole-run cap as well, and wait on a written exit
+  marker rather than on `pgrep` (§5's rule about a wrapper matching itself).
+
+  **WHAT THIS DOES NOT LICENSE.** One ordering was measured — `-p no:randomly`
+  with `--dist loadfile` keeps each file whole on one worker, so an
+  interleaving-dependent hang was never given the chance, and one green run is
+  not a proof of absence. It was PARALLEL; a serial full run is a different
+  denominator and is still untested. And it is still not a substitute for the
+  box: §7's rule that sandbox green is necessary and not sufficient is
+  unchanged, and 14 of these failures are environmental here and pass there.
+  Use it to answer "does anything hang or interact", not "is the tree good".
 
   Note also what the sweep's own instrument got wrong: the candidate list was
   written without a trailing newline, so `while read` silently dropped its last

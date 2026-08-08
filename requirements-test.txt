@@ -21,9 +21,16 @@
 -r requirements.txt
 
 # Phase 33: test suite. Run via:
-#   pytest tests/                     # all tests
-#   pytest tests/test_validators.py   # specific file
-#   pytest tests/ -v -x               # verbose, stop on first failure
+#   pytest tests/test_validators.py   # a specific file -- the normal way to work
+#   venv/bin/python toolchain/bin/bd-band-derive --file <changed>   # the band
+#
+# v3.66.949: the two whole-directory lines that used to sit here are GONE. They
+# invoked the entire suite with no per-test timeout -- precisely what
+# CLAUDE.md section 5 forbade -- so the manifest an agent reads to set the
+# environment up was instructing it to do the one thing the contract prohibits.
+# Two agent-facing instructions in conflict is the defect section 8 exists to
+# stop, and the losing one was here. The whole suite now has exactly one
+# sanctioned form and it lives in CLAUDE.md section 5, bounded and instrumented.
 pytest>=7.0,<10.0
 
 # v3.66.849: PyYAML, for validating .github/workflows/ci.yml. Not a runtime
@@ -52,3 +59,23 @@ pyyaml>=6.0,<7.0
 # read -- the fix had reproduced the shape of the defect it was fixing
 # (CLAUDE.md section 0). Living here is what makes the declaration reachable.
 pyflakes>=3.0,<4.0
+
+# v3.66.949: pytest-timeout. DECLARED BECAUSE THE FULL-SUITE RELAXATION DEPENDS
+# ON IT, and a hand-installed instrument dies with the session (CLAUDE.md
+# section 5: anything you install by hand lives only until the session ends).
+#
+# CLAUDE.md section 5 forbade running the whole tests/ directory on two named
+# reasons. @948 measured both away -- test_perf_lab.py passes in 2.5s with and
+# without BD_DISABLE_KEEPALIVE, and the second hanger names a file that does not
+# exist in any variant. The operator then granted a one-time exemption and the
+# suite was run whole with this package armed to NAME a hanging test and dump
+# its stack: 14 failed / 14943 passed / 91 skipped in 10m35s, and ZERO tests
+# exceeded the 240s per-test cap. The guard never fired.
+#
+# So the sweep is permitted now, in exactly one bounded and instrumented form.
+# Without this declaration the next container rebuild loses the package
+# silently, the sanctioned command runs with no instrument, and a hang becomes
+# an unexplained stall again -- which is how the phantom second hanger got
+# recorded in the first place. pyflakes two entries up is the precedent for why
+# the declaration must live in THIS manifest and not requirements-dev.txt.
+pytest-timeout>=2.0,<3.0
