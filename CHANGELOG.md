@@ -4,6 +4,49 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.952
+
+Tier 0 of item 3: a ratchet on references to the retired sandbox home, rather
+than a sweep of them.
+
+WHY A RATCHET. The path is not one subject. Measured at 0f3e435 over every
+tracked file: 188 carriers, 829 lines holding the literal, of which 374 are
+executable and 455 are comment or docstring. They divide into five classes with
+three different correct dispositions -- zip-era installers that the git deploy
+abolished (retire the file, not the path), a retired browser pool whose live
+equivalent is the PLAYWRIGHT_BROWSERS_PATH environment variable, thirteen
+byte-identical project-knowledge mirrors of tools/ files, deliberately-absent
+test fixtures, and prose.
+
+The decisive class is the fourth. Several tests exist in order to assert the
+path is retired: test_bd_doctor_probes_the_real_environment keeps a DEAD map
+whose keys are exactly these paths. A blanket rewrite would delete those tests'
+subject and leave them green over nothing -- section 0's defect manufactured by
+its own fix. Freezing the population avoids that entirely.
+
+THE GATE. tests/test_sandbox_home_stays_retired.py enumerates git ls-files -z,
+not a *.py glob, because 231 of this repo's tracked Python files are
+extensionless bd-* scripts and the carriers also span shell, markdown and JSON.
+A new carrier fails; so does an allowlist entry whose file no longer carries the
+reference, because a list that claims something false lets a future carrier
+reuse the slot silently. That second direction is what makes the list shrink as
+the remaining tiers land.
+
+The needle is assembled at runtime rather than spelled. A gate that reads source
+text has its own source inside its denominator, and section 0 records four
+occasions where a literal or a comment re-entered the ledger it was written to
+describe.
+
+Both failing directions are proven on the real tree, not only through the pure
+function: a staged probe file fails the gate as a new carrier, and stripping the
+reference from an allowlisted file fails it as a stale entry. bd-mutate: 4
+mutants, 4 caught, 0 escaped -- including the *.py glob that would have blinded
+the scan to the 231 extensionless scripts.
+
+Item 3's remaining tiers are the browser pool and the mirrors. The zip-era
+retirement is refiled as its own item on operator decision; it is 45 percent of
+the executable population and an item-33-scale retirement call, not a path fix.
+
 ## v3.66.951 - session close: item 11's denominator answered, item 36 opened
 
 Record-only. No source change; the register and the contract are the deliverable.
