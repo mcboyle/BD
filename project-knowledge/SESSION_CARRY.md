@@ -4093,6 +4093,67 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.67 | The band tool CLAUDE.md mandates was running a pytest STUB, close at c86e25a
+
+The most load-bearing finding of the session, and it arrived sideways: while
+proposing to point section 5 at `bd-fullsuite`, checking what that tool actually
+runs turned up that **`bd-band` and `bd-parband` never ran pytest either**.
+
+MEASURED at v3.66.949, whole suite, per-file isolation on both sides:
+
+| | files |
+| --- | --- |
+| the shim reports non-PASS | 28 |
+| of those, PASS under real pytest (verified 24/24) | **24** |
+
+**86% of the mandated band tool's output was manufactured.** One file, both
+runners, same tree and interpreter: `tests/test_codex_handoff_stays_retired.py`
+is `4 passed` under pytest and `IMPORT ERROR: No module named 'tracked_source'`
+under the shim. `tests/` is not on `sys.path` there, so the 22 files importing a
+sibling helper all die on import -- the floor, not the total.
+
+**WHY IT SURVIVED SO LONG: nothing was wrong on the surface.** `run_tests_core`
+is honest in its own docstring ("NOT a replacement for pytest in production").
+`bd-band` already REFUSED to band on an interpreter that could not import
+pytest, reasoning that such a runner "would report failures that are interpreter
+artifacts, not defects" -- the right conclusion, half applied. And
+`bd-parband`'s selftest asserted its delegation target was PRESENT, which is
+always true in a checkout, so it reported PASS over the wrong runner for years.
+Three correct-looking components composing into a wrong answer.
+
+**THE SESSION'S BANDS WERE NEVER AFFECTED, by accident.** Every band here ran as
+`venv/bin/python -m pytest <files>` directly rather than through `bd-band`. That
+is why none of this bit, and it is now what section 4 documents -- previously the
+contract mandated the tool and the tool was wrong.
+
+**THREE MORE DOCSTRING DEFECTS, all found by the gate and none by review:**
+
+- `bd-band`'s docstring advertised the shim command as the incantation it
+  replaces, and cited the "known whole-dir / test_perf_lab / nav_guard hangs"
+  that 15.65 disproved. Citing them was citing nothing.
+- `bd-parband`'s selftest checked for the PRESENCE OF A FILE. Presence is not
+  reachability of a runner, and the file is unconditionally present.
+- `bd-fullsuite`'s docstring opened *"run the ENTIRE tests/ suite in-sandbox,
+  **correctly**"* with no mention of the shim. **That word is what caused this
+  session's wrong recommendation** -- it read as a stronger instrument than
+  pytest and it is a fallback for machines that cannot run pytest at all.
+
+**A RETRACTION, kept because it is the method lesson.** The cut was first argued
+on "the shim also HIDES a real failure", from `test_t14_vpn_probe_egress`
+failing under pytest and passing under the shim. It does not: that file passes in
+ISOLATION under both runners and fails only in a co-batched xdist run. The
+comparison was a per-file-isolated shim run against a co-batched pytest run,
+blaming the RUNNER for an ISOLATION difference -- two variables moved and one was
+credited. Caught by measuring the file directly before writing it into a commit
+message. The case rests on the 24, each verified individually.
+
+**THE SWAP DELETED CODE.** @897 had to detect "nothing ran" by string-matching
+an UNEVALUABLE banner, because the shim prints a reassuring `Total: 0 |
+Failed: 0` beside it. pytest gives that state as exit code **5**, so the third
+state survives and is read from a number that cannot drift. `grade_pytest_rc()`
+is a named function with a positive control rather than an inline predicate only
+the mutated test could observe -- the @939/@944 lesson applied on sight.
+
 ### 15.66 | The full suite does not hang: the exemption, the measurement, and what it does NOT license, close at 43b4fb0
 
 15.65 left the no-full-suite rule standing on the one case that could not be

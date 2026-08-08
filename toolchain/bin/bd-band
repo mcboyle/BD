@@ -4,11 +4,26 @@ timeout, reporting EVERY suite's result before exiting non-zero on any failure.
 
 Removes the most-repeated manual incantation in a session: the
     env BD_HOME=$(mktemp -d) BD_DISABLE_KEEPALIVE=1 \
-        venv/bin/python run_tests.py tests/<file>
-block, and bounds the known whole-dir / test_perf_lab / nav_guard hangs with a
-per-suite timeout so a wedged suite fails its box instead of the session.
+        venv/bin/python -m pytest tests/<file>
+block, and bounds each suite with a per-suite timeout so a wedged suite fails
+its box instead of the session.
 
-Refuses a bare `tests/` argument (that's the whole-dir hang) -- pass specific files.
+@950: RUNS REAL PYTEST. This shelled out to the run_tests_core shim, which is
+documented as "NOT a replacement for pytest in production" and installs itself
+whenever pytest is not ALREADY imported -- always, at runner startup -- so it
+ran even though the interpreter guard below has just proven pytest importable.
+Measured across the whole suite at v3.66.949, per-file isolation on both sides:
+the shim called 28 files non-PASS and 24 of them pass under real pytest,
+verified 24/24. 86% of this tool's output was manufactured.
+
+@948: the "known whole-dir / test_perf_lab / nav_guard hangs" this docstring
+used to cite are GONE, and citing them was citing nothing. test_perf_lab passes
+in 2.5s, `nav_guard` names a file that has never existed, and an instrumented
+full-suite run found no test exceeding 240s. The per-suite timeout stays because
+a bound is good hygiene, not because those three were real.
+
+Refuses a bare `tests/` argument -- pass specific files. The whole suite has one
+sanctioned form and it lives in CLAUDE.md section 5.
 
 By default bands from the WORK TREE (the dev loop; fast iteration). For release
 grade, pass --from-zip <zip> to extract + band from a pristine tree (pyc can lie
@@ -22,6 +37,7 @@ Exit 0 = all suites Failed:0 ; 1 = any failure/timeout/missing suite.
 """
 import argparse
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -31,6 +47,36 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec  # noqa: E402
 
 G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+
+# pytest's own summary line: "4 passed in 0.40s", "1 failed, 3 passed".
+# The shim printed "Total: N | Failed: N" instead, which is why the old
+# selector matched on "Failed:" and picked up the shim's zero-collect
+# banner as though it were a result.
+_PYTEST_SUMMARY = re.compile(r"\d+ (passed|failed|error|skipped|deselected)")
+
+
+def grade_pytest_rc(rc):
+    """pytest's exit code -> "pass" | "fail" | "nothing-ran".  @950.
+
+    THREE STATES, READ FROM A NUMBER THAT CANNOT DRIFT. @897 had to detect
+    "nothing ran" by string-matching an UNEVALUABLE banner, because the stub
+    runner prints a reassuring `Total: 0 | Failed: 0` beside it and grading on
+    `Failed:` made a real failure and a suite that ran nothing
+    indistinguishable. pytest reports that state as exit 5, so the state
+    survives and the prose-matching does not.
+
+    NOTHING RAN STAYS NON-GREEN. test_toolchain_534's @860 guard exists because
+    zero-collect used to exit 0, and its docstring names bd-band as a grader of
+    exactly this shape. Everything that is not 0 and not 5 -- interrupted (2),
+    internal error (3), usage error (4), a signal -- has proven nothing either
+    and must not read as a pass.
+    """
+    if rc == 0:
+        return "pass"
+    if rc == 5:                     # pytest: no tests collected
+        return "nothing-ran"
+    return "fail"
 
 
 def run(cmd, cwd=None, env=None, timeout=None):
@@ -216,11 +262,23 @@ def main(argv=None):
             results.append((s, False, "missing"))
             continue
         print(f"  ... running {s}", flush=True)
-        r = run([py, "run_tests.py", s], cwd=rundir, env=env, timeout=a.timeout)
+        # @950: REAL PYTEST. This shelled out to the run_tests_core shim, which
+        # installs a stub into sys.modules whenever pytest is not ALREADY
+        # imported -- always, at runner startup -- so the stub ran even here,
+        # where the guard above has just PROVEN pytest is importable. Measured
+        # at v3.66.949 across the whole suite with per-file isolation on both
+        # sides: the shim reported 28 files non-PASS and 24 of them pass under
+        # real pytest, verified 24/24. 86% of this tool's output was
+        # manufactured. The shim's own docstring says it is "NOT a replacement
+        # for pytest in production" and exists for environments without pytest;
+        # the guard above means this is never one.
+        r = run([py, "-m", "pytest", s, "-q", "-p", "no:randomly"],
+                cwd=rundir, env=env, timeout=a.timeout)
         blob = r.stdout + r.stderr
         tail = blob.strip().splitlines()
-        line = next((l for l in reversed(tail) if "Failed:" in l or "Total:" in l), "(no summary)")
-        ok = "Failed: 0" in blob and r.returncode == 0
+        line = next((l for l in reversed(tail)
+                     if _PYTEST_SUMMARY.search(l)), "(no summary)")
+        ok = grade_pytest_rc(r.returncode) == "pass"
         allok = allok and ok
         # @897 -- the runner mints THREE states and this graded two. It exits 2
         # with "BD-RUNNER UNEVALUABLE ... Nothing ran, so nothing was proven"
@@ -234,8 +292,7 @@ def main(argv=None):
         # because zero-collect used to exit 0, and its docstring names bd-band
         # as a grader of exactly this shape. Naming the state is the fix;
         # excusing it would undo @860 while appearing to repair its neighbour.
-        nothing_ran = r.returncode == 2 and "UNEVALUABLE" in blob
-        if nothing_ran:
+        if grade_pytest_rc(r.returncode) == "nothing-ran":
             label, detail = Y + "NOTHING RAN" + RST, "nothing was proven"
         else:
             label, detail = (G + "PASS" + RST) if ok else (R + "FAIL" + RST), ""

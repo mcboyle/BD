@@ -106,13 +106,26 @@ def run_one(work, suite, timeout):
     env.update(BD_HOME=tempfile.mkdtemp(prefix="bdpb_"), BD_DISABLE_KEEPALIVE="1")
     t0 = time.time()
     try:
-        r = subprocess.run([_py(work), "run_tests.py", suite], cwd=work, env=env,
+        # @950: REAL PYTEST, for the reason bd-band records at length. This ran
+        # the run_tests_core shim, which installs itself whenever pytest is not
+        # ALREADY imported -- always, here -- despite _py() having just proven
+        # pytest importable. Measured at v3.66.949 across the whole suite with
+        # per-file isolation on both sides: the shim called 28 files non-PASS
+        # and 24 of them pass under real pytest, verified 24/24.
+        r = subprocess.run([_py(work), "-m", "pytest", suite, "-q", "-p", "no:randomly"],
+                           cwd=work, env=env,
                            capture_output=True, text=True, timeout=timeout)
         out = r.stdout + r.stderr
-        m = re.search(r'Failed:\s*(\d+)', out)
+        # pytest's counts, not the shim's "Total: N | Failed: N". A summary that
+        # is absent is NOT zero failures: fall back to the exit code, which is
+        # the only thing that cannot be missing.
+        m = re.search(r'(\d+) failed', out)
         failed = int(m.group(1)) if m else (0 if r.returncode == 0 else -1)
-        passed = re.search(r'Passed:\s*(\d+)', out)
-        status = "pass" if (r.returncode == 0 and failed == 0) else "fail"
+        passed = re.search(r'(\d+) passed', out)
+        # Exit 5 is "no tests collected" -- nothing ran, so nothing was proven,
+        # and it must not read as green. See bd-band.grade_pytest_rc.
+        status = "pass" if r.returncode == 0 else (
+            "nothing-ran" if r.returncode == 5 else "fail")
         return {"suite": suite, "status": status, "failed": failed,
                 "passed": int(passed.group(1)) if passed else None,
                 "secs": round(time.time() - t0, 1),
@@ -123,14 +136,32 @@ def run_one(work, suite, timeout):
 
 
 def selftest():
-    """DELEGATE: wraps run_tests.py, which lives in the WORK TREE / PK, not in bin/. The
+    """DELEGATE: wraps real pytest under the work tree's interpreter. The
     selftest asserts the real target is reachable; if it is not, FAIL -- a
     wrapper that cannot find what it wraps is broken, and a selftest that cannot
-    verify must not report success."""
-    import os as _o
-    cands = [_os_bd.path.join(sec.DEFAULT_WORK, 'run_tests.py')]
-    hit = next((p for p in cands if _o.path.isfile(p)), None)
-    print(("PASS" if hit else "FAIL") + "  delegation target present: run_tests.py (%s)" % (hit or "NOT FOUND"))
+    verify must not report success.
+
+    @950: the target used to be the compatibility shim, and asserting that
+    shim's PRESENCE was a check that could not fail for the reason that
+    mattered. It is always present in a checkout, so the selftest reported PASS
+    while the tool ran a runner documented as "NOT a replacement for pytest in
+    production" -- which manufactured 24 of the 28 non-PASS verdicts measured at
+    v3.66.949. Presence of a file is not reachability of a runner; ask the
+    interpreter instead.
+
+    The shim is named by MECHANISM and not by filename here on purpose: a
+    docstring that spells the retired command re-creates it in the file, and
+    tests/test_v3_66_950_* asserts these tools no longer reference it. CLAUDE.md
+    section 0 records four instances of exactly that; this cut hit three more."""
+    import os as _o, subprocess as _sp
+    py = _py(sec.DEFAULT_WORK)
+    hit = None
+    if py:
+        r = _sp.run([py, "-c", "import pytest; print(pytest.__version__)"],
+                    capture_output=True, text=True, timeout=120)
+        hit = r.stdout.strip() if r.returncode == 0 else None
+    print(("PASS" if hit else "FAIL")
+          + "  delegation target reachable: pytest (%s)" % (hit or "NOT IMPORTABLE"))
     ok = bool(hit)
     # The env a suite runs under MUST carry the GTK stack, or pygobject suites
     # false-RED with 'Namespace Gtk not available'. Assert the derived env is the

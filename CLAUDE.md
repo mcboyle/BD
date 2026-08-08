@@ -559,6 +559,47 @@ venv/bin/python toolchain/bin/bd-band-derive --files a.py b.py       # a changed
 venv/bin/python toolchain/bin/bd-band-derive --emit                  # just the bd-band line
 ```
 
+**RUN THE BAND WITH REAL PYTEST. Deriving is one question; running is another,
+and the running half was answering with a shim until v3.66.950.**
+
+```bash
+BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest <the derived files> -q
+```
+
+`bd-band` and `bd-parband` now do exactly that and are fine to use. Before @950
+they shelled out to `run_tests.py`, whose `run_tests_core` installs a
+pytest-compatible **stub** into `sys.modules` whenever `pytest` is not ALREADY
+imported — which at runner startup it never is — so the stub ran even on a
+machine with real pytest installed, and test files doing `import pytest` got the
+shim. Its own docstring says it is *"NOT a replacement for pytest in
+production"* and exists for environments without pytest.
+
+Measured at v3.66.949 across the whole suite, per-file isolation on both sides:
+
+| | files |
+| --- | --- |
+| the shim reports non-PASS | 28 |
+| of those, PASS under real pytest (verified 24/24) | **24** |
+
+**86% of what the mandated band tool reported was manufactured.** One file, both
+runners, same tree and interpreter: `tests/test_codex_handoff_stays_retired.py`
+is `4 passed` under pytest and `IMPORT ERROR: No module named 'tracked_source'`
+under the shim — it does not put `tests/` on `sys.path` the way pytest's rootdir
+handling does, so the 22 files importing a sibling helper all die on import.
+That is the floor; other divergence mechanisms account for the rest.
+
+The tell was available the whole time and nobody pulled it: `bd-band` already
+**refused to run** unless the interpreter could import pytest, reasoning that a
+runner without it "would report failures that are interpreter artifacts, not
+defects". Right conclusion, half applied — having proven pytest was there, it
+ran the shim anyway.
+
+*(A claim made while finding this and then retracted: the shim does NOT also
+hide a real failure. `test_t14_vpn_probe_egress` passes in isolation under both
+runners and fails only in a co-batched xdist run — that was a per-file-isolated
+shim run being compared against a co-batched pytest run, blaming the runner for
+an isolation difference. The case rests on the 24, which are measured.)*
+
 | method | suites | missed |
 | --- | --- | --- |
 | `grep -rl live_seed tests/*.py` | 17 | — |
