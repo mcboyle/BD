@@ -4,6 +4,88 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.953
+
+Tier 1 of item 3: bdenv.sh stopped destroying a correct browser pool.
+
+MEASURED, not read. `toolchain/bdenv.sh:12` exported the retired sandbox pool
+UNCONDITIONALLY, so sourcing it replaced a caller's PLAYWRIGHT_BROWSERS_PATH --
+in this container /opt/pw-browsers, holding eight real builds -- with a
+directory that does not exist:
+
+    before : /opt/pw-browsers
+    after  : /home/claude/.cache/ms-playwright
+
+`toolchain/bin/bd` and `bd-status` both source it (BD_ENV_FILE defaults to the
+file beside them), so the loss reached anything run under the wrapper.
+
+IT WAS ALREADY KNOWN AND ROUTED AROUND RATHER THAN FIXED. bd-parband carries
+"Do NOT point this at toolchain/bdenv.sh: that file still exports the retired
+prestaged PYTHONPATH and /home/claude paths", and bd-render-env names the same
+override in a comment. A workaround in two callers is not a fix in the source.
+bd-venv:67 had the correct ${VAR:-default} form the whole time, so this is the
+repo's own idiom rather than a new convention.
+
+Both copies move together: project-knowledge/bdenv.sh is byte-identical to
+toolchain/bdenv.sh and is one of five mirror pairs the pk-mirror gate cannot
+see, because that gate's denominator is toolchain/bin/* only. Editing one alone
+would have created drift nothing detects.
+
+THE HARNESS WAS WRONG FIRST, AND IT PASSED. The test drove the child with
+`PLAYWRIGHT_BROWSERS_PATH=x . file` -- a prefix assignment to the source
+builtin, which bash restores when the command returns. It therefore reported
+"preserved" against the UNFIXED source. A fixture that cannot represent the
+failure it hunts is not a test; the variable must be exported into the child.
+Recorded because the harness defect, not the subject, is the reusable lesson.
+
+The fallback is deliberately left in place. Whether bdenv.sh should export
+anything at all when the caller supplies nothing is a different question and
+belongs with the zip-era retirement item, so the literal stays and the tier-0
+allowlist is unchanged.
+
+## v3.66.952
+
+Tier 0 of item 3: a ratchet on references to the retired sandbox home, rather
+than a sweep of them.
+
+WHY A RATCHET. The path is not one subject. Measured at 0f3e435 over every
+tracked file: 188 carriers, 829 lines holding the literal, of which 374 are
+executable and 455 are comment or docstring. They divide into five classes with
+three different correct dispositions -- zip-era installers that the git deploy
+abolished (retire the file, not the path), a retired browser pool whose live
+equivalent is the PLAYWRIGHT_BROWSERS_PATH environment variable, thirteen
+byte-identical project-knowledge mirrors of tools/ files, deliberately-absent
+test fixtures, and prose.
+
+The decisive class is the fourth. Several tests exist in order to assert the
+path is retired: test_bd_doctor_probes_the_real_environment keeps a DEAD map
+whose keys are exactly these paths. A blanket rewrite would delete those tests'
+subject and leave them green over nothing -- section 0's defect manufactured by
+its own fix. Freezing the population avoids that entirely.
+
+THE GATE. tests/test_sandbox_home_stays_retired.py enumerates git ls-files -z,
+not a *.py glob, because 231 of this repo's tracked Python files are
+extensionless bd-* scripts and the carriers also span shell, markdown and JSON.
+A new carrier fails; so does an allowlist entry whose file no longer carries the
+reference, because a list that claims something false lets a future carrier
+reuse the slot silently. That second direction is what makes the list shrink as
+the remaining tiers land.
+
+The needle is assembled at runtime rather than spelled. A gate that reads source
+text has its own source inside its denominator, and section 0 records four
+occasions where a literal or a comment re-entered the ledger it was written to
+describe.
+
+Both failing directions are proven on the real tree, not only through the pure
+function: a staged probe file fails the gate as a new carrier, and stripping the
+reference from an allowlisted file fails it as a stale entry. bd-mutate: 4
+mutants, 4 caught, 0 escaped -- including the *.py glob that would have blinded
+the scan to the 231 extensionless scripts.
+
+Item 3's remaining tiers are the browser pool and the mirrors. The zip-era
+retirement is refiled as its own item on operator decision; it is 45 percent of
+the executable population and an item-33-scale retirement call, not a path fix.
+
 ## v3.66.951 - session close: item 11's denominator answered, item 36 opened
 
 Record-only. No source change; the register and the contract are the deliverable.
