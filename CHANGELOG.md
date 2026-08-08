@@ -4,6 +4,48 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.960
+
+Items 2 and 11 re-derived and CLOSED; item 40 filed; the box capture recorded.
+
+ITEM 2 was CLOSED AT v3.66.892 (ef9f253, #196) and sat open for eleven weeks as
+a release gate "needing explicit GO" after the GO was evidently given and the
+work shipped. Three confirmations, none a reading: capture.sh:298
+emit_commit_identity handles the UNKNOWN and MISMATCH branches;
+test_v3_66_892_capture_commit_identity is 7 tests, all passing; and the
+operator's bundle carries commit : 51ac1eb / branch : main in 01_sysinfo.log,
+a sha verified an ancestor of main. Item 19's other half shipped with it --
+capture.sh:1080 is the [7b/9] selftest stage and the bundle contains its logs.
+
+ITEM 11's SUBJECT IS GONE AND ITS SPECIFIED MECHANISM WAS NEVER NEEDED. The
+item authorized two cuts to add a sys-attribute sentinel gating app.py's boot
+block. @926 removed the module-scope writers outright instead, which is better
+than gating them, so the sentinel does not exist and should not be built.
+Measured with BD_DISABLE_KEEPALIVE POPPED as well as set, one import from a
+bare cwd:
+
+    DB-class residue   spec: 352,256 bytes  ->  now: 0 bytes, 0 files
+    total residue      spec: + 3 sentinels  ->  now: 714 bytes, 3 files
+
+Both named FATALs were resolved by @926 rather than during the specced
+implementation, and CLAUDE.md section 0's os.environ-copying-harness paragraph
+was written from that same cut.
+
+ITEM 40 FILED for the 714 bytes that remain -- app_config.json, logs/, and
+state/heartbeat.json when keepalive runs. Split out rather than folded into
+item 11's closure because it is a different and much smaller class: no database
+residue, nothing that can corrupt operator history. Whether the three are
+DELIBERATE is recorded as UNKNOWN and was not investigated; it is numbered so
+the measurement is not lost, not because it is established as a defect.
+
+THE BOX CAPTURED v3.66.957: PASS, 15081 total / 14996 passed / 0 failed / 85
+skipped, live 36/0/0, graph pin OK. The delta from @950 reconciles EXACTLY at
++21/+21 with skips flat, predicted from the six cuts by counting test functions
+per commit against each one's own parent. The first prediction said +17 and was
+wrong -- hand-mapped parents, @952's being the commit after it. 59 tests from
+this session's files ran on the box with 0 failures, so @952-957's gates and
+item 12(c) are box-verified rather than container-green.
+
 ## v3.66.959
 
 The ten baselined items adjudicated. The promise gate's baseline is now EMPTY.
