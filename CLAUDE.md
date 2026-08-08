@@ -834,12 +834,40 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   reliable of the two because it has no cap, and it composes with §5's rule
   about waiting on a marker rather than on `pgrep`.
 
-- Never run the whole `tests/` directory locally. `test_perf_lab.py` is the
-  recorded hanger. A second was recorded as `test_v3_66_146_nav_guard` — **no
-  file of that name exists**, in any variant, and both real `146` files
-  (`test_v3_66_146_runtime_gate.py`, `test_v3_66_146_detection_safety.py`) pass
-  in under a second. Treat the second hanger as unidentified until someone
-  re-measures it; do not band or exclude a phantom.
+- **Never run the whole `tests/` directory locally — but BOTH of the reasons
+  this rule used to give are now disproven, so do not cite them.** Re-measured
+  2026-08-08 at v3.66.947, every run individually bounded:
+
+  | claim this rule rested on | measured |
+  | --- | --- |
+  | `test_perf_lab.py` is *the* recorded hanger | 17 passed in **2.5s** — and identically with `BD_DISABLE_KEEPALIVE` popped, so it is not the flag holding it together |
+  | a second hanger, `test_v3_66_146_nav_guard` | **no file of that name exists**, in any variant |
+  | the two real `146` files are slow | 23 passed in **0.77s** |
+
+  A targeted sweep found no hang either: **79** files carrying hang-prone
+  shapes (`while True`; `.join()`/`.wait()`/`.acquire()` with no timeout;
+  `subprocess` with no `timeout=`; unbounded HTTP), 6% of 1270 tracked test
+  files, each run under a hard cap. 69 real test files all completed, 9 were
+  helper modules collecting nothing, and the single timeout was **the bound,
+  not a defect** — `test_fuzz_harness_frontend.py` legitimately takes 75s
+  against a 60s cap, and returns 0 in 75s when the cap is raised. **A timeout
+  is not evidence of a hang unless the bound exceeds the legitimate runtime**;
+  set it from the slowest known file (75s here), not from a guess.
+
+  **THE RULE STANDS ANYWAY, AND THE REASON IS WHY IT CANNOT BE RETIRED BY
+  MEASUREMENT.** What is untested is whether a hang emerges only in a
+  FULL-SUITE run, through order or resource interaction that no per-file probe
+  can reproduce — and testing that requires running the full suite, which is
+  the rule itself. Circular by construction. So the basis is now "an untested
+  interaction case", not "two named files"; the named files are gone and citing
+  them is citing nothing. Section 4 already records four order-dependent
+  failures that appear only in a multi-file band and vanish in isolation
+  (register item 34), which is exactly the class this is about.
+
+  Note also what the sweep's own instrument got wrong: the candidate list was
+  written without a trailing newline, so `while read` silently dropped its last
+  entry and "full coverage" would have been false by one. Diff the input list
+  against the results rather than trusting the loop.
 - Always capture exit codes **unpiped**: `cmd > /tmp/out 2>&1; echo "exit=$?"`.
   Piping masks the exit code, and this bites even when you know about it.
 - `pgrep -f "<cmd>"` **matches its own wrapper**. Never read it as "still

@@ -4093,6 +4093,56 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.65 | The phantom second hanger: both reasons for the no-full-suite rule are disproven, close at 43b4fb0
+
+The operator chose "identify the phantom second hanger" over "add a sharded
+container lane", on the argument that the no-full-suite rule could then be
+relaxed with evidence rather than by assertion. The evidence came back and it
+does not license relaxing the rule -- which is a more useful answer than the one
+that was hoped for.
+
+WHAT WAS MEASURED, every run individually bounded so the investigation did not
+violate the rule it was investigating:
+
+| claim the rule rested on | measured at v3.66.947 |
+| --- | --- |
+| `test_perf_lab.py` is THE recorded hanger | 17 passed in **2.5s**, and identically with `BD_DISABLE_KEEPALIVE` POPPED |
+| a second hanger, `test_v3_66_146_nav_guard` | **no file of that name exists**, in any variant |
+| the two real `146` files are slow | 23 passed in **0.77s** |
+| a sweep of hang-prone shapes | **79** files (6% of 1270), zero hangs |
+
+The sweep's predicate: `while True`; `.join()`/`.wait()`/`.acquire()` with no
+timeout; `subprocess` with no `timeout=`; unbounded HTTP. 69 real test files all
+completed; 9 were helper modules under `tests/_phase_scripts/` and
+`tests/scan_wait.py` that collect nothing.
+
+**THE SINGLE TIMEOUT WAS THE INSTRUMENT.** `test_fuzz_harness_frontend.py` hit a
+60s cap; raised to 120s it returns 0 in 75s with 102 passed. **A timeout is not
+evidence of a hang unless the bound EXCEEDS the legitimate runtime** -- set it
+from the slowest known file, not from a guess. Written up as a hang it would
+have sent the next session after a defect that does not exist, which is exactly
+the phantom this work set out to close, recreated by the work itself.
+
+**AND THE SWEEP'S OWN LOOP LOST A FILE.** The candidate list was written without
+a trailing newline, so `while read` silently dropped its last entry; "full
+coverage" would have been false by one. Caught only by diffing the input list
+against the results. The dropped file then probed clean in 1s. A denominator
+that shrinks in silence is section 0 in the measuring apparatus, and `while read
+< file` does that by default.
+
+**WHY THE RULE STANDS.** The untested case is a hang that emerges only in a
+FULL-SUITE run, through order or resource interaction no per-file probe can
+reproduce -- and testing it requires running the full suite, which is the rule.
+Circular by construction. Item 34 is the precedent and it is not hypothetical:
+four failures that appear only in a multi-file band and pass 15/15 in isolation.
+
+So the rule's basis moved from "two named files" to "an untested interaction
+case", and CLAUDE.md section 5 now says that in as many words -- because the
+named files are gone, and an agent citing them is citing nothing. **If this is
+ever to be settled, the sharded-lane option is the only instrument that can do
+it**; the operator declined it once in favour of this measurement, and this
+measurement is the argument for reconsidering.
+
 ### 15.64 | @945's guard broke the rule @945 shipped, close at 77d821a
 
 @945 closed item 34 with an autouse guard that fails any test leaving

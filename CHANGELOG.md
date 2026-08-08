@@ -4,6 +4,49 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.948 - the phantom second hanger: both reasons for the no-full-suite rule are disproven
+
+CLAUDE.md section 5 forbids running the whole tests/ directory locally and gave
+two reasons. Re-measured 2026-08-08 at v3.66.947, every run individually bounded,
+both are gone:
+
+    test_perf_lab.py            17 passed in 2.5s -- and identically with
+                                BD_DISABLE_KEEPALIVE POPPED, so the flag is not
+                                what is holding it together
+    test_v3_66_146_nav_guard    no file of that name exists, in any variant
+    the two real 146 files      23 passed in 0.77s
+
+A targeted sweep found no hang either. 79 files carrying hang-prone shapes
+(`while True`; `.join()`/`.wait()`/`.acquire()` with no timeout; `subprocess`
+with no timeout=; unbounded HTTP) -- 6% of 1270 tracked test files -- each run
+under a hard cap. 69 real test files all completed and 9 were helper modules
+collecting nothing.
+
+THE ONE TIMEOUT WAS THE INSTRUMENT, NOT A DEFECT. test_fuzz_harness_frontend.py
+hit a 60s cap; raised to 120s it returns 0 in 75s, 102 passed. A timeout is not
+evidence of a hang unless the bound EXCEEDS the legitimate runtime -- set it
+from the slowest known file, not from a guess. Reported as a hang it would have
+sent the next session hunting a defect that does not exist, which is the same
+shape as the phantom this cut set out to close.
+
+AND THE SWEEP'S OWN INSTRUMENT LOST A FILE. The candidate list was written
+without a trailing newline, so `while read` silently dropped its last entry and
+the "full coverage" claim would have been false by one. Caught by diffing the
+input list against the results rather than trusting the loop; the dropped file
+then probed clean in 1s. A denominator that shrinks in silence is section 0 in
+the measuring apparatus.
+
+THE RULE STANDS ANYWAY, AND THAT IS THE POINT. What remains untested is whether
+a hang emerges only in a FULL-SUITE run through order or resource interaction
+that no per-file probe can reproduce -- and testing that requires running the
+full suite, which is the rule itself. Circular by construction. So the rule's
+basis is now "an untested interaction case" rather than "two named files", and
+the paragraph says so: the named files are gone and citing them is citing
+nothing. Register item 34 is the precedent -- four failures that appear only in
+a multi-file band and vanish in isolation.
+
+Doc-only: CLAUDE.md section 5 and the register. No source change, no test change.
+
 ## v3.66.947 - item 35: the static-KB manifest could not be regenerated at all
 
 Register item 35 read "STATIC_KB_MANIFEST.json is gated but not REGENERATED, so
