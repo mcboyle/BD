@@ -599,10 +599,10 @@ Schema version: 2
 - L2007 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
 - L2018 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
 - L2030 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
-- L2109 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
-- L2122 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
-- L2133 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
-- L2153 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
+- L2130 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
+- L2143 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
+- L2154 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
+- L2174 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
 ```
 
 

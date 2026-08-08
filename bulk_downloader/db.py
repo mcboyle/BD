@@ -2059,7 +2059,28 @@ def run_integrity_check(force=False, sync=False):
     # Capturing at schedule time is the only reading of "check the database"
     # that stays true across a thread boundary: a check scheduled for database
     # A verifies A even if the process later points DB_PATH elsewhere.
-    _scheduled_path = _resolve_db_path()
+    # @942: ABSOLUTE, and that is the whole point. @927 moved the resolution
+    # here so it would survive the thread boundary -- correct -- but
+    # _resolve_db_path() returns a bare RELATIVE name whenever BD_INSTALL_DIR
+    # is unset and DB_PATH has not been monkeypatched (its own docstring:
+    # "use DB_PATH as-is, which sqlite3.connect() resolves against cwd").
+    #
+    # A relative string captured across a boundary captures NOTHING: it is
+    # re-resolved against whatever cwd exists when the thread wakes. So the
+    # guarantee stated above could not be delivered by the value beneath it,
+    # and nothing looked wrong -- the comment read as though it had been.
+    #
+    # MEASURED at v3.66.941: a plugin wrapping sqlite3.connect over a
+    # 156-suite band caught thread `bd-db-integrity` opening
+    # `<repo>/downloader_history.db` after a test's fixture restored cwd to
+    # the checkout. sqlite3.connect CREATES on contact, so it did not merely
+    # read the wrong database -- it made one, together with
+    # .integrity_last_run and a logs/ directory beside it.
+    #
+    # abspath, not resolve(): an already-absolute DB_PATH must pass through
+    # verbatim (the conftest and Docker both set one), and abspath is the
+    # idiom app.py:137 already uses for this exact reason.
+    _scheduled_path = _os.path.abspath(_resolve_db_path())
 
     def _do_check():
         from . import log as _log
