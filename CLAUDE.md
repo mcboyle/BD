@@ -1045,6 +1045,26 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   `monkeypatch.chdir(tmp_path)` **and** `monkeypatch.setenv("BD_INSTALL_DIR", ...)`,
   belt and braces, "even if subsequent code chdirs away". Hand-rolled probes get
   neither for free — set `BD_INSTALL_DIR` to a tmpdir, or use the fixture.
+
+  **THE CONCRETE FORM, because the paragraph above did not stop it happening.**
+  Item 36 was opened by a `downloader_history.db` appearing in the repo root
+  hours after the fix meant to prevent it, and the caller was never identified.
+  Reproduced at v3.66.958: ONE `selector_drift.status_all()` call with repo-root
+  cwd and `BD_INSTALL_DIR` unset writes 12288 bytes and one table. So every
+  ad-hoc probe opens with the two lines, not with the prose:
+
+  ```bash
+  export BD_INSTALL_DIR="$(mktemp -d)"   # NOT BD_HOME -- it governs nothing here
+  venv/bin/python -c '...'               # absolute interpreter if you cd away
+  ```
+
+  **No gate can catch this, and know why before proposing one:** refusing a
+  database path that resolves inside the repo would break the BOX, which runs
+  the service from its own checkout, where "inside the repo" and "the install
+  dir" are the same directory. It would fire on production and be switched off
+  -- section 0's over-sensitivity failure, shipped deliberately. The discipline
+  is the whole mitigation, and the residue is silent: the file is gitignored,
+  `git status` stays clean, and the next probe READS the rows the last one left.
 - **`sqlite3` `immutable=1` SKIPS THE WAL, so it cannot see a committed row that
   has not been checkpointed.** Measured twice in one day at v3.66.927, in
   opposite directions, and both cost real time:
@@ -1670,18 +1690,38 @@ system match them, which is the first item below.
   result; do not read this paragraph instead, which is the mistake it used to
   cause.
 
-  **What it actually runs, re-measured 2026-08-07 at v3.66.934.** Two jobs.
-  `postgres-integration` runs four mod3 files. `gates` runs gitleaks, the
-  generated-artifacts sync check, `compileall`, advisory `pyflakes`, the
-  CHANGELOG ASCII check **and, since v3.66.849, a pytest lane of 15 repo-wide
-  gate files** -- `test_all_sources_parse`, `test_pin_index_in_sync`,
-  `test_route_index_in_sync`, `test_import_graph_no_new_edges`,
-  `test_source_windows_do_not_shift`, `test_generated_artifacts_are_not_tracked`,
-  `test_settings_center_slice4`, `test_versync_gate`,
-  `test_release_hygiene_gates`, `test_scan_version_pins_fixture`,
-  `test_gui_parity`, `test_pk_mirrors_do_not_drift`, `test_toolchain_534`,
-  `test_v3_66_799_audit_tool_selftests`, `test_v3_66_653_dep_freshness`.
-  **161 tests, 140s in CI / 130s in this container.**
+  **What it actually runs, re-measured 2026-08-08 at v3.66.958. THREE jobs, not
+  two, and the gate lane is no longer inside `gates`.**
+
+  - `postgres-integration` -- four mod3 files.
+  - `gates` -- gitleaks, the generated-artifacts sync check, `compileall`,
+    advisory `pyflakes`, the CHANGELOG ASCII check, and exactly ONE pytest
+    file: `test_v3_66_939_ci_gate_shards_cover_every_gate`. These must run
+    once, which is why they are not sharded.
+  - `gate-suites` -- a 3-way matrix carrying the 15 repo-wide gate suites:
+    **toolchain** (`test_toolchain_534`); **parity-graph** (`test_gui_parity`,
+    `test_import_graph_no_new_edges`, `test_v3_66_653_dep_freshness`,
+    `test_route_index_in_sync`); **artifacts-pins**
+    (`test_generated_artifacts_are_not_tracked`,
+    `test_source_windows_do_not_shift`, `test_pk_mirrors_stay_retired`,
+    `test_pin_index_in_sync`, `test_all_sources_parse`, `test_versync_gate`,
+    `test_settings_center_slice4`, `test_v3_66_799_audit_tool_selftests`,
+    `test_release_hygiene_gates`, `test_scan_version_pins_fixture`).
+
+  **THE PRIOR TEXT NAMED A FILE THAT DOES NOT EXIST.** It said
+  `test_pk_mirrors_do_not_drift`; the file is `test_pk_mirrors_stay_retired.py`,
+  and the rename went with the mirrors being RETIRED rather than merely
+  drift-checked. A session banding from this paragraph passed the wrong path to
+  pytest and got `file or directory not found` -- `ci.yml` was correct
+  throughout. It also said "two jobs" after the shard split, and described the
+  15 suites as running inside `gates`, where none of them now run. Three wrong
+  claims in one bullet, in the bullet whose own next paragraph explains what
+  the last stale version of it cost.
+
+  Sharding adds exactly one failure mode -- a suite that falls out of every
+  shard still leaves a green tick -- and
+  `test_v3_66_939_ci_gate_shards_cover_every_gate` is the only thing that would
+  notice, which is why it is the one pytest file `gates` still runs itself.
 
   **The prior text was written at v3.66.847 and was correct then**; @849 added
   the lane and nothing updated this bullet, so for 85 releases the contract told

@@ -4,6 +4,108 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.959
+
+The ten baselined items adjudicated. The promise gate's baseline is now EMPTY.
+
+THE 15.51 PATTERN REPEATED ALMOST EXACTLY -- most were already closed and
+nobody had written it down:
+
+    already CLOSED, unrecorded   8, 16, 20, 23, 30
+    MIS-SCOPED, premise false    13
+    CANNOT-EVALUATE, permanent   1
+    genuinely OPEN               2, 11, 29
+
+Item 30 shipped at @932 -- .githooks/pre-push, tracked, enforcing section 7's
+two-dot diff -- three weeks before this. Item 20 shipped at @889 and CLAUDE.md
+section 4 has said so ever since; only the inventory disagreed. Item 16's
+subject is gone: zero tracked extensionless runnable files remain under
+project-knowledge/, typing on the SHEBANG rather than the extension. Item 13's
+premise was false -- bd-state has three invocation sites, not one.
+
+THE ADJUDICATION REPRODUCED SECTION 1's OWN LESSON. A grep for a refuse path
+reported bd-env-report-check as having none; run with no report present it exits
+2 with "UNKNOWN: no report at ...". The tool words it "UNKNOWN:" and the pattern
+did not match. Grep is not a denominator; the behavioural test is one line
+longer. A second slip in the same pass: probing that tool from a tmpdir with a
+RELATIVE venv/bin/python returned 127, which reads as a tool failure and is
+section 5's interpreter trap.
+
+CANNOT-EVALUATE IS NOW A THIRD ACCOUNTED STATE in the gate, which is section 0's
+own doctrine applied to the register. Item 1 -- naming twelve retired tools from
+a tree that cannot show them -- is not open work waiting on effort, and carrying
+it as open forever is what makes an open list stop meaning anything.
+
+_UNACCOUNTED IS EMPTY, and that is the goal state rather than a disabled gate.
+It held eleven entries when direction B first ran at @955. Every inventory entry
+is now accounted for, so direction B runs with nothing excused.
+
+THE RE-DERIVATION HAS A CAUSE AND NOW A FIX. Validated against history rather
+than asserted: item 20 closed at bfe4ac7 (#193, "the import-graph gate was blind
+to tests/"), item 30 at 48707ad (#237, "a pre-push hook for section 7's two-dot
+diff (item 30)"), item 16 at e7b2a5f (#219). PR #237's title NAMES THE ITEM
+NUMBER and the inventory carried it open for three weeks. The information was in
+git the whole time and nothing propagated it, which is why every session
+re-measured. test_every_accounted_entry_cites_its_closure now requires each
+accounted entry to point at a version, a commit, a register section, or a
+file:line anchor -- four forms because closures arrive four ways. Measured
+before shipping: 18 of 18 entries already satisfied it, so it pins a convention
+the register was already keeping.
+
+CLAUDE.md section 5 gains the concrete probe form, because the prose that was
+already there did not stop item 36 happening: export BD_INSTALL_DIR to a tmpdir,
+use an absolute interpreter, and know that no gate can catch this -- refusing a
+repo-root database path would break the box, which runs from its own checkout.
+
+## v3.66.958
+
+Session close: item 36 closed, items 38 and 39 filed, and the promise gate
+caught two defects in itself.
+
+ITEM 36 CLOSED -- mechanism reproduced exactly, caller unrecoverable. One
+selector_drift.status_all() call with repo-root cwd and BD_INSTALL_DIR unset
+creates downloader_history.db at 12288 bytes with exactly one table,
+selector_drift: byte-for-byte the register's measurement of the stray file. The
+fifth population -- the one the item said would close it -- is ruled out:
+bd-sweep --selftests with a .pth connect wrapper armed ran 175 of 175
+allowlisted tools with 0 repo-root connects. Denominator stated honestly: 238
+tools in bin, 63 not runnable, and a selftest need not reach a tool's real DB
+path.
+
+A SIXTH POPULATION WAS FOUND AND IS ALREADY FIXED. Nobody had swept the
+provisioner because it runs BEFORE a session and every earlier sweep covered
+things that run inside one. This container carried its own repo-root database
+from cloud-setup.sh's window on a v3.66.883 snapshot, before @926 removed the
+module-scope writers. Re-measured at HEAD, the provisioner's version probe
+creates nothing with the keepalive flag set or unset.
+
+NO GUARD WAS BUILT, DELIBERATELY. Refusing a DB path that resolves inside the
+repo would BREAK THE BOX, which runs the service from its own checkout, where
+"inside the repo" and "the install dir" are one directory. It would fire on
+production and be switched off -- section 0's over-sensitivity failure, shipped
+on purpose.
+
+THE GATE FOUND TWO DEFECTS IN ITSELF, both while recording this session.
+Direction B read only the NEWEST ledger, so writing 15.69 would have made the
+eleven items 15.68 closed read as unaccounted -- the gate manufacturing a gap by
+the act of recording the next session. A close is permanent; CLOSED now
+accumulates across ledgers. And the ledger parser treated every indented line in
+a section as a row continuation, so prose about a "50-deep graft" parsed as a
+declaration about item 50; direction A caught that on the real register rather
+than on a fixture. A ledger is a contiguous block and now ends at the first
+blank line, with the wrapped-row case kept under its own test.
+
+CLAUDE.md section 7's CI bullet corrected. It named
+test_pk_mirrors_do_not_drift, a file that does not exist -- a band derived from
+that paragraph died on "file or directory not found" while ci.yml was correct
+throughout -- and described two jobs with an inline gate lane after CI had split
+into three jobs with a sharded gate-suites matrix. Three wrong claims in the one
+bullet whose own next paragraph explains what its last stale version cost.
+
+Items 38 (the zip-era retirement, ~45% of the executable /home/claude
+population) and 39 (the twenty frozen duplicates) are filed as numbered
+entries rather than left as prose, which is the policy @955 exists to enforce.
+
 ## v3.66.957
 
 Item 12(c): a capped library-audit count now says it is a floor.
