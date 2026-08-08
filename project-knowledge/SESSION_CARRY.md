@@ -3950,6 +3950,53 @@ ONGOING, NOT A FINISH LINE (33)
  33. **The prose-only pool** -- baseline 184 of a 240-tool population.
      A ratchet, not a target.
 
+ADDED v3.66.944 (34-35). Both were prose notes elsewhere before they were
+numbered, and item 34 is here specifically because a prose note is not a
+record -- see 15.62's closing paragraph.
+
+ 34. **Four order-dependent band failures, pre-existing** -- webhooks-SSRF x3
+     and vpn-quarantine x1, which fail in a multi-file band and pass
+     file-at-a-time. PROVEN pre-existing on pristine `8e2b017` with an
+     identical 130-suite list during the @943 session, so they are not that
+     cut's residue and not a regression. NOT root-caused: the mechanism is
+     unknown, and "order-dependent" is a description rather than a diagnosis.
+     Container-only reading -- the box's `./capture.sh` runs `--dist loadfile`
+     and has been green across both captures, so whatever the interaction is,
+     it does not reproduce under the lane the operator actually runs. Start by
+     bisecting the band list rather than by reading the four files.
+
+     RE-MEASURED at v3.66.944 on a SECOND, different band (113 suites derived
+     from `CLAUDE.md` + the register, not the 130 from @943) -- **4 failed /
+     1456 passed / 1 skipped, identical on the cut and on a pristine tree in
+     the same directory with `git status --porcelain | wc -l` reading 0.** The
+     same two files pass 15/15 in ISOLATION. So the interaction is real,
+     reproduces across unrelated band compositions, and is not any one cut's
+     residue.
+
+     **AND THE FAILURE MODE IS NOW NAMED, which it was not before:**
+
+         db.py:558  cx = sqlite3.connect(path or _resolve_db_path(), ...)
+         sqlite3.OperationalError: unable to open database file
+         [webhooks] schema init failed: unable to open database file
+
+     That is a CWD/relative-path failure, not an SSRF or VPN one -- the same
+     class as item 11, where `_resolve_db_path()` returns a bare relative name
+     when `BD_INSTALL_DIR` is unset and `sqlite3.connect` resolves it against
+     whatever cwd exists at call time. A prior test's fixture chdir'ing into a
+     `tmp_path` that is then torn down would produce exactly this. **Start
+     there**: the four tests are the victims, not the subject, and their names
+     have been misdirecting every reading of this item.
+ 35. **`STATIC_KB_MANIFEST.json` is not in `bd-regen-order`** -- @944 reseeded
+     it and gated its membership, but nothing REGENERATES it, so the same
+     staleness recurs the next time a `project-knowledge/` file is added or
+     removed; the gate will catch it, one cut late, as a red band rather than
+     as an automatic refresh. Adding it to the regen chain is the durable fix
+     and was deliberately not folded into @944 (a regen-order change moves
+     CI's generated-artifact sync check, which is a different blast radius).
+     Note the ordering constraint it would have to respect: the reseed must
+     follow the last `project-knowledge/` edit, the same way regen must follow
+     the last source edit.
+
 ### 15.38 | The tier plan -- 15.36's list re-ordered by size and speed
 
 15.36 orders the open items by what unblocks what. This is the OTHER axis --
@@ -4197,6 +4244,24 @@ pristine `8e2b017` with an identical 130-suite list during the @943 session, and
 this register was told they had been written down. They had not -- a grep for
 them here returned zero. A finding that exists only in a conversation is lost at
 the next context boundary, which is the failure this register exists to stop.
+**Now item 34** in 15.36's inventory, with item 35 beside it.
+
+**AND NOTHING COULD HAVE CAUGHT THAT, WHICH IS THE STRUCTURAL POINT.** The
+operator asked why the standing rule is not enforced. Measured at v3.66.944, the
+enforceable half IS: `bd-freshcheck`'s `_DOCS` covers CLAUDE.md and this file
+(211/211 anchors resolve), the close-tip check requires an ancestor commit, and
+`bd-doc-truth` scans 78 documents including 13 root ones. All green, all in CI.
+But every one of those asks whether a cited **path** resolves. None can ask
+whether a claim is TRUE, and none can ask whether a finding somebody SAID they
+recorded exists -- the denominator for that lives in the conversation, so a
+prose promise is unfalsifiable by construction.
+
+The mechanizable fix is a policy first and a gate second: **a finding is a
+numbered item in this inventory or it does not exist.** Prose promises
+("recorded as", "filed as") stop being an accepted form; the gate then reduces
+to a set comparison -- every item named in a close section's STILL OPEN list
+must resolve to a numbered entry. Not built. Recorded here so the next session
+does not re-derive the argument from scratch.
 
 ### 15.61 | Box capture at f7367487 (v3.66.941) -- PASS, and it settles three claims a container could not
 

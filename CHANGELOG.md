@@ -92,6 +92,40 @@ Band 351 passed / 1 failed (that failure, then fixed); the affected-gate re-run
 after the repair was 205 passed. bd-regen-order clean, bd-freshcheck exit 0
 (211/211 anchors, 15.62 close tip on 66db5fe), guards 7 ok / 0 drifted.
 
+THREE CONTRACT CORRECTIONS, all measured rather than reasoned:
+
+  * CLAUDE.md section 0 carried a heading reading "THE FRESHNESS GATE CANNOT
+    SEE THIS FILE", measured at v3.66.927 off a doc-truth line reporting 65
+    documents in project-knowledge. The gate was later widened to root
+    documents and nothing updated the paragraph, so the file's strongest
+    statement of the documents-go-stale rule spent releases being an instance
+    of it. Re-measured: bd-freshcheck's _DOCS names CLAUDE.md, bd-doc-truth
+    reports docs_scanned=78 (65 + 13 root), stale_count=0. The CONCLUSION
+    survives the correction and the rewrite says why -- both checks ask whether
+    a cited PATH resolves, neither can ask whether the line still says what the
+    sentence claims, so a claim about behaviour passes untouched. That is
+    exactly how section 5's check_requirements claim survived.
+  * section 5's "Unverified: whether the box's clone is shallow" is now
+    MEASURED: test4 has no .git/shallow, so a nonzero --is-ancestor there is
+    authoritative. That is load-bearing -- item 21 was settled on an exit=1
+    from the box. The shallow reading stays true of the cloud container and of
+    scratch clones; the two must not be collapsed.
+  * section 7 gains the bundle finding: `git bundle verify` is not proof a
+    bundle can be restored from. It checks declared PREREQUISITES and does not
+    walk the packfile, so a bundle that verifies clean inside a populated repo
+    can still fail to fetch into an empty one -- measured on the box. The
+    orphan-branch archive was certified with exactly that check. The restore
+    test (git init + fetch into a fresh repo) is now the stated requirement.
+
+Register: 15.36's inventory gains items 34 (the four order-dependent band
+failures, pre-existing on 8e2b017, not root-caused) and 35 (STATIC_KB_MANIFEST
+is gated but not REGENERATED, so the staleness recurs one cut late). Both were
+prose notes before they were numbered, which is the point: 15.62 records that
+the enforceable half of the standing rule IS enforced and green, and that no
+gate can check whether a finding somebody said they recorded exists -- the
+denominator for that lives in the conversation. The mechanizable fix is a policy
+first: a finding is a numbered item or it does not exist.
+
 ## v3.66.943 - mirror retirement step 2: the executable toolchain has one copy
 
 project-knowledge/ carried a byte-identical duplicate of most of toolchain/bin
