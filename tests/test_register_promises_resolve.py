@@ -56,7 +56,6 @@ _UNACCOUNTED: frozenset[int] = frozenset({
     11,  # repo-root .db-wal writer; 15.68 closed its DENOMINATOR question only
     13,  # item 15 -- bd-state reachable only through build_session_pack.py
     16,  # 7a -- retirement completion, three pre-@858 tools survive as prose
-    18,  # venv specifier drift; CLAUDE.md 5 records this FIXED, inventory does not
     20,  # import-graph gate blind to tests/ edges; widened at @889, unrecorded here
     23,  # the capture gap at 885/886
     29,  # the archive sequence -- 15.68 closed its DATABASE RECOVERY part only

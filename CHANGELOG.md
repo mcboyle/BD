@@ -4,6 +4,29 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.956
+
+Item 18 adjudicated CLOSED, and the promise gate's shrink path did the work.
+
+RE-MEASURED BY RUNNING THE TOOL, NOT READING IT. A manifest of `pytest>=99.0`
+exits 1 and `pytest>=8.0` exits 0, so check_requirements DOES compare
+specifiers: it builds Requirement(line), asserts specifier.contains(have), and
+raises Unevaluable when packaging is absent rather than falling back to a
+name-only answer. The item's text -- "calls version(name) and discards it" --
+described code that no longer exists.
+
+CLAUDE.md section 5 already recorded that fix. This inventory did not, so the
+entry sat open for releases while the code was correct. That is section 1's own
+lesson landing inside the register that states it, and it is exactly what
+direction B surfaced: item 18 was one of the eleven the newest session close
+could not account for.
+
+THE MECHANISM WORKED WITHOUT BEING TOLD. Marking the inventory entry CLOSED
+made 18 accounted-for, and test_no_unaccounted_entry_is_stale immediately failed
+-- "item(s) [18] are declared AND still listed as unaccounted, remove them from
+_UNACCOUNTED in the same cut" -- before any human noticed the baseline had gone
+stale. Baseline 11 -> 10.
+
 ## v3.66.955
 
 The register-promise gate, both directions. A finding is a numbered item in the

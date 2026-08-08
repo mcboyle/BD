@@ -3863,10 +3863,18 @@ WORK, NOT BLOCKED (4-19)
  17. **Item C** -- does a container restart fire SessionStart? Instrumented,
      unanswered. Needs a `bd-restart-check` exit 1 mid-session; this session
      got exit 0, `source=startup`.
- 18. **Venv specifier drift** -- `check_requirements.py` calls `version(name)`
-     and discards it, in all three recovery paths. Still THEORETICAL: @883's
-     band failures were a runner defect and @885 confirmed it. Do not record
-     that as this item's measurement.
+ 18. **CLOSED, and it was closed before anyone noticed.** Re-measured at
+     v3.66.956 by RUNNING the tool, not reading it: a manifest of
+     `pytest>=99.0` exits 1 and `pytest>=8.0` exits 0, so the specifier IS
+     compared. `tools/check_requirements.py:146-150` builds `Requirement(line)`
+     and asserts `specifier.contains(have)`, and raises `Unevaluable` when
+     `packaging` is absent rather than falling back to a name-only answer.
+     CLAUDE.md section 5 already recorded the fix; this inventory did not, so
+     the entry sat open for releases while the code was correct -- section 1's
+     own lesson, inside the register that states it. ORIGINAL TEXT: "Venv
+     specifier drift -- check_requirements.py calls version(name) and discards
+     it, in all three recovery paths. Still THEORETICAL: @883's band failures
+     were a runner defect and @885 confirmed it."
  19. **Item 17** -- `git rev-parse HEAD` into `01_sysinfo.log`, plus a selftest
      stage for `capture.sh`. Re-confirmed ABSENT against the 883 bundle.
      Rides item 2.
