@@ -4,6 +4,94 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.944 - the static-KB manifest described a tree that no longer exists
+
+@943 deleted 234 tracked files from project-knowledge/ and did not regenerate
+STATIC_KB_MANIFEST.json, which is a sha256 attestation over that directory and
+is read by three tools -- bd-boot keys a cache off its hash, bd-kb-sync diffs
+against it, bd-consumer-graph enumerates it. Measured with the tool's own
+checker at 66db5fe: exit 1, DRIFT, 9 added / 243 removed / 21 changed.
+
+THE PRE-RETIREMENT ROW IS THE FINDING, not the 243. Re-derived name-by-name
+from git rather than from the checker's summary:
+
+    rev        tracked  manifest  in-manifest-not-tracked  tracked-not-in-manifest
+    8e2b017      355      355               9                        9
+    66db5fe      121      355             243                        9
+
+At 8e2b017 the two totals are EQUAL and nine files are wrong in each direction
+at the same time. A check comparing counts would have called that tree in sync;
+the equality was arithmetic coincidence. So the gate added here compares sets
+and names the offending paths. The nine predate @943 -- eight are tracked files
+the manifest never carried (SESSION_CARRY.md, AUDIT_2026_07_29.md,
+LESSONS_LEARNED_v3_66_818.md, five pending-specs/) plus the manifest itself,
+which is legitimately excluded. Only the 234 are @943's residue.
+
+WHY IT SURVIVED. Two absences, both measured: no test named this file as its
+subject (grep -rln STATIC_KB_MANIFEST tests/ -> no hits), and it is not in
+bd-regen-order, so no cut regenerates it and CI's generated-artifact sync check
+cannot see it. Nothing regenerated it and nothing checked it. Its header read
+version_context v3.66.817, generated 2026-07-23 -- 126 releases stale.
+
+TWO MORE DEFECTS FOUND WHILE FIXING THE FIRST, both free once measured:
+
+  * THE HEADER DISAGREED WITH ITS OWN BODY. file_count said 363 over a files
+    dict holding 355. write_manifest derives that field, so the only way they
+    diverge is a hand edit -- and any reader trusting the header was off by
+    eight with nothing to notice. Now asserted.
+  * SCAN() SAID "TRACKED" AND MEANT "ON DISK". Its docstring claimed "every
+    tracked file under root" and it never consults git; __pycache__ does not
+    start with a dot, so the dot-prefix prune never reached it. Consequence:
+    check listed __pycache__/bd-cutcpython-312.pyc as ADDED, so the checker
+    could not report IN-SYNC on any machine that had run the tools, and a pin
+    taken there would have written bytecode into the attestation. Pruned by
+    DIRECTORY rather than by .pyc suffix, and the docstring now says what the
+    code does. The new tests enumerate git ls-files precisely so the two
+    denominators are compared rather than assumed equal.
+
+DELIBERATELY NAME-LEVEL, NOT CONTENT-LEVEL. The gate compares the set of paths,
+not each recorded sha256. A content gate would fail on every edit to
+SESSION_CARRY.md -- most cuts -- forcing an unrelated manifest regen, and a gate
+that fires that often gets switched off. Content drift keeps its existing owner:
+bd-kb-sync check reports CHANGED as the operator's staging signal.
+
+ALSO RETIRED: test_the_mirror_matches. After @943 its `if not MIRROR.exists():
+skip` guard could only ever skip -- it is the single test separating 85 skips
+from 86 in the v3.66.943 box capture. A test that can only skip reports nothing
+while still counting as coverage, which is the denominator defect that file
+exists to guard against, sitting inside it. The stronger property is held by
+tests/test_pk_mirrors_stay_retired.py.
+
+Manifest reseeded: 120 files (121 tracked minus the manifest itself), version
+context v3.66.944. bd-kb-sync check now exits 0 with LOCAL-MATCH.
+
+RED-first: 5 of 9 new tests failed on pristine source. The 4 that passed are the
+positive control for the comparison helper, the non-empty-denominator assertion,
+the exclusion-set pin and the control-artifact regression guard -- all guards
+rather than subjects, and all expected green.
+
+AND THE FILE SHIPPED A CONTENT GATE ON ITS FIRST BAND RUN, in the file whose
+docstring argues against content gates. Its last test shelled out to bd-kb-sync
+check and asserted exit 0, which folds `changed` into the verdict; it went red
+on `SESSION_CARRY.md CHANGED`, for this cut's own register edit. Repaired by
+calling diff() in-process and asserting on added/removed only. The band caught
+it, not review -- 351 passed, 1 failed, and the 1 was the argument the file
+makes about itself. Consequence: the manifest reseed is a LAST step, after the
+final project-knowledge/ edit, the same discipline bd-regen-order has for the
+last source edit.
+
+Mutation: 5 mutants, 4 caught on the first pass and 1 ESCAPED -- severing
+diff()'s added list from its inputs left the band green, because the only
+assertion reading it required that list to be EMPTY and a constant empty list
+satisfies that perfectly. Third row of the section 6 table. Closed with a
+positive control that feeds diff() synthetic sets whose answer is not in doubt;
+5 caught, 0 escaped on re-run. The lesson generalises past this file: every
+"must be empty" assertion needs a sibling proving its producer can be non-empty.
+
+Band 351 passed / 1 failed (that failure, then fixed); the affected-gate re-run
+after the repair was 205 passed. bd-regen-order clean, bd-freshcheck exit 0
+(211/211 anchors, 15.62 close tip on 66db5fe), guards 7 ok / 0 drifted.
+
 ## v3.66.943 - mirror retirement step 2: the executable toolchain has one copy
 
 project-knowledge/ carried a byte-identical duplicate of most of toolchain/bin

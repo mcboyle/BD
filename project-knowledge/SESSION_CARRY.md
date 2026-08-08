@@ -4017,6 +4017,187 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.62 | Operator-gated items worked on the box 2026-08-08, close at 66db5fe -- items 21 and 25 closed, and `git bundle verify` was caught reporting OK about an unrestorable bundle
+
+The operator asked what could be closed on the box straight after a capture.
+Five items were attempted; three closed, one was already fine, and the method
+failures cost more than the items did.
+
+TWO BOX CAPTURES, BOTH PASS, BOTH RECONCILED EXACTLY
+
+| capture | commit | total | passed | skipped |
+| --- | --- | --- | --- | --- |
+| v3.66.942 | `8e2b017` | 15037 | 14952 | 85 |
+| v3.66.943 | `66db5fe` | 15021 | 14935 | 86 |
+
+The @943 delta is **-16**, every line explained: `test_pk_mirrors_do_not_drift`
+-10 (deleted), `test_pk_mirrors_stay_retired` +4 (added), and -10 mirror-related
+tests across `test_bd_ready_preflight` (-1),
+`test_bd_regen_check_is_read_only` (-2), `test_generated_artifact_workflow`
+(-5), `test_toolchain_534` (-1), `test_versync_gate` (-1). Skips 85 -> 86 is
+`test_bd_doctor_probes_the_real_environment::test_the_mirror_matches`, reason
+`project-knowledge/bd-doctor does not exist` -- correct, and **retired at @944**
+because after @943 it could only ever skip.
+
+**A deploy that looked interrupted was not.** The v3.66.942 deploy was read here
+as having stopped at the diffstat preview, because the box reported
+`origin/main = 8e2b017` while this container had `66db5fe`. Wrong: `66db5fe`
+merged at 22:14 EDT and the box fetched at ~00:29Z, so 943 did not exist yet.
+The deploy was correct and complete. **Check the merge timestamp before
+concluding a fetch was truncated** -- two branches of a story that differ only
+in when they happened look identical in the output.
+
+ITEM 21 -- CLOSED, NOTHING LOST, AND THREE WRONG INSTRUMENTS IN A ROW
+
+The question: did force-pushing `preflight-setup-bh5n4z` discard work?
+`b4f0c80` turned out to be **tagged** (`archive/preflight-preforce`), so the
+"unreachable, on a two-week gc clock" premise this session opened with was
+false -- and the tag was visible in the first command's own output.
+
+Three instruments were proposed and each was blind to a different property of
+this repo:
+
+1. **Two-dot tree diff** (`git diff --stat origin/main b4f0c80`) -- returned 729
+   files / -96117 lines, essentially all of it *main having moved on*. CLAUDE.md
+   section 7's two-dot rule is for proving a branch's content is already merged,
+   where the two tips are supposed to be content-identical. Against a five-
+   commit-deep old line it drowns the subject in noise.
+2. **Ancestry** (`merge-base --is-ancestor`) -- exit 1, authoritative (the box's
+   clone is **not shallow**; `.git/shallow` absent, which also settles the
+   "unverified" note in CLAUDE.md section 5). But it answers *were these commits
+   kept*, not *was the work lost*.
+3. **Patch equivalence** (`git log --cherry-pick --right-only`) -- printed eight
+   commits, and **this repo squash-merges**. A squash of five commits has ONE
+   patch-id; the five originals have five. They can never match, so the tool
+   structurally cannot detect a squashed re-landing. Its non-empty output was
+   not evidence of loss.
+
+**What actually answered it was content, measured in the tree** -- every feature
+in those commits is in `main` today: `tools/live_seed.py` (108400 bytes);
+`capture.sh:756` step `[5a/9]` with `cleanup_live_seed` + the EXIT trap at
+`:219-226`; `capture.sh:947` step `[5b/9]` via `bd_start_display`;
+`live_tests/checks.py:3306` `done_today_count` with its comment intact;
+`tests/test_provision_test_host.py` and `tests/test_live_checks_api_key_contract.py`;
+lint handling in `scripts/lib/system_deps.sh`. `capture.sh:954-958`'s comment is
+near-verbatim from `60c48d9`'s commit message -- the prose travelled with the
+code. And the right-hand range named the mechanism outright: PR #32 is
+*"Gate the provisioner's verdict logic, and seed synthetic input for the live
+checks."* The force-push replaced the commits; the PRs re-landed the work.
+
+Keep the tag. It cost nothing and it is the only reason this was answerable.
+
+ITEM 25 -- CLOSED, AND IT ACCIDENTALLY GOT A MUCH STRONGER PROOF
+
+`~/bd-orphans-2026-08-01.bundle` sha `a86a8fc4a31a...` matches on the original
+and on the copy at `~/backups/`, `git bundle verify` clean, 24 refs.
+
+**`git bundle verify` is NOT proof a bundle can be restored from, and this
+session measured that.** `~/BulkDownloader-dp06.bundle` verified clean --
+*"records a complete history"*, *"is okay"* -- and then failed to fetch into a
+fresh empty repo:
+
+    error: Could not read 8af6889cd493...
+    fatal: Failed to traverse parents of commit 10231e54...
+    error: did not send all necessary objects
+
+MEASURED: those contradict. BEST EXPLANATION, not measured: `verify` only checks
+that the bundle's declared *prerequisites* are satisfiable, and prints "records a
+complete history" when the header declares none; it does not walk the packfile.
+Run inside `~/BulkDownloader`, the objects exist locally anyway, so there is
+nothing for it to notice.
+
+That lands directly on 15.4, which says the orphan bundle was *"Verified BEFORE
+trusting it, because a sole copy that cannot be cloned from is not a backup"* --
+using the check that has now demonstrably passed a bundle you cannot clone from.
+The orphan bundle **did** pass the strong test, as a side effect of the dp06
+comparison: it fetched cleanly into the scratch repo, both shas resolved,
+ancestry computed. **The rule to carry:** any bundle you intend to rely on gets
+
+    T=$(mktemp -d) && git init -q "$T" && \
+      git -C "$T" fetch "$BUNDLE" 'refs/*:refs/restored/*' && echo RESTORABLE
+
+Apply it to whatever 29's consolidation produces, before deleting the sources.
+
+`~/BulkDownloader-dp06.bundle` (18M, not in this register before) holds
+`a106c763` for `fix/dp06-semantic-parentage`; the orphan bundle holds
+`bf9f9721`. Measured: `a106c763` IS an ancestor of `bf9f9721`, the reverse is
+not, and `bf9f9721..a106c763` is empty -- so the orphan bundle is a strict
+superset, 15.4's completeness claim stands, and dp06.bundle is redundant **and**
+broken.
+
+ITEM 29 -- RECOVERY COMPLETE, AND THE REGISTER'S COUNT WAS WRONG
+
+| | 15.10 said | measured 2026-08-08 |
+| --- | --- | --- |
+| `.db` | 91 | **108** |
+| `.db-journal` | 90 | 90 |
+| no journal | 1 implied | **18** |
+
+108 - 18 = 90, so it reconciles internally and the measurement is the truth.
+All 18 journal-less files are under `.worktrees/` and `cockpit_tasks/` -- the
+same tree 15.10 lists as rebuildable bulk to be purged.
+
+**All 108 passed `PRAGMA integrity_check`**, and 108 `.clean.db` were produced
+by `VACUUM INTO`. `find` for `*.db-wal` / `*.db-shm` returned **0**, so every
+database there is rollback-journal mode and there were no companions to miss.
+Two method notes worth keeping: copies were keyed by a path-hash prefix because
+an 11G tree holds many files named `downloader_history.db` and a flat copy would
+have overwritten silently; and the `.clean.db` set was deleted and regenerated
+once because two `VACUUM INTO` runs straddled the copy loop and their provenance
+could not be established.
+
+Remaining in 29: the purge, the consolidation, the 533 raw wacz decision and the
+B2 dedup.
+
+THE PROTON PASS EXPORT IS ABSENT, AND THE INVENTORY IS STILL BLIND
+
+`~/BulkDownloader 3` exists at 18M -- so the denominator is real and the empty
+result means something. Name sweep, July-`.xlsx` sweep and a zip/7z content
+sweep all clean. Snapshot sizes match 15.10 exactly (328M / 3.0G / 18M / 11G),
+so only the `.db` count had rotted.
+
+`grep -n 'kdbx\|Pass_export\|keepass\|bitwarden\|1password' ~/archive_inventory.sh`
+returns **nothing** -- the v2 inventory that measured all four snapshots still
+cannot see a password-manager export, which is why this file had to be found by
+hand. Add `*_export_*.csv` too: 1Password, Bitwarden and LastPass all export CSV
+by default, which is plaintext credentials with no extension tell. That file is
+in the operator's home, not the repo; nothing in `tools/` or `toolchain/bin`
+scans for this class either.
+
+STILL OPEN, unchanged: **3** (scope call, now unblocked), **12(c)**, **31**,
+**32**, **33**; **17** needs a `bd-restart-check` exit 1 in a container; **21**
+and **25** are now closed.
+
+@944 WROTE A CONTENT GATE INSIDE THE FILE THAT ARGUES AGAINST CONTENT GATES
+
+Kept because it is the cheapest instance of CLAUDE.md section 0's
+fix-reproduces-the-defect rule yet recorded, and because **the band caught it,
+not review**. The new test file's docstring states in as many words that its
+assertions are *"deliberately name-level, not content-level"*, on the argument
+that a content gate would fail on every `SESSION_CARRY.md` edit -- most cuts --
+and a gate that fires that often gets switched off. Its last test then shelled
+out to `bd-kb-sync check` and asserted **exit 0**, which folds `changed` into
+the verdict. It went red on `SESSION_CARRY.md CHANGED`, for the register edit
+belonging to this same cut.
+
+Repaired by calling `diff()` in-process and asserting on `added`/`removed` only,
+with `changed` explicitly left alone. The test keeps its actual value -- it is
+the only one enumerating the way the TOOL does (`os.walk`) rather than the way
+git does, which is the gap that hid the bytecode entry -- without the tax.
+
+**Consequence for future cuts: the manifest reseed is a LAST step**, after the
+final `project-knowledge/` edit, in the same way `bd-regen-order` must follow the
+last source edit (section 2a). Nothing enforces the ordering; the name-level
+gate deliberately will not fire on a stale sha, because making it fire is the
+over-sensitivity that gets gates switched off.
+
+**RECORDED LATE, AND THE LATENESS IS THE POINT.** Four order-dependent band
+failures (webhooks-SSRF x3, vpn-quarantine x1) were proven pre-existing on
+pristine `8e2b017` with an identical 130-suite list during the @943 session, and
+this register was told they had been written down. They had not -- a grep for
+them here returned zero. A finding that exists only in a conversation is lost at
+the next context boundary, which is the failure this register exists to stop.
+
 ### 15.61 | Box capture at f7367487 (v3.66.941) -- PASS, and it settles three claims a container could not
 
 The operator captured the merge commit directly. Everything below is read from
