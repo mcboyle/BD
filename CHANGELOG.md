@@ -4,6 +4,67 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.946 - @945's leak guard fired on state it did not cause
+
+@945 added an autouse guard failing any test that leaves BD_INSTALL_DIR set to a
+RELATIVE value, closing register item 34. It checked the value only at teardown,
+so it could not tell a value the test LEAKED from one it INHERITED. Measured
+with a `.env` carrying `BD_INSTALL_DIR=v3`:
+
+    @945 guard : tests/test_contracts.py -> 5 failed, 9 passed, 12 ERRORS
+    @946 guard : tests/test_contracts.py -> 5 failed, 9 passed,  0 errors, 1 warning
+
+The 12 errors were the guard blaming tests for an environment they started in.
+`bulk_downloader/__init__.py:31` calls `_envfile.load_envfile()` at PACKAGE
+IMPORT, so every test importing the product is seeded from `.env` before it runs
+-- and BD_INSTALL_DIR is an EDITOR_KEY_NAME, so the GUI env editor writes it to
+`~/BulkDownloader/.env` on the deploy host. One operator save would have failed
+most of a capture, each failure naming whichever test happened to be running.
+
+THIS IS THE RULE @945 SHIPPED, BROKEN BY @945'S OWN FIX. CLAUDE.md s0: "a test
+that varies an environment variable must POP that variable -- the parent's value
+is part of the denominator." The guard is a harness that varies nothing and
+reads everything, and it treated the parent's value as its own subject. The
+@945 CHANGELOG states that rule in the same commit that violates it. The band
+could not catch it: no test in the 114-file band runs with a `.env` present, so
+the condition never arose.
+
+THE FIX IS A COMPARISON, NOT A CHECK. `install_dir_leak_verdict(before, after)`
+returns leaked / inherited / None. Only a value the test CHANGED fails. An
+inherited one is reported ONCE per session as a warning naming the likely source
+and the consequence -- not silently ignored, because a relative install dir
+still breaks every database-touching test with `unable to open database file`
+and no explanation, which is the four-files-away confusion item 34 took three
+readings to see through. Unknown is a third state; this is the honest report of
+an environment condition, and it fails nothing.
+
+The repair now RESTORES what the leaking test started with rather than popping
+the key, so one leaker cannot silently strip the operator's configured install
+dir from every test after it.
+
+TWO OF THIS CUT'S OWN MEASUREMENTS WERE WRONG FIRST, both caught by running them:
+
+  * A test asserting the guard still catches a REAL leak wrote a synthetic
+    leaking test into a tmpdir. pytest loads conftest.py from the TARGET FILE'S
+    ancestors, and a file under /tmp has none, so the guard was never installed;
+    the run reported "1 passed" and the assertion read that as "the guard is
+    broken". A harness whose subject is absent reports about something else
+    entirely, and this one would have sent me rewriting a guard that worked. The
+    leak is now injected into a REAL repo test through a plugin hook.
+  * The inherited-environment assertion was OVER-SCOPED: it required the
+    bystander suite to PASS with a relative BD_INSTALL_DIR. It does not and
+    should not -- a relative install dir genuinely breaks the app, so 5 of those
+    tests fail on their own merits and always did. The subject is the guard's
+    CONTRIBUTION, not the suite's verdict. Corrected to assert that no failure
+    carries the guard's message and that the run reports no errors.
+
+RED-first: 3 of 6 tests failed on pristine (the two verdict tests, and the
+inherited-environment one). Mutation 5 mutants: 4 caught, 1 ESCAPED (repairing
+by POPPING passed everything -- a "must be restored" property nothing read),
+closed with a positive control; 5 caught / 0 escaped on re-run. Critically the
+`verdict-always-leaked` mutant -- which IS the @945 behaviour -- is caught, so
+the fix is constrained against the defect it exists to remove.
+
 ## v3.66.945 - item 34 root-caused: a test leaked BD_INSTALL_DIR and poisoned the session
 
 Register item 34 carried four "order-dependent band failures" -- webhooks-SSRF
