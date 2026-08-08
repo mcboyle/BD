@@ -3954,7 +3954,21 @@ ADDED v3.66.944 (34-35). Both were prose notes elsewhere before they were
 numbered, and item 34 is here specifically because a prose note is not a
 record -- see 15.62's closing paragraph.
 
- 34. **Four order-dependent band failures, pre-existing** -- webhooks-SSRF x3
+ 34. **CLOSED at v3.66.945.** Root-caused, fixed, and the four failures are
+     gone from the same 114-file band (1462 passed). The title below was wrong
+     in every particular and is kept because the wrongness is the lesson: not
+     SSRF, not VPN, and "order-dependent" described a symptom.
+     `test_v3_66_940_*::test_every_declared_key_can_be_seeded` seeds every
+     declared editor key from a `.env` with placeholder values -- BD_INSTALL_DIR
+     is index 3, so the value is the string **`"v3"`**, relative --
+     `load_envfile()` writes it with `os.environ[k] = v`, monkeypatch never
+     RECORDED that write so `undo()` cannot remove it, and it then
+     self-propagates because every later monkeypatch undo RESTORES `v3` instead
+     of deleting the key. `_resolve_db_path()` joins it onto the next test's tmp
+     cwd; the parent does not exist; sqlite3 says `unable to open database
+     file`. See 15.63. ORIGINAL TEXT:
+
+     **Four order-dependent band failures, pre-existing** -- webhooks-SSRF x3
      and vpn-quarantine x1, which fail in a multi-file band and pass
      file-at-a-time. PROVEN pre-existing on pristine `8e2b017` with an
      identical 130-suite list during the @943 session, so they are not that
@@ -4063,6 +4077,51 @@ THE CAVEAT, and it OVERRIDES size. **Hold 15 and 14 back regardless of how
 small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
+
+### 15.63 | Item 34 root-caused and CLOSED at v3.66.945, close at bda4580 -- and a PROVEN NEGATIVE is what made it findable
+
+Item 34 was misread three times as "four order-dependent SSRF/VPN band
+failures". Every word of that except "four" was wrong. Full mechanism in the
+v3.66.945 CHANGELOG entry; what belongs here is the method, because the method
+is reusable and the finding is not.
+
+**THE INSTRUMENT THAT FOUND NOTHING IS THE ONE THAT MATTERED.** The obvious
+hypothesis was a relative path resolved against a DELETED cwd -- the error is
+`unable to open database file`, and item 11 had just made that shape familiar.
+A cwd probe at every test setup/teardown, **proven in both directions first**
+(it detects a deleted cwd; it reports 0 on a clean isolated run), returned
+**0 broken boundaries across the full 113-suite band**. That negative killed the
+hypothesis and forced the search from the boundary to the call, where wrapping
+`sqlite3.connect` and `os.environ.__setitem__` named the leak immediately.
+
+Generalise it: **a clean result from a proven instrument is a FINDING, not a
+non-event.** The same clean result from an unproven one is worth nothing, which
+is why the proving step is not optional. Three instruments were built here and
+all three were proven both ways before any result was read.
+
+**THE RULE, now stated because CLAUDE.md only had its mirror.** Section 0 says a
+test that VARIES an environment variable must POP it. The inverse is equally
+load-bearing: **a test that exercises a real environment WRITER must CONTAIN the
+write.** `monkeypatch` can only undo what it RECORDED; a direct
+`os.environ[k] = v` inside the code under test is not recorded, and popping the
+key on entry records nothing to restore. Popping on entry is necessary and not
+sufficient.
+
+**THE GUARD REPAIRS BEFORE IT FAILS**, and that is not politeness. A leaked
+environment variable cascades -- every later test fails too -- and the one test
+that caused it is buried under a hundred victims. That burial is exactly why
+this item survived three readings. Naming the leaker and then cleaning up keeps
+the rest of the run meaningful.
+
+**THE REGISTER'S OWN EVIDENCE WAS TRUE AND USELESS, twice.** Item 34 recorded
+these as "proven pre-existing on pristine `8e2b017`". `8e2b017` IS v3.66.942 --
+*after* the @940 cut that caused them. Proving a defect pre-dates the cut you
+happen to be testing says nothing about which cut caused it. Both times the
+measurement was real, careful, and answered a question nobody had asked. That is
+section 1's "a verification can answer a different question than the item asks",
+in a register entry rather than in code.
+
+**Item 35 is unaffected and still open.**
 
 ### 15.62 | Operator-gated items worked on the box 2026-08-08, close at 66db5fe -- items 21 and 25 closed, and `git bundle verify` was caught reporting OK about an unrestorable bundle
 

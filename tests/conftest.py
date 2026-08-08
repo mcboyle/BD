@@ -346,6 +346,63 @@ def _aiassist_config_is_never_inherited():
     yield
 
 
+# ── v3.66.945: BD_INSTALL_DIR must never survive a test with a RELATIVE value
+#
+# Register item 34 spent three readings being called "four order-dependent
+# SSRF/VPN band failures". It was neither. `test_v3_66_940_*` seeds every
+# declared editor key from a `.env` file with placeholder values -- and
+# BD_INSTALL_DIR is index 3, so its value is the string "v3". `load_envfile()`
+# writes with `os.environ[k] = v`, which monkeypatch never RECORDS, so `undo()`
+# cannot remove it and the value survives the session. `_resolve_db_path()` then
+# joins "v3" onto whatever cwd the next test has, the parent directory does not
+# exist, and sqlite3 raises `unable to open database file` four files away.
+#
+# The rule this inverts: section 0 says a test that VARIES an env var must POP
+# it. The mirror is that a test exercising a real env WRITER must CONTAIN the
+# write -- popping on entry is necessary and not sufficient.
+#
+# DELIBERATELY NARROW. Only BD_INSTALL_DIR, only a relative value. A general
+# env-diff guard over the whole suite would fire on legitimate fixtures and get
+# switched off, which section 0 weighs equally with a false clean. A relative
+# BD_INSTALL_DIR has no legitimate use: it is only ever joined with a relative
+# DB_PATH and resolved against the cwd. Measured across the 113-suite band
+# (1461 tests): exactly ONE test wrote one.
+def relative_install_dir_leak(env):
+    """The value if BD_INSTALL_DIR is set to a relative path, else None.
+
+    A module-level function, not an inline check, so it can be positive-controlled
+    directly -- tests/test_v3_66_945_* does that. @944's battery escaped once
+    because a predicate that must return None on a clean tree was never proven
+    able to return anything else.
+    """
+    v = env.get("BD_INSTALL_DIR")
+    if not v or os.path.isabs(str(v)):
+        return None
+    return str(v)
+
+
+@pytest.fixture(autouse=True)
+def _install_dir_never_leaks_relative():
+    yield
+    leaked = relative_install_dir_leak(os.environ)
+    if leaked is None:
+        return
+    # REPAIR BEFORE FAILING. Without this the leak cascades and every later test
+    # fails too, which buries the one test that actually caused it -- the exact
+    # misreading that kept item 34 open. Name the leaker, then clean up so the
+    # rest of the run still means something.
+    os.environ.pop("BD_INSTALL_DIR", None)
+    pytest.fail(
+        f"this test left BD_INSTALL_DIR={leaked!r} in the environment -- a "
+        f"RELATIVE value. _resolve_db_path() joins it with a relative DB_PATH "
+        f"and sqlite3 resolves the result against the CWD, so the next test to "
+        f"touch the database opens a path whose parent does not exist and fails "
+        f"with `unable to open database file`, four files away and under a name "
+        f"that describes none of this (register item 34). If the code under "
+        f"test writes os.environ directly, monkeypatch cannot undo it: pop the "
+        f"keys yourself in the fixture's teardown.")
+
+
 @pytest.fixture
 def aiassist_module():
     """Import the aiassist module fresh + reset its config state."""

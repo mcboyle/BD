@@ -4,6 +4,77 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.945 - item 34 root-caused: a test leaked BD_INSTALL_DIR and poisoned the session
+
+Register item 34 carried four "order-dependent band failures" -- webhooks-SSRF
+x3, vpn-quarantine x1 -- that fail in a multi-file band and pass 15/15 in
+isolation. The name was misdirection three readings deep. They are neither SSRF
+nor VPN failures, the order-dependence is a symptom, and the cause is a test
+this project shipped at v3.66.940.
+
+FOUND BY WRAPPING THE RESOURCES, NOT BY READING (CLAUDE.md s0). Three
+instruments, each proven in BOTH directions before its result was believed:
+
+  * a cwd probe at every test boundary, proven able to detect a deleted cwd,
+    reported 0 broken boundaries across the full 113-suite band. THAT NEGATIVE
+    IS WHY THE FIX EXISTS: it killed the obvious hypothesis (a relative path
+    resolved against a dead cwd) and forced the search from the boundary to the
+    call. A clean result from an unproven probe would have been worthless; a
+    clean result from a proven one is a finding.
+  * a sqlite3.connect wrapper, proven to record a known-bad connect and stay
+    silent on a good one.
+  * an os.environ.__setitem__ wrapper, proven to record a relative write and
+    stay silent on an absolute one.
+
+THE CHAIN, measured end to end:
+
+  1. test_v3_66_940_*::test_every_declared_key_can_be_seeded builds
+     {k: f"v{i}" for i, k in enumerate(EF.EDITOR_KEY_NAMES)}. BD_INSTALL_DIR is
+     index 3, so its value is the string "v3" -- RELATIVE.
+  2. _envfile.load_envfile() writes each key with os.environ[k] = v. Correct
+     product behaviour, and INVISIBLE TO MONKEYPATCH.
+  3. clean_env popped the key on entry, so monkeypatch recorded nothing to
+     restore and undo() cannot remove what the code added.
+  4. It then SELF-PROPAGATES: every later test that monkeypatch-sets
+     BD_INSTALL_DIR has its undo() RESTORE "v3" rather than delete the key.
+     14 of the 15 captured writes are exactly that.
+  5. _resolve_db_path() joins "v3" onto the victim's tmp cwd, the parent
+     directory does not exist, and sqlite3 raises `unable to open database
+     file`. The victims are simply the next tests to touch the database.
+
+THE RULE THIS INVERTS. CLAUDE.md s0 says a test that VARIES an environment
+variable must POP it, because the parent's value is part of the denominator.
+The mirror, now stated: A TEST THAT EXERCISES A REAL ENVIRONMENT WRITER MUST
+CONTAIN THE WRITE. monkeypatch can only undo what it recorded, and a direct
+os.environ[k] = v inside the code under test is not recorded. Popping on entry
+is necessary and not sufficient.
+
+TWO CHANGES. clean_env became a yield fixture that pops its own key set on the
+way out -- correct because it tears down BEFORE monkeypatch's undo (monkeypatch
+is a dependency, so it tears down last), which removes the writer's values and
+then lets undo restore what the environment genuinely had. And tests/conftest.py
+gains an autouse guard that FAILS any test leaving BD_INSTALL_DIR relative, so
+the leaker fails instead of the victim.
+
+The guard REPAIRS BEFORE FAILING. Without that the leak cascades, every later
+test fails too, and the one test that caused it is buried -- which is precisely
+the misreading that kept this item open through three sessions.
+
+DELIBERATELY NARROW: one variable, one pathological shape. A general env-diff
+guard over 1200+ test files would fire on legitimate fixtures and get switched
+off, which s0 weighs equally with a false clean. A relative BD_INSTALL_DIR has
+no legitimate use. Measured denominator: across the 113-suite band (1461 tests)
+exactly ONE test wrote one.
+
+AND THE REGISTER'S EVIDENCE WAS TRUE AND USELESS. Item 34 recorded these as
+"proven pre-existing on pristine 8e2b017". 8e2b017 IS v3.66.942 -- after the
+@940 cut that caused them. Proving a defect pre-dates the cut you are testing
+says nothing about which cut caused it, and it was filed that way twice.
+
+Band 114 files: 1462 passed, and the four item-34 failures are GONE (they were
+4 failed / 1456 passed on the same list, identically on the cut and on a
+pristine tree, before this fix).
+
 ## v3.66.944 - the static-KB manifest described a tree that no longer exists
 
 @943 deleted 234 tracked files from project-knowledge/ and did not regenerate
