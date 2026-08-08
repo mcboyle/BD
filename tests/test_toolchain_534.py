@@ -1047,7 +1047,13 @@ def test_salvaged_stub_detector_separates_a_marker_from_prose_about_one():
 # The debt is real and recorded: the retirement pool (SESSION_CARRY 15.30, item
 # 7a) is blocked on its over-sensitivity spec being reworked, so this is a
 # deliberate raise rather than a deferred retirement. Lower it when 7a lands.
-_TOOL_BUDGET = 240
+# @961: 240 -> 235. Five zip-era tools retired (bd-install, bd-boot,
+# bd-repin-dist, bd-zipcheck, bd-handoff) -- the workflow they implement was
+# abolished when the deploy became git (section 7: no zip overlay, no zip
+# fallback). This is the ratchet moving DOWN as the comment above says it
+# should; leaving it at 240 would silently re-permit the growth the retirement
+# just paid for, which is the exact failure that note names.
+_TOOL_BUDGET = 235
 
 
 def test_the_toolchain_does_not_grow_unbudgeted():

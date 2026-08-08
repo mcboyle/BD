@@ -108,8 +108,7 @@ def main():
             print(f"  {b}{lag}{banner}")
 
     # stray zips that will spook bd-state
-    zips = glob.glob(os.path.join(d, "*.zip")) + glob.glob(os.path.join(os.path.dirname(d) or ".", "*.zip")) \
-         + glob.glob("/home/claude/*.zip") + glob.glob("/home/claude/out/*.zip")
+    zips = glob.glob(os.path.join(d, "*.zip")) + glob.glob(os.path.join(os.path.dirname(d) or ".", "*.zip"))
     stray = []
     for z in sorted(set(zips)):
         b = os.path.basename(z)

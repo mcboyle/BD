@@ -172,8 +172,7 @@ def resolve_state(explicit):
                 return json.load(open(p)), p
             except Exception:  # why: this STATE candidate is unreadable; try the next known location
                 pass
-    for z in _bd_pick_newest(glob.glob("/mnt/user-data/uploads/BulkDL_next_session_*.zip")
-                    + glob.glob("/home/claude/BulkDL_next_session_*.zip")):
+    for z in _bd_pick_newest(glob.glob("/mnt/user-data/uploads/BulkDL_next_session_*.zip")):
         try:
             with zipfile.ZipFile(z) as zf:
                 return json.loads(zf.read("STATE.json")), z + "!STATE.json"

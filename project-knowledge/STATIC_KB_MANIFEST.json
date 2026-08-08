@@ -1,8 +1,8 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-08-08T23:10:40+00:00",
- "version_context": "v3.66.960",
- "file_count": 119,
+ "generated": "2026-08-08T23:32:44+00:00",
+ "version_context": "v3.66.961",
+ "file_count": 117,
  "files": {
   "0_INDEX.md": {
    "sha256": "b6e7c92a16e6f6b728564dd7ae738279c283713e315c49ab86b1c72b5be38eca",
@@ -281,8 +281,8 @@
    "bytes": 14504
   },
   "SESSION_CARRY.md": {
-   "sha256": "b16591b8982901e416b7f9e2084eb948245b9859f9a5d9838a25e43f2f5fc4a2",
-   "bytes": 504406
+   "sha256": "48644cd0780d0e1672c6ca040ef4d971bc7e1a0ac220ff5fa9cc0b1098033396",
+   "bytes": 505467
   },
   "STATE_schema.json": {
    "sha256": "1cdf5cdb8c7ec89b8d3a4a9289ec5e4897abf4a00ea5e37c760501bd6554c225",
@@ -364,17 +364,9 @@
    "sha256": "e9d985c1600662c06f931679ee55046291dbd76990d7da16ac69e2581cc2d833",
    "bytes": 12831
   },
-  "gen_batch_kickoffs.py": {
-   "sha256": "82278841b68f08c6280cf4edd8911ad14dd52889d7df2bb9d0463ba0b546495c",
-   "bytes": 13968
-  },
   "install_bdsuite.sh": {
    "sha256": "ccd79ced93aafc688b0cfd53c515fc80b7bf4359af93b45f08bef8b832dc850f",
    "bytes": 1223
-  },
-  "install_bulkdl_kits.sh": {
-   "sha256": "d1864bb18b88090978e96f5cfeb371c6d65ce780a477381b5107d86f257c9b62",
-   "bytes": 37711
   },
   "l0_extract.py": {
    "sha256": "e0c9d6e18948c2495897c41e567e3afc8aa68b670dbf02f297236a26dcb0916d",

@@ -4116,7 +4116,21 @@ a record -- see 15.62's closing paragraph.
      falsely. CLOSED at v3.66.955 --
      `tests/test_register_promises_resolve.py`, both directions.
 
- 38. **The zip-era retirement** -- 20 tracked files whose executable
+ 38. **CLOSED at v3.66.961.** The 20 carriers were THREE subjects, not one,
+     separated by reading what each zip line does: 11 files where the zip IS
+     the tool (retired), 7 live tools carrying a dead glob (branch deleted,
+     tool kept), and the live release stage (re-pointed, pin moved with it).
+     **Class B contained bd-guardcheck and bd-band-derive, which CLAUDE.md
+     sections 2 and 4 MANDATE** -- retiring on the item's original wording
+     would have deleted them. REACHABILITY COULD NOT ANSWER THE QUESTION: only
+     4 of 245 tools are reachable from any lane, because the toolchain is
+     operator-invoked by design, so a lane scan structurally excludes its real
+     callers. bd-coretest's test_handoff/test_zipcheck probes reached two of
+     the retired tools through `os.path.join(BIN, ...)`, invisible to any
+     import graph, and moved in the same cut; _TOOL_BUDGET went 240 -> 235.
+     `tests/test_zip_era_tools_stay_retired.py` guards the eleven, because
+     item 16 is what happens when a retirement has no gate. ORIGINAL TEXT: The
+     zip-era retirement -- 20 tracked files whose executable
      `/home/claude` references describe the zip install workflow the git
      deploy abolished (CLAUDE.md section 7). `bd-install` unzips
      `BulkDownloader_v*.zip` and `rm -rf`s a work tree; `bd-status`
@@ -4296,8 +4310,8 @@ bounded by its line count, and neither can be judged from a container.
 **READ THIS FIRST IF YOU ARE A FRESH SESSION.** It supersedes 15.68's open set.
 
 ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
-OPEN:   12, 17, 29, 31, 32, 33, 38, 39, 40
-CLOSED: 2, 3, 8, 11, 13, 16, 18, 20, 23, 30, 36, 37
+OPEN:   12, 17, 29, 31, 32, 33, 39, 40
+CLOSED: 2, 3, 8, 11, 13, 16, 18, 20, 23, 30, 36, 37, 38
 
 Item 1 is CANNOT-EVALUATE and is accounted by the inventory marker rather than
 by this ledger -- a third state, not a close.

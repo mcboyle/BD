@@ -30,8 +30,7 @@ def _ver(name):
 def auto_zip():
     found = []
     for p in ("/mnt/user-data/uploads/BulkDownloader_v*.zip",
-              os.path.expanduser("~/out/BulkDownloader_v*.zip"),
-              "/home/claude/out/BulkDownloader_v*.zip"):
+              os.path.expanduser("~/out/BulkDownloader_v*.zip")):
         found += glob.glob(p)
     found = [f for f in found if "overlay" not in os.path.basename(f).lower()]
     return max(found, key=_ver) if found else None

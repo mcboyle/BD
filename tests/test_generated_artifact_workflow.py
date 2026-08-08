@@ -196,7 +196,12 @@ def test_release_preserves_legacy_packaging_before_canonical_regeneration():
 
     assert "python toolchain/bin/bd-regen-order --work \"$PWD\"" in release
     assert 'Z=/mnt/user-data/uploads/BulkDownloader_v3_66_137.zip' in release
-    assert "STAGE=/home/claude/release_148" in release
+    # @961: was `STAGE=/home/claude/release_148`, a hardcoded path under the
+    # retired sandbox home. Overridable via RELEASE_STAGE, matching the
+    # un-prefixed RELEASE_WORK convention two lines above it -- a BD_-prefixed
+    # name would enter the config ledger and band test_gui_parity (CLAUDE.md
+    # section 4), which is why neither is prefixed.
+    assert 'STAGE="${RELEASE_STAGE:-/tmp/bd_release_stage}"' in release
     assert release.index("bd-regen-order") < release.index("Z=")
 
 
