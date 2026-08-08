@@ -1,8 +1,8 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-08-08T21:00:49+00:00",
- "version_context": "v3.66.953",
- "file_count": 120,
+ "generated": "2026-08-08T21:11:59+00:00",
+ "version_context": "v3.66.954",
+ "file_count": 119,
  "files": {
   "0_INDEX.md": {
    "sha256": "b6e7c92a16e6f6b728564dd7ae738279c283713e315c49ab86b1c72b5be38eca",
@@ -101,8 +101,8 @@
    "bytes": 7736
   },
   "CODE_INTELLIGENCE_TOOLING.md": {
-   "sha256": "6e79feb7bde686e9a8d1cece28cc17c8d71abb52d9bb93cf08e78134bc0c4c4d",
-   "bytes": 9776
+   "sha256": "5e9f9412b253403b57ed844c14158063dd0a5e5c12ef524b40c18f0609984a6e",
+   "bytes": 9842
   },
   "CODE_REVIEW_INDEX.md": {
    "sha256": "6bf24ad31006d8877a31694833a4fb3ae67f1180912e5d7819e7a88ead6c5126",
@@ -307,10 +307,6 @@
   "audit_partition.py": {
    "sha256": "3067d27d9fc9670828644e4aecbf80e9c62b6891d7716b9c47bf2ef1d1d85262",
    "bytes": 3658
-  },
-  "bd-scan.py": {
-   "sha256": "d30504dc0015e3e2053075959273e37a845fbf4124723d9b56d688bd85683b28",
-   "bytes": 10142
   },
   "bd_starting_message.txt": {
    "sha256": "e91db9f5fdc087ec8ba35f46f708dbfa2769b5e7964bbe81aea91312cf3aa847",

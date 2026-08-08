@@ -75,7 +75,6 @@ ALLOWLIST: frozenset[str] = frozenset({
     "project-knowledge/SANDBOX.md",
     "project-knowledge/SANDBOX_CAPABILITY_LAYER.md",
     "project-knowledge/SESSION_CARRY.md",
-    "project-knowledge/bd-scan.py",
     "project-knowledge/bd_starting_message.txt",
     "project-knowledge/bdenv.sh",
     "project-knowledge/build_montage.py",

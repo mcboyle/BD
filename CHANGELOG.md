@@ -4,6 +4,40 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.954
+
+Tier 2 of item 3: the pk-mirror gate could not see twenty of the duplicates it
+forbids.
+
+BOTH HALVES OF THE GATE WERE WRONG. Its denominator was toolchain/bin/* only,
+so a project-knowledge file duplicating anything under tools/ or toolchain/ was
+structurally invisible. Its predicate matched on BASENAME, which asks "is there
+a tool of the same name" rather than the question its own docstring poses.
+Fixing only the denominator would have left a gate blind to a copy filed under
+a different name, so the predicate moved with it: content hashing over every
+tracked file, recursive, zero-byte files skipped.
+
+Same tree, same gate file, before and after: 0 duplicates reported, then 21.
+
+THE SURVIVOR EXCEPTION WAS AN INSTANCE OF THE SAME BLINDNESS.
+_NOT_A_MIRROR declared project-knowledge/bd-scan.py "a real tool with no
+toolchain/bin twin, not a copy". True as written -- and it was byte-identical to
+tools/bd-scan.py the whole time, which the toolchain/bin-only denominator could
+not ask about. The exception outlived the thing it excepted. tools/ is canonical
+on operator decision; the PK copy is retired and _NOT_A_MIRROR is now empty.
+
+THE REMAINING 20 ARE FROZEN, NOT SWEPT. Deleting twenty files is a separate
+decision from making the class visible, so the existing pairs are baselined:
+no NEW duplicate can appear, and test_no_known_duplicate_is_stale fails if an
+entry stops being a pair, so retiring a copy forces its entry out instead of
+leaving a standing licence. The list may only shrink.
+
+THE COUPLING WORKED, WHICH IS THE PART WORTH KEEPING. Deleting one file fired
+two independent gates in the same run -- v3.66.952's ratchet caught the now-false
+allowlist entry, and test_desandbox_tool_verifiers caught its own stale carrier
+-- and both messages said to fix the list in the same cut. Neither was written
+for this change.
+
 ## v3.66.953
 
 Tier 1 of item 3: bdenv.sh stopped destroying a correct browser pool.
