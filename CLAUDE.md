@@ -1045,6 +1045,26 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   `monkeypatch.chdir(tmp_path)` **and** `monkeypatch.setenv("BD_INSTALL_DIR", ...)`,
   belt and braces, "even if subsequent code chdirs away". Hand-rolled probes get
   neither for free — set `BD_INSTALL_DIR` to a tmpdir, or use the fixture.
+
+  **THE CONCRETE FORM, because the paragraph above did not stop it happening.**
+  Item 36 was opened by a `downloader_history.db` appearing in the repo root
+  hours after the fix meant to prevent it, and the caller was never identified.
+  Reproduced at v3.66.958: ONE `selector_drift.status_all()` call with repo-root
+  cwd and `BD_INSTALL_DIR` unset writes 12288 bytes and one table. So every
+  ad-hoc probe opens with the two lines, not with the prose:
+
+  ```bash
+  export BD_INSTALL_DIR="$(mktemp -d)"   # NOT BD_HOME -- it governs nothing here
+  venv/bin/python -c '...'               # absolute interpreter if you cd away
+  ```
+
+  **No gate can catch this, and know why before proposing one:** refusing a
+  database path that resolves inside the repo would break the BOX, which runs
+  the service from its own checkout, where "inside the repo" and "the install
+  dir" are the same directory. It would fire on production and be switched off
+  -- section 0's over-sensitivity failure, shipped deliberately. The discipline
+  is the whole mitigation, and the residue is silent: the file is gitignored,
+  `git status` stays clean, and the next probe READS the rows the last one left.
 - **`sqlite3` `immutable=1` SKIPS THE WAL, so it cannot see a committed row that
   has not been checkpointed.** Measured twice in one day at v3.66.927, in
   opposite directions, and both cost real time:

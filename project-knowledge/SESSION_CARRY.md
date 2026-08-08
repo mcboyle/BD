@@ -3799,8 +3799,11 @@ working it (section 1); several of the anchors above were stale within days.
 
 BLOCKED ON THE OPERATOR (1-3)
 
-  1. **7b** -- name the twelve retired tools. Unrecoverable from the tree;
-     retiring the wrong tool is not repairable. CANNOT-EVALUATE, not unknown.
+  1. **CANNOT-EVALUATE, permanently -- and that is a verdict, not a gap.**
+     7b, name the twelve retired tools. Unrecoverable from the tree; retiring
+     the wrong tool is not repairable. Re-affirmed at v3.66.959. Section 0's
+     third state: this is not open work waiting on effort, and carrying it as
+     open forever is what makes an open list stop meaning anything.
   2. **Item 9** -- `capture.sh` commit identity. Release gate, needs explicit GO.
      Item 19 below rides this same cut.
   3. **CLOSED at v3.66.952-954 in three tiers**, and the item's premise was
@@ -3836,10 +3839,13 @@ WORK, NOT BLOCKED (4-19)
   7. **Zero-collect classification** -- `bd-band` grades a zero-test helper
      module FAIL, and the derive sweeps helper modules into bands.
      Reproduced in this session's own run.
-  8. **Batch B remainder** -- `bd-opv`, `bd-env-report-check`, `bd-equiv`,
-     `bd-fullsuite`. Worth doing as ONE parametrized invariant -- "every wired
-     gate refuses rather than passes when its denominator is empty" -- not as
-     four separate fixes. One of five already done (`bd-docstale`, @864).
+  8. **CLOSED at v3.66.959: all four already refuse.** `bd-opv`, `bd-equiv`
+     and `bd-fullsuite` declare a CANNOT-EVALUATE path; `bd-env-report-check`
+     was MEASURED rather than grepped -- run with no report present it exits
+     **2** with "UNKNOWN: no report at ...; nothing here describes the
+     environment you are in". A grep for the refuse path had reported it
+     missing, because the tool words it "UNKNOWN:" and the pattern did not
+     match: section 1's grep-is-not-a-denominator, inside this adjudication.
   9. **`bd-claim` is inert from a shell** -- a CLI invocation dies and reaps its
      own claim, so it only works agent-to-agent.
  10. **`ai_boot_readiness.json` has no in-flight marker** -- a mid-run read is
@@ -3852,7 +3858,13 @@ WORK, NOT BLOCKED (4-19)
      Split and prioritise separately: the eight-producer divergence; its proven
      non-exhaustiveness; `audit()`'s two different caps in one dict; and
      `regen_nfos_from_history` resolving a bare basename CWD-relative.
- 13. **Item 15** -- `bd-state` reachable only through `build_session_pack.py`.
+ 13. **CLOSED at v3.66.959 as MIS-SCOPED.** `bd-state` has three invocation
+     sites, not one: `build_session_pack.py`, `bd-boot:268` and
+     `bd-coretest:179` (which exercises it twice, clean->PASS and a forged
+     FAULT). The premise "reachable only through build_session_pack.py" is
+     false. Kept rather than deleted, per items 24 and 34: the wrongness is
+     the record. ORIGINAL TEXT: "Item 15 -- bd-state reachable only through
+     build_session_pack.py."
  14. **Phase B manual-takeover early-return** -- `start_manual_login` returns
      while the login thread is alive and Phase B runs inside that thread, so the
      advertised takeover can never open. ANCHORS DRIFTED -- re-derive.
@@ -3863,11 +3875,12 @@ WORK, NOT BLOCKED (4-19)
      honest `unknown` when curl is absent), and BOTH halves are pinned --
      test_install_service_waits_for_serving.py for this file,
      test_capture_step4_waits_for_serving.py for capture.sh step [4].
- 16. **7a -- retirement completion.** Three pre-@858 retired tools survive as
-     tracked runnable extensionless `project-knowledge/` files that the three
-     `*_stays_retired` gates cannot see. BLOCKED ON SPEC REWORK: as written it
-     turns three gates red on four LIVE tools. Lower the toolchain budget from
-     240 when it lands.
+ 16. **CLOSED at v3.66.959: the subject is gone.** Measured over `git
+     ls-files project-knowledge` typing on the SHEBANG rather than the
+     extension: **zero** tracked extensionless runnable files remain there.
+     The three survivors went with the mirror retirement. The spec-rework
+     blocker is moot because there is nothing left for the rewritten spec to
+     act on.
  17. **Item C** -- does a container restart fire SessionStart? Instrumented,
      unanswered. Needs a `bd-restart-check` exit 1 mid-session; this session
      got exit 0, `source=startup`.
@@ -3889,9 +3902,12 @@ WORK, NOT BLOCKED (4-19)
 
 DELIBERATE DEFERRALS -- OPERATOR DECISIONS, NOT DEFECTS (20-22)
 
- 20. **Import-graph gate is blind to `tests/` edges** -- it walks only
-     `bulk_downloader/` and `tools/`. Widening it makes every future test cut
-     carry a baseline re-freeze. Standing-cost call.
+ 20. **CLOSED at v3.66.889, recorded at v3.66.959.** The gate walks
+     `tests/` -- `import_graph_gate.py:124` is `os.walk(root / "tests")`, and
+     its own comment records the widening: tests/ added 2132 edges from 1234
+     files, 57% of the real internal import surface. CLAUDE.md section 4 has
+     said so since @889; this inventory did not, which is the same
+     bookkeeping gap item 18 had.
  21. **The pre-force line `b4f0c80`** of the deleted preflight branch --
      unexamined, no verdict, exists only in the box's object store.
  22. **CLOSED 2026-08-06, verified correct behaviour.** The library panel's
@@ -3904,7 +3920,11 @@ DELIBERATE DEFERRALS -- OPERATOR DECISIONS, NOT DEFECTS (20-22)
 
 BOX-ROUTINE (23-25)
 
- 23. **The capture gap is 885 and 886.** v3.66.884 IS captured, PASS at
+ 23. **CLOSED at v3.66.959 as OBSOLETE.** The 885/886 gap is long overtaken:
+     the box has since captured PASS at v3.66.941 (15.61) and v3.66.950
+     (15.68), each reconciling exactly. The reconciliation METHOD the entry
+     describes is the durable part and is worth keeping. ORIGINAL TEXT: The
+     capture gap is 885 and 886. v3.66.884 IS captured, PASS at
      `6262b19e0a08`: 14710 total / 14625 passed / 0 failed / 0 errors / 85
      skipped, live 36/0/0, graph pin re-armed to `b5a1e5d5...`. **The delta
      reconciles exactly** -- 883 was 14703/14618, 884 added seven tests, and
@@ -3945,9 +3965,11 @@ YOURS, NOT MINE (29-30)
  29. **The archive sequence** -- the only item with an ordering constraint:
      recover the 91 `.db` beside 90 `.db-journal`, purge rebuildable bulk,
      THEN consolidate into one verified bundle.
- 30. **The launcher Stop hook's advice** -- it suggests pushing pre-squash
-     commits and lives outside the repo. Repo-local mitigation is a
-     `.githooks/pre-push` enforcing section 7's two-dot diff.
+ 30. **CLOSED at v3.66.932 (`48707ad`), recorded at v3.66.959.**
+     `.githooks/pre-push` exists, is TRACKED, and refuses a force-push that
+     would discard unmerged work -- exactly section 7's two-dot diff. 15.52
+     measured "no pre-push exists" and was right when written; the cut landed
+     three weeks later and nothing updated the entry.
 
 PARALLEL PROGRAM -- OLDER, LARGELY OPERATOR- OR CAPTURE-BOUND (31-32)
 
@@ -4233,8 +4255,11 @@ bounded by its line count, and neither can be judged from a container.
 **READ THIS FIRST IF YOU ARE A FRESH SESSION.** It supersedes 15.68's open set.
 
 ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
-OPEN:   12, 17, 31, 32, 33, 38, 39
-CLOSED: 3, 18, 36, 37
+OPEN:   2, 11, 12, 17, 29, 31, 32, 33, 38, 39
+CLOSED: 3, 8, 13, 16, 18, 20, 23, 30, 36, 37
+
+Item 1 is CANNOT-EVALUATE and is accounted by the inventory marker rather than
+by this ledger -- a third state, not a close.
 
 The close tip named above is `0f3e435`, the commit this branch was cut FROM and
 already on `main` -- deliberately not this branch's tip, which the squash
@@ -4296,6 +4321,59 @@ RECOVERY, not the items. Item 18 was then adjudicated closed by RUNNING the tool
 adjudicating the rest is deliberate: writing statuses nobody measured is the
 failure this register exists to prevent.
 
+**THE TEN BASELINED ITEMS WERE ADJUDICATED, AND THE BASELINE IS NOW EMPTY.**
+Direction B's baseline held eleven entries when it first ran; item 18 went at
+@956 and the remaining ten at @959. The 15.51 pattern repeated almost exactly --
+most were already closed and nobody had written it down:
+
+| verdict | items |
+| --- | --- |
+| already CLOSED, unrecorded | 8, 16, 20, 23, 30 |
+| MIS-SCOPED, premise false | 13 |
+| CANNOT-EVALUATE, permanently | 1 |
+| genuinely OPEN | 2, 11, 29 |
+
+Item 30 had shipped at @932 -- `.githooks/pre-push`, tracked, enforcing section
+7's two-dot diff -- three weeks before this. Item 20 had shipped at @889 and
+CLAUDE.md section 4 has said so ever since; only this inventory disagreed. Item
+16's subject is simply gone: zero tracked extensionless runnable files remain
+under `project-knowledge/`, typing on the SHEBANG rather than the extension.
+
+**AND THE ADJUDICATION ITSELF REPRODUCED SECTION 1's LESSON.** A grep for a
+refuse path reported `bd-env-report-check` as having none. Run with no report
+present it exits **2** with "UNKNOWN: no report at ...". The tool words it
+"UNKNOWN:" and the pattern did not match -- grep is not a denominator, and the
+behavioural test is one line longer. A second harness slip in the same pass:
+probing that tool from a tmpdir with a RELATIVE `venv/bin/python` returned 127,
+which reads as a tool failure and is section 5's interpreter trap.
+
+**WHY THE RE-DERIVATION KEPT HAPPENING, AND WHAT NOW STOPS IT.** The operator's
+complaint at this session's end was that every session re-measures what is open.
+The cause is not carelessness -- it is that closures were announced in git and
+never propagated here. Validated against history rather than asserted:
+
+| item | closed by | and the PR title said |
+| --- | --- | --- |
+| 20 | `bfe4ac7` v3.66.889 (#193) | "the import-graph gate was blind to tests/" |
+| 30 | `48707ad` v3.66.932 (#237) | "a pre-push hook for section 7's two-dot diff **(item 30)**" |
+| 16 | `e7b2a5f` v3.66.917 (#219) | "three retired tools survived where no gate could see them" |
+
+**PR #237's title names the item number, and this inventory carried it open for
+three weeks.** The information was in git the whole time. So the fix is not more
+diligence, it is a citation rule: `test_every_accounted_entry_cites_its_closure`
+now requires every CLOSED or CANNOT-EVALUATE entry to point at a version, a
+commit, an earlier register section, or a `file:line` anchor to the evidence --
+four forms because closures arrive four ways, the last for an item closed by
+AUDIT with no code, as item 22 was. Measured before the rule shipped: 18 of 18
+accounted entries already satisfied it, so this pins a convention the register
+was already keeping rather than imposing a new chore. An entry that says only
+"CLOSED" now fails, because that is the entry that forces the next session to go
+and measure whether it really is.
+
+**SO `_UNACCOUNTED` IS EMPTY, WHICH IS THE GOAL STATE AND NOT A DISABLED GATE.**
+Every inventory entry is accounted for, so direction B now runs with nothing
+excused.
+
 **CLAUDE.md CORRECTED IN TWO PLACES, both section 7.** Its CI bullet named
 `test_pk_mirrors_do_not_drift`, a file that does not exist -- a band derived
 from that paragraph died on `file or directory not found` while `ci.yml` was
@@ -4316,13 +4394,18 @@ CI had split into three jobs with a sharded `gate-suites`.
   It was modified during item 36's investigation (18 tables now, still 0 data
   rows) and is ephemeral container state.
 
-**OPEN, with nothing blocked on measurement:** **38** (zip-era retirement, ~45%
-of the executable `/home/claude` population), **39** (the twenty frozen
-duplicates), **12** (producer divergence -- 12(c) shipped at @957), **17**
-(needs a `bd-restart-check` exit 1 in a container; not manufacturable), **31**,
-**32**, **33** (the large parallel program, unchanged). Plus the ten baselined
-in `_UNACCOUNTED`, which want the 15.51 treatment: re-derive each, expect most
-to be closed already.
+**OPEN, the complete set, machine-declared in the ledger above:** **2**
+(`capture.sh` commit identity -- a release gate needing an explicit operator
+GO), **11** (the repo-root `.db-wal` writer, authorized as two cuts and never
+started; @955 and item 36 answered its denominator and its harm, not the cuts),
+**12** (producer divergence -- 12(c) shipped at @957), **17** (needs a
+`bd-restart-check` exit 1 in a container; not manufacturable), **29** (the
+archive sequence -- 15.68 closed its database recovery; the purge and the
+single verified bundle remain, and both are box-bound), **31**, **32**, **33**
+(the large parallel program, unchanged), **38** (zip-era retirement, ~45% of the
+executable `/home/claude` population), **39** (the twenty frozen duplicates).
+
+Ten items, all numbered, none carried as prose.
 
 **NOT BOX EVIDENCE.** Every band here is a container band. @957 changed
 `library_final.py` and the SPA, and `frontend/dist` is gitignored and NOT
