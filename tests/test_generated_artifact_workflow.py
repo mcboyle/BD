@@ -83,6 +83,10 @@ def test_canonical_chain_and_location_interfaces_select_the_real_tree(tmp_path):
         "DEPENDENCY_GRAPH",
         "FUNCTION_INDEX",
         "PIN_INDEX",
+        # @947 (register item 35). LAST by contract: it hashes
+        # project-knowledge/, so nothing that could write there may follow it.
+        # tests/test_v3_66_947_* asserts that position independently.
+        "STATIC_KB",
     ]
     assert regen.repo_root(str(TOOL_PATH)) == str(REPO_ROOT)
     with pytest.raises(RuntimeError, match="could not find repository root"):

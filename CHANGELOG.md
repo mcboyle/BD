@@ -4,6 +4,64 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.947 - item 35: the static-KB manifest could not be regenerated at all
+
+Register item 35 read "STATIC_KB_MANIFEST.json is gated but not REGENERATED, so
+the staleness recurs one cut late". That records the symptom without the cause.
+It was not an oversight -- the artifact COULD NOT be placed in bd-regen-order.
+Measured at 3f7bc1a, seeding an unchanged tree three times:
+
+    d1065b4a405b7e4c -> 2981568f6e6042c5 -> 56e52a5667ce9942
+
+A different file every run, differing only in `generated`. CI's check is
+bd-regen-order followed by `git status --porcelain`, so a chain entry in that
+state fails EVERY pull request.
+
+THIS IS THE DEFECT CLAUDE.md s0 NAMES IN ITS OWN TEXT: "a manifest pin once
+hashed bytes that included a wall-clock `generated` field, so an unchanged tree
+'changed' every run. Two sessions nearly reconciled a diff that did not exist...
+Attest over CONTENT, not bytes." The instance the contract warns about was still
+live in this repo, in the artifact whose gate @944 had just written.
+
+TWO LIVE CONSEQUENCES BEYOND THE WIRING:
+  * bd-boot hashes this file as a cache key (sha256sum | cut -c1-12), so a
+    reseed that changed nothing invalidated its kbsync phase.
+  * bd-boot ALSO reads `generated` from two manifests to decide which is
+    FRESHER. A wall-clock stamp answers "when did someone last run the tool",
+    which is not the question -- a reseed over identical content made a stale KB
+    look NEWER than a fresh one.
+
+THE FIX MAKES THE FIELD HONEST RATHER THAN REMOVING IT. `generated` is preserved
+when the `files` mapping is unchanged and moves when it changes, so it records
+when the CONTENT last changed -- which is what bd-boot's comparison was always
+asking. Deleting the field would break that comparison outright; freezing it to
+a constant would break the other direction. Both halves are asserted.
+
+`--version` now DERIVES from the tree (walks up for bulk_downloader/__init__.py
+and regexes the pin; never imports, because importing the package would run
+_envfile.load_envfile() and seed the caller's environment as a side effect of
+asking about a version string). So the chain entry carries no version and cannot
+go stale against a bump. Outside a checkout the old v0.0.0 literal still applies,
+which keeps every existing caller and the selftest's synthetic trees unchanged.
+
+STATIC_KB is the chain's LAST step, because it hashes project-knowledge/ and
+nothing that could write there may follow it. Verified end to end: two
+consecutive bd-regen-order runs leave the manifest byte-identical
+(5aeacc0b996ff2d0 both times), with `generated` correctly holding its pre-cut
+value while version_context moved to v3.66.947.
+
+THIS CUT'S OWN TEST READ BACKWARDS ON ITS FIRST RUN. `generated` is stamped with
+isoformat(timespec="seconds"), so seeds inside the same second are IDENTICAL. On
+pristine source the idempotence assertion therefore PASSED -- over a live defect
+-- while the two "the stamp must still move" guards FAILED, the exact inverse of
+the truth. Without a deliberate second-boundary tick those assertions are not
+merely wrong but FLAKY, green or red depending on whether the run straddles a
+second. A test whose verdict depends on the clock is worse than no test.
+
+RED-first: 4 of 7 failed on pristine once the ticks made the assertions
+deterministic. The 3 that passed are the two must-still-move guards and the
+real-tree regen check, all of which must survive the fix.
+
 ## v3.66.946 - @945's leak guard fired on state it did not cause
 
 @945 added an autouse guard failing any test that leaves BD_INSTALL_DIR set to a
