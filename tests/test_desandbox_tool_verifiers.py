@@ -247,7 +247,6 @@ _KNOWN_SANDBOX_DEFAULT_CARRIERS = {
     "project-knowledge/review_merge.py",
     "project-knowledge/seed_review_state.py",
     "toolchain/bin/bd-checkpoint",
-    "toolchain/bin/bd-repin-dist",
     "toolchain/bin/bd-rollback",
     "toolchain/bin/bd-since",
     "toolchain/bin/bd-snapshot",

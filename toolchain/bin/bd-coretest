@@ -152,15 +152,6 @@ def test_pack(BIN):
         f"refused an incomplete pack (rc={rc})", kind="FAULT")
     shutil.rmtree(d, ignore_errors=True)
 
-def test_handoff(BIN):
-    """FAULT: bd-handoff must refuse without STATE.json in the pack dir."""
-    exe = os.path.join(BIN, "bd-handoff")
-    d = tempfile.mkdtemp(prefix="coretest_ho_")
-    rc, out = run(exe, "--version", "3.66.700", "--zip", "/nonexistent.zip", "--pack-dir", d)
-    rec("bd-handoff", "FAULT->refuse", (rc != 0 or "FAIL" in out or "no STATE" in out or "missing" in out.lower()),
-        f"refused a pack with no STATE.json (rc={rc})", kind="FAULT")
-    shutil.rmtree(d, ignore_errors=True)
-
 def test_cut(BIN):
     """bd-cut is the heaviest mutator; teeth-check its guarded interface (won't run
     without a real cut context) rather than trigger a build."""
@@ -232,29 +223,6 @@ def test_state(BIN):
     shutil.rmtree(d, ignore_errors=True)
 
 
-def test_zipcheck(BIN):
-    """FAULT: a release zip missing its __version__ / CHANGELOG must be refused,
-    not shipped. bd-zipcheck gates what goes out the door and had no test."""
-    exe = os.path.join(BIN, "bd-zipcheck")
-    d = tempfile.mkdtemp(prefix="coretest_zc_")
-    good = os.path.join(d, "BulkDownloader_v3_66_700.zip")
-    with zipfile.ZipFile(good, "w") as z:
-        z.writestr("bulk_downloader/__init__.py", '__version__ = "3.66.700"\n')
-        z.writestr("CHANGELOG.md", "## v3.66.700\n")
-    rc, out = run(exe, good)
-    rec("bd-zipcheck", "clean->definite", (rc in (0, 1, 2)),
-        "produces a definite verdict on a well-formed zip (rc=%d)" % rc)
-    # FAULT: strip the version marker
-    bad = os.path.join(d, "BulkDownloader_v3_66_701.zip")
-    with zipfile.ZipFile(bad, "w") as z:
-        z.writestr("bulk_downloader/app.py", "x = 1\n")   # no __version__, no CHANGELOG
-    rc, out = run(exe, bad)
-    rec("bd-zipcheck", "FAULT->no-version",
-        (rc != 0 or "__version__" in out or "CHANGELOG" in out),
-        "zip with no __version__/CHANGELOG is flagged (rc=%d)" % rc, kind="FAULT")
-    shutil.rmtree(d, ignore_errors=True)
-
-
 def test_versync(BIN):
     """FAULT: a stray version pin in tests that disagrees with the tree's
     __version__ -- exactly the 3-part-bump footgun bd-versync exists to catch."""
@@ -312,18 +280,18 @@ def test_factcheck(BIN):
     rec("bd-factcheck", "runs->definite", (rc in (0, 1, 2)),
         "definite verdict against a doc (rc=%d)" % rc)
 
-TESTS = [test_state, test_zipcheck, test_versync, test_treecheck,
+TESTS = [test_state, test_versync, test_treecheck,
          test_factcheck,
          test_guardcheck, test_regen, test_bump, test_band_engine,
-         test_checkpoint, test_pack, test_handoff, test_cut]
+         test_checkpoint, test_pack, test_cut]
 
 # 702: the three band derivers were RETIRED (bd-equiv certified the engine a
 # SUPERSET of each, 0 regressions over 40/25/diff-mode real inputs). The engine
 # they all became is what must now have teeth.
-CORE_TOOLS = ["bd-cut", "bd-bump", "bd-handoff", "bd-pack", "bd-regen",
+CORE_TOOLS = ["bd-cut", "bd-bump", "bd-pack", "bd-regen",
               "bd-guardcheck", "bd-checkpoint", "bd-band-derive",
               # I-5: gating tools that had NO selftest at all
-              "bd-state", "bd-zipcheck", "bd-versync", "bd-treecheck",
+              "bd-state", "bd-versync", "bd-treecheck",
               "bd-factcheck"]
 
 

@@ -270,9 +270,7 @@ def _ver(n):
 
 def auto_zip():
     c = []
-    for pat in ("/mnt/user-data/uploads/BulkDownloader_v*.zip",
-                "/home/claude/out/BulkDownloader_v*.zip",
-                "/home/claude/BulkDownloader_v*.zip"):
+    for pat in ("/mnt/user-data/uploads/BulkDownloader_v*.zip",):
         c += glob.glob(pat)
     c = [z for z in c if "overlay" not in os.path.basename(z).lower()]
     return max(c, key=_ver) if c else None

@@ -51,9 +51,7 @@ def sha_file(p):
 
 
 def newest_zip():
-    z = _bd_pick_newest(glob.glob("/mnt/user-data/uploads/BulkDownloader_v3_66_*.zip")
-               + glob.glob("/home/claude/BulkDownloader_v3_66_*.zip")
-                        + glob.glob("/home/claude/out/BulkDownloader_v3_66_*.zip"))
+    z = _bd_pick_newest(glob.glob("/mnt/user-data/uploads/BulkDownloader_v3_66_*.zip"))
     return z[0] if z else None
 
 

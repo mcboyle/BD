@@ -4,6 +4,102 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.961
+
+Item 38: the zip-era workflow retired, its dead globs removed, and the release
+stage re-pointed. One cut on an explicit operator waiver of the one-feature rule.
+
+THE ITEM SAID "RETIRE 20 FILES" AND THAT WOULD HAVE BEEN A DISASTER. The 20
+carriers are THREE subjects, separated by reading what each zip line does:
+
+  A  the zip IS the tool          11 files  retire
+  B  a dead glob in a live tool    7 tools  delete the branch, keep the tool
+  C  the live release stage        2 files  re-point, move the pin with it
+
+Class B contains bd-guardcheck and bd-band-derive, both MANDATED by CLAUDE.md
+sections 2 and 4 and both run repeatedly during this very session. Their zip
+lines are a fallback source-discovery glob, not their purpose.
+
+REACHABILITY COULD NOT ANSWER THIS, and the number is the argument: 4 of 245
+tools are reachable from any lane. The toolchain is operator-invoked BY DESIGN,
+so a scan of ci.yml, capture.sh and scripts/ structurally excludes its real
+callers. Two of my own reachability verdicts were wrong in OPPOSITE directions
+before that landed -- `git grep -l` called bd-guardcheck lane-reachable from a
+COMMENT in deploy.sh:49, and a closure regex missing the $BIN/ form found 4
+where the truth was higher. A confident list built on that criterion would have
+deleted the tools the contract requires.
+
+CLASS A, 11 files not 8 -- my own table counted build_146/147/148/150.sh as one
+entry. bd-install unzipped a BulkDownloader_v*.zip and rm -rf'd a work tree;
+bd-boot booted from three zip kinds; bd-handoff REQUIRED --zip; bd-repin-dist
+and bd-zipcheck operated on release zips; install_bulkdl_kits.sh unzipped kits
+into the retired sandbox home. Section 7: the deploy is git, with no zip overlay
+and no zip fallback.
+
+THE COUPLING THAT A FILE-LIST MISSES. bd-coretest carried dedicated
+test_handoff and test_zipcheck probes reaching them through
+os.path.join(BIN, ...) -- invisible to any import graph or module-name grep --
+and named both in CORE_TOOLS. Removed in the same cut; bd-coretest's selftest
+passes without them. _TOOL_BUDGET moves 240 -> 235: its own comment says the
+ratchet is meant to move DOWN as retirements land, and the assertion is `<=`,
+so leaving it would have silently re-permitted the growth this paid for.
+
+CLASS B, seven dead globs deleted, every tool's selftest re-run green
+afterwards. CLASS C, build_release.sh's STAGE is now
+${RELEASE_STAGE:-/tmp/bd_release_stage} with its pin moved in the same cut --
+un-prefixed deliberately, matching RELEASE_WORK two lines above, because a BD_
+name would enter the config ledger and band test_gui_parity.
+
+A RETIREMENT GATE SHIPS WITH IT, because three tools retired before @858 came
+back as tracked runnable files no gate could see -- that is item 16, unnoticed
+until @917. Its first draft failed on a pending-spec SENTENCE describing this
+retirement: prose naming a tool is a record, not a call.
+
+The tier-0 allowlist shrank 187 -> 175 by re-derivation, and its stale-entry
+direction is what flagged all twelve.
+
+## v3.66.960
+
+Items 2 and 11 re-derived and CLOSED; item 40 filed; the box capture recorded.
+
+ITEM 2 was CLOSED AT v3.66.892 (ef9f253, #196) and sat open for eleven weeks as
+a release gate "needing explicit GO" after the GO was evidently given and the
+work shipped. Three confirmations, none a reading: capture.sh:298
+emit_commit_identity handles the UNKNOWN and MISMATCH branches;
+test_v3_66_892_capture_commit_identity is 7 tests, all passing; and the
+operator's bundle carries commit : 51ac1eb / branch : main in 01_sysinfo.log,
+a sha verified an ancestor of main. Item 19's other half shipped with it --
+capture.sh:1080 is the [7b/9] selftest stage and the bundle contains its logs.
+
+ITEM 11's SUBJECT IS GONE AND ITS SPECIFIED MECHANISM WAS NEVER NEEDED. The
+item authorized two cuts to add a sys-attribute sentinel gating app.py's boot
+block. @926 removed the module-scope writers outright instead, which is better
+than gating them, so the sentinel does not exist and should not be built.
+Measured with BD_DISABLE_KEEPALIVE POPPED as well as set, one import from a
+bare cwd:
+
+    DB-class residue   spec: 352,256 bytes  ->  now: 0 bytes, 0 files
+    total residue      spec: + 3 sentinels  ->  now: 714 bytes, 3 files
+
+Both named FATALs were resolved by @926 rather than during the specced
+implementation, and CLAUDE.md section 0's os.environ-copying-harness paragraph
+was written from that same cut.
+
+ITEM 40 FILED for the 714 bytes that remain -- app_config.json, logs/, and
+state/heartbeat.json when keepalive runs. Split out rather than folded into
+item 11's closure because it is a different and much smaller class: no database
+residue, nothing that can corrupt operator history. Whether the three are
+DELIBERATE is recorded as UNKNOWN and was not investigated; it is numbered so
+the measurement is not lost, not because it is established as a defect.
+
+THE BOX CAPTURED v3.66.957: PASS, 15081 total / 14996 passed / 0 failed / 85
+skipped, live 36/0/0, graph pin OK. The delta from @950 reconciles EXACTLY at
++21/+21 with skips flat, predicted from the six cuts by counting test functions
+per commit against each one's own parent. The first prediction said +17 and was
+wrong -- hand-mapped parents, @952's being the commit after it. 59 tests from
+this session's files ran on the box with 0 failures, so @952-957's gates and
+item 12(c) are box-verified rather than container-green.
+
 ## v3.66.959
 
 The ten baselined items adjudicated. The promise gate's baseline is now EMPTY.

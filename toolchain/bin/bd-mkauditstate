@@ -119,8 +119,7 @@ def main():
         return 0
 
     # re-stamp the newest prior audit_state zip (ledger unchanged this session)
-    prior = sorted(glob.glob("/mnt/user-data/uploads/audit_state_v3_66_*.zip")
-                   + glob.glob("/home/claude/audit_state_v3_66_*.zip"), reverse=True)
+    prior = sorted(glob.glob("/mnt/user-data/uploads/audit_state_v3_66_*.zip"), reverse=True)
     prior = [p for p in prior if os.path.abspath(p) != os.path.abspath(zpath)]
     if prior:
         shutil.copy(prior[0], zpath)

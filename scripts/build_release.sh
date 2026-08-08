@@ -25,7 +25,7 @@ cd "${RELEASE_WORK:-/home/claude/work}" || {
 }
 python toolchain/bin/bd-regen-order --work "$PWD" || exit $?
 Z=/mnt/user-data/uploads/BulkDownloader_v3_66_137.zip
-STAGE=/home/claude/release_148
+STAGE="${RELEASE_STAGE:-/tmp/bd_release_stage}"
 OUT=/mnt/user-data/outputs/BulkDownloader_v3_66_148.zip
 rm -rf "$STAGE"; mkdir -p "$STAGE"
 unzip -Z1 "$Z" | grep -vE '/$' | grep -vE '__pycache__|\.pyc$' | sort -u > /tmp/l137.txt

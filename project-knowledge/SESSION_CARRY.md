@@ -3804,8 +3804,18 @@ BLOCKED ON THE OPERATOR (1-3)
      the wrong tool is not repairable. Re-affirmed at v3.66.959. Section 0's
      third state: this is not open work waiting on effort, and carrying it as
      open forever is what makes an open list stop meaning anything.
-  2. **Item 9** -- `capture.sh` commit identity. Release gate, needs explicit GO.
-     Item 19 below rides this same cut.
+  2. **CLOSED at v3.66.892 (`ef9f253`, #196), recorded at v3.66.960.** "a
+     capture bundle can finally say which tree it graded". Three independent
+     confirmations, none of them a reading: `capture.sh:298 emit_commit_identity`
+     exists and handles the UNKNOWN and MISMATCH branches;
+     `tests/test_v3_66_892_capture_commit_identity.py` is 7 tests, all passing;
+     and the operator's 2026-08-08 bundle carries `commit : 51ac1eb...` /
+     `branch : main` in `01_sysinfo.log`, a sha verified an ancestor of `main`
+     (exit 0, authoritative). Item 19's other half shipped with it --
+     `capture.sh:1080` is the `[7b/9] Live selftest battery` stage and the
+     bundle contains `07b_selftest.{log,json,err}`. The entry sat open as a
+     release gate "needing explicit GO" for eleven weeks after the GO was
+     evidently given and the work shipped.
   3. **CLOSED at v3.66.952-954 in three tiers**, and the item's premise was
      wrong twice over. It said a sweep "turns red a test that positively pins
      the string" -- singular; measured, at least TEN test files pin it, and
@@ -3850,10 +3860,28 @@ WORK, NOT BLOCKED (4-19)
      own claim, so it only works agent-to-agent.
  10. **`ai_boot_readiness.json` has no in-flight marker** -- a mid-run read is
      indistinguishable from terminal failure.
- 11. **Item 13 (s4#4)** -- repo-root `.db-wal` writer. Authorized as two cuts,
-     never started. Two FATALs must be fixed DURING implementation, and the
-     sentinel must be a `sys` attribute, not a `BD_` env var (section 4: a
-     `BD_` name enters the parity ledger).
+ 11. **CLOSED at v3.66.960: the subject is gone, and the specified mechanism
+     was never needed.** The item authorized two cuts to add a `sys`-attribute
+     sentinel gating app.py's boot block. @926 removed the module-scope writers
+     outright instead, which is strictly better than gating them, so the
+     sentinel does not exist and should not be built. MEASURED at v3.66.960 --
+     one `import bulk_downloader.app` from a bare cwd, run with
+     `BD_DISABLE_KEEPALIVE` POPPED as well as set:
+
+     | | spec's measurement | now |
+     | --- | --- | --- |
+     | DB-class residue | 352,256 bytes | **0 bytes, 0 files** |
+     | total residue | + 3 sentinels, config, logs, live_recordings | 714 bytes, 3 files |
+
+     Both of the item's named FATALs were resolved by @926 rather than during
+     the specced implementation: `migrations.apply_pending()`, the seventh
+     module-scope writer below the gated region, is in 15.50's list of four
+     found by TRACING; and the RED's blindness to keepalive-gated writers is
+     CLAUDE.md section 0's `os.environ`-copying-harness paragraph, written from
+     that same cut. 15.68 then measured 0 inside-repo connects across the full
+     suite in BOTH parallel and serial, and item 36 reproduced and closed the
+     recurrence. What remains is 714 bytes of NON-database residue, which was
+     never this item's title and is now item 40.
  12. **Item 14** -- `item 12` remnants, four unrelated subjects mis-filed as one.
      Split and prioritise separately: the eight-producer divergence; its proven
      non-exhaustiveness; `audit()`'s two different caps in one dict; and
@@ -4088,7 +4116,21 @@ a record -- see 15.62's closing paragraph.
      falsely. CLOSED at v3.66.955 --
      `tests/test_register_promises_resolve.py`, both directions.
 
- 38. **The zip-era retirement** -- 20 tracked files whose executable
+ 38. **CLOSED at v3.66.961.** The 20 carriers were THREE subjects, not one,
+     separated by reading what each zip line does: 11 files where the zip IS
+     the tool (retired), 7 live tools carrying a dead glob (branch deleted,
+     tool kept), and the live release stage (re-pointed, pin moved with it).
+     **Class B contained bd-guardcheck and bd-band-derive, which CLAUDE.md
+     sections 2 and 4 MANDATE** -- retiring on the item's original wording
+     would have deleted them. REACHABILITY COULD NOT ANSWER THE QUESTION: only
+     4 of 245 tools are reachable from any lane, because the toolchain is
+     operator-invoked by design, so a lane scan structurally excludes its real
+     callers. bd-coretest's test_handoff/test_zipcheck probes reached two of
+     the retired tools through `os.path.join(BIN, ...)`, invisible to any
+     import graph, and moved in the same cut; _TOOL_BUDGET went 240 -> 235.
+     `tests/test_zip_era_tools_stay_retired.py` guards the eleven, because
+     item 16 is what happens when a retirement has no gate. ORIGINAL TEXT: The
+     zip-era retirement -- 20 tracked files whose executable
      `/home/claude` references describe the zip install workflow the git
      deploy abolished (CLAUDE.md section 7). `bd-install` unzips
      `BulkDownloader_v*.zip` and `rm -rf`s a work tree; `bd-status`
@@ -4110,6 +4152,19 @@ a record -- see 15.62's closing paragraph.
      inbound-citation check first, which is what `bd-scan.py` needed. The
      baseline is machine-readable, so this item is a plan rather than a
      finding at risk of being lost.
+
+ 40. **A bare `import bulk_downloader.app` still writes three files to the
+     cwd** -- `app_config.json` (443 b), `logs/bulk_downloader.log` (177 b) and,
+     with `BD_DISABLE_KEEPALIVE` unset, `state/heartbeat.json` (94 b): 714
+     bytes total, measured at v3.66.960 in a tmp cwd with `BD_INSTALL_DIR`
+     unset. Split out of item 11 rather than folded into its closure, because
+     it is a DIFFERENT and much smaller class: none of it is database residue,
+     none of it can corrupt operator history, and item 11's title was the
+     `.db-wal` writer. **Whether these three are deliberate is UNKNOWN and was
+     not investigated** -- config bootstrap and log setup on import are
+     plausibly intended, and `state/heartbeat.json` appears only when the
+     keepalive thread runs. Numbered so the measurement is not lost, not
+     because it is established as a defect.
 
  34. **CLOSED at v3.66.945.** Root-caused, fixed, and the four failures are
      gone from the same 114-file band (1462 passed). The title below was wrong
@@ -4255,8 +4310,8 @@ bounded by its line count, and neither can be judged from a container.
 **READ THIS FIRST IF YOU ARE A FRESH SESSION.** It supersedes 15.68's open set.
 
 ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
-OPEN:   2, 11, 12, 17, 29, 31, 32, 33, 38, 39
-CLOSED: 3, 8, 13, 16, 18, 20, 23, 30, 36, 37
+OPEN:   12, 17, 29, 31, 32, 33, 39, 40
+CLOSED: 2, 3, 8, 11, 13, 16, 18, 20, 23, 30, 36, 37, 38
 
 Item 1 is CANNOT-EVALUATE and is accounted by the inventory marker rather than
 by this ledger -- a third state, not a close.
@@ -4406,6 +4461,40 @@ single verified bundle remain, and both are box-bound), **31**, **32**, **33**
 executable `/home/claude` population), **39** (the twenty frozen duplicates).
 
 Ten items, all numbered, none carried as prose.
+
+**THE BOX CAPTURED v3.66.957 AND IT RECONCILES EXACTLY.** Operator capture
+2026-08-08T22:29:49 at `51ac1eb` (the merge of #255), branch `main`:
+
+    PASS - unit 14996 pass / 0 fail / 0 error / 85 skip; live 36 / 0 / 0
+    15081 total    graph pin OK (003746d04276c6fb)    GET / 200, /api/health ok
+
+| | total | passed | skipped |
+| --- | ---: | ---: | ---: |
+| v3.66.950 (15.68) | 15060 | 14975 | 85 |
+| v3.66.957 | 15081 | 14996 | 85 |
+| delta | **+21** | **+21** | flat |
+
+Predicted +21 from the six cuts, counting test functions per commit against
+each one's own parent. Nothing unexplained in either direction and skips flat,
+so nothing silently became a skip. **The first attempt at that prediction said
++17 and was wrong** -- the parents were hand-mapped and @952's was the commit
+AFTER it; deriving them with `git rev-parse <sha>^` gave +21. A wrong prediction
+here manufactures a phantom gap in a clean capture, which is worse than not
+checking.
+
+**59 tests from this session's files ran ON THE BOX with 0 failures** --
+register_promises_resolve 11, desandbox_tool_verifiers 11, library_audit_panel
+_contract 9, cut25b 8, env_parity 6, pk_mirrors_stay_retired 5, v3_66_915 5,
+sandbox_home_stays_retired 4. So @952-957's three gates and item 12(c) are
+box-verified, not merely container-green.
+
+One advisory, not a defect: 07b's selftest battery is `11 ok, 1 warn, 0 fail`,
+the warn being `yt-dlp is 35 days old -- consider updating`. Operational, on the
+box.
+
+**THE BOX IS NOW 2 CUTS BEHIND** (@957 vs @959) and the next capture should read
+**15087 / 15002 / 85** -- @959 added 6 tests to test_register_promises_resolve.
+A mismatch is signal.
 
 **NOT BOX EVIDENCE.** Every band here is a container band. @957 changed
 `library_final.py` and the SPA, and `frontend/dist` is gitignored and NOT

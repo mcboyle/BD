@@ -36,9 +36,7 @@ def find_zip():
     # globbing uploads alone means this gate cannot see the artifact it was just asked
     # to check, and it happily reports FAIL against last session's zip instead.
     best, key = None, None
-    for z in (glob.glob("/home/claude/BulkDownloader_v*.zip")
-              + glob.glob("/home/claude/out/BulkDownloader_v*.zip")
-              + glob.glob("/mnt/user-data/uploads/BulkDownloader_v*.zip")):
+    for z in glob.glob("/mnt/user-data/uploads/BulkDownloader_v*.zip"):
         try:
             with zipfile.ZipFile(z) as zf:
                 init = next((n for n in zf.namelist()
