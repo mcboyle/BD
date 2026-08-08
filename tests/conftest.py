@@ -16,6 +16,7 @@ Or:
 """
 import builtins
 import os
+import warnings
 import pathlib
 import shutil
 import sys
@@ -381,20 +382,82 @@ def relative_install_dir_leak(env):
     return str(v)
 
 
+def install_dir_leak_verdict(before, after):
+    """None / "leaked" / "inherited" -- @946.
+
+    @945's guard took only the CURRENT value and so could answer just "is it
+    relative now". That conflated a value the test LEAKED with one it INHERITED,
+    and the second is not the test's doing: `bulk_downloader/__init__.py` seeds
+    from `.env` at PACKAGE IMPORT, and BD_INSTALL_DIR is an EDITOR_KEY_NAME, so
+    one save through the GUI env editor puts a relative value in front of all
+    1268 tests. Measured on the single-argument form: a `.env` carrying
+    `BD_INSTALL_DIR=v3` turned tests/test_contracts.py into 5 failed / 12 errors,
+    none of which touch the environment.
+
+    That is CLAUDE.md section 0's own rule -- "the parent's value is part of the
+    denominator" -- broken by the guard written to enforce its mirror. The band
+    could not catch it: no test in the 114-file band runs with a `.env` present.
+    """
+    def _relative(v):
+        return bool(v) and not os.path.isabs(str(v))
+
+    if not _relative(after):
+        return None
+    return "inherited" if before == after else "leaked"
+
+
+_INHERITED_INSTALL_DIR_REPORTED = []
+
+
+def _report_inherited_install_dir(value):
+    """Say it ONCE, and do not fail anything.
+
+    Silence would trade one section 0 shape for the other: an inherited relative
+    value still breaks every database-touching test with `unable to open
+    database file` and no explanation -- the four-files-away confusion item 34
+    took three readings to see through. A warning is visible in the run's summary
+    without turning an environment condition into 1268 test failures. Unknown is
+    a third state; this is the honest report of one.
+    """
+    if _INHERITED_INSTALL_DIR_REPORTED:
+        return
+    _INHERITED_INSTALL_DIR_REPORTED.append(value)
+    warnings.warn(
+        f"BD_INSTALL_DIR={value!r} was RELATIVE in the environment this run "
+        f"STARTED in -- no test set it. Likely sources: a `.env` seeded at "
+        f"package import by bulk_downloader/__init__.py (BD_INSTALL_DIR is an "
+        f"EDITOR_KEY_NAME, so the GUI env editor writes there), or the shell. "
+        f"_resolve_db_path() joins it with a relative DB_PATH and sqlite3 "
+        f"resolves that against the CWD, so database-touching tests will fail "
+        f"with `unable to open database file` for a reason that is not a "
+        f"regression. Set an absolute value or unset it.",
+        UserWarning, stacklevel=1)
+
+
 @pytest.fixture(autouse=True)
 def _install_dir_never_leaks_relative():
+    before = os.environ.get("BD_INSTALL_DIR")
     yield
-    leaked = relative_install_dir_leak(os.environ)
-    if leaked is None:
+    after = os.environ.get("BD_INSTALL_DIR")
+    verdict = install_dir_leak_verdict(before, after)
+    if verdict is None:
         return
+    if verdict == "inherited":
+        _report_inherited_install_dir(after)
+        return
+
     # REPAIR BEFORE FAILING. Without this the leak cascades and every later test
     # fails too, which buries the one test that actually caused it -- the exact
-    # misreading that kept item 34 open. Name the leaker, then clean up so the
-    # rest of the run still means something.
-    os.environ.pop("BD_INSTALL_DIR", None)
+    # misreading that kept item 34 open. Name the leaker, then restore what this
+    # test STARTED with (not merely pop) so an inherited value survives.
+    if before is None:
+        os.environ.pop("BD_INSTALL_DIR", None)
+    else:
+        os.environ["BD_INSTALL_DIR"] = before
     pytest.fail(
-        f"this test left BD_INSTALL_DIR={leaked!r} in the environment -- a "
-        f"RELATIVE value. _resolve_db_path() joins it with a relative DB_PATH "
+        f"this test left BD_INSTALL_DIR={after!r} in the environment -- a "
+        f"RELATIVE value, and it was {before!r} when the test started, so the "
+        f"test changed it. _resolve_db_path() joins it with a relative DB_PATH "
         f"and sqlite3 resolves the result against the CWD, so the next test to "
         f"touch the database opens a path whose parent does not exist and fails "
         f"with `unable to open database file`, four files away and under a name "

@@ -4078,6 +4078,55 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.64 | @945's guard broke the rule @945 shipped, close at 77d821a
+
+@945 closed item 34 with an autouse guard that fails any test leaving
+BD_INSTALL_DIR relative. Its CHANGELOG states CLAUDE.md section 0's rule -- "the
+parent's value is part of the denominator" -- and the guard it added reads the
+parent's value and blames the test for it. Measured with a `.env` carrying
+`BD_INSTALL_DIR=v3`:
+
+    @945 : tests/test_contracts.py -> 5 failed, 9 passed, 12 ERRORS
+    @946 : tests/test_contracts.py -> 5 failed, 9 passed,  0 errors, 1 warning
+
+**The exposure was real and operator-triggerable.**
+`bulk_downloader/__init__.py:31` seeds from `.env` at PACKAGE IMPORT, and
+BD_INSTALL_DIR is an `EDITOR_KEY_NAME` -- so one save through the GUI env editor
+puts a relative value in front of all 1268 tests, and most of a capture fails
+with each failure naming whichever test happened to be running. It did not fire
+on 2026-08-08 only because `ls ~/BulkDownloader/.env` returned no such file.
+
+**No band could have caught it, which is the structural point.** No test in the
+114-file band runs with a `.env` present, so the condition never arose. It was
+found only because the operator asked "how do we test this without a capture",
+and answering that meant computing the guard's true denominator -- which turned
+out to be every test that imports the product, conditioned on a file the
+operator controls. **The question exposed the defect; the band never would.**
+
+TWO OF THE FIX'S OWN MEASUREMENTS WERE WRONG FIRST, both caught by running them
+rather than by review:
+
+- **A harness whose subject was absent.** The test proving the guard still
+  catches a real leak wrote a synthetic leaking test into a tmpdir. pytest loads
+  `conftest.py` from the TARGET FILE'S ancestors, and a file under `/tmp` has
+  none -- so the guard was never installed, the run said "1 passed", and the
+  assertion read that as "the guard is broken". That reading would have sent a
+  session rewriting a guard that worked. **A file outside `tests/` does not get
+  `tests/conftest.py`**; inject into a real repo test through a plugin hook
+  instead.
+- **An over-scoped assertion.** The inherited-environment test first required
+  the bystander suite to PASS with a relative BD_INSTALL_DIR. It does not and
+  should not -- a relative install dir genuinely breaks the app, so 5 of those
+  tests fail on their own merits and always did. The subject is the guard's
+  CONTRIBUTION, not the suite's verdict; asserting the verdict makes the
+  denominator "every failure in the run". Section 1, in a test file.
+
+**Mutation caught the one that mattered.** `verdict-always-leaked` -- literally
+the @945 behaviour -- is CAUGHT, so the fix is constrained against the defect it
+removes rather than merely differing from it. One escape closed on the way:
+repairing by POPPING the key passed every assertion, because "must be restored"
+and "must be removed" are indistinguishable without a positive control.
+
 ### 15.63 | Item 34 root-caused and CLOSED at v3.66.945, close at bda4580 -- and a PROVEN NEGATIVE is what made it findable
 
 Item 34 was misread three times as "four order-dependent SSRF/VPN band
