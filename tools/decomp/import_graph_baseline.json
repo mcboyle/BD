@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3775,
+  "edge_count": 3776,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -6055,6 +6055,9 @@
     ],
     "tests/test_v3_66_941_scan_start_refuses_a_live_worker.py": [
       "bulk_downloader/library.py"
+    ],
+    "tests/test_v3_66_942_integrity_check_path_survives_a_cwd_change.py": [
+      "bulk_downloader/db.py"
     ],
     "tests/test_v3_66_96_autopilot_cockpit.py": [
       "bulk_downloader/capture_ingest.py",

@@ -4,6 +4,78 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.942 - the integrity check captured a RELATIVE path across a thread boundary
+
+v3.66.927 moved the path resolution out of the daemon thread and into the
+caller, with a comment stating the intent exactly: "a check scheduled for
+database A verifies A even if the process later points DB_PATH elsewhere". The
+resolution moved. The VALUE did not become absolute.
+
+_resolve_db_path() returns a bare relative name whenever BD_INSTALL_DIR is
+unset and DB_PATH has not been monkeypatched - measured:
+'downloader_history.db', isabs False, and its own docstring says so ("use
+DB_PATH as-is, which sqlite3.connect() resolves against cwd"). A relative
+string captured across a thread boundary captures NOTHING: it is re-resolved
+against whatever cwd exists when the thread wakes. The guarantee in the comment
+could not be delivered by the value beneath it, and nothing looked wrong
+because the comment read as though it had been.
+
+MEASURED at v3.66.941. A pytest plugin wrapping sqlite3.connect - proven in
+both directions before use, since a clean result from an unproven instrument is
+worth nothing - was run over a 156-suite band. One hit: thread
+`bd-db-integrity` opening <repo>/downloader_history.db after a test's autouse
+fixture had restored cwd to the checkout.
+
+    db.py:2079  _do_check
+    db.py:2113  _row_count_estimate -> db_conn(path)
+    db.py:558   sqlite3.connect(path or _resolve_db_path(), timeout=10.0)
+
+sqlite3.connect CREATES ON CONTACT, so this did not merely read the wrong
+database - it made one, with .integrity_last_run and a logs/ directory beside
+it. That is how two test rows reached the operator's production history during
+the v3.66.926 capture (history 116 -> 118, provenance 101 -> 103), an incident
+the register had recorded without a mechanism.
+
+NO TEST IS AT FAULT, and the attribution proves it: two runs of the identical
+band blamed two DIFFERENT tests, because a background thread has no nodeid and
+the plugin could only record whichever test's protocol was live when it woke.
+Either name, reported as "the leaking test", would have been a confident wrong
+answer. Every test's fixture behaves correctly.
+
+- bulk_downloader/db.py: _scheduled_path is now abspath(_resolve_db_path()).
+  abspath rather than resolve(), because an already-absolute DB_PATH must pass
+  through verbatim (the conftest and Docker both set one) - and it is the idiom
+  app.py:137 already uses for the same reason.
+- tests/test_v3_66_942_integrity_check_path_survives_a_cwd_change.py: 6 tests,
+  3 RED. The thread target is captured WITHOUT being started so the cwd change
+  lands deterministically between schedule and run, rather than as a race the
+  suite would hit once in a hundred attempts. Plus an over-correction guard
+  that an explicitly-set absolute DB_PATH is still honoured, and a guard that
+  the sync=True path - which never crosses a boundary and was never broken -
+  still works.
+
+SCOPED, AND THE EXCLUSION IS STATED. `logs/` also lands in the stray directory,
+from log.py:35's `_LOG_DIR = Path("logs")` resolving against cwd. Same class,
+different module, and a different decision behind it. It is excluded by name
+with a guard that FAILS if it ever stops appearing, so the exception cannot go
+dead and silently excuse a future real one.
+
+A HARNESS DEFECT CAUGHT MID-CUT, and it is the one worth carrying: the
+connect-recorder normalised every relative path to absolute before storing it,
+which made test_the_scheduled_path_is_absolute unable to fail. It passed on
+pristine source while the defect it named was live two tests away. The recorder
+now keeps the RAW value and the assertion reads that.
+
+AND A MUTATION ESCAPE CLOSED, which is the one that justifies its own
+comment. Swapping abspath for Path(...).resolve() left every test green,
+because the two agree on any path containing no symlink - so the source
+comment's stated reason for choosing abspath was unbacked. Closed with a
+test that reaches the database through a symlinked directory and asserts
+the configured path passes through verbatim. It is not pedantry: an
+operator whose install directory is reached via a symlink (a moved data
+volume, a /var -> /mnt indirection) would otherwise see the check verify,
+and stamp its sentinel beside, a path they never configured.
+
 ## v3.66.941 - a cancelled scan's worker wrote its counters into the NEXT scan
 
 Three facts, individually reasonable:
