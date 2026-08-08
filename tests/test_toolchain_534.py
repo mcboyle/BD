@@ -1500,83 +1500,12 @@ def _derive(args):
                           timeout=600)
 
 
-def test_band_derive_reaches_the_pk_mirror_gate():
-    """@868 RED -- tests/test_pk_mirrors_do_not_drift.py was in NO band, ever.
-
-    bd-band-derive unions its signals over a file's name, its imports, the
-    curated map and declared coupling. The PK-mirror gate answers to none of
-    them: it imports only hashlib/pathlib/pytest, its stem matches no source
-    file, and `grep -n 'pk_mirror|project-knowledge'
-    project-knowledge/TOUCHED_FILE_TO_TEST.md` returns nothing. So for ANY
-    mirrored file the deriver returned a band the gate was not in.
-
-    Measured on pristine: `--file toolchain/bin/bdtools_sec.py` -> 13 suites,
-    `--file toolchain/bin/bd-scrub-proof` -> 3 suites, gate absent from both.
-    Three mirrors sat drifted across v3.66.847-849 with the gate red on main
-    the whole time, because every band in between was derived from a changed
-    module.
-    """
-    gate = "tests/test_pk_mirrors_do_not_drift.py"
-
-    def band_of(target):
-        """The FULL band, via --json.
-
-        NOT the human listing: bd-band-derive:730 prints `band[:24]`, so a
-        membership assertion against stdout is answered by a 24-line window,
-        not by the band. The first draft of this test asserted `gate not in
-        r.stdout` for app.py -- and a mutant that made SIGNAL 8 match
-        everything (band 495) ESCAPED it, because the gate sorted past the
-        truncation. A denominator that excludes its subject reports OK; that is
-        the defect this whole cut is about, reproduced inside its own test.
-        """
-        r = _derive(["--file", target, "--json"])
-        assert r.returncode == 0, (target, (r.stdout + r.stderr)[-900:])
-        return json.loads(r.stdout)["band"]
-
-    for target in ("toolchain/bin/bdtools_sec.py",
-                   "toolchain/bin/bd-scrub-proof",
-                   "project-knowledge/bd-scrub-proof"):
-        assert gate in band_of(target), (
-            "%s is a PK-mirrored file and its band omits %s. Editing it drifts "
-            "the mirror, the gate is sha-gated, and no other signal can reach "
-            "it." % (target, gate))
-
-    # OVER-SENSITIVITY: the signal must not degrade into "band everything".
-    # MEASURED at @868: zero of the 278 tracked files sharing a PK top-level
-    # basename live under bulk_downloader/, so this assertion is meaningful
-    # today and catches a future rule that becomes a prefix match on the repo.
-    #
-    # MEMBERSHIP, not band SIZE. app.py's real band is 494 suites and the
-    # match-everything mutant makes it 495 -- signal 8 contributes exactly one
-    # entry, so no size threshold can discriminate here, and pinning 494 would
-    # pin a number that drifts with every new test file. The named-suite
-    # assertion is the one with the evidence: verified RED under the mutant and
-    # green on the real code.
-    assert gate not in band_of("bulk_downloader/app.py"), (
-        "bulk_downloader/app.py has no PK mirror, so banding the mirror gate "
-        "on it means the signal matched something other than mirroring.")
-
-    # The degraded case must SAY so, and must say so in --emit too. The @860
-    # curated-map notice is gated on `not a.json and not a.emit`, and --emit is
-    # the mode CLAUDE.md section 4 tells you to use -- a signal that vanishes
-    # silently there hands back a narrower band that still looks authoritative.
-    import tempfile
-    with tempfile.TemporaryDirectory() as td:
-        os.makedirs(os.path.join(td, "tests"))
-        os.makedirs(os.path.join(td, "bulk_downloader"))
-        with open(os.path.join(td, "bulk_downloader", "__init__.py"), "w") as fh:
-            fh.write('__version__ = "0.0.0"\n')
-        with open(os.path.join(td, "tests", "test_x.py"), "w") as fh:
-            fh.write("def test_x(): pass\n")
-        tool = os.path.join(str(_REPO_ROOT), "toolchain", "bin", "bd-band-derive")
-        r = subprocess.run([sys.executable, tool, "--work", td, "--emit",
-                            "--file", "bulk_downloader/__init__.py"],
-                           cwd=str(_REPO_ROOT), capture_output=True, text=True,
-                           timeout=600)
-        assert "project-knowledge/ not found" in (r.stdout + r.stderr), (
-            "a tree with no project-knowledge/ dropped signal 8 without a "
-            "word, in --emit -- the exact silence @860 exists to "
-            "prevent.\n%s" % (r.stdout + r.stderr)[-900:])
+# test_band_derive_reaches_the_pk_mirror_gate retired @943 with its subject:
+# the project-knowledge mirrors are gone, so bd-band-derive's SIGNAL 8 and the
+# drift gate it reached both retired with them. The replacement,
+# tests/test_pk_mirrors_stay_retired.py, is an ordinary tests/ file that the
+# module-consumer signal reaches unaided -- which is why no equivalent
+# reachability pin is needed for it.
 
 
 # --------------------------------------------------------------------------- #

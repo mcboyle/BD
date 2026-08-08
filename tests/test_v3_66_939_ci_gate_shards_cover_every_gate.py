@@ -79,7 +79,7 @@ _DECLARED = {
     "tests/test_release_hygiene_gates.py",
     "tests/test_scan_version_pins_fixture.py",
     "tests/test_gui_parity.py",
-    "tests/test_pk_mirrors_do_not_drift.py",
+    "tests/test_pk_mirrors_stay_retired.py",
     "tests/test_toolchain_534.py",
     "tests/test_v3_66_799_audit_tool_selftests.py",
     "tests/test_v3_66_653_dep_freshness.py",

@@ -9,7 +9,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TOOL = REPO_ROOT / "toolchain" / "bin" / "bd-versync"
 BPI = REPO_ROOT / "tools" / "build_pin_index.py"
-PK_MIRROR = REPO_ROOT / "project-knowledge" / "bd-versync"
+# @943: PK_MIRROR retired. project-knowledge/ no longer carries a second copy
+# of the executable toolchain, so there is nothing left for a sha256 mirror
+# gate to compare. tests/test_pk_mirrors_stay_retired.py now asserts the
+# stronger property: that no such duplicate exists anywhere.
 
 
 def _run(tree):
@@ -167,7 +170,3 @@ def test_coherent_tree_passes():
         shutil.rmtree(d, ignore_errors=True)
 
 
-def test_pk_mirror_matches_toolchain_copy():
-    a = hashlib.sha256(TOOL.read_bytes()).hexdigest()
-    b = hashlib.sha256(PK_MIRROR.read_bytes()).hexdigest()
-    assert a == b, "project-knowledge/bd-versync drifted from toolchain/bin/bd-versync"

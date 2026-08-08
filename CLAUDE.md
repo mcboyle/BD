@@ -61,7 +61,7 @@ read this section, in order to fix an instance of it:
   nothing.
 - The declaration gate written to constrain that fix shipped with a
   denominator excluding `tests/`. Repaired, it then claimed to cover
-  `toolchain/` and `project-knowledge/` -- where **451 of 2592** tracked Python
+  `toolchain/` -- where **231 of 2376** tracked Python
   files are extensionless `bd-*` scripts a `*.py` glob cannot see. Repaired
   again, it still cannot read the 17 tracked shell scripts that embed Python
   heredocs.
@@ -192,15 +192,19 @@ been wrong. Every figure obtained by *running the tool* was right.
   `playwright_stealth` — a different distribution. **The instrument fixes the
   denominator; the predicate fixes the subject. Say which you used.**
 - **`git ls-files -- '*.py'` is NOT "the Python files in this repo."**
-  Re-measured at v3.66.933 (`4f141f6`): **2141** files end in `.py`, and a
-  further **451** are tracked, python-shebang, extensionless `bd-*` scripts —
-  **231** under `toolchain/`, **220** under `project-knowledge/`. A `*.py` glob
-  reaches essentially none of them. **The `project-knowledge/` figure is
-  mid-retirement and WILL move**: those 220 are byte-identical mirrors of
-  `toolchain/bin`, 5 were deleted at v3.66.933, and the remaining 234 go in the
-  follow-up recorded in SESSION_CARRY 15.56 — after which this reads 231 and
-  the total 2365. Re-derive rather than quote; that is the whole point of the
-  bullet. Section 8 already says `toolchain/bin` is
+  Re-measured at v3.66.943: **2145** files end in `.py`, and a further **231**
+  are tracked, python-shebang, extensionless `bd-*` scripts — **all of them
+  under `toolchain/`**, none anywhere else. Total **2376**. A `*.py` glob
+  reaches essentially none of the 231.
+
+  **THE PREDICTION IN THIS BULLET WAS HALF RIGHT, AND THE HALF THAT MISSED IS
+  THE LESSON.** The v3.66.933 revision said the retirement would leave "231 and
+  the total 2365". The 231 landed exactly. The total did not: it is 2376,
+  because `.py` grew 2141 -> 2145 while the retirement was pending. A figure
+  predicted from a subtraction goes stale the moment any OTHER term moves, and
+  nothing warns you — the sentence still reads as a measurement. **Re-derive
+  rather than quote, including a number this file told you to expect.**
+  Section 8 already says `toolchain/bin` is
   its own population; this is what that costs you when the enumerator forgets.
   Type on the shebang as well as the extension, or state that the extensionless
   population is excluded.

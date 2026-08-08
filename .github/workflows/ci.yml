@@ -264,7 +264,7 @@ jobs:
             suites: >-
               tests/test_generated_artifacts_are_not_tracked.py
               tests/test_source_windows_do_not_shift.py
-              tests/test_pk_mirrors_do_not_drift.py
+              tests/test_pk_mirrors_stay_retired.py
               tests/test_pin_index_in_sync.py
               tests/test_all_sources_parse.py
               tests/test_versync_gate.py

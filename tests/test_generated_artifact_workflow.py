@@ -15,14 +15,15 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TOOL_PATH = REPO_ROOT / "toolchain" / "bin" / "bd-regen-order"
-DOCUMENTED_TOOL_PATH = REPO_ROOT / "project-knowledge" / "bd-regen-order"
 REACHABILITY_LEDGER = REPO_ROOT / "reports" / "endpoint_reachability.json"
 
 # Both copies of the cut driver. toolchain/bin is the OPERATIONAL copy; asserting
 # only over project-knowledge is a denominator that structurally excludes the file
 # that actually runs a release (CLAUDE.md 0). The idiom is the one already used at
 # tests/test_pytest_runner_boundary.py:208.
-BD_CUT_COPIES = ("toolchain/bin/bd-cut", "project-knowledge/bd-cut")
+# @943: one copy. The mirror is retired, so the tuple that existed to prove
+# both copies agreed now names the only copy there is.
+BD_CUT_COPIES = ("toolchain/bin/bd-cut",)
 
 
 def _bd_cut_source(relative: str) -> str:
@@ -84,7 +85,6 @@ def test_canonical_chain_and_location_interfaces_select_the_real_tree(tmp_path):
         "PIN_INDEX",
     ]
     assert regen.repo_root(str(TOOL_PATH)) == str(REPO_ROOT)
-    assert regen.repo_root(str(DOCUMENTED_TOOL_PATH)) == str(REPO_ROOT)
     with pytest.raises(RuntimeError, match="could not find repository root"):
         regen.repo_root(str(tmp_path / "not-a-repo" / "bd-regen-order"))
 
@@ -310,7 +310,7 @@ def test_policy_requires_canonical_regeneration_before_review():
     )
 
 
-def test_documented_toolchain_copy_is_byte_identical_to_canonical_tool():
-    """The operator-facing copy must execute the exact canonical contract."""
-    documented = REPO_ROOT / "project-knowledge" / "bd-regen-order"
-    assert documented.read_bytes() == TOOL_PATH.read_bytes()
+# @943: retired with the project-knowledge mirrors. There is no second copy
+# of the executable toolchain left to compare against; tests/
+# test_pk_mirrors_stay_retired.py asserts the stronger property that no such
+# duplicate exists at all.
