@@ -94,9 +94,24 @@ def clean_env(monkeypatch):
     denominator, and `setdefault` semantics mean an inherited value would make
     every assertion below pass for the wrong reason.
     """
-    for k in list(_ROGUE) + list(EF.EDITOR_KEY_NAMES) + ["BD_ENVFILE"]:
+    keys = list(_ROGUE) + list(EF.EDITOR_KEY_NAMES) + ["BD_ENVFILE"]
+    for k in keys:
         monkeypatch.delenv(k, raising=False)
-    return monkeypatch
+    yield monkeypatch
+
+    # @945: POPPING ON ENTRY IS NECESSARY AND NOT SUFFICIENT. The code under
+    # test writes `os.environ[k] = v` directly, and monkeypatch can only undo
+    # what it RECORDED -- a key it deleted while already absent records nothing,
+    # so `undo()` leaves the writer's value in place. That leaked
+    # BD_INSTALL_DIR="v3" (index 3 of EDITOR_KEY_NAMES) into the whole session
+    # and produced register item 34's four failures four files away.
+    #
+    # This teardown runs BEFORE monkeypatch's own undo -- monkeypatch is set up
+    # first as a dependency, so it tears down last -- which is what makes the
+    # order correct: we remove the writer's values, then undo restores whatever
+    # the environment genuinely had.
+    for k in keys:
+        os.environ.pop(k, None)
 
 
 # ── the defect ───────────────────────────────────────────────────────────────
