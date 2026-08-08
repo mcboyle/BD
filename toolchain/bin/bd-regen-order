@@ -88,6 +88,15 @@ CHAIN = [
      "line-number sensitive; must follow any edit that shifts lines"),
     ("PIN_INDEX", ["tools/build_pin_index.py"],
      "follows the version bump and the docs above"),
+    ("STATIC_KB", ["toolchain/bin/bd-kb-sync", "seed", "project-knowledge"],
+     "LAST: hashes project-knowledge/, so nothing that could write there may "
+     "follow it. Added @947 (register item 35) -- @944 gated this manifest's "
+     "membership but nothing regenerated it, so the staleness recurred one cut "
+     "late and blamed the wrong cut. It could not be added earlier because "
+     "seeding was not idempotent: a wall-clock `generated` field rewrote the "
+     "file on every run, and CI's check is this chain followed by "
+     "`git status --porcelain`. --version is omitted deliberately; bd-kb-sync "
+     "derives it from the tree, so this entry cannot go stale against a bump."),
 ]
 
 VERIFY = [

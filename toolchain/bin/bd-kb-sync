@@ -118,13 +118,69 @@ def load_manifest(path):
         return json.load(f)
 
 
+def _tree_version(root, _fallback="v0.0.0"):
+    """`v<__version__>` of the checkout `root` sits in, else the old literal.
+
+    @947. Walks up from the manifest root looking for bulk_downloader/__init__.py
+    and reads the pin with a regex rather than importing: this tool is stdlib-only
+    and safe to run anywhere, and importing the package would execute
+    `_envfile.load_envfile()` at module scope -- seeding the caller's environment
+    as a side effect of asking a question about a version string.
+
+    Returns the literal fallback outside a checkout, which keeps every existing
+    caller and the selftest's synthetic trees behaving exactly as before.
+    """
+    import re as _re
+    d = os.path.abspath(root)
+    for _ in range(6):
+        cand = os.path.join(d, "bulk_downloader", "__init__.py")
+        if os.path.isfile(cand):
+            try:
+                with open(cand, encoding="utf-8", errors="replace") as f:
+                    m = _re.search(r'^__version__\s*=\s*"([^"]+)"', f.read(), _re.M)
+                if m:
+                    return "v" + m.group(1)
+            except OSError:
+                return _fallback
+            return _fallback
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return _fallback
+
+
 def write_manifest(path, files, version_context):
+    files = dict(sorted(files.items()))
+    generated = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+
+    # @947: ATTEST OVER CONTENT, NOT BYTES. A wall-clock stamp made an unchanged
+    # tree produce a different FILE on every run, so this artifact could not be
+    # placed in bd-regen-order at all -- CI runs the chain and then
+    # `git status --porcelain`, which would have failed every pull request.
+    # CLAUDE.md section 0 records that exact defect ("two sessions nearly
+    # reconciled a diff that did not exist") and calls over-sensitivity a
+    # soundness bug rather than a safe default.
+    #
+    # The field is PRESERVED rather than removed, because bd-boot reads it from
+    # two manifests to decide which is FRESHER. It now records when the CONTENT
+    # last changed, which is the question that comparison is actually asking; a
+    # reseed over identical content used to make a stale KB look newer than a
+    # fresh one. Deleting the field would break that comparison outright and
+    # freezing it would break the other direction, so both are tested.
+    try:
+        previous = load_manifest(path)
+    except Exception:
+        previous = None
+    if previous and previous.get("files") == files:
+        generated = previous.get("generated") or generated
+
     doc = {
         "schema": SCHEMA,
-        "generated": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+        "generated": generated,
         "version_context": version_context,
         "file_count": len(files),
-        "files": dict(sorted(files.items())),
+        "files": files,
     }
     with open(path, "w") as f:
         json.dump(doc, f, indent=1)
@@ -828,7 +884,10 @@ def main():
     ap.add_argument("--kit-overlay", help="for verify: a version.zip whose kit/ overlay is "
                     "authoritative for kit scripts; a CHANGED kit script that matches kit/ is "
                     "treated as expected manifest-lag, not an integrity failure")
-    ap.add_argument("--version", default="v0.0.0", help="version context to stamp")
+    # @947: default DERIVED from the tree rather than a literal, so the
+    # bd-regen-order chain entry needs no version threaded through it and
+    # cannot go stale against the bump. Explicit --version still wins.
+    ap.add_argument("--version", default=None, help="version context to stamp")
     ap.add_argument("--state", help="STATE.json holding the external manifest pin")
     ap.add_argument("--pin", action="store_true",
                     help="for --stage: ALSO advance the external pin to the reseeded "
@@ -839,6 +898,8 @@ def main():
     if not os.path.isdir(root):
         print(f"{R}NO SUCH DIR{RST} {root}"); return 2
     manifest_path = a.manifest or os.path.join(root, MANIFEST_NAME)
+    if a.version is None:
+        a.version = _tree_version(root)
 
     if a.mode == "seed":
         return cmd_seed(root, manifest_path, a.version)

@@ -4000,7 +4000,22 @@ record -- see 15.62's closing paragraph.
      `tmp_path` that is then torn down would produce exactly this. **Start
      there**: the four tests are the victims, not the subject, and their names
      have been misdirecting every reading of this item.
- 35. **`STATIC_KB_MANIFEST.json` is not in `bd-regen-order`** -- @944 reseeded
+ 35. **CLOSED at v3.66.947, and the item recorded the symptom without the
+     cause.** It was not an oversight: the artifact COULD NOT be wired in.
+     Seeding an unchanged tree produced a different FILE every run
+     (`d1065b4a405b7e4c -> 2981568f6e6042c5 -> 56e52a5667ce9942`), differing
+     only in a wall-clock `generated` field, and CI's check is bd-regen-order
+     followed by `git status --porcelain` -- so a chain entry would have failed
+     every pull request. **That is the defect CLAUDE.md s0 names in its own
+     text**, still live in the artifact whose gate @944 had just written. Fixed
+     by preserving `generated` when the `files` mapping is unchanged (attest
+     over content, not bytes) rather than removing it, because `bd-boot` reads
+     it to decide which of two manifests is FRESHER -- and a reseed over
+     identical content used to make a stale KB look newer than a fresh one.
+     STATIC_KB is now the chain's LAST step; two consecutive regens leave the
+     manifest byte-identical. ORIGINAL TEXT:
+
+     **`STATIC_KB_MANIFEST.json` is not in `bd-regen-order`** -- @944 reseeded
      it and gated its membership, but nothing REGENERATES it, so the same
      staleness recurs the next time a `project-knowledge/` file is added or
      removed; the gate will catch it, one cut late, as a red band rather than
