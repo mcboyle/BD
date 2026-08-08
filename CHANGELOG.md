@@ -4,6 +4,79 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.950 - the band tool CLAUDE.md mandates was running a pytest STUB
+
+bd-band and bd-parband shelled out to run_tests.py, whose run_tests_core
+installs a pytest-compatible shim into sys.modules whenever pytest is not
+ALREADY imported -- which at runner startup it never is. So the shim ran even
+where real pytest is installed, and test files doing `import pytest` got it. Its
+own docstring: "Minimal pytest-compatible runner... NOT a replacement for pytest
+in production -- use `pytest tests/` there. This exists to catch authoring
+mistakes during development without internet access for pip install."
+
+MEASURED at v3.66.949 across the whole suite, per-file isolation on both sides:
+
+    the shim                             28 files non-PASS
+    real pytest, each file in isolation  24 of those 28 PASS -- verified 24/24
+
+86% OF WHAT THE MANDATED BAND TOOL REPORTED WAS MANUFACTURED. One file, both
+runners, same tree and interpreter:
+
+    tests/test_codex_handoff_stays_retired.py
+      real pytest   -> 4 passed
+      the shim      -> FAIL  IMPORT ERROR: No module named 'tracked_source'
+
+It does not put tests/ on sys.path the way pytest's rootdir handling does, so
+the 22 files importing a sibling helper (tracked_source, scan_wait,
+shell_source, capture_lanes, _env) all die on import. That is the floor, not the
+total -- other divergence mechanisms account for the rest.
+
+THE TELL WAS AVAILABLE AND NOBODY PULLED IT. bd-band already REFUSED to run
+unless the interpreter could import pytest, reasoning that a runner without it
+"would report failures that are interpreter artifacts, not defects". Right
+conclusion, half applied: having proven pytest was importable, it ran the shim
+anyway. The stub branch was unreachable-by-intent, not a real fallback.
+
+THE SWAP DELETES CODE. @897 detected "nothing ran" by string-matching an
+UNEVALUABLE banner, because the shim prints a reassuring `Total: 0 | Failed: 0`
+beside it and grading on `Failed:` made a real failure and a suite that ran
+nothing indistinguishable. pytest reports that state as EXIT CODE 5. The third
+state survives, read from a number that cannot drift rather than from prose that
+can, and grade_pytest_rc() is a named function with its own positive control
+instead of an inline predicate only the mutated test could observe.
+
+A RETRACTION, stated before it was checked: this cut was first argued on "the
+shim also HIDES a real failure", from test_t14_vpn_probe_egress failing under
+pytest and passing under the shim. It does not. That file passes in ISOLATION
+under both runners and fails only in a co-batched xdist run -- the comparison
+was a per-file-isolated shim run against a co-batched pytest run, blaming the
+runner for an isolation difference. The case rests on the 24, which are
+measured.
+
+ALSO CORRECTED, all three found by the gate rather than by review:
+  * bd-band's docstring advertised the shim command as the incantation it
+    replaces, and cited the "known whole-dir / test_perf_lab / nav_guard hangs"
+    that @948 disproved -- test_perf_lab passes in 2.5s and nav_guard names a
+    file that has never existed. The per-suite timeout stays because a bound is
+    hygiene, not because those were real.
+  * bd-parband's SELFTEST asserted its delegation target was PRESENT. That file
+    is always present in a checkout, so the check could not fail for the reason
+    that mattered and reported PASS while the tool ran the shim. It now asks the
+    interpreter whether pytest is importable -- presence of a file is not
+    reachability of a runner.
+  * bd-fullsuite's docstring opened "run the ENTIRE tests/ suite in-sandbox,
+    CORRECTLY" and never mentioned the shim. That word is what sent this session
+    proposing to point section 5 at it as a better instrument than real pytest.
+    It is a fallback for a machine that cannot run pytest at all, and now says so.
+
+CLAUDE.md section 4 gains the running half: deriving a band and running one are
+different questions, and the running half was answering with a shim.
+
+RED-first: 5 of 7 failed on pristine. Mutation 3 mutants, 3 caught / 0 escaped,
+including a swap straight back to the shim. Behavioural proof: bd-band now
+reports `PASS 4 passed in 0.38s` on the file it previously called an IMPORT
+ERROR.
+
 ## v3.66.949 - the full-suite prohibition becomes a bounded, instrumented procedure
 
 @948 disproved both named reasons for CLAUDE.md section 5's ban on running the

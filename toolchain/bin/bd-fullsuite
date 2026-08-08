@@ -1,5 +1,33 @@
 #!/usr/bin/env python3
-"""bd-fullsuite -- run the ENTIRE tests/ suite in-sandbox, correctly.
+"""bd-fullsuite -- run the ENTIRE tests/ suite in-sandbox via the pytest SHIM.
+
+READ THIS BEFORE TRUSTING A VERDICT FROM THIS TOOL (@950). It delegates to
+`run_tests.py`, whose `run_tests_core` installs a pytest-compatible **stub**
+into `sys.modules` -- documented there as "NOT a replacement for pytest in
+production... exists to catch authoring mistakes during development without
+internet access for pip install". This container HAS real pytest, so that
+purpose does not apply here, and the divergence is large. Measured at
+v3.66.949, per-file isolation on both sides:
+
+    this tool     : 28 files non-PASS
+    real pytest   : 24 of those 28 PASS, verified 24/24
+
+86% of its non-PASS output was manufactured. `tests/` is not on `sys.path` under
+the shim, so the 22 files importing a sibling helper (tracked_source, scan_wait,
+shell_source, capture_lanes, _env) all fail on import and are graded REAL.
+
+The word "correctly" used to open this docstring with no mention of the shim,
+and that is what sent a session pointing CLAUDE.md section 5 at this tool as a
+better instrument than real pytest. It is not a better instrument; it is a
+FALLBACK for a machine that cannot run pytest at all.
+
+USE INSTEAD, when pytest is importable -- which section 5 now documents as the
+one sanctioned whole-suite form:
+
+    BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest tests/ \\
+        -n 4 --dist loadfile --timeout=240 --timeout-method=thread -q -p no:randomly
+
+What follows is this tool's own design, which is sound for what it is.
 
 The full suite is runnable in the sandbox. What is NOT runnable is the full
 suite in ONE process: the tests assume per-file process isolation (on stash,
