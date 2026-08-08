@@ -521,7 +521,10 @@ export function Library() {
             {String(audit.data.duplicate_groups ?? 0)} · size drift{" "}
             {String(audit.data.size_drift ?? 0)} · orphan size{" "}
             {String(audit.data.orphan_size_gb ?? 0)} GB · reclaimable{" "}
-            {String(audit.data.duplicate_reclaimable_gb ?? 0)} GB
+            {String(audit.data.duplicate_reclaimable_gb ?? 0)} GB · window{" "}
+            {String(audit.data.audit_row_limit ?? 0)} rows · missing capped{" "}
+            {String(audit.data.missing_saturated ?? false)} · drift capped{" "}
+            {String(audit.data.size_drift_saturated ?? false)}
           </p>
         )}
         {orphans.data && (

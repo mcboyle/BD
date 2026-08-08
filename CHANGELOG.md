@@ -4,6 +4,55 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.957
+
+Item 12(c): a capped library-audit count now says it is a floor.
+
+WHAT WAS WRONG. audit() returned `missing` and `size_drift` -- both windowed --
+beside `orphans` and `duplicate_groups`, which are uncapped disk walks, as if
+all four were totals. Once a library outgrew the window the two windowed counts
+became FLOORS with nothing in the payload to say so, so 1000 and
+1000-and-more rendered identically.
+
+ONE LIMIT IS NOT ONE POPULATION, and audit()'s own docstring said it was.
+Measured:
+
+    missing     status='done' AND filename != ''
+    size_drift  status='done' AND filename != '' AND file_size > 0
+
+A row recorded without a size fills the missing window and is invisible to the
+drift window, so the two saturate INDEPENDENTLY. @915 made the LIMIT one; it
+did not make the WHERE one, and the docstring claimed otherwise. That is why
+the disclosure is two flags: a shared flag would call the drift count a floor
+when nothing was capped, and miss the missing count when something was. There
+is a test for exactly that asymmetry, and a mutant that collapses the two flags
+into one is caught by it.
+
+HOW. size_drift_scan already computed limit_hit and the projection discarded
+it. missing_from_disk_scan is its new sibling, built the same way -- accounting
+in the same loop as the work, so the coverage figure and the result cannot be
+about different passes -- and list_missing_from_disk becomes a projection of
+it. audit() reads both scans and returns missing_saturated,
+size_drift_saturated and audit_row_limit. No flag is reported for orphans or
+duplicate_groups: a key reading False would imply the cap governs them.
+
+ALL FOUR STATEMENTS OF THE CONTRACT MOVED TOGETHER -- audit(), api-types.ts
+LibraryAuditResult, the SPA panel, and the key-set pin in
+test_v3_66_915_audit_caps_are_one_window, which was written for this moment and
+fired on cue. The handler docstring deliberately names no keys and needed none.
+
+THE TEST MODEL WAS WIDENED, NOT WORKED AROUND. The panel contract parses three
+whole-container expression forms and fails loudly on anything else; it knew
+string and number literals but not `?? false`. Teaching it boolean literals was
+correct -- writing `?? 0` as a boolean fallback to satisfy a parser is the tail
+wagging the dog. Its comparator also stopped treating a bool as a number, since
+float(True) == 1.0 made True and 1 the same value, which is the quiet type
+conflation the original .length-on-an-int defect was.
+
+Two batteries, 6 mutants, 6 caught. One escape closed: audit() reads the scan
+directly now, so nothing pinned list_missing_from_disk's projection -- it could
+return the whole scan dict with the band green.
+
 ## v3.66.956
 
 Item 18 adjudicated CLOSED, and the promise gate's shrink path did the work.
