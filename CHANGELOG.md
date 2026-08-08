@@ -4,6 +4,43 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.955
+
+The register-promise gate, both directions. A finding is a numbered item in the
+inventory or it does not exist.
+
+WHAT IT STOPS, from 15.62. Four order-dependent band failures were proven
+pre-existing and this register was TOLD they had been recorded. They had not; a
+grep returned zero. bd-freshcheck and bd-doc-truth both ask whether a cited PATH
+resolves, never whether a promise was kept, so a prose promise was unfalsifiable
+by construction. The mechanizable half needs something a machine can read, hence
+the ITEM LEDGER block a session-close section now carries.
+
+DIRECTION A -- every number a ledger declares must resolve to a numbered entry,
+and a ledger row naming an item WITHOUT a number fails. 15.68's open set named
+"the register-promise gate" in exactly that prose form, so the gate's first act
+was to reject its own item; it is now item 37. Excusing itself would have been
+the first thing it certified falsely.
+
+DIRECTION B -- every inventory entry must be accounted for: closed in the
+inventory text, or declared by the newest session close. This is the direction
+that catches an open item silently vanishing, which reads as finished. Measured:
+15.68 accounts for 25 of 36 entries and ELEVEN are accounted for nowhere --
+1, 2, 8, 11, 13, 16, 18, 20, 23, 29, 30. They are frozen in a baseline that may
+only shrink, with a staleness test so it cannot outlive the gap it records.
+Freezing rather than adjudicating is deliberate: writing statuses nobody
+measured is the failure this register exists to prevent.
+
+Two of the eleven are partial closes that a prose reading would have scored as
+whole -- 15.68 closed item 11's DENOMINATOR question and item 29's DATABASE
+RECOVERY, not the items.
+
+THE MUTATION BATTERY FOUND TWO ESCAPES AND BOTH WERE REAL. The unnumbered-promise
+test drove a hand-built dict, so the PARSER could drop a prose row unobserved;
+and the session-close predicate could match every section, because the newest
+section overall happens to carry a ledger, so an over-broad predicate passes
+every other assertion. 6 mutants, 6 caught after the fixes.
+
 ## v3.66.954
 
 Tier 2 of item 3: the pk-mirror gate could not see twenty of the duplicates it

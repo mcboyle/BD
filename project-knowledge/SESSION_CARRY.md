@@ -3994,6 +3994,14 @@ a record -- see 15.62's closing paragraph.
      for this session only -- the container is ephemeral, so re-derive rather
      than expecting the file.
 
+ 37. **The register-promise gate** -- a finding is a numbered item in this
+     inventory or it does not exist. Named in 15.68's open set WITHOUT a
+     number, which is the exact prose form 15.62 said must stop; numbered here
+     because the gate's own direction A rejects an unnumbered promise, and
+     excusing its own item would have been the first thing it certified
+     falsely. CLOSED at v3.66.955 --
+     `tests/test_register_promises_resolve.py`, both directions.
+
  34. **CLOSED at v3.66.945.** Root-caused, fixed, and the four failures are
      gone from the same 114-file band (1462 passed). The title below was wrong
      in every particular and is kept because the wrongness is the lesson: not
@@ -4199,6 +4207,14 @@ caught by reading:
 29's database recovery (108 files, all `integrity_check = ok`), and item 11's
 denominator question -- 0 inside-repo connects across the full suite in BOTH
 parallel and serial configurations.
+
+ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
+OPEN:   3, 12, 17, 31, 32, 33, 36, 37
+CLOSED: 5, 7, 9, 10, 14, 19, 21, 25, 26, 27, 28, 34, 35
+
+A transcription of what this section already declared in prose, not a
+re-adjudication. 12 is carried by its (c) sub-part; 37 is the register-promise
+gate, which this section named without a number.
 
 **OPEN, and nothing here is blocked on measurement:**
 
