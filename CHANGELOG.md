@@ -4,6 +4,83 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.943 - mirror retirement step 2: the executable toolchain has one copy
+
+project-knowledge/ carried a byte-identical duplicate of most of toolchain/bin
+so the directory could be uploaded as a self-contained bundle. The operator
+confirmed on 2026-08-07 that it is not used that way, which removed the only
+reason for a second copy of an executable.
+
+WHAT THE SECOND COPY COST, on the record. At v3.66.818
+project-knowledge/bd-guardcheck reported "0 ok, 0 drifted, 0 missing" and
+EXITED 0 while the real tool reported 7 ok - a cut had repaired one copy of a
+two-copy tool and the tree reported success. A drift gate kept them in sync,
+but a sync gate cannot make a stale copy correct; it only makes both copies
+agree on whichever one someone edited. v3.66.929 paid it again.
+
+234 files deleted, 2,056,045 bytes. EVERY ONE VERIFIED byte-identical to its
+toolchain/bin origin before deletion - and that rule is what saved
+project-knowledge/bd-scan.py, which has NO twin. It is a real tool (the L0
+battery driver that normalises defect_patterns/bandit/vulture output into
+SCAN_FINDINGS.json), referenced from six tracked documents and from
+project-knowledge/bd-rev. A `bd-*` glob would have counted 230 and a
+count-based deletion would have taken it; the identity check is the reason it
+survived.
+
+THE BLAST RADIUS WAS WIDER THAN THE SPEC LISTED. 15.56 named five wiring sites.
+The band found eight failures across six files, because the drift gate itself
+contributes five of its own - its entire subject is now gone.
+
+- tests/test_pk_mirrors_do_not_drift.py: retired with its subject.
+- tests/test_pk_mirrors_stay_retired.py: replaces it, and asks the stronger
+  question. The old gate asked "do the pairs agree?"; this asks "does any
+  duplicate exist?" - a property that cannot be satisfied by editing one copy.
+  Not a pinned count: a number would go stale on the next tool added and would
+  say nothing about a NEW duplicate appearing.
+- toolchain/bin/bd-band-derive: SIGNAL 8 (PK-MIRROR) and has_pk_mirror()
+  retired, with the regen flag and the degraded-notice that fed them. The
+  reasoning is kept as a comment rather than deleted, so a reader who wonders
+  why the signal numbering skips 8 finds the answer in place.
+- tests/test_versync_gate.py: PK_MIRROR and its second sha256 mirror gate.
+- tests/test_toolchain_534.py: the pin on SIGNAL 8's reachability, retired
+  with the signal. The replacement needs no equivalent pin - it is an ordinary
+  tests/ file the module-consumer signal reaches unaided, which was the whole
+  problem with the gate it replaces.
+- tests/test_v3_66_918_tracked_source_denominator.py: threshold 300 -> 200.
+  The guard is "the bd-* suite is visible", not a headcount.
+- tests/capture_parallel_files.txt, .github/workflows/ci.yml and
+  tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py: the lane manifest
+  and the CI shard both named the retired gate. The shard-coverage gate from
+  v3.66.939 caught its own declaration going stale.
+
+CLAUDE.md section 1 re-measured: 2145 .py + 231 extensionless (all under
+toolchain/) = 2376. THE BULLET'S OWN PREDICTION WAS HALF RIGHT AND THAT IS
+RECORDED: it said the retirement would leave "231 and the total 2365". The 231
+landed exactly; the total did not, because .py grew 2141 -> 2145 while the
+retirement was pending. A figure predicted from a subtraction goes stale the
+moment any other term moves, and it still reads as a measurement.
+
+A METHOD TRAP PAID FOR TWICE IN ONE CUT, and it is the reusable part.
+`git stash push` on a cut whose deletions are STAGED, followed by `git stash
+pop`, restores the working tree but leaves the deleted paths back in the
+INDEX. `git ls-files` then reported 350 project-knowledge entries while 116
+existed on disk, and six dep-freshness tests failed with FileNotFoundError -
+a desync that reads exactly like a broken cut. `git add -A` after the pop is
+the repair; checking `git ls-files` against disk is how you notice. CLAUDE.md
+section 5 already warns that --keep-index proves nothing on a staged tree;
+this is the neighbouring failure, where the stash works and the RESTORE is
+what desyncs.
+
+FOUR BAND FAILURES PROVEN PRE-EXISTING, not explained away. Removing SIGNAL 8
+changes which suites bd-band-derive derives, so the band's COMPOSITION moved
+and surfaced a latent order-dependence in test_webhooks_subscription_ssrf (3)
+and test_vpn_config_load_quarantine (1). All four pass standalone and in a
+small band, on this tree and on pristine. The decisive measurement was the
+IDENTICAL 130-suite list run against a pristine 8e2b017 with 0 modified
+paths: the same four fail there. They are recorded as a new open item rather
+than fixed here - a cut that both retires the mirrors and chases an unrelated
+state leak is two cuts.
+
 ## v3.66.942 - the integrity check captured a RELATIVE path across a thread boundary
 
 v3.66.927 moved the path resolution out of the daemon thread and into the

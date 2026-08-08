@@ -205,7 +205,7 @@ def test_runner_helper_consumers_target_import_safe_core():
         encoding="utf-8"
     )
     assert '_REPO / "run_tests_core.py"' in harness
-    for relative in ("project-knowledge/bd-cut", "toolchain/bin/bd-cut"):
+    for relative in ("toolchain/bin/bd-cut",):   # @943: mirror retired
         source = (REPO / relative).read_text(encoding="utf-8")
         assert 'os.path.join(d, "run_tests_core.py")' in source, relative
 

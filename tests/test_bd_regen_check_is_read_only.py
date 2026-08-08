@@ -46,7 +46,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 BUILD_PIN_INDEX = REPO_ROOT / "tools" / "build_pin_index.py"
 BD_REGEN_COPIES = (
     REPO_ROOT / "toolchain" / "bin" / "bd-regen",
-    REPO_ROOT / "project-knowledge" / "bd-regen",
 )
 
 _PIN_TEST = '__version__ = "1.0.0"\n\ndef test_v():\n    assert __version__ == "1.0.0"\n'

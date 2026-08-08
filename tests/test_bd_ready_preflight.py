@@ -31,7 +31,6 @@ REPO_ROOT = Path(os.environ.get("BD_REPO_ROOT", Path(__file__).resolve().parents
 BD_READY = Path(os.environ.get("BD_READY_UNDER_TEST",
                                REPO_ROOT / "toolchain" / "bin" / "bd-ready"))
 BDTOOLS_SEC = REPO_ROOT / "toolchain" / "bin" / "bdtools_sec.py"
-PK_READY = REPO_ROOT / "project-knowledge" / "bd-ready"
 
 MEMBERS = ["bd-guardcheck", "bd-versync", "bd-changelog", "bd-regen", "bd-imports"]
 
@@ -245,13 +244,10 @@ def test_regressionguard_selftest_fails_closed_without_coretest(tmp_path):
     assert "SELFTEST FAIL" in r.stdout
 
 
-def test_regressionguard_pk_mirror_is_byte_identical():
-    """toolchain/bin/bd-ready and its project-knowledge mirror must agree. This
-    guards the mirror-sync step of THIS cut (band derivation misses extensionless
-    toolchain files); the tree-wide check is test_pk_mirrors_do_not_drift.py."""
-    shipped = REPO_ROOT / "toolchain" / "bin" / "bd-ready"
-    assert PK_READY.read_bytes() == shipped.read_bytes(), \
-        "project-knowledge/bd-ready drifted from toolchain/bin/bd-ready"
+# @943: retired with the project-knowledge mirrors. There is no second copy
+# of the executable toolchain left to compare against; tests/
+# test_pk_mirrors_stay_retired.py asserts the stronger property that no such
+# duplicate exists at all.
 
 
 # --------------------------------------------------------------------------- #

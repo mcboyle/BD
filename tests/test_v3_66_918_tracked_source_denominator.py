@@ -69,8 +69,13 @@ def test_the_widened_denominator_is_a_strict_superset():
         "the widened enumerator LOST files the old glob saw: %r"
         % (sorted(old - new)[:20],))
     gained = new - old
-    assert len(gained) > 300, (
-        "expected several hundred extensionless shebang scripts to enter the "
+    assert len(gained) > 200, (
+        # @943: was > 300, when project-knowledge/ still carried 234
+        # byte-identical mirrors of toolchain/bin. Retiring them halved the
+        # extensionless population; MEASURED 241 after. The threshold guards
+        # "the bd-* suite is visible", not a headcount, so it moves with the
+        # tree rather than pinning a number that goes stale on the next tool.
+        "expected the extensionless shebang scripts to enter the "
         "denominator; got %d. If this dropped, the bd-* suite is invisible "
         "again." % (len(gained),))
 

@@ -391,7 +391,7 @@ test_phone_pwa_manifest.py
 test_phone_share_route_results.py
 test_pin_host_filename_fallback.py
 test_pin_index_in_sync.py
-test_pk_mirrors_do_not_drift.py
+test_pk_mirrors_stay_retired.py
 test_player_recognition_edge.py
 test_player_recognition_families.py
 test_player_recognition_generic.py

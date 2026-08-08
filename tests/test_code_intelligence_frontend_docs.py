@@ -18,7 +18,7 @@ FRONTENDS = (
 )
 GATES = (
     "tools/bd-audit-gate.py",
-    "project-knowledge/bd-audit-gate.py",
+    # @943: the project-knowledge copy retired with the mirrors.
     "toolchain/bin/bd-audit-gate.py",
 )
 ANALYZERS = (
