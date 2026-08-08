@@ -303,17 +303,30 @@ def _resolve_recorded(fn: str, download_dir, index: dict):
     return Path(roots[0]) / fn, "absent"
 
 
-def list_missing_from_disk(*, site_id: Optional[str] = None,
+def missing_from_disk_scan(*, site_id: Optional[str] = None,
                            limit: int = 500,
-                           download_dir: str = "") -> list:
-    """Find history rows where status='done' but the file is gone.
+                           download_dir: str = "") -> dict:
+    """``list_missing_from_disk``'s loop, reporting what it EXAMINED as well.
 
-    `download_dir` is what the recorded basename is resolved against; without
-    it nothing can be decided and no row is reported (see _resolve_recorded).
-    It is keyword-only and defaults to "" so existing callers keep working --
-    they get the old can't-resolve behaviour, but now it reports NOTHING
-    rather than reporting EVERYTHING.
+    The sibling of ``size_drift_scan``, and it exists for the same reason: the
+    returned rows alone cannot answer "was this population actually checked".
+    A caller counting them reports a figure that is a FLOOR the moment the
+    library outgrows ``limit``, with nothing in the return value to say so.
+
+    Returned keys:
+      rows          -- the missing rows, exactly as list_missing_from_disk gives
+      considered    -- rows the query returned (post-LIMIT)
+      limit_hit     -- considered == limit, so `rows` is a floor
+      query_failed  -- the DB read raised; every other number is meaningless
+
+    NOTE the window is NOT size_drift_scan's. This one is
+    ``status='done' AND filename != ''``; that one adds ``AND file_size > 0``.
+    Rows recorded without a size fill this window and are invisible to that
+    one, so the two saturate independently and one shared flag would be wrong
+    in both directions.
     """
+    result = {"rows": [], "considered": 0, "limit_hit": False,
+              "query_failed": False}
     try:
         from . import db as _db
         sql = "SELECT id, site_id, filename, ts FROM history WHERE status='done' AND filename != ''"
@@ -326,7 +339,10 @@ def list_missing_from_disk(*, site_id: Optional[str] = None,
         with _db.db_conn() as cx:
             rows = cx.execute(sql, params).fetchall()
     except Exception:
-        return []
+        result["query_failed"] = True
+        return result
+    result["considered"] = len(rows)
+    result["limit_hit"] = len(rows) == int(limit)
     index = _basename_index(download_dir)
     out = []
     for r in rows:
@@ -337,7 +353,27 @@ def list_missing_from_disk(*, site_id: Optional[str] = None,
         # "ambiguous" and "unknown" are not evidence of absence.
         if state == "absent":
             out.append(d)
-    return out
+    result["rows"] = out
+    return result
+
+
+def list_missing_from_disk(*, site_id: Optional[str] = None,
+                           limit: int = 500,
+                           download_dir: str = "") -> list:
+    """Find history rows where status='done' but the file is gone.
+
+    `download_dir` is what the recorded basename is resolved against; without
+    it nothing can be decided and no row is reported (see _resolve_recorded).
+    It is keyword-only and defaults to "" so existing callers keep working --
+    they get the old can't-resolve behaviour, but now it reports NOTHING
+    rather than reporting EVERYTHING.
+
+    A projection of ``missing_from_disk_scan``. Callers that need to know
+    whether the window was saturated -- whether this list is a floor -- want
+    that function instead; this return value cannot express it.
+    """
+    return missing_from_disk_scan(site_id=site_id, limit=limit,
+                                  download_dir=download_dir)["rows"]
 
 
 def list_duplicate_candidates(download_dir: str) -> list:
@@ -502,19 +538,28 @@ def audit(*, download_dir: str, site_id: Optional[str] = None,
           limit: int = _AUDIT_ROW_LIMIT) -> dict:
     """One-call library-doctor summary for the dashboard.
 
-    `missing` and `size_drift` are both read from `history` WHERE
-    status='done', ORDER BY id DESC LIMIT `limit` -- ONE window, so the two
-    counts describe the same population. They did not always: the callees
-    default to 500 and 1000 respectively and this function passed neither, so a
-    row could sit inside size_drift's window and outside missing's. audit()
-    then examined that row for drift and reported nothing missing about it.
+    `missing` and `size_drift` take the SAME `limit`. They did not always:
+    the callees default to 500 and 1000 respectively and this function passed
+    neither, so a row could sit inside size_drift's window and outside
+    missing's. audit() then examined that row for drift and reported nothing
+    missing about it.
 
-    THE COUNTS ARE STILL FLOORS once a library exceeds `limit`, and this
-    function does not say which are saturated -- disclosing that needs a new
-    key, and the key set below is pinned by
-    tests/test_library_audit_panel_contract.py alongside api-types.ts. Raise
-    `limit` to widen the window. `orphans` and `duplicate_groups` are disk
-    walks and are not capped at all, so `limit` does not govern them.
+    ONE LIMIT IS NOT ONE POPULATION, and this docstring claimed it was until
+    v3.66.957. The WHERE clauses differ:
+
+        missing    status='done' AND filename != ''
+        size_drift status='done' AND filename != '' AND file_size > 0
+
+    A row recorded without a size fills the missing window and is invisible to
+    the drift window, so the two saturate INDEPENDENTLY. That is why the
+    disclosure below is two flags rather than one -- a shared flag would call
+    the drift count a floor when nothing had been capped, and miss the
+    missing count when something had.
+
+    THE COUNTS ARE FLOORS once a library exceeds `limit`, and `*_saturated`
+    now says which. Raise `limit` to widen the window. `orphans` and
+    `duplicate_groups` are disk walks and are not capped at all, so no flag is
+    reported for them: a key reading False would imply `limit` governs them.
 
     Returns COUNTS, not lists -- the lists are the capped sample_* fields.
     Exact keys (the SPA panel and api-types.ts LibraryAuditResult must agree
@@ -530,14 +575,24 @@ def audit(*, download_dir: str, site_id: Optional[str] = None,
       duplicate_reclaimable_gb float
       size_drift               int   recorded vs on-disk size mismatches
       orphan_size_gb           float
+      missing_saturated        bool  the missing window was full, so `missing`
+                                     is a floor -- read it as "N or more"
+      size_drift_saturated     bool  ditto for `size_drift`, over its OWN
+                                     narrower window
+      audit_row_limit          int   the window in force, so a floor can be
+                                     reported as a number rather than a hedge
       sample_orphans / sample_missing / sample_duplicates /
       sample_size_drift        list  first 10 rows of each
     """
     o = list_orphans(download_dir, site_id=site_id)
-    m = list_missing_from_disk(site_id=site_id, download_dir=download_dir,
-                               limit=limit)
+    # The SCANS, not the list projections: the projections discard limit_hit,
+    # which is the whole subject of the *_saturated keys below.
+    mscan = missing_from_disk_scan(site_id=site_id, download_dir=download_dir,
+                                   limit=limit)
+    m = mscan["rows"]
     dupes = list_duplicate_candidates(download_dir)
-    drift = list_size_drift(download_dir, site_id=site_id, limit=limit)
+    dscan = size_drift_scan(download_dir, site_id=site_id, limit=limit)
+    drift = dscan["rows"]
     total_orphan = sum(x["size_bytes"] for x in o)
     reclaimable = sum(g["size_bytes"] * (g["count"] - 1) for g in dupes)
     return {
@@ -547,6 +602,9 @@ def audit(*, download_dir: str, site_id: Optional[str] = None,
         "duplicate_reclaimable_gb": round(reclaimable / (1024**3), 2),
         "size_drift": len(drift),
         "orphan_size_gb": round(total_orphan / (1024**3), 2),
+        "missing_saturated": bool(mscan["limit_hit"]),
+        "size_drift_saturated": bool(dscan["limit_hit"]),
+        "audit_row_limit": int(limit),
         "sample_orphans": o[:10],
         "sample_missing": m[:10],
         "sample_duplicates": dupes[:10],

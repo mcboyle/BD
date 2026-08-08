@@ -4,6 +4,231 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.957
+
+Item 12(c): a capped library-audit count now says it is a floor.
+
+WHAT WAS WRONG. audit() returned `missing` and `size_drift` -- both windowed --
+beside `orphans` and `duplicate_groups`, which are uncapped disk walks, as if
+all four were totals. Once a library outgrew the window the two windowed counts
+became FLOORS with nothing in the payload to say so, so 1000 and
+1000-and-more rendered identically.
+
+ONE LIMIT IS NOT ONE POPULATION, and audit()'s own docstring said it was.
+Measured:
+
+    missing     status='done' AND filename != ''
+    size_drift  status='done' AND filename != '' AND file_size > 0
+
+A row recorded without a size fills the missing window and is invisible to the
+drift window, so the two saturate INDEPENDENTLY. @915 made the LIMIT one; it
+did not make the WHERE one, and the docstring claimed otherwise. That is why
+the disclosure is two flags: a shared flag would call the drift count a floor
+when nothing was capped, and miss the missing count when something was. There
+is a test for exactly that asymmetry, and a mutant that collapses the two flags
+into one is caught by it.
+
+HOW. size_drift_scan already computed limit_hit and the projection discarded
+it. missing_from_disk_scan is its new sibling, built the same way -- accounting
+in the same loop as the work, so the coverage figure and the result cannot be
+about different passes -- and list_missing_from_disk becomes a projection of
+it. audit() reads both scans and returns missing_saturated,
+size_drift_saturated and audit_row_limit. No flag is reported for orphans or
+duplicate_groups: a key reading False would imply the cap governs them.
+
+ALL FOUR STATEMENTS OF THE CONTRACT MOVED TOGETHER -- audit(), api-types.ts
+LibraryAuditResult, the SPA panel, and the key-set pin in
+test_v3_66_915_audit_caps_are_one_window, which was written for this moment and
+fired on cue. The handler docstring deliberately names no keys and needed none.
+
+THE TEST MODEL WAS WIDENED, NOT WORKED AROUND. The panel contract parses three
+whole-container expression forms and fails loudly on anything else; it knew
+string and number literals but not `?? false`. Teaching it boolean literals was
+correct -- writing `?? 0` as a boolean fallback to satisfy a parser is the tail
+wagging the dog. Its comparator also stopped treating a bool as a number, since
+float(True) == 1.0 made True and 1 the same value, which is the quiet type
+conflation the original .length-on-an-int defect was.
+
+Two batteries, 6 mutants, 6 caught. One escape closed: audit() reads the scan
+directly now, so nothing pinned list_missing_from_disk's projection -- it could
+return the whole scan dict with the band green.
+
+## v3.66.956
+
+Item 18 adjudicated CLOSED, and the promise gate's shrink path did the work.
+
+RE-MEASURED BY RUNNING THE TOOL, NOT READING IT. A manifest of `pytest>=99.0`
+exits 1 and `pytest>=8.0` exits 0, so check_requirements DOES compare
+specifiers: it builds Requirement(line), asserts specifier.contains(have), and
+raises Unevaluable when packaging is absent rather than falling back to a
+name-only answer. The item's text -- "calls version(name) and discards it" --
+described code that no longer exists.
+
+CLAUDE.md section 5 already recorded that fix. This inventory did not, so the
+entry sat open for releases while the code was correct. That is section 1's own
+lesson landing inside the register that states it, and it is exactly what
+direction B surfaced: item 18 was one of the eleven the newest session close
+could not account for.
+
+THE MECHANISM WORKED WITHOUT BEING TOLD. Marking the inventory entry CLOSED
+made 18 accounted-for, and test_no_unaccounted_entry_is_stale immediately failed
+-- "item(s) [18] are declared AND still listed as unaccounted, remove them from
+_UNACCOUNTED in the same cut" -- before any human noticed the baseline had gone
+stale. Baseline 11 -> 10.
+
+## v3.66.955
+
+The register-promise gate, both directions. A finding is a numbered item in the
+inventory or it does not exist.
+
+WHAT IT STOPS, from 15.62. Four order-dependent band failures were proven
+pre-existing and this register was TOLD they had been recorded. They had not; a
+grep returned zero. bd-freshcheck and bd-doc-truth both ask whether a cited PATH
+resolves, never whether a promise was kept, so a prose promise was unfalsifiable
+by construction. The mechanizable half needs something a machine can read, hence
+the ITEM LEDGER block a session-close section now carries.
+
+DIRECTION A -- every number a ledger declares must resolve to a numbered entry,
+and a ledger row naming an item WITHOUT a number fails. 15.68's open set named
+"the register-promise gate" in exactly that prose form, so the gate's first act
+was to reject its own item; it is now item 37. Excusing itself would have been
+the first thing it certified falsely.
+
+DIRECTION B -- every inventory entry must be accounted for: closed in the
+inventory text, or declared by the newest session close. This is the direction
+that catches an open item silently vanishing, which reads as finished. Measured:
+15.68 accounts for 25 of 36 entries and ELEVEN are accounted for nowhere --
+1, 2, 8, 11, 13, 16, 18, 20, 23, 29, 30. They are frozen in a baseline that may
+only shrink, with a staleness test so it cannot outlive the gap it records.
+Freezing rather than adjudicating is deliberate: writing statuses nobody
+measured is the failure this register exists to prevent.
+
+Two of the eleven are partial closes that a prose reading would have scored as
+whole -- 15.68 closed item 11's DENOMINATOR question and item 29's DATABASE
+RECOVERY, not the items.
+
+THE MUTATION BATTERY FOUND TWO ESCAPES AND BOTH WERE REAL. The unnumbered-promise
+test drove a hand-built dict, so the PARSER could drop a prose row unobserved;
+and the session-close predicate could match every section, because the newest
+section overall happens to carry a ledger, so an over-broad predicate passes
+every other assertion. 6 mutants, 6 caught after the fixes.
+
+## v3.66.954
+
+Tier 2 of item 3: the pk-mirror gate could not see twenty of the duplicates it
+forbids.
+
+BOTH HALVES OF THE GATE WERE WRONG. Its denominator was toolchain/bin/* only,
+so a project-knowledge file duplicating anything under tools/ or toolchain/ was
+structurally invisible. Its predicate matched on BASENAME, which asks "is there
+a tool of the same name" rather than the question its own docstring poses.
+Fixing only the denominator would have left a gate blind to a copy filed under
+a different name, so the predicate moved with it: content hashing over every
+tracked file, recursive, zero-byte files skipped.
+
+Same tree, same gate file, before and after: 0 duplicates reported, then 21.
+
+THE SURVIVOR EXCEPTION WAS AN INSTANCE OF THE SAME BLINDNESS.
+_NOT_A_MIRROR declared project-knowledge/bd-scan.py "a real tool with no
+toolchain/bin twin, not a copy". True as written -- and it was byte-identical to
+tools/bd-scan.py the whole time, which the toolchain/bin-only denominator could
+not ask about. The exception outlived the thing it excepted. tools/ is canonical
+on operator decision; the PK copy is retired and _NOT_A_MIRROR is now empty.
+
+THE REMAINING 20 ARE FROZEN, NOT SWEPT. Deleting twenty files is a separate
+decision from making the class visible, so the existing pairs are baselined:
+no NEW duplicate can appear, and test_no_known_duplicate_is_stale fails if an
+entry stops being a pair, so retiring a copy forces its entry out instead of
+leaving a standing licence. The list may only shrink.
+
+THE COUPLING WORKED, WHICH IS THE PART WORTH KEEPING. Deleting one file fired
+two independent gates in the same run -- v3.66.952's ratchet caught the now-false
+allowlist entry, and test_desandbox_tool_verifiers caught its own stale carrier
+-- and both messages said to fix the list in the same cut. Neither was written
+for this change.
+
+## v3.66.953
+
+Tier 1 of item 3: bdenv.sh stopped destroying a correct browser pool.
+
+MEASURED, not read. `toolchain/bdenv.sh:12` exported the retired sandbox pool
+UNCONDITIONALLY, so sourcing it replaced a caller's PLAYWRIGHT_BROWSERS_PATH --
+in this container /opt/pw-browsers, holding eight real builds -- with a
+directory that does not exist:
+
+    before : /opt/pw-browsers
+    after  : /home/claude/.cache/ms-playwright
+
+`toolchain/bin/bd` and `bd-status` both source it (BD_ENV_FILE defaults to the
+file beside them), so the loss reached anything run under the wrapper.
+
+IT WAS ALREADY KNOWN AND ROUTED AROUND RATHER THAN FIXED. bd-parband carries
+"Do NOT point this at toolchain/bdenv.sh: that file still exports the retired
+prestaged PYTHONPATH and /home/claude paths", and bd-render-env names the same
+override in a comment. A workaround in two callers is not a fix in the source.
+bd-venv:67 had the correct ${VAR:-default} form the whole time, so this is the
+repo's own idiom rather than a new convention.
+
+Both copies move together: project-knowledge/bdenv.sh is byte-identical to
+toolchain/bdenv.sh and is one of five mirror pairs the pk-mirror gate cannot
+see, because that gate's denominator is toolchain/bin/* only. Editing one alone
+would have created drift nothing detects.
+
+THE HARNESS WAS WRONG FIRST, AND IT PASSED. The test drove the child with
+`PLAYWRIGHT_BROWSERS_PATH=x . file` -- a prefix assignment to the source
+builtin, which bash restores when the command returns. It therefore reported
+"preserved" against the UNFIXED source. A fixture that cannot represent the
+failure it hunts is not a test; the variable must be exported into the child.
+Recorded because the harness defect, not the subject, is the reusable lesson.
+
+The fallback is deliberately left in place. Whether bdenv.sh should export
+anything at all when the caller supplies nothing is a different question and
+belongs with the zip-era retirement item, so the literal stays and the tier-0
+allowlist is unchanged.
+
+## v3.66.952
+
+Tier 0 of item 3: a ratchet on references to the retired sandbox home, rather
+than a sweep of them.
+
+WHY A RATCHET. The path is not one subject. Measured at 0f3e435 over every
+tracked file: 188 carriers, 829 lines holding the literal, of which 374 are
+executable and 455 are comment or docstring. They divide into five classes with
+three different correct dispositions -- zip-era installers that the git deploy
+abolished (retire the file, not the path), a retired browser pool whose live
+equivalent is the PLAYWRIGHT_BROWSERS_PATH environment variable, thirteen
+byte-identical project-knowledge mirrors of tools/ files, deliberately-absent
+test fixtures, and prose.
+
+The decisive class is the fourth. Several tests exist in order to assert the
+path is retired: test_bd_doctor_probes_the_real_environment keeps a DEAD map
+whose keys are exactly these paths. A blanket rewrite would delete those tests'
+subject and leave them green over nothing -- section 0's defect manufactured by
+its own fix. Freezing the population avoids that entirely.
+
+THE GATE. tests/test_sandbox_home_stays_retired.py enumerates git ls-files -z,
+not a *.py glob, because 231 of this repo's tracked Python files are
+extensionless bd-* scripts and the carriers also span shell, markdown and JSON.
+A new carrier fails; so does an allowlist entry whose file no longer carries the
+reference, because a list that claims something false lets a future carrier
+reuse the slot silently. That second direction is what makes the list shrink as
+the remaining tiers land.
+
+The needle is assembled at runtime rather than spelled. A gate that reads source
+text has its own source inside its denominator, and section 0 records four
+occasions where a literal or a comment re-entered the ledger it was written to
+describe.
+
+Both failing directions are proven on the real tree, not only through the pure
+function: a staged probe file fails the gate as a new carrier, and stripping the
+reference from an allowlisted file fails it as a stale entry. bd-mutate: 4
+mutants, 4 caught, 0 escaped -- including the *.py glob that would have blinded
+the scan to the 231 extensionless scripts.
+
+Item 3's remaining tiers are the browser pool and the mirrors. The zip-era
+retirement is refiled as its own item on operator decision; it is 45 percent of
+the executable population and an item-33-scale retirement call, not a path fix.
+
 ## v3.66.951 - session close: item 11's denominator answered, item 36 opened
 
 Record-only. No source change; the register and the contract are the deliverable.

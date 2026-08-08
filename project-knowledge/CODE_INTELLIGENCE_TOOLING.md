@@ -101,7 +101,7 @@ before trusting them. A blanket heading marker was previously wrong for three of
 
 ### Code-intelligence additions — **status measured per tool (re-measured at v3.66.818), not blanket `[PLANNED]`**
 
-> **BUILT** (present in `tools/`, some also in the static PK): `bd-scan.py` (PK+tools),
+> **BUILT** (present in `tools/`, some also in the static PK): `bd-scan.py` (tools/ -- the PK copy was a byte-identical duplicate, retired at v3.66.954),
 > `l0_extract.py` (PK+tools), `graph_build.py`, `defect_patterns.py`, `risk_score.py`,
 > `bd-audit-gate.py` (PK+tools), `bd-triage.py` (PK+tools) -- and, **built since @805**,
 > `semantic_diff.py`, `differential_oracle.py`, `fuzz_harness.py`, `reachability.py`,

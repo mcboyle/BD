@@ -1130,6 +1130,12 @@ export interface LibraryAuditResult {
   duplicate_reclaimable_gb?: number;
   size_drift?: number;
   orphan_size_gb?: number;
+  // `missing` and `size_drift` are windowed counts, and each window has its
+  // own WHERE clause -- they saturate independently. True means that count is
+  // a FLOOR: read it as "audit_row_limit or more", not as a total.
+  missing_saturated?: boolean;
+  size_drift_saturated?: boolean;
+  audit_row_limit?: number;
   sample_orphans?: unknown[];
   sample_missing?: unknown[];
   sample_duplicates?: unknown[];

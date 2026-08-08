@@ -206,10 +206,13 @@ def test_an_absolute_filename_still_resolves_verbatim(lib):
 
 
 def test_audit_key_set_is_unchanged(lib):
-    """This cut changes resolution, not the contract.
+    """That cut changed resolution, not the contract.
 
-    test_library_audit_panel_contract.py and api-types.ts pin audit()'s exact
-    key set; a new key here would break the SPA panel silently.
+    The FIFTH place audit()'s key set is pinned -- with
+    test_library_audit_panel_contract.py, api-types.ts, the SPA panel and
+    test_v3_66_915. The saturation keys landed at v3.66.957 and this fired;
+    only the derived band reached it, which is the argument for deriving one.
+    A new key here would otherwise break the SPA panel silently.
     """
     lf, dl = lib
     rep = lf.audit(download_dir=str(dl))
@@ -217,4 +220,5 @@ def test_audit_key_set_is_unchanged(lib):
         "orphans", "missing", "duplicate_groups", "duplicate_reclaimable_gb",
         "size_drift", "orphan_size_gb", "sample_orphans", "sample_missing",
         "sample_duplicates", "sample_size_drift",
+        "missing_saturated", "size_drift_saturated", "audit_row_limit",
     }, sorted(rep)

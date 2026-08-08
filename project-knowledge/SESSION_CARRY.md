@@ -3863,10 +3863,18 @@ WORK, NOT BLOCKED (4-19)
  17. **Item C** -- does a container restart fire SessionStart? Instrumented,
      unanswered. Needs a `bd-restart-check` exit 1 mid-session; this session
      got exit 0, `source=startup`.
- 18. **Venv specifier drift** -- `check_requirements.py` calls `version(name)`
-     and discards it, in all three recovery paths. Still THEORETICAL: @883's
-     band failures were a runner defect and @885 confirmed it. Do not record
-     that as this item's measurement.
+ 18. **CLOSED, and it was closed before anyone noticed.** Re-measured at
+     v3.66.956 by RUNNING the tool, not reading it: a manifest of
+     `pytest>=99.0` exits 1 and `pytest>=8.0` exits 0, so the specifier IS
+     compared. `tools/check_requirements.py:146-150` builds `Requirement(line)`
+     and asserts `specifier.contains(have)`, and raises `Unevaluable` when
+     `packaging` is absent rather than falling back to a name-only answer.
+     CLAUDE.md section 5 already recorded the fix; this inventory did not, so
+     the entry sat open for releases while the code was correct -- section 1's
+     own lesson, inside the register that states it. ORIGINAL TEXT: "Venv
+     specifier drift -- check_requirements.py calls version(name) and discards
+     it, in all three recovery paths. Still THEORETICAL: @883's band failures
+     were a runner defect and @885 confirmed it."
  19. **Item 17** -- `git rev-parse HEAD` into `01_sysinfo.log`, plus a selftest
      stage for `capture.sh`. Re-confirmed ABSENT against the 883 bundle.
      Rides item 2.
@@ -3993,6 +4001,14 @@ a record -- see 15.62's closing paragraph.
      does, for documented reasons). Evidence preserved at `/tmp/stray_1713.db`
      for this session only -- the container is ephemeral, so re-derive rather
      than expecting the file.
+
+ 37. **The register-promise gate** -- a finding is a numbered item in this
+     inventory or it does not exist. Named in 15.68's open set WITHOUT a
+     number, which is the exact prose form 15.62 said must stop; numbered here
+     because the gate's own direction A rejects an unnumbered promise, and
+     excusing its own item would have been the first thing it certified
+     falsely. CLOSED at v3.66.955 --
+     `tests/test_register_promises_resolve.py`, both directions.
 
  34. **CLOSED at v3.66.945.** Root-caused, fixed, and the four failures are
      gone from the same 114-file band (1462 passed). The title below was wrong
@@ -4199,6 +4215,14 @@ caught by reading:
 29's database recovery (108 files, all `integrity_check = ok`), and item 11's
 denominator question -- 0 inside-repo connects across the full suite in BOTH
 parallel and serial configurations.
+
+ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
+OPEN:   3, 12, 17, 31, 32, 33, 36, 37
+CLOSED: 5, 7, 9, 10, 14, 19, 21, 25, 26, 27, 28, 34, 35
+
+A transcription of what this section already declared in prose, not a
+re-adjudication. 12 is carried by its (c) sub-part; 37 is the register-promise
+gate, which this section named without a number.
 
 **OPEN, and nothing here is blocked on measurement:**
 

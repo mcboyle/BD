@@ -197,13 +197,16 @@ def test_a_small_library_is_unchanged():
 
 
 def test_the_returned_key_set_does_not_move():
-    """The internal-only scope, made mechanical.
+    """The contract set, made mechanical.
 
-    12(c) was approved as an internal fix precisely because disclosing a capped
-    count needs a new key, and that key would have to move
-    test_library_audit_panel_contract.py and api-types.ts in the same cut. If a
-    later edit adds `missing_truncated` (or any sibling) here without doing
-    that work, this fails and names the reason.
+    Written when 12(c) was scoped internal, to fail if a later edit added a
+    disclosure key without moving test_library_audit_panel_contract.py and
+    api-types.ts in the same cut. It did exactly that at v3.66.957 -- the
+    saturation keys landed and this fired -- so the three below were added
+    only after the panel and the TS interface had moved with them.
+
+    The pin stays: it is still the thing that stops a key appearing in one of
+    the four statements of this contract and nowhere else.
     """
     big = _audited(_seed)
     small = _audited(_small)
@@ -214,8 +217,9 @@ def test_the_returned_key_set_does_not_move():
         "orphans", "missing", "duplicate_groups", "duplicate_reclaimable_gb",
         "size_drift", "orphan_size_gb", "sample_orphans", "sample_missing",
         "sample_duplicates", "sample_size_drift",
+        "missing_saturated", "size_drift_saturated", "audit_row_limit",
     }, (
         "audit()'s key set moved: %r. That is a CONTRACT change -- "
-        "tests/test_library_audit_panel_contract.py and api-types.ts "
-        "RegenNfosResult/LibraryAuditResult pin this set, and item 12(c) was "
-        "scoped internal on purpose." % (sorted(big),))
+        "tests/test_library_audit_panel_contract.py, api-types.ts "
+        "LibraryAuditResult and frontend/src/routes/Library.tsx pin this set "
+        "too -- move all of them in the SAME cut." % (sorted(big),))

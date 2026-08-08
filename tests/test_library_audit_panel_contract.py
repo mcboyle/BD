@@ -62,7 +62,11 @@ _ANY_REF = re.compile(r"audit\.data\.\w+")
 # The expression forms this model understands, most specific first. finditer
 # does not overlap, so the String(...) wrapper is consumed before the bare
 # coalesce alternative can match inside it.
-_LIT = r'"[^"]*"|-?\d+(?:\.\d+)?'
+# Boolean literals joined the set at v3.66.957, when the contract gained the
+# *_saturated flags. Widening the MODEL is the right response to a new
+# legitimate form -- the alternative was writing `?? 0` as a boolean fallback
+# in the panel to satisfy a parser, which is the tail wagging the dog.
+_LIT = r'"[^"]*"|-?\d+(?:\.\d+)?|true|false'
 _FORMS = re.compile(
     r"String\(\s*audit\.data\.(?P<skey>\w+)\s*\?\?\s*(?P<sfb>" + _LIT + r")\s*\)"
     r"|audit\.data\.(?P<lkey>\w+)\?\.length\s*\?\?\s*(?P<lfb>" + _LIT + r")"
@@ -83,6 +87,8 @@ _MISSING = object()
 def _lit(tok):
     if tok.startswith('"'):
         return tok[1:-1]
+    if tok in ("true", "false"):
+        return tok == "true"
     return float(tok) if "." in tok else int(tok)
 
 
@@ -148,6 +154,12 @@ def _truth(key, payload):
 
 
 def _same(rendered, truth):
+    # A bool is not a number here. float(True) is 1.0, so the numeric path
+    # below would call True and 1 the same value -- which is exactly the kind
+    # of quiet type conflation the `.length`-on-an-int defect was.
+    if isinstance(rendered, bool) or isinstance(truth, bool):
+        return isinstance(rendered, bool) and isinstance(truth, bool) \
+            and rendered == truth
     # Compare numerically: JS String(0.0) is "0" where Python str(0.0) is
     # "0.0", and that formatting difference is not the subject here.
     try:
@@ -309,3 +321,97 @@ def test_handler_docstring_is_not_a_fourth_drifting_contract():
     assert not phantom, (
         f"api_library_audit's docstring documents audit keys audit() never "
         f"returns: {phantom}; audit() returns {sorted(rep)}")
+
+
+# ─── 12(c): the counts are floors, and audit() must say so ─────────────
+
+def _audit_over(n_rows, limit, file_size=4096):
+    """audit() over `n_rows` done history rows, with the window set to `limit`.
+
+    `file_size` is load-bearing: the missing window is
+    `status='done' AND filename != ''` while the drift window adds
+    `AND file_size > 0`, so a fixture built with 0 populates one and not the
+    other. That difference is the reason saturation cannot be one flag.
+    """
+    d = tempfile.mkdtemp(prefix="audit_sat_")
+    saved = db.DB_PATH
+    db.DB_PATH = os.path.join(tempfile.mkdtemp(prefix="audit_sat_db_"), "queue.db")
+    try:
+        db.db_init()
+        for i in range(n_rows):
+            db.db_log(site_id="s", site_name="S", url="http://x/%d" % i,
+                      status="done",
+                      filename=os.path.join(d, "gone_%d.mp4" % i),
+                      file_size=file_size)
+        return lf.audit(download_dir=d, limit=limit)
+    finally:
+        db.DB_PATH = saved
+
+
+def test_audit_discloses_that_a_capped_count_is_a_floor():
+    """RED before 12(c): the counts saturate silently.
+
+    A library larger than the window makes `missing` and `size_drift` FLOORS,
+    and audit() reported them beside uncapped disk-walk figures as if all four
+    were totals. An operator reading 1000 could not tell it from 1000-and-more.
+    """
+    rep = _audit_over(n_rows=5, limit=2)
+    assert rep["missing_saturated"] is True, (
+        "5 rows through a 2-row window: `missing` is a floor and audit() must "
+        "say so")
+    assert rep["audit_row_limit"] == 2, (
+        "the window in force must be disclosed, or a floor cannot be read as "
+        "'2 or more'")
+
+
+def test_audit_does_not_cry_saturation_on_an_unsaturated_window():
+    """The over-sensitive direction. A flag that is always True is not a flag.
+
+    Section 0: a fix for 'reports clean when blind' that simply calls every
+    scan inconclusive passes the first test and destroys the tool.
+    """
+    rep = _audit_over(n_rows=2, limit=50)
+    assert rep["missing_saturated"] is False
+    assert rep["size_drift_saturated"] is False
+
+
+def test_the_two_windows_saturate_independently():
+    """They are NOT one population, whatever audit()'s docstring used to say.
+
+    missing  : status='done' AND filename != ''
+    drift    : status='done' AND filename != '' AND file_size > 0
+
+    So rows recorded with no size fill the missing window and are invisible to
+    the drift window. One shared flag would report the drift count as a floor
+    when nothing was capped, or miss that the missing count was.
+    """
+    rep = _audit_over(n_rows=5, limit=2, file_size=0)
+    assert rep["missing_saturated"] is True, "5 sizeless rows still fill the missing window"
+    assert rep["size_drift_saturated"] is False, (
+        "file_size > 0 excludes every one of those rows from the drift window, "
+        "so nothing was capped there")
+
+
+def test_the_missing_projection_still_returns_rows_not_the_scan_dict():
+    """audit() reads the SCAN now, so nothing else pinned the projection.
+
+    A mutation proved it: `list_missing_from_disk` could return the whole scan
+    dict and this band stayed green, because audit() stopped going through it.
+    Its other callers index the rows, and a dict would hand them keys.
+    """
+    d = tempfile.mkdtemp(prefix="audit_proj_")
+    saved = db.DB_PATH
+    db.DB_PATH = os.path.join(tempfile.mkdtemp(prefix="audit_proj_db_"), "queue.db")
+    try:
+        db.db_init()
+        db.db_log(site_id="s", site_name="S", url="http://x/v", status="done",
+                  filename=os.path.join(d, "gone.mp4"), file_size=4096)
+        rows = lf.list_missing_from_disk(download_dir=d, limit=50)
+        scan = lf.missing_from_disk_scan(download_dir=d, limit=50)
+    finally:
+        db.DB_PATH = saved
+    assert isinstance(rows, list), (
+        f"list_missing_from_disk returned {type(rows).__name__}, not a list -- "
+        f"it is a projection of the scan's `rows`, not the scan")
+    assert rows == scan["rows"]
+    assert len(rows) == 1 and rows[0]["filename"].endswith("gone.mp4")
