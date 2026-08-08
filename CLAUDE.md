@@ -1926,6 +1926,27 @@ tool built to hunt gate-blindness was itself a blind gate" — years of sessions
 before section 0 gained the same paragraph from rediscovering it. When you find
 a lesson, ask whether some tool already learned it.
 
+**BUT A DOCSTRING IS A CLAIM, NOT A MEASUREMENT — CHECK WHAT THE TOOL RUNS.**
+Measured at v3.66.950, and it cost a wrong recommendation to the operator before
+it was caught. `bd-fullsuite` opened *"run the ENTIRE tests/ suite in-sandbox,
+**correctly**"* and argued convincingly for per-file process isolation. All true,
+and it never mentioned that it delegates to a **pytest STUB** — `run_tests_core`,
+whose own docstring says *"NOT a replacement for pytest in production"*. Reading
+one docstring and stopping produced "this tool already does what you want, point
+the contract at it", which was exactly backwards.
+
+Two questions, and the second is the one that gets skipped: what does this tool
+CLAIM, and what does it EXECUTE. `grep -n 'subprocess\|pytest\|run_tests'` on the
+tool answers the second in seconds. The same check found that `bd-band` and
+`bd-parband` — the band runners section 4 mandates — were routing through that
+same stub, and that **86% of what they reported was manufactured**.
+
+**A related shape, same cut: `bd-parband`'s selftest asserted its delegation
+target was PRESENT.** That file is unconditionally present in a checkout, so the
+check could not fail for the reason that mattered and reported PASS over the
+wrong runner indefinitely. **Presence of a file is not reachability of a
+runner** — ask the interpreter, not the filesystem.
+
 **Two populations share the word "tools":** `tools/**/*.py` and the
 `toolchain/bin` bd-* suite. They are **disjoint** populations with different
 members, and several checks disagree only because they count different ones —

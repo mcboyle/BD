@@ -3950,9 +3950,49 @@ ONGOING, NOT A FINISH LINE (33)
  33. **The prose-only pool** -- baseline 184 of a 240-tool population.
      A ratchet, not a target.
 
-ADDED v3.66.944 (34-35). Both were prose notes elsewhere before they were
-numbered, and item 34 is here specifically because a prose note is not a
-record -- see 15.62's closing paragraph.
+ADDED v3.66.944 (34-35), v3.66.951 (36). All were prose notes elsewhere before
+they were numbered, and item 34 is here specifically because a prose note is not
+a record -- see 15.62's closing paragraph.
+
+ 36. **An unattributed writer put a database in the repo root** -- measured
+     2026-08-08 17:13:40, `downloader_history.db`, 12288 bytes, containing ONE
+     table: `selector_drift`. Gitignored (`.gitignore:20`), so nothing warned.
+     It is item 11's operator-visible harm recurring hours AFTER @942 shipped,
+     which is why it is numbered rather than waved off.
+
+     **FOUR CANDIDATES RULED OUT BY MEASUREMENT, so nobody re-walks them.** Each
+     used a `sqlite3.connect` wrapper proven in both directions first (records a
+     relative connect from the repo root; silent on tmp and `:memory:`), with the
+     plugin's load confirmed in every process:
+
+     | swept | result |
+     | --- | --- |
+     | full suite, parallel (`-n 4 --dist loadfile`), 14956 passed | 0 |
+     | full 113-file band, SERIAL, one process, 1460 passed | 0 |
+     | `tools/gui_parity_inventory.py` | 0 |
+     | full `bd-regen-order` chain | 0 |
+     | bd-freshcheck, bd-guardcheck, check_requirements, bd-kb-sync, bd-env-report-check | 0 |
+
+     Both configurations were run deliberately: @942's mechanism is a background
+     thread firing after a test restores cwd, and worker lifetimes differ
+     between serial and `--dist loadfile`. Reporting only the parallel run would
+     have been a denominator excluding the shape most likely to reproduce.
+
+     **STILL UNATTRIBUTED.** `selector_drift` reaches the database through
+     `_db.db_conn()`, so it is the same `_resolve_db_path()` path -- the caller
+     is what is unknown, not the mechanism. CLAUDE.md section 5 warns that an
+     ad-hoc probe importing `bulk_downloader` from the repo root does exactly
+     this, and several were run that day; that is the most probable explanation
+     and there is NO evidence for it, so it is recorded as a hypothesis and not
+     as a finding. Unknown is a third state.
+
+     **WHAT WOULD CLOSE IT:** sweep the `toolchain/bin` population the way the
+     suite was swept. A `.pth` in the venv's site-packages installs a connect
+     wrapper into EVERY interpreter regardless of PYTHONPATH stripping, which is
+     the only injection that survives the tools that strip it (`bd-regen-order`
+     does, for documented reasons). Evidence preserved at `/tmp/stray_1713.db`
+     for this session only -- the container is ephemeral, so re-derive rather
+     than expecting the file.
 
  34. **CLOSED at v3.66.945.** Root-caused, fixed, and the four failures are
      gone from the same 114-file band (1462 passed). The title below was wrong
@@ -4092,6 +4132,91 @@ THE CAVEAT, and it OVERRIDES size. **Hold 15 and 14 back regardless of how
 small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
+
+### 15.68 | SESSION CLOSE 2026-08-08 at 47409ed (v3.66.950) -- seventeen cuts, four captures, and three tools that were lying
+
+**READ THIS FIRST IF YOU ARE A FRESH SESSION.** It supersedes 15.59's open set.
+
+STATE AT CLOSE, all verified rather than assumed:
+
+| | |
+| --- | --- |
+| `main` | `47409ed` = v3.66.950 |
+| the box | v3.66.950, captured PASS -- NOT behind |
+| working tree | clean, nothing unpushed on any branch |
+| last capture | 15060 total / 14975 passed / 0 failed / 0 errors / 85 skipped |
+
+FOUR CAPTURES, FOUR EXACT RECONCILIATIONS. Every delta is one new test file and
+nothing else moved; skips flat at 85 throughout:
+
+    @946 3f7bc1a  15041   baseline
+    @947 43b4fb0  15048   +7  (one file)
+    @949 c86e25a  15053   +5  (@948 doc-only contributed 0)
+    @950 47409ed  15060   +7  (one file)
+
+**THE THREE FINDINGS WORTH MORE THAN THE CUTS**, all the same shape: a tool
+reporting confidently about something it could not see.
+
+1. **`bd-band` -- the runner section 4 MANDATES -- was running a pytest stub.**
+   86% of its non-PASS output was manufactured (28 reported, 24 measured passing
+   under real pytest, verified 24/24). It survived because every component was
+   individually honest: the stub says what it is, `bd-band` already refused to
+   band on an interpreter lacking pytest, and `bd-parband`'s selftest asserted a
+   file was PRESENT -- unconditionally true. Three correct-looking parts
+   composing into a wrong answer. See 15.67.
+2. **Item 34 was never SSRF or VPN.** A test shipped at @940 leaked
+   `BD_INSTALL_DIR=v3` into the process; the four named tests were downstream
+   victims of a relative install dir. Three sessions read the item's title and
+   went looking in the wrong place. See 15.63.
+3. **The full suite does not hang**, and both reasons the prohibition rested on
+   were phantoms -- `test_perf_lab` passes in 2.5s, and the "second hanger"
+   names a file that has never existed in any variant. See 15.65/15.66.
+
+**THE METHOD LESSON THAT GENERALISES: a clean result from a PROVEN instrument is
+a finding; the same result from an unproven one is worth nothing.** A cwd probe
+proven able to detect a deleted cwd returned zero across the full band, and that
+NEGATIVE is what killed the obvious hypothesis and forced the search to the call
+site, where the real cause was. Every instrument this session was proven in both
+directions before any result was read, and it paid three times.
+
+**FOUR OF MY OWN MEASUREMENTS WERE WRONG FIRST, all caught by running them
+rather than by review.** Recorded because the pattern is the point -- none was
+caught by reading:
+
+- a synthetic leaking test written into a tmpdir never loads `tests/conftest.py`
+  (pytest resolves conftest from the TARGET FILE'S ancestors), so the harness
+  reported "1 passed" and the assertion read that as "the guard is broken";
+- an assertion required a bystander suite to PASS with a broken install dir,
+  when the subject was the guard's CONTRIBUTION, not the suite's verdict;
+- a fence-only document scanner could not see `requirements-test.txt`, which has
+  no fenced blocks -- the one file carrying the offence;
+- "the stub also HIDES a real failure" was stated before it was checked and is
+  RETRACTED: that file passes in isolation under both runners and fails only in
+  a co-batched run. A per-file-isolated run was compared against a co-batched
+  one and the RUNNER was blamed for an ISOLATION difference.
+
+**CLOSED THIS SESSION:** 5, 7, 9, 10, 14, 19, 21, 25, 26, 27, 28, 34, 35, item
+29's database recovery (108 files, all `integrity_check = ok`), and item 11's
+denominator question -- 0 inside-repo connects across the full suite in BOTH
+parallel and serial configurations.
+
+**OPEN, and nothing here is blocked on measurement:**
+
+- **36** -- the unattributed writer (new; four candidates already ruled out)
+- **3** -- the `/home/claude` scope draft, operator-approved to start
+- **12(c)** -- disclose the saturation cap, operator-approved: new key, API + panel
+- **the register-promise gate**, full form, operator-approved
+- **31**, **32**, **33** -- the large parallel program, unchanged
+- **17** -- needs a `bd-restart-check` exit 1 in a container; not manufacturable
+
+**QUEUE ORDER the operator set:** item 3 draft, then the promise gate, then
+12(c). Item 36 is unranked -- it is new and the operator has not seen it.
+
+**ONE ENVIRONMENTAL NOTE FOR THE NEXT SESSION:** `pytest-timeout` is declared in
+`requirements-test.txt` as of @949 and is required by the sanctioned full-sweep
+form in section 5. It was installed BY HAND in this container, so a fresh one
+gets it from the manifest -- but if the sweep ever reports no timeout guard,
+that declaration is the thing to check first.
 
 ### 15.67 | The band tool CLAUDE.md mandates was running a pytest STUB, close at c86e25a
 
