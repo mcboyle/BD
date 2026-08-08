@@ -44,7 +44,6 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TOOL = REPO_ROOT / "toolchain" / "bin" / "bd-doctor"
-MIRROR = REPO_ROOT / "project-knowledge" / "bd-doctor"
 PYTHON = REPO_ROOT / "venv" / "bin" / "python"
 
 # The dead paths. Kept as data so the assertions below name what they mean
@@ -126,14 +125,14 @@ def test_the_browser_row_names_the_backend_it_tested():
     )
 
 
-def test_the_mirror_matches():
-    """A one-copy fix is the bd-guardcheck defect repeating."""
-    if not MIRROR.exists():
-        pytest.skip("project-knowledge/bd-doctor does not exist")
-    assert MIRROR.read_bytes() == TOOL.read_bytes(), (
-        "project-knowledge/bd-doctor has drifted from toolchain/bin/bd-doctor. "
-        "Both copies change together or neither does."
-    )
+# @944: test_the_mirror_matches is GONE, not skipped. @943 retired the
+# project-knowledge mirror, after which its `if not MIRROR.exists(): skip` guard
+# could never do anything but skip -- measured in the v3.66.943 box capture,
+# where it is the single test separating 85 skips from 86. A test that can only
+# skip reports nothing while still being counted as coverage, which is the
+# denominator defect this file exists to guard against, sitting inside it. The
+# stronger property it was reaching for -- that NO duplicate of the executable
+# toolchain exists anywhere -- is held by tests/test_pk_mirrors_stay_retired.py.
 
 
 def test_the_tool_still_runs_end_to_end(tmp_path):

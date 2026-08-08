@@ -150,21 +150,37 @@ import the_module_under_test        # in a SUBPROCESS, with cwd + env controlled
 Run it with the gating flag both set and unset. Three of the four sites here
 were invisible in one of those two configurations.
 
-**THE FRESHNESS GATE CANNOT SEE THIS FILE, WHICH IS WHY THIS FILE WENT STALE.**
-Measured at v3.66.927: `bd-freshcheck`'s doc-truth check reports "65 document(s)
-scanned in `/home/user/BD/project-knowledge`" — CLAUDE.md is **not in its
-denominator**. So the one document that outranks everything the gate does check
-is the one document nothing checks. That is not hypothetical: section 5 asserted
-for weeks that `check_requirements.py` "calls `version(name)` and discards the
-result — specifiers are never compared… **Open, and nothing here can see it**",
-while the tool had already grown `Requirement()` + `specifier.contains()`. The
-sentence was self-refuting — "nothing here can see it" was true of the gate, and
-the gate's blindness is why the claim survived.
+**THIS FILE IS IN THE GATE'S DENOMINATOR AND ITS CLAIMS STILL GO STALE — AND
+THE PARAGRAPH THAT USED TO SIT HERE IS THE PROOF.** Until v3.66.944 this space
+carried a heading reading "THE FRESHNESS GATE CANNOT SEE THIS FILE", measured at
+v3.66.927 from a doc-truth line reporting "65 document(s) scanned in
+`project-knowledge`". The gate was later widened to cover root documents and
+nothing updated the paragraph, so the strongest statement of the
+documents-go-stale rule in this file spent releases being an instance of it.
+Re-measured at v3.66.944:
 
-It was caught only because a register re-derivation **ran the tool instead of
-quoting the note**. Until the gate is widened, that is the only defence: this
-file's factual claims are unverified by machine, so re-derive before citing one,
-**including from here**.
+```
+bd-freshcheck : _DOCS names CLAUDE.md and project-knowledge/SESSION_CARRY.md
+bd-doc-truth  : docs_scanned=78  (65 in project-knowledge + 13 root documents)
+                excluded=[CHANGELOG.md]   stale_count=0
+```
+
+**But the conclusion survives the correction, because the denominator is not the
+predicate.** Both checks ask whether a cited **path** still resolves. Neither can
+ask whether the cited line still SAYS what the sentence around it claims —
+`bd-freshcheck` prints that limit itself on every run ("this covers the DERIVABLE
+half of staleness only"). So a claim about *behaviour* passes both gates
+untouched, which is exactly how section 5 asserted for weeks that
+`check_requirements.py` "calls `version(name)` and discards the result —
+specifiers are never compared… **Open, and nothing here can see it**" while the
+tool had already grown `Requirement()` + `specifier.contains()`.
+
+That was caught only because a register re-derivation **ran the tool instead of
+quoting the note**, and this correction was caught the same way. It remains the
+only defence: this file's *factual* claims are unverified by machine even now, so
+re-derive before citing one, **including from here** — and note that the sentence
+you are most likely to trust is the one that has been re-read most often without
+being re-measured.
 
 **Reading this section does not inoculate you against it.** The same session
 that wrote the five items above also re-derived an import census with `grep`
@@ -1246,8 +1262,14 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   Actions. The OK is from this container, not from CI, and nothing here should
   be read as evidence about the Actions runner's egress.
 
-  **Unverified: whether the box's clone is shallow.** This reading is about the
-  cloud container and a scratch clone; do not generalise it to `test4`.
+  **MEASURED on the box 2026-08-08 (was "unverified"): `test4`'s clone is NOT
+  shallow.** `test -e .git/shallow` is false there, so a nonzero
+  `--is-ancestor` on the box is authoritative and needs none of the deepen
+  machinery above. The shallow reading remains true of the **cloud container**
+  and of scratch clones, which is where the whole repair path applies — do not
+  collapse the two. Worth knowing why it mattered: item 21 was settled on an
+  `exit=1` from the box, and that exit is only trustworthy because this line is
+  now a measurement rather than an unknown.
 
 - **The container rolls back to an old base image, and @879 changed what that
   costs you.** Five things revert together: the checkout, venv package
@@ -1671,6 +1693,24 @@ can discard someone else's work.
   carries `main` only, and the family is archived in the operator's verified
   bundle on the box. See SESSION_CARRY 15.4. The case can still arise for any
   future pre-setting branch.);
+
+  **`git bundle verify` IS NOT PROOF A BUNDLE CAN BE RESTORED FROM.** Measured
+  on the box 2026-08-08: a second bundle in the operator's home verified clean
+  -- *"records a complete history"*, *"is okay"* -- and then failed to fetch
+  into a fresh empty repo with `did not send all necessary objects`. `verify`
+  only asks whether the bundle's declared PREREQUISITES are satisfiable, and
+  prints "complete history" when the header declares none; it does not walk the
+  packfile. Run from inside a populated repo the missing objects are present
+  locally anyway, so there is nothing for it to notice -- a gate reporting OK
+  over a subject it cannot see, in git's own tooling. The archive above was
+  certified with exactly that check. It happens to pass the stronger one, which
+  was established only as a side effect of an unrelated comparison. **Any
+  bundle you intend to rely on gets the restore test, not the verify:**
+
+  ```bash
+  T=$(mktemp -d) && git init -q "$T" && \
+    git -C "$T" fetch "$BUNDLE" 'refs/*:refs/restored/*' && echo RESTORABLE
+  ```
 - the setting being turned off, or a fork PR, where it does not apply;
 - any push rejected non-fast-forward for a reason you have not identified —
   in which case the diff below is how you find out, not a formality.
