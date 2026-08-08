@@ -1,7 +1,7 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-08-08T20:00:25+00:00",
- "version_context": "v3.66.952",
+ "generated": "2026-08-08T21:00:49+00:00",
+ "version_context": "v3.66.953",
  "file_count": 120,
  "files": {
   "0_INDEX.md": {
@@ -317,8 +317,8 @@
    "bytes": 6409
   },
   "bdenv.sh": {
-   "sha256": "e8dbc344043788c58fb8c2422a967a84a5882dc4eba1f669a9e449622f68936c",
-   "bytes": 2621
+   "sha256": "5c46ecf9c3a1e0cca3736f10a20daa6f38bcbd3d18113c33c3a09afc74674ae5",
+   "bytes": 2652
   },
   "body_contract.py": {
    "sha256": "e4664851e66c3fe91aedb6d40062e22ad295c68a2310aafcf67103af258f66cd",

@@ -4,6 +4,45 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.953
+
+Tier 1 of item 3: bdenv.sh stopped destroying a correct browser pool.
+
+MEASURED, not read. `toolchain/bdenv.sh:12` exported the retired sandbox pool
+UNCONDITIONALLY, so sourcing it replaced a caller's PLAYWRIGHT_BROWSERS_PATH --
+in this container /opt/pw-browsers, holding eight real builds -- with a
+directory that does not exist:
+
+    before : /opt/pw-browsers
+    after  : /home/claude/.cache/ms-playwright
+
+`toolchain/bin/bd` and `bd-status` both source it (BD_ENV_FILE defaults to the
+file beside them), so the loss reached anything run under the wrapper.
+
+IT WAS ALREADY KNOWN AND ROUTED AROUND RATHER THAN FIXED. bd-parband carries
+"Do NOT point this at toolchain/bdenv.sh: that file still exports the retired
+prestaged PYTHONPATH and /home/claude paths", and bd-render-env names the same
+override in a comment. A workaround in two callers is not a fix in the source.
+bd-venv:67 had the correct ${VAR:-default} form the whole time, so this is the
+repo's own idiom rather than a new convention.
+
+Both copies move together: project-knowledge/bdenv.sh is byte-identical to
+toolchain/bdenv.sh and is one of five mirror pairs the pk-mirror gate cannot
+see, because that gate's denominator is toolchain/bin/* only. Editing one alone
+would have created drift nothing detects.
+
+THE HARNESS WAS WRONG FIRST, AND IT PASSED. The test drove the child with
+`PLAYWRIGHT_BROWSERS_PATH=x . file` -- a prefix assignment to the source
+builtin, which bash restores when the command returns. It therefore reported
+"preserved" against the UNFIXED source. A fixture that cannot represent the
+failure it hunts is not a test; the variable must be exported into the child.
+Recorded because the harness defect, not the subject, is the reusable lesson.
+
+The fallback is deliberately left in place. Whether bdenv.sh should export
+anything at all when the caller supplies nothing is a different question and
+belongs with the zip-era retirement item, so the literal stays and the tier-0
+allowlist is unchanged.
+
 ## v3.66.952
 
 Tier 0 of item 3: a ratchet on references to the retired sandbox home, rather

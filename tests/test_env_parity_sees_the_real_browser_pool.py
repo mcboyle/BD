@@ -180,3 +180,48 @@ def test_the_default_output_path_is_not_someone_elses_home(tmp_path):
         f"--write from cwd={tmp_path} produced no file there.\n"
         f"stdout={proc.stdout!r}\nIt wrote somewhere else, which is the defect."
     )
+
+
+def test_bdenv_does_not_clobber_a_caller_supplied_browser_path():
+    """`toolchain/bdenv.sh` exported the retired pool UNCONDITIONALLY.
+
+    Sourcing it therefore replaced a correct PLAYWRIGHT_BROWSERS_PATH -- in
+    this container /opt/pw-browsers, which holds eight real builds -- with a
+    directory that does not exist. `toolchain/bin/bd` and `bd-status` both
+    source it (`BD_ENV_FILE` defaults to the file beside them), so the loss hit
+    anything run under the wrapper.
+
+    Two tools had already routed around it rather than fixing it:
+    `bd-parband` carries "Do NOT point this at toolchain/bdenv.sh: that file
+    still exports the retired ... paths", and `bd-render-env` names the same
+    override in a comment. A workaround in two callers is not a fix in the
+    source.
+
+    `toolchain/bin/bd-venv:67` had the correct form the whole time --
+    ${PLAYWRIGHT_BROWSERS_PATH:-...} -- so this is the repo's own idiom, not a
+    new convention. The fallback is deliberately left in place: retiring what
+    bdenv.sh exports when the caller supplies nothing is a different question
+    from letting the caller win, and it belongs with the zip-era item.
+    """
+    import subprocess
+
+    for rel in ("toolchain/bdenv.sh", "project-knowledge/bdenv.sh"):
+        env_file = REPO_ROOT / rel
+        assert env_file.is_file(), f"{rel} is absent; this gate has no subject"
+        sentinel = "/opt/pw-browsers"
+        # The variable must be EXPORTED into the child, not assigned as a
+        # prefix to `.`: bash restores a prefix assignment when the command
+        # returns, so that form reports "preserved" no matter what the file
+        # does. It passed against the unfixed source -- a harness that cannot
+        # represent the failure it is hunting.
+        out = subprocess.run(
+            ["bash", "-c",
+             f'. "{env_file}" >/dev/null 2>&1; '
+             f'printf "%s" "$PLAYWRIGHT_BROWSERS_PATH"'],
+            env={**os.environ, "PLAYWRIGHT_BROWSERS_PATH": sentinel},
+            capture_output=True, text=True, timeout=60).stdout.strip()
+        assert out == sentinel, (
+            f"{rel} replaced a caller-supplied PLAYWRIGHT_BROWSERS_PATH "
+            f"({sentinel}) with {out!r}. Use the ${{VAR:-default}} form so an "
+            f"environment that already knows where the browsers are wins."
+        )
