@@ -4093,6 +4093,130 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.66 | The full suite does not hang: the exemption, the measurement, and what it does NOT license, close at 43b4fb0
+
+15.65 left the no-full-suite rule standing on the one case that could not be
+tested without breaking it. The operator granted a one-time 30-minute exemption
+and it settled the question.
+
+**MEASURED at v3.66.948**, with `pytest-timeout` installed specifically because
+it is the only instrument that converts a hang into a NAMED test with a stack
+rather than an unexplained stall:
+
+```
+tests/  -n 4 --dist loadfile --timeout=240 --timeout-method=thread -q -p no:randomly
+14 failed, 14943 passed, 91 skipped in 635.42s (10m35s)
+tests exceeding 240s: ZERO -- the guard never fired
+```
+
+The 14 are the documented container-only set: `test_e2e_smoke` x7, the
+`no_backend` body-contract case, absent-interpreter `exec_bridge` x5, a
+no-tunnel vpn probe. **Item 34's four order-dependent failures are ABSENT**,
+which is @945's fix holding at full denominator and a second confirmation of
+that cut.
+
+**NO SUBAGENTS WERE USED AND THAT WAS THE RIGHT CALL.** The offer was made; the
+bottleneck is four cores running CPU-bound tests, and agents contend for exactly
+that. CLAUDE.md section 5 already records eleven agents being SLOWER than inline
+at v3.66.926 for the same reason. Reach for parallelism when the constraint is
+reasoning, not when it is cores.
+
+**WHAT IT DOES NOT LICENSE**, now written into the contract rather than left to
+a reader's judgement:
+
+- **One ORDERING was measured.** `-p no:randomly` with `--dist loadfile` keeps
+  each file whole on one worker, so an interleaving-dependent hang was never
+  given the chance. One green run is not a proof of absence.
+- **It was PARALLEL.** The original prohibition most plausibly concerned a
+  serial local run; that is a different denominator and remains untested.
+- **It is not the box.** Section 7 is unchanged -- 14 of those failures are
+  environmental here and pass on `test4`. Use the sweep to answer "does anything
+  hang or interact", never "is the tree good".
+
+**THE INSTRUMENT HAD TO BE DECLARED, NOT JUST USED.** Section 5 records that
+anything installed by hand lives only until the session ends. A relaxed rule
+depending on an undeclared `pytest-timeout` hands the next agent the sweep with
+nothing watching -- and a hang becomes an unexplained stall again, which is
+exactly how the phantom second hanger got recorded. It is declared in
+`requirements-test.txt` for the reason pyflakes is there: `requirements-dev.txt`
+is not on the deploy path.
+
+**AND THE TEST MANIFEST HAD BEEN INSTRUCTING AGENTS TO BREAK THE RULE.** Its own
+comment block advertised the whole suite with no timeout as the way to run
+everything. The file you read to set the environment up told you to do the one
+thing the contract prohibited -- the two-agent-facing-instructions defect
+section 8 exists to stop, with the losing copy in a manifest nobody thinks of as
+a document. Removed.
+
+**THE GATE'S OWN SCANNER HIT THREE TRAPS THIS CONTRACT DOCUMENTS**, all three
+caught by running it and none by review, which is the reusable part:
+
+1. **Fence-only scanning could not see its subject.** `requirements-test.txt`
+   has no fenced blocks, so the denominator structurally excluded the one
+   document actually carrying the offence -- in a comment, which in a manifest
+   IS the documentation. The scan reported clean over the thing it was written
+   to find.
+2. **A line-scoped check failed the CORRECT command.** The sanctioned invocation
+   is backslash-continued, so the `--timeout` that makes it legal sits on line
+   two. Section 0 records that shape three times over shell loops; this is a
+   fourth, in a different syntax. `tests/shell_source.blocks_containing` was
+   deliberately NOT reused -- its subject is enclosing shell CONSTRUCTS, not
+   line continuation, and reaching for it would be the right tool on the wrong
+   question.
+3. **The comment explaining the removal named the removed commands**, putting
+   them back in the file and tripping the gate. Cite the mechanism, never the
+   literal.
+
+### 15.65 | The phantom second hanger: both reasons for the no-full-suite rule are disproven, close at 43b4fb0
+
+The operator chose "identify the phantom second hanger" over "add a sharded
+container lane", on the argument that the no-full-suite rule could then be
+relaxed with evidence rather than by assertion. The evidence came back and it
+does not license relaxing the rule -- which is a more useful answer than the one
+that was hoped for.
+
+WHAT WAS MEASURED, every run individually bounded so the investigation did not
+violate the rule it was investigating:
+
+| claim the rule rested on | measured at v3.66.947 |
+| --- | --- |
+| `test_perf_lab.py` is THE recorded hanger | 17 passed in **2.5s**, and identically with `BD_DISABLE_KEEPALIVE` POPPED |
+| a second hanger, `test_v3_66_146_nav_guard` | **no file of that name exists**, in any variant |
+| the two real `146` files are slow | 23 passed in **0.77s** |
+| a sweep of hang-prone shapes | **79** files (6% of 1270), zero hangs |
+
+The sweep's predicate: `while True`; `.join()`/`.wait()`/`.acquire()` with no
+timeout; `subprocess` with no `timeout=`; unbounded HTTP. 69 real test files all
+completed; 9 were helper modules under `tests/_phase_scripts/` and
+`tests/scan_wait.py` that collect nothing.
+
+**THE SINGLE TIMEOUT WAS THE INSTRUMENT.** `test_fuzz_harness_frontend.py` hit a
+60s cap; raised to 120s it returns 0 in 75s with 102 passed. **A timeout is not
+evidence of a hang unless the bound EXCEEDS the legitimate runtime** -- set it
+from the slowest known file, not from a guess. Written up as a hang it would
+have sent the next session after a defect that does not exist, which is exactly
+the phantom this work set out to close, recreated by the work itself.
+
+**AND THE SWEEP'S OWN LOOP LOST A FILE.** The candidate list was written without
+a trailing newline, so `while read` silently dropped its last entry; "full
+coverage" would have been false by one. Caught only by diffing the input list
+against the results. The dropped file then probed clean in 1s. A denominator
+that shrinks in silence is section 0 in the measuring apparatus, and `while read
+< file` does that by default.
+
+**WHY THE RULE STANDS.** The untested case is a hang that emerges only in a
+FULL-SUITE run, through order or resource interaction no per-file probe can
+reproduce -- and testing it requires running the full suite, which is the rule.
+Circular by construction. Item 34 is the precedent and it is not hypothetical:
+four failures that appear only in a multi-file band and pass 15/15 in isolation.
+
+So the rule's basis moved from "two named files" to "an untested interaction
+case", and CLAUDE.md section 5 now says that in as many words -- because the
+named files are gone, and an agent citing them is citing nothing. **If this is
+ever to be settled, the sharded-lane option is the only instrument that can do
+it**; the operator declined it once in favour of this measurement, and this
+measurement is the argument for reconsidering.
+
 ### 15.64 | @945's guard broke the rule @945 shipped, close at 77d821a
 
 @945 closed item 34 with an autouse guard that fails any test leaving

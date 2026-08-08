@@ -4,6 +4,113 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.949 - the full-suite prohibition becomes a bounded, instrumented procedure
+
+@948 disproved both named reasons for CLAUDE.md section 5's ban on running the
+whole tests/ directory, and left the rule standing on the one case that could
+not be tested without breaking it: a hang emerging only in a full-suite run.
+The operator granted a one-time exemption. Measured at v3.66.948 with
+pytest-timeout armed specifically to NAME a hanging test and dump its stack:
+
+    tests/ -n 4 --dist loadfile --timeout=240 --timeout-method=thread
+    -> 14 failed, 14943 passed, 91 skipped in 635.42s (10m35s)
+    -> tests exceeding 240s: ZERO. The guard never fired.
+
+The 14 are the documented container-only set (test_e2e_smoke x7, the no_backend
+body-contract case, absent-interpreter exec_bridge x5, a no-tunnel vpn probe).
+Item 34's four order-dependent failures are ABSENT -- @945's fix holding at full
+denominator.
+
+THE SWEEP IS NOW PERMITTED IN EXACTLY ONE FORM, documented in section 5 with
+every flag justified: --timeout turns a hang into a named test instead of a
+stall, --timeout-method=thread dumps its stack, --dist loadfile is the
+distribution actually measured, -n 4 matches the container's cores. A bare
+`pytest tests/` remains forbidden.
+
+pytest-timeout is DECLARED in requirements-test.txt, not merely used. Section 5
+records that anything installed by hand lives only until the session ends, so a
+relaxed rule depending on an undeclared instrument hands the next agent the
+sweep with nothing watching -- and a hang becomes an unexplained stall again,
+which is how the phantom second hanger got recorded in the first place. It goes
+in the TEST manifest for the reason pyflakes is there: requirements-dev.txt is
+not on the deploy path.
+
+AND THE TEST MANIFEST WAS INSTRUCTING AGENTS TO BREAK THE RULE. Its own comment
+block advertised the whole suite with no timeout, as the documented way to run
+everything -- so the file you read to set the environment up told you to do the
+one thing the contract prohibited. Two agent-facing instructions in conflict is
+the defect section 8 exists to stop, and the losing one sat in the manifest.
+Removed; the suite now has one sanctioned form and it lives in one place.
+
+WHAT THIS DOES NOT LICENSE, stated in the contract as well: one ORDERING was
+measured (-p no:randomly with --dist loadfile keeps each file whole on one
+worker, so an interleaving-dependent hang was never given the chance); it was
+PARALLEL, and a serial full run is a different denominator still untested; and
+it is not a substitute for the box, since 14 of those failures pass there.
+
+THE GATE'S OWN SCANNER HIT TWO TRAPS THIS CONTRACT DOCUMENTS, both caught by
+running it rather than by review:
+  * FENCE-ONLY SCANNING COULD NOT SEE ITS SUBJECT. requirements-test.txt carries
+    no fenced blocks, so the denominator structurally excluded the one document
+    actually advertising the forbidden form -- in a comment, which in a manifest
+    IS the documentation. The scan reported clean over the offence it was
+    written to find.
+  * A LINE-SCOPED CHECK FAILED THE CORRECT COMMAND. Section 5's sanctioned
+    invocation is backslash-continued, so the --timeout that makes it legal sits
+    on line two and the scan reported it as a violation. Section 0 records that
+    shape three times over shell loops; continuation joining is a fourth
+    instance, and shell_source.blocks_containing is deliberately NOT reused --
+    its subject is enclosing shell constructs, not line continuation.
+  * A third: the manifest comment explaining the removal originally NAMED the
+    removed commands, which re-created them in the file and tripped the gate.
+    Cite the mechanism, never the literal.
+
+RED-first: 3 of 5 failed on pristine. Mutation 3 mutants, 3 caught / 0 escaped,
+covering both scanner blindnesses and the timeout requirement itself.
+
+## v3.66.948 - the phantom second hanger: both reasons for the no-full-suite rule are disproven
+
+CLAUDE.md section 5 forbids running the whole tests/ directory locally and gave
+two reasons. Re-measured 2026-08-08 at v3.66.947, every run individually bounded,
+both are gone:
+
+    test_perf_lab.py            17 passed in 2.5s -- and identically with
+                                BD_DISABLE_KEEPALIVE POPPED, so the flag is not
+                                what is holding it together
+    test_v3_66_146_nav_guard    no file of that name exists, in any variant
+    the two real 146 files      23 passed in 0.77s
+
+A targeted sweep found no hang either. 79 files carrying hang-prone shapes
+(`while True`; `.join()`/`.wait()`/`.acquire()` with no timeout; `subprocess`
+with no timeout=; unbounded HTTP) -- 6% of 1270 tracked test files -- each run
+under a hard cap. 69 real test files all completed and 9 were helper modules
+collecting nothing.
+
+THE ONE TIMEOUT WAS THE INSTRUMENT, NOT A DEFECT. test_fuzz_harness_frontend.py
+hit a 60s cap; raised to 120s it returns 0 in 75s, 102 passed. A timeout is not
+evidence of a hang unless the bound EXCEEDS the legitimate runtime -- set it
+from the slowest known file, not from a guess. Reported as a hang it would have
+sent the next session hunting a defect that does not exist, which is the same
+shape as the phantom this cut set out to close.
+
+AND THE SWEEP'S OWN INSTRUMENT LOST A FILE. The candidate list was written
+without a trailing newline, so `while read` silently dropped its last entry and
+the "full coverage" claim would have been false by one. Caught by diffing the
+input list against the results rather than trusting the loop; the dropped file
+then probed clean in 1s. A denominator that shrinks in silence is section 0 in
+the measuring apparatus.
+
+THE RULE STANDS ANYWAY, AND THAT IS THE POINT. What remains untested is whether
+a hang emerges only in a FULL-SUITE run through order or resource interaction
+that no per-file probe can reproduce -- and testing that requires running the
+full suite, which is the rule itself. Circular by construction. So the rule's
+basis is now "an untested interaction case" rather than "two named files", and
+the paragraph says so: the named files are gone and citing them is citing
+nothing. Register item 34 is the precedent -- four failures that appear only in
+a multi-file band and vanish in isolation.
+
+Doc-only: CLAUDE.md section 5 and the register. No source change, no test change.
+
 ## v3.66.947 - item 35: the static-KB manifest could not be regenerated at all
 
 Register item 35 read "STATIC_KB_MANIFEST.json is gated but not REGENERATED, so
