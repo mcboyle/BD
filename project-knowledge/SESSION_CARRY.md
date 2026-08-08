@@ -3803,8 +3803,16 @@ BLOCKED ON THE OPERATOR (1-3)
      retiring the wrong tool is not repairable. CANNOT-EVALUATE, not unknown.
   2. **Item 9** -- `capture.sh` commit identity. Release gate, needs explicit GO.
      Item 19 below rides this same cut.
-  3. **Item 16 (s5)** -- `/home/claude` residue. Blocked on a scope call: a
-     blanket sweep turns red a test that positively pins the string.
+  3. **CLOSED at v3.66.952-954 in three tiers**, and the item's premise was
+     wrong twice over. It said a sweep "turns red a test that positively pins
+     the string" -- singular; measured, at least TEN test files pin it, and
+     several exist IN ORDER TO assert the path is retired, so a blanket sweep
+     would have deleted their subject. Re-measured population: 188 carriers /
+     829 lines (374 executable, 455 prose), not the register's 246, which was
+     measured at 28cc9de. Tier 0 froze the population, tier 1 fixed a live
+     defect (bdenv.sh clobbering a correct PLAYWRIGHT_BROWSERS_PATH), tier 2
+     widened the pk-mirror gate that could not see 20 of its own subjects. The
+     zip-era retirement is item 38.
 
 WORK, NOT BLOCKED (4-19)
 
@@ -3962,7 +3970,55 @@ ADDED v3.66.944 (34-35), v3.66.951 (36). All were prose notes elsewhere before
 they were numbered, and item 34 is here specifically because a prose note is not
 a record -- see 15.62's closing paragraph.
 
- 36. **An unattributed writer put a database in the repo root** -- measured
+ 36. **CLOSED at v3.66.958: the MECHANISM is reproduced exactly, the CALLER
+     is unrecoverable, and a SIXTH population was found and is already fixed.**
+
+     Reproduced byte-for-byte. One `selector_drift.status_all()` call with
+     repo-root cwd and `BD_INSTALL_DIR` unset creates `downloader_history.db`
+     at **12288 bytes with exactly one table, `selector_drift`** -- the
+     register's own measurement of the stray file. Stack:
+     `selector_drift.py:172 status_all` -> `:41 _ensure_table` ->
+     `db.py:613 db_conn` -> `db.py:558 _open_history_conn`.
+
+     FIFTH POPULATION RULED OUT, which is what this item said would close it.
+     `bd-sweep --selftests` with a `.pth` connect wrapper armed: **175 of 175
+     allowlisted tools ran, 0 repo-root connects, no database created.**
+     Denominator stated: 238 tools in `bin`, 63 not runnable
+     (operational/never-exec), and a `--selftest` need not reach a tool's real
+     DB path -- a floor, not a proof. The wrapper was proven in three
+     directions first (records a repo connect, silent on tmp and `:memory:`,
+     survives `PYTHONPATH` stripping).
+
+     `drift_repair.scheduled_drift_repair` is also out: it checks its toggle
+     BEFORE touching the DB, so the daily sweep never reaches `_ensure_table`.
+
+     **THE SIXTH POPULATION IS THE PROVISIONER, AND NOBODY HAD SWEPT IT
+     BECAUSE IT RUNS BEFORE A SESSION.** Every earlier sweep covered things
+     that run INSIDE one. The 2026-08-05 container carried its own repo-root
+     `downloader_history.db` -- 217088 bytes, 17 tables, `schema_migrations`
+     at 9 rows, with a `.premigration.bak` written 26ms earlier by
+     `migrations.py:214` -- timestamped `21:52:45`, inside `cloud-setup.sh`'s
+     window (`21:49:21` -> `21:53:08`), on a snapshot based at **v3.66.883,
+     before @926 removed the module-scope writers**. Re-measured at HEAD, the
+     provisioner's own version probe creates NOTHING with the keepalive flag
+     set and unset alike: @926's fix holds. Recorded as a closed finding.
+
+     **WHAT CANNOT BE ESTABLISHED, and why the item closes anyway.** The
+     2026-08-08 17:13:40 file's caller died with its container. CLAUDE.md
+     section 5's ad-hoc-probe warning is now STRONGLY supported -- any bare
+     `python -c` importing the module from the repo root does exactly this --
+     but supported is not proven and it is not upgraded to a finding. Held
+     open, it could never close: a probe run outside the suite is unobservable
+     after the fact.
+
+     **NO GUARD WAS BUILT, DELIBERATELY.** The obvious fix -- refuse a DB path
+     resolving inside the repo -- BREAKS THE BOX, which runs the service from
+     its own checkout at `/home/mboyle/BulkDownloader`, where "inside the repo"
+     and "the install dir" are the same directory. It would fire on production
+     and be switched off: section 0's over-sensitivity failure, shipped on
+     purpose. The residual risk is a discipline issue, not a code defect.
+
+     ORIGINAL TEXT: "An unattributed writer put a database in the repo root" -- measured
      2026-08-08 17:13:40, `downloader_history.db`, 12288 bytes, containing ONE
      table: `selector_drift`. Gitignored (`.gitignore:20`), so nothing warned.
      It is item 11's operator-visible harm recurring hours AFTER @942 shipped,
@@ -4002,13 +4058,36 @@ a record -- see 15.62's closing paragraph.
      for this session only -- the container is ephemeral, so re-derive rather
      than expecting the file.
 
- 37. **The register-promise gate** -- a finding is a numbered item in this
+ 37. **CLOSED at v3.66.955.** The register-promise gate -- a finding is a numbered item in this
      inventory or it does not exist. Named in 15.68's open set WITHOUT a
      number, which is the exact prose form 15.62 said must stop; numbered here
      because the gate's own direction A rejects an unnumbered promise, and
      excusing its own item would have been the first thing it certified
      falsely. CLOSED at v3.66.955 --
      `tests/test_register_promises_resolve.py`, both directions.
+
+ 38. **The zip-era retirement** -- 20 tracked files whose executable
+     `/home/claude` references describe the zip install workflow the git
+     deploy abolished (CLAUDE.md section 7). `bd-install` unzips
+     `BulkDownloader_v*.zip` and `rm -rf`s a work tree; `bd-status`
+     health-checks nine sandbox paths; `install_bulkdl_kits.sh` alone carries
+     **92 executable lines**, a quarter of the whole population. None of
+     `bd-install`, `bd-status`, `bd-boot` appears in `ci.yml`, `capture.sh` or
+     `scripts/*.sh`. Together they are ~45% of the executable `/home/claude`
+     population. RETIRE THE FILES, do not rewrite their paths -- rewriting
+     yields a working installer for an abolished workflow. Split out of item 3
+     on operator decision at v3.66.954 because it is a retirement call at item
+     33's scale, not a path fix. PRECONDITION: a per-tool reachability
+     measurement first; "appears in no lane" is not "nothing calls it".
+
+ 39. **The twenty byte-identical project-knowledge duplicates** -- frozen in
+     `_KNOWN_DUPLICATES` at v3.66.954 so no NEW one can appear, and the list
+     may only shrink. They became visible only when that cut widened the
+     gate's denominator past `toolchain/bin/*` and its predicate past
+     basename-matching. Retiring them is cheap per file but each needs its
+     inbound-citation check first, which is what `bd-scan.py` needed. The
+     baseline is machine-readable, so this item is a plan rather than a
+     finding at risk of being lost.
 
  34. **CLOSED at v3.66.945.** Root-caused, fixed, and the four failures are
      gone from the same 114-file band (1462 passed). The title below was wrong
@@ -4148,6 +4227,107 @@ THE CAVEAT, and it OVERRIDES size. **Hold 15 and 14 back regardless of how
 small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
+
+### 15.69 | SESSION CLOSE 2026-08-08 at 0f3e435 (v3.66.951 base) -- the operator queue, six cuts, and three gates that could not see their own subjects
+
+**READ THIS FIRST IF YOU ARE A FRESH SESSION.** It supersedes 15.68's open set.
+
+ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
+OPEN:   12, 17, 31, 32, 33, 38, 39
+CLOSED: 3, 18, 36, 37
+
+The close tip named above is `0f3e435`, the commit this branch was cut FROM and
+already on `main` -- deliberately not this branch's tip, which the squash
+destroys, turning a green pre-merge check red on `main` where no band reaches
+it (CLAUDE.md section 4).
+
+SIX CUTS, every band run with REAL pytest per section 4:
+
+| cut | subject | band |
+| --- | --- | --- |
+| @952 | item 3 tier 0 -- a ratchet on the retired sandbox home | 255 |
+| @953 | item 3 tier 1 -- bdenv.sh stopped destroying a correct browser pool | 231 |
+| @954 | item 3 tier 2 -- the pk-mirror gate could not see 20 duplicates | 310 |
+| @955 | the register-promise gate, both directions | 219 |
+| @956 | item 18 adjudicated closed | 68 |
+| @957 | item 12(c) -- a capped audit count says it is a floor | 271 |
+
+**THE THREE FINDINGS WORTH MORE THAN THE CUTS**, all one shape: a gate whose
+denominator excluded its own subject.
+
+1. **`test_pk_mirrors_stay_retired` enumerated `toolchain/bin/*` and matched on
+   BASENAME.** Twenty byte-identical duplicates whose origin is `tools/` or
+   `toolchain/` were structurally invisible, and its `_NOT_A_MIRROR` exception
+   declared `bd-scan.py` "a real tool with no toolchain/bin twin, not a copy"
+   while it was byte-identical to `tools/bd-scan.py`. True as written,
+   misleading in effect. Same tree, same file: **0 duplicates reported, then 21.**
+2. **`toolchain/bdenv.sh:12` exported the retired browser pool
+   UNCONDITIONALLY**, replacing `/opt/pw-browsers` (eight real builds) with a
+   directory that does not exist, for anything run under `bd` or `bd-status`.
+   Two tools had already ROUTED AROUND it in comments rather than fixing it.
+3. **`audit()`'s docstring claimed `missing` and `size_drift` were one
+   population.** One LIMIT is not one WHERE: the drift window adds
+   `file_size > 0`, so they saturate independently and a single disclosure flag
+   would have been wrong in both directions.
+
+**THE METHOD LESSON: THE FIX REPRODUCES THE SHAPE OF THE DEFECT, and it landed
+three times in one session.** Each was caught by RUNNING something, never by
+review:
+
+- the @953 test harness drove the child with `VAR=x . file` -- a prefix
+  assignment to the source builtin, which bash RESTORES when the command
+  returns -- so it reported "preserved" against the UNFIXED source and passed.
+  A fixture that cannot represent the failure it hunts is not a test.
+- @955's own unnumbered-promise test drove a HAND-BUILT dict, so the parser
+  could drop a prose row unobserved; and its session-close predicate could
+  match every section, because the newest section happens to carry a ledger.
+  Both found by mutation, neither by reading.
+- @955's direction B read only the NEWEST ledger, so writing THIS section would
+  have made the eleven items 15.68 closed read as unaccounted -- the gate
+  manufacturing a gap by the act of recording the next session. Fixed at @958:
+  a close is permanent and CLOSED accumulates across ledgers.
+
+**WHAT THE PROMISE GATE FOUND ON ITS FIRST RUN.** 15.68 accounted for 25 of 36
+inventory entries; **eleven were accounted for nowhere** -- 1, 2, 8, 11, 13, 16,
+18, 20, 23, 29, 30. Two of those are PARTIAL closes a prose reading scores as
+whole: 15.68 closed item 11's DENOMINATOR question and item 29's DATABASE
+RECOVERY, not the items. Item 18 was then adjudicated closed by RUNNING the tool
+(`pytest>=99.0` exits 1), leaving a baseline of ten. Freezing rather than
+adjudicating the rest is deliberate: writing statuses nobody measured is the
+failure this register exists to prevent.
+
+**CLAUDE.md CORRECTED IN TWO PLACES, both section 7.** Its CI bullet named
+`test_pk_mirrors_do_not_drift`, a file that does not exist -- a band derived
+from that paragraph died on `file or directory not found` while `ci.yml` was
+correct throughout -- and it described two jobs and an inline gate lane after
+CI had split into three jobs with a sharded `gate-suites`.
+
+**ENVIRONMENT NOTES A FRESH SESSION WILL WANT.**
+
+- **A shallow clone breaks `rev-list --branches --not --remotes`, not just
+  `--is-ancestor`.** The operator's own session check reported 50 unpushed
+  commits; the true answer was 0. Local `main` sat at the snapshot base below a
+  50-deep graft, so the two chains did not overlap in the visible window. Only
+  `--is-ancestor` exit 0 is trustworthy while shallow; `--deepen` then answers.
+  This container was deepened to 426 and is no longer shallow.
+- **The repo-root `downloader_history.db` present at session start was NOT
+  item 36's** -- 217088 bytes / 17 tables / 2026-08-05, versus 12288 / 1 table
+  / 2026-08-08. It is provisioning residue baked into the snapshot; see item 36.
+  It was modified during item 36's investigation (18 tables now, still 0 data
+  rows) and is ephemeral container state.
+
+**OPEN, with nothing blocked on measurement:** **38** (zip-era retirement, ~45%
+of the executable `/home/claude` population), **39** (the twenty frozen
+duplicates), **12** (producer divergence -- 12(c) shipped at @957), **17**
+(needs a `bd-restart-check` exit 1 in a container; not manufacturable), **31**,
+**32**, **33** (the large parallel program, unchanged). Plus the ten baselined
+in `_UNACCOUNTED`, which want the 15.51 treatment: re-derive each, expect most
+to be closed already.
+
+**NOT BOX EVIDENCE.** Every band here is a container band. @957 changed
+`library_final.py` and the SPA, and `frontend/dist` is gitignored and NOT
+delivered by `git reset --hard`, so the box needs `npm run build` -- which
+`scripts/deploy.sh` does and a manual deploy does not.
 
 ### 15.68 | SESSION CLOSE 2026-08-08 at 47409ed (v3.66.950) -- seventeen cuts, four captures, and three tools that were lying
 

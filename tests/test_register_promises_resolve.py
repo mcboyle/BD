@@ -113,6 +113,14 @@ def _ledger(body: list[str]) -> dict[str, set[int]] | None:
     for line in body[start + 1:]:
         if line.startswith("```") or line.strip().startswith("### "):
             break
+        # A ledger is a CONTIGUOUS block: the first blank line after it ends
+        # it. Without this the indented-continuation rule below swallowed the
+        # whole section, and prose reading "50-deep graft" parsed as item 50 --
+        # caught by direction A on this file's own 15.69, which is the gate
+        # finding a defect in its own parser on real data rather than on a
+        # fixture.
+        if key is not None and not line.strip():
+            break
         m = _LEDGER_ROW.match(line.strip())
         if m:
             key, rest = m.group(1), m.group(2)
@@ -241,6 +249,36 @@ def test_every_declared_item_resolves_to_a_numbered_entry():
             f"then cite the number")
 
 
+def _closed_ever() -> set[int]:
+    """Every item any ledger has declared CLOSED.
+
+    A close is PERMANENT. Reading only the newest ledger would make the eleven
+    items 15.68 closed read as unaccounted the moment a newer close existed --
+    the gate would manufacture a gap by the act of writing the next session's
+    section. Found while writing 15.69, one cut after the gate shipped.
+    """
+    out: set[int] = set()
+    for _n, _t, body in _session_closes():
+        led = _ledger(body)
+        if led is not None:
+            out |= led["CLOSED"]
+    return out
+
+
+def test_a_close_is_permanent_and_does_not_reopen():
+    """The property the accumulator exists for, asserted over the real register.
+
+    15.68 declared items closed; a later session close must not make them
+    unaccounted. Without this, direction B fails on a register that is correct.
+    """
+    closes = _session_closes()
+    assert len(closes) >= 2, "needs at least two session closes to be meaningful"
+    older = _ledger(closes[-2][2]) or {"CLOSED": set()}
+    if older["CLOSED"]:
+        assert older["CLOSED"] <= _closed_ever(), (
+            "an older ledger's CLOSED set is not carried forward")
+
+
 def test_every_inventory_entry_is_accounted_for():
     """Direction B: nothing open may silently vanish from the close."""
     items, closed_in_inventory = _inventory()
@@ -248,7 +286,7 @@ def test_every_inventory_entry_is_accounted_for():
     assert closes, "BD-GATE-UNRUNNABLE: no session-close section"
     led = _ledger(closes[-1][2])
     assert led is not None, "the newest session close carries no ledger"
-    accounted = closed_in_inventory | led["OPEN"] | led["CLOSED"] | _UNACCOUNTED
+    accounted = closed_in_inventory | led["OPEN"] | _closed_ever() | _UNACCOUNTED
     missing = sorted(items - accounted)
     assert not missing, (
         f"{len(missing)} inventory entr(ies) are accounted for nowhere -- not "
@@ -262,7 +300,7 @@ def test_no_unaccounted_entry_is_stale():
     items, closed_in_inventory = _inventory()
     led = _ledger(_session_closes()[-1][2])
     assert led is not None
-    now_accounted = closed_in_inventory | led["OPEN"] | led["CLOSED"]
+    now_accounted = closed_in_inventory | led["OPEN"] | _closed_ever()
     stale = sorted(_UNACCOUNTED & now_accounted)
     assert not stale, (
         f"item(s) {stale} are declared in the ledger AND still listed as "
@@ -270,3 +308,28 @@ def test_no_unaccounted_entry_is_stale():
     ghosts = sorted(_UNACCOUNTED - items)
     assert not ghosts, (
         f"_UNACCOUNTED names item(s) {ghosts} that are not in the inventory")
+
+
+def test_the_ledger_block_ends_at_the_first_blank_line():
+    """Prose after a ledger is prose, not more ledger.
+
+    The continuation rule that lets a long OPEN row wrap once swallowed the
+    entire section, so a sentence about a "50-deep graft" was read as a
+    declaration about item 50. Direction A caught it on the real register.
+    """
+    led = _ledger([
+        "ITEM LEDGER", "OPEN:   3, 12", "CLOSED: 5",
+        "",
+        "  50-deep graft, so the two chains did not overlap.",
+        "  99 bottles, and a wrapped prose line.",
+    ])
+    assert led is not None
+    assert led["OPEN"] == {3, 12} and led["CLOSED"] == {5}
+    assert not led["_unnumbered_text"], led["_unnumbered_text"]
+
+
+def test_a_wrapped_ledger_row_is_still_read():
+    """The continuation rule must survive the fix -- a long row may wrap."""
+    led = _ledger(["ITEM LEDGER", "OPEN:   3, 12,", "        17, 31", "CLOSED: 5"])
+    assert led is not None
+    assert led["OPEN"] == {3, 12, 17, 31}

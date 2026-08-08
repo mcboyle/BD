@@ -4,6 +4,55 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.958
+
+Session close: item 36 closed, items 38 and 39 filed, and the promise gate
+caught two defects in itself.
+
+ITEM 36 CLOSED -- mechanism reproduced exactly, caller unrecoverable. One
+selector_drift.status_all() call with repo-root cwd and BD_INSTALL_DIR unset
+creates downloader_history.db at 12288 bytes with exactly one table,
+selector_drift: byte-for-byte the register's measurement of the stray file. The
+fifth population -- the one the item said would close it -- is ruled out:
+bd-sweep --selftests with a .pth connect wrapper armed ran 175 of 175
+allowlisted tools with 0 repo-root connects. Denominator stated honestly: 238
+tools in bin, 63 not runnable, and a selftest need not reach a tool's real DB
+path.
+
+A SIXTH POPULATION WAS FOUND AND IS ALREADY FIXED. Nobody had swept the
+provisioner because it runs BEFORE a session and every earlier sweep covered
+things that run inside one. This container carried its own repo-root database
+from cloud-setup.sh's window on a v3.66.883 snapshot, before @926 removed the
+module-scope writers. Re-measured at HEAD, the provisioner's version probe
+creates nothing with the keepalive flag set or unset.
+
+NO GUARD WAS BUILT, DELIBERATELY. Refusing a DB path that resolves inside the
+repo would BREAK THE BOX, which runs the service from its own checkout, where
+"inside the repo" and "the install dir" are one directory. It would fire on
+production and be switched off -- section 0's over-sensitivity failure, shipped
+on purpose.
+
+THE GATE FOUND TWO DEFECTS IN ITSELF, both while recording this session.
+Direction B read only the NEWEST ledger, so writing 15.69 would have made the
+eleven items 15.68 closed read as unaccounted -- the gate manufacturing a gap by
+the act of recording the next session. A close is permanent; CLOSED now
+accumulates across ledgers. And the ledger parser treated every indented line in
+a section as a row continuation, so prose about a "50-deep graft" parsed as a
+declaration about item 50; direction A caught that on the real register rather
+than on a fixture. A ledger is a contiguous block and now ends at the first
+blank line, with the wrapped-row case kept under its own test.
+
+CLAUDE.md section 7's CI bullet corrected. It named
+test_pk_mirrors_do_not_drift, a file that does not exist -- a band derived from
+that paragraph died on "file or directory not found" while ci.yml was correct
+throughout -- and described two jobs with an inline gate lane after CI had split
+into three jobs with a sharded gate-suites matrix. Three wrong claims in the one
+bullet whose own next paragraph explains what its last stale version cost.
+
+Items 38 (the zip-era retirement, ~45% of the executable /home/claude
+population) and 39 (the twenty frozen duplicates) are filed as numbered
+entries rather than left as prose, which is the policy @955 exists to enforce.
+
 ## v3.66.957
 
 Item 12(c): a capped library-audit count now says it is a floor.
