@@ -3882,34 +3882,60 @@ WORK, NOT BLOCKED (4-19)
      suite in BOTH parallel and serial, and item 36 reproduced and closed the
      recurrence. What remains is 714 bytes of NON-database residue, which was
      never this item's title and is now item 40.
- 12. **Only the producer divergence remains; SCOPED at v3.66.965.** The two
-     caps closed at @915 and `regen_nfos_from_history` at @916; 12(c)'s
-     saturation disclosure shipped at @957. What is left is the divergence,
-     and it is STRUCTURAL rather than a bug in any one function -- three
-     producers named "missing" answer three DIFFERENT questions:
+ 12. **THE DECIDING QUESTION IS ANSWERED at v3.66.967: NO operator surface
+     shows two producers under one label, so 12 is a RENAME, not a product
+     call -- and the three-producer table this entry used to carry was wrong
+     about which producer is on screen.** The two caps closed at @915 and
+     `regen_nfos_from_history` at @916; 12(c)'s saturation disclosure shipped
+     at @957.
 
-     | producer | table | predicate |
-     | --- | --- | --- |
-     | `library.library_missing()` | `library` | `file_exists=0`, a CACHED flag a scanner wrote earlier |
-     | `library_final.missing_from_disk_scan()` | `history` | `status='done'`, then STATS the file live |
-     | `cleanup_helpers.find_missing_metadata()` | `history` | rows with no NFO sidecar -- missing METADATA, not a file |
+     **THERE ARE FOUR PRODUCERS, NOT THREE, AND THE ONE THE OPERATOR ACTUALLY
+     SEES WAS NOT IN THE TABLE.** Measured at HEAD:
 
-     So one is cache-vs-now, one is live truth, and the third is not about
-     files at all. They cannot agree except by coincidence, which is 15.47's
-     "equal numbers are NOT agreement" made concrete.
+     | producer | table | predicate | operator surface | label |
+     | --- | --- | --- | --- | --- |
+     | `bulk_downloader/app_widgets_api.py:234` `_collect_library_data` | `library` | `COUNT` of `file_exists=0`, uncapped | Home + SiteDetail widget | **"Missing files"** |
+     | `bulk_downloader/library_final.py:306` `missing_from_disk_scan` | `history` | `status='done'`, then STATS the file live | Library route only | **"missing from disk"** |
+     | `bulk_downloader/cleanup_helpers.py:133` `find_missing_metadata` | `history` | rows with no NFO sidecar | command palette only | `missing_nfo` |
+     | `bulk_downloader/library.py:737` `library_missing` | `library` | `SELECT *` of `file_exists=0`, `LIMIT 500` | **NONE -- zero callers** | -- |
 
-     **THE QUESTION THAT DECIDES THE ITEM IS UNANSWERED: does any operator
-     surface show two of them under ONE label?** They reach the UI by
-     different routes -- `audit()` via `/api/library/audit`, `library_missing`
-     via its own endpoint, `find_missing_metadata` into `cleanup_helpers`'
-     `missing_nfo`. No single panel showing two was found, but ABSENCE ACROSS
-     THE SPA WAS NOT PROVEN. If none collide it is a naming problem and the
-     fix is a rename; if they do it is a correctness problem needing a
-     canonical definition, which is a product call.
+     This entry previously said `library_missing` reaches the UI "via its own
+     endpoint". It reaches no UI at all. `git grep` over every tracked file
+     finds `/api/library/missing` in its own route definition, in one comment
+     at `bulk_downloader/app.py:5635`, in `tests/route_map_baseline.txt` and in
+     four generated catalogs -- and in **no caller**: not the SPA, not
+     `bulk_downloader/command_palette.py`, not the extension. The
+     `file_exists=0` predicate IS on screen, but through
+     `_collect_library_data` -- a fourth code path with a different SHAPE
+     (count, not list) and no cap. The register named the dead one and missed
+     the live one.
+
+     **WHY THERE IS NO COLLISION: the widget hosts and the audit panel are
+     disjoint routes.** `WIDGETS_BY_ID` and `KPICard` are rendered only by
+     `routes/Home.tsx`, `routes/SiteDetail.tsx` and `components/WidgetPicker.tsx`
+     under `frontend/src`; `routes/Library.tsx` imports neither and is the sole
+     renderer of `audit.data.missing`. So "Missing files" and "missing from
+     disk" cannot appear on one screen, and the two label strings differ. By
+     this item's own decision rule -- *"if none collide it is a naming problem
+     and the fix is a rename"* -- **12 is a rename cut, and the only thing it
+     waits on is the operator's wording.**
+
+     Confusable ACROSS routes is still real, and the tree already contains a
+     developer making exactly that mistake: `widgetCatalog.test.tsx` under
+     `frontend/src/lib` seeds `lib_missing_extra: "on disk"` for the widget fed
+     by the CACHED index flag -- borrowing the other producer's words for a
+     value that never stats a file.
+
+     **REMAINING WORK, both small, neither blocked on measurement:** the rename
+     (operator picks the strings), and a disposition for `library_missing` --
+     wire it or retire it, per the generated spec's cut 3. Its unreported
+     `LIMIT 500` is the same class 12(c) fixed for `audit()`, but adding a
+     saturation flag to an endpoint nobody calls is the wrong repair.
 
      **DO NOT QUOTE A PRODUCER COUNT.** Three predicates have produced 8-of-3,
      19-of-4 and 23-of-5 over different denominators. The subject is the
      divergence, not the count.
+
  13. **CLOSED at v3.66.959 as MIS-SCOPED.** `bd-state` has three invocation
      sites, not one: `build_session_pack.py`, `bd-boot:268` and
      `bd-coretest:179` (which exercises it twice, clean->PASS and a forged
@@ -4348,6 +4374,58 @@ a record -- see 15.62's closing paragraph.
      The shape of a fix is a read-modify-write in `_save_app_config()` itself,
      or routing it through `set_config()`.
 
+ 42. **OPEN, found v3.66.967: the doc-anchor gate cannot see a FRONTEND
+     citation, which is CLAUDE.md section 0's opening example still live in a
+     different tool.** That example reads *"a band tool didn't count
+     `.tsx`/`.ts` as source, so it reported 'changed source (0)' on a real
+     frontend cut."* The same blind spot is in `bd-freshcheck`: its anchor
+     regex alternates over `py|sh|json|md|txt|yml`, so a `file:line` citation
+     to a `.tsx` or `.ts` file is not merely unresolved -- it is never parsed,
+     and the gate reports `N/N resolve` over a denominator that excludes it.
+
+     **MEASURED, and one of the two has already rotted.** The gated docs are
+     `CLAUDE.md` and this file; they carry exactly **2** frontend `file:line`
+     citations between them, both invisible:
+
+     - the one at this file's line 7191 names line **1156** for
+       `RegenNfosResult` in `frontend/src/lib/api-types.ts`. That interface
+       now begins at **1164**. The SUBSTANCE survived -- it still carries an
+       index signature and still does not declare `missing_files` -- but the
+       line drifted 8 and nothing noticed;
+     - the one at line 858 names line **497** of `frontend/src/routes/Library.tsx`
+       for an audit call made without `site_id`. Re-read at v3.66.967: still
+       exactly right.
+
+     So the blind spot is 50% rotted on a population of two -- small, but the
+     rot rate is the point, not the count.
+
+     **THE OBVIOUS FIX IS THE TRAP, and it is section 0's own shape.** Adding
+     `tsx|ts` to the alternation converts 2 invisible anchors into 2 FAILURES,
+     and only one of them is a real defect: both citations are written as bare
+     basenames, and the resolver checks paths against `git ls-files`, so the
+     correct one would fail for its FORM. A gate that fires on a true claim
+     gets switched off. Any cut here does three things together -- widen the
+     extensions, correct the drifted line, and rewrite both citations as
+     repo-relative paths -- or it ships an over-sensitive gate.
+
+     Nor should the resolver be taught basenames -- but state the reason
+     honestly, because the obvious version of it is false here. **Measured:
+     `frontend/src` has ZERO duplicate basenames today**, so a basename
+     resolver would be unambiguous for both existing citations; the repo as a
+     whole has **29** duplicated basenames, and nothing stops the frontend
+     joining them the next time someone adds a second `index.ts`. The
+     objection is that the property is unowned, not that it is currently
+     violated -- a resolver whose correctness depends on a count nobody
+     asserts is a lying gate waiting for a filename. If basenames are taught,
+     the same cut owes a check that the match is UNIQUE and a failure when it
+     is not.
+
+     (This paragraph asserted the opposite first -- "many same-named frontend
+     files" -- and was corrected by measuring it before the commit. Recorded
+     because it is section 1 landing inside a section 0 finding: the confident
+     sentence and the measured one disagreed, and only one of them had been
+     run.)
+
  34. **CLOSED at v3.66.945.** Root-caused, fixed, and the four failures are
      gone from the same 114-file band (1462 passed). The title below was wrong
      in every particular and is kept because the wrongness is the lesson: not
@@ -4492,7 +4570,7 @@ bounded by its line count, and neither can be judged from a container.
 **READ THIS FIRST IF YOU ARE A FRESH SESSION.** It supersedes 15.68's open set.
 
 ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
-OPEN:   12, 17, 29, 31, 33
+OPEN:   12, 17, 29, 31, 33, 42
 CLOSED: 2, 3, 8, 11, 13, 16, 18, 20, 23, 30, 32, 36, 37, 38, 39, 40, 41
 
 Item 1 is CANNOT-EVALUATE and is accounted by the inventory marker rather than
@@ -4674,7 +4752,7 @@ One advisory, not a defect: 07b's selftest battery is `11 ok, 1 warn, 0 fail`,
 the warn being `yt-dlp is 35 days old -- consider updating`. Operational, on the
 box.
 
-**FIVE CAPTURES, FIVE EXACT RECONCILIATIONS.** All PASS, 0 failed, 0 errors,
+**SIX CAPTURES, SIX EXACT RECONCILIATIONS.** All PASS, 0 failed, 0 errors,
 skips flat at 85 throughout. Recorded here because three of them existed only
 in a conversation until v3.66.966, which is the failure this register exists to
 stop:
@@ -4686,6 +4764,7 @@ stop:
 | v3.66.961 | `dc9dae4` | 15089 | 15004 | +2 | +2 |
 | v3.66.962 | `3d229be` | 15088 | 15003 | **-1** | -1 |
 | v3.66.963 | `3bb6c29` | 15092 | 15007 | +4 | +4 |
+| v3.66.964 | `1875ce8` | 15095 | 15010 | +3 | +3 |
 
 Graph pin OK on every one, live 36/0/0 except @961's single WARN, `.err` files
 empty throughout. @961's live warn was `L28 service-restart-preserves-queue --
@@ -4712,9 +4791,23 @@ additions.** A prediction stated confidently is the thing section 1 exists to
 catch, and it applies to predictions about the box exactly as it applies to
 figures read out of a document.
 
-**THE BOX IS NOW 2 CUTS BEHIND** (@957 vs @959) and the next capture should read
-**15087 / 15002 / 85** -- @959 added 6 tests to test_register_promises_resolve.
-A mismatch is signal.
+**@964 MADE IT TWO EXACT PREDICTIONS IN A ROW SINCE THE RULE ABOVE WAS
+WRITTEN.** @964 added one file, `tests/test_v3_66_964_app_config_writer_does_not_lose_updates.py`,
+collecting 3 -- predicted +3, measured +3, and 15095 / 15010 / 85 called to the
+test.
+
+**THE BOX IS NOW 3 CUTS BEHIND** (@964 vs @967) and the next capture should read
+**15095 / 15010 / 85 -- UNCHANGED.** @965, @966 and @967 are register and
+CHANGELOG edits; the only `tests/` path any of them touches is
+`tests/test_settings_center_slice4.py`, and only its version-pin line. Zero
+tests added, zero removed.
+
+**AN UNCHANGED PREDICTION IS STILL A PREDICTION, and this is the one shape the
+four errors above could not produce.** Every earlier miss was an arithmetic
+slip inside a nonzero delta; a doc-only range predicts EXACTLY zero movement,
+so any delta at all falsifies it outright rather than by a margin. If the next
+capture is not 15095 / 15010 / 85, the cause is not this range -- look for a
+test whose collection depends on tree state rather than on a file being added.
 
 **NOT BOX EVIDENCE.** Every band here is a container band. @957 changed
 `library_final.py` and the SPA, and `frontend/dist` is gitignored and NOT

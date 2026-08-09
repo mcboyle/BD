@@ -4,6 +4,38 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.967
+
+Item 12's deciding question answered, the sixth box capture recorded, and a new
+item 42 for a gate that cannot see frontend citations. No source behaviour
+changes.
+
+Item 12 asked whether any operator surface shows two "missing" producers under
+one label. Measured at HEAD: no. There are FOUR producers, not the three this
+entry listed, and the one an operator actually sees was not among them --
+app_widgets_api._collect_library_data counts file_exists=0 on the library table
+and drives the "Missing files" widget on Home and SiteDetail, while
+library_final.missing_from_disk_scan stats files live and drives "missing from
+disk" on the Library route alone. The widget hosts and the audit panel are
+disjoint routes, so the two labels cannot share a screen. library.library_missing
+-- the producer the register named as the UI's source -- has zero callers
+anywhere in the tree. By item 12's own decision rule the remaining work is a
+rename plus a wire-or-retire disposition, not a product call.
+
+Sixth capture recorded: v3.66.964 at 1875ce8, 15095 total / 15010 passed / 0
+failed / 0 errors / 85 skipped, graph pin OK, live 36/0/0. Predicted +3 from
+git and measured +3 -- two exact predictions in a row since the delta rule was
+written. The next capture is predicted UNCHANGED at 15095/15010/85 because
+v3.66.965 through 967 add and remove no tests.
+
+Item 42: bd-freshcheck's anchor regex covers py, sh, json, md, txt and yml, so
+a file:line citation into a .tsx or .ts file is never parsed and the gate
+reports every anchor resolving over a denominator that excludes it. This is
+CLAUDE.md section 0's own opening example, still live in a different tool. The
+two frontend citations in the gated documents were checked by hand: one is
+still correct, the other drifted eight lines. Filed rather than fixed, because
+widening the extension alone would fail a correct citation for its form.
+
 ## v3.66.966
 
 Pre-compaction durability pass: four findings that existed ONLY in a
