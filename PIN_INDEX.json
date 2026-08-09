@@ -17,9 +17,9 @@
     ]
   },
   "counts": {
-    "total": 43,
+    "total": 44,
     "version": 1,
-    "count_dict": 42,
+    "count_dict": 43,
     "test_files_scanned": 1279,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
@@ -46,7 +46,7 @@
       "tests/test_v3_66_649_search_facets.py": 4,
       "tests/test_v3_66_936_golden_carries_no_ambient_state.py": 1,
       "tests/test_v3_66_981_wacz_host_grouping.py": 1,
-      "tests/test_v3_66_987_gate_support_measures_the_gate.py": 1,
+      "tests/test_v3_66_987_gate_support_measures_the_gate.py": 2,
       "tests/test_validators.py": 5
     }
   },
@@ -420,11 +420,20 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_987_gate_support_measures_the_gate.py",
-      "line": 237,
+      "line": 238,
       "value": {
         "frob": 2
       },
       "gates_what": "test_a_FUTURE_raw_key_is_VISIBLE_rather_than_vanishing — THE TEST NO KEY MAP CAN PASS, and the reason the fix votes over"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_987_gate_support_measures_the_gate.py",
+      "line": 376,
+      "value": {
+        "row_selectors": 2
+      },
+      "gates_what": "test_a_leaf_the_pipeline_KEPT_is_not_counted_as_one_it_DROPPED — Adversarial review caught this, and it is the retracted-77 shape"
     },
     {
       "form": "count_dict",

@@ -37,7 +37,8 @@ cannot see a raw key `build_template` grows tomorrow, and a test exercising the
 map over the spellings it already knows about passes either way. So support is
 voted over the OUTPUT of `normalize_draft` -- the same function that produces the
 gate's input -- and attributed to values READ OUT of normalize(merged).
-`test_a_FUTURE_raw_key_is_visible` is the test no key map can pass.
+`test_a_FUTURE_raw_key_is_VISIBLE_rather_than_vanishing` is the test no key map
+can pass.
 
 PRESENT-IN-MERGED IS NECESSARY AND NOT SUFFICIENT. Measured: merge stringifies a
 list-valued leaf (defect G), and the resulting JSON text
@@ -350,6 +351,107 @@ def test_DENOMINATOR_is_carried_in_band_with_the_number():
 # --------------------------------------------------------------------------
 # 5. The gate's own boolean, rather than a second definition of it.
 # --------------------------------------------------------------------------
+
+def test_a_leaf_the_pipeline_KEPT_is_not_counted_as_one_it_DROPPED():
+    """Adversarial review caught this, and it is the retracted-77 shape
+    inverted. `api_template` is a real leaf (`build_template_from_wacz:1749`)
+    that SURVIVES normalize verbatim -- it is simply not a gate clause. A
+    predicate of "raw leaves exist AND the gate clauses are empty" counts it as
+    discarded, so the rollup would tell the operator to go and look at the
+    normalizer for a site where the normalizer dropped nothing at all.
+
+    Dropped means: this leaf's value is nowhere in the normalized draft."""
+    kept, _ = _support([_draft({"api_template": "https://api.example.org/dl/{id}"})] * 2)
+    assert kept["capture_gaps"]["evidence_dropped_by_pipeline"] == 0, (
+        "a leaf normalize carried through was counted as dropped: %r"
+        % kept["capture_gaps"])
+    assert kept["capture_gaps"]["dropped_leaves"] == {}
+    # It is still not gate evidence -- that part was right.
+    assert kept["gate_visible"] is False
+
+    # And the genuinely-dropped case must keep working, or this "fix" is just
+    # a counter that never fires.
+    gone, _ = _support([_draft({"row_selectors": [".download-block a.dl"]})] * 2)
+    assert gone["capture_gaps"]["evidence_dropped_by_pipeline"] == 2
+    assert gone["capture_gaps"]["dropped_leaves"] == {"row_selectors": 2}
+
+
+def test_the_ROLLUP_does_not_blame_the_normalizer_for_a_leaf_it_kept():
+    """The operator-facing half of the same defect, driven through the REAL
+    pipeline rather than a hand-built gaps dict.
+
+    The first version of this test built the counters by hand and passed the
+    moment it was written -- it could not see the defect, because the defect is
+    in how those counters are DERIVED. That is the same blindness the cut is
+    about, in the test written to prove the cut."""
+    kept, _ = _support([_draft({"api_template": "https://api.example.org/dl/{id}"})] * 2)
+    roll = CORP._gate_blocked_rollup(
+        [{"blocking": ["gate_selector"], "gate_support": kept}])
+    assert roll["by_cause"]["download_control_discarded_by_normalizer"] == 0, (
+        "a site whose only leaf normalize KEPT was reported as a normalizer "
+        "question rather than a capture that never reached a download "
+        "control: %r" % roll)
+    assert roll["by_cause"]["other"] == 1, (
+        "an api_template-only site is neither a discard nor an empty capture: "
+        "the leaf survived and simply is not a gate clause. `other` is the "
+        "honest bucket, and deciding otherwise would mean re-deriving which "
+        "leaves feed the gate -- the key map this cut exists to remove: %r"
+        % roll)
+
+    # The genuinely-discarded site must still be blamed on the normalizer, or
+    # this fix has simply turned the counter off.
+    gone, _ = _support([_draft({"row_selectors": [".download-block a.dl"]})] * 2)
+    roll2 = CORP._gate_blocked_rollup(
+        [{"blocking": ["gate_selector"], "gate_support": gone}])
+    assert roll2["by_cause"]["download_control_discarded_by_normalizer"] == 1
+
+
+def test_a_CANDIDATE_can_never_out_support_its_own_denominator():
+    """`normalize_draft` does not dedupe row_selectors, and the vote counted
+    OCCURRENCES rather than captures -- so one draft listing the same row three
+    times printed support 4 of 2. A ratio above 1 in the field the honeypot
+    reading depends on is worse than no field."""
+    raws = [_draft({"row_selectors": ["div.modal a.dl"] * 3}),
+            _draft({"row_selectors": ["div.modal a.dl"]})]
+    gs, _ = _support(raws)
+    for c in gs["clauses"]["row_selectors"]["candidates"]:
+        assert c["support"] <= c["of"], (
+            "support exceeds its denominator: %r" % c)
+    assert gs["clauses"]["row_selectors"]["candidates"][0]["support"] == 2
+
+
+def test_UNANIMOUS_captures_are_not_reported_as_DISAGREEING_when_no_merge_shipped():
+    """When the merge is unavailable there is no shipped value to agree with,
+    and counting every capture as `disagree` reads as "two page shapes" -- the
+    exact conclusion the counter exists to support. Nothing shipped is its own
+    state."""
+    normed = [normalize_draft(_draft({"trigger": "button.dl"}))] * 3
+    gs = CORP._gate_support(None, normed, [_draft({"trigger": "button.dl"})] * 3)
+    t = gs["clauses"]["trigger"]
+    assert gs["reason"] == "merge_unavailable"
+    assert t["disagree"] == 0, (
+        "three captures that agree were reported as disagreeing: %r" % t)
+    assert t["unattributed"] == 3
+    assert CORP._partition_ok(t, 3), t
+
+
+def test_an_ARTIFACT_ONLY_site_says_so_rather_than_claiming_NO_evidence():
+    """`merge_drafts` stringifies EVERY list leaf, so a row-only site's merged
+    rows are always an artifact and `best` is always None. Reporting that as
+    "no gate visible evidence" is affirmatively false -- the evidence is
+    unanimous and sits in `candidates` two lines below. Reptyle's modal shape is
+    exactly this population."""
+    gs, _ = _support([_draft({"row_selectors": ["[role=dialog] a.dl"]})] * 3)
+    assert gs["reason"] == "merge_artifact_only", (
+        "the reason names the wrong cause: %r" % gs["reason"])
+    assert gs["clauses"]["row_selectors"]["candidates"][0]["support"] == 3, (
+        "the unanimous evidence the reason denies must still be visible")
+    assert CORP._reliability(3, gs) == "unknown"
+
+    # The other direction: a site that genuinely has nothing must still say so.
+    none, _ = _support([_draft({"frob": "x"})] * 2)
+    assert none["reason"] == "no_gate_visible_evidence"
+
 
 def test_the_PARTITION_check_is_driven_directly_in_both_directions():
     """@984 learned this the expensive way: a guard today's control flow cannot

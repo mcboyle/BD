@@ -480,6 +480,40 @@ def _json_artifact(value):
     return isinstance(parsed, (list, dict, tuple)), parsed
 
 
+def _normalized_values(normed):
+    """Every scalar value anywhere under a normalized draft's `selectors`, plus
+    its `workflow` block. The set a raw leaf must appear in to count as having
+    SURVIVED -- asked of the whole object rather than of the two gate clauses,
+    because a leaf can legitimately survive somewhere that is not a gate clause
+    (`api_template` does exactly that) and calling it dropped blames the
+    normalizer for work it did correctly."""
+    out = set()
+
+    def walk(v):
+        if isinstance(v, dict):
+            for x in v.values():
+                walk(x)
+        elif isinstance(v, (list, tuple)):
+            for x in v:
+                walk(x)
+        elif isinstance(v, str) and v:
+            out.add(v)
+
+    walk((normed or {}).get("selectors"))
+    walk((normed or {}).get("workflow"))
+    return out
+
+
+def _leaf_survived(value, survivors):
+    """A raw leaf survived if its value -- or, for a list leaf, ANY element of
+    it -- is present in the normalized draft. Any is deliberate: a partly-kept
+    row list is a partial drop, and `dropped_rows` reports which elements went,
+    so counting the whole leaf as dropped would double-count it."""
+    if isinstance(value, (list, tuple)):
+        return any(isinstance(v, str) and v in survivors for v in value)
+    return isinstance(value, str) and value in survivors
+
+
 def _rank_votes(votes, of):
     return [{"value": v, "support": c, "of": of}
             for v, c in sorted(votes.items(), key=lambda kv: -kv[1])]
@@ -541,7 +575,11 @@ def _gate_support(normed_merged, normed_singles, raw_drafts,
             trig_votes[t] = trig_votes.get(t, 0) + 1
         if not rows:
             row_absent += 1
-        for r in rows:
+        # PER CAPTURE, not per occurrence. `normalize_draft` does not dedupe
+        # row_selectors, so counting occurrences let one draft listing the same
+        # row three times report support 4 of 2 -- a ratio above 1 in the field
+        # the two-page-shapes and honeypot readings both depend on.
+        for r in dict.fromkeys(rows):
             row_votes[r] = row_votes.get(r, 0) + 1
 
     # --- capture gaps: the (a)/(b) discriminator ---------------------------
@@ -551,17 +589,28 @@ def _gate_support(normed_merged, normed_singles, raw_drafts,
     # report printed one number for both, and 77 sites were described to the
     # operator as a capture-side gap on the strength of it.
     row_drop_votes = {}
-    for raw, (t, rows) in zip(raw_drafts, per_draft):
+    for raw, nd, (t, rows) in zip(raw_drafts, normed_singles, per_draft):
         raw_dl = ((raw or {}).get("selectors") or {}).get("download") or {}
         raw_leaves = [k for k, v in raw_dl.items() if v]
         if not raw_leaves:
             gaps["no_download_evidence"] += 1
             continue
-        if t is None and not rows:
-            gaps["evidence_dropped_by_pipeline"] += 1
-            for leaf in raw_leaves:
+        # DROPPED means the leaf's value is nowhere in the normalized draft --
+        # not "the gate clauses came out empty". Adversarial review caught the
+        # difference on a reachable population: `api_template`
+        # (build_template_from_wacz:1749) SURVIVES normalize verbatim and simply
+        # is not a gate clause, so the emptier predicate blamed the normalizer
+        # for a leaf it had kept. That is the retracted-77 advice inverted, in
+        # the counter built to prevent it.
+        survivors = _normalized_values(nd)
+        dropped_here = [leaf for leaf, val in raw_dl.items()
+                        if val and not _leaf_survived(val, survivors)]
+        if dropped_here:
+            for leaf in dropped_here:
                 gaps["dropped_leaves"][leaf] = \
                     gaps["dropped_leaves"].get(leaf, 0) + 1
+        if t is None and not rows and dropped_here:
+            gaps["evidence_dropped_by_pipeline"] += 1
         # Rows dropped by SET DIFFERENCE against the survivors -- never by
         # parsing the warning prose normalize emits, which would couple this
         # count to a sentence somebody will reword.
@@ -578,10 +627,19 @@ def _gate_support(normed_merged, normed_singles, raw_drafts,
     # --- attribution: the values the merged template SHIPS -----------------
     t_m, rows_m = _dl_clause(target)
     t_support = sum(1 for t, _ in per_draft if t_m is not None and t == t_m)
-    t_disagree = sum(1 for t, _ in per_draft if t is not None and t != t_m)
+    # UNATTRIBUTED, not disagree, when nothing shipped. A capture cannot
+    # disagree with a value that does not exist, and `disagree` is the field a
+    # reader takes as the two-page-shapes signal -- so on the merge-unavailable
+    # path three unanimous captures used to read as three disagreements.
+    if t_m is None:
+        t_disagree, t_unattributed = 0, n - trig_absent
+    else:
+        t_disagree = sum(1 for t, _ in per_draft if t is not None and t != t_m)
+        t_unattributed = 0
     block["clauses"]["trigger"] = {
         "merged_value": t_m, "support": t_support, "disagree": t_disagree,
-        "absent": trig_absent, "candidates": _rank_votes(trig_votes, n)}
+        "absent": trig_absent, "unattributed": t_unattributed,
+        "candidates": _rank_votes(trig_votes, n)}
 
     merged_rows = []
     for r in rows_m:
@@ -615,7 +673,16 @@ def _gate_support(normed_merged, normed_singles, raw_drafts,
                          "support": support, "of": n}
     block["gate_visible"] = bool(cands)
     if n >= 2 and not cands and block["reason"] is None:
-        block["reason"] = "no_gate_visible_evidence"
+        # NAME THE RIGHT CAUSE. `merge_drafts` stringifies every list leaf, so a
+        # row-only site's merged rows are ALWAYS an artifact and `best` is
+        # always None -- reporting that as "no gate visible evidence" is
+        # affirmatively false when `candidates` two lines below shows the rows
+        # corroborated in every capture. That population is not marginal: it is
+        # the modal page shape, which is the shape the operator confirmed.
+        artifact_only = bool(merged_rows) and all(
+            r["stringified_artifact"] for r in merged_rows)
+        block["reason"] = ("merge_artifact_only" if artifact_only
+                           else "no_gate_visible_evidence")
 
     # Section 0's assertion-first rule: the three counters must PARTITION the
     # denominator. Written before the verdict is emitted rather than after,
@@ -641,7 +708,7 @@ def _partition_ok(clause, n):
     does not exist.
     """
     return (clause.get("support", 0) + clause.get("disagree", 0)
-            + clause.get("absent", 0)) == n
+            + clause.get("absent", 0) + clause.get("unattributed", 0)) == n
 
 
 def _reliability(n_drafts, gate_support):
@@ -929,6 +996,18 @@ def mode_templates(files, jobs=1, progress=False):
                                  "NORMALIZED merged draft -- the object the "
                                  "gate judges -- so a selector normalize "
                                  "discarded can never read as corroborated"),
+            "green_means_note": ("green is the promote gate: a download "
+                                 "selector, a non-empty resolution list, and "
+                                 "no blocked terms. It does NOT test that a "
+                                 "resolution can be SELECTED -- quality."
+                                 "open_menu and quality.resolution_option are "
+                                 "score components, not gate clauses, and the "
+                                 "resolution list can be satisfied entirely "
+                                 "from the WIRE (resolutions_seen) by a "
+                                 "capture whose page offers no choice at all. "
+                                 "A green site is a site whose download "
+                                 "control was found, not one whose "
+                                 "highest-resolution step is proven"),
             }
 
 
