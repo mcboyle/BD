@@ -4,6 +4,54 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.983
+
+Item 44 CLOSED. A second derivative-marker form, found by the real corpus.
+
+THE BOX MEASUREMENT that closes the item, over 742 wacz under
+`/home/mboyle/BulkDownloader/captures`: examined 742; by_method filename 39 /
+archive 698 / unknown 5; archives_opened 703; 153 hosts resolved; 79 merge
+candidates; unknown_reasons `{unreadable: 5}`. by_method sums to 742 and the
+groups account for all 742 across 158 buckets -- the non-empty-denominator
+assertion holding on real data.
+
+THE FORK CAME OUT CLEAN: `no_pages_jsonl` is zero, so every readable archive
+carries the page record and the tier-2b that would have read
+`datapackage.json:mainPageURL` for foreign archives is not owed. Declining to
+build it on speculation at v3.66.981 was correct, and that is now measured
+rather than argued.
+
+THE FIX. The marker set was dot-prefixed (`.redacted`, `.scrubbed`); the box
+also writes underscore forms with a profile qualifier. Measured over the 742
+real names: `.redacted` x329, `.scrubbed` x104, `_redacted_safe` x4,
+`_redacted_strict` x2, `.redacted_2` x1. Six read as RAW captures and the
+seventh based to the fragment `shaka_2`, which pairs with nothing. Markers are
+now matched by a pattern requiring a leading separator and absorbing the
+qualifier tail, so `bang247_redacted_safe` and `bang247_redacted_strict` are two
+redaction profiles of ONE capture.
+
+Six files of 742 is 0.8%, and the count is not why it was worth a cut: the
+defect inverts a FINDING. `--dupes` reports a derivative byte-identical to its
+source as a no-op redaction -- the evidence that scrubbing never happened -- and
+that branch requires `_is_redacted` to be true. While those six read as raw, a
+failed scrub among them is offered back as reclaimable disk. Reproduced before
+the fix: `reclaimable_bytes=281, noop_derivatives=0`.
+
+Effect on the real data, recomputed over the run's own file lists: merge
+candidates 79 -> 79 unchanged, and three groups' source counts corrected --
+auth.wowgirls.com 22 -> 20, site-ma.bangbros.com 13 -> 11,
+shaka-player-demo.appspot.com 4 -> 3.
+
+Both over-sensitivity directions are tested: `cap_355b_redacted_safe` keeps
+`cap_355b` (a rule eating from the first underscore would merge every `cap_*`
+capture into one bucket), and `wowza` / `wowza-1` do not collapse, since they
+differ in size on the box and `-1` is a capture index rather than a marker.
+
+Recorded in 15.72: a prediction published before the run was half wrong.
+`by_method.filename` was predicted at ~0 from 0/19 on real names taken off a
+single alphabetical page of a file listing; it is 39. A sample from one screen
+is not a denominator.
+
 ## v3.66.982
 
 Operator decision, recorded. Docs and register only.
