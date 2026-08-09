@@ -4,6 +4,55 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.978
+
+bd-wacz-corpus met the real corpus and was wrong. Classifier rewritten, and
+--dupes added.
+
+The tool shipped at v3.66.973 was validated against synthetic fixtures and the
+Drive corpus's t_<hex>_<name> naming. The box's corpus -- 1251 files, 4.04 GB --
+uses neither. Measured from the operator's full file list: 538 raw, 601
+.redacted, 176 .scrubbed, 46 .redacted.scrubbed, and 216 files carrying a copy
+suffix in ten variants ((2) x143, (dup1) x40, (3) x19, and singletons to (8)).
+
+_is_redacted tested endswith(".redacted.wacz"), so 197 of the 601 redacted files
+-- 33% -- were classified as RAW captures, because x.redacted (2).wacz ends in
+(2).wacz. And .scrubbed was a population the tool had no concept of at all. On
+25 real names it reported sites=22, merge_candidates=0 and STATUS OK: a
+clean-looking answer over a denominator it could not parse, which is section 0
+inside the tool written to apply section 0. Synthetic fixtures could not have
+caught it; only the real names did.
+
+Rewritten over all three markers and both copy-suffix forms. Re-run over the
+real 1251 names: 713 derivatives (was 404), 538 raw, 545 source bases, 392
+families where the old tool found 0 merge candidates, 647 derivatives with a raw
+source present, 66 orphaned. The 538 is a real cross-check -- an independent
+grep predicate reached the same number by a different route.
+
+--dupes is two-stage: size groups first, sha256 only inside them. Measured 429
+collision groups covering 1000 of 1251 files and 1.73 GB reclaimable, 43% of the
+corpus, of which 420 groups and 1.71 GB are over 1MB where a coincidental
+byte-count match is implausible. Only 0.55 GB is explained by copy suffixes, so
+most duplication is the same content under different names, which no
+filename-based dedup would find.
+
+It reports two things that must never be merged. Identical copies of an artifact
+are a disk question. A derivative byte-identical to its SOURCE is not: it means
+the scrubber returned its input unchanged, and v3.66.971 established that path
+could pass binary members through untouched. Counting that as reclaimable would
+invite deleting the evidence that redaction never happened, so it is a FINDING
+(exit 1), excluded from the reclaimable total. noop_derivatives counts
+derivative FILES rather than groups -- one source with three identical
+derivatives is three failed scrubs, not one.
+
+Eight tests, all proven RED, driven from the real name shapes rather than
+invented ones. Report-only is asserted, not claimed.
+
+Still open (item 44): host-based grouping, filename-first with the archive's own
+host as the authority and each group labelled by method. Held to its own cut --
+it requires opening every archive, a different cost and a different failure mode
+from a filename rule.
+
 ## v3.66.977
 
 The yt-dlp freshness check now compares VERSIONS instead of wall-clock age, and
