@@ -4,6 +4,50 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.984
+
+bd-wacz-corpus --templates: which sites can make a green template, from one
+capture or from a combination, and whether the answer is corroborated.
+
+The operator's question, taken verbatim. Shipped as a MODE rather than a new
+tool, so _TOOL_BUDGET does not move and the grouping is the same tiering
+--hosts reports (`_place_by_host` is now shared between them; two copies of the
+placement rule is how the two modes would start disagreeing about which
+captures belong to one site).
+
+NEITHER HALF IS DEFINED HERE. Green is tools/promote_template.py, mirrored by
+template_inventory.assess "so the numbers can't diverge from reality" -- this
+mode RUNS that predicate. Reliable is the operator's own definition, support
+across a site's captures, which bd-template-merge already records with
+denominators. Four verdicts per site: green_from_one, green_only_merged,
+not_green (with the failing gate clause named, not a score), and unbuildable as
+its own state, because an archive that yields no draft answers nothing about
+the site.
+
+THE DEFECT THAT MATTERED. build_template emits `resolution_priority`; assess
+reads `resolutions`. The key is created by template_normalize.normalize_draft,
+which sits between them in the real pipeline and which the first implementation
+skipped. Measured on one capture: assess(raw) is False, assess(normalize(raw))
+is True. Skipping it would have graded every one of the box's 153 hosts
+not_green on the resolutions clause -- a uniform, confident, wrong answer.
+
+AND THE TEST WRITTEN TO CATCH THAT COULD NOT SEE IT. It compared the mode
+against assess(build_template(p)) -- the same skipped step on both sides, so
+both said False and agreed. A comparison whose two halves share a defect proves
+the defect, not the code. It now runs the canonical build -> normalize -> assess
+and asserts the canonical side is True first, so a fixture that cannot reach
+green fails loudly instead of making the agreement vacuous.
+
+RELIABILITY IS THREE-STATE and `unknown` is load-bearing: a lone capture reports
+support 1 of 1, arithmetically identical to a selector every capture agrees on,
+and bd-template-merge refuses to merge a single draft for that reason. Read off
+the gate-critical keys only, since an average across all selectors would let a
+well-corroborated login mask a one-vote download trigger.
+
+Also fixes item 44's entry, which cited 15.71 where the closing section is
+15.72. It passed the citation gate because the version string satisfied the
+regex -- the gate checks that A citation exists, not that THIS one resolves.
+
 ## v3.66.983
 
 Item 44 CLOSED. A second derivative-marker form, found by the real corpus.

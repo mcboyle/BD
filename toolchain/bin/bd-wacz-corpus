@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """bd-wacz-corpus -- read-only survey of a local WACZ corpus.
 
-Four analyses over ONE denominator, each independently selectable so their
+Read-only analyses over ONE denominator, each independently selectable so their
 answers can be compared rather than taken on trust:
 
   --group    site grouping from the `t_<hash>_<name>.wacz` naming, so the inputs
              to a template merge are DERIVED rather than eyeballed
   --hosts    grouping by HOST, three tiers, every group labelled with the method
              that produced it (see mode_hosts)
+  --templates which sites can make a GREEN template -- from one capture or from
+             a combination -- and whether the answer is corroborated across that
+             site's captures (see mode_templates)
   --pairs    raw <-> `.redacted` twins and the size ratio between them
   --health   does each archive open, pass CRC, and carry a WARC payload
   --scrub    screening pass for credential-shaped material still in the archive
@@ -261,6 +264,37 @@ def _host_from_archive(p):
     return None, ("no_host" if saw_url else "no_url")
 
 
+def _place_by_host(files):
+    """[(path, label, method, reason)], archives_attempted, parser_label.
+
+    Factored out because `--templates` needs the SAME tiering `--hosts` reports.
+    Two copies of the placement rule is how the two modes would start disagreeing
+    about which captures belong to one site, and the merge half of `--templates`
+    is only meaningful if its grouping is the grouping `--hosts` printed.
+    """
+    parser, parser_label = _filename_parser()
+    placed = []
+    attempted = 0
+    for p in files:
+        base = _base(p)
+        host = None
+        if parser is not None:
+            try:
+                host = parser(base)
+            except Exception:
+                host = None
+        if host:
+            placed.append((p, host.lower(), "filename", None))
+            continue
+        attempted += 1
+        host, why = _host_from_archive(p)
+        if host:
+            placed.append((p, host, "archive", None))
+        else:
+            placed.append((p, base.lower(), "unknown", why))
+    return placed, attempted, parser_label
+
+
 def mode_hosts(files):
     """Group by host: filename first, the archive as the authority, never a guess.
 
@@ -286,26 +320,7 @@ def mode_hosts(files):
     of site-signal-free names the mode exists to describe, and a screen that
     cries wolf gets switched off (section 0's over-sensitivity failure).
     """
-    parser, parser_label = _filename_parser()
-    placed = []            # (path, label, method, reason)
-    attempted = 0
-    for p in files:
-        base = _base(p)
-        host = None
-        if parser is not None:
-            try:
-                host = parser(base)
-            except Exception:
-                host = None
-        if host:
-            placed.append((p, host.lower(), "filename", None))
-            continue
-        attempted += 1
-        host, why = _host_from_archive(p)
-        if host:
-            placed.append((p, host, "archive", None))
-        else:
-            placed.append((p, base.lower(), "unknown", why))
+    placed, attempted, parser_label = _place_by_host(files)
 
     buckets = {}
     for p, label, method, reason in placed:
@@ -353,6 +368,236 @@ def mode_hosts(files):
             "unreadable": reasons.get("unreadable", 0),
             "unknown_reasons": reasons,
             "groups": groups}
+
+
+# --------------------------------------------------------- template viability
+#
+# "Can any of these captures, or a combination of one site's captures, make a
+# green and reliable template?" -- the operator, 2026-08-09.
+#
+# GREEN IS NOT DEFINED HERE. `tools/promote_template.py` is the gate and
+# `template_inventory.assess` mirrors it deliberately, "so the numbers can't
+# diverge from reality". This mode RUNS that predicate. A fourth definition of
+# green is how a tool starts disagreeing with the gate it exists to predict.
+#
+# RELIABLE IS SUPPORT ACROSS A SITE'S CAPTURES -- the operator's definition,
+# taken verbatim. `bd-template-merge` already records it with denominators, so
+# this reads that rather than inventing a score.
+
+_BUILDER_CACHE = None
+_MERGE_CACHE = None
+
+# The gate's own clauses, so reliability is read off the selector the template
+# lives or dies on. An average across ALL selectors would let a
+# well-corroborated login mask a one-vote download trigger.
+_GATE_KEYS = ("download.trigger", "download.row_selectors", "download.button")
+
+
+def _load_template_builder():
+    """(build_template, assess, label) or (None, None, why-not).
+
+    Imported from `tools/`, not vendored: `assess` is the promote gate's mirror
+    and a copy of it would be a second answer to "is this promotable".
+    """
+    try:
+        for d in (sec.DEFAULT_WORK, os.path.join(sec.DEFAULT_WORK, "tools")):
+            if d not in sys.path:
+                sys.path.insert(0, d)
+        from build_template_from_wacz import build_template
+        from template_inventory import assess
+        from bulk_downloader.template_normalize import normalize_draft
+    except Exception as exc:                       # pragma: no cover - env-only
+        return None, None, "UNAVAILABLE: %s: %s" % (type(exc).__name__, exc)
+    return (build_template, normalize_draft), assess, (
+        "build_template_from_wacz.build_template -> "
+        "template_normalize.normalize_draft -> template_inventory.assess "
+        "(promote-gate mirror)")
+
+
+def _template_builder():
+    global _BUILDER_CACHE
+    if _BUILDER_CACHE is None:
+        _BUILDER_CACHE = _load_template_builder()
+    return _BUILDER_CACHE
+
+
+def _merge_fn():
+    """`bd-template-merge.merge_drafts`, loaded by path -- the file is
+    extensionless, so there is no import statement that can reach it."""
+    global _MERGE_CACHE
+    if _MERGE_CACHE is None:
+        try:
+            import importlib.machinery
+            import importlib.util
+            ld = importlib.machinery.SourceFileLoader(
+                "bd_template_merge", os.path.join(_HERE, "bd-template-merge"))
+            mod = importlib.util.module_from_spec(
+                importlib.util.spec_from_loader(ld.name, ld))
+            ld.exec_module(mod)
+            _MERGE_CACHE = (mod.merge_drafts, None)
+        except Exception as exc:                   # pragma: no cover - env-only
+            _MERGE_CACHE = (None, "%s: %s" % (type(exc).__name__, exc))
+    return _MERGE_CACHE
+
+
+def _gate_support(merged):
+    """Support for the gate-critical selector, with its denominator attached."""
+    sup = ((merged or {}).get("merge") or {}).get("selector_support") or {}
+    best = None
+    for k in _GATE_KEYS:
+        for e in sup.get(k, []) or []:
+            if best is None or (e.get("support") or 0) > (best[1].get("support") or 0):
+                best = (k, e)
+    if best is None:
+        return None
+    k, e = best
+    return {"key": k, "value": e.get("value"), "support": e.get("support"),
+            "of": e.get("of")}
+
+
+def _reliability(n_drafts, gate_support):
+    """Three states, and `unknown` is the one that matters.
+
+    A site with fewer than TWO drafts has nothing to corroborate against: its
+    support reads 1 of 1, arithmetically identical to a selector every capture
+    agreed on. `bd-template-merge` refuses to merge a single draft for exactly
+    that reason, and this refuses to grade one.
+
+    Extracted from `mode_templates` because the n<2 guard was UNREACHABLE where
+    it sat -- a single-capture site never produces a merged draft, so the
+    `gate_support is None` branch answered first and a mutation removing the
+    guard changed nothing observable. It escaped its battery. The rule is only
+    defensive if nothing can reach it; as a function it is testable, and the
+    day something merges a lone draft it will still refuse to call 1 of 1
+    corroboration.
+    """
+    if n_drafts < 2 or gate_support is None:
+        return "unknown"
+    return ("corroborated" if (gate_support.get("support") or 0) > 1
+            else "single_witness")
+
+
+def _blocking(a):
+    """Which of the gate's clauses failed, in the gate's own words. 'missing
+    resolutions' is actionable where a score out of 100 is not."""
+    if a is None:
+        return ["no_draft"]
+    out = []
+    if not (a.get("download_trigger") or a.get("row_selectors_count")):
+        out.append("gate_selector")
+    if not a.get("resolutions"):
+        out.append("resolutions")
+    if a.get("blocked_terms"):
+        out.append("blocked_terms")
+    return out
+
+
+def mode_templates(files):
+    """Per site: can ONE capture make a green template, can the COMBINATION, or
+    neither -- and is the answer corroborated across that site's captures.
+
+    Four verdicts, and `unbuildable` is a third state rather than a failure:
+    an archive that yields no draft answers NOTHING about the site, and folding
+    it into `not_green` would report a measurement nobody took.
+
+    RELIABILITY IS THREE-STATE, and `unknown` is the one a plausible
+    implementation gets wrong. A lone capture reports support 1 of 1, which is
+    arithmetically identical to a selector every capture agrees on --
+    `bd-template-merge` refuses to merge a single draft for exactly that reason.
+    Calling it corroborated would be a verdict over a denominator that cannot
+    contain its subject.
+    """
+    fns, assess, label = _template_builder()
+    build, normalize = fns if fns else (None, None)
+    merge, _merge_err = _merge_fn()
+    placed, _attempted, _parser = _place_by_host(files)
+
+    buckets = {}
+    for p, host, method, _reason in placed:
+        buckets.setdefault((method == "unknown", host), []).append(p)
+
+    sites, verdicts, unbuildable_total = [], {}, 0
+    for (is_unknown, host), paths in sorted(buckets.items()):
+        paths = sorted(paths, key=lambda x: x.name)
+        drafts, normed, names, unbuildable = [], [], [], 0
+        for p in paths:
+            if build is None:
+                unbuildable += 1
+                continue
+            try:
+                raw = build(p)
+                normed.append(normalize(raw))
+                drafts.append(raw)
+                names.append(p.name)
+            except BaseException:
+                # SystemExit too: the builder exits on a wacz with no
+                # capture.json, and that must not take the survey down with it.
+                unbuildable += 1
+        unbuildable_total += unbuildable
+
+        singles = [assess(d, source=n) for d, n in zip(normed, names)] if assess else []
+        ready = [(a, n) for a, n in zip(singles, names) if a["promotion_ready"]]
+        best = max(singles, key=lambda a: (a["promotion_ready"],
+                                           a["completeness_score"]),
+                   default=None)
+
+        merged = merged_a = None
+        if len(drafts) >= 2 and merge is not None:
+            try:
+                # merge consumes RAW drafts (its own docstring: it feeds the
+                # draft -> normalize -> promote pipeline), and the support block
+                # it writes lives on that raw output -- so normalize a COPY for
+                # assessing and read support off the raw one.
+                merged = merge(drafts, names)
+                merged_a = assess(normalize(merged), source="MERGED")
+            except Exception:
+                merged = merged_a = None
+
+        if not drafts:
+            verdict = "unbuildable"
+        elif ready:
+            verdict = "green_from_one"
+        elif merged_a is not None and merged_a["promotion_ready"]:
+            verdict = "green_only_merged"
+        else:
+            verdict = "not_green"
+        verdicts[verdict] = verdicts.get(verdict, 0) + 1
+
+        gs = _gate_support(merged)
+        reliability = _reliability(len(drafts), gs)
+
+        sites.append({
+            "host": host,
+            "resolved_host": not is_unknown,
+            "captures": len(paths),
+            "drafts_built": len(drafts),
+            "unbuildable": unbuildable,
+            "verdict": verdict,
+            "green_capture": ready[0][1] if ready else None,
+            "best_single_ready": bool(ready),
+            "best_single_score": best["completeness_score"] if best else 0,
+            "merged_ready": bool(merged_a and merged_a["promotion_ready"]),
+            "merge_inputs": names if len(drafts) >= 2 else [],
+            "blocking": _blocking(merged_a or best),
+            "reliability": reliability,
+            "gate_support": gs,
+            "missing": (merged_a or best or {}).get("missing", []),
+        })
+
+    return {"examined": len(files),
+            "denominator": ("all *.wacz under root, grouped by the same host "
+                            "tiering --hosts reports; green is "
+                            "template_inventory.assess, the promote gate's own "
+                            "mirror, never a second definition"),
+            "template_builder": label,
+            "sites": len(sites) and sites or [],
+            "site_count": len(sites),
+            "verdicts": verdicts,
+            "unbuildable_captures": unbuildable_total,
+            "reliability_note": ("support is across a site's captures; a lone "
+                                 "capture is 1 of 1, indistinguishable from a "
+                                 "universal, and is reported unknown"),
+            }
 
 
 def mode_pairs(files):
@@ -536,8 +781,9 @@ def mode_dupes(files):
             "groups": groups}
 
 
-_MODES = {"group": mode_group, "hosts": mode_hosts, "pairs": mode_pairs,
-          "health": mode_health, "scrub": mode_scrub, "dupes": mode_dupes}
+_MODES = {"group": mode_group, "hosts": mode_hosts, "templates": mode_templates,
+          "pairs": mode_pairs, "health": mode_health, "scrub": mode_scrub,
+          "dupes": mode_dupes}
 
 
 def main() -> int:
@@ -578,6 +824,7 @@ def main() -> int:
                 + modes.get("scrub", {}).get("with_findings", 0)
                 + modes.get("scrub", {}).get("inconclusive", 0)
                 + modes.get("scrub", {}).get("unreadable", 0)
+                + modes.get("templates", {}).get("unbuildable_captures", 0)
                 + modes.get("dupes", {}).get("noop_derivatives", 0))
     status = "findings" if findings else "ok"
     out = {"status": status, "root": str(root),
