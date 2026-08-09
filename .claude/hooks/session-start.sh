@@ -274,10 +274,40 @@ fi
 # Written last and never gated on: a failure here must not affect the repair
 # above, which is the part that matters.
 BOOT_STATE="$HOME/.bd_boot_state"
+BOOT_NOW="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo "")"
+
+# @969, item 17. The write below TRUNCATES, and this hook fires on resume --
+# so the sequence "container restarts -> session resumes -> SessionStart fires"
+# used to overwrite the baseline with the new boot id before anyone could read
+# it. bd-restart-check then compared the new boot against itself and reported
+# OK. The comment above is right that the mid-session read is the only
+# unambiguous moment; what it misses is that a resume gives that moment zero
+# width. Measured at v3.66.968: uptime 6 minutes, this file written at the boot
+# minute with source=resume, its id equal to the current one, tool exit 0.
+#
+# So carry the prior boot forward when it DIFFERS. Only when it differs:
+# recording a transition unconditionally would make every ordinary session read
+# as a restarted container, which is section 0's over-sensitivity failure and
+# gets the check switched off. Read BEFORE the redirect truncates, and keep the
+# whole block ungated so an unwritable HOME still cannot cost the repair above.
+BOOT_PREV=""
+BOOT_PREV_WHEN=""
+if [ -f "$BOOT_STATE" ]; then
+  BOOT_PREV_ID="$(sed -n '1p' "$BOOT_STATE" 2>/dev/null || echo "")"
+  if [ -n "$BOOT_PREV_ID" ] && [ -n "$BOOT_NOW" ] && [ "$BOOT_PREV_ID" != "$BOOT_NOW" ]; then
+    BOOT_PREV="$BOOT_PREV_ID"
+    BOOT_PREV_WHEN="$(sed -n '2p' "$BOOT_STATE" 2>/dev/null || echo "unknown")"
+    [ -n "$BOOT_PREV_WHEN" ] || BOOT_PREV_WHEN="unknown"
+  fi
+fi
 {
-  cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo ""
+  echo "$BOOT_NOW"
   date -u +%Y-%m-%dT%H:%M:%SZ
   echo "${HOOK_SOURCE:-unknown}"
+  if [ -n "$BOOT_PREV" ]; then
+    echo "$BOOT_PREV"
+    echo "$BOOT_PREV_WHEN"
+  fi
 } > "$BOOT_STATE" 2>/dev/null || true
 
 exit 0

@@ -3959,23 +3959,78 @@ WORK, NOT BLOCKED (4-19)
      The three survivors went with the mirror retirement. The spec-rework
      blocker is moot because there is nothing left for the rewritten spec to
      act on.
- 17. **RE-SCOPED at v3.66.965: there is no code left to write, and the
-     instrument may not be able to answer its own question.** The tool is
-     complete and its failing branch is PROVEN -- its selftest exercises all
-     three states (`no record -> unevaluable exit 2`, `same boot -> ok exit
-     0`, `different boot -> restarted exit 1`). What remains is purely
-     empirical: does a mid-session container restart fire SessionStart, which
-     needs a real restart.
+ 17. **CLOSED at v3.66.969, and BOTH earlier framings of it were wrong.** The
+     item asked whether a mid-session container restart fires SessionStart, and
+     @965 re-scoped it to "the state lives inside the container, so a restart
+     may take the record with it -- the real work is moving the state somewhere
+     a restart preserves". Neither was the mechanism.
 
-     **THE CATCH THE ITEM DOES NOT RECORD.** The state lives at
-     `$HOME/.bd_boot_state` -- `/root/.bd_boot_state` here -- INSIDE the
-     container. A restart that wipes the filesystem takes the record with it,
-     and the tool then reports **exit 2 / unevaluable**, which is
-     indistinguishable from "never ran". So the reading this item waits for
-     may be structurally unobtainable by this instrument: section 0's shape,
-     one layer up from the tool built to avoid it. If that is so, the real
-     remaining work is moving the state somewhere a restart preserves -- not
-     waiting for a reading.
+     **THE HOOK DESTROYED ITS OWN EVIDENCE.** `.claude/hooks/session-start.sh`
+     wrote the boot record with a TRUNCATING redirect and no comparison, and
+     the hook fires on resume. So:
+
+         container restarts -> session resumes -> SessionStart fires
+                            -> hook overwrites the baseline with the NEW boot
+                            -> bd-restart-check compares new-against-new -> OK
+
+     Measured live at v3.66.968 in this container, which is what surfaced it:
+     uptime **6 minutes**, `$HOME/.bd_boot_state` written at the boot minute
+     with `source=resume`, its boot id EQUAL to the current one, and the tool
+     returning `OK, exit 0`. The state file had not been lost to the restart at
+     all -- it had been REWRITTEN by the hook that runs immediately after one.
+     The tool's own comment says the mid-session read is *"the only moment the
+     reading is unambiguous"*; that is correct, and a resume gives that moment
+     zero width.
+
+     So the empirical question the item was waiting on is ALSO answered, by the
+     same reading: `source=resume` written at the boot minute means SessionStart
+     **does** follow a container restart. The reading was obtainable all along
+     -- it was sitting in the state file, and nothing read it because the tool
+     only ever compared two boot ids for equality.
+
+     **THE FIX.** The hook now reads the prior record BEFORE truncating and
+     carries the previous boot forward when it DIFFERS (positional lines 4-5, so
+     a pre-@969 three-line record still parses -- a reader that raised on the
+     short form would make the first run after this landed indistinguishable
+     from "the hook never ran"). `bd-restart-check` surfaces the transition in
+     its OK detail. It stays **exit 0, deliberately**: a transition the hook
+     already carried forward is not a live unrepaired restart -- the hook ran,
+     so the repair path fired -- and reporting it as exit 1 would overload a
+     code whose documented meaning is "and the hook has NOT run since", sending
+     a reader to re-provision an environment that already reconverged.
+
+     Only when it differs, for the same reason: recording unconditionally would
+     make every ordinary session read as a restarted container, which is
+     section 0's over-sensitivity failure.
+
+     **WHAT THE TESTS COST, and the seam is the part worth keeping.** 7 tests,
+     2 proven RED on pristine source, 5 green-both-ways by design (the
+     over-sensitivity and backward-compatibility guards, which exist to forbid
+     a bad fix rather than to prove a good one). Then a seam appeared that no
+     per-test reading would find: the writer test reads the state file's lines
+     directly and the reader test hands `classify()` a dict it built itself, so
+     **`recorded()`'s parsing of the two new lines sat between them with nothing
+     driving it**. A mutation dropping those keys breaks the feature completely
+     and would have escaped both. Closed with an end-to-end test through one
+     process boundary, and the battery proves it was load-bearing:
+
+         4 mutants, 4 CAUGHT, 0 escaped, 0 invalid   (baseline GREEN)
+           hook: record a transition when the boot is UNCHANGED
+           hook: drop the preservation entirely (the original defect)
+           tool: recorded() stops parsing the preserved boot   <-- the seam
+           tool: classify() reads the field but never surfaces it
+
+     The question that found it was "what do these two tests SHARE", not "what
+     does each cover".
+
+     **AND THE BATTERY'S OWN GUARD WAS WRONG FIRST.** The extended selftest
+     forbade the bare word "restart" in the no-transition case, and failed two
+     CORRECT cases whose details legitimately contain it -- the unevaluable
+     branch explaining that UNKNOWN is *"not 'no restart'"*, and the restarted
+     branch itself. A predicate ranging over cases it does not mean, inside the
+     check written to prevent exactly that. Repaired to forbid the transition
+     CLAIM rather than the word.
+
  18. **CLOSED, and it was closed before anyone noticed.** Re-measured at
      v3.66.956 by RUNNING the tool, not reading it: a manifest of
      `pytest>=99.0` exits 1 and `pytest>=8.0` exits 0, so the specifier IS
@@ -4579,8 +4634,8 @@ bounded by its line count, and neither can be judged from a container.
 **READ THIS FIRST IF YOU ARE A FRESH SESSION.** It supersedes 15.68's open set.
 
 ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
-OPEN:   12, 17, 29, 31, 33
-CLOSED: 2, 3, 8, 11, 13, 16, 18, 20, 23, 30, 32, 36, 37, 38, 39, 40, 41, 42
+OPEN:   12, 29, 31, 33
+CLOSED: 2, 3, 8, 11, 13, 16, 17, 18, 20, 23, 30, 32, 36, 37, 38, 39, 40, 41, 42
 
 Item 1 is CANNOT-EVALUATE and is accounted by the inventory marker rather than
 by this ledger -- a third state, not a close.
