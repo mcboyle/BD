@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3777,
+  "edge_count": 3779,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -6066,6 +6066,10 @@
     ],
     "tests/test_v3_66_974_template_merge.py": [
       "bulk_downloader/template_normalize.py"
+    ],
+    "tests/test_v3_66_977_ytdlp_freshness_compares_versions.py": [
+      "bulk_downloader/healthcheck.py",
+      "bulk_downloader/ytdlp_updater.py"
     ],
     "tests/test_v3_66_98_cockpit_console.py": [
       "tools/cockpit_console.py",

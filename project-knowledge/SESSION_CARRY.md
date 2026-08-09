@@ -4154,7 +4154,23 @@ STANDALONE REGISTER FINDINGS, STILL OPEN (26-28)
 
 YOURS, NOT MINE (29-30)
 
- 29. **The archive sequence -- FIRST CLAUSE ALREADY DONE, and the acceptance
+ 29. **CLOSED at v3.66.977 on the operator's own restore test.** Run on the
+     box 2026-08-09: `git bundle create ~/d/bd-archive.bundle --all` produced
+     7723 objects / 23.07 MiB, and the acceptance test -- fetch into a FRESH
+     empty repo -- returned **RESTORABLE**, recovering `main`, `origin/main`,
+     `origin/HEAD` and the `archive/preflight-preforce` tag. That is the real
+     criterion, not `git bundle verify`, which section 7 records passing on a
+     bundle that then failed to fetch.
+
+     The purge step was NOT separately evidenced, and it does not gate the
+     criterion: `git bundle --all` packs git objects only, so venvs,
+     `node_modules`, `__pycache__` and `frontend/dist` were never candidates
+     for it. If disk reclamation is wanted it is its own task, not this one.
+
+     The original entry follows, kept because its acceptance-criterion argument
+     is the reusable part.
+
+     **The archive sequence -- FIRST CLAUSE ALREADY DONE, and the acceptance
      criterion must change before anyone works it.** 15.68 records the
      database recovery complete: 108 files, all `integrity_check = ok`. So the
      ordering constraint that made this item special is DISCHARGED; the
@@ -4742,8 +4758,8 @@ bounded by its line count, and neither can be judged from a container.
 **READ THIS FIRST IF YOU ARE A FRESH SESSION.** It supersedes 15.68's open set.
 
 ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
-OPEN:   29, 31, 33
-CLOSED: 2, 3, 8, 11, 12, 13, 16, 17, 18, 20, 23, 30, 32, 36, 37, 38, 39, 40, 41, 42, 43
+OPEN:   31, 33
+CLOSED: 2, 3, 8, 11, 12, 13, 16, 17, 18, 20, 23, 29, 30, 32, 36, 37, 38, 39, 40, 41, 42, 43
 
 Item 1 is CANNOT-EVALUATE and is accounted by the inventory marker rather than
 by this ledger -- a third state, not a close.
@@ -4939,6 +4955,7 @@ stop:
 | v3.66.964 | `1875ce8` | 15095 | 15010 | +3 | +3 |
 | v3.66.973 | `a1bc58b` | 15128 | 15043 | +33 | +33 |
 | v3.66.974 | `495e943` | 15138 | 15053 | +10 | +10 |
+| v3.66.976 | `22bbb76` | 15138 | 15053 | 0 | 0 (unchanged) |
 
 Graph pin OK on every one, live 36/0/0 except @961's single WARN, `.err` files
 empty throughout. @961's live warn was `L28 service-restart-preserves-queue --

@@ -4,6 +4,55 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.977
+
+The yt-dlp freshness check now compares VERSIONS instead of wall-clock age, and
+item 29 is closed on the operator's restore test.
+
+MEASURED on the box 2026-08-09, which is what opened this: the startup selftest
+reported "yt-dlp is 36 days old -- consider updating", the operator ran pip
+install -U yt-dlp, and pip answered "Requirement already satisfied (2026.7.4)".
+Confirmed independently against the index: 2026.7.4 IS the newest release,
+uploaded 2026-07-04. The box was already current and the check fired anyway,
+because its predicate was age_days > 30. Age cannot tell "you are behind" from
+"upstream has been quiet", so the one action the message recommended could not
+clear it. That is the over-sensitivity failure the contract counts as a
+soundness bug, and it had been WARNing in every capture.
+
+Three outcomes now. Behind the index warns and NAMES the version available.
+Current is OK regardless of age -- being old is not a defect when there is
+nothing newer. An unreachable index warns that it could not check, and
+specifically does not say "consider updating", which would assert staleness
+never measured.
+
+ytdlp_updater gains latest_version() (cached 6h, 3s timeout, never raises --
+it runs at boot) and is_behind(), which compares with ordering rather than
+inequality so a box AHEAD of the index is not told to downgrade.
+
+On the third state: selftest has only ok/warn/fail, so "could not check" shares
+a status with "behind" and the distinction lives in the message. That is weaker
+than section 0 asks for and is deliberate -- a fourth status would change the
+boot summary, the 07b_selftest.json artifact and every consumer of ok/warn/fail.
+
+Two defects found in this cut's own code, neither by reading it. json was never
+imported, so json.loads raised NameError and the boot-safe except swallowed it
+and returned None -- indistinguishable from an unreachable index. ast.parse was
+clean; only importing and calling it showed the difference. And bd-mutate
+escaped one mutant: is_behind's ordered comparison was correct but nothing
+asserted it, so swapping it for != left the suite green. Both closed; re-run is
+5 caught, 0 escaped.
+
+Item 29 closed. On the box: git bundle create --all produced 7723 objects /
+23.07 MiB and the acceptance test -- fetch into a fresh empty repo -- returned
+RESTORABLE, recovering main, origin/main, origin/HEAD and the
+archive/preflight-preforce tag. That is the criterion, not git bundle verify,
+which section 7 records passing on a bundle that then failed to fetch. The purge
+step was not separately evidenced and does not gate it: git bundle --all packs
+git objects only.
+
+Also records the v3.66.976 capture at 22bbb76: 15138 / 15053 / 85, PASS, live
+36/0/0 -- the predicted unchanged reading for two register-only cuts.
+
 ## v3.66.976
 
 Register only. Records the v3.66.974 box capture.
