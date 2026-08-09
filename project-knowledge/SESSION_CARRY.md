@@ -4938,6 +4938,7 @@ stop:
 | v3.66.963 | `3bb6c29` | 15092 | 15007 | +4 | +4 |
 | v3.66.964 | `1875ce8` | 15095 | 15010 | +3 | +3 |
 | v3.66.973 | `a1bc58b` | 15128 | 15043 | +33 | +33 |
+| v3.66.974 | `495e943` | 15138 | 15053 | +10 | +10 |
 
 Graph pin OK on every one, live 36/0/0 except @961's single WARN, `.err` files
 empty throughout. @961's live warn was `L28 service-restart-preserves-queue --
@@ -5008,10 +5009,30 @@ in KIND, while its COUNT is stale in both directions -- it records 14 (e2e x7,
 order-dependent case not on the list at all. Re-derive that figure; do not quote
 it.
 
-**THE BOX HAS NOT SEEN @974.** `bd-template-merge` merged at `495e943` after
-this capture started (capture 11:53Z, merge after). The next capture should read
-**15138 / 15053 / 85** -- @974 adds `tests/test_v3_66_974_template_merge.py`
-collecting 10, and nothing else in the range adds or removes a test.
+**@974 CAME IN AT EXACTLY 15138 / 15053 / 85 -- THE FOURTH EXACT PREDICTION IN
+A ROW, AND THE FIRST PUBLISHED BEFORE THE RUN EXISTED.** The number above was
+written into this register and into PR #270 at @975, hours before the box
+captured `495e943`. That is the only form of this claim worth much: the earlier
+three were computed after the capture arrived, where an arithmetic slip and a
+correct derivation are indistinguishable to the reader. Full verdict PASS --
+unit 15053/0/0/85, live 36 pass / 0 warn / 0 fail, graph pin OK (content hash
+matched, exit 0), gui parity 1246 items, no non-empty `.err`.
+
+**THE SERVICE SELFTEST CARRIES ONE STANDING WARN, AND IT IS OPERATOR ACTION
+RATHER THAN A DEFECT:** `extractor_freshness` reports *"yt-dlp is 36 days old --
+consider updating"*. Present in the @973 capture as well, so it is not new and
+not caused by any cut here. It matters more than a cosmetic warn on a
+downloader -- extractors break as sites change, and the whole live lane is
+exercised through them -- but nothing in the repo can fix it; it is a box-side
+`yt-dlp` update. Named here because a WARN that appears in every capture is
+exactly the kind that stops being read.
+
+**A TEARDOWN ARTIFACT THAT IS NOT A FAILURE, recorded so the next reader does
+not chase it.** `06_live_tests.log` ends with `Future exception was never
+retrieved ... TargetClosedError('Target page, context or browser has been
+closed')`. The live lane's own verdict on the same run is **36 pass / 0 warn /
+0 fail**, so this is a browser closing while an async future was still pending
+during teardown, not a test outcome. Read the verdict line, not the log tail.
 
 **AN UNCHANGED PREDICTION IS STILL A PREDICTION, and this is the one shape the
 four errors above could not produce.** Every earlier miss was an arithmetic

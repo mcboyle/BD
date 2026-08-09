@@ -4,6 +4,35 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.976
+
+Register only. Records the v3.66.974 box capture.
+
+Capture at 495e943: 15138 total, 15053 passed, 0 failed, 0 errors, 85 skipped --
+PASS. Live 36 pass / 0 warn / 0 fail, graph pin OK with the content hash
+matched, gui parity 1246 items, no non-empty .err file.
+
+This is the fourth exact prediction in a row and the first one published BEFORE
+the run existed: 15138 / 15053 / 85 was written into the register and into PR
+#270 at v3.66.975, hours before the box captured 495e943. That is the only form
+of the claim worth much. The earlier three were computed after the capture
+arrived, where an arithmetic slip and a correct derivation look the same to a
+reader.
+
+Two things in the capture named rather than passed over.
+
+The service selftest carries one standing WARN: extractor_freshness reports
+yt-dlp is 36 days old. It is present in the v3.66.973 capture too, so it is not
+new and no cut here caused it, and nothing in the repo can fix it -- it is a
+box-side yt-dlp update. Recorded because a WARN that appears in every capture is
+exactly the kind that stops being read, and on a downloader a stale extractor is
+not cosmetic: the whole live lane runs through it.
+
+06_live_tests.log ends with a TargetClosedError from a future that was never
+retrieved. The live lane's own verdict on the same run is 36 pass / 0 warn / 0
+fail, so that is a browser closing during teardown, not a test outcome. Read the
+verdict line, not the log tail.
+
 ## v3.66.975
 
 Register only. Records the v3.66.973 box capture and reconciles a standing
