@@ -759,6 +759,23 @@ def _blocking(a):
     return out
 
 
+def _verdict_blocking(verdict, ready_a, merged_a, best):
+    """What is blocking THE THING THE VERDICT IS ABOUT.
+
+    Two sites on the operator's 158 printed `green_from_one` beside
+    `blocking: ["gate_selector"]`: the verdict came from a green single capture
+    while `blocking` was read off the MERGED draft, which was not ready. One row
+    cannot answer the same question both ways -- and it inflated the
+    gate_selector_blocked rollup by two sites that are not blocked at all.
+
+    A green verdict names the assessment that MADE it green; anything else falls
+    back to the merged draft, then to the best single, as before.
+    """
+    if verdict.startswith("green") and ready_a is not None:
+        return _blocking(ready_a)
+    return _blocking(merged_a or best)
+
+
 def _gate_blocked_rollup(sites):
     """Decompose "blocked on gate_selector" into causes that imply DIFFERENT
     work.
@@ -971,10 +988,16 @@ def mode_templates(files, jobs=1, progress=False):
             "best_single_score": best["completeness_score"] if best else 0,
             "merged_ready": bool(merged_a and merged_a["promotion_ready"]),
             "merge_inputs": names if len(drafts) >= 2 else [],
-            "blocking": _blocking(merged_a or best),
+            "blocking": _verdict_blocking(
+                verdict, ready[0][0] if ready else None, merged_a, best),
             "reliability": reliability,
             "gate_support": gs,
-            "missing": (merged_a or best or {}).get("missing", []),
+            # The SAME subject `blocking` describes. Reporting the merged
+            # draft's missing list beside a blocking read off the green single
+            # capture is the mixed-subject shape `_verdict_blocking` exists to
+            # remove, one field over.
+            "missing": ((ready[0][0] if (ready and verdict.startswith("green"))
+                         else (merged_a or best)) or {}).get("missing", []),
         })
 
     return {"examined": len(files),
