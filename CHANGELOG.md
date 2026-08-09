@@ -4,6 +4,50 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.974
+
+New tool: bd-template-merge -- N captures of one site into one master template,
+closing item 43. Frequency-ranked, keep-all, support recorded.
+
+The two rejected alternatives say why this shape. Union cannot tell a selector
+seen in 4 of 4 captures from one seen in 1 of 4, so a one-off from a broken
+capture ranks equal to a universal. Intersection silently drops anything a
+single capture saw, which is how a site's rarer page shape stops being covered
+with the template giving no signal. So every candidate survives, the
+highest-support value takes the canonical slot, and the full ranked evidence
+sits in a sibling merge block where each count carries its denominator -- "2 of
+3", never a bare 2.
+
+Support lives BESIDE the draft, not inside it. template_normalize.normalize_draft
+reads selectors.<group>.<leaf> as a VALUE, and this tool exists to feed that
+pipeline, so turning a leaf into a ranked list would carry more information and
+break the consumer. The suite asserts the contract by RUNNING normalize_draft
+over the merged output rather than reasoning that it should hold.
+
+Two refusals, both UNKNOWN rather than a best effort: fewer than two drafts
+(every support count would read 1 of 1, indistinguishable from a universal), and
+drafts spanning different hosts (a category error, not a merge). It reuses
+build_template_from_wacz.gold_merge_guard rather than reimplementing that rule,
+so a thin auto-merge cannot overwrite a selector-rich reviewed gold; when
+blocked it writes the incoming draft beside the existing one for diff review
+instead of discarding the work.
+
+Ten tests, all proven RED on pristine source. One of them was strengthened
+during the RED run itself: the single-draft refusal asserted only exit 2, and
+python exits 2 for "can't open file", so a missing tool satisfied it. It now
+requires the tool's own words.
+
+Mutation battery: 7 mutants, 6 caught and ONE ESCAPED on the first run. The
+canonical-slot test fed the majority value in the first draft, so "rank by
+support" and "take the first seen" chose the same winner and the assertion could
+not discriminate. A test whose two candidate rules agree on its fixture proves
+neither. Repaired by feeding the 1-of-3 value first; re-run is 7 caught, 0
+escaped.
+
+_TOOL_BUDGET 236 -> 237, raised with the same check applied as at v3.66.973:
+measured, the only merge functions anywhere in tools/ are within a single
+capture, so there was no N-way merge to extend.
+
 ## v3.66.973
 
 New tool: bd-wacz-corpus, a read-only survey of a local WACZ corpus. Four

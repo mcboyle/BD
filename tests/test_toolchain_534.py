@@ -1065,7 +1065,14 @@ def test_salvaged_stub_detector_separates_a_marker_from_prose_about_one():
 # it as a subprocess, so test_unwired_bd_tools_do_not_multiply stays green at
 # its existing baseline -- verified, not assumed, in the same run that caught
 # this ratchet.
-_TOOL_BUDGET = 236
+# @974: 236 -> 237. bd-template-merge. Same reasoning as @973 and the same
+# check applied: nothing else merges N captures into one template. Measured at
+# @973 -- the only merge functions anywhere in tools/ are WITHIN one capture
+# (_merge_supplemental_media, _merge_supplemental_api); there was no N-way
+# merge to extend. It reuses build_template_from_wacz.gold_merge_guard rather
+# than reimplementing that rule, because two copies of a guard is how they
+# drift. Wired: tests/test_v3_66_974_template_merge.py runs it as a subprocess.
+_TOOL_BUDGET = 237
 
 
 def test_the_toolchain_does_not_grow_unbudgeted():

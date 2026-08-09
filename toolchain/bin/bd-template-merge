@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""bd-template-merge -- N captures of one site into one master template.
+
+Frequency-ranked, keep-all, support recorded. Chosen over the alternatives for
+reasons worth keeping, because both look reasonable until you name what they
+lose:
+
+  * UNION cannot tell a selector seen in 4 of 4 captures from one seen in 1 of
+    4, so a one-off produced by a broken capture ranks equal to a universal.
+  * INTERSECTION silently drops anything a single capture saw -- which is
+    precisely how a site's rarer page shape stops being covered, with the
+    template giving no signal that it happened.
+
+So every candidate survives; the highest-support one takes the CANONICAL slot;
+and the full ranked evidence goes in a sibling ``merge`` block where each count
+carries its denominator ("2 of 3"), never a bare number.
+
+WHY SUPPORT LIVES BESIDE THE DRAFT, NOT INSIDE IT. ``template_normalize
+.normalize_draft`` reads ``selectors.<group>.<leaf>`` as a VALUE, and this tool
+exists to feed that pipeline (draft -> normalize -> promote -> reviewed).
+Turning a leaf into a ranked list would carry more information and break the
+consumer, so the canonical positions keep their scalar shape and the evidence
+sits alongside. The test suite asserts this by RUNNING the normalizer over the
+merged output rather than by reasoning that it should work.
+
+Refusals, both UNKNOWN (exit 2) rather than a best effort:
+  * fewer than two drafts -- merging one thing is not merging, and every
+    support count would read 1/1, indistinguishable from a universal;
+  * drafts from different hosts -- that is a category error, not a merge.
+
+Exit: 0 written, 1 refused by gold_merge_guard (incoming written beside for
+diff review), 2 UNKNOWN.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import pathlib
+import sys
+from collections import OrderedDict
+
+_HERE = pathlib.Path(os.path.realpath(__file__)).parent
+_ROOT = _HERE.parent.parent
+sys.path.insert(0, str(_ROOT))
+sys.path.insert(0, str(_ROOT / "tools"))
+
+EXIT_OK, EXIT_BLOCKED, EXIT_UNKNOWN = 0, 1, 2
+
+
+def _gold_merge_guard(out_path, new_draft):
+    """The real guard from the builder, not a second copy of its rule.
+
+    Two implementations of one guard is how they drift, and this one is the
+    difference between overwriting a reviewed gold and not.
+    """
+    from build_template_from_wacz import gold_merge_guard
+    return gold_merge_guard(out_path, new_draft)
+
+
+def _leaves(selectors):
+    """(group.leaf, value) for every scalar leaf. A group that is not a dict is
+    itself a leaf, which is how gold_merge_guard counts them too."""
+    for group, val in (selectors or {}).items():
+        if isinstance(val, dict):
+            for leaf, v in val.items():
+                yield "%s.%s" % (group, leaf), group, leaf, v
+        else:
+            yield str(group), None, group, val
+
+
+def _rank(candidates, total):
+    """Ranked support, highest first, ties broken by FIRST APPEARANCE.
+
+    Deterministic on purpose: a tie-break that wanders produces a diff on every
+    run and makes review meaningless. Insertion order carries first-appearance
+    because the counter is an OrderedDict fed in draft order.
+    """
+    items = [{"value": v, "support": n, "of": total, "first_seen": i}
+             for i, (v, n) in enumerate(candidates.items())]
+    items.sort(key=lambda d: (-d["support"], d["first_seen"]))
+    for d in items:
+        d.pop("first_seen")
+    return items
+
+
+def merge_drafts(drafts, names):
+    """Pure, so the semantics can be driven without a filesystem."""
+    total = len(drafts)
+    sel_votes = OrderedDict()      # "group.leaf" -> OrderedDict(value -> count)
+    positions = {}                 # "group.leaf" -> (group, leaf)
+    for d in drafts:
+        for key, group, leaf, val in _leaves(d.get("selectors")):
+            if not isinstance(val, (str, int, float, bool)) and val is not None:
+                # non-scalar leaf: keep it, but it cannot be voted on sanely
+                val = json.dumps(val, sort_keys=True)
+            positions[key] = (group, leaf)
+            sel_votes.setdefault(key, OrderedDict())
+            sel_votes[key][val] = sel_votes[key].get(val, 0) + 1
+
+    support = {k: _rank(v, total) for k, v in sel_votes.items()}
+    ties = [{"key": k, "tied_at": c[0]["support"], "of": total,
+             "values": [x["value"] for x in c if x["support"] == c[0]["support"]]}
+            for k, c in support.items()
+            if len(c) > 1 and c[0]["support"] == c[1]["support"]]
+
+    selectors = {}
+    for key, ranked in support.items():
+        group, leaf = positions[key]
+        winner = ranked[0]["value"]
+        if group is None:
+            selectors[leaf] = winner
+        else:
+            selectors.setdefault(group, {})[leaf] = winner
+
+    hosts, patterns = OrderedDict(), OrderedDict()
+    res = OrderedDict()
+    for d in drafts:
+        for h in (d.get("match") or {}).get("hosts") or []:
+            hosts[h] = hosts.get(h, 0) + 1
+        for p in (d.get("match") or {}).get("url_patterns") or []:
+            patterns[p] = patterns.get(p, 0) + 1
+        for r in d.get("resolution_priority") or []:
+            res[r] = True
+
+    base = json.loads(json.dumps(drafts[0]))       # shape template, deep-copied
+    base["selectors"] = selectors
+    base["match"] = {"hosts": list(hosts),
+                     "url_patterns": [p["value"] for p in _rank(patterns, total)]}
+    base["resolution_priority"] = sorted(res, reverse=True)
+    base["merge"] = {
+        "capture_count": total,
+        "sources": [{"draft": n,
+                     "capture_file": (d.get("source") or {}).get("capture_file"),
+                     "capture_sha256": (d.get("source") or {}).get("capture_sha256")}
+                    for n, d in zip(names, drafts)],
+        "selector_support": support,
+        "url_pattern_support": _rank(patterns, total),
+        "ties": ties,
+        "semantics": ("frequency-ranked, keep-all: the canonical slot holds the "
+                      "highest-support value and EVERY candidate is retained "
+                      "here with its denominator. Union and intersection were "
+                      "rejected -- union cannot rank, intersection drops a "
+                      "site's rarer page shape without saying so."),
+    }
+    return base
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="merge N site drafts into one template")
+    ap.add_argument("--drafts", nargs="+", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--json", action="store_true")
+    a = ap.parse_args()
+
+    def unknown(msg):
+        print("UNKNOWN  %s\n         nothing was written." % msg)
+        return EXIT_UNKNOWN
+
+    if len(a.drafts) < 2:
+        return unknown(
+            "need at least TWO drafts to merge; got %d. Merging one capture is "
+            "not a merge -- every support count would read 1 of 1, which cannot "
+            "be told from a universal selector." % len(a.drafts))
+
+    drafts, names = [], []
+    for p in a.drafts:
+        try:
+            drafts.append(json.loads(pathlib.Path(p).read_text(encoding="utf-8")))
+            names.append(pathlib.Path(p).name)
+        except Exception as exc:
+            return unknown("cannot read draft %s: %s" % (p, type(exc).__name__))
+
+    hosts = sorted({(d.get("source") or {}).get("host")
+                    or ((d.get("match") or {}).get("hosts") or [None])[0]
+                    for d in drafts})
+    if len(hosts) != 1 or hosts[0] is None:
+        return unknown(
+            "drafts span %d hosts (%s); merging different sites into one "
+            "template is a category error, not a merge."
+            % (len(hosts), ", ".join(str(h) for h in hosts)))
+
+    merged = merge_drafts(drafts, names)
+    out = pathlib.Path(a.out)
+    guard = _gold_merge_guard(str(out), merged)
+    if guard.get("blocked"):
+        incoming = out.with_suffix(".incoming.json")
+        incoming.write_text(json.dumps(merged, indent=2, sort_keys=True),
+                            encoding="utf-8")
+        print("BLOCKED  %s\n         existing=%s leaf selectors, incoming=%s.\n"
+              "         wrote %s for diff review; nothing was overwritten."
+              % (guard.get("reason"), guard.get("existing_selectors"),
+                 guard.get("incoming_selectors"), incoming))
+        return EXIT_BLOCKED
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(merged, indent=2, sort_keys=True), encoding="utf-8")
+    if a.json:
+        print(json.dumps(merged["merge"], indent=2, sort_keys=True))
+    else:
+        m = merged["merge"]
+        print("bd-template-merge  host=%s  captures=%d  -> %s"
+              % (hosts[0], m["capture_count"], out))
+        print("  selector leaves : %d" % len(m["selector_support"]))
+        print("  ties            : %d" % len(m["ties"]))
+        for k, c in list(m["selector_support"].items())[:8]:
+            print("    %-28s %s (%d of %d)%s"
+                  % (k, c[0]["value"], c[0]["support"], c[0]["of"],
+                     "" if len(c) == 1 else "  [+%d other]" % (len(c) - 1)))
+    return EXIT_OK
+
+
+if __name__ == "__main__":
+    sys.exit(main())
