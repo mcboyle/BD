@@ -4,6 +4,47 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.973
+
+New tool: bd-wacz-corpus, a read-only survey of a local WACZ corpus. Four
+selectable analyses over one denominator -- --group (site grouping from the
+t_<hex>_<name> naming), --pairs (raw/.redacted twins and their size ratio),
+--health (opens, CRC, carries a WARC payload), --scrub (credential-shaped
+material) -- plus --all. All four rather than one because the point is to
+compare their answers rather than trust a single one.
+
+Every mode states the denominator it counted over. An empty corpus is UNKNOWN
+(exit 2), not "0 problems": a survey that examined nothing must not read as a
+pass, which is the shape check_requirements shipped with. And --scrub counts a
+member it could not READ separately from one read and found clean -- the
+distinction the three TEXT_EXT allowlists collapsed at v3.66.859 over 228
+contaminated files. A file with an unreadable member is reported inconclusive,
+never clean.
+
+--scrub says in its own output that it is a SCREEN, not the canonical floor:
+capture_artifact_redact.scan_floor_secrets operates on a parsed capture rather
+than archive bytes, so a clean screen shortlists a file for that check, it does
+not clear it. Its pattern is structural (a credential-ish key, a separator, a
+value with length) rather than the bare SECRET_WORD_RE, which fires on any prose
+containing the word "secret" -- over-sensitivity is a soundness bug and a screen
+that cries wolf gets switched off.
+
+Eleven tests, ten proven RED on pristine source. The eleventh asserts the tool
+never writes to the corpus and was vacuous until the tool existed. Mutation
+battery: 5 mutants, 5 caught, 0 escaped -- including a deliberate
+re-introduction of the v3.66.859 name-based allowlist.
+
+The tests caught a defect in the tool's own fallback: for a filename not
+matching t_<hex>_<name> the docstring promised grouping "under itself", but the
+code ran the site regex over the whole stem, collapsing every such file into one
+bucket named "t". Surfaced as {'t': 4} on first run. The fixtures were also
+unrepresentative -- 4-hex ids where the real corpus uses 16 -- so the test was
+judging naming the tool will never meet. Both repaired.
+
+Still open (item 43): bd-template-merge. N captures of one site to one master
+template, frequency-ranked with explicit support counts, written as a draft so
+the existing normalize/promote pipeline handles it unchanged.
+
 ## v3.66.972
 
 Item 12 closed. /api/library/missing and library.library_missing() are retired.
