@@ -49,7 +49,20 @@ OK, STALE, UNKNOWN = "OK", "STALE", "UNKNOWN"
 # Docs whose claims are load-bearing enough to gate on.
 _DOCS = ("CLAUDE.md", "project-knowledge/SESSION_CARRY.md")
 
-_ANCHOR = re.compile(r'\b([A-Za-z0-9_./-]+\.(?:py|sh|json|md|txt|yml))[:](\d+)(?:-(\d+))?\b')
+# `tsx` MUST precede `ts` in the alternation: Python tries branches
+# left-to-right, so a leading `ts` would match the first two characters of
+# `.tsx:12` and then fail on the `:` that is not there. It backtracks and
+# recovers here, but the ordering makes the intent explicit rather than
+# incidental. `.txt` is likewise matched by its own branch before `ts` is
+# reached.
+#
+# The frontend extensions were absent until v3.66.968, which made this gate an
+# instance of CLAUDE.md section 0's OPENING example -- a tool that does not
+# count `.tsx`/`.ts` as source and so reports clean over a denominator that
+# excludes them. It was reporting "227/227 resolve" while two frontend
+# citations in the gated documents were never parsed at all.
+_ANCHOR = re.compile(
+    r'\b([A-Za-z0-9_./-]+\.(?:py|sh|json|md|txt|yml|tsx|ts))[:](\d+)(?:-(\d+))?\b')
 
 # How far to push a shallow clone's boundary back before re-asking an ancestry
 # question. MEASURED 2026-08-05 against a `--depth 1` clone of this repo:

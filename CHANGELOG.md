@@ -4,6 +4,43 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.968
+
+Item 42 closed: bd-freshcheck's doc-anchor gate can now see frontend citations,
+and the claim the item was filed with was measured wrong.
+
+The defect was real. The anchor regex alternated over py, sh, json, md, txt and
+yml, so a file:line citation into a .tsx or .ts file was never parsed. The gate
+reported 227/227 anchors resolving while two frontend citations in the gated
+documents sat outside its denominator -- CLAUDE.md section 0's own opening
+example (a tool that does not count .tsx/.ts as source), live in a second tool.
+
+What was wrong: item 42 asserted that widening the extension alone would fail a
+correct citation for its form, because the resolver checks paths against git
+ls-files and both citations are bare basenames. Measured before building
+anything, by widening the regex in a loaded copy of the module and re-running
+check_anchors against the real tree: the shipped regex returns OK at 227/227 and
+the widened one returns OK at 229/229. Zero failures. check_anchors has resolved
+bare basenames since it was written, and reports AMBIGUOUS rather than guessing
+when one matches several tracked files. The claim was written from the regex
+without reading the function.
+
+Both citations were repaired regardless. One named line 1156 for RegenNfosResult,
+which now begins at 1164; it is in range either way, so no anchor gate could ever
+have caught it -- these gates check that a line exists, never that it says what
+the sentence claims. The other was re-read and is still correct. Both are now
+repo-relative rather than bare basenames.
+
+RED first. tests/test_v3_66_968_anchor_gate_sees_frontend_citations.py drives
+check_anchors over a fixture repo carrying a tracked .tsx and both gating
+documents, and all three tests were proven failing on pristine source with
+"found ZERO anchors -- the check saw nothing". The load-bearing assertion
+requires STALE specifically rather than merely not-OK, because UNKNOWN also
+satisfies the loose comparison and UNKNOWN is exactly what the blind gate
+returns. The over-sensitive direction is asserted beside it: a valid frontend
+anchor must not be reported, or a fix that failed every frontend citation would
+pass a one-sided test and destroy the gate.
+
 ## v3.66.967
 
 Item 12's deciding question answered, the sixth box capture recorded, and a new
