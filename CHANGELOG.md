@@ -4,6 +4,50 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.965
+
+Items 31 and 32 re-derived. Record-only: no source change.
+
+ITEM 32 CLOSED AS OBSOLETE on operator decision. 23 CODEX_HANDOFF groups, and
+MEASURED: .superpowers/sdd holds SIX files total -- the corpus-disposition
+index, three live-telemetry reports, the wacz report. Nothing for Analysis
+Tasks 5-7, nothing for Governance/gate 1-8, nothing for
+Audit/knowledge/hygiene/static-KB 1-11. Twenty-two of twenty-three groups have
+no code, no artifact, no gate, and Analysis Task 4's frozen packages are
+confirmed absent. They describe work inherited from a document retired at
+v3.66.842 and an environment that no longer exists. Carrying them as OPEN
+implies someone intends to do them, which is the shape that made this register
+untrustworthy. The four design decisions worth keeping are carried into the
+entry rather than lost with it.
+
+ITEM 31 IS EIGHT ROWS, NOT ELEVEN. Three resolved without touching the box:
+
+EXIT-3 STANDS and 15.15's open question is ANSWERED -- a green CI
+postgres-integration does NOT move it. That job exercises the mod3 code paths;
+it says nothing about production dual-write or a soak clock. Measured by
+RUNNING the preflight: ok=False on four reasons, cutover_engaged False, and one
+of those reasons is "shadow-read has compared 0 statement(s): zero comparisons
+is NOT evidence of agreement, it is an empty denominator" -- section 0's rule
+stated in the product's own refusal.
+
+OPV-F3.1 IS LAPSED, NOT OPEN. Its seven-day window closed 2026-07-30, ten days
+before this re-derivation. An expired clock is not an open task.
+
+CORPUS-DISPOSITION CLOSED AS MIS-FILED. Its own text says all 445 are triaged
+and the index is "DATA, not a register". Index verified present.
+
+JW-TMPL's NOTE WAS WRONG AND IS CORRECTED. 15.15 said the blocker was "site
+Ultra missing password", the same condition "the box's startup selftest still
+prints on every restart", and that "one credential fill may clear this row".
+Measured across all five captures: the message is `login: SKIPPED -- site 'wow'
+is missing password`, it lives in 04_service_boot.log, and the startup selftest
+(11 ok / 1 warn over 12 checks) contains no credential check at all. Site WOW,
+not Ultra. Filling wow clears that boot warning and does nothing for JW-TMPL,
+whose real blocker -- a live capture with ultrafilms credentials -- is
+unchanged. Two sites conflated into one shortcut.
+
+The open set is now 12, 17, 29, 31, 33.
+
 ## v3.66.964
 
 Item 41: _save_app_config() lost another writer's keys AND widened the file

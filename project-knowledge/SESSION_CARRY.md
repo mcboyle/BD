@@ -4001,15 +4001,68 @@ YOURS, NOT MINE (29-30)
 
 PARALLEL PROGRAM -- OLDER, LARGELY OPERATOR- OR CAPTURE-BOUND (31-32)
 
- 31. **15.15 / TASK_TRACKER, 11 rows** -- EXIT-3 (note CI now runs a green
-     `postgres-integration`; establish whether that moves it), OPV-F3.1 (window
-     ELAPSED 2026-07-30 -- closable or restarts), CAP-ROBUST arm C, JW-TMPL
-     (one credential fill may clear it), LOGIN-NSTEP, P3-T12-CALLSITE, RPTYL
-     (do not close by relaxing `api_patterns >= 1` silently), FR-A6.2, FR-A6.3,
-     2c-DATA, CORPUS-DISPOSITION (data, not a task).
- 32. **15.15 / CODEX_HANDOFF, 23 of 34 groups** -- Analysis Task 4 (its frozen
-     review packages NO LONGER EXIST; resuming means re-freezing), Analysis
-     Tasks 5-7, Governance/gate 1-8, Audit/knowledge/hygiene/static-KB 1-11.
+ 31. **15.15 / TASK_TRACKER -- EIGHT rows, not eleven. Re-derived at
+     v3.66.965.** Three resolved without touching the box, and one row's note
+     was wrong:
+
+     - **EXIT-3 STANDS, and 15.15's open question is now ANSWERED: a green CI
+       `postgres-integration` does NOT move it.** That job exercises the mod3
+       code paths; it says nothing about production dual-write or a soak
+       clock. Measured by running the preflight -- `preflight_cutover()`
+       returns `ok=False` with four reasons (dual-write not enabled,
+       shadow-read not enabled, *"shadow-read has compared 0 statement(s):
+       zero comparisons is NOT evidence of agreement, it is an empty
+       denominator"*, postgres not reachable) and `cutover_engaged()` is
+       False. Correctly blocked fail-closed, and the refusal states section
+       0's rule in the product's own words.
+     - **OPV-F3.1 is LAPSED, not open.** Its seven-day window closed
+       2026-07-30; that is 10 days before this re-derivation. It either closes
+       on evidence already collected or the clock restarts -- an operator
+       decision about an expired window, which is not the same thing as an
+       open task.
+     - **CORPUS-DISPOSITION CLOSED as mis-filed.** Its own text says all 445
+       are triaged, retained review-required, explicitly not an OPV failure,
+       and that the index is *"DATA, not a register"*. It was never a task.
+       The index survives at `.superpowers/sdd/corpus-disposition-review-
+       buckets.{md,json}` -- verified present.
+     - **JW-TMPL's note was WRONG and is corrected.** 15.15 said the blocker
+       was *"site Ultra missing password"*, the same condition *"the box's
+       startup selftest still prints on every restart"*, and that *"one
+       credential fill may clear this row"*. Measured across all five
+       2026-08-08/09 captures: the message is `login: SKIPPED -- site 'wow' is
+       missing password`, it lives in `04_service_boot.log` and NOT in the
+       startup selftest (whose 12 checks are 11 ok / 1 warn and include no
+       credential check at all). Site **wow**, not Ultra. Filling wow's
+       password clears that boot warning and does nothing for JW-TMPL, whose
+       real blocker -- a live capture with ultrafilms credentials -- is
+       unchanged and operator-bound. Two sites conflated into one shortcut.
+
+     STILL OPEN, all live-capture or operator-bound: CAP-ROBUST arm C,
+     JW-TMPL, LOGIN-NSTEP, P3-T12-CALLSITE, RPTYL (do not close by relaxing
+     `api_patterns >= 1` silently), FR-A6.2, FR-A6.3, 2c-DATA.
+ 32. **CLOSED at v3.66.965 as OBSOLETE, on operator decision.** 23
+     CODEX_HANDOFF groups, and MEASURED: `.superpowers/sdd/` holds **six files
+     total** -- the corpus-disposition index, three live-telemetry reports and
+     the wacz report. There is nothing for Analysis Tasks 5-7, nothing for
+     Governance/gate 1-8, nothing for Audit/knowledge/hygiene/static-KB 1-11.
+     Twenty-two of the twenty-three groups have no code, no artifact and no
+     gate; Analysis Task 4's frozen review packages are confirmed ABSENT, as
+     15.15 recorded. They describe intended work inherited from a document
+     that was retired at v3.66.842 and an ENVIRONMENT that no longer exists.
+
+     Closed rather than re-scoped because carrying 22 unbuilt groups as OPEN
+     work implies someone intends to do them, and that is the shape that made
+     this register untrustworthy -- an open list nobody is on stops being
+     read. Reconstructing intent for each would mean mining the git history of
+     a deleted file.
+
+     **THE DESIGN DECISIONS ARE THE PART WORTH KEEPING, and 15.15 says why:
+     they are "properties of the analysis, not of the retired environment".**
+     Carried here so closing the item does not lose them: fail-closed on
+     ambiguous semantic facts; Task 3's scope/execution model; explicit bounds
+     with secret redaction and atomic path-identity-checked output; Task 4's
+     six separate evidence categories. Anything picking that work up should
+     inherit these rather than the task list.
 
 ONGOING, NOT A FINISH LINE (33)
 
@@ -4389,8 +4442,8 @@ bounded by its line count, and neither can be judged from a container.
 **READ THIS FIRST IF YOU ARE A FRESH SESSION.** It supersedes 15.68's open set.
 
 ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
-OPEN:   12, 17, 29, 31, 32, 33
-CLOSED: 2, 3, 8, 11, 13, 16, 18, 20, 23, 30, 36, 37, 38, 39, 40, 41
+OPEN:   12, 17, 29, 31, 33
+CLOSED: 2, 3, 8, 11, 13, 16, 18, 20, 23, 30, 32, 36, 37, 38, 39, 40, 41
 
 Item 1 is CANNOT-EVALUATE and is accounted by the inventory marker rather than
 by this ledger -- a third state, not a close.
