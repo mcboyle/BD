@@ -492,7 +492,88 @@ def _blocking(a):
     return out
 
 
-def mode_templates(files):
+def _progress(on, done, total, label):
+    """Position with its DENOMINATOR, on stderr. `--json` owns stdout, and a
+    progress line there would break every machine consumer -- a worse defect
+    than having no progress at all, which is the state this replaces."""
+    if not on:
+        return
+    sys.stderr.write("  %s %d/%d  %s\n" % (label, done, total, ""))
+    sys.stderr.flush()
+
+
+def _build_one(args):
+    """One capture -> (index, raw draft or None). Runs in a POOL WORKER.
+
+    THE CATCH LIVES HERE, NOT IN THE CALLER, and that is the whole point.
+    `build_template` raises SystemExit for a wacz with no capture.json -- the
+    box's corpus has five such archives out of 742. A SystemExit escaping a
+    worker kills it and the executor raises BrokenProcessPool, aborting a run
+    the serial version completes. `BaseException` rather than `Exception`
+    because SystemExit is not an Exception.
+    """
+    idx, path = args
+    fns, _assess, _label = _template_builder()
+    if not fns:
+        return idx, None
+    build, _normalize = fns
+    try:
+        return idx, build(pathlib.Path(path))
+    except BaseException:
+        return idx, None
+
+
+def _resolve_jobs(n):
+    """0 -> auto; anything else clamped to at least 1.
+
+    Default 1 (serial) is set by argparse, not here: parallelism is opted into.
+    A default of auto would spawn one process per core under a caller that asked
+    for none of it."""
+    if n == 0:
+        return max(1, os.cpu_count() or 1)
+    return max(1, n)
+
+
+def _reassemble(n, pairs):
+    """[(index, value)] in ANY order -> a list in index order.
+
+    Extracted so the ordering property is testable. `ProcessPoolExecutor.map`
+    happens to yield in input order today, which made a mutant that indexed by
+    COMPLETION order behaviourally identical -- it escaped a green band. The
+    index is only decorative while that holds; the day anything switches to
+    `as_completed`, it is the whole contract. A rule nothing can exercise is a
+    rule nothing protects.
+    """
+    out = [None] * n
+    for idx, value in pairs:
+        out[idx] = value
+    return out
+
+
+def _build_all(paths, jobs, progress):
+    """[(path, raw draft or None)] in the SAME ORDER as `paths`.
+
+    Order is restored by index rather than by completion, because workers finish
+    out of order by definition and two runs of one corpus must not disagree.
+    """
+    items = list(enumerate(str(p) for p in paths))
+    out = [None] * len(items)
+    if jobs <= 1:
+        for i, (idx, sp) in enumerate(items, 1):
+            out[idx] = _build_one((idx, sp))[1]
+            _progress(progress, i, len(items), "build")
+        return list(zip(paths, out))
+    import concurrent.futures as _cf
+    pairs = []
+    with _cf.ProcessPoolExecutor(max_workers=jobs) as ex:
+        for pair in ex.map(_build_one, items, chunksize=1):
+            pairs.append(pair)
+            if len(pairs) % 25 == 0 or len(pairs) == len(items):
+                _progress(progress, len(pairs), len(items), "build")
+    return list(zip(paths, _reassemble(len(items), pairs)))
+
+
+def mode_templates(files, jobs=1, progress=False):
     """Per site: can ONE capture make a green template, can the COMBINATION, or
     neither -- and is the answer corroborated across that site's captures.
 
@@ -510,7 +591,15 @@ def mode_templates(files):
     fns, assess, label = _template_builder()
     build, normalize = fns if fns else (None, None)
     merge, _merge_err = _merge_fn()
+    jobs = _resolve_jobs(jobs)
     placed, _attempted, _parser = _place_by_host(files)
+
+    # PER CAPTURE, not per site. A task per site is bounded by the largest site
+    # -- 62 of the box's 742 captures sit under one host, capping site-level
+    # parallelism near 12x however many cores exist. Per-capture tasks have a
+    # tail of one capture.
+    built = dict(_build_all([p for p, _h, _m, _r in placed], jobs, progress)) \
+        if build is not None else {}
 
     buckets = {}
     for p, host, method, _reason in placed:
@@ -521,17 +610,18 @@ def mode_templates(files):
         paths = sorted(paths, key=lambda x: x.name)
         drafts, normed, names, unbuildable = [], [], [], 0
         for p in paths:
-            if build is None:
+            raw = built.get(p) if build is not None else None
+            if raw is None:
+                # Includes the builder being unavailable, an unreadable archive,
+                # and the SystemExit a wacz with no capture.json provokes -- all
+                # already caught inside the worker.
                 unbuildable += 1
                 continue
             try:
-                raw = build(p)
                 normed.append(normalize(raw))
                 drafts.append(raw)
                 names.append(p.name)
             except BaseException:
-                # SystemExit too: the builder exits on a wacz with no
-                # capture.json, and that must not take the survey down with it.
                 unbuildable += 1
         unbuildable_total += unbuildable
 
@@ -590,6 +680,7 @@ def mode_templates(files):
                             "template_inventory.assess, the promote gate's own "
                             "mirror, never a second definition"),
             "template_builder": label,
+            "jobs": jobs,
             "sites": len(sites) and sites or [],
             "site_count": len(sites),
             "verdicts": verdicts,
@@ -793,6 +884,15 @@ def main() -> int:
         ap.add_argument("--" + m, action="store_true")
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--json", action="store_true")
+    # DEFAULT 1 -- serial, so an existing invocation is byte-for-byte unchanged.
+    # Parallelism is opted into: an `auto` default would spawn one process per
+    # core under a caller that asked for none of it. 0 means auto.
+    ap.add_argument("--jobs", "-j", type=int, default=1, metavar="N",
+                    help="worker processes for --templates (default 1 = serial, "
+                         "0 = one per core)")
+    ap.add_argument("--progress", action="store_true",
+                    help="position with its denominator, on STDERR (stdout "
+                         "belongs to --json)")
     a = ap.parse_args()
 
     chosen = [m for m in _MODES if getattr(a, m)] or (list(_MODES) if a.all else [])
@@ -815,7 +915,12 @@ def main() -> int:
                    "a clean result." % why)
         return EXIT_UNKNOWN
 
-    modes = {m: _MODES[m](files) for m in chosen}
+    modes = {}
+    for m in chosen:
+        if m == "templates":
+            modes[m] = mode_templates(files, jobs=a.jobs, progress=a.progress)
+        else:
+            modes[m] = _MODES[m](files)
     findings = (modes.get("health", {}).get("unreadable", 0)
                 + modes.get("health", {}).get("no_payload", 0)
                 # An archive tier 2 could not OPEN is a finding; one that opened

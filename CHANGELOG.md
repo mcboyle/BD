@@ -4,6 +4,46 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.985
+
+bd-wacz-corpus --templates: --jobs N and --progress.
+
+MEASURED ON THE BOX at v3.66.984 -- the serial run pinned ONE core, CPU time
+growing 1.00s per wall second across a 76s window (628s -> 704s) while the read
+rate collapsed to 2 MB per 15s. CPU-bound with independent per-capture work is
+the one shape where process parallelism pays, and the operator's host has 88
+vCPUs against the one the tool was using.
+
+GRANULARITY IS PER CAPTURE, NOT PER SITE, and the reason is arithmetic: a task
+per site is bounded by the largest site, and app.reptyle.com is 62 of the box's
+742 captures, capping site-level parallelism near 12x however many cores exist.
+Per-capture tasks have a tail of one capture.
+
+Measured here on 4 cores, 120 captures: 79.44s serial, 40.49s at -j 2, 20.49s at
+-j 4 -- 3.88x, 97% efficiency -- with the answers byte-identical across worker
+counts.
+
+THE TRAP THAT WOULD HAVE TAKEN THE WHOLE RUN DOWN. build_template raises
+SystemExit for a wacz with no capture.json, and the box's corpus has five such
+archives out of 742. In a process pool an uncaught SystemExit kills the WORKER
+and the executor raises BrokenProcessPool, aborting a run the serial version
+completes. The catch lives inside the worker, and `except BaseException` is
+required because SystemExit is not an Exception.
+
+DEFAULT IS 1 (SERIAL), so an existing invocation is unchanged; 0 means one
+worker per core. Parallelism is opted into: an auto default would spawn 88
+processes under a caller that asked for none of it. --progress writes to STDERR
+with its denominator attached, because stdout belongs to --json and a progress
+line there breaks every machine consumer.
+
+Battery: 8 mutants, 8 caught. Two escaped on the first run and both were real
+test gaps, not equivalent mutants -- the silence test exercised only the
+parallel lane, where the progress call site is separately guarded, so a mutant
+deleting the guard inside _progress survived; and the reassembly-by-index was
+behaviourally identical because ProcessPoolExecutor.map yields in input order,
+so it is now extracted and driven with a shuffled stream that as_completed would
+produce.
+
 ## v3.66.984
 
 bd-wacz-corpus --templates: which sites can make a green template, from one
