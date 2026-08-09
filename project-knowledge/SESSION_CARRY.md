@@ -855,7 +855,7 @@ The defect class is real by construction either way: `history.file_size` is
 never UPDATEd (7 sites, above), so a pre-v3.66.820 row on a real library
 surfaces as positive drift. Nothing measured here bears on that.
 
-NOT A SIDE FINDING -- THIS WAS THE DEFECT. `Library.tsx:497` calls the audit
+NOT A SIDE FINDING -- THIS WAS THE DEFECT. `frontend/src/routes/Library.tsx:497` calls the audit
 with `{ download_dir }` and no `site_id`, and `library_final.audit()` takes
 `site_id: Optional[str] = None`, so the panel spans every history row. This
 entry recorded that as harmless noise ("it reports the 31 fixture rows as
@@ -4374,57 +4374,66 @@ a record -- see 15.62's closing paragraph.
      The shape of a fix is a read-modify-write in `_save_app_config()` itself,
      or routing it through `set_config()`.
 
- 42. **OPEN, found v3.66.967: the doc-anchor gate cannot see a FRONTEND
-     citation, which is CLAUDE.md section 0's opening example still live in a
-     different tool.** That example reads *"a band tool didn't count
-     `.tsx`/`.ts` as source, so it reported 'changed source (0)' on a real
-     frontend cut."* The same blind spot is in `bd-freshcheck`: its anchor
-     regex alternates over `py|sh|json|md|txt|yml`, so a `file:line` citation
-     to a `.tsx` or `.ts` file is not merely unresolved -- it is never parsed,
-     and the gate reports `N/N resolve` over a denominator that excludes it.
+ 42. **CLOSED at v3.66.968 -- the gate is widened, both citations are fixed,
+     and THE CENTRAL CLAIM THIS ITEM WAS FILED WITH WAS WRONG.** Filed one cut
+     earlier at v3.66.967, and the wrongness is kept because it is the lesson.
 
-     **MEASURED, and one of the two has already rotted.** The gated docs are
-     `CLAUDE.md` and this file; they carry exactly **2** frontend `file:line`
-     citations between them, both invisible:
+     The real defect was real: `bd-freshcheck`'s anchor regex alternated over
+     `py|sh|json|md|txt|yml`, so a `file:line` citation into a `.tsx` or `.ts`
+     file was never PARSED. The gate reported `227/227 resolve` while two
+     frontend citations in the gated documents sat outside its denominator --
+     CLAUDE.md section 0's OPENING example (a tool that does not count
+     `.tsx`/`.ts` as source), live in a second tool years after the first.
 
-     - the one at this file's line 7191 names line **1156** for
-       `RegenNfosResult` in `frontend/src/lib/api-types.ts`. That interface
-       now begins at **1164**. The SUBSTANCE survived -- it still carries an
-       index signature and still does not declare `missing_files` -- but the
-       line drifted 8 and nothing noticed;
-     - the one at line 858 names line **497** of `frontend/src/routes/Library.tsx`
-       for an audit call made without `site_id`. Re-read at v3.66.967: still
-       exactly right.
+     **WHAT WAS WRONG: the predicted trap does not exist.** This item asserted
+     that widening the extension alone "converts 2 invisible anchors into 2
+     FAILURES" because "both citations are written as bare basenames, and the
+     resolver checks paths against `git ls-files`, so the correct one would
+     fail for its FORM". Measured before touching anything -- widen the regex
+     in a loaded copy of the module and re-run `check_anchors` against the
+     real tree:
 
-     So the blind spot is 50% rotted on a population of two -- small, but the
-     rot rate is the point, not the count.
+         shipped regex : OK -- 227/227 resolve and are in range
+         widened regex : OK -- 229/229 resolve and are in range
 
-     **THE OBVIOUS FIX IS THE TRAP, and it is section 0's own shape.** Adding
-     `tsx|ts` to the alternation converts 2 invisible anchors into 2 FAILURES,
-     and only one of them is a real defect: both citations are written as bare
-     basenames, and the resolver checks paths against `git ls-files`, so the
-     correct one would fail for its FORM. A gate that fires on a true claim
-     gets switched off. Any cut here does three things together -- widen the
-     extensions, correct the drifted line, and rewrite both citations as
-     repo-relative paths -- or it ships an over-sensitive gate.
+     Zero failures. `check_anchors` has resolved bare basenames since it was
+     written (`by_base`), and reports AMBIGUOUS rather than guessing when one
+     matches several tracked files -- its own docstring records that an early
+     draft called 81 of 143 anchors broken for exactly that reason and that
+     the fix was basename resolution. **The claim was written by someone who
+     had read the regex and not the function.** CLAUDE.md section 1's "read
+     the callee before you call it", inside a finding about denominators.
 
-     Nor should the resolver be taught basenames -- but state the reason
-     honestly, because the obvious version of it is false here. **Measured:
-     `frontend/src` has ZERO duplicate basenames today**, so a basename
-     resolver would be unambiguous for both existing citations; the repo as a
-     whole has **29** duplicated basenames, and nothing stops the frontend
-     joining them the next time someone adds a second `index.ts`. The
-     objection is that the property is unowned, not that it is currently
-     violated -- a resolver whose correctness depends on a count nobody
-     asserts is a lying gate waiting for a filename. If basenames are taught,
-     the same cut owes a check that the match is UNIQUE and a failure when it
-     is not.
+     Both citations were repaired anyway, because one of them needed it for a
+     reason the gate cannot see: the entry at this file's line 7284 named line
+     **1156** for `RegenNfosResult`, which now begins at **1164**. In range
+     either way, so the widened gate passes it -- an anchor gate checks that a
+     line EXISTS, never that it says what the sentence claims. That half is
+     still a reader's job, exactly as `bd-freshcheck` prints on every run. The
+     other citation, at line 858, was re-read and is still exactly right. Both
+     are now repo-relative rather than bare basenames, which removes a
+     dependence on basename uniqueness that nothing asserts.
 
-     (This paragraph asserted the opposite first -- "many same-named frontend
-     files" -- and was corrected by measuring it before the commit. Recorded
-     because it is section 1 landing inside a section 0 finding: the confident
-     sentence and the measured one disagreed, and only one of them had been
-     run.)
+     **The basename-ambiguity paragraph, kept for the same reason.** It first
+     claimed "many same-named frontend files"; measured, `frontend/src` has
+     **zero** duplicate basenames and the repo has **29**. So a basename
+     resolver is unambiguous for these citations today and the objection is
+     that the property is unowned, not violated. That correction was made
+     before the @967 commit; the larger one above was not caught until the fix
+     was built. Two confident sentences in one item, both false, both found
+     only by running something.
+
+     RED first: `tests/test_v3_66_968_anchor_gate_sees_frontend_citations.py`
+     drives `check_anchors` over a fixture repo carrying a tracked `.tsx` and
+     both gating documents. Three tests, all proven failing on pristine source
+     with *"found ZERO anchors -- the check saw nothing"*. The load-bearing one
+     is the out-of-range anchor asserting **STALE specifically, not merely
+     "not OK"** -- UNKNOWN also satisfies `!= OK`, and UNKNOWN is precisely
+     what the blind gate returns, so the loose comparison would have passed on
+     the defect it was written to detect. The over-sensitive direction is
+     asserted beside it: a valid frontend anchor must NOT be reported, or a
+     "fix" that fails every frontend citation would pass a one-sided test and
+     destroy the gate.
 
  34. **CLOSED at v3.66.945.** Root-caused, fixed, and the four failures are
      gone from the same 114-file band (1462 passed). The title below was wrong
@@ -4570,8 +4579,8 @@ bounded by its line count, and neither can be judged from a container.
 **READ THIS FIRST IF YOU ARE A FRESH SESSION.** It supersedes 15.68's open set.
 
 ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
-OPEN:   12, 17, 29, 31, 33, 42
-CLOSED: 2, 3, 8, 11, 13, 16, 18, 20, 23, 30, 32, 36, 37, 38, 39, 40, 41
+OPEN:   12, 17, 29, 31, 33
+CLOSED: 2, 3, 8, 11, 13, 16, 18, 20, 23, 30, 32, 36, 37, 38, 39, 40, 41, 42
 
 Item 1 is CANNOT-EVALUATE and is accounted by the inventory marker rather than
 by this ledger -- a third state, not a close.
@@ -7281,7 +7290,7 @@ QUEUED BEHIND THAT
     must not fold into missing_files -- the resolver's own docstring calls
     first-match-wins the defect -- so the endpoint gains two counters, changing
     the JSON shape of POST /api/library/regen_nfos. Additive and non-breaking
-    (api-types.ts:1156 RegenNfosResult carries an index signature and does not
+    (`frontend/src/lib/api-types.ts:1164` RegenNfosResult carries an index signature and does not
     even declare missing_files today), but it is a product-facing surface.
   * **item 12(a)** -- the eight-producer divergence. Confirmed REAL by the
     2026-08-06 recon; five product files named in its report.
