@@ -218,10 +218,6 @@ def api_library_tag_delete(tag_id):
     if not ok:
         return jsonify({"ok": False, "error": "not found"}), 404
     return jsonify({"ok": True})
-@library_bp.route("/api/library/missing")
-def api_library_missing():
-    from . import library as _lib
-    return jsonify({"ok": True, "rows": _lib.library_missing()})
 @library_bp.route("/api/library/orphans")
 def api_library_orphans_v2():
     """v3.50: Files under `?root=` that aren't in the library table.

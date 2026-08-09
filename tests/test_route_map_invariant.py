@@ -32,7 +32,7 @@ _BASELINE = Path(__file__).resolve().parent / "route_map_baseline.txt"
 # decision -- a shadow blueprint nothing called, superseded by /api/scheduled_exports. This
 # is an INTENTIONAL surface change, so the contract is re-cut; the SHA pin exists to make an
 # ACCIDENTAL baseline edit impossible, and it did its job (it blocked until stated).
-_BASELINE_SHA = "8c16a551ee7ed26c47141b91c1fbc307c31428b682caa841e850e8019518be1d"
+_BASELINE_SHA = "934b016db60b08affbe47b49e06440d6c1b194897a9b94379cd870af9f5ebfbb"
 
 
 def _live_snapshot() -> str:

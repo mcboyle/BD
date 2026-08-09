@@ -734,19 +734,6 @@ def library_orphans(root: str) -> list[str]:
     return out
 
 
-def library_missing() -> list[dict]:
-    """Library rows whose file_exists=0. The scanner sets this when it
-    walks a root and finds the path is gone."""
-    _ensure_schema()
-    try:
-        with db_conn() as cx:
-            return [dict(r) for r in cx.execute(
-                "SELECT * FROM library WHERE file_exists=0 "
-                "ORDER BY id DESC LIMIT 500").fetchall()]
-    except Exception:
-        return []
-
-
 # ── Scanner ─────────────────────────────────────────────────────────────
 
 @dataclass

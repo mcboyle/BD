@@ -20,7 +20,7 @@ is a documentation chore, not a catalog bug.
 Schema version: 1
 
 
-## /api/* routes (808)
+## /api/* routes (807)
 
 ```
 POST    /api/a11y/audit                                        CSRF: yes  — Audit an HTML snippet for common ARIA issues. Body: {html}.
@@ -396,7 +396,6 @@ POST    /api/library/<int:lid>/watched                         CSRF: yes
 POST    /api/library/audit                                     CSRF: yes  — Run a full audit on a download directory.
 GET     /api/library/browse                                    CSRF: no
 GET     /api/library/integrity                                 CSRF: no   — #69 — file-system integrity / rename detection.
-GET     /api/library/missing                                   CSRF: no
 GET     /api/library/orphans                                   CSRF: no   — v3.50: Files under `?root=` that aren't in the library table.
 POST    /api/library/orphans                                   CSRF: yes  — Find files on disk that aren't in history (likely manual
 POST    /api/library/regen_nfos                                CSRF: yes  — Bulk-regenerate NFO sidecars from the history table. Body:

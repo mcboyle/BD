@@ -4,6 +4,40 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.972
+
+Item 12 closed. /api/library/missing and library.library_missing() are retired.
+
+It was the fourth producer answering to the word "missing" and the only one
+nothing read: zero callers anywhere in the tree -- no SPA route, no command
+palette entry, no extension, no test. The only references were its own
+definition, its route, and two stale comments in app.py. Straight removal plus a
+stays-retired guard, matching how codex_handoff, deploy_manifest, task_tracker
+and sandbox_home were retired.
+
+Its unreported LIMIT 500 was the same saturation class v3.66.966 fixed for
+audit(), but adding a saturation flag to an endpoint nobody calls is the wrong
+repair. Removing the producer is.
+
+The guard reads comment-stripped source, and that mattered on this cut. app.py
+carried two comments naming the route and the view. CLAUDE.md section 0 records
+four cases in one session where an assertion could not tell prose from code,
+including a comment that spelled a removed name in order to say it had been
+removed, which put it back into the ledger and failed the gate the rename had
+just fixed. Measured here: with stripping the RED run flagged app_library.py
+only; a raw-text version would also have flagged app.py and forced those
+comments to be deleted to pass rather than because they were stale. They were
+removed anyway, since they documented a route that no longer exists, but the
+gate did not demand it -- which is what lets someone explain this retirement in
+a comment later without resurrecting it.
+
+Four tests, three proven RED on pristine source. The fourth is the
+over-sensitivity guard and is green in both directions by design: three of the
+four "missing" producers are live and must survive, so a cut that removed the
+word everywhere would satisfy the other three and delete working features.
+
+Route map 1002 -> 1001 lines; _BASELINE_SHA re-pinned in the same cut.
+
 ## v3.66.971
 
 tools/capture_scrub.py now decides by CONTENT, like the other three scrubbers,

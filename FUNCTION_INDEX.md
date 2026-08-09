@@ -151,22 +151,22 @@ Schema version: 2
 - L5461 `_do_action` `[private]` — Common body for start/pause/resume/stop/clear/retry. Rate-limits
 - L5501 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
 - L5569 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
-- L5713 `serve_ss` `GET /screenshots/<path:filename>`
-- L6992 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
-- L6999 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
-- L7010 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
-- L7025 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
-- L7089 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
-- L7118 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
-- L7126 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
-- L7143 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
-- L7155 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
-- L7178 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
-- L7194 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
-- L7210 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
-- L7227 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
-- L7280 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
-- L7401 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
+- L5711 `serve_ss` `GET /screenshots/<path:filename>`
+- L6990 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
+- L6997 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
+- L7008 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
+- L7023 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
+- L7087 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
+- L7116 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
+- L7124 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
+- L7141 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
+- L7153 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
+- L7176 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
+- L7192 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
+- L7208 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
+- L7225 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
+- L7278 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
+- L7399 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
 ```
 
 
