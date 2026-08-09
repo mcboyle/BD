@@ -4531,7 +4531,7 @@ a record -- see 15.62's closing paragraph.
      and both now pin `latest_version` explicitly, because leaving it unmocked
      is precisely what reached the live index.
 
- 44. **CLOSED at v3.66.983 (see 15.71) -- bd-wacz-corpus met the real corpus and
+ 44. **CLOSED at v3.66.983 (see 15.72) -- bd-wacz-corpus met the real corpus and
      was wrong, twice.** @973's tool was validated only against synthetic fixtures and the
      Drive corpus's `t_<hex>_<name>` naming. The box's 1251-file / 4.04 GB
      corpus uses neither, and the mismatch was not cosmetic.
@@ -4909,6 +4909,66 @@ THE CAVEAT, and it OVERRIDES size. **Hold 15 and 14 back regardless of how
 small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
+
+### 15.73 | Template viability at v3.66.984, and a comparison whose two halves shared the same defect
+
+**Not a session close** -- no ITEM LEDGER; 15.70's open set (31, 33) stands, with
+44 closed at 15.72.
+
+**THE OPERATOR'S QUESTION**, 2026-08-09: "can any of the files, or a combination
+of the same site captures, make a green and reliable template?" Shipped as
+`bd-wacz-corpus --templates` -- a MODE, not a new tool, so `_TOOL_BUDGET` does
+not move and the grouping is the same tiering `--hosts` prints (`_place_by_host`
+is now shared; two copies of the placement rule is how the two modes would start
+disagreeing about which captures belong to one site).
+
+**NEITHER HALF OF THE QUESTION IS DEFINED HERE, DELIBERATELY.** Green is
+`tools/promote_template.py`, mirrored by `template_inventory.assess` "so the
+numbers can't diverge from reality" -- the mode RUNS it. Reliable is the
+operator's own definition, support across a site's captures, which
+`bd-template-merge` already records with denominators. A fourth definition of
+green is how a tool starts disagreeing with the gate it exists to predict.
+
+**THE DEFECT THAT MATTERS, AND IT WAS IN THE TEST AS WELL AS THE CODE.**
+`build_template` emits `resolution_priority`; `assess` reads `resolutions`. The
+key is created by `template_normalize.normalize_draft`, which sits between them
+in the real pipeline (draft -> normalize -> promote -> reviewed) and which the
+first implementation skipped. Measured on ONE capture:
+
+    assess(raw)                  promotion_ready = False
+    assess(normalize_draft(raw)) promotion_ready = True   resolutions=[1080, 720]
+
+Skipping it would have graded **every one of the box's 153 hosts `not_green` on
+the resolutions clause** -- a confident, uniform, wrong answer over the whole
+corpus.
+
+**AND THE TEST WRITTEN TO CATCH EXACTLY THAT COULD NOT SEE IT.** It compared the
+mode's verdict against `assess(build_template(p))` -- the same skipped step on
+both sides. Both said False, both agreed, and the test passed. **A comparison
+whose two halves share a defect proves the defect, not the code.** It now runs
+the canonical `build -> normalize -> assess` and asserts the canonical side is
+TRUE first, so a fixture that cannot reach green fails loudly instead of making
+the agreement vacuous. This is section 0 in a differential test: the denominator
+was the pipeline, and both halves excluded the same part of it.
+
+**RELIABILITY IS THREE-STATE, and `unknown` is the load-bearing one.** A lone
+capture reports support 1 of 1, arithmetically identical to a selector every
+capture agrees on -- `bd-template-merge` refuses to merge a single draft for
+exactly this reason. Reported `unknown`, never `corroborated`. The distinction
+earns its keep immediately: a fixture site scored `green_from_one` with the gate
+selector supported **1 of 3**, so it is green on evidence one capture provided.
+A tool without the third state reports that as simply "green".
+
+Read off the GATE-CRITICAL keys only (`download.trigger`, `row_selectors`,
+`button`). An average across all selectors would let a well-corroborated login
+mask a one-vote trigger, and the trigger is what the template lives on.
+
+**Two fixture defects worth recording, both the same shape as the code's.** The
+helper set a top-level `resolutions` key on the capture -- a shape
+`build_template` never reads, so the fixture described a capture that does not
+exist; real resolutions arrive off the NETWORK LOG. And the green-only-merged
+fixture gave one capture BOTH clauses, so it was green alone and the case was
+never constructed. Read the callee before building its input.
 
 ### 15.72 | Item 44 CLOSED at v3.66.983: the corpus answered, and it found a second marker form
 
