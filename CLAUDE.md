@@ -2004,6 +2004,19 @@ then ask which one the check in front of you means.
 - "hold" / "wait" means stop immediately.
 - Read-only analysis and planning are free. **Runtime, build, version, guard, and
   release changes need explicit per-task authorization.**
+- **MERGING IS THE ONE STANDING EXCEPTION, granted 2026-08-09: you may merge your
+  own PR once the derived band is green AND CI is green.** Both, measured, not
+  one standing in for the other -- CI's denominator is file-independent and says
+  nothing about the changed module's suites, which is the whole reason section 7
+  says a green tick is not your cut's test evidence. Everything else in the
+  bullet above is unchanged, and this is not authority to deploy: the merge puts
+  the commit on `main`, and the box is still updated and gated by Matt.
+
+  It is written here rather than only in the register because a standing grant
+  cannot be re-derived from source -- the same reason the panel's environment box
+  is transcribed in section 5. Before this, section 9 said the opposite, and a
+  session that read it would either ask for permission it already holds or read a
+  merge in the history as unauthorized.
 - Report honestly over optimistically. Results first, no narration, no
   aspirational documentation. If something is unverified, say which part.
 - He deploys and runs the full suite himself. Do not claim a state on the box

@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.982
+
+Operator decision, recorded. Docs and register only.
+
+Matt granted standing authority to merge a PR once the derived band is green AND
+CI is green. Section 9 of CLAUDE.md said the opposite -- release changes need
+explicit per-task authorization -- so a session reading it would either ask for
+permission it already holds or read a merge in the history as unauthorized. It
+is recorded in the contract rather than only in the register because a standing
+grant cannot be re-derived from source, which is the same reason the panel's
+environment box is transcribed in section 5.
+
+Both conditions, measured, and neither substitutes for the other: CI's
+denominator is file-independent and says nothing about the changed module's own
+suites, which is precisely why section 7 says a green tick is not a cut's test
+evidence. This is authority to MERGE and not to deploy -- the box is still
+Matt's.
+
+Register 15.71 also carries two measurements from the v3.66.981 cut that
+generalise. A backgrounded band reported `completed (exit code 0)` while pytest
+was at 15%: that is the wrapper's exit, not the tool's, and only the written
+marker was evidence. And GitHub strips tag-shaped spans from a PR body even
+inside backticks, so `?token=<scrubbed>` was stored as `?token=` -- turning a
+sentence about redaction replacing a value into one reading as though it emptied
+it. Write braces in a PR body, and read the body back.
+
 ## v3.66.981
 
 Item 44: host-based grouping for bd-wacz-corpus (`--hosts`).

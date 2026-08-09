@@ -4879,6 +4879,46 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.71 | Operator decision 2026-08-09: standing merge authority, and item 44's grouping shipped
+
+**Deliberately not titled a session close** -- it declares no ITEM LEDGER and it
+does not supersede 15.70's open set. 15.70 remains the newest close.
+
+**THE DECISION.** Matt, verbatim: *"you have authority to merge once band is
+green and ci is green"*. Recorded in `CLAUDE.md` section 9 as the one standing
+exception to the per-task authorization rule, because a standing grant cannot be
+re-derived from source. Both conditions, measured -- CI alone is not the band and
+never was. It is authority to MERGE, not to deploy; the box remains Matt's.
+
+The exchange that produced it is worth keeping, because it is a general lesson
+about this contract rather than about this cut. v3.66.981 sat green as a draft
+PR -- band green, CI 5/5, mergeable clean -- and was not merged, on the reading
+that section 9 makes a release change need per-task authorization. That reading
+was correct at the time and the pause was the right default, but a green,
+mergeable, fully-verified PR waiting on nothing measurable is a cost, and the
+operator removed it. **A default that is safe is still worth naming out loud, so
+it can be overridden.**
+
+**ITEM 44'S GROUPING SHIPPED at v3.66.981** (`172b0d1`, PR #276) and the item is
+still OPEN by design -- see its entry in 15.36 for what it owes and the three
+numbers a box run must read. The short version: every fixture is BD-shaped, and
+this is the item that exists because the tool was validated on synthetic
+fixtures, met the real corpus and was wrong.
+
+**ONE MEASUREMENT FROM THAT CUT THAT GENERALISES.** A backgrounded band reported
+`completed (exit code 0)` while pytest was at 15%. That is the WRAPPER's exit,
+not the tool's, and 15.70 records the same class twice. The written marker
+(`... ; echo $? > band.exit`) is the only thing that was evidence, and it read 0
+five minutes later. If a runner's exit arrives sooner than the runtime you
+expect, you are reading the wrong process.
+
+**AND ONE ABOUT THE PR SURFACE ITSELF.** GitHub strips tag-shaped spans from a
+PR body **even inside backticks**: `t_<hex>_<name>` was stored as `t__` and
+`?token=<scrubbed>` as `?token=`, which turned a sentence about redaction
+replacing a value into one reading as though it emptied it. The API returns the
+stripped text, so it is visible if you read the body back and invisible if you
+do not. Write braces in a PR body, and read it back.
+
 ### 15.70 | SESSION CLOSE 2026-08-09 at 0e72394 (v3.66.979) -- twelve cuts, six items closed, and a regression my own band could not see
 
 **Commit named is already on `main`** (the squash of PR #274), per section 4: a
