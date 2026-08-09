@@ -4490,6 +4490,64 @@ a record -- see 15.62's closing paragraph.
      The shape of a fix is a read-modify-write in `_save_app_config()` itself,
      or routing it through `set_config()`.
 
+ 44. **OPEN, opened v3.66.978 -- bd-wacz-corpus met the real corpus and was
+     wrong.** @973's tool was validated only against synthetic fixtures and the
+     Drive corpus's `t_<hex>_<name>` naming. The box's 1251-file / 4.04 GB
+     corpus uses neither, and the mismatch was not cosmetic.
+
+     MEASURED from the operator's full file list:
+
+     | | |
+     | --- | ---: |
+     | files / bytes | 1251 / 4.04 GB |
+     | raw (no marker) | 538 |
+     | `.redacted` | 601 |
+     | `.scrubbed` | 176 |
+     | `.redacted.scrubbed` | 46 |
+     | carrying a copy suffix | 216 |
+
+     **`_is_redacted` tested `endswith(".redacted.wacz")`, so 197 of the 601
+     redacted files -- 33% -- were classified as RAW captures**, because
+     `x.redacted (2).wacz` ends in `(2).wacz`. Copy suffixes appear in two forms
+     and ten variants: `(2)` x143, `(dup1)` x40, `(3)` x19, `(1)` x4, `(dup2)`
+     x3, `(4)` x3, singletons to `(8)`. And `.scrubbed` was a whole population
+     the tool had no concept of.
+
+     On 25 real names the tool reported `sites=22 merge_candidates=0` and
+     `STATUS OK` -- a clean-looking answer over a denominator it could not
+     parse, which is section 0 inside the tool written to apply section 0.
+     **Synthetic fixtures could not have caught this**; only the real names did.
+
+     FIXED at @978: classifier rewritten over all three markers and both copy-
+     suffix forms. Re-run over the real 1251 names: 713 derivatives (was 404),
+     538 raw, 545 source bases, **392 families** (was 0 merge candidates), 647
+     derivatives with a raw source present, 66 orphaned. The 538 is a genuine
+     cross-check -- an independent grep predicate reached the same number.
+
+     **`--dupes` added, and it reports TWO things that must never be merged.**
+     Size-collision stage one, sha256 only within colliding groups: measured 429
+     groups covering 1000 of 1251 files and **1.73 GB reclaimable (43% of the
+     corpus)**, of which 420 groups / 1.71 GB are >1MB where a coincidental
+     byte-count match is implausible. Only 0.55 GB is explained by copy
+     suffixes, so most duplication is the same content under different names --
+     which no filename-based dedup would find.
+
+     The second output is the one that matters more: **a derivative
+     byte-identical to its SOURCE is a no-op redaction, not reclaimable disk.**
+     @971 established that path could pass binary members through untouched, so
+     counting it as a saving would invite deleting the evidence that redaction
+     never happened. It is a FINDING (exit 1) and is excluded from the
+     reclaimable total. `noop_derivatives` counts derivative FILES, not groups:
+     one source with three identical derivatives is three failed scrubs.
+
+     **STILL OPEN: host-based grouping.** The operator chose filename-first with
+     the archive's own host as the authority, each group labelled by method so a
+     measured grouping is never mistaken for a guessed one. Held to its own cut
+     -- it requires opening every archive, which is a different cost and a
+     different failure mode from a filename rule. Until it lands, grouping on
+     this corpus is a floor: `123.wacz` and `1232.wacz` carry no site signal at
+     all, and no filename heuristic will ever group them.
+
  43. **CLOSED at v3.66.974 -- the WACZ corpus tools.** Operator asked for
      three things off the Drive corpus: close an item, build master templates
      from multi-capture sites, and mine the captures for capture-mechanism
@@ -4758,7 +4816,7 @@ bounded by its line count, and neither can be judged from a container.
 **READ THIS FIRST IF YOU ARE A FRESH SESSION.** It supersedes 15.68's open set.
 
 ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
-OPEN:   31, 33
+OPEN:   31, 33, 44
 CLOSED: 2, 3, 8, 11, 12, 13, 16, 17, 18, 20, 23, 29, 30, 32, 36, 37, 38, 39, 40, 41, 42, 43
 
 Item 1 is CANNOT-EVALUATE and is accounted by the inventory marker rather than

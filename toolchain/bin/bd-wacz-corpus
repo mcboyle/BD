@@ -33,6 +33,7 @@ Exit: 0 ran-and-clean, 1 ran-with-findings, 2 UNKNOWN (cannot answer).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import pathlib
@@ -46,8 +47,17 @@ import bdtools_sec as sec  # noqa: E402
 
 EXIT_OK, EXIT_FINDINGS, EXIT_UNKNOWN = 0, 1, 2
 
-_REDACTED = ".redacted.wacz"
 _WACZ = ".wacz"
+
+# MEASURED against the real 1251-file corpus, not assumed. The first version of
+# this tool tested `name.endswith(".redacted.wacz")`, which classified 197 of
+# the 601 redacted files -- 33% -- as RAW captures, because 216 files carry a
+# Windows-style copy suffix and `x.redacted (2).wacz` does not end in
+# `.redacted.wacz`. It also had no concept of `.scrubbed` (176 files) or
+# `.redacted.scrubbed` (46), counting all of them as raw.
+_DERIVATIVE_MARKERS = (".redacted", ".scrubbed")
+# `(2)` and `(dup1)`, with or without a leading space -- both forms are real.
+_COPY_SUFFIX = re.compile(r"\s*\((?:dup)?\d+\)")
 
 # `t_<hex>_<name>.wacz` is the export convention; the <name> is the only site
 # signal a filename carries. Anything not matching keeps its whole stem, so an
@@ -76,13 +86,36 @@ def enumerate_corpus(root: pathlib.Path):
     return files, None
 
 
+def _markers(p: pathlib.Path):
+    """Which derivative markers this filename carries, in order."""
+    stem = p.name[:-len(_WACZ)] if p.name.lower().endswith(_WACZ) else p.name
+    stem = _COPY_SUFFIX.sub("", stem).lower()
+    return tuple(m for m in _DERIVATIVE_MARKERS if m in stem)
+
+
 def _is_redacted(p: pathlib.Path) -> bool:
-    return p.name.lower().endswith(_REDACTED)
+    """Any derivative, not just a literal `.redacted.wacz` ending."""
+    return bool(_markers(p))
 
 
 def _base(p: pathlib.Path) -> str:
+    """The SOURCE capture name: copy suffix and every derivative marker removed.
+
+    So `x.wacz`, `x.redacted (2).wacz`, `x.scrubbed.wacz` and
+    `x.redacted.scrubbed.wacz` all resolve to `x` -- one family, which is what
+    pairing and the no-op check both need.
+    """
     n = p.name
-    return n[:-len(_REDACTED)] if _is_redacted(p) else n[:-len(_WACZ)]
+    n = n[:-len(_WACZ)] if n.lower().endswith(_WACZ) else n
+    n = _COPY_SUFFIX.sub("", n)
+    low = n.lower()
+    for m in _DERIVATIVE_MARKERS:
+        i = low.find(m)
+        while i != -1:
+            n = n[:i] + n[i + len(m):]
+            low = n.lower()
+            i = low.find(m)
+    return n
 
 
 def _site_of(p: pathlib.Path) -> str:
@@ -214,8 +247,90 @@ def mode_scrub(files):
             "detail": detail}
 
 
+def _sha256(path, _buf=1 << 20):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(_buf), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def mode_dupes(files):
+    """Two-stage: size groups first, hash ONLY inside them.
+
+    Stage one exists to avoid reading the corpus. Measured on the box: 429
+    collision groups cover 1000 of 1251 files and 1.73 GB, so hashing every file
+    would read 4.04 GB to answer a question 1.71 GB settles.
+
+    Two OUTPUTS, deliberately not one. Identical copies of the same artifact are
+    a disk question. A DERIVATIVE byte-identical to its source is not -- it means
+    the scrubber returned its input unchanged, and @971 established that path
+    could pass binary members through untouched. Counting that as "reclaimable"
+    would invite deleting the evidence that redaction never happened.
+    """
+    by_size = {}
+    for p in files:
+        try:
+            by_size.setdefault(p.stat().st_size, []).append(p)
+        except OSError:
+            pass
+    candidates = [p for v in by_size.values() if len(v) > 1 for p in v]
+
+    digests = {}
+    unreadable = 0
+    for p in candidates:
+        try:
+            digests[p] = _sha256(p)
+        except OSError:
+            unreadable += 1
+
+    by_hash = {}
+    for p, h in digests.items():
+        by_hash.setdefault(h, []).append(p)
+
+    groups, noop, reclaimable = [], [], 0
+    for h, members in sorted(by_hash.items()):
+        if len(members) < 2:
+            continue
+        bases = {_base(m) for m in members}
+        raws = [m for m in members if not _is_redacted(m)]
+        derivs = [m for m in members if _is_redacted(m)]
+        # Same source AND a raw sibling identical to a derivative -> the scrub
+        # was a no-op. Evidence, not disk.
+        if len(bases) == 1 and raws and derivs:
+            noop.append({"base": sorted(bases)[0], "sha256": h[:16],
+                         "source": raws[0].name,
+                         "identical_derivatives": sorted(d.name for d in derivs)})
+            continue
+        size = members[0].stat().st_size
+        reclaimable += size * (len(members) - 1)
+        groups.append({"sha256": h[:16], "bytes_each": size,
+                       "copies": len(members),
+                       "reclaimable_bytes": size * (len(members) - 1),
+                       "files": sorted(m.name for m in members)})
+
+    groups.sort(key=lambda g: -g["reclaimable_bytes"])
+    return {"examined": len(files),
+            "denominator": ("all *.wacz under root; hashed only those sharing a "
+                            "size with another file"),
+            "size_collision_candidates": len(candidates),
+            "hashed": len(digests),
+            "unreadable": unreadable,
+            "duplicate_groups": len(groups),
+            "reclaimable_bytes": reclaimable,
+            # Counts DERIVATIVE FILES, not groups: the question is "how many
+            # redaction outputs were a no-op", and one source with three
+            # identical derivatives is three failed scrubs, not one.
+            "noop_derivatives": sum(len(n["identical_derivatives"]) for n in noop),
+            "noop_groups": len(noop),
+            "noop_detail": noop,
+            "report_only": ("nothing is deleted or modified; a no-op derivative "
+                            "is a REDACTION finding, never reclaimable disk"),
+            "groups": groups}
+
+
 _MODES = {"group": mode_group, "pairs": mode_pairs,
-          "health": mode_health, "scrub": mode_scrub}
+          "health": mode_health, "scrub": mode_scrub, "dupes": mode_dupes}
 
 
 def main() -> int:
@@ -249,7 +364,8 @@ def main() -> int:
                 + modes.get("health", {}).get("no_payload", 0)
                 + modes.get("scrub", {}).get("with_findings", 0)
                 + modes.get("scrub", {}).get("inconclusive", 0)
-                + modes.get("scrub", {}).get("unreadable", 0))
+                + modes.get("scrub", {}).get("unreadable", 0)
+                + modes.get("dupes", {}).get("noop_derivatives", 0))
     status = "findings" if findings else "ok"
     out = {"status": status, "root": str(root),
            "denominator": {"wacz_files": len(files)}, "modes": modes}
