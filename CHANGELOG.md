@@ -4,6 +4,47 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.980
+
+Session close. Register only.
+
+Records 15.70: twelve cuts (@968-@979), six items closed (12, 17, 29, 42, 43,
+45), three open (31, 33, 44), and three box captures all PASS.
+
+The finding worth carrying: v3.66.977 put a live PyPI call inside unit tests and
+escaped a GREEN 39-file band, because the band was derived with
+`ls tests/ | grep ... | head -8` and the one test file named for the function
+being changed sorts tenth of fifteen matches. A head truncated the denominator
+inside a band derivation. Section 4 warns that bd-band-derive is a floor; it
+does not cover a floor the author chops off for readability. Never pipe a band
+derivation through head.
+
+Also records what caught what across the session: six confident claims falsified
+by measurement, four tests that passed while proving nothing, three escaped
+mutants, a NameError hidden inside a boot-safe except, and a band run that
+collected zero tests. Every one was caught by an instrument -- a mutation
+battery, the operator's real file list, a box run, an exit code read unpiped.
+None by review.
+
+Item 44 is fully designed and unbuilt: three-tier host resolution reusing
+dom_analyzer._parse_capture_host for BD's own naming, pages/pages.jsonl as the
+authority, and a stem fallback, with every group labelled by the method that
+produced it. Tier 2 belongs in bd-wacz-corpus, not dom_analyzer, whose contract
+is that scanning opens zero wacz zips.
+
+The operator's decision on the socket guard is recorded and unbuilt: stage it,
+observe-only first to turn "21 files might call out" into a measured list, then
+enforce with an opt-out marker.
+
+Corpus figures from this session are explicitly marked stale -- the operator ran
+their own hash dedup and moved the duplicates after the measurement. One check
+is still owed on the moved pile: a .redacted file byte-identical to its raw
+source is not a duplicate, it is evidence the scrubber returned its input.
+
+Nothing was installed this session; check_requirements.py exits 0 against the
+committed manifests. A stray empty-schema downloader_history.db in the repo root
+was removed.
+
 ## v3.66.979
 
 Fixes a regression shipped at v3.66.977: the boot freshness probe was doing
