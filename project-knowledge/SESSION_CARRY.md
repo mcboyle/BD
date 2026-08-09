@@ -4910,6 +4910,214 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.74 | The template pipeline met seven real sites: seven findings, one retraction, and a REFUTED cut
+
+**Not a session close** -- no ITEM LEDGER; 15.70's open set (31, 33) stands, 44 closed at 15.72.
+Written mid-session against imminent compaction, so it records EVIDENCE and OPEN STATE rather than
+narrative. Everything below was measured at `5ea790a` unless stated.
+
+**THE BOX RUN THAT STARTED IT** -- `bd-wacz-corpus --templates -j 0` over
+`/home/mboyle/BulkDownloader/captures`, 742 captures:
+
+    examined 742  sites 158  jobs 88  unbuildable 5
+    verdicts    green_from_one 71   not_green 82   unbuildable 5
+    reliability corroborated 84     unknown 71     single_witness 3
+    not_green blocking: gate_selector 77, "gate_selector,resolutions" 5
+    GREEN_ONLY_MERGED = 0
+
+`jobs 88` is @985's parallel path confirmed on real data. **GREEN_ONLY_MERGED = 0 is real but was
+read wrongly at first**: no site is rescued by merging its OWN captures, which is not the same as
+"merging is useless" -- see the cross-host finding below.
+
+#### THE CUT THAT WAS REFUTED, and it is the most important thing here
+
+**DO NOT narrow `ABSOLUTE_SERIAL_SNIPPETS` in `tests/capture_lanes.py`.** A proposed @986 would have
+narrowed the trigger from "mentions run_tests" to "activates the stub", freeing ~137 files into the
+parallel lane. Two independent adversarial agents refuted it and the refutation reproduces directly:
+
+    env -u BD_DISABLE_KEEPALIVE python -c "import run_tests"
+      BD_DISABLE_KEEPALIVE before: None   after: "1"
+
+`run_tests_core.py:28` does `os.environ.setdefault("BD_DISABLE_KEEPALIVE","1")` and `:33` an
+unconditional `sys.path.insert`, neither restored. **The code comment "importing the fallback runner
+rewires global interpreter state" is literally true.** The claim that it was stale came from a probe
+that measured `sys.modules` ONLY -- and that ran with `BD_DISABLE_KEEPALIVE=1` already set from the
+panel env box, so `setdefault` was a silent no-op. **Section 0's subprocess-harness trap, hit by
+someone who had read section 0 that morning, in a probe designed to answer exactly that question.**
+
+Two further reasons the narrowing was unsafe, both worth keeping:
+
+- **`tests/test_u42_resource_live_tests.py` is serial only because line 46 is a COMMENT** mentioning
+  `run_tests.py`. Its real hazard is `checks._SAMPLE_COUNT = 4` at MODULE SCOPE (`:51-52`, real
+  defaults 5 / 3.0), and the resulting cross-file failure is already recorded verbatim in
+  `tests/test_l33_counts_orphans_not_processes.py:668-688`. A comment is accidentally the only thing
+  keeping a genuinely unsafe file out of the parallel lane.
+- **Narrowing alone frees ZERO files** (fail-closed default), and freeing requires an allowlist regen
+  -- but the allowlist check sits ABOVE the remaining heuristics, so anything promoted bypasses every
+  check the proposal claimed would still protect it. There is no middle path in the current design.
+
+Corrected counts at `5ea790a`: 1274 tracked test files, 200 serial, 1074 parallel; 145 files match the
+absolute snippets, 143 attributed after exact-basename takes 2 first; **0 files activate the stub
+in-process** (all 6 textual hits are inside subprocess driver strings -- AST-verified). The classifier
+and pytest agree exactly, sets identical, 0 files in both.
+
+**THE REAL WORK IS HARDENING, NOT RECLASSIFYING.** Fix `run_tests_core`'s import-time `setdefault` and
+`sys.path.insert` (move them into the entry point) and the import becomes genuinely inert, which frees
+the population honestly. Then the module-scope-mutation family: `test_u42:51-52`, and
+`os.environ.setdefault` at import in `test_dom_overlay:16-17`, `test_legacy_parity:15-16`,
+`test_endpoint_catalog_in_sync:50`, `test_v3_66_776/777/778*`.
+
+#### SEVEN FINDINGS ABOUT THE TEMPLATE PIPELINE, all proven by construction
+
+Fixtures were rebuilt from operator screenshots of seven real member sites. **They are
+RECONSTRUCTIONS, not the real captures** -- real markup carries ids/classes/data-attributes a PNG
+cannot show, and `ultrafilms.com` is green on the box while the reconstruction extracted nothing. The
+mechanisms are proven; their SHARE of the box's 71/82 is not.
+
+- **A. Grouping splits every site.** `_place_by_host` buckets on the exact hostname. Five of seven
+  operator sites span a login host and a content host: `auth.wowgirls.com`/`venus.wowgirls.com`,
+  `vip4k.com`/`members.vip4k.com`, `auth.reptyle.com`(OAuth, `?referer=spa`)/`app.reptyle.com`,
+  `bangbros.com`/`site-ma.bangbros.com`. Visible in the box data as two rows:
+  `auth.reptyle.com cap=5 trigger 5/5` and `app.reptyle.com cap=62 trigger 34/62`. **A login-host
+  bucket reporting green is a false green** -- login selectors are scored, never gated.
+- **B. Modal-scoping discards real download panels.** `template_normalize:117-124` keeps a row
+  selector only `if _is_modal_scoped(rs)`, and `_MODAL_RE` matches only dialog/modal/drawer/popover.
+  Measured: `a.dl` False, `.download-block a.dl` False, `div.grid a.dl` False, `div.modal a.dl` True.
+  Fed the real WowGirls grid, the builder extracts `row_selectors: ["a.dl"]` and normalize drops it ->
+  `not_green`, `row_selectors` missing. **That is byte-for-byte the box's 77.** The rule is not wrong
+  to exist -- reptyle's flow IS a modal and passes -- but container-scoping should count as scoping.
+  **An earlier claim that the 77 are a capture-side gap needing re-capture is RETRACTED; do not
+  re-capture on it.**
+- **C. `text=/Download/i` can go green on a heading.** A panel whose only "Download" text is its `<h3>`
+  yields `button_hint: "text=/Download/i"`, normalizes to `trigger`, and reports promotion_ready True.
+  Reptyle's real trigger is an ICON with no text, so text hints are a weak basis for green in both
+  directions.
+- **D. The honeypot scorer exists and the template path never calls it.** AST-verified: zero honeypot
+  imports in `build_template_from_wacz`, `template_normalize`, `template_inventory`,
+  `bd-template-merge`, while `bulk_downloader/honeypot_score.py` offers `score_candidate` /
+  `classify_score` and `dom_honeypot.py` exists. Wiring it into selector CHOICE is the highest-value
+  answer to the operator's honeypot concern -- the defence is already owned.
+- **E. No post-login interstitial step.** A "No Thanks. Continue to Members Area" upsell wall sits
+  between login and content on at least one site; nothing in the schema models dismissing it. Grep
+  finds interstitial vocab only in youtube consent, transport, and honeypot path terms.
+- **G. `merge_drafts` corrupts list-valued selectors AND the result still promotes.**
+  `bd-template-merge:96-98` json-dumps non-scalar leaves so they can be voted on, then writes the
+  winning STRING back into the canonical slot. Measured on a modal-scoped row selector:
+  single -> `["div.modal a[href*=\"dl\"]"]` promotion_ready True; merged ->
+  `["[\"div.modal a[href*=\\\"dl\\\"]\"]"]` promotion_ready **True**. A garbage selector that passes
+  the gate. Not yet bitten because GREEN_ONLY_MERGED = 0, but any direct `bd-template-merge` run on a
+  row-selector site hits it -- `bitmovin.com` 24/24, `login.vixen.com` 5/5,
+  `members.kellymadisonmedia.com` 6/8, `www.miruro.tv` 4/7.
+- **H. `_gate_support` reads RAW, `assess` judges NORMALIZED.** So "corroborated" can be asserted for a
+  selector normalization discarded. Reproduced end to end: a site reporting
+  `verdict not_green, reliability corroborated, gate_support row_selectors 2/2, blocking
+  ["gate_selector"]`. From the box marginals (corroborated 84 > green 71), **at least 13 sites** are
+  this case. `_blocking` is also missing the `button` clause that `assess`'s gate includes.
+- **RETRACTED -- F.** A "disabled options counted as available" finding was withdrawn: the greyed row
+  in the screenshot was the operator hovering. It was the one finding marked inferred rather than
+  constructed, and it is the only one that did not survive.
+
+#### THE VARIATION THE EXTRACTOR HAS TO SURVIVE
+
+Seven resolution label formats across seven sites: `1920 x 1080` (spaced); `3840x2160` (unspaced);
+`1080p`; `SD/HD/FULL HD/4K/8K (HEVC)` (no digits at all); `Standard/High/Ultra` + `720p..2160p`;
+`h264 - 2160p`; `Low/Small/Medium/.../4K` + `160p..2160p`. Five trigger shapes: icon-only ->
+modal; inline grid; inline panel; a `Downloads` dropdown BESIDE a decoy `Quality` dropdown; icon+text
+button. Measured on the last of those, the builder found **no download control** and reported the
+resolution ceiling as **1080 while 3840x2160 was on the page**, because it read the playback Quality
+ladder instead. Every login seen carries a CAPTCHA (Turnstile / "Verify you are human"), so step 1 of
+the operator's four-step flow cannot be selector-driven at all.
+
+#### CROSS-HOST: THE FIX IS NOT eTLD+1, AND THE COUNTER-CHECK FOUND A LIVE HAZARD
+
+The runtime ALREADY supports one template covering several hosts --
+`template_registry._template_host_match_key` matches exact host, `match.hosts` alias, subdomain, and
+`match.sibling_domain`; probe-verified that a `venus.wowgirls.com` template resolves
+`auth.wowgirls.com` and correctly refuses an unrelated `auth.bangbros.com`. **Nothing in the pipeline
+ever writes `sibling_domain`** -- it appears in exactly one file repo-wide, the matcher. The capability
+is real and unreachable. `bd-template-merge:175-182` separately hard-refuses drafts spanning hosts.
+
+**The obvious key is broken on hosts already in the corpus.** `extension_vault.get_registrable_domain`
+is last-two-labels:
+
+    auth.wowgirls.com -> wowgirls.com    app.reptyle.com  -> reptyle.com
+    www.bbc.co.uk     -> co.uk           shaka-player-demo.appspot.com -> appspot.com
+
+`co.uk` and `appspot.com` would each become a "site". `app_secrets.py:466-468` records having already
+abandoned that helper for this reason, and adding a PSL dependency is rejected by the design doc.
+
+**So the design is: exact host stays ground truth; cross-host pairing is a labelled CANDIDATE; and the
+pairing is DERIVED, not named.** The likeliest evidence source is BD's own capture convention -- if
+`auth.reptyle.com_0b60f1ec_...` and `app.reptyle.com_0b60f1ec_...` share a `{siteid}`, the operator's
+own site config already pairs them, with no domain guessing and no denylist. **UNTESTED**; the command
+to settle it is a `find`+`sed` over the 39 filename-convention captures, grouping siteid -> hostnames
+and keeping rows with more than one host.
+
+#### OPEN, in the order the evidence supports
+
+1. **A + H** -- both in `bd-wacz-corpus` only, both are why the reported numbers are wrong. Group by
+   derived site identity with the method labelled; stop asserting corroboration for selectors the gate
+   discarded; surface normalize's own `dropped row selector (not modal-scoped or unsafe)` warnings so
+   the 77 can be split exactly rather than estimated.
+2. **G** -- one function in `bd-template-merge`, high severity, independent.
+3. **B** -- biggest win, but it is PRODUCT code on the capture path and needs operator sign-off.
+4. **D, C, E** -- a program, not a cut. D first.
+5. **The lane hardening** above, which is a source fix rather than a classifier fix.
+
+**OWED MEASUREMENT, operator-side:** the pipeline run against 25 REAL captures printing the chosen
+download selector per file. That decides whether B and C are the whole story or whether the
+reconstructions were too thin. Nothing in section 1 above should be scaled to the corpus until it
+returns.
+
+#### ADDENDUM -- adversarial-lens results recovered from truncated workflow output
+
+Four lens results exceeded the tool's return cap and were never read in-session; recovered from the
+run journals and recorded here because each is better than the conclusion it replaces.
+
+- **THE REAL PROMOTE GATE IS `template_manager.promote_gate_errors` (`:155-200`), NOT
+  `template_inventory.assess`.** `assess` is a MIRROR of it and the lens reports a MEASURED
+  divergence between the two. Everything this session called "green" was the mirror's verdict. The
+  single highest-value field `--templates` could emit is `real_gate_promotable:
+  promote_gate_errors(normalized) == []`, which closes that divergence instead of restating it.
+- **THE `resolutions` GATE CLAUSE IS SATISFIED FROM THE WIRE, NOT THE DOM.**
+  `build_template_from_wacz:2011-2013` builds `resolution_priority` from
+  `network["resolutions_seen"]`, so a capture whose DOM offers NO resolution choice still passes.
+  The builder emits `quality.open_menu`/`resolution_option` only for THEOplayer / xgplayer /
+  aria-labelled players -- three literal marker families. **Do NOT widen the gate to require quality
+  selectors** (that flips most of the 71 red and is section-0 over-sensitivity; modal-row sites
+  genuinely do not need them). Instead emit a derived `resolution_path`, one of
+  `quality_selectors` | `row_scrape` | `wire_only`. **`wire_only` is the honest name for
+  green-with-no-step-4.** Structural bound on the 71: 0..71, none protected by construction.
+- **THE VISIBILITY SCREEN ALREADY EXISTS, AND IT IS NOT `honeypot_score`.**
+  `template_extractor_impl/login_extract._login_is_honeypot` (`:116-140`) already screens
+  `display:none`, `left:-9999`, `width:1px`, `opacity:0`, `visibility:hidden`, `tabindex=-1`,
+  `aria-hidden`, and `name~honeypot` across three parent levels -- for LOGIN fields only. Meanwhile
+  `_html_selectors` (`:1590-1672`) and `_derive_download_trigger`/`_affordance` (`:796-853`) read
+  `node.attributes` ONLY and rank an aria-label/title "download" match ABOVE a class match, with no
+  visibility test anywhere. Lift `_login_is_honeypot` into a shared helper and call it from the
+  trigger and row derivations; the serialized rrweb node carries style and attributes, so this is
+  computable offline. That is a smaller and better fix than wiring in `honeypot_score`.
+- **THE RUNTIME LOGIN NEVER READS A TEMPLATE.** The only template->runner bridge is
+  `merge_template_download_hints` (`runner.py:3356` -> `template_assist.py:159+`), which carries
+  download hints only; `do_login` takes no template. So **71/71 green sites get ZERO login capability
+  from their template** -- step 1 runs on per-site config credentials and learned/fallback selectors,
+  and greenness says nothing about it. Bounded by call-graph enumeration, not sampling.
+- **`gate_support` CAN distinguish "different value" from "absent", and the data is already there.**
+  `merge_drafts` keeps the full ranked candidate list. Add to the emitted object:
+  `witnesses` = sum of support over the ranked list; `absent_in` = `of - witnesses` (**>0 means
+  captures that built a draft with NO gate leaf at all** -- case b); `alternatives` = `ranked[1:]`
+  verbatim (**non-empty means genuinely different values** -- case a). Pure plumbing in
+  `_gate_support`. This is what turns `trigger 5/9` from ambiguous into actionable.
+- **THE `_blocking` FIX IS TO STOP RE-DERIVING.** Rather than adding the missing `button` term to a
+  second copy of the predicate, have `assess` return the `gate_selector` boolean it already computes
+  (`template_inventory.py:115`) and have `_blocking` read it. The tool's own comment names the
+  reason: a fourth definition of green is how a tool starts disagreeing with the gate it predicts.
+- **CROSS-HOST, refined:** do NOT re-key `_place_by_host`. Add a labelled `site_families` CANDIDATE
+  tier over the existing exact-host buckets, keep exact host as the merge unit (bd-template-merge's
+  single-host guard is CORRECT for drafts), and bridge a family into one template not by merging
+  cross-host drafts but by **writing the login host into the content template's `match.hosts`** --
+  the runtime tier the matcher already supports and nothing writes.
+
 ### 15.73 | Template viability at v3.66.984, and a comparison whose two halves shared the same defect
 
 **Not a session close** -- no ITEM LEDGER; 15.70's open set (31, 33) stands, with
