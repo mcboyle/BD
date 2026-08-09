@@ -51,6 +51,16 @@ EXIT CODES
 from __future__ import annotations
 import argparse, base64, json, os, re, sys, zipfile, io
 
+# @971. bdtools_sec lives in toolchain/bin; this is the same shim tools/
+# bd-audit-gate.py and bd-triage.py already use. Imported so the FOUR scrubbers
+# share ONE answer to "can this member be scanned" -- v3.66.859 removed three
+# divergent allowlists from the other tools and this one kept its own rule,
+# which is how the .warc gap survived on the path that builds every shared twin.
+_d_cs = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, _d_cs)
+sys.path.insert(0, os.path.join(os.path.dirname(_d_cs), 'toolchain', 'bin'))
+import bdtools_sec as _sec  # noqa: E402
+
 PH = "<REDACTED>"
 
 # ─────────────────────────── detector patterns ───────────────────────────
@@ -346,6 +356,11 @@ def main():
               file=sys.stderr)
         return 1
 
+    # @971: initialised before the branch so the report below can reference it
+    # unconditionally. The first attempt read it back through locals()/globals(),
+    # which is a lookup that returns empty when it cannot see its subject and
+    # then prints nothing -- the same shape as the defect being fixed.
+    unscanned: list = []
     is_wacz = inp.lower().endswith(".wacz") or zipfile.is_zipfile(inp)
     all_residual, changes = [], ([] if args.preview else None)
 
@@ -362,9 +377,18 @@ def main():
                         red, residual = _process(data, args.mode, args.token_min, changes)
                         all_residual += [(f"{n}:{p}", k) for p, k in residual]
                         data = json.dumps(red, ensure_ascii=False).encode("utf-8")
+                    elif _sec.should_scan(n, data):
+                        # errors="ignore" deliberately: should_scan has already
+                        # decided this is TEXT (no NUL). A strict decode here is
+                        # what silently skipped every latin-1 WARC body -- the
+                        # bytes it cannot map are not the bytes a secret is in.
+                        data = scrub_string(data.decode("utf-8", "ignore"),
+                                            args.mode, args.token_min).encode("utf-8")
                     else:
-                        try: data = scrub_string(data.decode("utf-8"), args.mode, args.token_min).encode("utf-8")
-                        except Exception: pass
+                        # Provably binary: pass through, but NEVER silently.
+                        # A member that could not be read is UNKNOWN, and
+                        # unknown reported as clean is the whole defect class.
+                        unscanned.append(n)
                     if not args.preview: zout.writestr(n, data)
             blob = buf.getvalue()
     else:
@@ -378,6 +402,17 @@ def main():
     print("redactions:")
     for k in sorted(stats): print(f"  {stats[k]:>6}  {k}")
     if not stats: print("  (nothing matched — is this a capture file?)")
+    # @971. Say what was NOT examined, beside what was. Without this the run
+    # prints "Safe to share" over members it never read, and a reader cannot
+    # tell that from a run where everything was scanned -- measured before the
+    # fix on an archive whose only binary member was passed through untouched.
+    _un = unscanned
+    if _un:
+        print("unscanned (binary, passed through unchanged): %d member(s)" % len(_un))
+        for _n in _un[:10]:
+            print("  %s" % _n)
+        if len(_un) > 10:
+            print("  ... and %d more" % (len(_un) - 10))
 
     if args.preview:
         _print_preview(changes, args.full)

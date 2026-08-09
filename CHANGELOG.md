@@ -4,6 +4,48 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.971
+
+tools/capture_scrub.py now decides by CONTENT, like the other three scrubbers,
+and says what it could not examine.
+
+v3.66.859 removed three divergent TEXT_EXT allowlists from bd-wacz-scrub,
+bd-scrub-proof and bd-share-safe -- no two identical, none containing .warc,
+which is where a WACZ's payload lives -- and replaced them with one shared
+bdtools_sec.should_scan(name, data). That fix never reached the scrubber the
+capture hook actually runs: capture_scrub_hook.py invokes tools/capture_scrub.py
+to build every .redacted.wacz twin, and dom_analyzer.py then prefers that twin.
+
+Its member loop branched .jsonl / .json / else, and the else branch attempted a
+STRICT utf-8 decode wrapped in a bare except that passed. A member that is not
+valid utf-8 -- a latin-1 WARC body, for instance -- was written through
+unscrubbed and silently, with no counter and no residual entry, so the run
+reported success over a member it never read. Measured before the fix on an
+archive whose only binary member was passed through untouched: "re-scan of
+redacted output found NO residual secrets -- CLEAN. Safe to share."
+
+The loop now calls should_scan, decodes with errors=ignore for members it has
+already decided are text, and collects the provably-binary ones into an
+unscanned list that is printed beside the redaction counts. Nothing is dropped;
+every member still survives the rewrite, which is asserted separately because
+the obvious way to satisfy the other tests is to stop writing what cannot be
+scrubbed.
+
+Four tests, two proven RED on pristine source and green after, two green in both
+directions by design.
+
+Three harness defects were found and fixed in this cut's own test file, all the
+same family as the defect under test. It first asserted on a token of 40
+repeated characters, which _is_opaque_run cannot match by design, so it would
+have failed forever and read as a product defect. Its binary-member test then
+PASSED on a tree where the tool says nothing of the kind, because the tool
+echoes its input path, pytest derives tmp_path from the test function's name,
+and that name contained the word being asserted -- the test matched its own name
+reflected out of the subject. The fix for that stripped lines containing the
+path stem, and the stem of "b.wacz" is the single character b, so every line
+containing that letter was removed including the one the test looks for, and a
+correct tool read as silent.
+
 ## v3.66.970
 
 Item 12's rename shipped, on the operator's wording. No behaviour change to any
