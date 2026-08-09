@@ -350,9 +350,16 @@ export const WIDGETS: KPIWidget[] = [
     desc: "Files with no star rating yet",
     spec: d => ({ value: d.lib_unrated, label: "Unrated",
                   extra: d.lib_unrated_extra }) },
-  { id: "lib_missing", cat: "collection", title: "Missing files",
-    desc: "Library rows whose file is gone from disk",
-    spec: d => ({ value: d.lib_missing, label: "Missing files",
+  // v3.66.970, item 12. This is the library INDEX's cached `file_exists` flag
+  // -- what a scanner concluded at some earlier time -- NOT a live check. The
+  // Library route separately shows "missing from disk", which stats files now
+  // over a different table. The two answer different questions and cannot agree
+  // except by coincidence, and the old pair ("Missing files" here, "missing
+  // from disk" there) read as synonyms to anyone who saw both. Each title now
+  // names its own mechanism. Do not reintroduce "from disk" here.
+  { id: "lib_missing", cat: "collection", title: "Index flagged missing",
+    desc: "Library rows the last scan flagged as gone (cached index, not a live check)",
+    spec: d => ({ value: d.lib_missing, label: "Index flagged missing",
                   valueKind: (d.lib_missing ?? 0) > 0 ? "warn" : "ok",
                   extra: d.lib_missing_extra }) },
   { id: "lib_recent", cat: "collection", title: "Added this week",

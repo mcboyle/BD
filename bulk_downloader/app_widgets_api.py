@@ -220,6 +220,32 @@ def _collect_history_data(site_id: str | None) -> dict:
     return out
 
 
+def _missing_extra(missing: int, site_id: str | None) -> str:
+    """The sub-line under the "Index flagged missing" widget.
+
+    @970, item 12. TWO producers in this module write ``lib_missing_extra`` --
+    ``_collect_library_data`` and ``_collect_data`` -- and each carried its own
+    copy of this string. Three copies of a package list is the shape CLAUDE.md
+    calls a denominator that drifts, and the copy nobody updates is the one that
+    ships; two is the same defect with a smaller radius. One function now.
+
+    The SCOPE is here because the same widget renders GLOBAL on Home and
+    SITE-SCOPED on SiteDetail, and the number alone cannot tell an operator
+    which is on screen. It is on the zero case too: "all present" for one site
+    reads identically to "all present" everywhere, and that is the reading an
+    operator would over-trust.
+
+    Says "the last scan flagged" rather than "gone", because the value is the
+    library index's CACHED ``file_exists`` flag -- what a scanner concluded at
+    some earlier time, not a live check. The Library route's audit line is the
+    one that stats files now.
+    """
+    scope = f"in {site_id}" if site_id else "across all sites"
+    if missing:
+        return f"the last scan flagged these as gone, {scope}"
+    return f"nothing flagged by the last scan, {scope}"
+
+
 def _collect_library_data(site_id: str | None) -> dict:
     """Library widget primaries, restricted to the requested site."""
     from .db import db_conn
@@ -267,7 +293,7 @@ def _collect_library_data(site_id: str | None) -> dict:
         "lib_unrated": unrated,
         "lib_unrated_extra": f"{round(100.0 * unrated / total)}% of library" if total else "",
         "lib_missing": missing,
-        "lib_missing_extra": "files moved or deleted" if missing else "all present",
+        "lib_missing_extra": _missing_extra(missing, site_id),
         "lib_recent": int(row["recent"] or 0),
     }
     if studio:
@@ -652,8 +678,7 @@ def _collect_data(site_id: str | None) -> dict:
         out["lib_watched_extra"] = f"{watched} of {total}"
         out["lib_unrated_extra"] = (
             f"{round(100.0 * unrated / total)}% of library" if total else "")
-        out["lib_missing_extra"] = (
-            "files moved or deleted" if missing else "all present")
+        out["lib_missing_extra"] = _missing_extra(missing, site_id)
         # Top studio from the by_studio aggregate
         by_studio = stats.get("by_studio") or []
         if by_studio:
