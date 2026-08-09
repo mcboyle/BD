@@ -4490,6 +4490,47 @@ a record -- see 15.62's closing paragraph.
      The shape of a fix is a read-modify-write in `_save_app_config()` itself,
      or routing it through `set_config()`.
 
+ 45. **CLOSED at v3.66.979 -- a regression I shipped at @977, caught on the
+     BOX, and the band derivation is what failed.**
+
+     Two tests in `test_v3_66_661_healthcheck_ytdlp_shape` failed on the box,
+     and the message named the real defect rather than the assertion:
+
+         assert '90' in 'yt-dlp 2025.01.01 is behind 2026.7.4 - update available'
+
+     **That `2026.7.4` came from the LIVE PyPI index, during a unit test.** @977
+     made `_check_ytdlp()` call `latest_version()`, which fetched; every
+     existing test that mocked only `status_dict` silently got live data, and
+     the suite acquired a network dependency nobody asked for.
+
+     **MEASURED, and it is what should have stopped me: no other probe in
+     `healthcheck.py` touches the network.** ffmpeg, chromium, loopback and disk
+     are all local. The boot selftest was network-free by design and @977 broke
+     that invariant.
+
+     **HOW IT ESCAPED THE BAND, which is the part worth keeping.** I derived the
+     band with `ls tests/ | grep -iE "healthcheck|selftest|ytdlp|doctor" |
+     head -8`. There are **15** matches. `test_v3_66_661_healthcheck_ytdlp_shape`
+     -- the one file named for the function I was changing -- sorts **tenth**.
+     A `head -8` truncated my own denominator, in a band derivation, in a
+     session whose recurring subject is denominators. The band ran 32 files and
+     237 tests and was green over a set that structurally excluded the subject.
+     Section 4 says bd-band-derive's output is a floor; it says nothing about
+     the floor being silently cut off by a display limit I added myself.
+
+     FIX: `latest_version()` never fetches unless explicitly asked, refuses
+     outright under `BD_TEST_MODE` (so the suite is hermetic even if a future
+     caller forgets), and persists to a `BD_HOME`-anchored cache so a value
+     fetched by the update path is still there at the next boot. The probe reads
+     cache-only: cold cache is UNKNOWN, a warm one gives a real answer with no
+     network. `maybe_update()` refreshes the cache, since that path already
+     reached the network.
+
+     `test_v3_66_661`'s two cases pinned the OLD age-based contract and were
+     updated rather than deleted -- the contract change is the point of @977 --
+     and both now pin `latest_version` explicitly, because leaving it unmocked
+     is precisely what reached the live index.
+
  44. **OPEN, opened v3.66.978 -- bd-wacz-corpus met the real corpus and was
      wrong.** @973's tool was validated only against synthetic fixtures and the
      Drive corpus's `t_<hex>_<name>` naming. The box's 1251-file / 4.04 GB
@@ -4817,7 +4858,7 @@ bounded by its line count, and neither can be judged from a container.
 
 ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
 OPEN:   31, 33, 44
-CLOSED: 2, 3, 8, 11, 12, 13, 16, 17, 18, 20, 23, 29, 30, 32, 36, 37, 38, 39, 40, 41, 42, 43
+CLOSED: 2, 3, 8, 11, 12, 13, 16, 17, 18, 20, 23, 29, 30, 32, 36, 37, 38, 39, 40, 41, 42, 43, 45
 
 Item 1 is CANNOT-EVALUATE and is accounted by the inventory marker rather than
 by this ledger -- a third state, not a close.
