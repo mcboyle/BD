@@ -4,6 +4,38 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.975
+
+Register only. Records the v3.66.973 box capture and reconciles a standing
+prediction.
+
+Capture at a1bc58b: 15128 total, 15043 passed, 0 failed, 0 errors, 85 skipped --
+PASS. Predicted +33 from git, measured +33. Third exact prediction in a row. The
+whole delta is attributable to @968-@973: six new test files collecting 33, zero
+removed, skips flat.
+
+The register carried a prediction that the next capture would read 15095 / 15010
+/ 85 UNCHANGED, on the premise that the box would next capture @967, a
+register-and-CHANGELOG range. The box jumped to @973 instead, so the antecedent
+never held: that prediction is VOID, not falsified. Its logic was re-checked
+rather than assumed, because a void prediction is the kind nobody re-derives --
+git confirms the @965-@967 range added zero test files, so the reasoning held
+and only its premise moved. Recording it as "wrong" would have retired a rule
+that works.
+
+The capture also settles the container-only failure set by measurement instead
+of by argument. The @972 full sweep in the cloud container returned 10 failures,
+each attributed by mechanism; the box reports 0 failed, so all ten pass there.
+The KIND is confirmed. The COUNT in CLAUDE.md section 5 is stale in both
+directions -- it records 14, the measured run gave 10, with exec_bridge at 2 not
+5, neither no_backend nor the vpn probe firing, and one order-dependent case not
+on the list. That figure needs re-deriving, not quoting.
+
+The box has not seen @974: bd-template-merge merged after this capture started.
+The next capture should read 15138 / 15053 / 85 -- @974 adds one test file
+collecting 10, verified by collection rather than counted by eye, and nothing
+else in the range adds or removes a test.
+
 ## v3.66.974
 
 New tool: bd-template-merge -- N captures of one site into one master template,
