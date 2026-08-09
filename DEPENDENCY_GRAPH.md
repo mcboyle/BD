@@ -110,7 +110,7 @@ Graph version: 1
 - **jobs** (`app_jobs.py`) — routes 1, providers 0
 - **jsonapi** (`app_jsonapi.py`) — routes 1, providers 1
 - **knowledge** (`app_knowledge.py`) — routes 4, providers 1
-- **library** (`app_library.py`) — routes 18, providers 3
+- **library** (`app_library.py`) — routes 17, providers 3
 - **live_recorder** (`app_live_recorder.py`) — routes 6, providers 1
 - **login_templates** (`app_login_templates.py`) — routes 1, providers 1
 - **logs** (`app_logs.py`) — routes 2, providers 1

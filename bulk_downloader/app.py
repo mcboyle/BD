@@ -5632,7 +5632,6 @@ def _validate_bulk_urls(body):
 #   /api/library/<id>    — single row + tags
 #   /api/library/stats   — aggregate disk usage by dimension
 #   /api/library/tags    — list all tags
-#   /api/library/missing — rows with file_exists=0
 #   /api/library/orphans?root=<path>  — files on disk not in library
 #   /api/library/scan/status — scanner progress
 #
@@ -5678,7 +5677,6 @@ def _validate_bulk_urls(body):
 # api_library_tag_delete -> app_library.py (Phase 4 multi-block extraction)
 
 
-# api_library_missing -> app_library.py (Phase 4 multi-block extraction)
 
 
 # api_library_orphans_v2 -> app_library.py (Phase 4 multi-block extraction)

@@ -370,7 +370,6 @@
 /api/library/audit	POST	api_library_audit
 /api/library/browse	GET	api_library_browse
 /api/library/integrity	GET	api_library_integrity
-/api/library/missing	GET	api_library_missing
 /api/library/orphans	GET	api_library_orphans_v2
 /api/library/orphans	POST	api_library_orphans_post
 /api/library/regen_nfos	POST	api_library_regen_nfos

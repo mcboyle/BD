@@ -3947,14 +3947,35 @@ WORK, NOT BLOCKED (4-19)
      denominator assertion, because a predicate seeing only the dict literal
      would find one write site and certify agreement across a set of one.
 
-     **STILL OPEN: the disposition for `library_missing`** -- retire it, on the
-     operator's decision at v3.66.970. Zero callers anywhere in the tree. Held
-     to its own cut because a route removal has a different blast radius from a
-     label change: it bands `test_route_index_in_sync` AND
-     `test_route_map_invariant` and needs the baseline re-frozen in the same
-     cut. Its unreported `LIMIT 500` is the same class 12(c) fixed for
-     `audit()`, but adding a saturation flag to an endpoint nobody calls is the
-     wrong repair -- removing the producer is.
+     **RETIRED AT v3.66.972, closing the item.** `/api/library/missing` and
+     `library.library_missing()` are gone, on the operator's decision: straight
+     removal plus a stays-retired guard, matching how `codex_handoff`,
+     `deploy_manifest`, `task_tracker` and `sandbox_home` were retired. Zero
+     callers anywhere in the tree -- the only references were its own
+     definition, its route, and two stale comments in `app.py`, all removed.
+     Its unreported `LIMIT 500` was the same class 12(c) fixed for `audit()`,
+     but adding a saturation flag to an endpoint nobody calls is the wrong
+     repair; removing the producer is. Route map 1002 -> 1001 lines,
+     `_BASELINE_SHA` re-pinned in the same cut.
+
+     **THE GUARD READS COMMENT-STRIPPED SOURCE, and that was load-bearing on
+     this very cut.** `app.py` carried two comments naming the route and the
+     view. Section 0 records four cases in one session where an assertion could
+     not tell prose from code -- including the comment that spelled a prefixed
+     name in order to say it had been removed, putting it straight back into
+     the ledger and failing the gate the rename had just fixed (CI caught that,
+     not review). Measured here: with stripping, the RED run flagged
+     `app_library.py` ONLY; a raw-text version would also have flagged `app.py`
+     and forced the comments to be deleted to pass rather than because they
+     were stale. The comments were removed anyway -- they documented a route
+     that no longer exists -- but the gate did not demand it, which is the
+     property that lets someone write "we retired /api/library/missing because
+     ..." next year without resurrecting it.
+
+     Four tests, three proven RED. The fourth is the over-sensitivity guard and
+     is green both ways by design: three of the four "missing" producers are
+     LIVE and must survive, so a cut that removed the word everywhere would
+     satisfy the other three and delete working features.
 
      **DO NOT QUOTE A PRODUCER COUNT.** Three predicates have produced 8-of-3,
      19-of-4 and 23-of-5 over different denominators. The subject is the
@@ -4658,8 +4679,8 @@ bounded by its line count, and neither can be judged from a container.
 **READ THIS FIRST IF YOU ARE A FRESH SESSION.** It supersedes 15.68's open set.
 
 ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
-OPEN:   12, 29, 31, 33
-CLOSED: 2, 3, 8, 11, 13, 16, 17, 18, 20, 23, 30, 32, 36, 37, 38, 39, 40, 41, 42
+OPEN:   29, 31, 33
+CLOSED: 2, 3, 8, 11, 12, 13, 16, 17, 18, 20, 23, 30, 32, 36, 37, 38, 39, 40, 41, 42
 
 Item 1 is CANNOT-EVALUATE and is accounted by the inventory marker rather than
 by this ledger -- a third state, not a close.

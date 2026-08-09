@@ -959,7 +959,7 @@
         "bulk_downloader/library.py",
         "bulk_downloader/library_final.py"
       ],
-      "route_count": 18,
+      "route_count": 17,
       "routes": [
         "ROUTE /api/library/<int:lid>",
         "ROUTE /api/library/<int:lid>/notes",
@@ -970,7 +970,6 @@
         "ROUTE /api/library/audit",
         "ROUTE /api/library/browse",
         "ROUTE /api/library/integrity",
-        "ROUTE /api/library/missing",
         "ROUTE /api/library/orphans",
         "ROUTE /api/library/regen_nfos",
         "ROUTE /api/library/scan/cancel",
