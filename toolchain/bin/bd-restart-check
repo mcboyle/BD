@@ -79,6 +79,12 @@ def recorded(state: pathlib.Path) -> dict | None:
         "boot_id": lines[0].strip(),
         "when": lines[1].strip() if len(lines) > 1 else "unknown",
         "source": lines[2].strip() if len(lines) > 2 else "unknown",
+        # @969. Lines 3-4 are the boot the hook REPLACED, written only when it
+        # differed. Positional and appended rather than a new format, so an
+        # older 3-line record still parses -- a reader that raised on the short
+        # form would fail every session started before this landed.
+        "prev_boot_id": lines[3].strip() if len(lines) > 3 else "",
+        "prev_when": lines[4].strip() if len(lines) > 4 else "",
     }
 
 
@@ -100,9 +106,23 @@ def classify(cur: str | None, rec: dict | None) -> dict:
                           "nothing to compare against -- which is UNKNOWN, not "
                           "'no restart'."}
     if rec["boot_id"] == cur:
-        return {"status": "ok", "exit": EXIT_OK,
-                "detail": "boot unchanged since the hook last ran (%s, "
-                          "source=%s)" % (rec["when"], rec["source"])}
+        detail = ("boot unchanged since the hook last ran (%s, source=%s)"
+                  % (rec["when"], rec["source"]))
+        # @969, item 17. A transition the hook already carried forward is NOT a
+        # live unrepaired restart -- the hook ran, so the repair path fired.
+        # Reporting it as EXIT_RESTARTED would overload an exit code whose
+        # documented meaning is "and the hook has NOT run since", and would send
+        # a reader to re-provision an environment that already reconverged. It
+        # belongs in the detail, where it answers the question item 17 was
+        # actually asking.
+        prev = rec.get("prev_boot_id") or ""
+        if prev:
+            detail += ("; a RESTART was observed and already re-recorded: the "
+                       "previous boot %s (last seen %s) is gone and the hook "
+                       "fired after it, so SessionStart DOES follow a container "
+                       "restart and the repair path ran"
+                       % (prev, rec.get("prev_when") or "unknown"))
+        return {"status": "ok", "exit": EXIT_OK, "detail": detail}
     return {"status": "restarted", "exit": EXIT_RESTARTED,
             "detail": "the container REBOOTED since the hook last ran (%s, "
                       "source=%s) and the hook has NOT run since. If you have "
@@ -139,10 +159,35 @@ def selftest() -> int:
         ("no record -> unevaluable", classify("abc", None), EXIT_UNEVALUABLE),
         ("same boot -> ok", classify("abc", {"boot_id": "abc", "when": "w", "source": "s"}), EXIT_OK),
         ("different boot -> restarted", classify("abc", {"boot_id": "zzz", "when": "w", "source": "s"}), EXIT_RESTARTED),
+        # @969. The fourth state: a restart the hook already carried forward.
+        # Exit stays OK -- the hook ran -- but it must SAY so, or the field is
+        # written and never surfaced. The substring is checked because an exit
+        # code alone cannot distinguish this from an ordinary unchanged boot,
+        # which is the whole point of recording it.
+        ("restart re-recorded -> ok AND said so",
+         classify("abc", {"boot_id": "abc", "when": "w", "source": "resume",
+                          "prev_boot_id": "zzz", "prev_when": "w0"}),
+         EXIT_OK, "RESTART was observed", None),
+        # The forbidden string is the transition CLAIM, not the word "restart".
+        # A first draft forbade the bare word and failed two CORRECT cases whose
+        # details legitimately say "restart" -- the unevaluable branch explaining
+        # that UNKNOWN is "not 'no restart'", and the restarted branch itself.
+        # A predicate ranging over cases it does not mean is section 0's shape,
+        # and it appeared here inside the check written to prevent it.
+        ("no transition -> ok and makes NO transition claim",
+         classify("abc", {"boot_id": "abc", "when": "w", "source": "s"}),
+         EXIT_OK, None, "RESTART was observed"),
     ]
     bad = 0
-    for name, got, want in cases:
+    for case in cases:
+        name, got, want = case[0], case[1], case[2]
+        need = case[3] if len(case) > 3 else None
+        forbid = case[4] if len(case) > 4 else None
         ok = got["exit"] == want
+        if ok and need is not None:
+            ok = need in got["detail"]
+        if ok and forbid is not None:
+            ok = forbid not in got["detail"]
         bad += 0 if ok else 1
         print("%s  %s (got exit %d, want %d)" % ("PASS" if ok else "FAIL", name,
                                                  got["exit"], want))

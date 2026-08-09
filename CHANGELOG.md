@@ -4,6 +4,39 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.969
+
+Item 17 closed. A container restart now stays visible after the hook re-records
+it, and both earlier framings of the item named the wrong mechanism.
+
+The item asked whether a mid-session container restart fires SessionStart, and
+v3.66.965 re-scoped it to "the state lives inside the container, so a restart may
+take the record with it". Neither was it. session-start.sh wrote the boot record
+with a truncating redirect and no comparison, and the hook fires on resume -- so
+a restart followed by a resume overwrote the baseline with the new boot id, and
+bd-restart-check then compared new against new and reported OK.
+
+Measured live at v3.66.968 in a cloud container: uptime 6 minutes, the state file
+written at the boot minute with source=resume, its boot id equal to the current
+one, tool exit 0. The record had not been lost to the restart -- it had been
+rewritten by the hook that runs immediately after one. That same reading answers
+the item's empirical question: source=resume written at the boot minute means
+SessionStart does follow a container restart.
+
+The hook now reads the prior record before truncating and carries the previous
+boot forward only when it differs, as two appended positional lines so a
+pre-969 three-line record still parses. bd-restart-check surfaces the transition
+in its OK detail and stays exit 0: a transition the hook already carried forward
+is not a live unrepaired restart, and reporting it as exit 1 would overload a
+code whose documented meaning is "and the hook has NOT run since".
+
+Seven tests, two proven RED on pristine source; the other five are green in both
+directions by design, guarding over-sensitivity and the older record format. A
+seam between the writer test and the reader test left recorded()'s parsing of the
+new lines undriven, and was closed with an end-to-end test. Mutation battery: 4
+mutants, 4 caught, 0 escaped, baseline green -- including the seam mutant, which
+would have escaped without that test.
+
 ## v3.66.968
 
 Item 42 closed: bd-freshcheck's doc-anchor gate can now see frontend citations,
