@@ -4,6 +4,48 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.987
+
+- bd-wacz-corpus --templates: reliability is now measured on the gate's own
+  clauses. `_gate_support` read `merge_drafts`' RAW selector_support keys
+  (download.button_hint, download.row_selectors) through a hard-coded tuple
+  looking for download.trigger / download.row_selectors / download.button --
+  so a text-hint site scored no support and read "unknown", and an inline row
+  the normalizer DISCARDS read "corroborated" while assess counted zero rows.
+  Support is now voted over normalize_draft's output and attributed to values
+  read back out of normalize(merged), the same object assess judges. There is
+  deliberately no raw-key-to-clause map: a wider tuple is the same defect with
+  more entries.
+- Attribution grades the SHIPPED value, not the vote winner. Measured: drafts
+  {button_hint:X},{trigger:Y},{trigger:Y} vote Y at 2 of 3 while _map_selectors
+  gives the hint precedence, so the template ships X.
+- gate_support now separates "the other captures carried a DIFFERENT value"
+  (two page shapes) from "the other captures carried NONE" (incomplete
+  captures) via support/disagree/absent, asserted to partition the
+  denominator before the verdict is emitted.
+- capture_gaps distinguishes a download control the pipeline DISCARDED from one
+  that was never captured, by set difference against the normalized survivors
+  rather than by parsing warning prose. A novel raw download leaf lands in
+  dropped_leaves by name instead of vanishing.
+- A merge artifact (bd-template-merge json.dumps a list-valued leaf and writes
+  the text back) is detected and excluded from grading. Measured: the artifact
+  '["[role=dialog] a.dl"]' passes _is_modal_scoped, survives normalize, and
+  assess reports promotion_ready True -- it manufactures a green. The flag
+  requires BOTH that the value parses to a non-scalar AND that its exact-match
+  support is zero, so a real selector that happens to parse as JSON is not
+  flagged.
+- New top-level gate_selector_blocked rollup decomposes "blocked on
+  gate_selector" into discarded-by-normalizer vs no-evidence-in-any-draft, with
+  an explicit residual bucket and a partition assertion. The v3.66.984 run
+  reported 77 such sites and they were described as needing re-capture; that
+  advice was retracted, and this is the number that would have prevented it.
+- template_inventory.assess exposes the gate_selector boolean it already
+  computes. bd-wacz-corpus._blocking now READS it instead of re-deriving the
+  gate from two of its three clauses, and reports gate_unassessed as a failing
+  third state rather than guessing.
+- gate_support carries captures / drafts_built / unbuildable in band, so
+  "corroborated 2 of 2" on a nine-capture site cannot be quoted without its gap.
+
 ## v3.66.986
 
 Register only. Records what the template pipeline did when it met seven real

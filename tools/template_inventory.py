@@ -126,6 +126,11 @@ def assess(tpl, source="?"):
         "network_patterns_count": len(nps),
         "completeness_score": score,
         "blocked_terms": blocked,
+        # The gate's own selector verdict, EXPOSED rather than left for callers
+        # to re-derive. `button` is not reported anywhere else in this dict, so
+        # a caller reconstructing the :111 predicate from `download_trigger` and
+        # `row_selectors_count` silently drops one of its three clauses.
+        "gate_selector": gate_selector,
         "promotion_ready": promotion_ready,
         "missing": missing_recommended,
         # Wave 168 review-only recognition metadata (None on pre-168 drafts).

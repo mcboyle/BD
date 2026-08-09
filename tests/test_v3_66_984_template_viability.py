@@ -147,7 +147,7 @@ def test_RELIABILITY_is_SUPPORT_across_the_sites_captures(tmp_path):
     s = _by_host(t)["corro.example.org"]
     assert s["reliability"] == "corroborated", s
     g = s["gate_support"]
-    assert g["support"] == 2 and g["of"] == 2, (
+    assert g["best"]["support"] == 2 and g["of"] == 2, (
         "support must carry its denominator, never a bare count: %r" % g)
 
 
@@ -164,7 +164,14 @@ def test_a_ONE_VOTE_gate_selector_is_a_SINGLE_WITNESS_not_corroboration(tmp_path
     rc, t = _run(tmp_path)
     s = _by_host(t)["lone.example.org"]
     assert s["reliability"] == "single_witness", s
-    assert s["gate_support"]["support"] == 1 and s["gate_support"]["of"] == 3, s
+    assert s["gate_support"]["best"]["support"] == 1, s
+    assert s["gate_support"]["of"] == 3, s
+    # @987: the two captures that did NOT carry the trigger are now
+    # distinguishable from two that carried a DIFFERENT one -- the whole point
+    # of the field, and the difference between "re-capture" and "two page
+    # shapes".
+    assert s["gate_support"]["clauses"]["trigger"]["absent"] == 2, s
+    assert s["gate_support"]["clauses"]["trigger"]["disagree"] == 0, s
 
 
 def test_a_SINGLE_CAPTURE_site_reports_reliability_UNKNOWN_not_perfect(tmp_path):
@@ -286,15 +293,21 @@ def test_a_LONE_DRAFT_is_never_corroboration_however_high_its_support_reads():
     support corroboration rather than inherit the answer from an accident of
     ordering.
     """
+    # @987 moved the graded figure under `best`: support is now attributed to
+    # the value the NORMALIZED merged draft actually ships, and a block that
+    # cannot grade carries `best: None` with a reason rather than being absent.
+    # The RULE below is unchanged -- only the shape it reads.
     m = _tool_module()
-    assert m._reliability(1, {"support": 2, "of": 2}) == "unknown", (
+    assert m._reliability(1, {"best": {"support": 2, "of": 2}}) == "unknown", (
         "a lone draft was graded on support that cannot mean what it says")
     assert m._reliability(1, None) == "unknown"
     # The other direction, or a rule that returned "unknown" always would pass
     # the assertions above and destroy the mode.
-    assert m._reliability(3, {"support": 2, "of": 3}) == "corroborated"
-    assert m._reliability(3, {"support": 1, "of": 3}) == "single_witness"
+    assert m._reliability(3, {"best": {"support": 2, "of": 3}}) == "corroborated"
+    assert m._reliability(3, {"best": {"support": 1, "of": 3}}) == "single_witness"
     assert m._reliability(2, None) == "unknown"
+    assert m._reliability(3, {"best": None, "reason": "merge_unavailable"}) == "unknown", (
+        "a block that could not grade must read unknown, not inherit a verdict")
 
 
 def test_it_never_writes_a_template_or_touches_the_corpus(tmp_path):
