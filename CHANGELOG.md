@@ -4,6 +4,96 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.966
+
+Pre-compaction durability pass: four findings that existed ONLY in a
+conversation are now in the register. Record-only, no source change.
+
+THIS IS THE FAILURE THE REGISTER EXISTS TO STOP, applied to the session that
+built the gate for it. 15.62: "a finding that exists only in a conversation is
+lost at the next context boundary". An audit before a known context boundary
+found four:
+
+THREE BOX CAPTURES WERE UNRECORDED -- @961, @962 and @963. All PASS, all
+reconciling exactly. The full five-capture ledger with per-cut deltas is now in
+15.69, including @961's single live WARN (L28, queue empty -- the check
+refusing to mint a verdict over an empty denominator, back to 36/0/0 the next
+run).
+
+ITEM 12 IS SCOPED IN WRITING. Three producers named "missing" answer three
+different questions: library_missing reads a CACHED file_exists flag on the
+library table, missing_from_disk_scan STATS the file live off history, and
+find_missing_metadata is about absent NFO sidecars -- not files at all. The
+question that decides the item is recorded as UNANSWERED: does any operator
+surface show two of them under ONE label? No collision was found and absence
+was NOT proven. Also recorded: do not quote a producer count, since three
+predicates have produced 8-of-3, 19-of-4 and 23-of-5.
+
+ITEM 17 IS RE-SCOPED. There is no code left to write -- the tool's selftest
+already exercises all three states including exit 1. But its state lives at
+$HOME/.bd_boot_state INSIDE the container, so a restart that wipes the
+filesystem takes the record and the tool reports exit 2 / unevaluable, which is
+indistinguishable from "never ran". The reading this item waits for may be
+structurally unobtainable by this instrument, and the real work is moving the
+state somewhere a restart preserves.
+
+ITEM 29's ACCEPTANCE CRITERION IS CORRECTED. Its first clause is already done
+(15.68: 108 files, all integrity_check ok). "One verified bundle" must mean
+RESTORABLE: section 7 records git bundle verify certifying a bundle that then
+failed to fetch into a fresh repo, so verifying this archive would use the check
+already caught lying.
+
+AND THE METHOD NOTE: four of my own delta predictions were wrong before they
+were right, all the same class -- hand-mapped parents, a range including the
+baseline cut itself, counting additions but not REMOVALS, and a grep that
+truncated 501 files to 24. Each manufactured a phantom gap against a clean
+capture. Derive the range from the PREVIOUS CAPTURE'S COMMIT, take parents with
+git rev-parse <sha>^, and count removals.
+
+## v3.66.965
+
+Items 31 and 32 re-derived. Record-only: no source change.
+
+ITEM 32 CLOSED AS OBSOLETE on operator decision. 23 CODEX_HANDOFF groups, and
+MEASURED: .superpowers/sdd holds SIX files total -- the corpus-disposition
+index, three live-telemetry reports, the wacz report. Nothing for Analysis
+Tasks 5-7, nothing for Governance/gate 1-8, nothing for
+Audit/knowledge/hygiene/static-KB 1-11. Twenty-two of twenty-three groups have
+no code, no artifact, no gate, and Analysis Task 4's frozen packages are
+confirmed absent. They describe work inherited from a document retired at
+v3.66.842 and an environment that no longer exists. Carrying them as OPEN
+implies someone intends to do them, which is the shape that made this register
+untrustworthy. The four design decisions worth keeping are carried into the
+entry rather than lost with it.
+
+ITEM 31 IS EIGHT ROWS, NOT ELEVEN. Three resolved without touching the box:
+
+EXIT-3 STANDS and 15.15's open question is ANSWERED -- a green CI
+postgres-integration does NOT move it. That job exercises the mod3 code paths;
+it says nothing about production dual-write or a soak clock. Measured by
+RUNNING the preflight: ok=False on four reasons, cutover_engaged False, and one
+of those reasons is "shadow-read has compared 0 statement(s): zero comparisons
+is NOT evidence of agreement, it is an empty denominator" -- section 0's rule
+stated in the product's own refusal.
+
+OPV-F3.1 IS LAPSED, NOT OPEN. Its seven-day window closed 2026-07-30, ten days
+before this re-derivation. An expired clock is not an open task.
+
+CORPUS-DISPOSITION CLOSED AS MIS-FILED. Its own text says all 445 are triaged
+and the index is "DATA, not a register". Index verified present.
+
+JW-TMPL's NOTE WAS WRONG AND IS CORRECTED. 15.15 said the blocker was "site
+Ultra missing password", the same condition "the box's startup selftest still
+prints on every restart", and that "one credential fill may clear this row".
+Measured across all five captures: the message is `login: SKIPPED -- site 'wow'
+is missing password`, it lives in 04_service_boot.log, and the startup selftest
+(11 ok / 1 warn over 12 checks) contains no credential check at all. Site WOW,
+not Ultra. Filling wow clears that boot warning and does nothing for JW-TMPL,
+whose real blocker -- a live capture with ultrafilms credentials -- is
+unchanged. Two sites conflated into one shortcut.
+
+The open set is now 12, 17, 29, 31, 33.
+
 ## v3.66.964
 
 Item 41: _save_app_config() lost another writer's keys AND widened the file

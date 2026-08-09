@@ -3882,10 +3882,34 @@ WORK, NOT BLOCKED (4-19)
      suite in BOTH parallel and serial, and item 36 reproduced and closed the
      recurrence. What remains is 714 bytes of NON-database residue, which was
      never this item's title and is now item 40.
- 12. **Item 14** -- `item 12` remnants, four unrelated subjects mis-filed as one.
-     Split and prioritise separately: the eight-producer divergence; its proven
-     non-exhaustiveness; `audit()`'s two different caps in one dict; and
-     `regen_nfos_from_history` resolving a bare basename CWD-relative.
+ 12. **Only the producer divergence remains; SCOPED at v3.66.965.** The two
+     caps closed at @915 and `regen_nfos_from_history` at @916; 12(c)'s
+     saturation disclosure shipped at @957. What is left is the divergence,
+     and it is STRUCTURAL rather than a bug in any one function -- three
+     producers named "missing" answer three DIFFERENT questions:
+
+     | producer | table | predicate |
+     | --- | --- | --- |
+     | `library.library_missing()` | `library` | `file_exists=0`, a CACHED flag a scanner wrote earlier |
+     | `library_final.missing_from_disk_scan()` | `history` | `status='done'`, then STATS the file live |
+     | `cleanup_helpers.find_missing_metadata()` | `history` | rows with no NFO sidecar -- missing METADATA, not a file |
+
+     So one is cache-vs-now, one is live truth, and the third is not about
+     files at all. They cannot agree except by coincidence, which is 15.47's
+     "equal numbers are NOT agreement" made concrete.
+
+     **THE QUESTION THAT DECIDES THE ITEM IS UNANSWERED: does any operator
+     surface show two of them under ONE label?** They reach the UI by
+     different routes -- `audit()` via `/api/library/audit`, `library_missing`
+     via its own endpoint, `find_missing_metadata` into `cleanup_helpers`'
+     `missing_nfo`. No single panel showing two was found, but ABSENCE ACROSS
+     THE SPA WAS NOT PROVEN. If none collide it is a naming problem and the
+     fix is a rename; if they do it is a correctness problem needing a
+     canonical definition, which is a product call.
+
+     **DO NOT QUOTE A PRODUCER COUNT.** Three predicates have produced 8-of-3,
+     19-of-4 and 23-of-5 over different denominators. The subject is the
+     divergence, not the count.
  13. **CLOSED at v3.66.959 as MIS-SCOPED.** `bd-state` has three invocation
      sites, not one: `build_session_pack.py`, `bd-boot:268` and
      `bd-coretest:179` (which exercises it twice, clean->PASS and a forged
@@ -3909,9 +3933,23 @@ WORK, NOT BLOCKED (4-19)
      The three survivors went with the mirror retirement. The spec-rework
      blocker is moot because there is nothing left for the rewritten spec to
      act on.
- 17. **Item C** -- does a container restart fire SessionStart? Instrumented,
-     unanswered. Needs a `bd-restart-check` exit 1 mid-session; this session
-     got exit 0, `source=startup`.
+ 17. **RE-SCOPED at v3.66.965: there is no code left to write, and the
+     instrument may not be able to answer its own question.** The tool is
+     complete and its failing branch is PROVEN -- its selftest exercises all
+     three states (`no record -> unevaluable exit 2`, `same boot -> ok exit
+     0`, `different boot -> restarted exit 1`). What remains is purely
+     empirical: does a mid-session container restart fire SessionStart, which
+     needs a real restart.
+
+     **THE CATCH THE ITEM DOES NOT RECORD.** The state lives at
+     `$HOME/.bd_boot_state` -- `/root/.bd_boot_state` here -- INSIDE the
+     container. A restart that wipes the filesystem takes the record with it,
+     and the tool then reports **exit 2 / unevaluable**, which is
+     indistinguishable from "never ran". So the reading this item waits for
+     may be structurally unobtainable by this instrument: section 0's shape,
+     one layer up from the tool built to avoid it. If that is so, the real
+     remaining work is moving the state somewhere a restart preserves -- not
+     waiting for a reading.
  18. **CLOSED, and it was closed before anyone noticed.** Re-measured at
      v3.66.956 by RUNNING the tool, not reading it: a manifest of
      `pytest>=99.0` exits 1 and `pytest>=8.0` exits 0, so the specifier IS
@@ -3990,9 +4028,21 @@ STANDALONE REGISTER FINDINGS, STILL OPEN (26-28)
 
 YOURS, NOT MINE (29-30)
 
- 29. **The archive sequence** -- the only item with an ordering constraint:
-     recover the 91 `.db` beside 90 `.db-journal`, purge rebuildable bulk,
-     THEN consolidate into one verified bundle.
+ 29. **The archive sequence -- FIRST CLAUSE ALREADY DONE, and the acceptance
+     criterion must change before anyone works it.** 15.68 records the
+     database recovery complete: 108 files, all `integrity_check = ok`. So the
+     ordering constraint that made this item special is DISCHARGED; the
+     remaining two steps -- purge rebuildable bulk, consolidate into one
+     bundle -- have no dependency on it and are box-bound.
+
+     **"ONE VERIFIED BUNDLE" MUST MEAN RESTORABLE, NOT VERIFIED.** CLAUDE.md
+     section 7 records `git bundle verify` reporting *"records a complete
+     history"* and *"is okay"* for a bundle that then FAILED to fetch into a
+     fresh empty repo. Certifying this archive with `verify` would use the
+     check already caught lying. The criterion is the restore test:
+
+         T=$(mktemp -d) && git init -q "$T" && \
+           git -C "$T" fetch "$BUNDLE" 'refs/*:refs/restored/*' && echo RESTORABLE
  30. **CLOSED at v3.66.932 (`48707ad`), recorded at v3.66.959.**
      `.githooks/pre-push` exists, is TRACKED, and refuses a force-push that
      would discard unmerged work -- exactly section 7's two-dot diff. 15.52
@@ -4001,15 +4051,68 @@ YOURS, NOT MINE (29-30)
 
 PARALLEL PROGRAM -- OLDER, LARGELY OPERATOR- OR CAPTURE-BOUND (31-32)
 
- 31. **15.15 / TASK_TRACKER, 11 rows** -- EXIT-3 (note CI now runs a green
-     `postgres-integration`; establish whether that moves it), OPV-F3.1 (window
-     ELAPSED 2026-07-30 -- closable or restarts), CAP-ROBUST arm C, JW-TMPL
-     (one credential fill may clear it), LOGIN-NSTEP, P3-T12-CALLSITE, RPTYL
-     (do not close by relaxing `api_patterns >= 1` silently), FR-A6.2, FR-A6.3,
-     2c-DATA, CORPUS-DISPOSITION (data, not a task).
- 32. **15.15 / CODEX_HANDOFF, 23 of 34 groups** -- Analysis Task 4 (its frozen
-     review packages NO LONGER EXIST; resuming means re-freezing), Analysis
-     Tasks 5-7, Governance/gate 1-8, Audit/knowledge/hygiene/static-KB 1-11.
+ 31. **15.15 / TASK_TRACKER -- EIGHT rows, not eleven. Re-derived at
+     v3.66.965.** Three resolved without touching the box, and one row's note
+     was wrong:
+
+     - **EXIT-3 STANDS, and 15.15's open question is now ANSWERED: a green CI
+       `postgres-integration` does NOT move it.** That job exercises the mod3
+       code paths; it says nothing about production dual-write or a soak
+       clock. Measured by running the preflight -- `preflight_cutover()`
+       returns `ok=False` with four reasons (dual-write not enabled,
+       shadow-read not enabled, *"shadow-read has compared 0 statement(s):
+       zero comparisons is NOT evidence of agreement, it is an empty
+       denominator"*, postgres not reachable) and `cutover_engaged()` is
+       False. Correctly blocked fail-closed, and the refusal states section
+       0's rule in the product's own words.
+     - **OPV-F3.1 is LAPSED, not open.** Its seven-day window closed
+       2026-07-30; that is 10 days before this re-derivation. It either closes
+       on evidence already collected or the clock restarts -- an operator
+       decision about an expired window, which is not the same thing as an
+       open task.
+     - **CORPUS-DISPOSITION CLOSED as mis-filed.** Its own text says all 445
+       are triaged, retained review-required, explicitly not an OPV failure,
+       and that the index is *"DATA, not a register"*. It was never a task.
+       The index survives at `.superpowers/sdd/corpus-disposition-review-
+       buckets.{md,json}` -- verified present.
+     - **JW-TMPL's note was WRONG and is corrected.** 15.15 said the blocker
+       was *"site Ultra missing password"*, the same condition *"the box's
+       startup selftest still prints on every restart"*, and that *"one
+       credential fill may clear this row"*. Measured across all five
+       2026-08-08/09 captures: the message is `login: SKIPPED -- site 'wow' is
+       missing password`, it lives in `04_service_boot.log` and NOT in the
+       startup selftest (whose 12 checks are 11 ok / 1 warn and include no
+       credential check at all). Site **wow**, not Ultra. Filling wow's
+       password clears that boot warning and does nothing for JW-TMPL, whose
+       real blocker -- a live capture with ultrafilms credentials -- is
+       unchanged and operator-bound. Two sites conflated into one shortcut.
+
+     STILL OPEN, all live-capture or operator-bound: CAP-ROBUST arm C,
+     JW-TMPL, LOGIN-NSTEP, P3-T12-CALLSITE, RPTYL (do not close by relaxing
+     `api_patterns >= 1` silently), FR-A6.2, FR-A6.3, 2c-DATA.
+ 32. **CLOSED at v3.66.965 as OBSOLETE, on operator decision.** 23
+     CODEX_HANDOFF groups, and MEASURED: `.superpowers/sdd/` holds **six files
+     total** -- the corpus-disposition index, three live-telemetry reports and
+     the wacz report. There is nothing for Analysis Tasks 5-7, nothing for
+     Governance/gate 1-8, nothing for Audit/knowledge/hygiene/static-KB 1-11.
+     Twenty-two of the twenty-three groups have no code, no artifact and no
+     gate; Analysis Task 4's frozen review packages are confirmed ABSENT, as
+     15.15 recorded. They describe intended work inherited from a document
+     that was retired at v3.66.842 and an ENVIRONMENT that no longer exists.
+
+     Closed rather than re-scoped because carrying 22 unbuilt groups as OPEN
+     work implies someone intends to do them, and that is the shape that made
+     this register untrustworthy -- an open list nobody is on stops being
+     read. Reconstructing intent for each would mean mining the git history of
+     a deleted file.
+
+     **THE DESIGN DECISIONS ARE THE PART WORTH KEEPING, and 15.15 says why:
+     they are "properties of the analysis, not of the retired environment".**
+     Carried here so closing the item does not lose them: fail-closed on
+     ambiguous semantic facts; Task 3's scope/execution model; explicit bounds
+     with secret redaction and atomic path-identity-checked output; Task 4's
+     six separate evidence categories. Anything picking that work up should
+     inherit these rather than the task list.
 
 ONGOING, NOT A FINISH LINE (33)
 
@@ -4389,8 +4492,8 @@ bounded by its line count, and neither can be judged from a container.
 **READ THIS FIRST IF YOU ARE A FRESH SESSION.** It supersedes 15.68's open set.
 
 ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
-OPEN:   12, 17, 29, 31, 32, 33
-CLOSED: 2, 3, 8, 11, 13, 16, 18, 20, 23, 30, 36, 37, 38, 39, 40, 41
+OPEN:   12, 17, 29, 31, 33
+CLOSED: 2, 3, 8, 11, 13, 16, 18, 20, 23, 30, 32, 36, 37, 38, 39, 40, 41
 
 Item 1 is CANNOT-EVALUATE and is accounted by the inventory marker rather than
 by this ledger -- a third state, not a close.
@@ -4570,6 +4673,44 @@ box-verified, not merely container-green.
 One advisory, not a defect: 07b's selftest battery is `11 ok, 1 warn, 0 fail`,
 the warn being `yt-dlp is 35 days old -- consider updating`. Operational, on the
 box.
+
+**FIVE CAPTURES, FIVE EXACT RECONCILIATIONS.** All PASS, 0 failed, 0 errors,
+skips flat at 85 throughout. Recorded here because three of them existed only
+in a conversation until v3.66.966, which is the failure this register exists to
+stop:
+
+| capture | commit | total | passed | delta | predicted from git |
+| --- | --- | ---: | ---: | ---: | --- |
+| v3.66.957 | `51ac1eb` | 15081 | 14996 | +21 | +21 |
+| v3.66.959 | `86f139d` | 15087 | 15002 | +6 | +6 |
+| v3.66.961 | `dc9dae4` | 15089 | 15004 | +2 | +2 |
+| v3.66.962 | `3d229be` | 15088 | 15003 | **-1** | -1 |
+| v3.66.963 | `3bb6c29` | 15092 | 15007 | +4 | +4 |
+
+Graph pin OK on every one, live 36/0/0 except @961's single WARN, `.err` files
+empty throughout. @961's live warn was `L28 service-restart-preserves-queue --
+queue is empty`, which is the check REFUSING to mint a verdict over an empty
+denominator rather than passing vacuously; it returned to 36/0/0 the next run,
+so it is queue state, not a defect.
+
+**FOUR OF MY DELTA PREDICTIONS WERE WRONG BEFORE THEY WERE RIGHT, ALL THE SAME
+CLASS, AND THE BOX WAS CORRECT EVERY TIME.** Recorded because the pattern is
+the reusable part:
+
+- hand-mapped parents: @952's "parent" was the commit AFTER it, predicting +17
+  against a true +21;
+- a range that included the BASELINE cut itself, predicting +10 against +6 --
+  the previous capture was AT @957, so @957's own tests were already counted;
+- **counting additions but not REMOVALS**: @962 retired the pk-mirror staleness
+  test, so "adds no tests" was true and the delta was -1, not 0;
+- and a `git grep` band extraction that silently truncated 501 files to 24.
+
+Each manufactured a phantom gap against a clean capture, which is worse than
+not checking. **The rule: derive the range from the PREVIOUS CAPTURE'S COMMIT,
+take parents with `git rev-parse <sha>^`, and count removals as well as
+additions.** A prediction stated confidently is the thing section 1 exists to
+catch, and it applies to predictions about the box exactly as it applies to
+figures read out of a document.
 
 **THE BOX IS NOW 2 CUTS BEHIND** (@957 vs @959) and the next capture should read
 **15087 / 15002 / 85** -- @959 added 6 tests to test_register_promises_resolve.
