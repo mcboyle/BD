@@ -1053,7 +1053,19 @@ def test_salvaged_stub_detector_separates_a_marker_from_prose_about_one():
 # fallback). This is the ratchet moving DOWN as the comment above says it
 # should; leaving it at 240 would silently re-permit the growth the retirement
 # just paid for, which is the exact failure that note names.
-_TOOL_BUDGET = 235
+# @973: 235 -> 236. bd-wacz-corpus. Raised rather than folded, on the same
+# reasoning the @882 note above gives: no existing tool has this SUBJECT. The
+# two nearest are not close -- bd-corpus pulls LIVE recognizer corpus from
+# sanctioned public demo sites under an allowlist-only ethics envelope, and
+# tools/template_inventory.py scores the template TREE (reviewed/enabled/drafts)
+# rather than the capture corpus that feeds it. Nothing surveys WACZ files on
+# disk. Folding a corpus survey into either would hide a check with a different
+# subject inside something else, which is what that note forbids.
+# It is WIRED, not prose-only: tests/test_v3_66_973_wacz_corpus_survey.py runs
+# it as a subprocess, so test_unwired_bd_tools_do_not_multiply stays green at
+# its existing baseline -- verified, not assumed, in the same run that caught
+# this ratchet.
+_TOOL_BUDGET = 236
 
 
 def test_the_toolchain_does_not_grow_unbudgeted():

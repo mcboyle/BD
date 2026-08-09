@@ -1,0 +1,274 @@
+#!/usr/bin/env python3
+"""bd-wacz-corpus -- read-only survey of a local WACZ corpus.
+
+Four analyses over ONE denominator, each independently selectable so their
+answers can be compared rather than taken on trust:
+
+  --group    site grouping from the `t_<hash>_<name>.wacz` naming, so the inputs
+             to a template merge are DERIVED rather than eyeballed
+  --pairs    raw <-> `.redacted` twins and the size ratio between them
+  --health   does each archive open, pass CRC, and carry a WARC payload
+  --scrub    screening pass for credential-shaped material still in the archive
+  --all      every mode
+
+WHY THE DENOMINATOR IS REPORTED EVERYWHERE. CLAUDE.md section 0 opens with a
+gate that cannot see its subject reporting OK -- truthfully, and uselessly --
+and this repo owns the scar: bd-wacz-scrub, bd-scrub-proof and bd-share-safe
+each carried a TEXT_EXT allowlist containing no `.warc`, which is where a WACZ's
+payload lives, and all three printed "verified clean" over what turned out to be
+228 contaminated files. So: every mode states what it examined, an empty corpus
+is UNKNOWN rather than "0 problems", and a member that could not be READ is
+counted separately from a member that was read and found clean.
+
+WHAT --scrub IS NOT. It is a SCREEN, not the canonical floor. The floor is
+`bulk_downloader.capture_artifact_redact.scan_floor_secrets`, which operates on
+a parsed capture rather than on raw archive bytes. This mode exists to shortlist
+files worth putting through that, and its own output says so. Treating a clean
+screen as a clean floor would be the same substitution error the allowlists made.
+
+Exit: 0 ran-and-clean, 1 ran-with-findings, 2 UNKNOWN (cannot answer).
+2 is not a softer 1 -- it means the question was not evaluated.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import pathlib
+import re
+import sys
+import zipfile
+
+_HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, _HERE)
+import bdtools_sec as sec  # noqa: E402
+
+EXIT_OK, EXIT_FINDINGS, EXIT_UNKNOWN = 0, 1, 2
+
+_REDACTED = ".redacted.wacz"
+_WACZ = ".wacz"
+
+# `t_<hex>_<name>.wacz` is the export convention; the <name> is the only site
+# signal a filename carries. Anything not matching keeps its whole stem, so an
+# unrecognised naming scheme groups under itself rather than vanishing.
+_NAMED = re.compile(r"^t_[0-9a-fA-F]{6,}_(.+)$")
+_SITE = re.compile(r"^([A-Za-z]+)")
+
+# STRUCTURAL, not entropy-based and not a bare word: a credential-ish key, a
+# separator, then a value with some length to it. `SECRET_WORD_RE` alone fires
+# on any prose containing "secret" -- over-sensitivity is a soundness bug
+# (section 0), and a screen that cries wolf gets switched off.
+_KV = re.compile(
+    rb"(?i)\b(secret|token|api[_-]?key|apikey|password|passwd|authorization"
+    rb"|bearer|session[_-]?id|access[_-]?token)\b\s*[=:]\s*[^\s\"'&;]{8,}")
+
+
+def enumerate_corpus(root: pathlib.Path):
+    """Every *.wacz under root. Returns (files, reason_if_unknown)."""
+    if not root.exists():
+        return [], "root does not exist: %s" % root
+    if not root.is_dir():
+        return [], "root is not a directory: %s" % root
+    files = sorted(p for p in root.rglob("*" + _WACZ) if p.is_file())
+    if not files:
+        return [], "no *.wacz found under root: %s" % root
+    return files, None
+
+
+def _is_redacted(p: pathlib.Path) -> bool:
+    return p.name.lower().endswith(_REDACTED)
+
+
+def _base(p: pathlib.Path) -> str:
+    n = p.name
+    return n[:-len(_REDACTED)] if _is_redacted(p) else n[:-len(_WACZ)]
+
+
+def _site_of(p: pathlib.Path) -> str:
+    stem = _base(p)
+    m = _NAMED.match(stem)
+    if not m:
+        # Unrecognised naming: group under the WHOLE stem. Running _SITE over it
+        # would take the leading alpha run of a string never meant to be parsed
+        # -- measured, every `t_<short>_<name>` fixture collapsed into a single
+        # bucket called "t", which is a silent mis-grouping that looks like a
+        # real answer. The docstring already promised this behaviour; the code
+        # did not implement it.
+        return stem.lower()
+    m2 = _SITE.match(m.group(1))
+    return (m2.group(1) if m2 else m.group(1)).lower()
+
+
+def mode_group(files):
+    raws = [p for p in files if not _is_redacted(p)]
+    buckets = {}
+    for p in raws:
+        buckets.setdefault(_site_of(p), []).append(p.name)
+    groups = [{"site": s, "captures": len(v), "merge_candidate": len(v) > 1,
+               "files": sorted(v)}
+              for s, v in sorted(buckets.items())]
+    return {"examined": len(raws),
+            "denominator": "raw (non-.redacted) *.wacz under root",
+            "sites": len(groups),
+            "merge_candidates": sum(1 for g in groups if g["merge_candidate"]),
+            "groups": groups}
+
+
+def mode_pairs(files):
+    raws = {_base(p): p for p in files if not _is_redacted(p)}
+    reds = {_base(p): p for p in files if _is_redacted(p)}
+    entries = []
+    for b, r in sorted(raws.items()):
+        if b in reds:
+            rb, db = r.stat().st_size, reds[b].stat().st_size
+            entries.append({"base": b, "raw_bytes": rb, "redacted_bytes": db,
+                            "ratio": round(db / rb, 4) if rb else None})
+    ratios = [e["ratio"] for e in entries if e["ratio"] is not None]
+    return {"examined": len(files),
+            "denominator": "all *.wacz under root, split raw vs .redacted",
+            "paired": len(entries),
+            "unpaired_raw": sum(1 for b in raws if b not in reds),
+            "unpaired_redacted": sum(1 for b in reds if b not in raws),
+            "median_ratio": (sorted(ratios)[len(ratios) // 2] if ratios else None),
+            "entries": entries}
+
+
+def mode_health(files):
+    ok = unreadable = no_payload = 0
+    detail = []
+    for p in files:
+        try:
+            with zipfile.ZipFile(p) as z:
+                bad = z.testzip()
+                if bad is not None:
+                    unreadable += 1
+                    detail.append({"file": p.name, "state": "crc_failed", "member": bad})
+                    continue
+                names = z.namelist()
+        except Exception as exc:
+            unreadable += 1
+            detail.append({"file": p.name, "state": "unreadable",
+                           "reason": type(exc).__name__})
+            continue
+        if not any(".warc" in n.lower() for n in names):
+            no_payload += 1
+            detail.append({"file": p.name, "state": "no_warc_payload",
+                           "members": len(names)})
+            continue
+        ok += 1
+    return {"examined": len(files),
+            "denominator": "all *.wacz under root",
+            "ok": ok, "unreadable": unreadable, "no_payload": no_payload,
+            "detail": detail}
+
+
+def mode_scrub(files):
+    clean = with_findings = unreadable = 0
+    unscannable_members = 0
+    detail = []
+    for p in files:
+        hits, unscannable = 0, 0
+        try:
+            with zipfile.ZipFile(p) as z:
+                for n in z.namelist():
+                    if n.endswith("/"):
+                        continue
+                    try:
+                        data = z.read(n)
+                    except Exception:
+                        unscannable += 1
+                        continue
+                    # CONTENT, not extension -- the whole point of @859.
+                    if not sec.should_scan(n, data):
+                        unscannable += 1
+                        continue
+                    hits += len(_KV.findall(data))
+        except Exception as exc:
+            unreadable += 1
+            detail.append({"file": p.name, "state": "unreadable",
+                           "reason": type(exc).__name__})
+            continue
+        unscannable_members += unscannable
+        if hits:
+            with_findings += 1
+            detail.append({"file": p.name, "state": "findings", "hits": hits,
+                           "unscannable_members": unscannable})
+        elif unscannable:
+            # NOT clean. The scan's denominator excluded members it could not
+            # read, so "no hits" here is a statement about the part it saw.
+            detail.append({"file": p.name, "state": "inconclusive",
+                           "unscannable_members": unscannable})
+        else:
+            clean += 1
+    return {"examined": len(files),
+            "denominator": "all *.wacz under root; per-member content sniffed",
+            "clean": clean,
+            "with_findings": with_findings,
+            "inconclusive": len(files) - clean - with_findings - unreadable,
+            "unreadable": unreadable,
+            "unscannable_members": unscannable_members,
+            "screen_only": ("this is a SCREEN, not the canonical floor "
+                            "(capture_artifact_redact.scan_floor_secrets); a "
+                            "clean result here shortlists, it does not clear"),
+            "detail": detail}
+
+
+_MODES = {"group": mode_group, "pairs": mode_pairs,
+          "health": mode_health, "scrub": mode_scrub}
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="read-only WACZ corpus survey")
+    ap.add_argument("--root", required=True)
+    for m in _MODES:
+        ap.add_argument("--" + m, action="store_true")
+    ap.add_argument("--all", action="store_true")
+    ap.add_argument("--json", action="store_true")
+    a = ap.parse_args()
+
+    chosen = [m for m in _MODES if getattr(a, m)] or (list(_MODES) if a.all else [])
+    if a.all:
+        chosen = list(_MODES)
+    if not chosen:
+        ap.error("pick at least one of --group/--pairs/--health/--scrub, or --all")
+
+    root = pathlib.Path(a.root).expanduser()
+    files, why = enumerate_corpus(root)
+    if why:
+        out = {"status": "unknown", "root": str(root),
+               "denominator": {"wacz_files": 0}, "reason": why,
+               "modes": {}}
+        print(json.dumps(out, indent=2) if a.json
+              else "UNKNOWN  %s\n         nothing was examined, so this is not "
+                   "a clean result." % why)
+        return EXIT_UNKNOWN
+
+    modes = {m: _MODES[m](files) for m in chosen}
+    findings = (modes.get("health", {}).get("unreadable", 0)
+                + modes.get("health", {}).get("no_payload", 0)
+                + modes.get("scrub", {}).get("with_findings", 0)
+                + modes.get("scrub", {}).get("inconclusive", 0)
+                + modes.get("scrub", {}).get("unreadable", 0))
+    status = "findings" if findings else "ok"
+    out = {"status": status, "root": str(root),
+           "denominator": {"wacz_files": len(files)}, "modes": modes}
+
+    if a.json:
+        print(json.dumps(out, indent=2))
+    else:
+        print("bd-wacz-corpus  root=%s  wacz_files=%d" % (root, len(files)))
+        for m in chosen:
+            d = modes[m]
+            print("  %-7s examined=%s  %s" % (
+                m, d["examined"],
+                " ".join("%s=%s" % (k, v) for k, v in d.items()
+                         if k not in ("examined", "detail", "entries", "groups",
+                                      "denominator", "screen_only"))))
+            print("          over: %s" % d["denominator"])
+        print("STATUS %s" % status.upper())
+    return EXIT_FINDINGS if findings else EXIT_OK
+
+
+if __name__ == "__main__":
+    sys.exit(main())

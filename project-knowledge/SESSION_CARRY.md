@@ -4474,6 +4474,59 @@ a record -- see 15.62's closing paragraph.
      The shape of a fix is a read-modify-write in `_save_app_config()` itself,
      or routing it through `set_config()`.
 
+ 43. **OPEN, opened v3.66.973 -- the WACZ corpus tools.** Operator asked for
+     three things off the Drive corpus: close an item, build master templates
+     from multi-capture sites, and mine the captures for capture-mechanism
+     defects. The third landed first at v3.66.971 (capture_scrub's content-
+     sniffing gap). This item tracks the other two.
+
+     **A CONSTRAINT WORTH RECORDING, because it will recur:** the archives
+     cannot be pulled into a cloud container. The Drive MCP returns file bytes
+     as base64 INTO THE MODEL CONTEXT, and the smallest file in the corpus is
+     1.09 MB -- roughly 1.5 M characters. There is no ranged read and the
+     container cannot authenticate to Drive directly. So corpus analysis runs
+     ON THE BOX, where the 1658 files already live; the container's job is to
+     build the tools, not to run them over real data. Metadata-only analysis IS
+     possible from here and produced the site/player grouping that shaped these
+     tools.
+
+     **SHIPPED at v3.66.973: `bd-wacz-corpus`**, four selectable read-only
+     analyses over one denominator (`--group`, `--pairs`, `--health`,
+     `--scrub`, `--all`). All four rather than one because the operator asked
+     to compare their reliability rather than trust a single answer. Every mode
+     states the denominator it counted over, an empty corpus is UNKNOWN (exit
+     2) rather than "0 problems", and `--scrub` counts a member it could not
+     READ separately from one read and found clean -- the distinction the three
+     TEXT_EXT allowlists collapsed at @859 over 228 contaminated files.
+     `--scrub` says in its own output that it is a SCREEN, not the canonical
+     floor (`capture_artifact_redact.scan_floor_secrets` takes a parsed capture,
+     not archive bytes), so a clean screen shortlists rather than clears.
+     Battery: 5 mutants, 5 caught, including a deliberate re-introduction of the
+     @859 name-based allowlist.
+
+     **A DEFECT THE TESTS CAUGHT IN THE TOOL'S OWN FALLBACK.** For a filename
+     not matching `t_<hex>_<name>`, the docstring promised grouping "under
+     itself"; the code ran the site regex over the whole stem instead, so every
+     such file collapsed into one bucket named `t`. Measured, not reasoned --
+     it surfaced as `{'t': 4}` on first run. The fixtures were also wrong
+     (4-hex ids where the real corpus uses 16), so the test was judging naming
+     the tool will never meet. Both repaired: the code now honours its contract
+     and the fixtures are representative.
+
+     **STILL OPEN: `bd-template-merge`.** Decided with the operator at @973 and
+     not yet built: N captures of one site -> one master template, entries
+     FREQUENCY-RANKED with an explicit support count ("4/4 captures" vs "1/4")
+     so nothing is silently dropped and a reviewer can see which selectors are
+     load-bearing; output written as a draft into `templates/drafts` so the
+     existing `normalize_template_draft -> promote_template -> templates/reviewed`
+     pipeline handles it unchanged and `gold_merge_guard`
+     (`tools/build_template_from_wacz.py:1555`) still applies. Union and
+     intersection were both rejected: union cannot tell a one-off from a
+     universal, intersection silently drops a site's rarer page shape.
+     Measured at @973: no N-way merge exists anywhere in `tools/` -- the only
+     merge functions are within-capture (`_merge_supplemental_media`,
+     `_merge_supplemental_api`).
+
  42. **CLOSED at v3.66.968 -- the gate is widened, both citations are fixed,
      and THE CENTRAL CLAIM THIS ITEM WAS FILED WITH WAS WRONG.** Filed one cut
      earlier at v3.66.967, and the wrongness is kept because it is the lesson.
@@ -4679,7 +4732,7 @@ bounded by its line count, and neither can be judged from a container.
 **READ THIS FIRST IF YOU ARE A FRESH SESSION.** It supersedes 15.68's open set.
 
 ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
-OPEN:   29, 31, 33
+OPEN:   29, 31, 33, 43
 CLOSED: 2, 3, 8, 11, 12, 13, 16, 17, 18, 20, 23, 30, 32, 36, 37, 38, 39, 40, 41, 42
 
 Item 1 is CANNOT-EVALUATE and is accounted by the inventory marker rather than
