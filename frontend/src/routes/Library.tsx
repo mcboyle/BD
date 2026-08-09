@@ -517,7 +517,8 @@ export function Library() {
         {audit.data && (
           <p className="mt-2 text-sm text-muted-foreground">
             orphans {String(audit.data.orphans ?? 0)} · missing from disk{" "}
-            {String(audit.data.missing ?? 0)} · duplicate groups{" "}
+            {String(audit.data.missing ?? 0)} (live stat under{" "}
+            {auditDir.trim() || "no directory"}) · duplicate groups{" "}
             {String(audit.data.duplicate_groups ?? 0)} · size drift{" "}
             {String(audit.data.size_drift ?? 0)} · orphan size{" "}
             {String(audit.data.orphan_size_gb ?? 0)} GB · reclaimable{" "}

@@ -3926,11 +3926,35 @@ WORK, NOT BLOCKED (4-19)
      by the CACHED index flag -- borrowing the other producer's words for a
      value that never stats a file.
 
-     **REMAINING WORK, both small, neither blocked on measurement:** the rename
-     (operator picks the strings), and a disposition for `library_missing` --
-     wire it or retire it, per the generated spec's cut 3. Its unreported
-     `LIMIT 500` is the same class 12(c) fixed for `audit()`, but adding a
-     saturation flag to an endpoint nobody calls is the wrong repair.
+     **THE RENAME SHIPPED AT v3.66.970**, on the operator's wording. The widget
+     is now "Index flagged missing" (desc: "cached index, not a live check")
+     and the Library route's live figure names the directory it walked, because
+     "0 because everything is present" and "0 because nothing resolved" are the
+     same glyph without it.
+
+     The cut found a second defect the item had not named: **`lib_missing_extra`
+     had TWO independently-maintained producers** in `app_widgets_api.py`, a
+     dict-literal entry and an `out[...]` assignment, each carrying its own copy
+     of the string. That is S0's drifting denominator at a two-copy radius, and
+     the copy nobody updates is the one that ships. Both now route through one
+     `_missing_extra()`, which also carries the SCOPE -- the same widget renders
+     global on Home and site-scoped on SiteDetail, and the number alone cannot
+     say which. The scope is on the ZERO case too, deliberately: "all present"
+     for one site reads identically to "all present" everywhere, and that is the
+     reading an operator would over-trust.
+
+     The guarding test is AST over BOTH syntactic forms with a non-empty
+     denominator assertion, because a predicate seeing only the dict literal
+     would find one write site and certify agreement across a set of one.
+
+     **STILL OPEN: the disposition for `library_missing`** -- retire it, on the
+     operator's decision at v3.66.970. Zero callers anywhere in the tree. Held
+     to its own cut because a route removal has a different blast radius from a
+     label change: it bands `test_route_index_in_sync` AND
+     `test_route_map_invariant` and needs the baseline re-frozen in the same
+     cut. Its unreported `LIMIT 500` is the same class 12(c) fixed for
+     `audit()`, but adding a saturation flag to an endpoint nobody calls is the
+     wrong repair -- removing the producer is.
 
      **DO NOT QUOTE A PRODUCER COUNT.** Three predicates have produced 8-of-3,
      19-of-4 and 23-of-5 over different denominators. The subject is the

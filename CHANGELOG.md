@@ -4,6 +4,44 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.970
+
+Item 12's rename shipped, on the operator's wording. No behaviour change to any
+count; this is what the two on-screen figures are CALLED.
+
+Four producers in this tree answer to the word "missing" and they answer
+different questions. Two reach an operator: app_widgets_api._collect_library_data
+counts file_exists=0 on the library table -- a flag a scanner wrote at some
+earlier time -- and drives a widget on Home and SiteDetail; while
+library_final.missing_from_disk_scan walks history and stats each file live,
+driving the Library route's audit line. They render on disjoint routes so they
+cannot share a screen, which is why v3.66.967 concluded this was a rename rather
+than a product call. But "Missing files" and "missing from disk" read as
+synonyms to anyone who saw both, and nothing said which was cached.
+
+The widget is now "Index flagged missing", described as a cached index rather
+than a live check. The Library route's figure names the directory it walked,
+because "0 because everything is present" and "0 because nothing resolved" are
+the same glyph without it.
+
+The cut found a second defect the item had not named. lib_missing_extra had TWO
+independently-maintained producers in one module, a dict-literal entry and an
+out[...] assignment, each carrying its own copy of the string -- the drifting
+denominator shape, where the copy nobody updates is the one that ships. Both now
+route through a single _missing_extra(), which also carries the scope: the same
+widget renders global on Home and site-scoped on SiteDetail, and the number
+alone cannot say which. The scope is on the zero case too, because "all present"
+for one site reads identically to "all present" everywhere.
+
+Four tests, all proven failing on pristine source. The single-source test is AST
+over BOTH syntactic write forms and asserts a non-empty denominator first: a
+predicate seeing only the dict literal would find one write site and certify
+agreement across a set of one.
+
+Still open: retiring library_missing, whose route has zero callers anywhere in
+the tree. Held to its own cut because removing a route bands the route-index and
+route-map gates and needs the baseline re-frozen with it.
+
 ## v3.66.969
 
 Item 17 closed. A container restart now stays visible after the hook re-records
