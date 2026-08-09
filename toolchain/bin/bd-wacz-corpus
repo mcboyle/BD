@@ -387,10 +387,21 @@ def mode_hosts(files):
 _BUILDER_CACHE = None
 _MERGE_CACHE = None
 
-# The gate's own clauses, so reliability is read off the selector the template
-# lives or dies on. An average across ALL selectors would let a
-# well-corroborated login mask a one-vote download trigger.
-_GATE_KEYS = ("download.trigger", "download.row_selectors", "download.button")
+# THERE IS DELIBERATELY NO RAW-KEY -> CLAUSE MAP HERE.
+#
+# @987 removed one (`_GATE_KEYS`), and a wider tuple would be the same defect
+# with more entries: `merge_drafts` keys support by RAW draft leaf names, and a
+# hand-written map cannot see a leaf `build_template` grows tomorrow. Measured at
+# 07c05f2 -- the tuple looked for `download.trigger`, `download.row_selectors`
+# and `download.button`, while a text-hint site's support was keyed
+# `download.button_hint`; `download.button` is emitted by nothing at all. Sites
+# whose only download evidence was a hint scored no support and read "unknown".
+#
+# So support is voted over the OUTPUT of `normalize_draft` -- the same function
+# that produces the gate's input -- and attributed to values read back out of
+# `normalize(merged)`. A selector normalize discarded is absent from that object
+# and structurally cannot be graded, and a novel raw leaf lands in
+# `capture_gaps.dropped_leaves` by name rather than vanishing.
 
 
 def _load_template_builder():
@@ -440,19 +451,264 @@ def _merge_fn():
     return _MERGE_CACHE
 
 
-def _gate_support(merged):
-    """Support for the gate-critical selector, with its denominator attached."""
-    sup = ((merged or {}).get("merge") or {}).get("selector_support") or {}
-    best = None
-    for k in _GATE_KEYS:
-        for e in sup.get(k, []) or []:
-            if best is None or (e.get("support") or 0) > (best[1].get("support") or 0):
-                best = (k, e)
-    if best is None:
-        return None
-    k, e = best
-    return {"key": k, "value": e.get("value"), "support": e.get("support"),
-            "of": e.get("of")}
+def _dl_clause(normed):
+    """(trigger|None, [row, ...]) off a NORMALIZED draft -- the gate's own two
+    visible clauses. `button` is not one: `_map_selectors` collapses
+    button_hint/trigger/button into `trigger`, so a normalized draft never
+    carries it."""
+    dl = ((normed or {}).get("selectors") or {}).get("download") or {}
+    trig = dl.get("trigger")
+    trig = trig if isinstance(trig, str) and trig else None
+    rows = [r for r in (dl.get("row_selectors") or []) if isinstance(r, str) and r]
+    return trig, rows
+
+
+def _json_artifact(value):
+    """(is_non_scalar_json, parsed). `merge_drafts` json.dumps a non-scalar leaf
+    so it can be voted on, and writes the winning TEXT back into the canonical
+    slot without parsing it (defect G). The result is not a selector.
+
+    Measured: the artifact '["[role=dialog] a.dl"]' PASSES
+    `template_normalize._is_modal_scoped` -- it contains the literal
+    `[role=dialog]` -- so it survives normalize and `assess` reports
+    row_selectors_count 1, promotion_ready True. Presence in the merged draft is
+    therefore necessary and NOT sufficient for a value to be evidence."""
+    try:
+        parsed = json.loads(value)
+    except Exception:
+        return False, None
+    return isinstance(parsed, (list, dict, tuple)), parsed
+
+
+def _normalized_values(normed):
+    """Every scalar value anywhere under a normalized draft's `selectors`, plus
+    its `workflow` block. The set a raw leaf must appear in to count as having
+    SURVIVED -- asked of the whole object rather than of the two gate clauses,
+    because a leaf can legitimately survive somewhere that is not a gate clause
+    (`api_template` does exactly that) and calling it dropped blames the
+    normalizer for work it did correctly."""
+    out = set()
+
+    def walk(v):
+        if isinstance(v, dict):
+            for x in v.values():
+                walk(x)
+        elif isinstance(v, (list, tuple)):
+            for x in v:
+                walk(x)
+        elif isinstance(v, str) and v:
+            out.add(v)
+
+    walk((normed or {}).get("selectors"))
+    walk((normed or {}).get("workflow"))
+    return out
+
+
+def _leaf_survived(value, survivors):
+    """A raw leaf survived if its value -- or, for a list leaf, ANY element of
+    it -- is present in the normalized draft. Any is deliberate: a partly-kept
+    row list is a partial drop, and `dropped_rows` reports which elements went,
+    so counting the whole leaf as dropped would double-count it."""
+    if isinstance(value, (list, tuple)):
+        return any(isinstance(v, str) and v in survivors for v in value)
+    return isinstance(value, str) and value in survivors
+
+
+def _rank_votes(votes, of):
+    return [{"value": v, "support": c, "of": of}
+            for v, c in sorted(votes.items(), key=lambda kv: -kv[1])]
+
+
+def _gate_support(normed_merged, normed_singles, raw_drafts,
+                  captures=None, unbuildable=0):
+    """Support for the gate-critical selectors THE GATE ACTUALLY SEES.
+
+    Never returns None. A block that cannot grade says WHY in `reason`, because
+    an unlabelled absence cannot be told from "nothing to corroborate against"
+    -- and `unknown` is only useful as a third state if it is legible.
+
+    Attribution reads the values back out of `normed_merged`, never off the
+    vote. Measured at 07c05f2: drafts {button_hint:"X"}, {trigger:"Y"},
+    {trigger:"Y"} vote Y at 2 of 3, but `_map_selectors:102` gives the hint
+    PRECEDENCE, so the shipped template carries X. Grading the winner would
+    report corroboration for a value the template does not contain.
+    """
+    n = len(normed_singles)
+    captures = n if captures is None else captures
+    gaps = {"no_download_evidence": 0, "evidence_dropped_by_pipeline": 0,
+            "dropped_leaves": {}, "dropped_rows": []}
+    block = {
+        "of": n, "captures": captures, "unbuildable": unbuildable,
+        "denominator_narrowed": bool(unbuildable),
+        "provenance": "normalized",
+        "reason": None, "gate_visible": False, "best": None,
+        "clauses": {}, "capture_gaps": gaps,
+    }
+
+    if n == 0:
+        block["reason"] = "no_drafts"
+        block["clauses"] = {"trigger": {"merged_value": None, "support": 0,
+                                        "disagree": 0, "absent": 0,
+                                        "candidates": []},
+                            "row_selectors": {"merged_rows": [], "absent": 0,
+                                              "candidates": []}}
+        return block
+
+    if n == 1:
+        block["reason"] = "single_draft"
+        target = normed_singles[0]
+    elif normed_merged is None:
+        block["reason"] = "merge_unavailable"
+        target = None
+    else:
+        target = normed_merged
+
+    # --- votes over the NORMALIZED singles, in draft order -----------------
+    trig_votes, row_votes, trig_absent, row_absent = {}, {}, 0, 0
+    per_draft = []
+    for nd in normed_singles:
+        t, rows = _dl_clause(nd)
+        per_draft.append((t, rows))
+        if t is None:
+            trig_absent += 1
+        else:
+            trig_votes[t] = trig_votes.get(t, 0) + 1
+        if not rows:
+            row_absent += 1
+        # PER CAPTURE, not per occurrence. `normalize_draft` does not dedupe
+        # row_selectors, so counting occurrences let one draft listing the same
+        # row three times report support 4 of 2 -- a ratio above 1 in the field
+        # the two-page-shapes and honeypot readings both depend on.
+        for r in dict.fromkeys(rows):
+            row_votes[r] = row_votes.get(r, 0) + 1
+
+    # --- capture gaps: the (a)/(b) discriminator ---------------------------
+    # A capture whose download control was EXTRACTED and then dropped by the
+    # pipeline is not the same as one that never reached the control. The first
+    # is a normalizer rule to revisit; the second is a re-capture. The old
+    # report printed one number for both, and 77 sites were described to the
+    # operator as a capture-side gap on the strength of it.
+    row_drop_votes = {}
+    for raw, nd, (t, rows) in zip(raw_drafts, normed_singles, per_draft):
+        raw_dl = ((raw or {}).get("selectors") or {}).get("download") or {}
+        raw_leaves = [k for k, v in raw_dl.items() if v]
+        if not raw_leaves:
+            gaps["no_download_evidence"] += 1
+            continue
+        # DROPPED means the leaf's value is nowhere in the normalized draft --
+        # not "the gate clauses came out empty". Adversarial review caught the
+        # difference on a reachable population: `api_template`
+        # (build_template_from_wacz:1749) SURVIVES normalize verbatim and simply
+        # is not a gate clause, so the emptier predicate blamed the normalizer
+        # for a leaf it had kept. That is the retracted-77 advice inverted, in
+        # the counter built to prevent it.
+        survivors = _normalized_values(nd)
+        dropped_here = [leaf for leaf, val in raw_dl.items()
+                        if val and not _leaf_survived(val, survivors)]
+        if dropped_here:
+            for leaf in dropped_here:
+                gaps["dropped_leaves"][leaf] = \
+                    gaps["dropped_leaves"].get(leaf, 0) + 1
+        if t is None and not rows and dropped_here:
+            gaps["evidence_dropped_by_pipeline"] += 1
+        # Rows dropped by SET DIFFERENCE against the survivors -- never by
+        # parsing the warning prose normalize emits, which would couple this
+        # count to a sentence somebody will reword.
+        raw_rows = raw_dl.get("row_selectors") or []
+        if isinstance(raw_rows, str):
+            raw_rows = [raw_rows]
+        for r in raw_rows:
+            if isinstance(r, str) and r and r not in rows:
+                row_drop_votes[r] = row_drop_votes.get(r, 0) + 1
+    gaps["dropped_rows"] = [{"value": v, "supported_by": c, "of": n}
+                            for v, c in sorted(row_drop_votes.items(),
+                                               key=lambda kv: -kv[1])]
+
+    # --- attribution: the values the merged template SHIPS -----------------
+    t_m, rows_m = _dl_clause(target)
+    t_support = sum(1 for t, _ in per_draft if t_m is not None and t == t_m)
+    # UNATTRIBUTED, not disagree, when nothing shipped. A capture cannot
+    # disagree with a value that does not exist, and `disagree` is the field a
+    # reader takes as the two-page-shapes signal -- so on the merge-unavailable
+    # path three unanimous captures used to read as three disagreements.
+    if t_m is None:
+        t_disagree, t_unattributed = 0, n - trig_absent
+    else:
+        t_disagree = sum(1 for t, _ in per_draft if t is not None and t != t_m)
+        t_unattributed = 0
+    block["clauses"]["trigger"] = {
+        "merged_value": t_m, "support": t_support, "disagree": t_disagree,
+        "absent": trig_absent, "unattributed": t_unattributed,
+        "candidates": _rank_votes(trig_votes, n)}
+
+    merged_rows = []
+    for r in rows_m:
+        support = sum(1 for _t, rows in per_draft if r in rows)
+        is_json, parsed = _json_artifact(r)
+        # BOTH conditions. Flagging every JSON-parsable selector would destroy
+        # real templates -- over-sensitivity is a soundness bug, not a safe
+        # default -- so the flag also requires the exact-match support of zero
+        # that is the artifact's measured signature.
+        if is_json and support == 0:
+            merged_rows.append({"value_json": r, "value_parsed": parsed,
+                                "support": support, "of": n,
+                                "stringified_artifact": True})
+        else:
+            merged_rows.append({"value": r, "support": support, "of": n,
+                                "stringified_artifact": False})
+    block["clauses"]["row_selectors"] = {
+        "merged_rows": merged_rows, "absent": row_absent,
+        "candidates": _rank_votes(row_votes, n)}
+
+    # --- best: the strongest clause value the gate can actually use --------
+    cands = []
+    if t_m is not None:
+        cands.append(("trigger", t_m, t_support))
+    for r in merged_rows:
+        if not r["stringified_artifact"]:
+            cands.append(("row_selectors", r["value"], r["support"]))
+    if cands and n >= 2:
+        clause, value, support = max(cands, key=lambda c: c[2])
+        block["best"] = {"clause": clause, "value": value,
+                         "support": support, "of": n}
+    block["gate_visible"] = bool(cands)
+    if n >= 2 and not cands and block["reason"] is None:
+        # NAME THE RIGHT CAUSE. `merge_drafts` stringifies every list leaf, so a
+        # row-only site's merged rows are ALWAYS an artifact and `best` is
+        # always None -- reporting that as "no gate visible evidence" is
+        # affirmatively false when `candidates` two lines below shows the rows
+        # corroborated in every capture. That population is not marginal: it is
+        # the modal page shape, which is the shape the operator confirmed.
+        artifact_only = bool(merged_rows) and all(
+            r["stringified_artifact"] for r in merged_rows)
+        block["reason"] = ("merge_artifact_only" if artifact_only
+                           else "no_gate_visible_evidence")
+
+    # Section 0's assertion-first rule: the three counters must PARTITION the
+    # denominator. Written before the verdict is emitted rather than after,
+    # because that is the only thing that reliably catches an author who has
+    # just convinced themselves the arithmetic is right.
+    #
+    # EXTRACTED so it can be driven, for the reason @984's `_reliability` guard
+    # was: a check that today's control flow cannot violate is asserted by the
+    # code and constrained by nothing, and its mutant escapes a green band.
+    if not _partition_ok(block["clauses"]["trigger"], n):
+        block["reason"] = "inconsistent"
+        block["best"] = None
+    return block
+
+
+def _partition_ok(clause, n):
+    """support + disagree + absent must equal the denominator.
+
+    They are three disjoint answers to "what did this capture say about the
+    value the template ships": it agreed, it said something else, or it said
+    nothing. A total that misses `n` means one of them is being double-counted
+    or dropped, and every downstream ratio is then arithmetic over a set that
+    does not exist.
+    """
+    return (clause.get("support", 0) + clause.get("disagree", 0)
+            + clause.get("absent", 0) + clause.get("unattributed", 0)) == n
 
 
 def _reliability(n_drafts, gate_support):
@@ -473,7 +729,10 @@ def _reliability(n_drafts, gate_support):
     """
     if n_drafts < 2 or gate_support is None:
         return "unknown"
-    return ("corroborated" if (gate_support.get("support") or 0) > 1
+    best = gate_support.get("best")
+    if not best:
+        return "unknown"
+    return ("corroborated" if (best.get("support") or 0) > 1
             else "single_witness")
 
 
@@ -483,13 +742,54 @@ def _blocking(a):
     if a is None:
         return ["no_draft"]
     out = []
-    if not (a.get("download_trigger") or a.get("row_selectors_count")):
+    # READ the gate's verdict; never re-derive it. `assess` judges
+    # (trigger|rows|button) and reports neither the boolean nor `button`, so
+    # reconstructing it from the two clauses it does report drops one of three.
+    # It agreed with the gate only because `_map_selectors` happens to collapse
+    # button into trigger -- a coincidence, and a silent wrong answer the day it
+    # stops holding.
+    if "gate_selector" not in a:
+        out.append("gate_unassessed")      # a failing third state, not a guess
+    elif not a["gate_selector"]:
         out.append("gate_selector")
     if not a.get("resolutions"):
         out.append("resolutions")
     if a.get("blocked_terms"):
         out.append("blocked_terms")
     return out
+
+
+def _gate_blocked_rollup(sites):
+    """Decompose "blocked on gate_selector" into causes that imply DIFFERENT
+    work.
+
+    A bare count cannot: the v3.66.984 run reported 77 such sites and they were
+    described to the operator as a capture-side gap needing re-capture. That was
+    wrong -- the captures carry the download control and the normalizer discards
+    it for not being modal-scoped. Re-capturing 77 sites would have fixed none of
+    them. The two causes are separated here structurally, from the per-draft
+    counters, never from a warning string.
+
+    `other` is a real residual, not a rounding bucket: the causes must partition
+    the blocked sites, and a cause nobody anticipated has to be visible rather
+    than folded into whichever neighbour looks closest.
+    """
+    by = {"download_control_discarded_by_normalizer": 0,
+          "no_download_evidence_in_any_draft": 0,
+          "other": 0}
+    blocked = [s for s in sites if "gate_selector" in (s.get("blocking") or [])]
+    for s in blocked:
+        gaps = ((s.get("gate_support") or {}).get("capture_gaps") or {})
+        if gaps.get("evidence_dropped_by_pipeline") or gaps.get("dropped_rows"):
+            by["download_control_discarded_by_normalizer"] += 1
+        elif gaps.get("no_download_evidence"):
+            by["no_download_evidence_in_any_draft"] += 1
+        else:
+            by["other"] += 1
+    return {"sites": len(blocked), "by_cause": by,
+            "note": ("discarded means the capture HAD a download control and "
+                     "the pipeline dropped it -- a normalizer question, not a "
+                     "re-capture")}
 
 
 def _progress(on, done, total, label):
@@ -631,17 +931,19 @@ def mode_templates(files, jobs=1, progress=False):
                                            a["completeness_score"]),
                    default=None)
 
-        merged = merged_a = None
+        merged = merged_a = normed_merged = None
         if len(drafts) >= 2 and merge is not None:
             try:
                 # merge consumes RAW drafts (its own docstring: it feeds the
-                # draft -> normalize -> promote pipeline), and the support block
-                # it writes lives on that raw output -- so normalize a COPY for
-                # assessing and read support off the raw one.
+                # draft -> normalize -> promote pipeline). ONE binding of
+                # normalize(merged), fed to BOTH the gate and the support
+                # attribution: @987's defect was those two judging different
+                # objects, so a second normalize call here would reopen it.
                 merged = merge(drafts, names)
-                merged_a = assess(normalize(merged), source="MERGED")
+                normed_merged = normalize(merged)
+                merged_a = assess(normed_merged, source="MERGED")
             except Exception:
-                merged = merged_a = None
+                merged = merged_a = normed_merged = None
 
         if not drafts:
             verdict = "unbuildable"
@@ -653,7 +955,8 @@ def mode_templates(files, jobs=1, progress=False):
             verdict = "not_green"
         verdicts[verdict] = verdicts.get(verdict, 0) + 1
 
-        gs = _gate_support(merged)
+        gs = _gate_support(normed_merged, normed, drafts,
+                           captures=len(paths), unbuildable=unbuildable)
         reliability = _reliability(len(drafts), gs)
 
         sites.append({
@@ -685,9 +988,26 @@ def mode_templates(files, jobs=1, progress=False):
             "site_count": len(sites),
             "verdicts": verdicts,
             "unbuildable_captures": unbuildable_total,
+            "gate_selector_blocked": _gate_blocked_rollup(sites),
             "reliability_note": ("support is across a site's captures; a lone "
                                  "capture is 1 of 1, indistinguishable from a "
-                                 "universal, and is reported unknown"),
+                                 "universal, and is reported unknown. Support "
+                                 "is attributed to values read out of the "
+                                 "NORMALIZED merged draft -- the object the "
+                                 "gate judges -- so a selector normalize "
+                                 "discarded can never read as corroborated"),
+            "green_means_note": ("green is the promote gate: a download "
+                                 "selector, a non-empty resolution list, and "
+                                 "no blocked terms. It does NOT test that a "
+                                 "resolution can be SELECTED -- quality."
+                                 "open_menu and quality.resolution_option are "
+                                 "score components, not gate clauses, and the "
+                                 "resolution list can be satisfied entirely "
+                                 "from the WIRE (resolutions_seen) by a "
+                                 "capture whose page offers no choice at all. "
+                                 "A green site is a site whose download "
+                                 "control was found, not one whose "
+                                 "highest-resolution step is proven"),
             }
 
 
