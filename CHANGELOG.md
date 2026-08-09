@@ -4,6 +4,44 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.986
+
+Register only. Records what the template pipeline did when it met seven real
+member sites, and REFUTES a cut that was about to ship.
+
+DO NOT narrow ABSOLUTE_SERIAL_SNIPPETS in tests/capture_lanes.py. A proposed
+change would have freed ~137 files into the parallel lane on the premise that
+importing run_tests is inert. It is not: run_tests_core.py:28 does
+os.environ.setdefault("BD_DISABLE_KEEPALIVE","1") and :33 an unconditional
+sys.path.insert, neither restored. The probe that "proved" it inert measured
+sys.modules only AND ran with the flag already set, so setdefault was a silent
+no-op -- section 0's subprocess-harness trap, in a probe written to answer that
+exact question. Two adversarial agents refuted it; the refutation reproduces with
+env -u BD_DISABLE_KEEPALIVE.
+
+Seven findings about the template pipeline, each proven by construction against
+fixtures rebuilt from real site screenshots: host grouping splits every site into
+login and content halves; modal-scoping discards real inline download panels;
+a text=/Download/i hint can go green on a heading; the repo's honeypot scorer is
+never called by the template path; no post-login interstitial step is modelled;
+merge_drafts corrupts list-valued selectors into strings that still pass the
+promote gate; and _gate_support reads the raw draft while assess judges the
+normalized one, so "corroborated" can name a selector normalization discarded.
+
+One finding RETRACTED: a "disabled options" claim was the operator hovering. It
+was the only one marked inferred rather than constructed, and the only one that
+did not survive.
+
+An earlier claim that 77 not-green sites are a capture-side gap needing
+re-capture is retracted -- the captures contain the download control and the
+normalizer drops it for not being modal-scoped.
+
+Cross-host grouping must not key on eTLD+1: the in-repo helper is last-two-labels
+and maps www.bbc.co.uk to co.uk and shaka-player-demo.appspot.com to appspot.com,
+both hosts present in the corpus. The runtime already supports multi-host
+templates via match.hosts and match.sibling_domain, and nothing in the pipeline
+ever writes sibling_domain.
+
 ## v3.66.985
 
 bd-wacz-corpus --templates: --jobs N and --progress.
