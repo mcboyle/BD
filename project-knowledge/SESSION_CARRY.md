@@ -4474,7 +4474,7 @@ a record -- see 15.62's closing paragraph.
      The shape of a fix is a read-modify-write in `_save_app_config()` itself,
      or routing it through `set_config()`.
 
- 43. **OPEN, opened v3.66.973 -- the WACZ corpus tools.** Operator asked for
+ 43. **CLOSED at v3.66.974 -- the WACZ corpus tools.** Operator asked for
      three things off the Drive corpus: close an item, build master templates
      from multi-capture sites, and mine the captures for capture-mechanism
      defects. The third landed first at v3.66.971 (capture_scrub's content-
@@ -4513,8 +4513,8 @@ a record -- see 15.62's closing paragraph.
      the tool will never meet. Both repaired: the code now honours its contract
      and the fixtures are representative.
 
-     **STILL OPEN: `bd-template-merge`.** Decided with the operator at @973 and
-     not yet built: N captures of one site -> one master template, entries
+     **SHIPPED at v3.66.974: `bd-template-merge`**, closing the item's second
+     half. Built to the decision below. N captures of one site -> one master template, entries
      FREQUENCY-RANKED with an explicit support count ("4/4 captures" vs "1/4")
      so nothing is silently dropped and a reviewer can see which selectors are
      load-bearing; output written as a draft into `templates/drafts` so the
@@ -4526,6 +4526,16 @@ a record -- see 15.62's closing paragraph.
      Measured at @973: no N-way merge exists anywhere in `tools/` -- the only
      merge functions are within-capture (`_merge_supplemental_media`,
      `_merge_supplemental_api`).
+
+     **A MUTANT ESCAPED FIRST, AND THE FIXTURE WAS WHY.** The test proving the
+     highest-support value takes the canonical slot fed the MAJORITY value in
+     the first draft -- so "rank by support" and "take the first seen" chose the
+     same winner and the assertion could not tell them apart. A test whose two
+     candidate rules agree on its fixture proves neither, and the battery said
+     so: `winner picked by first-seen` came back ESCAPED on a suite that was
+     otherwise 6/6. Repaired by feeding the 1-of-3 value FIRST, which makes the
+     rules disagree; re-run is 7 caught, 0 escaped. Note which instrument found
+     it -- not review, and not the ten passing tests.
 
  42. **CLOSED at v3.66.968 -- the gate is widened, both citations are fixed,
      and THE CENTRAL CLAIM THIS ITEM WAS FILED WITH WAS WRONG.** Filed one cut
@@ -4732,8 +4742,8 @@ bounded by its line count, and neither can be judged from a container.
 **READ THIS FIRST IF YOU ARE A FRESH SESSION.** It supersedes 15.68's open set.
 
 ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
-OPEN:   29, 31, 33, 43
-CLOSED: 2, 3, 8, 11, 12, 13, 16, 17, 18, 20, 23, 30, 32, 36, 37, 38, 39, 40, 41, 42
+OPEN:   29, 31, 33
+CLOSED: 2, 3, 8, 11, 12, 13, 16, 17, 18, 20, 23, 30, 32, 36, 37, 38, 39, 40, 41, 42, 43
 
 Item 1 is CANNOT-EVALUATE and is accounted by the inventory marker rather than
 by this ledger -- a third state, not a close.
