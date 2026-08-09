@@ -117,8 +117,19 @@ def test_latest_version_EXISTS_and_fails_soft():
     assert hasattr(yt, "latest_version"), (
         "ytdlp_updater.latest_version() does not exist, so the comparison has "
         "nothing to compare against")
-    # Must never raise, whatever the network does: this runs at BOOT.
-    got = yt.latest_version(_fetch=lambda url, timeout: (_ for _ in ()).throw(OSError("no net")))
+    # allow_fetch + BD_TEST_MODE popped, or @979's guards refuse before the
+    # fetch runs and this would pass without exercising the failure path at all.
+    # CLAUDE.md: a test that varies an env var must POP it -- the parent's value
+    # is part of the denominator.
+    import os
+    prev = os.environ.pop("BD_TEST_MODE", None)
+    try:
+        got = yt.latest_version(
+            allow_fetch=True,
+            _fetch=lambda url, timeout: (_ for _ in ()).throw(OSError("no net")))
+    finally:
+        if prev is not None:
+            os.environ["BD_TEST_MODE"] = prev
     assert got is None, "a failed fetch must return None, not raise: %r" % got
 
 
@@ -132,8 +143,14 @@ def test_latest_version_is_CACHED_so_boot_does_not_refetch():
         calls.append(url)
         return '{"info": {"version": "2026.8.9"}}'
 
-    a = yt.latest_version(_fetch=fake)
-    b = yt.latest_version(_fetch=fake)
+    import os
+    prev = os.environ.pop("BD_TEST_MODE", None)
+    try:
+        a = yt.latest_version(allow_fetch=True, _fetch=fake)
+        b = yt.latest_version(allow_fetch=True, _fetch=fake)
+    finally:
+        if prev is not None:
+            os.environ["BD_TEST_MODE"] = prev
     assert a == b == "2026.8.9", (a, b)
     assert len(calls) == 1, (
         "the index was queried %d times for two calls -- the result is not "

@@ -4,6 +4,47 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.979
+
+Fixes a regression shipped at v3.66.977: the boot freshness probe was doing
+network I/O, and unit tests were reaching the live PyPI index.
+
+Two tests in test_v3_66_661_healthcheck_ytdlp_shape failed on the box, and the
+message named the defect rather than the assertion:
+
+    assert '90' in 'yt-dlp 2025.01.01 is behind 2026.7.4 - update available'
+
+That 2026.7.4 came from the live index during a unit test. v3.66.977 made
+_check_ytdlp() call latest_version(), which fetched, so every existing test that
+mocked only status_dict silently got live data.
+
+Measured, and it is what should have stopped me: no other probe in healthcheck.py
+touches the network. ffmpeg, chromium, loopback and disk are all local. The boot
+selftest was network-free by design.
+
+How it escaped the band: the derivation was ls tests/ | grep -iE
+"healthcheck|selftest|ytdlp|doctor" | head -8. There are 15 matches, and
+test_v3_66_661 -- the one file named for the function being changed -- sorts
+tenth. A head -8 truncated the denominator. The band then ran 39 files green
+over a set that structurally excluded the subject.
+
+latest_version() now never fetches unless explicitly asked, refuses outright
+under BD_TEST_MODE so the suite is hermetic even if a future caller forgets, and
+persists to a BD_HOME-anchored cache so a value fetched by the update path
+survives to the next boot. The probe reads cache-only: a cold cache is UNKNOWN,
+a warm one answers with no network. maybe_update() refreshes the cache, since
+that path already reached the network.
+
+test_v3_66_661's two cases pinned the old age-based contract and were updated
+rather than deleted -- the contract change is the point of v3.66.977 -- and both
+now pin latest_version explicitly, because leaving it unmocked is exactly what
+reached the live index. The v3.66.977 cache tests were updated for the new
+signature and pop BD_TEST_MODE around the fetch, since the parent's value is
+part of the denominator.
+
+Six new tests, four proven RED. Band re-derived with the same grep and NO head:
+39 files, 304 passed. Import baseline re-frozen 3779 -> 3781.
+
 ## v3.66.978
 
 bd-wacz-corpus met the real corpus and was wrong. Classifier rewritten, and

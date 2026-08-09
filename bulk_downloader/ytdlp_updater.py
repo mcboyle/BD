@@ -145,6 +145,13 @@ def maybe_update(*, force: bool = False, threshold_days: int = 30) -> Tuple[bool
     # picks up the upgraded version.
     _VERSION_CACHE.update({"ts": 0.0, "version": None, "path": None})
     new_ver = current_version()
+    # @979: this path already reached the network, so refresh the latest-version
+    # cache here rather than making the BOOT probe fetch. That is what lets the
+    # selftest answer without any network of its own.
+    try:
+        latest_version(allow_fetch=True)
+    except Exception:
+        pass
     return (True, f"yt-dlp upgraded to {new_ver or 'unknown version'}")
 
 
@@ -160,7 +167,40 @@ def _default_fetch(url: str, timeout: float) -> str:
         return r.read().decode("utf-8", "replace")
 
 
-def latest_version(*, timeout: float = _LATEST_TIMEOUT, _fetch=None):
+_LATEST_STATE = ".bd_ytdlp_latest.json"
+
+
+def _latest_state_path():
+    """BD_HOME-anchored, matching daily_digest._state_path()."""
+    import pathlib as _pl
+    return _pl.Path(os.environ.get("BD_HOME") or ".").resolve() / _LATEST_STATE
+
+
+def _read_cached_latest():
+    try:
+        with open(_latest_state_path(), "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+        v = d.get("version")
+        return v if isinstance(v, str) and v else None
+    except Exception:
+        return None          # corrupt or absent -> UNKNOWN, never a crash
+
+
+def _write_cached_latest(ver: str) -> None:
+    try:
+        with open(_latest_state_path(), "w", encoding="utf-8") as fh:
+            json.dump({"version": ver, "ts": time.time()}, fh)
+    except Exception:
+        pass                 # a cache we could not write is not a boot failure
+
+
+def _test_mode() -> bool:
+    return os.environ.get("BD_TEST_MODE", "").strip().lower() not in (
+        "", "0", "false", "off", "no")
+
+
+def latest_version(*, allow_fetch: bool = False,
+                   timeout: float = _LATEST_TIMEOUT, _fetch=None):
     """Newest yt-dlp on the index, or None if it cannot be determined.
 
     @977. Added because freshness was decided by ``age_days > 30``, which cannot
@@ -181,6 +221,18 @@ def latest_version(*, timeout: float = _LATEST_TIMEOUT, _fetch=None):
     cached = _LATEST_CACHE.get("version")
     if cached and (now - _LATEST_CACHE.get("ts", 0.0)) < _LATEST_TTL:
         return cached
+    disk = _read_cached_latest()
+    if disk:
+        _LATEST_CACHE.update({"ts": now, "version": disk})
+        return disk
+    # @979: DEFAULT IS NO NETWORK. This is reached from the startup selftest,
+    # and every other probe in healthcheck.py is local -- @977 broke that
+    # invariant and put a live PyPI call inside unit tests, which is how it was
+    # caught (on the box, not in my band). A caller that genuinely wants to
+    # refresh asks for it; BD_TEST_MODE refuses regardless, so the suite is
+    # hermetic even if some future caller forgets.
+    if not allow_fetch or _test_mode():
+        return None
     try:
         body = (_fetch or _default_fetch)(_PYPI_JSON, timeout)
         ver = ((json.loads(body) or {}).get("info") or {}).get("version") or None
@@ -194,6 +246,7 @@ def latest_version(*, timeout: float = _LATEST_TIMEOUT, _fetch=None):
         return None          # unknown, explicitly -- see the docstring
     if ver:
         _LATEST_CACHE.update({"ts": now, "version": ver})
+        _write_cached_latest(ver)     # survive the process, or boot is always cold
     return ver
 
 
