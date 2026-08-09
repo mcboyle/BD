@@ -4207,7 +4207,29 @@ a record -- see 15.62's closing paragraph.
      keepalive thread runs. Numbered so the measurement is not lost, not
      because it is established as a defect.
 
- 41. **`_save_app_config()` is a lost update against every other
+ 41. **CLOSED at v3.66.964, and it was TWO defects, not one.** Reading both
+     writers side by side showed `set_config()` chmods **0600 before the
+     rename** (F-COREBD11-01, because the file may hold tokens) and
+     `_save_app_config()` did not. So the same function lost BOTH things
+     set_config was careful about. Measured before the fix:
+
+         after set_config      : mode 0o600  secret=SENTINEL
+         after _save_app_config: mode 0o644  secret=None
+
+     The key loss is LIVE: any path calling `_save_app_config()` after a token
+     is minted drops `api_auth_token_secret` and invalidates every issued API
+     token -- the 403 -> 401 that took item 40 two attempts. The mode loss is
+     the same shape: a security property one writer establishes and the other
+     silently undoes, leaving a signing secret world-readable on a multi-user
+     host. Fixed together: read-modify-write with DISK FIRST and `_app_cfg`
+     overlaid on top -- set_config's own merge direction, so the two writers
+     finally agree -- plus the 0600.
+
+     **THE BATTERY CAUGHT MY OWN TEST.** The merge-direction mutant escaped
+     first time because the probe set a key that was NOT on disk: both merge
+     directions then produce the same answer and the assertion cannot see the
+     difference. Making disk and memory disagree on the SAME key closed it.
+     3 mutants, 3 caught. ORIGINAL TEXT: `_save_app_config()` is a lost update against every other
      `app_config.json` writer.** It writes app.py's in-memory `_app_cfg`
      WHOLESALE, and that dict is a snapshot from import;
      `global_config.set_config()` does a read-modify-write on the same file.
@@ -4367,8 +4389,8 @@ bounded by its line count, and neither can be judged from a container.
 **READ THIS FIRST IF YOU ARE A FRESH SESSION.** It supersedes 15.68's open set.
 
 ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
-OPEN:   12, 17, 29, 31, 32, 33, 41
-CLOSED: 2, 3, 8, 11, 13, 16, 18, 20, 23, 30, 36, 37, 38, 39, 40
+OPEN:   12, 17, 29, 31, 32, 33
+CLOSED: 2, 3, 8, 11, 13, 16, 18, 20, 23, 30, 36, 37, 38, 39, 40, 41
 
 Item 1 is CANNOT-EVALUATE and is accounted by the inventory marker rather than
 by this ledger -- a third state, not a close.

@@ -4,6 +4,44 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.964
+
+Item 41: _save_app_config() lost another writer's keys AND widened the file
+mode. Two defects in one function, both measured.
+
+TWO WRITERS PERSIST app_config.json. global_config.set_config()
+read-modify-writes and chmods 0600 BEFORE the rename (F-COREBD11-01, because
+the file may hold tokens). app.py's _save_app_config() wrote the in-memory
+_app_cfg WHOLESALE, from a snapshot taken at import, with no chmod -- so it lost
+both things set_config was careful about:
+
+    after set_config      : mode 0o600  secret=SENTINEL
+    after _save_app_config: mode 0o644  secret=None
+
+THE KEY LOSS IS LIVE. api_tokens._signing_secret() stores
+api_auth_token_secret through set_config(). Erasing it mints a fresh secret on
+the next call and every already-issued API token fails verification -- the exact
+403 -> 401 that took item 40 two attempts to explain. Any path calling
+_save_app_config() after a token is minted does this today.
+
+THE MODE LOSS IS THE SAME SHAPE: a security property established deliberately in
+one writer and silently undone by the other. 0644 on a file holding a signing
+secret is world-readable on a multi-user host.
+
+FIXED TOGETHER: read-modify-write with DISK FIRST and _app_cfg overlaid on top
+-- app.py's values win for the keys it manages, foreign keys survive, and that
+is set_config's own merge direction so the two writers now agree -- plus the
+0600 before the rename. A malformed or unreadable file falls back to writing
+what we hold rather than refusing to save.
+
+THE MUTATION BATTERY CAUGHT MY OWN TEST. The merge-direction mutant ESCAPED
+first time: the probe set a key that was not on disk, so both merge directions
+produce the same answer and the assertion could not see the difference. Making
+disk and memory disagree on the SAME key closed it. 3 mutants, 3 caught, 0
+escaped.
+
+Band 500 files: 6873 passed, 0 failed, real pytest. guards 7 ok / 0 drifted.
+
 ## v3.66.963
 
 Item 40: importing the app no longer writes app_config.json to the cwd. Item 41
