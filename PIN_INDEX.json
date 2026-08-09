@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 41,
+    "total": 42,
     "version": 1,
-    "count_dict": 40,
-    "test_files_scanned": 1274,
+    "count_dict": 41,
+    "test_files_scanned": 1275,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -45,6 +45,7 @@
       "tests/test_v3_66_497_plugin_kv.py": 1,
       "tests/test_v3_66_649_search_facets.py": 4,
       "tests/test_v3_66_936_golden_carries_no_ambient_state.py": 1,
+      "tests/test_v3_66_981_wacz_host_grouping.py": 1,
       "tests/test_validators.py": 5
     }
   },
@@ -218,7 +219,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.980",
+      "value": "3.66.981",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -403,6 +404,17 @@
         "kept": 1
       },
       "gates_what": "test_keep_preserves_absence_rather_than_inventing_null — `_keep` must not manufacture a key the reader did not emit."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_981_wacz_host_grouping.py",
+      "line": 282,
+      "value": {
+        "filename": 1,
+        "archive": 1,
+        "unknown": 1
+      },
+      "gates_what": "test_HOSTS_by_method_accounts_for_EVERY_file_examined — The non-empty-denominator assertion, written before the verdict. Every"
     },
     {
       "form": "count_dict",

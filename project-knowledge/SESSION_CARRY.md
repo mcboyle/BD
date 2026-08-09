@@ -4581,13 +4581,40 @@ a record -- see 15.62's closing paragraph.
      reclaimable total. `noop_derivatives` counts derivative FILES, not groups:
      one source with three identical derivatives is three failed scrubs.
 
-     **STILL OPEN: host-based grouping.** The operator chose filename-first with
-     the archive's own host as the authority, each group labelled by method so a
-     measured grouping is never mistaken for a guessed one. Held to its own cut
-     -- it requires opening every archive, which is a different cost and a
-     different failure mode from a filename rule. Until it lands, grouping on
-     this corpus is a floor: `123.wacz` and `1232.wacz` carry no site signal at
-     all, and no filename heuristic will ever group them.
+     **HOST GROUPING SHIPPED at v3.66.981 (`--hosts`); the item stays OPEN on a
+     BOX MEASUREMENT.** Three tiers, filename-first with the archive as the
+     authority, every group labelled with the method that produced it. Tier 1 is
+     `dom_analyzer._parse_capture_host` IMPORTED, not copied -- and run against
+     `_base()`, not the raw stem: MEASURED here, the parser anchors on a
+     date-ish tail and a derivative marker or copy suffix sits exactly where
+     that tail has to be, so `<name>.redacted (2)` returns None while `_base()`
+     of it returns the host. Two of six real-shaped names resolve only after the
+     strip. Tier 2 is `pages/pages.jsonl`; measured on a BD-built archive, the
+     redactor scrubs the query and leaves the netloc, so a `.redacted` capture
+     still answers. Tier 3 groups under the stem, keyed APART from the resolved
+     hosts so a stem that looks like a host cannot be laundered into a measured
+     group. Battery: 8 mutants, 8 caught.
+
+     Three deviations from the sketch, each with a reason: `hostname` rather
+     than `netloc`, because netloc keeps `user:pass@` and `:port` -- one site
+     behind a port would form a second group and the printed label would become
+     a place a credential lives; merge candidacy counts distinct SOURCES rather
+     than files, because a raw capture and its `.redacted` twin are one capture
+     in two forms; and only an archive that could not be OPENED is a finding,
+     because firing on the hundreds of site-signal-free names the mode exists to
+     describe is the over-sensitivity failure section 0 calls a soundness bug.
+
+     **WHY IT IS NOT CLOSED.** Every fixture is BD-shaped. This item exists
+     because @973's tool was validated on synthetic fixtures, met the real
+     corpus and was wrong -- closing a corpus tool before it has met the corpus
+     would reproduce the shape of the defect the item records. What is owed is
+     one run on the box: `bd-wacz-corpus --root <corpus> --hosts --json`, and
+     the numbers to read are `by_method` (how much of the corpus tier 1 answers
+     for), `unknown_reasons` (is `no_pages_jsonl` a large population, i.e. do
+     foreign archives need `datapackage.json:mainPageURL` as a tier-2b?), and
+     `archives_opened` against `examined`. Deliberately NOT extended to
+     `mainPageURL` on speculation: for a BD archive both fields come from the
+     same `capture["url"]`, so it would add nothing measurable from here.
 
  43. **CLOSED at v3.66.974 -- the WACZ corpus tools.** Operator asked for
      three things off the Drive corpus: close an item, build master templates

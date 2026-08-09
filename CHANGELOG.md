@@ -4,6 +4,55 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.981
+
+Item 44: host-based grouping for bd-wacz-corpus (`--hosts`).
+
+`--group` reads the `t_<hex>_<name>` export convention, which the box's real
+corpus does not use. There, `123.wacz` and `1232.wacz` carry no site signal at
+all and no filename rule will ever group them. Three tiers, filename-first with
+the archive as the authority, and every group is labelled with the method that
+produced it so a guessed grouping and a measured one are never
+indistinguishable in the output:
+
+1. `{host}_{siteid}_{YYYYMMDD}` in the filename, parsed by the same
+   `dom_analyzer._parse_capture_host` the capture picker uses -- no archive is
+   opened. method=filename.
+2. `pages/pages.jsonl`, the WACZ page record `wacz_export._pages_jsonl` writes.
+   Measured on a BD-built archive: the redactor scrubs the query and leaves the
+   netloc, so this answers for a `.redacted` capture too. method=archive.
+3. the stem, grouped under itself with the reason stated. method=unknown.
+
+Tier 1 runs against `_base()`, not the raw stem. Measured: the capture parser
+anchors on a date-ish tail and a derivative marker or copy suffix sits exactly
+where that tail has to be, so `<name>.redacted (2)` returns None while
+`_base()` of it returns the host. Forgetting the strip sends all 601 redacted
+files in the corpus through an archive read they do not need.
+
+Three decisions that are not cosmetic. `hostname`, not the `netloc` first
+sketched: netloc keeps `user:pass@` and `:port`, so one site behind a port
+would form a second group and the printed group label would become a place a
+credential lives. Merge candidacy counts distinct SOURCES, not files: a raw
+capture and its `.redacted` twin are one capture in two forms. An unknown
+bucket is keyed apart from the resolved hosts even when the label matches, so a
+stem that happens to look like a host cannot be laundered into a measured
+group.
+
+Exit contract: an archive that could not be OPENED is a finding. One that opens
+and simply carries no URL is a property of this corpus, not a defect, and
+deliberately does not flip the exit -- firing on it would flag the hundreds of
+site-signal-free names the mode exists to describe, and a screen that cries
+wolf gets switched off.
+
+The parser is imported from `bulk_downloader.dom_analyzer` rather than copied,
+because two copies of a naming rule is how they drift. The cost is that a
+rename makes tier 1 vanish, so the mode reports which parser it got and refuses
+to claim a method it could not run.
+
+Battery: 8 mutants, 8 caught. Also fixes the `ap.error` mode list, which was
+hand-written and had already gone stale by omitting `--dupes`; it is now
+derived from `_MODES`.
+
 ## v3.66.980
 
 Session close. Register only.

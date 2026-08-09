@@ -6,9 +6,12 @@ answers can be compared rather than taken on trust:
 
   --group    site grouping from the `t_<hash>_<name>.wacz` naming, so the inputs
              to a template merge are DERIVED rather than eyeballed
+  --hosts    grouping by HOST, three tiers, every group labelled with the method
+             that produced it (see mode_hosts)
   --pairs    raw <-> `.redacted` twins and the size ratio between them
   --health   does each archive open, pass CRC, and carry a WARC payload
   --scrub    screening pass for credential-shaped material still in the archive
+  --dupes    byte-identical copies, and derivatives identical to their source
   --all      every mode
 
 WHY THE DENOMINATOR IS REPORTED EVERYWHERE. CLAUDE.md section 0 opens with a
@@ -40,6 +43,7 @@ import pathlib
 import re
 import sys
 import zipfile
+from urllib.parse import urlsplit
 
 _HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, _HERE)
@@ -145,6 +149,190 @@ def mode_group(files):
             "denominator": "raw (non-.redacted) *.wacz under root",
             "sites": len(groups),
             "merge_candidates": sum(1 for g in groups if g["merge_candidate"]),
+            "groups": groups}
+
+
+# ---------------------------------------------------------------- host grouping
+#
+# `--group` reads the `t_<hex>_<name>` EXPORT convention. The box's real corpus
+# does not use it: there, `123.wacz` and `1232.wacz` carry no site signal at all
+# and no filename heuristic will ever group them. Three tiers, filename-first
+# with the archive as the authority, and every group states which one answered.
+
+_PAGES_MEMBER = "pages/pages.jsonl"
+# Bounded on purpose. The member is decompressed, so an unbounded read on an
+# untrusted archive is a memory question, and the entry-point page record is the
+# first line after the format header -- scanning a whole browsertrix crawl to
+# find a netloc would be slow AND would risk picking an off-site resource.
+_PAGES_READ_CAP = 1 << 20
+_PAGES_LINE_CAP = 64
+
+_PARSER_CACHE = None
+
+
+def _load_filename_parser():
+    """(callable, label) for tier 1, or (None, why-not).
+
+    IMPORTED, not copied. `bulk_downloader.dom_analyzer._parse_capture_host` is
+    the same function the capture picker and `scan_captures` use, and a second
+    copy of a naming rule is how two answers to one question start to disagree
+    (CLAUDE.md section 5 on `system_deps.sh`: three copies is a denominator that
+    drifts, and the copy nobody updated is the one that runs).
+
+    The cost of importing rather than copying is that a rename makes tier 1
+    vanish, so the failure is REPORTED rather than absorbed: without it every
+    BD-named capture falls through to an archive read, which a REDACTED capture
+    cannot answer, and a whole corpus would read as `unknown` with nothing in
+    the output saying why.
+    """
+    try:
+        if sec.DEFAULT_WORK not in sys.path:
+            sys.path.insert(0, sec.DEFAULT_WORK)
+        from bulk_downloader.dom_analyzer import _parse_capture_host
+    except Exception as exc:                       # pragma: no cover - env-only
+        return None, "UNAVAILABLE: %s: %s" % (type(exc).__name__, exc)
+    return (_parse_capture_host,
+            "bulk_downloader.dom_analyzer._parse_capture_host")
+
+
+def _filename_parser():
+    global _PARSER_CACHE
+    if _PARSER_CACHE is None:
+        _PARSER_CACHE = _load_filename_parser()
+    return _PARSER_CACHE
+
+
+def _host_from_archive(p):
+    """(host, reason_if_none) from the archive's own page record.
+
+    `wacz_export._pages_jsonl` writes a format header followed by a page entry
+    carrying the captured top-level URL. Measured on a BD-built archive: the
+    redactor scrubs the query but leaves the netloc, so this answers for a
+    `.redacted` capture too.
+
+    `hostname`, NOT `netloc` as first sketched: netloc keeps `user:pass@` and
+    `:port`, so one site behind a port would form a second group and the group
+    LABEL -- which is printed -- would become a place a credential lives
+    (section 7). `hostname` is also already lowercased, which is the shape tier
+    1 returns, so the two tiers can land in the same bucket.
+    """
+    try:
+        with zipfile.ZipFile(p) as z:
+            if _PAGES_MEMBER not in set(z.namelist()):
+                return None, "no_pages_jsonl"
+            with z.open(_PAGES_MEMBER) as fh:
+                blob = fh.read(_PAGES_READ_CAP)
+    except Exception:
+        return None, "unreadable"
+    saw_url = False
+    for line in blob.splitlines()[:_PAGES_LINE_CAP]:
+        try:
+            rec = json.loads(line)
+        except Exception:
+            continue                               # header, blank, or truncated
+        if not isinstance(rec, dict):
+            continue
+        url = rec.get("url")
+        if not isinstance(url, str) or not url:
+            continue
+        saw_url = True
+        host = urlsplit(url).hostname
+        if host:
+            return host.lower(), None
+    return None, ("no_host" if saw_url else "no_url")
+
+
+def mode_hosts(files):
+    """Group by host: filename first, the archive as the authority, never a guess.
+
+      1. `{host}_{siteid}_{YYYYMMDD}` in the filename    -> method=filename
+      2. `pages/pages.jsonl` inside the archive          -> method=archive
+      3. the stem, grouped under ITSELF                  -> method=unknown
+
+    Tier 1 runs against `_base()`, not the raw stem. MEASURED on this tree: the
+    capture parser anchors on a date-ish TAIL, and a derivative marker or copy
+    suffix sits exactly where that tail has to be, so
+    `<name>.redacted (2)` returns None while `_base()` of it returns the host.
+    Forgetting the strip sends all 601 redacted files through an archive read
+    they do not need.
+
+    An UNKNOWN bucket is keyed apart from the resolved hosts even when the label
+    matches, so a stem that happens to look like a host can never be laundered
+    into a measured group -- "never guessed" has to hold in the OUTPUT, not just
+    in the derivation.
+
+    Only `unreadable` -- an archive that was opened and could not be read --
+    counts as a finding. An archive that opens and simply carries no URL is a
+    property of this corpus, not a defect; firing on it would flag the hundreds
+    of site-signal-free names the mode exists to describe, and a screen that
+    cries wolf gets switched off (section 0's over-sensitivity failure).
+    """
+    parser, parser_label = _filename_parser()
+    placed = []            # (path, label, method, reason)
+    attempted = 0
+    for p in files:
+        base = _base(p)
+        host = None
+        if parser is not None:
+            try:
+                host = parser(base)
+            except Exception:
+                host = None
+        if host:
+            placed.append((p, host.lower(), "filename", None))
+            continue
+        attempted += 1
+        host, why = _host_from_archive(p)
+        if host:
+            placed.append((p, host, "archive", None))
+        else:
+            placed.append((p, base.lower(), "unknown", why))
+
+    buckets = {}
+    for p, label, method, reason in placed:
+        buckets.setdefault((method == "unknown", label), []).append(
+            (p, method, reason))
+
+    groups = []
+    for (is_unknown, label), members in sorted(buckets.items()):
+        sources = {_base(m[0]) for m in members}
+        entries = []
+        for m_p, m_method, m_reason in sorted(members, key=lambda m: m[0].name):
+            e = {"name": m_p.name, "method": m_method}
+            if m_reason:
+                e["reason"] = m_reason
+            entries.append(e)
+        groups.append({"host": label,
+                       "captures": len(members),
+                       # SOURCES, not files: a raw capture and its `.redacted`
+                       # twin are one capture in two forms, and a merge needs
+                       # two DIFFERENT captures to have anything to merge.
+                       "sources": len(sources),
+                       "merge_candidate": (not is_unknown) and len(sources) > 1,
+                       "methods": sorted({m[1] for m in members}),
+                       "files": entries})
+
+    by_method = {"filename": 0, "archive": 0, "unknown": 0}
+    reasons = {}
+    for _p, _label, method, reason in placed:
+        by_method[method] += 1
+        if method == "unknown" and reason:
+            reasons[reason] = reasons.get(reason, 0) + 1
+
+    return {"examined": len(files),
+            "denominator": ("all *.wacz under root; host resolved filename-"
+                            "first, the archive's own page record as authority"),
+            "filename_parser": parser_label,
+            "hosts": sum(1 for g in groups if g["methods"] != ["unknown"]),
+            "unresolved_groups": sum(1 for g in groups
+                                     if g["methods"] == ["unknown"]),
+            "merge_candidates": sum(1 for g in groups if g["merge_candidate"]),
+            "by_method": by_method,
+            # ATTEMPTS, not successes: an archive that failed to open is counted
+            # here and again under `unreadable`.
+            "archives_opened": attempted,
+            "unreadable": reasons.get("unreadable", 0),
+            "unknown_reasons": reasons,
             "groups": groups}
 
 
@@ -329,7 +517,7 @@ def mode_dupes(files):
             "groups": groups}
 
 
-_MODES = {"group": mode_group, "pairs": mode_pairs,
+_MODES = {"group": mode_group, "hosts": mode_hosts, "pairs": mode_pairs,
           "health": mode_health, "scrub": mode_scrub, "dupes": mode_dupes}
 
 
@@ -346,7 +534,10 @@ def main() -> int:
     if a.all:
         chosen = list(_MODES)
     if not chosen:
-        ap.error("pick at least one of --group/--pairs/--health/--scrub, or --all")
+        # Derived from _MODES rather than spelled: the hand-written version of
+        # this line had already gone stale, omitting --dupes.
+        ap.error("pick at least one of %s, or --all"
+                 % "/".join("--" + m for m in _MODES))
 
     root = pathlib.Path(a.root).expanduser()
     files, why = enumerate_corpus(root)
@@ -362,6 +553,9 @@ def main() -> int:
     modes = {m: _MODES[m](files) for m in chosen}
     findings = (modes.get("health", {}).get("unreadable", 0)
                 + modes.get("health", {}).get("no_payload", 0)
+                # An archive tier 2 could not OPEN is a finding; one that opened
+                # and carries no URL is a corpus property and deliberately is not.
+                + modes.get("hosts", {}).get("unreadable", 0)
                 + modes.get("scrub", {}).get("with_findings", 0)
                 + modes.get("scrub", {}).get("inconclusive", 0)
                 + modes.get("scrub", {}).get("unreadable", 0)
