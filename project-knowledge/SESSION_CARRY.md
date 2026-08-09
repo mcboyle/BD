@@ -4167,7 +4167,34 @@ a record -- see 15.62's closing paragraph.
      baseline is machine-readable, so this item is a plan rather than a
      finding at risk of being lost.
 
- 40. **A bare `import bulk_downloader.app` still writes three files to the
+ 40. **CLOSED at v3.66.963, and the cause was not the one the item named.**
+     The write is gone: a bare import now seeds `path_allowlist` in memory and
+     `boot_once()` persists it. What made this two attempts is that deferring
+     the write BROKE API TOKEN AUTH -- 403 -> 401 on
+     `test_no_mintable_scope_can_reach_an_admin_route` -- and the cause was
+     not WHEN the write happened but WHICH WRITER did it:
+
+     `global_config.set_config()` and app.py's `_save_app_config()` write the
+     SAME `app_config.json`. `_save_app_config()` writes app.py's in-memory
+     `_app_cfg` WHOLESALE -- a snapshot taken at import -- so any key another
+     writer persisted since is ERASED. Measured: set_config writes
+     `api_auth_token_secret`, `_save_app_config()` runs, the key is gone from
+     disk, the next `_signing_secret()` mints a fresh secret, and every
+     already-issued token fails verification. The fix routes the deferred seed
+     through `set_config()`, which does a read-modify-write.
+
+     The security property is untouched: `_validate_path()` reads the
+     IN-MEMORY allowlist, so the v3.47.8 (#80) narrowing applies from the seed
+     line onward regardless of persistence -- asserted in both directions.
+     **The lost-update hazard in `_save_app_config()` predates this cut and is
+     item 41**; deferring the seed only made it reachable.
+
+     THE PROCESS LESSON, because it nearly shipped twice: an earlier draft
+     bound the drain's logger to a name unbound in `boot_once()`'s scope and
+     BOTH tests passed -- neither called `boot_once()`. Deferring work into a
+     function nothing in the band invokes is how a fix ships broken. There is
+     now a test that calls it. ORIGINAL TEXT: A bare `import
+     bulk_downloader.app` still writes three files to the
      cwd** -- `app_config.json` (443 b), `logs/bulk_downloader.log` (177 b) and,
      with `BD_DISABLE_KEEPALIVE` unset, `state/heartbeat.json` (94 b): 714
      bytes total, measured at v3.66.960 in a tmp cwd with `BD_INSTALL_DIR`
@@ -4179,6 +4206,22 @@ a record -- see 15.62's closing paragraph.
      plausibly intended, and `state/heartbeat.json` appears only when the
      keepalive thread runs. Numbered so the measurement is not lost, not
      because it is established as a defect.
+
+ 41. **`_save_app_config()` is a lost update against every other
+     `app_config.json` writer.** It writes app.py's in-memory `_app_cfg`
+     WHOLESALE, and that dict is a snapshot from import;
+     `global_config.set_config()` does a read-modify-write on the same file.
+     Any key set_config persisted after app.py's import -- notably
+     `api_auth_token_secret` from `api_tokens._signing_secret()` -- is erased
+     the next time `_save_app_config()` runs. MEASURED at v3.66.963:
+     set_config writes a sentinel, `_save_app_config()` runs, the sentinel is
+     gone. Predates item 40, which merely made it reachable and is why that
+     item took two attempts. **Latent, not theoretical**: any live path that
+     calls `_save_app_config()` after a token is minted drops the signing
+     secret and invalidates every issued token. NOT fixed here -- widening
+     item 40 into a second subject is the mis-filing item 12 is a monument to.
+     The shape of a fix is a read-modify-write in `_save_app_config()` itself,
+     or routing it through `set_config()`.
 
  34. **CLOSED at v3.66.945.** Root-caused, fixed, and the four failures are
      gone from the same 114-file band (1462 passed). The title below was wrong
@@ -4324,8 +4367,8 @@ bounded by its line count, and neither can be judged from a container.
 **READ THIS FIRST IF YOU ARE A FRESH SESSION.** It supersedes 15.68's open set.
 
 ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
-OPEN:   12, 17, 29, 31, 32, 33, 40
-CLOSED: 2, 3, 8, 11, 13, 16, 18, 20, 23, 30, 36, 37, 38, 39
+OPEN:   12, 17, 29, 31, 32, 33, 41
+CLOSED: 2, 3, 8, 11, 13, 16, 18, 20, 23, 30, 36, 37, 38, 39, 40
 
 Item 1 is CANNOT-EVALUATE and is accounted by the inventory marker rather than
 by this ledger -- a third state, not a close.

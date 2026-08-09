@@ -4,6 +4,52 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.963
+
+Item 40: importing the app no longer writes app_config.json to the cwd. Item 41
+filed for the lost update found underneath it.
+
+THE DEFECT. _load_app_config() ran at MODULE SCOPE and persisted its first-run
+seed immediately, so a bare `import bulk_downloader.app` deposited
+app_config.json into whatever directory the importer was in. Item 11's class for
+a non-database resource; @926's denominator was databases, so this survived.
+
+THE FIRST ATTEMPT DEFERRED THE WRITE AND BROKE API TOKEN AUTH -- 403 -> 401 on
+test_no_mintable_scope_can_reach_an_admin_route -- and the cause was not WHEN
+the write happened but WHICH WRITER did it. global_config.set_config() and
+app.py's _save_app_config() write the SAME app_config.json;
+_save_app_config() writes the in-memory _app_cfg WHOLESALE, a snapshot from
+import, so any key another writer persisted since is ERASED. Measured:
+
+    after set_config, secret on disk : SENTINEL-SECRET
+    is it in app.py's in-memory dict? : None
+    after _save_app_config, on disk  : None      <- lost update
+
+api_tokens._signing_secret() stores api_auth_token_secret through set_config().
+Erasing it mints a fresh secret on the next call, and every already-issued token
+then fails verification.
+
+THE FIX routes the deferred seed through set_config(), which read-modify-writes.
+The security property is untouched: _validate_path() reads the IN-MEMORY
+path_allowlist, so the v3.47.8 (#80) narrowing applies from the seed line
+onward, and that direction is asserted too -- a fix that dropped the seed would
+quietly widen the attack surface.
+
+ITEM 41 FILED for the lost update itself, which predates this cut and is latent
+for any other set_config() writer. Widening item 40 to fix it would be the
+mis-filing item 12 is a monument to.
+
+THE PROCESS LESSON. An earlier draft bound the drain's logger to a name unbound
+in boot_once()'s scope, and BOTH tests passed -- neither called boot_once().
+Deferring work into a function nothing in the band invokes is how a fix ships
+broken; there is now a test that calls it.
+
+Band 500 files: 6870 passed, 1 failed -> regen -> clean. The one failure was
+test_function_index_in_sync, i.e. an unregenerated artifact after an app.py
+edit, which is section 2a's rule doing its job. test_e2e_smoke's 7 failures were
+verified PRE-EXISTING on pristine app.py in the same directory. bd-mutate: 4
+mutants, 4 caught, 0 escaped -- including one that re-introduces the 403 -> 401.
+
 ## v3.66.962
 
 Item 39: the twenty byte-identical project-knowledge duplicates retired.

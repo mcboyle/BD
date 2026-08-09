@@ -244,6 +244,38 @@ def boot_once(*, force: bool = False) -> bool:
         except Exception as e:
             sys.stderr.write(f"migrations init failed: {e}\n")
 
+        # item 40: persist a first-run allowlist seed now that the app is
+        # actually booting, rather than at import.
+        #
+        # THROUGH set_config(), NOT _save_app_config(), AND THAT IS THE WHOLE
+        # FIX. Both write app_config.json, but _save_app_config() writes THIS
+        # module's in-memory _app_cfg wholesale, and that dict is a snapshot
+        # taken at import. Anything another writer persisted since -- notably
+        # api_tokens._signing_secret(), which stores api_auth_token_secret via
+        # global_config.set_config() -- is absent from it and gets erased.
+        # Measured: set_config writes the secret, _save_app_config() runs, the
+        # secret is gone from disk, the next _signing_secret() mints a new one,
+        # and every already-issued token fails verification. The first attempt
+        # at this cut did exactly that and turned
+        # test_no_mintable_scope_can_reach_an_admin_route from 403 into 401.
+        # set_config() does a read-modify-write, so it merges instead.
+        #
+        # The lost-update hazard in _save_app_config() itself is older than
+        # this cut and is filed as item 41; deferring the seed only made it
+        # reachable.
+        global _APP_CFG_SEED_PENDING
+        if _APP_CFG_SEED_PENDING is not None:
+            _seeded, _APP_CFG_SEED_PENDING = _APP_CFG_SEED_PENDING, None
+            from . import log as _cfglog
+            try:
+                from .global_config import set_config as _set_cfg
+                _set_cfg({"path_allowlist": _seeded})
+                _cfglog.get_logger(__name__).info(
+                    "first run: seeded path_allowlist with %s "
+                    "(edit in Settings -> Global to adjust)", _seeded)
+            except Exception as _e:
+                _cfglog.get_logger(__name__).warning(
+                    "failed to persist seeded path_allowlist: %s", _e)
         _BOOTED_PATHS.add(key)
         # Background services start LAST, and after the latch is set. Last,
         # because the scheduler's tasks read tables the migrations above
@@ -1879,14 +1911,19 @@ def _load_app_config():
         # Dedupe in case BD_HOME happens to equal the downloads default
         seeded = list(dict.fromkeys([bd_home, downloads_default]))
         _app_cfg["path_allowlist"] = seeded
-        try:
-            _save_app_config()
-            _llog.info(
-                "first run: seeded path_allowlist with %s "
-                "(edit in Settings → Global to adjust)", seeded
-            )
-        except Exception as e:
-            _llog.warning("failed to persist seeded path_allowlist: %s", e)
+        # v3.66.963 (item 40): SEED IN MEMORY HERE, PERSIST IN boot_once().
+        # This function runs at MODULE SCOPE, so persisting here made a bare
+        # `import bulk_downloader.app` deposit app_config.json into whatever
+        # directory the importer happened to be in. That is item 11's class for
+        # a non-database resource; @926 removed every module-scope DATABASE
+        # writer and its denominator was databases, so this one survived.
+        #
+        # The DEFENCE is unaffected: _validate_path() reads the in-memory
+        # _app_cfg["path_allowlist"], so the v3.47.8 (#80) narrowing applies
+        # from this line onward. Persisting only makes it visible and editable
+        # in Settings, which matters when the app is actually serving.
+        global _APP_CFG_SEED_PENDING
+        _APP_CFG_SEED_PENDING = list(seeded)
     from .runner import set_global_concurrent_cap
     set_global_concurrent_cap(int(_app_cfg.get("global_max_concurrent",0) or 0))
     try:
@@ -1927,6 +1964,11 @@ def _load_app_config():
         _log.set_level(_app_cfg.get("log_level") or "INFO")
     except Exception as e:
         _llog.error("log level init failed: %s", e)
+# Set by _load_app_config() when a first run seeds path_allowlist; drained by
+# boot_once(). None means nothing is owed. See item 40.
+_APP_CFG_SEED_PENDING = None
+
+
 def _save_app_config():
     """Persist global app config. Atomic via .tmp + replace (v3.43.19):
     a crash mid-write would otherwise corrupt app_config.json and lose
