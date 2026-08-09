@@ -205,7 +205,9 @@ def test_bdenv_does_not_clobber_a_caller_supplied_browser_path():
     """
     import subprocess
 
-    for rel in ("toolchain/bdenv.sh", "project-knowledge/bdenv.sh"):
+    # project-knowledge/bdenv.sh was a byte-identical duplicate and went with
+    # the other nineteen at v3.66.962 (item 39). One copy, one assertion.
+    for rel in ("toolchain/bdenv.sh",):
         env_file = REPO_ROOT / rel
         assert env_file.is_file(), f"{rel} is absent; this gate has no subject"
         sentinel = "/opt/pw-browsers"
