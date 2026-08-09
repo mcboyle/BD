@@ -49,6 +49,9 @@
   "schema": "bulk_downloader.template.review_candidate.v1",
   "selectors": {
     "download": {
+      "row_selectors": [
+        "a.ct_dl_button"
+      ],
       "trigger": "a[download]"
     },
     "login": {
@@ -79,8 +82,7 @@
     "dropped row selector (not modal-scoped or unsafe): span.ca-applied",
     "dropped row selector (not modal-scoped or unsafe): span.format",
     "dropped row selector (not modal-scoped or unsafe): span.title",
-    "dropped row selector (not modal-scoped or unsafe): a.ct_dl_button",
-    "no modal-scoped row selectors derived — add them during manual review (the download trigger only opens the modal)"
+    "kept row selector by download affordance, not modal-scoped: a.ct_dl_button"
   ],
   "workflow": {
     "derived_steps": [

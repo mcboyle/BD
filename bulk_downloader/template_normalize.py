@@ -51,6 +51,49 @@ def _is_modal_scoped(selector: str) -> bool:
     return bool(_MODAL_RE.search(selector or ""))
 
 
+# A download affordance: a CLICK TARGET carrying a DOWNLOAD token. Both halves
+# are required, and that pairing is what separates the two populations measured
+# on the 742-capture corpus at v3.66.988. The token alone would admit
+# `span.download-label` and `div.edge-download-item-dimensions`, which are
+# captions; the click target alone would admit `a.nav__link` and
+# `a:nth-child(31)`, which is how a honeypot gets into a template.
+_CLICK_TARGET_RE = re.compile(
+    r"(^|[\s>+~])(a|button)[.\[:#\s]"          # an anchor or button element
+    r"|[.\-_](clickable|btn|button)([.\-_\[]|$)",   # or a class that says so
+    re.I)
+_DL_TOKEN_RE = re.compile(
+    r"download"
+    r"|(?:^|[.\-_\[])dl(?:[.\-_\]]|$)"          # .dl / ct_dl_button / -dl-
+    r"|[.\-_]dl_"
+    r"|quality|resolution",                      # the per-resolution rows
+    re.I)
+
+
+def _is_download_affordance(selector: str) -> bool:
+    """Does this selector name a clickable DOWNLOAD control?
+
+    Widening `_map_selectors` from "modal-scoped only" to "modal-scoped OR a
+    download affordance" is finding B. The modal rule is not wrong and is not
+    removed: an unscoped row selector matching every anchor on a page is exactly
+    how a decoy gets in, and on the measured corpus it correctly rejects
+    `li.theo-menu-item`, `span.title` and `a:nth-child(31)`.
+
+    But 44 of the 143 rows it dropped were real controls on the operator's own
+    member sites -- `a.ct_dl_button` at 30 of 39 captures, `a.download__item`,
+    `a.dropdown-downloads-link`. Those sites read GREEN on their trigger while
+    the rows that pick the RESOLUTION were being discarded, which is the
+    operator's fourth step failing silently on a site the report calls good.
+
+    The honeypot resistance traded away here is not recovered in this function:
+    a decoy named `a.download-link` is admissible. It is recovered at the corpus
+    level, where a decoy that varies per page-load reads support 1 of N against
+    a real control's N of N. Rows admitted this way are recorded in the draft's
+    warnings so a reviewer can see which ones were not modal-scoped.
+    """
+    sel = selector or ""
+    return bool(_CLICK_TARGET_RE.search(sel) and _DL_TOKEN_RE.search(sel))
+
+
 def _api_host(draft: Dict[str, Any]) -> str:
     """An EXPLICIT, builder-provided API host, or "" — never guessed.
 
@@ -114,8 +157,21 @@ def _map_selectors(draft: Dict[str, Any], warnings: List[str]) -> Dict[str, Any]
         raw_rows = []
     for rs in raw_rows:
         blocking = sl.has_blocking_issues(sl.lint_selector(rs, role="row"))
-        if _is_modal_scoped(rs) and not blocking:
+        if blocking:
+            # Lint OUTRANKS the affordance: naming a selector `download` must
+            # not be a way to smuggle in one the linter blocks, or the widening
+            # below is a hole rather than a rule.
+            warnings.append(
+                f"dropped row selector (not modal-scoped or unsafe): {rs}")
+        elif _is_modal_scoped(rs):
             rows.append(rs)
+        elif _is_download_affordance(rs):
+            rows.append(rs)
+            # RECORDED, because this row was admitted on its NAME rather than
+            # on its scope -- the audit trail that pays for the honeypot
+            # resistance the widening trades away (see _is_download_affordance).
+            warnings.append(
+                f"kept row selector by download affordance, not modal-scoped: {rs}")
         else:
             warnings.append(
                 f"dropped row selector (not modal-scoped or unsafe): {rs}")
