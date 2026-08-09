@@ -4,6 +4,41 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.989
+
+- template_normalize: a download AFFORDANCE now counts as scoping, not only a
+  modal. _map_selectors kept a row selector only when _is_modal_scoped matched,
+  so inline download panels were discarded with a warning.
+- The modal rule is NOT removed and is not wrong. Measured on the operator's
+  742-capture corpus: of 143 dropped row selectors, most are page junk the row
+  heuristic scraped up -- a:nth-child(31), li.theo-menu-item, span.title,
+  a.nav__link, span.screen-reader-text. An unscoped row selector matching every
+  anchor on a page is how a decoy gets into a template.
+- But 44 of those 143 were real download controls on the operator's own member
+  sites: a.ct_dl_button at 30 of 39 captures (auth.wowgirls.com),
+  a.download__item (vip4k.com), a.dropdown-downloads-link
+  (members.nubiles-porn.com), div.clickable.download-button... (ultrafilms.com),
+  a.d-flex.download-element (members.teenmegaworld.net). Those sites read GREEN
+  on their trigger while the rows that pick the RESOLUTION were discarded --
+  the operator's fourth step failing silently on a site the report calls good.
+- The widening is SEMANTIC, not structural. "Any container-scoped selector"
+  would re-admit li.swiper-slide and a.nav__link. What separates the two
+  populations in the measured data is that a real control is a CLICK TARGET
+  carrying a DOWNLOAD token; both halves are required, so span.download-label
+  and div.edge-download-item-dimensions (captions) stay rejected and so do
+  anchors with no download token.
+- Lint is checked FIRST, ahead of both scope tests, so naming a selector
+  download cannot smuggle in one the linter blocks. Measured and stated in the
+  test: the two predicates do not currently overlap on any input, so that
+  ordering is defensive rather than load-bearing, and no fixture can prove it.
+- The honeypot resistance traded away is NOT recovered in the normalizer: a
+  decoy named a.download-link is now admissible. It is recovered at the corpus
+  level, where a decoy that varies per page-load reads support 1 of N against a
+  real control's N of N. Rows admitted by affordance are RECORDED in the
+  draft's warnings so a reviewer sees which were not modal-scoped.
+- tests/golden/wow_promote.golden.json regenerated: the wowgirls template now
+  carries row_selectors ['a.ct_dl_button'] where it previously carried none.
+
 ## v3.66.988
 
 - bd-template-merge: a list-valued selector survives the merge as a LIST.

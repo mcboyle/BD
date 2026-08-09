@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3788,
+  "edge_count": 3789,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -6087,6 +6087,9 @@
     "tests/test_v3_66_988_merge_keeps_list_selectors.py": [
       "bulk_downloader/template_normalize.py",
       "tools/template_inventory.py"
+    ],
+    "tests/test_v3_66_989_download_affordance_scoping.py": [
+      "bulk_downloader/template_normalize.py"
     ],
     "tests/test_v3_66_98_cockpit_console.py": [
       "tools/cockpit_console.py",

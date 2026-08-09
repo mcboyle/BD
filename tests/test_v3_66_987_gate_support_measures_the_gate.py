@@ -112,14 +112,20 @@ def _support(raws):
 # --------------------------------------------------------------------------
 
 def test_a_DISCARDED_row_selector_is_never_reported_as_corroborated():
-    """The inline-panel shape -- WowGirls, UltraFilms, VIP4K.
+    """A row selector the normalizer discards.
+
+    The fixture was the inline-panel shape (`.download-block a.dl`) until @989
+    made that a KEPT selector -- a download affordance now counts as scoping.
+    It is page junk now (`li.swiper-slide`, taken from the measured corpus),
+    because the test's subject is "a row the gate never sees", not any
+    particular selector.
 
     RED today: `_gate_support` returns download.row_selectors support 2 of 2 and
     `_reliability` calls it corroborated, while assess on the same merged draft
     reports row_selectors_count 0 because normalize dropped it for not being
     modal-scoped."""
     raws = [_draft({"button_hint": "text=/Download/i",
-                    "row_selectors": [".download-block a.dl"]})] * 2
+                    "row_selectors": ["li.swiper-slide"]})] * 2
     gs, nm = _support(raws)
     a = assess(nm, source="MERGED")
 
@@ -211,7 +217,7 @@ def test_a_DISCARDED_control_is_counted_separately_from_a_MISSING_one():
 
     RED today: no such counter exists, which is why 77 sites were reported to
     the operator as a capture-side gap -- advice that was retracted."""
-    dropped, _ = _support([_draft({"row_selectors": [".download-block a.dl"]})] * 2)
+    dropped, _ = _support([_draft({"row_selectors": ["li.swiper-slide"]})] * 2)
     absent, _ = _support([_draft({})] * 2)
 
     assert dropped["capture_gaps"]["evidence_dropped_by_pipeline"] == 2
@@ -220,7 +226,7 @@ def test_a_DISCARDED_control_is_counted_separately_from_a_MISSING_one():
     assert absent["capture_gaps"]["evidence_dropped_by_pipeline"] == 0
 
     rows = dropped["capture_gaps"]["dropped_rows"]
-    assert [r["value"] for r in rows] == [".download-block a.dl"], rows
+    assert [r["value"] for r in rows] == ["li.swiper-slide"], rows
     assert rows[0]["supported_by"] == 2 and rows[0]["of"] == 2, (
         "the discarded control's own support is the actionable part -- 'the "
         "control we threw away was corroborated 2 of 2': %r" % rows)
@@ -380,7 +386,7 @@ def test_a_leaf_the_pipeline_KEPT_is_not_counted_as_one_it_DROPPED():
 
     # And the genuinely-dropped case must keep working, or this "fix" is just
     # a counter that never fires.
-    gone, _ = _support([_draft({"row_selectors": [".download-block a.dl"]})] * 2)
+    gone, _ = _support([_draft({"row_selectors": ["li.swiper-slide"]})] * 2)
     assert gone["capture_gaps"]["evidence_dropped_by_pipeline"] == 2
     assert gone["capture_gaps"]["dropped_leaves"] == {"row_selectors": 2}
 
@@ -409,7 +415,7 @@ def test_the_ROLLUP_does_not_blame_the_normalizer_for_a_leaf_it_kept():
 
     # The genuinely-discarded site must still be blamed on the normalizer, or
     # this fix has simply turned the counter off.
-    gone, _ = _support([_draft({"row_selectors": [".download-block a.dl"]})] * 2)
+    gone, _ = _support([_draft({"row_selectors": ["li.swiper-slide"]})] * 2)
     roll2 = CORP._gate_blocked_rollup(
         [{"blocking": ["gate_selector"], "gate_support": gone}])
     assert roll2["by_cause"]["download_control_discarded_by_normalizer"] == 1

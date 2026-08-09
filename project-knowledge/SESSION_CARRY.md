@@ -4910,6 +4910,156 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.75 | v3.66.987-989: the reliability numbers were wrong, and the corpus answered three questions
+
+Close at commit `fa97230` (v3.66.988 on `main`; @989 was in flight as PR #284).
+Four PRs merged this run: #281 (@986 record), #282 (@987), #283 (@988), plus
+#284 open. Every figure below was MEASURED -- from a box run of
+`bd-wacz-corpus --templates --jobs 0` over 742 captures / 158 sites, or by
+running the pipeline on a constructed fixture. Re-derive before citing.
+
+**WHAT WAS WRONG WITH THE v3.66.984 NUMBERS.** `_gate_support` read
+`merge_drafts`' RAW selector_support keys (`download.button_hint`,
+`download.row_selectors`) through a tuple looking for NORMALIZED ones
+(`download.trigger`, `download.row_selectors`, `download.button`). Intersection
+on a text-hint site: `row_selectors` only. `download.button` is emitted by
+NOTHING -- `_map_selectors:102-104` collapses button_hint/trigger/button into
+`trigger`. Consequences, both visible in the numbers the operator was given:
+
+- a text-hint-only site scored no support and read `unknown` -> the
+  `corroborated 84 / unknown 71` arithmetic that never reconciled against 71
+  green sites;
+- an inline row normalize DISCARDS read `corroborated` off raw row support while
+  assess reported `row_selectors_count 0`.
+
+@987 votes over `normalize_draft`'s OUTPUT and attributes to values read back out
+of `normalize(merged)`. **There is deliberately no raw-key-to-clause map**: a
+wider tuple is the same defect with more entries, and
+`test_a_FUTURE_raw_key_is_VISIBLE_rather_than_vanishing` is the test no map can
+pass. Attribution grades the SHIPPED value, not the vote winner -- measured,
+drafts {button_hint:X},{trigger:Y},{trigger:Y} vote Y at 2 of 3 while the hint
+takes precedence and the template ships X. Two of three candidate designs failed
+exactly there.
+
+**THE CORPUS RE-RUN, and it answers the 5/9 question the operator asked.**
+
+| | v3.66.984 | v3.66.987 |
+| --- | --- | --- |
+| corroborated | 84 | **52** |
+| unknown | 71 | 106 |
+| green_from_one | 71 | 71 |
+
+`disagree` is **0** on every one of the 5/9 sites -- dfxtra, evilangel,
+nubiles-porn (5/0/4), filthykings (4/0/4), kellymadison (6/0/2), bangbros
+(16/0/8). They are INCOMPLETE CAPTURES, not two page shapes. Corpus-wide only
+**2** sites have any trigger disagreement: `app.reptyle.com` (34 support / **1**
+disagree / 27 absent) and `vidstack.io` (4/20/0). **112** sites are absent-only.
+So even reptyle -- which the operator confirmed is genuinely two-shaped -- was
+27 incomplete captures and one alternative shape, not 28 disagreeing. **A
+previous session's inference that "the same ratio at smaller n is the obvious
+suspect for two shapes" is REFUTED.**
+
+**THE ROLLUP, and the correction to a correction.** `gate_selector_blocked` =
+84 sites: 18 discarded-by-normalizer, 24 no-download-evidence, 42 `other` (raw
+leaves survived but no gate clause; all 42 have zero trigger candidates). So
+**66 of 84 are capture-side** -- which means the ORIGINAL "77 is a capture-side
+gap" reading was substantially right and the retraction over-corrected on
+scale. The retraction was right to demand measurement; it was wrong to imply the
+normalizer accounted for most of it.
+
+**FINDING B's REAL SCALE, and a sampling error worth remembering.** A first pass
+printed only the TOP dropped row per site (`dropped_rows[0]`) and concluded
+"mostly junk". Over all **143** dropped selectors, **44 carry download
+semantics** and they are the operator's member sites: `a.ct_dl_button` 30/39
+(auth.wowgirls.com), `a.download__item` 7/8 (vip4k.com),
+`a.dropdown-downloads-link` 5/9, `div.clickable.download-button...` 7/21
+(ultrafilms.com), `a.d-flex.download-element` 4/6. **Sampling the top row per
+group is not sampling the population.**
+
+Those sites are green ON THEIR TRIGGER; the discarded rows are the
+per-RESOLUTION links. So the operator's fourth step -- select the highest
+resolution -- is what the modal rule silently removed, on sites the report calls
+green. @989 admits a row that is a CLICK TARGET carrying a DOWNLOAD token; the
+modal rule stays, because the other 99 dropped selectors are `a:nth-child(31)`,
+`li.theo-menu-item`, `span.title`, `a.nav__link`.
+
+**THE OPERATOR'S OWN SITES ARE FINE.** 17 member-site rows: **16 green +
+corroborated, 1 not_green**. All 17 carry resolutions. The exception is
+`ultrafilms.com` -- 21 captures, ZERO triggers extracted in all 21, plus a
+`div.format-name` row dropped in 7. That is the SD/HD/FULL HD/4K screenshot
+shape, and it is the one member site where B genuinely bites.
+
+**CONTENT HOSTS WERE NEVER CAPTURED.** `auth.wowgirls.com` (39 captures) is in
+the corpus; `venus.wowgirls.com` is NOT. `vip4k.com` is; `members.vip4k.com` is
+not. The login halves were captured and the content halves were not -- which is
+a concrete capture instruction, and it makes `auth.wowgirls.com` reading green
+on a trigger 37/39 worth a look, since that is a download control on a login
+host.
+
+**DEFECT G's COST WAS EXACTLY 16 SITES.** All 16 `merge_artifact_only` sites were
+`green_from_one` and modal-shaped (`.modal a.inject-url`,
+`[role=dialog] a[role=button]`, `.drawer ...`), 15 of 16 at FULL support. They
+were ungradable only because `merge_drafts` json.dumps a list leaf and wrote the
+TEXT back. Measured: `'["[role=dialog] a.dl"]'` PASSES `_is_modal_scoped` -- the
+JSON text contains the literal `[role=dialog]` -- survives normalize, and reaches
+`promotion_ready True`. **It does not merely corrupt a selector, it manufactures
+a green.** @988 records the encoding at vote time rather than re-detecting it,
+because parsing "if it looks like JSON" cannot tell an encoded list from a
+hand-written selector that happens to be valid JSON.
+
+**HONEYPOTS ARE VISIBLE FOR FREE, with one caveat.** Verified through the real
+merge pipeline: a decoy that rotates per page-load reads `support 1 of 3` in
+`gate_support.clauses.*.candidates` while the real control reads `3 of 3`. The
+caveat is load-bearing -- a honeypot that is BYTE-IDENTICAL on every page load
+reads high support and this instrument cannot see it.
+
+**GREEN STILL DOES NOT MEAN THE RESOLUTION STEP WORKS.** Re-verified: a draft
+whose only resolution evidence is `network_discovery.resolutions_seen`, with
+zero quality selectors, is `promotion_ready True`. That is now stated in the
+mode's own JSON as `green_means_note` rather than only in chat.
+
+**PROCESS FINDINGS FROM THIS RUN.**
+
+- Adversarial review earned its keep three times. On @987 it found that the
+  rollup classified `api_template`-only sites as "the normalizer discarded your
+  control" when `api_template` SURVIVES normalize verbatim -- the retracted-77
+  shape inverted, inside the rollup built to prevent it. On @988 it found that
+  `isinstance(True, int)` makes `("scalar", True)` and `("scalar", 1)` one dict
+  key, so storing originals by assignment silently changed FIRST-appearance to
+  LAST -- `1080` could become `1080.0` on merge depending only on draft order.
+- **Two EQUIVALENT mutants were correctly identified rather than "fixed".**
+  @988's string-encoding mutant round-trips losslessly (verified: no vote-key
+  collisions); @989's lint-ordering mutant is equivalent because the lint and
+  affordance predicates do not overlap on any input -- the linter blocks bare
+  generics and the affordance rule needs a token that makes a selector
+  non-generic. Both are recorded as equivalences, and @989's test SAYS SO rather
+  than dressing the ordering up as a passing test.
+- `bd-mutate` caught a VACUOUS over-sensitivity fixture that review did not: a
+  test pinning "a real selector that parses as JSON is not flagged" used
+  `[role=dialog] a.dl`, which is not valid JSON, so the condition it existed to
+  pin was never exercised.
+- A test that built its counters BY HAND passed the moment it was written, over
+  a defect that lives in how those counters are DERIVED. Drive the real
+  pipeline.
+- `A; B &` backgrounds only B. A 34-file band ran in the FOREGROUND and was
+  reaped at 120s with exit 143 -- section 5's documented trap, hit verbatim.
+
+**STILL OPEN.** C (`text=/Download/i` can go green on a heading -- VIP4K
+measured), D (the repo's own `login_extract._login_is_honeypot` at :116-140
+screens visibility and the template path never calls it for download
+selectors), E (no post-login interstitial step is modelled -- the "No Thanks.
+Continue to Members Area" shape). A pre-@988 template already on disk carrying a
+stringified selector is detected and repaired by NOTHING -- measured, it
+promotes cleanly. Cross-host grouping (A) is unchanged: `auth.X` and `app.X` are
+still two sites, and `match.sibling_domain` is still written by nothing.
+
+**OWED BY THE OPERATOR.** The 25-capture probe printing the real download
+selector per capture; the siteid-pairing check
+(`auth.reptyle.com_0b60f1ec_...` vs `app.reptyle.com_0b60f1ec_...`). Also a
+stale gitignored `downloader_history.db` sits in the repo root dated
+2026-08-05 -- item 36's class, invisible to `git status`, and it will feed rows
+to the next unisolated probe.
+
 ### 15.74 | The template pipeline met seven real sites: seven findings, one retraction, and a REFUTED cut
 
 **Not a session close** -- no ITEM LEDGER; 15.70's open set (31, 33) stands, 44 closed at 15.72.
