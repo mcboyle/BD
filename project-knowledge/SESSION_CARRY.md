@@ -4937,6 +4937,7 @@ stop:
 | v3.66.962 | `3d229be` | 15088 | 15003 | **-1** | -1 |
 | v3.66.963 | `3bb6c29` | 15092 | 15007 | +4 | +4 |
 | v3.66.964 | `1875ce8` | 15095 | 15010 | +3 | +3 |
+| v3.66.973 | `a1bc58b` | 15128 | 15043 | +33 | +33 |
 
 Graph pin OK on every one, live 36/0/0 except @961's single WARN, `.err` files
 empty throughout. @961's live warn was `L28 service-restart-preserves-queue --
@@ -4968,11 +4969,49 @@ WRITTEN.** @964 added one file, `tests/test_v3_66_964_app_config_writer_does_not
 collecting 3 -- predicted +3, measured +3, and 15095 / 15010 / 85 called to the
 test.
 
-**THE BOX IS NOW 3 CUTS BEHIND** (@964 vs @967) and the next capture should read
-**15095 / 15010 / 85 -- UNCHANGED.** @965, @966 and @967 are register and
-CHANGELOG edits; the only `tests/` path any of them touches is
-`tests/test_settings_center_slice4.py`, and only its version-pin line. Zero
-tests added, zero removed.
+**THAT UNCHANGED PREDICTION WAS NEVER EXERCISED, AND "VOID" IS NOT "WRONG".**
+It read: the box is 3 cuts behind (@964 vs @967) and the next capture should be
+**15095 / 15010 / 85 UNCHANGED**, because @965-@967 are register and CHANGELOG
+edits touching no `tests/` path but the version pin. The box did not capture
+@967. It jumped to **@973**, so the antecedent never held and the prediction is
+VOID rather than falsified.
+
+Its LOGIC was checked separately rather than assumed, because a void prediction
+is exactly the kind nobody re-derives: `git diff --diff-filter=A 1875ce8..1316c7f
+-- 'tests/test_*.py'` returns **nothing**. The @965-@967 range really did add
+zero test files, so the reasoning held and only its premise moved. Distinguish
+the two -- recording it as "wrong" would have retired a rule that works.
+
+**@973 IS THE THIRD EXACT PREDICTION IN A ROW.** The whole +33 is attributable
+to @968-@973: six new test files collecting 33, zero removed, predicted +33 and
+measured +33, with skips flat at 85.
+
+| file | |
+| --- | --- |
+| `test_v3_66_968_anchor_gate_sees_frontend_citations.py` | 3 |
+| `test_v3_66_969_a_restart_survives_the_hooks_rerecord.py` | 7 |
+| `test_v3_66_970_missing_labels_name_their_mechanism.py` | 4 |
+| `test_v3_66_971_capture_scrub_sniffs_content.py` | 4 |
+| `test_v3_66_972_library_missing_stays_retired.py` | 4 |
+| `test_v3_66_973_wacz_corpus_survey.py` | 11 |
+
+**AND IT SETTLES THE CONTAINER-ONLY SET BY MEASUREMENT INSTEAD OF BY ARGUMENT.**
+The @972 full sweep in the cloud container returned 10 failures and each was
+attributed by mechanism -- 7 `test_e2e_smoke` (no SPA backend), 2 `exec_bridge`
+(absent interpreter), and one `test_provision_test_host` display-lock race whose
+own helper refuses to guess a display number when its bounded range is
+contended. The box, with the full environment, reports **0 failed**. All ten
+pass there. Section 5's list of container-only failures is therefore confirmed
+in KIND, while its COUNT is stale in both directions -- it records 14 (e2e x7,
+`no_backend` x1, `exec_bridge` x5, vpn x1); the measured run gave 10, with
+`exec_bridge` at 2 not 5, neither `no_backend` nor the vpn probe firing, and one
+order-dependent case not on the list at all. Re-derive that figure; do not quote
+it.
+
+**THE BOX HAS NOT SEEN @974.** `bd-template-merge` merged at `495e943` after
+this capture started (capture 11:53Z, merge after). The next capture should read
+**15138 / 15053 / 85** -- @974 adds `tests/test_v3_66_974_template_merge.py`
+collecting 10, and nothing else in the range adds or removes a test.
 
 **AN UNCHANGED PREDICTION IS STILL A PREDICTION, and this is the one shape the
 four errors above could not produce.** Every earlier miss was an arithmetic
