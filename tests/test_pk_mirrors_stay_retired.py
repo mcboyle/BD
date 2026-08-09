@@ -55,46 +55,13 @@ _REPO = Path(__file__).resolve().parent.parent
 # stops being a duplicate, so retiring a copy forces the entry out rather than
 # leaving a standing licence behind.
 _KNOWN_DUPLICATES: dict[str, str] = {
-    "project-knowledge/audit_emit_gate.py":
-        "tools/audit_emit_gate.py",
-    "project-knowledge/bdenv.sh":
-        "toolchain/bdenv.sh",
-    "project-knowledge/body_contract.py":
-        "tools/body_contract.py",
-    "project-knowledge/cap01_witnesses.py":
-        "tools/audit/witnesses/cap01_witnesses.py",
-    "project-knowledge/capture_scrub.py":
-        "tools/capture_scrub.py",
-    "project-knowledge/constraint_incidence.py":
-        "tools/constraint_incidence.py",
-    "project-knowledge/consumer_agreement.py":
-        "tools/consumer_agreement.py",
-    "project-knowledge/coverage_map.py":
-        "tools/coverage_map.py",
-    "project-knowledge/endpoint_reachability.py":
-        "tools/endpoint_reachability.py",
-    "project-knowledge/install_bdsuite.sh":
-        "toolchain/install_bdsuite.sh",
-    "project-knowledge/l0_extract.py":
-        "tools/l0_extract.py",
-    "project-knowledge/reachability_ledger.py":
-        "tools/reachability_ledger.py",
-    "project-knowledge/render_advanced_kb.py":
-        "tools/render_advanced_kb.py",
-    "project-knowledge/review_merge.py":
-        "tools/review_merge.py",
-    "project-knowledge/run01_witnesses.py":
-        "tools/audit/witnesses/run01_witnesses.py",
-    "project-knowledge/run_witnesses.py":
-        "tools/run_witnesses.py",
-    "project-knowledge/seed_review_state.py":
-        "tools/seed_review_state.py",
-    "project-knowledge/staleness.py":
-        "tools/staleness.py",
-    "project-knowledge/verify_audit.py":
-        "tools/verify_audit.py",
-    "project-knowledge/witness_drift.py":
-        "tools/witness_drift.py",
+    # EMPTY at v3.66.962, and the population is genuinely zero: all twenty
+    # were retired in that cut. The forbidding assertion above still has work
+    # -- it stops a NEW duplicate appearing -- so it stays. The staleness test
+    # that guarded this list is gone with the list, per its own instruction:
+    # "if the duplication really reached zero, delete the baseline and this
+    # test deliberately rather than leaving an assertion that passes over
+    # nothing."
 }
 
 _NOT_A_MIRROR: dict[str, str] = {
@@ -185,24 +152,6 @@ def test_no_survivor_is_actually_a_duplicate():
         assert rel not in dup, (
             f"{rel} is declared as 'not a mirror' but is byte-identical to "
             f"{dup[rel]}. Delete it and drop the exception.")
-
-
-def test_no_known_duplicate_is_stale():
-    """A frozen pair that stopped being a pair is a licence nobody is watching.
-
-    This is what makes the baseline shrink: retiring a copy fails here until
-    its entry is removed, so the list cannot quietly outlive the duplication
-    it records.
-    """
-    dup = _duplicate_map()
-    stale = sorted(set(_KNOWN_DUPLICATES) - set(dup))
-    assert not stale, (
-        f"{len(stale)} frozen pair(s) are no longer duplicates -- remove them "
-        f"from _KNOWN_DUPLICATES: {stale}")
-    assert _KNOWN_DUPLICATES, (
-        "the baseline is empty -- if the duplication really reached zero, "
-        "delete the baseline and this test deliberately rather than leaving "
-        "an assertion that passes over nothing")
 
 
 def test_the_toolchain_is_where_the_tools_live():

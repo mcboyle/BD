@@ -4144,7 +4144,21 @@ a record -- see 15.62's closing paragraph.
      33's scale, not a path fix. PRECONDITION: a per-tool reachability
      measurement first; "appears in no lane" is not "nothing calls it".
 
- 39. **The twenty byte-identical project-knowledge duplicates** -- frozen in
+ 39. **CLOSED at v3.66.962.** All twenty retired. The precondition -- a
+     per-file inbound-citation check -- found essentially no real consumers:
+     of the direct path citations, 14 were entries in @952's own tier-0
+     allowlist, 2 in test_desandbox's carrier list, 4 were prose in stale
+     pending-specs, and the two REAL ones were @953's bdenv test (which
+     asserted both copies) and a gitleaks baseline entry. **Nothing imported
+     or executed a project-knowledge copy.** The gitleaks entry was dropped
+     only after verifying the TWIN is baselined for the same rule and line --
+     dropping it otherwise would have armed a real finding. Every coupling
+     fired on deletion exactly as scoped and none was a surprise, which is
+     what the scoping pass bought. `_KNOWN_DUPLICATES` is empty and its
+     staleness test retired with it, per that test's own instruction; the
+     forbidding assertion stays, because it still stops a NEW duplicate.
+     project-knowledge/ now holds 16 executables, none of them a copy.
+     ORIGINAL TEXT: The twenty byte-identical project-knowledge duplicates -- frozen in
      `_KNOWN_DUPLICATES` at v3.66.954 so no NEW one can appear, and the list
      may only shrink. They became visible only when that cut widened the
      gate's denominator past `toolchain/bin/*` and its predicate past
@@ -4310,8 +4324,8 @@ bounded by its line count, and neither can be judged from a container.
 **READ THIS FIRST IF YOU ARE A FRESH SESSION.** It supersedes 15.68's open set.
 
 ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
-OPEN:   12, 17, 29, 31, 32, 33, 39, 40
-CLOSED: 2, 3, 8, 11, 13, 16, 18, 20, 23, 30, 36, 37, 38
+OPEN:   12, 17, 29, 31, 32, 33, 40
+CLOSED: 2, 3, 8, 11, 13, 16, 18, 20, 23, 30, 36, 37, 38, 39
 
 Item 1 is CANNOT-EVALUATE and is accounted by the inventory marker rather than
 by this ledger -- a third state, not a close.

@@ -4,6 +4,39 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.962
+
+Item 39: the twenty byte-identical project-knowledge duplicates retired.
+
+THE PRECONDITION WAS THE WORK. A per-file inbound-citation check found
+essentially no real consumers. Of the direct path citations: 14 were entries in
+@952's own tier-0 allowlist, 2 in test_desandbox's carrier list, 4 were prose in
+stale pending-specs, and exactly TWO were real -- @953's bdenv test, which
+asserted both copies, and a gitleaks baseline entry. Nothing imported or
+executed a project-knowledge copy.
+
+THE GITLEAKS ENTRY WAS THE ONE THAT COULD HAVE BITTEN.
+project-knowledge/cap01_witnesses.py carried a baselined jwt at line 66. Its
+entry was dropped only after verifying the TWIN,
+tools/audit/witnesses/cap01_witnesses.py, is baselined for the same rule at the
+same line -- the cleanup REFUSES rather than proceeding if that check fails,
+because dropping it otherwise would arm a real finding on a live file.
+
+EVERY COUPLING FIRED ON DELETION AND NONE WAS A SURPRISE: the pk-mirror
+baseline (20 stale pairs), the tier-0 allowlist (16 stale entries), the
+desandbox carrier list (2), and the bdenv test losing its second subject. That
+is what the scoping pass bought -- four expected failures instead of four
+discoveries.
+
+_KNOWN_DUPLICATES is empty and its staleness test retired with it, following
+that test's own instruction: "if the duplication really reached zero, delete the
+baseline and this test deliberately rather than leaving an assertion that passes
+over nothing." The forbidding assertion stays, because it still stops a NEW
+duplicate appearing.
+
+project-knowledge/ now holds 98 tracked files, 16 of them executables, none a
+copy of anything. The tier-0 allowlist shrank 175 -> 159.
+
 ## v3.66.961
 
 Item 38: the zip-era workflow retired, its dead globs removed, and the release
