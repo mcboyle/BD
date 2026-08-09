@@ -5069,6 +5069,55 @@ download selector per file. That decides whether B and C are the whole story or 
 reconstructions were too thin. Nothing in section 1 above should be scaled to the corpus until it
 returns.
 
+#### ADDENDUM -- adversarial-lens results recovered from truncated workflow output
+
+Four lens results exceeded the tool's return cap and were never read in-session; recovered from the
+run journals and recorded here because each is better than the conclusion it replaces.
+
+- **THE REAL PROMOTE GATE IS `template_manager.promote_gate_errors` (`:155-200`), NOT
+  `template_inventory.assess`.** `assess` is a MIRROR of it and the lens reports a MEASURED
+  divergence between the two. Everything this session called "green" was the mirror's verdict. The
+  single highest-value field `--templates` could emit is `real_gate_promotable:
+  promote_gate_errors(normalized) == []`, which closes that divergence instead of restating it.
+- **THE `resolutions` GATE CLAUSE IS SATISFIED FROM THE WIRE, NOT THE DOM.**
+  `build_template_from_wacz:2011-2013` builds `resolution_priority` from
+  `network["resolutions_seen"]`, so a capture whose DOM offers NO resolution choice still passes.
+  The builder emits `quality.open_menu`/`resolution_option` only for THEOplayer / xgplayer /
+  aria-labelled players -- three literal marker families. **Do NOT widen the gate to require quality
+  selectors** (that flips most of the 71 red and is section-0 over-sensitivity; modal-row sites
+  genuinely do not need them). Instead emit a derived `resolution_path`, one of
+  `quality_selectors` | `row_scrape` | `wire_only`. **`wire_only` is the honest name for
+  green-with-no-step-4.** Structural bound on the 71: 0..71, none protected by construction.
+- **THE VISIBILITY SCREEN ALREADY EXISTS, AND IT IS NOT `honeypot_score`.**
+  `template_extractor_impl/login_extract._login_is_honeypot` (`:116-140`) already screens
+  `display:none`, `left:-9999`, `width:1px`, `opacity:0`, `visibility:hidden`, `tabindex=-1`,
+  `aria-hidden`, and `name~honeypot` across three parent levels -- for LOGIN fields only. Meanwhile
+  `_html_selectors` (`:1590-1672`) and `_derive_download_trigger`/`_affordance` (`:796-853`) read
+  `node.attributes` ONLY and rank an aria-label/title "download" match ABOVE a class match, with no
+  visibility test anywhere. Lift `_login_is_honeypot` into a shared helper and call it from the
+  trigger and row derivations; the serialized rrweb node carries style and attributes, so this is
+  computable offline. That is a smaller and better fix than wiring in `honeypot_score`.
+- **THE RUNTIME LOGIN NEVER READS A TEMPLATE.** The only template->runner bridge is
+  `merge_template_download_hints` (`runner.py:3356` -> `template_assist.py:159+`), which carries
+  download hints only; `do_login` takes no template. So **71/71 green sites get ZERO login capability
+  from their template** -- step 1 runs on per-site config credentials and learned/fallback selectors,
+  and greenness says nothing about it. Bounded by call-graph enumeration, not sampling.
+- **`gate_support` CAN distinguish "different value" from "absent", and the data is already there.**
+  `merge_drafts` keeps the full ranked candidate list. Add to the emitted object:
+  `witnesses` = sum of support over the ranked list; `absent_in` = `of - witnesses` (**>0 means
+  captures that built a draft with NO gate leaf at all** -- case b); `alternatives` = `ranked[1:]`
+  verbatim (**non-empty means genuinely different values** -- case a). Pure plumbing in
+  `_gate_support`. This is what turns `trigger 5/9` from ambiguous into actionable.
+- **THE `_blocking` FIX IS TO STOP RE-DERIVING.** Rather than adding the missing `button` term to a
+  second copy of the predicate, have `assess` return the `gate_selector` boolean it already computes
+  (`template_inventory.py:115`) and have `_blocking` read it. The tool's own comment names the
+  reason: a fourth definition of green is how a tool starts disagreeing with the gate it predicts.
+- **CROSS-HOST, refined:** do NOT re-key `_place_by_host`. Add a labelled `site_families` CANDIDATE
+  tier over the existing exact-host buckets, keep exact host as the merge unit (bd-template-merge's
+  single-host guard is CORRECT for drafts), and bridge a family into one template not by merging
+  cross-host drafts but by **writing the login host into the content template's `match.hosts`** --
+  the runtime tier the matcher already supports and nothing writes.
+
 ### 15.73 | Template viability at v3.66.984, and a comparison whose two halves shared the same defect
 
 **Not a session close** -- no ITEM LEDGER; 15.70's open set (31, 33) stands, with
