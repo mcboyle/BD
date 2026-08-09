@@ -178,6 +178,48 @@ def test_the_SIXTEEN_artifact_only_sites_become_gradable():
     assert row["stringified_artifact"] is False and row["value"] == ROW
 
 
+def test_FIRST_APPEARANCE_still_wins_among_equal_values():
+    """Adversarial review caught a regression I introduced. `isinstance(True, int)`
+    is True in Python, so ("scalar", True) and ("scalar", 1) are the SAME dict
+    key -- and storing the original with plain assignment let the LAST draft's
+    representative win. The tool's documented tie-break is FIRST APPEARANCE
+    (`_rank`), and the canonical slot must not quietly disagree with it: a
+    resolution written as 1080 in draft one and 1080.0 in draft two would flip
+    type on merge, depending only on draft order."""
+    a = _merge([_draft({"trigger": True}), _draft({"trigger": 1})])
+    b = _merge([_draft({"trigger": 1}), _draft({"trigger": True})])
+    assert a["selectors"]["download"]["trigger"] is True, (
+        "the second draft's representative overwrote the first's: %r"
+        % a["selectors"]["download"]["trigger"])
+    assert b["selectors"]["download"]["trigger"] == 1 and \
+        b["selectors"]["download"]["trigger"] is not True
+    # And they still count as ONE value, which is what made them collide.
+    assert a["merge"]["selector_support"]["download.trigger"][0]["support"] == 2
+
+
+def test_the_MERGED_output_does_not_ALIAS_an_input_drafts_list():
+    """Latent, and new: the old code manufactured a fresh string for every
+    non-scalar, so the merged template could not share an object with an input.
+    `mode_templates` reads the raw drafts AFTER normalizing the merge, in the
+    same run -- an in-place mutation downstream would rewrite its own inputs."""
+    d1, d2 = _draft({"row_selectors": [ROW]}), _draft({"row_selectors": [ROW]})
+    merged = _merge([d1, d2])
+    merged["selectors"]["download"]["row_selectors"].append("INJECTED")
+    assert d2["selectors"]["download"]["row_selectors"] == [ROW], (
+        "mutating the merged template rewrote an input draft: %r"
+        % d2["selectors"]["download"]["row_selectors"])
+    assert merged["merge"]["selector_support"]["download.row_selectors"][0]["value"] \
+        == [ROW], "the support entry aliases the canonical slot"
+    # The support entry is a SECOND way into the same object, and a deepcopy at
+    # the write site alone leaves it aliased -- which is exactly how this
+    # escaped the first battery.
+    merged["merge"]["selector_support"]["download.row_selectors"][0]["value"] \
+        .append("INJECTED-VIA-SUPPORT")
+    assert d1["selectors"]["download"]["row_selectors"] == [ROW], (
+        "mutating the SUPPORT entry rewrote an input draft: %r"
+        % d1["selectors"]["download"]["row_selectors"])
+
+
 def test_a_GREEN_site_is_never_also_reported_BLOCKED_on_the_gate():
     """Two sites on the operator's corpus printed `green_from_one` beside
     `blocking: ['gate_selector']` -- `blocking` described the MERGED draft while

@@ -35,6 +35,7 @@ diff review), 2 UNKNOWN.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import pathlib
@@ -126,7 +127,15 @@ def merge_drafts(drafts, names):
             positions[key] = (group, leaf)
             sel_votes.setdefault(key, OrderedDict())
             sel_votes[key][vk] = sel_votes[key].get(vk, 0) + 1
-            originals.setdefault(key, {})[vk] = val
+            # setdefault, not assignment: FIRST APPEARANCE wins, the same
+            # tie-break `_rank` documents. `isinstance(True, int)` is True in
+            # Python, so ("scalar", True) and ("scalar", 1) are one key -- with
+            # plain assignment the last draft's representative silently won and
+            # a value could change TYPE on merge depending only on draft order.
+            # copy.deepcopy so the merged template never ALIASES an input
+            # draft's list: `mode_templates` reads the raw drafts after
+            # normalizing the merge, in the same run.
+            originals.setdefault(key, {}).setdefault(vk, copy.deepcopy(val))
 
     support = {k: _decode_ranked(_rank(v, total), originals[k])
                for k, v in sel_votes.items()}
@@ -138,7 +147,10 @@ def merge_drafts(drafts, names):
     selectors = {}
     for key, ranked in support.items():
         group, leaf = positions[key]
-        winner = ranked[0]["value"]
+        # Its OWN copy: the canonical slot and the support entry are read by
+        # different consumers, and sharing one mutable object makes an edit to
+        # the template silently rewrite the evidence that justified it.
+        winner = copy.deepcopy(ranked[0]["value"])
         if group is None:
             selectors[leaf] = winner
         else:

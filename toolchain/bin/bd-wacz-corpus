@@ -992,7 +992,12 @@ def mode_templates(files, jobs=1, progress=False):
                 verdict, ready[0][0] if ready else None, merged_a, best),
             "reliability": reliability,
             "gate_support": gs,
-            "missing": (merged_a or best or {}).get("missing", []),
+            # The SAME subject `blocking` describes. Reporting the merged
+            # draft's missing list beside a blocking read off the green single
+            # capture is the mixed-subject shape `_verdict_blocking` exists to
+            # remove, one field over.
+            "missing": ((ready[0][0] if (ready and verdict.startswith("green"))
+                         else (merged_a or best)) or {}).get("missing", []),
         })
 
     return {"examined": len(files),
