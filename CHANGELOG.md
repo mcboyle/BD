@@ -4,6 +4,35 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.988
+
+- bd-template-merge: a list-valued selector survives the merge as a LIST.
+  merge_drafts could not use a list as a dict key, so it json.dumps a
+  non-scalar leaf to vote on it and then wrote the winning TEXT back into the
+  canonical slot without parsing it. Measured: the resulting
+  '["[role=dialog] a.dl"]' PASSES template_normalize._is_modal_scoped -- the
+  JSON text contains the literal [role=dialog] -- survives normalize, and
+  reaches promotion_ready True. The artifact did not merely corrupt a
+  selector, it manufactured a green from a selector that matches nothing.
+- The fix RECORDS the encoding at vote time rather than re-detecting it.
+  Parsing the winner back "if it looks like JSON" cannot tell an encoded list
+  from a hand-written selector that happens to be valid JSON, and guessing
+  wrong writes garbage into the canonical slot -- the same defect with the sign
+  flipped. Votes are cast on a hashable stand-in (_vote_key) and the original
+  object is kept beside it (_decode_ranked), so selector_support and the ties
+  block also report real selectors instead of encodings.
+- Measured payoff on the operator's corpus (742 captures, 158 sites): SIXTEEN
+  sites reported reliability unknown with reason merge_artifact_only at
+  v3.66.987 -- all green_from_one, all modal-shaped, fifteen of sixteen with
+  full support. They were ungradable only because the merged row was the
+  artifact.
+- bd-wacz-corpus: blocking now describes the thing the VERDICT is about.
+  Two sites on that corpus printed green_from_one beside
+  blocking ['gate_selector'] because blocking was read off the merged draft
+  while the verdict came from a green single capture. One row cannot answer the
+  same question both ways, and it inflated the gate_selector_blocked rollup by
+  two sites that are not blocked.
+
 ## v3.66.987
 
 - bd-wacz-corpus --templates: reliability is now measured on the gate's own

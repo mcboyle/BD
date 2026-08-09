@@ -254,7 +254,16 @@ def test_a_STRINGIFIED_merge_artifact_is_not_graded_as_evidence():
 
     RED today: reported as download.row_selectors support 2 -> corroborated."""
     raws = [_draft({"row_selectors": ["[role=dialog] a.dl"]})] * 2
-    gs, nm = _support(raws)
+    normed = [normalize_draft(r) for r in raws]
+    nm = normalize_draft(MERGE(raws, ["a", "b"]))
+    # @988 FIXED the producer: `merge_drafts` no longer stringifies a list leaf,
+    # so this artifact can no longer arrive from a merge. It is injected
+    # directly instead, because a guard that can only be reached through the
+    # bug it guards against dies the moment that bug is fixed -- and this one
+    # still has to hold for a hand-authored draft, a pre-@988 draft on disk, or
+    # a future producer that reintroduces the shape.
+    nm["selectors"]["download"]["row_selectors"] = ['["[role=dialog] a.dl"]']
+    gs = CORP._gate_support(nm, normed, raws)
 
     assert assess(nm)["row_selectors_count"] == 1, "fixture drifted"
     row = gs["clauses"]["row_selectors"]["merged_rows"][0]
@@ -441,7 +450,13 @@ def test_an_ARTIFACT_ONLY_site_says_so_rather_than_claiming_NO_evidence():
     "no gate visible evidence" is affirmatively false -- the evidence is
     unanimous and sits in `candidates` two lines below. Reptyle's modal shape is
     exactly this population."""
-    gs, _ = _support([_draft({"row_selectors": ["[role=dialog] a.dl"]})] * 3)
+    raws = [_draft({"row_selectors": ["[role=dialog] a.dl"]})] * 3
+    normed = [normalize_draft(r) for r in raws]
+    nm = normalize_draft(MERGE(raws, ["a", "b", "c"]))
+    # Injected rather than merged, for the reason given in the artifact test
+    # above: @988 fixed the producer and the guard has to outlive it.
+    nm["selectors"]["download"]["row_selectors"] = ['["[role=dialog] a.dl"]']
+    gs = CORP._gate_support(nm, normed, raws)
     assert gs["reason"] == "merge_artifact_only", (
         "the reason names the wrong cause: %r" % gs["reason"])
     assert gs["clauses"]["row_selectors"]["candidates"][0]["support"] == 3, (

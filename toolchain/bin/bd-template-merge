@@ -70,6 +70,28 @@ def _leaves(selectors):
             yield str(group), None, group, val
 
 
+def _vote_key(val):
+    """A hashable stand-in for a leaf value, paired with `_decode_ranked`.
+
+    A list or dict leaf cannot be a dict key, so it votes under its JSON
+    encoding. The ORIGINAL is kept beside it rather than recovered later,
+    because re-parsing the winner "if it looks like JSON" cannot tell an encoded
+    list from a hand-written selector that happens to be valid JSON -- and
+    guessing wrong writes garbage into the canonical slot, which is the defect
+    this replaces wearing the other hat.
+    """
+    if val is None or isinstance(val, (str, int, float, bool)):
+        return ("scalar", val)
+    return ("json", json.dumps(val, sort_keys=True))
+
+
+def _decode_ranked(ranked, originals):
+    """Put the ORIGINAL values back on a ranked list, in place."""
+    for entry in ranked:
+        entry["value"] = originals[entry["value"]]
+    return ranked
+
+
 def _rank(candidates, total):
     """Ranked support, highest first, ties broken by FIRST APPEARANCE.
 
@@ -90,16 +112,24 @@ def merge_drafts(drafts, names):
     total = len(drafts)
     sel_votes = OrderedDict()      # "group.leaf" -> OrderedDict(value -> count)
     positions = {}                 # "group.leaf" -> (group, leaf)
+    originals = {}                 # "group.leaf" -> {vote_key: original value}
     for d in drafts:
         for key, group, leaf, val in _leaves(d.get("selectors")):
-            if not isinstance(val, (str, int, float, bool)) and val is not None:
-                # non-scalar leaf: keep it, but it cannot be voted on sanely
-                val = json.dumps(val, sort_keys=True)
+            # Vote on a hashable STAND-IN and keep the original beside it. The
+            # canonical slot is then written from the original, so a list leaf
+            # stays a list. Writing the vote key back was finding G: the slot
+            # held the JSON TEXT of the list, which passes `_is_modal_scoped`
+            # when the text happens to contain a modal token, survives
+            # normalize, and reaches promotion_ready -- a green manufactured
+            # from a selector that matches nothing.
+            vk = _vote_key(val)
             positions[key] = (group, leaf)
             sel_votes.setdefault(key, OrderedDict())
-            sel_votes[key][val] = sel_votes[key].get(val, 0) + 1
+            sel_votes[key][vk] = sel_votes[key].get(vk, 0) + 1
+            originals.setdefault(key, {})[vk] = val
 
-    support = {k: _rank(v, total) for k, v in sel_votes.items()}
+    support = {k: _decode_ranked(_rank(v, total), originals[k])
+               for k, v in sel_votes.items()}
     ties = [{"key": k, "tied_at": c[0]["support"], "of": total,
              "values": [x["value"] for x in c if x["support"] == c[0]["support"]]}
             for k, c in support.items()
