@@ -4852,6 +4852,113 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.70 | SESSION CLOSE 2026-08-09 at 0e72394 (v3.66.979) -- twelve cuts, six items closed, and a regression my own band could not see
+
+**Commit named is already on `main`** (the squash of PR #274), per section 4: a
+close section must name a commit that is an ancestor and ALREADY merged, never
+this branch's tip, which the squash destroys.
+
+**CUTS @968-@979.** 42 (anchor gate sees frontend citations); 17 (a restart
+survives the hook's re-record); 12 rename (each "missing" figure names its
+mechanism); 971 (capture_scrub decides by content); 12 close (dead endpoint
+retired); 973 (`bd-wacz-corpus`); 974 (`bd-template-merge`); 975/976 (capture
+records); 977 (yt-dlp freshness compares versions); 978 (corpus classifier
+repaired + hash dedup); 979 (the boot probe does no network).
+
+The gate that enforces this block caught the first draft of this very section,
+which stated the same items in prose. Its message is the rule: a close section
+declares its items in a form a machine can read, and prose is the form that
+failed.
+
+ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
+OPEN:   31, 33, 44
+CLOSED: 12, 17, 29, 42, 43, 45
+
+**BOX CAPTURES, all PASS:** @973 `a1bc58b` 15128/15043/85; @974 `495e943`
+15138/15053/85; @976 `22bbb76` 15138/15053/85. Four exact predictions, and the
+@974 one was PUBLISHED BEFORE the run existed -- the only form of that claim
+worth much, since a number computed after the fact cannot distinguish a correct
+derivation from an arithmetic slip that happens to match.
+
+**THE FAILURE THAT MATTERS MOST, because the instrument was mine and I broke
+it.** @977 put a live PyPI call inside `_check_ytdlp()`. Every existing test
+mocking only `status_dict` silently got live data; the box caught it, the
+container did not. No other probe in `healthcheck.py` touches the network --
+that invariant was measurable and I never checked it.
+
+It escaped a GREEN 39-file band because I derived that band with
+`ls tests/ | grep -iE "healthcheck|selftest|ytdlp|doctor" | head -8`. There are
+**15** matches. `test_v3_66_661_healthcheck_ytdlp_shape` -- the one file named
+for the function I was changing -- sorts **TENTH**. A `head` truncated my own
+denominator inside a band derivation, in a session whose recurring subject is
+denominators. **Section 4 warns that `bd-band-derive` is a floor; it does not
+cover a floor the author chops off for readability. Never pipe a band derivation
+through `head` -- use `cat -n`.**
+
+**WHAT CAUGHT WHAT, since the pattern is the transferable part.** Six confident
+claims of mine were falsified by measurement: item 42's central premise, item
+17's recorded framing, the WACZ size-collapse read (left UNVERIFIED rather than
+re-guessed), two stuck-CI claims, and twice reading a piped exit code as a
+tool's own. Four tests passed while proving nothing -- one matched the tool's
+echo of a path containing its own test-function name; one was satisfied by
+python's "can't open file" exit while the tool did not exist; two let competing
+rules agree on their fixtures. Three mutants escaped. A `NameError` hid inside
+my own boot-safe `except`. A band run collected ZERO tests because I invented
+two filenames. **Every one was caught by an instrument -- a battery, the
+operator's real file list, a box run, an exit code read unpiped. None by
+review.**
+
+**@973's tool was wrong on the corpus it exists for, and only real data showed
+it.** Validated against synthetic fixtures and the Drive corpus's
+`t_<hex>_<name>` naming, it met the box's ad-hoc names and classified 197 of 601
+redacted files as RAW, knew nothing of `.scrubbed` (176 files), and reported
+`sites=22 merge_candidates=0 STATUS OK` -- a clean answer over a denominator it
+could not parse, inside the tool written to apply section 0. Repaired at @978.
+
+**CORPUS STATE HAS CHANGED -- do not quote this session's figures.** The
+operator ran their own hash dedup and MOVED the duplicates out of
+`BulkDownloader` after the 1251-file / 4.04 GB measurement. Re-derive before
+citing. One check is still owed on the moved pile: a `.redacted` file
+byte-identical to its RAW SOURCE is not a duplicate, it is evidence the scrubber
+returned its input (@971's class). Moved rather than deleted, so it remains
+answerable.
+
+**ITEM 44 IS FULLY DESIGNED AND UNBUILT.** Host-based grouping, three tiers,
+reusing what exists rather than inventing:
+
+  1. `dom_analyzer._parse_capture_host(stem)` -- already parses
+     `{host}_{siteid}_{YYYYMMDD}`, which is exactly
+     `auth.reptyle.com_0b60f1ec_20260629_145050_52e5.wacz`. BD's own captures
+     resolve with no archive read. method=`filename`.
+  2. `pages/pages.jsonl` -- the WACZ-spec page record `wacz_export._pages_jsonl`
+     writes. First page URL -> `urlsplit().netloc`. The authority, and the only
+     thing that will ever group `123.wacz` with `1232.wacz`. method=`archive`.
+  3. stem fallback, method=`unknown` -- grouped under itself, never guessed.
+
+  Every group carries the method that produced it. **Tier 2 belongs in
+  `bd-wacz-corpus`, NOT in `dom_analyzer`**, whose contract is that scanning
+  opens zero wacz zips and says so.
+
+**OPERATOR DECISION TAKEN, NOT YET BUILT: the socket guard, STAGED.** An autouse
+conftest fixture that RECORDS non-loopback connect attempts without blocking;
+run the suite once to turn "21 files might call out" into a measured list; then
+enforce in a second cut with an opt-out marker. Measured: no such guard exists
+today, and 42 test files reference outbound APIs of which 21 never mention
+loopback -- an upper bound on external callers, not a count, since a reference
+may be a mock target or a string. The guard is also the instrument that settles
+it.
+
+**STILL OPEN FOR THE OPERATOR:** `_TOOL_BUDGET` went 235 -> 237 across two new
+tools, raised with stated reasons rather than paid for by retirement -- name two
+and they can be swapped. Item 31's eight rows need real sites and credentials.
+Item 33 is a ratchet with no finish line, and its own text is stale (says a
+240-tool population; it is 237).
+
+**ENVIRONMENT: nothing was installed this session.** `check_requirements.py`
+exits 0 against the committed manifests, so a fresh container needs no
+additional provisioning. A stray empty-schema `downloader_history.db` in the
+repo root (item 36's documented class, predating this session) was removed.
+
 ### 15.69 | SESSION CLOSE 2026-08-08 at 0f3e435 (v3.66.951 base) -- the operator queue, six cuts, and three gates that could not see their own subjects
 
 **READ THIS FIRST IF YOU ARE A FRESH SESSION.** It supersedes 15.68's open set.
