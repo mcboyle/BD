@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3781,
+  "edge_count": 3784,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -6074,6 +6074,11 @@
     "tests/test_v3_66_979_freshness_does_no_network_at_boot.py": [
       "bulk_downloader/healthcheck.py",
       "bulk_downloader/ytdlp_updater.py"
+    ],
+    "tests/test_v3_66_984_template_viability.py": [
+      "bulk_downloader/template_normalize.py",
+      "tools/build_template_from_wacz.py",
+      "tools/template_inventory.py"
     ],
     "tests/test_v3_66_98_cockpit_console.py": [
       "tools/cockpit_console.py",
