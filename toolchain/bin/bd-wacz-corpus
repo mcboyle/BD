@@ -59,9 +59,30 @@ _WACZ = ".wacz"
 # Windows-style copy suffix and `x.redacted (2).wacz` does not end in
 # `.redacted.wacz`. It also had no concept of `.scrubbed` (176 files) or
 # `.redacted.scrubbed` (46), counting all of them as raw.
-_DERIVATIVE_MARKERS = (".redacted", ".scrubbed")
+_DERIVATIVE_MARKERS = ("redacted", "scrubbed")
 # `(2)` and `(dup1)`, with or without a leading space -- both forms are real.
 _COPY_SUFFIX = re.compile(r"\s*\((?:dup)?\d+\)")
+
+# @983: the marker set was DOT-prefixed, and the box's corpus also writes the
+# UNDERSCORE form with a profile qualifier. Measured over the operator's 742
+# real names: `.redacted` x329, `.scrubbed` x104, `_redacted_safe` x4,
+# `_redacted_strict` x2, `.redacted_2` x1. Six read as RAW captures and the
+# seventh based to the fragment `shaka_2`, which pairs with nothing.
+#
+# Three things this pattern is doing deliberately:
+#   - a LEADING SEPARATOR is required, so a capture of a site whose name merely
+#     begins with the word is not reclassified into an empty base;
+#   - the qualifier tail `(_safe|_strict|_2|...)` is part of the marker, because
+#     `bang247_redacted_safe` and `bang247_redacted_strict` are two redaction
+#     PROFILES of one capture and must collapse to one family;
+#   - the tail only eats `_`-joined runs AFTER the marker word, so
+#     `cap_355b_redacted_safe` keeps `cap_355b`. A rule that ate from the first
+#     underscore would merge every `cap_*` capture into one bucket -- the
+#     over-sensitivity direction, and the one a careless fix breaks.
+# `-1` / `-2` are NOT markers: `wowza` and `wowza-1` differ in size on the box,
+# so they are distinct captures and collapsing them would delete one.
+_MARKER_RE = re.compile(
+    r"[._-](%s)(?:_[a-z0-9]+)*" % "|".join(_DERIVATIVE_MARKERS), re.I)
 
 # `t_<hex>_<name>.wacz` is the export convention; the <name> is the only site
 # signal a filename carries. Anything not matching keeps its whole stem, so an
@@ -91,10 +112,10 @@ def enumerate_corpus(root: pathlib.Path):
 
 
 def _markers(p: pathlib.Path):
-    """Which derivative markers this filename carries, in order."""
+    """Which derivative markers this filename carries, in order of appearance."""
     stem = p.name[:-len(_WACZ)] if p.name.lower().endswith(_WACZ) else p.name
-    stem = _COPY_SUFFIX.sub("", stem).lower()
-    return tuple(m for m in _DERIVATIVE_MARKERS if m in stem)
+    stem = _COPY_SUFFIX.sub("", stem)
+    return tuple(m.group(1).lower() for m in _MARKER_RE.finditer(stem))
 
 
 def _is_redacted(p: pathlib.Path) -> bool:
@@ -105,21 +126,19 @@ def _is_redacted(p: pathlib.Path) -> bool:
 def _base(p: pathlib.Path) -> str:
     """The SOURCE capture name: copy suffix and every derivative marker removed.
 
-    So `x.wacz`, `x.redacted (2).wacz`, `x.scrubbed.wacz` and
-    `x.redacted.scrubbed.wacz` all resolve to `x` -- one family, which is what
-    pairing and the no-op check both need.
+    So `x.wacz`, `x.redacted (2).wacz`, `x.scrubbed.wacz`,
+    `x.redacted.scrubbed.wacz`, `x_redacted_safe.wacz` and `x.redacted_2.wacz`
+    all resolve to `x` -- one family, which is what pairing and the no-op check
+    both need.
+
+    The marker's qualifier goes with the marker. Stripping `.redacted` from
+    `shaka.redacted_2` and leaving `shaka_2` is worse than not stripping at all:
+    a half-stripped base matches nothing and still looks like a real name.
     """
     n = p.name
     n = n[:-len(_WACZ)] if n.lower().endswith(_WACZ) else n
     n = _COPY_SUFFIX.sub("", n)
-    low = n.lower()
-    for m in _DERIVATIVE_MARKERS:
-        i = low.find(m)
-        while i != -1:
-            n = n[:i] + n[i + len(m):]
-            low = n.lower()
-            i = low.find(m)
-    return n
+    return _MARKER_RE.sub("", n)
 
 
 def _site_of(p: pathlib.Path) -> str:

@@ -4531,8 +4531,8 @@ a record -- see 15.62's closing paragraph.
      and both now pin `latest_version` explicitly, because leaving it unmocked
      is precisely what reached the live index.
 
- 44. **OPEN, opened v3.66.978 -- bd-wacz-corpus met the real corpus and was
-     wrong.** @973's tool was validated only against synthetic fixtures and the
+ 44. **CLOSED at v3.66.983 (see 15.71) -- bd-wacz-corpus met the real corpus and
+     was wrong, twice.** @973's tool was validated only against synthetic fixtures and the
      Drive corpus's `t_<hex>_<name>` naming. The box's 1251-file / 4.04 GB
      corpus uses neither, and the mismatch was not cosmetic.
 
@@ -4604,17 +4604,48 @@ a record -- see 15.62's closing paragraph.
      because firing on the hundreds of site-signal-free names the mode exists to
      describe is the over-sensitivity failure section 0 calls a soundness bug.
 
-     **WHY IT IS NOT CLOSED.** Every fixture is BD-shaped. This item exists
-     because @973's tool was validated on synthetic fixtures, met the real
-     corpus and was wrong -- closing a corpus tool before it has met the corpus
-     would reproduce the shape of the defect the item records. What is owed is
-     one run on the box: `bd-wacz-corpus --root <corpus> --hosts --json`, and
-     the numbers to read are `by_method` (how much of the corpus tier 1 answers
-     for), `unknown_reasons` (is `no_pages_jsonl` a large population, i.e. do
-     foreign archives need `datapackage.json:mainPageURL` as a tier-2b?), and
-     `archives_opened` against `examined`. Deliberately NOT extended to
-     `mainPageURL` on speculation: for a BD archive both fields come from the
-     same `capture["url"]`, so it would add nothing measurable from here.
+     **THE BOX MEASUREMENT, 2026-08-09, `/home/mboyle/BulkDownloader/captures`.**
+     This is what closes the item: the tool has now met the corpus.
+
+     | | |
+     | --- | ---: |
+     | examined | 742 |
+     | by_method filename / archive / unknown | 39 / 698 / 5 |
+     | archives_opened | 703 |
+     | hosts resolved | 153 |
+     | merge candidates | 79 |
+     | unknown_reasons | `{unreadable: 5}` |
+
+     `by_method` sums to 742 and the groups account for all 742 across 158
+     buckets -- the non-empty-denominator assertion holding on real data rather
+     than on a fixture.
+
+     **THE FORK CAME OUT CLEAN: `no_pages_jsonl` is ZERO.** Every readable
+     archive in the corpus carries the page record, so the tier-2b that would
+     have read `datapackage.json:mainPageURL` for foreign archives is NOT owed.
+     Declining to build it on speculation at @981 was correct, and it is now
+     measured rather than argued. The five unknowns are all archives that could
+     not be OPENED, which is the correct answer for an unreadable archive, not a
+     gap in the tiering.
+
+     **MY PUBLISHED PREDICTION WAS HALF WRONG, AND THE WRONG HALF IS THE
+     LESSON.** Before the run I predicted `by_method.filename` would be ~0,
+     from measuring `_parse_capture_host` against 19 real names and getting
+     0/19. It is **39**. The 19 came off a single alphabetical page of a file
+     listing -- the w/x/y tail -- and I read a non-random sample as the corpus.
+     Three of the five unreadables are `t_<hex>_*` export-convention names,
+     proving that population existed the whole time and my sample simply never
+     reached it. The other half of the prediction, `archives_opened ~=
+     examined`, was 703 = 742 - 39: true by construction, so it confirmed
+     nothing. **A sample from one screen is not a denominator** -- section 1's
+     rule, at the level above the code.
+
+     **ONE THING FOR THE OPERATOR, NOT A DEFECT.** `._banb.redacted.wacz` is
+     among the five unreadables and the `._` prefix is a macOS AppleDouble
+     resource stub, not a capture -- evidence some of the corpus travelled
+     through a Mac. It is correctly reported as unreadable; whether such files
+     belong in the denominator at all is a call only Matt can make, so nothing
+     silently excludes them.
 
  43. **CLOSED at v3.66.974 -- the WACZ corpus tools.** Operator asked for
      three things off the Drive corpus: close an item, build master templates
@@ -4878,6 +4909,42 @@ THE CAVEAT, and it OVERRIDES size. **Hold 15 and 14 back regardless of how
 small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
+
+### 15.72 | Item 44 CLOSED at v3.66.983: the corpus answered, and it found a second marker form
+
+**Not a session close** -- no ITEM LEDGER, and 15.70's open set otherwise stands.
+Item 44 is accounted by its inventory entry in 15.36, which carries the full
+measurement; this section carries what generalises beyond it.
+
+**THE SECOND DEFECT THE REAL NAMES FOUND.** @978 fixed `_is_redacted` testing
+`endswith(".redacted.wacz")` -- 197 of 601 misclassified. The marker set it left
+behind is DOT-prefixed, and the box also writes UNDERSCORE forms with a profile
+qualifier. Measured over 742 real names: `.redacted` x329, `.scrubbed` x104,
+`_redacted_safe` x4, `_redacted_strict` x2, `.redacted_2` x1. Six read as RAW
+captures; the seventh based to the fragment `shaka_2`, which pairs with nothing.
+
+**SIX FILES OF 742 IS 0.8% AND IT WAS STILL WORTH A CUT, FOR A REASON THAT IS
+NOT THE COUNT.** The defect INVERTS A FINDING. `--dupes` reports a derivative
+byte-identical to its source as a no-op redaction -- @971's class, the evidence
+that scrubbing never happened -- and that branch requires `_is_redacted` to be
+true. While those six read as raw, a failed scrub among them is offered back as
+**reclaimable disk**, which invites deleting the evidence. Reproduced end to end
+before the fix: `reclaimable_bytes=281, noop_derivatives=0` on a raw and an
+underscore-form derivative that were byte-identical. **Size the impact by what a
+wrong answer causes, not by how many rows it touches.**
+
+**WHAT THE FIX ACTUALLY CHANGED ON THE REAL DATA**, recomputed over the run's own
+file lists rather than estimated: merge candidates 79 -> 79, unchanged, and three
+groups' source counts corrected -- `auth.wowgirls.com` 22 -> 20,
+`site-ma.bangbros.com` 13 -> 11, `shaka-player-demo.appspot.com` 4 -> 3. Five
+over-counted sources across three sites. Stated plainly because the honest
+number is small and the temptation was to lead with the inverted finding instead.
+
+**THE OVER-STRIPPING DIRECTION IS WHERE A CARELESS FIX BREAKS**, and it is
+tested: `cap_355b_redacted_safe` must keep `cap_355b`, since a rule eating from
+the first underscore would merge every `cap_*` capture into one bucket. And
+`wowza` / `wowza-1` must NOT collapse -- different byte sizes on the box, so
+they are distinct captures and `-1` is an index, not a marker.
 
 ### 15.71 | Operator decision 2026-08-09: standing merge authority, and item 44's grouping shipped
 
