@@ -30,6 +30,7 @@ Design notes:
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -145,6 +146,72 @@ def maybe_update(*, force: bool = False, threshold_days: int = 30) -> Tuple[bool
     _VERSION_CACHE.update({"ts": 0.0, "version": None, "path": None})
     new_ver = current_version()
     return (True, f"yt-dlp upgraded to {new_ver or 'unknown version'}")
+
+
+_PYPI_JSON = "https://pypi.org/pypi/yt-dlp/json"
+_LATEST_TTL = 21600          # 6h -- yt-dlp releases far less often than this
+_LATEST_TIMEOUT = 3.0        # this runs at BOOT; a slow index must not stall it
+_LATEST_CACHE = {"ts": 0.0, "version": None}
+
+
+def _default_fetch(url: str, timeout: float) -> str:
+    import urllib.request
+    with urllib.request.urlopen(url, timeout=timeout) as r:
+        return r.read().decode("utf-8", "replace")
+
+
+def latest_version(*, timeout: float = _LATEST_TIMEOUT, _fetch=None):
+    """Newest yt-dlp on the index, or None if it cannot be determined.
+
+    @977. Added because freshness was decided by ``age_days > 30``, which cannot
+    tell "you are behind" from "upstream has been quiet". MEASURED on the box:
+    the selftest asked for an update while the installed 2026.7.4 was already the
+    newest release on the index. The operator ran the update and it was
+    necessarily a no-op.
+
+    NEVER RAISES, and returns None rather than a guess. This is called from the
+    startup selftest, so a DNS failure, a proxy, an airgapped host or a slow link
+    must degrade to "unknown" -- never to an exception at boot, and never to a
+    fabricated answer that would read as "you are current".
+
+    Cached for _LATEST_TTL: an uncached call would put a network round trip on
+    every boot for a value that changes a few times a month.
+    """
+    now = time.time()
+    cached = _LATEST_CACHE.get("version")
+    if cached and (now - _LATEST_CACHE.get("ts", 0.0)) < _LATEST_TTL:
+        return cached
+    try:
+        body = (_fetch or _default_fetch)(_PYPI_JSON, timeout)
+        ver = ((json.loads(body) or {}).get("info") or {}).get("version") or None
+    except Exception:
+        # Broad on purpose -- this runs at BOOT and must never raise. The cost
+        # is that it also swallows a CODING error: the first version of this
+        # function forgot `import json`, and the resulting NameError came back
+        # as None, indistinguishable from an unreachable index. ast.parse was
+        # clean; only importing and CALLING it showed the difference. The guard
+        # is the test that asserts a parsed version comes back, not this line.
+        return None          # unknown, explicitly -- see the docstring
+    if ver:
+        _LATEST_CACHE.update({"ts": now, "version": ver})
+    return ver
+
+
+def is_behind(installed, latest) -> bool:
+    """True only when `installed` is strictly OLDER than `latest`.
+
+    Ordering, not inequality: a box on a dev or pre-release build can be AHEAD of
+    the index, and `installed != latest` would report that as "behind" and send
+    the operator to downgrade. Falls back to string inequality only when
+    `packaging` is unavailable, where the pair is at least still distinguishable.
+    """
+    if not installed or not latest:
+        return False
+    try:
+        from packaging.version import Version
+        return Version(str(installed)) < Version(str(latest))
+    except Exception:
+        return str(installed) != str(latest)
 
 
 def status_dict() -> dict:

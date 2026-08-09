@@ -146,20 +146,52 @@ def _check_playwright() -> dict:
 
 
 def _check_ytdlp() -> dict:
-    """yt-dlp freshness."""
+    """yt-dlp freshness, by VERSION COMPARISON rather than by age.
+
+    @977. The predicate was ``age_days > 30``, and age cannot tell "you are
+    behind" from "upstream has been quiet". MEASURED on the box 2026-08-09: the
+    selftest said *"yt-dlp is 36 days old -- consider updating"* while the
+    installed 2026.7.4 was the NEWEST release on the index (uploaded
+    2026-07-04). The operator ran the update; it was necessarily a no-op. A
+    check whose recommended action cannot clear it is section 0's
+    over-sensitivity failure, and this one had been firing in every capture.
+
+    Three outcomes, and the middle one is the reason this is not a one-line
+    threshold bump:
+      * behind  -> WARN, naming the version available so the operator knows
+                   what updating would get them;
+      * current -> OK, REGARDLESS of age. Being old is not a defect when there
+                   is nothing newer;
+      * unknown -> WARN, saying it could not check. It must NOT say "consider
+                   updating", which would assert staleness never measured.
+
+    On the third state: `selftest` has only ok/warn/fail, so "could not check"
+    shares a status with "behind" and the distinction lives in the MESSAGE. That
+    is weaker than section 0 asks for. Adding a fourth status would change the
+    boot summary, the 07b_selftest.json artifact and every consumer of
+    ok/warn/fail -- a wider blast radius than this fix should carry, and left
+    deliberately rather than overlooked.
+    """
     try:
         from . import ytdlp_updater as _yt
         info = _yt.status_dict() or {}
+        ver = info.get("version")
         age = info.get("age_days")
-        if age is None:
+        if not info.get("installed") or not ver:
             return {"severity": SEV_WARN,
                     "message": "yt-dlp version unknown"}
-        if age > 30:
+        latest = _yt.latest_version()
+        if not latest:
             return {"severity": SEV_WARN,
-                    "message": f"yt-dlp is {age:.0f} days old "
-                               f"— consider updating"}
+                    "message": f"yt-dlp {ver}: could not reach the index, so "
+                               f"whether a newer release exists is UNKNOWN"}
+        if _yt.is_behind(ver, latest):
+            return {"severity": SEV_WARN,
+                    "message": f"yt-dlp {ver} is behind {latest} "
+                               f"— update available"}
+        agetxt = f", {age:.0f}d old" if age is not None else ""
         return {"severity": SEV_OK,
-                "message": f"yt-dlp {info.get('version', '?')} ({age:.0f}d old)"}
+                "message": f"yt-dlp {ver} is current{agetxt}"}
     except Exception as e:
         return {"severity": SEV_WARN,
                 "message": f"yt-dlp status unknown: {type(e).__name__}"}
