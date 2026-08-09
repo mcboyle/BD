@@ -64,9 +64,24 @@ _CLICK_TARGET_RE = re.compile(
 _DL_TOKEN_RE = re.compile(
     r"download"
     r"|(?:^|[.\-_\[])dl(?:[.\-_\]]|$)"          # .dl / ct_dl_button / -dl-
-    r"|[.\-_]dl_"
-    r"|quality|resolution",                      # the per-resolution rows
+    r"|[.\-_]dl_",
     re.I)
+# `quality` and `resolution` are DELIBERATELY absent, and the first draft of this
+# rule had both. Adversarial review measured what they cost: a newly admitted row
+# is a promote-gate SATISFIER (the gate is trigger|rows|button), so
+# `button.vjs-quality-selector` took a streaming-only site with no download
+# feature from `draft_review_required` to `review_ready` -- a control that
+# downloads nothing, satisfying the download clause. That is the operator's
+# "Downloads dropdown beside a Quality dropdown" trap, which a previous session
+# had already measured and which this rule reintroduced.
+#
+# What they bought, measured against the corpus rather than argued: `resolution`
+# was pinned by NOTHING -- removing it loses no real control and admits no junk.
+# `quality` was pinned by exactly one, `a.video-quality-dropdown-item`, and that
+# site (members.nubiles-porn.com) also carries `a.dropdown-downloads-link` at the
+# SAME 5-of-9 support, so it loses nothing either. Eight of nine measured real
+# controls survive on the download tokens alone, and all eight measured
+# streaming-quality controls are refused.
 
 
 def _is_download_affordance(selector: str) -> bool:

@@ -38,12 +38,36 @@ DOWNLOAD token. Both halves are required, and the tests below pin both
 directions -- a `span` bearing the word download is a label, not a control, and
 an anchor with no download token is a nav link.
 
-THE HONEYPOT TRADE IS REAL AND IS STATED. A decoy named `a.download-link` is now
-admissible where the modal rule refused it. That resistance is not recovered
-here; it is recovered at the corpus level, where a decoy that varies per
-page-load reads support 1 of N against the real control's N of N
-(verified at v3.66.987). Admitted-by-affordance rows are therefore RECORDED in
-the draft's warnings, so a reviewer can see which rows were not modal-scoped.
+A STREAMING-QUALITY CONTROL IS NOT A DOWNLOAD CONTROL, and the first draft of
+this rule could not tell them apart. It carried `quality|resolution` tokens for
+the per-resolution rows, and adversarial review measured what that cost: a newly
+admitted row SATISFIES the promote gate (which is trigger|rows|button), so
+`button.vjs-quality-selector` took a streaming-only site with no download
+feature from `draft_review_required` to `review_ready` -- the operator's
+"Downloads dropdown beside a Quality dropdown" trap, already measured in an
+earlier session and reintroduced here. Both tokens are gone: `resolution` was
+pinned by nothing, and `quality` by one selector whose site keeps an equally
+supported download-named sibling.
+
+THE HONEYPOT TRADE IS REAL, AND TWO LEGS OF ITS JUSTIFICATION MEASURED WEAKER
+THAN FIRST CLAIMED. A decoy named `a.download-link` is admissible here; the
+modal rule refused it. Stated honestly:
+
+- The corpus-level recovery defeats only a decoy that VARIES per page-load
+  (support 1 of N against a real control's N of N). A STABLE decoy -- site
+  chrome, a nav or footer "download app", an upsell button, which is the common
+  case -- reads N of N and is invisible to it. And those support numbers gate
+  nothing: `promote_gate_errors` never reads them.
+- Admitted-by-affordance rows are RECORDED in the draft's warnings, but measured:
+  no reviewer surface displays them. `template_manager._describe` returns
+  `lint_warnings` only, the SPA renders lint only, and the promote CLI prints a
+  count rather than the text. The audit trail exists in the JSON and nowhere a
+  reviewer will look. Surfacing it is owed.
+
+`selector_lint._SCOPED_RE` compounds this and predates the cut: it counts
+`download` as SCOPING, so naming a nav decoy `a.navbar-item.download-app`
+switches the chrome linter OFF at the same moment it switches this rule ON.
+Measured, and left for its own cut because it needs its own corpus pass.
 """
 
 import pathlib
@@ -68,6 +92,24 @@ REAL_CONTROLS = [
     "div.cuts-button.cuts-button-download-selected",
     "a.d-flex.download-element",
     "a.Link.Link.VideoJSPlayer-DownloadOption-Link",
+]
+
+# Measured streaming-quality controls. A newly admitted row SATISFIES the
+# promote gate, so admitting these takes a site with no download feature at all
+# to `review_ready` on a control that downloads nothing -- the operator's
+# "Downloads dropdown beside a Quality dropdown" trap. `a.video-quality-dropdown-item`
+# is a real download row that these are string-indistinguishable from, so it is
+# refused with them: its site keeps `a.dropdown-downloads-link` at the same 5-of-9
+# support, and loses nothing.
+STREAMING_QUALITY = [
+    "button.vjs-quality-selector",
+    "button[data-plyr='quality']",
+    "a.quality-option",
+    "button.quality-menu-button",
+    "a.player-quality-item",
+    "button.ytp-settings-quality",
+    "button.resolution-switcher",
+    "a.resolution-1080p",
     "a.video-quality-dropdown-item",
 ]
 
@@ -94,6 +136,18 @@ def test_the_REAL_download_controls_are_recognised():
     for sel in REAL_CONTROLS:
         assert _is_download_affordance(sel), (
             "a measured download control was not recognised: %r" % sel)
+
+
+def test_a_STREAMING_quality_control_is_never_admitted_as_a_download_row():
+    """The regression adversarial review caught, and the sharpest reason this
+    rule is narrow. A newly admitted row is a promote-gate SATISFIER, so
+    admitting a player's quality menu takes a streaming-only site to
+    review_ready on a control that downloads nothing. Measured old-vs-new:
+    `button.vjs-quality-selector` moved a draft from draft_review_required to
+    review_ready with gate_errors empty."""
+    for sel in STREAMING_QUALITY:
+        assert not _is_download_affordance(sel), (
+            "a streaming-quality control would satisfy the download gate: %r" % sel)
 
 
 def test_the_JUNK_the_modal_rule_correctly_rejected_stays_rejected():
