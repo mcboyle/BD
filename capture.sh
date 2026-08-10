@@ -52,6 +52,52 @@
 
 set -u  # don't set -e: we want all 9 steps to run even if one errors
 
+# ── An inherited install-dir override poisons the whole suite ────────────────
+#
+# MEASURED TWICE, and it costs a whole capture each time.
+#
+#   2026-08-09  the operator was told to run ad-hoc probes with an exported
+#               install-dir override, ran `export` in the interactive shell,
+#               and ./capture.sh inherited it: 89 tests failed -- 13 "database
+#               is locked", a UNIQUE violation, `assert 10 == 1`. A clean
+#               re-run was 12833 passed. 12744 + 89 = 12833: EVERY failure was
+#               the variable.
+#   2026-08-10  the same shape reproduced six MOD3 Postgres failures, and was
+#               reconstructed to the digit (an "empty" source migrating exactly
+#               the 7 rows two earlier files had inserted).
+#
+# WHY: db._resolve_db_path() prefers this variable over the cwd, so ONE value
+# makes every test in the run share ONE SQLite history database. That defeats
+# the per-test cwd isolation tests/conftest.py's autouse isolated_bd_home
+# provides. Fresh per invocation, SHARED within it. There is no legitimate way
+# to run the suite with it set process-wide, which is why this REFUSES rather
+# than unsetting it quietly: a silent fix would hide a broken shell that will
+# poison the operator's next ad-hoc probe too.
+#
+# It fails in the first second, before any work, not fifteen minutes in.
+if [ -n "${BD_INSTALL_DIR:-}" ]; then
+  cat >&2 <<EOF
+capture.sh REFUSING TO RUN: BD_INSTALL_DIR is set in this shell.
+
+    BD_INSTALL_DIR=${BD_INSTALL_DIR}
+
+It is inherited by every test in the run, and db._resolve_db_path() prefers it
+over the working directory -- so all ~15000 tests share ONE SQLite history
+database and the per-test isolation conftest provides is defeated. Measured
+consequence: 89 false failures in one capture (13 "database is locked", a
+UNIQUE violation, assert 10 == 1). The clean re-run passed 12833.
+
+Fix, then re-run:
+
+    unset BD_INSTALL_DIR && ./capture.sh $*
+
+For a one-shot probe, PREFIX it instead of exporting it:
+
+    BD_INSTALL_DIR="\$(mktemp -d)" venv/bin/python -c '...'
+EOF
+  exit 2
+fi
+
 BD_HOME="${BD_HOME:-$HOME/BulkDownloader}"
 OUT="/tmp/bd_capture"
 ARCHIVE="/tmp/bd_capture.tar.gz"

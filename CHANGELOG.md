@@ -4,6 +4,34 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1003
+
+- capture.sh REFUSES to run when BD_INSTALL_DIR is set in the invoking shell.
+  Measured twice, one whole capture each time. 2026-08-09: the operator was
+  advised to export the override for ad-hoc probes, capture.sh inherited it, and
+  89 tests failed -- 13 "database is locked", a UNIQUE violation, assert 10 == 1.
+  The clean re-run passed 12833, and 12744 + 89 = 12833, so EVERY failure was
+  the variable. 2026-08-10: the same shape produced six MOD3 Postgres failures
+  and was reconstructed to the digit.
+- Mechanism: db._resolve_db_path() prefers the variable over the cwd, so one
+  value makes every test in the run share ONE SQLite history database and
+  defeats the per-test isolation conftest's autouse isolated_bd_home provides.
+- REFUSES rather than quietly unsetting. There is no legitimate way to run the
+  suite with it set process-wide, and a silent fix would hide a broken shell
+  that will poison the operator's next ad-hoc probe too. The refusal names the
+  offending value, gives the unset command, and shows the PREFIX form -- the
+  advice that caused the first incident was `export`.
+- It fires in under a second, before any work, so the cost is a second rather
+  than a fifteen-minute capture. Pinned by a timing assertion.
+- RED proven by removing the guard: 3 failed / 3 passed without it, 6 passed
+  with it. The over-sensitive direction is pinned too -- a guard that refused
+  unconditionally would pass the refusal test and make capture.sh unrunnable.
+- The static half asserts over COMMENT-STRIPPED shell via tests/shell_source.py,
+  as two independent facts rather than by walking the enclosing block:
+  blocks_containing returns one line per hit for this construct, so "some block
+  also contains exit" is FALSE for a correct implementation. The first draft of
+  the test asserted exactly that and failed the working guard.
+
 ## v3.66.1002
 
 - ITEM C: `text=/Download/i` could go green on a HEADING.
