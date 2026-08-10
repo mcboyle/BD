@@ -4,6 +4,55 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1022
+
+A test wrote into the TRACKED corpus, and it failed a box capture.
+
+test_v3_66_13_phase2_p10_bdctl_dd_diff.py mutated
+tests/fixtures/deep_detect/01_hls_master/meta.json in place -- a tracked file --
+and restored it in a finally:. test_v3_66_13_phase2_p2_snapshot_replay.py
+re-reads that same meta.json from disk on every call and resolves each snapshot
+URL against its base_url. Both files are in the capture's PARALLEL lane, so on
+the box's 88-worker run a read landing inside the window saw a base_url nobody
+expected:
+
+    - "url": "https://cdn.example.test/stream/1080p.m3u8"
+    + "url": "https://different.example.test/1080p.m3u8"
+
+CONCURRENCY-DEPENDENT, NOT ORDER-DEPENDENT: polluter-then-victim in one process
+passes, because the finally: restores before the victim starts. It takes genuine
+overlap, which is why it surfaces on the box and essentially never in a
+container -- and why no amount of re-running would have proved it fixed.
+
+THE finally: IS ALSO A RESIDUE HAZARD, and that half is worse than the race. A
+worker killed mid-window never runs it and the tracked file stays mutated on
+disk, so the next run fails deterministically for a reason that looks nothing
+like its cause. Section 6 records the same shape for bd-mutate.
+
+AN ENV VAR RATHER THAN A FLAG OR A MODULE GLOBAL, for a specific reason: bdctl
+loads dd-replay FRESH on every dd-diff invocation via spec_from_file_location +
+exec_module, so a test that monkeypatches replay.CORPUS_DIR never holds the
+instance bdctl builds mid-call. The environment is re-read at each exec_module.
+An argparse flag would reach only dd-replay's own main(), which bdctl never
+calls. DD_REPLAY_CORPUS is deliberately UNPREFIXED: a BD_ name enters
+test_gui_parity's env ledger denominator and an unledgered one fails the parity
+gate, and this is a test seam rather than a config key. `or` rather than a .get
+default, so an exported-but-empty value falls back instead of resolving to the
+CWD.
+
+The P10 copy fixture is AUTOUSE, because the protection must not depend on a
+future test author remembering to ask for it -- the tracked corpus being
+writable at all is the defect.
+
+A HASH CHECK ALONE WOULD NOT HAVE BEEN A TEST. Measured: every meta.json
+round-trips byte-identically through json.dumps(indent=2)+newline, and a full
+pristine P10 run leaves the corpus hash IDENTICAL -- so "unchanged after the
+suite" is GREEN on pristine in the happy path and catches only the crash case.
+The discriminating assertion is where the WRITE lands, so the test calls the
+helper and does not restore, then asks which file moved. It is kept as a
+backstop for the crash case, and during the RED proof it fired for real: the
+pristine helper wrote the tracked corpus live.
+
 ## v3.66.1021
 
 Queue item 5: log._init() appended to a global it did not own.
