@@ -171,7 +171,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_differential_oracle_frontend.py",
-      "line": 187,
+      "line": 195,
       "value": {
         "cases": 11
       },
@@ -180,7 +180,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_differential_oracle_frontend.py",
-      "line": 208,
+      "line": 216,
       "value": {
         "exitcode": 7
       },
@@ -189,7 +189,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_differential_oracle_frontend.py",
-      "line": 738,
+      "line": 746,
       "value": {
         "comparisons": 0,
         "forbidden": 0
@@ -220,7 +220,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.997",
+      "value": "3.66.998",
       "gates_what": "test_containment_routes_and_version"
     },
     {

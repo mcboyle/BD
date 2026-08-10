@@ -4,6 +4,43 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.998
+
+- Serial lane 62 -> 33 files. 30 promoted, 11 of them only after a real fix, and
+  one PARALLEL file demoted to serial for cause. About 450s of the box's 903s
+  lane, of which 392.2s is measured and the rest DERIVED by scaling.
+- The three most expensive files were refuted at v3.66.923 against a ONE-SECOND
+  AdapterBudget wall clock. That budget is not their subject, so it is now 30s
+  and the enumeration test discriminates structurally instead of by race:
+  fuzz_harness 178.4s -> 30.6s isolated, differential_oracle and reachability
+  likewise. Assertions unchanged.
+- test_u50_widget_backfills, test_u30_runner_replay and test_cut41_ts_iso_producers
+  were FIXED rather than pinned. u50 needed each behaviour test to build its own
+  schema (db_init alone is measurably insufficient -- `library` arrives by
+  migration). u30 asserted over the process-global app.runners. cut41 asserted
+  an absolute dashboard count while /api/dashboard iterates EVERY registered
+  runner. All three were failing on the pristine sweep too, so this closes three
+  of the container-only failures 15.79 recorded.
+- THE ABSOLUTE RUNNER RULE HAD A DEMONSTRATED ESCAPE AND IT IS NOW CLOSED
+  ADDITIVELY -- the snippet tuple is untouched, so this is not the narrowing
+  refuted at @990. `spec_from_file_location("rtc","run_tests_core.py") +
+  exec_module` classified PARALLEL while still loading the runner in-process;
+  capture_lanes now carries an AST-scoped `runner_import_hazard` that sees
+  loader calls whose argument subtree names the runner, fail-closed on
+  unparseable source. Proven RED first; bd-mutate 3 caught / 0 escaped.
+- The escape had a LIVE instance already in the parallel lane:
+  test_harness_retry_timeout.py spec-loads the runner in-process and leaked
+  BD_TEST_FILE_TIMEOUT, a key no restore covered. Leak fixed, allowlist entry
+  removed -- it is serial now, correctly.
+- capture_lanes.py's @921 comment block claimed the source checks are ABSOLUTE
+  and unoverridable. @923 moved the allowlist above them and nothing updated the
+  comment, so it has been stating the opposite of the code. Fixed in place.
+- Evidence: bd-leakprobe SENSITIVE then 30 probed / 0 leaking; derived band 575
+  passed; all 15 CI gate suites green; import-graph gate proven RED pre-refreeze
+  and refrozen; whole-tree sweeps at -n 4 and -n 2 against a pristine baseline
+  in the same directory -- 60 failed with the changes vs 70 pristine, and no
+  promoted file failed beyond what pristine also shows.
+
 ## v3.66.997
 
 - Register only. 15.79 records the @994-996 session: the serial lane's real

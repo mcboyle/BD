@@ -100,6 +100,28 @@ def test_allowlisted_file_cannot_bypass_dynamic_runner_import_risk() -> None:
         'import importlib\nimportlib.import_module("run_tests")',
         'from importlib import import_module as load\nload("run_tests_core")',
         '__import__("run_tests")',
+        # v3.66.998: the demonstrated ESCAPE (SESSION_CARRY 15.79) -- a
+        # file-loader with a path literal whose trailing ".py" defeats both
+        # the quote-anchored literal regex and the "run_tests.py" substring.
+        # Proven RED against the pre-fix classifier: it returned "parallel".
+        'import importlib.util\n'
+        'spec = importlib.util.spec_from_file_location('
+        '"rtc", "run_tests_core.py")\n'
+        'rtc = importlib.util.module_from_spec(spec)\n'
+        'spec.loader.exec_module(rtc)\n',
+        # ...and the nested form a real file used: the literal sits inside a
+        # Path division, not as a bare argument.
+        'from importlib.util import spec_from_file_location\n'
+        'from pathlib import Path\n'
+        'spec = spec_from_file_location('
+        '"rtc", Path(".") / "run_tests_core.py")\n',
+        # ...and the UNPARSEABLE form, which exercises the AST check's
+        # fail-closed fallback -- the only runner reference here is one no
+        # substring or quote-anchored check matches, so a fallback that
+        # returned False would classify this parallel. bd-mutate proved
+        # exactly that mutant ESCAPED before this case existed.
+        'spec_from_file_location("rtc", "run_tests_core.py")\n'
+        'def broken(:\n',
     ):
         assert (
             lanes.classify_capture_file(allowlisted, source=source)
@@ -134,11 +156,12 @@ def _has_source_hazard(lanes, path) -> bool:
         source = path.read_text(encoding="utf-8")
     except OSError:
         return True
-    code = lanes.code_only(source)
-    lowered = code.lower()
-    if any(snippet in lowered for snippet in lanes.ABSOLUTE_SERIAL_SNIPPETS):
-        return True
-    return bool(lanes.RUNTESTS_LITERAL.search(code))
+    # v3.66.998: borrow the WHOLE predicate, not its parts. This helper used
+    # to restate snippets + literal regex; when the classifier gained the
+    # dynamic-loader check the restatement would have silently held a second,
+    # narrower definition of "hazard" -- the exact drift @992 caught when it
+    # borrowed the constants but not code_only.
+    return lanes.runner_import_hazard(lanes.code_only(source))
 
 
 def test_classifier_defaults_unreviewed_files_to_serial() -> None:

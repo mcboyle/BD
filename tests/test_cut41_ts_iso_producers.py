@@ -271,6 +271,21 @@ def test_a_marked_job_is_counted_by_the_dashboard():
     r = _FullRunner({_URL: {"status": "pending", "message": ""}})
     r._recent_per_min = 0
     r.cookies = []
+
+    # PIN THE FLEET to exactly this test's runner. /api/dashboard's today.done
+    # iterates EVERY registered runner's jobs (app_dashboard.py:55-69), so an
+    # absolute `== 1` was really an assertion that no earlier file in this
+    # process left a runner holding a done job stamped today. Measured in the
+    # v3.66.998 whole-tree -n 4 sweeps: a worker whose app had restored 3077
+    # jobs from another file's residue read done == 2 -- on PRISTINE source
+    # too, so this predates the lane work. Same class as test_u30's
+    # empty-fleet fix: assert over the state the test is ABOUT, not over
+    # whatever the process accumulated.
+    from bulk_downloader import app_state as st
+    saved_runners = dict(st.runners)
+    saved_s_cfg = dict(st.s_cfg)
+    st.runners.clear()
+    st.s_cfg.clear()
     cleanup = _register("cut41_e2e", r)
     try:
         resp = _post("/api/sites/cut41_e2e/jobs/mark",
@@ -285,3 +300,7 @@ def test_a_marked_job_is_counted_by_the_dashboard():
             f"GET /api/dashboard: today={today!r} job={r.jobs[_URL]!r}")
     finally:
         cleanup()
+        st.runners.clear()
+        st.runners.update(saved_runners)
+        st.s_cfg.clear()
+        st.s_cfg.update(saved_s_cfg)

@@ -270,7 +270,12 @@ def _analyze(
     *,
     app_target: str,
     authenticated_fixture: str | None = None,
-    timeout: float = 5.0,
+    # WIDE default on purpose: the probe child imports Flask in a fresh
+    # interpreter, and under a loaded parallel lane that alone takes seconds.
+    # v3.66.923 refuted this file's crash-half exactly there (TIMEOUT won the
+    # race against the asserted ERROR). Tests ABOUT the timeout pass a small
+    # value explicitly against a 10s sleep, where load only helps.
+    timeout: float = 30.0,
 ):
     security, call_graph = _inputs(tmp_path)
     deferrals = tmp_path / "REACHABILITY_DEFERRALS.json"
@@ -434,7 +439,7 @@ def test_invalid_projection_is_rejected_before_app_import(tmp_path: Path) -> Non
         call_graph_path=call_graph,
         deferrals_path=None,
         authenticated_fixture=None,
-        timeout_seconds=1.0,
+        timeout_seconds=30.0,
     )
 
     assert result.state is ResultState.ERROR
@@ -486,7 +491,7 @@ def _cli_args(
         security_surface=security,
         call_graph=call_graph,
         deferrals=None,
-        timeout=5.0,
+        timeout=30.0,
         out=tmp_path / "REACHABILITY.json",
         check=check,
         gate=gate,
@@ -612,7 +617,7 @@ def test_malformed_duplicate_and_nonfinite_projections_are_controlled(
         call_graph_path=call_graph,
         deferrals_path=None,
         authenticated_fixture=None,
-        timeout_seconds=1.0,
+        timeout_seconds=30.0,
     )
 
     assert result.state is ResultState.ERROR
@@ -643,7 +648,7 @@ def test_projection_symlink_is_rejected_before_target_read(tmp_path: Path) -> No
         call_graph_path=call_graph,
         deferrals_path=None,
         authenticated_fixture=None,
-        timeout_seconds=1.0,
+        timeout_seconds=30.0,
     )
 
     assert result.state is ResultState.ERROR
@@ -937,7 +942,7 @@ def test_projection_larger_than_resource_budget_is_rejected(
         call_graph_path=call_graph,
         deferrals_path=None,
         authenticated_fixture=None,
-        timeout_seconds=1.0,
+        timeout_seconds=30.0,
     )
 
     assert result.state is ResultState.ERROR

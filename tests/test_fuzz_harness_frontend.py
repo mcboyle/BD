@@ -84,7 +84,11 @@ class SlowCasesFuzzer:
     kind: str = "fuzz"
 
     def cases(self, _context: AdapterContext):
-        time.sleep(1.0)
+        # 30s, not 1s: the enumeration-bound test discriminates "the budget cut
+        # enumeration off" (~budget seconds) from "it slept out the whole
+        # enumeration" (~30s). With a 1s sleep that margin was a wall-clock
+        # coin flip under load; against 30s a <20s bound is decisive.
+        time.sleep(30.0)
         return (AdapterCase("late", {}),)
 
     def run(self, _case: AdapterCase, _context: AdapterContext) -> CheckResult:
@@ -255,7 +259,13 @@ class DescendantLifecycleFuzzer:
 
 def _context(
     tmp_path: Path,
-    timeout: float = 1.0,
+    # WIDE default on purpose: tests whose subject is not the timeout must not
+    # race one -- worker spawn alone takes seconds under a loaded parallel
+    # lane, which is how the v3.66.923 box sweeps refuted the *_frontend
+    # family (one-second budgets, PASS/ERROR-side assertions). Tests ABOUT
+    # the timeout pass a small value explicitly against a case that sleeps
+    # far longer than the budget, so load only makes them MORE timed out.
+    timeout: float = 30.0,
     seed: int = 42,
     *,
     max_cases: int = 10,
@@ -342,7 +352,7 @@ def _cli_args(
         adapters=[adapter_name],
         corpus=None,
         seed=23,
-        timeout=2.0,
+        timeout=30.0,
         max_cases=4,
         max_output_bytes=8192,
         generator=generator,
@@ -391,7 +401,7 @@ def _valid_fuzz_artifact() -> dict[str, object]:
 
 
 def _wait_until_dead(process_id: int) -> bool:
-    deadline = time.monotonic() + 3.0
+    deadline = time.monotonic() + 30.0  # poll returns early; wide for loaded lanes
     while time.monotonic() < deadline:
         try:
             os.kill(process_id, 0)
@@ -464,7 +474,13 @@ def test_timeout_reaps_worker_descendants(tmp_path: Path) -> None:
     try:
         result, findings = run_fuzz_adapter(
             DescendantFuzzer(),
-            _context(tmp_path, timeout=2.0),
+            # 10s, not 2s: the deadline starts at process.start(), so it also
+            # covers the worker's interpreter BOOT. This test must read the
+            # descendant pid file the case writes BEFORE its 30s sleep -- a
+            # budget the boot can eat under load makes that file a coin flip.
+            # The case still exceeds 10s decisively, so the timeout finding
+            # stands in every regime.
+            _context(tmp_path, timeout=10.0),
             reproducer_dir=tmp_path / "repro",
         )
         child_pid = int(
@@ -492,7 +508,7 @@ def test_case_enumeration_is_bounded_by_the_same_timeout(tmp_path: Path) -> None
 
     assert result.state is ResultState.TIMEOUT
     assert findings == ()
-    assert time.monotonic() - started < 1.2
+    assert time.monotonic() - started < 20.0  # decisive vs the 30s sleep above
 
 
 def test_import_does_not_execute_fuzzing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -577,7 +593,7 @@ def test_cli_same_path_check_does_not_overwrite_stale_baseline(tmp_path: Path) -
     baseline.write_text('{"stale":true}\n', encoding="utf-8")
     args = argparse.Namespace(
         root=Path(__file__).resolve().parents[1], adapters=["url-guard"], corpus=None,
-        seed=7, timeout=10.0, max_cases=10, max_output_bytes=4096,
+        seed=7, timeout=30.0, max_cases=10, max_output_bytes=4096,
         generator="none", reproducer_dir=tmp_path / "repro", out=baseline,
         check=baseline, gate=False, json=False,
     )
