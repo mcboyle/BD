@@ -25,7 +25,7 @@ if str(_ROOT) not in sys.path:
 from tools import cockpit_core as cc
 from capture_test_fixtures import capture_fixture_lane
 
-_FIXTURES = capture_fixture_lane()
+_FIXTURES = capture_fixture_lane(allow_synthetic=True)
 
 
 @pytest.fixture(autouse=True)

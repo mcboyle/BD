@@ -1,0 +1,118 @@
+{
+ "capture_kind": "page_visit",
+ "capture_version": 3,
+ "captured_at": "2026-01-01T00:00:00.000000+00:00",
+ "cookies": "sessionid=CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+ "dom_log": [],
+ "dom_log_count": 0,
+ "fingerprint_detection": {
+  "checked": true,
+  "signals": []
+ },
+ "host": "ultrafilms.example",
+ "network_log": [
+  {
+   "duration_ms": 10,
+   "error": null,
+   "iso": "2026-01-01T00:00:00Z",
+   "method": "GET",
+   "request_body": null,
+   "request_headers": {
+    "Cookie": "sessionid=CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+   },
+   "response_body": null,
+   "response_body_skipped_reason": null,
+   "response_body_truncated": false,
+   "response_headers": {
+    "content-type": "text/html"
+   },
+   "response_status": 200,
+   "response_status_text": "OK",
+   "seq": 0,
+   "timestamp": 1767225600,
+   "type": "document",
+   "url": "https://ultrafilms.example/video/title1?Signature=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&Expires=1700000000&Key-Pair-Id=KKKKKKKKKKKKKK&Policy=PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP"
+  },
+  {
+   "duration_ms": 11,
+   "error": null,
+   "iso": "2026-01-01T00:00:01Z",
+   "method": "GET",
+   "request_body": "{\"login\": \"user@example.invalid\", \"title\": \"title1\"}",
+   "request_headers": {
+    "Authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbb.cccccccccccccccccccccccc",
+    "Cookie": "sessionid=CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+   },
+   "response_body": null,
+   "response_body_skipped_reason": null,
+   "response_body_truncated": false,
+   "response_headers": {
+    "content-type": "application/json"
+   },
+   "response_status": 200,
+   "response_status_text": "OK",
+   "seq": 1,
+   "timestamp": 1767225601,
+   "type": "xhr",
+   "url": "https://ultrafilms.example/api/v1/title/title1"
+  },
+  {
+   "duration_ms": 12,
+   "error": null,
+   "iso": "2026-01-01T00:00:02Z",
+   "method": "GET",
+   "request_body": null,
+   "request_headers": {
+    "Cookie": "sessionid=CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+   },
+   "response_body": null,
+   "response_body_skipped_reason": null,
+   "response_body_truncated": false,
+   "response_headers": {
+    "content-type": "image/jpeg"
+   },
+   "response_status": 200,
+   "response_status_text": "OK",
+   "seq": 2,
+   "timestamp": 1767225602,
+   "type": "image",
+   "url": "https://cdn.ultrafilms.example/hls/SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS/poster.jpg"
+  },
+  {
+   "duration_ms": 20,
+   "error": null,
+   "iso": "2026-01-01T00:00:10Z",
+   "method": "GET",
+   "request_body": null,
+   "request_headers": {
+    "Cookie": "sessionid=CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+   },
+   "response_body": null,
+   "response_body_skipped_reason": null,
+   "response_body_truncated": false,
+   "response_headers": {
+    "content-type": "video/mp4"
+   },
+   "response_status": 200,
+   "response_status_text": "OK",
+   "seq": 10,
+   "timestamp": 1767225610,
+   "type": "media",
+   "url": "https://cdn.ultrafilms.example/videos/1a2b3c4d/1080p.mp4?Signature=<scrubbed>&Expires=<scrubbed>&Key-Pair-Id=<scrubbed>"
+  }
+ ],
+ "network_log_count": 4,
+ "origin": "https://ultrafilms.example",
+ "pathname": "/video/title1",
+ "search": "?Signature=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+ "session_start": 1767225600,
+ "storage_deltas": [],
+ "storage_snapshot": {
+  "localStorage": {
+   "token": "aaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbb.cccccccccccccccccccccccc"
+  }
+ },
+ "title": "title1",
+ "url": "https://ultrafilms.example/video/title1",
+ "user_agent": "Mozilla/5.0 (synthetic corpus)"
+}

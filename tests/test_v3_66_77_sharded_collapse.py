@@ -19,7 +19,7 @@ from bulk_downloader import validation_corpus as vc
 from capture_test_fixtures import capture_fixture_lane
 
 
-_FIXTURES = capture_fixture_lane()
+_FIXTURES = capture_fixture_lane(allow_synthetic=True)
 
 
 def _entry(seq, url):

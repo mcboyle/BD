@@ -39,7 +39,7 @@ _S_CFG = {
     "fixturesite2_infinite": {"title_selector": "title"},
 }
 _FIXTURE_SITES = tuple(_S_CFG) + ("fixturesite2_api", "fixturesite2_spa")
-_CAPTURE_FIXTURES = capture_fixture_lane()
+_CAPTURE_FIXTURES = capture_fixture_lane(allow_synthetic=True)
 
 
 def _fixture_sources(capture_root, site):

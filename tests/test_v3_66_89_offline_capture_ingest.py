@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bulk_downloader import capture_ingest as ci
 from capture_test_fixtures import capture_fixture_lane
 
-_FIXTURES = capture_fixture_lane()
+_FIXTURES = capture_fixture_lane(allow_synthetic=True)
 _SERIES = ["ultrafilms_title2.wacz", "ultrafilms_title14_later.wacz"]
 
 

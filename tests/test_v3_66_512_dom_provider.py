@@ -19,7 +19,7 @@ import pytest
 from bulk_downloader import drift_repair as dr
 from capture_test_fixtures import capture_fixture_lane
 
-_CAPTURE_FIXTURES = capture_fixture_lane()
+_CAPTURE_FIXTURES = capture_fixture_lane(allow_synthetic=True)
 
 # www.miruro.tv DOM: 'a' matches (working), 'button' matches 0 (broken).
 CFG = {"start_url": "https://www.miruro.tv/",

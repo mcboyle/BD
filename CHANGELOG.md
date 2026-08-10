@@ -4,6 +4,43 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1000
+
+- 65 capture-dependent skips -> 1. The 13 files that consume capture artifacts
+  ran NOWHERE -- not locally, not in CI -- because their lane is disabled unless
+  a private corpus is configured, and a private corpus is never committed.
+  130 passed, 1 skipped, from 0 passed / 65 skipped.
+- New tools/make_synthetic_capture_corpus.py builds a committed synthetic corpus
+  at tests/capture_corpus_synthetic/. capture_test_fixtures.py gains
+  capture_fixture_lane(allow_synthetic=True) -- OPT-IN PER CALL SITE, so
+  test_default_lane_is_disabled_without_explicit_root stays true and the guard
+  against embedding private host paths keeps its meaning. A configured real
+  corpus still WINS when present.
+- THE FIXTURE MUST BE ABLE TO REPRESENT THE FAILURE. A synthetic capture with no
+  signing parameter makes "no signing value ever reaches an output" pass
+  trivially, and a vacuous pass is worse than the skip it replaced because a
+  skip is honest about having proven nothing. Every hazard is present on purpose
+  -- signed query params, path-signed segments, a JWT, cookies, an email -- and
+  --check asserts they survived into the artifacts, so the corpus cannot go
+  inert without failing.
+- Every site-specific marker was mutation-probed: break the marker and the
+  recognizer's verdict flips, so each test can still fail. Markers include the
+  bros sharded-CDN run, t's path-signing key/end/ip, nubile's filename echo and
+  _3840 rendition, miruro's vds- DOM plus plyr/hls.js confusables, and an Aylo
+  download-API host distinct from the content CDN.
+- Every secret-shaped value is a ZERO-ENTROPY REPEAT. gitleaks over the corpus:
+  no leaks found.
+- The corpus is DETERMINISTIC. zipfile.writestr stamps members with the current
+  time, so regenerating an unchanged corpus moved the tree hash
+  67dbd82c3cb9b0e9 -> 9717779786e64bc1 with no input change -- permanent diff
+  churn for a committed artifact. Members now carry a fixed timestamp.
+- The generator deliberately does NOT spell the capture-root variable's name.
+  The config-surface scanner matches the BD_ prefix across tools/, so writing it
+  entered this file into the parity ledger as unledgered debt and failed
+  test_open_parity_debt_is_zero (open_runtime_tunable 1 against a baseline of
+  0). CLAUDE.md section 4 says it plainly: if the name is not a real config key,
+  do not prefix it.
+
 ## v3.66.999
 
 - The 15 MOD3 Postgres tests no longer skip. Postgres is provisioned in

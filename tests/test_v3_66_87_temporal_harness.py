@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bulk_downloader import temporal_harness as th
 from capture_test_fixtures import capture_fixture_lane
 
-_FIXTURES = capture_fixture_lane()
+_FIXTURES = capture_fixture_lane(allow_synthetic=True)
 
 # the real N=3 ultrafilms title1 series and an N=2 pair
 ULTRA_SERIES = ["capA.json", "ultrafilms_title1_later.wacz",
