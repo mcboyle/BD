@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.995
+
+- build_snapshot forked `git rev-parse` ONCE PER TRACKED FILE. `snapshot.py`
+  validated each tracked path inside its loop with `normalize_repo_path(
+  repository, ...)`, and that function re-derives the root via
+  `discover_repo_root` on every call -- with a CONSTANT first argument, for a
+  return value the caller deliberately discards. The call exists only to reject
+  tracked symlinks pointing outside the repository.
+- Measured: one `build_snapshot(REPO)` call made 3224 git forks and took 6.66s;
+  after, 3 forks and 0.47s. The three slowest files in capture.sh's serial lane
+  went 140.30s -> 40.70s in-container, same 211 passed. Those three are 45% of
+  the box's 903s serial lane; the box has not confirmed its own number yet.
+- The fix adds `relative_to_repo(repository, path)` -- the same rule and the
+  same rejection with the root already discovered -- and leaves
+  `normalize_repo_path` behaviourally identical by delegating to it, so the
+  escape-rejection test is untouched. Old and new agree on value AND exception
+  for every probed case, and `discover_repo_root` is idempotent on a root.
+- Blast radius checked rather than assumed: `normalize_repo_path` had exactly
+  one product caller, the hot line itself. Band 253 files, 4369 passed; of 23
+  failures under -n 4, 11 were lane placement (gone on serial retry), 8 are the
+  documented container-only set, and 4 reproduce IDENTICALLY on pristine source
+  in the same directory.
+- Also speeds up any other build_snapshot consumer: differential_oracle,
+  fuzz_harness, reachability_service and l0_extract, the last of which is
+  capture.sh step [2b].
+
 ## v3.66.994
 
 - New tool `bd-leakprobe`: measures what a test FILE leaves behind for the next

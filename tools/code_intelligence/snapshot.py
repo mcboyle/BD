@@ -12,7 +12,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 
-from .paths import discover_repo_root, normalize_repo_path
+from .paths import discover_repo_root, relative_to_repo
 from .schemas import make_envelope
 
 
@@ -60,7 +60,10 @@ def build_snapshot(
     for tracked_path in tracked_files(repository):
         if include is not None and not include(tracked_path):
             continue
-        normalize_repo_path(repository, repository / tracked_path)
+        # `repository` is already the discovered root, so re-deriving it per
+        # file forked `git rev-parse` once per tracked file. The validation is
+        # what this call is for -- the return value is deliberately unused.
+        relative_to_repo(repository, repository / tracked_path)
         try:
             raw = (repository / tracked_path).read_bytes()
         except OSError:
