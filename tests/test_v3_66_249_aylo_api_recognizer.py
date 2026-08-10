@@ -161,7 +161,7 @@ def test_login_username_fallback_does_not_grab_password_field():
 from capture_test_fixtures import capture_fixture_lane
 
 
-_STRICT_FIXTURES = capture_fixture_lane(strict=True)
+_STRICT_FIXTURES = capture_fixture_lane(strict=True, allow_synthetic=True)
 
 
 def test_real_bang247_yields_api_candidate():

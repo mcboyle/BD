@@ -12,8 +12,15 @@ from bulk_downloader import dev_suite as ds
 
 # ── runner_console (D-19) ──────────────────────────────────────────
 
-def test_runner_console_empty_fleet(clean_workdir):
-    # in test mode the runners dict is empty
+def test_runner_console_empty_fleet(clean_workdir, monkeypatch):
+    # runner_console reads the PROCESS-GLOBAL bulk_downloader.app.runners.
+    # "in test mode the runners dict is empty" was an assumption about ambient
+    # state: any earlier file on the same worker that left a runner registered
+    # makes runner_count nonzero, which is how this file was refuted in the
+    # v3.66.923 box sweep and passed its serial retry. Pin the global to the
+    # state this test is ABOUT instead of hoping nothing populated it.
+    from bulk_downloader import app as bd_app
+    monkeypatch.setattr(bd_app, "runners", {})
     r = ds.runner_console()
     assert r["ok"] is True
     assert r["runner_count"] == 0

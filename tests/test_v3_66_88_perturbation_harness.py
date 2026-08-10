@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bulk_downloader import perturbation_harness as ph
 from capture_test_fixtures import capture_fixture_lane
 
-_FIXTURES = capture_fixture_lane()
+_FIXTURES = capture_fixture_lane(allow_synthetic=True)
 
 
 def _load(p):

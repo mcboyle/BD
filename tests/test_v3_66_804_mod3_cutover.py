@@ -51,6 +51,21 @@ def _pg_available():
         return False, f"postgres unreachable: {type(e).__name__}"
 
 
+@pytest.fixture(autouse=True)
+def _isolated_history_db(tmp_path, monkeypatch):
+    """Pin BD_INSTALL_DIR to this test's tmp_path (clean_workdir's pattern).
+
+    An AMBIENT value makes every test in the run share ONE history DB (see
+    test_v3_66_800_mod3_dual_write.py for the measured failure signature):
+    a leftover co-1 row makes db_init()'s FTS backfill count shadow-diverge
+    from the freshly-cleared mirror, the preflight refuses, and
+    cutover_engaged() correctly reports False -- failing this file's cutover
+    tests for a reason that is not in the code under test. The parent's
+    environment is part of this suite's denominator, so the var is pinned
+    rather than inherited."""
+    monkeypatch.setenv("BD_INSTALL_DIR", str(tmp_path))
+
+
 def _reload(monkeypatch, tmp_path, dsn=None, shadow=None, cutover=None):
     monkeypatch.setenv("BD_HOME", str(tmp_path))
     for name, val in (("MOD3_PG_DSN", dsn), ("MOD3_SHADOW_READ", shadow),

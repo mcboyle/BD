@@ -271,9 +271,13 @@ _UNDECLARED_BY_DESIGN = {
            "affordance the headless deploy never starts",
     "pystray": "the tray itself; same reason as PIL",
     "plexapi": "Plex library sync, opt-in per install",
-    "psycopg": "optional Postgres backend; sqlite is the default and the only "
-               "backend the deploy uses",
-    "psycopg2": "the legacy binding for the same optional Postgres backend",
+    # psycopg's waiver was REMOVED 2026-08-10: it is declared in
+    # requirements-test.txt now (operator decision -- see the comment on the
+    # pin), and the anti-rot check below correctly fails a waiver for a
+    # declared name.
+    "psycopg2": "the legacy binding for the optional Postgres backend "
+                "(plugin_kv.py's fallback import); the modern binding is a "
+                "declared test dependency, this one stays undeclared",
     "subliminal": "subtitle fetching, opt-in",
     "babelfish": "language-code helper reached only through subliminal",
 }
@@ -303,8 +307,10 @@ _UNDECLARED_OUTSIDE_BY_DESIGN = {
     "paho": "docs/plugin_examples/notify_events.py is an EXAMPLE plugin the "
             "operator copies and edits. BD never imports it, and the import "
             "is try/except guarded inside the publish helper",
-    "psycopg": "optional Postgres backend; the four MOD3 tests skip unless "
-               "MOD3_PG_TEST_DSN is set AND the import succeeds",
+    # psycopg's waiver was REMOVED 2026-08-10: declared in
+    # requirements-test.txt now (see the comment on the pin). The four MOD3
+    # tests still skip unless MOD3_PG_TEST_DSN is set and a server answers --
+    # declaring the driver changed where it is installed, not when it is used.
     "bd_dev_inspect": "an out-of-tree, dev-only inspection package that is on "
                       "no index and in no manifest by design. "
                       "tools/capture_session.py catches ImportError and "

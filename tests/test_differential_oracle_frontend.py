@@ -104,7 +104,15 @@ def test_completed_wrapper_gets_bounded_reader_drain_grace() -> None:
     assert not reader.is_alive()
 
 
-def _context(tmp_path, timeout=1.0):
+def _context(tmp_path, timeout=30.0):
+    # The default budget is WIDE on purpose. Every test whose subject is not
+    # the timeout itself must not race one: spawning a worker interpreter
+    # under a loaded parallel lane can alone take seconds, and at v3.66.923
+    # the box refuted this file exactly there -- one-second budgets turned
+    # PASS/ERROR-side assertions into coin flips at -n 16..64 ("a ONE-SECOND
+    # wall clock ... is a coin flip"). Tests ABOUT the timeout pass a small
+    # value explicitly, against a case that sleeps far longer than the budget,
+    # so load can only make them MORE timed out -- the safe direction.
     return AdapterContext(
         tmp_path,
         tmp_path / "artifacts",
@@ -307,7 +315,7 @@ def test_worker_ipc_bytes_are_bounded(tmp_path):
         tmp_path / "artifacts",
         tmp_path / "corpus",
         17,
-        AdapterBudget(1.0, 10, 128),
+        AdapterBudget(30.0, 10, 128),  # subject: the 128-byte cap, not the clock
     )
 
     result, rows = run_oracle_adapter(OversizedResultAdapter(), context)
@@ -350,7 +358,7 @@ def test_sub_budget_worker_payload_is_drained_without_pipe_deadlock(
         tmp_path / "artifacts",
         tmp_path / "corpus",
         17,
-        AdapterBudget(2.0, 10, 250_000),
+        AdapterBudget(30.0, 10, 250_000),  # subject: drain, not the clock
     )
 
     result, rows = run_oracle_adapter(
@@ -518,7 +526,7 @@ def _fake_context(root: Path) -> AdapterContext:
         root / "artifacts",
         root,
         17,
-        AdapterBudget(2.0, 20, 65536),
+        AdapterBudget(30.0, 20, 65536),  # subject: command wiring, not the clock
     )
 
 
@@ -623,7 +631,7 @@ def test_consumer_wrapper_with_unbindable_hard_coded_root_is_unknown(
         tmp_path / "artifacts",
         root,
         17,
-        AdapterBudget(1.0, 10, 4096),
+        AdapterBudget(30.0, 10, 4096),  # subject: UNKNOWN verdict, not the clock
     )
 
     result = get_adapter("consumer-agreement").run(
@@ -644,7 +652,7 @@ def test_rollback_wrapper_preserves_informational_decision(tmp_path):
         tmp_path / "artifacts",
         root,
         17,
-        AdapterBudget(5.0, 10, 65536),
+        AdapterBudget(30.0, 10, 65536),  # subject: ADVISORY verdict, not the clock
     )
 
     result = get_adapter("rollback-oracle").run(
@@ -672,7 +680,7 @@ def test_cli_writes_deterministic_strict_source_bound_artifact(tmp_path):
         "--adapter",
         "url-classifier-truth",
         "--timeout",
-        "5",
+        "60",
         "--max-cases",
         "10",
         "--max-output-bytes",
@@ -819,7 +827,7 @@ def _pid_is_running(pid: int) -> bool:
     return True
 
 
-def _wait_for_pid_exit(pid: int, timeout: float = 1.0) -> bool:
+def _wait_for_pid_exit(pid: int, timeout: float = 30.0) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if not _pid_is_running(pid):
@@ -872,10 +880,13 @@ def test_unsupported_descendant_containment_never_launches_wrapper(
 @pytest.mark.parametrize(
     ("mode", "expected_state", "timeout", "max_output"),
     [
-        ("normal", ResultState.PASS, 2.0, 65536),
-        ("overflow", ResultState.ERROR, 2.0, 128),
-        ("timeout", ResultState.TIMEOUT, 0.2, 65536),
-        ("crash", ResultState.ERROR, 2.0, 65536),
+        ("normal", ResultState.PASS, 30.0, 65536),
+        ("overflow", ResultState.ERROR, 30.0, 128),
+        # 10s: the budget also covers worker BOOT, and this test reads the
+        # child.pid the script writes before its 60s sleep. See the fuzz
+        # descendant-reap test for the same reasoning.
+        ("timeout", ResultState.TIMEOUT, 10.0, 65536),
+        ("crash", ResultState.ERROR, 30.0, 65536),
     ],
 )
 def test_wrapper_background_descendant_is_reaped_on_every_completion_path(

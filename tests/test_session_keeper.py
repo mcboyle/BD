@@ -115,8 +115,12 @@ def test_lifetime_observations_basic():
         db.session_event_record("wow", 0, "heartbeat_fail", "")
         lifetimes = db.session_lifetime_observations("wow", 0)
         assert len(lifetimes) == 1
-        # Between 30ms and 200ms (slack for slow CI)
-        assert 0.02 < lifetimes[0] < 0.5
+        # Lower bound carries the discrimination (the sleeps between the two
+        # records really elapsed). The upper bound only rejects absurdity, so
+        # it is wide on purpose: it is a WALL-CLOCK gap between two db writes,
+        # and under a loaded parallel lane (the @923 sweeps ran 16-64 pytest
+        # processes) a tight bound measures the scheduler, not the subject.
+        assert 0.02 < lifetimes[0] < 30.0
 
 
 def test_lifetime_observations_multiple_cycles():

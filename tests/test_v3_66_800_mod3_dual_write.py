@@ -64,6 +64,21 @@ def _pg_available():
         return False, f"postgres unreachable: {type(e).__name__}"
 
 
+@pytest.fixture(autouse=True)
+def _isolated_history_db(tmp_path, monkeypatch):
+    """Pin BD_INSTALL_DIR to this test's tmp_path (clean_workdir's pattern).
+
+    db._resolve_db_path() prefers BD_INSTALL_DIR over cwd, so an AMBIENT value
+    -- e.g. a probe-hygiene prefix on the pytest invocation itself -- makes
+    every test in the run share ONE history DB. Rows then accumulate across
+    tests, db_init()'s FTS backfill count shadow-diverges from the
+    freshly-cleared Postgres mirror, and the cutover preflight refuses.
+    Measured 2026-08-10: exporting the var turned this green 38-test battery
+    into 6 failures with no code change. The parent's environment is part of
+    this suite's denominator, so the var is pinned rather than inherited."""
+    monkeypatch.setenv("BD_INSTALL_DIR", str(tmp_path))
+
+
 class TestDefaultOff:
     def test_dual_write_is_off_without_a_dsn(self, monkeypatch):
         monkeypatch.delenv("MOD3_PG_DSN", raising=False)

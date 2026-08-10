@@ -23,13 +23,29 @@ if str(_REPO) not in sys.path:
 
 
 def _load_run_tests(timeout_s):
-    """Fresh-load the core with BD_TEST_FILE_TIMEOUT set for its constants."""
+    """Fresh-load the core with BD_TEST_FILE_TIMEOUT set for its constants.
+
+    The variable is POPPED after the load, not left behind: it is read once at
+    module-exec time to derive constants, and before v3.66.998 this helper
+    leaked it into os.environ for every later file on the same worker -- an
+    unlisted key, so the conftest's saved-env restore never covered it. This
+    file spec-loads the runner IN-PROCESS, which is exactly the hazard
+    `runner_import_hazard` pins to the serial lane; the pin is correct and
+    this file stays serial by design.
+    """
+    saved = os.environ.get("BD_TEST_FILE_TIMEOUT")
     os.environ["BD_TEST_FILE_TIMEOUT"] = str(timeout_s)
-    spec = importlib.util.spec_from_file_location(
-        f"run_tests_core_t{timeout_s}", _REPO / "run_tests_core.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    try:
+        spec = importlib.util.spec_from_file_location(
+            f"run_tests_core_t{timeout_s}", _REPO / "run_tests_core.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    finally:
+        if saved is None:
+            os.environ.pop("BD_TEST_FILE_TIMEOUT", None)
+        else:
+            os.environ["BD_TEST_FILE_TIMEOUT"] = saved
 
 
 def test_subprocess_runner_times_out_a_wedged_file():

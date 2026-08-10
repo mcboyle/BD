@@ -37,7 +37,7 @@ import player_recognition as pr  # noqa: E402
 import build_template_from_wacz as btw  # noqa: E402
 from capture_test_fixtures import capture_fixture_lane  # noqa: E402
 
-_CAPTURE_FIXTURES = capture_fixture_lane()
+_CAPTURE_FIXTURES = capture_fixture_lane(allow_synthetic=True)
 _WACZ_NAMES = {
     "miruro": "miruro.redacted.wacz",
     "mirurow": "mirurow.redacted.wacz",

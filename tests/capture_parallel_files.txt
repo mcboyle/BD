@@ -11,9 +11,14 @@
 #
 # Everything else in that run passed, and everything that passed is listed.
 #
-# STILL EXCLUDED, and not by heuristic: files importing the fallback runner
-# (ABSOLUTE_SERIAL_SNIPPETS). That risk rewires global interpreter state and
-# has its own dedicated test; an entry here cannot override it.
+# STILL EXCLUDED, and not by heuristic: files that can EXECUTE the fallback
+# runner in their own interpreter (runner_import_hazard -- static imports,
+# dynamic/loader forms, monkeypatch/mock dotted paths, and loader-calls-on-
+# variables in files that also name the runner). That risk has its own
+# dedicated test; an entry here cannot override it. Files that only NAME the
+# runner in subprocess argv, heredoc driver strings, fixture paths or
+# assertion messages are reviewable like anything else -- the child process
+# that executes those mutates its own interpreter and exits.
 #
 # WHAT THIS EVIDENCE IS NOT. It is one PACKING. xdist assigns files to workers
 # by count, so another -n shuffles which files share a worker. Re-runs at
@@ -269,7 +274,6 @@ test_graph_source_hash_release_gate.py
 test_guardcheck_fails_closed.py
 test_gui_parity.py
 test_gui_parity_release_gate.py
-test_harness_retry_timeout.py
 test_headless_default.py
 test_healthcheck_disk_captures.py
 test_heartbeat_detects_a_logged_out_page.py
@@ -406,6 +410,7 @@ test_provision_test_host.py
 test_put_numeric_range_backstop.py
 test_pytest_capture_results.py
 test_pytest_module_graph.py
+test_pytest_runner_boundary.py
 test_pytest_runtime_requirement.py
 test_qb_jd_completions_record_the_largest_media_file.py
 test_queue_load_missing_table.py
@@ -485,6 +490,7 @@ test_t44_request_replay.py
 test_t45_login_flow_recorder.py
 test_t46_l29_vpn_kill_switch.py
 test_t47_storage_tier_utc_cutoff.py
+test_t49_runner_timing.py
 test_t4_db_growth_throughput.py
 test_t50_test_timing.py
 test_t51_regenerate_goldens.py
@@ -1028,6 +1034,7 @@ test_v3_66_792_nuitka_onefile_size.py
 test_v3_66_793_nuitka_adopt.py
 test_v3_66_794_waitress_swap.py
 test_v3_66_795_mod3_seam.py
+test_v3_66_796_runner_teardown_module.py
 test_v3_66_798_runtime_state_manifest_exclude.py
 test_v3_66_799_audit_tool_selftests.py
 test_v3_66_7_deep_detect_smoke.py
@@ -1056,20 +1063,27 @@ test_v3_66_880_capability_manifest_is_stated.py
 test_v3_66_881_stale_base_is_surfaced.py
 test_v3_66_882_restart_without_the_hook.py
 test_v3_66_884_freshcheck_shallow_boundary.py
+test_v3_66_885_runner_fixture_resolution.py
 test_v3_66_888_session_pack_final_gates_run.py
 test_v3_66_889_import_graph_sees_tests.py
 test_v3_66_88_perturbation_harness.py
 test_v3_66_892_capture_commit_identity.py
 test_v3_66_893_capture_probes_selftest.py
+test_v3_66_895_gates_refuse_when_blind.py
 test_v3_66_896_requirements_compare_specifiers.py
 test_v3_66_89_offline_capture_ingest.py
 test_v3_66_8_add_url_endpoint.py
+test_v3_66_908_runner_param.py
+test_v3_66_909_runner_api_surface.py
+test_v3_66_910_runner_module_registration.py
+test_v3_66_911_monkeypatch_dotted_path.py
 test_v3_66_912_wired_gates_refuse_on_empty.py
 test_v3_66_915_audit_caps_are_one_window.py
 test_v3_66_916_regen_nfos_resolves.py
 test_v3_66_918_tracked_source_denominator.py
 test_v3_66_96_autopilot_cockpit.py
 test_v3_66_98_cockpit_console.py
+test_v3_66_990_runner_risk_is_about_imports_not_prose.py
 test_v3_66_99_cockpit_wave1.py
 test_v3_66_9_deep_detect_audit_fixes.py
 test_validators.py
@@ -1271,3 +1285,73 @@ test_v3_66_940_envfile_seeds_only_declared_keys.py
 test_v3_66_945_envfile_seeding_does_not_escape_its_test.py
 test_v3_66_946_the_leak_guard_does_not_fire_on_inherited_state.py
 test_v3_66_977_ytdlp_freshness_compares_versions.py
+
+# v3.66.998 -- the serial-lane drain (SESSION_CARRY 15.79's "what remains").
+#
+# BYNAME departures, each with its evidence recorded in
+# SERIAL_EXACT_BASENAMES' comment: four original entries with no recorded
+# refutation (fixture sites drive Flask test clients -- no socket, no port;
+# the snapshot replay is read-only over a committed corpus; session_keeper's
+# one wall-clock bound was widened); u50 and u30 FIXED (own schema / pinned
+# global); differential_oracle, fuzz_harness and reachability FIXED (the
+# one-second wall-clock budgets @923 named were widened where the clock is
+# not the subject); coverage_map and semantic_diff were shape-named only and
+# carry no clock at all (measured).
+#
+# SNIPPET-BUCKET reviews: the nine bd_module_wipe files -- conftest's
+# isolated_bd_home saves the bulk_downloader.* module set and restores it in
+# its finally, so the wipe cannot outlive the test; five ROUTE_INDEX /
+# retirement readers and four catalog in-sync gates that regenerate
+# IN-PROCESS and diff (read-only against the tree); nav_resilience's
+# playwright import is the TimeoutError TYPE driven against a FakePage ("no
+# real browser"); 994 drives bd-leakprobe against tmp fixture dirs and its
+# urllib match is a comment.
+#
+# All 30 probed with bd-leakprobe (0 leaking above floor) and swept in-
+# container with the whole tree at two widths; the box capture remains the
+# gate, and anything it refutes goes back into SERIAL_EXACT_BASENAMES by
+# name with its mechanism.
+#
+# REMOVED at the same cut: test_harness_retry_timeout.py -- a live instance
+# of the dynamic-loader escape (spec-loads run_tests_core.py IN-PROCESS and
+# leaked an env key no restore covered). The leak is fixed but the in-process
+# runner load is the one hazard review may not override, so it is serial now.
+test_capture_session_nav_resilience.py
+test_coverage_map_frontend.py
+test_cut41_ts_iso_producers.py
+test_dependency_graph_in_sync.py
+test_differential_oracle_frontend.py
+test_endpoint_catalog_in_sync.py
+test_f2_3_needs_review_wired.py
+test_fixture_site.py
+test_fixture_site2.py
+test_function_index_in_sync.py
+test_fuzz_harness_frontend.py
+test_p7_openapi.py
+test_reachability_frontend.py
+test_sandbox_home_stays_retired.py
+test_semantic_diff_frontend.py
+test_session_keeper.py
+test_t11_approval_wired.py
+test_t11_pending_approvals.py
+test_u30_runner_replay.py
+test_u50_widget_backfills.py
+test_v3_62_3_model_dropdown.py
+test_v3_66_13_phase2_p2_snapshot_replay.py
+test_v3_66_225_honeypot_suggestion.py
+test_v3_66_767_scrape_listing_wired.py
+test_v3_66_769_vpn_leak_test_wired.py
+test_v3_66_934_ai_config_is_not_inherited.py
+test_v3_66_935_scan_wait_reports_non_convergence.py
+test_v3_66_939_ci_gate_shards_cover_every_gate.py
+test_v3_66_942_integrity_check_path_survives_a_cwd_change.py
+test_v3_66_994_leakprobe_refuses_when_blind.py
+
+# v3.66.1005 -- the two test files v3.66.1002/1003 added, which were serial only
+# by the fail-closed unlisted default. bd-leakprobe: 2 probed, 0 leaking. Six
+# widths (-n 0/2/3/4/6/8 --dist loadfile) co-run with real neighbours so
+# cross-file leakage had somewhere to land: 98 passed at every width.
+# 1003 spawns bash, but only against a TRUNCATED COPY of capture.sh that exits
+# immediately after the guard -- it never reaches capture.sh's rm -rf.
+test_v3_66_1002_download_hint_needs_an_interactive_element.py
+test_v3_66_1003_capture_refuses_an_inherited_install_dir.py

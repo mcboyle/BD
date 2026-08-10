@@ -1,0 +1,6 @@
+{
+ "expect": {
+  "hls": true,
+  "signed": true
+ }
+}

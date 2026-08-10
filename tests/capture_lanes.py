@@ -20,11 +20,54 @@ PARALLEL_ALLOWLIST_PATH = TESTS_ROOT / "capture_parallel_files.txt"
 
 SERIAL_EXACT_BASENAMES = frozenset(
     {
-        "test_fixture_site.py",
-        "test_fixture_site2.py",
-        "test_session_keeper.py",
-        "test_v3_66_13_phase2_p2_snapshot_replay.py",
+        # v3.66.998 -- ELEVEN NAMES LEFT THIS SET, and each departure is a
+        # claim with its evidence, because a removal without one is how a
+        # refutation gets relitigated by a green run:
+        #
+        # * test_fixture_site / test_fixture_site2 / test_session_keeper /
+        #   test_v3_66_13_phase2_p2_snapshot_replay: ORIGINAL (pre-@921)
+        #   entries with no recorded refutation -- inherited from the old
+        #   runner's _PINNED_TOGETHER era, whose 754c pin note calls the
+        #   fixture sites "fixed-port" while both files drive Flask TEST
+        #   CLIENTS ("no real socket... don't need a free port"). Reviewed
+        #   per file; session_keeper's one wall-clock bound was widened.
+        # * test_u50_widget_backfills (@922's refutation): FIXED, not
+        #   re-promoted on a green run -- the test now creates its own
+        #   schema (db_init + migrations), so the cross-file table
+        #   dependency @922 named no longer exists.
+        # * test_u30_runner_replay (@923's refutation): FIXED -- the
+        #   empty-fleet test asserted the process-global app.runners was
+        #   empty; it now pins that global to the state it is about.
+        # * test_differential_oracle_frontend / test_fuzz_harness_frontend /
+        #   test_reachability_frontend (@923, refuted directly): the named
+        #   mechanism -- one-second AdapterBudget wall clocks under 16-64
+        #   concurrent processes -- was REMOVED: non-subject budgets are now
+        #   30s, timeout-side tests keep small budgets against sleeps that
+        #   exceed them decisively, and the two descendant-reap tests carry
+        #   10s budgets because their pid files must survive worker boot.
+        # * test_coverage_map_frontend / test_semantic_diff_frontend (@923,
+        #   named by SHAPE, never refuted directly): the shape claim was a
+        #   grep artifact. The "(18 and 19 worker/child references)" are
+        #   line-counts of /worker|child/ -- and in coverage_map those lines
+        #   are fixture FILENAMES (package_a/worker.py), in semantic_diff
+        #   nested `def child()` names in parsed sample source. Neither file
+        #   contains a wall clock, a sleep, or an AdapterBudget at all
+        #   (measured at v3.66.997), and semantic_diff's "budget assertions"
+        #   are a deterministic node-count ValueError, not a timer.
+        #
+        # The box capture is still the gate: anything it refutes comes back
+        # HERE by name with its mechanism, per the protocol below.
+        #
+        # v3.66.754c -- FILE-LEVEL 900s timeout under the old runner's
+        # --workers=480 oversubscription (root-caused, not theorised), and the
+        # heaviest in-process consumer of bulk_downloader.app module globals:
+        # probe_fixtures replays ~126 MUTATING call sites against the real app
+        # in a module-scoped fixture. Not promoted without an isolation story
+        # for that state.
         "test_v3_66_729_body_contract_fixtures.py",
+        # Drives run_tests.py end-to-end as a subprocess ~5 times; also pinned
+        # by the runner-literal rule below. Cheap to keep serial; freeing it
+        # is the runner-rule design decision, not a per-file fix.
         "test_v3_66_797_runner_isolate.py",
         # v3.66.921 -- PROVEN FRAGILE BY EXPERIMENT, not by heuristic. The
         # whole serial lane (1059 files, 13,429 tests) was run under
@@ -37,69 +80,25 @@ SERIAL_EXACT_BASENAMES = frozenset(
         # a cloud container, so this is two machines agreeing, not one flake.
         # Do not promote them on a future green run: a race that resolves
         # favourably passes, which is the whole reason this list is by name.
+        # (tier1b's candidate mechanism: deadlock_detector / thread_dump /
+        # dev_metrics assert over PROCESS-AMBIENT threads and counters that
+        # other files' residue legitimately alters. exec_bridge runs real
+        # allowlisted binaries under the bridge's own hard timeout.)
         "test_dev_suite_tier1b.py",
         "test_v3_66_717_exec_bridge.py",
-        # v3.66.922 -- REFUTED BY THE FIRST REAL CAPTURE after the @921
-        # backfill, and it is the hazard @921 predicted rather than a new
-        # one. app_widgets_api._collect_data reads `history` and `library`
-        # DIRECTLY; the test patches db_stats and dashboard_widgets.snapshot,
-        # which do not cover that path. Serially it passed because an EARLIER
-        # FILE had created those tables, so the eta computed from real rows.
-        # In the parallel lane it lands on a worker where nothing did, the
-        # query fails with "no such table: history", and eta_clear_fmt falls
-        # back to "now" instead of None/"30m".
-        #
-        # IT PASSED THE @921 PROMOTION EXPERIMENT, and that is the lesson: in
-        # that run the WHOLE serial lane went parallel together, so whichever
-        # file seeded the tables was still present. Splitting the lane moved
-        # that file to the other side. A green parallel run is evidence about
-        # ONE lane composition, not about the file.
-        "test_u50_widget_backfills.py",
-        # v3.66.923 -- REFUTED by an ALL-PARALLEL sweep of the whole tree on
-        # the box: 1232 files, 14,856 tests, `-n $(nproc) --dist loadfile`,
-        # 4m06s. Nine failures across seven files and ZERO of them survived a
-        # serial retry, so nothing here is a real bug -- these three are the
-        # ones not already named.
-        #
-        # test_perf_lab is the file CLAUDE.md section 5 records as a HANGER
-        # when the tree is run whole. It did not hang here; it failed. Keep it
-        # serial for both reasons.
-        "test_differential_oracle_frontend.py",
+        # v3.66.923 -- refuted by the all-parallel box sweep (-n 64) and ZERO
+        # failures survived a serial retry. perf_lab asserts over
+        # process-ambient memory/thread snapshots (pl.snapshot, audit deltas),
+        # which a shared worker's residue legitimately moves; it is also the
+        # file CLAUDE.md section 5 once recorded as a hanger when the tree ran
+        # whole (disproven as a hang at @947, but the refutation as parallel
+        # stands).
         "test_perf_lab.py",
-        "test_u30_runner_replay.py",
         # v3.66.923 -- refuted by the N/2 packing (-n 32) and by NOTHING ELSE.
         # The full-width run at -n 64 passed it. That is the entire case for
         # running more than one width: file-to-worker assignment is by count,
         # so halving the workers changed who shares a worker and exposed it.
         "test_t14_vpn_probe_egress.py",
-        # v3.66.923 -- THE *_frontend FAMILY, named by MECHANISM rather than
-        # enumerated run by run, because enumeration does not converge here.
-        #
-        # Four all-parallel widths on the box (-n 64/32/24/16) produced TEN
-        # distinct refuted files. Three failed at every width -- deterministic.
-        # The rest appeared in one or two runs each, and kept ARRIVING: -n 32
-        # added one, -n 16 added two more. A fifth width would add others.
-        #
-        # The reason is that these are LOAD-sensitive, not order-sensitive.
-        # They spawn workers and assert against AdapterBudget.timeout_seconds
-        # -- a ONE-SECOND wall clock (adapters.py:83-84) -- with failures like
-        # test_worker_ipc_bytes_are_bounded and
-        # test_timeout_and_child_crash_are_explicit_non_pass_states. Under 16
-        # to 64 concurrent pytest processes a one-second budget is a coin
-        # flip, so no packing makes them safe and each run samples a different
-        # subset. That is a different failure class from test_u50, which was a
-        # genuine cross-file dependency.
-        #
-        # All five are listed. Three were refuted directly; the other two share
-        # the worker-spawn shape (18 and 19 worker/child references) and
-        # semantic_diff carries the same budget assertions. Five files out of
-        # 1232 is a cheap price for a gate that does not go red at random --
-        # section 0: over-sensitivity is a soundness bug, and a gate that cries
-        # wolf gets switched off.
-        "test_coverage_map_frontend.py",
-        "test_fuzz_harness_frontend.py",
-        "test_reachability_frontend.py",
-        "test_semantic_diff_frontend.py",
     }
 )
 
@@ -123,16 +122,46 @@ SERIAL_NAME_TOKENS = (
     "systemd",
 )
 
-# The ONE source risk an allowlist entry may not override. Importing the
-# fallback runner rewires global interpreter state, and a dedicated test
-# (test_allowlisted_file_cannot_bypass_dynamic_runner_import_risk) exists
-# to keep it that way. Named separately at v3.66.923 so the rest of the
-# heuristics could become overridable without taking this with them.
-ABSOLUTE_SERIAL_SNIPPETS = (
-    "import run_tests",
-    "from run_tests",
-    "run_tests.py",
+# The ONE source risk an allowlist entry may not override: code that can
+# EXECUTE the fallback runner in THIS interpreter. Named separately at
+# v3.66.923 so the rest of the heuristics could become overridable without
+# taking this with them; re-instrumented from substrings over code text to
+# AST loads when the substring form was measured pinning 12 files whose only
+# runner reference is a subprocess argv, a tmp-tree fixture path, a heredoc
+# driver string or an assertion message -- positions a child interpreter
+# executes, if anything does, and the process boundary contains. Same
+# correction as @990 (a comment is not an import) and @998 (a heredoc
+# loader-call is not an in-process load), one step further. The @986
+# refutation stands untouched: every form that LOADS the runner in-process
+# pins absolutely, review or no review, and the guard suite
+# (test_allowlisted_file_cannot_bypass_dynamic_runner_import_risk) drives
+# every form, including the ones the substring instrument could not see.
+_RUNNER_MODULES = frozenset({"run_tests", "run_tests_core"})
+
+# Loader callables distinctive enough to match as SUBSTRINGS of the dotted
+# callee -- this also catches getattr(importlib, ...) forms, whose unparsed
+# callee contains the name.
+_LOADER_CALLEE_SUBSTRINGS = (
+    "import_module",
+    "__import__",
+    "spec_from_file_location",
+    "sourcefileloader",
+    "importorskip",
 )
+# Loader-capable only by EXACT final segment of the dotted callee. These
+# words are common: substring matching fired on a `_run_module` test helper
+# in 9 files during this cut's own census, which is section 1's predicate
+# trap inside the instrument built to fix it.
+_LOADER_FINAL_SEGMENTS = frozenset({
+    "run_path", "run_module", "exec_module", "load_module", "load_source",
+    "reload", "exec", "eval", "compile", "execfile",
+})
+# String-target patchers: a dotted-path FIRST argument makes pytest's
+# monkeypatch and unittest.mock IMPORT the named module into this
+# interpreter. They join the corroborated shape only (a runner-naming
+# constant in the call) -- their object forms are ubiquitous and prove
+# nothing about the runner.
+_PATCHER_FINAL_SEGMENTS = frozenset({"patch", "setattr", "delattr"})
 
 SERIAL_SOURCE_SNIPPETS = (
     "pytest.mark.bd_module_wipe",
@@ -175,7 +204,126 @@ SERIAL_SOURCE_PATTERNS = (
     ),
 )
 
-RUNTESTS_LITERAL = re.compile(r"""["']run_tests(?:_core)?["']""", re.IGNORECASE)
+def _names_runner(text: str) -> bool:
+    return "run_tests" in text.lower()
+
+
+def _loader_aliases(tree: ast.AST) -> set[str]:
+    """Local names bound to loader callables.
+
+    Catches `from importlib import import_module as load` and
+    `load = importlib.import_module` -- forms where the CALLEE name says
+    nothing and the binding says everything. The guard suite's aliased case
+    was previously caught only by the quote-anchored literal regex; with that
+    regex retired, this pass is what keeps it caught. Assignment RHS is
+    restricted to bare names/attributes on purpose: aliasing the RESULT of a
+    loader call (`spec = spec_from_file_location(...)`) binds a spec, not a
+    loader, and the spec's own exec_module call is matched by final segment.
+    """
+    aliases: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                name = (alias.name or "").lower()
+                if (any(m in name for m in _LOADER_CALLEE_SUBSTRINGS)
+                        or name in _LOADER_FINAL_SEGMENTS):
+                    aliases.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Assign):
+            if not isinstance(node.value, (ast.Name, ast.Attribute)):
+                continue
+            try:
+                rhs = ast.unparse(node.value).lower()
+            except Exception:
+                continue
+            if (any(m in rhs for m in _LOADER_CALLEE_SUBSTRINGS)
+                    or rhs.rsplit(".", 1)[-1] in _LOADER_FINAL_SEGMENTS):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        aliases.add(target.id)
+    return aliases
+
+
+def runner_import_hazard(code: str) -> bool:
+    """The ONE source hazard no allowlist entry may override, asked of CODE.
+
+    True exactly when CODE can execute run_tests/run_tests_core in THIS
+    interpreter. Three shapes, all absolute:
+
+      1. a static import of a runner module, however aliased;
+      2. a loader-capable call with a runner-naming string constant anywhere
+         in its argument subtree -- import_module, __import__, file loaders,
+         runpy, importorskip, exec/eval/compile, and the string-target
+         patchers (monkeypatch.setattr / mock.patch dotted paths import the
+         module they name);
+      3. FAIL-CLOSED indirection: the file names the runner in a string
+         constant AND carries a loader-capable call whose arguments do not --
+         a loader that could be fed the literal through a variable, which no
+         static walk can rule out. Containment unprovable is containment
+         denied.
+
+    What deliberately does NOT pin: a runner literal in a file with no loader
+    machinery at all -- a subprocess argv, a fixture path, an assertion
+    message. Nothing in such a file can bring the runner into this
+    interpreter; the child process that runs it mutates its own state and
+    exits. Measured at eb0c00b: 12 real files, ~135s of the box's serial
+    lane, were pinned for exactly that shape.
+
+    FAIL-CLOSED on unparseable code: judged on the raw text, the same posture
+    as code_only's fallback. (test_all_sources_parse keeps that population
+    empty for tracked files.)
+
+    Exported as a single predicate so the guard suite can BORROW it instead
+    of restating it -- at v3.66.992 a guard that borrowed the constants but
+    not the text they applied to held a second definition of "hazard" and
+    failed on every promoted file.
+    """
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, ValueError):
+        return _names_runner(code)
+
+    aliases = _loader_aliases(tree)
+    has_runner_literal = False
+    unproven_loader_call = False
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".")[0] in _RUNNER_MODULES:
+                    return True
+        elif isinstance(node, ast.ImportFrom):
+            if node.module and node.module.split(".")[0] in _RUNNER_MODULES:
+                return True
+        elif isinstance(node, ast.Constant):
+            if isinstance(node.value, str) and _names_runner(node.value):
+                has_runner_literal = True
+        elif isinstance(node, ast.Call):
+            try:
+                callee = ast.unparse(node.func)
+            except Exception:
+                continue
+            lowered = callee.lower()
+            final = lowered.rsplit(".", 1)[-1]
+            loader_like = (
+                any(m in lowered for m in _LOADER_CALLEE_SUBSTRINGS)
+                or final in _LOADER_FINAL_SEGMENTS
+                or callee in aliases
+            )
+            patcher_like = (final in _PATCHER_FINAL_SEGMENTS
+                            or lowered.endswith("patch.dict"))
+            if not (loader_like or patcher_like):
+                continue
+            arguments = list(node.args) + [kw.value for kw in node.keywords]
+            if any(isinstance(sub, ast.Constant)
+                   and isinstance(sub.value, str)
+                   and _names_runner(sub.value)
+                   for argument in arguments
+                   for sub in ast.walk(argument)):
+                return True
+            if loader_like:
+                unproven_loader_call = True
+
+    return has_runner_literal and unproven_loader_call
 
 
 @lru_cache(maxsize=2048)
@@ -267,23 +415,25 @@ def classify_capture_file(
         return "serial"
 
     # v3.66.921 -- A FILENAME IS NOT A BEHAVIOUR, so the name tokens are
-    # OVERRIDABLE by an explicit allowlist entry while the SOURCE checks below
-    # are not. The tokens are a proxy for "nobody has looked at this yet"; an
-    # allowlist entry IS someone having looked. Measured: 88 files were serial
-    # solely because their basename contained "capture" or "runner", with no
-    # risky construct anywhere in them.
+    # OVERRIDABLE by an explicit allowlist entry. The tokens are a proxy for
+    # "nobody has looked at this yet"; an allowlist entry IS someone having
+    # looked. Measured: 88 files were serial solely because their basename
+    # contained "capture" or "runner", with no risky construct anywhere in
+    # them.
     #
-    # The source checks stay ABSOLUTE, and that asymmetry is the point. They
-    # match constructs that leak ACROSS FILES inside one xdist worker --
-    # os.environ mutation, sys.modules wiping, os.chdir, a run_tests import --
-    # and `--dist loadfile` does NOT prevent that: it keeps a file's tests
-    # together, it does not give a file its own worker. Whichever file lands
-    # next on that worker inherits the damage, and which files share a worker
-    # changes between runs. So a green parallel run is not evidence for those,
-    # and no allowlist entry may override them.
-    # The tokens still bite for every UNLISTED file, because the allowlist
-    # check at the bottom sends those to serial anyway. What changes is only
-    # that they no longer VETO an explicit review.
+    # v3.66.998 -- what is absolute CHANGED AT @923 and this comment lied
+    # about it for 75 releases (found twice independently in one session,
+    # recorded at SESSION_CARRY 15.79): @921 made every source check
+    # unoverridable; @923 moved the allowlist ABOVE all of them EXCEPT the
+    # runner-import rule. So today exactly ONE hazard outranks review --
+    # `runner_import_hazard`: a file that can execute the fallback runner in
+    # its own interpreter inherits whatever global state the runner applies
+    # when it runs (_prepare_runner_state's env setdefault and sys.path
+    # prepend since @990; the same mutations sat at import time before it) --
+    # and every other heuristic below is a fail-closed default for UNLISTED
+    # files only. `--dist loadfile` still does not give a file its own
+    # worker, which is why a green parallel run is weak evidence and reviews
+    # are per file.
     if source is None:
         try:
             source = candidate.read_text(encoding="utf-8")
@@ -292,27 +442,21 @@ def classify_capture_file(
             return "serial"
     lowered = source.lower()
 
-    # ABSOLUTE, and the only source check that still is. See the constant.
+    # ABSOLUTE, and the only source check that still is. See the constants.
     #
-    # v3.66.990: asked of CODE, not prose. The risk this rule names is that
-    # importing the fallback runner rewires global interpreter state -- and a
-    # docstring imports nothing. Measured over 1277 tracked test files: 143 were
-    # pinned here, 4 genuinely import the runner, and 139 only MENTION it in a
-    # comment or docstring. Since the absolute checks sit ABOVE the allowlist,
-    # those files could not be promoted by review either; they were structurally
-    # unreachable. Section 0's "a comment is inside the denominator of every gate
-    # that reads source text", costing ~124 files a place in the serial lane.
-    #
-    # The rule itself is UNCHANGED -- same snippets, same absoluteness. Only the
-    # text it reads changed, and `code_only` falls back to the raw source on any
-    # parse failure, so an unparseable file is still judged on everything it
-    # contains. The dynamic forms the guard test pins
-    # (`importlib.import_module("run_tests")`, `__import__("run_tests")`) are
-    # code and survive the strip.
+    # v3.66.990 asked it of CODE, not prose (143 pinned, 4 real importers, 139
+    # comment/docstring mentions -- section 0's "a comment is inside the
+    # denominator of every gate that reads source text"). The successor cut
+    # asked it of LOADS, not literals: of the 23 files the substring form still
+    # pinned, 7 bring the runner into their own interpreter, 4 mix loader
+    # calls-on-variables with runner literals (statically unprovable, so they
+    # pin fail-closed), and 12 name the runner only where a CHILD process
+    # executes it -- subprocess argv, heredoc driver strings, fixture paths,
+    # assertion messages. The absoluteness is unchanged; `code_only` still
+    # falls back to raw source on any parse failure, so an unparseable file is
+    # judged on everything it contains.
     code = code_only(source)
-    if any(snippet in code.lower() for snippet in ABSOLUTE_SERIAL_SNIPPETS):
-        return "serial"
-    if RUNTESTS_LITERAL.search(code):
+    if runner_import_hazard(code):
         return "serial"
 
     # v3.66.923: EXPLICIT REVIEW NOW OUTRANKS THE REMAINING HEURISTICS, on

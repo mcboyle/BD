@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3789,
+  "edge_count": 3792,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3396,6 +3396,9 @@
     "tests/test_route_index_in_sync.py": [
       "tools/build_route_index.py"
     ],
+    "tests/test_row_selectors_screen_inline_hidden_decoys.py": [
+      "bulk_downloader/template_extractor.py"
+    ],
     "tests/test_rrweb_meta_retention.py": [
       "bulk_downloader/dom_capture.py",
       "bulk_downloader/dom_recorder.py",
@@ -3821,7 +3824,9 @@
       "bulk_downloader/db.py"
     ],
     "tests/test_u50_widget_backfills.py": [
-      "bulk_downloader/app_widgets_api.py"
+      "bulk_downloader/app_widgets_api.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/migrations.py"
     ],
     "tests/test_ui_events.py": [
       "bulk_downloader/app.py",

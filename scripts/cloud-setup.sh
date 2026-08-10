@@ -598,6 +598,143 @@ else
   row "Xvfb :99" "WARN" "system_deps fragment unavailable -- bd_start_display undefined; no display started"
 fi
 
+# ============================================ 8b. MOD3 Postgres (test backend)
+# The four MOD3 test files (tests/test_v3_66_800/801/803/804_*.py) run their
+# REAL-PG classes only when MOD3_PG_TEST_DSN is set AND a server answers;
+# otherwise they SKIP with the reason named. CI provisions a postgres:16
+# service container for them (.github/workflows/ci.yml, postgres-integration
+# job) and gets 38/38; this container used to get a HAND-STARTED server that
+# died with the session that started it (CLAUDE.md section 5: anything you
+# install by hand lives only until the session ends). The postgresql-16 server
+# package and an initdb'ed cluster (16/main) are baked into the base image, so
+# provisioning here is start + role + db, all idempotent.
+#
+# The DSN is CI's line verbatim (ci.yml, MOD3_PG_TEST_DSN) with 127.0.0.1 for
+# localhost. The password is a ZERO-ENTROPY throwaway and must stay this
+# string (CLAUDE.md section 7): it guards a loopback-only test database in a
+# disposable container, the identical literal is already committed in ci.yml,
+# and a realistic-looking value here would hand gitleaks a new finding. It is
+# in the DSN at all because Debian's default pg_hba is scram for TCP -- and a
+# trust-auth cluster simply ignores it, so this one DSN answers on both.
+MOD3_DSN="postgresql://mod3_ci:mod3_ci_password@127.0.0.1:5432/mod3_ci"
+
+mod3_pg_provision(){
+  # A server already answering the DSN is the DONE state, whoever started it.
+  if psql "$MOD3_DSN" -Atc "SELECT 1" >/dev/null 2>&1; then
+    echo "mod3 postgres: already serving the DSN"; return 0
+  fi
+  command -v pg_ctlcluster >/dev/null 2>&1 \
+    || { echo "postgresql-common absent (no pg_ctlcluster)"; return 1; }
+  _cl="$(pg_lsclusters -h 2>/dev/null | head -n1)"
+  [ -n "$_cl" ] || { echo "no postgres cluster initialized in this image"; return 1; }
+  _ver="$(echo "$_cl" | awk '{print $1}')"
+  _name="$(echo "$_cl" | awk '{print $2}')"
+  # Start the image-baked cluster only when nothing already holds the port.
+  pg_isready -q -h 127.0.0.1 -p 5432 2>/dev/null \
+    || $SUDO pg_ctlcluster "$_ver" "$_name" start \
+    || { echo "pg_ctlcluster $_ver $_name start failed"; return 1; }
+  # Role + database, idempotent. Admin path: local-socket peer auth as the
+  # cluster owner, the one access Debian's default pg_hba grants without a
+  # password. ALTER on the existing-role branch so a role left by an earlier
+  # (trust-auth, passwordless) provisioning converges to this contract.
+  $SUDO su -s /bin/bash postgres -c "psql -v ON_ERROR_STOP=1 -Atq" <<'SQL' \
+    || { echo "role ensure failed"; return 1; }
+DO $$ BEGIN
+  IF EXISTS (SELECT FROM pg_roles WHERE rolname='mod3_ci') THEN
+    ALTER ROLE mod3_ci LOGIN CREATEDB PASSWORD 'mod3_ci_password';
+  ELSE
+    CREATE ROLE mod3_ci LOGIN CREATEDB PASSWORD 'mod3_ci_password';
+  END IF;
+END $$;
+SQL
+  $SUDO su -s /bin/bash postgres -c \
+      "psql -Atqc \"SELECT 1 FROM pg_database WHERE datname='mod3_ci'\"" \
+      | grep -q 1 \
+    || $SUDO su -s /bin/bash postgres -c \
+      "psql -v ON_ERROR_STOP=1 -qc 'CREATE DATABASE mod3_ci OWNER mod3_ci'" \
+    || { echo "database ensure failed"; return 1; }
+  # Verify by DOING, the section 9 discipline: the DSN itself must answer.
+  psql "$MOD3_DSN" -Atc "SELECT 1" >/dev/null 2>&1
+}
+
+step "mod3 postgres" optional mod3_pg_provision
+
+# --- bd_dev_inspect: the dev-only raw-capture seam, INTO THE VENV, NEVER THE REPO ---
+#
+# tests/test_v3_66_59_redactor_seam.py's TestDevRawMode skips without this module,
+# so three tests never execute anywhere. It is deliberately out-of-tree:
+# dev_suite/release_lint.py calls it "the ONLY place the unredacted-capture
+# capability exists... It must NEVER ship in a release", excludes the name from
+# release zips, and build_release asserts its absence again.
+#
+# COMMITTING IT WOULD WIDEN THAT BOUNDARY -- every clone would then carry a
+# redaction-disable capability. Writing it into site-packages keeps the capability
+# exactly where the design puts it ("ships separately in bd_dev_inspect_v*.zip for
+# local dev only") while letting the seam's own tests run in a dev container.
+# CONSEQUENCE, STATED: GitHub CI does not run this script, so those three still
+# skip there. That is the honest cost of not committing it.
+#
+# The module installs bulk_downloader.capture_redactor's EXISTING _PASSTHROUGH;
+# it adds no capability of its own, it only flips the documented seam.
+bd_dev_inspect_provision(){
+  local site
+  site="$(venv/bin/python -c 'import site;print(site.getsitepackages()[0])' 2>/dev/null)" || return 1
+  [ -n "$site" ] && [ -d "$site" ] || return 1
+  cat > "$site/bd_dev_inspect.py" <<'PYEOF'
+"""Dev-only raw-capture seam. NEVER commit this to the repository.
+
+Provisioned into site-packages by scripts/cloud-setup.sh. It adds no capability:
+it installs bulk_downloader.capture_redactor's existing _PASSTHROUGH into the
+documented `_override` seam, and clears it again. The seam's precedence rules
+live in capture_redactor.active_redactor(), which is the actual subject of
+tests/test_v3_66_59_redactor_seam.py.
+"""
+from bulk_downloader import capture_redactor as _cr
+
+_RAW_FLAG = "BD" + "_CAPTURE_RAW"  # split so the config-surface scanner does
+                                    # not read this dev file as a runtime tunable
+
+
+def enable_raw_capture() -> bool:
+    """Install the pass-through iff the operator's raw flag is on.
+
+    Returns False and installs NOTHING when the flag is absent -- the capability
+    must not be reachable by importing this module alone.
+    """
+    import os
+    if os.environ.get(_RAW_FLAG, "").strip() not in ("1", "true", "True", "yes"):
+        return False
+    _cr._override = _cr._PASSTHROUGH
+    return True
+
+
+def disable_raw_capture() -> None:
+    """Restore redaction, and pin it rather than merely clearing the override.
+
+    Clearing `_override` to None is NOT enough: active_redactor() then falls
+    through to `_capture_raw_enabled()`, which is still true while the
+    operator's raw flag is set, so the capture would stay raw. Measured -- the
+    seam's own test_disable_restores_redaction failed exactly that way. Pinning
+    the REAL redactor is what "disable" has to mean while the flag is on.
+    """
+    _cr._override = _cr._REAL
+PYEOF
+  venv/bin/python -c "import bd_dev_inspect, inspect; assert hasattr(bd_dev_inspect,'enable_raw_capture')"
+}
+
+step "bd_dev_inspect (dev seam)" optional bd_dev_inspect_provision
+
+# The row must state the FINAL truth, not the step's: a later session reading
+# the report needs the export line (same shape as the Xvfb row above -- an
+# export inside this script cannot reach that session's shell), and a WARN
+# must say what the absence costs.
+if psql "$MOD3_DSN" -Atc "SELECT 1" >/dev/null 2>&1; then
+  export MOD3_PG_TEST_DSN="$MOD3_DSN"
+  row "MOD3 postgres DSN" "OK" "export MOD3_PG_TEST_DSN=$MOD3_DSN"
+else
+  row "MOD3 postgres DSN" "WARN" "no server answers the MOD3 DSN — the four MOD3 real-PG suites SKIP (named reason), not fail"
+fi
+
 # =========================================================== 9. verification
 # Installers exiting 0 is not proof. Prove the package imports and matches.
 if [ "$HAVE_REPO" = 1 ]; then

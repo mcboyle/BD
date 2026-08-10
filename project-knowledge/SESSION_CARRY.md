@@ -5056,6 +5056,115 @@ never `export` in a shell the suite is later launched from.
   row seen in 1 of 6 captures. Re-capture before trusting it.
 
 
+### 15.80 | v3.66.998-1006: the serial lane went 129 -> 23, the 85 skips went to 1
+
+Close at `55190d4` (already on `main`; per section 4 a close section must never
+name an unmerged branch tip -- the squash destroys it and `main` goes red where
+no band reaches). **THE WHOLE PROGRAM BELOW IS UNMERGED IN PR #291.**
+
+**GITHUB ACTIONS STOPPED RUNNING AT 2026-08-10T03:52:33Z and nothing here can
+fix it.** Four pushes produced zero check runs; `get_status` returns
+`state: pending, total_count: 0`. `ci.yml` is `on: pull_request` with no type
+filter, so `opened` and `synchronize` both apply. Most likely Actions minutes
+exhausted. The standing merge grant needs band green AND CI green, so nothing
+was merged. CI's own gates were run locally as substitute evidence -- that is
+evidence, NOT the merge condition.
+
+**THE NUMBERS.** Serial lane **129 -> 23 files**; 268.4s of the box's measured
+903s remains serial. Skips **85 -> 1**. Separately, `build_snapshot` forked
+`git rev-parse` ONCE PER TRACKED FILE -- 3224 forks / 6.66s became 3 / 0.47s,
+and the three most expensive serial files went 140.3s -> 40.7s in-container.
+
+**FIVE CORRECTIONS, EACH OVERTURNING SOMETHING WRITTEN EARLIER.**
+
+1. **`BD_INSTALL_DIR=$(mktemp -d)` ON A WHOLE PYTEST RUN IS ITSELF A BUG.**
+   Section 5 is right that an ad-hoc PROBE must prefix it; a pytest run is a
+   different thing. `db._resolve_db_path()` prefers it over cwd, so one value
+   makes every test in the run share ONE SQLite DB and defeats conftest's
+   per-test isolation. Fresh per invocation, SHARED within it. It manufactured
+   six MOD3 failures, reconstructed to the digit (an "empty" source migrating
+   exactly the 7 rows two earlier files inserted), and it is the same mechanism
+   that cost 89 false failures in the 2026-08-09 capture. `capture.sh` now
+   refuses it outright (@1003).
+2. **15.79's coverage_map refutation is itself refuted.** `grep -cE 'worker|child'`
+   gives exactly **18** and **19** for `coverage_map`/`semantic_diff` -- the
+   record's figures DO reproduce. The earlier verifier tried ten predicates and
+   not that one, and I banked its conclusion.
+3. **CLAUDE.md does NOT record psycopg as undeclared.** `grep psycopg CLAUDE.md`
+   finds nothing; only `test_v3_66_653_dep_freshness.py` carried that note, in
+   BOTH waiver dicts.
+4. **@1000 shipped a corpus that was 7 TRACKED OF 27.** `.gitignore` carries
+   `*.wacz` and `*.har`. Locally the untracked files are on disk, so it passed
+   here and would have failed in CI. My pre-commit `git check-ignore` tested
+   `capA.json` -- an extension that is not one of the two ignored ones. THE
+   DENOMINATOR EXCLUDED THE SUBJECT, in the verification of a section 0 fix,
+   hours after shipping a tool built to refuse exactly that.
+5. **@1003's own test would have deleted the deploy tree's `__pycache__`.** It
+   ran the REAL `capture.sh` past the guard; `capture.sh:402` does
+   `rm -rf "$OUT"` and `:412` sweeps `__pycache__` under `$BD_HOME`, which on
+   the box is the live checkout. It passed here only because this container has
+   no venv beside `capture.sh` -- green for the wrong reason, destructive on the
+   box. Fixed at @1004 to truncate a COPY after the guard.
+
+**THE RUNNER RULE IS PRECISE NOW, NOT MERELY ABSOLUTE (@1004).** It stays
+absolute deliberately: moving it below the allowlist would make the invariant
+enforceable only at review time, and the allowlist is GENERATED, so an omission
+would be regenerated away. `runner_import_hazard` is an AST predicate seeing
+static imports however aliased, loader-capable calls carrying a runner-naming
+constant (including `monkeypatch.setattr` on a dotted path, which the old
+quote-anchored regex could not see -- so the rule is WIDER in one real
+direction), and fail-closed indirection. **This is not the narrowing refuted at
+@986/@990:** the promotions rest on the PROCESS BOUNDARY, not on the
+import-inertness measurement. An argv/heredoc literal was outside the rule's
+stated mechanism even when the import-time mutation was real, because the child
+mutates its own state and exits. If `run_tests_core` regressed tomorrow, not one
+promoted file would be affected.
+
+**THE ESCAPE HAD A LIVE INSTANCE (@998).** `spec_from_file_location(...) +
+exec_module` classified PARALLEL while loading the runner in-process, and
+`test_harness_retry_timeout.py` was doing exactly that in the parallel lane
+while leaking `BD_TEST_FILE_TIMEOUT`. A promotion gate that could not see its
+own subject had already let one through.
+
+**NEW TOOL: `bd-leakprobe` (@994, budget 237 -> 238).** Diffs os.environ /
+sys.modules / cwd across a session, one fresh interpreter per file,
+floor-subtracted against files already in the parallel lane. It REFUSES rather
+than guesses: a planted canary must be DETECTED before any verdict, and an empty
+file list, a zero-length control set or a control that did not run are each NO
+VERDICT (exit 2). **An adversarial review then refuted its own verdict** -- a
+first-party prefix filter hid planted non-modules at dotted stdlib names while
+`--selftest` said SENSITIVE, because the canary only ever planted a BARE name.
+The root cause was neither: `_ModuleWithDeprecations` IS a `ModuleType`
+subclass, and the plugin compared `type(v).__name__` to the literal "module".
+TWO successive repairs were built on that misreading before anyone printed the
+object's type. **Generalised: a canary must cover every branch the VERDICT
+distinguishes.**
+
+**SKIPS, BY CATEGORY.** 65 capture -> 0 via a committed SYNTHETIC corpus whose
+every site-specific marker was mutation-probed (break the marker, the
+recognizer's verdict flips) so none passes vacuously; 15 MOD3 -> 0 via Postgres
+in `cloud-setup.sh` plus `psycopg[binary]` in `requirements-test.txt`; 3
+`bd_dev_inspect` -> 0 by provisioning the dev seam INTO THE VENV, never the repo
+(`release_lint` calls it "the ONLY place the unredacted-capture capability
+exists"), which means **those three still skip in CI**, the stated cost. netns
+is environment-correct (root-gated). The survivor is
+`test_cloud_setup_truthfulness.py:262`, a self-retiring dead-branch guard whose
+subject was removed -- making it run means re-introducing the bug.
+
+**ITEM E WAS REFUSED, WITH EVIDENCE, AND THAT IS THE RIGHT OUTCOME.** 15.76 says
+"nothing in the template schema represents it"; `dismiss_selectors` ships today
+in `site_templates/_data_players.py`, is pinned by tests, is copied into site
+config by the apply path, and is consumed per content URL by the runner. What IS
+true: zero dismiss vocabulary in the WACZ pipeline, and `do_login` dismisses
+nothing between submit and its success_url check. Building it needs a runtime
+consumer decision the register never made, and the corpus's "No thanks" marks
+both true interstitials and ordinary upsell modals. **Re-specify before
+building.**
+
+**ITEM A IS STILL BLOCKED** on the siteid-pairing check only the operator can
+run. C, D and the capture guard are done; A and E are the residue, both for
+reasons that are decisions rather than effort.
+
 ### 15.79 | v3.66.996: the lane went 87 -> 62, and the biggest win was not a lane change at all
 
 Close at `4a4b10a`. Three cuts in PR #289. Lane on `main`: **1217 parallel /

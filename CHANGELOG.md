@@ -4,6 +4,307 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1007
+
+- Register only. 15.80 records the v3.66.998-1006 program: serial lane 129 -> 23,
+  skips 85 -> 1, and the build_snapshot git-fork storm.
+- Records that GitHub Actions stopped running at 2026-08-10T03:52:33Z, so none
+  of it is merged, and CI's gates were run locally as substitute evidence.
+- Records five corrections that each overturn something written earlier,
+  including that BD_INSTALL_DIR prefixed onto a whole pytest RUN is itself a bug,
+  that 15.79's coverage_map refutation is itself refuted, and that v3.66.1000
+  shipped a corpus of 7 tracked files out of 27 because a pre-commit check tested
+  a file whose extension was not one of the ignored ones.
+- Records item E as REFUSED with evidence rather than built, and item A as still
+  blocked on a check only the operator can run.
+
+## v3.66.1006
+
+- ITEM D: the repo's own honeypot screen now runs on download row selectors.
+  candidates.py imports _login_is_honeypot from login_extract and applies it to
+  the DOM element each candidate already carries -- the screen is reused
+  verbatim, not reimplemented, so the two cannot drift.
+- THE DEFECT WAS WORSE THAN DIAGNOSED. A display:none decoy anchor did not
+  merely get emitted: it OUTRANKED the real download link (score 105 vs 85),
+  took row_selectors[0], and drove min_resolution to 2160 with
+  review_required False. Screening happens before the strong/fallback split so a
+  decoy cannot become a row selector, cannot drive url_attribute or
+  min_resolution off row_pool[0], and cannot read as clean reviewer evidence.
+- IT DROPS ON POSITIVE EVIDENCE, NEVER ON IGNORANCE: a missing element or an
+  exception returns False rather than hiding the row. Both fail-open branches
+  are pinned by tests and by mutants.
+- THE LIMIT IS STATED IN THE WARNING'S OWN TEXT and pinned by a test asserting a
+  class="hidden" decoy SURVIVES: this sees INLINE evidence only. A screen that
+  silently missed stylesheet-hidden decoys while reading as complete would be
+  worse than none.
+- Rows and not triggers, deliberately: the runtime learned-row path skips
+  Playwright-non-visible rows, but that covers only display:none and
+  visibility:hidden -- offscreen (left:-10000), opacity:0, 1px-box, tabindex and
+  aria-hidden all read as VISIBLE to Playwright, so the extraction-time screen
+  is load-bearing rather than belt-and-braces. Triggers are clicked, and clicks
+  auto-wait for actionability.
+- RED first on pristine source: 15 failed / 2 passed, then 17 passed. Every
+  evidence class is parametrized and each is dropped WHILE THE REAL ROW SURVIVES
+  in the same fixture. bd-mutate: 6 caught, 0 escaped, 0 invalid, including the
+  screen-off and drop-everything directions.
+- app.reptyle.com is UNAFFECTED and this cut does not claim otherwise. Its
+  template comes from the WACZ pipeline, which never calls candidates.py, and D
+  is purely subtractive -- it cannot create rows anywhere.
+- ITEM E IS NOT BUILT, and the register's account of it does not reproduce.
+  "Nothing in the template schema represents it" is stale: dismiss_selectors
+  ships today in site_templates/_data_players.py with exactly this shape, is
+  pinned by tests, is copied into site config by the apply path, and is consumed
+  per content URL by the runner. What IS true, measured: zero dismiss vocabulary
+  in the WACZ pipeline, and do_login performs no dismissal between submit and
+  its success_url check. Building it needs a runtime consumer decision the
+  register never made, and the evidence classes blend -- "No thanks" marks both
+  true post-login interstitials and ordinary upsell modals in the repo's own
+  corpus. Re-specify before building.
+
+## v3.66.1005
+
+- Serial lane 25 -> 23. The two test files v3.66.1002/1003 added were serial
+  only by the fail-closed unlisted default; a cut that adds a test file and does
+  not review it leaves the lane a little longer than it found it.
+- Same two instruments as every other promotion this session: bd-leakprobe
+  2 probed / 0 leaking, and six xdist widths (-n 0/2/3/4/6/8 --dist loadfile)
+  co-run with real neighbours so cross-file leakage had somewhere to land --
+  98 passed at every width.
+- 1003 spawns bash, which would normally be a reason to hold it, but only
+  against a TRUNCATED COPY of capture.sh that exits immediately after the guard.
+  It never reaches capture.sh's `rm -rf`.
+- SESSION TOTAL: the serial lane went 129 -> 23 files. 268.4s of the box's
+  measured 903s remains serial, so roughly 635s moved to the parallel lane --
+  and that is before v3.66.995's build_snapshot fix, which independently cut the
+  three most expensive of those files by 71% in-container.
+
+## v3.66.1004
+
+- The runner-import rule is now PRECISE rather than merely absolute. Serial lane
+  33 -> 23: 10 files promoted, zero newly pinned anywhere in the tree.
+- It stays ABSOLUTE on purpose. Moving it below the allowlist would make the
+  invariant enforceable only at review time, and the allowlist is generated, so
+  an omission would be regenerated away. An AST check re-derives the property
+  from the source in front of capture.sh on every run; review evidence goes
+  stale.
+- runner_import_hazard now sees: a static import however aliased; any
+  loader-capable call carrying a runner-naming constant (import_module,
+  __import__, file loaders, runpy, importorskip, exec/eval/compile, and
+  string-target patchers like monkeypatch.setattr on a dotted path, which import
+  the module they name); and fail-closed indirection where a runner literal
+  coexists with a loader call whose args carry no runner constant. Unparseable
+  source still falls back to raw substring, fail-closed.
+- IT IS WIDER IN ONE REAL DIRECTION: monkeypatch.setattr("run_tests_core...")
+  performs an in-process import and was invisible to the old quote-anchored
+  regex. It is absolutely serial now.
+- THIS IS NOT THE REFUTED NARROWING. The promotions do not rest on the
+  import-inertness measurement; they rest on the process boundary -- an
+  argv/fixture/heredoc literal was outside the rule's stated mechanism even when
+  the import-time mutation was real, because the child interpreter mutates its
+  own state and exits. If run_tests_core regressed tomorrow, no promoted file
+  would be affected.
+- The census was corrected in one place: 3 dynamic importers, not 2 --
+  test_harness_retry_timeout spec-loads the runner in-process.
+- Evidence: RED 5 failed / 19 passed on pristine, 24 passed after; bd-mutate 11
+  mutants, 11 caught, 0 escaped, 0 invalid; bd-leakprobe 10 probed / 0 leaking;
+  six-width sweep over 54 files, 721 passed at EVERY width; band 29 files, 454
+  passed; bd-guardcheck 7 ok / 0 drifted.
+- ALSO FIXED, a defect shipped in v3.66.1003 twenty minutes earlier: its
+  "guard does not false-fire" test executed the REAL capture.sh past the guard.
+  capture.sh:402 does `rm -rf "$OUT" "$ARCHIVE"` and :412 deletes every
+  __pycache__ under $BD_HOME -- on the box that is the live deployed checkout.
+  It passed here only because this container has no venv beside capture.sh, so
+  it died early for an unrelated reason: green for the wrong reason, destructive
+  on the box. It now truncates a COPY right after the guard, which keeps the
+  subject exactly and removes every side effect.
+
+## v3.66.1003
+
+- capture.sh REFUSES to run when BD_INSTALL_DIR is set in the invoking shell.
+  Measured twice, one whole capture each time. 2026-08-09: the operator was
+  advised to export the override for ad-hoc probes, capture.sh inherited it, and
+  89 tests failed -- 13 "database is locked", a UNIQUE violation, assert 10 == 1.
+  The clean re-run passed 12833, and 12744 + 89 = 12833, so EVERY failure was
+  the variable. 2026-08-10: the same shape produced six MOD3 Postgres failures
+  and was reconstructed to the digit.
+- Mechanism: db._resolve_db_path() prefers the variable over the cwd, so one
+  value makes every test in the run share ONE SQLite history database and
+  defeats the per-test isolation conftest's autouse isolated_bd_home provides.
+- REFUSES rather than quietly unsetting. There is no legitimate way to run the
+  suite with it set process-wide, and a silent fix would hide a broken shell
+  that will poison the operator's next ad-hoc probe too. The refusal names the
+  offending value, gives the unset command, and shows the PREFIX form -- the
+  advice that caused the first incident was `export`.
+- It fires in under a second, before any work, so the cost is a second rather
+  than a fifteen-minute capture. Pinned by a timing assertion.
+- RED proven by removing the guard: 3 failed / 3 passed without it, 6 passed
+  with it. The over-sensitive direction is pinned too -- a guard that refused
+  unconditionally would pass the refusal test and make capture.sh unrunnable.
+- The static half asserts over COMMENT-STRIPPED shell via tests/shell_source.py,
+  as two independent facts rather than by walking the enclosing block:
+  blocks_containing returns one line per hit for this construct, so "some block
+  also contains exit" is FALSE for a correct implementation. The first draft of
+  the test asserted exactly that and failed the working guard.
+
+## v3.66.1002
+
+- ITEM C: `text=/Download/i` could go green on a HEADING.
+  build_template_from_wacz._html_selectors emitted the download button hint from
+  `_has(r'>\s*Download\s*<', html)`, which matches ANY element whose text is
+  "Download" -- `<h3>Download</h3>` included -- and the emitted selector was
+  UNSCOPED, so at runtime it resolved to the heading even when a real control
+  existed. Measured previously on a VIP4K reconstruction: promotion_ready True
+  on a trigger that clicks a title.
+- Both halves of the diagnosed fix are in. Emission is gated on an INTERACTIVE
+  element (`<a>` / `<button>`) carrying the text, and the hint is SCOPED --
+  `a:has-text("Download")`, `button:has-text("Download")`, or the comma form
+  when both are present. Gating alone would still leave a selector a later
+  heading can capture; scoping alone would still emit for a page with no
+  control.
+- The match allows nested inline markup (`<button><i></i> Download</button>`)
+  but cannot cross a tag boundary, so a heading between two controls does not
+  bridge them into a false match.
+- COST, STATED HONESTLY: a site whose download control is a `<div>`/`<span>`
+  with a JS click handler now emits no hint and reads not_green. That is a real
+  loss, and it is the right trade -- the alternative is a false green, and a
+  false green sends a worker at a page that will never download.
+- RED proven first: 12 failed / 5 passed on pristine source, 17 passed after.
+  The aria-label and title branches above it are untouched. Band 54 files,
+  571 passed.
+
+## v3.66.1001
+
+- THE SYNTHETIC CORPUS WAS ONLY 7 TRACKED OF 27 FILES, and v3.66.1000 shipped it
+  that way. .gitignore carries `*.wacz` and `*.har`, so every capture artifact in
+  the corpus was ignored while its .json members committed. Locally the untracked
+  files are still on disk, so the tests passed here and would have failed in CI
+  on a missing artifact -- green here, red there, which is the worst shape.
+  Two narrow negations scoped to tests/capture_corpus_synthetic/ fix it; 31 of 31
+  tracked, gitleaks clean, both gitignore gates green.
+- MY OWN CHECK MISSED IT. Before committing @1000 I ran `git check-ignore` on
+  capA.json -- a file whose extension is not one of the ignored ones. The
+  denominator excluded the subject, which is section 0 in the verification of a
+  section 0 fix.
+- The 3 bd_dev_inspect skips now run: scripts/cloud-setup.sh provisions the
+  dev-only raw-capture seam INTO THE VENV, never the repo. release_lint calls it
+  "the ONLY place the unredacted-capture capability exists... it must NEVER ship
+  in a release", so committing it would widen a deliberate boundary to every
+  clone. The module installs capture_redactor's EXISTING _PASSTHROUGH and adds no
+  capability. CONSEQUENCE, STATED: GitHub CI does not run cloud-setup.sh, so
+  those three still skip there.
+- disable_raw_capture pins the REAL redactor rather than clearing the override.
+  Clearing it is not enough -- active_redactor() then falls through to the
+  operator's raw flag, which is still set, so the capture stays raw. Measured:
+  the seam's own test_disable_restores_redaction failed exactly that way.
+- The last capture skip is closed: two ultrafilms_2candies_* artifacts, both
+  carrying real signing shapes, so the evidence-DIFF assertion can actually fail.
+- SKIPS ACROSS THE ORIGINAL 85: now 1, and it is self-retiring -- the
+  BD_REPO_CANDIDATES dead-branch guard whose subject was removed entirely.
+  Making it run would mean re-introducing the bug it guards against.
+
+## v3.66.1000
+
+- 65 capture-dependent skips -> 1. The 13 files that consume capture artifacts
+  ran NOWHERE -- not locally, not in CI -- because their lane is disabled unless
+  a private corpus is configured, and a private corpus is never committed.
+  130 passed, 1 skipped, from 0 passed / 65 skipped.
+- New tools/make_synthetic_capture_corpus.py builds a committed synthetic corpus
+  at tests/capture_corpus_synthetic/. capture_test_fixtures.py gains
+  capture_fixture_lane(allow_synthetic=True) -- OPT-IN PER CALL SITE, so
+  test_default_lane_is_disabled_without_explicit_root stays true and the guard
+  against embedding private host paths keeps its meaning. A configured real
+  corpus still WINS when present.
+- THE FIXTURE MUST BE ABLE TO REPRESENT THE FAILURE. A synthetic capture with no
+  signing parameter makes "no signing value ever reaches an output" pass
+  trivially, and a vacuous pass is worse than the skip it replaced because a
+  skip is honest about having proven nothing. Every hazard is present on purpose
+  -- signed query params, path-signed segments, a JWT, cookies, an email -- and
+  --check asserts they survived into the artifacts, so the corpus cannot go
+  inert without failing.
+- Every site-specific marker was mutation-probed: break the marker and the
+  recognizer's verdict flips, so each test can still fail. Markers include the
+  bros sharded-CDN run, t's path-signing key/end/ip, nubile's filename echo and
+  _3840 rendition, miruro's vds- DOM plus plyr/hls.js confusables, and an Aylo
+  download-API host distinct from the content CDN.
+- Every secret-shaped value is a ZERO-ENTROPY REPEAT. gitleaks over the corpus:
+  no leaks found.
+- The corpus is DETERMINISTIC. zipfile.writestr stamps members with the current
+  time, so regenerating an unchanged corpus moved the tree hash
+  67dbd82c3cb9b0e9 -> 9717779786e64bc1 with no input change -- permanent diff
+  churn for a committed artifact. Members now carry a fixed timestamp.
+- The generator deliberately does NOT spell the capture-root variable's name.
+  The config-surface scanner matches the BD_ prefix across tools/, so writing it
+  entered this file into the parity ledger as unledgered debt and failed
+  test_open_parity_debt_is_zero (open_runtime_tunable 1 against a baseline of
+  0). CLAUDE.md section 4 says it plainly: if the name is not a real config key,
+  do not prefix it.
+
+## v3.66.999
+
+- The 15 MOD3 Postgres tests no longer skip. Postgres is provisioned in
+  scripts/cloud-setup.sh (new step 8b, idempotent: DSN short-circuit, then the
+  image-baked Debian cluster 16/main via pg_ctlcluster, role, database, and a
+  verify by connecting) and psycopg[binary]>=3.1,<4 is declared in
+  requirements-test.txt. 38 passed, 0 skipped.
+- THE SIX FAILURES THAT SURFACED WERE THE MEASUREMENT, NOT THE PRODUCT. Passing
+  BD_INSTALL_DIR=$(mktemp -d) as a prefix to a whole pytest RUN makes every test
+  in that run share one SQLite history DB, because db._resolve_db_path() prefers
+  it over cwd -- so it defeats the per-test cwd isolation conftest's autouse
+  isolated_bd_home provides. Fresh per invocation, SHARED within it. CI never
+  sets the variable, which is exactly why CI was green.
+- Reconstructed to the digit on pristine source: rows_migrated 7 on an "empty"
+  source is 3 inserts from 800 plus 4 from 801; rows_source=42 mismatches=2 is
+  7 carryover + 25 + 10; sqlite=1 pg=1 is db_init's FTS backfill against a
+  freshly cleared mirror. pg_backend.py and db.py needed NO changes -- the
+  preflight was correctly refusing cutover on a divergence the harness created.
+- Fixed anyway, because immunity beats avoidance: each of the four files takes
+  an autouse fixture pinning BD_INSTALL_DIR to its own tmp_path. Measured green
+  in four configurations, including WITH the ambient variable set.
+- psycopg removed from both waiver dicts in test_v3_66_653_dep_freshness.py --
+  each carries an anti-rot check that fails a declared-but-waived name.
+- UNTESTED HERE, said plainly: the su-as-postgres transport and the
+  `pg_ctlcluster start` path in the new provisioning step could not run in this
+  container (the permission classifier denied su and stopping the live server).
+  They execute at the next cache build. The short-circuit, double-run
+  idempotence and role-ensure SQL were tested against a live server.
+
+## v3.66.998
+
+- Serial lane 62 -> 33 files. 30 promoted, 11 of them only after a real fix, and
+  one PARALLEL file demoted to serial for cause. About 450s of the box's 903s
+  lane, of which 392.2s is measured and the rest DERIVED by scaling.
+- The three most expensive files were refuted at v3.66.923 against a ONE-SECOND
+  AdapterBudget wall clock. That budget is not their subject, so it is now 30s
+  and the enumeration test discriminates structurally instead of by race:
+  fuzz_harness 178.4s -> 30.6s isolated, differential_oracle and reachability
+  likewise. Assertions unchanged.
+- test_u50_widget_backfills, test_u30_runner_replay and test_cut41_ts_iso_producers
+  were FIXED rather than pinned. u50 needed each behaviour test to build its own
+  schema (db_init alone is measurably insufficient -- `library` arrives by
+  migration). u30 asserted over the process-global app.runners. cut41 asserted
+  an absolute dashboard count while /api/dashboard iterates EVERY registered
+  runner. All three were failing on the pristine sweep too, so this closes three
+  of the container-only failures 15.79 recorded.
+- THE ABSOLUTE RUNNER RULE HAD A DEMONSTRATED ESCAPE AND IT IS NOW CLOSED
+  ADDITIVELY -- the snippet tuple is untouched, so this is not the narrowing
+  refuted at @990. `spec_from_file_location("rtc","run_tests_core.py") +
+  exec_module` classified PARALLEL while still loading the runner in-process;
+  capture_lanes now carries an AST-scoped `runner_import_hazard` that sees
+  loader calls whose argument subtree names the runner, fail-closed on
+  unparseable source. Proven RED first; bd-mutate 3 caught / 0 escaped.
+- The escape had a LIVE instance already in the parallel lane:
+  test_harness_retry_timeout.py spec-loads the runner in-process and leaked
+  BD_TEST_FILE_TIMEOUT, a key no restore covered. Leak fixed, allowlist entry
+  removed -- it is serial now, correctly.
+- capture_lanes.py's @921 comment block claimed the source checks are ABSOLUTE
+  and unoverridable. @923 moved the allowlist above them and nothing updated the
+  comment, so it has been stating the opposite of the code. Fixed in place.
+- Evidence: bd-leakprobe SENSITIVE then 30 probed / 0 leaking; derived band 575
+  passed; all 15 CI gate suites green; import-graph gate proven RED pre-refreeze
+  and refrozen; whole-tree sweeps at -n 4 and -n 2 against a pristine baseline
+  in the same directory -- 60 failed with the changes vs 70 pristine, and no
+  promoted file failed beyond what pristine also shows.
+
 ## v3.66.997
 
 - Register only. 15.79 records the @994-996 session: the serial lane's real

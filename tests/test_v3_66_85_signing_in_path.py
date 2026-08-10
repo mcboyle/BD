@@ -21,7 +21,7 @@ from bulk_downloader import capture_workbench as wb
 from bulk_downloader.capture_synth import synthesize
 from capture_test_fixtures import capture_fixture_lane
 
-_FIXTURES = capture_fixture_lane()
+_FIXTURES = capture_fixture_lane(allow_synthetic=True)
 MEDIA = re.compile(r"\.(mp4|m3u8|ts|webm|mpd|m4s)(\b|$)", re.I)
 
 

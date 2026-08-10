@@ -34,6 +34,19 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _API_PY = _REPO_ROOT / "bulk_downloader" / "app_widgets_api.py"
 
 
+def _own_empty_schema():
+    """Create THIS test's database schema, complete, in clean_workdir's tmpdir.
+
+    db_init() alone is not the whole schema: `library` (and friends) are
+    created by migrations, not by db_init -- measured here as
+    "no such table: library" from the scoped-library collector when this
+    helper only called db_init(). Both calls, always.
+    """
+    from bulk_downloader import db, migrations
+    db.db_init()
+    migrations.apply_pending(backup_first=False)
+
+
 # ── Source-grep contracts ─────────────────────────────────────────
 
 
@@ -69,11 +82,21 @@ def test_cookies_oldest_collector_present():
 # ── eta_clear behaviour ─────────────────────────────────────────
 
 
-def test_eta_clear_says_now_when_queue_empty():
+def test_eta_clear_says_now_when_queue_empty(clean_workdir):
     """queue_depth=0 → 'now' (queue empty). The widget intent is
     'how long until queue drains'; if it's already drained, 'now'
     is the most readable answer.
+
+    clean_workdir + db_init: `_collect_data` reads `history` and `library`
+    DIRECTLY -- the db_stats / dashboard_widgets patches below do not cover
+    that path. Without our own initialized database the result depends on
+    whichever tables an EARLIER file happened to create (serial pass) or not
+    create (parallel worker: "no such table: history" -> eta falls back to
+    "now"). Measured at v3.66.922 as the first real-capture refutation of the
+    @921 promotion. Seeding our own empty schema makes the test's denominator
+    its own, on any worker.
     """
+    _own_empty_schema()
     sys.path.insert(0, str(_REPO_ROOT))
     try:
         from bulk_downloader import app_widgets_api
@@ -106,10 +129,11 @@ def test_eta_clear_says_now_when_queue_empty():
         sys.path.pop(0)
 
 
-def test_eta_clear_absent_when_no_throughput():
+def test_eta_clear_absent_when_no_throughput(clean_workdir):
     """queue_depth > 0 but files_hour = 0 → can't forecast → key
     absent → renderer shows '—'. Better than rendering 'inf' or '∞'.
     """
+    _own_empty_schema()  # see test_eta_clear_says_now_when_queue_empty
     sys.path.insert(0, str(_REPO_ROOT))
     try:
         from bulk_downloader import app_widgets_api
@@ -136,11 +160,24 @@ def test_eta_clear_absent_when_no_throughput():
         sys.path.pop(0)
 
 
-def test_eta_clear_hours_format_for_short_queues():
+def test_eta_clear_hours_format_for_short_queues(clean_workdir):
     """A queue that drains in <1h gets 'Xm' (minutes); 1-24h gets
     'X.Yh' (hours); >24h gets 'X.Yd' (days). The human-readability
     convention matches eta_clear_fmt's display intent.
+
+    files_hour is driven through REAL history rows, not the snapshot patch:
+    `_collect_data` overlays canonical history over the snapshot whenever the
+    history table exists ("canonical history overlays these"), so a patched
+    snapshot files_hour is structurally unreachable once this test owns a real
+    schema. Measured: with an empty seeded history the patched 60 was
+    overwritten to 0 and eta came back None. Sixty done-rows in the last hour
+    make the canonical path itself say 60/hr.
     """
+    _own_empty_schema()  # see test_eta_clear_says_now_when_queue_empty
+    from bulk_downloader import db
+    for i in range(60):
+        db.db_log("u50_site", "U50", f"https://example.invalid/{i}",
+                  "done", filename=f"f{i}.mp4", file_size=1000)
     sys.path.insert(0, str(_REPO_ROOT))
     try:
         from bulk_downloader import app_widgets_api
@@ -152,7 +189,7 @@ def test_eta_clear_hours_format_for_short_queues():
                        "login_required": 0, "captcha": 0}}):
             with patch("bulk_downloader.dashboard_widgets.snapshot",
                        return_value={"done_today": 0, "done_hour": 0,
-                                     "files_hour": 60, "throughput_fmt": None,
+                                     "files_hour": 0, "throughput_fmt": None,
                                      "success_rate_pct": None,
                                      "bytes_today": "0 B"}):
                 out = app_widgets_api._collect_data(None)
@@ -166,13 +203,14 @@ def test_eta_clear_hours_format_for_short_queues():
 # ── avg_size behaviour ─────────────────────────────────────────
 
 
-def test_avg_size_absent_when_no_history():
+def test_avg_size_absent_when_no_history(clean_workdir):
     """No completed rows in the last 24h → key absent → renderer '—'.
 
-    The default test sandbox has an empty `history` table; the
-    collector's AVG returns NULL; the `if r and r["avg_size"]`
-    guard rejects None.
+    An empty `history` table -- OURS, created below, not an assumption
+    about the ambient sandbox -- makes the collector's AVG return NULL;
+    the `if r and r["avg_size"]` guard rejects None.
     """
+    _own_empty_schema()  # see test_eta_clear_says_now_when_queue_empty
     sys.path.insert(0, str(_REPO_ROOT))
     try:
         from bulk_downloader import app_widgets_api
@@ -187,10 +225,11 @@ def test_avg_size_absent_when_no_history():
 # ── cookies_oldest behaviour ──────────────────────────────────
 
 
-def test_cookies_oldest_absent_when_no_sites():
+def test_cookies_oldest_absent_when_no_sites(clean_workdir):
     """No sites configured → cookie_freshness returns empty list →
     no aged entries → both keys stay absent → renderer '—'.
     """
+    _own_empty_schema()  # see test_eta_clear_says_now_when_queue_empty
     sys.path.insert(0, str(_REPO_ROOT))
     try:
         from bulk_downloader import app_widgets_api
@@ -215,10 +254,11 @@ def test_cookies_oldest_absent_when_no_sites():
         sys.path.pop(0)
 
 
-def test_cookies_oldest_picks_max_age_site():
+def test_cookies_oldest_picks_max_age_site(clean_workdir):
     """With multiple sites of different cookie ages, the collector
     picks the OLDEST (= most due for renewal) and surfaces it.
     """
+    _own_empty_schema()  # see test_eta_clear_says_now_when_queue_empty
     sys.path.insert(0, str(_REPO_ROOT))
     try:
         from bulk_downloader import app_widgets_api

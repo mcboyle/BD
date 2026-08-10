@@ -47,6 +47,17 @@ def _pg_available():
         return False, f"postgres unreachable: {type(e).__name__}"
 
 
+@pytest.fixture(autouse=True)
+def _isolated_history_db(tmp_path, monkeypatch):
+    """Pin BD_INSTALL_DIR to this test's tmp_path (clean_workdir's pattern).
+
+    An AMBIENT value makes every test in the run share ONE history DB (see
+    test_v3_66_800_mod3_dual_write.py for the measured failure signature).
+    The parent's environment is part of this suite's denominator, so the var
+    is pinned rather than inherited."""
+    monkeypatch.setenv("BD_INSTALL_DIR", str(tmp_path))
+
+
 def _reload(monkeypatch, tmp_path, dsn=None, shadow=None):
     monkeypatch.setenv("BD_HOME", str(tmp_path))
     if dsn is None:
