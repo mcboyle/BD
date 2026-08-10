@@ -295,6 +295,74 @@ def _place_by_host(files):
     return placed, attempted, parser_label
 
 
+def site_families(groups):
+    """Group exact-host buckets into CANDIDATE site families. Never regroups.
+
+    v3.66.1014, implementing 15.74 finding A. `_place_by_host` buckets on the
+    exact hostname, and five of the operator's seven sites span a login host and
+    a content host -- `auth.wowgirls.com`/`venus.wowgirls.com`,
+    `auth.reptyle.com`/`app.reptyle.com`. A login-host bucket reporting green is
+    a FALSE green: login selectors are scored and never gated.
+
+    THREE CONSTRAINTS, ALL FROM 15.74'S DESIGN RATHER THAN INVENTED HERE:
+
+      * `_place_by_host` is NOT re-keyed. This reads its output and returns a
+        separate structure; the caller's groups are not touched.
+      * The exact host stays the MERGE unit. `bd-template-merge`'s single-host
+        guard is correct for drafts, and nothing here merges anything.
+      * Families are CANDIDATES. Every row says so, and says what derived it, so
+        a consumer cannot mistake a proposal for a measured grouping.
+
+    THE KEY IS THE REGISTRABLE DOMAIN OF THE RESOLVED HOST, never the filename
+    stem. This mode's whole discipline is "never a guess" -- it keys the UNKNOWN
+    bucket apart specifically so a stem that looks like a host cannot be
+    laundered into a measured group. A family built from a stem would launder it
+    straight back, so UNKNOWN buckets are excluded here for the same reason.
+
+    A SINGLETON IS NOT A FAMILY. One host proposes nothing, and a list where
+    most rows are single hosts buries the few that are real claims.
+    """
+    if not groups:
+        return []
+    try:
+        from bulk_downloader.registrable_domain import registrable_domain
+    except ImportError:                       # pragma: no cover - repo-local
+        return []
+
+    buckets = {}
+    for g in groups:
+        # UNKNOWN buckets are unresolved stems, not hosts. See above.
+        if g.get("methods") == ["unknown"]:
+            continue
+        host = (g.get("host") or "").strip().lower()
+        if not host:
+            continue
+        fam = registrable_domain(host)
+        # No registrant (a bare label such as `localhost`) means nothing to
+        # group ON -- grouping on "" would collect every one of them together.
+        if not fam or "." not in fam:
+            continue
+        buckets.setdefault(fam, []).append((host, int(g.get("captures") or 0)))
+
+    out = []
+    for fam, members in sorted(buckets.items()):
+        if len(members) < 2:
+            continue
+        out.append({
+            "family": fam,
+            # CANDIDATE, stated in the row rather than in a header a consumer
+            # may never read.
+            "tier": "candidate",
+            "basis": "registrable_domain",
+            "hosts": sorted(h for h, _c in members),
+            # The evidence a reviewer confirms the split from: it is the
+            # lopsided capture count that identifies a login host
+            # (`auth.reptyle.com cap=5` beside `app.reptyle.com cap=62`).
+            "captures": {h: c for h, c in members},
+        })
+    return out
+
+
 def mode_hosts(files):
     """Group by host: filename first, the archive as the authority, never a guess.
 
@@ -367,6 +435,9 @@ def mode_hosts(files):
             "archives_opened": attempted,
             "unreadable": reasons.get("unreadable", 0),
             "unknown_reasons": reasons,
+            # ADDITIVE. A new key beside the existing ones -- `groups` keeps its
+            # exact-host keying, which is what bd-template-merge consumes.
+            "site_families": site_families(groups),
             "groups": groups}
 
 

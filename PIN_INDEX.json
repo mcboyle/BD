@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 44,
+    "total": 45,
     "version": 1,
-    "count_dict": 43,
-    "test_files_scanned": 1292,
+    "count_dict": 44,
+    "test_files_scanned": 1293,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -37,6 +37,7 @@
       "tests/test_u49_workers_total_honest.py": 1,
       "tests/test_v3_43_67_vixen.py": 2,
       "tests/test_v3_60_phase12.py": 1,
+      "tests/test_v3_66_1014_site_families.py": 1,
       "tests/test_v3_66_127_rollback_center.py": 2,
       "tests/test_v3_66_15_phase4_p5_site_memory.py": 4,
       "tests/test_v3_66_20_phase4_jwplayer_feeds.py": 1,
@@ -220,7 +221,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1013",
+      "value": "3.66.1014",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -262,6 +263,16 @@
         "a": 1
       },
       "gates_what": "test_maybe_json_returns_true_with_flag"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1014_site_families.py",
+      "line": 157,
+      "value": {
+        "auth.reptyle.com": 5,
+        "app.reptyle.com": 62
+      },
+      "gates_what": "test_a_family_carries_the_evidence_a_reviewer_needs — Capture counts per host, because that is how the operator recognises the"
     },
     {
       "form": "count_dict",
