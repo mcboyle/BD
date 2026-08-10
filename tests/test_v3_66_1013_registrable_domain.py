@@ -221,11 +221,16 @@ def test_the_shape_census_can_still_SEE_the_pattern():
 def test_the_remaining_copies_are_COUNTED_so_the_backlog_cannot_grow():
     """A RATCHET, not a clean bill of health.
 
-    Thirteen copies existed at @1013 and this cut migrates the two that gate a
-    fetch. Asserting zero would fail honestly and block the security fix behind
-    eleven unrelated edits across extractors, rate limiting and login
-    suggestion -- each of which deserves its own band. Asserting a CEILING lets
-    the rest be drained in later cuts while making a fourteenth impossible.
+    Thirteen copies existed at @1013 and that cut migrated the two that gate a
+    fetch. Asserting zero would have failed honestly and blocked the security
+    fix behind eleven unrelated edits across extractors, rate limiting and login
+    suggestion -- each of which deserved its own band. Asserting a CEILING let
+    the rest be drained later while making a fourteenth impossible.
+
+    v3.66.1018 drained the remaining eleven, so the ceiling is now ZERO and this
+    is a clean bill of health rather than a ratchet. It stays written as a
+    ceiling because that is what makes it one-directional: a fourteenth copy
+    fails here whether or not anyone remembers this file exists.
 
     Lower this when a cut converts some. Never raise it.
     """
@@ -259,8 +264,8 @@ def test_the_remaining_copies_are_COUNTED_so_the_backlog_cannot_grow():
         for n in ast.walk(tree):
             if isinstance(n, ast.FunctionDef) and _joins_last_two_labels(n):
                 found.append("%s:%d %s" % (rel, n.lineno, n.name))
-    assert len(found) <= 11, (
-        "last-two-labels copies rose to %d, above the ratchet of 11. Every one "
+    assert len(found) <= 0, (
+        "last-two-labels copies rose to %d, above the ratchet of 0. Every one "
         "of these is the bug that made victim.co.uk and attacker.co.uk the "
         "same site. Use bulk_downloader.registrable_domain.\n  %s"
         % (len(found), "\n  ".join(sorted(found))))

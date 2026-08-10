@@ -4,6 +4,57 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1018
+
+The eleven remaining last-two-labels copies, drained. @1013 built one correct
+rule and migrated the TWO that gate a fetch, ratcheting the rest at eleven
+because asserting zero would have blocked a security fix behind eleven
+unrelated edits. This drains them and the ratchet is now ZERO.
+
+WHAT "MIGRATE" MEANS HERE, precisely, because the obvious version breaks things.
+Each function has TWO behaviours: how it derives a registrable domain (wrong,
+and the reason for this cut) and what it returns for degenerate input
+(deliberate, and none of this cut's business). Measured on pristine source at
+213fa81, the eight importable sites split into two contracts:
+
+    input          A: candidate_filter, extension_vault,   B: extractors_aylo,
+                      host_enumerator, phoenix_catalog,       _dl8, _vixen
+                      player_struct_embed
+    localhost      'localhost'                             ''
+    www.bbc.co.uk  'co.uk'      <- the bug                 'co.uk'   <- the bug
+
+They differ on a single-label host and agree everywhere else. Only the wrong
+column changes. A blanket `return registrable_domain(h)` silently converts
+contract B into contract A, and a caller distinguishing "no eTLD+1" from "the
+host itself" would start treating `localhost` as a registrable domain -- so the
+degenerate contract is pinned per site, in both directions.
+
+TWO SITES NEEDED MORE THAN A DELEGATION.
+
+`extension_vault.get_registrable_domain` accepts a SCHEME-LESS "host/path",
+which the canonical normalizer does not strip (it only urlparses when a scheme
+is present). That path-strip is kept, with a comment saying why, because
+dropping it would hand the rule "example.com/foo" as a hostname.
+
+`rate_limit._extract_domain` was a THREE-layer repair of a wrong answer:
+extension_vault's join, a suffix check to notice it had returned a bare public
+suffix, a local set of EIGHT two-label TLDs to patch the ones it knew about,
+and a last-two-labels fallback underneath. Every layer existed because the one
+below it was wrong. The eight-entry set was a second source of truth for a
+question registrable_domain answers completely, so anything outside it --
+github.io and the other user-content hosts -- still keyed two unrelated
+registrants to one bucket and made them share a rate limit. 919 characters
+removed, replaced by one call.
+
+A TEST WAS CORRECTLY BROKEN BY THIS CUT AND IS REWRITTEN RATHER THAN RELAXED.
+`test_hostname_pattern_actually_anchors_better_than_etld1` carried a sanity
+line asserting that get_registrable_domain returned the bare suffix `co.uk` and
+so WOULD have matched attacker.co.uk. That line documented the bug; fixing the
+bug made it false. Its SUBJECT is unchanged and still real -- hostname_pattern
+pins the whole hostname while a registrable domain deliberately does not -- so
+the contrast moves to a subdomain sibling, where the two still differ, and the
+.co.uk case is kept as a now-PASSING assertion.
+
 ## v3.66.1017
 
 The second half of item E: a CAPTURED template can now express its interstitial.

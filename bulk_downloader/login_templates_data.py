@@ -645,12 +645,12 @@ def suggest_login_for_url(url):
     sub = []
 
     def _reg_domain(h):
-        # Cheap registered-domain heuristic: last 2 dotted parts.
-        # Doesn't know the public suffix list (so "site.co.uk" → "co.uk"
-        # which is wrong), but for the .com/.net/.tv hosts in the
-        # login template index this is fine.
-        parts = (h or "").split(".")
-        return ".".join(parts[-2:]) if len(parts) >= 2 else h
+        # v3.66.1018: the canonical rule. The previous heuristic took the last
+        # two dotted parts and said so -- "site.co.uk" -> "co.uk", which is
+        # wrong -- and the consequence here is that every .co.uk template would
+        # register-domain-match every .co.uk login URL.
+        from .registrable_domain import registrable_domain
+        return registrable_domain(h)
 
     host_rd = _reg_domain(host)
     for t in LOGIN_TEMPLATES:

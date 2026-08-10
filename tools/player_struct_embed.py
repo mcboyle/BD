@@ -49,9 +49,17 @@ def _class_prefix(token: str) -> str:
 
 
 def _registrable(host: str) -> str:
-    h = (host or "").lower().replace("www.", "")
-    parts = [p for p in h.split(".") if p]
-    return ".".join(parts[-2:]) if len(parts) >= 2 else h
+    """The registrable domain of `host`.
+
+    v3.66.1018: delegates to bulk_downloader.registrable_domain. The previous
+    last-two-labels join returned the PUBLIC SUFFIX for any multi-part one --
+    co.uk for www.bbc.co.uk -- so two unrelated registrants read as one domain.
+    The old `.replace("www.", "")` went with it: it stripped that substring
+    ANYWHERE in the host, and the canonical rule treats `www` as the ordinary
+    label it is.
+    """
+    from bulk_downloader.registrable_domain import registrable_domain
+    return registrable_domain(host)
 
 
 def _host_of(src: str) -> str:
