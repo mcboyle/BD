@@ -4,6 +4,152 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1022
+
+A test wrote into the TRACKED corpus, and it failed a box capture.
+
+test_v3_66_13_phase2_p10_bdctl_dd_diff.py mutated
+tests/fixtures/deep_detect/01_hls_master/meta.json in place -- a tracked file --
+and restored it in a finally:. test_v3_66_13_phase2_p2_snapshot_replay.py
+re-reads that same meta.json from disk on every call and resolves each snapshot
+URL against its base_url. Both files are in the capture's PARALLEL lane, so on
+the box's 88-worker run a read landing inside the window saw a base_url nobody
+expected:
+
+    - "url": "https://cdn.example.test/stream/1080p.m3u8"
+    + "url": "https://different.example.test/1080p.m3u8"
+
+CONCURRENCY-DEPENDENT, NOT ORDER-DEPENDENT: polluter-then-victim in one process
+passes, because the finally: restores before the victim starts. It takes genuine
+overlap, which is why it surfaces on the box and essentially never in a
+container -- and why no amount of re-running would have proved it fixed.
+
+THE finally: IS ALSO A RESIDUE HAZARD, and that half is worse than the race. A
+worker killed mid-window never runs it and the tracked file stays mutated on
+disk, so the next run fails deterministically for a reason that looks nothing
+like its cause. Section 6 records the same shape for bd-mutate.
+
+AN ENV VAR RATHER THAN A FLAG OR A MODULE GLOBAL, for a specific reason: bdctl
+loads dd-replay FRESH on every dd-diff invocation via spec_from_file_location +
+exec_module, so a test that monkeypatches replay.CORPUS_DIR never holds the
+instance bdctl builds mid-call. The environment is re-read at each exec_module.
+An argparse flag would reach only dd-replay's own main(), which bdctl never
+calls. DD_REPLAY_CORPUS is deliberately UNPREFIXED: a BD_ name enters
+test_gui_parity's env ledger denominator and an unledgered one fails the parity
+gate, and this is a test seam rather than a config key. `or` rather than a .get
+default, so an exported-but-empty value falls back instead of resolving to the
+CWD.
+
+The P10 copy fixture is AUTOUSE, because the protection must not depend on a
+future test author remembering to ask for it -- the tracked corpus being
+writable at all is the defect.
+
+A HASH CHECK ALONE WOULD NOT HAVE BEEN A TEST. Measured: every meta.json
+round-trips byte-identically through json.dumps(indent=2)+newline, and a full
+pristine P10 run leaves the corpus hash IDENTICAL -- so "unchanged after the
+suite" is GREEN on pristine in the happy path and catches only the crash case.
+The discriminating assertion is where the WRITE lands, so the test calls the
+helper and does not restore, then asks which file moved. It is kept as a
+backstop for the crash case, and during the RED proof it fired for real: the
+pristine helper wrote the tracked corpus live.
+
+## v3.66.1021
+
+Queue item 5: log._init() appended to a global it did not own.
+
+`_INITIALIZED` is a MODULE global. `logging.getLogger("bulk_downloader")` is a
+STDLIB global, keyed in logging.Logger.manager.loggerDict, and it outlives any
+module wipe. So a wipe reset the flag and not the logger, _init ran again, and
+added a second RotatingFileHandler and a second StreamHandler to the same
+logger. Measured over seven wipe cycles in one process:
+
+    inits   handlers   logger filters   handler filters
+    1       2          1                2
+    4       8          4                20
+    7       14         7                56
+
+Handlers are 2N -- which is what the register recorded. Handler FILTERS are
+N(N+1), QUADRATIC, which nothing recorded: the loop at the end of _init
+decorated every handler ON THE LOGGER rather than the two it had just
+installed, so the Nth call re-decorated all 2(N-1) survivors too. And the cost
+no count shows: one .info() printed 28 lines across those seven cycles, one per
+surviving StreamHandler, while N RotatingFileHandlers rotated the same file
+independently. After the fix all three counts are FLAT at 2/1/2 and seven
+.info() calls print seven lines.
+
+THE OBVIOUS ONE-LINE FIX WOULD HAVE BEEN WRONG, and that is the design.
+tests/test_v3_66_942_integrity_check_path_survives_a_cwd_change.py clears
+_INITIALIZED on purpose to FORCE a full re-init, because its subject is where
+logs/ is created relative to cwd. A guard making _init a no-op when the logger
+already has handlers would make that subject unreachable while looking like a
+fix. So _init REPLACES what it previously installed and the early return is
+untouched -- 942 passes 8/8 before and after.
+
+TAGGED, NOT SWEPT. Only handlers carrying _OWN_ATTR are removed; an untagged
+sweep of root.handlers would evict a handler an operator or another library
+attached. That is the same denominator mistake ui_events.py:107 already records
+from the other direction, where a FOREIGN handler arriving first made its guard
+return early and the log went silent. The attribute is by NAME rather than a
+class or sentinel because the logger survives a wipe while every class defined
+in log.py gets a new identity on re-import -- isinstance could not recognise a
+previous incarnation's handlers and the sweep would remove nothing. Same
+mechanism as ui_events.py's _OWN_HANDLER_ATTR (v3.66.907).
+
+Every assertion in the new suite is a DELTA across a cycle, never an absolute
+count: it may run in a process where something already built a logger, and a
+test asserting "exactly 2 handlers" would be asserting about the runner.
+
+## v3.66.1020
+
+Three residues in already-merged work. No new feature; each is something
+@1016/@1018 left behind that a later reader would have inherited as true.
+
+A -- A TEST THAT SKIPPED INSTEAD OF ASSERTING, AND THE BOX HELD THE RECEIPT.
+test_the_rate_limit_key_is_the_registrable_domain reached its subject with
+getattr(R, "_extract_domain", None) and skipped when that came back None. It is
+a @staticmethod on DomainRateLimiter, never a module attribute, so the getattr
+ALWAYS returned None and both behavioural assertions never ran. The capture at
+e7d3b5e shows skips going 4 -> 5 the moment @1018 landed, and the fifth is that
+test -- with a stated reason ("nested") that is also wrong. A skip reads as fine
+in every summary line. There is no skip branch now: a moved target raises
+AttributeError and fails loudly. The access is the proven in-tree pattern from
+tests/test_v3_43_31_rate_limit.py:270.
+
+B -- A DOCSTRING DESCRIBING A MECHANISM THAT WAS REMOVED. @1018 replaced
+rate_limit._extract_domain's three-layer repair with one call and deleted the
+rate_limit -> extension_vault import edge. The docstring still claimed the
+function "uses extension_vault's helper", is "intentionally simpler than full
+eTLD+1", and repairs a bare-suffix answer afterwards. Three claims, none true,
+where a reader looks first.
+
+C -- AN UNCOVERED PATH IN @1016, AND IT IS A STALL RATHER THAN A MISS. do_login
+returns early when a form auto-submits on password fill AND the page is already
+at success_url. A post-login wall is NOT success_url, so that check does not
+fire -- and the wall carries no login form, so _submit_login then walks its
+whole fallback list against a page that can never satisfy it. @1016's dismissal
+sat after that walk. The wall is now read ONCE, before both dismissal sites, and
+a declared wall is dismissed in the auto-submit branch.
+
+MEASURED, and the numbers are the argument: pristine 551s, fixed 15s. The log
+shows pristine reaching method 8 of 9 (Tab+Enter) before anything took.
+
+MY OWN TEST PROVED NOTHING FIRST, AND THAT IS RECORDED RATHER THAN QUIETLY
+FIXED. The first version asserted ok is True and PASSED on pristine source --
+because _submit_login eventually clicks something, flow reaches @1016's
+post-submit dismissal, and the wall clears there anyway. Section 6: a test that
+passes in both states is not a test. The defect is the walk, so the assertion is
+now whether _submit_login is entered at all -- a fact about control flow rather
+than a clock.
+
+AND THE PROSE-VS-CODE TRAP LANDED INSIDE THE CUT ABOUT RESIDUES. A test
+asserting the fixed function no longer contains getattr(R, "_extract_domain")
+FAILED, because that function's own docstring quotes the call in order to
+explain what was wrong. ast.unparse renders docstrings as ordinary strings.
+Section 0's "explaining a removal by naming the removed thing recreates it",
+committed minutes after writing that sentence down. The predicate now strips
+docstrings, with a known-positive AND known-negative proof that it can tell
+prose from code.
+
 ## v3.66.1019
 
 Re-freeze the TEMPLATES list-identity baseline for the gamma_kosmos split.

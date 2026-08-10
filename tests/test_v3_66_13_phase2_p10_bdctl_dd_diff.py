@@ -16,6 +16,7 @@ The corpus this test exercises is the same one P2 exercises.
 import importlib.util
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -121,10 +122,48 @@ def test_list_baselines_json(sandbox_home, monkeypatch, capsys):
 # ── Diff detection ────────────────────────────────────────────────────
 
 
+@pytest.fixture(autouse=True)
+def _corpus_copy(tmp_path, monkeypatch):
+    """Every test in this file works on a COPY of the corpus.
+
+    autouse because the protection must not depend on a future test author
+    remembering to ask for it -- the tracked corpus being writable at all is
+    the defect. DD_REPLAY_CORPUS is read by dd-replay at import time, and
+    bdctl re-imports it per invocation, so the redirect reaches the in-process
+    delegation as well as any direct call.
+    """
+    dst = tmp_path / "deep_detect"
+    shutil.copytree(REPO_ROOT / "tests" / "fixtures" / "deep_detect", dst)
+    monkeypatch.setenv("DD_REPLAY_CORPUS", str(dst))
+    return dst
+
+
+def _corpus_dir() -> Path:
+    """The corpus these tests may mutate.
+
+    v3.66.1022: THE TRACKED CORPUS IS NOT IT. This helper used to write into
+    tests/fixtures/deep_detect/01_hls_master/meta.json and restore it in a
+    finally:, and tests/test_v3_66_13_phase2_p2_snapshot_replay.py re-reads
+    that file from disk per call -- so on the box's 88-worker lane a read
+    landing inside the window saw the swapped host and the snapshot diffed
+    against a URL nobody wrote. It failed a real capture.
+
+    The finally: also made it a residue hazard rather than only a race: a
+    worker killed mid-window never runs it, and the tracked file stays mutated
+    on disk, so the NEXT run fails deterministically on a dirty tree.
+
+    `conftest`-free by design -- the copy is made by the autouse fixture below
+    and pointed at through DD_REPLAY_CORPUS, which is what bdctl's freshly
+    exec'd copy of dd-replay reads.
+    """
+    return Path(os.environ.get("DD_REPLAY_CORPUS")
+                or (REPO_ROOT / "tests" / "fixtures" / "deep_detect"))
+
+
 def _perturb_first_fixture(new_value: str) -> str:
     """Mutate the first fixture's base_url. Returns the original value
     so the caller can restore."""
-    corpus = REPO_ROOT / "tests" / "fixtures" / "deep_detect"
+    corpus = _corpus_dir()
     first = sorted(corpus.iterdir())[0]
     meta_path = first / "meta.json"
     meta = json.loads(meta_path.read_text())
@@ -135,7 +174,7 @@ def _perturb_first_fixture(new_value: str) -> str:
 
 
 def _restore_first_fixture(value: str) -> None:
-    corpus = REPO_ROOT / "tests" / "fixtures" / "deep_detect"
+    corpus = _corpus_dir()
     first = sorted(corpus.iterdir())[0]
     meta_path = first / "meta.json"
     meta = json.loads(meta_path.read_text())

@@ -32,6 +32,15 @@ from pathlib import Path
 from typing import Any
 
 _INITIALIZED: bool = False
+# Marks the handlers and filters THIS module installed, so a re-init can
+# replace its own and leave anyone else's alone. An attribute by NAME, not a
+# class or a sentinel object, and that is load-bearing: the logger is a stdlib
+# global that survives a module wipe, while every class defined in this file
+# gets a NEW identity on re-import -- so `isinstance` or `is` could not
+# recognise a previous incarnation's handlers and the sweep would remove
+# nothing. Same mechanism and same reasoning as ui_events.py's
+# _OWN_HANDLER_ATTR (v3.66.907).
+_OWN_ATTR = "_bd_log_own"
 _LOG_DIR: Path = Path("logs")
 _LOG_FILE: Path = _LOG_DIR / "bulk_downloader.log"
 _DEFAULT_LEVEL: int = logging.INFO
@@ -44,6 +53,35 @@ def _init() -> None:
     _INITIALIZED = True
 
     root = logging.getLogger("bulk_downloader")
+
+    # v3.66.1021: REPLACE what a previous incarnation installed; never append.
+    # _INITIALIZED is a MODULE global and this logger is a STDLIB global that
+    # outlives it, so a module wipe resets the flag and not the logger. Measured
+    # before the fix, over 7 wipe cycles in one process: handlers 2,4,6..14
+    # (2N), logger filters 1..7, and handler filters 2,6,12,20,30,42,56 --
+    # QUADRATIC, because the loop at the end of this function decorated every
+    # handler on the logger rather than the ones it had just installed. One
+    # .info() printed 28 lines across those cycles, one per surviving
+    # StreamHandler, and N RotatingFileHandlers rotated the same file
+    # independently.
+    #
+    # TAGGED ONLY. An untagged sweep of root.handlers would remove a handler an
+    # operator or another library attached -- the fix reproducing the shape of
+    # the defect, and exactly the denominator mistake ui_events.py:107 records
+    # from the other direction.
+    #
+    # The _INITIALIZED early-return above is deliberately UNCHANGED:
+    # tests/test_v3_66_942_integrity_check_path_survives_a_cwd_change.py clears
+    # that flag to force a full re-init, because its subject is where logs/ is
+    # created relative to cwd. A guard that made _init a no-op when handlers
+    # already exist would destroy that test's subject rather than fix this bug.
+    for _h in [h for h in root.handlers if getattr(h, _OWN_ATTR, False)]:
+        root.removeHandler(_h)
+        try: _h.close()
+        except Exception: pass
+    for _f in [f for f in root.filters if getattr(f, _OWN_ATTR, False)]:
+        root.removeFilter(_f)
+
     root.setLevel(_DEFAULT_LEVEL)
     # Don't propagate to the absolute root logger — that's noisy
     # because Flask/werkzeug install their own handlers there
@@ -57,6 +95,11 @@ def _init() -> None:
     # that writes to our target log file. If so, ONLY install the
     # stderr handler — the file is already covered by the tee, and a
     # second file handle would double-write every message.
+    # The handlers this call installs, so the filter loop below decorates
+    # ITS OWN and not every handler on the logger. That loop was the quadratic
+    # term: on the Nth re-init it re-decorated all 2(N-1) survivors as well.
+    own_handlers = []
+
     stderr_is_teed = type(sys.stderr).__name__ == "_StreamTee"
 
     if not stderr_is_teed:
@@ -75,7 +118,9 @@ def _init() -> None:
                 _LOG_FILE, maxBytes=5_000_000_000, backupCount=5,
                 encoding="utf-8")
             fh.setFormatter(fmt)
+            setattr(fh, _OWN_ATTR, True)
             root.addHandler(fh)
+            own_handlers.append(fh)
         except Exception as e:
             # Don't crash on file handler init — fall back to stderr-only
             sys.stderr.write(f"  log: file handler init failed ({e}); stderr-only\n")
@@ -85,7 +130,9 @@ def _init() -> None:
     # of the file handler above.
     sh = logging.StreamHandler(sys.stderr)
     sh.setFormatter(fmt)
+    setattr(sh, _OWN_ATTR, True)
     root.addHandler(sh)
+    own_handlers.append(sh)
 
     # Filter that injects an empty site_tag when none was set, so the
     # format string doesn't KeyError on calls that didn't supply context.
@@ -94,8 +141,13 @@ def _init() -> None:
             if not hasattr(record, "site_tag"):
                 record.site_tag = ""
             return True
-    root.addFilter(_Defaults())
-    for h in root.handlers:
+    _lf = _Defaults()
+    setattr(_lf, _OWN_ATTR, True)
+    root.addFilter(_lf)
+    # OWN handlers only. The handler-level copy is the load-bearing one: a
+    # parent logger's filters do not run for records propagated from a child,
+    # and every get_logger(__name__) site is a child logger.
+    for h in own_handlers:
         h.addFilter(_Defaults())
 
 

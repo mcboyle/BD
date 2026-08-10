@@ -33,12 +33,37 @@ from __future__ import annotations
 import argparse
 import difflib
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CORPUS_DIR = REPO_ROOT / "tests" / "fixtures" / "deep_detect"
+
+# v3.66.1022: the corpus is overridable so a test can point at a COPY instead
+# of mutating the tracked fixtures. It failed a box capture: the P10 test wrote
+# a base_url into tests/fixtures/deep_detect/01_hls_master/meta.json and
+# restored it in a finally:, while the P2 snapshot test re-reads that file from
+# disk per call -- so on an 88-worker lane any read inside that window saw the
+# swapped host, and the snapshot diffed against a URL nobody wrote.
+#
+# AN ENV VAR RATHER THAN A FLAG OR A MODULE GLOBAL, and the reason is specific:
+# bdctl.py loads THIS module fresh on every dd-diff invocation, via
+# spec_from_file_location + exec_module. A test that monkeypatches
+# `replay.CORPUS_DIR` never holds the instance bdctl creates mid-call, so the
+# patch cannot reach it -- but the environment is re-read at every exec_module.
+# An argparse flag would reach only dd-replay's own main(), which bdctl never
+# calls (it uses _list_fixtures directly).
+#
+# DELIBERATELY UNPREFIXED. Any BD_-prefixed name enters test_gui_parity's
+# env-var ledger denominator, which matches on that prefix, and an unledgered
+# one fails the parity gate -- CLAUDE.md section 4. This is a test seam, not a
+# config key, so it must not look like one.
+#
+# `or` rather than a .get default, so an exported-but-empty value falls back to
+# the tracked corpus instead of resolving to Path(".").
+CORPUS_DIR = Path(os.environ.get("DD_REPLAY_CORPUS") or
+                  (REPO_ROOT / "tests" / "fixtures" / "deep_detect"))
 
 # Add repo root to sys.path so `from bulk_downloader.deep_detect import ...`
 # resolves whether you run from the repo root or from anywhere else.
