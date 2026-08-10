@@ -1093,3 +1093,134 @@ test_worker_pipeline.py
 test_workflow_derivation.py
 test_workflow_diagnostic.py
 test_wow_promote_runtime_shape.py
+
+# v3.66.992 -- promoted after the runner-import rule stopped matching prose
+# (@990). Each was measured CLEAN by every remaining hazard check, then run
+# at five xdist widths (-n 2/3/4/6/8, --dist loadfile) against a green serial
+# baseline of 720 tests. Two files refuted at -n 2/6/8 and were FIXED rather
+# than pinned: test_p8_queue_intelligence and test_v3_66_226_saved_search_patch
+# read the ambient database and asserted global counts; both now take
+# clean_workdir autouse. All five widths are green with them included.
+test_audit_promotion_wirings_533.py
+test_bd_scan_jscpd_535.py
+test_bug_audit.py
+test_build_release_f02.py
+test_builder_recognition_hints_persist.py
+test_bulk_review_merge.py
+test_cockpit02_posture_failclosed.py
+test_consolidation.py
+test_dom_analyzer.py
+test_inv_tags_not_regressed.py
+test_library_audit_panel_contract.py
+test_lifecycle_automation.py
+test_login_surface_lock.py
+test_nav_probe.py
+test_p01_csrf_bootstrap.py
+test_p1_release_tooling.py
+test_p3_template_manager_ui.py
+test_p4_cockpit_home.py
+test_p8_queue_intelligence.py
+test_p9_analytics.py
+test_phase3_coverage_fills.py
+test_phase4_retired.py
+test_recognition_cockpit_display.py
+test_release_hygiene_gates.py
+test_settings_center_secret_classifier.py
+test_skip_baseline.py
+test_sweep_n3_success_url_boundary.py
+test_sweep_n6_regex_redos_guard.py
+test_t10_devtools_wired.py
+test_t1_dashboard_wired.py
+test_t2_history_wired.py
+test_t3_t4_wired.py
+test_t5_t6_wired.py
+test_t8_cluster_wired.py
+test_t9b_push_wired.py
+test_template_extractor_surface_lock.py
+test_templates_list_identity.py
+test_u31_deploy_lint.py
+test_ui_events.py
+test_v3_43_72_dedup.py
+test_v3_66_218_predictive_relogin.py
+test_v3_66_226_queue_site_drain.py
+test_v3_66_226_saved_search_patch.py
+test_v3_66_270_promote_suffix.py
+test_v3_66_271_gcw2_per_entry_delete.py
+test_v3_66_271_gcw2_pick_overlay.py
+test_v3_66_292_dom_analyzer_link.py
+test_v3_66_353_dead_modules_removed.py
+test_v3_66_353_staged_login.py
+test_v3_66_463_mc_memoize.py
+test_v3_66_464_scandir_sweep.py
+test_v3_66_472_drift_gate.py
+test_v3_66_473_quarantine_state.py
+test_v3_66_474_auto_onboard.py
+test_v3_66_475_self_heal.py
+test_v3_66_476_auto_promote.py
+test_v3_66_478_auto_queue.py
+test_v3_66_479_auto_recover.py
+test_v3_66_480_auto_ci.py
+test_v3_66_481_automation_controller.py
+test_v3_66_521_security_hotfix.py
+test_v3_66_522_dead_endpoints.py
+test_v3_66_524_security_hardening.py
+test_v3_66_569_backup_extract_confine.py
+test_v3_66_570_cap01_witnesses_cli.py
+test_v3_66_571_library_scan_boundary.py
+test_v3_66_707_auto_cycle_ceiling.py
+test_v3_66_708_automation_pipeline.py
+test_v3_66_768_vpn_diagnostics_wired.py
+test_v3_66_770_vpn_webrtc_killswitch.py
+test_v3_66_773_vpn_secret_derive.py
+test_v3_66_774_plugin_permission_grant.py
+test_v3_66_775_plugin_grant_ui.py
+test_v3_66_wave2_input_redaction.py
+test_wave2_backlog.py
+
+# v3.66.992 wave 2 -- files with NO source hazard at all: 31 that were only
+# ever UNLISTED (fail-closed, never reviewed) and 11 matched solely by a
+# NAME TOKEN, which capture_lanes documents as a proxy for 'nobody has looked
+# at this yet' and explicitly makes overridable by review. Serial baseline 367
+# tests green, then -n 2/3/4/6/8 --dist loadfile, zero failures at every width.
+test_capture_iframe_clipboard.py
+test_live_harness.py
+test_register_promises_resolve.py
+test_t55_live_test_harness_timeout.py
+test_t9a_live_stream_wired.py
+test_u42_resource_live_tests.py
+test_v3_66_269_capture_layout.py
+test_v3_66_44_runner_gaps.py
+test_v3_66_925_bitrot_resolves_basenames.py
+test_v3_66_926_app_import_does_not_boot_db.py
+test_v3_66_927_integrity_thread_keeps_its_path.py
+test_v3_66_928_quarantine_needs_confirmed_corruption.py
+test_v3_66_929_doctruth_sees_the_contract.py
+test_v3_66_930_bitrot_scan_gets_its_roots.py
+test_v3_66_931_bitrot_schema_init_reports_real_errors.py
+test_v3_66_932_pre_push_guards_the_two_dot_diff.py
+test_v3_66_936_golden_carries_no_ambient_state.py
+test_v3_66_937_band_floor_is_not_dropped.py
+test_v3_66_938_atomic_write_sidecars_are_ignored.py
+test_v3_66_941_scan_start_refuses_a_live_worker.py
+test_v3_66_944_static_kb_manifest_describes_the_tree.py
+test_v3_66_947_the_kb_manifest_can_be_regenerated.py
+test_v3_66_949_the_full_sweep_is_bounded_and_instrumented.py
+test_v3_66_963_import_does_not_persist_config.py
+test_v3_66_964_app_config_writer_does_not_lose_updates.py
+test_v3_66_968_anchor_gate_sees_frontend_citations.py
+test_v3_66_969_a_restart_survives_the_hooks_rerecord.py
+test_v3_66_970_missing_labels_name_their_mechanism.py
+test_v3_66_971_capture_scrub_sniffs_content.py
+test_v3_66_972_library_missing_stays_retired.py
+test_v3_66_973_wacz_corpus_survey.py
+test_v3_66_974_template_merge.py
+test_v3_66_978_wacz_dupes_and_derivatives.py
+test_v3_66_979_freshness_does_no_network_at_boot.py
+test_v3_66_981_wacz_host_grouping.py
+test_v3_66_983_derivative_marker_forms.py
+test_v3_66_984_template_viability.py
+test_v3_66_985_templates_parallel.py
+test_v3_66_987_gate_support_measures_the_gate.py
+test_v3_66_988_merge_keeps_list_selectors.py
+test_v3_66_989_download_affordance_scoping.py
+test_zip_era_tools_stay_retired.py

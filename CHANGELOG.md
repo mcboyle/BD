@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.992
+
+- Promote 75 test files from the serial lane to the parallel allowlist. These
+  are the files v3.66.990 freed from the runner-import rule -- they mention
+  run_tests only in prose -- and that were measured CLEAN by every remaining
+  hazard check (no os.environ/sys.modules/chdir, no serial snippet, no risky
+  name token, not refuted by name).
+- EVIDENCE: a green serial baseline of 720 tests, then five xdist widths
+  (-n 2/3/4/6/8, --dist loadfile). Widths matter and this run proved it again:
+  -n 3 and -n 4 were green while -n 2, -n 6 and -n 8 refuted two files. xdist
+  assigns files to workers by count, so the width decides who shares a worker.
+  A single green width is not evidence.
+- The two refuted files were FIXED, not pinned. test_p8_queue_intelligence and
+  test_v3_66_226_saved_search_patch read the AMBIENT database and asserted
+  global counts (`assert 6 == 0` -- another file's rows were still there), so
+  they passed serially only because nothing had seeded it yet in that process.
+  Both now take clean_workdir autouse, which chdirs to a tmpdir AND sets
+  BD_INSTALL_DIR -- the variable db._resolve_db_path() actually consults, since
+  chdir alone does not survive later code chdir-ing away. All five widths green
+  with them included.
+- CONTAINER EVIDENCE IS NOT BOX EVIDENCE. This sweep covers interference AMONG
+  the 75; it cannot cover interference with the ~1074 files already in the lane,
+  which is a different composition. The box capture is the gate, and any file it
+  refutes goes into SERIAL_EXACT_BASENAMES BY NAME -- never by omission, because
+  the allowlist is regenerated and an omission would be regenerated away.
+
 ## v3.66.991
 
 - Register only. 15.76 records the operator queue after v3.66.989 -- A

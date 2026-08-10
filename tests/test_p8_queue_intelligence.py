@@ -13,7 +13,26 @@ sys.path.insert(0, str(_REPO))
 
 import queue_intelligence as QI  # noqa: E402
 import bulk_downloader.db as DB  # noqa: E402
+import pytest
 
+
+@pytest.fixture(autouse=True)
+def _isolate_db(clean_workdir):
+    """Give every test in this module its OWN database.
+
+    v3.66.992. These tests read the AMBIENT database and assert on global
+    counts, so they passed serially only because nothing had seeded it yet in
+    that process. Measured across five xdist widths on the same tree: green at
+    -n 3 and -n 4, red at -n 2, -n 6 and -n 8 with `assert 6 == 0` -- another
+    file landed on the same worker first and its rows were still there. xdist
+    assigns files to workers by count, so the width decides who shares a worker
+    and the failure looked like flakiness.
+
+    `clean_workdir` chdirs to a tmpdir AND sets BD_INSTALL_DIR, which is what
+    `db._resolve_db_path()` actually consults -- chdir alone is not enough,
+    because subsequent code may chdir away.
+    """
+    return clean_workdir
 
 # ── pure helpers ───────────────────────────────────────────────────
 
