@@ -4,6 +4,48 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1014
+
+bd-wacz-corpus --hosts gains a labelled CANDIDATE site_families tier. 15.74
+finding A.
+
+THE PROBLEM. _place_by_host buckets on the EXACT hostname, and five of the
+operator's seven sites span a login host and a content host --
+auth.wowgirls.com/venus.wowgirls.com, vip4k.com/members.vip4k.com,
+auth.reptyle.com/app.reptyle.com, bangbros.com/site-ma.bangbros.com. The box
+data shows it: auth.reptyle.com cap=5 trigger 5/5 beside app.reptyle.com cap=62
+trigger 34/62. A login-host bucket reporting green is a FALSE green, because
+login selectors are scored and never gated.
+
+THE DESIGN IS 15.74'S AND ITS CONSTRAINTS ARE THE POINT. _place_by_host is NOT
+re-keyed; the exact host stays the merge unit, because bd-template-merge's
+single-host guard is correct for drafts; and every family is a CANDIDATE that
+says so in the row, with the basis that derived it, so a consumer cannot mistake
+a proposal for a measured grouping. The tier is additive -- mode_hosts gains a
+key and nothing it already published changes shape.
+
+THE KEY IS THE REGISTRABLE DOMAIN OF THE RESOLVED HOST, never the filename stem.
+This mode's discipline is "never a guess": it keys UNKNOWN buckets apart so a
+stem that looks like a host cannot be laundered into a measured group, and a
+family built from a stem would launder it back. UNKNOWN buckets are excluded for
+that reason.
+
+THE SITEID ALTERNATIVE IS REFUTED BY THE REAL CORPUS. The
+{host}_{siteid}_{YYYYMMDD} convention appears on 2 sources of roughly 600
+(auth.reptyle.com_0b60f1ec_..., pexels.com_1a820331_...); everything else is a
+nickname. It exists, and it is far too rare to key on.
+
+AND @1013 HAD TO LAND FIRST. Under the naive last-two-labels rule
+www.bbc.co.uk went into a family called co.uk, which would then swallow every
+other .co.uk host. The operator's corpus contains bbc captures, so that was not
+hypothetical.
+
+bd-mutate 5 of 5, after two rounds on one escape. Deleting the no-registrant
+guard left the band green: the first closing test used an empty host and a bare
+dot, and the EMPTY one is dropped by a different guard -- so the test exercised
+the wrong one of two guards that both produce the right answer. Two hosts that
+are non-empty and still reduce to nothing is the case that constrains it.
+
 ## v3.66.1013
 
 One correct registrable-domain rule, and the two same-site predicates that
