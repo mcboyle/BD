@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.993
+
+- Register only. 15.78 supersedes 15.77's "promotion pool" framing: the 75 are
+  PROMOTED, not pending, and the lane is 1191 parallel / 87 serial. Records the
+  multi-width evidence, the two files fixed rather than pinned, the 87 that
+  remain by cause, wave 3's measured fix surface (104 write sites across 26
+  files), the two guard repairs, and the box verification still owed.
+- No behaviour changes.
+
 ## v3.66.992
 
 - Promote 75 test files from the serial lane to the parallel allowlist. These

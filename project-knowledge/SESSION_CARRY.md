@@ -5056,6 +5056,77 @@ never `export` in a shell the suite is later launched from.
   row seen in 1 of 6 captures. Re-capture before trusting it.
 
 
+### 15.78 | v3.66.992: the lane went 129 -> 87, and what is left is the real work
+
+Close at `093cb60`. THIS SUPERSEDES 15.77's "promotion pool" framing -- the 75
+are PROMOTED, not pending. Lane split on `main`: **1191 parallel / 87 serial**
+(was 1149 / 129).
+
+**WAVE 1 (75 files, freed by @990).** Serial baseline 720 tests green, then
+`-n 2/3/4/6/8 --dist loadfile`. `-n 3` and `-n 4` were GREEN while `-n 2`, `-n 6`
+and `-n 8` refuted two files. Had one width been run -- the obvious thing -- two
+leaking tests would have shipped. xdist assigns files to workers by COUNT, so the
+width decides who shares a worker and a single width samples one packing.
+
+**THE TWO REFUSALS WERE FIXED, NOT PINNED**, which is the operator's stated
+preference and the right call here. `test_p8_queue_intelligence` and
+`test_v3_66_226_saved_search_patch` read the AMBIENT database and asserted global
+counts (`assert 6 == 0` -- another file's rows still present), so they passed
+serially only because nothing had seeded it yet in that process. Both now take
+`clean_workdir` autouse: it chdirs to a tmpdir AND sets `BD_INSTALL_DIR`, the
+variable `db._resolve_db_path()` actually consults, since chdir alone does not
+survive later code chdir-ing away.
+
+**WAVE 2 (42 files).** 31 only ever UNLISTED (fail-closed, never reviewed) plus
+11 matched solely by a NAME TOKEN, which `capture_lanes` documents as a proxy for
+"nobody has looked at this yet" and explicitly makes overridable by review.
+Baseline 367 tests, same five widths, zero failures.
+
+**WHAT REMAINS: 87 serial files.**
+
+    runner-import (genuine importers)   21
+    snippet (playwright/socket/systemd) 23
+    refuted BY NAME                     17
+    pattern (the next target)           26
+
+**WAVE 3 IS THE 26, AND IT IS A PER-FILE REVIEW.** They pass at every width
+TODAY and were deliberately NOT promoted on that: the hazard is a raw mutation
+leaking into OTHER files on the same worker, which running the 26 alone
+structurally cannot expose. That is the @921 shape -- the whole serial lane
+passed together, and splitting it then broke `test_u50_widget_backfills`.
+
+Measured fix surface: **104 write sites across 26 files -- 78 `os.environ`, 24
+`sys.modules`, 2 `os.chdir`** -- and 16 of the 26 already carry a restore idiom
+(`finally` / `monkeypatch` / `setUp`) that the regex cannot distinguish from a
+leak. One file alone (`test_v3_66_504_envfile_editor.py`) has 25 env writes and
+is an env-file editor, where they are probably intrinsic. Bulk-converting sites
+nobody has read would be its own band-aid; the fix is `monkeypatch.setenv` /
+`clean_workdir` per file, after reading each.
+
+**TWO GUARDS CAUGHT THE PROMOTION ON ITS FIRST RUN**, which is the argument for
+deriving a subject rather than restating it:
+
+- `_has_source_hazard` (in `test_capture_execution_lanes.py`) borrowed the
+  classifier's CONSTANTS but not the TEXT they are applied to, so after @990 the
+  guard and the classifier held two different definitions of "hazard". It now
+  borrows `code_only` too.
+- Its non-empty-denominator floor was `> 100`, calibrated when the check read
+  prose and counted 143 files of which 4 really imported the runner. The honest
+  population is 22, so the floor is 15. The PREDICATE got more precise; the
+  guard did not get weaker. Record that reasoning before lowering any ratchet.
+
+**CONTAINER EVIDENCE IS NOT BOX EVIDENCE, and this is the open verification.**
+The sweeps prove the promoted set does not interfere WITH ITSELF; they say
+nothing about interference with the ~1074 files already in the lane, which is a
+different composition. The capture is the gate. Anything it refutes goes into
+`SERIAL_EXACT_BASENAMES` **by name with its mechanism** -- never by omission,
+because the allowlist is regenerated and an omission would be regenerated away.
+
+**A PREDICTION TO CHECK RATHER THAN ASSUME:** the serial lane was ~12 minutes at
+129 files, but the 87 left are not uniformly cheap -- they are the browser,
+socket, systemd and golden-regeneration suites, individually the slowest. Expect
+LESS than a 32% drop, and measure it rather than quoting this sentence.
+
 ### 15.77 | v3.66.990: the serial lane was ~124 files deep in PROSE, and the program to drain it
 
 Close at `1fc600a` (v3.66.990 on `main`). Every figure re-derivable with the
