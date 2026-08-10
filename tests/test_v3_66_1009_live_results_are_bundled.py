@@ -87,12 +87,22 @@ def test_the_copy_happens_BEFORE_the_bundle():
 def test_a_missing_results_dir_is_RECORDED_not_silent():
     """Unknown is a third state. If the live runner wrote nothing, the capture
     must say so -- an empty 06_live_results/ and a 06_live_results/ that was
-    never populated are indistinguishable to the operator otherwise."""
+    never populated are indistinguishable to the operator otherwise.
+
+    NO WINDOW AROUND THE MATCH, deliberately. The first version of this sliced
+    `code[i - 1200 : i + 1200]` and tripped test_source_windows_do_not_shift's
+    ratchet (116 > 115) -- which that gate could not tell me before the merge,
+    because it enumerates `git ls-files` and this file was still untracked when
+    the band ran. CLAUDE.md section 2a says remove the window rather than raise
+    the baseline, and the removal is also the better assertion: the phrase is
+    distinctive, comment-stripping is what keeps it honest, and the branch it
+    belongs to is proven by execution below rather than by proximity in text.
+    """
     code = shell_code_only(CAPTURE)
-    i = code.index("06_live_results")
-    window = code[max(0, i - 1200):i + 1200]
-    assert "no live-check results" in window.lower(), (
-        "nothing in the collection step reports the empty case")
+    assert "no live-check results collected" in code, (
+        "nothing in EXECUTABLE shell reports the empty case -- if it is only in "
+        "the step's comment, the capture stays silent when the runner wrote "
+        "nothing")
 
 
 # ── the safe-to-bundle half ───────────────────────────────────────
