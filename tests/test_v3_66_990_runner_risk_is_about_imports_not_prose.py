@@ -92,10 +92,24 @@ def test_a_REAL_import_still_pins_the_file_however_it_is_written():
 
 
 def test_UNPARSEABLE_source_falls_back_to_the_raw_text():
-    """Fail-closed. A file this module cannot parse is not proven safe, and the
-    strip must not become a way to hide a real import behind a syntax error."""
-    source = "import run_tests\ndef broken(:\n"
-    assert lanes.classify_capture_file(ALLOWLISTED, source=source) == "serial"
+    """Fail-closed. A file this module cannot read is not proven safe, and the
+    strip must not become a way to hide a real import behind a syntax error.
+
+    BOTH failure stages are driven, because they are separate fallbacks and the
+    first fixture here reached only one of them. `def broken(:` fails in the
+    TOKENIZER, so the AST fallback below it never ran -- a mutant that turned
+    that branch into `return ""` escaped a green battery. `x = = 1` tokenizes
+    cleanly and fails `ast.parse`, which is the only way to exercise it."""
+    for stage, source in (
+        ("tokenizer", "import run_tests\ndef broken(:\n"),
+        ("ast.parse", "import run_tests\nx = = 1\n"),
+        ("ast.parse", "import run_tests\n  bad_indent = 1\n"),
+    ):
+        assert lanes.classify_capture_file(ALLOWLISTED, source=source) == "serial", (
+            "a real import was lost when the %s stage failed" % stage)
+        assert "run_tests" in lanes.code_only(source), (
+            "the %s fallback returned less text than it was given, which is how "
+            "a strip becomes a hiding place" % stage)
 
 
 def test_an_UNLISTED_file_is_still_serial_whatever_its_prose_says():
