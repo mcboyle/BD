@@ -297,15 +297,13 @@ def get_registrable_domain(url_or_host: str) -> str:
     s = url_or_host.strip().lower()
     # Strip scheme if present
     if "://" in s: s = s.split("://", 1)[1]
-    # Strip everything after the path
+    # Strip everything after the path. KEPT: this function accepts a
+    # SCHEME-LESS "host/path", which registrable_domain's normalizer does not
+    # strip (it only urlparses when a scheme is present). Dropping this would
+    # silently hand it "example.com/foo" as a hostname.
     s = s.split("/", 1)[0]
-    # Strip credentials BEFORE port — `user:pw@host:port` has two ":"s
-    s = s.rsplit("@", 1)[-1]
-    # Strip port
-    s = s.split(":", 1)[0]
-    parts = [p for p in s.split(".") if p]
-    if len(parts) <= 2: return ".".join(parts)
-    return ".".join(parts[-2:])
+    from .registrable_domain import registrable_domain
+    return registrable_domain(s)
 
 
 def get_hostname(url_or_host: str) -> str:

@@ -130,9 +130,17 @@ class Verdict:
 
 
 def _registrable(host: str) -> str:
-    host = (host or "").lower().split(":")[0]
-    parts = [p for p in host.split(".") if p]
-    return ".".join(parts[-2:]) if len(parts) >= 2 else host
+    """The registrable domain of `host`.
+
+    v3.66.1018: delegates to bulk_downloader.registrable_domain. The
+    previous last-two-labels join returned the PUBLIC SUFFIX for any
+    multi-part one -- co.uk for www.bbc.co.uk -- so two unrelated
+    registrants read as one domain. Local import: registrable_domain is
+    a leaf (urlparse only), and this keeps the module's import surface
+    unchanged for callers that never reach this function.
+    """
+    from .registrable_domain import registrable_domain
+    return registrable_domain(host)
 
 
 def _same_site(host: str, page_host: str) -> bool:

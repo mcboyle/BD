@@ -317,40 +317,18 @@ class DomainRateLimiter:
         host = (parsed.hostname or "").lower()
         if not host:
             return ""
-        # Try extension_vault's helper first
-        try:
-            from . import extension_vault as _ev
-            extracted = (_ev.get_registrable_domain(url) or "").lower()
-        except Exception:
-            extracted = ""
-        # Sanity check: the extracted "domain" must be a suffix of the
-        # actual hostname, AND must contain at least one dot (so we
-        # don't accept just "co.uk" or just "com").
-        if (extracted and host.endswith(extracted)
-                and "." in extracted
-                and extracted != host[:host.find(".")]):
-            # Also reject the "just the TLD" case where extension_vault
-            # returns e.g. "co.uk" for "www.example.co.uk"
-            # Strategy: if the host has more dot-segments than the
-            # extracted value, AND the extracted value has only 2
-            # segments, AND it's the trailing 2 segments of the host
-            # MINUS one, prefer the host's last-3 segments
-            host_parts = host.split(".")
-            ext_parts = extracted.split(".")
-            # Common multi-label TLDs (extending stdlib's knowledge)
-            two_label_tlds = {"co.uk", "co.jp", "com.au", "co.nz",
-                                "co.za", "com.br", "co.kr", "com.mx"}
-            if (extracted in two_label_tlds and len(host_parts) > 2
-                    and ".".join(host_parts[-3:]) != extracted):
-                # extension_vault gave us just the TLD; use last-3
-                return ".".join(host_parts[-3:])
-            return extracted
-        # Fallback: take the last 2 host parts (a reasonable default
-        # for *.com / *.io / *.net)
-        host_parts = host.split(".")
-        if len(host_parts) >= 2:
-            return ".".join(host_parts[-2:])
-        return host
+        # v3.66.1018: one rule, asked once. What stood here was a THREE-layer
+        # repair of a wrong answer: extension_vault's last-two-labels join, a
+        # suffix check to notice it had returned a bare public suffix, a local
+        # set of eight two-label TLDs to patch the ones it knew about, and a
+        # last-two-labels fallback underneath. Every layer existed because the
+        # layer below it was wrong, and the eight-entry set was a second source
+        # of truth for a question registrable_domain answers completely --
+        # anything outside those eight (github.io, com.br's neighbours, the
+        # user-content hosts) still keyed two unrelated registrants to one
+        # bucket, so they shared a rate limit.
+        from .registrable_domain import registrable_domain
+        return registrable_domain(host) or host
 
 
 # Singleton instance

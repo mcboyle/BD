@@ -10,8 +10,8 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1625**
-- tools: 226 · with internal edge: 128 · with tool→package edge: 71
+- internal import edges: **1634**
+- tools: 226 · with internal edge: 129 · with tool→package edge: 72
 - blueprints: 160 · config stores: 5
 
 ## Most-imported modules (coupling hotspots)
@@ -31,11 +31,11 @@ Graph version: 1
 - `bulk_downloader/capture_artifact_redact.py`: 14
 - `tools/report_core.py`: 13
 - `bulk_downloader/app_dev.py`: 12
+- `bulk_downloader/registrable_domain.py`: 12
 - `tools/autonomy_oracle.py`: 12
 - `bulk_downloader/detect.py`: 11
 - `bulk_downloader/learn.py`: 11
 - `tools/autonomy_policy.py`: 11
-- `tools/cockpit_core.py`: 11
 
 ## Blueprints → providers
 

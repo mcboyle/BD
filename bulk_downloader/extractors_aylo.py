@@ -168,14 +168,23 @@ AYLO_BRANDS: set = {
 
 
 def _etld1(hostname: str) -> str:
-    """Crude eTLD+1 — last two dot-segments. Good enough for Aylo
-    domains which all use simple TLDs. Not a real PSL implementation."""
+    """The registrable domain of `hostname`, or "" when there is none.
+
+    v3.66.1018: delegates to bulk_downloader.registrable_domain. The previous
+    last-two-labels join returned the PUBLIC SUFFIX for any multi-part one --
+    co.uk for www.bbc.co.uk -- so two unrelated registrants read as one domain.
+
+    THE EMPTY RETURN FOR A SINGLE-LABEL HOST IS PRESERVED DELIBERATELY. The
+    canonical rule returns the host itself there; this function has always
+    returned "", and that is a different contract, not a bug this cut owns.
+    Collapsing the two would make `localhost` a registrable domain for every
+    caller that tests the result for truth.
+    """
     if not hostname:
         return ""
-    parts = hostname.lower().strip(".").split(".")
-    if len(parts) < 2:
-        return ""
-    return ".".join(parts[-2:])
+    from .registrable_domain import registrable_domain
+    rd = registrable_domain(hostname)
+    return rd if "." in rd else ""
 
 
 def is_aylo_url(url: str) -> bool:

@@ -2334,7 +2334,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1625,
+    "edge_count": 1634,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3624,8 +3624,7 @@
       ],
       "bulk_downloader/extension_vault.py": [
         "bulk_downloader/app.py",
-        "bulk_downloader/app_secrets.py",
-        "bulk_downloader/rate_limit.py"
+        "bulk_downloader/app_secrets.py"
       ],
       "bulk_downloader/extraction_core.py": [
         "bulk_downloader/capture_template.py",
@@ -4183,8 +4182,18 @@
         "tools/redaction_dial_report.py"
       ],
       "bulk_downloader/registrable_domain.py": [
+        "bulk_downloader/candidate_filter.py",
+        "bulk_downloader/extension_vault.py",
+        "bulk_downloader/extractors_aylo.py",
+        "bulk_downloader/extractors_dl8.py",
+        "bulk_downloader/extractors_vixen.py",
+        "bulk_downloader/host_enumerator.py",
+        "bulk_downloader/login_templates_data.py",
+        "bulk_downloader/phoenix_catalog.py",
         "bulk_downloader/playlist_extractor.py",
-        "bulk_downloader/search_extractor.py"
+        "bulk_downloader/rate_limit.py",
+        "bulk_downloader/search_extractor.py",
+        "tools/player_struct_embed.py"
       ],
       "bulk_downloader/relogin_predict.py": [
         "bulk_downloader/runner_auth.py"
@@ -6038,6 +6047,9 @@
       "bulk_downloader/bw_chart.py": [
         "bulk_downloader/db.py"
       ],
+      "bulk_downloader/candidate_filter.py": [
+        "bulk_downloader/registrable_domain.py"
+      ],
       "bulk_downloader/capacity.py": [
         "bulk_downloader/db.py"
       ],
@@ -6364,8 +6376,20 @@
       "bulk_downloader/exports.py": [
         "bulk_downloader/batch_ops.py"
       ],
+      "bulk_downloader/extension_vault.py": [
+        "bulk_downloader/registrable_domain.py"
+      ],
       "bulk_downloader/extraction_core.py": [
         "bulk_downloader/capture_synth.py"
+      ],
+      "bulk_downloader/extractors_aylo.py": [
+        "bulk_downloader/registrable_domain.py"
+      ],
+      "bulk_downloader/extractors_dl8.py": [
+        "bulk_downloader/registrable_domain.py"
+      ],
+      "bulk_downloader/extractors_vixen.py": [
+        "bulk_downloader/registrable_domain.py"
       ],
       "bulk_downloader/failure_reasons.py": [
         "bulk_downloader/retry_policy.py"
@@ -6405,6 +6429,9 @@
       ],
       "bulk_downloader/hooks.py": [
         "bulk_downloader/push.py"
+      ],
+      "bulk_downloader/host_enumerator.py": [
+        "bulk_downloader/registrable_domain.py"
       ],
       "bulk_downloader/i18n.py": [
         "bulk_downloader/constants.py"
@@ -6496,6 +6523,9 @@
         "bulk_downloader/secrets_store.py",
         "bulk_downloader/stealth.py"
       ],
+      "bulk_downloader/login_templates_data.py": [
+        "bulk_downloader/registrable_domain.py"
+      ],
       "bulk_downloader/macro_recorder.py": [
         "bulk_downloader/secrets_store.py"
       ],
@@ -6557,6 +6587,9 @@
       ],
       "bulk_downloader/pg_backend.py": [
         "bulk_downloader/db.py"
+      ],
+      "bulk_downloader/phoenix_catalog.py": [
+        "bulk_downloader/registrable_domain.py"
       ],
       "bulk_downloader/playlist_extractor.py": [
         "bulk_downloader/registrable_domain.py"
@@ -6620,7 +6653,7 @@
         "bulk_downloader/db.py"
       ],
       "bulk_downloader/rate_limit.py": [
-        "bulk_downloader/extension_vault.py"
+        "bulk_downloader/registrable_domain.py"
       ],
       "bulk_downloader/recommendations.py": [
         "bulk_downloader/db.py",
@@ -7555,6 +7588,9 @@
         "tools/player_platform_hints.py",
         "tools/player_struct_embed.py"
       ],
+      "tools/player_struct_embed.py": [
+        "bulk_downloader/registrable_domain.py"
+      ],
       "tools/plugin_install.py": [
         "bulk_downloader/plugins.py"
       ],
@@ -7742,6 +7778,7 @@
       "tools/ops_intelligence.py",
       "tools/opv_guide_lint.py",
       "tools/p5_2b_accuracy_watch.py",
+      "tools/player_struct_embed.py",
       "tools/plugin_install.py",
       "tools/plugin_lint.py",
       "tools/plugin_test.py",
@@ -7858,6 +7895,7 @@
       "tools/p5_2b_accuracy_watch.py",
       "tools/player_families.py",
       "tools/player_recognition.py",
+      "tools/player_struct_embed.py",
       "tools/plugin_install.py",
       "tools/plugin_lint.py",
       "tools/plugin_test.py",

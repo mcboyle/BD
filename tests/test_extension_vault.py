@@ -258,21 +258,47 @@ def test_hostname_pattern_handles_edge_cases():
 
 
 def test_hostname_pattern_actually_anchors_better_than_etld1():
-    """End-to-end: an entry saved with hostname_pattern shouldn't match
-    a sibling on the same public suffix, but the old eTLD+1 pattern
-    would have."""
+    """End-to-end: an entry saved with hostname_pattern must not match a
+    SIBLING under the same registrable domain, which a registrable-domain
+    pattern would.
+
+    v3.66.1018 REWROTE THE CONTRAST, and the reason is the point. This test
+    used to make the comparison at `example.co.uk` vs `attacker.co.uk`, with a
+    sanity line asserting that `get_registrable_domain` returned the bare
+    public suffix `co.uk` and so WOULD have matched the attacker. That line
+    documented the last-two-labels bug, and @1018 fixed it in this very
+    function -- so the sanity assertion became false and failed, correctly, on
+    a cut that made the code better.
+
+    The SUBJECT is unchanged and still real: `hostname_pattern` pins the whole
+    hostname while a registrable domain deliberately does not, so the two still
+    differ on a subdomain sibling. Measured after @1018:
+
+        hostname_pattern("https://a.example.com") -> 'a\\.example\\.com'
+        get_registrable_domain(...)               -> 'example.com'
+
+    The .co.uk case is kept below as a now-PASSING assertion, because the thing
+    it was written to warn about is exactly what @1013/@1018 repaired.
+    """
     import re
     from bulk_downloader.extension_vault import hostname_pattern, get_registrable_domain
-    saved_for = "https://example.co.uk"
-    new_pat = hostname_pattern(saved_for)        # 'example\.co\.uk'
-    old_pat = get_registrable_domain(saved_for)  # 'co.uk' (the bug)
-    target = "https://attacker.co.uk/login"
-    # Old eTLD+1 pattern WOULD have matched the attacker site
-    assert re.search(old_pat.replace(".", r"\."), target.lower()), (
-        "sanity: old pattern matched attacker.co.uk")
-    # New full-hostname pattern correctly rejects it
+    saved_for = "https://a.example.com"
+    new_pat = hostname_pattern(saved_for)          # 'a\.example\.com'
+    rd_pat = get_registrable_domain(saved_for)     # 'example.com' -- broader
+    target = "https://b.example.com/login"
+    # the registrable-domain pattern matches the sibling; that is what a
+    # registrable domain MEANS, and why the vault does not use it for pinning
+    assert re.search(rd_pat.replace(".", r"\."), target.lower()), (
+        "sanity: the broader pattern matched the sibling")
+    # the full-hostname pattern correctly rejects it
     assert not re.search(new_pat, target.lower()), (
-        "regression: hostname_pattern leaked across siblings on .co.uk")
+        "regression: hostname_pattern leaked across subdomain siblings")
+
+    # and the original .co.uk concern, now the right way round: two unrelated
+    # registrants under a multi-part public suffix are NOT the same domain.
+    assert get_registrable_domain("https://example.co.uk") == "example.co.uk"
+    assert (get_registrable_domain("https://attacker.co.uk")
+            != get_registrable_domain("https://example.co.uk"))
 
 
 # ─── Origin matching ──────────────────────────────────────────────

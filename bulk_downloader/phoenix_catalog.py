@@ -769,14 +769,17 @@ def _normalize_host(host: str) -> str:
 
 
 def _etld1(host: str) -> str:
-    """Last two dot-segments. Simple for .com TLDs which is most of
-    what we care about; more accurate handling would need a real
-    Public Suffix List but adult brands almost always use 2-segment
-    TLDs."""
-    parts = host.split(".")
-    if len(parts) < 2:
-        return host
-    return ".".join(parts[-2:])
+    """The registrable domain of `host`.
+
+    v3.66.1018: delegates to bulk_downloader.registrable_domain. The
+    previous last-two-labels join returned the PUBLIC SUFFIX for any
+    multi-part one -- co.uk for www.bbc.co.uk -- so two unrelated
+    registrants read as one domain. Local import: registrable_domain is
+    a leaf (urlparse only), and this keeps the module's import surface
+    unchanged for callers that never reach this function.
+    """
+    from .registrable_domain import registrable_domain
+    return registrable_domain(host)
 
 
 def lookup_url(url: str) -> Optional[CatalogMatch]:
