@@ -4,6 +4,50 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1015
+
+capture_analytics gets the two bounds its sibling already had.
+
+MEASURED ON THE BOX, and the two captures are the argument. Both at commit
+fe88b5a (v3.66.1013) -- the SAME TREE:
+
+    capture 7   L34 FAIL -- /api/data/capture_analytics > 8s WHEN PROBED ALONE
+    capture 8   L34 PASS -- 36/36
+
+Identical source, opposite verdicts. app_data_layer._cached holds results for
+_HEAVY_TTL_S = 600, so a probe inside that window reads a cached answer and one
+outside it pays the full scan. The route was BORDERLINE, not repaired, and the
+pass was about cache warmth rather than about the code. A gate that passes on
+cache warmth is the kind of green that teaches an operator to ignore it.
+
+THE GAP WAS EXACT. One comment in app_data_layer.py covers both heavy
+collectors and names the bound set as "count + wall-time budget + per-file size
+cap". Its two callers did not agree:
+
+    collect_capture_diagnostics -> CD.collect(root, limit=, budget_s=, max_bytes=)
+    collect_capture_analytics   -> CA.analyze(root, limit=)
+
+and analyze() could not have taken the other two -- its signature was
+analyze(root=".", dirs=None, limit=None). The caller was not careless; the bound
+did not exist to pass.
+
+WHERE THE COST IS, read from source rather than assumed: _artifacts applies
+`limit` BEFORE any per-file work, correctly, and then json.loads every surviving
+capture_*.json. A capture result carries its own network_log, so one file can be
+enormous and that parse is the unbounded step. All three bounds default to None:
+unbounded is the CLI's contract and every existing caller keeps it.
+
+A BOUND THAT SILENTLY SHRINKS THE DENOMINATOR IS WORSE THAN NO BOUND. Anything
+skipped for size or budget is still counted, still listed, and carries the
+reason in `unparsed`; the report gains `unparsed_artifacts` so a reader can tell
+a bounded pass from a full one without inspecting every row.
+
+Measured after: unbounded 50000 network entries in 0.023s; max_bytes and a spent
+budget both skip the parse, list the file, and report unparsed_artifacts=1.
+
+bd-mutate 5 of 5: max_bytes ignored, budget ignored, skipped file vanishes,
+reason not recorded, route drops the bounds.
+
 ## v3.66.1014
 
 bd-wacz-corpus --hosts gains a labelled CANDIDATE site_families tier. 15.74
