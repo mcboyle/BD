@@ -110,3 +110,64 @@ def test_diff_version_and_changelog_extraction():
                 "CHANGELOG.md": "# Changelog\n\n## v3.66.169 — x\n"})
     assert DRZ.version_of(z) == "3.66.169"
     assert DRZ.changelog_top(z) == "3.66.169"
+
+
+# ── the current version appears ONCE as a changelog header ────────
+#
+# @1009. v3.66.1008 shipped its entry TWICE. The prepend script verified ASCII
+# with a read-back AFTER writing, so a failed check left the file mutated, and
+# the corrected re-run prepended a second copy to an already-prepended file.
+#
+# Nothing caught it. Both CHANGELOG checks in .github/workflows/ci.yml resolve
+# `hdr[0]` -- the FIRST '## ' header -- and assert over that entry alone, so a
+# duplicate anywhere below is structurally outside their denominator. They
+# reported ASCII-clean and version-coherent, truthfully, about one of the two.
+#
+# SCOPED TO THE CURRENT VERSION, NOT TO EVERY HEADER, and that is measured
+# rather than cautious: the changelog already carries `## v3.49.0 - 2026-05-15`
+# twice, from long before this cut (2 of 1001 headers at @1009). A blanket
+# uniqueness gate would fail on history nobody intends to rewrite, get switched
+# off, and take the useful half with it -- CLAUDE.md section 0's
+# over-sensitivity failure, which is a soundness bug and not a safe default.
+
+def _repo_root():
+    import pathlib
+    return pathlib.Path(__file__).resolve().parent.parent
+
+
+def _changelog_headers(text):
+    return [l for l in text.splitlines() if l.startswith("## ")]
+
+
+def test_the_header_scan_can_see_the_changelog():
+    """Non-empty denominator, asserted before the verdict below. A parse that
+    found no headers would report "the version appears once" just as
+    truthfully, over nothing."""
+    text = (_repo_root() / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert len(_changelog_headers(text)) > 100, "the header scan went blind"
+
+
+def test_the_current_version_has_exactly_one_changelog_entry():
+    import re
+    root = _repo_root()
+    v = re.search(r'__version__\s*=\s*"([^"]+)"',
+                  (root / "bulk_downloader" / "__init__.py").read_text(
+                      encoding="utf-8")).group(1)
+    text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    hits = [h for h in _changelog_headers(text) if v in h]
+    assert len(hits) == 1, (
+        "v%s has %d changelog entries, expected exactly 1: %r\n"
+        "A prepend that ran twice is the way this happens; ci.yml's two "
+        "CHANGELOG checks read only the first header and cannot see it."
+        % (v, len(hits), hits))
+
+
+def test_the_gate_FIRES_on_a_duplicate_and_not_on_a_single_entry():
+    """Both directions. A gate that only ever passes is not a gate, and one
+    that fires on the correct shape would be switched off."""
+    def hits(text, v):
+        return [h for h in _changelog_headers(text) if v in h]
+    one = "# Changelog\n\n## v9.9.9\n\nx\n\n## v9.9.8\n\ny\n"
+    two = "# Changelog\n\n## v9.9.9\n\nx\n\n## v9.9.9\n\nx\n\n## v9.9.8\n\ny\n"
+    assert len(hits(one, "9.9.9")) == 1
+    assert len(hits(two, "9.9.9")) == 2
