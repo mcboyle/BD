@@ -68,8 +68,16 @@ def collect_capture_analytics():
     # an unbounded single-core walk on a large store (same hang class as the 596
     # diagnostics/replay collectors). Cap to the newest _HEAVY_LIMIT and cache
     # briefly so report-page polls / route-scanning tests do not recompute.
+    # v3.66.1015: all THREE bounds, matching collect_capture_diagnostics below.
+    # The comment beneath names the bound set as "count + wall-time budget +
+    # per-file size cap"; this caller passed only the count, because analyze()
+    # did not accept the other two. On the box that left the route a coin flip
+    # against L34's 8s budget -- the same commit failed one capture and passed
+    # the next, the difference being this 600s cache rather than the code.
     return _cached("capture_analytics",
-                   lambda: CA.analyze(_root(), limit=_HEAVY_LIMIT))
+                   lambda: CA.analyze(_root(), limit=_HEAVY_LIMIT,
+                                      budget_s=_HEAVY_BUDGET_S,
+                                      max_bytes=_HEAVY_MAX_BYTES))
 
 
 # Heavy-report bounds: capture diagnostics builds a FULL template per .wacz

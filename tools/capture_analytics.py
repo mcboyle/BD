@@ -23,6 +23,7 @@ CLI:
 import argparse
 import glob
 import json
+import time
 import os
 import re
 import sys
@@ -60,7 +61,7 @@ def _host_from(name, data=None):
     return m.group(1) if m else None
 
 
-def _artifacts(root, dirs, limit=None):
+def _artifacts(root, dirs, limit=None, budget_s=None, max_bytes=None):
     # Collect all paths first so we can check wacz↔json siblings
     wacz_paths: set = set()
     json_paths: list = []
@@ -105,8 +106,38 @@ def _artifacts(root, dirs, limit=None):
             "backend_inferred": None,
         })
     # ── capture_*.json entries ──────────────────────────────────────
+    # v3.66.1015 -- BOUND THE PARSE, WHICH IS WHERE THE COST IS.
+    #
+    # `limit` above bounds the file COUNT and is applied before any per-file
+    # work, correctly. What was unbounded is this loop: a capture result carries
+    # its own network_log, so one capture_*.json can be enormous and json.load
+    # on it is the single most expensive thing this module does. On the box that
+    # made /api/data/capture_analytics a coin flip against L34's 8s budget --
+    # the same commit FAILED one capture and PASSED the next, the difference
+    # being a 600s response cache, not the code.
+    #
+    # ANYTHING SKIPPED IS STILL COUNTED, AND SAYS WHY. A bound that quietly
+    # shrinks the denominator makes the report claim a completeness it does not
+    # have, which is the failure this codebase is organised against. `unparsed`
+    # carries the reason so a reader can tell a bounded pass from a full one.
+    _t0 = time.monotonic()
+
+    def _unparsed(path, size, why):
+        return {"path": os.path.relpath(path, root), "bytes": size,
+                "host": _host_from(path, None), "type": "capture_json",
+                "capture_kind": None, "network_log_count": None,
+                "dom_log_count": None, "websocket_log_count": None,
+                "has_dom": None, "has_ws": None,
+                "backend_inferred": None, "unparsed": why}
+
     for p in sorted(json_paths):
         size = os.path.getsize(p)
+        if max_bytes is not None and size > max_bytes:
+            arts.append(_unparsed(p, size, "max_bytes"))
+            continue
+        if budget_s is not None and (time.monotonic() - _t0) >= budget_s:
+            arts.append(_unparsed(p, size, "budget_s"))
+            continue
         data = None
         try:
             with open(p) as fh:
@@ -185,9 +216,23 @@ def _yield(root):
             "hosts": sorted(per_host.keys())}
 
 
-def analyze(root=".", dirs=None, limit=None):
+def analyze(root=".", dirs=None, limit=None, budget_s=None, max_bytes=None):
+    """Summarise the capture store.
+
+    v3.66.1015: `budget_s` and `max_bytes` bound the per-file json parse, the
+    same pair capture_diagnostics.collect already took. All three default to
+    None -- unbounded is the CLI's contract and every existing caller keeps it.
+    """
     dirs = dirs or _DEFAULT_DIRS
-    arts, skipped = _artifacts(root, dirs, limit=limit)
+    arts, skipped = _artifacts(root, dirs, limit=limit,
+                               budget_s=budget_s, max_bytes=max_bytes)
+    # DERIVED from the rows, not carried alongside them. _artifacts' return
+    # arity is load-bearing: tools/capture_diagnostics.py:270 and
+    # tools/replay_validator.py:159 both unpack `arts, _skipped`, and widening
+    # it broke eight of their tests -- caught by the band, which is what the
+    # band is for. Counting the rows that say so needs no second channel and
+    # cannot drift from what the rows report.
+    unparsed = sum(1 for a in arts if a.get("unparsed"))
     by_host = Counter(a["host"] for a in arts if a["host"])
     json_arts = [a for a in arts if a.get("type") == "capture_json"]
     result = {
@@ -216,6 +261,9 @@ def analyze(root=".", dirs=None, limit=None):
         result["bounded"] = True
         result["limit"] = limit
         result["skipped_artifacts"] = skipped
+    # Always present, so a reader can tell a bounded pass from a full
+    # one without inspecting every row.
+    result["unparsed_artifacts"] = unparsed
     return result
 
 
