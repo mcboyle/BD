@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.997
+
+- Register only. 15.79 records the @994-996 session: the serial lane's real
+  cost shape measured from the box XML (17 by-name files are 58% of it, three
+  files alone are 45%), 15.78's "~12 minutes" baseline refuted as a figure
+  nobody measured, and the ModuleType-subclass defect that had two successive
+  repairs built on top of it before anyone printed the object's type.
+- Records what NOT to retry: the coverage_map_frontend staleness claim was
+  refuted by its own verifier, and removing a name from SERIAL_EXACT_BASENAMES
+  frees zero seconds for all 17 because each falls to serial by a later rule.
+- Records two defects found in passing: the ABSOLUTE runner-import rule has a
+  demonstrated escape via spec_from_file_location, and capture_lanes.py's @921
+  comment block contradicts its own code after @923 moved the allowlist check.
+- Carries four unverified promotion proposals with their claimed seconds,
+  flagged as needing re-measurement rather than action.
+
 ## v3.66.996
 
 - WAVE 3: the 26 serial files matched by SERIAL_SOURCE_PATTERNS are promoted.

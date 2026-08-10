@@ -5056,6 +5056,137 @@ never `export` in a shell the suite is later launched from.
   row seen in 1 of 6 captures. Re-capture before trusting it.
 
 
+### 15.79 | v3.66.996: the lane went 87 -> 62, and the biggest win was not a lane change at all
+
+Close at `4a4b10a`. Three cuts in PR #289. Lane on `main`: **1217 parallel /
+62 serial**. The number that matters more: the three most expensive serial
+files went **140.30s -> 40.70s in-container** for a product-code fix that has
+nothing to do with lane placement.
+
+**THE SERIAL LANE'S REAL SHAPE, measured from the box XML at v3.66.992
+(1246 tests, 903.0s, 0 failures).** Per-file attribution, `classname` split at
+index 1 -- taking `[-1]` gives the CLASS for class-based tests and inflated the
+file count 87 -> 120:
+
+    refuted BY NAME     17 files   511.8s   58%
+    pattern (wave 3)    26 files   150.5s   17%
+    runner-import       21 files   135.6s   15%
+    snippet             23 files    81.1s    9%
+
+Three files are 45% of the whole lane: `test_fuzz_harness_frontend` 178.4s,
+`test_differential_oracle_frontend` 117.5s, `test_coverage_map_frontend` 96.3s.
+
+**15.78's PREDICTION IS REFUTED, AND ITS BASELINE NEVER EXISTED.** It said
+"the serial lane was ~12 minutes at 129 files... expect LESS than a 32% drop".
+Measured at 87 files: **903s**, i.e. UP. Removing 33% of the files cannot make
+it slower, so the `~12 minutes` was never measured -- a tilde figure inherited
+as a baseline. No delta is claimed against it. 903s is the number.
+
+**`build_snapshot` FORKED `git rev-parse` ONCE PER TRACKED FILE (@995).**
+`snapshot.py` validated each tracked path inside its loop with
+`normalize_repo_path(repository, ...)`, which re-derives the root through
+`discover_repo_root` -- with a CONSTANT first argument, for a return value the
+caller deliberately discards. Measured, one `build_snapshot(REPO)`:
+**3224 forks / 6.66s -> 3 forks / 0.47s.** Fixed by `relative_to_repo`, the
+same rule with the root already discovered; `normalize_repo_path` delegates to
+it and is behaviourally identical (verified to agree on VALUE and on EXCEPTION
+across in-repo, relative, nested, escaping and nonexistent paths). Other
+consumers get it too: `differential_oracle`, `fuzz_harness`,
+`reachability_service`, and `l0_extract` -- capture.sh step **[2b]**.
+Box confirmation is OWED; the container ratio is not claimed to transfer.
+
+**A MODULETYPE SUBCLASS IS A MODULE, AND TWO FIXES WERE BUILT ON NOT KNOWING
+THAT.** `bd-leakprobe`'s snapshot compared `type(v).__name__` to the literal
+`"module"`. cryptography installs `_ModuleWithDeprecations` over its cipher
+submodules, and that class IS a `ModuleType` subclass -- so two files read as
+leaking for no reason but importing cryptography. Repair 1 was a first-party
+name filter, REFUTED by measurement (`sys.modules["email.parser"] = object()`
+then `import email.parser` returns the planted object; `concurrent.futures` and
+`urllib.request` identical) -- and it hid that from the verdict while
+`--selftest` said SENSITIVE, because the canary only ever planted a BARE name.
+Repair 2 was a per-file `--collect-only` ambient pass, which could not have
+worked either: cryptography is imported INSIDE a test body, so collection never
+triggers it. `isinstance` is the whole fix. **Nobody printed the object's type
+until the third attempt.**
+
+**A CANARY MUST COVER EVERY BRANCH THE VERDICT DISTINGUISHES.** That is the
+generalisation. A sensitivity proof over a shape the verdict filters is not a
+sensitivity proof, and it coexists happily with a confident clean report.
+`_canary_ok` now checks THROUGH `_excess` rather than against the raw delta.
+
+**TWO SIGNALS THAT LOOKED SOUND AND WERE FORGEABLE.** The canary's
+"did the conftest run?" check asked whether the conftest had ADDED an env key
+-- invoked from inside an outer pytest the child INHERITS those keys,
+`setdefault` is a no-op, and a working tool reports BLIND. Its replacement,
+`cwd == BD_HOME`, passes with `BD_HOME` set to the current directory and NO
+conftest loaded, **which is the deploy box's own layout**. It now asks pytest
+whether `isolated_bd_home` is in `request.fixturenames`.
+
+**CI's GATE-SUITES BELONG ON EVERY BAND.** @994 went red on
+`test_v3_66_653_dep_freshness` after a green 32-file band. CI's denominator is
+file-INDEPENDENT by design, so no module-derived band reaches it; the band is
+now the union with all 15 suites named in CLAUDE.md section 7. The finding
+itself was right: a bare `import capture_lanes` from `toolchain/bin/` is a
+cross-directory reach the gate cannot verify, while the same import from
+`tests/` resolves as a sibling. Waiving it as third-party would have been false;
+the tool now loads `tests/capture_lanes.py` BY PATH.
+
+**`bd-band-derive` PRINTS 24 AND MEANS 253.** Its display truncates with
+`"... +229 more"`. A `grep -oE` over the printed output gave a band **10% the
+size of the real one**. Use `--json`. The printed list is not the denominator.
+
+**WHAT REMAINS: 62 serial files. THE 58% BUCKET IS NOT BLOCKED BY THE NAMES.**
+Re-derived twice, independently: removing a name from `SERIAL_EXACT_BASENAMES`
+frees **ZERO** seconds for all 17 -- each falls to serial by a later rule and
+none is in the allowlist. Confirmed by the orchestrator's own measurement that
+deleting `SERIAL_SOURCE_SNIPPETS` + `SERIAL_SOURCE_PATTERNS` +
+`SERIAL_NAME_TOKENS` entirely changes **0** classifications: everything
+reaching them is unlisted and returns serial anyway. Freeing any file needs the
+name removed AND an allowlist entry.
+
+**UNVERIFIED PROPOSALS -- do not act on these without re-measuring.** From a
+4-lens investigation whose verify phase was stopped (2-wide concurrency on 4
+cores made it slower than inline, exactly as CLAUDE.md section 5 records):
+
+- promote 8 read-only artifact/filename-string snippet files, ~26.1s (high)
+- promote 9 `bd_module_wipe` files, ~22.8s (medium) -- conftest saves and
+  restores around the marker, so the state does not outlive the file
+- `test_v3_66_729_body_contract_fixtures` claimed STALE, 56.5s
+- KEEP SERIAL: `test_u41_systemd_live_tests` launches 3 real browsers (probe
+  proven armed, positive control saw launches elsewhere)
+
+**ONE PROPOSAL WAS REFUTED AND MUST NOT BE RETRIED ON THE SAME EVIDENCE.**
+`test_coverage_map_frontend` (96.3s) claimed STALE because the record names the
+`*_frontend` family "by shape". The verifier reproduced every figure and then
+showed the identification fails: the record's "(18 and 19 worker/child
+references)" matches NO file under ten predicates -- one number was matched
+under a predicate that cannot produce the other. Files are byte-identical to
+the commit that wrote the comment, so this is not drift.
+
+**TWO DEFECTS FOUND IN PASSING, both real, neither urgent:**
+
+- **The ABSOLUTE runner-import rule has a demonstrated escape.**
+  `spec_from_file_location("rtc", "run_tests_core.py") + exec_module +
+  _prepare_runner_state()` classifies **parallel** and still rewires the
+  interpreter (probe run with `BD_DISABLE_KEEPALIVE` POPPED).
+- **`capture_lanes.py`'s own comment contradicts its code.** The @921 block at
+  `tests/capture_lanes.py:269-286` says the source checks "stay ABSOLUTE... no
+  allowlist entry may override them"; @923 moved the allowlist check ABOVE
+  them. Found independently twice in one session. Live misinformation for
+  anyone reading that file to decide what is promotable.
+
+**FOUR CONTAINER-ONLY FAILURES, NEWLY CHARACTERISED.**
+`test_v3_66_820_auth_health_reaped_on_site_delete` (2),
+`test_u50_widget_backfills` (1),
+`test_library_forward_path_records_an_absolute_path` (1). All pass on the box
+(the @992 capture is 15251 total, 0 failed, 0 errors). They reproduce
+IDENTICALLY on pristine source in the same directory, so they predate any of
+this. A hypothesis that an empty `BD_INSTALL_DIR` caused them was REFUTED --
+seeding the DB does not fix them, and `auth_health` gets WORSE on a second run
+in the same dir (2 -> 3 failures), which is real state accumulation. They need
+tables another FILE creates. Freeing `u50` is worth 0s, so this is robustness
+work with no lane payoff.
+
 ### 15.78 | v3.66.992: the lane went 129 -> 87, and what is left is the real work
 
 Close at `093cb60`. THIS SUPERSEDES 15.77's "promotion pool" framing -- the 75
