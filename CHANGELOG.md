@@ -4,6 +4,64 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1011
+
+The four real-Postgres MOD3 test modules stop sharing one `history` table. Each
+gets its own schema, pinned through the DSN.
+
+MEASURED, AND MUCH WORSE THAN THE BOX SUGGESTED. Three captures on 2026-08-10:
+the one at d2fa6bb failed test_agreeing_stores_compare_and_match with
+"{'compared': 2, 'matched': 0, 'diverged': 2}" and the other two passed, which
+reads as a one-in-three flake. Reproduced in-container against a live cluster,
+same command, same directory, one variable changed:
+
+    pristine  (shared public.history)   10 of 10 runs FAILED (3-4 failures each)
+    isolated                             0 of 10 runs failed (38 passed each)
+
+So it is not a flake, it is a systematic collision that the box's 73-worker
+interleaving happened to mostly dodge. The pristine failures span three
+different modules: 800's test_insert_lands_in_both_stores, 803's
+test_rehearsal_does_not_disturb_the_live_shadow_rows and 804's
+test_writes_still_reach_sqlite_while_cut_over.
+
+THE MECHANISM. Five MOD3 modules run in capture.sh's PARALLEL lane, so
+--dist loadfile puts them on different workers at the same time, all pointed at
+the one database MOD3_PG_TEST_DSN names. Four scope their cleanup to their own
+rows; test_v3_66_804_mod3_cutover runs a bare DELETE FROM history and is right
+to -- preflight_cutover() compares whole-table counts, so it needs a table
+holding only its own rows. Those requirements are incompatible on a shared
+table and both trivially satisfied on separate ones.
+
+THE PRODUCT ALREADY DOES THIS. pg_backend.rehearse_migration builds a scratch
+mod3_rehearsal_<uuid> schema for the same reason and says so: "isolated from the
+live mirror, so a rehearsal can [run] without touching it."
+
+Verified against a live cluster before anything was written: with
+?options=-csearch_path%3D<schema> on the DSN, SHOW search_path returns the
+schema, and a DELETE FROM history in public leaves the isolated rows intact.
+The %3D is load-bearing -- libpq splits a URI query value on the first unencoded
+=, so the raw form is rejected and the connection silently falls back to public,
+which is the shared state this removes. Schema names are sha256-derived rather
+than filename-derived because PostgreSQL truncates identifiers at 63 bytes and
+two truncated names would silently share a schema again -- the bug reintroduced
+by its own fix -- and because -csearch_path does not quote, so anything needing
+quotes would fall back to public with every assertion still green.
+
+TWO SELF-INFLICTED DEFECTS CAUGHT DURING THE CUT, both recorded because neither
+was caught by review:
+
+- The gate asserting the four modules route through the isolator accepted a
+  call to ensure_schema -- which is ALSO a function on the product's pg_backend,
+  called by all four already. It passed on four files that had not been edited.
+  Noticed only because it went green before the edits existed. Now keyed on
+  dsn_for, which is defined in exactly one place in the repository, plus the
+  import; and a test pins that a bare pg.ensure_schema() does not satisfy it.
+- bd-mutate scored "ensure_schema never called" as an ESCAPE, because every
+  schema this suite names already existed from an earlier run. The residue hid
+  it. Closed by a test that DROPs a synthetic schema first.
+
+bd-mutate 4 of 4 caught.
+
 ## v3.66.1010
 
 L34's triage budget is what phase 1 can AFFORD, derived per run, instead of a
