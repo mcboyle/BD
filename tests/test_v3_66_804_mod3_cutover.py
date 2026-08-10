@@ -36,14 +36,30 @@ import os
 import pytest
 
 
+import sys as _sys
+_sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+import mod3_pg_isolation   # noqa: E402  (sibling helper, path set above)
+
+_MODULE = "test_v3_66_804_mod3_cutover.py"
+
+
 def _pg_available():
-    dsn = os.environ.get("MOD3_PG_DSN") or os.environ.get("MOD3_PG_TEST_DSN")
-    if not dsn:
+    # ISOLATED PER MODULE. Five MOD3 files run concurrently in capture.sh's
+    # parallel lane against one database, and 804's whole-table
+    # `DELETE FROM history` wiped rows another module had just written --
+    # measured on the box at d2fa6bb as a one-in-three flake. See
+    # tests/mod3_pg_isolation.py. The base DSN is read FIRST so the three skip
+    # reasons stay distinguishable: absent, driverless, and unreachable are
+    # different states and each is named.
+    if not mod3_pg_isolation.real_dsn():
         return False, "no MOD3_PG_TEST_DSN in the environment"
     try:
         import psycopg
     except ImportError:
         return False, "psycopg not installed (optional dep; absent on stash)"
+    dsn = mod3_pg_isolation.dsn_for(_MODULE)
+    if not dsn:
+        return False, "could not create this module's isolated schema"
     try:
         with psycopg.connect(dsn, connect_timeout=5):
             return True, dsn
