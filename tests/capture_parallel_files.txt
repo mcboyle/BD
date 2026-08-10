@@ -11,9 +11,14 @@
 #
 # Everything else in that run passed, and everything that passed is listed.
 #
-# STILL EXCLUDED, and not by heuristic: files importing the fallback runner
-# (ABSOLUTE_SERIAL_SNIPPETS). That risk rewires global interpreter state and
-# has its own dedicated test; an entry here cannot override it.
+# STILL EXCLUDED, and not by heuristic: files that can EXECUTE the fallback
+# runner in their own interpreter (runner_import_hazard -- static imports,
+# dynamic/loader forms, monkeypatch/mock dotted paths, and loader-calls-on-
+# variables in files that also name the runner). That risk has its own
+# dedicated test; an entry here cannot override it. Files that only NAME the
+# runner in subprocess argv, heredoc driver strings, fixture paths or
+# assertion messages are reviewable like anything else -- the child process
+# that executes those mutates its own interpreter and exits.
 #
 # WHAT THIS EVIDENCE IS NOT. It is one PACKING. xdist assigns files to workers
 # by count, so another -n shuffles which files share a worker. Re-runs at
@@ -405,6 +410,7 @@ test_provision_test_host.py
 test_put_numeric_range_backstop.py
 test_pytest_capture_results.py
 test_pytest_module_graph.py
+test_pytest_runner_boundary.py
 test_pytest_runtime_requirement.py
 test_qb_jd_completions_record_the_largest_media_file.py
 test_queue_load_missing_table.py
@@ -484,6 +490,7 @@ test_t44_request_replay.py
 test_t45_login_flow_recorder.py
 test_t46_l29_vpn_kill_switch.py
 test_t47_storage_tier_utc_cutoff.py
+test_t49_runner_timing.py
 test_t4_db_growth_throughput.py
 test_t50_test_timing.py
 test_t51_regenerate_goldens.py
@@ -1027,6 +1034,7 @@ test_v3_66_792_nuitka_onefile_size.py
 test_v3_66_793_nuitka_adopt.py
 test_v3_66_794_waitress_swap.py
 test_v3_66_795_mod3_seam.py
+test_v3_66_796_runner_teardown_module.py
 test_v3_66_798_runtime_state_manifest_exclude.py
 test_v3_66_799_audit_tool_selftests.py
 test_v3_66_7_deep_detect_smoke.py
@@ -1055,20 +1063,27 @@ test_v3_66_880_capability_manifest_is_stated.py
 test_v3_66_881_stale_base_is_surfaced.py
 test_v3_66_882_restart_without_the_hook.py
 test_v3_66_884_freshcheck_shallow_boundary.py
+test_v3_66_885_runner_fixture_resolution.py
 test_v3_66_888_session_pack_final_gates_run.py
 test_v3_66_889_import_graph_sees_tests.py
 test_v3_66_88_perturbation_harness.py
 test_v3_66_892_capture_commit_identity.py
 test_v3_66_893_capture_probes_selftest.py
+test_v3_66_895_gates_refuse_when_blind.py
 test_v3_66_896_requirements_compare_specifiers.py
 test_v3_66_89_offline_capture_ingest.py
 test_v3_66_8_add_url_endpoint.py
+test_v3_66_908_runner_param.py
+test_v3_66_909_runner_api_surface.py
+test_v3_66_910_runner_module_registration.py
+test_v3_66_911_monkeypatch_dotted_path.py
 test_v3_66_912_wired_gates_refuse_on_empty.py
 test_v3_66_915_audit_caps_are_one_window.py
 test_v3_66_916_regen_nfos_resolves.py
 test_v3_66_918_tracked_source_denominator.py
 test_v3_66_96_autopilot_cockpit.py
 test_v3_66_98_cockpit_console.py
+test_v3_66_990_runner_risk_is_about_imports_not_prose.py
 test_v3_66_99_cockpit_wave1.py
 test_v3_66_9_deep_detect_audit_fixes.py
 test_validators.py

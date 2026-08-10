@@ -122,11 +122,71 @@ def test_allowlisted_file_cannot_bypass_dynamic_runner_import_risk() -> None:
         # exactly that mutant ESCAPED before this case existed.
         'spec_from_file_location("rtc", "run_tests_core.py")\n'
         'def broken(:\n',
+        # Load forms added when the rule was re-instrumented from substrings
+        # to AST loads. The monkeypatch dotted path was INVISIBLE to the old
+        # instrument -- pytest resolves the string by importing the module
+        # into this interpreter, and the quote-anchored literal regex needed
+        # the closing quote right after the module name -- so the precise
+        # rule is wider here, not narrower.
+        'import runpy\nrunpy.run_path("run_tests.py")\n',
+        'def test_x(monkeypatch):\n'
+        '    monkeypatch.setattr("run_tests_core._FILE_TIMEOUT_S", 1)\n',
+        'from unittest import mock\n'
+        'with mock.patch("run_tests_core.main"):\n    pass\n',
+        'import pytest\npytest.importorskip("run_tests_core")\n',
+        # The alias-assignment form: the callee name says nothing, the
+        # binding does. A callee-name check without alias tracking misses it.
+        'import importlib\nload = importlib.import_module\n'
+        'NAME = "run_tests_core"\nload(NAME)\n',
+        # The fail-closed indirection: a loader-capable call fed a VARIABLE,
+        # in a file that also names the runner. Containment is statically
+        # unprovable, so it pins -- review included.
+        'import importlib\nNAME = "run_tests_core"\n'
+        'importlib.import_module(NAME)\n',
     ):
         assert (
             lanes.classify_capture_file(allowlisted, source=source)
             == "serial"
         )
+
+
+def test_a_contained_runner_literal_is_reviewable() -> None:
+    """RED before the precise rule: the flip side of the test above.
+
+    A runner literal in a subprocess argv or a heredoc driver string is
+    executed -- if at all -- by a CHILD interpreter, which mutates its own
+    state and exits. Measured at eb0c00b: 12 real files carried the name only
+    in such positions and sat in the serial lane for it. A reviewed
+    (allowlisted) file with those shapes and no load now classifies parallel;
+    the unlisted default stays serial (pinned by the @990 suite's companion
+    test, and by the fail-closed default itself)."""
+    lanes = _load_lanes_module()
+    source = (
+        'import subprocess, sys\n'
+        'def test_x(tmp_path):\n'
+        '    subprocess.run([sys.executable, "run_tests.py", "--json"],\n'
+        '                   timeout=120)\n'
+    )
+    assert (
+        lanes.classify_capture_file("tests/test_validators.py", source=source)
+        == "parallel"
+    )
+    # ...and the fail-closed indirection rule requires BOTH halves: a
+    # loader-capable call on a variable in a file with NO runner literal is
+    # loading something else, and pinning it would demote a large share of
+    # the reviewed lane (dynamic import over module lists is a common test
+    # shape). Only the conjunction with a runner-naming literal is
+    # unprovable containment.
+    source = (
+        'import importlib\n'
+        'def test_mods():\n'
+        '    for name in ("json", "ast"):\n'
+        '        importlib.import_module(name)\n'
+    )
+    assert (
+        lanes.classify_capture_file("tests/test_validators.py", source=source)
+        == "parallel"
+    )
 
 
 def _has_source_hazard(lanes, path) -> bool:
@@ -196,18 +256,21 @@ def test_classifier_defaults_unreviewed_files_to_serial() -> None:
         for path in sorted((REPO_ROOT / "tests").rglob("test_*.py"))
         if _has_source_hazard(lanes, path)
     ]
-    # THE FLOOR DROPPED FROM 100 TO 15 AT v3.66.992, AND THE REASON MATTERS.
-    # It is not the guard weakening: the PREDICATE got more precise. While the
-    # absolute check read raw source it counted every file that merely MENTIONED
-    # the runner in a comment or docstring -- 143 of them, of which 4 actually
-    # imported it. @990 made the check read CODE, so the honest population is
-    # the files that really carry the hazard. Measured at v3.66.992: 22.
+    # THE FLOOR DROPPED FROM 100 TO 15 AT v3.66.992, AND FROM 15 TO 8 WHEN THE
+    # RULE WAS RE-INSTRUMENTED FROM SUBSTRINGS TO AST LOADS. Same reason both
+    # times: the PREDICATE got more precise, not the guard weaker. @990 made
+    # the check read CODE (143 mentions -> 22 code matches); the successor cut
+    # made it read LOADS, so a subprocess argv or heredoc literal no longer
+    # counts. Measured at eb0c00b over 1279 tracked test files: 11 -- the 7
+    # files that import, import_module or spec-load the runner in-process,
+    # plus 4 whose loader-capable calls take variables in files that also name
+    # the runner (containment statically unprovable, fail-closed).
     #
     # The assertion's job is unchanged -- prove the denominator has not
-    # COLLAPSED, so the per-file loop below is asserting over something. 15
-    # keeps that with headroom under the measured 22, and a drop past it means
-    # the strip or the constants broke rather than that the tree got tidier.
-    assert len(hazardous) > 15, (
+    # COLLAPSED, so the per-file loop below is asserting over something. 8
+    # keeps that with headroom under the measured 11, and a drop past it means
+    # the walk or the constants broke rather than that the tree got tidier.
+    assert len(hazardous) > 8, (
         f"only {len(hazardous)} hazardous files found -- the denominator "
         f"collapsed and the assertion below would mean nothing"
     )

@@ -4,6 +4,46 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1004
+
+- The runner-import rule is now PRECISE rather than merely absolute. Serial lane
+  33 -> 23: 10 files promoted, zero newly pinned anywhere in the tree.
+- It stays ABSOLUTE on purpose. Moving it below the allowlist would make the
+  invariant enforceable only at review time, and the allowlist is generated, so
+  an omission would be regenerated away. An AST check re-derives the property
+  from the source in front of capture.sh on every run; review evidence goes
+  stale.
+- runner_import_hazard now sees: a static import however aliased; any
+  loader-capable call carrying a runner-naming constant (import_module,
+  __import__, file loaders, runpy, importorskip, exec/eval/compile, and
+  string-target patchers like monkeypatch.setattr on a dotted path, which import
+  the module they name); and fail-closed indirection where a runner literal
+  coexists with a loader call whose args carry no runner constant. Unparseable
+  source still falls back to raw substring, fail-closed.
+- IT IS WIDER IN ONE REAL DIRECTION: monkeypatch.setattr("run_tests_core...")
+  performs an in-process import and was invisible to the old quote-anchored
+  regex. It is absolutely serial now.
+- THIS IS NOT THE REFUTED NARROWING. The promotions do not rest on the
+  import-inertness measurement; they rest on the process boundary -- an
+  argv/fixture/heredoc literal was outside the rule's stated mechanism even when
+  the import-time mutation was real, because the child interpreter mutates its
+  own state and exits. If run_tests_core regressed tomorrow, no promoted file
+  would be affected.
+- The census was corrected in one place: 3 dynamic importers, not 2 --
+  test_harness_retry_timeout spec-loads the runner in-process.
+- Evidence: RED 5 failed / 19 passed on pristine, 24 passed after; bd-mutate 11
+  mutants, 11 caught, 0 escaped, 0 invalid; bd-leakprobe 10 probed / 0 leaking;
+  six-width sweep over 54 files, 721 passed at EVERY width; band 29 files, 454
+  passed; bd-guardcheck 7 ok / 0 drifted.
+- ALSO FIXED, a defect shipped in v3.66.1003 twenty minutes earlier: its
+  "guard does not false-fire" test executed the REAL capture.sh past the guard.
+  capture.sh:402 does `rm -rf "$OUT" "$ARCHIVE"` and :412 deletes every
+  __pycache__ under $BD_HOME -- on the box that is the live deployed checkout.
+  It passed here only because this container has no venv beside capture.sh, so
+  it died early for an unrelated reason: green for the wrong reason, destructive
+  on the box. It now truncates a COPY right after the guard, which keeps the
+  subject exactly and removes every side effect.
+
 ## v3.66.1003
 
 - capture.sh REFUSES to run when BD_INSTALL_DIR is set in the invoking shell.

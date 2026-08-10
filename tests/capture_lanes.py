@@ -122,16 +122,46 @@ SERIAL_NAME_TOKENS = (
     "systemd",
 )
 
-# The ONE source risk an allowlist entry may not override. Importing the
-# fallback runner rewires global interpreter state, and a dedicated test
-# (test_allowlisted_file_cannot_bypass_dynamic_runner_import_risk) exists
-# to keep it that way. Named separately at v3.66.923 so the rest of the
-# heuristics could become overridable without taking this with them.
-ABSOLUTE_SERIAL_SNIPPETS = (
-    "import run_tests",
-    "from run_tests",
-    "run_tests.py",
+# The ONE source risk an allowlist entry may not override: code that can
+# EXECUTE the fallback runner in THIS interpreter. Named separately at
+# v3.66.923 so the rest of the heuristics could become overridable without
+# taking this with them; re-instrumented from substrings over code text to
+# AST loads when the substring form was measured pinning 12 files whose only
+# runner reference is a subprocess argv, a tmp-tree fixture path, a heredoc
+# driver string or an assertion message -- positions a child interpreter
+# executes, if anything does, and the process boundary contains. Same
+# correction as @990 (a comment is not an import) and @998 (a heredoc
+# loader-call is not an in-process load), one step further. The @986
+# refutation stands untouched: every form that LOADS the runner in-process
+# pins absolutely, review or no review, and the guard suite
+# (test_allowlisted_file_cannot_bypass_dynamic_runner_import_risk) drives
+# every form, including the ones the substring instrument could not see.
+_RUNNER_MODULES = frozenset({"run_tests", "run_tests_core"})
+
+# Loader callables distinctive enough to match as SUBSTRINGS of the dotted
+# callee -- this also catches getattr(importlib, ...) forms, whose unparsed
+# callee contains the name.
+_LOADER_CALLEE_SUBSTRINGS = (
+    "import_module",
+    "__import__",
+    "spec_from_file_location",
+    "sourcefileloader",
+    "importorskip",
 )
+# Loader-capable only by EXACT final segment of the dotted callee. These
+# words are common: substring matching fired on a `_run_module` test helper
+# in 9 files during this cut's own census, which is section 1's predicate
+# trap inside the instrument built to fix it.
+_LOADER_FINAL_SEGMENTS = frozenset({
+    "run_path", "run_module", "exec_module", "load_module", "load_source",
+    "reload", "exec", "eval", "compile", "execfile",
+})
+# String-target patchers: a dotted-path FIRST argument makes pytest's
+# monkeypatch and unittest.mock IMPORT the named module into this
+# interpreter. They join the corroborated shape only (a runner-naming
+# constant in the call) -- their object forms are ubiquitous and prove
+# nothing about the runner.
+_PATCHER_FINAL_SEGMENTS = frozenset({"patch", "setattr", "delattr"})
 
 SERIAL_SOURCE_SNIPPETS = (
     "pytest.mark.bd_module_wipe",
@@ -174,69 +204,126 @@ SERIAL_SOURCE_PATTERNS = (
     ),
 )
 
-RUNTESTS_LITERAL = re.compile(r"""["']run_tests(?:_core)?["']""", re.IGNORECASE)
-
-# File-loader callables that can execute the runner in THIS process without any
-# import statement or bare "run_tests" literal ever appearing. The escape that
-# forced this (found at v3.66.996): spec_from_file_location("rtc",
-# "run_tests_core.py") + exec_module classified PARALLEL -- the path literal's
-# trailing ".py" defeats RUNTESTS_LITERAL's closing-quote anchor and is not a
-# substring match for "run_tests.py". One live instance existed in the parallel
-# lane (test_harness_retry_timeout.py).
-_RUNNER_LOADER_MARKERS = ("spec_from_file_location", "sourcefileloader")
+def _names_runner(text: str) -> bool:
+    return "run_tests" in text.lower()
 
 
-def _loads_runner_dynamically(code: str) -> bool:
-    """True when CODE calls a file-loader with a run_tests* argument.
+def _loader_aliases(tree: ast.AST) -> set[str]:
+    """Local names bound to loader callables.
 
-    AST-scoped ON PURPOSE, not a substring: a subprocess driver that embeds
-    the same call inside a heredoc STRING never executes it in this
-    interpreter, and a substring check would pin those files for a hazard the
-    process boundary already contains. What this walks is what THIS file's
-    interpreter would run. Literals are searched through each argument's whole
-    subtree, so `REPO / "run_tests_core.py"` is seen, not just bare strings.
-
-    FAIL-CLOSED on unparseable code: judged on everything it contains, the
-    same posture as code_only's fallback. (test_all_sources_parse keeps that
-    population empty for tracked files.)
+    Catches `from importlib import import_module as load` and
+    `load = importlib.import_module` -- forms where the CALLEE name says
+    nothing and the binding says everything. The guard suite's aliased case
+    was previously caught only by the quote-anchored literal regex; with that
+    regex retired, this pass is what keeps it caught. Assignment RHS is
+    restricted to bare names/attributes on purpose: aliasing the RESULT of a
+    loader call (`spec = spec_from_file_location(...)`) binds a spec, not a
+    loader, and the spec's own exec_module call is matched by final segment.
     """
-    try:
-        tree = ast.parse(code)
-    except (SyntaxError, ValueError):
-        return "run_tests" in code.lower()
+    aliases: set[str] = set()
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        try:
-            callee = ast.unparse(node.func).lower()
-        except Exception:
-            continue
-        if not any(marker in callee for marker in _RUNNER_LOADER_MARKERS):
-            continue
-        arguments = list(node.args) + [kw.value for kw in node.keywords]
-        for argument in arguments:
-            for sub in ast.walk(argument):
-                if (isinstance(sub, ast.Constant)
-                        and isinstance(sub.value, str)
-                        and "run_tests" in sub.value.lower()):
-                    return True
-    return False
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                name = (alias.name or "").lower()
+                if (any(m in name for m in _LOADER_CALLEE_SUBSTRINGS)
+                        or name in _LOADER_FINAL_SEGMENTS):
+                    aliases.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Assign):
+            if not isinstance(node.value, (ast.Name, ast.Attribute)):
+                continue
+            try:
+                rhs = ast.unparse(node.value).lower()
+            except Exception:
+                continue
+            if (any(m in rhs for m in _LOADER_CALLEE_SUBSTRINGS)
+                    or rhs.rsplit(".", 1)[-1] in _LOADER_FINAL_SEGMENTS):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        aliases.add(target.id)
+    return aliases
 
 
 def runner_import_hazard(code: str) -> bool:
     """The ONE source hazard no allowlist entry may override, asked of CODE.
 
-    Exported as a single predicate so the guard suite can BORROW it instead of
-    restating it -- at v3.66.992 a guard that borrowed the constants but not
-    the text they applied to held a second definition of "hazard" and failed
-    on every promoted file.
+    True exactly when CODE can execute run_tests/run_tests_core in THIS
+    interpreter. Three shapes, all absolute:
+
+      1. a static import of a runner module, however aliased;
+      2. a loader-capable call with a runner-naming string constant anywhere
+         in its argument subtree -- import_module, __import__, file loaders,
+         runpy, importorskip, exec/eval/compile, and the string-target
+         patchers (monkeypatch.setattr / mock.patch dotted paths import the
+         module they name);
+      3. FAIL-CLOSED indirection: the file names the runner in a string
+         constant AND carries a loader-capable call whose arguments do not --
+         a loader that could be fed the literal through a variable, which no
+         static walk can rule out. Containment unprovable is containment
+         denied.
+
+    What deliberately does NOT pin: a runner literal in a file with no loader
+    machinery at all -- a subprocess argv, a fixture path, an assertion
+    message. Nothing in such a file can bring the runner into this
+    interpreter; the child process that runs it mutates its own state and
+    exits. Measured at eb0c00b: 12 real files, ~135s of the box's serial
+    lane, were pinned for exactly that shape.
+
+    FAIL-CLOSED on unparseable code: judged on the raw text, the same posture
+    as code_only's fallback. (test_all_sources_parse keeps that population
+    empty for tracked files.)
+
+    Exported as a single predicate so the guard suite can BORROW it instead
+    of restating it -- at v3.66.992 a guard that borrowed the constants but
+    not the text they applied to held a second definition of "hazard" and
+    failed on every promoted file.
     """
-    lowered = code.lower()
-    if any(snippet in lowered for snippet in ABSOLUTE_SERIAL_SNIPPETS):
-        return True
-    if RUNTESTS_LITERAL.search(code):
-        return True
-    return _loads_runner_dynamically(code)
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, ValueError):
+        return _names_runner(code)
+
+    aliases = _loader_aliases(tree)
+    has_runner_literal = False
+    unproven_loader_call = False
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".")[0] in _RUNNER_MODULES:
+                    return True
+        elif isinstance(node, ast.ImportFrom):
+            if node.module and node.module.split(".")[0] in _RUNNER_MODULES:
+                return True
+        elif isinstance(node, ast.Constant):
+            if isinstance(node.value, str) and _names_runner(node.value):
+                has_runner_literal = True
+        elif isinstance(node, ast.Call):
+            try:
+                callee = ast.unparse(node.func)
+            except Exception:
+                continue
+            lowered = callee.lower()
+            final = lowered.rsplit(".", 1)[-1]
+            loader_like = (
+                any(m in lowered for m in _LOADER_CALLEE_SUBSTRINGS)
+                or final in _LOADER_FINAL_SEGMENTS
+                or callee in aliases
+            )
+            patcher_like = (final in _PATCHER_FINAL_SEGMENTS
+                            or lowered.endswith("patch.dict"))
+            if not (loader_like or patcher_like):
+                continue
+            arguments = list(node.args) + [kw.value for kw in node.keywords]
+            if any(isinstance(sub, ast.Constant)
+                   and isinstance(sub.value, str)
+                   and _names_runner(sub.value)
+                   for argument in arguments
+                   for sub in ast.walk(argument)):
+                return True
+            if loader_like:
+                unproven_loader_call = True
+
+    return has_runner_literal and unproven_loader_call
 
 
 @lru_cache(maxsize=2048)
@@ -339,11 +426,14 @@ def classify_capture_file(
     # recorded at SESSION_CARRY 15.79): @921 made every source check
     # unoverridable; @923 moved the allowlist ABOVE all of them EXCEPT the
     # runner-import rule. So today exactly ONE hazard outranks review --
-    # `runner_import_hazard`, because importing or file-loading the fallback
-    # runner rewires global interpreter state -- and every other heuristic
-    # below is a fail-closed default for UNLISTED files only. `--dist
-    # loadfile` still does not give a file its own worker, which is why a
-    # green parallel run is weak evidence and reviews are per file.
+    # `runner_import_hazard`: a file that can execute the fallback runner in
+    # its own interpreter inherits whatever global state the runner applies
+    # when it runs (_prepare_runner_state's env setdefault and sys.path
+    # prepend since @990; the same mutations sat at import time before it) --
+    # and every other heuristic below is a fail-closed default for UNLISTED
+    # files only. `--dist loadfile` still does not give a file its own
+    # worker, which is why a green parallel run is weak evidence and reviews
+    # are per file.
     if source is None:
         try:
             source = candidate.read_text(encoding="utf-8")
@@ -352,23 +442,19 @@ def classify_capture_file(
             return "serial"
     lowered = source.lower()
 
-    # ABSOLUTE, and the only source check that still is. See the constant.
+    # ABSOLUTE, and the only source check that still is. See the constants.
     #
-    # v3.66.990: asked of CODE, not prose. The risk this rule names is that
-    # importing the fallback runner rewires global interpreter state -- and a
-    # docstring imports nothing. Measured over 1277 tracked test files: 143 were
-    # pinned here, 4 genuinely import the runner, and 139 only MENTION it in a
-    # comment or docstring. Since the absolute checks sit ABOVE the allowlist,
-    # those files could not be promoted by review either; they were structurally
-    # unreachable. Section 0's "a comment is inside the denominator of every gate
-    # that reads source text", costing ~124 files a place in the serial lane.
-    #
-    # The rule itself is UNCHANGED -- same snippets, same absoluteness. Only the
-    # text it reads changed, and `code_only` falls back to the raw source on any
-    # parse failure, so an unparseable file is still judged on everything it
-    # contains. The dynamic forms the guard test pins
-    # (`importlib.import_module("run_tests")`, `__import__("run_tests")`) are
-    # code and survive the strip.
+    # v3.66.990 asked it of CODE, not prose (143 pinned, 4 real importers, 139
+    # comment/docstring mentions -- section 0's "a comment is inside the
+    # denominator of every gate that reads source text"). The successor cut
+    # asked it of LOADS, not literals: of the 23 files the substring form still
+    # pinned, 7 bring the runner into their own interpreter, 4 mix loader
+    # calls-on-variables with runner literals (statically unprovable, so they
+    # pin fail-closed), and 12 name the runner only where a CHILD process
+    # executes it -- subprocess argv, heredoc driver strings, fixture paths,
+    # assertion messages. The absoluteness is unchanged; `code_only` still
+    # falls back to raw source on any parse failure, so an unparseable file is
+    # judged on everything it contains.
     code = code_only(source)
     if runner_import_hazard(code):
         return "serial"

@@ -92,29 +92,42 @@ def test_it_REFUSES_when_the_variable_is_set(tmp_path):
     assert "unset BD_INSTALL_DIR" in combined, "it must state the fix"
 
 
-def test_it_DOES_NOT_fire_when_the_variable_is_absent():
+def test_it_DOES_NOT_fire_when_the_variable_is_absent(tmp_path):
     """THE OTHER DIRECTION, and the one that matters most. A guard that refuses
     unconditionally passes the test above and makes capture.sh unrunnable --
     over-sensitivity is a soundness bug here, not a safe default.
 
-    The script is not expected to SUCCEED in this container (it wants
-    ~/BulkDownloader and a venv beside it). What is asserted is only that it
-    gets PAST the guard: exit 2 with the refusal banner must not happen."""
+    RUNS A TRUNCATED COPY, AND THAT IS NOT A CONVENIENCE. The first version of
+    this test executed the REAL capture.sh past the guard. capture.sh:402 does
+    `rm -rf "$OUT" "$ARCHIVE"` and :412 deletes every __pycache__ under
+    $BD_HOME -- which on the deploy box is ~/BulkDownloader, the live checkout.
+    A test that runs it would wipe a concurrent capture's output and the
+    deployed tree's bytecode. It survived review here only because this
+    container has no venv beside capture.sh, so it died early for an unrelated
+    reason -- green for the wrong reason, and destructive on the box.
+
+    Truncating right after the guard keeps the subject exactly (the guard is
+    the first executable statement) while removing every side effect."""
+    src = CAPTURE.read_text(encoding="utf-8")
+    anchor = 'BD_HOME="${BD_HOME:-$HOME/BulkDownloader}"'
+    assert src.count(anchor) == 1, "capture.sh's post-guard anchor moved"
+    stub = tmp_path / "capture_guard_only.sh"
+    stub.write_text(src[:src.index(anchor)] + '\necho GUARD_PASSED\nexit 0\n',
+                    encoding="utf-8")
+
     env = dict(os.environ)
-    env.pop("BD_INSTALL_DIR", None)          # POP, do not merely leave unset --
-    env["BD_SKIP_CAPTURE_VAULT"] = "1"       # the parent's value is part of the
-    try:                                     # denominator (CLAUDE.md section 0)
-        r = subprocess.run(["bash", str(CAPTURE), "--workers=2"], cwd=str(REPO),
-                           env=env, capture_output=True, text=True, timeout=60)
-        out = r.stdout + r.stderr
-    except subprocess.TimeoutExpired as e:
-        # Getting far enough to hang IS passing the guard.
-        out = (e.stdout or b"").decode("utf-8", "replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
-        assert "REFUSING TO RUN" not in out
-        return
+    env.pop("BD_INSTALL_DIR", None)   # POP, do not merely refrain from setting:
+                                      # the parent's value is part of the
+                                      # denominator (CLAUDE.md section 0)
+    r = subprocess.run(["bash", str(stub), "--workers=2"], cwd=str(tmp_path),
+                       env=env, capture_output=True, text=True, timeout=60)
+    out = r.stdout + r.stderr
     assert "REFUSING TO RUN" not in out, (
         "the guard fired with BD_INSTALL_DIR absent -- it would make capture.sh "
         "unrunnable for everyone")
+    assert "GUARD_PASSED" in out, (
+        "execution never reached past the guard: %s" % out[-300:])
+    assert r.returncode == 0, r.returncode
 
 
 def test_the_refusal_teaches_the_PREFIX_form_not_export():

@@ -39,6 +39,34 @@ and reach the fail-closed default. The speedup needs an allowlist regen backed
 by a measured all-parallel sweep on the box -- the v3.66.923 precedent -- which
 is a separate cut with separate evidence. What this cut changes is that the 124
 become ELIGIBLE for that review instead of structurally unreachable.
+
+ADDENDUM -- the successor cut this file anticipated, and how it differs from
+the refuted change. The absolute rule now reads LOADS, not literals: a static
+import, a loader-capable call whose argument names the runner, a
+monkeypatch/mock dotted path, runpy, or -- fail-closed -- any loader-capable
+call fed a VARIABLE in a file that also names the runner. All of those stay
+serial ABSOLUTELY; review cannot override one (pinned below). What no longer
+pins is a literal the file's own interpreter can never execute: a subprocess
+argv, a tmp-tree fixture path, an assertion message. Re-measured for this cut
+in a fresh subprocess with BD_DISABLE_KEEPALIVE POPPED, cwd=repo root:
+
+    run_tests_core  env_before null -> env_after null, path_added [],
+                    cwd unchanged, no pytest/flask/bd module enters sys.modules
+    run_tests       identical
+
+That probe is CONTEXT for why the rule's grip needed re-measuring -- it is NOT
+the licence for the promotions. The promotions rest on the process boundary: a
+child interpreter mutating its own env/sys.path never touched this one, even
+when the import-time mutation was real. So if run_tests_core regressed
+tomorrow, no promoted file would be affected -- none of them ever brings the
+runner into its own interpreter -- while every file that does load it is still
+serial, absolutely. The @986 refutation (SESSION_CARRY 'DO NOT narrow')
+therefore STANDS: that proposal freed files whose imports were real, on a probe
+whose harness inherited the flag. This cut frees no file that loads the runner,
+and was cut with the register's own prescribed sequence: harden the import
+(@990), then free the population honestly. Measured over 1279 tracked test
+files at eb0c00b: old rule pinned 23, precise rule pins 11 (7 in-process
+loaders + 4 fail-closed indirections), 0 currently-parallel files newly pinned.
 """
 
 import ast
@@ -78,17 +106,91 @@ def test_a_REAL_import_still_pins_the_file_however_it_is_written():
     """The other direction, and the reason the rule exists. Every one of these
     is CODE and survives stripping. The dynamic forms are the pre-existing
     guard's own cases -- if this cut broke them it would be reintroducing the
-    refuted change under a new name."""
+    refuted change under a new name.
+
+    Two changes at the successor cut, in opposite directions. The bare
+    name-binding case (a runner string assigned to a variable, no loader call
+    anywhere) MOVED to the contained-literal test below: with no import and no
+    loader-capable call, nothing in the file can execute the runner in this
+    interpreter, and it is byte-for-byte the fixture shape of the promoted
+    subprocess drivers. And three load forms JOINED that the old substring
+    instrument could not all see -- the monkeypatch dotted path was invisible
+    to it (the quote-anchored literal regex requires the closing quote right
+    after the module name, and `"run_tests_core.ATTR"` defeats it), so the
+    precise rule is WIDER here, not narrower: pytest resolves that string by
+    importing the module into this interpreter."""
     for source in (
         "import run_tests\n",
         "from run_tests_core import main\n",
         'import importlib\nimportlib.import_module("run_tests")\n',
         'from importlib import import_module as load\nload("run_tests_core")\n',
         '__import__("run_tests")\n',
-        'RUNNER = "run_tests_core"\n',
+        'import runpy\nrunpy.run_path("run_tests.py")\n',
+        'def test_x(monkeypatch):\n'
+        '    monkeypatch.setattr("run_tests_core._FILE_TIMEOUT_S", 1)\n',
+        'import importlib\nload = importlib.import_module\n'
+        'NAME = "run_tests_core"\nload(NAME)\n',
     ):
         assert lanes.classify_capture_file(ALLOWLISTED, source=source) == "serial", (
             "the runner-import risk stopped being detected in: %r" % source)
+
+
+def test_a_CONTAINED_literal_no_longer_pins_a_reviewed_file():
+    """RED before the successor cut: each of these named the runner only where
+    this interpreter can never execute it, and was pinned anyway.
+
+    Measured over 1279 tracked test files at eb0c00b: 12 real files carried
+    the runner name ONLY in subprocess argv, tmp-tree fixture paths, heredoc
+    driver strings or assertion messages -- never a load -- and sat in the
+    serial lane for it (~135s of the box's 903s serial lane). The child
+    process that DOES import the runner mutates its own interpreter and exits;
+    the hazard the rule names cannot reach this one. Same correction as @990
+    (a comment is not an import) and @998 (a heredoc loader-call is not an
+    in-process load), one step further: an argv literal is not a load either.
+
+    ONLY for a REVIEWED file: the companion test below pins that an unlisted
+    file with the same shapes stays serial."""
+    for source in (
+        # the case that moved from the load list above, verbatim
+        'RUNNER = "run_tests_core"\n',
+        # the t49/796 shape: the runner as a child-process argv
+        'import subprocess, sys\n'
+        'def test_x(tmp_path):\n'
+        '    subprocess.run([sys.executable, "run_tests.py", "--json"],\n'
+        '                   timeout=120)\n',
+        # the 908/909/910/911/885 shape: a heredoc driver for a fresh
+        # interpreter; the import statement inside the STRING never parses
+        # as an import node of this file
+        '_DRIVER = "import run_tests_core as R; R.main()"\n'
+        'import subprocess, sys\n'
+        'def test_x():\n'
+        '    subprocess.run([sys.executable, "-c", _DRIVER], timeout=120)\n',
+        # the OVER-SENSITIVE direction, pinned in the same test on purpose:
+        # an OBJECT-form monkeypatch (module object first, no dotted string)
+        # imports nothing, so its presence beside an argv literal must not
+        # trip the fail-closed indirection rule -- only LOADER-capable calls
+        # join that rule, and a patcher is one only when its argument names
+        # the runner
+        'import subprocess, sys\n'
+        'def test_x(monkeypatch):\n'
+        '    monkeypatch.setattr(subprocess, "run", lambda *a, **k: None)\n'
+        '    subprocess.run([sys.executable, "run_tests.py"], timeout=60)\n',
+    ):
+        assert lanes.classify_capture_file(ALLOWLISTED, source=source) == "parallel", (
+            "a reviewed file was pinned serial for a literal nothing in it "
+            "can execute: %r" % source)
+
+
+def test_a_contained_literal_in_an_UNLISTED_file_still_defaults_serial():
+    """The fail-closed half of the promotion. Freeing the literal from the
+    ABSOLUTE rule must not free it from review: an unlisted subprocess driver
+    falls through the allowlist to the default, and the default is serial."""
+    source = ('import subprocess, sys\n'
+              'def test_x():\n'
+              '    subprocess.run([sys.executable, "run_tests.py"], timeout=60)\n')
+    assert lanes.classify_capture_file(
+        "tests/test_a_file_that_is_not_on_the_allowlist_990b.py",
+        source=source) == "serial"
 
 
 def test_UNPARSEABLE_source_falls_back_to_the_raw_text():
@@ -204,13 +306,34 @@ def test_an_ALREADY_SET_flag_is_not_overwritten():
     assert r.stdout.strip().splitlines()[-1] == "0"
 
 
-def test_this_cut_does_NOT_narrow_the_rule_or_touch_the_allowlist():
-    """Guarding against the reading that would undo the refutation. Removing the
-    prose false-positive is not the same claim as those files being
-    parallel-safe, and a session treating this as licence to narrow the snippet
-    list would reproduce the refuted change with a fresher justification."""
-    assert lanes.ABSOLUTE_SERIAL_SNIPPETS == (
-        "import run_tests", "from run_tests", "run_tests.py")
+def test_review_still_cannot_override_an_in_process_load():
+    """The invariant the retired snippet-tuple pin was standing in for.
+
+    The old pin asserted the substring tuple verbatim, guarding against a
+    session narrowing the rule "with a fresher justification" while the
+    import-time mutation was real. That mutation is gone (measured for the
+    successor cut, flag POPPED in a fresh subprocess: env null -> null,
+    path_added []), and the successor cut re-instrumented the rule from
+    substrings to AST loads -- so the thing to pin is no longer the tuple, it
+    is the PROPERTY the tuple existed to protect: a file that can execute the
+    runner in its own interpreter is serial even when reviewed, and the
+    allowlist has not been emptied to make that vacuous.
+
+    Every form here is an in-process load. If any of them ever classifies
+    parallel for an ALLOWLISTED path, the refuted change has been reproduced,
+    whatever the justification reads."""
+    for source in (
+        "import run_tests\n",
+        "import run_tests_core as run_tests\n",
+        'import importlib\nimportlib.import_module("run_tests_core")\n',
+        'import importlib.util\n'
+        'spec = importlib.util.spec_from_file_location('
+        '"rtc", "run_tests_core.py")\n',
+        'def test_x(monkeypatch):\n'
+        '    monkeypatch.setattr("run_tests_core.main", lambda: None)\n',
+    ):
+        assert lanes.classify_capture_file(ALLOWLISTED, source=source) == "serial", (
+            "an allowlist entry overrode an in-process load: %r" % source)
     n = len(lanes.parallel_allowlist())
     assert n > 1000, "allowlist unexpectedly small: %d" % n
 
