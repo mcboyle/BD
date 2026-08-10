@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3820,
+  "edge_count": 3823,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4352,6 +4352,11 @@
       "bulk_downloader/capture_ingest.py",
       "tools/cockpit_console.py",
       "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_1020_residues.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/login.py",
+      "bulk_downloader/rate_limit.py"
     ],
     "tests/test_v3_66_102_phase1_completion.py": [
       "bulk_downloader/capture_ingest.py",

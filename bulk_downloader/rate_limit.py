@@ -288,16 +288,24 @@ class DomainRateLimiter:
 
     @staticmethod
     def _extract_domain(url) -> str:
-        """Extract a useful 'rate-limit key' from the URL. This is
-        intentionally simpler than full eTLD+1 extraction:
+        """Extract the rate-limit key for a URL.
 
           - Only http/https URLs get a key (magnet links, file://, etc.
             are no-ops since rate limiting them makes no sense)
-          - For multi-label TLDs (.co.uk), uses extension_vault's
-            helper which IS eTLD+1-aware
-          - Falls back to bare hostname when the helper returns
-            something that looks wrong (e.g. just 'co.uk')
+          - The key IS the registrable domain (eTLD+1), asked of the one
+            canonical rule in `registrable_domain` (v3.66.1018), so two
+            .co.uk registrants -- or two github.io pages -- no longer
+            share a bucket
+          - Falls back to the bare hostname only when that rule yields
+            nothing at all (a host it cannot normalize)
           - Empty string for anything we can't parse
+
+        v3.66.1020: this docstring described three things that stopped being
+        true at @1018 -- that the derivation is "intentionally simpler than
+        full eTLD+1", that it delegates to extension_vault, and that it
+        repairs a bare-suffix answer afterwards. @1018 replaced all of that
+        with one call and REMOVED the import edge (declared with --shrink), so
+        the prose was describing a mechanism the code no longer had.
 
         Caller blocks acquire() on this key. Empty string means
         "no rate limiting" — bypass the cap entirely.

@@ -4,6 +4,57 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1020
+
+Three residues in already-merged work. No new feature; each is something
+@1016/@1018 left behind that a later reader would have inherited as true.
+
+A -- A TEST THAT SKIPPED INSTEAD OF ASSERTING, AND THE BOX HELD THE RECEIPT.
+test_the_rate_limit_key_is_the_registrable_domain reached its subject with
+getattr(R, "_extract_domain", None) and skipped when that came back None. It is
+a @staticmethod on DomainRateLimiter, never a module attribute, so the getattr
+ALWAYS returned None and both behavioural assertions never ran. The capture at
+e7d3b5e shows skips going 4 -> 5 the moment @1018 landed, and the fifth is that
+test -- with a stated reason ("nested") that is also wrong. A skip reads as fine
+in every summary line. There is no skip branch now: a moved target raises
+AttributeError and fails loudly. The access is the proven in-tree pattern from
+tests/test_v3_43_31_rate_limit.py:270.
+
+B -- A DOCSTRING DESCRIBING A MECHANISM THAT WAS REMOVED. @1018 replaced
+rate_limit._extract_domain's three-layer repair with one call and deleted the
+rate_limit -> extension_vault import edge. The docstring still claimed the
+function "uses extension_vault's helper", is "intentionally simpler than full
+eTLD+1", and repairs a bare-suffix answer afterwards. Three claims, none true,
+where a reader looks first.
+
+C -- AN UNCOVERED PATH IN @1016, AND IT IS A STALL RATHER THAN A MISS. do_login
+returns early when a form auto-submits on password fill AND the page is already
+at success_url. A post-login wall is NOT success_url, so that check does not
+fire -- and the wall carries no login form, so _submit_login then walks its
+whole fallback list against a page that can never satisfy it. @1016's dismissal
+sat after that walk. The wall is now read ONCE, before both dismissal sites, and
+a declared wall is dismissed in the auto-submit branch.
+
+MEASURED, and the numbers are the argument: pristine 551s, fixed 15s. The log
+shows pristine reaching method 8 of 9 (Tab+Enter) before anything took.
+
+MY OWN TEST PROVED NOTHING FIRST, AND THAT IS RECORDED RATHER THAN QUIETLY
+FIXED. The first version asserted ok is True and PASSED on pristine source --
+because _submit_login eventually clicks something, flow reaches @1016's
+post-submit dismissal, and the wall clears there anyway. Section 6: a test that
+passes in both states is not a test. The defect is the walk, so the assertion is
+now whether _submit_login is entered at all -- a fact about control flow rather
+than a clock.
+
+AND THE PROSE-VS-CODE TRAP LANDED INSIDE THE CUT ABOUT RESIDUES. A test
+asserting the fixed function no longer contains getattr(R, "_extract_domain")
+FAILED, because that function's own docstring quotes the call in order to
+explain what was wrong. ast.unparse renders docstrings as ordinary strings.
+Section 0's "explaining a removal by naming the removed thing recreates it",
+committed minutes after writing that sentence down. The predicate now strips
+docstrings, with a known-positive AND known-negative proof that it can tell
+prose from code.
+
 ## v3.66.1019
 
 Re-freeze the TEMPLATES list-identity baseline for the gamma_kosmos split.

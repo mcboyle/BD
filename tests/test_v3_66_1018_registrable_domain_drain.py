@@ -151,11 +151,26 @@ def test_the_rate_limit_key_no_longer_needs_its_own_suffix_table():
 
 
 def test_the_rate_limit_key_is_the_registrable_domain():
+    """v3.66.1020: THIS TEST USED TO SKIP, AND THE BOX IS WHERE THAT SHOWED.
+
+    It did `getattr(R, "_extract_domain", None)` and skipped when that came
+    back None -- but the function is a @staticmethod on DomainRateLimiter
+    (rate_limit.py:290), never a module attribute, so the getattr ALWAYS
+    returned None and both assertions below NEVER RAN. The capture at e7d3b5e
+    carries the receipt: skips went 4 -> 5 the moment @1018 landed, and the
+    fifth is this test, with a reason ("nested") that was also wrong.
+
+    That is CLAUDE.md section 0 in a test: a check reporting a benign status
+    over a subject it cannot reach. A skip reads as fine in every summary line.
+
+    THERE IS NO SKIP BRANCH NOW, deliberately. If the function moves, the
+    attribute access raises AttributeError and this fails LOUDLY. The access
+    itself is the proven in-tree pattern -- tests/test_v3_43_31_rate_limit.py:270
+    has used it since @43.31.
+    """
     from bulk_downloader import rate_limit as R
     importlib.reload(R)
-    fn = getattr(R, "_extract_domain", None)
-    if fn is None:                       # nested: reach it through its owner
-        pytest.skip("_extract_domain is nested; covered by the AST test above")
+    fn = R.DomainRateLimiter._extract_domain
     assert fn("https://www.bbc.co.uk/x") == "bbc.co.uk"
     assert fn("magnet:?xt=urn:btih:abc") == ""
 

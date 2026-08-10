@@ -847,12 +847,38 @@ def do_login(config, allow_manual_takeover=False):
         # need to submit anything. Skipping this check would lead us into
         # _submit_login on a closed/navigating page, which then "fails" 8
         # times against a target that's already gone.
+        # v3.66.1020: the declared post-login wall, read ONCE here because the
+        # auto-submit branch below needs it too. @1016 read it only after
+        # _submit_login, which is too late for a form that submits on fill.
+        _wall=config.get("dismiss_selectors_login","") or ""
         try:
             cur_after_fill=page.url
             if success and success in cur_after_fill:
                 sys.stderr.write(f"  login: page already at success URL after fill ({cur_after_fill[:80]})\n")
                 cookies=pw_to_json(ctx.cookies()); _hard_close()
                 return True,f"OK — {len(cookies)} cookies (auto-submitted on fill)",cookies
+            # A form that auto-submits on fill can land on the WALL rather than
+            # on success_url -- and a wall carries no login form, so the check
+            # above does not fire and _submit_login below then flails its whole
+            # selector list against a page that can never satisfy it. Measured
+            # on pristine source: a stall, not a clean failure.
+            #
+            # GATED ON A DECLARED WALL, so a site that declares none takes a
+            # byte-identical path and pays nothing -- not even the import.
+            if _wall:
+                from ..interstitial import dismiss as _dismiss_interstitials
+                if _dismiss_interstitials(page,_wall):
+                    sys.stderr.write("  login: dismissed a post-login interstitial "
+                                     "reached by auto-submit-on-fill\n")
+                    try: page.wait_for_load_state("domcontentloaded",timeout=10000)
+                    except Exception: pass
+                    cur_after_fill=page.url
+                    if success and success in cur_after_fill:
+                        sys.stderr.write(f"  login: at success URL after dismissing the wall "
+                                         f"({cur_after_fill[:80]})\n")
+                        cookies=pw_to_json(ctx.cookies()); _hard_close()
+                        return True,(f"OK — {len(cookies)} cookies "
+                                     f"(auto-submitted on fill; wall dismissed)"),cookies
         except Exception:
             pass
 
@@ -939,7 +965,6 @@ def do_login(config, allow_manual_takeover=False):
         #
         # Guarded on the site declaring a wall, so a site without one pays
         # nothing at all -- not even the import.
-        _wall=config.get("dismiss_selectors_login","") or ""
         if _wall:
             from ..interstitial import dismiss as _dismiss_interstitials
             _clicked=_dismiss_interstitials(page,_wall)
