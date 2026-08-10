@@ -5056,6 +5056,201 @@ never `export` in a shell the suite is later launched from.
   row seen in 1 of 6 captures. Re-capture before trusting it.
 
 
+### 15.85 | SESSION CLOSE 2026-08-10 at 0db578f (v3.66.1022) -- seven cuts, four box captures, and two defects only the box could find
+
+Close at `0db578f`, the squash of #306, already on `main` when this was written.
+
+ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
+OPEN:   31, 33
+CLOSED: 44
+
+Unchanged from 15.82: nothing this session opens or closes a NUMBERED item. The
+queue it worked is 15.83's, which is not the numbered inventory.
+
+#### THE QUEUE, FINAL STATE
+
+| 15.83 item | state |
+| --- | --- |
+| 1. capture of @1015 | DONE -- and the first tarball was of @1013; see below |
+| 2. item E, the interstitial | DONE, both halves (@1016 runtime, @1017 builder) |
+| 3. the eleven registrable-domain copies | DONE (@1018), ratchet now ZERO |
+| 4. the `match.hosts` bridge | STILL BLOCKED on the operator reviewing `bd-wacz-corpus --hosts` |
+| 5. logger handler accumulation | DONE (@1021) |
+| 6. item 31 | untouched |
+
+#### THE CUTS
+
+| cut | what |
+| --- | --- |
+| @1016 | the post-login interstitial: two declared scopes, one shared loop |
+| @1017 | a CAPTURED template can express its interstitial |
+| @1018 | the eleven last-two-labels copies, drained; ratchet 11 -> 0 |
+| @1019 | re-freeze the TEMPLATES identity baseline for the gamma_kosmos split |
+| @1020 | three residues in already-merged work |
+| @1021 | log._init appended to a global it did not own |
+| @1022 | a test wrote into the TRACKED corpus |
+
+#### THE BOX FOUND TWO THINGS NO BAND COULD, AND ONE OF THEM HAS NO PASS/FAIL LINE
+
+**1. A gate no derivable band reaches.** @1016's gamma_kosmos split drifted
+`tools/decomp/templates_snapshot_baseline.json`. Measured: `bd-band-derive
+--file bulk_downloader/site_templates/_data_players.py` does NOT return
+`tests/test_templates_list_identity.py`, and neither of @1016/@1017's bands (424
+and 67 files) contained it. The gate's subject IS that file's content, but it
+reaches it ONE IMPORT AWAY, via `spec_from_file_location` on
+`tools/decomp/templates_snapshot.py` -- invisible to a grep of the test's own
+source and to the module-consumer signal alike.
+
+**This is the SECOND instance of a class CLAUDE.md section 4 records once**, for
+`test_pin_index_in_sync`, whose enumeration also lives one import away. Two
+instances is a class, not a one-off. There is no automatic predicate for it --
+the enumeration is not in the test file at all -- so the practical rule is: a
+cut that edits a data list which some frozen baseline hashes must band that
+baseline's gate by hand.
+
+**2. A SKIP COUNT, which no verdict line shows.** @1018's
+`test_the_rate_limit_key_is_the_registrable_domain` did
+`getattr(R, "_extract_domain", None)` and skipped when that came back None. It
+is a `@staticmethod` on `DomainRateLimiter`, never a module attribute, so the
+getattr ALWAYS returned None and both behavioural assertions never ran. The
+capture at `e7d3b5e` is the whole evidence: skips went **4 -> 5** the moment
+@1018 landed, and the fifth is that test -- with a stated reason ("nested")
+that is also wrong.
+
+Nothing else would have caught it. It is green in every band, green in CI,
+green on the box, and reported as a pass. **Read the skip count across
+captures, not just the fail count**, and treat any NEW skip as unexplained
+until named.
+
+#### THE CAPTURE SEQUENCE, AND THE ONE THAT MEASURED THE WRONG TREE
+
+| capture | commit | result |
+| --- | --- | --- |
+| 1 | `fe88b5a` (@1013) | FAIL -- L34 `capture_analytics` EXCEEDED >8s serial |
+| 2 | `213fa81` (@1017) | FAIL -- 2 unit: templates identity + the corpus race |
+| 3 | `e7d3b5e` (@1019) | **PASS** -- unit 15495/0, live 36/0 |
+
+**Capture 1 was of @1013, not @1015**, because the deploy had been REFUSED at
+step 3 on a local modification to `STATIC_KB_MANIFEST.json` and nobody noticed
+before running it. So `fe88b5a` now stands at three captures, **2 FAIL / 1
+PASS on identical source** -- stronger evidence for @1015 than @1015's own
+commit message could cite. **Check `02_SUMMARY.txt`'s version line before
+reading any capture**; the verdict line does not say which tree it measured.
+
+**@1015 MAY STILL NOT BE ENOUGH, and capture 3 does not settle it.**
+`_HEAVY_BUDGET_S = 20` (`app_data_layer.py:92`) against `_L34_ROUTE_BUDGET_S = 8`
+(`live_tests/checks.py:311`): the wall-time bound is 2.5x L34's budget, so it
+guarantees the route TERMINATES, not that it answers in time. What should have
+fixed capture 1 is `max_bytes=25MB` skipping an oversized capture JSON. The
+sibling `capture_diagnostics`, which has had all three bounds all along, took
+**6181ms serial** -- under 8s at 77% of it. A pass here is not headroom.
+
+#### MEASUREMENTS WORTH NOT RE-DERIVING
+
+- **The interstitial cost, in BOTH shapes.** 15.83 said five login-wall
+  selectors cost "up to 15s PER URL", flagged READ FROM SOURCE. Measured against
+  a real chromium on a page where none match: the shipped Gamma value is ONE
+  comma-joined line -> 1 locator -> **3.00s**; the same five as five lines ->
+  **15.01s**. `runner.py` splits on NEWLINES. So the split is cost-NEUTRAL for
+  Gamma (its win is correctness) and the 3s-per-line saving lands for CAPTURED
+  templates, which emit one per line. Quoting the wrong figure overstates it.
+- **The auto-submit stall: 551s -> 15s.** A form that auto-submits on password
+  fill can land on the WALL, which is not `success_url`, so do_login's early
+  return does not fire -- and the wall has no login form, so `_submit_login`
+  walks its whole fallback list. The pristine log reaches method 8 of 9
+  (Tab+Enter) before anything takes.
+- **The logger leak is QUADRATIC, not linear.** Handlers 2N (which 15.83 had),
+  logger filters N, **handler filters N(N+1)** -- 56 at seven wipe cycles --
+  because the filter loop decorated every handler ON THE LOGGER rather than the
+  two just installed. One `.info()` printed **28 lines** across those cycles.
+  After @1021: flat at 2/1/2, and seven calls print seven lines.
+- **The corpus race is CONCURRENCY-dependent, not order-dependent.**
+  Polluter-then-victim in one process PASSES, because the `finally:` restores
+  first. It needs genuine overlap, which is why it surfaces on an 88-worker box
+  and essentially never in a container -- and why re-running would never have
+  proved it fixed.
+- **`main` was carrying a stale generated artifact and CI cannot see it.**
+  `STATIC_KB_MANIFEST.json` at `987e960` recorded `SESSION_CARRY.md` 4317 bytes
+  short -- exactly 15.83's own length, regenerated before the section was
+  written. `ci.yml:86-89` enumerates SIX artifacts; `bd-regen-order` has SEVEN
+  tracked outputs, and this is the one missing. The job runs the regen that
+  updates the file and then checks a denominator excluding its output. Instance
+  fixed by @1016; **the CLASS is still open** and is a build change needing the
+  operator.
+
+#### DEFECTS IN THIS SESSION'S OWN WORK -- five, none caught by review
+
+Every one was caught by RUNNING something, and three by a check failing on
+correct code.
+
+1. **An AST census over-matched and reported an offender that never existed.**
+   @1016's "exactly one dismissal loop" predicate asked only for a loop
+   containing `wait_for` + `click` + `locator`, and flagged `_process_one`'s
+   download TRIGGER loop -- a different thing that happens to click a selector
+   it waited for. The instrument was right; the SUBJECT was wrong. Narrowed to
+   a splitlines-driven loop and proved on a known positive AND a known negative.
+2. **A test that passed on BOTH sides.** @1020's first e2e for the auto-submit
+   stall asserted `ok is True` and passed on pristine -- because `_submit_login`
+   eventually clicks something and @1016's post-submit dismissal clears the wall
+   anyway. Section 6: a test that passes in both states is not a test. The
+   defect is the WALK, so the assertion became whether `_submit_login` is
+   entered at all: control flow, not a clock.
+3. **The prose-vs-code trap, inside the cut about residues.** A test asserting
+   the fixed function no longer contains `getattr(R, "_extract_domain")` FAILED,
+   because that function's own docstring quotes the call in order to explain
+   what was wrong; `ast.unparse` renders docstrings as ordinary strings.
+   Section 0's "explaining a removal by naming the removed thing recreates it",
+   committed minutes after writing that sentence down.
+4. **A ratchet nothing checked.** @1018's mutation battery escaped on "raise
+   @1013's ceiling from 0 back to 11" -- the behaviour was constrained by an
+   independent census, the RATCHET was not. @1013's docstring says "Never raise
+   it" in prose; that is now mechanical, read from the assert NODE. The first
+   version of THAT predicate matched `assert len(files) > 1000` as well, because
+   it never checked the OPERATOR, and reported the ceiling as 1000.
+5. **gitleaks failed the `gates` job on the test written to prove tokens never
+   leak.** `token=abcdef...` (16 hex) scored generic-api-key at entropy 4.0.
+   Section 7 already says corpus values must be zero-entropy repeats; it also
+   says this cannot be fixed forward, and it could not -- the commit had to be
+   amended. The repo's pre-push hook then correctly refused the force-push (its
+   two-dot diff is non-empty for ANY unmerged branch, so it is a false positive
+   for an amend of one's own tip); the safe move is
+   `git diff origin/<branch> HEAD` to prove nothing is lost, THEN
+   `BD_SKIP_PREPUSH_CHECK=1`.
+
+#### METHOD COSTS
+
+- **A 10-minute command timeout killed a mutation battery and left the mutant
+  on disk.** Section 6's SIGTERM case, live: `runner.py` matched the mutated
+  sha256 exactly, and @875's journal recovered it. **Run batteries
+  BACKGROUNDED with no command cap.** Every unattended way a battery dies is a
+  way it dies dirty.
+- **`bd-band-derive` missed 8 of the 11 axis-6 gates** for a cut adding a test
+  file. Its own docstring calls itself a floor; that is the size of the gap.
+  `bd-bandcheck` separately caught the `test_phases_195_199` + `test_cut8_
+  schedules` leak co-band on a band the tool itself derived.
+- **A `downloader_history.db` (225 KB) appeared in the repo root**, item 36's
+  signature, written during a pytest BAND rather than an ad-hoc probe -- every
+  hand-rolled probe this session scoped `BD_INSTALL_DIR`, and the band runs
+  relied on conftest. Gitignored, so `git status` stayed clean and nothing
+  warned. Removed.
+- **Two order-dependent test files were found and NOT fixed**, both proven
+  pre-existing by changing one variable in the same directory:
+  `tests/test_provision_test_host.py` gives `4 failed, 117 passed, 13.86s`
+  byte-identically with and without @1021, and
+  `tests/test_v3_66_820_auth_health_reaped_on_site_delete.py` fails 2 when its
+  file runs whole. Neither is this session's; both are real.
+
+#### WHAT IS STILL OPEN
+
+1. **Queue item 4**, the `match.hosts` bridge, blocked on the operator running
+   `bd-wacz-corpus --hosts` and confirming the families.
+2. **Item 31**, the large parallel program.
+3. **The CI generated-artifact denominator** -- six enumerated, seven produced.
+   A build change; needs authorization.
+4. **The two order-dependent files above.**
+5. **`main` at `0db578f` is UNVERIFIED on the box.** The last capture was of
+   `e7d3b5e`, three cuts back.
+
 ### 15.84 | Item E is BUILT (v3.66.1016-1017), and five measurements the queue did not have
 
 **Not a session close** -- no ITEM LEDGER; 15.82's (OPEN 31, 33 / CLOSED 44)
