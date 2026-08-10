@@ -4,6 +4,54 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1016
+
+Item E of the A-H program: the post-login interstitial. A "No Thanks. Continue
+to Members Area" wall sits between the login POST and the members area on the
+Gamma brands and others like them, and do_login dismissed NOTHING between
+_submit_login and its success_url comparison. So page.url read the WALL's url,
+`success not in cur` fired, and a login that had in fact succeeded was thrown
+into manual takeover.
+
+TWO SCOPES, DECLARED APART, because they are genuinely different questions:
+
+    dismiss_selectors        per-page  -- cookie / age / consent, every URL
+    dismiss_selectors_login  login wall -- once, in do_login, post-submit
+
+The per-URL loop moved out of runner._process_one into bulk_downloader/
+interstitial.py and both consumers share it; two copies of a click-with-timeout
+loop drift and nothing compares them.
+
+THE REGISTER'S COST FIGURE WAS HALF RIGHT AND IS NOW MEASURED. 15.83 said five
+login-wall selectors cost "up to 15s PER URL", flagged as read-from-source.
+Against a real chromium on a page where none of them match:
+
+    shipped Gamma value (ONE comma-joined line -> 1 locator)     3.00s per URL
+    the same five as five lines (a captured template's shape)   15.01s per URL
+
+runner.py splits on NEWLINES, so the hand-written Gamma one-liner has always
+cost 3.00s, not 15s. The split is therefore cost-NEUTRAL for Gamma and the win
+there is purely the correctness one above; the 3s-per-line saving lands for a
+captured template, which emits one selector per line. Claimed for the shape
+that has it and not for the shape that does not.
+
+A SECOND KEY RATHER THAN AN IN-BAND PREFIX. dismiss_selectors is a documented
+"one CSS selector per line" surface, so encoding a scope as `login: a.foo` would
+make a valid CSS selector and a scope marker the same syntax. The key costs one
+CFG_FIELDS entry -- required, or a template-set value is dropped by the
+_load_sites_config rebuild -- and one config-surface ledger row.
+
+MY OWN CENSUS WAS WRONG FIRST, in the way section 1 names. Its predicate asked
+only for a loop containing wait_for + click + locator and reported TWO
+offenders after the consolidation had landed; the second was _process_one's
+download TRIGGER loop, a different thing that happens to click a selector it
+waited for. The instrument was never the problem -- the AST walk was right and
+the subject was wrong. Narrowed to a splitlines-driven loop, and now proved
+sensitive on a known positive AND a known negative before it is believed.
+
+Every gate here is paired: a zero-offender census is also satisfied by deleting
+the dismissal outright, so a separate test asserts _process_one still delegates.
+
 ## v3.66.1015
 
 capture_analytics gets the two bounds its sibling already had.

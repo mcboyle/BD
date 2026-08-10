@@ -99,6 +99,7 @@ from .download_egress import effective_download_proxy
 # shipped @686 and the shim @699; this is the bracket that owns a worker's
 # namespace for its browser's whole lifetime (see _worker_loop).
 from . import netns_isolation
+from . import interstitial as _interstitial
 
 # v3.43.60: captcha_relay — soft import. If unavailable, the per-site
 # use_captcha_relay flag silently becomes a no-op.
@@ -3325,20 +3326,15 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 self._pause.wait()
                 if self._stop.is_set(): self._update_job(url,"stopped","Stopped"); return
                 time.sleep(0.5)
-            # Dismiss interstitial popups (upsells, "no thanks" prompts, cookie
-            # banners, age-gates). One CSS selector per line; each is tried
-            # with a short timeout. Missing/invisible elements are skipped
-            # silently — never fail a URL because a popup didn't show up.
-            dismiss_raw=self.config.get("dismiss_selectors","") or ""
-            for sel_line in dismiss_raw.splitlines():
-                sel=sel_line.strip()
-                if not sel or sel.startswith("#"): continue  # allow # comments
-                try:
-                    loc=page.locator(sel).first
-                    loc.wait_for(timeout=3000,state="visible")
-                    loc.click()
-                    time.sleep(0.5)  # brief settle
-                except Exception: pass
+            # Dismiss PER-PAGE interstitials (cookie banners, age gates,
+            # consent walls) — the ones that can appear on any content URL.
+            # One CSS selector per line; each is tried with a short timeout and
+            # a miss is silent, because a popup that didn't show up must never
+            # fail a URL. v3.66.1016: the loop moved to bulk_downloader.
+            # interstitial so do_login shares it; the POST-LOGIN wall is a
+            # different scope and lives in `dismiss_selectors_login`, fired
+            # once there rather than re-tried here at 3s per line per URL.
+            _interstitial.dismiss(page, self.config.get("dismiss_selectors",""))
             trigger=self.config.get("trigger_selector","").strip()
             # Phase 5.5: learned trigger selectors as fallback for the
             # configured one. If neither produces a click, the modal-based

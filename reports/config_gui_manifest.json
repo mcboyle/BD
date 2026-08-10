@@ -212,6 +212,7 @@
     "dev_mode": "full",
     "disk_threshold_gb": "full",
     "dismiss_selectors": "full",
+    "dismiss_selectors_login": "full",
     "dl8_predict_badoink_filenames": "full",
     "dl_selector": "full",
     "dom_honeypot_filter": "full",
