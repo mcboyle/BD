@@ -5056,6 +5056,125 @@ never `export` in a shell the suite is later launched from.
   row seen in 1 of 6 captures. Re-capture before trusting it.
 
 
+### 15.84 | Item E is BUILT (v3.66.1016-1017), and five measurements the queue did not have
+
+**Not a session close** -- no ITEM LEDGER; 15.82's (OPEN 31, 33 / CLOSED 44)
+stands. Deliberately not titled a close: section 4 requires a close section to
+name a commit ALREADY on `main`, and everything here lives on an unmerged
+branch whose tip the squash destroys.
+
+**ITEM E IS DONE, both halves, in PR #303.** @1016 is the runtime (two declared
+scopes, one shared loop, `do_login` firing the wall once); @1017 is the builder
+(`_dismiss_selectors` -> `selectors["dismiss"]` ->
+`capture_login_wire.apply_draft_dismiss_selectors`). Queue items 2 is closed;
+1 was answered rather than worked (below); 3, 5 and 6 are untouched.
+
+#### THE CAPTURE SENT ON 2026-08-10 WAS OF v3.66.1013, NOT v3.66.1015
+
+`01_sysinfo.log` says `fe88b5a`; `02_SUMMARY.txt` says 3.66.1013. @1014 and
+@1015 merged at 18:26Z and the capture ran at 18:43Z on a box that had not been
+updated -- the deploy was attempted afterwards and REFUSED at step 3 on a local
+modification to `STATIC_KB_MANIFEST.json`. So the tally at `fe88b5a` is now
+**three captures, 2 FAIL / 1 PASS on identical source**, which is stronger
+evidence for @1015 than the two captures its own commit message could cite.
+
+The discriminating line, cold and serial, sweep complete, graph pin OK:
+
+    EXCEEDED  /api/data/capture_analytics (> 8s SERIAL, on a quiet app)
+    checked 264 operator in 67s: 0 5xx, 0 unreachable, 1 exceeded,
+    181 recovered-on-serial, 0 unconfirmed, 0 unprobed
+
+**@1015 MAY NOT BE ENOUGH, AND THE NUMBERS SAY WHY.** `_HEAVY_BUDGET_S = 20`
+(`app_data_layer.py:92`) against `_L34_ROUTE_BUDGET_S = 8`
+(`live_tests/checks.py:311`) -- the wall-time bound is **2.5x L34's budget**, so
+it guarantees the route TERMINATES, not that it answers in time. The mechanism
+that should actually fix this failure is `max_bytes=25MB` skipping the oversized
+capture JSON, which is the cost @1015's own message names. Corroborating datum
+from the same capture: the sibling `capture_diagnostics`, which has had all
+three bounds all along, took **6181ms serial** -- under 8s, at 77% of it. Expect
+a pass, not a comfortable one, and do not read one as headroom.
+
+#### THE INTERSTITIAL COST FIGURE, MEASURED -- 15.83 WAS HALF RIGHT
+
+15.83 said five login-wall selectors cost "up to 15s PER URL" and flagged it
+READ FROM SOURCE. Against a real chromium on a page where none of them match:
+
+| shape | locators | per URL |
+| --- | --- | --- |
+| the shipped Gamma value (ONE comma-joined line) | 1 | **3.00s** |
+| the same five as five lines (a captured template's shape) | 5 | **15.01s** |
+
+`runner.py` splits on NEWLINES. So the hand-written one-liner has always cost
+3.00s and the split is **cost-neutral for Gamma** -- its win is purely
+correctness. The 3s-per-line saving is real and lands for CAPTURED templates,
+which emit one selector per line. Two different shapes, one figure, and quoting
+the wrong one overstates the cut.
+
+#### `main` CARRIES A STALE GENERATED ARTIFACT AND CI CANNOT SEE IT
+
+`STATIC_KB_MANIFEST.json` at `987e960` records `SESSION_CARRY.md` at 637944
+bytes while the SAME commit's file is 642261 -- the 4317 bytes of 15.83 itself.
+Section 2a's "regen AFTER the last source edit", landed on main.
+
+**CI structurally cannot catch it.** `ci.yml:86-89` enumerates six artifacts:
+
+    ROUTE_INDEX.json ENDPOINT_CATALOG.md DEPENDENCY_GRAPH.json
+    DEPENDENCY_GRAPH.md FUNCTION_INDEX.md PIN_INDEX.json
+
+`bd-regen-order` has SEVEN tracked outputs; `STATIC_KB_MANIFEST.json` is the
+one missing. The job runs the regen that updates the file and then checks a
+denominator that excludes it -- section 0, in the release machinery. @1016 fixes
+this instance incidentally; the CLASS recurs until the list is derived from the
+chain rather than hand-kept. **Not fixed here: changing a CI job is a build
+change and needs the operator.**
+
+#### THE LOGGER LEAK IS QUADRATIC, NOT LINEAR (queue item 5, MEASURED not built)
+
+Measured at `987e960`, 7 wipe cycles in one process:
+
+| inits | handlers | logger filters | handler filters |
+| --- | --- | --- | --- |
+| 1 | 2 | 1 | 2 |
+| 7 | **14** | 7 | **56** |
+
+Handlers 2N confirms 15.83's 0 -> 14. Handler FILTERS are **N(N+1)**, which
+nothing recorded, and the visible cost is worse than either: one `.info()` call
+printed **28 lines** across the 7 cycles, because every surviving StreamHandler
+re-emits it. Multiple RotatingFileHandlers also rotate the same file
+independently.
+
+**THE ONE-LINE FIX 15.83 PREDICTS WOULD BREAK A TEST'S SUBJECT.**
+`tests/test_v3_66_942_integrity_check_path_survives_a_cwd_change.py`
+deliberately clears `_INITIALIZED` to FORCE a re-init, and saves/restores
+`root.handlers` around it. A guard that makes `_init()` a no-op when the logger
+already has handlers destroys exactly what that test exists to exercise. So the
+fix must make `_init()` REMOVE and close the handlers a previous incarnation
+installed (tag them) rather than refuse to run -- and note that the 942 test
+closes the handlers it did not save, so the interaction needs checking rather
+than assuming.
+
+#### METHOD, FOUR THINGS THAT COST TIME
+
+- **`bd-band-derive` missed 8 of the 11 axis-6 gates** for a cut adding a test
+  file. Its own docstring calls itself a floor; this is the size of the gap.
+  `bd-bandcheck` separately caught the `test_phases_195_199` + `test_cut8_
+  schedules` leak co-band that section 4 names, on a band derived by the tool.
+- **A 10-minute command timeout killed a mutation battery and left the mutant on
+  disk** -- section 6's SIGTERM case, and every unattended way a battery dies.
+  `runner.py` matched the mutated sha exactly; @875's journal recovered it.
+  Run batteries BACKGROUNDED with no command cap.
+- **gitleaks failed the `gates` job on the test written to prove tokens never
+  leak.** `token=abcdef...` (16 hex) scored generic-api-key at entropy 4.0.
+  Section 7 already says corpus values must be zero-entropy repeats; it also
+  says this cannot be fixed forward, and it could not -- the commit was amended.
+  The repo's pre-push hook then correctly refused the force-push (its two-dot
+  diff is non-empty for any unmerged branch), which is a FALSE POSITIVE for an
+  amend of one's own tip; proved nothing was lost with
+  `git diff origin/<branch> HEAD` before using `BD_SKIP_PREPUSH_CHECK=1`.
+- **My own AST census was wrong first**, over-matching `_process_one`'s download
+  TRIGGER loop. The instrument was right and the subject was wrong -- section 1,
+  in a cut written by someone who had just read it.
+
 ### 15.83 | THE WORK QUEUE after v3.66.1015, in the operator's stated order
 
 **Not a session close** -- no ITEM LEDGER; 15.82's ledger (OPEN 31, 33 /
