@@ -4,6 +4,52 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1021
+
+Queue item 5: log._init() appended to a global it did not own.
+
+`_INITIALIZED` is a MODULE global. `logging.getLogger("bulk_downloader")` is a
+STDLIB global, keyed in logging.Logger.manager.loggerDict, and it outlives any
+module wipe. So a wipe reset the flag and not the logger, _init ran again, and
+added a second RotatingFileHandler and a second StreamHandler to the same
+logger. Measured over seven wipe cycles in one process:
+
+    inits   handlers   logger filters   handler filters
+    1       2          1                2
+    4       8          4                20
+    7       14         7                56
+
+Handlers are 2N -- which is what the register recorded. Handler FILTERS are
+N(N+1), QUADRATIC, which nothing recorded: the loop at the end of _init
+decorated every handler ON THE LOGGER rather than the two it had just
+installed, so the Nth call re-decorated all 2(N-1) survivors too. And the cost
+no count shows: one .info() printed 28 lines across those seven cycles, one per
+surviving StreamHandler, while N RotatingFileHandlers rotated the same file
+independently. After the fix all three counts are FLAT at 2/1/2 and seven
+.info() calls print seven lines.
+
+THE OBVIOUS ONE-LINE FIX WOULD HAVE BEEN WRONG, and that is the design.
+tests/test_v3_66_942_integrity_check_path_survives_a_cwd_change.py clears
+_INITIALIZED on purpose to FORCE a full re-init, because its subject is where
+logs/ is created relative to cwd. A guard making _init a no-op when the logger
+already has handlers would make that subject unreachable while looking like a
+fix. So _init REPLACES what it previously installed and the early return is
+untouched -- 942 passes 8/8 before and after.
+
+TAGGED, NOT SWEPT. Only handlers carrying _OWN_ATTR are removed; an untagged
+sweep of root.handlers would evict a handler an operator or another library
+attached. That is the same denominator mistake ui_events.py:107 already records
+from the other direction, where a FOREIGN handler arriving first made its guard
+return early and the log went silent. The attribute is by NAME rather than a
+class or sentinel because the logger survives a wipe while every class defined
+in log.py gets a new identity on re-import -- isinstance could not recognise a
+previous incarnation's handlers and the sweep would remove nothing. Same
+mechanism as ui_events.py's _OWN_HANDLER_ATTR (v3.66.907).
+
+Every assertion in the new suite is a DELTA across a cycle, never an absolute
+count: it may run in a process where something already built a logger, and a
+test asserting "exactly 2 handlers" would be asserting about the runner.
+
 ## v3.66.1020
 
 Three residues in already-merged work. No new feature; each is something
