@@ -4,6 +4,23 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1005
+
+- Serial lane 25 -> 23. The two test files v3.66.1002/1003 added were serial
+  only by the fail-closed unlisted default; a cut that adds a test file and does
+  not review it leaves the lane a little longer than it found it.
+- Same two instruments as every other promotion this session: bd-leakprobe
+  2 probed / 0 leaking, and six xdist widths (-n 0/2/3/4/6/8 --dist loadfile)
+  co-run with real neighbours so cross-file leakage had somewhere to land --
+  98 passed at every width.
+- 1003 spawns bash, which would normally be a reason to hold it, but only
+  against a TRUNCATED COPY of capture.sh that exits immediately after the guard.
+  It never reaches capture.sh's `rm -rf`.
+- SESSION TOTAL: the serial lane went 129 -> 23 files. 268.4s of the box's
+  measured 903s remains serial, so roughly 635s moved to the parallel lane --
+  and that is before v3.66.995's build_snapshot fix, which independently cut the
+  three most expensive of those files by 71% in-container.
+
 ## v3.66.1004
 
 - The runner-import rule is now PRECISE rather than merely absolute. Serial lane

@@ -1346,3 +1346,12 @@ test_v3_66_935_scan_wait_reports_non_convergence.py
 test_v3_66_939_ci_gate_shards_cover_every_gate.py
 test_v3_66_942_integrity_check_path_survives_a_cwd_change.py
 test_v3_66_994_leakprobe_refuses_when_blind.py
+
+# v3.66.1005 -- the two test files v3.66.1002/1003 added, which were serial only
+# by the fail-closed unlisted default. bd-leakprobe: 2 probed, 0 leaking. Six
+# widths (-n 0/2/3/4/6/8 --dist loadfile) co-run with real neighbours so
+# cross-file leakage had somewhere to land: 98 passed at every width.
+# 1003 spawns bash, but only against a TRUNCATED COPY of capture.sh that exits
+# immediately after the guard -- it never reaches capture.sh's rm -rf.
+test_v3_66_1002_download_hint_needs_an_interactive_element.py
+test_v3_66_1003_capture_refuses_an_inherited_install_dir.py
