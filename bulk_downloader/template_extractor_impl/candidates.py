@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 from .. import candidate_filter as cf
 from ._css import _css_escape, _css_escape_attr
+from .login_extract import _login_is_honeypot
 from ._constants import (
     _CANDIDATE_ATTRS,
     _CANDIDATE_TAGS,
@@ -444,6 +445,35 @@ def _pick_keyword(text: str) -> str:
     return words[0]
 
 
+def _row_is_inline_hidden(candidate: Dict[str, Any]) -> bool:
+    """True when the candidate's DOM element is hidden from real users by
+    the same evidence the login side has always screened with
+    (login_extract._login_is_honeypot): inline style (display:none /
+    offscreen left / 1px box / opacity:0 / visibility:hidden), tabindex=-1,
+    aria-hidden=true, the same inline styles on up to 3 ancestors, or a
+    name/id carrying a bot-trap token. Item D (register 15.76): the
+    download path never called that screen, so a hidden decoy anchor could
+    outrank the real download link and ship as row_selectors[0].
+
+    This must run HERE, where the candidate still carries its DOM element
+    (``_el``, kept by _walk_for_candidates) -- template_normalize sees only
+    selector strings and cannot ask any of these questions.
+
+    LIMIT, stated so nobody reads this screen as complete: it sees INLINE
+    evidence only. A decoy hidden by a class or a stylesheet rule is
+    invisible to it and survives. A candidate without ``_el`` (synthetic
+    callers of _build_template) cannot be screened and also survives --
+    the screen drops on positive evidence, never on ignorance.
+    """
+    el = candidate.get("_el")
+    if el is None:
+        return False
+    try:
+        return bool(_login_is_honeypot(el))
+    except Exception:
+        return False
+
+
 def _build_template(enriched: List[Dict[str, Any]],
                       page_url: str = "",
                       site_hint_name: str = "") -> Dict[str, Any]:
@@ -463,6 +493,26 @@ def _build_template(enriched: List[Dict[str, Any]],
     # be `row_selectors[0]`.
     scored_rows = [c for c in enriched
                    if c.get("score", 0) >= MIN_SCORE_FOR_ROW]
+    # Item D: screen the ROW pool through the repo's own honeypot evidence
+    # BEFORE anything downstream reads it, so a hidden decoy cannot become
+    # a row selector, drive url_attribute / min_resolution off row_pool[0],
+    # or read as clean evidence to a reviewer. Rows specifically: at
+    # runtime the learned-row path (detect.py, v3.66.247) skips rows
+    # Playwright reports non-visible, but that only covers display:none /
+    # visibility:hidden -- the offscreen, opacity:0, 1px, tabindex and
+    # aria-hidden classes all read as VISIBLE there and would be clicked
+    # or harvested. Trigger selection below still walks the unscreened
+    # candidate list; that is a separate, narrower exposure (triggers are
+    # clicked, and clicks auto-wait for actionability).
+    hidden_rows_dropped: List[str] = []
+    _visible_rows: List[Dict[str, Any]] = []
+    for c in scored_rows:
+        if _row_is_inline_hidden(c):
+            _top = (c.get("selector_variants") or [{}])[0].get("selector")
+            hidden_rows_dropped.append(_top or c.get("tag", "?"))
+        else:
+            _visible_rows.append(c)
+    scored_rows = _visible_rows
     # v3.66.x safeguard: a download ROW must carry a real site-provided
     # media/download URL signal (extension / manifest / download path / API)
     # — never a generic, homepage, or nav link (the bad-`download.bin` bug).
@@ -496,6 +546,10 @@ def _build_template(enriched: List[Dict[str, Any]],
             "url_attribute": "href",
             "min_resolution": 1080,
             "review_required": True,
+            # The all-hidden case lands here: every scored row was decoy
+            # evidence. Carried so _validate_template can say WHY the row
+            # list is empty instead of only "no candidates found".
+            "_hidden_rows_dropped": hidden_rows_dropped,
         }
     # Pick row selectors: top 3 row-candidates' best variant
     row_selectors = []
@@ -575,6 +629,7 @@ def _build_template(enriched: List[Dict[str, Any]],
         "min_resolution": min_res,
         "review_required": review_required,
         "_top_candidate_score": top.get("score", 0),
+        "_hidden_rows_dropped": hidden_rows_dropped,
     }
 
 
@@ -625,6 +680,16 @@ def _validate_template(template: Dict[str, Any],
                           html: str) -> List[str]:
     """Produce human-readable warnings about the proposed template."""
     warnings = []
+    dropped = template.get("_hidden_rows_dropped") or []
+    if dropped:
+        shown = ", ".join(str(s) for s in dropped[:3])
+        warnings.append(
+            f"Dropped {len(dropped)} hidden download candidate(s) as "
+            f"probable honeypots ({shown}) — hidden from real users by "
+            "inline evidence (style/tabindex/aria-hidden/ancestor style). "
+            "Note the screen's limit: it reads INLINE evidence only; a "
+            "decoy hidden by a class or stylesheet rule is invisible to "
+            "it and is NOT screened.")
     if not template.get("row_selectors"):
         warnings.append(
             "No download candidates found — paste HTML containing actual "

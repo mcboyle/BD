@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3791,
+  "edge_count": 3792,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3395,6 +3395,9 @@
     ],
     "tests/test_route_index_in_sync.py": [
       "tools/build_route_index.py"
+    ],
+    "tests/test_row_selectors_screen_inline_hidden_decoys.py": [
+      "bulk_downloader/template_extractor.py"
     ],
     "tests/test_rrweb_meta_retention.py": [
       "bulk_downloader/dom_capture.py",

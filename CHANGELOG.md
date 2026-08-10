@@ -4,6 +4,49 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1006
+
+- ITEM D: the repo's own honeypot screen now runs on download row selectors.
+  candidates.py imports _login_is_honeypot from login_extract and applies it to
+  the DOM element each candidate already carries -- the screen is reused
+  verbatim, not reimplemented, so the two cannot drift.
+- THE DEFECT WAS WORSE THAN DIAGNOSED. A display:none decoy anchor did not
+  merely get emitted: it OUTRANKED the real download link (score 105 vs 85),
+  took row_selectors[0], and drove min_resolution to 2160 with
+  review_required False. Screening happens before the strong/fallback split so a
+  decoy cannot become a row selector, cannot drive url_attribute or
+  min_resolution off row_pool[0], and cannot read as clean reviewer evidence.
+- IT DROPS ON POSITIVE EVIDENCE, NEVER ON IGNORANCE: a missing element or an
+  exception returns False rather than hiding the row. Both fail-open branches
+  are pinned by tests and by mutants.
+- THE LIMIT IS STATED IN THE WARNING'S OWN TEXT and pinned by a test asserting a
+  class="hidden" decoy SURVIVES: this sees INLINE evidence only. A screen that
+  silently missed stylesheet-hidden decoys while reading as complete would be
+  worse than none.
+- Rows and not triggers, deliberately: the runtime learned-row path skips
+  Playwright-non-visible rows, but that covers only display:none and
+  visibility:hidden -- offscreen (left:-10000), opacity:0, 1px-box, tabindex and
+  aria-hidden all read as VISIBLE to Playwright, so the extraction-time screen
+  is load-bearing rather than belt-and-braces. Triggers are clicked, and clicks
+  auto-wait for actionability.
+- RED first on pristine source: 15 failed / 2 passed, then 17 passed. Every
+  evidence class is parametrized and each is dropped WHILE THE REAL ROW SURVIVES
+  in the same fixture. bd-mutate: 6 caught, 0 escaped, 0 invalid, including the
+  screen-off and drop-everything directions.
+- app.reptyle.com is UNAFFECTED and this cut does not claim otherwise. Its
+  template comes from the WACZ pipeline, which never calls candidates.py, and D
+  is purely subtractive -- it cannot create rows anywhere.
+- ITEM E IS NOT BUILT, and the register's account of it does not reproduce.
+  "Nothing in the template schema represents it" is stale: dismiss_selectors
+  ships today in site_templates/_data_players.py with exactly this shape, is
+  pinned by tests, is copied into site config by the apply path, and is consumed
+  per content URL by the runner. What IS true, measured: zero dismiss vocabulary
+  in the WACZ pipeline, and do_login performs no dismissal between submit and
+  its success_url check. Building it needs a runtime consumer decision the
+  register never made, and the evidence classes blend -- "No thanks" marks both
+  true post-login interstitials and ordinary upsell modals in the repo's own
+  corpus. Re-specify before building.
+
 ## v3.66.1005
 
 - Serial lane 25 -> 23. The two test files v3.66.1002/1003 added were serial
