@@ -5056,6 +5056,127 @@ never `export` in a shell the suite is later launched from.
   row seen in 1 of 6 captures. Re-capture before trusting it.
 
 
+### 15.82 | SESSION CLOSE 2026-08-10 at 8f17c5d (v3.66.1014) -- seven cuts, four box captures, and the gate that started finding things
+
+Close at `8f17c5d`, the squash of #299, already on `main` when this was written.
+
+ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
+OPEN:   31, 33
+CLOSED: 44
+
+**44 was already closed in the inventory at v3.66.983 and 15.70's ledger still
+listed it OPEN.** Both tests pass either way -- `closed_in_inventory` accounts
+for it -- so nothing was failing, and a reader got two answers. Declared here so
+the ledger and the inventory agree. 33 remains "a ratchet, not a target"; 31 is
+the large parallel program and is untouched by this session.
+
+#### THE CUTS
+
+| cut | what |
+| --- | --- |
+| @1008 | two tests asserting over ambient process state they never established |
+| @1009 | the capture bundles `live_tests/results/`; a changelog entry that shipped twice |
+| @1010 | L34's triage budget is what phase 1 can AFFORD, not a constant |
+| @1011 | the real-Postgres MOD3 modules stop sharing one `history` table |
+| @1012 | two operator routes that could not answer in 8s on a quiet app |
+| @1013 | one correct registrable-domain rule; the two same-site predicates use it |
+| @1014 | a labelled CANDIDATE `site_families` tier over the exact-host buckets |
+
+#### THE ARC IS THE POINT, AND IT ONLY WORKS IN THAT ORDER
+
+L34 had been failing every capture on **nothing**: `0 5xx, 0 unreachable, 0
+exceeded, 47 recovered-on-serial, 92 unprobed`. @1010 made it able to sweep all
+264 operator routes, and the very next capture adjudicated two of them as
+genuinely slow -- routes that had been inside the 92 nobody probed. @1012 fixed
+those at the cause, and the capture after that was `36 live pass / 0 fail`.
+
+**A gate that cannot finish its sweep reports the wrong thing twice**: it fails
+on its own budget, and it hides what it never reached. Neither symptom looks
+like the other, and the second is invisible until the first is fixed.
+
+#### WHAT THE BOX FOUND THAT NO CONTAINER DID
+
+- **The "one in three" MOD3 flake was 10-in-10.** One capture in three failed
+  `test_agreeing_stores_compare_and_match`; reproduced in-container, pristine
+  failed **10 of 10** runs under concurrency and isolated failed **0 of 10**.
+  Systematic, not stochastic -- the box's 73-worker interleaving dodged it.
+  **A failure that "passes on retry" has a reproduction rate, and until it is
+  measured nobody knows whether it is 1-in-3 or 10-in-10.**
+- **A register gate no band names.** @1013's capture failed three tests in
+  `tests/test_register_promises_resolve.py` because 15.81 was titled a session
+  close and carried no ITEM LEDGER. Section 4 says a doc edit bands the
+  freshness gates; `bd-freshcheck` and `test_toolchain_534` were derived and
+  both green. **Editing this register bands THREE gates, and only two are
+  written down anywhere.**
+
+#### DEFECTS IN THIS SESSION'S OWN GATES -- six, none caught by review
+
+Recorded together because the pattern is the finding: every one was caught by
+running the check, and several by it passing when it could not have.
+
+1. **@1013's census certified four unedited files.** The routing predicate
+   accepted a call to `ensure_schema` -- also a function on the product's
+   `pg_backend`, already called by all four modules. Noticed only because it
+   went green BEFORE the edits existed.
+2. **@1013's census then failed CORRECT code.** The migrated functions'
+   docstrings necessarily describe the pattern they removed, and the census
+   unparsed each node whole. Section 0's "explaining a removal by naming the
+   removed thing recreates it", fifth recorded instance. Now strips docstrings
+   and asserts both directions.
+3. **@1013's ratchet counted the canonical module**, whose documented fallback
+   legitimately uses that shape -- making the ratchet unsatisfiable.
+4. **@1012's fixture stubbed FIVE finders and asserted five** while `summary()`
+   calls SIX; the sixth would have run against the real filesystem while the
+   test claimed to have replaced every finder.
+5. **@1014's escape needed two rounds.** Deleting the no-registrant guard left
+   the band green; the first closing test ALSO escaped, because it used an empty
+   host which a DIFFERENT guard drops -- so it exercised the wrong one of two
+   guards that both produce the right answer.
+6. **@1011's mutation escape was hidden by residue.** "ensure_schema never
+   called" scored green because every schema the suite names already existed
+   from an earlier run. On a fresh database it is an immediate hard failure.
+
+#### MEASUREMENTS WORTH NOT RE-DERIVING
+
+- **Thirteen registrable-domain copies, not nine.** A name grep found nine; an
+  AST census on the SHAPE found 13 over 2164 tracked `.py` files. Two gated a
+  fetch and are migrated; **eleven remain, ratcheted** in
+  `tests/test_v3_66_1013_registrable_domain.py`.
+- **The naive rule was a scope escape, not a cosmetic error.** Measured on
+  shipped code: `victim.co.uk` vs `attacker.co.uk` -> same site; two unrelated
+  `github.io` pages -> same site.
+- **The siteid pairing for item A is REFUTED by the real corpus.**
+  `{host}_{siteid}_{YYYYMMDD}` appears on 2 sources of roughly 600
+  (`auth.reptyle.com_0b60f1ec_...`, `pexels.com_1a820331_...`); the rest are
+  nicknames. It exists and is far too rare to key on.
+- **CLAUDE.md's CI-budget note is STALE.** It says the `gates` job's budget is
+  breached and the decision open. `ci.yml:212` records the rule ("81 tests, 52s
+  -- keep it under a minute; if it grows past that, SPLIT") and @939 DID split
+  it. Measured 2026-08-10: `gates` 39s, shards 49-78s, all inside budget. The
+  decision was made and executed; the contract did not hear about it.
+
+#### 15.74'S SEVEN FINDINGS, FINAL STATE
+
+A addressed by @1014's candidate tier (the BRIDGE -- writing the login host into
+the content template's `match.hosts` -- is deliberately NOT built, because it
+should follow the operator confirming the proposed families). B closed @989,
+C @1002, D @1006, G @988, H @987. **E is the only one still open**, and its
+design is decided: captured templates emit `dismiss_selectors`, login-wall
+selectors fire once in `do_login`, per-page selectors keep firing per URL,
+templates declare which is which.
+
+#### THE BACKLOG, IN THE ORDER IT SHOULD BE TAKEN
+
+1. **E** -- the interstitial, above. The last feature in the A-H program.
+2. **The eleven remaining registrable-domain copies.** Correctness-only, none
+   security-relevant the way the two were; each wants its own band.
+3. **The `match.hosts` bridge for A**, after the operator reviews the families.
+4. **Logger handler accumulation** -- `log._init()` adds to a stdlib global that
+   survives `bd_module_wipe` and never clears: 0 -> 14 over one file, identical
+   before and after @1008. Fix is likely one line plus a session-scoped
+   handler-count assertion.
+5. **Item 31**, the large parallel program.
+
 ### 15.81 | v3.66.1008-1013: three box captures, the 10-in-10 flake, and 15.74's seven findings RE-DERIVED
 
 **Not a session close** -- no ITEM LEDGER; the standing open set (31, 33, 44)
