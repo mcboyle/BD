@@ -4,6 +4,40 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1023
+
+The heavy-collector budget was 2.5x the gate it has to fit inside.
+
+@1015 gave collect_capture_analytics the two bounds its sibling already had,
+after the route failed L34 by exceeding 8s when probed alone on a quiet app.
+The bound it got is a WALL-TIME budget of 20 seconds, and L34 fails any
+operator route that does not answer within 8. So the bound guarantees the route
+TERMINATES; it cannot guarantee it ANSWERS, which is the property the gate
+tests. A collector spending its full budget failed L34 by 13s. What made the
+capture at e7d3b5e pass was max_bytes skipping an oversized capture JSON, not
+the wall clock.
+
+TWO NUMBERS IN TENSION AND NOTHING RELATING THEM -- each individually
+defensible, living in different trees, mentioned together by no test. The new
+test is that relationship: it reads BOTH constants (importing L34's rather than
+restating it, so there is no second source of truth) and fails if either moves.
+
+THE OVERRUN PAST THE BUDGET IS ONE FILE, because capture_analytics._artifacts
+checks the budget BEFORE each parse and continues past the file when spent --
+asserted, so the margin arithmetic stays valid if that shape ever moves.
+Measured at the max_bytes ceiling: a 25.1 MB capture JSON with 220k
+network_log entries parses in 0.233s. 5 + 0.233 leaves ~2.7s of the 8s.
+
+THIS WILL TRUNCATE ON A LARGE STORE, DELIBERATELY. The sibling collector took
+6181ms serial on the operator's real store, so 5s will start skipping there.
+That is the right trade for a ROUTE and only because @1015 built the reporting
+for it: anything skipped is still counted, still listed, and carries
+`unparsed: "budget_s"`, with unparsed_artifacts on the report -- a bounded and
+LABELLED answer inside the gate beats a complete one that intermittently blows
+it. A test pins that reporting in both directions, with an unbounded control,
+because a bound that silently shrinks the denominator is worse than no bound.
+The CLI is unaffected: all three bounds default to None, which is its contract.
+
 ## v3.66.1022
 
 A test wrote into the TRACKED corpus, and it failed a box capture.

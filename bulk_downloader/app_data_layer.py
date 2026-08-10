@@ -89,7 +89,28 @@ def collect_capture_analytics():
 # (report page polls, route-scanning tests) do not recompute.
 _HEAVY_TTL_S = 600
 _HEAVY_LIMIT = 50
-_HEAVY_BUDGET_S = 20
+# v3.66.1023: 20 -> 5, because 20 could never fit inside the gate these routes
+# are held to. L34 fails any operator route that does not answer within 8s
+# (live_tests/checks._L34_ROUTE_BUDGET_S), so a collector permitted to spend 20
+# guarantees the route TERMINATES and not that it ANSWERS -- the property the
+# gate actually tests. What made the capture at e7d3b5e pass was max_bytes
+# skipping an oversized capture JSON, not the wall clock.
+#
+# The overrun past this number is ONE FILE, because capture_analytics._artifacts
+# checks the budget BEFORE each parse and continues past the file when it is
+# spent. Measured at the max_bytes ceiling: a 25.1 MB capture JSON with 220k
+# network_log entries parses in 0.233s. 5 + 0.233 leaves ~2.7s of the 8s for
+# request handling, and tests/test_v3_66_1023_heavy_budget_fits_the_route_gate.py
+# reads BOTH constants and fails if either moves out of that relationship.
+#
+# THIS WILL TRUNCATE ON A LARGE STORE, DELIBERATELY. The sibling collector took
+# 6181ms serial on the operator's real store, so 5s will start skipping there.
+# That is the right trade for a ROUTE and only because @1015 built the
+# reporting: anything skipped is still counted, still listed, and carries
+# `unparsed: "budget_s"`, with unparsed_artifacts on the report. A bounded,
+# LABELLED answer inside the gate beats a complete one that intermittently
+# blows it. The CLI is unaffected -- all three bounds default to None there.
+_HEAVY_BUDGET_S = 5
 _HEAVY_MAX_BYTES = 25_000_000
 _heavy_cache: dict = {}
 
