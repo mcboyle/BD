@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3793,
+  "edge_count": 3795,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4291,6 +4291,10 @@
     "tests/test_v3_66_100_cockpit_wave2.py": [
       "tools/cockpit_console.py",
       "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_1012_slow_operator_routes.py": [
+      "bulk_downloader/app_community_scrapers.py",
+      "bulk_downloader/cleanup_helpers.py"
     ],
     "tests/test_v3_66_101_cockpit_wave3.py": [
       "bulk_downloader/capture_ingest.py",

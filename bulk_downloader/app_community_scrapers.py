@@ -46,6 +46,27 @@ def api_community_scrapers_status():
     })
 
 
+# v3.66.1012 -- A ROUTE MUST BOUND ITS THIRD PARTY, NOT INHERIT ITS PATIENCE.
+#
+# MEASURED ON THE BOX, v3.66.1011 capture: `/api/community_scrapers/index` was
+# one of two routes L34 adjudicated as EXCEEDED -- over 8 seconds SERIAL, on a
+# quiet app. `community_scrapers.fetch_index` takes `timeout_s: float = 30.0`
+# and this route passed nothing, so a slow GitHub could hold a waitress worker
+# for thirty seconds: nearly four times the gate's budget, and far past what any
+# operator waits for a list to render.
+#
+# 6.0 rather than something nearer 8: the budget is what the whole REQUEST has,
+# and the fetch is not all of it -- there is json encoding and the response on
+# top. Under L34's per-route budget with room to spare, and the relationship is
+# asserted rather than left for a reader to re-derive
+# (tests/test_v3_66_1012_slow_operator_routes.py).
+#
+# The library default stays 30.0 and should: a CLI or a background refresh can
+# afford to wait, and lowering it there would trade one caller's problem for
+# everyone else's.
+INDEX_FETCH_TIMEOUT_S = 6.0
+
+
 @community_scrapers_bp.route("/api/community_scrapers/index", methods=["GET"])
 def api_community_scrapers_index():
     """List available scrapers from GitHub. force=1 to bypass cache."""
@@ -55,7 +76,8 @@ def api_community_scrapers_index():
         return jsonify({"ok": False,
                         "error": "community_scrapers module unavailable"})
     force = request.args.get("force", "").lower() in ("1", "true", "yes")
-    entries, err = _community_scrapers.fetch_index(force_refresh=force)
+    entries, err = _community_scrapers.fetch_index(
+        force_refresh=force, timeout_s=INDEX_FETCH_TIMEOUT_S)
     if err:
         return jsonify({"ok": False, "error": err})
     return jsonify({
