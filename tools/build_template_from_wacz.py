@@ -1600,6 +1600,115 @@ def gold_merge_guard(out_path, new_draft) -> dict:
                        else "incoming is not thinner")}
 
 
+# ── interstitial recognition (v3.66.1017, item E) ────────────────────────────
+# A captured template could not express an interstitial at all: _html_selectors
+# emitted login / quality / download and no dismissal vocabulary, so the Gamma
+# "Skip this page" wall could only ever be hand-written into
+# site_templates/_data_players.py. 15.79 measured it as "zero dismiss vocabulary
+# in the WACZ pipeline".
+#
+# THE CLASSIFICATION IS ADVISORY, and the reason is measured rather than
+# cautious: 15.79 records that in the real corpus "No thanks" marks both true
+# post-login interstitials AND ordinary upsell modals. No regex separates those
+# -- the words are identical and only the surrounding flow differs. So this
+# proposes a bucket, the draft stays draft_requires_review, and a human decides.
+#
+# WHERE A PHRASE IS AMBIGUOUS IT GOES TO per_page, because the two mistakes cost
+# differently. A wall selector misfiled as per-page still fires; it just pays its
+# timeout on every URL. A per-page selector misfiled as a wall STOPS FIRING on
+# the pages that needed it -- a consent gate that never gets dismissed. The
+# default follows the cheaper mistake.
+_DISMISS_TAG_RE = re.compile(r"<(a|button)\b([^>]*)>(.*?)</\1\s*>",
+                             re.I | re.S)
+_TAG_STRIP_RE = re.compile(r"<[^>]*>")
+_CLASS_ATTR_RE = re.compile(r'class=["\']([^"\']*)["\']', re.I)
+
+# A wall is recognised by its DESTINATION, not by politeness. "Continue" alone
+# is ordinary pagination and must never match.
+_WALL_PHRASES = ("continue to members", "continue to the members",
+                 "members area", "skip this page", "skip for now")
+# Consent / cookie / age. These can appear on ANY content page, so they are
+# per-URL by definition -- an age gate placed in the wall bucket would stop
+# firing exactly where it is needed.
+_PER_PAGE_PHRASES = ("i agree", "i accept", "accept cookies", "accept all",
+                     "allow cookies", "got it", "18 or older", "i am 18",
+                     "over 18", "21 or older", "enter site", "no thanks",
+                     "maybe later")
+_SKIP_CLASS_RE = re.compile(r"skip[-_]?page", re.I)
+
+
+def _dismiss_text(inner: str) -> str:
+    """The visible text of an element, whitespace-normalised."""
+    return " ".join(_TAG_STRIP_RE.sub(" ", inner).split())
+
+
+def _dismiss_selector_for(tag: str, text: str, classes: str) -> str | None:
+    """A STRUCTURAL selector for this control, or None if it cannot be written.
+
+    Text-scoped rather than href-scoped on purpose: an href carries query
+    strings and signed tokens, and the builder's standing guardrail is that
+    capture-derived values never reach a durable draft. Text does not.
+    """
+    cls = _SKIP_CLASS_RE.search(classes or "")
+    if cls:
+        # Prefer the stable class when the markup offers one -- it survives
+        # copy changes and localisation, which a text match does not.
+        for c in (classes or "").split():
+            if _SKIP_CLASS_RE.search(c):
+                return "%s.%s" % (tag.lower(), c)
+    if not text or len(text) > 60:
+        return None
+    if "'" in text and '"' in text:
+        return None                      # unquotable; skip rather than mangle
+    q = '"' if "'" in text else "'"
+    return "%s:has-text(%s%s%s)" % (tag.lower(), q, text, q)
+
+
+def _dismiss_selectors(html: str) -> dict:
+    """Recognise interstitial controls, split into the two runtime scopes.
+
+    Returns ``{"login_wall": [...], "per_page": [...]}`` with empty buckets
+    omitted. Both feed v3.66.1016's config keys of the same shape via
+    ``capture_login_wire.apply_draft_dismiss_selectors``.
+    """
+    wall: list = []
+    per_page: list = []
+    for m in _DISMISS_TAG_RE.finditer(html or ""):
+        tag, attrs, inner = m.group(1), m.group(2) or "", m.group(3) or ""
+        text = _dismiss_text(inner)
+        low = text.lower()
+        classes = ""
+        cm = _CLASS_ATTR_RE.search(attrs)
+        if cm:
+            classes = cm.group(1)
+
+        is_wall = bool(_SKIP_CLASS_RE.search(classes))
+        if not is_wall:
+            is_wall = any(p in low for p in _WALL_PHRASES)
+        if not is_wall and "no thanks" in low and "continue" in low:
+            # "No Thanks. Continue" -- the decline half of a wall. A BARE
+            # "no thanks" is deliberately not enough (15.79: it marks upsells
+            # too) and falls through to per_page below.
+            is_wall = True
+
+        sel = _dismiss_selector_for(tag, text, classes)
+        if not sel:
+            continue
+        if is_wall:
+            if sel not in wall:
+                wall.append(sel)
+        elif any(p in low for p in _PER_PAGE_PHRASES):
+            if sel not in per_page:
+                per_page.append(sel)
+
+    out = {}
+    if wall:
+        out["login_wall"] = wall
+    if per_page:
+        out["per_page"] = per_page
+    return out
+
+
 def _html_selectors(html: str) -> dict:
     selectors: dict[str, object] = {}
 
@@ -1761,6 +1870,12 @@ def build_template(path: Path) -> dict:
     labels = [e.get("label") for e in fulls]
 
     selectors = _html_selectors(combined_html)
+    # v3.66.1017 (item E): the interstitial group. Advisory -- see
+    # _dismiss_selectors; the draft stays draft_requires_review and a reviewer
+    # decides which bucket is right before it drives anything.
+    _dismiss = _dismiss_selectors(combined_html)
+    if _dismiss:
+        selectors["dismiss"] = _dismiss
     network = _network_patterns(network_log)
     # Builder-side supplemental recognition (extraction_core stays byte-identical):
     # catch direct-stream MP4 renditions (.../{name}x{res}_{variant}.mp4) the core

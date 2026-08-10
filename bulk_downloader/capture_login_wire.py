@@ -95,4 +95,52 @@ def revert_seeded_login(cfg: Dict[str, Any], seeded_login: Any) -> List[str]:
     return removed
 
 
-__all__ = ["apply_draft_login_selectors", "revert_seeded_login"]
+# draft dismiss bucket -> live config key (v3.66.1017, item E). The two buckets
+# are two SCOPES, not two formats: `dismiss_selectors` is retried on every
+# content URL and `dismiss_selectors_login` fires once in do_login. @1016 built
+# both consumers; this is what lets a CAPTURED template reach them.
+_DISMISS_KEY_MAP = (
+    ("login_wall", "dismiss_selectors_login"),
+    ("per_page", "dismiss_selectors"),
+)
+
+
+def apply_draft_dismiss_selectors(cfg: Dict[str, Any],
+                                  dismiss_block: Any) -> List[str]:
+    """Map a draft ``dismiss`` block onto ``cfg``'s two dismissal keys.
+
+    ONE SELECTOR PER LINE, because that is what the runtime loop splits on.
+    Joining with ``", "`` would collapse N selectors into a single locator --
+    which still works, but silently changes the cost model (measured at
+    v3.66.1016: one locator costs 3.00s against a page where nothing matches,
+    N lines cost 3.00s each) and lets one unparseable selector poison the
+    whole group instead of just itself.
+
+    PRESERVE-IF-PRESENT, the same contract as
+    :func:`apply_draft_login_selectors`: a recognised selector is a fallback
+    seed, never an override of an operator value. An empty bucket writes
+    NOTHING rather than an empty string -- a present-and-blank key reads as
+    "configured with nothing" everywhere blank means unset.
+
+    Non-dict input is tolerated (returns ``[]``, leaves ``cfg`` untouched).
+    """
+    filled: List[str] = []
+    if not isinstance(dismiss_block, dict):
+        return filled
+    for src, dst in _DISMISS_KEY_MAP:
+        sels = dismiss_block.get(src)
+        if not isinstance(sels, (list, tuple)):
+            continue
+        usable = [s.strip() for s in sels
+                  if isinstance(s, str) and s.strip()]
+        if not usable:
+            continue                      # no empty key for an empty bucket
+        if not _blank(cfg.get(dst)):
+            continue                      # preserve operator/teach value
+        cfg[dst] = "\n".join(usable)
+        filled.append(dst)
+    return filled
+
+
+__all__ = ["apply_draft_login_selectors", "apply_draft_dismiss_selectors",
+           "revert_seeded_login"]

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3806,
+  "edge_count": 3809,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4314,6 +4314,11 @@
       "bulk_downloader/interstitial.py",
       "bulk_downloader/login.py",
       "tools/config_surface_inventory.py"
+    ],
+    "tests/test_v3_66_1017_captured_dismiss_selectors.py": [
+      "bulk_downloader/capture_login_wire.py",
+      "bulk_downloader/interstitial.py",
+      "tools/build_template_from_wacz.py"
     ],
     "tests/test_v3_66_101_cockpit_wave3.py": [
       "bulk_downloader/capture_ingest.py",

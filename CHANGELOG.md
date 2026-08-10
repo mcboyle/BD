@@ -4,6 +4,53 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1017
+
+The second half of item E: a CAPTURED template can now express its interstitial.
+@1016 built the runtime -- two declared scopes and one shared loop -- but the
+thing 15.83 lists FIRST, "captured templates learn to emit dismiss_selectors",
+was still impossible. _html_selectors emitted login / quality / download and no
+dismissal vocabulary at all, which is what 15.79 measured as "zero dismiss
+vocabulary in the WACZ pipeline". The Gamma wall could only ever be
+hand-written into site_templates/_data_players.py.
+
+    tools/build_template_from_wacz.py   _dismiss_selectors(html) -> buckets
+    build_template                      emits selectors["dismiss"]
+    capture_login_wire                  apply_draft_dismiss_selectors(cfg, ...)
+
+THE CLASSIFICATION IS ADVISORY AND THE CODE SAYS SO. 15.79 also recorded why E
+was refused once: in the real corpus "No thanks" marks both true post-login
+interstitials AND ordinary upsell modals. No regex separates those -- the words
+are identical and only the surrounding flow differs. So the builder proposes a
+bucket, the draft stays draft_requires_review, and a human decides. A recognizer
+claiming certainty here would be asserting something the evidence does not
+carry, and the operator would find out on a live site.
+
+AMBIGUOUS PHRASES DEFAULT TO per_page, and the asymmetry is the argument. A wall
+selector misfiled as per-page still fires; it just pays its timeout on every
+URL. A per-page selector misfiled as a wall STOPS FIRING on the pages that
+needed it -- a consent gate that never gets dismissed. The default follows the
+cheaper mistake, and a test pins that direction rather than leaving it to the
+regex.
+
+A bare "no thanks" is therefore NOT evidence of a wall; "no thanks" AND
+"continue" together are, as is a skip-page class. "Continue" alone is ordinary
+pagination and never matches -- asserted by a test that feeds the recognizer a
+plain scene page carrying a Download link, a Play button and a Continue link,
+and requires it to emit NOTHING. Every emitted line is a 3s timeout per URL, so
+over-recognition is a real cost, not a cosmetic one.
+
+Selectors are TEXT-scoped, never href-scoped: an href carries query strings and
+signed tokens, and the builder's standing guardrail is that capture-derived
+values never reach a durable draft. Asserted directly with a token in the href.
+
+The bridge writes ONE SELECTOR PER LINE because that is what the runtime splits
+on. Joining with ", " still works but silently changes the cost model @1016
+measured, and lets one unparseable selector poison a whole group instead of just
+itself. Empty buckets write nothing rather than an empty string -- a
+present-and-blank key reads as "configured with nothing" wherever blank means
+unset.
+
 ## v3.66.1016
 
 Item E of the A-H program: the post-login interstitial. A "No Thanks. Continue
