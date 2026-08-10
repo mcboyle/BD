@@ -4910,6 +4910,249 @@ small they look.** Both change live box behaviour -- a service startup path and
 a login thread -- and a small diff on either is not a cheap one. Neither is
 bounded by its line count, and neither can be judged from a container.
 
+### 15.76 | The queue after v3.66.989, in order
+
+Recorded 2026-08-09 at `bf3b1b2`. Items 1-3 were the operator's standing
+program; item 4 was added after a measured incident described below. Item 0 was
+MISSING FROM THE FIRST DRAFT OF THIS SECTION and the operator caught it -- it is
+recorded as a FINDING at 15.74 and 15.75, and was absent from the QUEUE, which is
+the part a future session reads to know what to do. A finding that is not in the
+queue is an item that quietly stops existing.
+
+**0. A -- cross-host grouping. BLOCKED ON A MEASUREMENT, not on design.**
+`--hosts` and `--templates` group by exact hostname, so `auth.X` and `app.X` are
+two "sites". Five of the seven sites the operator screenshotted span a login host
+and a content host, so this inflates the site count, produces green verdicts for
+login halves, and hides the pairing that matters.
+
+THE RUNTIME ALREADY SUPPORTS WHAT IS NEEDED AND NOTHING WRITES IT.
+`template_registry` matches on `match.hosts` aliases AND on
+`match.sibling_domain` -- probe-verified: `auth.wowgirls.com` resolves to a
+`venus.wowgirls.com` template, and an unrelated `auth.bangbros.com` is correctly
+refused. `sibling_domain` appears in exactly ONE file repo-wide, the matcher.
+The capability is real and unreachable.
+
+DO NOT KEY ON eTLD+1. The in-repo helper is last-two-labels, and BOTH failing
+hosts are already in the corpus: `www.bbc.co.uk` becomes a site called `co.uk`,
+and every App Engine tenant merges into `appspot.com`
+(`shaka-player-demo.appspot.com`). `app_secrets.py` already records abandoning
+that helper for exactly this reason.
+
+THE DESIGN THE EVIDENCE SUPPORTS: keep exact-host grouping as ground truth and
+never silently re-key; ADD cross-host candidates, LABELLED, the same discipline
+`--hosts` already applies by naming each group's resolution method; and DERIVE
+the pairing from evidence rather than from the name. BD's capture convention is
+`{host}_{siteid}_{YYYYMMDD}`, so `auth.reptyle.com_0b60f1ec_...` and
+`app.reptyle.com_0b60f1ec_...` would share a siteid -- the operator's OWN
+grouping, recorded at capture time, which sidesteps `co.uk` and `appspot.com`
+with no domain guessing and no PSL.
+
+THE ONE COMMAND THAT UNBLOCKS IT, still unrun:
+
+```bash
+find ~/BulkDownloader/captures -name '*_*_2*.wacz' -printf '%f\\n' \\
+  | sed -E 's/^([^_]+)_([0-9a-f]{6,})_.*/\\2 \\1/' | sort -u \\
+  | awk '{a[$1]=a[$1]" "$2} END{for(k in a) print k, a[k]}' | awk 'NF>2'
+```
+
+Rows mean siteid pairs hosts and cut A is evidence-based. NO rows means fall
+back to eTLD+1-as-CANDIDATE with a public-suffix denylist, and say so in the
+output rather than presenting a guess as a derivation.
+
+**1. C -- `text=/Download/i` can go green on a heading.** DIAGNOSED, not built.
+`tools/build_template_from_wacz.py` emits the hint from
+`elif _has(r'>\s*Download\s*<', html)`, which matches ANY element whose text is
+"Download" -- `<h3>Download</h3>` included -- and the emitted selector is
+unscoped, so at runtime it still resolves to the heading even when a real button
+exists on the page. Measured on a VIP4K reconstruction: promotion_ready True on
+a trigger that clicks a title.
+
+Fix shape, and both halves are needed: gate emission on an INTERACTIVE element
+carrying the text, AND emit a scoped hint rather than a bare one. Measured, the
+linter accepts `a:has-text("Download")`, `button:has-text("Download")` and the
+comma form for both `trigger` and `row` roles -- blocking False, zero issues --
+so the scoped form is available. Cost to state honestly: a site whose download
+control is a `<div>`/`<span>` with a click handler loses its hint and reads
+not_green, which is more honest than a false green but IS a loss.
+
+**2. D -- the repo's own honeypot screen is never called for download
+selectors.** `bulk_downloader/template_extractor_impl/login_extract.py:116-140`
+(`_login_is_honeypot`) checks inline style / tabindex / aria-hidden / parent
+styles on a DOM tag, and the template path never uses it for the download side.
+It cannot live in `template_normalize`, which sees only strings; it has to go
+where the DOM still exists -- `template_extractor_impl/candidates.py:501-505`
+emits `row_selectors` with zero visibility screening. State its limit when
+built: it sees INLINE hiding only, so class- or stylesheet-hidden decoys stay
+invisible to it.
+
+D got sharper at v3.66.989. `app.reptyle.com` -- the site the operator
+CONFIRMED has a real Standard/High/Ultra quality modal -- ships
+`rows in template: []`. What it still drops is
+`span.theo-primary-color.theo-settings-control...` at 24/62, a THEOplayer
+settings control correctly refused. Its actual modal buttons were never
+extracted as row selectors at all, so this is an EXTRACTOR gap rather than a
+normalizer one, and step 4 stays unmodelled on the operator's clearest example.
+
+**3. E -- no post-login interstitial step is modelled.** The "No Thanks.
+Continue to Members Area" shape sits between login and content and nothing in
+the template schema represents it.
+
+**4. `capture.sh` cannot tell a polluted run from a real one.** ADDED after an
+incident on 2026-08-09 that cost a whole capture, and the shape is section 0's:
+
+    89 failed, 12744 passed     (BD_INSTALL_DIR exported in the shell)
+    12833 passed, exit 0        (same tree, same commit, variable unset)
+    12744 + 89 == 12833         -- every failure was the variable, nothing else
+
+An agent's probe instructions said `export BD_INSTALL_DIR="$(mktemp -d)"`, the
+operator ran it in the interactive shell, and `./capture.sh` inherited it. Every
+test that does not isolate its own database then resolved to ONE shared tmpdir
+while ~88 xdist workers created and populated it concurrently. Signature:
+`sqlite3.OperationalError: database is locked` x13, a UNIQUE constraint
+violation on `tags.name`, counts inflated by a constant (`assert 10 == 1`), and
+`test_selector_health_empty_clean_install` / `test_edge_selector_health_no_sites`
+failing because another worker had seeded the database they assert is empty.
+
+Every one of those 89 failures was TRUE about the database it examined, and
+useless -- a run reporting faithfully over a denominator that was not the
+subject. `capture.sh` reported it as a normal red.
+
+Proposed guard: refuse at the top of `capture.sh` when `BD_INSTALL_DIR` is set
+and does not resolve to the repo root. Safe on the box SPECIFICALLY because
+there the install dir IS the repo, so any other value is always wrong for a
+capture -- this is not a gate that will fire in production and get switched off.
+Needs operator authorization (runtime/build change); granted 2026-08-09, queued
+behind C/D/E.
+
+The probe form that does not leak, for whoever writes the next set of
+instructions:
+
+```bash
+BD_INSTALL_DIR="$(mktemp -d)" venv/bin/python - <<'PY'   # scoped to one command
+```
+
+never `export` in a shell the suite is later launched from.
+
+**Review followups not in the main queue, recorded so they are not lost.**
+
+- The affordance audit trail is UNREACHABLE. `_map_selectors` records
+  "kept row selector by download affordance" in the draft's `warnings`, and no
+  reviewer surface displays it: `template_manager._describe` returns
+  `lint_warnings` only, the SPA renders lint only, and
+  `tools/normalize_template_draft.py:47` prints a COUNT rather than the text.
+  That warning is the stated payment for the honeypot resistance @989 trades
+  away, so this is the followup that matters most.
+- `selector_lint._SCOPED_RE` (`:49-51`) counts `download` as SCOPING, so naming
+  a nav decoy `a.navbar-item.download-app` switches the chrome linter OFF at the
+  same moment @989's rule switches ON. Measured; predates @989; needs its own
+  corpus pass.
+- A pre-@988 template already on disk carrying a stringified selector is
+  detected and repaired by NOTHING -- measured, it promotes cleanly
+  (`promote_gate_errors` [], lint []). @988 fixed the producer only.
+- `gate_selector_blocked.by_cause.other` is 40 of 81 at v3.66.989, the largest
+  bucket: sites whose raw download leaves SURVIVED normalize but feed no gate
+  clause. The rollup's two named causes account for less than half of it.
+- `www.bbc.co.uk` is the corpus's only `single_witness` -- green on a `.drawer`
+  row seen in 1 of 6 captures. Re-capture before trusting it.
+
+
+### 15.77 | v3.66.990: the serial lane was ~124 files deep in PROSE, and the program to drain it
+
+Close at `1fc600a` (v3.66.990 on `main`). Every figure re-derivable with the
+script at the end; re-derive rather than quote.
+
+**THE MEASUREMENT.** `tests/capture_lanes.py` pins a file to the serial lane for
+containing `import run_tests`, `from run_tests`, or `run_tests.py`. The rule is
+RIGHT and its reason is literally true -- measured in a fresh subprocess with
+the variable POPPED, importing `run_tests_core` set `BD_DISABLE_KEEPALIVE=1`
+and prepended the repo root to `sys.path`, neither restored.
+
+    pinned serial by the rule                         143
+      ...that genuinely import the runner (AST)         4
+      ...that only MENTION it in a comment/docstring  139
+    still pinned after stripping comments+docstrings    19
+
+**@990 asks the rule of CODE.** Same snippets, same absoluteness, same position
+above the allowlist; only the text it reads. `code_only()` is FAIL-CLOSED --
+tokenizer OR ast.parse failure returns the ORIGINAL source. Separately,
+`run_tests_core`'s two mutations moved into `_prepare_runner_state()`, called
+from all six public entry points, so the import is now inert.
+
+**IT FREED ZERO FILES, BY DESIGN, AND THAT IS THE PART TO UNDERSTAND.** The
+absolute checks sit ABOVE the allowlist, so a prose-matched file could not be
+promoted by review at all -- it was structurally unreachable. Now it falls
+through, is NOT on the allowlist (measured: 0 of 124), and hits the fail-closed
+default. What changed is eligibility.
+
+**THE PROMOTION POOL, measured:**
+
+    freed from the runner rule                        124
+      CLEAN by every remaining hazard check            75   <- candidates
+      os.environ / sys.modules / chdir pattern         22
+      serial snippet (playwright, socket, requests...) 19
+      risky name token                                  7
+      refuted BY NAME in SERIAL_EXACT_BASENAMES         1
+
+**THE OPERATOR'S DIRECTION, 2026-08-10, verbatim in substance:** promote the 75
+after the merge, measure the speedup, and if it is still unsatisfactory keep
+going -- because "we've done this before where we fixed tests and made them more
+robust reliable and prevented leakage and changed the order instead of putting a
+band aid on a bullet hole". So the 49 hazardous files are candidates for BEING
+FIXED, not for being pinned forever. That is the standing instruction for this
+program.
+
+**HOW A PROMOTION MUST BE EVIDENCED.** The allowlist is checked-in and reviewed,
+and `capture_lanes`' own comments record why a green run is weak evidence: at
+v3.66.921 the whole serial lane was run parallel TOGETHER and passed, then
+splitting the lane broke `test_u50_widget_backfills`, whose table-seeding
+dependency ended up on the other side. At v3.66.923 four widths (-n 64/32/24/16)
+produced TEN distinct refuted files, and they kept ARRIVING as the width fell --
+xdist assigns files to workers by count, so each width shuffles who shares a
+worker. Precedent therefore: an all-parallel sweep at MORE THAN ONE width, and
+every refutation recorded BY NAME in `SERIAL_EXACT_BASENAMES` rather than by
+omission, because the allowlist is regenerated and an omission would be
+regenerated away.
+
+**RE-DERIVE THE POOL WITH THIS, not with the numbers above:**
+
+```python
+import pathlib, sys; sys.path.insert(0, "tests")
+import capture_lanes as cl
+for p in sorted(pathlib.Path("tests").glob("test*.py")):
+    src = p.read_text(errors="ignore")
+    if not any(s in src.lower() for s in cl.ABSOLUTE_SERIAL_SNIPPETS):
+        continue
+    code = cl.code_only(src)
+    if any(s in code.lower() for s in cl.ABSOLUTE_SERIAL_SNIPPETS) \
+       or cl.RUNTESTS_LITERAL.search(code):
+        continue                      # genuinely serial: a real import
+    hazard = (p.name in cl.SERIAL_EXACT_BASENAMES
+              or any(s in code.lower() for s in cl.SERIAL_SOURCE_SNIPPETS)
+              or any(pat.search(code) for pat in cl.SERIAL_SOURCE_PATTERNS)
+              or any(t in p.name for t in cl.SERIAL_NAME_TOKENS))
+    print(("HAZARD " if hazard else "CANDIDATE"), p.name)
+```
+
+**TWO FIXTURE DEFECTS `bd-mutate` CAUGHT THAT REVIEW DID NOT**, both the same
+shape -- a test naming a condition it never exercised:
+
+- `code_only` has TWO fallbacks and the "unparseable" fixture (`def broken(:`)
+  fails in the TOKENIZER, so a mutant turning the ast.parse fallback into
+  `return ""` escaped. `x = = 1` and a bad indent tokenize cleanly and fail
+  `ast.parse` -- the only way in. The assertion was also strengthened from "the
+  verdict is serial" to "the fallback returns text still CONTAINING the import",
+  because a fallback returning LESS than it was given is how a strip becomes a
+  hiding place, and the verdict alone cannot see that.
+- (@988, same session) an over-sensitivity guard used `[role=dialog] a.dl` as "a
+  selector that parses as JSON". It is not valid JSON, so the condition was
+  never exercised.
+
+**A PROCESS INCIDENT THAT COST A CAPTURE, recorded in full at 15.76 item 4:**
+an agent's probe instructions said `export BD_INSTALL_DIR="$(mktemp -d)"`, the
+operator ran it in the interactive shell, `./capture.sh` inherited it, and 89
+tests failed against a shared tmpdir database. `12744 + 89 == 12833`, and the
+clean re-run is `12833 passed`. Use the prefix form, never `export`.
+
 ### 15.75 | v3.66.987-989: the reliability numbers were wrong, and the corpus answered three questions
 
 Close at commit `fa97230` (v3.66.988 on `main`; @989 was in flight as PR #284).
