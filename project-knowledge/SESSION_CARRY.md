@@ -5148,14 +5148,38 @@ The measurements behind each verdict:
 - **D.** AST census of honeypot imports on the template path:
   `template_extractor_impl/candidates.py` 1, `build_template_from_wacz.py` 1,
   `template_normalize.py` 0. The finding's "zero across all of them" is gone.
-- **A.** `_place_by_host` no longer exists ANYWHERE (0 occurrences) -- but
-  host grouping does: `bd-wacz-corpus` still groups by host in three tiers
-  (`filename` / `archive` / `unknown`). So the finding's function is gone and
-  its SUBJECT is not, which is why a name-based re-derivation would have closed
-  it wrongly. What blocks it is unchanged and is not code: pairing a login host
-  to its content host needs someone who knows the sites. Note the filename
-  convention already carries what a pairing would key on --
-  `{host}_{siteid}_{YYYYMMDD}` -- so the work is confirmation, not discovery.
+- **A. THE FIRST VERSION OF THIS BULLET WAS WRONG, AND IT IS THE BEST EXAMPLE
+  ON THIS PAGE OF WHY.** It read "`_place_by_host` no longer exists ANYWHERE
+  (0 occurrences)" and concluded the finding's function was gone. The probe was
+  `grep -rn '_place_by_host' --include=*.py`, and **`toolchain/bin/bd-wacz-corpus`
+  is EXTENSIONLESS** -- the exact population section 1 says a `*.py` glob cannot
+  see. Re-measured with no extension filter: the function is alive at
+  `bd-wacz-corpus:267`, called at `:323` (`mode_hosts`) and `:912`.
+
+  Three things make this worth the space rather than a silent edit. The bullet
+  was written to demonstrate careful re-derivation and shipped an uncorroborated
+  grep. Its own closing sentence warned that "a name-based check closes it
+  wrongly in the other direction" -- it WAS that check, failing in exactly the
+  direction it named. And the CHANGELOG line quoting `_place_by_host` sat two
+  greps away the whole time, so a second predicate would have caught it
+  instantly. **Two independent predicates, or say the count is a floor.**
+
+  The finding itself: grouping is still by exact host, in three tiers
+  (`filename` / `archive` / `unknown`), so A is OPEN and unchanged.
+
+- **A, WHAT TO ACTUALLY BUILD -- already designed, and 15.81 missed it on the
+  first pass.** 15.74's queue carries a refined plan: do NOT re-key
+  `_place_by_host`; add a labelled `site_families` CANDIDATE tier over the
+  existing exact-host buckets; keep exact host as the merge unit, because
+  `bd-template-merge`'s single-host guard is CORRECT for drafts; and bridge a
+  family into one template not by merging cross-host drafts but by **writing the
+  login host into the content template's `match.hosts`** -- a runtime tier the
+  matcher already supports and nothing writes. What is still missing is only the
+  family MEMBERSHIP. The filename convention already carries what a pairing
+  would key on (`{host}_{siteid}_{YYYYMMDD}`), so the open question is whether
+  the siteid already pairs login and content hosts across the real corpus --
+  answerable from capture filenames alone, and **not answerable in a container**:
+  only `tests/capture_corpus_synthetic` exists here.
 - **E.** The interstitial vocabulary DOES exist, and not where 15.74 looked:
   `site_templates/_data_players.py` carries
   `a:has-text('No Thanks. Continue')` / `a:has-text('Continue to Members Area')`

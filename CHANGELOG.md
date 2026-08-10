@@ -4,6 +4,56 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1012
+
+Two operator routes that could not answer in 8 seconds on a quiet app.
+
+MEASURED ON THE BOX, the v3.66.1011 capture. L34's verdict, the first one taken
+after @1010 let it sweep the whole operator surface:
+
+    checked 264 operator in 68s: 0 5xx, 0 unreachable, 2 exceeded,
+      156 recovered-on-serial (probe-induced, not findings), 0 unconfirmed,
+      0 unprobed
+    EXCEEDED  /api/cleanup/summary (> 8s SERIAL, on a quiet app)
+    EXCEEDED  /api/community_scrapers/index (> 8s SERIAL, on a quiet app)
+
+"WHEN PROBED ALONE" is the load-bearing part: phase 1 flags a suspect, phase 2
+re-probes it serially against a quiet app, and 156 of 158 flags recovered.
+These two did not. Both were inside the 92 routes nobody probed at all before
+@1010, so this cut exists because the previous one stopped hiding them.
+
+/api/cleanup/summary ran SIX full walks of the operator's download directories
+on a plain GET -- tinies, stale partials, broken symlinks, empty dirs, orphans,
+missing metadata -- against a volume reporting 1959.6 GB free, with nothing
+cached and exactly one caller. Now cached for 60s, keyed on the directories
+being summarised, with force=True to bypass. A short TTL rather than a long one
+because this is a review screen: the operator deletes something and reloads
+expecting the numbers to move, and a cache measured in minutes would show them
+their own pre-cleanup state and read as a bug.
+
+/api/community_scrapers/index called community_scrapers.fetch_index(), whose
+signature is timeout_s: float = 30.0, and passed no timeout -- so a slow GitHub
+could hold a waitress worker for thirty seconds, nearly four times the gate's
+budget. The route now passes 6.0s, named as INDEX_FETCH_TIMEOUT_S so the test
+can assert its relationship to _L34_ROUTE_BUDGET_S rather than leave a reader to
+re-derive it. 6 and not 8 because the budget belongs to the whole request and
+the fetch is not all of it. The library default stays 30.0, correctly: a CLI or
+a background refresh can afford to wait.
+
+NEITHER ESCAPE HATCH WAS TAKEN, and tests pin both. The check's own failure
+message offers them: raise the budget, or declare the route a stream. Raising is
+what checks.py calls "the wrong lever; it hides the defect", and
+_L34_STREAMING_SKIP is for endpoints that 200 on connect and stream forever --
+both of these are plain jsonify views.
+
+A DEFECT IN THIS CUT'S OWN FIXTURE, caught before implementing: the stub set
+replaced FIVE finders and asserted five, while summary() calls SIX. The sixth
+would have run against the real filesystem while the test claimed to have
+replaced every finder -- a stub set excluding one of its own subjects.
+
+bd-mutate 6 of 6 caught: cache never used, never expires, key ignores the dirs,
+force ignored, fetch unbounded again, timeout raised above the gate.
+
 ## v3.66.1011
 
 The four real-Postgres MOD3 test modules stop sharing one `history` table. Each

@@ -163,14 +163,49 @@ def find_missing_metadata(*, site_id: Optional[str] = None,
     return out
 
 
-def summary(s_cfg: Optional[dict] = None) -> dict:
+# v3.66.1012 -- SIX FILESYSTEM WALKS ARE NOT A PER-REQUEST COST.
+#
+# MEASURED ON THE BOX, v3.66.1011 capture: `/api/cleanup/summary` was one of two
+# routes L34 adjudicated as EXCEEDED -- over 8 seconds SERIAL, on a quiet app,
+# with 1959.6 GB on the volume. `summary()` runs find_tinies,
+# find_stale_partials, find_broken_symlinks, find_empty_dirs, find_orphans_for
+# and find_missing_metadata on every call, and its only caller is a plain GET.
+#
+# A SHORT TTL RATHER THAN A LONG ONE. This is a review screen: the operator
+# looks at it, deletes something, and reloads expecting the numbers to move.
+# A cache measured in minutes would show them their own pre-cleanup state and
+# read as a bug. 60s absorbs a page load and its refresh, and nothing more.
+#
+# KEYED ON THE DIRECTORIES, because that is what the answer is about -- keyed on
+# nothing, a second site's summary would be served the first's numbers.
+SUMMARY_TTL_S = 60.0
+_summary_cache: dict = {}
+
+
+def summary_cache_clear() -> None:
+    """Drop the cached snapshot. For tests and for any caller that has just
+    mutated the filesystem and needs the next read to be true."""
+    _summary_cache.clear()
+
+
+def summary(s_cfg: Optional[dict] = None, *, force: bool = False) -> dict:
     """Aggregate one-call cleanup snapshot. Lists candidates by
-    category with sample + total recoverable bytes."""
+    category with sample + total recoverable bytes.
+
+    Cached for SUMMARY_TTL_S against the set of directories being summarised;
+    `force=True` bypasses it, mirroring the `force=1` convention
+    /api/community_scrapers/index already uses.
+    """
     if not s_cfg:
         s_cfg = {}
     dirs = list({(cfg or {}).get("download_dir", "")
                  for cfg in s_cfg.values()
                  if (cfg or {}).get("download_dir")})
+    key = tuple(sorted(dirs))
+    if not force:
+        hit = _summary_cache.get(key)
+        if hit and (time.monotonic() - hit[0]) < SUMMARY_TTL_S:
+            return hit[1]
     out = {}
     tinies = find_tinies(threshold_mb=5)
     out["tinies"] = {
@@ -197,4 +232,5 @@ def summary(s_cfg: Optional[dict] = None) -> dict:
     missing_nfo = find_missing_metadata()
     out["missing_nfo"] = {"count": len(missing_nfo),
                           "sample": missing_nfo[:5]}
+    _summary_cache[key] = (time.monotonic(), out)
     return out
