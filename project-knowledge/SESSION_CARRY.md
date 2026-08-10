@@ -5056,6 +5056,81 @@ never `export` in a shell the suite is later launched from.
   row seen in 1 of 6 captures. Re-capture before trusting it.
 
 
+### 15.83 | THE WORK QUEUE after v3.66.1015, in the operator's stated order
+
+**Not a session close** -- no ITEM LEDGER; 15.82's ledger (OPEN 31, 33 /
+CLOSED 44) stands unchanged. This exists because a fresh session should not have
+to re-derive the order from prose, and because the operator set it explicitly on
+2026-08-10.
+
+**THE BOX IS GREEN AT v3.66.1013 (`fe88b5a`)**, first fully clean capture of the
+sequence:
+
+    PASS - unit 15393 pass/0 fail/0 error/4 skip; live 36 pass/0 warn/0 fail
+
+Two captures before it read FAIL on `graph exit=1` ALONE, with unit and live
+both clean -- the graph content pin lives under `/var/lib/`, outside the repo,
+so `git reset --hard` never delivers it and a new module makes it stale.
+`scripts/deploy.sh` re-pins automatically; a by-hand deploy does not. **If a
+capture fails on graph exit only, that is bookkeeping, not a defect.**
+
+#### THE QUEUE
+
+1. **A capture of v3.66.1015.** @1015 is unverified on the box by construction:
+   it was measured in-container and the route it fixes passed its last two
+   captures ON A WARM CACHE. See the note below on what to look for.
+2. **Item E -- the interstitial.** The last feature in 15.74's A-H program, and
+   its design is DECIDED, so it needs no further discussion:
+   - captured templates learn to emit `dismiss_selectors`;
+   - login-wall selectors fire ONCE in `do_login`;
+   - per-page selectors (cookie / age / consent) keep firing per URL;
+   - templates declare which is which.
+   The runtime consumer already exists -- `runner.py:3332` reads
+   `dismiss_selectors`, one selector per line, silent on misses, and the Gamma
+   brands use it by hand today via `site_templates/_data_players.py`. What is
+   missing is only that a CAPTURED template cannot produce that value. Note the
+   per-URL cost that motivated splitting them: each selector waits up to 3s for
+   an element that may not exist, with no early exit, so five login-wall
+   selectors cost up to 15s PER URL once past the wall. **That figure is READ
+   FROM SOURCE, not measured** -- measure it before quoting it as a saving.
+3. **The eleven remaining registrable-domain copies.** @1013 migrated the two
+   that gate a fetch; the rest are correctness-only. Ratcheted at 11 by
+   `tests/test_v3_66_1013_registrable_domain.py`, which can only shrink. They
+   live in `extractors_aylo`/`vixen`/`dl8`, `phoenix_catalog`,
+   `candidate_filter`, `extension_vault`, `host_enumerator`,
+   `login_templates_data` (x2), `rate_limit`, and `tools/player_struct_embed`.
+   Each wants its own band.
+4. **The `match.hosts` bridge for item A -- AFTER the operator reviews the
+   families.** @1014 ships the CANDIDATE tier only, deliberately. The bridge is
+   15.74's design: write the login host into the CONTENT template's
+   `match.hosts`, a runtime tier the matcher already supports and nothing
+   writes. Do NOT merge cross-host drafts; bd-template-merge's single-host guard
+   is correct. Run `bd-wacz-corpus --hosts` on the box to see the proposals.
+5. **The logger handler accumulation.** `log._init()` adds to
+   `logging.getLogger("bulk_downloader")`, a stdlib global that survives
+   `bd_module_wipe`, and never clears: 0 -> 14 over one file, identical before
+   and after @1008 so it predates that cut. Likely one line plus a
+   session-scoped handler-count assertion of the shape used to prove @1008
+   leaked nothing.
+6. **Item 31**, the large parallel program (15.15 / TASK_TRACKER, eight rows).
+
+#### WHAT TO LOOK FOR IN THE NEXT CAPTURE
+
+`/api/data/capture_analytics` is the subject. It FAILED capture 7 and PASSED
+capture 8 **at the same commit** -- the difference was `_HEAVY_TTL_S = 600`, a
+response cache, not the code. So a PASS alone does not confirm @1015: it
+confirms either the fix or a warm cache, and those are indistinguishable from
+the verdict line. The discriminating evidence is in `06_live_results/L34.log`,
+which the capture has carried since @1009 -- look for the route's serial timing
+rather than the verdict.
+
+#### THREE GATES BAND A REGISTER EDIT, AND ONLY TWO ARE WRITTEN DOWN
+
+`bd-freshcheck`, `test_toolchain_534` -- both named in CLAUDE.md section 4 --
+and `tests/test_register_promises_resolve.py`, which is named nowhere and
+failed three tests on the box at @1012 for a title that promised a ledger it did
+not carry. Band all three.
+
 ### 15.82 | SESSION CLOSE 2026-08-10 at 8f17c5d (v3.66.1014) -- seven cuts, four box captures, and the gate that started finding things
 
 Close at `8f17c5d`, the squash of #299, already on `main` when this was written.
