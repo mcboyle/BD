@@ -4,6 +4,92 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1008
+
+Two tests repaired that asserted over ambient process state they never
+established. Both failed on the deploy box in the v3.66.1007 capture and
+passed in every container; both are the same class, and neither is a product
+defect.
+
+- tests/test_u50_widget_backfills.py -- the two eta_clear tests patched a queue
+  depth into db_stats, but app_widgets_api._collect_data prefers live runner
+  state ("Live runner state is authoritative for queue/rate headlines") and
+  overwrites it whenever app_state.runners is non-empty. One runner left in
+  that module global by any earlier file on the same xdist worker forced
+  queue_depth to 0, so the forecast collapsed to "now": measured on the box as
+  `assert 'now' is None` and `assert 'now' == '30m'`. Reproduced in-container
+  before the fix -- runners populated gives queue_depth=0/eta='now', runners
+  empty gives queue_depth=5/eta=None. v3.66.922 repaired the same class in this
+  file for the database schema and stopped there; runners is the half it
+  missed.
+
+- tests/test_v3_66_942_...cwd_change.py -- the guard asserting the `logs`
+  exclusion is still live depended on being the first thing in the process to
+  build a logger. log.py's _INITIALIZED is a module global and _LOG_DIR is
+  relative, so `logs/` is created exactly once per process at whatever cwd was
+  current then. The test asserted it appears in a directory it chdir'd to
+  later. Reproduced by building one logger after the module wipe: the box's
+  message, verbatim.
+
+Both repairs are parametrized over the ambient state rather than merely
+clearing it, so they fail on pristine source. Three ambient runner shapes are
+needed, not two: with a single leaked runner the blind spot MOVED rather than
+closing (an idle leak is invisible to the queue-empty test, a busy one to the
+no-throughput test), and bd-mutate scored an escape either way. 3 of 3 mutants
+caught at three params; 1 of 1 for the logging guard.
+
+The logging repair saves and restores logging.getLogger("bulk_downloader")'s
+handlers, because _init() adds to a stdlib global that survives bd_module_wipe
+and never clears it. Measured identical accumulation pristine and fixed (0 ->
+14 handlers over the file), so the repair leaks none. That pre-existing
+accumulation is a separate finding, recorded not fixed.
+
+Import-graph baseline re-frozen in the same cut for the new
+tests -> bulk_downloader/log.py edge (3793 edges).
+
+## v3.66.1008
+
+Two tests repaired that asserted over ambient process state they never
+established. Both failed on the deploy box in the v3.66.1007 capture and
+passed in every container; both are the same class, and neither is a product
+defect.
+
+- tests/test_u50_widget_backfills.py -- the two eta_clear tests patched a queue
+  depth into db_stats, but app_widgets_api._collect_data prefers live runner
+  state ("Live runner state is authoritative for queue/rate headlines") and
+  overwrites it whenever app_state.runners is non-empty. One runner left in
+  that module global by any earlier file on the same xdist worker forced
+  queue_depth to 0, so the forecast collapsed to "now": measured on the box as
+  `assert 'now' is None` and `assert 'now' == '30m'`. Reproduced in-container
+  before the fix -- runners populated gives queue_depth=0/eta='now', runners
+  empty gives queue_depth=5/eta=None. v3.66.922 repaired the same class in this
+  file for the database schema and stopped there; runners is the half it
+  missed.
+
+- tests/test_v3_66_942_...cwd_change.py -- the guard asserting the `logs`
+  exclusion is still live depended on being the first thing in the process to
+  build a logger. log.py's _INITIALIZED is a module global and _LOG_DIR is
+  relative, so `logs/` is created exactly once per process at whatever cwd was
+  current then. The test asserted it appears in a directory it chdir'd to
+  later. Reproduced by building one logger after the module wipe: the box's
+  message, verbatim.
+
+Both repairs are parametrized over the ambient state rather than merely
+clearing it, so they fail on pristine source. Three ambient runner shapes are
+needed, not two: with a single leaked runner the blind spot MOVED rather than
+closing (an idle leak is invisible to the queue-empty test, a busy one to the
+no-throughput test), and bd-mutate scored an escape either way. 3 of 3 mutants
+caught at three params; 1 of 1 for the logging guard.
+
+The logging repair saves and restores logging.getLogger("bulk_downloader")'s
+handlers, because _init() adds to a stdlib global that survives bd_module_wipe
+and never clears it. Measured identical accumulation pristine and fixed (0 ->
+14 handlers over the file), so the repair leaks none. That pre-existing
+accumulation is a separate finding, recorded not fixed.
+
+Import-graph baseline re-frozen in the same cut for the new
+tests -> bulk_downloader/log.py edge (3793 edges).
+
 ## v3.66.1007
 
 - Register only. 15.80 records the v3.66.998-1006 program: serial lane 129 -> 23,

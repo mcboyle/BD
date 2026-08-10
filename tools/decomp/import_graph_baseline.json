@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3792,
+  "edge_count": 3793,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -6062,7 +6062,8 @@
       "bulk_downloader/library.py"
     ],
     "tests/test_v3_66_942_integrity_check_path_survives_a_cwd_change.py": [
-      "bulk_downloader/db.py"
+      "bulk_downloader/db.py",
+      "bulk_downloader/log.py"
     ],
     "tests/test_v3_66_96_autopilot_cockpit.py": [
       "bulk_downloader/capture_ingest.py",

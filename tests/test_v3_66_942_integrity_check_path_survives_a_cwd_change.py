@@ -49,9 +49,11 @@ race the suite would hit once in a hundred runs.
 """
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -60,6 +62,73 @@ _REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO))
 
 pytestmark = pytest.mark.bd_module_wipe
+
+
+@contextmanager
+def _logging_may_initialize_here():
+    """Make `bulk_downloader.log`'s one-shot setup run inside this block.
+
+    WHY THIS EXISTS -- MEASURED ON THE DEPLOY BOX, v3.66.1007 capture
+    (2026-08-10). `test_no_database_is_created_where_the_cwd_happened_to_point`
+    failed there with "the excluded `logs/` no longer appears", and passed in
+    every container. Nothing about the exclusion had changed:
+
+        log.py   _INITIALIZED: bool = False
+                 _LOG_DIR: Path = Path("logs")        # relative -> cwd
+                 def _init(): if _INITIALIZED: return
+
+    `logs/` is therefore created exactly ONCE per process, at whatever cwd was
+    current the first time anything built a logger. The guard asserted it
+    appears in a directory the test chdir'd to LATER -- true only while nothing
+    earlier in the process had logged. That is a precondition the test never
+    established and never checked, which is the same defect the file's own
+    subject is about: a value that means one thing at schedule time and another
+    when it is used.
+
+    Reproduced in-container by building one logger after conftest's module wipe
+    and before the test body: the box's failure message, verbatim.
+
+    RESTORING THE HANDLERS IS NOT TIDINESS. `_init()` ADDS to
+    `logging.getLogger("bulk_downloader")`, a stdlib global that survives
+    bd_module_wipe, and never clears what is there. Flipping the flag without
+    putting the handler list back would leave a duplicate RotatingFileHandler --
+    an open file descriptor and a double-written line -- in every later test on
+    this xdist worker. A repair that leaks state across files to fix a test that
+    was broken by state leaking across files is CLAUDE.md section 0 wearing the
+    fix's clothes.
+    """
+    from bulk_downloader import log as _log
+    root = logging.getLogger("bulk_downloader")
+    handlers, filters = root.handlers[:], root.filters[:]
+    was_initialized = _log._INITIALIZED
+    _log._INITIALIZED = False
+    try:
+        yield
+    finally:
+        for h in root.handlers:
+            if h not in handlers:
+                try:
+                    h.close()
+                except Exception:
+                    pass
+        root.handlers[:] = handlers
+        root.filters[:] = filters
+        _log._INITIALIZED = was_initialized
+
+
+@pytest.fixture(params=["logging_not_yet_up", "logging_already_up"])
+def ambient_logging(request):
+    """Run the guard under both halves of the process state it inherits.
+
+    Clearing the flag without also running the half that broke the box would
+    make the red go away while proving nothing -- the same reasoning as the
+    parametrized ambient state in tests/test_u50_widget_backfills.py, which is
+    the other failure from this capture and the same class.
+    """
+    if request.param == "logging_already_up":
+        from bulk_downloader import log as _log
+        _log.get_logger("an_earlier_test_on_this_worker")
+    return request.param
 
 
 class _CapturedThread:
@@ -166,7 +235,8 @@ def test_the_scheduled_path_survives_a_cwd_change(db_mod, monkeypatch, tmp_path)
 
 
 def test_no_database_is_created_where_the_cwd_happened_to_point(db_mod, monkeypatch,
-                                                               tmp_path):
+                                                               tmp_path,
+                                                               ambient_logging):
     """The harm, not the mechanism. A stray file is the operator-visible part."""
     db, home = db_mod
     elsewhere = tmp_path / "elsewhere2"
@@ -175,7 +245,11 @@ def test_no_database_is_created_where_the_cwd_happened_to_point(db_mod, monkeypa
     monkeypatch.setattr(db, "_threading", _FakeThreading())
     t = db.run_integrity_check(force=True)
     monkeypatch.chdir(elsewhere)
-    t.target()
+    # The `logs/` exclusion below is asserted to still be LIVE, and that is only
+    # observable in the process that runs log._init(). Own it here rather than
+    # inheriting whichever answer the worker happened to leave.
+    with _logging_may_initialize_here():
+        t.target()
 
     # SCOPED TO THE DATABASE, and the exclusion is stated rather than silent.
     # `logs/` also lands here, from `_log.get_logger` resolving its directory
