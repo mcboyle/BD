@@ -4,6 +4,41 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1019
+
+Re-freeze the TEMPLATES list-identity baseline for the gamma_kosmos split.
+
+FOUND BY THE BOX, NOT BY ANY BAND, AND THAT IS THE POINT. v3.66.1016
+deliberately split gamma_kosmos's config_defaults -- three post-login "skip
+page" selectors moved to dismiss_selectors_login, two consent selectors stayed
+per-URL -- which is the shipped feature. tools/decomp/templates_snapshot.py
+holds a FROZEN per-element hash of all 91 templates, and CLAUDE.md says
+bd-regen-order deliberately does not re-freeze intent baselines: they are
+explicit decisions. So the capture at 213fa81 read:
+
+    FAIL: TEMPLATES list-identity drift:
+      - rollup hash drift
+      - index 6 (gamma_kosmos): content drift
+
+NO DERIVABLE BAND REACHED IT. Measured: bd-band-derive --file
+bulk_downloader/site_templates/_data_players.py does NOT return
+tests/test_templates_list_identity.py, and neither of @1016/@1017's bands (424
+and 67 files) contained it. The gate's subject IS that file's content, but it
+reaches it one import away, through tools/decomp/templates_snapshot.py loaded
+by spec_from_file_location -- so no grep of the test's own source, and no
+module-consumer signal, can see the coupling. This is the same shape CLAUDE.md
+section 4 already records for test_pin_index_in_sync, whose enumeration also
+lives one import away, and it is now a second instance of that class rather
+than a one-off.
+
+CONFINEMENT WAS VERIFIED BEFORE THE RE-FREEZE, NOT ASSUMED. The baseline stores
+hashes only and nothing downstream would catch a re-freeze that silently
+adopted drift in a DIFFERENT template -- it is the only per-element record. So
+--check was run first and required to name exactly two problems (the rollup and
+index 6), and the post-freeze git diff was required to be exactly two value
+lines: the rollup and index 6's sha256. count stays 91. Anything else would
+have meant a concurrent edit and a revert.
+
 ## v3.66.1018
 
 The eleven remaining last-two-labels copies, drained. @1013 built one correct
