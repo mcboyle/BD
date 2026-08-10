@@ -1354,6 +1354,19 @@ def _has(pattern: str, text: str) -> bool:
     return re.search(pattern, text, re.I | re.S) is not None
 
 
+# ITEM C. An opening <a>/<button>, then optional nested inline markup, then the
+# word Download, then optional markup, then the MATCHING close tag. `[^>]*` and
+# `<[^>]+>` cannot cross a tag boundary, so a heading sitting between two
+# controls cannot bridge them into a false match.
+_DL_INTERACTIVE_RE = {
+    tag: re.compile(
+        r"<%s\b[^>]*>(?:\s|<[^>]+>)*download(?:\s|<[^>]+>)*</%s>" % (tag, tag),
+        re.I | re.S,
+    )
+    for tag in ("a", "button")
+}
+
+
 # ── D++ cut 4 (Layer E): noise / verdict / scoring / safety ─────────────────
 # These live builder-side (Option A): reusing the core noise lists
 # (honeypot_score's subdomain-boundary tracker matcher + bad_terms) is
@@ -1662,8 +1675,27 @@ def _html_selectors(html: str) -> dict:
         download["button_hint"] = '[aria-label*="Download" i]'
     elif _has(r'title=["\'][^"\']*download[^"\']*["\']', html):
         download["button_hint"] = '[title*="Download" i]'
-    elif _has(r'>\s*Download\s*<', html):
-        download["button_hint"] = 'text=/Download/i'
+    else:
+        # ITEM C. This branch used to be `_has(r'>\s*Download\s*<', html)`
+        # emitting a bare `text=/Download/i`. That matched ANY element whose
+        # text is "Download" -- `<h3>Download</h3>` included -- and the UNSCOPED
+        # selector then resolves to the heading at runtime even when a real
+        # control exists on the page. Measured on a VIP4K reconstruction:
+        # promotion_ready True on a trigger that clicks a title.
+        #
+        # BOTH HALVES ARE NEEDED. Gating on an interactive element alone still
+        # leaves a selector a later heading can capture; scoping alone still
+        # emits a hint for a page carrying no control at all.
+        #
+        # COST, STATED HONESTLY: a site whose download control is a
+        # <div>/<span> with a JS click handler now emits no hint and reads
+        # not_green. That is a real loss. It is the right trade -- the
+        # alternative is a FALSE GREEN, and a false green sends a worker at a
+        # page that will never download.
+        _tags = [t for t in ("a", "button") if _DL_INTERACTIVE_RE[t].search(html)]
+        if _tags:
+            download["button_hint"] = ", ".join(
+                '%s:has-text("Download")' % t for t in _tags)
 
     if download:
         selectors["download"] = download

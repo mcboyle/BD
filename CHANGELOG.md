@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1002
+
+- ITEM C: `text=/Download/i` could go green on a HEADING.
+  build_template_from_wacz._html_selectors emitted the download button hint from
+  `_has(r'>\s*Download\s*<', html)`, which matches ANY element whose text is
+  "Download" -- `<h3>Download</h3>` included -- and the emitted selector was
+  UNSCOPED, so at runtime it resolved to the heading even when a real control
+  existed. Measured previously on a VIP4K reconstruction: promotion_ready True
+  on a trigger that clicks a title.
+- Both halves of the diagnosed fix are in. Emission is gated on an INTERACTIVE
+  element (`<a>` / `<button>`) carrying the text, and the hint is SCOPED --
+  `a:has-text("Download")`, `button:has-text("Download")`, or the comma form
+  when both are present. Gating alone would still leave a selector a later
+  heading can capture; scoping alone would still emit for a page with no
+  control.
+- The match allows nested inline markup (`<button><i></i> Download</button>`)
+  but cannot cross a tag boundary, so a heading between two controls does not
+  bridge them into a false match.
+- COST, STATED HONESTLY: a site whose download control is a `<div>`/`<span>`
+  with a JS click handler now emits no hint and reads not_green. That is a real
+  loss, and it is the right trade -- the alternative is a false green, and a
+  false green sends a worker at a page that will never download.
+- RED proven first: 12 failed / 5 passed on pristine source, 17 passed after.
+  The aria-label and title branches above it are untouched. Band 54 files,
+  571 passed.
+
 ## v3.66.1001
 
 - THE SYNTHETIC CORPUS WAS ONLY 7 TRACKED OF 27 FILES, and v3.66.1000 shipped it
