@@ -4,6 +4,60 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1010
+
+L34's triage budget is what phase 1 can AFFORD, derived per run, instead of a
+5s constant. The ceiling and its meaning are unchanged; what changed is that a
+surface too large for it no longer goes unswept in silence.
+
+MEASURED ON THE BOX, the v3.66.1007 and v3.66.1009 captures. L34 failed both,
+and live_tests/results/L34.log says why with no ambiguity: "checked 172 operator
+in 66s: 0 5xx, 0 unreachable, 0 exceeded, 47 recovered-on-serial (probe-induced,
+not findings), 0 unconfirmed, 92 unprobed". Zero real findings, and 92 of 264
+operator routes never looked at.
+
+    phase 1 budget    39.6s deadline x 8 workers   = 316.8 worker-seconds
+    47 suspects x the 5s cap                       = 235   worker-seconds
+    left for the other ~217 routes                 =  ~82
+
+THE ASYMMETRY IS THE ARGUMENT. A suspect costs the full triage budget in phase
+1 and only its real latency in phase 2 -- the 47 were re-probed serially in
+about two seconds, ~43ms apiece, several of them routes phase 1 had timed at
+over 5s (/api/data/site_health 107ms serial, /api/health 8ms). Phase 1 pays
+roughly a hundred times more per suspect than the phase that decides, so triage
+is the half to make cheap.
+
+DERIVED, NOT A SMALLER LITERAL. checks.py already states the reason about the
+wall: "The route count only grows, so a bigger ceiling is a treadmill, not a
+fix." A smaller constant is that treadmill facing the other way, right at 264
+routes and wrong at 400. The affordable per-route cost is
+deadline * workers / len(targets), which the check has in hand when it needs
+it. Derived values: 40 routes -> 5.00s (today's ceiling, unchanged), 264 ->
+1.20s, 400+ -> the 1.0s floor.
+
+IT CANNOT HIDE A DEFECT, which is the objection the file's own warning raises
+about budgets. This moves the budget the other way: a shorter triage flags MORE
+routes, and a flag is not a finding -- every one is re-probed serially against a
+quiet app at the full _L34_ROUTE_BUDGET_S before anything is reported. What it
+replaces is UNPROBED, a route nobody looked at at all.
+
+The floor is where sorting stops working, and a surface unaffordable even at the
+floor is LOGGED rather than clamped silently -- otherwise the check claims a
+sweep it did not do. Phase 1 now also logs its whole budget arithmetic, so the
+next capture shows the accounting rather than only its conclusion.
+
+The diagnostic advisory pass keeps the ceiling deliberately: it does not gate,
+it runs last on whatever wall is left, and shortening it would change what
+"slow(>Ns)" means for no benefit to the gate. That exemption is asserted
+STRUCTURALLY, on what the enclosing loop iterates, never on a line number -- the
+first draft of the test flagged the diagnostics probe and excusing it by
+location would have re-armed the moment anything above it moved.
+
+bd-mutate 4 of 4 caught. NOT VERIFIED ON THE BOX: every assertion here is
+arithmetic over the constants. Whether 264 routes then fit depends on per-route
+latency under the sibling live checks (L20's 8 parallel readers and L21's 180
+read-rounds run while L34 sweeps), and only a capture can answer that.
+
 ## v3.66.1009
 
 capture.sh now bundles live_tests/results/ as 06_live_results/. Step [6b], run

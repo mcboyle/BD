@@ -346,6 +346,69 @@ _L34_WORKERS = 8
 # that a pathological route cannot monopolize a worker for it.
 _L34_TRIAGE_BUDGET_S = 5
 
+# v3.66.1010 -- THE CEILING ABOVE IS NOW A CEILING, NOT THE BUDGET.
+#
+# MEASURED on the box, v3.66.1007 and v3.66.1009 captures. L34 failed both, and
+# its own log says why with no ambiguity: "checked 172 operator in 66s: 0 5xx,
+# 0 unreachable, 0 exceeded, 47 recovered-on-serial (probe-induced, not
+# findings), 0 unconfirmed, 92 unprobed". Zero real findings, and 92 of 264
+# operator routes never looked at.
+#
+#     phase 1 budget    39.6s deadline x 8 workers   = 316.8 worker-seconds
+#     47 suspects x the 5s cap                       = 235   worker-seconds
+#     left for the other ~217 routes                 =  ~82
+#
+# THE ASYMMETRY IS THE ARGUMENT. A suspect costs the FULL triage budget in
+# phase 1 and only its real latency in phase 2 -- the measured 47 were re-probed
+# serially in about two seconds, ~43ms apiece, several of them routes phase 1
+# had timed at over 5s (/api/data/site_health: 107ms serial; /api/health: 8ms).
+# Phase 1 pays ~100x more per suspect than the phase that actually decides. So
+# triage is the half to make cheap.
+#
+# DERIVED, NOT A SMALLER LITERAL. The comment on the wall above already states
+# the reason: "The route count only grows, so a bigger ceiling is a treadmill,
+# not a fix." A smaller constant is the same treadmill facing the other way --
+# right at 264 routes, wrong again at 400. What phase 1 can afford per route is
+# `deadline * workers / len(targets)`, a quantity it has in hand at the moment
+# it needs it.
+#
+# IT CANNOT HIDE A DEFECT, which is the objection this file's own warning
+# raises about budgets ("Raising this number to make the check stop complaining
+# is the wrong lever"). This moves the budget the OTHER way: a shorter triage
+# flags MORE routes, and a flag is not a finding -- every one is re-probed
+# serially against a quiet app at the full _L34_ROUTE_BUDGET_S before anything
+# is reported. What it replaces is UNPROBED: a route nobody looked at at all.
+#
+# The floor is where sorting stops working: below a second, ordinary jitter
+# under the sibling live checks (L20's 8 parallel readers, L21's 180
+# read-rounds, running against the app while this sweeps) would flag nearly
+# everything and phase 2 would inherit the whole surface. A surface too large to
+# sweep even at the floor is a real state and is LOGGED rather than clamped
+# silently -- otherwise the check claims a sweep it did not do.
+_L34_TRIAGE_FLOOR_S = 1.0
+
+
+def _l34_triage_budget_s(phase1_deadline_s, n_targets, log=None):
+    """Per-route triage budget: what phase 1 can pay for, capped by the ceiling.
+
+    `log` is called at most once, and only when the floor binds -- i.e. when the
+    surface cannot be swept even at the shortest budget that still sorts. A
+    warning that also fires on the healthy case is a warning nobody reads.
+    """
+    if not n_targets or n_targets <= 0:
+        return _L34_TRIAGE_BUDGET_S
+    affordable = (phase1_deadline_s * _L34_WORKERS) / float(n_targets)
+    if affordable < _L34_TRIAGE_FLOOR_S:
+        if callable(log):
+            log(f"phase 1 cannot afford {n_targets} routes even at the "
+                f"{_L34_TRIAGE_FLOOR_S:.1f}s floor "
+                f"({phase1_deadline_s:.0f}s x {_L34_WORKERS} workers = "
+                f"{phase1_deadline_s * _L34_WORKERS:.0f} worker-seconds, "
+                f"{affordable:.2f}s each); expect an UNPROBED list, and treat "
+                f"it as a budget finding rather than a route finding")
+        return _L34_TRIAGE_FLOOR_S
+    return min(_L34_TRIAGE_BUDGET_S, affordable)
+
 # v3.66.740 -- L34 MUST BUDGET ITSELF AGAINST THE HARNESS'S WALL.
 #
 # The harness gives every check a hard 90s and, on expiry, ABANDONS the thread --
@@ -521,13 +584,21 @@ def l34_full_route_smoke(ctx):
     # and cancels queued work; in-flight probes drain within one route budget,
     # so the overshoot is bounded by a single probe, never by the sweep.
     phase1_deadline = wall_s * (1.0 - _L34_PHASE2_RESERVE)
+    # Derived from the surface this run actually has to sweep -- see the
+    # comment on _L34_TRIAGE_FLOOR_S. Resolved ONCE, like the wall above: a
+    # budget that moves under the sweep is not a budget.
+    triage_s = _l34_triage_budget_s(phase1_deadline, len(targets), log=ctx.log)
+    ctx.log(f"phase 1 budget: {phase1_deadline:.0f}s x {_L34_WORKERS} workers = "
+            f"{phase1_deadline * _L34_WORKERS:.0f} worker-seconds for "
+            f"{len(targets)} operator route(s) -> triage {triage_s:.2f}s each "
+            f"(ceiling {_L34_TRIAGE_BUDGET_S}s, floor {_L34_TRIAGE_FLOOR_S:.1f}s)")
     unprobed = []
     try:
         from concurrent.futures import ThreadPoolExecutor
         from concurrent.futures import wait as _futures_wait
         probed = []
         with ThreadPoolExecutor(max_workers=_L34_WORKERS) as pool:
-            futs = {pool.submit(_probe, r, _L34_TRIAGE_BUDGET_S): r
+            futs = {pool.submit(_probe, r, triage_s): r
                     for r in targets}
             # A lazy, per-iteration cancel RACES the pool: workers drain the
             # queue the instant a slot frees, always one step ahead of a slow
@@ -542,7 +613,7 @@ def l34_full_route_smoke(ctx):
                 for f in not_done:
                     f.cancel()
                 _, still = _futures_wait(
-                    not_done, timeout=_L34_TRIAGE_BUDGET_S + 2)
+                    not_done, timeout=triage_s + 2)
                 for f in futs:
                     if f.cancelled() or f in still:
                         unprobed.append(futs[f]["rule"])
@@ -556,7 +627,7 @@ def l34_full_route_smoke(ctx):
             if (time.monotonic() - t0) >= phase1_deadline:
                 unprobed.append(r["rule"])
                 continue
-            probed.append(_probe(r, _L34_TRIAGE_BUDGET_S))
+            probed.append(_probe(r, triage_s))
     if unprobed:
         ctx.log(f"  {len(unprobed)} route(s) UNPROBED -- phase-1 deadline "
                 f"({phase1_deadline:.0f}s of the {wall_s:.0f}s wall) hit "

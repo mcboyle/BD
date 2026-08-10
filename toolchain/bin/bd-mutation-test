@@ -133,10 +133,15 @@ REGISTRY = [
         id="L34/triage-starvation@744",
         why="Phase 1 probing at the FULL adjudication budget starves the "
             "sweep: one 8s route holds a worker for ~400 fast-route slots "
-            "(the 743 stash capture: 372/523 UNPROBED). Re-plant the full "
-            "budget in the phase-1 submit; the bimodal control must scream.",
+            "(the 743 stash capture: 372/523 UNPROBED; the 1007 box capture: "
+            "92/264 UNPROBED at the 5s cap). Re-plant the full budget in the "
+            "phase-1 submit; the bimodal control must scream. Anchor updated "
+            "@1010: phase 1 submits at the DERIVED triage_s, not the ceiling "
+            "constant, so the old anchor stopped resolving -- caught by "
+            "test_every_mutation_anchor_resolves_to_exactly_its_declared_count "
+            "in the same band, which is what that gate is for.",
         target="live_tests/checks.py",
-        mutate=_sub(r"pool\.submit\(_probe, r, _L34_TRIAGE_BUDGET_S\)",
+        mutate=_sub(r"pool\.submit\(_probe, r, triage_s\)",
                     "pool.submit(_probe, r, _L34_ROUTE_BUDGET_S)", 1),
         gate="{py} run_tests.py tests/test_v3_66_744_l34_triage_budget.py",
     ),
