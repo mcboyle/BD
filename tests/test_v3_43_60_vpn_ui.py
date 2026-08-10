@@ -76,12 +76,23 @@ class TestEndpointContract:
 # ════════════════════════════════════════════════════════════════════
 
 class TestSiteConfigVpnField:
-    def test_vpn_runtime_reads_site_vpn_field(self):
+    def test_vpn_runtime_reads_site_vpn_field(self, monkeypatch):
         """sites_config.json site entries can have a `vpn` field; vpn_runtime.init
-        must parse it correctly into _site_to_tunnel and _site_required."""
+        must parse it correctly into _site_to_tunnel and _site_required.
+
+        The two env writes go through `monkeypatch` so they are RESTORED. The
+        raw `os.environ[...] = ""` this replaced was measured escaping the
+        session: `BD_DISABLE_VPN_RUNTIME` was still set after the file finished,
+        so whichever file xdist scheduled next on the worker inherited it.
+        `tests/conftest.py`'s autouse guard could not catch it -- its denominator
+        is five named keys and this is not one of them. `monkeypatch.setenv` is
+        shimmed by the fallback runner (`run_tests_core.py:445`), so the
+        module docstring's portability note still holds.
+        """
         import os
-        os.environ.setdefault("BD_DISABLE_KEEPALIVE", "1")
-        os.environ["BD_DISABLE_VPN_RUNTIME"] = ""
+        if "BD_DISABLE_KEEPALIVE" not in os.environ:
+            monkeypatch.setenv("BD_DISABLE_KEEPALIVE", "1")
+        monkeypatch.setenv("BD_DISABLE_VPN_RUNTIME", "")
         from bulk_downloader import vpn_runtime
         vpn_runtime._reset_for_tests()
         import importlib

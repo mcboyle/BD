@@ -1224,3 +1224,50 @@ test_v3_66_987_gate_support_measures_the_gate.py
 test_v3_66_988_merge_keeps_list_selectors.py
 test_v3_66_989_download_affordance_scoping.py
 test_zip_era_tools_stay_retired.py
+
+# v3.66.995 wave 3 -- the 26 files matched by SERIAL_SOURCE_PATTERNS
+# (os.environ writes, sys.modules writes, os.chdir). NOT promoted on "they pass
+# together": running them alone structurally cannot expose the hazard, which is
+# state leaking to a DIFFERENT file on the same worker. Measured instead with
+# bd-leakprobe (@994), which diffs os.environ / sys.modules / cwd across a
+# session in a fresh interpreter per file and subtracts a floor derived from
+# files already in this lane: 26 probed, 0 leaking above floor.
+#
+# ONE file leaked for real and was FIXED, not pinned -- test_v3_43_60_vpn_ui.py
+# left BD_DISABLE_VPN_RUNTIME set process-wide; conftest's autouse guard could
+# not restore it because its denominator is five named keys. Now
+# monkeypatch.setenv. Measured both directions.
+#
+# TWO of the 26 mutate nothing at all: 945 and 946 match on a docstring and on
+# a string literal holding source for a CHILD pytest process, where the write
+# happens in another interpreter and reaches nobody.
+#
+# Then run at six widths (-n 0/2/3/4/6/8, --dist loadfile) together with the
+# vpn_runtime consumers derived by bd-band-derive, so the importlib.reload in
+# vpn_ui had a chance to surface: 524 passed at every width, zero failures.
+test_ct2_capture_bodies.py
+test_cut35_csrf_meta_premise_retired_in_tools.py
+test_dom_overlay.py
+test_import_graph_gate_fails_closed.py
+test_import_graph_no_new_edges.py
+test_import_graph_sees_package_form.py
+test_legacy_parity.py
+test_macro_replay.py
+test_novnc_url_defaults.py
+test_secret_display_never.py
+test_t7_notifications_wired.py
+test_v3_43_60_captcha_relay.py
+test_v3_43_60_vpn_ui.py
+test_v3_43_60_widgets.py
+test_v3_43_62_live_recorder.py
+test_v3_45_8_macro_replay.py
+test_v3_66_461_cockpit_bugfix.py
+test_v3_66_462_warehouse_scandir.py
+test_v3_66_504_envfile_editor.py
+test_v3_66_776_plugin_metrics_residual.py
+test_v3_66_777_manifest_richness.py
+test_v3_66_778_force_isolation.py
+test_v3_66_940_envfile_seeds_only_declared_keys.py
+test_v3_66_945_envfile_seeding_does_not_escape_its_test.py
+test_v3_66_946_the_leak_guard_does_not_fire_on_inherited_state.py
+test_v3_66_977_ytdlp_freshness_compares_versions.py

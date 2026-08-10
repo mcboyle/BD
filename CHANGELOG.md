@@ -4,6 +4,84 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.996
+
+- WAVE 3: the 26 serial files matched by SERIAL_SOURCE_PATTERNS are promoted.
+  Lane is now 1217 parallel / 62 serial (was 1191 / 88 including @994's new
+  test file). They were worth 150.5s of the box's 903s serial lane.
+- NOT promoted on "they pass together", which running them alone structurally
+  cannot establish -- the hazard is state reaching a DIFFERENT file on the same
+  worker. Measured with bd-leakprobe (@994): 26 probed, 0 leaking above a floor
+  derived from files already in the lane. Then six xdist widths
+  (-n 0/2/3/4/6/8 --dist loadfile) run together with the vpn_runtime consumers
+  derived by bd-band-derive, so the importlib.reload in vpn_ui had a chance to
+  surface: 524 passed at every width, zero failures.
+- The regex that pinned them reads SOURCE TEXT. By AST the 26 hold 72
+  os.environ writes, 11 sys.modules writes and 2 os.chdir -- and TWO of them
+  perform none at all, matching on a docstring and on a string literal holding
+  source for a CHILD pytest process, where the write lands in another
+  interpreter and reaches nobody.
+- Band 62 files, 677 passed.
+
+## v3.66.995
+
+- build_snapshot forked `git rev-parse` ONCE PER TRACKED FILE. `snapshot.py`
+  validated each tracked path inside its loop with `normalize_repo_path(
+  repository, ...)`, and that function re-derives the root via
+  `discover_repo_root` on every call -- with a CONSTANT first argument, for a
+  return value the caller deliberately discards. The call exists only to reject
+  tracked symlinks pointing outside the repository.
+- Measured: one `build_snapshot(REPO)` call made 3224 git forks and took 6.66s;
+  after, 3 forks and 0.47s. The three slowest files in capture.sh's serial lane
+  went 140.30s -> 40.70s in-container, same 211 passed. Those three are 45% of
+  the box's 903s serial lane; the box has not confirmed its own number yet.
+- The fix adds `relative_to_repo(repository, path)` -- the same rule and the
+  same rejection with the root already discovered -- and leaves
+  `normalize_repo_path` behaviourally identical by delegating to it, so the
+  escape-rejection test is untouched. Old and new agree on value AND exception
+  for every probed case, and `discover_repo_root` is idempotent on a root.
+- Blast radius checked rather than assumed: `normalize_repo_path` had exactly
+  one product caller, the hot line itself. Band 253 files, 4369 passed; of 23
+  failures under -n 4, 11 were lane placement (gone on serial retry), 8 are the
+  documented container-only set, and 4 reproduce IDENTICALLY on pristine source
+  in the same directory.
+- Also speeds up any other build_snapshot consumer: differential_oracle,
+  fuzz_harness, reachability_service and l0_extract, the last of which is
+  capture.sh step [2b].
+
+## v3.66.994
+
+- New tool `bd-leakprobe`: measures what a test FILE leaves behind for the next
+  file on its xdist worker -- os.environ, sys.modules and cwd diffed between
+  pytest_sessionstart and sessionfinish, one fresh interpreter per file. The
+  lane classifier answers "does this file contain the shape" with a regex over
+  source text; the shape is not the hazard, state that outlives the file is.
+  Measured over the 26 pattern-class serial files: 72 os.environ writes, 11
+  sys.modules writes and 2 os.chdir by AST, and TWO of the 26 perform none at
+  all -- they match on a docstring and on a string literal holding source for a
+  CHILD pytest process.
+- The tool refuses rather than guesses. A planted canary must be DETECTED before
+  any verdict is issued; an empty file list, a zero-length control set and a
+  control that did not run are all NO VERDICT (exit 2), and 2 is not a softer 1.
+  Sensitivity is checked on every run, not only under --selftest.
+- The canary runs OUT OF TREE with `-p tests.conftest`, so nothing is ever
+  written into tests/. The obvious implementation -- copy the canary into
+  tests/ -- fails test_pin_index_in_sync when a killed run leaves residue,
+  because build_pin_index globs tests/*.py.
+- Verdicts are floor-subtracted against files already shipping in the parallel
+  lane. Without a floor the first build reported all 26 as leaking; every run
+  adds BD_VPN_CONFIG_PATH and BD_WIDGETS_CONFIG_PATH from session fixtures.
+  Importing cryptography parks lazy binding objects in sys.modules, so the
+  non-module check now names its subject precisely: a real module REPLACED by a
+  non-module, plus a planted non-module under an importable name.
+- Fixes the one real leak it found. tests/test_v3_43_60_vpn_ui.py left
+  BD_DISABLE_VPN_RUNTIME set process-wide via a raw os.environ write, which
+  conftest's autouse guard cannot restore -- its denominator is five named keys
+  and that is not one of them. Now monkeypatch.setenv, which run_tests_core
+  shims, so the module's portability note still holds. Measured both
+  directions: env_added ['BD_DISABLE_VPN_RUNTIME'] before, [] after.
+- _TOOL_BUDGET 237 -> 238 on operator sign-off.
+
 ## v3.66.993
 
 - Register only. 15.78 supersedes 15.77's "promotion pool" framing: the 75 are

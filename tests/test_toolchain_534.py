@@ -1072,7 +1072,16 @@ def test_salvaged_stub_detector_separates_a_marker_from_prose_about_one():
 # merge to extend. It reuses build_template_from_wacz.gold_merge_guard rather
 # than reimplementing that rule, because two copies of a guard is how they
 # drift. Wired: tests/test_v3_66_974_template_merge.py runs it as a subprocess.
-_TOOL_BUDGET = 237
+# @994 -- 237 -> 238 on operator sign-off for bd-leakprobe, which answers a
+# question nothing here could: what a test FILE leaves behind for the next file
+# on its xdist worker. `capture_lanes` decides that from a regex over source
+# text, so it cannot tell a docstring, a string literal holding source for a
+# child process, and a restored `monkeypatch` write from a real unrestored one.
+# Measured: two of the 26 files it pins perform no mutation at all. Wired:
+# tests/test_v3_66_994_leakprobe_refuses_when_blind.py drives it, including the
+# refusal paths -- a probe that reports clean while blind is the defect the tool
+# exists to avoid reproducing.
+_TOOL_BUDGET = 238
 
 
 def test_the_toolchain_does_not_grow_unbudgeted():
