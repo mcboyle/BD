@@ -223,17 +223,17 @@ def _extract_link_metadata(page, base_url: str, selector: Optional[str] = None) 
 
 
 def _is_same_etld1(url1: str, url2: str) -> bool:
-    """Quick same-site check."""
-    try:
-        h1 = (urlparse(url1).hostname or "").lower()
-        h2 = (urlparse(url2).hostname or "").lower()
-        if not h1 or not h2:
-            return False
-        p1 = h1.split(".")[-2:]
-        p2 = h2.split(".")[-2:]
-        return p1 == p2
-    except Exception:
-        return False
+    """Quick same-site check.
+
+    v3.66.1013: delegates to bulk_downloader.registrable_domain. The previous
+    body compared `hostname.split(".")[-2:]`, which answered True for
+    victim.co.uk vs attacker.co.uk and for two unrelated github.io pages --
+    measured against the shipped code. This predicate gates whether a URL found
+    in a SEARCH RESULT gets followed, so that was a scope escape. The shared
+    rule also fails closed on unparseable input.
+    """
+    from .registrable_domain import same_site
+    return same_site(url1, url2)
 
 
 # Reuse the scene-URL filter from playlist_extractor — same heuristic

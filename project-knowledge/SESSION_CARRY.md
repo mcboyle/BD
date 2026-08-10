@@ -5056,9 +5056,21 @@ never `export` in a shell the suite is later launched from.
   row seen in 1 of 6 captures. Re-capture before trusting it.
 
 
-### 15.81 | Session close 2026-08-10 at 342001e (v3.66.1010 on main): three box captures, and 15.74's seven findings RE-DERIVED
+### 15.81 | v3.66.1008-1013: three box captures, the 10-in-10 flake, and 15.74's seven findings RE-DERIVED
 
-Close at `342001e` -- a squash already on `main` when this was written, per the
+**Not a session close** -- no ITEM LEDGER; the standing open set (31, 33, 44)
+is unchanged and nothing here opens or closes a numbered item.
+
+THE FIRST VERSION OF THIS SECTION WAS TITLED "Session close", AND THE BOX CAUGHT
+IT. `tests/test_register_promises_resolve.py` requires a close section to carry
+a machine-readable ITEM LEDGER; three of its tests went red in the v3.66.1012
+capture on a register that was otherwise correct. Neither CI nor the derived
+band reached it: editing the register bands `bd-freshcheck` and
+`test_toolchain_534`, which is what section 4 says and what was run -- and
+ALSO this suite, which nothing said. A title is an assertion here, and calling
+something a close promises a ledger.
+
+Anchored at `342001e`, a squash already on `main` when this was written, per the
 section 4 rule that naming your own branch tip passes every pre-merge check and
 then goes red on `main`.
 

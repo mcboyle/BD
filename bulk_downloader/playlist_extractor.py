@@ -150,17 +150,19 @@ def is_likely_listing_url(
 
 
 def _is_same_etld1(url1: str, url2: str) -> bool:
-    """Quick check that two URLs share an eTLD+1 (same site)."""
-    try:
-        h1 = (urlparse(url1).hostname or "").lower()
-        h2 = (urlparse(url2).hostname or "").lower()
-        if not h1 or not h2:
-            return False
-        p1 = h1.split(".")[-2:]
-        p2 = h2.split(".")[-2:]
-        return p1 == p2
-    except Exception:
-        return False
+    """Quick check that two URLs share an eTLD+1 (same site).
+
+    v3.66.1013: delegates to bulk_downloader.registrable_domain. The previous
+    body compared `hostname.split(".")[-2:]`, which is right for
+    members.vip4k.com and WRONG for every multi-part public suffix -- measured
+    against the shipped code, it answered True for victim.co.uk vs
+    attacker.co.uk and for two unrelated github.io pages. This predicate gates
+    whether a URL discovered in a listing gets FOLLOWED, so that was a scope
+    escape rather than a cosmetic error. The shared rule also fails closed on
+    unparseable input, where "I cannot tell" must not mean yes.
+    """
+    from .registrable_domain import same_site
+    return same_site(url1, url2)
 
 
 def _looks_like_scene_url(

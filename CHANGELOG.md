@@ -4,6 +4,57 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1013
+
+One correct registrable-domain rule, and the two same-site predicates that
+gate a fetch now use it.
+
+THE CENSUS IS THE FIRST FINDING. A grep for the function NAMES (_registrable,
+_etld1, get_registrable_domain) found nine. An AST census matching on the SHAPE
+-- any function joining the last two labels of a split(".") -- found THIRTEEN
+over 2164 tracked .py files. The four a name grep cannot see are
+login_templates_data.suggest_login_for_url, login_templates_data._reg_domain,
+rate_limit._extract_domain, and the two _is_same_etld1 predicates. The
+instrument fixes the denominator; a name is not one.
+
+All thirteen carry the same one-line bug. Measured on five of them before any
+change: all five agreed, and all five returned co.uk for www.bbc.co.uk.
+
+IT IS NOT COSMETIC. Two are same-site predicates deciding whether a URL found
+in a listing or a search result gets FOLLOWED (playlist_extractor.py:328,
+search_extractor.py:307). Measured against the shipped code:
+
+    same-site?  True   https://victim.co.uk/list  vs  https://attacker.co.uk/x
+    same-site?  True   https://a.github.io/list   vs  https://b.github.io/x
+    same-site?  True   https://site.com.au/list   vs  https://evil.com.au/x
+
+Every GitHub Pages site was the same site as every other, and so was any pair
+of .co.uk registrants. A same-site check that says yes to unrelated registrants
+is a scope escape in a fetch decision, so those two migrate here and the other
+eleven follow in their own cuts -- each touches extractors, rate limiting or
+login suggestion and deserves its own band. A ratchet pins the remaining count
+at 11 so a fourteenth cannot appear.
+
+The new rule fails CLOSED: unparseable input, an empty host, or a bare public
+suffix is not a match, because the safe answer to "I cannot tell" is no when
+the question is whether to fetch something.
+
+A CURATED SUFFIX SET, NOT A LIBRARY. tldextract, publicsuffix2 and
+publicsuffixlist are all absent; adding one would put a new runtime dependency
+on the box and through the dep-freshness gate to be right about a few dozen
+suffixes. THE LIMIT IS STATED AND ASSERTED rather than implied: an unknown
+multi-part suffix degrades to the old answer, is_known_suffix() lets a caller
+ask which case it got, and a test pins the degradation.
+
+A DEFECT IN THIS CUT'S OWN GATE, caught by the gate going red on correct code.
+The migrated functions' docstrings necessarily describe the pattern they
+removed, and the census unparsed each node whole -- so both call sites reported
+UNMIGRATED after being correctly migrated. That is CLAUDE.md section 0's
+"explaining a removal by naming the removed thing recreates it", for the fifth
+recorded time. The census now strips docstrings, and asserts BOTH directions: it
+must see a known-positive, and must NOT see a function whose docstring alone
+describes the shape.
+
 ## v3.66.1012
 
 Two operator routes that could not answer in 8 seconds on a quiet app.

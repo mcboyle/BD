@@ -2334,7 +2334,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1621,
+    "edge_count": 1623,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4177,6 +4177,10 @@
         "bulk_downloader/capture_redactor.py",
         "bulk_downloader/wacz_export.py",
         "tools/redaction_dial_report.py"
+      ],
+      "bulk_downloader/registrable_domain.py": [
+        "bulk_downloader/playlist_extractor.py",
+        "bulk_downloader/search_extractor.py"
       ],
       "bulk_downloader/relogin_predict.py": [
         "bulk_downloader/runner_auth.py"
@@ -6549,6 +6553,9 @@
       "bulk_downloader/pg_backend.py": [
         "bulk_downloader/db.py"
       ],
+      "bulk_downloader/playlist_extractor.py": [
+        "bulk_downloader/registrable_domain.py"
+      ],
       "bulk_downloader/plugin_exec.py": [
         "bulk_downloader/plugins.py"
       ],
@@ -6875,7 +6882,8 @@
         "bulk_downloader/policy_gates.py"
       ],
       "bulk_downloader/search_extractor.py": [
-        "bulk_downloader/playlist_extractor.py"
+        "bulk_downloader/playlist_extractor.py",
+        "bulk_downloader/registrable_domain.py"
       ],
       "bulk_downloader/secrets_audit.py": [
         "bulk_downloader/global_config.py"
