@@ -4,6 +4,25 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.996
+
+- WAVE 3: the 26 serial files matched by SERIAL_SOURCE_PATTERNS are promoted.
+  Lane is now 1217 parallel / 62 serial (was 1191 / 88 including @994's new
+  test file). They were worth 150.5s of the box's 903s serial lane.
+- NOT promoted on "they pass together", which running them alone structurally
+  cannot establish -- the hazard is state reaching a DIFFERENT file on the same
+  worker. Measured with bd-leakprobe (@994): 26 probed, 0 leaking above a floor
+  derived from files already in the lane. Then six xdist widths
+  (-n 0/2/3/4/6/8 --dist loadfile) run together with the vpn_runtime consumers
+  derived by bd-band-derive, so the importlib.reload in vpn_ui had a chance to
+  surface: 524 passed at every width, zero failures.
+- The regex that pinned them reads SOURCE TEXT. By AST the 26 hold 72
+  os.environ writes, 11 sys.modules writes and 2 os.chdir -- and TWO of them
+  perform none at all, matching on a docstring and on a string literal holding
+  source for a CHILD pytest process, where the write lands in another
+  interpreter and reaches nobody.
+- Band 62 files, 677 passed.
+
 ## v3.66.995
 
 - build_snapshot forked `git rev-parse` ONCE PER TRACKED FILE. `snapshot.py`
