@@ -76,6 +76,7 @@ EXIT
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import pathlib
@@ -83,6 +84,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from importlib.machinery import SourceFileLoader
 
 REPO = pathlib.Path(__file__).resolve().parent.parent.parent
 TESTS = REPO / "tests"
@@ -156,6 +158,31 @@ def test_the_real_conftest_autouse_fixture_applied():
 '''
 
 
+def _load_capture_lanes():
+    """Load tests/capture_lanes.py BY PATH, not by name.
+
+    The obvious form -- `sys.path.insert(0, TESTS); import capture_lanes` --
+    fails `test_third_party_imports_outside_the_app_package_are_declared`, and
+    the gate is RIGHT to fail it. It resolves a bare `import X` against the
+    importing file's siblings, so the same import from `tests/test_*.py` is
+    first-party and verifiable while this one is a cross-directory reach it
+    cannot check. Waiving it in `_UNDECLARED_OUTSIDE_BY_DESIGN` would file a
+    first-party repo file as an accepted third-party dependency, which is
+    simply false.
+
+    Loading by path also drops a `sys.path` mutation from a tool whose whole
+    subject is unrestored global state."""
+    src = TESTS / "capture_lanes.py"
+    if not src.exists():
+        raise SystemExit("BD-GATE-UNRUNNABLE: %s is missing, so the parallel "
+                         "lane cannot be read and no floor can be built" % src)
+    loader = SourceFileLoader("bd_leakprobe_capture_lanes", str(src))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
 def _run(target, plugin_dir, extra=()):
     """Probe one path in a fresh interpreter. Returns the delta dict or None."""
     out = pathlib.Path(plugin_dir) / ("probe_%s.json" % abs(hash(str(target))))
@@ -226,8 +253,7 @@ def _default_controls(n):
     """
     if n <= 0:
         return []
-    sys.path.insert(0, str(TESTS))
-    import capture_lanes as lanes                                # noqa: E402
+    lanes = _load_capture_lanes()
     got = []
     listed = subprocess.run(["git", "ls-files", "tests/test_*.py"],
                             cwd=str(REPO), capture_output=True, text=True)
