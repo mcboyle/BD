@@ -6,8 +6,10 @@ archive is not present in this repository; consult source-control history.
 
 ## v3.66.991
 
-- Register only. 15.76 records the operator queue after v3.66.989 (C, D, E,
-  then a capture.sh BD_INSTALL_DIR guard) with each item's measured diagnosis,
+- Register only. 15.76 records the operator queue after v3.66.989 -- A
+  (cross-host grouping, blocked on one unrun siteid-pairing command), then
+  C, D, E, then a capture.sh BD_INSTALL_DIR guard -- with each item's
+  measured diagnosis,
   plus five review followups that were not otherwise tracked. 15.77 records the
   v3.66.990 lane measurement, the 75-file promotion pool with the script to
   re-derive it, the evidence standard a promotion must meet, and the two

@@ -4913,7 +4913,51 @@ bounded by its line count, and neither can be judged from a container.
 ### 15.76 | The queue after v3.66.989, in order
 
 Recorded 2026-08-09 at `bf3b1b2`. Items 1-3 were the operator's standing
-program; item 4 was added after a measured incident described below.
+program; item 4 was added after a measured incident described below. Item 0 was
+MISSING FROM THE FIRST DRAFT OF THIS SECTION and the operator caught it -- it is
+recorded as a FINDING at 15.74 and 15.75, and was absent from the QUEUE, which is
+the part a future session reads to know what to do. A finding that is not in the
+queue is an item that quietly stops existing.
+
+**0. A -- cross-host grouping. BLOCKED ON A MEASUREMENT, not on design.**
+`--hosts` and `--templates` group by exact hostname, so `auth.X` and `app.X` are
+two "sites". Five of the seven sites the operator screenshotted span a login host
+and a content host, so this inflates the site count, produces green verdicts for
+login halves, and hides the pairing that matters.
+
+THE RUNTIME ALREADY SUPPORTS WHAT IS NEEDED AND NOTHING WRITES IT.
+`template_registry` matches on `match.hosts` aliases AND on
+`match.sibling_domain` -- probe-verified: `auth.wowgirls.com` resolves to a
+`venus.wowgirls.com` template, and an unrelated `auth.bangbros.com` is correctly
+refused. `sibling_domain` appears in exactly ONE file repo-wide, the matcher.
+The capability is real and unreachable.
+
+DO NOT KEY ON eTLD+1. The in-repo helper is last-two-labels, and BOTH failing
+hosts are already in the corpus: `www.bbc.co.uk` becomes a site called `co.uk`,
+and every App Engine tenant merges into `appspot.com`
+(`shaka-player-demo.appspot.com`). `app_secrets.py` already records abandoning
+that helper for exactly this reason.
+
+THE DESIGN THE EVIDENCE SUPPORTS: keep exact-host grouping as ground truth and
+never silently re-key; ADD cross-host candidates, LABELLED, the same discipline
+`--hosts` already applies by naming each group's resolution method; and DERIVE
+the pairing from evidence rather than from the name. BD's capture convention is
+`{host}_{siteid}_{YYYYMMDD}`, so `auth.reptyle.com_0b60f1ec_...` and
+`app.reptyle.com_0b60f1ec_...` would share a siteid -- the operator's OWN
+grouping, recorded at capture time, which sidesteps `co.uk` and `appspot.com`
+with no domain guessing and no PSL.
+
+THE ONE COMMAND THAT UNBLOCKS IT, still unrun:
+
+```bash
+find ~/BulkDownloader/captures -name '*_*_2*.wacz' -printf '%f\\n' \\
+  | sed -E 's/^([^_]+)_([0-9a-f]{6,})_.*/\\2 \\1/' | sort -u \\
+  | awk '{a[$1]=a[$1]" "$2} END{for(k in a) print k, a[k]}' | awk 'NF>2'
+```
+
+Rows mean siteid pairs hosts and cut A is evidence-based. NO rows means fall
+back to eTLD+1-as-CANDIDATE with a public-suffix denylist, and say so in the
+output rather than presenting a guess as a derivation.
 
 **1. C -- `text=/Download/i` can go green on a heading.** DIAGNOSED, not built.
 `tools/build_template_from_wacz.py` emits the hint from
