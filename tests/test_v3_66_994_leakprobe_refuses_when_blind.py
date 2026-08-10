@@ -137,7 +137,7 @@ def test_the_floor_hides_ambient_state_and_only_ambient_state(tool):
     ambient = {"env_added": {"BD_VPN_CONFIG_PATH": "/x"}, "env_removed": [],
                "env_changed": {}, "cwd_changed": None, "mod_swapped": [],
                "mod_removed": [], "mod_became_nonmodule": [],
-               "mod_new_nonmodule": [], "mod_nonmodule": ["typing.io"]}
+               "mod_new_nonmodule": ["typing.io"], "mod_nonmodule": ["typing.io"]}
     assert tool._excess(ambient, floor) == {}, "the floor is not absorbing ambient state"
 
     real = dict(ambient, env_added={"BD_VPN_CONFIG_PATH": "/x", "BD_REAL_LEAK": "1"})
@@ -151,34 +151,78 @@ def test_the_floor_hides_ambient_state_and_only_ambient_state(tool):
     mocked = dict(ambient, mod_became_nonmodule=["bulk_downloader.db"])
     assert tool._excess(mocked, floor) == {"mod_became_nonmodule": ["bulk_downloader.db"]}
 
-    # A planted non-module under an importable name is a leak...
     planted = dict(ambient, mod_new_nonmodule=["bd_leakprobe_canary_mod"])
     assert tool._excess(planted, floor) == {"mod_new_nonmodule": ["bd_leakprobe_canary_mod"]}
 
 
-def test_an_ordinary_third_party_import_is_NOT_reported_as_a_leak(tool):
-    """THE OVER-SENSITIVE DIRECTION, and it is not hypothetical: the first build
-    reported `test_secret_display_never.py` and `test_v3_43_60_captcha_relay.py`
-    as leaking because importing `cryptography` parks lazy binding objects at
-    `_openssl.lib` and `cryptography.hazmat.primitives.ciphers.modes`. Nothing
-    imports those names, and neither file mutates sys.modules at all.
+def test_a_planted_nonmodule_is_reported_UNDER_ANY_SPELLING(tool):
+    """A DOTTED NAME IS NOT SAFER THAN A BARE ONE, and an earlier build of this
+    file asserted the opposite.
 
-    A gate that cries wolf gets switched off, so over-sensitivity is a soundness
-    bug rather than a safe default. Pinned in the same test as the positive
-    direction above so a 'fix' that simply calls everything clean fails here."""
+    That build had `_excess` drop any dotted name outside a first-party prefix
+    list, on the theory that importing `cryptography` parks lazy bindings nobody
+    imports. Refuted by direct measurement -- `sys.modules["email.parser"] =
+    object()` then `import email.parser` returns the planted object, and
+    `concurrent.futures` and `urllib.request` behave identically.
+
+    The real cause was never in this function: `_ModuleWithDeprecations` IS a
+    ModuleType subclass, and the plugin's snapshot compared `type(v).__name__`
+    to the literal "module", filing every subclass as a non-module. isinstance
+    fixes it and no name filter is needed. Recorded here because a test that
+    pins the WRONG behaviour is how a misdiagnosis becomes permanent."""
     floor = {"env": set(), "mod_swapped": set(), "mod_removed": set(),
              "mod_nonmodule": set()}
-    d = {"env_added": {}, "env_removed": [], "env_changed": {}, "cwd_changed": None,
-         "mod_swapped": [], "mod_removed": [], "mod_became_nonmodule": [],
-         "mod_new_nonmodule": ["_openssl.lib",
-                               "cryptography.hazmat.primitives.ciphers.modes"],
-         "mod_nonmodule": ["_openssl.lib",
-                           "cryptography.hazmat.primitives.ciphers.modes"]}
-    assert tool._excess(d, floor) == {}, (
-        "an ordinary third-party import is being reported as a leak")
-    # ...but a first-party name planted the same way still is.
-    first = dict(d, mod_new_nonmodule=["bulk_downloader.db"])
-    assert tool._excess(first, floor) == {"mod_new_nonmodule": ["bulk_downloader.db"]}
+    base = {"env_added": {}, "env_removed": [], "env_changed": {},
+            "cwd_changed": None, "mod_swapped": [], "mod_removed": [],
+            "mod_became_nonmodule": [], "mod_new_nonmodule": [],
+            "mod_nonmodule": []}
+    for name in ("bd_plain_leak",                 # bare
+                 "email.parser",                  # dotted STDLIB -- was dropped
+                 "concurrent.futures",            # dotted stdlib, from-import form
+                 "requests.adapters",             # dotted third party
+                 "bulk_downloader.db"):           # dotted first party
+        d = dict(base, mod_new_nonmodule=[name], mod_nonmodule=[name])
+        assert tool._excess(d, floor) == {"mod_new_nonmodule": [name]}, (
+            "a planted non-module at %r is not reported -- it would be handed "
+            "to the next file that imports that name" % name)
+
+
+def test_the_floor_still_absorbs_state_the_lane_already_tolerates(tool):
+    """THE OVER-SENSITIVE DIRECTION. Removing the name filter must not turn
+    every ambient object into a leak: the first build reported all 26 wave-3
+    candidates as leaking, and a gate that cries wolf gets switched off. The
+    floor -- not a name rule -- is what absorbs that."""
+    floor = {"env": {"BD_VPN_CONFIG_PATH"}, "mod_swapped": set(),
+             "mod_removed": set(), "mod_nonmodule": {"typing.io", "_openssl.lib"}}
+    d = {"env_added": {"BD_VPN_CONFIG_PATH": "/x"}, "env_removed": [],
+         "env_changed": {}, "cwd_changed": None, "mod_swapped": [],
+         "mod_removed": [], "mod_became_nonmodule": [],
+         "mod_new_nonmodule": ["typing.io", "_openssl.lib"],
+         "mod_nonmodule": ["typing.io", "_openssl.lib"]}
+    assert tool._excess(d, floor) == {}, "the floor stopped absorbing ambient state"
+
+
+def test_a_ModuleType_SUBCLASS_counts_as_a_module(tool):
+    """The root cause, pinned at the plugin rather than at its symptom.
+
+    cryptography installs `_ModuleWithDeprecations` over its cipher submodules.
+    `isinstance(o, types.ModuleType)` is True for it; `type(o).__name__` is not
+    "module". The snapshot used the second form, so two files read as leaking
+    for importing cryptography and TWO successive repairs were built on that
+    reading before anyone printed the object's type."""
+    import types
+    ns = {}
+    exec(compile(tool._PLUGIN, "<plugin>", "exec"), ns)
+    kind = ns["_kind"]
+
+    class _ModuleWithDeprecations(types.ModuleType):
+        pass
+
+    assert kind(_ModuleWithDeprecations("x")) == "module", (
+        "a ModuleType subclass is being filed as a non-module -- the exact "
+        "defect that produced two false leak reports")
+    assert kind(types.ModuleType("y")) == "module"
+    assert kind(object()) != "module", "a planted object must not read as a module"
 
 
 def test_the_floor_is_derived_from_files_the_lane_ALREADY_ships(tool):

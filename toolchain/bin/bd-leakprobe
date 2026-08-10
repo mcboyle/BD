@@ -30,13 +30,18 @@ IDENTITY and by type, not by membership: a file that replaces
 THE CONTROL FLOOR, AND WHY A BARE DELTA IS USELESS. The first build of this
 reported all 26 wave-3 candidates as leaking. They were not. Every run adds
 `BD_VPN_CONFIG_PATH` and `BD_WIDGETS_CONFIG_PATH` (session-scoped autouse
-fixtures in `tests/conftest.py`) and parks a handful of lazy non-module objects
-in `sys.modules` (`pygments.formatters`, `typing.io`, and cryptography's
-`_openssl.lib` for any file that imports it). A verdict that fires on those is
-section 0's INVERSE defect -- a gate crying wolf gets switched off. So the floor
-is derived by running files ALREADY SHIPPING IN THE PARALLEL LANE, and only what
-exceeds it is reported. Anything at or below the floor is a state the lane
-demonstrably already tolerates.
+fixtures in `tests/conftest.py`) and leaves genuine non-module objects in
+`sys.modules` such as `typing.io` and cryptography's cffi `_openssl.lib`. A
+verdict that fires on those is section 0's INVERSE defect -- a gate crying wolf
+gets switched off. So the floor is derived by running files ALREADY SHIPPING IN
+THE PARALLEL LANE, and only what exceeds it is reported. Anything at or below
+the floor is a state the lane demonstrably already tolerates.
+
+The floor is a threshold, NOT a filter on which leaks count. Two attempts to
+narrow the subject by NAME instead -- a first-party prefix list, then a
+`--collect-only` ambient pass -- were both repairs for a misdiagnosis, and the
+first was refutable by measurement. See `_excess`, which records what the cause
+actually was and how long it took to look.
 
 SENSITIVITY IS CHECKED BEFORE EVERY VERDICT, NOT ONLY UNDER --selftest.
 `bd-mutation-test`'s docstring has recorded since v3.66.737 that the tool built
@@ -92,15 +97,26 @@ PY = REPO / "venv" / "bin" / "python"
 
 # The plugin is written to a scratch dir at run time so the tool is one file.
 _PLUGIN = '''
-import json, os, sys
+import json, os, sys, types
+def _kind(v):
+    """isinstance, NOT `type(v).__name__ == "module"`.
+
+    A ModuleType SUBCLASS is a module. cryptography installs
+    `_ModuleWithDeprecations` over its cipher submodules, and an exact type-name
+    comparison files those as non-modules -- which is what made two files read
+    as leaking for no reason other than importing cryptography. Two successive
+    repairs were built on that misreading (a first-party name filter, then a
+    per-file ambient pass) before anyone checked what the object actually was.
+    """
+    return "module" if isinstance(v, types.ModuleType) else type(v).__name__
 _S = {}
 def pytest_sessionstart(session):
     _S["env"] = dict(os.environ)
     _S["cwd"] = os.getcwd()
-    _S["mods"] = {k: (id(v), type(v).__name__) for k, v in sys.modules.items()}
+    _S["mods"] = {k: (id(v), _kind(v)) for k, v in sys.modules.items()}
 def pytest_sessionfinish(session, exitstatus):
     a = dict(os.environ); b = _S["env"]
-    m = {k: (id(v), type(v).__name__) for k, v in sys.modules.items()}
+    m = {k: (id(v), _kind(v)) for k, v in sys.modules.items()}
     n = _S["mods"]
     out = {
         "exitstatus": exitstatus,
@@ -115,10 +131,11 @@ def pytest_sessionfinish(session, exitstatus):
         "mod_became_nonmodule": sorted(
             k for k, v in m.items()
             if v[1] != "module" and k in n and n[k][1] == "module"),
-        # Newly present and not a module. Most of these are ordinary: importing
-        # `cryptography` parks lazy binding objects at `_openssl.lib` and
-        # `cryptography.hazmat.primitives.ciphers.modes`, which no later test
-        # imports by name. Reported separately so the caller can filter.
+        # Newly present and not a module -- something a test parked in the
+        # table. Dangerous under ANY spelling: `sys.modules["email.parser"] =
+        # object()` followed by `import email.parser` in a later file returns
+        # the planted object, and dotted stdlib names behave no differently
+        # from bare ones.
         "mod_new_nonmodule": sorted(
             k for k, v in m.items() if v[1] != "module" and k not in n),
         "mod_nonmodule": sorted(k for k, v in m.items() if v[1] != "module"),
@@ -139,22 +156,28 @@ def test_module_swapped_under_the_same_name():
     sys.modules["json"] = types.ModuleType("json")
 def test_nonmodule_parked_in_the_table():
     sys.modules["bd_leakprobe_canary_mod"] = object()
-def test_the_real_conftest_autouse_fixture_applied():
+def test_nonmodule_parked_under_a_DOTTED_name():
+    """The canary must cover every branch the VERDICT distinguishes, or a clean
+    report and a SENSITIVE selftest coexist with real blindness. An earlier
+    build filtered dotted names outside a first-party prefix list; a planted
+    non-module at `email.parser` is delivered verbatim to the next importer, and
+    the canary could not see it because it only ever planted a bare name."""
+    sys.modules["bd_leakprobe.canary.dotted"] = object()
+def test_the_real_conftest_autouse_fixture_applied(request):
     """Sensitivity proven through a denominator the real files never use is not
-    sensitivity. `isolated_bd_home` sets BD_HOME to tmp_path AND chdirs there,
-    so cwd == BD_HOME exactly when it ran.
+    sensitivity -- so this asks pytest directly whether the conftest's autouse
+    fixture applied to THIS item.
 
-    This deliberately does NOT ask whether the conftest ADDED an env key. When
-    bd-leakprobe is invoked from inside an outer pytest run the child inherits
-    BD_VPN_CONFIG_PATH and BD_WIDGETS_CONFIG_PATH already set, `setdefault` is a
-    no-op, and nothing appears as added -- a harness that copies os.environ
-    cannot test the absence of something the parent set (CLAUDE.md section 0).
-    That check reported BLIND on a working tool."""
-    import os as _o
-    home = _o.environ.get("BD_HOME", "")
-    assert home and _o.path.realpath(_o.getcwd()) == _o.path.realpath(home), (
-        "tests/conftest.py autouse fixtures did not run: cwd=%r BD_HOME=%r"
-        % (_o.getcwd(), home))
+    Two weaker signals were tried and both were wrong. Asking whether the
+    conftest ADDED an env key fails when bd-leakprobe runs inside an outer
+    pytest: the child inherits the keys, `setdefault` is a no-op, and a working
+    tool reports BLIND. Asking whether cwd == BD_HOME is FORGEABLE -- with
+    BD_HOME set to the current directory it passes with no conftest loaded at
+    all, which is precisely the deploy box's layout, where BD_HOME and the
+    install directory are the same path."""
+    assert "isolated_bd_home" in request.fixturenames, (
+        "tests/conftest.py autouse fixtures did not apply; fixtures seen: %r"
+        % (sorted(request.fixturenames),))
 '''
 
 
@@ -217,20 +240,26 @@ def _canary_ok(plugin_dir):
         if d is None:
             return False, "canary produced no delta file: %s" % proc.stderr[-400:]
         missing = []
-        if "BD_LEAKPROBE_CANARY" not in d["env_added"]:
-            missing.append("env write")
-        if "json" not in d["mod_swapped"]:
-            missing.append("module swap")
-        # Checked against the field the VERDICT reads, not merely the raw finish
-        # state -- proving sensitivity over a field `_excess` ignores is the
-        # blindness this tool exists to refuse.
-        if "bd_leakprobe_canary_mod" not in d.get("mod_new_nonmodule", []):
-            missing.append("non-module planted in sys.modules")
-        if not _importable_name("bd_leakprobe_canary_mod"):
-            missing.append("the planted name is filtered out before the verdict")
+        # Checked through `_excess`, the function that actually decides a
+        # verdict -- not against the raw delta. Proving sensitivity over a field
+        # `_excess` filters is the blindness this tool exists to refuse, and it
+        # is how a dotted-name blind spot survived a SENSITIVE selftest.
+        empty_floor = {"env": set(), "mod_swapped": set(), "mod_removed": set(),
+                       "mod_nonmodule": set()}
+        verdict = _excess(d, empty_floor)
+        planted = set(verdict.get("mod_new_nonmodule", ()))
+        for name, shape in (("bd_leakprobe_canary_mod", "non-module (bare name)"),
+                            ("bd_leakprobe.canary.dotted", "non-module (DOTTED name)")):
+            if name not in planted:
+                missing.append("%s survived to the verdict" % shape)
+        if "BD_LEAKPROBE_CANARY" not in verdict.get("env_added", ()):
+            missing.append("env write survived to the verdict")
+        if "json" not in verdict.get("mod_swapped", ()):
+            missing.append("module swap survived to the verdict")
         # The conftest must actually have been in the loop. The canary asserts
-        # that itself -- cwd == BD_HOME -- so a nonzero pytest exit IS the
-        # signal, and it survives being run from inside another pytest process.
+        # that itself, by asking pytest whether the autouse fixture applied to
+        # the item, so a nonzero pytest exit IS the signal -- and it survives
+        # being run from inside another pytest process.
         if d["exitstatus"] != 0:
             missing.append("canary suite did not pass (exit %s): %s"
                            % (d["exitstatus"], proc.stdout[-400:]))
@@ -271,25 +300,31 @@ def _default_controls(n):
     return got
 
 
-# A leaked non-module only harms a later file that IMPORTS that name, and later
-# files import first-party modules and stdlib. `_openssl.lib` is not importable
-# by name at all.
-_FIRST_PARTY = ("bulk_downloader", "tools", "toolchain", "tests")
-
-
-def _importable_name(k):
-    """Could a later test plausibly `import k` and get the planted object?"""
-    return "." not in k or k.split(".")[0] in _FIRST_PARTY
-
-
 def _excess(d, floor):
     """What this file leaves behind that a shipping parallel file does not.
 
-    `mod_nonmodule` was the raw finish-state set until it reported two files as
-    leaking for importing `cryptography`. A lazy binding created by an ordinary
-    import is not a leak, and a check that says it is gets switched off -- so the
-    subject is now stated precisely: a module REPLACED by a non-module (always),
-    plus a newly planted non-module under a name something could actually import.
+    NOTHING IS FILTERED BY NAME HERE, and the road to that is the lesson.
+    `mod_nonmodule` began as the raw finish-state set and reported two files as
+    leaking merely for importing `cryptography`. That over-sensitivity was real
+    -- a gate that cries wolf gets switched off -- but both repairs attacked the
+    symptom:
+
+      1. `_importable_name` dropped any dotted name outside a first-party prefix
+         list. REFUTED by measurement: `sys.modules["email.parser"] = object()`
+         followed by `import email.parser` returns the planted object, and
+         `concurrent.futures` and `urllib.request` behave identically. Its own
+         comment claimed to protect "first-party modules and stdlib" while the
+         code excluded every dotted stdlib name.
+      2. A per-file `--collect-only` ambient pass, to subtract whatever merely
+         importing the file produces. It could not work either: cryptography is
+         imported INSIDE a test body, so collection never triggers it.
+
+    The cause was in the plugin, not here. `_ModuleWithDeprecations` IS a
+    ModuleType subclass, and the snapshot tested `type(v).__name__ == "module"`
+    -- an exact type-name comparison that files every subclass as a non-module.
+    With `isinstance` the cryptography entries are modules, which they always
+    were, and neither filter is needed. Two fixes were built on a misreading
+    because nobody printed the object's type.
     """
     ex = {}
     e = sorted(set(d["env_added"]) - floor["env"])
@@ -305,11 +340,12 @@ def _excess(d, floor):
         v = sorted(set(d[key]) - floor[key])
         if v:
             ex[key] = v
-    flipped = sorted(set(d.get("mod_became_nonmodule", [])) - floor["mod_nonmodule"])
+    flipped = sorted(set(d.get("mod_became_nonmodule", []))
+                     - floor["mod_nonmodule"])
     if flipped:
         ex["mod_became_nonmodule"] = flipped
-    planted = sorted(k for k in set(d.get("mod_new_nonmodule", []))
-                     - floor["mod_nonmodule"] if _importable_name(k))
+    planted = sorted(set(d.get("mod_new_nonmodule", []))
+                     - floor["mod_nonmodule"])
     if planted:
         ex["mod_new_nonmodule"] = planted
     return ex
@@ -367,7 +403,8 @@ def main(argv=None):
 
         results, leaked, unrunnable = {}, [], []
         for t in targets:
-            d, proc = _run(REPO / t if not os.path.isabs(t) else t, plugin_dir)
+            path = REPO / t if not os.path.isabs(t) else t
+            d, proc = _run(path, plugin_dir)
             if d is None:
                 unrunnable.append(t)
                 print("  UNRUNNABLE %s" % t)
