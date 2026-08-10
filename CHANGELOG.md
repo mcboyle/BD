@@ -4,6 +4,36 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1001
+
+- THE SYNTHETIC CORPUS WAS ONLY 7 TRACKED OF 27 FILES, and v3.66.1000 shipped it
+  that way. .gitignore carries `*.wacz` and `*.har`, so every capture artifact in
+  the corpus was ignored while its .json members committed. Locally the untracked
+  files are still on disk, so the tests passed here and would have failed in CI
+  on a missing artifact -- green here, red there, which is the worst shape.
+  Two narrow negations scoped to tests/capture_corpus_synthetic/ fix it; 31 of 31
+  tracked, gitleaks clean, both gitignore gates green.
+- MY OWN CHECK MISSED IT. Before committing @1000 I ran `git check-ignore` on
+  capA.json -- a file whose extension is not one of the ignored ones. The
+  denominator excluded the subject, which is section 0 in the verification of a
+  section 0 fix.
+- The 3 bd_dev_inspect skips now run: scripts/cloud-setup.sh provisions the
+  dev-only raw-capture seam INTO THE VENV, never the repo. release_lint calls it
+  "the ONLY place the unredacted-capture capability exists... it must NEVER ship
+  in a release", so committing it would widen a deliberate boundary to every
+  clone. The module installs capture_redactor's EXISTING _PASSTHROUGH and adds no
+  capability. CONSEQUENCE, STATED: GitHub CI does not run cloud-setup.sh, so
+  those three still skip there.
+- disable_raw_capture pins the REAL redactor rather than clearing the override.
+  Clearing it is not enough -- active_redactor() then falls through to the
+  operator's raw flag, which is still set, so the capture stays raw. Measured:
+  the seam's own test_disable_restores_redaction failed exactly that way.
+- The last capture skip is closed: two ultrafilms_2candies_* artifacts, both
+  carrying real signing shapes, so the evidence-DIFF assertion can actually fail.
+- SKIPS ACROSS THE ORIGINAL 85: now 1, and it is self-retiring -- the
+  BD_REPO_CANDIDATES dead-branch guard whose subject was removed entirely.
+  Making it run would mean re-introducing the bug it guards against.
+
 ## v3.66.1000
 
 - 65 capture-dependent skips -> 1. The 13 files that consume capture artifacts

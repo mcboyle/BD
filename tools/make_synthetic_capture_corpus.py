@@ -463,6 +463,14 @@ def _plan():
         "ultrafilms_title1_later.wacz":   ("wacz", _ultrafilms("title1", ULTRA_ID, "720p.mp4", 100)),
         "yultrafilms_title1_later.wacz":  ("wacz", _ultrafilms("title1", ULTRA_ID, "1080p.mp4", 100)),
         # title2/title14 -- one video, two sessions: SAME identity, different rendition
+        # The cockpit's evidence-DIFF pair. test_v3_66_101's
+        # test_capture_diff_no_signing_values stages exactly these two names and
+        # asserts posture_scan finds no raw signing value in the DIFF of them.
+        # Two sessions of one title at different renditions, BOTH carrying real
+        # signing shapes -- so the diff has something to leak and the assertion
+        # can actually fail. Without the hazards this would be a vacuous pass.
+        "ultrafilms_2candies_4k.wacz":   ("wacz", _ultrafilms("2candies", ULTRA_SERIES_ID, "2160p.mp4", 0)),
+        "ultrafilms_2candies_720p.wacz": ("wacz", _ultrafilms("2candies", ULTRA_SERIES_ID, "720p.mp4", 100)),
         "ultrafilms_title2.wacz":         ("wacz", _ultrafilms("title2", ULTRA_SERIES_ID, "1080p.mp4", 0)),
         "ultrafilms_title14_later.wacz":  ("wacz", _ultrafilms("title14", ULTRA_SERIES_ID, "720p.mp4", 100)),
         # bros -- sharded HLS manifest (11-segment run collapses to one identity)

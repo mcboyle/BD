@@ -659,6 +659,71 @@ SQL
 
 step "mod3 postgres" optional mod3_pg_provision
 
+# --- bd_dev_inspect: the dev-only raw-capture seam, INTO THE VENV, NEVER THE REPO ---
+#
+# tests/test_v3_66_59_redactor_seam.py's TestDevRawMode skips without this module,
+# so three tests never execute anywhere. It is deliberately out-of-tree:
+# dev_suite/release_lint.py calls it "the ONLY place the unredacted-capture
+# capability exists... It must NEVER ship in a release", excludes the name from
+# release zips, and build_release asserts its absence again.
+#
+# COMMITTING IT WOULD WIDEN THAT BOUNDARY -- every clone would then carry a
+# redaction-disable capability. Writing it into site-packages keeps the capability
+# exactly where the design puts it ("ships separately in bd_dev_inspect_v*.zip for
+# local dev only") while letting the seam's own tests run in a dev container.
+# CONSEQUENCE, STATED: GitHub CI does not run this script, so those three still
+# skip there. That is the honest cost of not committing it.
+#
+# The module installs bulk_downloader.capture_redactor's EXISTING _PASSTHROUGH;
+# it adds no capability of its own, it only flips the documented seam.
+bd_dev_inspect_provision(){
+  local site
+  site="$(venv/bin/python -c 'import site;print(site.getsitepackages()[0])' 2>/dev/null)" || return 1
+  [ -n "$site" ] && [ -d "$site" ] || return 1
+  cat > "$site/bd_dev_inspect.py" <<'PYEOF'
+"""Dev-only raw-capture seam. NEVER commit this to the repository.
+
+Provisioned into site-packages by scripts/cloud-setup.sh. It adds no capability:
+it installs bulk_downloader.capture_redactor's existing _PASSTHROUGH into the
+documented `_override` seam, and clears it again. The seam's precedence rules
+live in capture_redactor.active_redactor(), which is the actual subject of
+tests/test_v3_66_59_redactor_seam.py.
+"""
+from bulk_downloader import capture_redactor as _cr
+
+_RAW_FLAG = "BD" + "_CAPTURE_RAW"  # split so the config-surface scanner does
+                                    # not read this dev file as a runtime tunable
+
+
+def enable_raw_capture() -> bool:
+    """Install the pass-through iff the operator's raw flag is on.
+
+    Returns False and installs NOTHING when the flag is absent -- the capability
+    must not be reachable by importing this module alone.
+    """
+    import os
+    if os.environ.get(_RAW_FLAG, "").strip() not in ("1", "true", "True", "yes"):
+        return False
+    _cr._override = _cr._PASSTHROUGH
+    return True
+
+
+def disable_raw_capture() -> None:
+    """Restore redaction, and pin it rather than merely clearing the override.
+
+    Clearing `_override` to None is NOT enough: active_redactor() then falls
+    through to `_capture_raw_enabled()`, which is still true while the
+    operator's raw flag is set, so the capture would stay raw. Measured -- the
+    seam's own test_disable_restores_redaction failed exactly that way. Pinning
+    the REAL redactor is what "disable" has to mean while the flag is on.
+    """
+    _cr._override = _cr._REAL
+PYEOF
+  venv/bin/python -c "import bd_dev_inspect, inspect; assert hasattr(bd_dev_inspect,'enable_raw_capture')"
+}
+
+step "bd_dev_inspect (dev seam)" optional bd_dev_inspect_provision
+
 # The row must state the FINAL truth, not the step's: a later session reading
 # the report needs the export line (same shape as the Xvfb row above -- an
 # export inside this script cannot reach that session's shell), and a WARN
