@@ -120,15 +120,25 @@ def _has_source_hazard(lanes, path) -> bool:
     hand-picked subset of SERIAL_SOURCE_SNIPPETS omitted five entries, and
     seven files were promoted that the real predicate refuses. The instrument
     fixes the denominator; borrowing it fixes the predicate too.
+
+    v3.66.992: it now borrows the classifier's `code_only` as well, for the same
+    reason it borrows the constants. @990 made the absolute check read CODE
+    rather than prose; this helper kept reading raw source, so the guard and the
+    classifier held two different definitions of "hazard" and the guard failed
+    on every file promoted for having only a docstring mention. Borrowing the
+    constants but not the text they are applied to is half a borrow -- and this
+    caught it on the first run, which is the argument for deriving the subject
+    rather than restating it.
     """
     try:
         source = path.read_text(encoding="utf-8")
     except OSError:
         return True
-    lowered = source.lower()
+    code = lanes.code_only(source)
+    lowered = code.lower()
     if any(snippet in lowered for snippet in lanes.ABSOLUTE_SERIAL_SNIPPETS):
         return True
-    return bool(lanes.RUNTESTS_LITERAL.search(source))
+    return bool(lanes.RUNTESTS_LITERAL.search(code))
 
 
 def test_classifier_defaults_unreviewed_files_to_serial() -> None:
@@ -163,7 +173,18 @@ def test_classifier_defaults_unreviewed_files_to_serial() -> None:
         for path in sorted((REPO_ROOT / "tests").rglob("test_*.py"))
         if _has_source_hazard(lanes, path)
     ]
-    assert len(hazardous) > 100, (
+    # THE FLOOR DROPPED FROM 100 TO 15 AT v3.66.992, AND THE REASON MATTERS.
+    # It is not the guard weakening: the PREDICATE got more precise. While the
+    # absolute check read raw source it counted every file that merely MENTIONED
+    # the runner in a comment or docstring -- 143 of them, of which 4 actually
+    # imported it. @990 made the check read CODE, so the honest population is
+    # the files that really carry the hazard. Measured at v3.66.992: 22.
+    #
+    # The assertion's job is unchanged -- prove the denominator has not
+    # COLLAPSED, so the per-file loop below is asserting over something. 15
+    # keeps that with headroom under the measured 22, and a drop past it means
+    # the strip or the constants broke rather than that the tree got tidier.
+    assert len(hazardous) > 15, (
         f"only {len(hazardous)} hazardous files found -- the denominator "
         f"collapsed and the assertion below would mean nothing"
     )
