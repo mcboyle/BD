@@ -25,12 +25,37 @@ _MISSING = object()
 # importing bulk_downloader.app spawns daemon threads that try to load
 # cookies, call do_login(), etc. — which interacts poorly with the
 # isolated tmpdirs that individual tests use.
-os.environ.setdefault("BD_DISABLE_KEEPALIVE", "1")
-
 TESTS_DIR = Path(__file__).resolve().parent / "tests"
 PKG_ROOT  = Path(__file__).resolve().parent
 RUNNER_CLI = PKG_ROOT / "run_tests.py"
-sys.path.insert(0, str(PKG_ROOT))
+
+
+def _prepare_runner_state() -> None:
+    """Apply the global state this runner needs -- NOT at import time.
+
+    v3.66.990. These two lines used to run at module scope, so merely IMPORTING
+    this module rewired the interpreter for every test collected afterwards in
+    the same process. Measured in a fresh subprocess with the variable POPPED:
+
+        env_before null -> env_after "1";  sys.path gains the repo root
+
+    Neither was restored. That is why `tests/capture_lanes.py` pins any file
+    mentioning this module to the serial lane, and the pin is correct as long as
+    the mutation is at import time. Moving it here makes the import inert
+    without changing what the runner gets when it actually runs.
+
+    The env flag is a `setdefault` on purpose: an operator running with
+    BD_DISABLE_KEEPALIVE deliberately set keeps their value. Without it,
+    importing bulk_downloader.app spawns daemon threads that load cookies and
+    call do_login() against the isolated tmpdirs individual tests use.
+
+    Idempotent: the sys.path entry was previously added exactly once per process
+    because it sat at module scope, and an explicit call site can run many times.
+    """
+    os.environ.setdefault("BD_DISABLE_KEEPALIVE", "1")
+    root = str(PKG_ROOT)
+    if root not in sys.path:
+        sys.path.insert(0, root)
 
 
 # ── Stub out pytest for the test files. We re-implement only the
@@ -304,6 +329,7 @@ def activated_pytest_stub():
     Real pytest and foreign bindings are never replaced. Nested activation is
     allowed only when this module's own stub is already active.
     """
+    _prepare_runner_state()
     existing = sys.modules.get("pytest", _MISSING)
     if existing is _MISSING:
         stub = _PytestStub()
@@ -481,6 +507,7 @@ def make_clean_workdir():
     logging handlers in `finally` before teardown, and pass
     ignore_cleanup_errors so a stuck file degrades to a harmless
     leftover folder instead of crashing the suite (Python 3.10+)."""
+    _prepare_runner_state()
     import logging
     import os
     try:
@@ -513,6 +540,7 @@ def make_clean_workdir():
 @contextmanager
 def make_fresh_app(workdir):
     """Mimics the fresh_app fixture."""
+    _prepare_runner_state()
     if "bulk_downloader.app" in sys.modules:
         app_mod = sys.modules["bulk_downloader.app"]
         app_mod.runners.clear()
@@ -565,6 +593,7 @@ def run_test(test_fn, owner=None, autouse_fixtures=(), module_wipe=False,
     ``bulk_downloader.*`` modules from sys.modules around the test, so an
     import inside the test body re-reads env vars at load time — mirroring
     conftest.py's isolated_bd_home behaviour under real pytest."""
+    _prepare_runner_state()
     # v3.66.934: the mirror of conftest.py's `_aiassist_config_is_never_
     # inherited`. THIS RUNNER DOES NOT READ tests/conftest.py -- autouse
     # fixtures are collected from the TEST MODULE only (`for name in
@@ -862,6 +891,7 @@ def run_test(test_fn, owner=None, autouse_fixtures=(), module_wipe=False,
 
 def discover_and_run(test_file):
     """Import a test file and run every test_* function/method."""
+    _prepare_runner_state()
     spec = importlib.util.spec_from_file_location(
         f"test_{test_file.stem}", test_file)
     mod = importlib.util.module_from_spec(spec)
@@ -1432,6 +1462,7 @@ def _retry_failures_serial(all_results, files_to_run):
 
 
 def main():
+    _prepare_runner_state()
     # v3.47.3: accept an optional list of test files / pytest-style
     # ids on the command line. Allows the dev-tools API + ad-hoc
     # debugging to run just one file or one class. Without arguments,

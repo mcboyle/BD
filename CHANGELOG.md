@@ -4,6 +4,37 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.990
+
+- capture_lanes: the runner-import risk is asked of CODE, not prose. The rule
+  pinning a test file to the serial lane for containing `import run_tests`,
+  `from run_tests` or `run_tests.py` matched comments and docstrings too.
+  Measured over 1277 tracked test files: 143 pinned, 4 genuinely import the
+  runner, 139 only mention it in prose, 19 still pinned after stripping.
+  ~124 files sat in the ~12-minute serial lane for a comment.
+- The rule is UNCHANGED -- same snippets, same absoluteness, same position above
+  the allowlist. Only the text it reads changed. code_only() is FAIL-CLOSED: any
+  tokenizer or parser failure returns the original source, so an unparseable
+  file is still judged on everything it contains. The dynamic forms the existing
+  guard pins (importlib.import_module("run_tests"), __import__("run_tests")) are
+  code and survive the strip.
+- run_tests_core: importing it no longer rewires the interpreter. os.environ
+  .setdefault("BD_DISABLE_KEEPALIVE","1") and sys.path.insert(0, PKG_ROOT) ran
+  at module scope and were never restored; both now live in
+  _prepare_runner_state(), called from all six public entry points. Measured
+  with the variable POPPED, which is the only way to see it -- conftest sets the
+  same flag and every band exports it, so a probe that merely refrains from
+  setting it reports the import inert. That mistake is what made an earlier
+  proposal to narrow this rule look safe; it was refuted.
+- THIS FREES ZERO FILES BY ITSELF, deliberately. The absolute checks sit above
+  the allowlist, so a prose-matched file could not be promoted by review; now it
+  falls through to the allowlist, is not on it (measured: 0 of 124), and reaches
+  the fail-closed default. What changes is eligibility. Of the 124, SEVENTY-FIVE
+  are clean by every remaining hazard check and are promotion candidates; 49
+  trip a real hazard (22 env/sys.modules/chdir patterns, 19 snippets, 7 name
+  tokens, 1 refuted by name) and stay serial. Promotion needs a measured
+  all-parallel sweep on the box, the v3.66.923 precedent, in its own cut.
+
 ## v3.66.989
 
 - template_normalize: a download AFFORDANCE now counts as scoping, not only a
