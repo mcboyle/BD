@@ -4,6 +4,39 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.994
+
+- New tool `bd-leakprobe`: measures what a test FILE leaves behind for the next
+  file on its xdist worker -- os.environ, sys.modules and cwd diffed between
+  pytest_sessionstart and sessionfinish, one fresh interpreter per file. The
+  lane classifier answers "does this file contain the shape" with a regex over
+  source text; the shape is not the hazard, state that outlives the file is.
+  Measured over the 26 pattern-class serial files: 72 os.environ writes, 11
+  sys.modules writes and 2 os.chdir by AST, and TWO of the 26 perform none at
+  all -- they match on a docstring and on a string literal holding source for a
+  CHILD pytest process.
+- The tool refuses rather than guesses. A planted canary must be DETECTED before
+  any verdict is issued; an empty file list, a zero-length control set and a
+  control that did not run are all NO VERDICT (exit 2), and 2 is not a softer 1.
+  Sensitivity is checked on every run, not only under --selftest.
+- The canary runs OUT OF TREE with `-p tests.conftest`, so nothing is ever
+  written into tests/. The obvious implementation -- copy the canary into
+  tests/ -- fails test_pin_index_in_sync when a killed run leaves residue,
+  because build_pin_index globs tests/*.py.
+- Verdicts are floor-subtracted against files already shipping in the parallel
+  lane. Without a floor the first build reported all 26 as leaking; every run
+  adds BD_VPN_CONFIG_PATH and BD_WIDGETS_CONFIG_PATH from session fixtures.
+  Importing cryptography parks lazy binding objects in sys.modules, so the
+  non-module check now names its subject precisely: a real module REPLACED by a
+  non-module, plus a planted non-module under an importable name.
+- Fixes the one real leak it found. tests/test_v3_43_60_vpn_ui.py left
+  BD_DISABLE_VPN_RUNTIME set process-wide via a raw os.environ write, which
+  conftest's autouse guard cannot restore -- its denominator is five named keys
+  and that is not one of them. Now monkeypatch.setenv, which run_tests_core
+  shims, so the module's portability note still holds. Measured both
+  directions: env_added ['BD_DISABLE_VPN_RUNTIME'] before, [] after.
+- _TOOL_BUDGET 237 -> 238 on operator sign-off.
+
 ## v3.66.993
 
 - Register only. 15.78 supersedes 15.77's "promotion pool" framing: the 75 are

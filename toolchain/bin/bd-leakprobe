@@ -1,0 +1,374 @@
+#!/usr/bin/env python3
+"""bd-leakprobe -- measure what a test FILE leaks into the next file on its worker.
+
+THE QUESTION IT EXISTS TO ANSWER. `tests/capture_lanes.py` pins a file to
+capture.sh's serial lane when its SOURCE TEXT matches `os.environ[...] = `,
+`sys.modules`, or `os.chdir(`. That is a regex over source, and section 0 of
+CLAUDE.md is the whole story of what regexes over source cannot see:
+
+  * a DOCSTRING that quotes the construct matches (the @990 finding, which
+    cost ~124 files a place in the serial lane);
+  * a string literal holding source for a CHILD pytest process matches, though
+    the write happens in a different interpreter and can reach nobody;
+  * a write wrapped in `monkeypatch`, `finally` or `setUp` matches, though it
+    is restored;
+  * and a write that is REAL and unrestored looks exactly like all three.
+
+So the regex answers "does this file contain the shape", and the shape is not
+the hazard. The hazard is state that OUTLIVES the file, because xdist's
+`--dist loadfile` keeps a file's tests together on one worker but does not give
+the file its own worker -- whichever file lands there next inherits whatever the
+last one left behind.
+
+WHAT IT MEASURES. Snapshot `os.environ`, `sys.modules` and the cwd at
+`pytest_sessionstart` (conftest imported, no test run yet); diff at
+`pytest_sessionfinish`. Whatever differs is, by construction, exactly what the
+next file on that worker would inherit. `sys.modules` is compared by object
+IDENTITY and by type, not by membership: a file that replaces
+`bulk_downloader.db` with a Mock leaves the table exactly the same size.
+
+THE CONTROL FLOOR, AND WHY A BARE DELTA IS USELESS. The first build of this
+reported all 26 wave-3 candidates as leaking. They were not. Every run adds
+`BD_VPN_CONFIG_PATH` and `BD_WIDGETS_CONFIG_PATH` (session-scoped autouse
+fixtures in `tests/conftest.py`) and parks a handful of lazy non-module objects
+in `sys.modules` (`pygments.formatters`, `typing.io`, and cryptography's
+`_openssl.lib` for any file that imports it). A verdict that fires on those is
+section 0's INVERSE defect -- a gate crying wolf gets switched off. So the floor
+is derived by running files ALREADY SHIPPING IN THE PARALLEL LANE, and only what
+exceeds it is reported. Anything at or below the floor is a state the lane
+demonstrably already tolerates.
+
+SENSITIVITY IS CHECKED BEFORE EVERY VERDICT, NOT ONLY UNDER --selftest.
+`bd-mutation-test`'s docstring has recorded since v3.66.737 that the tool built
+to hunt gate-blindness was itself a blind gate. A clean report from a probe that
+cannot see a leak is worse than no probe, so the canary runs first, every time,
+and a canary that is not detected produces NO VERDICT (exit 2) rather than a
+pass. Exit 2 is not a softer exit 1.
+
+The canary runs OUT OF TREE with `-p tests.conftest`, which loads the real
+conftest as a plugin -- its autouse fixtures do apply. Verified to give a result
+identical to copying the canary into `tests/`, which is the obvious
+implementation and the wrong one: `tools/build_pin_index.py` globs
+`tests/*.py`, so residue from a killed run inflates `test_files_scanned` and
+fails `test_pin_index_in_sync` (section 2a). This tool never writes into the
+work tree.
+
+WHAT IT CANNOT SEE, stated because a floor of silence reads as safety:
+  * `importlib.reload(m)` mutates a module IN PLACE, so identity is unchanged
+    and no swap is reported. A file that reloads a module under a modified
+    environment leaves it reconfigured. Band the module's consumers instead.
+  * State outside these three tables -- a file on disk, a database row, a
+    monkeypatched attribute on a live object, a thread.
+  * Intra-file interference, deliberately: under `--dist loadfile` a file's
+    tests are contiguous on one worker, so a leak that a later test in the SAME
+    file undoes cannot reach anyone.
+
+USAGE
+    bd-leakprobe --files tests/test_a.py tests/test_b.py
+    bd-leakprobe --file-list wave3.txt --json out.json
+    bd-leakprobe --selftest
+
+EXIT
+    0  every probed file is at or below the control floor
+    1  at least one file leaks above it
+    2  NO VERDICT -- canary undetected, no controls, or a probe failed to run
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import pathlib
+import shutil
+import subprocess
+import sys
+import tempfile
+
+REPO = pathlib.Path(__file__).resolve().parent.parent.parent
+TESTS = REPO / "tests"
+PY = REPO / "venv" / "bin" / "python"
+
+# The plugin is written to a scratch dir at run time so the tool is one file.
+_PLUGIN = '''
+import json, os, sys
+_S = {}
+def pytest_sessionstart(session):
+    _S["env"] = dict(os.environ)
+    _S["cwd"] = os.getcwd()
+    _S["mods"] = {k: (id(v), type(v).__name__) for k, v in sys.modules.items()}
+def pytest_sessionfinish(session, exitstatus):
+    a = dict(os.environ); b = _S["env"]
+    m = {k: (id(v), type(v).__name__) for k, v in sys.modules.items()}
+    n = _S["mods"]
+    out = {
+        "exitstatus": exitstatus,
+        "cwd_changed": None if _S["cwd"] == os.getcwd() else [_S["cwd"], os.getcwd()],
+        "env_added": {k: a[k] for k in a.keys() - b.keys()},
+        "env_removed": sorted(b.keys() - a.keys()),
+        "env_changed": {k: [b[k], a[k]] for k in b.keys() & a.keys() if b[k] != a[k]},
+        "mod_removed": sorted(n.keys() - m.keys()),
+        "mod_swapped": sorted(k for k in n.keys() & m.keys() if n[k][0] != m[k][0]),
+        # A real module REPLACED by a non-module -- a Mock parked over an import.
+        # Dangerous whatever it is named.
+        "mod_became_nonmodule": sorted(
+            k for k, v in m.items()
+            if v[1] != "module" and k in n and n[k][1] == "module"),
+        # Newly present and not a module. Most of these are ordinary: importing
+        # `cryptography` parks lazy binding objects at `_openssl.lib` and
+        # `cryptography.hazmat.primitives.ciphers.modes`, which no later test
+        # imports by name. Reported separately so the caller can filter.
+        "mod_new_nonmodule": sorted(
+            k for k, v in m.items() if v[1] != "module" and k not in n),
+        "mod_nonmodule": sorted(k for k, v in m.items() if v[1] != "module"),
+    }
+    dest = os.environ.get("BD_LEAKPROBE_OUT")
+    if dest:
+        with open(dest, "w", encoding="utf-8") as fh:
+            json.dump(out, fh, sort_keys=True, default=str)
+'''
+
+_CANARY = '''
+"""Deliberately leaks in all three shapes. If a probe reports this clean it is
+blind, and every clean verdict it has ever issued is void."""
+import os, sys, types
+def test_env_key_outside_the_guards_denominator():
+    os.environ["BD_LEAKPROBE_CANARY"] = "1"
+def test_module_swapped_under_the_same_name():
+    sys.modules["json"] = types.ModuleType("json")
+def test_nonmodule_parked_in_the_table():
+    sys.modules["bd_leakprobe_canary_mod"] = object()
+def test_the_real_conftest_autouse_fixture_applied():
+    """Sensitivity proven through a denominator the real files never use is not
+    sensitivity. `isolated_bd_home` sets BD_HOME to tmp_path AND chdirs there,
+    so cwd == BD_HOME exactly when it ran.
+
+    This deliberately does NOT ask whether the conftest ADDED an env key. When
+    bd-leakprobe is invoked from inside an outer pytest run the child inherits
+    BD_VPN_CONFIG_PATH and BD_WIDGETS_CONFIG_PATH already set, `setdefault` is a
+    no-op, and nothing appears as added -- a harness that copies os.environ
+    cannot test the absence of something the parent set (CLAUDE.md section 0).
+    That check reported BLIND on a working tool."""
+    import os as _o
+    home = _o.environ.get("BD_HOME", "")
+    assert home and _o.path.realpath(_o.getcwd()) == _o.path.realpath(home), (
+        "tests/conftest.py autouse fixtures did not run: cwd=%r BD_HOME=%r"
+        % (_o.getcwd(), home))
+'''
+
+
+def _run(target, plugin_dir, extra=()):
+    """Probe one path in a fresh interpreter. Returns the delta dict or None."""
+    out = pathlib.Path(plugin_dir) / ("probe_%s.json" % abs(hash(str(target))))
+    env = dict(os.environ)
+    env["BD_LEAKPROBE_OUT"] = str(out)
+    # BD_INSTALL_DIR to a throwaway: db._resolve_db_path() joins it with the
+    # relative DB_PATH, and without it sqlite resolves against the CWD and
+    # writes downloader_history.db into the repo (CLAUDE.md section 5).
+    env["BD_INSTALL_DIR"] = tempfile.mkdtemp(prefix="leakprobe_db_")
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(plugin_dir), str(REPO), str(TESTS), env.get("PYTHONPATH", "")])
+    cmd = [str(PY) if PY.exists() else sys.executable, "-m", "pytest", str(target),
+           "-q", "-p", "no:randomly", "-p", "bd_leakprobe_plugin", *extra]
+    proc = subprocess.run(cmd, cwd=str(REPO), env=env, capture_output=True,
+                          text=True, timeout=1800)
+    shutil.rmtree(env["BD_INSTALL_DIR"], ignore_errors=True)
+    if not out.exists():
+        return None, proc
+    return json.loads(out.read_text(encoding="utf-8")), proc
+
+
+def _canary_ok(plugin_dir):
+    """Prove the probe can see a leak, THROUGH the real conftest.
+
+    `-p tests.conftest` loads it as a plugin so its autouse fixtures apply to a
+    file living outside the tree. Nothing is ever written into tests/."""
+    cdir = pathlib.Path(tempfile.mkdtemp(prefix="leakprobe_canary_"))
+    (cdir / "test_bd_leakprobe_canary.py").write_text(_CANARY, encoding="utf-8")
+    try:
+        d, proc = _run(cdir / "test_bd_leakprobe_canary.py", plugin_dir,
+                       extra=("-p", "tests.conftest"))
+        if d is None:
+            return False, "canary produced no delta file: %s" % proc.stderr[-400:]
+        missing = []
+        if "BD_LEAKPROBE_CANARY" not in d["env_added"]:
+            missing.append("env write")
+        if "json" not in d["mod_swapped"]:
+            missing.append("module swap")
+        # Checked against the field the VERDICT reads, not merely the raw finish
+        # state -- proving sensitivity over a field `_excess` ignores is the
+        # blindness this tool exists to refuse.
+        if "bd_leakprobe_canary_mod" not in d.get("mod_new_nonmodule", []):
+            missing.append("non-module planted in sys.modules")
+        if not _importable_name("bd_leakprobe_canary_mod"):
+            missing.append("the planted name is filtered out before the verdict")
+        # The conftest must actually have been in the loop. The canary asserts
+        # that itself -- cwd == BD_HOME -- so a nonzero pytest exit IS the
+        # signal, and it survives being run from inside another pytest process.
+        if d["exitstatus"] != 0:
+            missing.append("canary suite did not pass (exit %s): %s"
+                           % (d["exitstatus"], proc.stdout[-400:]))
+        return (not missing), ", ".join(missing)
+    finally:
+        shutil.rmtree(cdir, ignore_errors=True)
+
+
+def _default_controls(n):
+    """Files ALREADY in the parallel lane, so their state is tolerated by
+    construction. Chosen from the classifier rather than hand-listed, so the
+    floor cannot silently describe a lane the repo has moved on from.
+
+    `n <= 0` returns EMPTY, which the caller turns into NO VERDICT. Without this
+    the loop's `len(got) == n` never fired -- 0 is never reached after the first
+    append -- so asking for zero controls silently selected all 1191 parallel
+    files and ran a pytest subprocess for each. The test that names this case
+    passed anyway for ten minutes' worth of the wrong reason: while the canary
+    was failing, `main` returned 2 above this call and the path was never taken.
+    """
+    if n <= 0:
+        return []
+    sys.path.insert(0, str(TESTS))
+    import capture_lanes as lanes                                # noqa: E402
+    got = []
+    listed = subprocess.run(["git", "ls-files", "tests/test_*.py"],
+                            cwd=str(REPO), capture_output=True, text=True)
+    for f in listed.stdout.split():
+        if lanes.classify_capture_file(REPO / f) != "parallel":
+            continue
+        src = (REPO / f).read_text(encoding="utf-8", errors="replace")
+        if any(p.search(src) for p in lanes.SERIAL_SOURCE_PATTERNS):
+            continue
+        if any(s in src.lower() for s in lanes.SERIAL_SOURCE_SNIPPETS):
+            continue
+        got.append(f)
+        if len(got) >= n:      # >=, not ==: an == bound is unreachable for n<=0
+            break
+    return got
+
+
+# A leaked non-module only harms a later file that IMPORTS that name, and later
+# files import first-party modules and stdlib. `_openssl.lib` is not importable
+# by name at all.
+_FIRST_PARTY = ("bulk_downloader", "tools", "toolchain", "tests")
+
+
+def _importable_name(k):
+    """Could a later test plausibly `import k` and get the planted object?"""
+    return "." not in k or k.split(".")[0] in _FIRST_PARTY
+
+
+def _excess(d, floor):
+    """What this file leaves behind that a shipping parallel file does not.
+
+    `mod_nonmodule` was the raw finish-state set until it reported two files as
+    leaking for importing `cryptography`. A lazy binding created by an ordinary
+    import is not a leak, and a check that says it is gets switched off -- so the
+    subject is now stated precisely: a module REPLACED by a non-module (always),
+    plus a newly planted non-module under a name something could actually import.
+    """
+    ex = {}
+    e = sorted(set(d["env_added"]) - floor["env"])
+    if e:
+        ex["env_added"] = e
+    if d["env_removed"]:
+        ex["env_removed"] = d["env_removed"]
+    if d["env_changed"]:
+        ex["env_changed"] = sorted(d["env_changed"])
+    if d["cwd_changed"]:
+        ex["cwd_changed"] = d["cwd_changed"]
+    for key in ("mod_swapped", "mod_removed"):
+        v = sorted(set(d[key]) - floor[key])
+        if v:
+            ex[key] = v
+    flipped = sorted(set(d.get("mod_became_nonmodule", [])) - floor["mod_nonmodule"])
+    if flipped:
+        ex["mod_became_nonmodule"] = flipped
+    planted = sorted(k for k in set(d.get("mod_new_nonmodule", []))
+                     - floor["mod_nonmodule"] if _importable_name(k))
+    if planted:
+        ex["mod_new_nonmodule"] = planted
+    return ex
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="bd-leakprobe", description=__doc__.split("\n")[0])
+    ap.add_argument("--files", nargs="+", default=[])
+    ap.add_argument("--file-list")
+    ap.add_argument("--controls", type=int, default=3,
+                    help="how many already-parallel files establish the floor")
+    ap.add_argument("--json", help="write the full result here")
+    ap.add_argument("--selftest", action="store_true",
+                    help="run the canary only and report whether it was seen")
+    a = ap.parse_args(argv)
+
+    plugin_dir = pathlib.Path(tempfile.mkdtemp(prefix="leakprobe_plug_"))
+    (plugin_dir / "bd_leakprobe_plugin.py").write_text(_PLUGIN, encoding="utf-8")
+    try:
+        ok, why = _canary_ok(plugin_dir)
+        if a.selftest:
+            print("bd-leakprobe selftest: %s" % ("SENSITIVE" if ok else "BLIND -- " + why))
+            return 0 if ok else 2
+        if not ok:
+            print("BD-GATE-UNRUNNABLE: the canary was not detected (%s).\n"
+                  "  No verdict is issued. A probe that cannot see a planted leak\n"
+                  "  cannot certify that a real file has none." % why, file=sys.stderr)
+            return 2
+
+        targets = list(a.files)
+        if a.file_list:
+            targets += [l.strip() for l in open(a.file_list, encoding="utf-8")
+                        if l.strip() and not l.startswith("#")]
+        if not targets:
+            print("BD-GATE-UNRUNNABLE: no files to probe -- an empty denominator\n"
+                  "  reports 'nothing leaks' truthfully and uselessly.", file=sys.stderr)
+            return 2
+
+        controls = _default_controls(a.controls)
+        if not controls:
+            print("BD-GATE-UNRUNNABLE: no control files, so there is no floor and\n"
+                  "  every ambient fixture would read as a leak.", file=sys.stderr)
+            return 2
+        floor = {"env": set(), "mod_swapped": set(), "mod_removed": set(),
+                 "mod_nonmodule": set()}
+        for c in controls:
+            d, proc = _run(REPO / c, plugin_dir)
+            if d is None:
+                print("BD-GATE-UNRUNNABLE: control %s did not run: %s"
+                      % (c, proc.stderr[-300:]), file=sys.stderr)
+                return 2
+            floor["env"] |= set(d["env_added"])
+            for k in ("mod_swapped", "mod_removed", "mod_nonmodule"):
+                floor[k] |= set(d[k])
+
+        results, leaked, unrunnable = {}, [], []
+        for t in targets:
+            d, proc = _run(REPO / t if not os.path.isabs(t) else t, plugin_dir)
+            if d is None:
+                unrunnable.append(t)
+                print("  UNRUNNABLE %s" % t)
+                continue
+            ex = _excess(d, floor)
+            results[t] = {"excess": ex, "pytest_exit": d["exitstatus"]}
+            if ex:
+                leaked.append(t)
+                print("  LEAKS  %-58s %s" % (pathlib.Path(t).name, json.dumps(ex)))
+            else:
+                print("  clean  %s" % pathlib.Path(t).name)
+
+        print("\ncontrols=%d  probed=%d  leaking=%d  unrunnable=%d"
+              % (len(controls), len(results), len(leaked), len(unrunnable)))
+        print("floor: env=%s" % sorted(floor["env"]))
+        if a.json:
+            pathlib.Path(a.json).write_text(json.dumps(
+                {"floor": {k: sorted(v) for k, v in floor.items()},
+                 "controls": controls, "results": results,
+                 "leaking": leaked, "unrunnable": unrunnable},
+                indent=1, sort_keys=True), encoding="utf-8")
+        if unrunnable:
+            return 2
+        return 1 if leaked else 0
+    finally:
+        shutil.rmtree(plugin_dir, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
