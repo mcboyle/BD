@@ -598,6 +598,78 @@ else
   row "Xvfb :99" "WARN" "system_deps fragment unavailable -- bd_start_display undefined; no display started"
 fi
 
+# ============================================ 8b. MOD3 Postgres (test backend)
+# The four MOD3 test files (tests/test_v3_66_800/801/803/804_*.py) run their
+# REAL-PG classes only when MOD3_PG_TEST_DSN is set AND a server answers;
+# otherwise they SKIP with the reason named. CI provisions a postgres:16
+# service container for them (.github/workflows/ci.yml, postgres-integration
+# job) and gets 38/38; this container used to get a HAND-STARTED server that
+# died with the session that started it (CLAUDE.md section 5: anything you
+# install by hand lives only until the session ends). The postgresql-16 server
+# package and an initdb'ed cluster (16/main) are baked into the base image, so
+# provisioning here is start + role + db, all idempotent.
+#
+# The DSN is CI's line verbatim (ci.yml, MOD3_PG_TEST_DSN) with 127.0.0.1 for
+# localhost. The password is a ZERO-ENTROPY throwaway and must stay this
+# string (CLAUDE.md section 7): it guards a loopback-only test database in a
+# disposable container, the identical literal is already committed in ci.yml,
+# and a realistic-looking value here would hand gitleaks a new finding. It is
+# in the DSN at all because Debian's default pg_hba is scram for TCP -- and a
+# trust-auth cluster simply ignores it, so this one DSN answers on both.
+MOD3_DSN="postgresql://mod3_ci:mod3_ci_password@127.0.0.1:5432/mod3_ci"
+
+mod3_pg_provision(){
+  # A server already answering the DSN is the DONE state, whoever started it.
+  if psql "$MOD3_DSN" -Atc "SELECT 1" >/dev/null 2>&1; then
+    echo "mod3 postgres: already serving the DSN"; return 0
+  fi
+  command -v pg_ctlcluster >/dev/null 2>&1 \
+    || { echo "postgresql-common absent (no pg_ctlcluster)"; return 1; }
+  _cl="$(pg_lsclusters -h 2>/dev/null | head -n1)"
+  [ -n "$_cl" ] || { echo "no postgres cluster initialized in this image"; return 1; }
+  _ver="$(echo "$_cl" | awk '{print $1}')"
+  _name="$(echo "$_cl" | awk '{print $2}')"
+  # Start the image-baked cluster only when nothing already holds the port.
+  pg_isready -q -h 127.0.0.1 -p 5432 2>/dev/null \
+    || $SUDO pg_ctlcluster "$_ver" "$_name" start \
+    || { echo "pg_ctlcluster $_ver $_name start failed"; return 1; }
+  # Role + database, idempotent. Admin path: local-socket peer auth as the
+  # cluster owner, the one access Debian's default pg_hba grants without a
+  # password. ALTER on the existing-role branch so a role left by an earlier
+  # (trust-auth, passwordless) provisioning converges to this contract.
+  $SUDO su -s /bin/bash postgres -c "psql -v ON_ERROR_STOP=1 -Atq" <<'SQL' \
+    || { echo "role ensure failed"; return 1; }
+DO $$ BEGIN
+  IF EXISTS (SELECT FROM pg_roles WHERE rolname='mod3_ci') THEN
+    ALTER ROLE mod3_ci LOGIN CREATEDB PASSWORD 'mod3_ci_password';
+  ELSE
+    CREATE ROLE mod3_ci LOGIN CREATEDB PASSWORD 'mod3_ci_password';
+  END IF;
+END $$;
+SQL
+  $SUDO su -s /bin/bash postgres -c \
+      "psql -Atqc \"SELECT 1 FROM pg_database WHERE datname='mod3_ci'\"" \
+      | grep -q 1 \
+    || $SUDO su -s /bin/bash postgres -c \
+      "psql -v ON_ERROR_STOP=1 -qc 'CREATE DATABASE mod3_ci OWNER mod3_ci'" \
+    || { echo "database ensure failed"; return 1; }
+  # Verify by DOING, the section 9 discipline: the DSN itself must answer.
+  psql "$MOD3_DSN" -Atc "SELECT 1" >/dev/null 2>&1
+}
+
+step "mod3 postgres" optional mod3_pg_provision
+
+# The row must state the FINAL truth, not the step's: a later session reading
+# the report needs the export line (same shape as the Xvfb row above -- an
+# export inside this script cannot reach that session's shell), and a WARN
+# must say what the absence costs.
+if psql "$MOD3_DSN" -Atc "SELECT 1" >/dev/null 2>&1; then
+  export MOD3_PG_TEST_DSN="$MOD3_DSN"
+  row "MOD3 postgres DSN" "OK" "export MOD3_PG_TEST_DSN=$MOD3_DSN"
+else
+  row "MOD3 postgres DSN" "WARN" "no server answers the MOD3 DSN — the four MOD3 real-PG suites SKIP (named reason), not fail"
+fi
+
 # =========================================================== 9. verification
 # Installers exiting 0 is not proof. Prove the package imports and matches.
 if [ "$HAVE_REPO" = 1 ]; then

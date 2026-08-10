@@ -4,6 +4,35 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.999
+
+- The 15 MOD3 Postgres tests no longer skip. Postgres is provisioned in
+  scripts/cloud-setup.sh (new step 8b, idempotent: DSN short-circuit, then the
+  image-baked Debian cluster 16/main via pg_ctlcluster, role, database, and a
+  verify by connecting) and psycopg[binary]>=3.1,<4 is declared in
+  requirements-test.txt. 38 passed, 0 skipped.
+- THE SIX FAILURES THAT SURFACED WERE THE MEASUREMENT, NOT THE PRODUCT. Passing
+  BD_INSTALL_DIR=$(mktemp -d) as a prefix to a whole pytest RUN makes every test
+  in that run share one SQLite history DB, because db._resolve_db_path() prefers
+  it over cwd -- so it defeats the per-test cwd isolation conftest's autouse
+  isolated_bd_home provides. Fresh per invocation, SHARED within it. CI never
+  sets the variable, which is exactly why CI was green.
+- Reconstructed to the digit on pristine source: rows_migrated 7 on an "empty"
+  source is 3 inserts from 800 plus 4 from 801; rows_source=42 mismatches=2 is
+  7 carryover + 25 + 10; sqlite=1 pg=1 is db_init's FTS backfill against a
+  freshly cleared mirror. pg_backend.py and db.py needed NO changes -- the
+  preflight was correctly refusing cutover on a divergence the harness created.
+- Fixed anyway, because immunity beats avoidance: each of the four files takes
+  an autouse fixture pinning BD_INSTALL_DIR to its own tmp_path. Measured green
+  in four configurations, including WITH the ambient variable set.
+- psycopg removed from both waiver dicts in test_v3_66_653_dep_freshness.py --
+  each carries an anti-rot check that fails a declared-but-waived name.
+- UNTESTED HERE, said plainly: the su-as-postgres transport and the
+  `pg_ctlcluster start` path in the new provisioning step could not run in this
+  container (the permission classifier denied su and stopping the live server).
+  They execute at the next cache build. The short-circuit, double-run
+  idempotence and role-ensure SQL were tested against a live server.
+
 ## v3.66.998
 
 - Serial lane 62 -> 33 files. 30 promoted, 11 of them only after a real fix, and

@@ -79,3 +79,19 @@ pyflakes>=3.0,<4.0
 # recorded in the first place. pyflakes two entries up is the precedent for why
 # the declaration must live in THIS manifest and not requirements-dev.txt.
 pytest-timeout>=2.0,<3.0
+
+# psycopg, the MOD3 Postgres driver (bulk_downloader/pg_backend.py and the four
+# MOD3 test files). DECLARED by operator decision 2026-08-10, REVERSING the
+# deliberate-undeclared waiver that used to sit in
+# tests/test_v3_66_653_dep_freshness.py -- both waiver entries were removed in
+# the same cut as this line, because a waiver for a declared name is a list
+# that lies and the gate's anti-rot check rightly fails it.
+#
+# Undeclared, the driver existed only where a session hand-installed it, and a
+# hand-installed package dies with the container that installed it (CLAUDE.md
+# section 5). That is exactly how this container ran the 15 REAL-PG MOD3 tests
+# as SKIPPED while CI ran them green. The cost of declaring: the box gets a
+# driver wheel the suite then leaves idle -- pg_backend is fail-open and the
+# real-PG classes SKIP with the reason named wherever no MOD3_PG_TEST_DSN is
+# set, so nothing on the box changes behaviour.
+psycopg[binary]>=3.1,<4
