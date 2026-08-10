@@ -4,6 +4,20 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1007
+
+- Register only. 15.80 records the v3.66.998-1006 program: serial lane 129 -> 23,
+  skips 85 -> 1, and the build_snapshot git-fork storm.
+- Records that GitHub Actions stopped running at 2026-08-10T03:52:33Z, so none
+  of it is merged, and CI's gates were run locally as substitute evidence.
+- Records five corrections that each overturn something written earlier,
+  including that BD_INSTALL_DIR prefixed onto a whole pytest RUN is itself a bug,
+  that 15.79's coverage_map refutation is itself refuted, and that v3.66.1000
+  shipped a corpus of 7 tracked files out of 27 because a pre-commit check tested
+  a file whose extension was not one of the ignored ones.
+- Records item E as REFUSED with evidence rather than built, and item A as still
+  blocked on a check only the operator can run.
+
 ## v3.66.1006
 
 - ITEM D: the repo's own honeypot screen now runs on download row selectors.
