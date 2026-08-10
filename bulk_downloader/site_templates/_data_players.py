@@ -259,10 +259,22 @@ ITEMS = [
             # Auto-dismiss with the SkipPageButton class match. Also
             # handles a few common "consent" / "age check" patterns
             # some Gamma brands wrap their content in.
-            "dismiss_selectors": (
+            #
+            # v3.66.1016 (item E): the two scopes are now declared apart.
+            # The wall below sits between the login POST and the members
+            # area and cannot recur once past it, so it fires ONCE in
+            # do_login -- where, until this cut, nothing dismissed it and
+            # the success_url check read the WALL's url and threw a good
+            # login into manual takeover.
+            "dismiss_selectors_login": (
                 "a.SkipPageButton-ButtonLink, "
                 "a:has-text('No Thanks. Continue'), "
-                "a:has-text('Continue to Members Area'), "
+                "a:has-text('Continue to Members Area')"
+            ),
+            # These two stay per-URL on purpose: a consent gate or a close
+            # button can appear on ANY content page, so they are not
+            # login-wall selectors and moving them would lose real coverage.
+            "dismiss_selectors": (
                 "button:has-text('I Agree'), "
                 "button[aria-label*='close' i]"
             ),

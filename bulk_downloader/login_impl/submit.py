@@ -924,6 +924,34 @@ def do_login(config, allow_manual_takeover=False):
         sys.stderr.write(f"  login: submitted via {method}\n")
 
         time.sleep(wait)
+        # v3.66.1016 (item E): the post-login interstitial. A "No Thanks.
+        # Continue to Members Area" wall sits between the login POST and the
+        # members area on the Gamma brands and others like them. Nothing
+        # dismissed it here, so `cur` below read the WALL's url, `success not
+        # in cur` fired, and a login that had in fact succeeded was thrown into
+        # manual takeover.
+        #
+        # Fired ONCE, here, rather than per content URL: the wall cannot recur
+        # once past it, and re-trying it in _process_one costs a full 3s
+        # timeout per selector line on every URL forever. Per-page gates
+        # (cookie / age / consent) are a different scope and stay in
+        # `dismiss_selectors`, which _process_one still runs per URL.
+        #
+        # Guarded on the site declaring a wall, so a site without one pays
+        # nothing at all -- not even the import.
+        _wall=config.get("dismiss_selectors_login","") or ""
+        if _wall:
+            from ..interstitial import dismiss as _dismiss_interstitials
+            _clicked=_dismiss_interstitials(page,_wall)
+            if _clicked:
+                sys.stderr.write(f"  login: dismissed post-login interstitial "
+                                 f"({len(_clicked)} of {len(_wall.splitlines())} "
+                                 f"selector line(s))\n")
+                # A dismissal is usually a navigation. Without this the url
+                # read below can still be the wall's, which would make the
+                # dismissal look like it had not happened.
+                try: page.wait_for_load_state("domcontentloaded",timeout=10000)
+                except Exception: pass
         try: cur=page.url
         except Exception:
             # Page closed AFTER reported successful submit — same recovery

@@ -2334,7 +2334,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1623,
+    "edge_count": 1625,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3816,6 +3816,10 @@
         "bulk_downloader/runner_browser.py",
         "bulk_downloader/runner_extractors.py",
         "bulk_downloader/runner_integrations.py"
+      ],
+      "bulk_downloader/interstitial.py": [
+        "bulk_downloader/login_impl/submit.py",
+        "bulk_downloader/runner.py"
       ],
       "bulk_downloader/jd_bridge.py": [
         "bulk_downloader/app_sites_queue.py",
@@ -6487,6 +6491,7 @@
         "bulk_downloader/constants.py",
         "bulk_downloader/cookies.py",
         "bulk_downloader/cross_site_selectors.py",
+        "bulk_downloader/interstitial.py",
         "bulk_downloader/learn.py",
         "bulk_downloader/secrets_store.py",
         "bulk_downloader/stealth.py"
@@ -6665,6 +6670,7 @@
         "bulk_downloader/heuristic_scoring.py",
         "bulk_downloader/hooks.py",
         "bulk_downloader/integrity.py",
+        "bulk_downloader/interstitial.py",
         "bulk_downloader/jd_bridge.py",
         "bulk_downloader/lazy_player_wait.py",
         "bulk_downloader/library_final.py",

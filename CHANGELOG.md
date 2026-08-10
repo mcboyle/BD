@@ -4,6 +4,101 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1017
+
+The second half of item E: a CAPTURED template can now express its interstitial.
+@1016 built the runtime -- two declared scopes and one shared loop -- but the
+thing 15.83 lists FIRST, "captured templates learn to emit dismiss_selectors",
+was still impossible. _html_selectors emitted login / quality / download and no
+dismissal vocabulary at all, which is what 15.79 measured as "zero dismiss
+vocabulary in the WACZ pipeline". The Gamma wall could only ever be
+hand-written into site_templates/_data_players.py.
+
+    tools/build_template_from_wacz.py   _dismiss_selectors(html) -> buckets
+    build_template                      emits selectors["dismiss"]
+    capture_login_wire                  apply_draft_dismiss_selectors(cfg, ...)
+
+THE CLASSIFICATION IS ADVISORY AND THE CODE SAYS SO. 15.79 also recorded why E
+was refused once: in the real corpus "No thanks" marks both true post-login
+interstitials AND ordinary upsell modals. No regex separates those -- the words
+are identical and only the surrounding flow differs. So the builder proposes a
+bucket, the draft stays draft_requires_review, and a human decides. A recognizer
+claiming certainty here would be asserting something the evidence does not
+carry, and the operator would find out on a live site.
+
+AMBIGUOUS PHRASES DEFAULT TO per_page, and the asymmetry is the argument. A wall
+selector misfiled as per-page still fires; it just pays its timeout on every
+URL. A per-page selector misfiled as a wall STOPS FIRING on the pages that
+needed it -- a consent gate that never gets dismissed. The default follows the
+cheaper mistake, and a test pins that direction rather than leaving it to the
+regex.
+
+A bare "no thanks" is therefore NOT evidence of a wall; "no thanks" AND
+"continue" together are, as is a skip-page class. "Continue" alone is ordinary
+pagination and never matches -- asserted by a test that feeds the recognizer a
+plain scene page carrying a Download link, a Play button and a Continue link,
+and requires it to emit NOTHING. Every emitted line is a 3s timeout per URL, so
+over-recognition is a real cost, not a cosmetic one.
+
+Selectors are TEXT-scoped, never href-scoped: an href carries query strings and
+signed tokens, and the builder's standing guardrail is that capture-derived
+values never reach a durable draft. Asserted directly with a token in the href.
+
+The bridge writes ONE SELECTOR PER LINE because that is what the runtime splits
+on. Joining with ", " still works but silently changes the cost model @1016
+measured, and lets one unparseable selector poison a whole group instead of just
+itself. Empty buckets write nothing rather than an empty string -- a
+present-and-blank key reads as "configured with nothing" wherever blank means
+unset.
+
+## v3.66.1016
+
+Item E of the A-H program: the post-login interstitial. A "No Thanks. Continue
+to Members Area" wall sits between the login POST and the members area on the
+Gamma brands and others like them, and do_login dismissed NOTHING between
+_submit_login and its success_url comparison. So page.url read the WALL's url,
+`success not in cur` fired, and a login that had in fact succeeded was thrown
+into manual takeover.
+
+TWO SCOPES, DECLARED APART, because they are genuinely different questions:
+
+    dismiss_selectors        per-page  -- cookie / age / consent, every URL
+    dismiss_selectors_login  login wall -- once, in do_login, post-submit
+
+The per-URL loop moved out of runner._process_one into bulk_downloader/
+interstitial.py and both consumers share it; two copies of a click-with-timeout
+loop drift and nothing compares them.
+
+THE REGISTER'S COST FIGURE WAS HALF RIGHT AND IS NOW MEASURED. 15.83 said five
+login-wall selectors cost "up to 15s PER URL", flagged as read-from-source.
+Against a real chromium on a page where none of them match:
+
+    shipped Gamma value (ONE comma-joined line -> 1 locator)     3.00s per URL
+    the same five as five lines (a captured template's shape)   15.01s per URL
+
+runner.py splits on NEWLINES, so the hand-written Gamma one-liner has always
+cost 3.00s, not 15s. The split is therefore cost-NEUTRAL for Gamma and the win
+there is purely the correctness one above; the 3s-per-line saving lands for a
+captured template, which emits one selector per line. Claimed for the shape
+that has it and not for the shape that does not.
+
+A SECOND KEY RATHER THAN AN IN-BAND PREFIX. dismiss_selectors is a documented
+"one CSS selector per line" surface, so encoding a scope as `login: a.foo` would
+make a valid CSS selector and a scope marker the same syntax. The key costs one
+CFG_FIELDS entry -- required, or a template-set value is dropped by the
+_load_sites_config rebuild -- and one config-surface ledger row.
+
+MY OWN CENSUS WAS WRONG FIRST, in the way section 1 names. Its predicate asked
+only for a loop containing wait_for + click + locator and reported TWO
+offenders after the consolidation had landed; the second was _process_one's
+download TRIGGER loop, a different thing that happens to click a selector it
+waited for. The instrument was never the problem -- the AST walk was right and
+the subject was wrong. Narrowed to a splitlines-driven loop, and now proved
+sensitive on a known positive AND a known negative before it is believed.
+
+Every gate here is paired: a zero-offender census is also satisfied by deleting
+the dismissal outright, so a separate test asserts _process_one still delegates.
+
 ## v3.66.1015
 
 capture_analytics gets the two bounds its sibling already had.

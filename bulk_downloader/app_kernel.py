@@ -28,7 +28,13 @@ CFG_FIELDS=["name","login_url","username","password","user_field","pass_field","
             # survives the _load_sites_config rebuild (was dropped before).
             "predictive_relogin_enabled","predictive_relogin_fraction",
             "filename_template","use_http_dl","chunk_size_mb","skip_if_exists",
-            "dismiss_selectors",
+            # dismiss_selectors is the PER-PAGE block (cookie / age / consent),
+            # tried on every content URL. dismiss_selectors_login is the
+            # post-login wall, fired ONCE in do_login -- v3.66.1016, item E.
+            # Both are in CFG_FIELDS so a template-set value survives the
+            # _load_sites_config rebuild, the same reason predictive_relogin_*
+            # above are here.
+            "dismiss_selectors","dismiss_selectors_login",
             # Phase 9: Cloudflare-resistance toggles. All default ON; user can
             # disable via the API or by editing sites_config.json directly.
             "use_real_chrome","use_stealth","use_stealth_library","use_persistent_profile",

@@ -124,16 +124,29 @@ def test_gamma_kosmos_download_url_pattern():
 
 def test_gamma_kosmos_skip_button_dismissed():
     """The interstitial 'No Thanks. Continue to Members Area' link
-    must be in dismiss_selectors, otherwise workers get stuck on
-    the splash page after login."""
+    must still be caught, otherwise workers get stuck on the splash
+    page after login.
+
+    v3.66.1016 moved it from `dismiss_selectors` to
+    `dismiss_selectors_login`. The SUBJECT of this test is unchanged --
+    the wall is dismissed -- but the SCOPE is now declared: that wall
+    sits between the login POST and the members area, so it fires once
+    in do_login (where nothing dismissed it before, and the success_url
+    check therefore read the wall's url) rather than being re-tried on
+    every content URL at a 3s timeout apiece.
+    """
     from bulk_downloader import templates as t
     cfg = t.get("gamma_kosmos")["config_defaults"]
-    dismiss = cfg.get("dismiss_selectors", "")
+    dismiss = cfg.get("dismiss_selectors_login", "")
     # The exact text or the class name — either is fine
     assert ("SkipPageButton" in dismiss or
             "No Thanks" in dismiss or
             "Continue to Members" in dismiss), (
-        f"dismiss_selectors doesn't catch the interstitial: {dismiss}")
+        f"dismiss_selectors_login doesn't catch the interstitial: {dismiss}")
+    # ...and it is NOT also left in the per-URL block, which would keep the
+    # cost while making the split cosmetic.
+    per_page = cfg.get("dismiss_selectors", "")
+    assert "SkipPageButton" not in per_page, per_page
 
 
 def test_gamma_kosmos_quality_preference_safe():
