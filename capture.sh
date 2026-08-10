@@ -1088,6 +1088,59 @@ echo "  --- tail of live tests ---"
 tail -10 "$OUT/06_live_tests.log"
 echo "  exit=$LIVE_EXIT"
 
+# ── [6b] collect the per-check logs the runner already wrote ──────
+#
+# The 55-line summary above states each check's VERDICT and discards the
+# evidence for it. Measured 2026-08-10: two captures both failed L34 with
+# "N route(s) UNPROBED (phase-1 deadline)", and neither could answer whether
+# the operator surface had grown or a subset of routes was pathological --
+# because L34 logs both its denominator ("1001 routes total; 264 operator
+# parameter-free GET routes to gate") and every per-route timing, into
+# live_tests/results/L34.log, which nothing collected. The operator had to
+# `cat` it by hand off the box for a finding the archive was supposed to carry.
+#
+# live_tests/harness.py's artifact contract is the source of the filenames:
+# "<id>.log  full verbose log of the test -- ALWAYS written, overwritten each
+# run", plus <id>.fail.txt on FAIL and an APPEND-only SUMMARY.txt. The summary
+# accumulates across every run the box has ever done, so it is tailed rather
+# than copied whole, and the destination name says so.
+#
+# SAFE TO SHIP, MEASURED, NOT ASSUMED. These logs leave the box, so the rule is
+# step [3]'s: status recorded, body never. An AST scan of live_tests/ found 177
+# ctx.log call sites and exactly one deriving from a ctx.get() response body --
+# `body.get('version')`, a named scalar. That is a property of today's checks,
+# not a guarantee, so tests/test_v3_66_1009_live_results_are_bundled.py pins it:
+# the next check that logs a whole response fails there instead of shipping one.
+#
+# Runs BEFORE cleanup_live_seed and before the bundle. A copy after `tar czf`
+# leaves a directory on the box that no archive contains, which is
+# indistinguishable from success from inside this script.
+echo "=== [6b/9] Live-check per-check logs ==="
+LIVE_RESULTS_SRC="live_tests/results"
+LIVE_RESULTS_DST="$OUT/06_live_results"
+mkdir -p "$LIVE_RESULTS_DST"
+LIVE_RESULTS_N=0
+if [ -d "$LIVE_RESULTS_SRC" ]; then
+  for f in "$LIVE_RESULTS_SRC"/*.log "$LIVE_RESULTS_SRC"/*.fail.txt; do
+    [ -f "$f" ] || continue
+    cp -p "$f" "$LIVE_RESULTS_DST"/ 2>/dev/null && LIVE_RESULTS_N=$((LIVE_RESULTS_N + 1))
+  done
+  if [ -f "$LIVE_RESULTS_SRC/SUMMARY.txt" ]; then
+    tail -400 "$LIVE_RESULTS_SRC/SUMMARY.txt" > "$LIVE_RESULTS_DST/SUMMARY.tail.txt" \
+      && LIVE_RESULTS_N=$((LIVE_RESULTS_N + 1))
+  fi
+fi
+if [ "$LIVE_RESULTS_N" -eq 0 ]; then
+  {
+    echo "no live-check results collected -- $LIVE_RESULTS_SRC is absent or empty."
+    echo "This is UNKNOWN, not clean: the verdicts in 06_live_tests.log have no"
+    echo "supporting evidence in this archive."
+  } | tee "$LIVE_RESULTS_DST/NOTHING_COLLECTED.txt" | sed 's|^|  |'
+  echo "  (recorded in 06_live_results/NOTHING_COLLECTED.txt)"
+else
+  echo "  collected $LIVE_RESULTS_N file(s), $(du -sh "$LIVE_RESULTS_DST" 2>/dev/null | cut -f1) total"
+fi
+
 # Remove the synthetic state now that the checks that needed it have run, so
 # the remaining steps and the operator see the box as they found it. The EXIT
 # trap is the backstop for an interrupt; this is the normal path, and running

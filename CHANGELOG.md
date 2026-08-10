@@ -4,48 +4,62 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
-## v3.66.1008
+## v3.66.1009
 
-Two tests repaired that asserted over ambient process state they never
-established. Both failed on the deploy box in the v3.66.1007 capture and
-passed in every container; both are the same class, and neither is a product
-defect.
+capture.sh now bundles live_tests/results/ as 06_live_results/. Step [6b], run
+after the live suite and before both cleanup_live_seed and the tar.
 
-- tests/test_u50_widget_backfills.py -- the two eta_clear tests patched a queue
-  depth into db_stats, but app_widgets_api._collect_data prefers live runner
-  state ("Live runner state is authoritative for queue/rate headlines") and
-  overwrites it whenever app_state.runners is non-empty. One runner left in
-  that module global by any earlier file on the same xdist worker forced
-  queue_depth to 0, so the forecast collapsed to "now": measured on the box as
-  `assert 'now' is None` and `assert 'now' == '30m'`. Reproduced in-container
-  before the fix -- runners populated gives queue_depth=0/eta='now', runners
-  empty gives queue_depth=5/eta=None. v3.66.922 repaired the same class in this
-  file for the database schema and stopped there; runners is the half it
-  missed.
+WHY. The summary in 06_live_tests.log states each check's verdict and discards
+the evidence for it. Two captures on 2026-08-10 both failed L34 with "N
+route(s) UNPROBED (phase-1 deadline)" and neither could answer why, because L34
+logs its own denominator and every per-route timing into
+live_tests/results/L34.log -- which nothing collected. The operator had to cat
+it off the box by hand for a finding the archive was supposed to carry. What
+that file then showed, in one line: "checked 172 operator in 66s: 0 5xx, 0
+unreachable, 0 exceeded, 47 recovered-on-serial (probe-induced, not findings),
+0 unconfirmed, 92 unprobed".
 
-- tests/test_v3_66_942_...cwd_change.py -- the guard asserting the `logs`
-  exclusion is still live depended on being the first thing in the process to
-  build a logger. log.py's _INITIALIZED is a module global and _LOG_DIR is
-  relative, so `logs/` is created exactly once per process at whatever cwd was
-  current then. The test asserted it appears in a directory it chdir'd to
-  later. Reproduced by building one logger after the module wipe: the box's
-  message, verbatim.
+SAFE TO SHIP, MEASURED. These logs leave the box, so step [3]'s rule applies:
+status recorded, body never. An AST scan of live_tests/ finds 177 ctx.log call
+sites and exactly one deriving from a ctx.get() response body --
+body.get('version'), a named scalar. That is a property of today's checks and
+not a guarantee, so the new test pins it: the next check that logs a whole
+response fails there rather than shipping one. The allowance is keyed to the
+ATTRIBUTE, not to a file:line, because a location-keyed excuse silently re-arms
+when the line moves. The scan asserts its own site count is non-empty before
+issuing that verdict.
 
-Both repairs are parametrized over the ambient state rather than merely
-clearing it, so they fail on pristine source. Three ambient runner shapes are
-needed, not two: with a single leaked runner the blind spot MOVED rather than
-closing (an idle leak is invisible to the queue-empty test, a busy one to the
-no-throughput test), and bd-mutate scored an escape either way. 3 of 3 mutants
-caught at three params; 1 of 1 for the logging guard.
+SUMMARY.txt is append-only across every run the box has ever done, so it is
+tailed to 400 lines and the destination name says so. An absent or empty
+results directory writes NOTHING_COLLECTED.txt saying the verdicts have no
+supporting evidence in the archive -- unknown is a third state, not silence.
 
-The logging repair saves and restores logging.getLogger("bulk_downloader")'s
-handlers, because _init() adds to a stdlib global that survives bd_module_wipe
-and never clears it. Measured identical accumulation pristine and fixed (0 ->
-14 handlers over the file), so the repair leaks none. That pre-existing
-accumulation is a separate finding, recorded not fixed.
+The step is asserted by EXECUTION, not only over shell text: the tests extract
+it on named boundaries, verify the extraction parses with `bash -n` so a
+mid-construct cut fails as an extractor bug rather than as a finding, and run
+it against populated, empty and absent results directories. That caught a real
+defect before commit -- only the last echo of three reached tee, so the UNKNOWN
+note held one line. The source-text assertions had passed on it.
 
-Import-graph baseline re-frozen in the same cut for the new
-tests -> bulk_downloader/log.py edge (3793 edges).
+bd-mutate 3 of 3 caught: copying no logs, copying the unbounded summary whole,
+and going silent on the empty case.
+
+ALSO FIXED, and it was mine: v3.66.1008's entry shipped TWICE. The script that
+prepends it verified ASCII with a read-back AFTER writing, so a failed check
+left the file mutated, and the corrected re-run prepended a second copy to an
+already-prepended file. Nothing caught it -- both CHANGELOG gates in ci.yml
+read only the FIRST '## ' header, so a duplicate anywhere below is outside
+their denominator. The duplicate is removed here (proven byte-identical to the
+survivor before deleting), the prepend now asserts count == 1 rather than >= 1
+per CLAUDE.md section 6, and test_release_hygiene_gates gains a gate: the
+version in __init__.py must appear exactly once as a '## ' header.
+
+That gate is scoped to the CURRENT version rather than asserting every header
+is unique, and the reason is a measurement, not caution -- the changelog
+already carries one duplicate from long before this cut ('## v3.49.0 -
+2026-05-15', x2 of 1001 headers). A blanket uniqueness gate would fail on
+history nobody is going to rewrite, get switched off, and take the useful half
+with it. Over-sensitivity is a soundness bug (CLAUDE.md section 0).
 
 ## v3.66.1008
 
