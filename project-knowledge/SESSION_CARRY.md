@@ -5056,6 +5056,123 @@ never `export` in a shell the suite is later launched from.
   row seen in 1 of 6 captures. Re-capture before trusting it.
 
 
+### 15.81 | Session close 2026-08-10 at 342001e (v3.66.1010 on main): three box captures, and 15.74's seven findings RE-DERIVED
+
+Close at `342001e` -- a squash already on `main` when this was written, per the
+section 4 rule that naming your own branch tip passes every pre-merge check and
+then goes red on `main`.
+
+#### THE CAPTURES SAID PASS, AND THE PROGRESSION IS ONE CAPTURE PER CUT
+
+| capture | commit | unit | live |
+| --- | --- | --- | --- |
+| 1 | `d2fa6bb` (1008) | 15312 pass / 1 fail | L34 FAIL |
+| 2 | `ab9cbcb` (1009) | 15331 pass / 0 fail | L34 FAIL |
+| 3 | `342001e` (1010) | 15340 pass / 0 fail | 36 pass / 0 fail -- **PASS** |
+
+Box skips are now TWO environmental (`netns` needs root; the self-retiring
+`BD_REPO_CANDIDATES` dead-branch guard) plus two deliberate parametrize skips
+added by @1010, each naming its reason. All 43 MOD3 tests RAN -- the operator's
+`MOD3_PG_TEST_DSN` is live on the box.
+
+L34 at @1010, from its own log now that the capture carries it:
+
+    phase 1 budget: 40s x 8 workers = 317 worker-seconds for 264 operator
+      route(s) -> triage 1.20s each (ceiling 5s, floor 1.0s)
+    phase 1 flagged 154 route(s) in 26s ... (46s of wall left)
+    checked 264 operator in 66s: 0 5xx, 0 unreachable, 0 exceeded,
+      154 recovered-on-serial, 0 unconfirmed, 0 unprobed
+
+172 -> 264 swept, 92 -> 0 unprobed, phase 1 43s -> 26s. Suspects rose 47 -> 154
+exactly as intended: a flag is not a finding, and phase 2 cleared all 154.
+
+#### THE ONE-IN-THREE FLAKE WAS 10-IN-10, AND THAT IS THE LESSON
+
+Capture 1's lone unit failure was
+`test_v3_66_801_mod3_shadow_read::test_agreeing_stores_compare_and_match`
+(`{'compared': 2, 'matched': 0, 'diverged': 2}`), passing in the other two. Read
+as a flake, that earns a shrug. Reproduced in-container against a live cluster,
+same command, same directory, ONE variable changed:
+
+    pristine (shared public.history)   10 of 10 runs FAILED (3-4 each)
+    isolated                            0 of 10 runs failed (38 passed each)
+
+Systematic, not stochastic -- the box's 73-worker interleaving simply dodged it
+most of the time, and three different modules fail on pristine. **A failure that
+"passes on retry" has a reproduction rate, and until you measure it you do not
+know whether it is 1-in-3 or 10-in-10.** Fixed at @1011 by a schema per module.
+
+#### AN OPEN FINDING, RECORDED AND NOT FIXED
+
+`bulk_downloader/log.py` `_init()` ADDS handlers to
+`logging.getLogger("bulk_downloader")` -- a stdlib global that survives
+`bd_module_wipe` -- and never clears them. Measured over one wiped file: **0 ->
+14 handlers**, identical before and after @1008's repair, so @1008 leaks none and
+the accumulation predates it. Each is a `RotatingFileHandler` holding an open fd
+plus a `StreamHandler`, so a long worker doubles-and-redoubles what it writes.
+Not chased because nothing depends on it today and it is a different subject
+from the cut that found it. Whoever takes it: the fix is almost certainly to
+clear `root.handlers` at the top of `_init()`, and the test is a session-scoped
+handler-count assertion of the shape used to prove @1008 leaked nothing.
+
+#### 15.74'S SEVEN FINDINGS, RE-DERIVED FROM SOURCE 2026-08-10
+
+Re-derived rather than read off, because that is what section 1 requires and
+because three of these closed in cuts whose numbers do not appear in 15.74.
+
+| item | subject | status |
+| --- | --- | --- |
+| A | grouping splits every site | **OPEN, blocked on the operator** |
+| B | modal-scoping discards download panels | CLOSED @989 |
+| C | `text=/Download/i` green on a heading | CLOSED @1002 |
+| D | honeypot scorer never called | CLOSED @1006 |
+| E | no post-login interstitial step | **OPEN, needs re-specification** |
+| G | merge corrupts list-valued selectors | CLOSED @988 |
+| H | `_gate_support` raw vs normalized | CLOSED @987 |
+
+The measurements behind each verdict:
+
+- **B.** `_is_modal_scoped` still answers False for `.download-block a.dl` and
+  `div.grid a.dl` -- the finding's own four probes reproduce exactly. It was not
+  fixed by widening that predicate: `template_normalize.py` grew an
+  `elif _is_download_affordance(rs)` branch beside it, and that returns True for
+  all four. **Grepping `_is_modal_scoped` alone would have reported B still
+  open.** 7 tests pin it.
+- **G.** `bd-template-merge` still json-dumps non-scalar leaves -- the finding's
+  literal mechanism is still there -- but `_decode_ranked` now puts the ORIGINAL
+  values back, so the dump is a voting key rather than what gets written. Same
+  shape as B: the reported symptom's code survives and the defect does not.
+- **H.** `_gate_support` moved to `toolchain/bin/bd-wacz-corpus:522` and its
+  signature is now `(normed_merged, normed_singles, raw_drafts, ...)`. It reads
+  both, deliberately. 20 tests pin it.
+- **D.** AST census of honeypot imports on the template path:
+  `template_extractor_impl/candidates.py` 1, `build_template_from_wacz.py` 1,
+  `template_normalize.py` 0. The finding's "zero across all of them" is gone.
+- **A.** `_place_by_host` no longer exists ANYWHERE (0 occurrences) -- but
+  host grouping does: `bd-wacz-corpus` still groups by host in three tiers
+  (`filename` / `archive` / `unknown`). So the finding's function is gone and
+  its SUBJECT is not, which is why a name-based re-derivation would have closed
+  it wrongly. What blocks it is unchanged and is not code: pairing a login host
+  to its content host needs someone who knows the sites. Note the filename
+  convention already carries what a pairing would key on --
+  `{host}_{siteid}_{YYYYMMDD}` -- so the work is confirmation, not discovery.
+- **E.** The interstitial vocabulary DOES exist, and not where 15.74 looked:
+  `site_templates/_data_players.py` carries
+  `a:has-text('No Thanks. Continue')` / `a:has-text('Continue to Members Area')`
+  for the Gamma brands, hand-written, with auto-dismiss described in the
+  template's own description field. So BD can already dismiss that wall for
+  those sites. What does not exist is the SCHEMA modelling it, so a captured
+  template cannot express one. E was refused earlier this session for exactly
+  the reason that survives re-derivation: which consumer owns the step is
+  unspecified -- `do_login` post-submit, `_process_one` template-dismiss, or
+  promotion-to-config are three different cuts, and the Gamma precedent is
+  evidence for the third rather than a settled answer.
+
+**So A and E are what stand between the captures and a proven template
+pipeline.** Neither is blocked on engineering: A needs an operator who can say
+which login host belongs to which content host, E needs a decision about which
+consumer performs the dismissal.
+
 ### 15.80 | v3.66.998-1006: the serial lane went 129 -> 23, the 85 skips went to 1
 
 Close at `55190d4` (already on `main`; per section 4 a close section must never
