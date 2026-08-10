@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3795,
+  "edge_count": 3798,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1510,6 +1510,9 @@
     "bulk_downloader/pg_backend.py": [
       "bulk_downloader/db.py"
     ],
+    "bulk_downloader/playlist_extractor.py": [
+      "bulk_downloader/registrable_domain.py"
+    ],
     "bulk_downloader/plugin_exec.py": [
       "bulk_downloader/plugins.py"
     ],
@@ -1836,7 +1839,8 @@
       "bulk_downloader/policy_gates.py"
     ],
     "bulk_downloader/search_extractor.py": [
-      "bulk_downloader/playlist_extractor.py"
+      "bulk_downloader/playlist_extractor.py",
+      "bulk_downloader/registrable_domain.py"
     ],
     "bulk_downloader/secrets_audit.py": [
       "bulk_downloader/global_config.py"
@@ -4295,6 +4299,9 @@
     "tests/test_v3_66_1012_slow_operator_routes.py": [
       "bulk_downloader/app_community_scrapers.py",
       "bulk_downloader/cleanup_helpers.py"
+    ],
+    "tests/test_v3_66_1013_registrable_domain.py": [
+      "bulk_downloader/registrable_domain.py"
     ],
     "tests/test_v3_66_101_cockpit_wave3.py": [
       "bulk_downloader/capture_ingest.py",
