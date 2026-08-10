@@ -6,7 +6,10 @@ Unlisted, unreadable, malformed, and risk-matching paths default to serial.
 
 from __future__ import annotations
 
+import ast
+import io
 import re
+import tokenize
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
 
@@ -175,6 +178,43 @@ SERIAL_SOURCE_PATTERNS = (
 RUNTESTS_LITERAL = re.compile(r"""["']run_tests(?:_core)?["']""", re.IGNORECASE)
 
 
+@lru_cache(maxsize=2048)
+def code_only(source: str) -> str:
+    """`source` with comments and docstrings removed.
+
+    FAIL-CLOSED: any tokenizer or parser failure returns the ORIGINAL text, so a
+    file this module cannot read is judged on everything it contains rather than
+    on a partially-stripped fragment. Silently returning less text is how a
+    stripper turns into a way to hide a real import behind a syntax error.
+    """
+    try:
+        tokens = [
+            tok for tok in tokenize.generate_tokens(io.StringIO(source).readline)
+            if tok.type != tokenize.COMMENT
+        ]
+        stripped = tokenize.untokenize(tokens)
+    except Exception:
+        return source
+    try:
+        tree = ast.parse(stripped)
+    except SyntaxError:
+        return source
+
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                                 ast.AsyncFunctionDef)):
+            continue
+        body = getattr(node, "body", None)
+        if (body and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)):
+            node.body = body[1:] or [ast.Pass()]
+    try:
+        return ast.unparse(tree)
+    except Exception:
+        return source
+
+
 @lru_cache(maxsize=1)
 def parallel_allowlist() -> frozenset[str]:
     """Return validated test paths relative to ``tests/``; missing is empty."""
@@ -253,9 +293,26 @@ def classify_capture_file(
     lowered = source.lower()
 
     # ABSOLUTE, and the only source check that still is. See the constant.
-    if any(snippet in lowered for snippet in ABSOLUTE_SERIAL_SNIPPETS):
+    #
+    # v3.66.990: asked of CODE, not prose. The risk this rule names is that
+    # importing the fallback runner rewires global interpreter state -- and a
+    # docstring imports nothing. Measured over 1277 tracked test files: 143 were
+    # pinned here, 4 genuinely import the runner, and 139 only MENTION it in a
+    # comment or docstring. Since the absolute checks sit ABOVE the allowlist,
+    # those files could not be promoted by review either; they were structurally
+    # unreachable. Section 0's "a comment is inside the denominator of every gate
+    # that reads source text", costing ~124 files a place in the serial lane.
+    #
+    # The rule itself is UNCHANGED -- same snippets, same absoluteness. Only the
+    # text it reads changed, and `code_only` falls back to the raw source on any
+    # parse failure, so an unparseable file is still judged on everything it
+    # contains. The dynamic forms the guard test pins
+    # (`importlib.import_module("run_tests")`, `__import__("run_tests")`) are
+    # code and survive the strip.
+    code = code_only(source)
+    if any(snippet in code.lower() for snippet in ABSOLUTE_SERIAL_SNIPPETS):
         return "serial"
-    if RUNTESTS_LITERAL.search(source):
+    if RUNTESTS_LITERAL.search(code):
         return "serial"
 
     # v3.66.923: EXPLICIT REVIEW NOW OUTRANKS THE REMAINING HEURISTICS, on
