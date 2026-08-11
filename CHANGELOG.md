@@ -4,6 +4,52 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1040
+
+batch D: work started on another host is now discoverable and killable. And
+item 33 is closed by retiring a gate rather than raising it.
+
+toolchain/bin/bd-jobs. The incident: a sampler launched over ssh from .164
+against .85 outlived its killed local task by EIGHTY-EIGHT MINUTES, kept
+spawning rounds, and its .pyc writes broke a deploy at step 9 -- which had
+already stopped the unit, leaving test4's service down. Nothing recorded the
+work existed, so nothing could find it. Four verbs over one registry written ON
+THE HOST WHERE THE WORK RUNS: run, list, reap, orphans.
+
+PID REUSE IS THE REAL SUBJECT. A reaper that kills by pid across three hosts,
+with passwordless root available, is a loaded weapon pointed at whatever holds
+that number next. Every entry records the process start time from
+/proc/<pid>/stat field 22, parsed from the LAST ')' because field 2 is the
+executable name in parentheses and may contain spaces -- a naive split shifts
+every later field and still returns an int, so it looks correct. reap has THREE
+outcomes and collapsing any two is a bug: process gone (forget), cannot
+identify (REFUSE and KEEP the entry, because deleting the record is how a job
+becomes invisible again), pid recycled (drop the record, never touch the
+stranger). The first version collapsed them and made the refusal unreachable.
+
+`orphans` reports pytest with no registry entry and NEVER kills it: an
+unregistered run is likelier the operator's than an agent's, and a tool that
+guesses about ownership should guess toward leaving things alone.
+
+`run` PREFLIGHTS THE TARGET. Found on the tool's own first live run: it started
+a remote command, then failed to register because bd-jobs was not deployed
+there -- so the job ran with no record, the exact orphan the tool exists to
+prevent, manufactured by the tool. Verify first, launch second.
+
+ITEM 33 CLOSED, and closing it did not delete the gate. Two ratchets were
+conflated under it. _TOOL_BUDGET, the TOTAL tool count, is GONE on operator
+decision -- removed rather than raised to a number nobody would hit, because a
+gate waived every time is already switched off and section 0 calls
+over-sensitivity a soundness bug. _PROSE_ONLY_BASELINE, the pool of tools
+NOTHING INVOKES, is KEPT as a standing gate: that is rot, not accounting.
+
+The ledger gate added at @1035 caught 15.88 going stale the moment 33 closed --
+one cut after being written, on a case nobody planned. 15.89 carries the current
+ledger: OPEN 31, 48.
+
+Battery 6 caught / 0 escaped, including a mutant that escaped until a test
+built a process whose comm contains a space.
+
 ## v3.66.1039
 
 fleet: deploy every host from one command, and the band rule batch C earned.

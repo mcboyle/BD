@@ -1,0 +1,357 @@
+#!/usr/bin/env python3
+"""bd-jobs -- make work started on another host discoverable and killable.
+
+THE INCIDENT, v3.66.1035. A rotation sampler was launched over ssh from .164
+against .85. Its local task was killed; the SSH-launched pytest was not. It ran
+for EIGHTY-EIGHT MINUTES, spawning fresh rounds, and its .pyc writes then broke
+a deploy at step 9 -- which had already stopped the unit, so test4 sat with its
+service down. Nothing recorded that the work existed, so nothing could find it:
+the only reason it was found at all is that a deploy failed twice and someone
+went looking.
+
+Three failures, one cause -- work with no record:
+
+  1. A killed task does not reap what it started on another host.
+  2. `ps | grep pytest` cannot tell MY orphan from YOUR deliberate run, so a
+     reaper built on it either over-kills or asks every time.
+  3. Nothing knows a job exists until it hurts something.
+
+So the registry is the point and the reaper is a consequence. A job records
+itself ON THE HOST WHERE IT RUNS, because that is the host that can see it and
+the host someone will be standing on when they look.
+
+WHY ONE TOOL AND NOT THREE. Three verbs sharing one registry format do not
+need three files -- three files sharing a format drift. (The first draft of this
+paragraph justified it by the `_TOOL_BUDGET` ratchet being full at 238; that
+budget was retired and item 33 closed in this same cut, so the reason it gave
+was stale before it shipped. The design reason stands on its own.)
+
+PID REUSE IS GUARDED, and this matters more than it sounds for something that
+kills processes on three hosts with passwordless root available. A PID alone is
+not an identity: the kernel recycles them, and a stale registry entry pointing
+at a recycled PID would have this tool kill an innocent process with full
+confidence. Every entry records the process START TIME from /proc/<pid>/stat
+field 22 -- monotonic since boot, and unique per (pid, boot) -- and reap
+REFUSES any entry whose start time no longer matches.
+"""
+import argparse
+import json
+import os
+import pathlib
+import shlex
+import socket
+import subprocess
+import sys
+import time
+
+JOBS_DIR = pathlib.Path("/tmp/bd-jobs")
+
+
+# ── process identity ─────────────────────────────────────────────────────────
+
+def proc_starttime(pid):
+    """Field 22 of /proc/<pid>/stat, or None if the process is gone.
+
+    Parsed from the LAST ')' rather than by splitting on spaces: field 2 is the
+    executable name in parentheses and may itself contain spaces or brackets, so
+    a naive split shifts every later field. That would silently compare the
+    wrong number and make the reuse guard useless while looking correct.
+    """
+    try:
+        raw = pathlib.Path("/proc", str(pid), "stat").read_text()
+    except (OSError, ValueError):
+        return None
+    try:
+        after = raw[raw.rindex(")") + 1:].split()
+        return int(after[19])          # field 22 == index 19 after comm
+    except (ValueError, IndexError):
+        return None
+
+
+def proc_cmdline(pid):
+    try:
+        raw = pathlib.Path("/proc", str(pid), "cmdline").read_bytes()
+    except OSError:
+        return ""
+    return raw.replace(b"\0", b" ").decode("utf-8", "replace").strip()
+
+
+def alive(entry):
+    """True only if the SAME process is still there -- not merely the same pid."""
+    st = proc_starttime(entry["pid"])
+    return st is not None and st == entry.get("starttime")
+
+
+# ── the registry ─────────────────────────────────────────────────────────────
+
+def register(pid, purpose, cmd, origin=None):
+    JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "id": "%s-%d" % (socket.gethostname(), pid),
+        "pid": pid,
+        "starttime": proc_starttime(pid),
+        "purpose": purpose,
+        "cmd": cmd,
+        "host": socket.gethostname(),
+        "origin": origin or socket.gethostname(),
+        "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    (JOBS_DIR / ("%s.json" % entry["id"])).write_text(
+        json.dumps(entry, indent=2), encoding="utf-8")
+    return entry
+
+
+def load_all():
+    if not JOBS_DIR.is_dir():
+        return []
+    out = []
+    for f in sorted(JOBS_DIR.glob("*.json")):
+        try:
+            out.append(json.loads(f.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            continue                    # a torn write is not a reason to fail
+    return out
+
+
+def forget(entry):
+    try:
+        (JOBS_DIR / ("%s.json" % entry["id"])).unlink()
+    except OSError:
+        pass
+
+
+# ── verbs ────────────────────────────────────────────────────────────────────
+
+def cmd_list(args):
+    rows = load_all()
+    live = [e for e in rows if alive(e)]
+    dead = [e for e in rows if not alive(e)]
+    for e in live:
+        print("LIVE  %-28s pid=%-7s %s  (%s, from %s)"
+              % (e["id"], e["pid"], e["purpose"], e["started_at"], e["origin"]))
+    for e in dead:
+        print("DEAD  %-28s pid=%-7s %s  -- finished, entry is stale"
+              % (e["id"], e["pid"], e["purpose"]))
+    print("%d live, %d stale on %s" % (len(live), len(dead), socket.gethostname()))
+    return 0
+
+
+def cmd_orphans(args):
+    """pytest processes with NO registry entry -- the shape that caused this.
+
+    Reported, never killed: an unregistered run is far more likely to be the
+    operator's than an agent's, and a tool that guesses about which processes
+    belong to whom should guess in the direction of leaving them alone.
+    """
+    known = {e["pid"] for e in load_all()}
+    found = []
+    ps = subprocess.run(["ps", "-eo", "pid=,comm=,args="],
+                        capture_output=True, text=True).stdout
+    for line in ps.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        pid, comm, argv = parts
+        if not comm.startswith("python") or "-m pytest" not in argv:
+            continue
+        if int(pid) in known:
+            continue
+        found.append((pid, argv))
+    for pid, argv in found:
+        print("ORPHAN pid=%-7s %s" % (pid, argv[:110]))
+    print("%d unregistered pytest process(es) on %s"
+          % (len(found), socket.gethostname()))
+    return 1 if found else 0
+
+
+def cmd_reap(args):
+    reaped = refused = 0
+    for e in load_all():
+        if args.id and e["id"] != args.id:
+            continue
+
+        # THREE OUTCOMES, and collapsing any two of them is a bug. The first
+        # version asked `alive(e)` and forgot everything that was not -- which
+        # made the refusal below UNREACHABLE, so an entry we could not identify
+        # was silently DROPPED while its process kept running. That converts a
+        # tracked job into exactly the untracked orphan this tool exists to
+        # prevent, and it reported success doing it.
+        st = proc_starttime(e["pid"])
+
+        if st is None:
+            forget(e)                     # the process is genuinely gone
+            continue
+
+        if e.get("starttime") is None:
+            # Cannot identify it -- and the ENTRY IS KEPT, deliberately. A pid
+            # we refuse to kill is still work someone must deal with, and
+            # deleting the record is how it becomes invisible again.
+            print("REFUSED %s: entry has no start time, so its pid cannot be "
+                  "distinguished from a recycled one. Entry KEPT; check pid %s "
+                  "by hand." % (e["id"], e["pid"]), file=sys.stderr)
+            refused += 1
+            continue
+
+        if st != e["starttime"]:
+            # The registered process is gone and something ELSE holds its pid.
+            # Forget the record, never touch the stranger.
+            print("stale %s: pid %s belongs to another process now -- entry "
+                  "dropped, nothing killed" % (e["id"], e["pid"]), file=sys.stderr)
+            forget(e)
+            continue
+
+        try:
+            os.kill(e["pid"], 9)
+            reaped += 1
+            print("reaped %s (pid %s) -- %s" % (e["id"], e["pid"], e["purpose"]))
+        except OSError as exc:
+            print("REFUSED %s: %s" % (e["id"], exc), file=sys.stderr)
+            refused += 1
+            continue
+        forget(e)
+    print("%d reaped, %d refused on %s" % (reaped, refused, socket.gethostname()))
+    return 1 if refused else 0
+
+
+def cmd_run(args):
+    """Launch a command on a host and register it THERE, before returning."""
+    cmd = " ".join(args.command)
+    here = socket.gethostname()
+    if args.host in (None, "", here, "local"):
+        proc = subprocess.Popen(["bash", "-c", cmd],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        entry = register(proc.pid, args.purpose, cmd, origin=here)
+        print(entry["id"])
+        return 0
+
+    # PREFLIGHT THE TARGET BEFORE LAUNCHING ANYTHING. Measured at v3.66.1040 on
+    # the tool's own first live run: the remote command started, then
+    # registration failed because bd-jobs was not deployed there yet -- so the
+    # job ran with NO RECORD, which is precisely the orphan this tool exists to
+    # prevent. The tool manufactured its own subject. Launch second, verify
+    # first: an unregisterable host is a refusal, not a launch.
+    self_path = str(_remote_self(args.host))
+    probe = subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", args.host,
+         "test -f %s" % shlex.quote(self_path)],
+        capture_output=True, text=True)
+    if probe.returncode != 0:
+        print("REFUSED: %s has no %s -- deploy it there first. Launching without "
+              "it would leave the job unregistered, which is the failure this "
+              "tool exists to prevent." % (args.host, self_path), file=sys.stderr)
+        return 2
+
+    # Registration happens ON THE TARGET, in the same shell that knows the pid,
+    # so a dropped connection cannot leave work with no record.
+    remote = (
+        "mkdir -p /tmp/bd-jobs; "
+        "nohup bash -c %s >/tmp/bd-jobs/$$.log 2>&1 & "
+        "P=$!; "
+        "python3 %s register --pid $P --purpose %s --origin %s --cmd %s; "
+        "echo $P"
+    ) % (shlex.quote(cmd), shlex.quote(self_path),
+         shlex.quote(args.purpose), shlex.quote(here), shlex.quote(cmd))
+    r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
+                        args.host, remote], capture_output=True, text=True)
+    sys.stdout.write(r.stdout)
+    sys.stderr.write(r.stderr)
+    return r.returncode
+
+
+def _remote_self(host):
+    """Where this tool lives on the target. Same path on every fleet host."""
+    return pathlib.Path(__file__).resolve()
+
+
+def cmd_register(args):
+    entry = register(args.pid, args.purpose, args.cmd, origin=args.origin)
+    print(entry["id"])
+    return 0
+
+
+# ── selftest ─────────────────────────────────────────────────────────────────
+
+def cmd_selftest(args):
+    global JOBS_DIR
+    import tempfile
+    failures = []
+
+    with tempfile.TemporaryDirectory() as tmp:
+        JOBS_DIR = pathlib.Path(tmp) / "jobs"
+
+        proc = subprocess.Popen(["sleep", "30"])
+        entry = register(proc.pid, "selftest sleeper", "sleep 30")
+
+        if entry.get("starttime") is None:
+            failures.append("registration recorded no start time, so the reuse "
+                            "guard cannot work")
+        if not alive(entry):
+            failures.append("a live process was not seen as alive")
+
+        # THE REUSE GUARD, exercised rather than asserted: a WRONG start time
+        # must read as dead even though the pid is real and running. Without
+        # this the guard could be absent and every other check would still pass.
+        tampered = dict(entry, starttime=(entry.get("starttime") or 0) + 1)
+        if alive(tampered):
+            failures.append("an entry whose start time does not match the "
+                            "running process was treated as alive -- a recycled "
+                            "pid would be killed")
+
+        if len(load_all()) != 1:
+            failures.append("registry did not round-trip exactly one entry")
+
+        proc.kill()
+        proc.wait(timeout=10)
+        if alive(entry):
+            failures.append("a dead process was still reported alive")
+
+        forget(entry)
+        if load_all():
+            failures.append("forget() left the entry behind")
+
+        # starttime parsing must survive a comm containing spaces/brackets
+        if proc_starttime(os.getpid()) is None:
+            failures.append("could not read this process's own start time")
+
+    if failures:
+        for f in failures:
+            print("SELFTEST FAIL: %s" % f, file=sys.stderr)
+        return 1
+    print("SELFTEST PASS: registry round-trip, liveness, reuse guard, cleanup")
+    return 0
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="bd-jobs", description=__doc__.split("\n")[0])
+    sub = p.add_subparsers(dest="verb")
+
+    sub.add_parser("list", help="what is running here, and what is stale")
+    sub.add_parser("orphans", help="pytest with no registry entry (reports, never kills)")
+
+    r = sub.add_parser("reap", help="kill registered jobs, guarding against pid reuse")
+    r.add_argument("--id", default=None)
+
+    n = sub.add_parser("run", help="launch a command and register it")
+    n.add_argument("--host", default=None)
+    n.add_argument("--purpose", required=True)
+    n.add_argument("command", nargs=argparse.REMAINDER)
+
+    g = sub.add_parser("register", help="record an already-running pid")
+    g.add_argument("--pid", type=int, required=True)
+    g.add_argument("--purpose", required=True)
+    g.add_argument("--cmd", default="")
+    g.add_argument("--origin", default=None)
+
+    p.add_argument("--selftest", action="store_true")
+    args = p.parse_args(argv)
+
+    if args.selftest:
+        return cmd_selftest(args)
+    return {
+        "list": cmd_list, "orphans": cmd_orphans, "reap": cmd_reap,
+        "run": cmd_run, "register": cmd_register,
+    }.get(args.verb, lambda a: (p.print_help(), 2)[1])(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

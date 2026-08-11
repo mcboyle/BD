@@ -4258,7 +4258,27 @@ PARALLEL PROGRAM -- OLDER, LARGELY OPERATOR- OR CAPTURE-BOUND (31-32)
 
 ONGOING, NOT A FINISH LINE (33)
 
- 33. **The prose-only pool** -- baseline 184, of a population measured at
+ 33. **CLOSED at v3.66.1039 on operator decision -- and closing it did NOT
+     delete the gate.** Two ratchets were conflated under this number and only
+     one is retired:
+
+     * `_TOOL_BUDGET`, the TOTAL tool count, is GONE. It existed to make adding
+       a tool cost retiring one, and the operator does not want that pressure.
+       Removed rather than raised to a number nobody would hit, because a gate
+       waived every time is already switched off and section 0 calls
+       over-sensitivity a soundness bug: a gate that cries wolf gets ignored,
+       including on the day it is right. Its non-empty-denominator half
+       survives as `test_the_toolchain_subject_has_not_collapsed`.
+     * `_PROSE_ONLY_BASELINE` (184), the pool of tools NOTHING INVOKES, is
+       KEPT. That is rot, not accounting -- a tool nothing runs is a tool that
+       does not run -- and it is worth knowing whether the suite holds 239
+       tools or 2390. `test_unwired_bd_tools_do_not_multiply` is now a standing
+       gate rather than open work.
+
+     The item is closed because it was a ratchet with no finish line, which is
+     what made it unclosable. ORIGINAL TEXT:
+
+     **The prose-only pool** -- baseline 184, of a population measured at
      238 (v3.66.1029: ls, git ls-files, and test_toolchain_534's
      _TOOL_BUDGET all agree; this line said 240 for releases while all
      three said otherwise -- measure at decision time, per section 1).
@@ -5193,6 +5213,68 @@ never `export` in a shell the suite is later launched from.
 - `www.bbc.co.uk` is the corpus's only `single_witness` -- green on a `.drawer`
   row seen in 1 of 6 captures. Re-capture before trusting it.
 
+
+### 15.89 | SESSION CLOSE 2026-08-11 at b2ea078 (v3.66.1040) -- batch D, and item 33 retired rather than raised
+
+Close at `b2ea078`, the squash of #324, already on `main` when this was written.
+
+ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
+OPEN:   31, 48
+CLOSED: 33
+
+Item 33 is closed by DECISION, not by the pool shrinking -- it was a ratchet
+with no finish line, which is what made it unclosable. Two gates were conflated
+under it and only one is retired: `_TOOL_BUDGET` (total tool count) is gone,
+`_PROSE_ONLY_BASELINE` (tools nothing invokes) is kept as a standing gate. See
+the inventory entry.
+
+THE LEDGER GATE ADDED AT @1035 CAUGHT THIS SECTION'S OWN PREDECESSOR. Closing
+33 made 15.88's `OPEN: 31, 33, 48` stale, and
+`test_no_ledger_declares_open_an_item_the_inventory_has_closed` failed naming
+15.88 and item 33 -- one cut after being written, on a case nobody planned. That
+is the whole argument for gating a promise rather than trusting prose to stay
+current.
+
+#### BATCH D -- work on another host is now discoverable and killable
+
+`toolchain/bin/bd-jobs`. The incident it exists for, from 15.88: a sampler
+launched over ssh from .164 against .85 outlived its killed local task by
+EIGHTY-EIGHT MINUTES, kept spawning rounds, and its `.pyc` writes broke a
+deploy at step 9 -- which had already stopped the unit, leaving test4's service
+down. Nothing recorded the work existed, so nothing could find it.
+
+Three verbs over one registry, written ON THE HOST WHERE THE WORK RUNS because
+that is the host that can see it: `run` launches and registers in the same
+remote shell that knows the pid (a dropped connection must not leave work with
+no record); `list` separates live from stale; `reap` kills by pid; `orphans`
+reports pytest with no registry entry and NEVER kills it, because an
+unregistered run is more likely the operator's than an agent's.
+
+**PID REUSE IS GUARDED, and it is the part worth reviewing.** A pid is not an
+identity -- the kernel recycles them -- so a stale entry pointing at a recycled
+pid would have this tool kill an innocent process with full confidence, on
+three hosts, with passwordless root available. Every entry records the process
+start time from `/proc/<pid>/stat` field 22, and reap refuses any entry whose
+start time no longer matches or that carries none at all. The field is parsed
+from the LAST `)` rather than by splitting on spaces: field 2 is the executable
+name in parentheses and can contain spaces, so a naive split shifts every later
+field and would compare the wrong number while looking correct.
+
+#### WHAT IS STILL OPEN
+
+1. **Item 48's second mechanism.** The guard fix repairs the guard; the plugin
+   victims still fail after a leaker WITH and WITHOUT it, identical sets. What
+   else the wipe breaks is unfound.
+2. **Item 31**, the eight operator-bound rows.
+3. **The candidate workflow has never been exercised** -- no tip has been run
+   on `.85` before a merge, though `deploy_fleet.sh` and the preflight now make
+   it cheap.
+4. **`.249`'s clean-host role is void** -- inhabited, venv, service enabled. The
+   bring-up proof cannot be retaken without a reimage.
+5. Batches B and E from the review backlog; 15.86's queue item 4 and the
+   drift-axis gold-join defect, both still untouched.
+6. `.85` carries a duplicate `NOPASSWD: ALL` sudoers entry; `streamlink` is
+   absent after a clean provision.
 
 ### 15.88 | SESSION CLOSE 2026-08-11 at a08c0ad (v3.66.1035) -- the first full-fleet session, and the three defects its own review found
 

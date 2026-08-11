@@ -491,7 +491,7 @@ def test_the_tools_this_cut_added_are_wired_and_selftest_clean():
     difference between the 76 tools that are invoked and the 166 that are not.
     """
     root = str(_REPO_ROOT)
-    for tool in ("bd-mutate", "bd-claim", "bd-bandcheck", "bd-freshcheck"):
+    for tool in ("bd-mutate", "bd-claim", "bd-bandcheck", "bd-freshcheck", "bd-jobs"):
         path = os.path.join(root, "toolchain", "bin", tool)
         assert os.path.isfile(path), "%s is missing" % tool
         r = subprocess.run([sys.executable, path, "--selftest"],
@@ -1081,17 +1081,33 @@ def test_salvaged_stub_detector_separates_a_marker_from_prose_about_one():
 # tests/test_v3_66_994_leakprobe_refuses_when_blind.py drives it, including the
 # refusal paths -- a probe that reports clean while blind is the defect the tool
 # exists to avoid reproducing.
-_TOOL_BUDGET = 238
 
 
-def test_the_toolchain_does_not_grow_unbudgeted():
+
+def test_the_toolchain_subject_has_not_collapsed():
+    """The total-count BUDGET was retired at v3.66.1039 on operator decision.
+
+    What it asserted -- that the tool count may not grow without a stated
+    reason -- was pressure to retire rather than accumulate, and the operator
+    does not want that pressure. Kept honest by removing it rather than raising
+    it to a number nobody would ever hit: a gate the operator waives every time
+    is already switched off, and section 0 calls over-sensitivity a soundness
+    bug because a gate that cries wolf gets ignored, including on the day it is
+    right.
+
+    WHAT SURVIVES, and it is the half that catches rot:
+    `test_unwired_bd_tools_do_not_multiply` still ratchets the PROSE-ONLY pool.
+    A tool nothing invokes is a tool that does not run, and that is worth
+    knowing whether the suite holds 239 tools or 2390.
+
+    This keeps only the non-empty-denominator check the budget test also
+    carried, because a scan that finds no tools must fail rather than pass.
+    """
     root = str(_REPO_ROOT)
     n = len(_bd_tools(root))
-    assert n > 100, "only %d tools found -- the subject collapsed" % n
-    assert n <= _TOOL_BUDGET, (
-        "toolchain/bin holds %d bd-* tools, over the %d budget. Adding a tool "
-        "owes retiring one: wire it, retire another, or raise _TOOL_BUDGET in "
-        "this cut and say why." % (n, _TOOL_BUDGET))
+    assert n > 100, (
+        "only %d bd-* tools found -- the subject collapsed, and every other "
+        "assertion in this file is now over an empty denominator" % n)
 
 
 def test_a_scrubber_decides_text_by_content_not_by_extension():
