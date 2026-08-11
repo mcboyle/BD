@@ -47,6 +47,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import time
 import sys
 from pathlib import Path
@@ -225,6 +227,65 @@ def diagnose(wacz_path, *, gold_path=None):
 
 # ── aggregate over a capture tree (data-layer + CLI --root) ──────────────────
 
+# The bound on how far past its deadline an ISOLATED collect() can answer:
+# child kill + reap + result parse, plus discovery and sorting outside the
+# loop. Measured well under 1s on test5/test4; 1.5 is the conservative pin.
+# tests/test_v3_66_1026_heavy_collectors_bounded_for_real.py asserts
+# _HEAVY_BUDGET_S + _KILL_GRACE_S + 1.0 <= _L34_ROUTE_BUDGET_S, the same
+# relationship @1023 pinned for the parse-bound collector.
+_KILL_GRACE_S = 1.5
+
+_CHILD_SRC = """\
+import json, os, sys
+for p in sys.argv[2].split(os.pathsep):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+import capture_diagnostics as _CD
+out = _CD.diagnose(sys.argv[1])
+sys.stdout.write(json.dumps(out))
+"""
+
+
+def _diagnose_isolated(abs_path, timeout_s):
+    """One diagnose() in a child process, killed at timeout_s.
+
+    Returns the diagnose dict; {"error": ...} when the child failed; None
+    when it was killed at the deadline. A kill is the point: the in-process
+    deadline can only skip BETWEEN files, and a single diagnose is
+    uninterruptible regex work that measured 16-38s on real captures.
+
+    The child gets a scratch cwd and BD_INSTALL_DIR: db._resolve_db_path
+    falls back to the working directory, and a fresh interpreter importing
+    product modules from the repo root is exactly the shape that writes the
+    operator's live database (CLAUDE.md section 5).
+    """
+    import subprocess
+    import tempfile
+    here = Path(__file__).resolve().parent          # tools/
+    roots = os.pathsep.join([str(here.parent), str(here)])
+    scratch = tempfile.mkdtemp(prefix="capdiag_iso_")
+    env = dict(os.environ)
+    env.pop("PYTHONPATH", None)                     # no ambient shadowing
+    env["BD_INSTALL_DIR"] = scratch
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    try:
+        r = subprocess.run(
+            [sys.executable, "-c", _CHILD_SRC, str(abs_path), roots],
+            capture_output=True, text=True, timeout=timeout_s,
+            cwd=scratch, env=env)
+    except subprocess.TimeoutExpired:
+        return None
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+    if r.returncode != 0:
+        return {"error": (r.stderr or "").strip()[-200:] or
+                         f"child exit {r.returncode}"}
+    try:
+        return json.loads(r.stdout)
+    except ValueError:
+        return {"error": f"unparseable child output ({len(r.stdout)} bytes)"}
+
+
 def _empty_agg():
     return {"n": 0, "promotable": 0, "review": 0, "insufficient": 0, "errors": 0,
             "replay_failed": 0, "mean_completeness": None}
@@ -257,13 +318,25 @@ def _aggregate(rows):
             "mean_completeness": round(sum(scores) / len(scores), 1) if scores else None}
 
 
-def collect(root=".", dirs=None, limit=None, budget_s=None, max_bytes=None):
+def collect(root=".", dirs=None, limit=None, budget_s=None, max_bytes=None,
+            isolate=False):
     """Run diagnose() over every .wacz under the standard capture dirs and
     summarize. Reuses capture_analytics' discovery so the diagnosed set matches
     the Capture Reports view. Loose capture_*.json artifacts are COUNTED but not
     diagnosed (the template builder reads .wacz only). Read-only; rows carry no
     raw media URLs (the per-capture posture applies). On the operator host this
-    returns real rows; in a clean checkout it returns an empty set + a note."""
+    returns real rows; in a clean checkout it returns an empty set + a note.
+
+    v3.66.1026: `isolate=True` runs each diagnose in a CHILD PROCESS killed at
+    the deadline. The in-process deadline can only skip BETWEEN files, and one
+    diagnose of the operator's newest <=25MB .wacz measured 16.1s (the
+    3rd-newest: 37.9s at 2.0MB -- size does not predict regex cost), so with
+    budget_s=5 the route answered in 17.4s against L34's 8s serial gate. A
+    kill bounds the overrun by _KILL_GRACE_S instead of by whatever one file
+    costs. Opt-in, because the in-process path is the CLI contract and the
+    stub-based batteries monkeypatch diagnose() in THIS interpreter -- a child
+    would silently run the real thing (the v3.66.926 harness lesson). The
+    data-layer route passes it; nothing else should need to."""
     try:
         import capture_analytics as _CA  # type: ignore
         dirs = dirs or _CA._DEFAULT_DIRS
@@ -279,8 +352,13 @@ def collect(root=".", dirs=None, limit=None, budget_s=None, max_bytes=None):
     # never diagnosed. skipped_wacz reports how many were not diagnosed.
     skipped_wacz = 0
     skipped_oversize = 0
+    killed_in_flight = 0
     budget_exhausted = False
-    _deadline = (time.monotonic() + budget_s) if budget_s else None
+    # `is not None`, NOT truthiness: budget_s=0 means "no time at all", the
+    # semantics capture_analytics._artifacts has had since @1015. The falsy
+    # form shipped here meant 0 = UNBOUNDED -- measured >10min on the real
+    # store before the probe was killed (v3.66.1026).
+    _deadline = (time.monotonic() + budget_s) if budget_s is not None else None
     if limit is not None or _deadline is not None:
         def _mt(rel):
             try:
@@ -311,10 +389,27 @@ def collect(root=".", dirs=None, limit=None, budget_s=None, max_bytes=None):
                     continue
             except OSError:
                 pass
-        try:
-            rows.append(_row(rel, diagnose(ap)))
-        except Exception as e:
-            rows.append({"path": rel, "verdict": "ERROR", "error": str(e)[:120]})
+        if isolate and _deadline is not None:
+            remaining = _deadline - time.monotonic()
+            dgn = _diagnose_isolated(ap, max(remaining, 0.05))
+            if dgn is None:
+                # Killed at the deadline mid-diagnose. Counted in BOTH
+                # buckets so the arithmetic reconciles (skipped = not
+                # diagnosed) and the kill is separately visible.
+                killed_in_flight += 1
+                skipped_wacz += 1
+                budget_exhausted = True
+                continue
+            if "error" in dgn and "verdict" not in dgn:
+                rows.append({"path": rel, "verdict": "ERROR",
+                             "error": str(dgn["error"])[:120]})
+            else:
+                rows.append(_row(rel, dgn))
+        else:
+            try:
+                rows.append(_row(rel, diagnose(ap)))
+            except Exception as e:
+                rows.append({"path": rel, "verdict": "ERROR", "error": str(e)[:120]})
         diagnosed += 1
     diagnosed = [r for r in rows if r.get("verdict") != "ERROR"]
     note = ("" if diagnosed else
@@ -324,6 +419,7 @@ def collect(root=".", dirs=None, limit=None, budget_s=None, max_bytes=None):
             "errors": sum(1 for r in rows if r.get("verdict") == "ERROR"),
             "aggregate": _aggregate(rows), "dirs": list(dirs), "note": note,
             "skipped_wacz": skipped_wacz, "skipped_oversize": skipped_oversize,
+            "killed_in_flight": killed_in_flight,
             "budget_exhausted": budget_exhausted}
 
 

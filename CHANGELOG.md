@@ -4,6 +4,47 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1026
+
+The heavy-collector budget could not stop a diagnose already running, and
+zero budget meant NO budget in two of the three collectors.
+
+Measured on test5 (machine-id sha256/12 7b4ea932c297) at 6728dc8, real
+2.5GB capture store, cross-checked on test4 (102b31c04e7b):
+GET /api/data/capture_diagnostics COLD took 17.36s against L34's 8s serial
+route gate with budget_s=5 exhausted and useless -- collect() checks its
+deadline only BETWEEN files, and ONE diagnose of the newest <=25MB .wacz
+measured 16.1s (3rd-newest: 37.9s at 2.0MB; size does not predict regex
+cost). @1023's "the overrun is ONE FILE, 0.233s" was measured on
+capture_analytics' JSON parse and was never true of this collector.
+
+- tools/capture_diagnostics.py: deadline guard `if budget_s` ->
+  `is not None` (0 meant UNBOUNDED: measured >10min before the probe was
+  killed). New opt-in isolate=True runs each diagnose in a child process
+  killed at the deadline, bounding the overrun by _KILL_GRACE_S (1.5s pin)
+  instead of by whatever one file costs. Kills are counted
+  (killed_in_flight), skipped files still counted, budget_exhausted says so.
+  In-process path byte-compatible for the CLI and the stub batteries.
+- tools/replay_validator.py: same falsy-zero guard fixed (byte-identical
+  defect at :170).
+- bulk_downloader/app_data_layer.py: collect_capture_diagnostics passes
+  isolate=True; _cached is now single-flight per key (L34's phase-1 probe
+  and serial re-probe each ran the full ~17s compute concurrently); cache
+  timestamp now set AFTER compute so a slow compute no longer burns its own
+  TTL; the @1023 comment block corrected (its one-file arithmetic was about
+  the wrong collector).
+- tests/test_v3_66_1026_heavy_collectors_bounded_for_real.py: 10 tests --
+  8 proven RED on pristine source for their stated reasons, 1 deliberate
+  both-sides control pinning the in-process default path for existing
+  consumers, and 1 route-wiring assertion (collect_capture_diagnostics
+  passes isolate=True; every other test calls the collector directly, so
+  only this one catches the flipped-wiring mutant). Pins
+  budget + kill grace + margin <= gate, the @1023 relationship, for the
+  isolated path.
+
+Measured after: collect(budget_s=5, isolate=True) against the same store =
+5.058s wall, 46 real rows (was 1), 1 kill, everything labelled.
+
 ## v3.66.1025
 
 The capture could not say which box it came from.
