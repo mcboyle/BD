@@ -4,6 +4,53 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1032
+
+Docs. FRESH_HOST_BRINGUP.md gains the standing three-host topology and the
+master-session model.
+
+Everything already in that file describes a MIGRATION -- two hosts,
+transitional, old as control until the new one is proven. This section describes
+the arrangement to settle into afterwards: three hosts with fixed roles (.164
+master + main reference, .85 candidate, .249 clean bring-up proof) and one
+session driving all three over SSH.
+
+Why the controller lives on a box rather than in the cloud sandbox, measured
+2026-08-11 from a session at v3.66.1030: no ssh binary, no keys, port 22 on a
+10.0.70.x address unreachable, egress HTTPS-through-a-proxy to allowlisted hosts
+only. A cloud container cannot reach any of the three, and nothing on the
+sandbox side fixes it. Moving the controller inside the LAN does.
+
+Three rules, ordered by what their failure costs. The agent works in ~/work/BD
+and never in ~/BulkDownloader, which on the master is the deployed tree with the
+service running against it -- ordinary agent work pointed there moves production
+under a live process, the hazard section 7 already names for the deploy path,
+and it is the only rule here whose failure is unrecoverable. The clean host is
+never inhabited: a venv, a clone or one apt package voids the bare-Ubuntu proof
+it exists to produce. And the master's SSH credentials are scoped to the job on
+the same reasoning as the capture allowlist.
+
+The candidate host's case is a measurement rather than a preference: at
+v3.66.977 a cut put a live PyPI call in the unit suite, every container band was
+green because the container hid it, and only a box run surfaced it after the
+merge -- costing a complete second cut where a pre-merge candidate run would
+have cost one capture.
+
+Records that a capture-publishing tool leaves the critical path under this
+topology (the master reads captures over SSH directly) and why it was the right
+answer while the controller was in the cloud, so a later reader does not find
+two plans and have to guess which is live.
+
+Marked UNVERIFIED as written: the network measurement is real, the arrangement
+is a plan, and the session that designed it could not reach any of the three
+hosts. The first real run is expected to find gaps and record them in that file,
+which is that runbook's house style.
+
+Written into the existing runbook rather than a new document. It already carries
+SSH trust setup, two-boxes-as-control, and host identity; a second topology doc
+would restate those, which is the drift shape this repo has been burned by three
+times (the TEXT_EXT allowlists, the package lists, CODEX_HANDOFF.md).
+
 ## v3.66.1031
 
 tests: stage 1 of the socket guard -- an autouse recorder that REPORTS
