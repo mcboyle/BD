@@ -4,6 +4,42 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1039
+
+fleet: deploy every host from one command, and the band rule batch C earned.
+
+scripts/deploy_fleet.sh loops scripts/deploy.sh over the fleet. It is a LOOP and
+not a second implementation: the pytest preflight, the stopped-window recovery
+and the health gate all stay in one place. It runs every host rather than
+stopping at the first failure, because "which of my three boxes is wrong" is the
+question an operator actually has, and exits nonzero if any failed.
+
+THE HOST LIST IS UNTRACKED, by operator decision. This repo is public and the
+fleet's addresses are not its business, so the script reads ~/.config/bd/hosts
+and REFUSES (exit 2) without one, naming the path. docs/repo/hosts.example is
+tracked and uses RFC 5737 documentation addresses; a test asserts that neither
+the script nor the example carries a private-range address, because the natural
+next edit is to "just put the hosts in the script".
+
+THREE REFUSALS, all the same shape: a missing file, a file listing no hosts, and
+a line with no address. Each would otherwise deploy NOTHING and exit 0, which in
+a log is indistinguishable from a successful fleet deploy -- an empty
+denominator in the one script whose whole job is to act on every host.
+
+A DRY RUN NO LONGER CLAIMS A DEPLOY. The first version fell through to "all 3
+host(s) deployed and verified" having touched nothing. Found by running it, not
+by reading it; the summary is the one line an operator reads.
+
+CLAUDE.md section 4: a floor means you may ADD to it, not drop from it.
+bd-band-derive named 28 files for the @1037 change and a hand-picked subset was
+run instead, omitting test_deploy_script.py -- 23 of its tests were red for two
+hours unseen. The subset looked reasonable, which is precisely why the tool
+exists: the file it knew about and I did not was the one that broke.
+
+NOTED, NOT FIXED: the fleet addresses are already in tracked prose in
+docs/repo/FRESH_HOST_BRINGUP.md from @1032/@1033. The untracked-list decision
+governs new code; it does not retroactively remove what is already published.
+
 ## v3.66.1038
 
 corrections: one false claim in shipped operator output, and the editing rules
