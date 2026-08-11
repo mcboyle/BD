@@ -4,6 +4,61 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1024
+
+Docs only. Two corrections to CLAUDE.md and an operator runbook for the second
+deploy host.
+
+THE BD_INSTALL_DIR RULE HAS TWO OPPOSITE HALVES AND THE SAME VARIABLE SERVES
+BOTH. Section 5 already said to scope it for an ad-hoc probe. It did not say
+never to EXPORT it into a pytest run -- and capture.sh:78-99 refuses exactly
+that, because the variable is inherited by every test, db._resolve_db_path
+prefers it over the working directory, and per-test isolation is defeated.
+15.74 finding #4 measured 89 false failures from it. Measured again, same tree,
+same directory, the variable the only difference:
+
+    tests/test_provision_test_host.py             4 failed  ->  115 passed
+    tests/test_v3_66_820_auth_health_reaped_*.py  2 failed  ->   11 passed
+
+Both had been reported as pre-existing order-dependent failures, "proven" by
+changing one variable in the same directory -- while BD_INSTALL_DIR sat set on
+BOTH sides. Sound comparison, question nobody asked. The band form is now
+written down as `env -u BD_INSTALL_DIR`, because "just do not set it" does not
+survive a shell that already carries it from an earlier probe.
+
+A CONFTEST GUARD FOR THIS WAS BUILT AND DELETED, and the deletion is the more
+useful half. It refused an ambient value at session start, RED-first, with an
+over-sensitivity control that passed. The full suite then failed it:
+test_v3_66_946_the_leak_guard_does_not_fire_on_inherited_state and
+test_v3_66_994_leakprobe_refuses_when_blind encode the OPPOSITE deliberate
+position -- a legitimate inherited value must be RESTORED rather than removed,
+or every test after a leaker runs without the install dir the operator
+configured. The control that passed covered only a clean environment; the
+suite's own meta-tests were outside its denominator. Section 0, inside a guard
+written to prevent a section 0 failure. Recorded so it is not rebuilt.
+
+"THERE IS NO SECOND BOX" IS RETIRED, and the two readings of it are easy to
+conflate. It was always about `stash` being a saved PuTTY session name rather
+than a hostname -- never a promise that one host was permanent. A fresh Linux
+VM now stands beside test4, so a reading is about a HOST as well as a commit,
+the way section 2b already requires for a commit. What survives unchanged is
+why it never mattered: nothing in any tracked .py or .sh resolves, connects to
+or branches on a hostname (re-derived -- the only gethostname/platform.node hit
+is live_tests/harness.py, interpolated into a report string).
+
+docs/repo/FRESH_HOST_BRINGUP.md is the runbook: what provision_test_host.sh
+does and does NOT do (it never clones, never installs the service, never
+migrates state), the preconditions it does not create including an unlisted
+curl dependency, the graph pin that lives outside the repo, and the state
+migration list. OPERATOR-facing; section 8's rule that CLAUDE.md is the only
+agent-facing contract is unchanged.
+
+ONE FINDING IN THAT RUNBOOK IS A LATENT DATA-LOSS TRAP, verified rather than
+repeated: bulk_downloader/backup.py's BACKUP_TARGETS lists queue.db and its
+sidecars, and the live database is downloader_history.db. Zero occurrences of
+"downloader_history" appear anywhere in backup.py. A backup.zip does not
+contain the history database.
+
 ## v3.66.1023
 
 The heavy-collector budget was 2.5x the gate it has to fit inside.

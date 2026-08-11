@@ -9,11 +9,27 @@ the `mboyle@test4` prompt in a capture, deploying to
 Older prose here, in `project-knowledge/`, and in the SDD reports calls that box
 `stash`. That is a saved PuTTY session name, not a hostname
 (`.superpowers/sdd/wacz-processing-report.md` records the session alongside the
-same `mboyle` user). **Same machine — there is no second box.** Two sessions
-have now spent time treating this as an open question; it is not one. Nothing in
-any `.py` or `.sh` resolves, connects to, or branches on a hostname, so the name
-is documentation only: the deploy is `git fetch` + `git reset --hard` run *on*
-the box.
+same `mboyle` user). `stash` and `test4` are **the same machine** — two
+sessions spent time treating that as an open question and it was never one.
+
+**A SECOND BOX NOW EXISTS, AND IT IS A DIFFERENT CLAIM FROM THE ONE ABOVE.**
+The operator is standing up a fresh Linux VM alongside `test4` (v3.66.1024).
+So "there is no second box" is retired as of that cut — it was always about
+`stash` being a PuTTY session name, never a promise that one host was
+permanent, and the two readings are easy to conflate in exactly the direction
+that wastes a session. What survives unchanged is the reason it never mattered:
+nothing in any `.py` or `.sh` resolves, connects to, or branches on a hostname
+(re-derived at v3.66.1024 — the only hit for `gethostname|platform.node|uname
+-n` in tracked sources is `live_tests/harness.py:251`, interpolated into a
+report string and never branched on). The deploy is still `git fetch` +
+`git reset --hard` run *on* whichever box you are on.
+
+**So a reading is now about a HOST as well as a commit.** Section 2b already
+says a finding is about a commit and you must say which; with two boxes the
+same is true of the machine. `docs/repo/FRESH_HOST_BRINGUP.md` is the operator
+runbook for the new one and records what must be migrated by hand — it is
+OPERATOR-facing, not a second agent contract, and section 8's rule that this
+file is the only agent-facing contract is unchanged.
 
 Read this file fully before your first edit. It encodes rules that were learned
 by breaking things, not by preference. Where a rule looks arbitrary, it is
@@ -1057,6 +1073,52 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   export BD_INSTALL_DIR="$(mktemp -d)"   # NOT BD_HOME -- it governs nothing here
   venv/bin/python -c '...'               # absolute interpreter if you cd away
   ```
+
+  **AND THAT LINE IS FOR A PROBE. NEVER EXPORT IT INTO A `pytest` RUN.** The
+  two halves are opposite and the same variable serves both, which is why this
+  keeps costing sessions. `capture.sh:78-99` refuses outright when it is set,
+  and says why: it is inherited by every test in the run, `db._resolve_db_path`
+  prefers it over the working directory, so every test shares ONE database and
+  the isolation `tests/conftest.py` provides is defeated. 15.74 finding #4
+  measured 89 false failures from exactly that.
+
+  Measured again at v3.66.1024, same tree, same directory, the variable the
+  only difference:
+
+  | file | exported | popped |
+  | --- | --- | --- |
+  | `tests/test_provision_test_host.py` | 4 failed | **115 passed** |
+  | `tests/test_v3_66_820_auth_health_reaped_on_site_delete.py` | 2 failed | **11 passed** |
+
+  Both were reported to the operator as pre-existing order-dependent failures,
+  "proven" by changing one variable in the same directory -- while
+  `BD_INSTALL_DIR` sat set on BOTH sides. The comparison was sound for the
+  question it answered ("did that cut do this?" -- no) and was then read as an
+  answer to a question it never asked. Section 1's rule, on the session's own
+  work, twice.
+
+  **The form for a band, then, is the variable POPPED:**
+
+  ```bash
+  env -u BD_INSTALL_DIR bash -c 'BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest ...'
+  ```
+
+  `env -u` rather than "just don't set it": your shell may already carry it
+  from an earlier probe, and that is the whole failure mode.
+
+  **A `conftest.py` guard for this was built and DELETED at v3.66.1024, which
+  is the more useful half of the finding.** It refused an ambient value at
+  session start, RED-first, with an over-sensitivity control that passed. The
+  full suite then failed it: `tests/test_v3_66_946_the_leak_guard_does_not_fire
+  _on_inherited_state.py` and `tests/test_v3_66_994_leakprobe_refuses_when
+  _blind.py` encode the OPPOSITE, deliberate position -- a legitimate inherited
+  value must be RESTORED rather than removed, or every test after a leaker runs
+  without the install dir the operator configured. The guard fought a shipped
+  decision, and threading it needed an exemption variable that would itself
+  enter `test_gui_parity`'s `BD_` ledger. **The control that passed only
+  covered a clean environment; the suite's own meta-tests were outside its
+  denominator** -- section 0, inside the guard written to prevent a section 0
+  failure. Do not rebuild it without reading those two files first.
 
   **No gate can catch this, and know why before proposing one:** refusing a
   database path that resolves inside the repo would break the BOX, which runs
