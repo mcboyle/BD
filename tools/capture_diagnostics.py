@@ -246,7 +246,7 @@ sys.stdout.write(json.dumps(out))
 """
 
 
-def _diagnose_isolated(abs_path, timeout_s):
+def _diagnose_isolated(abs_path, timeout_s, work_root):
     """One diagnose() in a child process, killed at timeout_s.
 
     Returns the diagnose dict; {"error": ...} when the child failed; None
@@ -254,10 +254,16 @@ def _diagnose_isolated(abs_path, timeout_s):
     deadline can only skip BETWEEN files, and a single diagnose is
     uninterruptible regex work that measured 16-38s on real captures.
 
-    The child gets a scratch cwd and BD_INSTALL_DIR: db._resolve_db_path
-    falls back to the working directory, and a fresh interpreter importing
-    product modules from the repo root is exactly the shape that writes the
-    operator's live database (CLAUDE.md section 5).
+    The child's cwd is work_root -- collect()'s own root -- because GOLD
+    RESOLUTION IS CWD-RELATIVE (template_drift_report probes
+    templates/reviewed/{host}.template.json with os.path.exists): a scratch
+    cwd here silently blanked drift/runtime for every reviewed host,
+    reporting "first version" against golds that exist (review catch,
+    pre-merge). What protects the operator's database is BD_INSTALL_DIR
+    pointed at a scratch dir -- db._resolve_db_path prefers it over the
+    working directory, so the cwd fallback never fires (CLAUDE.md
+    section 5). The scratch dir also swallows PYTHONDONTWRITEBYTECODE-
+    exempt residue and is removed either way.
     """
     import subprocess
     import tempfile
@@ -272,7 +278,7 @@ def _diagnose_isolated(abs_path, timeout_s):
         r = subprocess.run(
             [sys.executable, "-c", _CHILD_SRC, str(abs_path), roots],
             capture_output=True, text=True, timeout=timeout_s,
-            cwd=scratch, env=env)
+            cwd=str(Path(work_root).resolve()), env=env)
     except subprocess.TimeoutExpired:
         return None
     finally:
@@ -391,7 +397,7 @@ def collect(root=".", dirs=None, limit=None, budget_s=None, max_bytes=None,
                 pass
         if isolate and _deadline is not None:
             remaining = _deadline - time.monotonic()
-            dgn = _diagnose_isolated(ap, max(remaining, 0.05))
+            dgn = _diagnose_isolated(ap, max(remaining, 0.05), root)
             if dgn is None:
                 # Killed at the deadline mid-diagnose. Counted in BOTH
                 # buckets so the arithmetic reconciles (skipped = not

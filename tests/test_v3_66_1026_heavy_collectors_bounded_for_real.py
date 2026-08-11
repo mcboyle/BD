@@ -197,6 +197,61 @@ def test_isolated_diagnose_returns_real_rows_inside_budget():
     assert res["aggregate"]["n"] == 1
 
 
+def test_isolated_rows_are_field_identical_to_in_process_rows():
+    """The child must be an EXECUTION change, not a MEANING change: the same
+    capture through both paths yields the same row, field for field. This is
+    the general detector for child-environment divergence (cwd, env, import
+    path, JSON round-trip) -- any of those drifting shows up as a field
+    mismatch here.
+
+    Pre-merge review found the child's original scratch cwd WOULD diverge on
+    cwd-relative gold resolution -- and the follow-up measurement found the
+    default gold join is broken for BOTH paths today (the candidate nests
+    host under source.host; filed separately), so both report identically
+    and parity holds. The child cwd is set to the work root anyway: when the
+    join fix lands, cwd-relative resolution starts mattering and THIS test
+    plus that cut's gold test become the constraint. A parity test cannot
+    prove the cwd is right today (measured: no observable differs); it
+    proves nothing else diverged."""
+    root = _store(1, real=True)
+    res_in = CD.collect(str(root), budget_s=None)
+    res_iso = CD.collect(str(root), budget_s=30, isolate=True)
+    assert len(res_in["rows"]) == 1 and len(res_iso["rows"]) == 1
+    assert res_iso["rows"][0] == res_in["rows"][0], (
+        f"isolated row diverged from in-process row for the same capture:\n"
+        f"  in-process: {res_in['rows'][0]!r}\n"
+        f"  isolated  : {res_iso['rows'][0]!r}")
+
+
+def test_second_child_gets_the_remaining_budget_not_a_fresh_one():
+    """Review catch (v3.66.1026 pre-merge): at both original call sites
+    `remaining` and `budget_s` were numerically interchangeable, so a mutant
+    passing the FULL budget to every child -- letting the route answer at
+    ~2x budget, past the gate -- escaped the battery. Record the timeout
+    each child is offered: after the first child consumes a known slice,
+    the second's offer must be the remainder."""
+    root = _store(2)
+    offers = []
+    orig = CD._diagnose_isolated
+
+    def recorder(ap, timeout_s, work_root):
+        offers.append(timeout_s)
+        time.sleep(0.4)
+        return None if len(offers) > 1 else {"error": "stub"}
+
+    CD._diagnose_isolated = recorder
+    try:
+        CD.collect(str(root), budget_s=10, isolate=True)
+    finally:
+        CD._diagnose_isolated = orig
+    assert len(offers) == 2, f"expected 2 child offers, got {offers!r}"
+    assert offers[0] > 9.0, f"first child should be offered ~the full budget: {offers!r}"
+    assert offers[1] < 9.8, (
+        f"second child was offered {offers[1]:.2f}s of a 10s budget after "
+        f"the first consumed ~0.4s -- the timeout is not the REMAINING "
+        f"budget, so N expensive files can hold the route ~N x budget")
+
+
 def test_isolate_is_opt_in_and_the_default_path_is_unchanged():
     """The CLI contract and the existing stub-based batteries depend on the
     in-process path: a stubbed CD.diagnose must still be what collect() calls
@@ -233,6 +288,15 @@ def test_the_route_layer_actually_requests_isolation():
         f"collect_capture_diagnostics called collect with {seen!r} -- the "
         f"route no longer requests the child-process bound, so one expensive "
         f"file again holds the route past L34's gate")
+    # Review catch (pre-merge): isolate=True is INERT without a budget --
+    # collect() gates the child path on `isolate and _deadline is not None`
+    # -- so a budget_s=None mutant here reverts the route to the unbounded
+    # in-process walk with every other test green. Assert the whole triple.
+    assert seen.get("budget_s") == ADL._HEAVY_BUDGET_S, (
+        f"route passed budget_s={seen.get('budget_s')!r}; without the "
+        f"budget the isolate flag does nothing")
+    assert seen.get("max_bytes") == ADL._HEAVY_MAX_BYTES
+    assert seen.get("limit") == ADL._HEAVY_LIMIT
 
 
 # ── 6. the cache is single-flight ───────────────────────────────────────────

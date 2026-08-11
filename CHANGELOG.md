@@ -33,14 +33,25 @@ capture_analytics' JSON parse and was never true of this collector.
   timestamp now set AFTER compute so a slow compute no longer burns its own
   TTL; the @1023 comment block corrected (its one-file arithmetic was about
   the wrong collector).
-- tests/test_v3_66_1026_heavy_collectors_bounded_for_real.py: 10 tests --
+- tests/test_v3_66_1026_heavy_collectors_bounded_for_real.py: 12 tests --
   8 proven RED on pristine source for their stated reasons, 1 deliberate
-  both-sides control pinning the in-process default path for existing
-  consumers, and 1 route-wiring assertion (collect_capture_diagnostics
-  passes isolate=True; every other test calls the collector directly, so
-  only this one catches the flipped-wiring mutant). Pins
-  budget + kill grace + margin <= gate, the @1023 relationship, for the
-  isolated path.
+  both-sides control pinning the in-process default path, a route-wiring
+  assertion over the FULL kwarg triple (a budget_s=None mutant makes
+  isolate inert -- collect() gates the child path on both -- and a
+  flipped-wiring mutant is visible only here), a remaining-budget test
+  (the timeout offered to child N+1 must be the REMAINDER, or N expensive
+  files hold the route ~N x budget), and a child/parent row-parity test.
+  All three additions are pre-merge adversarial-review catches; the two
+  mutants they exist for are in the battery (9 caught, 0 escaped).
+
+- Review also surfaced a PRE-EXISTING defect this cut does NOT fix and
+  does not worsen: the drift axis's default gold join never fires from
+  diagnose() -- build_template nests host at source.host while
+  _default_gold reads a top-level host -- measured on the real store
+  (captures/123.wacz vs templates/reviewed/app.reptyle.com.template.json:
+  have_baseline=False from the repo cwd, both paths). Filed separately.
+  The child cwd is set to collect()'s root anyway, so cwd-relative gold
+  resolution works the moment that join is fixed.
 
 Measured after: collect(budget_s=5, isolate=True) against the same store =
 5.058s wall, 46 real rows (was 1), 1 kill, everything labelled.
