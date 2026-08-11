@@ -449,13 +449,38 @@ echo
 echo "=== [4/9] repo install (install_linux.sh) ==="
 echo "  venv, requirements (pytest + pytest-xdist), optional reqs, playwright"
 echo "  chromium, cloakbrowser, vendored rrweb/snapdom, SPA build. Minutes, not"
-echo "  seconds."
+echo "  seconds. Then requirements-test.txt -- the capture-gate deps."
 if [ ! -f "$REPO/install_linux.sh" ]; then
     record "install_linux.sh" "FAIL" "missing at $REPO/install_linux.sh"
 else
     # Invoked through `bash` rather than as ./install_linux.sh: the deploy path
     # is an unzip overlay and the executable bit does not always survive it.
     run_step 04_install_linux "install_linux.sh" core bash ./install_linux.sh || true
+fi
+
+# ------------------------------------------- [4c/9] the TEST manifest
+#
+# install_linux.sh deliberately installs only the operator manifests
+# (requirements.txt + optional): it also serves plain release installs, where
+# the analysis chain is dead weight. A TEST host is different -- the capture's
+# own gates hard-require requirements-test.txt: bd-tool-smoke REFUSES to grade
+# over an absent pyflakes (test_toolchain_534 goes red on the refusal, which
+# is correct), test_v3_66_949 asserts pytest_timeout imports, and the mod3
+# suites want psycopg. CLAUDE.md section 5 names BOTH manifests as the floor.
+#
+# Measured on test5 (7b4ea932c297) at v3.66.1025: without this step the
+# box's FIRST capture failed exactly those two unit suites, VERDICT: READY
+# notwithstanding -- and test4 only ever passed because someone installed the
+# packages BY HAND, which is the drift this script exists to prevent (S0/S8).
+if [ -x "$REPO/venv/bin/python" ]; then
+    run_step 04c_reqs_test "requirements-test.txt (capture gate deps)" core \
+        ./venv/bin/python -m pip install -r requirements-test.txt || true
+    # pip exit 0 is not resolution (section 7's deploy.sh lesson): grade the
+    # manifest with the same instrument every recovery path uses.
+    run_step 04d_reqs_test_check "requirements-test resolve check" core \
+        ./venv/bin/python tools/check_requirements.py requirements-test.txt || true
+else
+    record "requirements-test.txt" "FAIL" "venv absent -- install_linux.sh did not produce venv/bin/python"
 fi
 
 # ------------------------------------------------------- [4b/9] SPA bundle

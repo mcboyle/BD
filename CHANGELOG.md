@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1028
+
+provision_test_host.sh now installs AND resolution-checks
+requirements-test.txt (new graded steps [4c]/[4d]). install_linux.sh
+deliberately installs only the operator manifests; on a TEST host the
+capture's own gates hard-require the test manifest (bd-tool-smoke refuses
+to grade over an absent pyflakes; test_v3_66_949 asserts pytest_timeout
+imports; the mod3 suites want psycopg), and CLAUDE.md section 5 names both
+manifests as the floor. Measured on test5 (7b4ea932c297) at v3.66.1025:
+without this step the box's first capture failed exactly those two unit
+suites despite VERDICT: READY -- and test4 only ever passed because the
+packages were installed by hand, the drift this script exists to prevent
+(S0/S8). The resolve check is tools/check_requirements.py, not pip's exit
+code (section 7's deploy.sh lesson). Operator-authorized build change
+(2026-08-11).
+
 ## v3.66.1027
 
 CI's generated-artifact sync check now enumerates all SEVEN tracked outputs
