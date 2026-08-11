@@ -244,3 +244,39 @@ def test_run_refuses_a_host_that_cannot_register(jobs, monkeypatch, capsys):
         "something ran after the probe failed -- the job was launched anyway: %s"
         % calls)
     assert "REFUSED" in capsys.readouterr().err
+
+
+def test_run_strips_the_argparse_separator_from_the_command(jobs, monkeypatch):
+    """argparse.REMAINDER keeps the `--`, and nothing here covered assembly.
+
+    MEASURED on this tool's first live run: `run --host X -- sleep 90` sent
+    `bash -c "-- sleep 90"`, bash answered "invalid option" and exited, and the
+    registry then held a correct entry for an already-dead process. `list` said
+    DEAD and everything LOOKED consistent -- the tests all passed, because none
+    of them ever built a command line.
+    """
+    seen = {}
+
+    class FakeProc:
+        pid = os.getpid()
+
+    def fake_popen(cmd, **kw):
+        seen["cmd"] = cmd
+        return FakeProc()
+
+    monkeypatch.setattr(jobs.subprocess, "Popen", fake_popen)
+    rc = jobs.cmd_run(type("A", (), {
+        "host": "local", "purpose": "p", "command": ["--", "sleep", "90"]})())
+    assert rc == 0
+    assert seen["cmd"] == ["bash", "-c", "sleep 90"], (
+        "the argparse separator reached the shell: %r" % (seen["cmd"],))
+
+
+def test_run_refuses_an_empty_command(jobs, capsys):
+    """`bash -c ""` exits 0 having done nothing, and would register a job that
+    never existed -- a record with no work behind it is as bad as work with no
+    record."""
+    rc = jobs.cmd_run(type("A", (), {
+        "host": "local", "purpose": "p", "command": ["--"]})())
+    assert rc == 2
+    assert "REFUSED" in capsys.readouterr().err

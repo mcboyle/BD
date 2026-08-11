@@ -215,7 +215,20 @@ def cmd_reap(args):
 
 def cmd_run(args):
     """Launch a command on a host and register it THERE, before returning."""
-    cmd = " ".join(args.command)
+    # argparse.REMAINDER KEEPS THE `--`. Measured on this tool's first live run:
+    # `bd-jobs run --host X -- sleep 90` sent `bash -c "-- sleep 90"` to the
+    # target, which answered `bash: --: invalid option` and exited instantly.
+    # The registry then held a correct entry for a process that had already
+    # died, so `list` said DEAD and everything LOOKED consistent -- the failure
+    # was in the one part no test covered, the command assembly.
+    parts = list(args.command or [])
+    if parts and parts[0] == "--":
+        parts = parts[1:]
+    if not parts:
+        print("REFUSED: no command given. Use: bd-jobs run --host H --purpose P "
+              "-- <command>", file=sys.stderr)
+        return 2
+    cmd = " ".join(parts)
     here = socket.gethostname()
     if args.host in (None, "", here, "local"):
         proc = subprocess.Popen(["bash", "-c", cmd],
