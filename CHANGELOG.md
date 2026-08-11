@@ -4,6 +4,46 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1025
+
+The capture could not say which box it came from.
+
+A second deploy host was stood up beside the first at v3.66.1024 and came up
+with the SAME hostname. capture.sh's system-fingerprint block recorded
+`uname -a` and nothing else identifying the machine, so captures from the two
+boxes were byte-indistinguishable -- one commit after CLAUDE.md told every
+reader that a finding is about a HOST as well as a commit, and the runbook
+pointed at 01_sysinfo.log to tell them apart. That file could not tell them
+apart. A record that cannot see the thing it is asked about, inside guidance
+written to prevent exactly that.
+
+The operator renamed the second box, which fixes those two machines and nothing
+else. This makes the ARTIFACT self-identifying, so the next pair does not depend
+on anyone remembering: a `--- host identity ---` section carrying the hostname
+and a truncated sha256 of /etc/machine-id.
+
+HASHED, NEVER RAW, AND NO LAN ADDRESS. machine-id is stable across reboots,
+renames and address changes -- exactly the wanted property -- but a capture
+bundle is shipped to third parties, which is why the capture vault already
+lives outside $OUT. The digest answers "same box or not" and publishes nothing
+further; the raw value is a durable machine fingerprint. LAN addresses were
+considered and rejected on the same ground, and a test asserts their absence so
+a later "improvement" has to argue with the decision rather than just add them.
+
+DEGRADES VISIBLY. A host without /etc/machine-id records `unknown`. A capture
+must not die over a fingerprint, and an absent one must not read as a present
+one -- both directions asserted, along with stability across runs on one host,
+which is the over-sensitive failure: a digest that moved between runs would
+make every capture look like a different box.
+
+TWO BUGS IN THE TEST ITSELF, both caught by it failing where it should have
+passed. `shell_source.blocks_containing` anchors on the line holding the
+needle, and `01_sysinfo.log` appears on the CLOSING `}` redirect -- so it
+returned that one line, 30 characters, and every assertion over it would have
+been about nothing. Replaced with a walk back to the opening brace, which is
+section 2a's balanced-delimiter cut. The second was a duplicated setup block
+writing to a directory before creating it.
+
 ## v3.66.1024
 
 Docs only. Two corrections to CLAUDE.md and an operator runbook for the second

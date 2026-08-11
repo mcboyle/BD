@@ -427,6 +427,26 @@ echo "=== [1/9] System fingerprint ==="
  echo "--- date ---"; date -Iseconds
  echo "--- commit ---"; emit_commit_identity
  echo "--- uname ---"; uname -a
+ # v3.66.1025: a STABLE host identity, because uname's hostname is not one.
+ # Two deploy hosts were stood up with the same hostname and their captures
+ # became byte-indistinguishable -- one commit after CLAUDE.md told readers a
+ # finding is about a HOST as well as a commit and pointed at this very file to
+ # tell them apart.
+ #
+ # HASHED, NEVER RAW, and no LAN address either: this bundle is shipped to
+ # third parties (it is why the capture vault lives outside $OUT). The digest
+ # answers "same box or not" and publishes nothing further; the raw id is a
+ # durable machine fingerprint and an IP is internal topology.
+ #
+ # Degrades to `unknown` rather than failing -- a capture must not die over a
+ # fingerprint, and an absent one must not read as a present one.
+ echo "--- host identity ---"
+ hostname 2>/dev/null || echo "hostname: unknown"
+ if [ -r /etc/machine-id ]; then
+   printf 'machine-id(sha256/12): %s\n' "$(sha256sum /etc/machine-id | cut -c1-12)"
+ else
+   echo "machine-id(sha256/12): unknown"
+ fi
  echo "--- os-release ---"; cat /etc/os-release 2>/dev/null
  echo "--- python ---"; venv/bin/python --version 2>&1
  echo "--- pip freeze (top 30) ---"; venv/bin/pip freeze 2>/dev/null | head -30
