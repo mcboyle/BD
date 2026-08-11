@@ -82,7 +82,31 @@
 set -euo pipefail
 
 STEP=0
-die()    { printf 'deploy.sh: FAIL [step %s]: %s\n' "$STEP" "$*" >&2; exit 1; }
+# A FAILURE INSIDE THE STOPPED WINDOW MUST NOT LEAVE PRODUCTION DOWN.
+# Steps 8-10 run with the unit deliberately inactive, so anything that dies in
+# there parks the box with the service off -- measured at v3.66.1035, when an
+# orphaned pytest on the target wrote .pyc files while step 9 removed them and
+# test4 sat down until someone looked. Aborting was right; aborting silently was
+# not. SERVICE_STOPPED is what makes the recovery conditional: a precondition
+# refusal must never start a unit the operator had deliberately left down.
+#
+# The restart is best-effort and SAYS WHICH. The tree is already at the new
+# commit by then, so a recovered service is running a PARTIAL deploy -- louder
+# than a silent outage, and the message says to re-run.
+die() {
+  printf 'deploy.sh: FAIL [step %s]: %s\n' "$STEP" "$*" >&2
+  if [ "${SERVICE_STOPPED:-0}" = 1 ]; then
+    printf 'deploy.sh: the unit was STOPPED at step 8 -- attempting restart\n' >&2
+    if sudo systemctl start bulkdownloader >/dev/null 2>&1 \
+       && systemctl is-active --quiet bulkdownloader; then
+      printf 'deploy.sh: service RESTARTED, but this is a PARTIAL DEPLOY --\n' >&2
+      printf 'deploy.sh: the tree moved and later steps did not run. Re-run me.\n' >&2
+    else
+      printf 'deploy.sh: *** SERVICE IS DOWN AND COULD NOT BE RESTARTED ***\n' >&2
+    fi
+  fi
+  exit 1
+}
 refuse() { printf 'deploy.sh: REFUSED [step %s]: %s\n' "$STEP" "$*" >&2; exit 2; }
 note()   { printf 'deploy.sh: [step %s] %s\n' "$STEP" "$*"; }
 
@@ -157,6 +181,50 @@ fi
 [ -n "$DIR" ] || DIR="${BD_DEPLOY_DIR:-$HOME/BulkDownloader}"
 [ -d "$DIR" ] || refuse "install dir not found: $DIR (pass --dir, or set BD_DEPLOY_DIR)"
 DIR="$(cd "$DIR" && pwd -P)"
+
+# A DEPLOY AND A TEST RUN CANNOT BOTH WIN THE SAME __pycache__. Step 9 sweeps
+# bytecode; a live suite recreates it faster than rm removes it, and the sweep
+# then dies with "Directory not empty" -- INSIDE the stopped window, leaving the
+# service down. Measured at v3.66.1035 on test4, twice, because the retry hits
+# the same live writer.
+#
+# Placed AFTER $DIR is resolved, because the check is scoped to this install dir
+# and cannot be asked before we know which one that is.
+_running_pytest() {
+  # WHAT THIS CAN AND CANNOT SEE -- read before trusting a clean answer.
+  #
+  # DETECTS: a pytest process whose CWD is inside $DIR. That is the shape of the
+  # measured incident -- an xdist master started with `cd ~/BulkDownloader &&
+  # pytest`, whose workers hammered $DIR's __pycache__ while the master sat in
+  # $DIR.
+  #
+  # CANNOT DETECT: a SERIAL run, because tests/conftest.py chdirs every test
+  # into tmp_path, so the one process has no cwd near $DIR by the time you ask.
+  # Two other discriminators were tried and are worse than useless: the command
+  # line alone answers DETECTED on an idle host (the invoking shell's own argv
+  # says "-m pytest"), and /proc/<pid>/exe resolves a venv python to
+  # /usr/bin/python3.12 -- OUTSIDE $DIR -- so an exe scope never fires at all.
+  # Both were measured at v3.66.1037.
+  #
+  # So this is a cheap filter for the common case, NOT a guarantee. The thing
+  # that actually makes a collision survivable is die()'s recovery of the
+  # stopped window; this only avoids the collision when it can be seen.
+  local pid cwd
+  for pid in $(ps -eo pid=,comm=,args= 2>/dev/null \
+               | awk '$2 ~ /^python/ && $0 ~ /-m[ ]pytest/ { print $1 }'); do
+    cwd="$(readlink -f "/proc/$pid/cwd" 2>/dev/null)" || continue
+    case "$cwd" in "$DIR"|"$DIR"/*) return 0;; esac
+  done
+  return 1
+}
+if _running_pytest; then
+  refuse "a pytest run is in flight against $DIR (its interpreter lives there).
+  Step 9 sweeps __pycache__ inside the STOPPED window and a live suite recreates
+  it faster than rm can remove it, so the sweep dies with the service already
+  down. Wait for the run, or reap it, then re-run."
+fi
+
+
 [ -e "$DIR/.git" ] || refuse "not a git work tree: $DIR"
 [ -f "$DIR/bulk_downloader/__init__.py" ] \
   || refuse "not a BulkDownloader tree (no bulk_downloader/__init__.py): $DIR"
@@ -452,6 +520,7 @@ fi
 # CONFIRMED before either runs.
 STEP=8
 sudo systemctl stop bulkdownloader || die "sudo systemctl stop bulkdownloader failed"
+SERVICE_STOPPED=1        # die() owes a restart from here until step 11 clears it
 if systemctl is-active bulkdownloader >/dev/null 2>&1; then
   die "systemctl stop bulkdownloader returned success but the unit is STILL
   ACTIVE. The bytecode sweep and the parity regen that follow are unsafe against
@@ -560,6 +629,11 @@ fi
 # this step's verification.
 STEP=11
 sudo systemctl start bulkdownloader || die "sudo systemctl start bulkdownloader failed"
+# The stopped window is over. Cleared BEFORE the health gate deliberately: from
+# here the unit is up, so a step-12 failure is a sick service, not a stopped
+# one, and restarting it in die() would tell the operator a comforting lie about
+# a box that is actually unhealthy.
+SERVICE_STOPPED=0
 note "service start requested; verifying by health probe"
 
 # ── [12] health gate ────────────────────────────────────────────────

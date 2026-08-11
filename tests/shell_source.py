@@ -92,3 +92,47 @@ def blocks_containing(code: str, needle: str) -> list[str]:
     lines = code.splitlines()
     return [enclosing_block(lines, i)
             for i, l in enumerate(lines) if needle in l]
+
+
+def enclosing_if(lines: list[str], idx: int) -> str:
+    """The `if` ... `fi` construct containing `lines[idx]`, or the bare line.
+
+    The loop helpers above cover `for`/`while` and deliberately fall back to a
+    single line for anything else -- correct for their subject, and a trap for
+    a caller who assumes "block" means any block. Measured at v3.66.1037: an
+    assertion that a preflight REFUSES was written against
+    `blocks_containing`, got back the header line `if _running_pytest; then`,
+    and could never see the refusal in the body. A mutant swapping the refusal
+    for a printf escaped a hand-rolled character window first, then this.
+
+    Same fallback contract as `enclosing_block`: a subject outside any `if` is
+    judged on its own text rather than failing for its form.
+    """
+    start = None
+    for i in range(idx, -1, -1):
+        st = lines[i].strip()
+        if re.match(r"^if\b", st):
+            start = i
+            break
+        if st == "fi":            # a sibling construct closed above us
+            break
+    if start is None:
+        return lines[idx]
+    depth, end = 0, len(lines) - 1
+    for j in range(start, len(lines)):
+        st = lines[j].strip()
+        if re.match(r"^if\b", st):
+            depth += 1
+        if st.startswith("fi"):
+            depth -= 1
+            if depth <= 0:
+                end = j
+                break
+    return "\n".join(lines[start:end + 1])
+
+
+def if_blocks_containing(code: str, needle: str) -> list[str]:
+    """Every enclosing `if` construct whose text reaches `needle`."""
+    lines = code.splitlines()
+    return [enclosing_if(lines, i)
+            for i, l in enumerate(lines) if needle in l]
