@@ -1621,6 +1621,27 @@ assert after != src and len(after) == len(src) - len(old) + len(new)
 Length arithmetic is exact for one replacement of a unique anchor and cannot be
 fooled by substring overlap in **either** direction.
 
+**AN EDIT SCRIPT MUST MUTATE IN MEMORY AND WRITE ONCE, AT THE END.** Measured
+at v3.66.1035: a three-file bump wrote `__version__` and the test pin, then
+asserted out on the CHANGELOG anchor -- leaving the tree half-bumped, with a
+version nothing recorded. An assertion that fires after a write has already
+happened does not prevent the damage, it just stops the rest. Collect every
+replacement, assert all of them, then write; a script that fails then fails
+having changed nothing.
+
+**AND NEVER RETYPE AN ANCHOR THAT CONTAINS PUNCTUATION -- `rg` THE LITERAL LINE
+AND PASTE IT.** This file mixes em dashes and double hyphens unpredictably, and
+an anchor is an exact-match string: the same sentence typed from memory with
+`--` where the file has `—` fails, and the failure looks like the target having
+moved rather than like a typo. Two edits were lost to that in one session.
+
+**`sed -i` IS NOT AN ACCEPTABLE APPLIED-CHECK.** It asserts nothing about
+uniqueness, so it will happily rewrite three sites when you meant one and
+report success. Section 6's whole subject is that the applied-check is the
+safeguard; use the count-plus-length-arithmetic form above even for something
+as small as a version literal, where a second match is exactly what you would
+not notice.
+
 **A mutant that does not parse is INVALID, not caught, and not escaped.**
 Deleting a line can orphan an `except:` clause; the runner then sees a
 collection error, no named guard flips, and the row reads as an escape. Validate

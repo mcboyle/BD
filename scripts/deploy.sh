@@ -218,7 +218,7 @@ _running_pytest() {
   return 1
 }
 if _running_pytest; then
-  refuse "a pytest run is in flight against $DIR (its interpreter lives there).
+  refuse "a pytest run is in flight with its working directory inside $DIR.
   Step 9 sweeps __pycache__ inside the STOPPED window and a live suite recreates
   it faster than rm can remove it, so the sweep dies with the service already
   down. Wait for the run, or reap it, then re-run."

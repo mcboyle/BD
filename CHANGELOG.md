@@ -4,6 +4,38 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1038
+
+corrections: one false claim in shipped operator output, and the editing rules
+batch A earned.
+
+@1037's refusal message said a pytest was in flight "(its interpreter lives
+there)". That describes the exe-scoped detector that was TRIED AND ABANDONED --
+a venv python is a symlink and resolves to /usr/bin/python3.12, outside the
+install dir, so that version never fired at all. Detection is by WORKING
+DIRECTORY. An operator-facing message naming the wrong mechanism sends the
+reader looking in the wrong place, and it was found by running the preflight
+against a real xdist run rather than by re-reading the diff.
+
+Recorded while confirming it: the preflight DOES refuse the shape it claims.
+Against a live `-n 4` run whose master sits in the install dir, deploy.sh exits
+2 at step 0. Against a SERIAL run it does not, because conftest chdirs every
+test into tmp_path -- the blind spot the source already states.
+
+CLAUDE.md section 6 gains three rules from batch A:
+
+AN EDIT SCRIPT MUST MUTATE IN MEMORY AND WRITE ONCE. A three-file bump wrote
+two files then asserted out on the third, leaving the tree half-bumped with a
+version nothing recorded. An assertion that fires after a write does not
+prevent damage, it only stops the rest.
+
+NEVER RETYPE AN ANCHOR CONTAINING PUNCTUATION. This file mixes em dashes and
+double hyphens unpredictably; a sentence typed from memory with the wrong one
+fails as if the target had moved. Two edits were lost to it in one session.
+
+sed -i IS NOT AN APPLIED-CHECK. It asserts nothing about uniqueness and will
+rewrite three sites when you meant one, reporting success.
+
 ## v3.66.1037
 
 deploy: a deploy must not run into a live test suite, and must never leave the
