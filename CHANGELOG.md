@@ -4,6 +4,31 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1042
+
+Batch D additionals: six lessons the bd-jobs cut paid for, written into the
+contract. Documentation only -- no source or test behaviour changes.
+
+Section 0 gains "a tool built to prevent a failure can manufacture it": bd-jobs
+launched a remote command and then failed to register it, producing on its first
+live use the exact untracked orphan it exists to prevent. Prove the record can
+be written before taking the action; an unregisterable host is a refusal.
+
+Section 1 gains "a deferral that lives only in prose has been dropped": the ITEM
+LEDGER holds because a test reads it, and the 77-item improvement backlog from
+the same review does not hold, because nothing does.
+
+Section 10 gains four, all measured on this tool. Verify SUMMARY and VERDICT
+lines specifically -- three defects that session lived only there, including a
+self-grade built on `grep -c`, which prints 0 and exits 1 when nothing matches
+and so reported failure on a run where every step succeeded. Test the seam, not
+only the components: eleven tests covered both sides of the argparse/shell join
+and none covered the join. A green battery is not coverage evidence -- bd-jobs's
+self-test runs seven checks over the registry primitives and calls cmd_run,
+cmd_reap and cmd_list zero times. And when a function has N outcomes, assert
+each is reachable: reap's refusal branch was unreachable as written, and read as
+a safety feature.
+
 ## v3.66.1041
 
 bd-jobs: the separator bug its own first live use found.
