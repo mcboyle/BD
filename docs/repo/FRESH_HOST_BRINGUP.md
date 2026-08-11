@@ -191,9 +191,17 @@ measurement instead of an argument.
 ## Saying which box a reading came from
 
 With two hosts live, a capture is about a **machine** as well as a commit.
-`01_sysinfo.log` records both; quote the commit and the host together when
-reporting a result, the same way `CLAUDE.md` section 2b requires a commit for a
-finding. Nothing in the tree branches on a hostname (re-derived at v3.66.1024:
+
+**The hostname alone is not an identity, and that is not hypothetical.** The
+second box came up named `test4` like the first, so captures from the two were
+byte-indistinguishable until it was renamed. v3.66.1025 added a
+`--- host identity ---` section to `01_sysinfo.log` carrying the hostname AND a
+truncated sha256 of `/etc/machine-id` — stable across reboots, renames and
+address changes, and hashed because the bundle is shipped to third parties.
+
+So quote the commit and that digest together when reporting a result, the same
+way `CLAUDE.md` section 2b requires a commit for a finding. Two captures either
+carry the same digest or they do not; a matching hostname proves nothing. Nothing in the tree branches on a hostname (re-derived at v3.66.1024:
 the only `gethostname` / `platform.node` hit in tracked sources is
 `live_tests/harness.py`, interpolated into a report string), so the two boxes
 differ only in their state and their environment — which is exactly what makes
