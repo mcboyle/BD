@@ -4,6 +4,29 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1031
+
+tests: stage 1 of the socket guard -- an autouse recorder that REPORTS
+non-loopback connect attempts and blocks nothing. The operator's decision at
+v3.66.980 is explicitly staged: record, measure, then enforce in a second cut
+with an opt-out marker, because the estimate on file ("21 files might call
+out") is a grep over string literals and not a denominator.
+
+It exists because @977 shipped a live PyPI call inside unit tests, which only
+the box caught. The hook wraps socket.socket.connect/connect_ex, which is
+where create_connection lands, so urllib, http.client, requests and asyncio
+sock_connect are all covered by one wrapper -- demonstrated against the @977
+path itself rather than reasoned from the call chain.
+
+What it cannot see is declared in the report on every run, because a recorder
+that prints nothing when it finds nothing reads exactly like one that was
+never armed: child processes (164 of 1316 test files spawn one), C-level
+sockets such as libpq, raw _socket.socket, and DNS. The run's observed-connect
+count is printed beside the zero for the same reason.
+
+No environment variable: the run token reaches xdist workers through
+workerinput, so nothing here joins the config surface test_gui_parity grades.
+
 ## v3.66.1030
 
 register: 15.86 -- session close at b92c971 (v3.66.1029), the first test5

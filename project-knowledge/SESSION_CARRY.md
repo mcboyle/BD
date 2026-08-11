@@ -4846,6 +4846,84 @@ a record -- see 15.62's closing paragraph.
      follow the last `project-knowledge/` edit, the same way regen must follow
      the last source edit.
 
+ 46. **The test suite makes live PyPI calls from a dependency's daemon thread.**
+     MEASURED at v3.66.1031 by the stage-1 socket recorder, on test5, across a
+     full `-n 16` run: five attempts to `151.101.*:443`, from a thread named
+     `_check_wrapper_update`. It is `cloakbrowser`'s, not ours -- a daemon
+     thread started on import that GETs the package's own PyPI JSON **once per
+     process**, so once per xdist worker, landing on whichever test happens to
+     be running. Named by function rather than `path:NN` because it lives under
+     `site-packages` and `venv/` is untracked, where an anchor can never
+     resolve.
+
+     This is @977's class -- a live PyPI call inside unit tests -- surviving in
+     a dependency, which is why no gate over OUR tree could ever have seen it,
+     and why item 45's fix did not touch it. It also means the suite's result
+     depends on pypi.org being reachable, on a box whose whole point is to be
+     the gate.
+
+     Opt-out exists and is one variable: `CLOAKBROWSER_AUTO_UPDATE=false`, or
+     setting `CLOAKBROWSER_DOWNLOAD_URL`. NOT applied in @1031 on purpose --
+     `CLOAKBROWSER_*` names are already in the config-surface inventory
+     (`CLOAKBROWSER_BINARY_PATH` is a ledgered unprefixed key), so adding one is
+     a `test_gui_parity` question rather than a drive-by. Decide where it goes:
+     `tests/conftest.py`, `capture.sh`, or the provisioner.
+
+ 47. **`test_path_typed_flag_rejects_traversal` is vacuous, and fails on a false
+     premise when it is not.** `tests/test_v3_66_717_exec_bridge.py`. It reads
+     as a path traversal being ACCEPTED (200, not 400) and it is **not a
+     vulnerability** -- `tool_bridge`'s path validation does `realpath` +
+     containment and is correct in both directions. MEASURED at v3.66.1031 with
+     `_ALLOWED_PATH_ROOTS = ('/home/mboyle/BulkDownloader', '/tmp')`:
+
+         cwd <=3 deep under /tmp -> realpath('../../../../etc/passwd') = /etc/passwd
+                                 -> REFUSED, correctly
+         cwd >=4 deep under /tmp -> = /tmp/.../etc/passwd, still inside a root
+                                 -> ACCEPTED, correctly
+
+     The test hard-codes four `..`, so whether the payload escapes depends on
+     the depth of pytest's `tmp_path`, which varies with worker and test name.
+     That is the failing half. The other half is worse: the only path-typed
+     flag in the allowlist is ffprobe's `input`, and `_build_allowlist` creates
+     that entry only when `shutil.which("ffprobe")` resolves -- so where ffprobe
+     is absent the loop finds nothing and the test **returns having asserted
+     nothing**, green. A security test that passes vacuously is section 0 in a
+     test file.
+
+     Fix direction: derive the payload from the actual cwd depth (or use an
+     absolute `/etc/passwd`), and assert ffprobe's presence rather than walking
+     silently past it -- an explicit skip says "not measured", a vacuous return
+     says "refused", and only one of those is true.
+
+ 48. **The full suite on test5 does not run clean on pristine `main`, and the
+     failing set ROTATES between runs.** Five full runs at v3.66.1031, same
+     host, same directory:
+
+         pristine e5cece7  -n 16 -> 13 failed
+         @1031             -n 16 -> 1, then 7, then 8   (three runs)
+         pristine e5cece7  -n 4  -> 16 failed
+         @1031             -n 4  -> 35 failed
+
+     Every file sampled from the "new" failures passes when run together in
+     isolation (23 tests, 5 files, green), so these are co-batching artifacts:
+     `--dist loadfile` sequences more files per worker as `-n` falls, and adding
+     any test file reshuffles the assignment. **Fewer workers is WORSE**, which
+     is the opposite of the intuition that parallelism causes flakiness.
+
+     This is not what CLAUDE.md section 5 leads a reader to expect. That section
+     records the sanctioned sweep as "14 failed, all the documented
+     container-only set, item 34's four order-dependent failures ABSENT --
+     @945's fix holding at full denominator". On test5 the documented `-n 4`
+     form gives **16 failures on pristine main**, and they are mostly not that
+     set (`test_e2e_smoke` passes here; this is the box, not a container).
+
+     What is NOT known, and is the work: how many are genuinely order-dependent
+     versus environmental on this host, and whether any is a real defect hiding
+     in the rotation. `test_v3_66_717_exec_bridge` was in all five runs and is
+     now item 47 -- one member identified, the rest unclassified. Until that
+     pass is done, a full-suite run on test5 cannot be read as a gate, which
+     matters because the box IS the gate.
+
 ### 15.38 | The tier plan -- 15.36's list re-ordered by size and speed
 
 15.36 orders the open items by what unblocks what. This is the OTHER axis --
@@ -5058,6 +5136,214 @@ never `export` in a shell the suite is later launched from.
 - `www.bbc.co.uk` is the corpus's only `single_witness` -- green on a `.drawer`
   row seen in 1 of 6 captures. Re-capture before trusting it.
 
+
+### 15.87 | SESSION CLOSE 2026-08-11 at e5cece7 (v3.66.1031) -- stage 1 of the socket guard, and the three findings its first harvest bought
+
+Close at `e5cece7`, the squash of #315 and already on `main` when this was
+written -- never this cut's own branch tip, which the squash destroys.
+
+ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
+OPEN:   31, 33, 46, 47, 48
+CLOSED:
+
+Items **46, 47 and 48 are opened by this session** and filed in the 15.36
+inventory, on operator instruction. Nothing is closed. 33's denominator is
+re-derived at 238 below.
+
+READING: **test5**, machine-id(sha256/12) `7b4ea932c297`, 86 cores, clone NOT
+shallow, venv 3.12.3. Branched from `e5cece7` (v3.66.1030), already on `main`.
+Everything below is this host; nothing was run on test4 and nothing here is a
+claim about it.
+
+#### THE CUT (@1031)
+
+The operator's v3.66.980 decision, built: an autouse recorder that REPORTS
+non-loopback connects and blocks nothing. Stage 2 (enforce, with an opt-out
+marker) is deliberately not in this cut -- the estimate it would have been
+written against was "21 files might call out", a grep over string literals.
+
+`tests/_socket_record.py` wraps `socket.socket.connect`/`connect_ex`.
+`create_connection` lands there, so urllib, http.client, requests and asyncio
+`sock_connect` are all covered by the one wrapper. That was DEMONSTRATED against
+the motivating defect rather than reasoned from the call chain: with the hook
+armed, `ytdlp_updater.latest_version(allow_fetch=True)` recorded exactly one
+attempt, `151.101.192.223:443`, via `http/client.py`. The subject is in the
+denominator.
+
+Three design points that are not obvious and cost something to get right:
+
+- **No environment variable at all.** The run token reaches xdist workers
+  through `pytest_configure_node`/`workerinput`. An env var would be inherited
+  by every subprocess the suite spawns AND would join the surface
+  `test_gui_parity` grades. Note while checking that: **CLAUDE.md section 4
+  says that scan "matches on the `BD_` prefix". It does not, and has not since
+  v3.66.713** -- the test's own comment records the prefix-blindness being
+  fixed, and an unprefixed key must now be ledgered display-only. The stale
+  sentence would have sent a future author to pick an unprefixed name for
+  exactly the wrong reason.
+- **Per-run sink directory, keyed by the master pid.** The obvious design --
+  one shared directory cleared at session start -- lets a nested pytest child
+  (164 test files spawn subprocesses) wipe its parent's records mid-run. Separate
+  directories need no clearing.
+- **`summarize()` defaults to the ARMED directory, not `sink_dir()`.** Caught by
+  this file's own loopback test passing while reading a different directory:
+  an empty summary, green, over a denominator that never held the records. It
+  would have stayed green with the classifier inverted.
+
+RED-first, and the honest version: the pre-implementation RED was a COLLECTION
+ERROR (module absent), which proves the module is missing and not that any
+assertion constrains anything. The per-assertion proof is the battery ->
+**10 caught, 0 escaped, 0 invalid**, baseline proven GREEN first, including a
+mutant that reverts the `summarize()` fix above.
+
+Band: `bd-band-derive` gave 10 files; the axis-6 members and the version-pin
+gates were added on top for 25 files, green at 249 tests. `bd-regen-order`
+clean, run after the last source edit and again after the last edit of all.
+Import-graph re-freeze was a **no-op** -- the gate does not count a
+test->test-helper edge, so `bd-band-derive`'s flag was conservative there.
+
+**One gate went RED for the documented reason and it is worth repeating:**
+`test_v3_66_653_dep_freshness` read `_socket_record` as an undeclared
+third-party distribution, because its resolver checks `git ls-files` and the new
+file was UNTRACKED. `git add` of the explicit paths fixed it. Section 2a's
+"gates cannot see untracked files", firing in the RED direction rather than the
+usual silent-pass one.
+
+#### THE HARVEST -- what stage 2 actually has to deal with
+
+Full suite, `-n 16 --dist loadfile --timeout=240 -p no:randomly`:
+**130 non-loopback attempts from 124 tests across 29 files.** But the headline
+number is the wrong one to act on, and splitting it is the finding:
+
+| | count |
+| --- | --- |
+| SOCK_DGRAM route lookups that send NO packet | **115** |
+| SOCK_STREAM, genuinely on the wire | **15** |
+
+115 of them are `_lan_ip_guess` (`app.py:4999`) connecting a UDP socket to
+8.8.8.8:53 to ask the routing table which source address it would pick.
+`app.py:4991` says so in as many words: no packet is sent. **A stage 2 that
+blocks these breaks LAN-IP discovery and buys nothing**, and a stage-2 author
+reading "130 outbound calls" would be reading a list of 130 when the tree has
+15. The recorder records `type` and `sends_packets` for exactly this reason --
+added AFTER the first harvest, because the first harvest could not tell the two
+apart.
+
+The 15 that do send packets, all to :443:
+
+| test file | via |
+| --- | --- |
+| `test_secret_display_never.py` | `community_scrapers.py:260:fetch_index` |
+| `test_v3_43_60_vpn_backends.py` | `vpn_providers/pia.py:203:_pia_token` |
+| `test_v3_43_64_mp4_metadata.py` | `mp4_metadata.py:317:fetch_cover` |
+| `test_v3_43_65_tier_probe.py` | `tier_probe.py:314:probe_higher_tiers` |
+| `test_v3_66_729_body_contract_fixtures.py` (x3) | `app_scrape_listing.py:69`, `app_template.py:286` |
+| 8 more | ambient, see below |
+
+#### ITEM 46 -- THE SUITE STILL CALLS PyPI, FROM A DEPENDENCY'S DAEMON THREAD
+
+Five of those attempts go to `151.101.*:443` (PyPI) and belonged to no test at
+all until the recorder grew thread attribution mid-cut. Named, they come from
+thread `_check_wrapper_update`: **`cloakbrowser`**, a third-party package in
+`requirements`, spawns a daemon thread on import that GETs
+`https://pypi.org/pypi/cloakbrowser/json` **once per process** --
+so once per xdist worker, landing on whichever test happens to be running.
+
+It lives in `cloakbrowser/download.py` under `site-packages`, in
+`_check_wrapper_update`, armed from `_maybe_trigger_update_check`. Named by
+function and WITHOUT a line anchor on purpose: `venv/` is untracked, so a
+`path:NN` citation into it can never resolve and the anchor gate reports it
+BROKEN -- which is what it did to the first draft of this paragraph, correctly
+(section 4's rule, earned again). It is opt-out:
+`CLOAKBROWSER_AUTO_UPDATE=false`, or setting `CLOAKBROWSER_DOWNLOAD_URL`.
+
+This is @977's exact class -- a live PyPI call inside unit tests -- surviving in
+a dependency rather than in our code, which is why no gate over our tree could
+ever have seen it. The remedy is one environment variable, NOT built here
+because `CLOAKBROWSER_*` names are already in the config-surface inventory
+(`CLOAKBROWSER_BINARY_PATH` is a ledgered unprefixed key) and adding one is a
+`test_gui_parity` question, not a drive-by.
+
+**Attribution is why this is actionable.** On the first harvest 9 of 16
+packet-senders had NO test attached, because the nodeid is thread-local and set
+on the main thread. Rows nobody can attribute are the rows stage 2 cannot act
+on. The fallback labels them `ambient` rather than `test` -- an approximation,
+and it says which it is.
+
+#### ITEM 47 -- `test_path_typed_flag_rejects_traversal` IS VACUOUS, AND THE CODE IS FINE
+
+`tests/test_v3_66_717_exec_bridge.py` failed in all four full runs, including on
+pristine `main`. It reads as a path traversal being ACCEPTED (200, not 400).
+**It is not a vulnerability.** Measured:
+
+```
+_ALLOWED_PATH_ROOTS = ('/home/mboyle/BulkDownloader', '/tmp')
+cwd <=3 deep under /tmp : realpath('../../../../etc/passwd') = /etc/passwd        -> REFUSED (correct)
+cwd >=4 deep under /tmp : realpath(...)                      = /tmp/.../etc/passwd -> ACCEPTED (correct)
+```
+
+`tool_bridge`'s path validation does `realpath` + containment and is right in
+both cases. The TEST hard-codes four `..` and so depends on the depth of
+pytest's `tmp_path`, which varies with worker and test name. Two defects in one:
+it fails on a false premise when it fires, and it returns **vacuously** when
+`ffprobe` is absent (the only path-typed flag lives on the ffprobe entry, which
+`_build_allowlist` only creates if `shutil.which` resolves it) -- so in isolation
+it passes while proving nothing. Fix direction: derive the payload from the
+actual cwd depth or use an absolute `/etc/passwd`, and assert ffprobe's presence
+rather than skipping past it silently.
+
+#### ITEM 48 -- THE FULL SUITE ON test5 DOES NOT RUN CLEAN, AND THE FAILING SET ROTATES
+
+Five full runs this cut. The failing SET is unstable run-to-run on the SAME tree:
+
+| tree | workers | failed |
+| --- | --- | --- |
+| pristine `e5cece7` | 16 | 13 |
+| @1031 | 16 | 1, then 7, then 8 (three runs) |
+| pristine `e5cece7` | 4 | 16 |
+| @1031 | 4 | 35 |
+
+Every file sampled from the "new" failures passes when run together in
+isolation with the cut present (23 tests, 5 files, green), so these are
+**co-batching artifacts, not breakage**: `--dist loadfile` puts more files in
+sequence per worker as `-n` falls, and adding any test file reshuffles the
+assignment. The cut is not the cause -- it produced the LOWEST count of any run
+-- but note honestly that with one sample per cell and a set this unstable, "the
+cut adds no failures" rests on the isolation runs, not on the totals.
+
+**This supersedes what CLAUDE.md section 5 leads a reader to expect.** That
+section records the sanctioned sweep as "14 failed, all the documented
+container-only set, item 34's four order-dependent failures ABSENT -- @945's fix
+holding at full denominator". On test5 the documented `-n 4` form gives 16
+failures on pristine main, and they are mostly NOT that container set (no
+`test_e2e_smoke`, which passes here). Two variables differ from the recorded
+measurement -- host and worker count -- and this cut isolated the second: fewer
+workers is WORSE, not better. What is not yet known is how many are genuinely
+order-dependent versus environmental on this host; that wants its own pass and
+a number.
+
+#### HOST EVENTS -- test5, on operator action
+
+- **GPU fixed by the operator** (told, then verified here): Tesla T4, driver
+  580.173.02, CUDA 13.0, with two `llama-server` processes resident at 11249MiB
+  of 15360MiB. `ollama` active, `/api/version` 0.32.9. This supersedes 15.86's
+  "installed via install_ai_ollama.sh (exit 0, **CPU mode**)".
+- `tools/deployed_version.txt` reads 3.66.1030, started 2026-08-11T15:55:17Z --
+  the PROCESS, not the tree. test5's tree was at `e5cece7` (v3.66.1030) at
+  session start.
+
+#### STILL OPEN
+
+Unchanged from 15.86 items 1-5 (match.hosts bridge, item 31's eight rows, item
+33 at denominator 238 re-derived three ways this cut, the clean-host bring-up
+proof, the post-@1026 test5 capture), plus from here:
+
+6. **Stage 2 of the socket guard** -- enforce with an opt-out marker, against
+   the 15 packet-senders above and NOT the 115 route lookups. The child-process
+   blind spot (164 files) wants a `sitecustomize.py` decision.
+7. **Items 46, 47 and 48** -- the PyPI-calling dependency thread, the vacuous
+   traversal test, and the rotating full-suite failure population. 48 is the
+   one that blocks reading a test5 full run as a gate.
 
 ### 15.86 | SESSION CLOSE 2026-08-11 at b92c971 (v3.66.1029) -- first test5 session: five cuts, and the collector no gate could see
 
