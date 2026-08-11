@@ -4,6 +4,45 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1037
+
+deploy: a deploy must not run into a live test suite, and must never leave the
+service down when it fails. Batch C of the review backlog.
+
+BOTH RULES COME FROM ONE INCIDENT at v3.66.1035. An orphaned pytest on test4
+was writing .pyc files while step 9 removed them; rm failed with "Directory not
+empty", the script died, and step 8 had already STOPPED the unit -- so test4 sat
+with its service inactive until someone looked. The retry failed identically,
+because the retry re-runs the stop and meets the same live writer.
+
+A PREFLIGHT now refuses (exit 2, before any mutation) when a test run is in
+flight on the target. Getting the detector right took two attempts and the
+first was worse than nothing: matching command-line text alone answered
+DETECTED on a completely IDLE host, because the invoking shell's own argv
+contains "-m pytest" -- it would have refused every deploy forever. The
+shipped form is ps -eo comm=,args= with comm required to be python, so shells,
+greps and editors quoting the pattern fall out. CLAUDE.md section 5's pgrep
+warning is widened accordingly: self-match is the small half, and matching
+what a process SAYS rather than what it IS is the big one.
+
+die() NOW RECOVERS THE STOPPED WINDOW. SERVICE_STOPPED is set at the stop and
+cleared once the unit is back, so a failure between them attempts a restart and
+says loudly that the deploy was PARTIAL -- and a precondition refusal outside
+the window never touches a unit the operator deliberately left down. When the
+restart fails the message is SERVICE IS DOWN AND COULD NOT BE RESTARTED rather
+than silence.
+
+Adds shell_source.enclosing_if / if_blocks_containing. The existing block
+helpers cover for/while and fall back to a single line for anything else --
+correct for their subject, a trap for a caller who reads "block" as any block.
+An assertion that the preflight REFUSES was written against blocks_containing,
+got back the header line, and could not see the body; a mutant swapping the
+refusal for a printf escaped a hand-rolled character window first and that
+helper second.
+
+Battery 6 caught / 0 escaped. deploy.sh is tested by EXTRACTION on balanced
+braces, never by running it -- it resets trees and restarts live services.
+
 ## v3.66.1036
 
 docs: four findings from the first full-fleet session recorded in the contract,

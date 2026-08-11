@@ -1012,8 +1012,19 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   against the results rather than trusting the loop.
 - Always capture exit codes **unpiped**: `cmd > /tmp/out 2>&1; echo "exit=$?"`.
   Piping masks the exit code, and this bites even when you know about it.
-- `pgrep -f "<cmd>"` **matches its own wrapper**. Never read it as "still
-  running" — check `/proc/<pid>` or a written exit marker. This bites hardest
+- `pgrep -f "<cmd>"` **matches its own wrapper** — and that is the SMALL half.
+  The big half, measured at v3.66.1037: a process-liveness check matches **any
+  process whose command line merely MENTIONS the pattern**, which on this fleet
+  routinely includes the shell that invoked you, the wrapper above it, and the
+  agent harness above that. A `deploy.sh` preflight asking "is a test run in
+  flight" answered YES on a completely idle host and would have refused every
+  deploy forever, because the invoking shell's own argv said `-m pytest`.
+  Splitting the literal (`-m[ ]pytest`) fixes only self-match, not this.
+
+  **Match on what the process IS, not on what its command line SAYS**:
+  `ps -eo comm=,args=` and require `comm` to be the interpreter, so shells,
+  greps and editors quoting the pattern all fall out. Never read a bare match as
+  "still running" — check `/proc/<pid>` or a written exit marker. This bites hardest
   inside a **wait loop**: `until ! pgrep -f 'pytest …'; do sleep 10; done` never
   exits, because the loop's own command line contains the pattern. A session
   reported a test lane as "running" for ten minutes when it had never started.
@@ -1700,6 +1711,25 @@ everything is green either way — a test that passes on both is not a test. Als
 assert the over-sensitive direction in the same test: a fix for "reports clean
 when blind" that simply calls every scan inconclusive passes the escape's test
 and destroys the tool.
+
+**A HARNESS MUST ASSERT THAT IT BUILT THE SHAPE, BEFORE IT ASSERTS THE
+VERDICT.** Three times in the v3.66.1037 cut a test passed because its fixture
+produced nothing to judge, and each looked like a green test:
+
+- a fake `ps` printed a PID column that `ps -eo comm=,args=` never emits, so it
+  certified a detector that answered wrongly on the real format;
+- a fake install directory symlinked a python that was not a venv, so `pytest`
+  was unimportable, the process exited before anything observed it, and the
+  "detected" case tested an empty process table;
+- `bash -c '...; sleep 25'` TAIL-CALL EXECS the sleep, so the process replaces
+  itself and the pattern under test leaves its argv entirely. The mutant
+  escaped twice before that was noticed.
+
+The fix is one line of discipline: **before asserting the outcome, assert the
+precondition** -- that the process exists, that its `comm` is what you meant,
+that the file has the bytes you wrote. Section 0's non-empty-denominator rule,
+applied to fixtures rather than to gates. Without it, "not flagged" and
+"nothing was there to flag" are the same green.
 
 **An escape can be a HARNESS defect rather than a missing test, and those are
 the ones that survive a battery.** Two shipped in one cut: a fake `curl` that
