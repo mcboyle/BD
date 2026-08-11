@@ -217,6 +217,86 @@ a question nobody had asked, because the variable that mattered was set on both
 sides. With two hosts, "is this the code or the machine?" is a same-day
 measurement instead of an argument.
 
+## The standing three-host topology, and the master session
+
+Everything above describes a MIGRATION -- two hosts, transitional, old as
+control until the new one is proven. This section describes the arrangement to
+settle into afterwards, and it is a different thing: three hosts with fixed
+roles, and one Claude session that drives all three.
+
+| host | role | who touches it |
+| --- | --- | --- |
+| `.164` | **master** -- the driving session, plus the `main` reference tree | the agent works in `~/work/BD` ONLY |
+| `.85` | **candidate** -- pre-merge trees, capture lanes | driven from master over SSH |
+| `.249` | **clean** -- the bare-Ubuntu bring-up proof | driven from master, never inhabited |
+
+**Why the controller lives on a box rather than in the cloud sandbox.** A cloud
+container cannot reach any of them: measured 2026-08-11 from a session at
+v3.66.1030 -- no `ssh` binary, no keys, port 22 on a `10.0.70.x` address
+unreachable, egress is HTTPS-through-a-proxy to allowlisted hosts only. Nothing
+about that is fixable from the sandbox side, because the boxes are behind the
+operator's LAN. Moving the controller inside the network solves it outright, and
+costs nothing: the master pays its context-orientation once and gets direct
+access for it, instead of paying the same and then asking the operator to relay
+every result by hand.
+
+### Three rules, in order of what their failure costs
+
+**1. The agent works in `~/work/BD`, never in `~/BulkDownloader`.** This is the
+only rule here whose failure is unrecoverable. On the master, `~/BulkDownloader`
+is the DEPLOYED tree with the service running against it. Ordinary agent work --
+`git reset --hard`, `git checkout -B`, `bd-regen-order` -- pointed at that
+directory moves production under a running process, which is the hazard section
+7 of CLAUDE.md already names for the deploy path. Give the master its own clone
+and leave the deploy tree alone. Deploys stay the operator's, exactly as now.
+
+**2. Never inhabit the clean host.** `.249` exists to prove that bare Ubuntu ->
+green `./capture.sh` runs with zero hand-fixes -- the open item this whole
+runbook was written to serve. A venv, a clone, an apt package installed to make
+something work, or any residue at all voids the proof it is there to produce.
+Drive it over SSH; do not live on it. When the proof is taken, it is taken once
+and recorded; the host does not become a general-purpose machine afterwards
+without being reimaged first.
+
+**3. Scope the SSH credentials to the job.** The master needs key auth to the
+other two. Use a dedicated keypair for it rather than the operator's own, on the
+same reasoning as the capture allowlist: the blast radius of an agent holding
+unrestricted SSH to two hosts is larger than the task requires. The setup and
+the proof-it-works line are in "Reaching the old box from the new one" above --
+`ssh-copy-id` exiting 0 means it wrote a file, not that key auth works.
+
+### What the candidate host is actually for
+
+Not redundancy. It is where a tree gets run BEFORE it merges.
+
+The argument is a measurement, not a preference. At v3.66.977 a cut put a live
+PyPI call inside the unit suite; every container band was green because the
+container's environment hid it, and only a box run surfaced it -- after the
+merge. Fixing it cost a complete second cut: RED tests, implementation, a
+mutation battery, a 39-file band, a PR and a CI cycle. A candidate run before
+the merge would have cost one capture. That asymmetry is the whole case, and it
+recurs for any defect whose trigger is environmental rather than logical.
+
+So: candidate first, merge second. The master can drive `.85` on a branch tip
+without deploying anything to `.164`.
+
+### What this arrangement does NOT need
+
+A capture-publishing tool. An earlier plan had the boxes pushing sanitised
+capture artifacts to a branch so a cloud session could read them by `git fetch`,
+and that was the right answer while the controller was in the cloud and blind.
+With the master on the LAN it reads captures over SSH directly, so the tool
+leaves the critical path. It is still worth building the day a cloud session
+needs box visibility -- it is not worth building first.
+
+### Status
+
+**UNVERIFIED as written.** The topology above was designed from a session that
+could not reach any of the three hosts, so nothing in it has been executed. The
+network measurement is real; the arrangement is a plan. Treat the first run of
+it the way this runbook treats everything else -- as the thing that finds the
+gaps -- and record what it finds here, in this file.
+
 ## Saying which box a reading came from
 
 With two hosts live, a capture is about a **machine** as well as a commit.
