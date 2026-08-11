@@ -4258,7 +4258,10 @@ PARALLEL PROGRAM -- OLDER, LARGELY OPERATOR- OR CAPTURE-BOUND (31-32)
 
 ONGOING, NOT A FINISH LINE (33)
 
- 33. **The prose-only pool** -- baseline 184 of a 240-tool population.
+ 33. **The prose-only pool** -- baseline 184, of a population measured at
+     238 (v3.66.1029: ls, git ls-files, and test_toolchain_534's
+     _TOOL_BUDGET all agree; this line said 240 for releases while all
+     three said otherwise -- measure at decision time, per section 1).
      A ratchet, not a target.
 
 ADDED v3.66.944 (34-35), v3.66.951 (36). All were prose notes elsewhere before
@@ -5055,6 +5058,171 @@ never `export` in a shell the suite is later launched from.
 - `www.bbc.co.uk` is the corpus's only `single_witness` -- green on a `.drawer`
   row seen in 1 of 6 captures. Re-capture before trusting it.
 
+
+### 15.86 | SESSION CLOSE 2026-08-11 at b92c971 (v3.66.1029) -- first test5 session: five cuts, and the collector no gate could see
+
+Close at `b92c971`, the squash of #314, already on `main` when this
+was written.
+
+ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
+OPEN:   31, 33
+CLOSED: 44
+
+Nothing this session opens or closes a NUMBERED item. Item 33's inventory text
+is corrected in place this cut (240 -> 238, measured three ways below); the
+correction is not a close.
+
+#### THE FIRST TEST5 CAPTURE, PER-CUT -- test5, machine-id(sha256/12) 7b4ea932c297, at 6728dc8 (v3.66.1025)
+
+FAIL exit=1: unit 15507/2/0/25, live 31 pass/4 warn/1 fail. Graph pin OK --
+NOT the stale-pin bookkeeping case. Every failure and skip named:
+
+| finding | cause | class |
+| --- | --- | --- |
+| test_toolchain_534 tool-smoke + test_v3_66_949 pytest-timeout | requirements-test.txt never installed on the host | provisioner gap (fixed @1028) |
+| live L17 FAIL + L18/L19 WARN | ollama absent while migrated app_config has ai_enabled=true | runbook gap (fixed @1029); installed on operator grant |
+| live L6 WARN | migrated test4 auth-state rows (July last_check stamps), site d9f19e92 yellow | migrated state + cookie age, NOT a regression -- none of @1023-1025 touches login |
+| live L30 WARN | migrated tunnels.json genuinely holds zero tunnels | accurate config state |
+| 25 skips | 19 no-PG-DSN, 3 dev-package, 1 netns, 1 dead-branch, 2 parametrized floors -- but see below | every skip named; the count moved 5 -> 25 because the PG suites migrated from container |
+
+Per-cut: @1025 VERIFIED (host identity block present; a capture now says which
+box). @1024 held everywhere exercised, and running its runbook on a real fresh
+host found four gaps (below). @1023 fixed the one collector its guard test
+reads, and the CLASS was open -- the finding this session is named for.
+
+Note test4's tool-smoke passes only because someone hand-installed pyflakes
+there; the provisioner gap was invisible on the proven box, which is the
+copy-nobody-updated shape again (S0/S8).
+
+#### THE COLLECTOR THE GATE COULD NOT SEE (@1026)
+
+`GET /api/data/capture_diagnostics` COLD measured **17.36s against L34's 8s
+serial gate** on test5's real 2.5GB store, with budget_s=5 exhausted and
+useless. Mechanism, workflow-verified (6 agents, adversarial synthesis; all
+five claims CONFIRMED):
+
+- collect() checks its deadline only BETWEEN files; ONE diagnose of the
+  newest <=25MB .wacz = **16.1s** (2nd: 18.8s; 3rd: **37.9s at 2.0MB** --
+  size does not predict regex cost). Cross-checked on test4
+  (102b31c04e7b): 14.5 / 16.9 / 35.98s -- same files, near-identical cost.
+- A diagnostics "file" is two full zip parses + whole-dom-log HTML
+  serialization + the recognizer batteries + a sha256 of the archive.
+  @1023's "overrun is ONE FILE, 0.233s" measured capture_analytics' JSON
+  parse -- ~2 orders of magnitude off for THIS collector.
+- capture.sh restarts the service at step [4], so L34 always probes an
+  EMPTY cache: the failure was deterministic on both boxes, not the
+  @1015-era coin flip. The bomb armed when the *.redacted.wacz files
+  entered the newest-50 mtime window late 2026-08-10 -- AFTER test4's
+  last green capture.
+- Falsy-zero deadline guards in capture_diagnostics.py:283 AND
+  replay_validator.py:170 (`if budget_s` -- 0 = UNBOUNDED, measured >10min).
+- _cached had no lock: L34's phase-1 + serial probes each ran the full
+  ~17s compute concurrently.
+- A degenerate budget (0.001s) fits the gate only by emptying the report:
+  NO budget value alone can fix an uninterruptible per-file cost.
+
+@1026 (#311): `is not None` guards in both files; opt-in isolate=True runs
+each diagnose in a child killed at the deadline (_KILL_GRACE_S=1.5, kills
+counted as killed_in_flight, budget_exhausted labelled); _cached single-flight
+per key, timestamp post-compute. RED-first 8 of 12 proven failing for stated
+reasons; band 326 passed (41 files); mutation battery 9 caught / 0 escaped.
+A 22-agent pre-merge adversarial review then confirmed three of its own
+findings into the cut (the wiring test's budget_s blind spot, the
+remaining-vs-fresh-budget blind spot, the child cwd -- each now a test, the
+two testable ones as battery mutants) and surfaced a PRE-EXISTING defect it
+initially misattributed to the cut: the drift axis's default gold join NEVER
+fires from diagnose() -- build_template nests host at source.host while
+_default_gold reads top-level -- measured identical from repo cwd on the real
+store. Filed separately with the fix direction and the subdomain-join
+question; @1026's child-cwd fix makes the isolated path follow the moment it
+lands. Measured after, same store: **5.058s wall, 46 real rows (was 1),
+1 kill**.
+
+#### SUPERSESSIONS of 15.85 claims
+
+- "capture_diagnostics took 6181ms serial -- under 8s at 77%": was true at
+  e7d3b5e and is ~2.8x stale; the corpus rework armed the expensive files
+  afterward. The figure now lives only as history.
+- "The CI generated-artifact denominator -- six enumerated, seven produced":
+  CLOSED at @1027 on operator GO. STATIC_KB_MANIFEST.json enters ci.yml's
+  generated=() array. Re-derivation note: the sharper mechanism is that
+  test_v3_66_939's _DECLARED set is hand-pinned (deliberately, and correctly),
+  so a suite never DECLARED is invisible to the one gate watching for dropped
+  suites -- 944/947 were never added.
+- "Two order-dependent test files ... both real": needs reconciling with
+  CLAUDE.md section 5's v3.66.1024 measurement, which reclassifies both as
+  BD_INSTALL_DIR-leak artifacts (exported: 4F/2F -- popped: 115P/11P). This
+  session's evidence: test_v3_66_820... passed inside @1026's 41-file
+  co-band (popped), 326/326. What was NOT re-run: either file alone-whole
+  with the variable popped. The two texts are consistent under the leak
+  reading; 15.85's "order-dependent" framing is the one to retire.
+- "main at 0db578f is UNVERIFIED on the box": superseded -- 6728dc8 captured
+  on test5 this session; the failures were host gaps + the @1026 defect, all
+  dispositioned above.
+
+#### HOST EVENTS -- test5 (7b4ea932c297), all on explicit operator grants
+
+- requirements-test.txt installed by hand (pyflakes, pytest-timeout,
+  psycopg); both manifests grade exit 0; durable fix is @1028.
+- ollama + qwen2.5:7b + qwen2.5vl:7b installed via install_ai_ollama.sh
+  (exit 0, CPU mode); /api/ai/status ok=true; L17's condition cleared.
+- The operator's 2.5GB capture corpus (924 files) rsync'd ~/captures ->
+  repo captures/ (mtimes preserved, byte-total verified, gitignored) --
+  the collectors' searched_dirs are repo-relative, so at ~/captures the
+  store was structurally invisible and every heavy route measured an EMPTY
+  denominator. On test4 the corpus lives repo-relative, which is why no
+  runbook row existed: migration never had to move it before.
+- install_remote_teach.sh applied: all four bd-* units active, noVNC on
+  :6080. Its bd-xvfb collided with the provisioner's RAW `Xvfb :99`
+  (PID-owned, not unit-managed); resolved by killing the raw process and
+  starting the unit -- the durable owner survives reboot. The collision is
+  a real seam between provision_test_host.sh and install_remote_teach.sh;
+  documented in the runbook @1029 rather than papered.
+- /var/run/reboot-required never appeared: no reboot.
+- test4 remains deployed at 3.66.1023 (process; tree 0547799) -- two cuts
+  behind main at session start, more after these cuts. Deploys are the
+  operator's.
+
+#### THE CUTS
+
+| cut | what |
+| --- | --- |
+| @1026 (#311) | the heavy-collector kill bound, both falsy-zeros, single-flight cache |
+| @1027 (#312) | STATIC_KB_MANIFEST.json enters ci.yml's generated=() -- the seventh output |
+| @1028 (#313) | provision_test_host.sh installs + resolution-checks requirements-test.txt |
+| @1029 (#314) | FRESH_HOST_BRINGUP.md: corpus migration row (repo-relative!), test-manifest step, ollama step, remote-teach + the :99 seam |
+| @1030 (#315) | this section; item 33 inventory text 240 -> 238; CLAUDE.md section 8's tool count corrected to follow its own measure-at-decision-time rule |
+
+#### METHOD COSTS -- what an agent should know
+
+- My own discovery-cost hypothesis was WRONG (guessed ~11s; measured
+  0.03s) -- the workflow's independent probes corrected it before it
+  reached a commit. The expensive thing was the single diagnose, not the
+  walk. Fan-out verification earns its tokens exactly here.
+- The route-vs-direct wall difference (17.36 vs 16.26s) is ~1s of server
+  overhead; cache_age_s on a fresh entry equalled the compute wall because
+  the timestamp was set at compute START -- fixed in @1026, and worth
+  knowing when reading old captures' cache_age values.
+- One workflow reviewer evidence-error was itself caught by the synthesis
+  verifier: a "zero grep hits" claim refuted by a prose mention in the
+  @1023 test's docstring. Subagent output is data, not evidence (2b), and
+  the verify tier is what makes it usable.
+- Item 33's denominator measured three ways at ac687c0: ls 238, git
+  ls-files 238, _TOOL_BUDGET 238 (test_toolchain_534.py:1084). CLAUDE.md
+  section 8 said 240; corrected this cut.
+
+#### WHAT IS STILL OPEN
+
+1. **Queue item 4**, the match.hosts bridge -- still blocked on the operator
+   reviewing `bd-wacz-corpus --hosts`.
+2. **Item 31**, the eight operator-bound rows (15.36 item 31 has the list).
+3. **Item 33**, the prose-only pool ratchet, denominator now 238.
+4. **A clean-host end-to-end proof of the fixed bring-up** (bare Ubuntu ->
+   green capture, zero hand-fixes) -- operator offered a box; worth taking
+   after @1028/@1029 deploy.
+5. **A fresh capture on test5 at the post-@1026 tree** -- the fix is
+   measured at the collector and the route; the capture-lane proof runs
+   after deploy.
 
 ### 15.85 | SESSION CLOSE 2026-08-10 at 0db578f (v3.66.1022) -- seven cuts, four box captures, and two defects only the box could find
 
