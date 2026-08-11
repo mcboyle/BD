@@ -316,6 +316,23 @@ been wrong. Every figure obtained by *running the tool* was right.
   the higher-stakes verdict: a wrong REAL costs a wasted cut, a wrong NOT-REAL
   closes the item permanently. The tell was in plain sight — the verification's
   own evidence stated the defective behaviour verbatim and graded it correct.
+- **AUDIT BEATS RECOLLECTION, AND THE GAP IS NOT EFFORT.** Measured at
+  v3.66.1035 on a review of the session that had just ended. Round one was
+  written from memory and produced 35 plausible, well-argued improvements and
+  **zero** live defects. Round two was `ls`, `rg` and `ps` against the actual
+  tree, hosts and `/tmp`, took twenty minutes, and found **six real defects,
+  three of them shipped that same day** -- 744 leaked directories, two gates
+  wired into no CI shard, and a session-close ledger already contradicting the
+  inventory. None of the three was in the list of 35.
+
+  The reason is section 0's, applied to introspection: recollection's
+  denominator is "what I remember doing", which structurally excludes the thing
+  you did without noticing. So when the question is "what did this change
+  leave behind", the answer comes from enumerating the tree, the processes and
+  the paths outside the repo -- never from thinking harder. After any cut:
+  untracked files, `/tmp` growth, orphan processes on every host, service
+  health, and whether the register's newest close still agrees with its
+  inventory.
 - **Read the callee before you call it.** Guessing a signature, a fixture's
   columns or a dict's keys and then debugging the failure is always slower than
   opening the definition, and it produces a worse failure: a call with the wrong
@@ -955,9 +972,30 @@ test file, regenerate `PIN_INDEX` regardless of what the grep returned.
   Every flag is load-bearing and a different one is a different experiment:
   `--timeout` is what turns a hang into a named test instead of a stall,
   `--timeout-method=thread` dumps its stack, `--dist loadfile` is the
-  distribution that was actually measured, and `-n 4` matches this container's
-  core count. Run it under a whole-run cap as well, and wait on a written exit
+  distribution that was actually measured, and `-n 4` matched THAT CONTAINER's
+  four cores. Run it under a whole-run cap as well, and wait on a written exit
   marker rather than on `pgrep` (§5's rule about a wrapper matching itself).
+
+  **`-n 4` IS NOT A CONSTANT -- DERIVE IT.** It is the one flag here that
+  describes the machine rather than the experiment, and it was copied onto an
+  86-core box at v3.66.1035 purely because this paragraph said 4. Use
+  `-n "$(nproc)"` or a stated fraction of it, and RECORD the value with the
+  result; a count taken at one worker level cannot be compared with one taken
+  at another.
+
+  **AND MACHINE LOAD DOMINATES THE FAILURE COUNT, WHICH MAKES A SINGLE SAMPLE
+  UNINTERPRETABLE.** Measured on test5 at v3.66.1035, same tree, same commit:
+  **1-8 failures on an otherwise idle box, and 18-29 with four concurrent
+  suites running.** The mechanism is that `--dist loadfile` schedules files to
+  workers DYNAMICALLY, so timing decides which files share a worker, and
+  cross-file state leaks fire or do not accordingly.
+
+  Three single samples were each read as signal in one session (19, 27, 51) and
+  all three were noise; one A/B at n=4 per condition settled in twenty minutes
+  what those three had confused for hours. So: **never conclude from one
+  full-suite run.** Compare distributions under matched load, and treat any
+  historical claim that rests on a single sample -- including in this file --
+  as unproven rather than wrong.
 
   **WHAT THIS DOES NOT LICENSE.** One ordering was measured — `-p no:randomly`
   with `--dist loadfile` keeps each file whole on one worker, so an
@@ -1714,6 +1752,17 @@ system match them, which is the first item below.
   regenerates the gitignored artifacts, rebuilds `frontend/dist` and reads
   `index.html` BACK, restarts, and verifies `/api/health` and `GET /`.
 
+  **A FAILED DEPLOY IS NOT A NO-OP, AND IT CAN LEAVE THE SERVICE DOWN.** The
+  script stops the unit at step 8 and clears bytecode at step 9, so anything
+  that fails in between parks the box with the service INACTIVE. Measured at
+  v3.66.1035: an orphaned test run on the target was writing `.pyc` files while
+  step 9 tried to remove them, `rm` failed with "Directory not empty", and
+  test4 sat down until someone looked. Two lessons, and the second is the one
+  that cost time: **check `systemctl is-active` before retrying a failed
+  deploy** -- the retry re-runs the stop, so a second failure looks identical
+  and tells you nothing new -- and **no test run may be in flight on the
+  target**, which is why the preflight now refuses one.
+
   **One property of it matters before you edit it: every step after
   `git reset --hard` executes the PRE-reset copy of the script.** Git renames a
   *new inode* over the path and the running bash keeps reading the fd bound to
@@ -1762,6 +1811,18 @@ system match them, which is the first item below.
   just the optimistic one: `test_v3_43_80_modules` false-FAILS in a container
   without GTK typelibs and passes 49/49 on the box, so a container result can be
   pessimistic about real code and optimistic about the environment at once.
+
+  **BUT THE GATE HAS A NAMED BLIND SPOT: `capture.sh` CANNOT SEE CROSS-FILE
+  STATE LEAKS.** Measured at v3.66.1034 -- test6 passed capture at **15547
+  pass / 0 fail** while the tree carried all 14 of item 48's `sys.modules`
+  leakers, and a plain `pytest tests/` on the same commit failed between 5 and
+  35. The lane split is why: `capture.sh` runs a serial lane and a
+  deselected parallel lane, which do not reproduce the co-batching that a
+  whole-suite run produces. So a green capture is not evidence about that
+  defect class **in either direction**, and item 48 was invisible to the box
+  gate for as long as it has existed. When the question is cross-test
+  interference, the instrument is a full `pytest tests/` under matched load,
+  not a capture.
 - **GitHub CI green is not YOUR CUT'S test evidence -- but it is no longer "no
   tests at all", and this bullet said so for 85 releases after it stopped being
   true.** Read `.github/workflows/ci.yml` before treating a green check as a

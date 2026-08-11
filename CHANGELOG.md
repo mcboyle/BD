@@ -4,6 +4,45 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1036
+
+docs: four findings from the first full-fleet session recorded in the contract,
+so they stop being things a reader has to rediscover.
+
+`-n 4` IS NOT A CONSTANT. It described one container's four cores and was
+copied onto an 86-core box at v3.66.1035 purely because section 5 said 4.
+Derive it from nproc and RECORD the value with the result: a failure count
+taken at one worker level cannot be compared with one taken at another.
+
+MACHINE LOAD DOMINATES THE FAILURE COUNT. Measured on test5, same tree and
+commit: 1-8 failures on an idle box, 18-29 with four concurrent suites.
+--dist loadfile schedules dynamically, so timing decides which files share a
+worker and cross-file leaks fire or do not accordingly. Three single samples
+were each read as signal in one session (19, 27, 51) and all three were noise;
+one A/B at n=4 settled in twenty minutes what they had confused for hours.
+Never conclude from one full-suite run, and treat any historical single-sample
+claim -- including in CLAUDE.md -- as unproven rather than wrong.
+
+CAPTURE.SH CANNOT SEE CROSS-FILE STATE LEAKS, recorded beside "the box is still
+the gate" because it qualifies it. test6 passed capture at 15547 pass / 0 fail
+while carrying all 14 of item 48's sys.modules leakers, and a plain
+pytest tests/ on the same commit failed between 5 and 35. The lane split does
+not reproduce whole-suite co-batching, so item 48 was invisible to the box gate
+for as long as it has existed.
+
+A FAILED DEPLOY IS NOT A NO-OP. deploy.sh stops the unit at step 8 and clears
+bytecode at step 9, so a failure between them leaves the service INACTIVE --
+measured at v3.66.1035 when an orphaned test run on the target was writing .pyc
+files while step 9 removed them. Check systemctl is-active before retrying,
+because the retry re-runs the stop and a second failure looks identical.
+
+AUDIT BEATS RECOLLECTION. Round one of the session review was written from
+memory: 35 plausible improvements, zero live defects. Round two was ls, rg and
+ps against the tree, hosts and /tmp: six real defects in twenty minutes, three
+shipped that same day, none of them in the list of 35. Recollection's
+denominator is "what I remember doing", which excludes what you did without
+noticing.
+
 ## v3.66.1035
 
 corrective: three defects the session's own review found, two of them shipped
