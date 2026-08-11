@@ -110,6 +110,22 @@ so the footprint of a run that found nothing is nothing -- and bound the
 retention of whatever you do keep. Ask of any new path: **what removes this,
 and when?** If the answer is "nothing", that is the defect.
 
+**A TOOL BUILT TO PREVENT A FAILURE CAN MANUFACTURE IT — SO VERIFY YOU CAN
+RECORD BEFORE YOU ACT.** `bd-jobs` exists because an ssh-launched sampler
+outlived its killed task by 88 minutes with nothing recording that it existed.
+On the tool's own FIRST live invocation at v3.66.1040, `run --host <other>`
+started the remote command and *then* tried to register it — and registration
+failed, because `bd-jobs` was not deployed on that host yet. The job ran with no
+record: precisely the orphan the tool is for, created by the tool, on first use.
+
+The ordering is the rule and it generalises well past ssh. **When an action has
+a side effect you cannot undo and a record you might fail to write, prove the
+record can be written first, and refuse if it cannot.** An unregisterable host
+is a refusal, not a launch. This is the "fix reproduces the shape of the defect"
+paragraph above in its purest form — the tool whose entire subject is untracked
+work produced untracked work — and note what caught it: not the eleven tests
+that shipped with it, but typing the command in once.
+
 **A COMMENT IS INSIDE THE DENOMINATOR OF EVERY GATE THAT READS SOURCE TEXT.**
 Four times in the v3.66.876-879 session an assertion could not tell prose from
 code, and each was written by someone who had just read this section:
@@ -333,6 +349,18 @@ been wrong. Every figure obtained by *running the tool* was right.
   untracked files, `/tmp` growth, orphan processes on every host, service
   health, and whether the register's newest close still agrees with its
   inventory.
+- **A DEFERRAL THAT LIVES ONLY IN PROSE HAS NOT BEEN DEFERRED — IT HAS BEEN
+  DROPPED.** The ITEM LEDGER works for exactly one reason: a test reads it.
+  `test_register_promises_resolve.py`'s newest check went red **one cut after
+  being written**, naming 15.88 and item 33, on a staleness nobody had planned
+  for — which is what a machine-visible promise buys. Set that against the
+  77-item improvement backlog produced by the same review: the most valuable
+  artifact of that session, sitting in an untracked text file no gate reads, so
+  nothing but a human re-reading the list can tell a done item from an open one.
+  "Next session will pick this up" is worth exactly as much as the machinery
+  that will ask about it, which is usually nothing. Put a deferral where a test
+  can see it, or drop it deliberately and say you did — the third option,
+  leaving it in a paragraph, only feels like the safe one.
 - **Read the callee before you call it.** Guessing a signature, a fixture's
   columns or a dict's keys and then debugging the failure is always slower than
   opening the definition, and it produces a worse failure: a call with the wrong
@@ -2260,3 +2288,56 @@ Run the check and paste the real output. "Should work", "looks correct", and
 say why — an honest unknown is worth more than a confident guess, and this
 project has been burned specifically by numbers nobody measured being written
 down and then inherited as truth.
+
+**VERIFY THE SUMMARY AND VERDICT LINES SPECIFICALLY — THEY ARE THE LEAST-TESTED
+OUTPUT AND THE ONLY ONE ANYBODY READS.** Three defects in the v3.66.1036-1041
+session lived there and nowhere else, each sitting below working code:
+
+- `deploy_fleet.sh --dry-run` fell straight through to the success line and
+  printed `all 3 host(s) deployed and verified` having touched nothing.
+- A bring-up script graded itself with `grep -c "exit=[^0]" "$L"`. **`grep -c`
+  prints `0` and exits `1` when nothing matches**, so the check that meant "no
+  step failed" reported failure on a run in which every step returned 0. Its log
+  survives and it still reproduces on demand: the count line reads `0` and the
+  command reports exit 1 in the same breath.
+- `bd-jobs list` printed a perfectly consistent `DEAD` for a job whose command
+  line had been mangled into `bash -c "-- sleep 90"`.
+
+The body of a tool is exercised by its tests; the last line it prints is
+exercised by nobody. Read the verdict against the evidence above it, and be
+especially suspicious of a verdict derived from a **count** — zero is the value
+every one of these got right and then reported wrong.
+
+**TEST THE SEAM, NOT ONLY THE COMPONENTS.** `bd-jobs` shipped at v3.66.1040 with
+eleven passing tests and a green self-test, and its first real use failed
+instantly: `argparse.REMAINDER` keeps the `--`, so `run --host X -- sleep 90`
+sent `bash -c "-- sleep 90"`, which bash answered with `invalid option`. Both
+sides were tested and both were correct — argparse parsed, the registry
+recorded, the reaper reaped. Nothing tested the *join*, because every test
+either handed `cmd_run` an already-split list or inspected the registry
+afterwards, and not one asked what string reached the shell. Downstream the
+failure was invisible in the worst way: `list` reported DEAD, truthfully, for a
+process that had lived a millisecond, and the whole picture looked consistent.
+
+**AND A GREEN BATTERY IS NOT COVERAGE EVIDENCE — CHECK WHICH PATH IT TOOK.**
+Same tool, measurable today: its self-test runs seven checks and reports zero
+failures, and it calls `register`, `alive`, `load_all`, `forget` and
+`proc_starttime` — it does not call `cmd_run`, `cmd_reap` or `cmd_list` even
+once. It is a green verdict over the registry primitives, printed by a tool
+whose primary path is *assemble a command, launch it, register it*. Of the
+eleven tests, the one that did call `cmd_run` returned at the preflight refusal
+before any command was assembled. So ask of any tool before you believe its
+battery: **which check executed the thing a user actually types, end to end?**
+If the answer is none, run it by hand once. That took ten seconds here and found
+what eleven tests and seven checks could not.
+
+**WHEN A FUNCTION HAS N OUTCOMES, ASSERT THAT EACH ONE IS REACHABLE.** `reap`
+has three — kill a job it can prove, forget a stale entry, refuse an entry it
+cannot identify — and the refusal branch was unreachable as written: `alive()`
+returned False for a missing start time, so such an entry was classified stale
+and silently deleted while its process kept running, converting a tracked job
+into exactly the untracked orphan the tool exists to prevent. The other two
+outcomes had tests and passed. Enumerate the branches first, then write one test
+per branch that fails if the branch is never taken. **A branch nothing can reach
+is dead code that reads as a safety feature**, and it is read that way by the
+next person precisely because it is written in the language of safety.
