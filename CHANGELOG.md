@@ -4,6 +4,42 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1033
+
+docs: the three-host topology gains MEASURED identities, and rule 1 is
+rewritten around the path the operator actually wants.
+
+@1032 named `.85` as test5 in its prose. It is test4; `7b4ea932c297` is the
+MASTER, `.164`. A session handed that mapping drives the wrong box, and since
+the standing discipline is "quote the digest, never the hostname", a wrong
+digest-to-address table breaks the one thing that discipline protects. The
+table now carries hostname AND machine-id for all three, derived by ssh from
+the master rather than asserted, with the derivation command inline.
+
+Rule 1 said work in `~/work/BD` and never `~/BulkDownloader`. That directory
+did not exist on any of the three hosts, so the rule's own first command failed
+for the first session handed it. Operator decision: one canonical checkout per
+box at `~/BulkDownloader`. The hazard it was pointing at is kept and restated,
+because renaming the directory does not remove it -- on the master that path is
+production (`WorkingDirectory=`, `Restart=on-failure`), so the tree may sit on
+`origin/main` and must never be LEFT anywhere else. The transient states are
+the exposure, with the v3.66.1031 precedent recorded.
+
+Adds the operator's point that item 48 makes the candidate workflow more
+urgent, not less: a rotating baseline is what makes a single post-merge box run
+useless as evidence, so a second host and a second sample is the only way to
+separate a regression from a member of the rotation.
+
+Status split into measured and still-a-plan: ssh, sudo, the three identities
+and `.249` being bare are now readings; the workflow and the bring-up proof are
+not.
+
+Also corrects 15.87's own "Five full runs" over a table listing six -- the run
+count is the entire evidence for the instability that section claims -- and
+records the standing deploy grant in CLAUDE.md section 9, replacing the "he
+deploys" rule. A standing grant cannot be re-derived from source, which is why
+it is written in the contract rather than left in a conversation.
+
 ## v3.66.1032
 
 Docs. FRESH_HOST_BRINGUP.md gains the standing three-host topology and the

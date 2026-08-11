@@ -2082,10 +2082,27 @@ then ask which one the check in front of you means.
   is transcribed in section 5. Before this, section 9 said the opposite, and a
   session that read it would either ask for permission it already holds or read a
   merge in the history as unauthorized.
+- **DEPLOY AUTHORITY IS GRANTED, 2026-08-11: you may deploy to test4/test5/test6
+  yourself.** This REPLACES the standing "he deploys" rule that sat in the next
+  bullet for the whole life of this file, and it is written here for the same
+  reason the merge grant above is: a standing grant cannot be re-derived from
+  source, so a session that reads only the code will get it wrong in whichever
+  direction the stale text points.
+
+  What did NOT change: `scripts/deploy.sh` is the mechanism (section 7 -- it
+  clears `__pycache__`, rebuilds `frontend/dist`, and reads `index.html` back,
+  none of which `git reset --hard` does); the graph hash is re-pinned BEFORE a
+  capture, not after; and a deploy is still an outward, hard-to-reverse action,
+  so it gets said out loud rather than folded silently into another task.
+
+  Know which host you are deploying. On test5 the deployed tree and the agent's
+  working tree are the SAME directory, so "deploy" there means the thing you
+  have been editing becomes what the service serves.
 - Report honestly over optimistically. Results first, no narration, no
   aspirational documentation. If something is unverified, say which part.
-- He deploys and runs the full suite himself. Do not claim a state on the box
-  that you have not been told.
+- He runs the full suite and the capture himself, and **you still never claim a
+  state on a box you have not measured or been told** -- that half is unchanged,
+  and it is the half that has cost sessions.
 
 ---
 

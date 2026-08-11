@@ -5294,7 +5294,8 @@ rather than skipping past it silently.
 
 #### ITEM 48 -- THE FULL SUITE ON test5 DOES NOT RUN CLEAN, AND THE FAILING SET ROTATES
 
-Five full runs this cut. The failing SET is unstable run-to-run on the SAME tree:
+SIX full runs this cut -- the first version of this line said five, over a table
+listing six, and the count is the whole evidence for the instability it claims:
 
 | tree | workers | failed |
 | --- | --- | --- |

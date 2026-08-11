@@ -224,11 +224,33 @@ control until the new one is proven. This section describes the arrangement to
 settle into afterwards, and it is a different thing: three hosts with fixed
 roles, and one Claude session that drives all three.
 
-| host | role | who touches it |
-| --- | --- | --- |
-| `.164` | **master** -- the driving session, plus the `main` reference tree | the agent works in `~/work/BD` ONLY |
-| `.85` | **candidate** -- pre-merge trees, capture lanes | driven from master over SSH |
-| `.249` | **clean** -- the bare-Ubuntu bring-up proof | driven from master, never inhabited |
+| host | hostname | machine-id(sha256/12) | role |
+| --- | --- | --- | --- |
+| `.164` | `test5` | `7b4ea932c297` | **master** -- the driving session, the `main` tree, AND the live service |
+| `.85` | `test4` | `102b31c04e7b` | **candidate** -- pre-merge trees, capture lanes |
+| `.249` | `test6` | `1d60f39bd8d6` | **clean** -- the bare-Ubuntu bring-up proof, never inhabited |
+
+**The identities are MEASURED, 2026-08-11 at v3.66.1032, by ssh + `sha256sum
+/etc/machine-id` from the master.** The first draft of this table carried no
+digests and the surrounding prose named `.85` as test5 -- it is test4;
+`7b4ea932c297` is the MASTER. A session handed that mapping would drive "test5"
+at `.85` and be on the wrong box, which is precisely what "quote the digest,
+never the hostname" exists to prevent. The rule protects nothing if the
+digest-to-address table is itself wrong, so it is now derived rather than
+asserted:
+
+```bash
+for ip in 164 85 249; do
+  printf '%s  ' "10.0.70.$ip"
+  ssh -o BatchMode=yes mboyle@10.0.70.$ip \
+      'printf "%-6s " "$(hostname)"; sha256sum /etc/machine-id | cut -c1-12'
+done
+```
+
+**`.249` was verified genuinely bare** at the same reading: no repo, no venv, no
+ffmpeg/ffprobe/yt-dlp/streamlink, no Xvfb, no graph pin, no corpus. `nvidia-smi`
+and `node`/`npm` are present from the image. That is the state the bring-up
+proof requires, and it is the reason rule 2 exists.
 
 **Why the controller lives on a box rather than in the cloud sandbox.** A cloud
 container cannot reach any of them: measured 2026-08-11 from a session at
@@ -242,13 +264,29 @@ every result by hand.
 
 ### Three rules, in order of what their failure costs
 
-**1. The agent works in `~/work/BD`, never in `~/BulkDownloader`.** This is the
-only rule here whose failure is unrecoverable. On the master, `~/BulkDownloader`
-is the DEPLOYED tree with the service running against it. Ordinary agent work --
-`git reset --hard`, `git checkout -B`, `bd-regen-order` -- pointed at that
-directory moves production under a running process, which is the hazard section
-7 of CLAUDE.md already names for the deploy path. Give the master its own clone
-and leave the deploy tree alone. Deploys stay the operator's, exactly as now.
+**1. Work in `~/BulkDownloader` on every host -- and on the master that path IS
+production.** OPERATOR DECISION, 2026-08-11: one canonical checkout per box, the
+same path the deploy uses. An earlier draft of this rule mandated a separate
+`~/work/BD`; **that directory was never created on any of the three hosts**, so
+the rule's own first command failed for the first session handed it.
+
+The hazard the old rule pointed at is real and does not go away by renaming the
+directory. On the master, `systemctl show` gives
+`WorkingDirectory=/home/mboyle/BulkDownloader`, `ExecStart` runs that tree's
+`venv/bin/python downloader_ui.py`, and `Restart=on-failure` -- so **a restart
+serves whatever the tree currently holds.**
+
+What follows is therefore not "do not work there" but: **the tree may sit on
+`origin/main`, and must never be LEFT anywhere else.** A tree on `main` is what a
+deploy would produce anyway; the exposure is entirely in the TRANSIENT states --
+a `git stash`, a detached branch tip, a half-finished `bd-regen-order`. Keep
+those short and restore `main` before stepping away.
+
+Measured precedent, v3.66.1031: a session ran five stash/pop cycles, two branch
+checkouts, six full pytest runs and four regens in that tree, then a `git pull`
+carried it 1030 -> 1032 while the service ran 1030. Nothing broke. Nothing
+protected it either, and a single `on-failure` restart in any of those windows
+would have served a tree nobody deployed.
 
 **2. Never inhabit the clean host.** `.249` exists to prove that bare Ubuntu ->
 green `./capture.sh` runs with zero hand-fixes -- the open item this whole
@@ -280,6 +318,16 @@ recurs for any defect whose trigger is environmental rather than logical.
 So: candidate first, merge second. The master can drive `.85` on a branch tip
 without deploying anything to `.164`.
 
+**Item 48 makes the candidate workflow more urgent, not less.** The obvious
+reading is the opposite -- if the suite's failing set rotates, why trust a
+candidate run at all? Because a rotating baseline is exactly what makes a
+SINGLE post-merge box run useless as evidence: you cannot tell a real regression
+from a member of the rotation. Running the tip on `.85` before the merge gives a
+second host and a second sample, which is the only way to tell "this cut broke
+it" from "this is the rotation". Until 48 has a mechanism, treat any single
+green box run -- candidate or master -- as one sample of a distribution rather
+than as a verdict.
+
 ### What this arrangement does NOT need
 
 A capture-publishing tool. An earlier plan had the boxes pushing sanitised
@@ -291,9 +339,19 @@ needs box visibility -- it is not worth building first.
 
 ### Status
 
-**UNVERIFIED as written.** The topology above was designed from a session that
-could not reach any of the three hosts, so nothing in it has been executed. The
-network measurement is real; the arrangement is a plan. Treat the first run of
+**PARTIALLY VERIFIED as of v3.66.1033.** Split it, because the two halves have
+very different standing:
+
+MEASURED from the master, 2026-08-11 -- ssh key auth to `.85` and `.249` (exit
+0 both), passwordless `sudo -n true` on all three (`(ALL) NOPASSWD: ALL`), the
+three identities in the table above, `.249` bare, and the master's own service
+running against `~/BulkDownloader`. `.85` carries a duplicate `NOPASSWD: ALL`
+sudoers entry -- harmless, but something wrote that rule twice.
+
+STILL A PLAN -- the candidate-before-merge workflow has never been exercised,
+and the bring-up proof on `.249` has not been taken. The original text below was
+written by a session that could not reach any host; the network measurement it
+rests on is real. Treat the first run of
 it the way this runbook treats everything else -- as the thing that finds the
 gaps -- and record what it finds here, in this file.
 
