@@ -146,6 +146,15 @@ def pytest_configure(config):
         "slow: shells out to a whole-tree tool (tens of seconds or more). "
         "Runs by default; deselect with -m 'not slow'.",
     )
+    # Stage 1 of the socket guard -- see the block at the end of this file.
+    # Armed here rather than from a session fixture because under xdist the
+    # master runs no tests, so a session-scoped autouse fixture never fires
+    # there and the master would summarize a sink it never armed.
+    _socket_recorder.arm(_socket_record_run_dir(config))
+
+
+def pytest_unconfigure(config):
+    _socket_recorder.disarm()
 
 
 def pytest_collection_modifyitems(items):
@@ -887,3 +896,108 @@ def _never_write_the_repo_plugins_dir(tmp_path_factory):
     finally:
         _pl._plugin_dir = _real_plugin_dir
         _pl._quarantine_state_path = _real_state_path
+
+
+
+# --- STAGE 1 of the socket guard (operator decision v3.66.980, built @1031) ---
+#
+# RECORDS non-loopback connect attempts. Blocks nothing, refuses nothing, and
+# marks no test. Stage 2 turns the measured list into an actual refusal with an
+# opt-out marker; writing that refusal against the estimate on file ("21 files
+# might call out" -- a grep over string literals) would be guessing at the
+# denominator, which is the thing this suite exists not to do.
+#
+# It exists because @977 shipped a live PyPI call inside unit tests. Every test
+# mocking only `status_dict` silently got live data; the BOX caught it, not the
+# band and not review, and nothing in the tree could have.
+#
+# The implementation, its measured proof against that exact defect, and -- more
+# importantly -- the four things it CANNOT see are in tests/_socket_record.py.
+# Read the blind spots before reading a zero here as "nothing called out".
+import _socket_record as _socket_recorder
+
+
+def _socket_record_run_dir(config):
+    """This run's sink, keyed by the MASTER's pid.
+
+    Per-run rather than one shared directory, and the reason is specific: 164
+    test files spawn subprocesses and some of those spawn pytest. A shared
+    directory that each run cleared at startup would let a nested pytest child
+    wipe its parent's records mid-run, and the parent's summary would come back
+    short with nothing to indicate it. Separate directories need no clearing at
+    all -- a stale one from last week is simply a directory nobody reads.
+
+    The token reaches xdist workers through `workerinput`, NOT an environment
+    variable. An env var here would be inherited by every subprocess the suite
+    spawns, and it would join the config-surface inventory that
+    `test_gui_parity` grades -- where an unprefixed key must be ledgered
+    display-only. `workerinput` is the mechanism xdist provides for exactly this
+    and it has neither consequence.
+    """
+    worker = getattr(config, "workerinput", None)
+    token = worker["socket_record_run"] if worker else str(os.getpid())
+    return _socket_recorder.sink_dir() / token
+
+
+def pytest_configure_node(node):
+    """Master side, xdist only: hand each worker this run's token."""
+    node.workerinput["socket_record_run"] = str(os.getpid())
+
+
+@pytest.fixture(autouse=True)
+def _socket_recorder_attributes_the_test(request):
+    """Attach the running nodeid, so the harvest is a LIST rather than a count.
+
+    Per-test rather than per-session: the deliverable of stage 1 is WHICH tests
+    call out, and a record with no test attached cannot be actioned.
+    """
+    _socket_recorder.set_nodeid(request.node.nodeid)
+    try:
+        yield
+    finally:
+        _socket_recorder.set_nodeid(None)
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Always print one line; expand only when something was recorded.
+
+    The unconditional line is the point. A recorder that prints nothing when it
+    finds nothing is indistinguishable from one that was never armed -- section
+    0's own subject -- so the line states the observed count and names the blind
+    spots even on a clean run.
+    """
+    by_test = _socket_recorder.summarize(_socket_record_run_dir(config))
+    seen = _socket_recorder.observed
+    total = sum(len(v) for v in by_test.values())
+    write = terminalreporter.write_line
+
+    if not by_test:
+        write("socket recorder [stage 1]: 0 non-loopback attempts recorded "
+              "(%d connects observed in this process). Cannot see: %s."
+              % (seen, "; ".join(_socket_recorder.BLIND_SPOTS)))
+        return
+
+    # Split by whether a packet actually leaves. A SOCK_DGRAM connect is a
+    # routing-table question and sends nothing, and 107 of the first harvest's
+    # 124 rows were exactly that (`_lan_ip_guess`). Reporting one total would
+    # hand stage 2 a list of 124 outbound calls when the tree has a handful.
+    on_wire = sum(1 for v in by_test.values() for r in v if r.get("sends_packets"))
+    write("")
+    write("socket recorder [stage 1]: %d non-loopback attempt(s) from %d test(s) "
+          "-- %d send packets, %d are SOCK_DGRAM route lookups that do not"
+          % (total, len(by_test), on_wire, total - on_wire))
+    for nodeid in sorted(by_test):
+        rows = by_test[nodeid]
+        where = sorted({"%s:%s (%s)" % (r["host"], r["port"], r.get("type"))
+                        for r in rows})
+        # "ambient" means the connect came from a background thread and is
+        # attributed to whatever the main thread was running -- a lead, not a
+        # finding. Marked so nobody actions it as though a test made the call.
+        ambient = " [ambient: background thread, attribution approximate]" if all(
+            r.get("attribution") == "ambient" for r in rows) else ""
+        write("  %s%s" % (nodeid, ambient))
+        write("      %s" % ", ".join(where))
+        frames = rows[0].get("frames") or []
+        if frames:
+            write("      via %s" % " <- ".join(reversed(frames[-3:])))
+    write("  NOT covered by the above: %s." % "; ".join(_socket_recorder.BLIND_SPOTS))
