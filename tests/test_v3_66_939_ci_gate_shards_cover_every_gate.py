@@ -83,6 +83,17 @@ _DECLARED = {
     "tests/test_toolchain_534.py",
     "tests/test_v3_66_799_audit_tool_selftests.py",
     "tests/test_v3_66_653_dep_freshness.py",
+    # @1035. The isolation shard. These three are repo-wide despite not
+    # looking it: 1034 enumerates git ls-files for the leaker ratchet, and
+    # all three assert invariants about the SUITE rather than a module --
+    # the plugins guard holding, the leaker population not growing, and no
+    # live PyPI call from a dependency. Added in the SAME cut that created
+    # them, because 944, 947, 1031 and 1034 were all added to the tree and
+    # never to this list, and a gate CI does not run is a gate that does
+    # not exist.
+    "tests/test_v3_66_1034_guards_survive_a_module_wipe.py",
+    "tests/test_v3_66_1031_socket_recorder_stages.py",
+    "tests/test_no_test_writes_the_repo_plugins_dir.py",
 }
 
 

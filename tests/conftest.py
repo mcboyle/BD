@@ -169,6 +169,9 @@ def pytest_configure(config):
 
 def pytest_unconfigure(config):
     _socket_recorder.disarm()
+    # Master only -- workers share the run directory and must not race on it.
+    if not hasattr(config, "workerinput"):
+        _socket_recorder.prune()
 
 
 def pytest_collection_modifyitems(items):

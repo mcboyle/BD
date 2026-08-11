@@ -326,3 +326,76 @@ def test_the_dependency_pypi_thread_is_disabled_for_the_suite():
         "CLOAKBROWSER_AUTO_UPDATE is %r -- the dependency's update thread is "
         "armed and the suite makes live PyPI calls, which is @977's class."
         % os.environ.get("CLOAKBROWSER_AUTO_UPDATE"))
+
+
+def test_a_clean_run_leaves_no_directory_behind(tmp_path):
+    """The recorder's footprint on a run that records nothing must be NOTHING.
+
+    ITEM 36, v3.66.1035. `arm()` used to mkdir unconditionally, so every pytest
+    invocation created a directory whether or not anything called out -- and
+    nothing ever removed them. Measured: 744 empty directories under /tmp after
+    one session, on every host, growing with every band and every capture.
+    Creating a path is a promise to remove it, and this one made no such promise.
+    """
+    real = sr.sink_dir()
+    sink = tmp_path / "sink"
+    sr.disarm()
+    sr.reset_counters()
+    sr.arm(sink)
+    try:
+        s = socket.socket()
+        try:
+            s.connect(("127.0.0.1", 1))          # loopback: observed, not recorded
+        except OSError:
+            pass
+        finally:
+            s.close()
+        assert not sink.exists(), (
+            "the recorder created %s without recording anything -- an empty "
+            "directory per run, forever" % sink)
+        assert sr.observed > 0, "nothing reached the hook, so the check is blind"
+    finally:
+        sr.disarm()
+        sr.reset_counters()
+        sr.arm(real)
+
+
+def test_the_sink_is_created_when_there_IS_something_to_record(tmp_path):
+    """Over-sensitivity control: lazy must not mean never."""
+    real = sr.sink_dir()
+    sink = tmp_path / "sink"
+    sr.disarm()
+    sr.reset_counters()
+    sr.arm(sink)
+    try:
+        s = socket.socket()
+        s.settimeout(0.01)
+        try:
+            s.connect(("192.0.2.11", 9))
+        except OSError:
+            pass
+        finally:
+            s.close()
+        assert sink.is_dir(), "a real attempt was recorded but no sink was created"
+        assert list(sink.glob("*.jsonl")), "sink exists but holds no record"
+    finally:
+        sr.disarm()
+        sr.reset_counters()
+        sr.arm(real)
+
+
+def test_prune_bounds_the_run_directories(tmp_path, monkeypatch):
+    """Retention is bounded by COUNT, and prune never raises."""
+    root = tmp_path / "runs"
+    root.mkdir()
+    for i in range(9):
+        d = root / ("run%02d" % i)
+        d.mkdir()
+        (d / "1.jsonl").write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(sr, "sink_dir", lambda: root)
+
+    assert sr.prune(keep=3) == 6
+    assert len([p for p in root.iterdir() if p.is_dir()]) == 3
+
+    monkeypatch.setattr(sr, "sink_dir", lambda: tmp_path / "does-not-exist")
+    assert sr.prune(keep=3) == 0          # absent root is not an error

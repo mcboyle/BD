@@ -95,6 +95,21 @@ first run, before review. That is the whole argument for writing the assertion
 *before* the verdict: it is the only thing that reliably catches this, because
 the author has just convinced themselves the logic is right.
 
+**CREATING A PATH IS A PROMISE TO REMOVE IT, AND NOTHING GATES THAT PROMISE.**
+Measured at v3.66.1035: the stage-1 socket recorder created its run directory
+when it ARMED -- every pytest invocation -- while it only WROTE when something
+called out. A clean run therefore left an empty directory, and nothing anywhere
+removed them: **744 of them under `/tmp` after one session**, on every host,
+growing with every band and every capture. It was invisible because it lives
+outside the repo, so `git status` stays clean, no gate enumerates it, and the
+cost is a slow leak nobody trips over until a disk does.
+
+The shape generalises past this instance: an artifact created unconditionally
+and consumed conditionally leaks by construction. Create lazily, at first use,
+so the footprint of a run that found nothing is nothing -- and bound the
+retention of whatever you do keep. Ask of any new path: **what removes this,
+and when?** If the answer is "nothing", that is the defect.
+
 **A COMMENT IS INSIDE THE DENOMINATOR OF EVERY GATE THAT READS SOURCE TEXT.**
 Four times in the v3.66.876-879 session an assertion could not tell prose from
 code, and each was written by someone who had just read this section:
@@ -811,6 +826,7 @@ Treat the list below as a starting point too, and re-derive it:
 | `test_all_sources_parse.py` | `git ls-files -- *.py` (bare `*.py` reaches `tests/`) | yes |
 | `test_generated_artifacts_are_not_tracked.py` | `git ls-files -z` (everything) | yes |
 | `test_history_columns_go_through_migrations.py` | `_tracked("*.py")` (`:49`, call `:59`) — bare `*.py` crosses directories | yes |
+| `test_v3_66_1034_guards_survive_a_module_wipe.py` | `git ls-files -- tests/*.py` for the leaker ratchet (added v3.66.1034) | yes |
 | `test_gitignore_rules_actually_match.py` | `git ls-files` → `.gitignore` paths only (`_gitignore_files`, `:60-67`) | **NO — `.gitignore` only** |
 | `test_v3_66_820_share_tools_saw_no_session_keys.py` | `git ls-files` → text extensions (`:451-456`) | **NO — `.py` not in the set** |
 | `test_playwright_engines_single_source.py` | `git ls-files -z '*.sh'` (48 files) | **NO — `.sh` only** |
@@ -1784,6 +1800,15 @@ system match them, which is the first item below.
   shard still leaves a green tick -- and
   `test_v3_66_939_ci_gate_shards_cover_every_gate` is the only thing that would
   notice, which is why it is the one pytest file `gates` still runs itself.
+
+  **A GATE CI DOES NOT RUN IS A GATE THAT DOES NOT EXIST, and that test's own
+  `_DECLARED` set is HAND-PINNED, so it cannot notice a gate nobody declared.**
+  944 and 947 were never added. Then 1031 and 1034 were written by a session
+  that had just read the note about 944 and 947, and were also never added --
+  a repo-wide leaker ratchet that would have fired for nobody. Wire a new
+  repo-wide gate into a `gate-suites` shard AND into `_DECLARED` **in the cut
+  that creates it**; a follow-up cut is a cut that does not happen. Corrected
+  at v3.66.1035, which added the `isolation` shard.
 
   **The prior text was written at v3.66.847 and was correct then**; @849 added
   the lane and nothing updated this bullet, so for 85 releases the contract told

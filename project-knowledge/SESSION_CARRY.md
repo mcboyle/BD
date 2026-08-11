@@ -5194,6 +5194,114 @@ never `export` in a shell the suite is later launched from.
   row seen in 1 of 6 captures. Re-capture before trusting it.
 
 
+### 15.88 | SESSION CLOSE 2026-08-11 at a08c0ad (v3.66.1035) -- the first full-fleet session, and the three defects its own review found
+
+Close at `a08c0ad`, the squash of #319 and already on `main` when this was
+written.
+
+ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
+OPEN:   31, 33, 48
+CLOSED: 46, 47
+
+15.87's ledger read `OPEN: 31, 33, 46, 47, 48` and went stale the moment 46 and
+47 closed. Every existing check passed -- direction A resolves the numbers,
+direction B accepts "closed in the inventory" as accounted for -- so the newest
+close, the thing a fresh session reads to learn the open set, was simply wrong
+and nothing could see it. `test_no_ledger_declares_open_an_item_the_inventory
+_has_closed` now catches exactly that; it was proven RED against 15.87 before
+this section existed.
+
+#### WHAT THIS SESSION WAS
+
+The first worked entirely on the operator's own hardware: `.164` test5
+(`7b4ea932c297`), `.85` test4 (`102b31c04e7b`), `.249` test6 (`1d60f39bd8d6`).
+194 cores, ~1.5TB RAM. Five cuts, @1031 through @1035, 86 test-run logs.
+
+Closed: 46 (a dependency's PyPI thread), 47 (a vacuous traversal test), and
+15.86's item 4 (bare Ubuntu -> green capture, zero hand-fixes, on `.249`).
+Root-caused but NOT closed: 48.
+
+#### THE TECHNIQUE WORTH KEEPING
+
+**Parallel prefix ladders.** Item 48's culprit was found by replaying one
+worker's REAL 232-file chain as 34 concurrent prefix probes -- each serial
+in-process, all independent -- giving a clean monotonic step at 183 ok / 184
+BROKEN. Sequential bisection would have been eight rounds of four minutes. The
+leak reproduces in 2 files and 1.4 seconds once named.
+
+**Instrument the resource, never read for it.** Three findings came this way
+and none could have come from reading: a dependency's daemon thread calling
+PyPI, the exact test after which a guard died, and the SOCK_DGRAM/SOCK_STREAM
+split that turned "130 outbound calls" into 15 real ones.
+
+#### THE THREE DEFECTS THE REVIEW FOUND, ALL SHIPPED BY THIS SESSION
+
+1. **The socket recorder leaked a directory per run, forever.** `arm()` did an
+   unconditional mkdir while writes were conditional: 744 empty directories
+   under /tmp after ONE session, on every host, growing with every band and
+   capture. Fixed at @1035 -- lazy mkdir, so a clean run's footprint is
+   nothing, plus count-bounded retention. **Creating a path is a promise to
+   remove it**, and nothing in the contract said so.
+
+2. **Two new gates were never wired into CI.** `test_v3_66_1034` and
+   `test_v3_66_1031` existed only locally, so a new leaker would land, CI would
+   go green, and the ratchet would fire for nobody. This is 15.86's own
+   observation about `_DECLARED` being hand-pinned -- 944 and 947 were never
+   added -- repeated by the session that had just read it. Fixed with an
+   `isolation` shard and three `_DECLARED` entries. **A gate CI does not run is
+   a gate that does not exist.**
+
+3. **The newest ledger was stale**, above.
+
+#### METHOD COSTS -- and the one that matters most
+
+**Round one of the review was recollection and produced plausible items. Round
+two was `ls`, `rg` and `ps` and produced six real defects, three of them live
+in `main`.** Audit beats memory, and the difference was not effort.
+
+- **A single full-suite sample is uninterpretable.** MACHINE LOAD dominates:
+  1-8 failures on a quiet box, 18-29 under four concurrent suites, same tree.
+  Three single samples (19, 27, 51) were each read as signal and each was
+  noise; one A/B at n=4 settled it. Any historical claim resting on one sample
+  is suspect.
+- **A filter at capture time destroys the evidence.** Piping a run through
+  `grep` cost two 12-minute reruns, and `grep -c "exit=[^0]"` inverted a
+  verdict so a totally successful bring-up reported failure. CLAUDE.md warns
+  about `head`; the class is every filter.
+- **`ast.parse` is not name resolution**, and the contract says so. Two
+  `NameError`s shipped past a parse check anyway.
+- **`pkill -f` matched its own command line** and killed the shell -- the
+  documented trap, walked into.
+- **A killed task does not reap SSH-launched work.** A sampler survived 88
+  minutes past its task being killed, kept spawning remote pytest rounds, and
+  its `.pyc` writes broke a deploy at step 9 -- which had already STOPPED the
+  service, leaving `.85` down. A failed deploy is not a no-op.
+- **`bd-mutate` scored 4 of 10 on the first pass** against tests written that
+  hour, including an over-sensitivity control that set its sentinel in the same
+  body the fixture runs before, and a unit test that recomputed a derivation
+  instead of calling it. Three rounds to reach 9/9.
+
+#### WHAT IS STILL OPEN
+
+1. **Item 48's second mechanism.** The guard fix repairs the guard -- proven,
+   `test_no_test_writes_the_repo_plugins_dir` fails in every pre-fix sample and
+   no post-fix one -- but a controlled 2-file experiment shows the plugin
+   victims fail after a leaker WITH and WITHOUT it, identical sets. The leakers
+   damage something beyond the three registered guards.
+2. **`capture.sh` cannot see this defect class.** `.249` passed capture at
+   15547/0 while carrying all 14 leakers, because the lane split does not
+   reproduce `pytest tests/` co-batching. A green capture has never been
+   evidence about item 48, in either direction.
+3. **The candidate workflow has still never been exercised** -- no tip has been
+   run on `.85` before a merge.
+4. **`.249`'s clean-host role is void**: inhabited, venv, service enabled. The
+   bring-up proof cannot be retaken without a reimage.
+5. Items 31 and 33; 15.86's queue item 4 and the drift-axis gold-join defect,
+   both untouched.
+6. `.85` carries a duplicate `NOPASSWD: ALL` sudoers entry; `streamlink` is
+   absent after a clean provision, so the live-recording lane is unexercised on
+   a fresh host.
+
 ### 15.87 | SESSION CLOSE 2026-08-11 at e5cece7 (v3.66.1031) -- stage 1 of the socket guard, and the three findings its first harvest bought
 
 Close at `e5cece7`, the squash of #315 and already on `main` when this was
