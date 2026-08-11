@@ -269,6 +269,11 @@ jobs:
               tests/test_import_graph_no_new_edges.py
               tests/test_v3_66_653_dep_freshness.py
               tests/test_route_index_in_sync.py
+          - name: isolation
+            suites: >-
+              tests/test_v3_66_1034_guards_survive_a_module_wipe.py
+              tests/test_v3_66_1031_socket_recorder_stages.py
+              tests/test_no_test_writes_the_repo_plugins_dir.py
           - name: artifacts-pins
             suites: >-
               tests/test_generated_artifacts_are_not_tracked.py

@@ -405,3 +405,36 @@ def test_the_citation_rule_rejects_a_bare_closed():
     for good in ("CLOSED at v3.66.932", "closed at 48707ad", "see 15.47",
                  "library_final.py:218"):
         assert _CITATION.search(good), good
+
+
+def test_no_ledger_declares_open_an_item_the_inventory_has_closed():
+    """A close section's ledger must be CURRENT, not merely well-formed.
+
+    ITEM 39, v3.66.1035. 15.87 declared `OPEN: 31, 33, 46, 47, 48` and one cut
+    later 46 and 47 were closed in the inventory. Every existing check passed:
+    direction A resolves the numbers, direction B accepts "closed in the
+    inventory text" as accounted for. So the newest session close -- the thing a
+    fresh session reads to learn what is open -- was wrong, and nothing could
+    see it. That is the exact failure the ledger was built to prevent, one cut
+    after it was written.
+
+    Scoped to the NEWEST close deliberately. Older closes are history and were
+    true when written; rewriting them would destroy the record.
+    """
+    closes = _session_closes()
+    assert closes, "BD-GATE-UNRUNNABLE: no section title matches 'session close'"
+    num, _title, body = closes[-1]
+    led = _ledger(body)
+    assert led is not None, "the newest session close carries no ledger"
+
+    _items, closed_in_inventory = _inventory()
+    assert closed_in_inventory, (
+        "BD-GATE-UNRUNNABLE: the inventory reports NO closed entries, so this "
+        "check has an empty denominator and cannot fail")
+    stale = sorted(led["OPEN"] & closed_in_inventory)
+    assert not stale, (
+        "15.%d's ledger declares OPEN %s, but the 15.36 inventory marks them "
+        "CLOSED. A fresh session reads the newest close to learn the open set "
+        "and would carry closed work. Write a new close with a current ledger, "
+        "or reopen the items in the inventory -- but the two must agree."
+        % (num, stale))

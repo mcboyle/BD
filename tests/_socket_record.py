@@ -212,6 +212,7 @@ def _write(address, family, kind):
         return
     # One line, one append. O_APPEND on a sub-PIPE_BUF write is atomic on Linux,
     # and the file is per-PID anyway, so xdist workers never share a handle.
+    path.parent.mkdir(parents=True, exist_ok=True)   # lazy: only if we record
     with open(path, "a", encoding="utf-8") as fh:
         fh.write(json.dumps(row) + "\n")
 
@@ -239,7 +240,12 @@ def arm(sink_directory=None):
         return False
 
     d = pathlib.Path(sink_directory) if sink_directory else sink_dir()
-    d.mkdir(parents=True, exist_ok=True)
+    # NO mkdir HERE. Arming happens on every pytest invocation; writing happens
+    # only when something calls out. Creating the directory up front produced
+    # one EMPTY directory per run, forever -- measured at v3.66.1035, 744 of
+    # them under /tmp after a single session, on every host, growing with every
+    # band and every capture. The recorder's whole footprint on a clean run is
+    # now nothing at all. `_write` creates the directory when it first needs it.
     _sink_path = d / ("%d.jsonl" % os.getpid())
     _armed_dir = d
 
@@ -290,6 +296,37 @@ def reset_counters():
     with _lock:
         observed = 0
         recorded = 0
+
+
+def prune(keep=20):
+    """Keep only the newest `keep` run directories under the sink root.
+
+    Records are evidence and worth keeping, but not forever and not unbounded.
+    Bounded by COUNT rather than age: a box that runs the suite fifty times in
+    an afternoon and one that runs it weekly both want "the recent ones", and a
+    day-based cutoff gets that wrong in opposite directions.
+
+    Never raises. This runs at the end of every pytest session, and a recorder
+    that breaks a test run while tidying up is worse than the litter.
+    """
+    try:
+        root = sink_dir()
+        if not root.is_dir():
+            return 0
+        runs = sorted((p for p in root.iterdir() if p.is_dir()),
+                      key=lambda p: p.stat().st_mtime, reverse=True)
+        removed = 0
+        for stale in runs[keep:]:
+            try:
+                for f in stale.iterdir():
+                    f.unlink()
+                stale.rmdir()
+                removed += 1
+            except OSError:
+                pass
+        return removed
+    except Exception:
+        return 0
 
 
 def summarize(directory=None):

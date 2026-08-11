@@ -4,6 +4,50 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1035
+
+corrective: three defects the session's own review found, two of them shipped
+by that same session.
+
+THE SOCKET RECORDER LEAKED A DIRECTORY PER RUN, FOREVER. `arm()` created the
+run directory unconditionally while writes were conditional, so every pytest
+invocation left an empty directory and nothing removed them -- 744 under /tmp
+after one session, on every host, growing with every band and every capture.
+Invisible because it lives outside the repo: git status stays clean and no gate
+enumerates it. Now created lazily at first write, so a clean run's footprint is
+nothing, with count-bounded retention pruned by the master at unconfigure. The
+already-leaked 744 were removed. CLAUDE.md section 0 gains the general form:
+creating a path is a promise to remove it, and an artifact created
+unconditionally but consumed conditionally leaks by construction.
+
+TWO NEW GATES WERE NEVER WIRED INTO CI. test_v3_66_1034 -- the leaker ratchet
+-- and test_v3_66_1031 existed only locally, so a new leaker would land, CI
+would go green, and the ratchet would fire for nobody. This is 15.86's own
+observation about _DECLARED being hand-pinned, with 944 and 947 never added,
+repeated by the session that had just read it. Adds an `isolation` shard to
+ci.yml carrying 1034, 1031 and test_no_test_writes_the_repo_plugins_dir, and
+declares all three. CLAUDE.md section 7: a gate CI does not run is a gate that
+does not exist, and it must be wired in the cut that creates it.
+
+THE NEWEST LEDGER WAS STALE. 15.87 declared OPEN 31, 33, 46, 47, 48 and 46/47
+closed one cut later. Every existing check passed -- direction A resolves the
+numbers, direction B accepts closed-in-inventory as accounted for -- so the
+section a fresh session reads to learn the open set was wrong and nothing could
+see it. Adds test_no_ledger_declares_open_an_item_the_inventory_has_closed,
+proven RED against 15.87 before 15.88 existed, and writes 15.88 with the
+current ledger: OPEN 31, 33, 48 / CLOSED 46, 47.
+
+Also records the 11th axis-6 gate in section 4's table, which the ratchet
+became and nothing noted.
+
+15.88 carries the full session review: the parallel prefix ladder that found
+item 48, the instrument-don't-read findings, and the method costs -- machine
+load dominating the failure count so a single full-suite sample is
+uninterpretable, filters at capture time destroying evidence twice, ast.parse
+passing two NameErrors, pkill matching its own command line, a killed task
+failing to reap SSH-launched work and leaving a service down, and bd-mutate
+scoring 4 of 10 against tests written that hour.
+
 ## v3.66.1034
 
 tests: item 48 root-caused and its guards made wipe-proof; items 46 and 47
