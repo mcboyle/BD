@@ -4,6 +4,17 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1030
+
+register: 15.86 -- session close at b92c971 (v3.66.1029), the first test5
+session: five cuts, the capture read per-cut for @1023/@1024/@1025 with host
+identity, the heavy-collector defect and its fix, four supersessions of
+15.85 claims, and the host events. Two in-place corrections ride along,
+both re-derived three ways at v3.66.1029: item 33's inventory line and
+CLAUDE.md section 8's tool count both said 240 while ls, git ls-files and
+test_toolchain_534's _TOOL_BUDGET all said 238 -- the contract's sentence
+now tells the reader to count rather than trust it.
+
 ## v3.66.1029
 
 FRESH_HOST_BRINGUP.md gains the four gaps its first real run found (test5,

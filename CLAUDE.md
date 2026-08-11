@@ -2002,8 +2002,11 @@ other; removing the second contract removes the failure class the gate was
 watching for, which is the stronger fix. If you find a second agent-facing
 document, that is the defect — not a resource.
 
-**LOOK IN `toolchain/bin` BEFORE YOU HAND-ROLL ANYTHING.** There are **240** bd-*
-tools. A session spent a day hand-rolling band derivation and mutation
+**LOOK IN `toolchain/bin` BEFORE YOU HAND-ROLL ANYTHING.** There are roughly
+240 bd-* tools -- count them (`ls toolchain/bin/bd-* | wc -l`) rather than
+trusting this sentence, which sat at "240" for releases while three
+instruments measured 238 (v3.66.1029). This block's own closing rule already
+says sizes go stale here; the tool count was the one number exempting itself. A session spent a day hand-rolling band derivation and mutation
 harnesses that already existed, got a narrower band every time, and rebuilt the
 same defective harness repeatedly. The ones that answer questions THIS FILE
 asks you to answer:
