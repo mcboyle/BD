@@ -167,7 +167,10 @@ def collect(root=".", dirs=None, limit=None, budget_s=None, max_bytes=None):
     skipped_wacz = 0
     skipped_oversize = 0
     budget_exhausted = False
-    _deadline = (time.monotonic() + budget_s) if budget_s else None
+    # `is not None`, NOT truthiness: budget_s=0 means "no time at all"
+    # (capture_analytics' semantics since @1015). The falsy form here meant
+    # 0 = UNBOUNDED (v3.66.1026, measured on the real store).
+    _deadline = (time.monotonic() + budget_s) if budget_s is not None else None
     if limit is not None or _deadline is not None:
         def _mt(rel):
             try:

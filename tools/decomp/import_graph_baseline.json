@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3826,
+  "edge_count": 3829,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4364,6 +4364,11 @@
     "tests/test_v3_66_1023_heavy_budget_fits_the_route_gate.py": [
       "bulk_downloader/app_data_layer.py",
       "tools/capture_analytics.py"
+    ],
+    "tests/test_v3_66_1026_heavy_collectors_bounded_for_real.py": [
+      "bulk_downloader/app_data_layer.py",
+      "tools/capture_diagnostics.py",
+      "tools/replay_validator.py"
     ],
     "tests/test_v3_66_102_phase1_completion.py": [
       "bulk_downloader/capture_ingest.py",

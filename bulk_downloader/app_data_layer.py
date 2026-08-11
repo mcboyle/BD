@@ -21,6 +21,7 @@ NEEDS OPERATOR CLICK-THROUGH VALIDATION.
 from __future__ import annotations
 
 import sys
+import threading
 from pathlib import Path
 
 from flask import Blueprint, jsonify
@@ -96,45 +97,70 @@ _HEAVY_LIMIT = 50
 # gate actually tests. What made the capture at e7d3b5e pass was max_bytes
 # skipping an oversized capture JSON, not the wall clock.
 #
-# The overrun past this number is ONE FILE, because capture_analytics._artifacts
-# checks the budget BEFORE each parse and continues past the file when it is
-# spent. Measured at the max_bytes ceiling: a 25.1 MB capture JSON with 220k
-# network_log entries parses in 0.233s. 5 + 0.233 leaves ~2.7s of the 8s for
-# request handling, and tests/test_v3_66_1023_heavy_budget_fits_the_route_gate.py
-# reads BOTH constants and fails if either moves out of that relationship.
+# For capture_ANALYTICS the overrun past this number is ONE FILE, because
+# _artifacts checks the budget BEFORE each parse: a 25.1 MB capture JSON with
+# 220k network_log entries parses in 0.233s, and
+# tests/test_v3_66_1023_heavy_budget_fits_the_route_gate.py pins
+# budget + margin <= gate on that basis.
 #
-# THIS WILL TRUNCATE ON A LARGE STORE, DELIBERATELY. The sibling collector took
-# 6181ms serial on the operator's real store, so 5s will start skipping there.
-# That is the right trade for a ROUTE and only because @1015 built the
-# reporting: anything skipped is still counted, still listed, and carries
-# `unparsed: "budget_s"`, with unparsed_artifacts on the report. A bounded,
-# LABELLED answer inside the gate beats a complete one that intermittently
-# blows it. The CLI is unaffected -- all three bounds default to None there.
+# v3.66.1026: that arithmetic was NEVER true of capture_DIAGNOSTICS, whose
+# "one file" is two full zip parses + whole-dom-log HTML serialization + the
+# recognizer batteries + a sha256 of the archive: measured 16.1s for the
+# newest <=25MB .wacz on the operator store (37.9s for the 3rd-newest, at
+# 2.0MB -- size does not predict cost), so the route answered in 17.4s with
+# this budget exhausted and useless. Its collector therefore takes
+# isolate=True below: each diagnose runs in a child process killed at the
+# deadline, bounding the overrun by CD._KILL_GRACE_S instead of by whatever
+# one file costs. tests/test_v3_66_1026_heavy_collectors_bounded_for_real.py
+# pins budget + kill grace + margin <= gate for that path.
+#
+# THIS WILL TRUNCATE ON A LARGE STORE, DELIBERATELY. That is the right trade
+# for a ROUTE and only because @1015 built the reporting: anything skipped or
+# killed is still counted, still listed (unparsed_artifacts, skipped_wacz,
+# killed_in_flight), and budget_exhausted says so. A bounded, LABELLED answer
+# inside the gate beats a complete one that intermittently blows it. The CLI
+# is unaffected -- all three bounds default to None there.
 _HEAVY_BUDGET_S = 5
 _HEAVY_MAX_BYTES = 25_000_000
 _heavy_cache: dict = {}
+# Single-flight (v3.66.1026): L34's phase-1 probe and its serial re-probe
+# both hit a cold cache, and without a lock each ran the FULL collector --
+# measured as two overlapping ~17s capture_diagnostics computes on the box.
+# One lock per key: concurrent misses serialize, the second caller gets the
+# first's cached result instead of recomputing.
+_heavy_gate = threading.Lock()
+_heavy_locks: dict = {}
 
 
 def _cached(key, fn):
     import time as _t
-    ent = _heavy_cache.get(key)
-    now = _t.monotonic()
-    if ent is not None and (now - ent[0]) < _HEAVY_TTL_S:
-        out = dict(ent[1])
-        out["cache_age_s"] = round(now - ent[0], 1)
-        return out
-    val = fn()
-    if isinstance(val, dict):
-        _heavy_cache[key] = (now, val)
-    return val
+    with _heavy_gate:
+        lk = _heavy_locks.setdefault(key, threading.Lock())
+    with lk:
+        ent = _heavy_cache.get(key)
+        now = _t.monotonic()
+        if ent is not None and (now - ent[0]) < _HEAVY_TTL_S:
+            out = dict(ent[1])
+            out["cache_age_s"] = round(now - ent[0], 1)
+            return out
+        val = fn()
+        if isinstance(val, dict):
+            _heavy_cache[key] = (_t.monotonic(), val)
+        return val
 
 
 def collect_capture_diagnostics():
     _ensure_path()
     import tools.capture_diagnostics as CD  # type: ignore
+    # isolate=True (v3.66.1026): the in-process deadline can only skip
+    # BETWEEN files, and one diagnose of the newest <=25MB .wacz measured
+    # 16.1s on the operator store -- so budget_s alone left this route at
+    # 17.4s against L34's 8s gate. The child-process kill bounds the overrun
+    # by CD._KILL_GRACE_S; anything killed is counted (killed_in_flight) and
+    # budget_exhausted says so.
     return _cached("capture_diagnostics", lambda: CD.collect(
         _root(), limit=_HEAVY_LIMIT, budget_s=_HEAVY_BUDGET_S,
-        max_bytes=_HEAVY_MAX_BYTES))
+        max_bytes=_HEAVY_MAX_BYTES, isolate=True))
 
 
 def collect_replay_validation():
