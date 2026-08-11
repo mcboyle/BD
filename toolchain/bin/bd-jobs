@@ -228,7 +228,14 @@ def cmd_run(args):
         print("REFUSED: no command given. Use: bd-jobs run --host H --purpose P "
               "-- <command>", file=sys.stderr)
         return 2
-    cmd = " ".join(parts)
+    # SHLEX.JOIN, NOT " ".JOIN. Found by this tool's own second live use, one
+    # cut after the `--` bug: `bd-jobs run --host X -- bash -c "a && b"` was
+    # re-joined with bare spaces, so the remote shell saw `bash -c a && b`,
+    # ran `bash -c a`, and answered "venv/bin/python: No such file or
+    # directory" from the wrong directory. Same seam as before -- argv going
+    # back out to a shell -- and the same shape of test missed it, because
+    # every case passed arguments that contained no spaces.
+    cmd = shlex.join(parts)
     here = socket.gethostname()
     if args.host in (None, "", here, "local"):
         proc = subprocess.Popen(["bash", "-c", cmd],

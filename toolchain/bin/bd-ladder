@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+"""bd-ladder -- find the file that breaks a later test, by concurrent prefixes.
+
+THE TECHNIQUE, which is the reason this is a tool and not a scratch script.
+Cross-file state leaks live in ONE pytest process's module state, so each probe
+must run its files serially in a single process -- but the probes are
+independent of one another, so they can all run AT THE SAME TIME. Probe k is
+`chain[0:k]` followed by the guard test. The smallest k whose guard FAILS
+brackets the culprit between rung k-1 and rung k.
+
+Measured at v3.66.1034 on item 48: replaying one xdist worker's real 232-file
+chain as 34 concurrent rungs gave a clean monotonic 183 ok / 184 BROKEN in two
+rounds. The sequential bisect it replaced would have been eight rounds of four
+minutes, and the leak reproduces in 2 files and 1.4 seconds once named.
+
+TWO THINGS IT REFUSES TO DO, both learned the hard way:
+
+  * A rung whose guard did not RUN is UNKNOWN, never `ok`. The scratch version
+    graded on "the guard is absent from the FAILED lines", which reads a
+    collection error, an internal error, or a timeout as a clean rung -- and a
+    clean rung is what tells you to search higher up the chain. Unknown is a
+    third state and it stops the search.
+  * It will not name a culprit from a NON-MONOTONIC ladder. If any rung above
+    the first BROKEN one comes back ok, the effect is not a simple prefix
+    property and the bracket is meaningless; it says so and prints the ladder
+    rather than a number somebody would then go and act on.
+"""
+import argparse
+import concurrent.futures
+import os
+import pathlib
+import re
+import subprocess
+import sys
+import tempfile
+
+OK, BROKEN, UNKNOWN = "ok", "BROKEN", "UNKNOWN"
+
+
+def read_chain(path):
+    lines = [ln.strip() for ln in pathlib.Path(path).read_text().splitlines()]
+    return [ln for ln in lines if ln and not ln.startswith("#")]
+
+
+def default_rungs(n, count=16):
+    """Evenly spaced rungs over 1..n, always including n itself."""
+    if n <= count:
+        return list(range(1, n + 1))
+    step = n / float(count)
+    rungs = sorted({max(1, int(round(step * i))) for i in range(1, count + 1)})
+    if rungs[-1] != n:
+        rungs.append(n)
+    return rungs
+
+
+def grade(output, guard):
+    """Grade ONE rung's pytest output. The guard is the only verdict."""
+    node = os.path.basename(guard).split("::")[0]
+    if re.search(r"^FAILED .*%s" % re.escape(node), output, re.M):
+        return BROKEN
+    if re.search(r"^ERROR .*%s" % re.escape(node), output, re.M):
+        return UNKNOWN            # errored, not passed -- do not read as clean
+    if not re.search(r"^=*\s*\d+ (?:failed|passed|error)", output, re.M):
+        # No summary at all: killed, timed out, or died during collection.
+        return UNKNOWN
+    return OK
+
+
+def bracket(results):
+    """(verdict, detail) for the whole ladder. results: {k: verdict}."""
+    ks = sorted(results)
+    if any(results[k] == UNKNOWN for k in ks):
+        bad = [k for k in ks if results[k] == UNKNOWN]
+        return None, ("rung(s) %s are UNKNOWN -- the guard did not run there, so "
+                      "no bracket can be trusted. Re-run those rungs alone."
+                      % ", ".join(str(k) for k in bad))
+    broken = [k for k in ks if results[k] == BROKEN]
+    if not broken:
+        return None, "no rung broke: the guard survives the whole chain."
+    first = broken[0]
+    if any(results[k] == OK for k in ks if k > first):
+        return None, ("the ladder is NOT MONOTONIC -- rung(s) above %d came back "
+                      "ok. A prefix bracket does not describe this effect; read "
+                      "the ladder itself." % first)
+    below = [k for k in ks if k < first]
+    lo = below[-1] if below else 0
+    return first, ("culprit is in chain[%d:%d] -- rung %d is ok, rung %d is BROKEN"
+                   % (lo, first, lo, first))
+
+
+def probe(chain, k, guard, logdir, extra, timeout):
+    files = chain[:k] + [guard]
+    log = pathlib.Path(logdir) / ("rung_%d.log" % k)
+    cmd = [sys.executable, "-m", "pytest", *files, "-q", "-p", "no:randomly",
+           *extra]
+    env = dict(os.environ)
+    env.setdefault("BD_DISABLE_KEEPALIVE", "1")
+    env.pop("BD_INSTALL_DIR", None)
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, env=env,
+                           timeout=timeout)
+        out = r.stdout + r.stderr
+    except subprocess.TimeoutExpired as exc:
+        out = "TIMEOUT after %ss\n%s" % (timeout, exc.stdout or "")
+    log.write_text(out, encoding="utf-8")
+    return k, grade(out, guard), str(log)
+
+
+def run(args):
+    try:
+        chain = read_chain(args.chain)
+    except OSError as exc:
+        print("bd-ladder: REFUSED: cannot read chain: %s" % exc, file=sys.stderr)
+        return 2
+    if not chain:
+        print("bd-ladder: REFUSED: %s lists no files. A ladder over an empty "
+              "chain would report 'no rung broke' -- a clean verdict over "
+              "nothing." % args.chain, file=sys.stderr)
+        return 2
+    if not pathlib.Path(args.guard.split("::")[0]).exists():
+        print("bd-ladder: REFUSED: guard %s does not exist" % args.guard,
+              file=sys.stderr)
+        return 2
+
+    rungs = ([int(x) for x in args.rungs.split()] if args.rungs
+             else default_rungs(len(chain), args.count))
+    too_big = [k for k in rungs if k > len(chain)]
+    if too_big:
+        print("bd-ladder: REFUSED: rung(s) %s exceed the %d-file chain"
+              % (too_big, len(chain)), file=sys.stderr)
+        return 2
+
+    logdir = pathlib.Path(args.logdir or tempfile.mkdtemp(prefix="bd-ladder-"))
+    logdir.mkdir(parents=True, exist_ok=True)
+    # LINE BUFFERING, because the way this tool is actually used is
+    # `bd-ladder ... > /tmp/out 2>&1` on another host, and block buffering means
+    # a 25-minute run shows an EMPTY file the whole time. Measured on its first
+    # real use: eleven rungs in flight, nothing on disk to say so.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except AttributeError:
+        pass
+    print("bd-ladder: %d rungs over a %d-file chain, guard=%s, logs in %s"
+          % (len(rungs), len(chain), args.guard, logdir))
+
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        futures = [pool.submit(probe, chain, k, args.guard, logdir,
+                               args.extra or [], args.timeout) for k in rungs]
+        for fut in concurrent.futures.as_completed(futures):
+            k, verdict, log = fut.result()
+            results[k] = verdict
+            print("  rung %-5d %s" % (k, verdict))
+
+    print("=== ladder ===")
+    for k in sorted(results):
+        print("  %-5d %s" % (k, results[k]))
+    first, detail = bracket(results)
+    print("=== %s ===" % ("BRACKET" if first else "NO BRACKET"))
+    print("  " + detail)
+    return 0 if first else 1
+
+
+def selftest(_args):
+    failures = []
+
+    if grade("1 passed in 0.1s\n", "tests/g.py") != OK:
+        failures.append("a clean rung was not graded ok")
+    if grade("FAILED tests/g.py::x - boom\n1 failed in 1s\n",
+             "tests/g.py") != BROKEN:
+        failures.append("a failing guard was not graded BROKEN")
+    # THE ONE THE SCRATCH VERSION GOT WRONG: no summary at all.
+    if grade("INTERNALERROR> something exploded\n", "tests/g.py") != UNKNOWN:
+        failures.append("a run with no summary was not graded UNKNOWN -- it "
+                        "would read as a clean rung and send the search the "
+                        "wrong way")
+    if grade("ERROR tests/g.py - collection failed\n1 error in 1s\n",
+             "tests/g.py") != UNKNOWN:
+        failures.append("a guard that errored during collection was not UNKNOWN")
+
+    first, _ = bracket({8: OK, 16: OK, 24: BROKEN, 32: BROKEN})
+    if first != 24:
+        failures.append("a monotonic ladder did not bracket at the first BROKEN")
+    first, detail = bracket({8: OK, 16: BROKEN, 24: OK})
+    if first is not None or "NOT MONOTONIC" not in detail:
+        failures.append("a non-monotonic ladder still produced a bracket")
+    first, detail = bracket({8: OK, 16: UNKNOWN})
+    if first is not None or "UNKNOWN" not in detail:
+        failures.append("an UNKNOWN rung did not block the bracket")
+    first, detail = bracket({8: OK, 16: OK})
+    if first is not None or "no rung broke" not in detail:
+        failures.append("an all-clean ladder claimed a bracket")
+
+    if default_rungs(4) != [1, 2, 3, 4]:
+        failures.append("a short chain did not get one rung per file")
+    r = default_rungs(200, 10)
+    if r[-1] != 200 or len(set(r)) != len(r):
+        failures.append("default rungs did not end at the chain length, or "
+                        "repeated a rung")
+
+    with tempfile.TemporaryDirectory() as td:
+        empty = pathlib.Path(td) / "empty.txt"
+        empty.write_text("# only a comment\n")
+        ns = argparse.Namespace(chain=str(empty), guard="x", rungs=None,
+                                count=16, jobs=1, logdir=td, extra=[],
+                                timeout=10)
+        if run(ns) != 2:
+            failures.append("an empty chain was not refused")
+
+    for f in failures:
+        print("SELFTEST FAIL: %s" % f, file=sys.stderr)
+    if failures:
+        return 1
+    print("SELFTEST PASS: grading incl. UNKNOWN, monotonicity, rung spacing, "
+          "empty-chain refusal")
+    return 0
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        description="concurrent prefix ladder over a test-file chain")
+    p.add_argument("--chain", help="file listing the chain, one path per line")
+    p.add_argument("--guard", help="the test that fails once the leak happened")
+    p.add_argument("--rungs", help='explicit rungs, e.g. "8 16 24"')
+    p.add_argument("--count", type=int, default=16,
+                   help="how many rungs to space over the chain (default 16)")
+    p.add_argument("--jobs", type=int, default=min(16, (os.cpu_count() or 4)),
+                   help="concurrent rungs (default: min(16, cores))")
+    p.add_argument("--logdir", help="where rung logs go (default: a temp dir)")
+    p.add_argument("--timeout", type=int, default=1800)
+    p.add_argument("--extra", nargs="*", help="extra pytest args")
+    p.add_argument("--selftest", action="store_true")
+    args = p.parse_args(argv)
+    if args.selftest:
+        return selftest(args)
+    if not args.chain or not args.guard:
+        p.error("--chain and --guard are required")
+    return run(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

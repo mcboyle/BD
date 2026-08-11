@@ -1,0 +1,216 @@
+#!/usr/bin/env python3
+"""bd-ab -- compare one file's two versions over REPEATED suite samples.
+
+WHY REPEATED, AND WHY THIS IS A TOOL. The single most expensive mistake of the
+v3.66.1031-1041 session was reading one full-suite run as a measurement. On an
+unchanged tree the failure count ranged 1..8 on an idle box and 18..29 with four
+suites sharing it -- so "19 failures after the fix" and "27 before it" are the
+same number, and a prediction made from one sample had to be retracted. Machine
+load dominates the signal. One run tells you almost nothing.
+
+So this tool refuses to take one sample, and it refuses to call a difference
+that its own samples do not support: overlapping ranges are reported as NOT
+DISTINGUISHED, in those words, however much the means differ.
+
+THE SECOND TRAP IS CONCURRENCY. The scratch version ran four samples at once to
+save wall-clock, which is the load confound being measured, manufactured on
+purpose. Samples are SERIAL by default here; --jobs above 1 prints a warning
+that says so, because the number it produces is not comparable with a serial one.
+
+A = the file's content at a git revision.  B = the working tree as it stands.
+Everything else is held identical, the working tree is restored in a finally,
+and the restore is verified by reading the file back -- a harness that leaves a
+tree modified after a crash is worse than no harness.
+"""
+import argparse
+import collections
+import os
+import pathlib
+import re
+import subprocess
+import sys
+import tempfile
+
+_FAILLINE = re.compile(r"^FAILED .*$", re.M)
+
+
+def failures(text):
+    """The set of failing node ids, message suffix stripped."""
+    return {ln.split(" - ")[0].strip() for ln in _FAILLINE.findall(text)}
+
+
+def compare(a_counts, b_counts):
+    """Verdict over two lists of failure counts. Pure, therefore testable.
+
+    Returns (distinguished, sentence). The bar is deliberately crude and
+    deliberately conservative: if the ranges touch at all, the samples do not
+    separate the conditions, and no amount of arithmetic on four numbers is
+    going to change that honestly.
+    """
+    if not a_counts or not b_counts:
+        return False, "one condition produced no samples -- nothing to compare."
+    alo, ahi = min(a_counts), max(a_counts)
+    blo, bhi = min(b_counts), max(b_counts)
+    span = "A %d..%d (n=%d), B %d..%d (n=%d)" % (alo, ahi, len(a_counts),
+                                                 blo, bhi, len(b_counts))
+    if ahi < blo:
+        return True, "B fails MORE than A in every sample: %s" % span
+    if bhi < alo:
+        return True, "B fails FEWER than A in every sample: %s" % span
+    return False, ("NOT DISTINGUISHED -- the ranges overlap: %s. Whatever the "
+                   "means say, these samples do not separate the two "
+                   "conditions. Take more samples or reduce the noise." % span)
+
+
+def _git_show(rev, path):
+    r = subprocess.run(["git", "show", "%s:%s" % (rev, path)],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    return r.stdout
+
+
+def sample(pytest_args, log):
+    env = dict(os.environ)
+    env.setdefault("BD_DISABLE_KEEPALIVE", "1")
+    r = subprocess.run([sys.executable, "-m", "pytest", *pytest_args],
+                       capture_output=True, text=True, env=env)
+    out = r.stdout + r.stderr
+    pathlib.Path(log).write_text(out, encoding="utf-8")
+    return out
+
+
+def run(args):
+    if args.samples < 2:
+        print("bd-ab: REFUSED: --samples %d. One sample of a full suite is not "
+              "a measurement -- the unchanged-tree failure count on this "
+              "hardware ranges 1..8 idle and 18..29 loaded. Use 3 or more."
+              % args.samples, file=sys.stderr)
+        return 2
+
+    path = pathlib.Path(args.file)
+    if not path.is_file():
+        print("bd-ab: REFUSED: %s is not a file" % path, file=sys.stderr)
+        return 2
+    a_text = _git_show(args.rev, args.file)
+    if a_text is None:
+        print("bd-ab: REFUSED: git show %s:%s failed -- condition A has no "
+              "content" % (args.rev, args.file), file=sys.stderr)
+        return 2
+    b_text = path.read_text(encoding="utf-8")
+    if a_text == b_text:
+        print("bd-ab: REFUSED: %s is IDENTICAL at %s and in the working tree. "
+              "There is no A/B here, and running it would burn the samples to "
+              "measure noise." % (args.file, args.rev), file=sys.stderr)
+        return 2
+
+    if args.jobs > 1:
+        print("bd-ab: WARNING: --jobs %d runs samples concurrently. Concurrent "
+              "suites inflate failure counts on this hardware (measured 1..8 "
+              "idle vs 18..29 with four sharing a box), so these numbers are "
+              "not comparable with serial ones." % args.jobs)
+
+    logdir = pathlib.Path(args.dir or tempfile.mkdtemp(prefix="bd-ab-"))
+    logdir.mkdir(parents=True, exist_ok=True)
+    counts = collections.defaultdict(list)
+    sets = {"A": set(), "B": set()}
+    pytest_args = list(args.pytest_args or [])
+    if pytest_args and pytest_args[0] == "--":
+        pytest_args = pytest_args[1:]
+
+    try:
+        for i in range(1, args.samples + 1):
+            for cond, text in (("A", a_text), ("B", b_text)):
+                path.write_text(text, encoding="utf-8")
+                log = logdir / ("%s_%d.log" % (cond, i))
+                out = sample(pytest_args, log)
+                found = failures(out)
+                counts[cond].append(len(found))
+                sets[cond] |= found
+                print("  %s sample %d: %d failures  (%s)" % (cond, i, len(found), log))
+    finally:
+        path.write_text(b_text, encoding="utf-8")
+        # VERIFY THE RESTORE. A harness that silently leaves the tree modified
+        # turns a measurement into a source change nobody made on purpose.
+        if path.read_text(encoding="utf-8") != b_text:
+            print("bd-ab: THE WORKING TREE WAS NOT RESTORED -- %s differs from "
+                  "what it held when this started. Fix it before doing anything "
+                  "else." % path, file=sys.stderr)
+            return 3
+
+    print("=== counts ===")
+    for cond in ("A", "B"):
+        print("  %s: %s" % (cond, " ".join(str(c) for c in counts[cond])))
+    distinguished, sentence = compare(counts["A"], counts["B"])
+    print("=== verdict ===\n  " + sentence)
+    print("=== failures unique to a condition (union across samples) ===")
+    for label, diff in (("only in B (candidate regressions)", sets["B"] - sets["A"]),
+                        ("only in A (candidate fixes)", sets["A"] - sets["B"])):
+        print("  --- %s: %d ---" % (label, len(diff)))
+        for node in sorted(diff):
+            print("      " + node)
+    print("  logs: %s" % logdir)
+    return 0 if distinguished else 1
+
+
+def selftest(_args):
+    failures_ = []
+
+    if failures("FAILED tests/a.py::x - boom\nFAILED tests/b.py::y\n") != {
+            "FAILED tests/a.py::x", "FAILED tests/b.py::y"}:
+        failures_.append("failure-line parsing dropped or mangled a node id")
+
+    ok, sentence = compare([1, 2, 3], [10, 11])
+    if not ok or "MORE" not in sentence:
+        failures_.append("cleanly separated samples were not distinguished")
+    ok, sentence = compare([10, 11], [1, 2])
+    if not ok or "FEWER" not in sentence:
+        failures_.append("the FEWER direction was not detected")
+    # THE POINT OF THE TOOL: means differ, ranges touch, verdict is no.
+    ok, sentence = compare([1, 30], [2, 29])
+    if ok or "NOT DISTINGUISHED" not in sentence:
+        failures_.append("overlapping ranges produced a verdict -- this is the "
+                         "single mistake the tool exists to prevent")
+    ok, _ = compare([], [1, 2])
+    if ok:
+        failures_.append("an empty condition was treated as a comparison")
+
+    with tempfile.TemporaryDirectory() as td:
+        f = pathlib.Path(td) / "x.py"
+        f.write_text("b\n")
+        ns = argparse.Namespace(samples=1, file=str(f), rev="HEAD", jobs=1,
+                                dir=td, pytest_args=[])
+        if run(ns) != 2:
+            failures_.append("a single sample was not refused")
+
+    for f in failures_:
+        print("SELFTEST FAIL: %s" % f, file=sys.stderr)
+    if failures_:
+        return 1
+    print("SELFTEST PASS: parsing, both directions, overlap refusal, empty "
+          "condition, single-sample refusal")
+    return 0
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        description="A/B one file's two versions over repeated suite samples")
+    p.add_argument("--file", help="the file that differs between conditions")
+    p.add_argument("--rev", default="HEAD", help="condition A revision (default HEAD)")
+    p.add_argument("--samples", type=int, default=3,
+                   help="samples PER CONDITION (minimum 2, default 3)")
+    p.add_argument("--jobs", type=int, default=1,
+                   help="concurrent samples (default 1 -- see the warning)")
+    p.add_argument("--dir", help="log directory (default: a temp dir)")
+    p.add_argument("--selftest", action="store_true")
+    p.add_argument("pytest_args", nargs=argparse.REMAINDER)
+    args = p.parse_args(argv)
+    if args.selftest:
+        return selftest(args)
+    if not args.file:
+        p.error("--file is required")
+    return run(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,267 @@
+#!/usr/bin/env python3
+"""bd-fleet -- one read-only answer to "what is the state of my three boxes".
+
+WHAT IT ANSWERS, per host, in one line: is it reachable, what commit and version
+is its tree on, is that tree clean, is the service up, what is the load, how
+many jobs are registered with bd-jobs, and how many pytest runs are going that
+nothing registered. Those seven questions cost seven ssh round trips each when
+asked by hand, and the session that prompted this asked them repeatedly and
+still managed to deploy onto a host with a live suite on it.
+
+IT NEVER CHANGES ANYTHING. No deploy, no restart, no reap, no checkout. A tool
+you run to find out what is going on must be safe to run when you do not know
+what is going on, and `bd-gc` and `bd-jobs reap` are where the destructive
+verbs live.
+
+UNREACHABLE IS NOT OK. A host that does not answer is printed as UNREACHABLE and
+makes the exit code nonzero. The failure this guards is the one section 0 is
+about: a fleet report that quietly covers two hosts out of three, and reads as a
+clean bill of health for all three.
+"""
+import argparse
+import concurrent.futures
+import os
+import pathlib
+import shlex
+import subprocess
+import sys
+import tempfile
+
+DEFAULT_HOSTS = os.path.join(os.path.expanduser("~"), ".config", "bd", "hosts")
+
+# One shell, run once per host. Each line is `key=value`; a missing key reads as
+# unknown rather than as a default, which is the whole point.
+PROBE = r'''
+cd ~/BulkDownloader 2>/dev/null || { echo "tree=ABSENT"; exit 0; }
+echo "head=$(git log --oneline -1 2>/dev/null | cut -c1-7)"
+echo "version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' bulk_downloader/__init__.py 2>/dev/null)"
+echo "branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+echo "dirty=$(git status --porcelain 2>/dev/null | wc -l)"
+echo "service=$(systemctl is-active bulkdownloader 2>/dev/null || echo unknown)"
+echo "load=$(cut -d' ' -f1-3 /proc/loadavg)"
+echo "cores=$(nproc)"
+echo "jobs=$(ls /tmp/bd-jobs/*.json 2>/dev/null | wc -l)"
+# COUNTING PYTEST IS A SELF-MATCH TRAP, and this tool fell in it on its own
+# first live run: `pgrep -fc 'm pytest'` reported 4 on an idle host because the
+# probe shell's own command line contains the pattern it is searching for. The
+# same shape as section 5's `pkill -f`. Filter on comm= (the probe is bash, awk
+# is awk, only a real run is python) and split the literal so this line cannot
+# match itself.
+echo "pytest=$(ps -eo pid=,comm=,args= 2>/dev/null | awk '$2 ~ /^python/ && $0 ~ /-m[ ]pytest/' | wc -l)"
+echo "tmp_bd=$(ls -d /tmp/bd-* /tmp/pytest-of-* 2>/dev/null | wc -l)"
+'''
+
+
+def read_hosts(path):
+    """Parse the fleet file. Mirrors scripts/deploy_fleet.sh line for line.
+
+    Two parsers over one format is a seam, so the test suite feeds
+    docs/repo/hosts.example to both and requires the same answer.
+    """
+    out = []
+    for raw in pathlib.Path(path).read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            raise ValueError('line for "%s" has no address' % parts[0])
+        out.append((parts[0], parts[1]))
+    return out
+
+
+def parse_probe(text):
+    d = {}
+    for line in text.splitlines():
+        if "=" in line:
+            k, _, v = line.partition("=")
+            d[k.strip()] = v.strip()
+    return d
+
+
+def query(label, addr, me, timeout):
+    if label == me:
+        r = subprocess.run(["bash", "-c", PROBE], capture_output=True,
+                           text=True, timeout=timeout)
+    else:
+        r = subprocess.run(
+            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", addr,
+             "bash -c %s" % shlex.quote(PROBE)],
+            capture_output=True, text=True, timeout=timeout)
+    if r.returncode != 0:
+        return label, addr, None, (r.stderr.strip() or "exit %d" % r.returncode)
+    return label, addr, parse_probe(r.stdout), None
+
+
+def render(rows):
+    """Format the table. Pure, so the formatting is testable without ssh."""
+    lines = ["%-10s %-15s %-8s %-11s %-6s %-8s %-14s %-5s %-7s %-6s"
+             % ("host", "address", "head", "version", "tree", "service",
+                "load(1/5/15)", "jobs", "pytest", "litter")]
+    for label, addr, d, err in rows:
+        if d is None:
+            lines.append("%-10s %-15s UNREACHABLE  %s" % (label, addr, err))
+            continue
+        if d.get("tree") == "ABSENT":
+            lines.append("%-10s %-15s NO TREE at ~/BulkDownloader" % (label, addr))
+            continue
+        dirty = d.get("dirty", "?")
+        tree = "clean" if dirty == "0" else ("%s dirty" % dirty)
+        lines.append("%-10s %-15s %-8s %-11s %-6s %-8s %-14s %-5s %-7s %-6s"
+                     % (label, addr, d.get("head", "?"), d.get("version", "?"),
+                        tree, d.get("service", "?"), d.get("load", "?"),
+                        d.get("jobs", "?"), d.get("pytest", "?"),
+                        d.get("tmp_bd", "?")))
+    return lines
+
+
+def divergences(rows):
+    """What DISAGREES across the fleet -- the reason anyone runs this."""
+    notes = []
+    live = [(l, d) for l, _a, d, e in rows if d and d.get("tree") != "ABSENT"]
+    for key, what in (("head", "commit"), ("version", "version")):
+        vals = {d.get(key, "?") for _l, d in live}
+        if len(vals) > 1:
+            notes.append("%s DIVERGES across the fleet: %s"
+                         % (what, ", ".join("%s=%s" % (l, d.get(key, "?"))
+                                            for l, d in live)))
+    for label, d in live:
+        if d.get("dirty", "0") != "0":
+            notes.append("%s has an UNCOMMITTED tree (%s file(s))"
+                         % (label, d["dirty"]))
+        if d.get("service") not in ("active", "unknown", None):
+            notes.append("%s service is %s" % (label, d.get("service")))
+        try:
+            if int(d.get("pytest", 0)) > 0 and int(d.get("jobs", 0)) == 0:
+                notes.append("%s is running pytest with NOTHING registered -- "
+                             "`bd-jobs orphans` there before deploying" % label)
+        except ValueError:
+            pass
+        try:
+            if int(d.get("tmp_bd", 0)) >= 100:
+                notes.append("%s carries %s /tmp/bd-* and pytest-of-* paths -- "
+                             "`bd-gc` reports what is safe to remove"
+                             % (label, d["tmp_bd"]))
+        except ValueError:
+            pass
+    return notes
+
+
+def run(args):
+    hosts_file = args.hosts or DEFAULT_HOSTS
+    if not os.path.isfile(hosts_file):
+        print("bd-fleet: REFUSED: no host list at %s. It is deliberately "
+              "untracked -- copy docs/repo/hosts.example there." % hosts_file,
+              file=sys.stderr)
+        return 2
+    try:
+        hosts = read_hosts(hosts_file)
+    except ValueError as exc:
+        print("bd-fleet: REFUSED: %s: %s" % (hosts_file, exc), file=sys.stderr)
+        return 2
+    if not hosts:
+        print("bd-fleet: REFUSED: %s lists no hosts. An empty fleet must not "
+              "report as a healthy one." % hosts_file, file=sys.stderr)
+        return 2
+
+    me = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip()
+    rows = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(hosts)) as pool:
+        futures = {pool.submit(query, l, a, me, args.timeout): (l, a)
+                   for l, a in hosts}
+        for fut in concurrent.futures.as_completed(futures):
+            label, addr = futures[fut]
+            try:
+                rows.append(fut.result())
+            except Exception as exc:                      # timeout, ssh death
+                rows.append((label, addr, None, str(exc)))
+    rows.sort(key=lambda r: [h[0] for h in hosts].index(r[0]))
+
+    for line in render(rows):
+        print(line)
+    notes = divergences(rows)
+    if notes:
+        print("--- what disagrees ---")
+        for n in notes:
+            print("  " + n)
+    unreachable = [r[0] for r in rows if r[2] is None]
+    if unreachable:
+        print("bd-fleet: %d of %d host(s) UNREACHABLE: %s -- this report covers "
+              "%d host(s), not the fleet."
+              % (len(unreachable), len(rows), ", ".join(unreachable),
+                 len(rows) - len(unreachable)), file=sys.stderr)
+        return 1
+    return 0
+
+
+def selftest(_args):
+    failures = []
+
+    d = parse_probe("head=abc1234\nversion=3.66.1\ndirty=0\n")
+    if d.get("head") != "abc1234" or d.get("dirty") != "0":
+        failures.append("probe output was not parsed into key/value")
+
+    with tempfile.TemporaryDirectory() as td:
+        f = pathlib.Path(td) / "hosts"
+        f.write_text("# c\n\nmaster 1.2.3.4\ncandidate 1.2.3.5\n")
+        if read_hosts(str(f)) != [("master", "1.2.3.4"), ("candidate", "1.2.3.5")]:
+            failures.append("host parsing dropped a host or kept a comment")
+        f.write_text("master\n")
+        try:
+            read_hosts(str(f))
+            failures.append("a line with no address was accepted")
+        except ValueError:
+            pass
+        f.write_text("# only comments\n")
+        ns = argparse.Namespace(hosts=str(f), timeout=10)
+        if run(ns) != 2:
+            failures.append("a host file listing no hosts was not refused")
+        ns = argparse.Namespace(hosts=str(pathlib.Path(td) / "nope"), timeout=10)
+        if run(ns) != 2:
+            failures.append("a missing host file was not refused")
+
+    out = "\n".join(render([("a", "1.1.1.1", None, "timed out")]))
+    if "UNREACHABLE" not in out:
+        failures.append("an unreachable host did not print UNREACHABLE")
+
+    rows = [("a", "1", {"head": "aaa", "version": "1", "dirty": "0",
+                        "service": "active", "pytest": "0", "jobs": "0"}, None),
+            ("b", "2", {"head": "bbb", "version": "1", "dirty": "2",
+                        "service": "active", "pytest": "0", "jobs": "0"}, None)]
+    notes = " ".join(divergences(rows))
+    if "DIVERGES" not in notes:
+        failures.append("two hosts on different commits were not flagged")
+    if "UNCOMMITTED" not in notes:
+        failures.append("a dirty tree was not flagged")
+    rows = [("a", "1", {"head": "a", "version": "1", "dirty": "0",
+                        "service": "active", "pytest": "3", "jobs": "0",
+                        "tmp_bd": "700"}, None)]
+    notes = " ".join(divergences(rows))
+    if "700 /tmp/bd-*" not in notes:
+        failures.append("a litter count of 700 was collected and never "
+                        "reported -- a field written and never read")
+    if "NOTHING registered" not in notes:
+        failures.append("unregistered pytest was not flagged -- this is the "
+                        "state that broke a deploy at step 9")
+
+    for f in failures:
+        print("SELFTEST FAIL: %s" % f, file=sys.stderr)
+    if failures:
+        return 1
+    print("SELFTEST PASS: parsing, refusals, unreachable, divergence detection")
+    return 0
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(description="read-only fleet status")
+    p.add_argument("--hosts", help="host list (default: ~/.config/bd/hosts)")
+    p.add_argument("--timeout", type=int, default=30)
+    p.add_argument("--selftest", action="store_true")
+    args = p.parse_args(argv)
+    if args.selftest:
+        return selftest(args)
+    return run(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

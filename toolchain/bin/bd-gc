@@ -1,0 +1,258 @@
+#!/usr/bin/env python3
+"""bd-gc -- report, and only on demand remove, the litter a test run leaves.
+
+MEASURED, and it is worse than the number that prompted the tool. v3.66.1035
+found 744 empty directories under /tmp from one session's socket recorder. Asked
+again at v3.66.1042 with bd-fleet: **9479** /tmp/bd-* and /tmp/pytest-of-* paths
+on the master, 1349 on the candidate, 354 on the box provisioned that same day.
+Nothing removes them; git status stays clean because they live outside the repo;
+the cost is a slow leak nobody trips over until a disk does.
+
+THIS TOOL IS THE DANGEROUS ONE IN THE SET, so read the refusals.
+
+  * DRY RUN IS THE DEFAULT. Without --apply it removes nothing, and it says
+    NOTHING REMOVED in those words -- a dry run that reads like a completed
+    cleanup is the same defect as deploy_fleet.sh's dry run printing "all 3
+    hosts deployed and verified" having touched nothing.
+  * /tmp/bd-jobs IS NEVER A CANDIDATE. It is the registry that makes remote work
+    findable. Deleting a live entry manufactures precisely the untracked orphan
+    the registry exists to prevent, so it is excluded structurally, not by an
+    age heuristic.
+  * NOTHING RECENT. A path modified inside --older-than (default 120 minutes)
+    belongs to a run that may still be using it. --older-than below 10 is
+    refused outright.
+  * NOTHING OUTSIDE /tmp. Every candidate is re-checked against the allowed
+    prefixes after globbing, because a symlink or a crafted name is exactly how
+    a cleanup tool becomes an incident.
+"""
+import argparse
+import os
+import pathlib
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+
+# Structural, not configurable. A cleanup tool with a --path flag is a wrapper
+# around rm -rf with better manners.
+PREFIXES = ("/tmp/bd-", "/tmp/pytest-of-")
+NEVER = ("/tmp/bd-jobs",)
+MIN_AGE_MIN = 10
+
+
+def is_candidate(path, now, older_than_s):
+    """Every reason a path may be removed, in one testable predicate."""
+    p = str(path)
+    # A DIRECT CHILD OF A PREFIX, never something nested under one. A bare
+    # startswith() also accepts /tmp/bd-run/2026/deep/thing, so a predicate
+    # written to describe "a litter directory" quietly described "anything
+    # anywhere inside one" -- and this tool deletes what the predicate accepts.
+    # Caught by its own selftest, which asserted a nested path was ineligible.
+    matched = [pre for pre in PREFIXES
+               if p.startswith(pre) and "/" not in p[len(pre):]]
+    if not matched:
+        return False, "outside the allowed prefixes, or nested inside one"
+    for never in NEVER:
+        if p == never or p.startswith(never + "/"):
+            return False, "the bd-jobs registry is never a candidate"
+    real = os.path.realpath(p)
+    if not real.startswith("/tmp/"):
+        return False, "resolves outside /tmp (%s)" % real
+    try:
+        age = now - os.lstat(p).st_mtime
+    except OSError as exc:
+        return False, "cannot stat: %s" % exc
+    if age < older_than_s:
+        return False, "modified %d minute(s) ago" % (age / 60)
+    return True, "eligible"
+
+
+def scan(now, older_than_s, root="/tmp"):  # noqa: D401
+    """(eligible, skipped) over the allowed prefixes. Reports both, always."""
+    eligible, skipped = [], []
+    base = pathlib.Path(root)
+    for pre in PREFIXES:
+        if pre.endswith("/"):
+            here, pattern = pathlib.Path(pre), "*"
+        else:
+            here, pattern = base, os.path.basename(pre) + "*"
+        for path in sorted(here.glob(pattern)):
+            ok, why = is_candidate(path, now, older_than_s)
+            (eligible if ok else skipped).append((str(path), why))
+    return eligible, skipped
+
+
+def size_of(path):
+    try:
+        r = subprocess.run(["du", "-sb", path], capture_output=True, text=True,
+                           timeout=60)
+        return int(r.stdout.split()[0]) if r.returncode == 0 else 0
+    except (ValueError, IndexError, OSError, subprocess.SubprocessError):
+        return 0
+
+
+def remove(path):
+    try:
+        if os.path.islink(path) or os.path.isfile(path):
+            os.unlink(path)
+        else:
+            shutil.rmtree(path)
+        return None
+    except OSError as exc:
+        return str(exc)
+
+
+def run(args):
+    if args.older_than < MIN_AGE_MIN:
+        print("bd-gc: REFUSED: --older-than %d is below the %d-minute floor. A "
+              "path younger than that may belong to a run in progress."
+              % (args.older_than, MIN_AGE_MIN), file=sys.stderr)
+        return 2
+
+    now = time.time()
+    eligible, skipped = scan(now, args.older_than * 60)
+    total = len(eligible) + len(skipped)
+    # STATE THE DENOMINATOR. "142 removed" over an unstated total is the shape
+    # this repo keeps finding.
+    print("bd-gc: %d path(s) under %s; %d eligible, %d skipped (older-than=%dm)"
+          % (total, " and ".join(PREFIXES), len(eligible), len(skipped),
+             args.older_than))
+    if args.verbose:
+        for path, why in skipped[:args.show]:
+            print("  skip  %-50s %s" % (path, why))
+        if len(skipped) > args.show:
+            print("  ... showing %d of %d skipped" % (args.show, len(skipped)))
+
+    if not eligible:
+        print("bd-gc: nothing eligible. NOTHING REMOVED.")
+        return 0
+
+    freed = sum(size_of(p) for p, _ in eligible) if args.measure else 0
+    if not args.apply:
+        for path, _ in eligible[:args.show]:
+            print("  would remove  %s" % path)
+        if len(eligible) > args.show:
+            print("  ... showing %d of %d eligible" % (args.show, len(eligible)))
+        print("bd-gc: DRY RUN -- %d path(s) eligible%s. NOTHING REMOVED. "
+              "Re-run with --apply." % (len(eligible),
+                                        ", %.1f MB" % (freed / 1e6) if args.measure else ""))
+        return 0
+
+    errors = []
+    for path, _ in eligible:
+        err = remove(path)
+        if err:
+            errors.append((path, err))
+    print("bd-gc: removed %d of %d eligible path(s)%s"
+          % (len(eligible) - len(errors), len(eligible),
+             ", freed %.1f MB" % (freed / 1e6) if args.measure else ""))
+    for path, err in errors[:args.show]:
+        print("  FAILED %s: %s" % (path, err), file=sys.stderr)
+    return 1 if errors else 0
+
+
+def selftest(_args):
+    failures = []
+    now = time.time()
+    old = 3600.0
+
+    with tempfile.TemporaryDirectory(dir="/tmp", prefix="bd-gctest-") as td:
+        stale = pathlib.Path(td) / "old"
+        stale.mkdir()
+        os.utime(stale, (now - 99999, now - 99999))
+        fresh = pathlib.Path(td) / "new"
+        fresh.mkdir()
+
+        # The temp dir itself starts with /tmp/bd- so its children do not; test
+        # the predicate directly on paths that do.
+        ok, why = is_candidate("/tmp/bd-jobs", now, old)
+        if ok or "registry" not in why:
+            failures.append("the bd-jobs registry was treated as removable -- "
+                            "deleting it manufactures the orphans it prevents")
+        ok, _ = is_candidate("/tmp/bd-jobs/abc.json", now, old)
+        if ok:
+            failures.append("a file INSIDE the registry was eligible")
+        ok, why = is_candidate("/var/tmp/bd-thing", now, old)
+        if ok or "prefix" not in why:
+            failures.append("a path outside the allowed prefixes was eligible")
+        # /tmp/bd-gctest-XXXX/old starts with /tmp/bd- and is NOT litter: it is
+        # a child of a litter directory. The predicate must see the difference.
+        ok, why = is_candidate(str(stale), now, old)
+        if ok or "nested" not in why:
+            failures.append("a path NESTED inside a litter directory was "
+                            "eligible in its own right: %s" % why)
+
+        # A real eligible path, and a real ineligible one, under the prefix.
+        with tempfile.TemporaryDirectory(dir="/tmp", prefix="bd-") as bd:
+            os.utime(bd, (now - 99999, now - 99999))
+            ok, why = is_candidate(bd, now, old)
+            if not ok:
+                failures.append("an old /tmp/bd-* dir was not eligible: %s" % why)
+            ok, why = is_candidate(bd, now, 10 ** 9)
+            if ok or "minute" not in why:
+                failures.append("a path younger than the window was eligible")
+
+            eligible, _skipped = scan(now, old)
+            if bd not in [p for p, _ in eligible]:
+                failures.append("scan() missed a path its own predicate accepts")
+
+            # DRY RUN MUST NOT REMOVE, AND MUST SAY SO. Scoped to this temp
+            # prefix rather than the real /tmp: a selftest whose denominator is
+            # "whatever litter this box happens to hold" measures the box, not
+            # the tool, and on the master that is 9440 paths and a du storm.
+            global PREFIXES
+            saved = PREFIXES
+            PREFIXES = (bd + "/",)
+            try:
+                victim = pathlib.Path(bd) / "victim"
+                victim.mkdir()
+                os.utime(victim, (now - 99999, now - 99999))
+                ns = argparse.Namespace(older_than=60, apply=False, show=5,
+                                        verbose=False, measure=False)
+                rc = run(ns)
+                if rc != 0 or not victim.is_dir():
+                    failures.append("a dry run removed something, or exited "
+                                    "nonzero")
+                ns.apply = True
+                rc = run(ns)
+                if rc != 0 or victim.exists():
+                    failures.append("--apply did not remove an eligible path")
+            finally:
+                PREFIXES = saved
+
+        ns = argparse.Namespace(older_than=1, apply=True, show=5, verbose=False,
+                                measure=False)
+        if run(ns) != 2:
+            failures.append("--older-than below the floor was not refused")
+
+    for f in failures:
+        print("SELFTEST FAIL: %s" % f, file=sys.stderr)
+    if failures:
+        return 1
+    print("SELFTEST PASS: registry exclusion, prefix scope, age floor, scan "
+          "agreement, dry run removes nothing")
+    return 0
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        description="report (and with --apply, remove) /tmp litter from test runs")
+    p.add_argument("--older-than", type=int, default=120,
+                   help="minutes; paths younger are never touched (floor %d)"
+                        % MIN_AGE_MIN)
+    p.add_argument("--apply", action="store_true",
+                   help="actually remove. Without it, nothing is removed.")
+    p.add_argument("--measure", action="store_true",
+                   help="du each candidate (slow on thousands of paths)")
+    p.add_argument("--show", type=int, default=20)
+    p.add_argument("--verbose", action="store_true")
+    p.add_argument("--selftest", action="store_true")
+    args = p.parse_args(argv)
+    if args.selftest:
+        return selftest(args)
+    return run(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

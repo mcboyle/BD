@@ -4,6 +4,65 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1043
+
+Batch B: five scratchpad scripts become tracked tools, each with the defect the
+scratch version could afford removed. NEW toolchain/bin/bd-run, bd-ladder,
+bd-ab, bd-fleet, bd-gc; one behaviour fix to bd-jobs. No production source is
+touched.
+
+bd-run runs a command, keeps the whole output on disk and prints only the
+verdict -- written after two twelve-minute reruns lost to piping pytest through
+grep. Its exit code is the child's, never derived from a match count; a run with
+no pytest summary prints SUMMARY UNKNOWN rather than reading as a pass; a
+truncated failure list states both numbers; retention is bounded.
+
+bd-ladder runs concurrent prefix probes over a file chain to find which earlier
+test breaks a later one -- the technique that bracketed item 48 in two rounds
+instead of eight. Two refusals the scratch version lacked: a rung whose guard
+did not RUN is UNKNOWN, never ok (an INTERNALERROR read as a clean rung sends
+the search the wrong way), and a NON-MONOTONIC ladder yields no bracket at all.
+
+bd-ab compares two versions of one file over repeated whole-suite samples. It
+refuses a single sample, because on this hardware an unchanged tree fails 1..8
+idle and 18..29 loaded; it runs samples SERIALLY by default, because the scratch
+version ran four at once and that is the load confound it exists to measure; and
+it reports overlapping ranges as NOT DISTINGUISHED however far apart the means
+are. The working tree is restored in a finally and the restore is verified.
+
+bd-fleet answers version/commit/tree/service/load/jobs/pytest/litter for every
+host in one read-only pass, and names what DISAGREES. An unreachable host prints
+UNREACHABLE and makes the exit nonzero. Its own first live run reported 4 pytest
+processes on an idle box: `pgrep -f` matched the probe's own command line, the
+same shape section 5 records for `pkill -f`. It now filters on `comm=`.
+
+bd-gc reports the /tmp litter a test run leaves -- measured with bd-fleet at
+9479 paths on the master, 1349 and 354 on the others, against the 744 that
+prompted it. DRY RUN IS THE DEFAULT and says NOTHING REMOVED; /tmp/bd-jobs is
+never a candidate; nothing modified inside --older-than (default 120m, floor 10)
+is touched; only direct children of the allowed /tmp prefixes are eligible.
+
+bd-jobs FIX: `run` re-joined argv with bare spaces, so
+`run --host X -- bash -c "a && b"` reached the remote shell as `bash -c a && b`.
+Same seam as the `--` bug one cut earlier -- a parsed argv turned back into a
+shell string -- and invisible to every test that passed spaceless arguments.
+shlex.join, with a test that runs the reassembled command.
+
+MUTATION: 19 mutants over the five tools plus bd-jobs, 19 caught. One escaped
+first time and is worth recording -- "accept a single sample" survived because
+the test asserted only `returncode == 2` against an untracked temp file, so the
+tool refused for a DIFFERENT reason (git show failed) with the same exit code.
+Every refusal in that tool exits 2, so the code alone distinguishes nothing. The
+test now asserts the reason and stubs the other conditions out.
+
+RED-first: tests/test_v3_66_1043_measurement_and_fleet_tools.py, 33 tests. The
+bd-jobs case was proven RED against the previous join. Includes a SEAM test that
+runs the real scripts/deploy_fleet.sh in dry-run over docs/repo/hosts.example
+and requires bd-fleet's Python parser to return the same hosts in the same
+order -- two implementations of one format that nothing previously compared. All
+five tools are added to test_toolchain_534's selftest tuple, so they are wired
+rather than described, and the suite is declared in a new CI gate shard.
+
 ## v3.66.1042
 
 Batch D additionals: six lessons the bd-jobs cut paid for, written into the
