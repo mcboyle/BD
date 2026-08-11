@@ -308,3 +308,21 @@ def _module_env_reads():
                 if is_environ and isinstance(node.args[0], ast.Constant):
                     names.append(node.args[0].value)
     return names
+
+
+def test_the_dependency_pypi_thread_is_disabled_for_the_suite():
+    """ITEM 46. cloakbrowser GETs its own PyPI JSON from a daemon thread on
+    import, once per process -- so once per xdist worker, landing on whatever
+    test is running. Measured at v3.66.1031 by this recorder: 5 attempts to
+    151.101.*:443 in one full run, from thread `_check_wrapper_update`.
+
+    Asserted here rather than trusted: a mutant flipping the value to "true"
+    ESCAPED the battery, because nothing in the band imports cloakbrowser.
+    Verified out-of-suite at v3.66.1034 with the recorder armed -- unset gave 1
+    packet-sending connect to 151.101.0.223, "false" gave 0.
+    """
+    import os
+    assert os.environ.get("CLOAKBROWSER_AUTO_UPDATE") == "false", (
+        "CLOAKBROWSER_AUTO_UPDATE is %r -- the dependency's update thread is "
+        "armed and the suite makes live PyPI calls, which is @977's class."
+        % os.environ.get("CLOAKBROWSER_AUTO_UPDATE"))

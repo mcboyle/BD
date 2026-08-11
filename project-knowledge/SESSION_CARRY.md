@@ -4846,7 +4846,14 @@ a record -- see 15.62's closing paragraph.
      follow the last `project-knowledge/` edit, the same way regen must follow
      the last source edit.
 
- 46. **The test suite makes live PyPI calls from a dependency's daemon thread.**
+ 46. **CLOSED at v3.66.1034.** `CLOAKBROWSER_AUTO_UPDATE=false` is set in
+     `pytest_configure`, and it is ASSERTED rather than trusted -- a mutant
+     flipping it to "true" escaped the first battery because nothing in the
+     band imports cloakbrowser. Measured with the socket recorder armed: unset
+     gave 1 packet-sending connect to 151.101.0.223, "false" gave 0. ORIGINAL
+     TEXT:
+
+     **The test suite makes live PyPI calls from a dependency's daemon thread.**
      MEASURED at v3.66.1031 by the stage-1 socket recorder, on test5, across a
      full `-n 16` run: five attempts to `151.101.*:443`, from a thread named
      `_check_wrapper_update`. It is `cloakbrowser`'s, not ours -- a daemon
@@ -4869,7 +4876,14 @@ a record -- see 15.62's closing paragraph.
      a `test_gui_parity` question rather than a drive-by. Decide where it goes:
      `tests/conftest.py`, `capture.sh`, or the provisioner.
 
- 47. **`test_path_typed_flag_rejects_traversal` is vacuous, and fails on a false
+ 47. **CLOSED at v3.66.1034.** The payload is derived from the real cwd via
+     `_traversal_payload()` so it escapes at any depth, and an absent
+     path-typed flag now SKIPS. Both halves are mutation-covered; the first
+     attempt at the depth test recomputed the arithmetic instead of calling it,
+     and a mutant pinning the depth to a literal 4 escaped until the derivation
+     was extracted into a function the test calls. ORIGINAL TEXT:
+
+     **`test_path_typed_flag_rejects_traversal` is vacuous, and fails on a false
      premise when it is not.** `tests/test_v3_66_717_exec_bridge.py`. It reads
      as a path traversal being ACCEPTED (200, not 400) and it is **not a
      vulnerability** -- `tool_bridge`'s path validation does `realpath` +
@@ -4895,7 +4909,50 @@ a record -- see 15.62's closing paragraph.
      silently past it -- an explicit skip says "not measured", a vacuous return
      says "refused", and only one of those is true.
 
- 48. **The full suite on test5 does not run clean on pristine `main`, and the
+ 48. **ROOT-CAUSED at v3.66.1034, PARTIALLY fixed, STILL OPEN.**
+
+     THE MECHANISM, measured. 14 tracked test files delete `bulk_downloader.*`
+     from `sys.modules` and never restore it. conftest's three session-scoped
+     guards each patch an attribute on a module imported ONCE at session start,
+     so after any such wipe the next import builds a fresh module and the patch
+     is orphaned -- dead for the rest of that worker process, with plugin tests
+     then writing into the repository's own `plugins/` directory.
+
+     HOW IT WAS FOUND, because the method is the transferable part. Not by
+     reading: by replaying one worker's real 232-file chain through concurrent
+     prefix ladders (34 rungs at once on 86 cores, then 16 more). The result was
+     a clean monotonic step -- every prefix <=183 ok, every prefix >=184 broken
+     -- which named `test_v3_66_1021_log_reinit_replaces.py` exactly. Its own
+     `restored_logger` fixture cites CLAUDE.md on state leaking across files
+     while leaking `sys.modules` two functions above. Minimal repro: 2 files,
+     1.4 seconds, down from a 12-minute nondeterministic suite.
+
+     WHY IT ROTATES. `--dist loadfile` assigns files to workers DYNAMICALLY, so
+     which victims land downstream of a leaker changes with timing every run.
+     Fewer workers is worse because chains are longer. MACHINE LOAD dominates
+     the count -- pre-fix samples were 1-8 on a quiet box and 18-29 under four
+     concurrent suites, which is why any single sample is uninterpretable and
+     three of them misled this session in three different directions.
+
+     THE FIX, and its limit. The guards now register their patches and are
+     re-asserted when the module OBJECT identity changes -- never when the
+     attribute merely differs, so a test steering a guarded name is left alone.
+     A/B at n=4 per condition, same host, same concurrency: pre-fix
+     18/21/29/21, post-fix 5/30/7/19; mean 22.25 -> 15.25 and the distinct
+     union 73 -> 56. NOT significant at that spread, and not claimed as such.
+     What is decisive is mechanistic: `test_no_test_writes_the_repo_plugins_dir`
+     fails in every pre-fix sample and no post-fix one.
+
+     WHY IT STAYS OPEN. Post-fix runs still rotate 5-30, and a controlled
+     2-file experiment shows the plugin victims fail after a leaker with AND
+     without the fix -- identical sets, 0 unique either way. So the leakers
+     damage something BEYOND the three registered guards, and that second
+     mechanism is unfound. A ratchet pins the leaker population at 14 so the
+     class cannot grow while it is hunted.
+
+     ORIGINAL TEXT:
+
+     **The full suite on test5 does not run clean on pristine `main`, and the
      failing set ROTATES between runs.** Five full runs at v3.66.1031, same
      host, same directory:
 
