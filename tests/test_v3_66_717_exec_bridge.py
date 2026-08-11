@@ -1,5 +1,4 @@
 """v3.66.717 (Cut 7) -- the exec bridge. The seam that did not exist.
-
 tools_exec_bridged = 0: no code path took a GUI value and passed it as an argument to
 a tool. That is why 739 CLI flags could not be exposed incrementally -- there was
 nothing to hang a control on. Operator decision: build ONE validated, allowlisted
@@ -24,6 +23,7 @@ refused.
 """
 import json
 import os
+import pathlib
 
 import pytest
 
@@ -112,17 +112,64 @@ def test_shell_metacharacters_are_data_not_code():
         assert not tool_bridge._USES_SHELL, "the bridge must never invoke a shell"
 
 
+
+def _traversal_payload(cwd):
+    """Enough `..` to reach / from `cwd`, so the payload leaves every allowed root.
+
+    A FUNCTION rather than four inline lines, because the unit test below has to
+    CALL it. The first version inlined the arithmetic and the test recomputed it
+    -- so a mutant pinning the depth to a literal 4 escaped: the test was
+    checking a copy of the logic, not the logic.
+    """
+    depth = len(pathlib.Path(cwd).resolve().parts) - 1
+    return os.path.join(*([".."] * depth), "etc", "passwd") if depth else "etc/passwd"
+
+
 def test_path_typed_flag_rejects_traversal():
+    """ITEM 47. Rewritten at v3.66.1034 -- it was wrong in BOTH directions.
+
+    The old body hard-coded `../../../../etc/passwd` and returned silently when
+    the allowlist held no path-typed flag. Both halves were defects:
+
+    1. FOUR `..` IS NOT A TRAVERSAL. It escapes only if the cwd is shallow
+       enough, and pytest's cwd is `tmp_path`, whose depth changes with the
+       runner: xdist inserts a `popen-gwN/` level. MEASURED at v3.66.1033 --
+       serial cwd `/tmp/pytest-of-USER/pytest-N/test_x0` resolves the payload to
+       `/etc/passwd` and is REFUSED, while under xdist the extra level resolves
+       it to `/tmp/etc/passwd`, which is legitimately inside an allowed root and
+       is correctly ACCEPTED. The test therefore failed on every xdist run and
+       passed on every serial one, for a reason having nothing to do with the
+       code. `tool_bridge`'s realpath+containment check was correct throughout.
+    2. IT PASSED VACUOUSLY WHERE IT DID NOT FIRE. The only path-typed flag is
+       ffprobe's `input`, and `_build_allowlist` creates that entry only when
+       `shutil.which("ffprobe")` resolves. On a host without ffprobe the loop
+       matched nothing and the test returned green having asserted nothing --
+       a security test certifying an absence it never looked for.
+
+    The payload is now DERIVED from the actual cwd so it escapes at any depth,
+    and the absent-tool case SKIPS, which says "not measured" instead of
+    "refused".
+    """
     from bulk_downloader import tool_bridge
 
-    # find a path-typed flag if the allowlist has one; else this is vacuously fine
-    for tool, entry in tool_bridge.ALLOWLIST.items():
-        for flag, spec in entry["flags"].items():
-            if spec.get("type") == "path":
-                c = _client()
-                r = _run(c, {"tool": tool, "flags": {flag: "../../../../etc/passwd"}})
-                assert r.status_code == 400, "path traversal must be refused"
-                return
+    candidates = [(tool, flag)
+                  for tool, entry in tool_bridge.ALLOWLIST.items()
+                  for flag, spec in entry["flags"].items()
+                  if spec.get("type") == "path"]
+    if not candidates:
+        pytest.skip("no path-typed flag in the allowlist (ffprobe absent) -- "
+                    "traversal refusal NOT measured on this host")
+
+    relative = _traversal_payload(pathlib.Path.cwd().resolve())
+
+    for tool, flag in candidates:
+        for payload in (relative, "/etc/passwd"):
+            c = _client()
+            r = _run(c, {"tool": tool, "flags": {flag: payload}})
+            assert r.status_code == 400, (
+                "path traversal must be refused: %s=%r resolved to %s and was "
+                "accepted (%s)" % (flag, payload,
+                                   os.path.realpath(payload), r.status_code))
 
 
 # ---- the guarantees ----------------------------------------------------------
@@ -175,3 +222,36 @@ def test_endpoint_is_csrf_gated():
     r = c.post("/api/tools/run", json={"tool": tool, "flags": {}})
     assert r.status_code in (400, 403), (
         "with a session established, a POST with no CSRF header must be refused")
+
+
+def test_the_traversal_payload_escapes_from_any_cwd_depth():
+    """The DERIVATION, unit-tested -- the assertion the band could not make.
+
+    A mutant replacing the derived depth with a literal 4 ESCAPED the battery:
+    this host's serial cwd happens to be 4 deep, so the two agree in a serial
+    run and differ only under xdist, which inserts a `popen-gwN/` level. Pinning
+    the derivation directly removes the dependence on how the suite was invoked.
+    """
+    for parts in range(1, 9):
+        cwd = pathlib.Path("/" + "/".join("d%d" % i for i in range(parts)))
+        payload = _traversal_payload(cwd)          # the real one, not a copy
+        assert os.path.normpath(os.path.join(str(cwd), payload)) == "/etc/passwd", (
+            "from %s the payload resolved to %s, not /etc/passwd"
+            % (cwd, os.path.normpath(os.path.join(str(cwd), payload))))
+
+
+def test_an_absent_path_typed_flag_skips_rather_than_passing(monkeypatch):
+    """The vacuous-pass branch, forced -- ffprobe is present on this host.
+
+    A mutant turning the skip back into a bare `return` escaped, because the
+    branch never runs where ffprobe resolves. Emptying the allowlist forces it,
+    so "not measured" can never again be reported as "refused".
+    """
+    from bulk_downloader import tool_bridge
+
+    monkeypatch.setattr(tool_bridge, "ALLOWLIST", {})
+    with pytest.raises(Exception) as exc:
+        test_path_typed_flag_rejects_traversal()
+    assert exc.typename == "Skipped", (
+        "with no path-typed flag the traversal test returned %s instead of "
+        "skipping -- it certifies a refusal it never measured" % exc.typename)

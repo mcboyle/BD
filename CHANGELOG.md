@@ -4,6 +4,62 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1034
+
+tests: item 48 root-caused and its guards made wipe-proof; items 46 and 47
+closed.
+
+ITEM 48 -- the rotating full-suite failure set. 14 tracked test files delete
+`bulk_downloader.*` from sys.modules without restoring it. conftest's three
+session-scoped guards each patch an attribute on a module imported ONCE, so
+after any such wipe the next import builds a fresh module and the patch is
+orphaned -- dead for the rest of that worker, with plugin tests then writing
+into the repository's own plugins/ directory. Found by concurrent prefix
+ladders over one worker's real 232-file chain: a clean monotonic step at
+183 ok / 184 BROKEN naming test_v3_66_1021_log_reinit_replaces.py, whose own
+restored_logger fixture cites CLAUDE.md on leaking state while leaking
+sys.modules two functions above it. Minimal repro: 2 files, 1.4s.
+
+Fixed at the GUARD, not at the 14 leakers: patching them enumerates the ways a
+guard can be blinded, and that list grows with every new test file. The three
+guards now register their patches and are re-asserted when the module OBJECT
+identity changes -- never when the attribute merely differs, so a test steering
+a guarded name is left alone. That discriminator is what keeps this from being
+the v3.66.1024 guard that fought a shipped position and was deleted.
+
+NOT CLOSED, and the register says so. A/B at n=4 per condition on one host:
+pre-fix 18/21/29/21, post-fix 5/30/7/19. Lower mean and a smaller union (73 ->
+56 distinct), but not significant at that spread. What IS decisive is
+mechanistic: test_no_test_writes_the_repo_plugins_dir fails in every pre-fix
+sample and no post-fix one. The rotation persists, so a second mechanism
+remains -- the leakers damage more than the three registered guards.
+
+A ratchet pins the leaker population at 14. The 14 are deliberately not fixed:
+they break nothing measurable now, and editing 14 passing files is churn.
+
+ITEM 47 -- test_path_typed_flag_rejects_traversal was wrong in both
+directions. Four `..` escapes only from a shallow enough cwd, and xdist inserts
+a popen-gwN level, so it failed every parallel run and passed every serial one
+while tool_bridge's realpath+containment was correct throughout. It also
+returned green having asserted nothing where ffprobe is absent. The payload is
+now derived from the real cwd and the absent-tool case skips.
+
+ITEM 46 -- cloakbrowser starts a daemon thread on import that GETs its own PyPI
+JSON once per process. @977's class surviving in a dependency, where no gate
+over our tree could see it. CLOAKBROWSER_AUTO_UPDATE=false in pytest_configure;
+measured with the socket recorder armed, unset gave 1 connect to 151.101.0.223
+and false gave 0.
+
+Item 4 CLOSED: .249 went bare Ubuntu -> green capture with ZERO hand-fixes.
+clone 5s, provision_test_host.sh 5m22s exit 0, capture PASS at unit 15547
+pass/0 fail, live 29 pass/7 warn/0 fail. The 7 warns are empty-denominator
+warnings on a host with no configured sites.
+
+Mutation battery 9 caught / 0 escaped. It took three rounds: the first reported
+4 of 10, and every escape was a real hole -- including an over-sensitivity
+control that set its sentinel in the same test body the fixture runs before,
+and a unit test that recomputed a derivation instead of calling it.
+
 ## v3.66.1033
 
 docs: the three-host topology gains MEASURED identities, and rule 1 is

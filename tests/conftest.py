@@ -146,6 +146,20 @@ def pytest_configure(config):
         "slow: shells out to a whole-tree tool (tens of seconds or more). "
         "Runs by default; deselect with -m 'not slow'.",
     )
+    # ITEM 46: cloakbrowser starts a daemon thread ON IMPORT that GETs its own
+    # PyPI JSON once per process -- so once per xdist worker, landing on
+    # whichever test happens to be running. Found by the stage-1 socket recorder
+    # at v3.66.1031: 5 attempts to 151.101.*:443 in one full run, attributed to
+    # thread `_check_wrapper_update`. It is @977's class (a live PyPI call
+    # inside unit tests) surviving in a DEPENDENCY, which is why no gate over
+    # our own tree could ever have seen it -- and it makes the suite's result
+    # depend on pypi.org being reachable, on the box that is the gate.
+    #
+    # Set here rather than in the provisioner because the suite is the subject:
+    # any pytest run, on any host, in CI or in a capture lane, must be hermetic.
+    # `setdefault` so an operator who deliberately wants the check keeps it.
+    os.environ.setdefault("CLOAKBROWSER_AUTO_UPDATE", "false")
+
     # Stage 1 of the socket guard -- see the block at the end of this file.
     # Armed here rather than from a session fixture because under xdist the
     # master runs no tests, so a session-scoped autouse fixture never fires
@@ -173,6 +187,91 @@ def pytest_collection_modifyitems(items):
         lane = classify_capture_path(str(item_path))
         item.add_marker(getattr(pytest.mark, f"capture_{lane}"))
 
+
+
+# --- ITEM 48: a session guard must survive a sys.modules wipe ----------------
+#
+# The three session-scoped guards below each patch an attribute on a module they
+# imported ONCE. Measured at v3.66.1033: 14 tracked test files delete
+# `bulk_downloader.*` from sys.modules WITHOUT restoring it, so the next import
+# builds a fresh module and the guard's patch is orphaned -- dead for the rest of
+# that worker process, with plugin tests then writing into the repo's own
+# plugins/ directory.
+#
+# That is item 48's rotating failure set. --dist loadfile schedules files to
+# workers dynamically, so which victims land downstream of a leaker moves every
+# run; and FEWER workers was worse because fewer workers means longer chains.
+#
+# Fixed here rather than in the 14 leakers: patching them enumerates the ways a
+# guard can be blinded, and that list grows with every new test file.
+#
+# THE DISCRIMINATOR: re-apply only when the module OBJECT IDENTITY changed --
+# i.e. a re-import happened. A test that reassigns the attribute on the SAME
+# module object is making a decision and is left alone. Without that, this would
+# stamp over deliberate steering and become the v3.66.1024 guard that had to be
+# deleted for fighting a shipped position.
+_GUARD_REPATCH: list = []
+
+
+def _register_guard(module_name, module_obj, attrs):
+    """Record a patch so it can be re-applied to a re-imported module."""
+    entry = [module_name, module_obj, dict(attrs)]
+    _GUARD_REPATCH.append(entry)
+    return entry
+
+
+def _unregister_guard(entry):
+    try:
+        _GUARD_REPATCH.remove(entry)
+    except ValueError:
+        pass
+
+
+@pytest.fixture(autouse=True)
+def _guards_survive_a_module_wipe():
+    """Re-assert every registered guard whose module was re-imported.
+
+    Runs for every test, so it is deliberately three dict lookups and an
+    identity comparison -- no imports, no filesystem, nothing that scales.
+
+    NOT COVERED, and it cannot be without breaking something else: a test that
+    wipes and re-imports WITHIN ITS OWN BODY runs unguarded for the rest of that
+    test, because re-assertion happens at the next test's setup. Force-importing
+    here would defeat `bd_module_wipe`, whose entire purpose is to let a marked
+    test re-import fresh and re-read env vars at module load.
+    """
+    for entry in _GUARD_REPATCH:
+        name, patched_obj, attrs = entry
+        current = sys.modules.get(name)
+        if current is None:
+            # A leaker deleted it and nothing has re-imported it yet. Skipping
+            # here was the first version of this fix and it did NOT work: the
+            # victim test imports the module inside its own body, gets a fresh
+            # unpatched one, and never passes through setup again. Measured --
+            # 4 of 5 RED assertions stayed red, and the ONE that flipped was the
+            # second parametrised case, which only passed because the first case
+            # had re-imported the module for it.
+            #
+            # There is deliberately NO bd_module_wipe carve-out here. One was
+            # written, and bd-mutate proved it inert: this fixture is declared
+            # BEFORE isolated_bd_home, so at this point a marked test's modules
+            # are still present from the previous test and this branch is not
+            # reached. Removing the carve-out changed no observable behaviour,
+            # which is the definition of dead code -- and an untestable branch
+            # in a guard is worse than no branch, because it reads as coverage.
+            try:
+                __import__(name)
+            except Exception:
+                continue      # cannot import it -> cannot guard it, and say so
+            current = sys.modules.get(name)
+            if current is None:
+                continue
+        elif current is patched_obj:
+            continue          # still the object we patched; nothing to do
+        for attr, fn in attrs.items():
+            setattr(current, attr, fn)
+        entry[1] = current    # adopt it, so we do not re-patch every test
+    yield
 
 @pytest.fixture(autouse=True)
 def isolated_bd_home(request, tmp_path):
@@ -564,10 +663,13 @@ def _never_write_the_real_vpn_config(tmp_path_factory):
         return _real_save(*a, **k)
 
     _vc.save = _guarded_save
+    _entry = _register_guard("bulk_downloader.vpn_config", _vc,
+                             {"save": _guarded_save})
     try:
         yield
     finally:
         _vc.save = _real_save
+        _unregister_guard(_entry)
 
 
 # ─── No test may write the operator's real $HOME config, by ANY route ─────────
@@ -737,6 +839,8 @@ def _never_write_the_real_home_config(tmp_path_factory):
             return _macro_sandbox
 
         _mr._macro_dir = _guarded_macro_dir
+        _mr_entry = _register_guard("bulk_downloader.macro_recorder", _mr,
+                                    {"_macro_dir": _guarded_macro_dir})
 
     real_write_text = pathlib.Path.write_text
     real_write_bytes = pathlib.Path.write_bytes
@@ -809,6 +913,7 @@ def _never_write_the_real_home_config(tmp_path_factory):
         os.mkdir = real_mkdir
         if _mr is not None:
             _mr._macro_dir = _real_macro_dir
+            _unregister_guard(_mr_entry)
 
 
 # ─── The repository's plugins/ directory is off limits to the whole suite ─────
@@ -891,11 +996,15 @@ def _never_write_the_repo_plugins_dir(tmp_path_factory):
 
     _pl._plugin_dir = _guarded_plugin_dir
     _pl._quarantine_state_path = _guarded_state_path
+    _pl_entry = _register_guard("bulk_downloader.plugins", _pl,
+                                {"_plugin_dir": _guarded_plugin_dir,
+                                 "_quarantine_state_path": _guarded_state_path})
     try:
         yield
     finally:
         _pl._plugin_dir = _real_plugin_dir
         _pl._quarantine_state_path = _real_state_path
+        _unregister_guard(_pl_entry)
 
 
 
