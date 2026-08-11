@@ -4,6 +4,23 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1027
+
+CI's generated-artifact sync check now enumerates all SEVEN tracked outputs
+of bd-regen-order's chain; project-knowledge/STATIC_KB_MANIFEST.json was the
+one missing. The class was recorded at 15.85: the job ran the regen that
+updates the manifest and then checked a denominator excluding its output, so
+a cut skipping the KB regen went green and the staleness surfaced one cut
+late, blaming the wrong cut (measured at v3.66.1016 -- main carried a
+manifest recording SESSION_CARRY.md 4317 bytes short). Re-derived before
+acting at 6728dc8: the manifest's only two covering suites
+(test_v3_66_944, test_v3_66_947) are in none of the three gate-suites
+shards, and test_v3_66_939's _DECLARED set is hand-pinned by design, so a
+suite never declared is invisible to the one gate watching for dropped
+suites. reports/gui_parity_inventory.json stays excluded correctly: it is
+gitignored, and ls-files --error-unmatch would fail the step on it.
+Operator-authorized build change (2026-08-11).
+
 ## v3.66.1026
 
 The heavy-collector budget could not stop a diagnose already running, and
