@@ -1,0 +1,16 @@
+# BulkDownloader fleet -- one "label address" per line.
+#
+# COPY THIS to ~/.config/bd/hosts and put YOUR addresses in it. This example is
+# tracked and therefore public, so the addresses below are RFC 5737
+# documentation addresses and are deliberately not real ones.
+#
+# The label is matched against `hostname`: a line whose label is this machine
+# deploys LOCALLY instead of over ssh, so the same file works from any host in
+# the fleet without a special case for "me".
+#
+# scripts/deploy_fleet.sh refuses (exit 2) if this file is missing or lists no
+# hosts -- an empty fleet must never read as a successful deploy of nothing.
+
+master   192.0.2.10
+candidate 192.0.2.11
+clean    192.0.2.12

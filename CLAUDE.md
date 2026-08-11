@@ -662,6 +662,16 @@ tool's own docstring says the module-consumer signal exists because the gap
 mechanized." It was mechanized, and then a session did it by hand anyway,
 because this file told it to.
 
+**A FLOOR MEANS YOU MAY ADD TO IT. IT DOES NOT MEAN YOU MAY DROP FROM IT.**
+Measured at v3.66.1037: `bd-band-derive` named 28 files for a `deploy.sh`
+change; a hand-picked subset was run instead, omitting `test_deploy_script.py`,
+and **23 of its tests were red for two hours without anyone seeing them**. The
+subset looked reasonable -- it contained the new test file and the obvious
+gates -- which is exactly why the tool exists: the file it knew about and I did
+not was the one that broke. Run everything it names, then add. If a named file
+looks irrelevant, that is a fact about your model of the change, not about the
+file.
+
 Its output is a **floor, not a ceiling**: it says so itself, and everything else
 in this section — axis-6 gates, source windows, the release-chore gates, a
 deleted tracked file — still has to be added on top. Use it as the starting
