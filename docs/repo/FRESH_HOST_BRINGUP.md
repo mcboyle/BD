@@ -25,6 +25,12 @@ transition is provisioning **plus service plus data** and it only does the first
 | clone the repo | **nobody** — the script ships inside the checkout and never clones |
 | install the systemd service | **`capture.sh` does**, at its step [4], via `install_service.sh` |
 | migrate operator state | **nobody** — see the migration list below |
+| install the AI backend | **nobody** — `install_ai_ollama.sh` is a separate step; see [3b] below. Required only when the migrated `app_config.json` carries `ai_enabled: true`, and then it IS required: L17 hard-fails the capture without it |
+
+Since v3.66.1028 it DOES install `requirements-test.txt` (graded steps
+[4c]/[4d]) — the capture's own gates hard-require it, and the first fresh host
+failed its first capture on exactly that gap while the old box passed only via
+hand-installed packages.
 
 Consequence worth expecting: after provisioning and before the first capture,
 **nothing is listening on :5555**. That is correct, not a fault. The first
@@ -91,7 +97,8 @@ before copying the database**, so the WAL is checkpointed.
 | browser profiles | `profiles/` | Chromium user-data dirs that can carry live logins |
 | plugin registry | `plugins/plugins.registry.json` | the directory itself is tracked; only the registry is state |
 | per-user config **outside** the repo | `~/.config/bulk-downloader/` | `vpn/tunnels.json`, `widgets.json` |
-| downloaded media | wherever each site's `download_dir` points | read the real values out of `sites_config.json` |
+| downloaded media | wherever each site's `download_dir` points | read the real values out of `sites_config.json` -- and **create** those directories on the new box; the runbook's first live run found the configured one absent |
+| **capture corpus** | `captures/` -- **repo-relative, inside the install root** | the largest item on the list (2.5GB / 924 files on the first migration) and the easiest to strand: the heavy data-layer collectors search REPO-RELATIVE dirs (`captures/`, `offline_out/`, ...), so a corpus parked at `~/captures` is structurally invisible and every capture-analytics route reports an EMPTY store with nothing warning you. Copy with `rsync -a` (mtimes are load-bearing: the collectors bound work to the NEWEST files). It is gitignored, so `git status` says nothing either way |
 
 **THE IN-APP BACKUP DOES NOT CONTAIN YOUR HISTORY DATABASE.**
 `bulk_downloader/backup.py`'s `BACKUP_TARGETS` lists `queue.db` and its
@@ -129,8 +136,16 @@ cd ~/BulkDownloader
 # ── 3. restore state BEFORE the first capture ───────────────────────
 tar xzf /tmp/bd_state.tar.gz -C ~/BulkDownloader
 tar xzf /tmp/bd_userconfig.tar.gz -C ~
+rsync -a mboyle@<old-box-ip>:~/BulkDownloader/captures/ ~/BulkDownloader/captures/
 grep -E 'download_dir|cookie_file' sites_config.json   # audit old-box absolute paths
 grep BD_PORT .env 2>/dev/null                          # see the port caveat
+mkdir -p "$(python3 -c 'import json;print(json.load(open("sites_config.json"))["sites"][0]["download_dir"])' 2>/dev/null || echo ~/d)"
+
+# ── 3b. the AI backend, IF the migrated config expects one ──────────
+# app_config.json ships ai_enabled from the old box. When it is true and
+# ollama is absent, live test L17 is a hard capture FAIL (L18/L19 WARN)
+# -- measured on the first fresh-host run. ~11GB of model pulls.
+grep -q '"ai_enabled": true' app_config.json && ./install_ai_ollama.sh
 
 # ── 4. the gate (also what installs and starts the service) ─────────
 export DISPLAY=:99
@@ -140,6 +155,20 @@ export DISPLAY=:99
 Restoring state **before** the first capture means the service `capture.sh`
 installs boots straight onto the real data, and its first-boot migrations run
 exactly as an in-place upgrade would.
+
+## Optional: remote-teach, and the :99 seam
+
+`install_remote_teach.sh` (x11vnc + noVNC on :6080 for manual-teach from any
+LAN device) is not part of the provisioner and the bring-up works without it.
+If you install it, know the seam: the provisioner starts a RAW `Xvfb :99`
+process, and remote-teach installs its own `bd-xvfb` systemd unit for the same
+display -- the unit FAILS to bind while the raw process lives, while the other
+three units (openbox/x11vnc/novnc) happily attach to the raw server. The
+installer reports exactly that (`bd-xvfb : failed`). Resolution: kill the raw
+Xvfb, `systemctl reset-failed bd-xvfb && systemctl start bd-xvfb`, restart
+bd-openbox/bd-x11vnc -- the UNIT is the durable owner (it survives reboot; the
+raw process does not). Measured on the first fresh-host install, 2026-08-11.
+The installer also restarts `bulkdownloader` to deliver its DISPLAY drop-in.
 
 ## Two traps specific to a second host
 

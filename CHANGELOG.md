@@ -4,6 +4,26 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1029
+
+FRESH_HOST_BRINGUP.md gains the four gaps its first real run found (test5,
+7b4ea932c297, 2026-08-11), each measured rather than reasoned:
+
+- The migration table's biggest omission: the CAPTURE CORPUS (2.5GB / 924
+  files on the first migration), with the load-bearing detail that it is
+  REPO-RELATIVE -- a corpus parked at ~/captures is structurally invisible
+  to the heavy data-layer collectors, which report an EMPTY store with
+  nothing warning anyone. rsync -a because mtimes bound the collectors'
+  newest-first work. Step 3 gains the rsync line; the download_dir row
+  gains "create it" (the configured one was absent on the new box).
+- Step [3b]: install_ai_ollama.sh when the migrated app_config carries
+  ai_enabled=true -- without it L17 is a hard capture FAIL (measured).
+- The does/does-not table records that the provisioner installs
+  requirements-test.txt since @1028, and that the AI backend is nobody's.
+- New section: remote-teach's :99 seam -- its bd-xvfb unit fails to bind
+  while the provisioner's RAW Xvfb lives; kill the raw process and start
+  the unit, which is the durable owner. Measured on the first install.
+
 ## v3.66.1028
 
 provision_test_host.sh now installs AND resolution-checks
