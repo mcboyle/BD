@@ -4,6 +4,31 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1041
+
+bd-jobs: the separator bug its own first live use found.
+
+`argparse.REMAINDER` KEEPS THE `--`. So `bd-jobs run --host X -- sleep 90` sent
+`bash -c "-- sleep 90"` to the target, bash answered "invalid option" and
+exited instantly, and the registry then held a perfectly correct entry for a
+process that had already died. `list` reported DEAD and every part of the
+system LOOKED consistent.
+
+Thirteen tests and a 6/0 battery passed over this, because not one of them ever
+built a command line -- they exercised the registry, the liveness check, the
+reuse guard and the three reap outcomes, and the defect sat in the one seam
+between argparse and the shell that nothing touched. A battery proves the tests
+constrain the code they cover; it says nothing about the code they do not.
+
+Also refuses an empty command rather than launching `bash -c ""`, which exits 0
+having done nothing and would register a job with no work behind it -- as bad
+as work with no record, and harder to notice.
+
+Found by USING the tool, on the same day two other defects were found the same
+way: @1038's refusal message naming an abandoned mechanism, and @1039's dry run
+claiming a deploy it had not performed. Three for three, all in code that
+passed its tests.
+
 ## v3.66.1040
 
 batch D: work started on another host is now discoverable and killable. And
