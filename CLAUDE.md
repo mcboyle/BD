@@ -76,6 +76,19 @@ unchanged tree "changed" every run. Two sessions nearly reconciled a diff that
 did not exist. A gate that cries wolf gets switched off, so over-sensitivity is a
 soundness bug, not a safe default. Attest over **content**, not bytes.
 
+**WHEN THIS FILE RECORDS A MISTAKE CLASS, CHECK THE CHANGE IN FRONT OF YOU
+AGAINST IT — BEFORE COMMITTING, NOT AFTER.** Reading a rule and applying it to
+your own diff are different acts, and this file is a monument to the gap: every
+worked example below was written by someone who had just read the paragraph
+above it. The discipline that actually works is mechanical and takes a minute —
+before staging, name the one or two classes your change could plausibly belong
+to (a new gate? section 0. a new fixture? section 6's harness rule. a doc edit?
+section 4's freshness gates) and re-read only those, against the diff rather
+than in the abstract. The cost of skipping it is not a wrong idea, it is a
+shipped one: the guard at v3.66.1024 was RED-first, well argued, and fought a
+position two existing tests already encoded, which one minute against section 0
+would have surfaced.
+
 **THE FIX REPRODUCES THE SHAPE OF THE DEFECT. Audit it before you ship it.**
 This is the highest-yield rule on the page and it was learned five times in one
 session (v3.66.847/848). Every one of these was written BY someone who had just
@@ -372,6 +385,28 @@ been wrong. Every figure obtained by *running the tool* was right.
   that will ask about it, which is usually nothing. Put a deferral where a test
   can see it, or drop it deliberately and say you did — the third option,
   leaving it in a paragraph, only feels like the safe one.
+- **NEVER FILTER AT CAPTURE TIME. Capture whole, filter at read time.** A
+  `| head`, a `tail -n`, a `grep` in the collecting command discards evidence
+  that cannot be recovered without re-running the job, and the thing you
+  discarded is disproportionately the thing you needed: the tail of a run is
+  where the summary, the verdict and the failure names live. Measured
+  2026-08-12: a fleet sampler wrote its per-run log whole and its verdict line
+  separately, which is the only reason a `[gw24] node down` at 99% could be
+  attributed at all -- a `head`-filtered capture of the same run would have
+  shown a wall of dots and nothing else. The rule generalises past `head` to
+  any narrowing applied before the artifact is stored, including `--tb=no`, a
+  `-q` that suppresses the names you will want, and a summary written in place
+  of the log rather than beside it.
+- **CHECK ANY INSTRUMENT YOU BUILD FOR ITS OWN BLIND SPOTS, AND STATE THEM IN
+  ITS OUTPUT.** This is section 0 turned on the tools rather than on the code,
+  and it is the failure with the longest half-life here, because an instrument's
+  wrong answer is inherited by everything downstream of it and arrives wearing
+  the authority of a measurement. `bd-mutation-test`'s docstring has recorded
+  the shape since v3.66.737 -- "the tool built to hunt gate-blindness was itself
+  a blind gate". The socket recorder prints its own blind spots on every run
+  (child processes, C-level sockets, raw `_socket`, DNS) and that is the model:
+  not a caveat in a README, a line in the output the reader cannot skip. Ask of
+  anything you build: what can this NOT see, and does its output say so?
 - **Read the callee before you call it.** Guessing a signature, a fixture's
   columns or a dict's keys and then debugging the failure is always slower than
   opening the definition, and it produces a worse failure: a call with the wrong
@@ -419,6 +454,24 @@ been wrong. Every figure obtained by *running the tool* was right.
 5. **The band is absolute.** A band failure means fix the tree or fix the
    environment — never explain it away. It has caught real design regressions
    that the feature's own test could not see.
+
+6. **MEASURE THE COST OF ANYTHING YOU ADD TO EVERY TEST RUN.** An autouse
+   fixture, a conftest hook, a plugin, a recorder: each is paid once per test,
+   ~15,600 times per capture, and nothing in the suite reports that price. The
+   socket recorder is the worked example in both directions -- it earns its
+   place, and it also leaked 744 directories under `/tmp` in one session
+   because a per-run cost nobody measured was also a per-run artifact nobody
+   removed. Time a representative band with and without the addition and put
+   the delta in the commit message; a cost you did not measure is a cost you
+   will pay forever without noticing.
+7. **A DOC-ONLY CUT IS A SHAPE, AND OFTEN THE RIGHT ONE.** Its band is the
+   freshness gates and the pin gates, it carries no runtime risk, and it cannot
+   break the box. When a finding's whole value is that the next session knows
+   it, shipping it as prose beside the code that proves it is cheaper and
+   safer than waiting to bundle it with a source change -- and the bundle is
+   what usually loses it. The counterweight is section 1: prose goes stale
+   silently and is then read as authority, so a doc-only cut still states what
+   it MEASURED, at which commit and on which host, rather than what it believes.
 
 Before packaging a change for review, regenerate all tracked artifacts from the
 repository root and keep the resulting diffs in the review package:
@@ -2010,6 +2063,18 @@ system match them, which is the first item below.
   pin, a new import edge, a shifted source window -- exactly what a cut
   forgets, which is why `bd-regen-order` must run after the LAST source edit.
 
+  **READ CI STATUS FROM THE STATUS COLUMN, NEVER FROM A POSITIONAL FIELD.**
+  `gh pr checks` prints a check NAME that contains spaces -- `gate-suites
+  (toolchain)` -- so `awk '{print $2}'` returns a fragment of the name and not
+  the verdict, and a pipeline built on it reports whatever that fragment
+  happens to be. Measured 2026-08-12: an `awk`-based summary printed the check
+  names with `pass` appearing only on the two rows whose names have no spaces,
+  which reads as "2 of 7 passed" on a run where all 7 had passed. Match on the
+  status TOKEN instead -- `grep -oE '(pass|fail|pending)'` and count -- so the
+  answer cannot depend on how many words someone put in a job name. This is
+  section 0's denominator rule applied to a shell one-liner: the field you
+  indexed was not the field you meant.
+
   **Its own budget is breached and the decision is open.** The step's comment
   says "Measured 2026-08-03: 81 tests, 52s. Keep it under a minute; if it grows
   past that, split rather than silently dropping files." It is now 161 tests
@@ -2319,6 +2384,18 @@ Run the check and paste the real output. "Should work", "looks correct", and
 say why — an honest unknown is worth more than a confident guess, and this
 project has been burned specifically by numbers nobody measured being written
 down and then inherited as truth.
+
+**NO ESTIMATED PROGRESS IN A STATUS REPORT. REPORT WHAT COMPLETED.** "About
+halfway", "nearly done", "~80%" are guesses presented in the register of
+measurement, and they are wrong in the direction that costs most: a long job
+reports 99% and then hangs there forever, which is exactly what a dead xdist
+worker looks like (section 5). Measured 2026-08-12: two fleet hosts sat at
+"99%" for 44 minutes having produced nothing, and the percentage was the only
+reason it read as slow rather than as broken. Report the countable instead --
+samples finished out of samples requested, files banded, the last stage the log
+actually recorded, and the wall-clock since the last line was written. A
+completed unit is a fact; a percentage is a prediction, and this project does
+not report predictions.
 
 **VERIFY THE SUMMARY AND VERDICT LINES SPECIFICALLY — THEY ARE THE LEAST-TESTED
 OUTPUT AND THE ONLY ONE ANYBODY READS.** Three defects in the v3.66.1036-1041
