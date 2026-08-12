@@ -52,7 +52,7 @@ problem read as a solved one.
 | 10 | CLOSED @1037 | deploy.sh restores the service on a post-stop failure |
 | 11 | CLOSED @1043 | bd-fleet: version/tree/service/load/jobs for all hosts |
 | 12 | CLOSED @1039 | fleet-wide deploy, scripts/deploy_fleet.sh |
-| 13 | OPEN | dedicated agent SSH key, scoped to the job |
+| 13 | OPEN | dedicated agent SSH key, SCOPED. Note: adding a second unrestricted key closes nothing -- the value is the restriction and retiring the broad key, so a partial version of this row is worse than leaving it open |
 | 14 | MOOT @1051 | reimage .249 -- the clean-host role moved to .84/test7 instead, and the proof was retaken there |
 | 16 | CLOSED @1044 | record machine load with every suite result |
 | 17 | CLOSED @1043 | bd-ab, the A/B harness |
@@ -86,7 +86,7 @@ problem read as a solved one.
 | 48 | CLOSED @1035 | closing an item must update the newest ledger -- gated |
 | 49 | CLOSED @1035 | no ledger declares OPEN what the inventory closed -- gated |
 | 50 | MOOT @1051 | re-role or reimage .249 -- superseded by the role moving to test7 |
-| 51 | OPEN | trace and dedupe .85's duplicate NOPASSWD sudoers entry |
+| 51 | CLOSED @1055 | .85 carried /etc/sudoers.d/90-mboyle-codex AND 90-mboyle-nopasswd with byte-identical rules; the codex one is vestigial from the retired CODEX_HANDOFF era and the other three hosts have only the latter. Removed, visudo -c OK, sudo -n verified, backup at /root/sudoers-codex-backup-2026-08-12 |
 | 52 | CLOSED @1048 | decide whether streamlink belongs in system_deps.sh -- it does; nothing had ever installed the preferred backend |
 | 53 | CLOSED @1036 | capture.sh cannot see cross-file state leaks (s7) |
 | 54 | OPEN | add a pytest-tests/-shaped lane to capture, or state the blind spot there |
