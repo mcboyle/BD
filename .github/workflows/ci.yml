@@ -271,6 +271,7 @@ jobs:
               tests/test_route_index_in_sync.py
           - name: measurement-tools
             suites: >-
+              tests/test_v3_66_1044_run_context_and_chains.py
               tests/test_v3_66_1043_measurement_and_fleet_tools.py
               tests/test_v3_66_1040_remote_job_registry.py
           - name: isolation

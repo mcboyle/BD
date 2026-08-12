@@ -91,6 +91,7 @@ _DECLARED = {
     # them, because 944, 947, 1031 and 1034 were all added to the tree and
     # never to this list, and a gate CI does not run is a gate that does
     # not exist.
+    "tests/test_v3_66_1044_run_context_and_chains.py",
     "tests/test_v3_66_1043_measurement_and_fleet_tools.py",
     "tests/test_v3_66_1040_remote_job_registry.py",
     "tests/test_v3_66_1034_guards_survive_a_module_wipe.py",

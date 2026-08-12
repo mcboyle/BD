@@ -166,12 +166,21 @@ def pytest_configure(config):
     # there and the master would summarize a sink it never armed.
     _socket_recorder.arm(_socket_record_run_dir(config))
 
+    # RUN CONTEXT -- what this suite ran ON, recorded with the result. Two full
+    # suites of the same tree reported 1 failure and 35 in one session, and
+    # nothing in either result said the second had four other suites sharing
+    # the box. See tests/_run_context.py.
+    config._bd_run_context = _run_context.context(config)
+    global _BD_CONFIG
+    _BD_CONFIG = config
+
 
 def pytest_unconfigure(config):
     _socket_recorder.disarm()
     # Master only -- workers share the run directory and must not race on it.
     if not hasattr(config, "workerinput"):
         _socket_recorder.prune()
+        _run_context.prune()
 
 
 def pytest_collection_modifyitems(items):
@@ -1087,6 +1096,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         write("socket recorder [stage 1]: 0 non-loopback attempts recorded "
               "(%d connects observed in this process). Cannot see: %s."
               % (seen, "; ".join(_socket_recorder.BLIND_SPOTS)))
+        _write_run_context(terminalreporter, config)
         return
 
     # Split by whether a packet actually leaves. A SOCK_DGRAM connect is a
@@ -1113,3 +1123,91 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         if frames:
             write("      via %s" % " <- ".join(reversed(frames[-3:])))
     write("  NOT covered by the above: %s." % "; ".join(_socket_recorder.BLIND_SPOTS))
+    _write_run_context(terminalreporter, config)
+
+
+# ── run context and per-worker chains (batch E) ──────────────────────────────
+#
+# Item 24's whole reason: item 48 was found twice by replaying ONE worker's real
+# file chain, and both times that chain had to be rebuilt by hand out of `-v`
+# output. It is now written down as it happens.
+
+import _run_context                                          # noqa: E402
+
+
+def _run_context_dir(config):
+    """This run's context directory, keyed by the MASTER's pid.
+
+    Shares the socket recorder's token deliberately -- one run, one identity,
+    and workers already receive that token through `workerinput` rather than an
+    environment variable (see _socket_record_run_dir for why that matters).
+    """
+    worker = getattr(config, "workerinput", None)
+    token = worker["socket_record_run"] if worker else str(os.getpid())
+    return _run_context.sink_dir() / token
+
+
+_BD_CONFIG = None
+
+
+def pytest_runtest_logstart(nodeid, location):
+    """Record the executing FILE, on transition only.
+
+    Per-test rather than per-file because the worker never learns its slice up
+    front: with `--dist loadfile` the scheduler hands out files as workers free
+    up, so what a worker RAN is only knowable as it runs. Writing on transition
+    keeps a 2000-test run to a couple of hundred appends, and the file is
+    reopened each time so a worker killed mid-run still leaves a readable chain
+    -- which is exactly the run an investigation cares about.
+    """
+    config = _BD_CONFIG
+    if config is None:
+        return
+    worker = getattr(config, "workerinput", None)
+    if worker is None and getattr(config.option, "numprocesses", None):
+        # THE MASTER RUNS NOTHING and re-emits every worker's events, so its
+        # "chain" is all workers' files interleaved -- not a sequence any
+        # process actually executed. Measured: three test files under -n 3
+        # produced a 32-entry master chain.
+        return
+    worker_id = worker["workerid"] if worker else "main"
+    _run_context.note_file(_run_context_dir(config), worker_id,
+                           str(nodeid).split("::")[0])
+
+
+def _write_run_context(terminalreporter, config):
+    """State the machine beside the result, and where the chains are.
+
+    NOT a second `pytest_terminal_summary`. Defining that name twice in one
+    module silently REPLACES the first -- the socket recorder's summary
+    vanished from a clean run and the only evidence was a missing line. Called
+    from the one hook instead. Printed unconditionally and on the MASTER only:
+    a context line that appears only when something looks wrong is a line
+    nobody learns to read, and the number it qualifies -- the failure count --
+    is the one everybody reads.
+    """
+    if hasattr(config, "workerinput"):
+        return
+    ctx = getattr(config, "_bd_run_context", None) or _run_context.context(config)
+    ctx["load_at_end"] = _run_context.loadavg()
+    write = terminalreporter.write_line
+    write("")
+    write("run context: %s, %d cores, %s worker(s) via %s, dist=%s, "
+          "load %s -> %s"
+          % (ctx["host"], ctx["cores"], ctx["workers"], ctx["workers_from"],
+             ctx["dist"], ctx.get("load_at_start"), ctx.get("load_at_end")))
+    for note in _run_context.advise(ctx):
+        write("  NOTE: %s" % note)
+
+    directory = _run_context_dir(config)
+    chains = _run_context.read_chains(directory)
+    if chains:
+        path = _run_context.write_assignment(directory, chains, ctx)
+        write("  %d worker chain(s), %d file(s): %s"
+              % (len(chains), sum(len(v) for v in chains.values()), directory))
+        write("  replay one worker exactly: "
+              "bd-ladder --chain %s --guard <the test that fails>"
+              % _run_context.chain_path(directory, sorted(chains)[0]))
+        write("  assignment: %s -- RECORDED, not pinned: --dist loadfile hands "
+              "files to whichever worker is free, and nothing here changes that."
+              % path.name)

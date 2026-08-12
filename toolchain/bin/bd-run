@@ -37,6 +37,19 @@ _SUMMARY = re.compile(r"^=*\s*\d+ (?:failed|passed|error|skipped|xfailed)\b.*$",
                       re.M)
 _FAILLINE = re.compile(r"^(?:FAILED|ERROR) .*$", re.M)
 
+# COLOUR IS IN THE DENOMINATOR OF EVERY LINE-ANCHORED MATCH. Measured at
+# v3.66.1044 on this tool's first real band: pytest wrote its summary as
+# "\x1b[32m\x1b[1m2061 passed\x1b[0m ...", so a `^\d+ passed` anchor could not
+# see it and the run reported SUMMARY UNKNOWN over a clean 2061-test pass. The
+# harmless direction. The other direction is the reason this is a fix and not a
+# cosmetic one: the same anchors carry the FAILED lines, so a coloured log with
+# failures in it would have been summarised as having none.
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def strip_ansi(text):
+    return _ANSI.sub("", text)
+
 
 def prune(directory, keep):
     """Bound the retention. Creating a path is a promise to remove it."""
@@ -52,6 +65,7 @@ def prune(directory, keep):
 
 def verdict(text, show=DEFAULT_SHOW):
     """Render the verdict block for a log body. Pure, so it is testable."""
+    text = strip_ansi(text)
     fails = _FAILLINE.findall(text)
     out = []
     for line in fails[:show]:
@@ -72,10 +86,54 @@ def verdict(text, show=DEFAULT_SHOW):
     return out
 
 
+def auto_workers(cores=None):
+    """The worker count to use when nobody chose one.
+
+    A THIRD OF THE CORES. Measured at v3.66.1044 on a 64-core box, one sample
+    per cell, running the same 158-file band:
+
+        -n 8   224s      -n 16  190s      -n 32  182s      -n 64  223s
+
+    Both ends are slower than the middle -- too few workers leaves the box idle,
+    too many makes them contend -- and cores//3 (21 here) sits in the flat fast
+    zone. WALL CLOCK ONLY: each cell also reported a failure count, and those
+    are single samples of a number that ranges 1..8 on an idle tree, so they are
+    not evidence of anything and are not used here.
+
+    The failure mode this replaces is specific: `-n 4` was typed on an 86-core
+    box and nothing anywhere said it was wrong.
+    """
+    c = cores if cores is not None else (os.cpu_count() or 2)
+    return max(2, c // 3)
+
+
+def inject_workers(parts, cores=None):
+    """Add `-n N` to a pytest command that has no worker count. (parts, note).
+
+    NEVER overrides an explicit choice, and says so when it declines: a wrapper
+    that silently rewrites the command you typed is worse than one that does
+    nothing, because the log then describes a run that did not happen.
+    """
+    if "pytest" not in " ".join(parts):
+        return parts, "not a pytest command -- left alone"
+    for i, tok in enumerate(parts):
+        if tok == "-n" or tok.startswith("-n") and len(tok) > 2:
+            return parts, "-n already given (%s) -- left alone" % tok
+        if tok.startswith("--numprocesses"):
+            return parts, "--numprocesses already given -- left alone"
+    n = auto_workers(cores)
+    return parts + ["-n", str(n)], ("added -n %d (a third of %d cores)"
+                                    % (n, cores if cores is not None
+                                       else (os.cpu_count() or 2)))
+
+
 def run(args):
     parts = list(args.command or [])
     if parts and parts[0] == "--":
         parts = parts[1:]          # argparse.REMAINDER keeps the separator
+    if getattr(args, "auto_n", False) and parts:
+        parts, note = inject_workers(parts)
+        print("bd-run: auto-n: %s" % note, flush=True)
     if not parts:
         print("bd-run: REFUSED: no command given. Use: bd-run --label L -- <cmd>",
               file=sys.stderr)
@@ -127,6 +185,18 @@ def selftest(_args):
         if "needle" not in (pathlib.Path(td) / "keep.log").read_text():
             failures.append("output was discarded instead of written to the log")
 
+        # 4a. A COLOURED log is read exactly like a plain one.
+        coloured = ("\x1b[32m\x1b[1m2061 passed\x1b[0m, \x1b[33m6 skipped"
+                    "\x1b[0m\x1b[32m in 175.10s\x1b[0m\n")
+        block = "\n".join(verdict(coloured))
+        if "2061 passed" not in block or "UNKNOWN" in block:
+            failures.append("a colourised pytest summary was not recognised -- "
+                            "the same anchors carry the FAILED lines")
+        block = "\n".join(verdict("\x1b[31mFAILED tests/a.py::x\x1b[0m - boom\n"
+                                  "1 failed in 1s\n"))
+        if "FAILED tests/a.py::x" not in block:
+            failures.append("a colourised FAILED line was invisible")
+
         # 4. No summary line is UNKNOWN, not a pass.
         block = "\n".join(verdict("some output with no pytest summary\n"))
         if "SUMMARY UNKNOWN" not in block:
@@ -150,12 +220,25 @@ def selftest(_args):
         if run(ns) != 2:
             failures.append("an empty command was not refused")
 
+        # 8. auto-n sizes from the box and never overrides a choice.
+        if auto_workers(86) != 28 or auto_workers(3) != 2:
+            failures.append("auto_workers did not scale with the core count")
+        got, _ = inject_workers(["python", "-m", "pytest", "tests/"], cores=90)
+        if got[-2:] != ["-n", "30"]:
+            failures.append("auto-n did not add a worker count: %s" % got)
+        got, note = inject_workers(["python", "-m", "pytest", "-n", "4"], cores=90)
+        if got[-2:] != ["-n", "4"] or "left alone" not in note:
+            failures.append("auto-n overrode an explicit -n")
+        got, note = inject_workers(["ls", "-l"], cores=90)
+        if got != ["ls", "-l"] or "not a pytest" not in note:
+            failures.append("auto-n rewrote a command that is not pytest")
+
     for f in failures:
         print("SELFTEST FAIL: %s" % f, file=sys.stderr)
     if failures:
         return 1
     print("SELFTEST PASS: exit passthrough, full capture, unknown summary, "
-          "denominator, retention, refusal")
+          "denominator, retention, refusal, auto-n")
     return 0
 
 
@@ -169,6 +252,9 @@ def main(argv=None):
                    help="how many logs to retain (default: %d)" % DEFAULT_KEEP)
     p.add_argument("--show", type=int, default=DEFAULT_SHOW,
                    help="failure lines to print (default: %d)" % DEFAULT_SHOW)
+    p.add_argument("--auto-n", action="store_true", dest="auto_n",
+                   help="size -n from this box's core count if the command is "
+                        "pytest and does not already choose one")
     p.add_argument("--selftest", action="store_true")
     p.add_argument("command", nargs=argparse.REMAINDER)
     args = p.parse_args(argv)
