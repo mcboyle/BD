@@ -4,6 +4,57 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1063
+
+The item-48 CSRF investigation is recorded. Documentation only.
+
+Six new backlog rows and one amended, all from an eight-agent investigation
+whose three lenses converged and whose two refutation passes CONFIRMED rather
+than refuted.
+
+ROW 22 AMENDED with the first NAMED, REPRODUCED leaker/victim pair: leaker
+tests/test_v3_66_1034_guards_survive_a_module_wipe.py::test_zzz_a_wipe_happens,
+victim tests/test_v3_66_780_config_key_write_parity.py, symptom 7x HTTP 403
+csrf token missing or invalid. Isolated by deselecting ONLY the wiper (18
+passed, 1 deselected) against selecting it (7 failed), with reverse order
+giving 19 passed. The "11 orphaners" figure stays UNVERIFIED and is not this.
+
+91 -- THE RATCHET FOR THIS CLASS EXEMPTS ITSELF. _module_wipe_leakers() matches
+its restores regex against the WHOLE FILE, so 1034 scores as restoring on its
+own prose: a regex source literal and an assertion message quoting the restore
+call. Budget 13, found 13, and the one leaker causing live failures is absent
+from its own census. Section 0's comments-are-in-the-denominator trap inside
+the gate written for this class -- and two independent agents' classifiers were
+fooled by the same prose, so it is live rather than theoretical.
+
+92 -- the CSRF mint/check binding asymmetry that turns a module wipe into a 403:
+app.py:814 _csrf_key is module-level and read EARLY from a frozen module dict by
+_check_csrf, while app_csrf.py:16-19 and app_pair.py:17-20 resolve LATE via
+importlib at call time. The fix is NOT designed, deliberately: CLAUDE.md's
+v3.66.1024 note records a conftest guard in this exact area already fighting a
+shipped position.
+
+93 -- the victim population: 8 tracked test files hold a module-scope
+bulk_downloader import AND send an X-CSRF-Token. Two AST censuses agree.
+
+94 -- bd-modwatch's blindness is BATCH-DEPENDENT, correcting row 22's old note.
+On the leaker ALONE it DOES detect it; the 0-files verdict reproduces only in a
+3-file batch. A batch artifact must not be readable as a per-file answer.
+
+95 -- test_phases_195_199.py:21 mkdtemp's a directory nothing removes: one per
+band run, 20 measured under /tmp and cleared by hand.
+
+96 -- PROVISIONING IS NOT UNIFORM AND NOTHING INSTALLS THE DIFFERENCE. test4
+alone has PostgreSQL + MOD3_PG_TEST_DSN and bd_dev_inspect, so it runs 21 tests
+the other three SKIP (15722/5 against 15701/26 in the 2026-08-12 captures).
+ZERO mentions of any of it in provision_test_host.sh, system_deps.sh or
+install_linux.sh, and no installer anywhere in the tree. So a clean-host
+bring-up proof goes green partly by SKIPPING what is missing, and item 31's
+EXIT-3 can only ever be exercised on one box.
+
+OPEN rows: 10 -> 16. That is the number going UP because six real defects were
+found, not because six were introduced.
+
 ## v3.66.1062
 
 Vision probes are images a backend will actually load. And the CSRF failures on
