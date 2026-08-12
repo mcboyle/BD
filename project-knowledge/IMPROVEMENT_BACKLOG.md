@@ -44,7 +44,7 @@ problem read as a solved one.
 | 2 | CLOSED @1053 | generalise "never filter at capture time" beyond `head` (partly done) |
 | 3 | OPEN | every long job writes a heartbeat file |
 | 4 | CLOSED @1053 | ban estimated progress in status reports |
-| 5 | OPEN | per-run artifact directories keyed by run id |
+| 5 | OPEN | per-run artifact directories keyed by run id. bd-run HALF DONE @1060 (<label>-<runid>.log + a symlink alias, prune counts real files only). STILL OPEN: capture.sh writes a fixed /tmp/bd_capture referenced by five test files, so consecutive captures overwrite each other -- a gate change and its own cut |
 | 6 | CLOSED @1040 | bd-reap, shipped as `bd-jobs reap` |
 | 7 | CLOSED @1040 | remote job registry, shipped as `bd-jobs` |
 | 8 | CLOSED @1040 | ssh wrapper recording the remote PID, shipped as `bd-jobs run` |
@@ -71,8 +71,8 @@ problem read as a solved one.
 | 30 | CLOSED @1036 | record load-dominance |
 | 31 | CLOSED @1036 | record "a failed deploy leaves the service down" |
 | 32 | CLOSED @1036 | parameterise -n by host rather than the container's 4 |
-| 33 | OPEN | EXERCISE THE CANDIDATE WORKFLOW: run a tip on .85 before a merge. Designed twice, never once used |
-| 34 | OPEN | regenerate the socket recorder's blind-spot counts rather than hardcoding 164/1316/8 |
+| 33 | CLOSED @1058 | EXERCISE THE CANDIDATE WORKFLOW: run a tip on .85 before a merge. DONE ONCE, for real: v3.66.1058's tip ran on test4 in a detached worktree before merge -- symbol asserted present per section 2b, absolute venv interpreter, deployed tree untouched, 157 passed exit 0. The worktree (not the deployed checkout) is the shape that works |
+| 34 | CLOSED @1059 | regenerate the socket recorder's blind-spot counts rather than hardcoding them. Derived at read time, denominator named beside each count, UNKNOWN when the tree cannot be read; ~0.26s once per process via PEP 562 __getattr__. The retired literals are deliberately not repeated here |
 | 35 | OPEN | pre-commit self-check: tree clean, no orphans, services healthy, no scratch in tests/, ledger current |
 | 36 | CLOSED @1035 | socket recorder directory leak (744 dirs) |
 | 37 | CLOSED @1035 | new gates wired into CI (isolation shard + _DECLARED) |
@@ -89,7 +89,7 @@ problem read as a solved one.
 | 51 | CLOSED @1055 | .85 carried /etc/sudoers.d/90-mboyle-codex AND 90-mboyle-nopasswd with byte-identical rules; the codex one is vestigial from the retired CODEX_HANDOFF era and the other three hosts have only the latter. Removed, visudo -c OK, sudo -n verified, backup at /root/sudoers-codex-backup-2026-08-12 |
 | 52 | CLOSED @1048 | decide whether streamlink belongs in system_deps.sh -- it does; nothing had ever installed the preferred backend |
 | 53 | CLOSED @1036 | capture.sh cannot see cross-file state leaks (s7) |
-| 54 | OPEN | add a pytest-tests/-shaped lane to capture, or state the blind spot there |
+| 54 | CLOSED @1058 | add a pytest-tests/-shaped lane to capture, or state the blind spot there. Took the SECOND option: capture.sh prints a blind-spot block after the verdict and tee's it to 11_BLIND_SPOTS.txt, naming cross-file state leaks (with the v3.66.1034 measurement) and timezone defects. An actual pytest-shaped lane remains unbuilt and would be a gate change |
 | 55 | CLOSED @1036 | audit beats recollection (s1) |
 | 56 | CLOSED @1036 | post-cut residue audit, folded into 55 |
 | 57 | CLOSED @1053 | check any instrument you build for its OWN blind spots |
