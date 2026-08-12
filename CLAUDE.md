@@ -2371,9 +2371,44 @@ then ask which one the check in front of you means.
   have been editing becomes what the service serves.
 - Report honestly over optimistically. Results first, no narration, no
   aspirational documentation. If something is unverified, say which part.
-- He runs the full suite and the capture himself, and **you still never claim a
-  state on a box you have not measured or been told** -- that half is unchanged,
-  and it is the half that has cost sessions.
+- **THE CAPTURE AND FULL-SUITE RESTRICTION IS LIFTED, 2026-08-12, and the
+  standing grants below are INDEFINITE.** This bullet read "he runs the full
+  suite and the capture himself" for the whole life of this file. It is
+  superseded: you may run `./capture.sh` and full-suite sweeps yourself. What
+  survives unchanged is the half that has actually cost sessions -- **you still
+  never claim a state on a box you have not measured or been told.**
+
+  Two rules the lifting immediately created, both learned the same night:
+
+  * **NEVER run a capture on a host whose tree you are editing, and never edit
+    it mid-run.** test5's working tree IS the deployed tree, and step [2b]
+    compares a source-derived graph hash against a pin written at deploy time,
+    so four uncommitted files turn a healthy capture into `CAPTURE VERDICT:
+    FAIL (graph exit=1)`. Stashing mid-run is no better: collection has already
+    happened, so removing files leaves a collected-but-inconsistent state and
+    the suite fails instead. Both measured at v3.66.1063 and v3.66.1069.
+  * **Say when you start one.** A capture stops the service on that host.
+
+- **ULTRACODE AND FABLE-5 AGENTS ARE AT YOUR DISCRETION, 2026-08-12**, with the
+  operator's condition stated in his own terms: keep it *token efficient and
+  reliable*, and do not abuse it. Read that as a budget, not a licence -- an
+  eight-agent investigation is justified when three independent lenses plus
+  adversarial refutation will settle a question that has already been answered
+  wrongly twice (which is exactly what closed ledger item 48 at v3.66.1069),
+  and is not justified for anything one grep and one measurement would answer.
+  Measured at v3.66.926: eleven agents were SLOWER than working inline on a
+  register re-derivation, because most of the work was one tool invocation
+  apiece.
+
+  The failure mode to avoid is not cost, it is a confident wrong answer arriving
+  with the authority of a fan-out. Section 2b's rules still bind every agent you
+  spawn: a subagent's tree is writable, its report is data rather than evidence,
+  and a finding is about a commit -- say which.
+
+- These grants are written here rather than only in the register for the reason
+  section 9 already gives: **a standing grant cannot be re-derived from source.**
+  A session that reads only the code will get it wrong in whichever direction
+  the stale text points, and this bullet's own predecessor is the proof.
 
 ---
 
