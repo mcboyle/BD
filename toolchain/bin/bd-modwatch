@@ -1,0 +1,308 @@
+#!/usr/bin/env python3
+"""bd-modwatch -- does this test file leave the bulk_downloader module table changed?
+
+WHY A RUNTIME INSTRUMENT AT ALL. Item 48's second mechanism is a test module
+holding an IMPORT-TIME `from bulk_downloader import X` while some earlier file
+deleted and re-created that module: the holder keeps the pre-wipe object, the
+code under test re-imports a fresh one, and the two run on independent
+module-level state.
+
+`tests/test_v3_66_1034_guards_survive_a_module_wipe.py` ratchets a TEXT
+heuristic for this -- files that delete from `sys.modules` without a recognised
+restore idiom -- and its own docstring calls the predicate a heuristic. Text
+cannot answer whether a restore actually WORKS. Only running the code can.
+
+WHAT IS MEASURED, AND WHAT IS NOT. This tool runs [generated loader, candidate]
+in one pytest session and compares the `bulk_downloader.*` entries in
+`sys.modules` from just before the candidate is COLLECTED to the end of the
+session. Per name: DROPPED (gone), SWAPPED (present, different object -- the
+dangerous one, because the name still resolves), ADDED (reported, not judged).
+
+AN OPEN DISAGREEMENT, RECORDED RATHER THAN RESOLVED. A full-suite probe run on
+2026-08-12 reported ten files orphaning module objects, one of them at 269
+swapped. Pointed at those same files, this tool reports ZERO drift -- with a
+five-module loader and again with a loader that pulls in `app` and therefore
+most of the package. Both instruments cannot be right. What that means in
+practice: this tool measures a TWO-FILE denominator, and a defect that needs a
+deeper session to appear is outside it. Do NOT read a clean result here as
+evidence a file is safe in a full run. The disagreement is the finding; it is
+not yet closed, and no number from either side should be quoted as settled.
+
+THREE DRAFTS GOT THE BASELINE WRONG, EACH REPORTING A CONFIDENT ZERO, and they
+are worth knowing before editing this:
+  * baseline at the first test's SETUP -- already post-wipe for any file that
+    wipes at IMPORT time, which pytest performs during COLLECTION;
+  * baseline at SESSION START -- nothing is imported yet, so a file that wipes
+    what it itself loaded shows no net change;
+  * no prior loader at all -- the defect only exists relative to somebody
+    else's modules.
+Each was caught by the selftest, which asserts BOTH directions: it sees a
+synthetic wipe and stays silent on a clean file. A detector that reports nothing
+and one that reports everything are equally useless, and only the first looks
+reassuring.
+
+IT IS OPT-IN, DELIBERATELY, AND THAT IS A COST DECISION. A hook that runs for
+every test is paid ~15,600 times per capture (CLAUDE.md section 2, rule 6). This
+is a tool you point at files when asking this question, never a plugin the suite
+carries.
+
+IT CHANGES NOTHING: runs pytest, reads `sys.modules`, writes one temp report.
+
+    bd-modwatch tests/test_foo.py
+    bd-modwatch --all
+    bd-modwatch --selftest
+"""
+import argparse
+import json
+import os
+import pathlib
+import subprocess
+import sys
+import tempfile
+
+PREFIX = "bulk_downloader"
+
+# The plugin is written to a temp file and loaded with `-p`. It is NOT kept in
+# tests/, because a plugin living there is one `-p` away from being loaded by
+# every run, and section 2 rule 6 is explicit about what per-test hooks cost.
+_PLUGIN = '''
+import json, os, sys
+
+_PREFIX = "bulk_downloader"
+_OUT = os.environ["BD_MODWATCH_OUT"]
+_TARGET = os.environ["BD_MODWATCH_TARGET"]
+
+
+def _snap():
+    return {k: id(v) for k, v in sys.modules.items()
+            if k == _PREFIX or k.startswith(_PREFIX + ".")}
+
+
+class _Watch:
+    """Baseline at the CANDIDATE's collectstart, not at session start.
+
+    Two earlier drafts got this wrong in opposite directions, and both reported
+    a confident ZERO:
+
+      * baseline at the first test's SETUP -- already post-wipe for any file
+        that wipes at IMPORT time, which pytest performs during COLLECTION. The
+        detector compared the damage against itself.
+      * baseline at SESSION START -- nothing is imported yet, so a file that
+        wipes what it itself loaded shows no net change.
+
+    The defect only exists relative to a PRIOR loader: someone else's modules,
+    wiped by this file. So the run is [loader, candidate], and the baseline is
+    taken when pytest starts collecting the CANDIDATE -- by which point the
+    loader is imported and the candidate is not.
+    """
+
+    def __init__(self):
+        self.before = None
+
+    def pytest_collectstart(self, collector):
+        if self.before is None and _TARGET in str(getattr(collector, "path", "")):
+            self.before = _snap()
+
+    def pytest_sessionfinish(self, session, exitstatus):
+        before = self.before
+        if before is None:
+            # UNKNOWN, not clean. The candidate was never collected, so nothing
+            # was measured and reporting "no drift" would be a check passing
+            # over a subject it never saw.
+            with open(_OUT, "w") as fh:
+                json.dump({"unmeasured": True}, fh)
+            return
+        after = _snap()
+        with open(_OUT, "w") as fh:
+            json.dump({
+                "dropped": sorted(k for k in before if k not in after),
+                "swapped": sorted(k for k in before
+                                  if k in after and after[k] != before[k]),
+                "added": sorted(k for k in after if k not in before),
+                "n_before": len(before), "n_after": len(after),
+            }, fh)
+
+
+def pytest_configure(config):
+    config.pluginmanager.register(_Watch(), "bd_modwatch_inner")
+'''
+
+# Imported by the generated loader so the candidate has something to wipe. Kept
+# small and stable: this is a fixture, not a census.
+# `app` transitively imports most of the package, which matters: the defect is
+# proportional to how much is loaded when the wipe happens. A five-module loader
+# measured ZERO drift on files a full-suite probe had measured at 269 swapped --
+# the harness, not the tree, was the difference.
+_LOADER_IMPORTS = ("app", "db", "log", "plugins", "detect", "app_global_config")
+
+
+def repo_root():
+    here = pathlib.Path(__file__).resolve()
+    for cand in list(here.parents):
+        if (cand / "bulk_downloader" / "__init__.py").is_file():
+            return cand
+    return pathlib.Path.cwd()
+
+
+def tracked_tests(root):
+    out = subprocess.run(["git", "ls-files", "--", "tests/*.py"],
+                         cwd=root, capture_output=True, text=True)
+    return [l for l in out.stdout.split() if l]
+
+
+def watch(root, files, timeout):
+    """Run [loader, candidate] in one pytest session; return the drift report.
+
+    The loader is generated, not chosen from the tree: a real file would bring
+    its own fixtures, its own imports and its own drift, and the measurement
+    would be about the pair rather than about the candidate.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        plugin_dir = pathlib.Path(td)
+        (plugin_dir / "bd_modwatch_plugin.py").write_text(_PLUGIN)
+        out_path = plugin_dir / "report.json"
+
+        loader = plugin_dir / "test_bd_modwatch_loader.py"
+        loader.write_text(
+            "".join("import bulk_downloader.%s\n" % m for m in _LOADER_IMPORTS)
+            + "def test_loader_holds_the_modules():\n"
+              "    assert bulk_downloader.db is not None\n")
+
+        env = dict(os.environ)
+        # POP, never merely refrain from setting: an inherited BD_INSTALL_DIR is
+        # preferred over the working directory by db._resolve_db_path, so every
+        # test in the child would share one database (CLAUDE.md section 5).
+        env.pop("BD_INSTALL_DIR", None)
+        env["BD_DISABLE_KEEPALIVE"] = "1"
+        env["BD_MODWATCH_OUT"] = str(out_path)
+        env["BD_MODWATCH_TARGET"] = os.path.basename(files[0])
+        env["PYTHONPATH"] = str(plugin_dir) + os.pathsep + env.get("PYTHONPATH", "")
+
+        cmd = [sys.executable, "-m", "pytest", str(loader), *files,
+               "-q", "-p", "no:randomly", "-p", "bd_modwatch_plugin"]
+        proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True,
+                              env=env, timeout=timeout)
+        if not out_path.is_file():
+            return None, proc
+        rep = json.loads(out_path.read_text())
+        if rep.get("unmeasured"):
+            return None, proc
+        return rep, proc
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        description="report test files that leave the bulk_downloader module "
+                    "table changed")
+    p.add_argument("files", nargs="*", help="test files to run (default: --all)")
+    p.add_argument("--all", action="store_true",
+                   help="every tracked test file, one pytest session each")
+    p.add_argument("--timeout", type=int, default=600,
+                   help="per-session cap in seconds (default 600)")
+    p.add_argument("--json", action="store_true", help="machine-readable output")
+    p.add_argument("--selftest", action="store_true")
+    args = p.parse_args(argv)
+
+    if args.selftest:
+        return selftest()
+
+    root = repo_root()
+    if args.all:
+        targets = [[f] for f in tracked_tests(root)]
+    elif args.files:
+        targets = [list(args.files)]
+    else:
+        print("bd-modwatch: REFUSED: name files or pass --all. Refusing to "
+              "guess a denominator.", file=sys.stderr)
+        return 2
+
+    offenders = {}
+    unknown = []
+    for group in targets:
+        report, proc = watch(root, group, args.timeout)
+        if report is None:
+            unknown.append((group, proc.returncode))
+            continue
+        if report["dropped"] or report["swapped"]:
+            offenders[" ".join(group)] = report
+
+    if args.json:
+        print(json.dumps({"offenders": offenders,
+                          "unknown": [g for g, _ in unknown]}, indent=2))
+    else:
+        for rel in sorted(offenders):
+            d = offenders[rel]
+            print("%s  dropped=%d swapped=%d"
+                  % (rel, len(d["dropped"]), len(d["swapped"])))
+        for group, rc in unknown:
+            print("UNKNOWN %s -- no report produced (pytest rc=%s); drift for "
+                  "these files was NOT measured" % (" ".join(group), rc),
+                  file=sys.stderr)
+        print("%d file(s) leave the module table changed; %d unmeasured"
+              % (len(offenders), len(unknown)))
+
+    # Unknown blocks, exactly as a FAIL does: a file whose drift could not be
+    # evaluated is not a file that is clean.
+    if unknown:
+        return 2
+    return 1 if offenders else 0
+
+
+def selftest():
+    """Prove the detector SEES a leak and does NOT cry wolf on a clean file.
+
+    Both directions, because a detector that reports everything and one that
+    reports nothing are equally useless and only the second looks reassuring.
+    """
+    failures = []
+    root = repo_root()
+    with tempfile.TemporaryDirectory() as td:
+        d = pathlib.Path(td)
+        leaky = d / "test_modwatch_leaky.py"
+        # THE IMPORT IS AT MODULE SCOPE, AND THAT IS THE WHOLE FIXTURE. An
+        # earlier draft imported and deleted inside one test body: the module
+        # was absent before AND after, so net drift was correctly zero and the
+        # selftest failed against a working detector. The defect being modelled
+        # is a file that wipes what the SESSION already had loaded, so the
+        # fixture has to load it before the test runs.
+        leaky.write_text(
+            "import sys\n"
+            "import bulk_downloader.db\n"
+            "def test_wipes():\n"
+            "    for m in [m for m in sys.modules\n"
+            "              if m == 'bulk_downloader' or m.startswith('bulk_downloader.')]:\n"
+            "        del sys.modules[m]\n")
+        clean = d / "test_modwatch_clean.py"
+        clean.write_text(
+            "import bulk_downloader.db\n"
+            "def test_touches_nothing():\n"
+            "    assert bulk_downloader.db is not None\n")
+
+        rep, _ = watch(root, [str(leaky)], 300)
+        if rep is None:
+            failures.append("no report for the leaky fixture")
+        else:
+            got = rep
+            if not got["dropped"]:
+                failures.append("the leaky fixture reported no dropped modules "
+                                "-- the detector is blind")
+
+        rep2, _ = watch(root, [str(clean)], 300)
+        if rep2 is None:
+            failures.append("no report for the clean fixture")
+        else:
+            got2 = rep2
+            if got2["dropped"] or got2["swapped"]:
+                failures.append("the clean fixture was reported as drifting "
+                                "-- the detector cries wolf: %r" % got2)
+
+    if failures:
+        for f in failures:
+            print("SELFTEST FAIL: %s" % f, file=sys.stderr)
+        return 1
+    print("SELFTEST PASS: sees a real wipe, stays silent on a clean file")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

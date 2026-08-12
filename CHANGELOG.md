@@ -4,6 +4,37 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1055
+
+- New instrument, toolchain/bin/bd-modwatch: runs [generated loader, candidate]
+  in one pytest session and reports whether the candidate leaves the
+  bulk_downloader module table changed -- DROPPED, SWAPPED or ADDED per name.
+  Opt-in by design; a per-test hook is paid ~15,600 times per capture (s2 r6).
+- IT SHIPS WITH AN OPEN DISAGREEMENT RECORDED IN ITS OWN DOCSTRING, NOT
+  RESOLVED. A full-suite probe on 2026-08-12 reported ten files orphaning
+  module objects, one at 269 swapped. Pointed at those same files this tool
+  reports ZERO -- with a five-module loader and again with one importing `app`
+  and therefore most of the package. Both instruments cannot be right. The
+  two-file denominator is stated as the limit it is, and a clean result here is
+  explicitly NOT evidence a file is safe in a full run.
+- Consequently an earlier claim made this session is RETRACTED as unverified:
+  that the 1034 text ratchet and the runtime orphaners are disjoint sets. That
+  rested on the full-suite probe's list, which did not reproduce. The ratchet's
+  predicate is still a heuristic and still says so; whether it is BLIND is now
+  an open question rather than a measured fact.
+- THREE DRAFTS OF THE DETECTOR EACH REPORTED A CONFIDENT ZERO, and all three
+  were caught by its own selftest rather than by review: baseline at the first
+  test's SETUP (already post-wipe, because pytest imports during COLLECTION);
+  baseline at SESSION START (nothing imported yet, so a file that wipes what it
+  loaded shows no net change); and no prior loader at all (the defect only
+  exists relative to somebody else's modules). The selftest asserts both
+  directions -- sees a synthetic wipe, stays silent on a clean file.
+- _LEAK_BUDGET lowered 14 -> 13. v3.66.1049 restored the module table in
+  test_v3_66_1021's fixture, which dropped it out of the detector, and that cut
+  did not lower the pin as the ratchet's docstring instructs. A one-directional
+  ratchet cannot catch a budget left too HIGH: a stale pin is silent and simply
+  stops gating the next regression.
+
 ## v3.66.1054
 
 - Batch B: work this fleet launches is now killable whole and bounded in time.
