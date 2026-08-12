@@ -190,6 +190,46 @@ def watch(root, files, timeout):
         return rep, proc
 
 
+class Refused(Exception):
+    """A refusal with a reason, so the caller can print one message."""
+
+
+def plan_targets(args, tracked, root):
+    """(groups, mode). ONE GROUP PER FILE unless --together is asked for.
+
+    THE BUG THIS REPLACES (@1068, backlog 94). `--all` planned one group per
+    FILE while explicitly-named files were collapsed into a SINGLE group:
+
+        if args.all:      targets = [[f] for f in tracked_tests(root)]
+        elif args.files:  targets = [list(args.files)]
+
+    So naming three files silently changed the question from "does each of
+    these leave the module table changed?" to "does this co-batched run, as a
+    whole, leave it changed?" -- and then reported the answer with the word
+    "file(s)" against a space-joined label. A batch of N could only ever report
+    0 or 1, it could never name the offender, and a wipe in one file offset by
+    an import in another nets out CLEAN.
+
+    That is where a retracted claim came from: backlog row 22 carried
+    "bd-modwatch reports 0 for those files" as evidence against a full-suite
+    probe, and the reading was a BATCH answer compared against a PER-FILE
+    question. The two instruments were never measuring the same thing.
+
+    --together keeps the co-batched question askable, because it is the one a
+    real `pytest -n N --dist loadfile` run answers. It just has to be ASKED.
+    """
+    if args.files and args.all:
+        raise Refused("name files or pass --all, not both -- they are "
+                      "different denominators")
+    if args.all:
+        return [[f] for f in tracked(root)], "per-file"
+    if args.files:
+        if getattr(args, "together", False):
+            return [list(args.files)], "together"
+        return [[f] for f in args.files], "per-file"
+    raise Refused("name files or pass --all. Refusing to guess a denominator.")
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(
         description="report test files that leave the bulk_downloader module "
@@ -199,6 +239,10 @@ def main(argv=None):
                    help="every tracked test file, one pytest session each")
     p.add_argument("--timeout", type=int, default=600,
                    help="per-session cap in seconds (default 600)")
+    p.add_argument("--together", action="store_true",
+                   help="measure the named files as ONE co-batched run "
+                        "(the question a real --dist loadfile run answers) "
+                        "instead of one at a time")
     p.add_argument("--json", action="store_true", help="machine-readable output")
     p.add_argument("--selftest", action="store_true")
     args = p.parse_args(argv)
@@ -207,13 +251,10 @@ def main(argv=None):
         return selftest()
 
     root = repo_root()
-    if args.all:
-        targets = [[f] for f in tracked_tests(root)]
-    elif args.files:
-        targets = [list(args.files)]
-    else:
-        print("bd-modwatch: REFUSED: name files or pass --all. Refusing to "
-              "guess a denominator.", file=sys.stderr)
+    try:
+        targets, mode = plan_targets(args, tracked_tests, root)
+    except Refused as exc:
+        print("bd-modwatch: REFUSED: %s" % exc, file=sys.stderr)
         return 2
 
     offenders = {}
@@ -238,8 +279,15 @@ def main(argv=None):
             print("UNKNOWN %s -- no report produced (pytest rc=%s); drift for "
                   "these files was NOT measured" % (" ".join(group), rc),
                   file=sys.stderr)
-        print("%d file(s) leave the module table changed; %d unmeasured"
-              % (len(offenders), len(unknown)))
+        # NAME THE MODE IN THE VERDICT. The count is over GROUPS, and a
+        # group is ONE FILE in per-file mode but the WHOLE SET under
+        # --together -- so the same number means two different things.
+        # Saying which produced it is what stops a batch artifact being
+        # read as a per-file answer, which is exactly how a retracted
+        # claim entered backlog row 22.
+        unit = "file(s)" if mode == "per-file" else "co-batched group(s)"
+        print("%d %s leave the module table changed; %d unmeasured [mode: %s]"
+              % (len(offenders), unit, len(unknown), mode))
 
     # Unknown blocks, exactly as a FAIL does: a file whose drift could not be
     # evaluated is not a file that is clean.
@@ -256,6 +304,40 @@ def selftest():
     """
     failures = []
     root = repo_root()
+
+    # THE DISPATCH, FIRST. @1068: named files used to collapse into ONE group
+    # while --all planned one per file, so the tool answered a different
+    # question depending on how it was invoked and said nothing about which.
+    # The selftest ran green throughout, because it never touched argv
+    # planning -- a battery that exercises only the detector reports green over
+    # the half that decides WHAT is detected.
+    class _A:
+        def __init__(self, files=(), all=False, together=False):
+            self.files, self.all, self.together = list(files), all, together
+
+    def _tracked(_root):
+        return ["a.py", "b.py"]
+
+    got, mode = plan_targets(_A(files=["x.py", "y.py"]), _tracked, root)
+    if got != [["x.py"], ["y.py"]] or mode != "per-file":
+        failures.append("named files must plan ONE GROUP PER FILE, got %r (%s)"
+                        % (got, mode))
+    got, mode = plan_targets(_A(files=["x.py", "y.py"], together=True), _tracked, root)
+    if got != [["x.py", "y.py"]] or mode != "together":
+        failures.append("--together must plan one co-batched group, got %r (%s)"
+                        % (got, mode))
+    got, mode = plan_targets(_A(all=True), _tracked, root)
+    if got != [["a.py"], ["b.py"]] or mode != "per-file":
+        failures.append("--all must plan one group per tracked file, got %r" % (got,))
+    for bad, why in ((_A(), "no files and no --all"),
+                     (_A(files=["x.py"], all=True), "files AND --all")):
+        try:
+            plan_targets(bad, _tracked, root)
+        except Refused:
+            pass
+        else:
+            failures.append("must REFUSE on %s rather than guess" % why)
+
     with tempfile.TemporaryDirectory() as td:
         d = pathlib.Path(td)
         leaky = d / "test_modwatch_leaky.py"
