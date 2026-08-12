@@ -4,6 +4,44 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1068
+
+bd-modwatch measures per FILE, and says which question it asked. Backlog 94.
+
+THE DEFECT. The tool planned two different measurements depending on argv and
+named neither: `--all` gave one group per FILE, while explicitly-named files
+collapsed into ONE group. So naming three files silently changed the question
+from "does each of these leave the module table changed?" to "does this
+co-batched run, as a whole?" -- then reported the answer against a space-joined
+label using the word "file(s)". A batch of N could only ever report 0 or 1, it
+could never name the offender, and a wipe in one file offset by an import in
+another nets out CLEAN.
+
+THE ORIGINAL ROW SAID THE BATCH "reports 0". Re-measured, it reports 1, so that
+specific number did NOT reproduce and the row is corrected rather than
+inherited. The defect is the silent change of question, which is worse than the
+number and explains the same disagreement: backlog row 22 carried "bd-modwatch
+reports 0 for those files" as evidence against a full-suite probe, and that was
+a BATCH answer compared against a PER-FILE question. Two instruments that were
+never measuring the same thing. Row 22's evidence is void as written.
+
+FIXED: per-file by default; `--together` keeps the co-batched question askable,
+because it is the one a real `pytest -n N --dist loadfile` run answers -- it
+just has to be ASKED; and the verdict prints `[mode: per-file|together]` with
+the unit changing to "co-batched group(s)", because the same count means two
+different things.
+
+FOUR MUTANTS ESCAPED THE FIRST BATTERY, all for one reason: the tests read the
+tool's TEXT. A no-op --together, a dropped mode, a hardcoded unit label and a
+refusal replaced by a guess all survived. SOURCE TEXT IS NOT BEHAVIOUR -- the
+lesson v3.66.1058 and v3.66.1066 each paid for, met a third time. plan_targets
+is a pure function, so the behavioural tests cost milliseconds. Re-run: 5
+caught, 0 escaped.
+
+The selftest now covers the dispatch too. It ran green through this entire
+defect because it only ever exercised the DETECTOR -- a battery that tests what
+is detected but not what is selected reports green over the half that decides.
+
 ## v3.66.1067
 
 The module-wipe census reads CODE, not prose -- including its own. Backlog 91.
