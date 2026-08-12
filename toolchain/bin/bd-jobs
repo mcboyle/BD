@@ -200,10 +200,30 @@ def cmd_reap(args):
             forget(e)
             continue
 
+        # KILL THE GROUP, NOT THE PID -- BUT ONLY WHEN WE CAN PROVE THE PID
+        # LEADS ONE. os.killpg on a pid that is NOT its own group leader
+        # signals the LAUNCHER's group: this session's shell, the harness above
+        # it, everything. So leadership is verified, never assumed, and the
+        # fallback is loud rather than silent: a reap that quietly covers less
+        # than it claims is precisely backlog 88, and repeating it here inside
+        # the fix would be section 0's "the fix reproduces the shape".
         try:
-            os.kill(e["pid"], 9)
+            pgid = os.getpgid(e["pid"])
+        except OSError:
+            pgid = None
+
+        try:
+            if pgid is not None and pgid == e["pid"]:
+                os.killpg(pgid, 9)
+                scope = "process group %s" % pgid
+            else:
+                os.kill(e["pid"], 9)
+                scope = ("pid ONLY -- pid %s does not lead its group (pgid %s), "
+                         "so any CHILDREN it started are still running and are "
+                         "now unregistered; check with `bd-jobs orphans`"
+                         % (e["pid"], pgid))
             reaped += 1
-            print("reaped %s (pid %s) -- %s" % (e["id"], e["pid"], e["purpose"]))
+            print("reaped %s (%s) -- %s" % (e["id"], scope, e["purpose"]))
         except OSError as exc:
             print("REFUSED %s: %s" % (e["id"], exc), file=sys.stderr)
             refused += 1
@@ -259,8 +279,16 @@ def cmd_run(args):
     cmd = shlex.join(parts) if parts else ""
     here = socket.gethostname()
     if args.host in (None, "", here, "local"):
+        # start_new_session PUTS THE CHILD IN ITS OWN PROCESS GROUP, and reap
+        # depends on it. Without it the child shares OUR group, so reap can only
+        # ever signal the single registered pid -- which is how a driver shell
+        # was reaped while its pytest child kept running and blocked every
+        # deploy on two hosts (backlog 88). Establishing the group is the
+        # LAUNCHER's job: reap cannot retrofit one onto a process it did not
+        # start, and must not guess.
         proc = subprocess.Popen(["bash", "-c", cmd],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                start_new_session=True)
         entry = register(proc.pid, args.purpose, cmd, origin=here)
         print(entry["id"])
         return 0

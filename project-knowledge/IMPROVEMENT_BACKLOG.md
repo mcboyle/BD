@@ -123,6 +123,6 @@ problem read as a solved one.
 | 85 | CLOSED @1052 | make this backlog machine-visible -- this file, and the gate that reads it |
 | 86 | MOOT @1051 | run bd-gc --apply -- the 2026-08-12 rebuild collected the litter; bd-fleet measures 2/0/0 against a pre-rebuild 1349/435/68 |
 | 87 | CLOSED @1050 | the killswitch auto-cycle thread hung full-suite runs: an unguarded daemon thread performed a real tunnel stop/start 30s later and killed an xdist worker |
-| 88 | OPEN | bd-jobs reap kills the registered pid but not its children -- reaping a driver shell orphaned the hung pytest beneath it, and the orphan then blocked every deploy |
+| 88 | CLOSED @1054 | bd-jobs reap kills the registered pid but not its children -- reaping a driver shell orphaned the hung pytest beneath it, and the orphan then blocked every deploy |
 | 89 | OPEN | the capture corpus is not restored by deploy.sh and does not survive a rebuild; two hosts silently had zero files in captures/ while analytics reported an empty store |
-| 90 | OPEN | a dead xdist worker hangs the suite unboundedly -- pytest-timeout runs INSIDE the worker, so nothing bounds a run whose worker died. Needs a whole-run cap outside the process |
+| 90 | CLOSED @1054 | a dead xdist worker hangs the suite unboundedly -- pytest-timeout runs INSIDE the worker, so nothing bounds a run whose worker died. Needs a whole-run cap outside the process |

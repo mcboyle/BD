@@ -29,6 +29,12 @@ import sys
 import tempfile
 
 DEFAULT_DIR = os.environ.get("BD_RUN_DIR") or "/tmp/bd-run"
+# 124 is coreutils `timeout`'s convention for "the command was killed
+# because it ran too long". Reusing it means an operator, a shell `||`
+# and any wrapper already know what it means, and it can never collide
+# with a pytest exit code (0-5).
+CAPPED_RC = 124
+
 DEFAULT_KEEP = 50
 DEFAULT_SHOW = 40
 
@@ -158,13 +164,47 @@ def run(args):
     # it from a hang. Naming the log up front makes `tail -f` possible from the
     # first second, which is the whole reason the log exists.
     print("bd-run: %s -> %s" % (args.label, log), flush=True)
+    # THE CAP IS DELEGATED TO coreutils `timeout`, NOT IMPLEMENTED HERE, and
+    # that is a design choice rather than laziness. pytest-timeout is enforced
+    # INSIDE the worker process, so a run whose xdist worker DIED has nothing
+    # left to fire it -- measured three times on 2026-08-12 as "[gwN] node down"
+    # at ~99% followed by 44 minutes of load 0.00 with pytest still resident
+    # (backlog 90). A bound that shares a fate with the thing it bounds is not a
+    # bound, so the cap has to sit outside the process.
+    #
+    # It sits outside THIS process too. `timeout` already runs the command in
+    # its own process group and signals the GROUP, which is the half a naive
+    # parent-only kill gets wrong (backlog 88), and it exits 124 -- the
+    # convention this file reuses. Doing it by hand would mean bd-run holding
+    # a process-signalling call, and
+    # test_only_bd_gc_and_bd_jobs_hold_a_destructive_verb exists
+    # to stop exactly that: these tools must be safe to run when you do not yet
+    # know what is wrong. Delegating keeps that promise intact and gets the
+    # better-tested implementation.
+    capped = False
+    if args.max_seconds:
+        parts = ["timeout", "--kill-after=10", str(args.max_seconds)] + parts
     with open(log, "wb") as fh:
         proc = subprocess.Popen(parts, stdout=fh, stderr=subprocess.STDOUT,
                                 env=plain_env())
         rc = proc.wait()
+    if args.max_seconds and rc == CAPPED_RC:
+        capped = True
 
     body = log.read_text(encoding="utf-8", errors="replace")
-    print("=== %s (exit=%d) ===" % (args.label, rc))
+    if capped:
+        # A CAPPED RUN MUST NEVER READ AS A PASS. Section 10: the verdict line
+        # is the least-tested output and the only one anybody reads. Returning
+        # 0 here would turn an unbounded hang into a false green, which is
+        # worse than the hang -- the hang at least never claims to have
+        # finished.
+        print("=== %s CAPPED at %ss (exit=%d) ==="
+              % (args.label, args.max_seconds, rc))
+        print("  the command did not finish inside its cap and was killed. This "
+              "is NOT a pass and NOT a failure of the code under test -- it is "
+              "an unfinished run. The last lines of the log say where it stopped.")
+    else:
+        print("=== %s (exit=%d) ===" % (args.label, rc))
     for line in verdict(body, args.show):
         print(line)
     removed = prune(d, args.keep)
@@ -178,7 +218,8 @@ def run(args):
 def selftest(_args):
     failures = []
     with tempfile.TemporaryDirectory() as td:
-        ns = argparse.Namespace(dir=td, keep=DEFAULT_KEEP, show=DEFAULT_SHOW)
+        ns = argparse.Namespace(dir=td, keep=DEFAULT_KEEP, show=DEFAULT_SHOW,
+                                max_seconds=0)
 
         # 1. A successful command with nothing to grep must still exit 0. This
         # is the bring-up script's inverted verdict, mechanised.
@@ -267,6 +308,10 @@ def main(argv=None):
     p.add_argument("--auto-n", action="store_true", dest="auto_n",
                    help="size -n from this box's core count if the command is "
                         "pytest and does not already choose one")
+    p.add_argument("--max-seconds", type=int, default=0, dest="max_seconds",
+                   help="whole-run wall-clock cap. 0 (default) = no cap. "
+                        "A capped run exits %d and says CAPPED -- it is "
+                        "an UNFINISHED run, never a pass." % CAPPED_RC)
     p.add_argument("--selftest", action="store_true")
     p.add_argument("command", nargs=argparse.REMAINDER)
     args = p.parse_args(argv)
