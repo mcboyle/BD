@@ -214,19 +214,40 @@ def cmd_reap(args):
 
 
 def cmd_run(args):
-    """Launch a command on a host and register it THERE, before returning."""
+    """Launch a command on a host and register it THERE, before returning.
+
+    --script FILE is the option to reach for whenever the work is more than one
+    command. MEASURED at v3.66.1044: a four-iteration sweep passed inline as
+    `bash -c '...for N in 8 16 32 64...'` crossed argv -> shlex.join -> ssh ->
+    the remote shell -> `bash -c`, died on the far side, and produced NO OUTPUT
+    AT ALL -- the registry held a correct entry for a job that had already
+    failed. A file crosses one layer: it is copied, and its path is the only
+    thing quoted. The two `--` bugs in this tool's short history were both at
+    this seam.
+    """
     # argparse.REMAINDER KEEPS THE `--`. Measured on this tool's first live run:
     # `bd-jobs run --host X -- sleep 90` sent `bash -c "-- sleep 90"` to the
     # target, which answered `bash: --: invalid option` and exited instantly.
     # The registry then held a correct entry for a process that had already
     # died, so `list` said DEAD and everything LOOKED consistent -- the failure
     # was in the one part no test covered, the command assembly.
+    script = getattr(args, "script", None)
+    if script:
+        if list(args.command or []) not in ([], ["--"]):
+            print("REFUSED: --script and a command are two different jobs. "
+                  "Give one.", file=sys.stderr)
+            return 2
+        local = pathlib.Path(script)
+        if not local.is_file():
+            print("REFUSED: no script at %s" % local, file=sys.stderr)
+            return 2
+
     parts = list(args.command or [])
     if parts and parts[0] == "--":
         parts = parts[1:]
-    if not parts:
+    if not parts and not script:
         print("REFUSED: no command given. Use: bd-jobs run --host H --purpose P "
-              "-- <command>", file=sys.stderr)
+              "-- <command>, or --script FILE", file=sys.stderr)
         return 2
     # SHLEX.JOIN, NOT " ".JOIN. Found by this tool's own second live use, one
     # cut after the `--` bug: `bd-jobs run --host X -- bash -c "a && b"` was
@@ -235,7 +256,7 @@ def cmd_run(args):
     # directory" from the wrong directory. Same seam as before -- argv going
     # back out to a shell -- and the same shape of test missed it, because
     # every case passed arguments that contained no spaces.
-    cmd = shlex.join(parts)
+    cmd = shlex.join(parts) if parts else ""
     here = socket.gethostname()
     if args.host in (None, "", here, "local"):
         proc = subprocess.Popen(["bash", "-c", cmd],
@@ -250,6 +271,21 @@ def cmd_run(args):
     # job ran with NO RECORD, which is precisely the orphan this tool exists to
     # prevent. The tool manufactured its own subject. Launch second, verify
     # first: an unregisterable host is a refusal, not a launch.
+    if script:
+        # COPY FIRST, LAUNCH SECOND, same rule as the deploy probe below: a
+        # script that did not arrive is a refusal, not a job that runs the
+        # previous copy of itself.
+        remote_script = "/tmp/bd-jobs-script-%s-%d.sh" % (
+            pathlib.Path(script).stem[:24], os.getpid())
+        scp = subprocess.run(["scp", "-q", "-o", "BatchMode=yes", str(script),
+                              "%s:%s" % (args.host, remote_script)],
+                             capture_output=True, text=True)
+        if scp.returncode != 0:
+            print("REFUSED: could not copy %s to %s: %s"
+                  % (script, args.host, scp.stderr.strip()), file=sys.stderr)
+            return 2
+        cmd = "bash %s" % shlex.quote(remote_script)
+
     self_path = str(_remote_self(args.host))
     probe = subprocess.run(
         ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", args.host,
@@ -333,11 +369,26 @@ def cmd_selftest(args):
         if proc_starttime(os.getpid()) is None:
             failures.append("could not read this process's own start time")
 
+        # --script refusals, exercised rather than described.
+        missing = os.path.join(tmp, "nope.sh")
+        if cmd_run(type("A", (), {"host": "somewhere", "purpose": "p",
+                                  "script": missing, "command": []})()) != 2:
+            failures.append("a --script that does not exist was not refused")
+        real = os.path.join(tmp, "ok.sh")
+        with open(real, "w") as fh:
+            fh.write("echo hi\n")
+        if cmd_run(type("A", (), {"host": "somewhere", "purpose": "p",
+                                  "script": real,
+                                  "command": ["sleep", "1"]})()) != 2:
+            failures.append("--script together with a command was not refused "
+                            "-- they are two different jobs")
+
     if failures:
         for f in failures:
             print("SELFTEST FAIL: %s" % f, file=sys.stderr)
         return 1
-    print("SELFTEST PASS: registry round-trip, liveness, reuse guard, cleanup")
+    print("SELFTEST PASS: registry round-trip, liveness, reuse guard, cleanup, "
+          "--script refusals")
     return 0
 
 
