@@ -4,6 +4,46 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1067
+
+The module-wipe census reads CODE, not prose -- including its own. Backlog 91.
+
+THE DEFECT. `_module_wipe_leakers()` decided "this file restores its wipe" by
+regexing the WHOLE file text. The ratchet file itself deletes bulk_downloader.*
+from sys.modules and never restores -- its declared job -- and scored SAFE,
+because the restore pattern appears twice inside its own text: the regex SOURCE
+LITERAL that defines the pattern, and an assertion MESSAGE quoting the idiom it
+recommends. Measured at v3.66.1066: census 13, budget 13, and the ONE leaker
+causing the live CSRF 403s of ledger item 48 ABSENT from its own list. The gate
+built to police this class could not see the instance sitting inside it.
+
+Two independent agents' classifiers were fooled by the same prose during the
+investigation that found it, so the trap is live rather than theoretical.
+
+tests/python_source.py is the Python counterpart to shell_source.py: comments
+AND STRING LITERALS stripped via tokenize, because a pattern that DESCRIBES a
+call must not be mistaken for one.
+
+THE FIRST VERSION OF THE FIX WAS WRONG AND THE TESTS CAUGHT IT. Over-stripping
+emptied the census: `"bulk_downloader" in src` fails once strings are gone,
+since a module NAME is a string literal by nature. Two questions, two
+denominators -- membership from RAW text, calls from CODE. Stated in the code,
+because the next reader will otherwise "simplify" it back.
+
+BUDGET 13 -> 14, AND THE +1 IS NOT A NEW LEAK. It is the ratchet file becoming
+visible to its own census. The leak itself is deliberate and is item 48's
+subject; the comment says so, and says not to "fix" it without reading that
+item first.
+
+MUTATION: 4 caught, 0 escaped -- including a revert to raw text, an over-strip
+of the membership test, a stripper that returns raw, and one that strips code.
+
+Also recorded: backlog 96 CLOSED (@1064/@1065), rows 97 (the provisioner
+configures postgres but does not install it, so 96 is closed for this fleet
+only) and 98 (editing test5's tree during its own capture drifts the graph
+pin), and the priority order written INTO the gated backlog rather than a
+second document that would drift from it.
+
 ## v3.66.1066
 
 An inherited CAPTURE_VAULT_PW is honoured. The @1064 unattended path did not

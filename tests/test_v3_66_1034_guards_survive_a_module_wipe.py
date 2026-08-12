@@ -178,7 +178,18 @@ def test_the_registry_adopts_the_module_it_repatched():
 # the same cut". The ratchet cannot catch a budget left too HIGH: it is
 # one-directional by design, so a stale pin is silent and simply stops gating
 # the next regression. Measured at d8c9e4c: 13.
-_LEAK_BUDGET = 13
+# 13 -> 14 at v3.66.1067, AND THE +1 IS NOT A NEW LEAK. It is THIS FILE
+# becoming visible to its own census: the predicate used to read raw text, so
+# 1034's regex source literal and an assertion message made it score as
+# restoring while it deletes and never restores. The one leaker causing live
+# CSRF failures was absent from its own list. Making the predicate honest cost
+# exactly one row and it is this one.
+#
+# The leak itself is DELIBERATE (see test_zzz_a_wipe_happens) and is ledger
+# item 48's subject, not this cut's. Do not "fix" it by making 1034 restore
+# without reading that item first -- the wipe is what the guards are tested
+# against. The honest budget is 14 until item 48 decides what replaces it.
+_LEAK_BUDGET = 14
 
 
 def _module_wipe_leakers():
@@ -194,6 +205,8 @@ def _module_wipe_leakers():
     import re
     import subprocess
 
+    from python_source import python_code_only
+
     root = pathlib.Path(__file__).resolve().parent.parent
     tracked = subprocess.run(
         ["git", "ls-files", "--", "tests/*.py"],
@@ -204,10 +217,33 @@ def _module_wipe_leakers():
     out = []
     for rel in tracked:
         try:
-            src = (root / rel).read_text(encoding="utf-8", errors="replace")
+            # CODE ONLY -- COMMENTS AND STRING LITERALS STRIPPED (@1067).
+            #
+            # This read the RAW text until v3.66.1067, and the file you are
+            # reading was the casualty: it deletes sys.modules entries and
+            # never restores them, which is its declared job, yet it scored
+            # SAFE because the restore pattern appears twice in its own text --
+            # once as the regex source literal above, once inside an assertion
+            # message. Measured at v3.66.1066: census 13, budget 13, and the
+            # one leaker causing live CSRF failures ABSENT from this list.
+            #
+            # A gate that cannot see the instance sitting inside it reports OK,
+            # truthfully and uselessly. Section 0.
+            raw = (root / rel).read_text(encoding="utf-8", errors="replace")
+            src = python_code_only(root / rel)
         except OSError:
             continue
-        if "bulk_downloader" not in src or not deletes.search(src):
+        # TWO DENOMINATORS, ON PURPOSE. "Does this file concern
+        # bulk_downloader?" is answered from the RAW text, because a module
+        # NAME is a string literal by nature -- `m.startswith("bulk_downloader.")`
+        # is the normal way to write it, and stripping strings makes every
+        # wiper in the tree invisible. Over-stripping was the first version of
+        # this fix and it emptied the census silently.
+        #
+        # "Does it delete / restore?" is answered from CODE, because those are
+        # CALLS, and a pattern that describes a call must not be mistaken for
+        # one.
+        if "bulk_downloader" not in raw or not deletes.search(src):
             continue
         if restores.search(src):
             continue
