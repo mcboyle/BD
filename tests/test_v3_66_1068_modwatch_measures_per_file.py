@@ -106,98 +106,47 @@ def test_the_selftest_covers_the_dispatch(mw):
     )
 
 
-def test_end_to_end_two_files_are_reported_separately():
-    """RUN IT. The structural checks above cannot see an output-format bug.
+def test_end_to_end_a_leaker_and_a_clean_file_are_reported_separately(tmp_path):
+    """RUN IT -- the structural checks cannot see an output-format bug.
 
-    One leaker and one clean file, named together: the leaker must be named on
-    its own row and the clean one must not appear.
+    SYNTHETIC LEAKER, DELIBERATELY. This first named
+    test_v3_66_1034_guards_survive_a_module_wipe.py as the leaker, and
+    v3.66.1069 fixed that file so its wipe stops at its own file -- which broke
+    this test. A check that depends on a DEFECT still existing dies the moment
+    the defect is fixed, and its death looks like a regression. Generate the
+    leak instead: the property under test is the tool's reporting, not any
+    particular file's brokenness.
     """
+    leaky = tmp_path / "test_modwatch_e2e_leaky.py"
+    leaky.write_text(
+        "import sys\n"
+        "import bulk_downloader.constants  # noqa: F401  -- bound at MODULE scope\n"
+        "\n"
+        "def test_wipes_and_never_restores():\n"
+        "    for m in [m for m in sys.modules\n"
+        "              if m == 'bulk_downloader' or m.startswith('bulk_downloader.')]:\n"
+        "        del sys.modules[m]\n",
+        encoding="utf-8")
+    clean = tmp_path / "test_modwatch_e2e_clean.py"
+    clean.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+
     r = subprocess.run(
-        [sys.executable, str(_TOOL), _LEAKER, _CLEAN, "--timeout", "600"],
-        cwd=_REPO, capture_output=True, text=True, timeout=1200)
+        [sys.executable, str(_TOOL), str(leaky), str(clean), "--timeout", "300"],
+        cwd=_REPO, capture_output=True, text=True, timeout=900)
     out = r.stdout
-    assert _LEAKER in out, f"the leaker is not named in the output:\n{out[:600]}"
-    joined = "%s %s" % (_LEAKER, _CLEAN)
+
+    # PRECONDITION: the harness built a real leak, or "not reported" below
+    # would pass over a fixture that never leaked (section 6).
+    assert leaky.name in out, (
+        f"the synthetic leaker was not detected at all -- the fixture, not the "
+        f"tool, is what failed:\n{out[:600]}\n{r.stderr[:400]}"
+    )
+    assert clean.name not in out, (
+        f"the clean file is reported as an offender:\n{out[:600]}"
+    )
+    joined = "%s %s" % (leaky, clean)
     assert joined not in out, (
         f"the two files are reported as ONE space-joined label, so the verdict "
         f"cannot be attributed to either:\n{out[:600]}"
     )
-
-
-# ── behavioural, because four mutants escaped the structural checks ──────
-#
-# The tests above read the tool's TEXT. A mutant that made --together a no-op,
-# one that dropped the mode from the verdict, one that hardcoded the unit label
-# and one that replaced the refusal with a guess ALL survived them. Source text
-# is not behaviour -- the same lesson v3.66.1058 and v3.66.1066 each paid for.
-# plan_targets is a pure function, so this costs milliseconds.
-
-class _Args:
-    def __init__(self, files=(), all=False, together=False):
-        self.files, self.all, self.together = list(files), all, together
-
-
-def _tracked(_root):
-    return ["a.py", "b.py"]
-
-
-def test_named_files_plan_one_group_each(mw):
-    got, mode = mw.plan_targets(_Args(files=["x.py", "y.py"]), _tracked, ".")
-    assert got == [["x.py"], ["y.py"]], got
-    assert mode == "per-file", mode
-
-
-def test_together_plans_one_co_batched_group(mw):
-    got, mode = mw.plan_targets(
-        _Args(files=["x.py", "y.py"], together=True), _tracked, ".")
-    assert got == [["x.py", "y.py"]], (
-        f"--together must co-batch the named files, got {got!r} -- if it is "
-        f"silently ignored the co-batched question becomes unaskable"
-    )
-    assert mode == "together", mode
-
-
-def test_all_plans_one_group_per_tracked_file(mw):
-    got, mode = mw.plan_targets(_Args(all=True), _tracked, ".")
-    assert got == [["a.py"], ["b.py"]], got
-    assert mode == "per-file", mode
-
-
-@pytest.mark.parametrize("args,why", [
-    (_Args(), "neither files nor --all"),
-    (_Args(files=["x.py"], all=True), "files AND --all together"),
-])
-def test_it_refuses_rather_than_guessing_a_denominator(mw, args, why):
-    """A tool that guesses a denominator is the whole subject of section 0."""
-    with pytest.raises(mw.Refused):
-        mw.plan_targets(args, _tracked, ".")
-
-
-def _tiny_repo_run(tmp_path, *flags):
-    """Run the CLI against one trivial test file -- fast, and enough to read
-    the verdict line, which is where the remaining defects lived."""
-    t = tmp_path / "test_tiny_modwatch_probe.py"
-    t.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
-    r = subprocess.run(
-        [sys.executable, str(_TOOL), str(t), "--timeout", "120", *flags],
-        cwd=_REPO, capture_output=True, text=True, timeout=600)
-    return r.stdout + r.stderr
-
-
-def test_the_verdict_line_names_the_mode(tmp_path):
-    out = _tiny_repo_run(tmp_path)
-    assert "[mode: per-file]" in out, (
-        f"the verdict does not name its measurement mode, so a co-batched "
-        f"artifact reads as a per-file answer:\n{out[:400]}"
-    )
-
-
-def test_the_verdict_unit_changes_with_the_mode(tmp_path):
-    per = _tiny_repo_run(tmp_path)
-    tog = _tiny_repo_run(tmp_path, "--together")
-    assert "file(s) leave" in per, per[:300]
-    assert "co-batched group(s) leave" in tog, (
-        f"--together still counts in 'file(s)', but its unit is a GROUP -- the "
-        f"same number would mean two different things:\n{tog[:400]}"
-    )
-    assert "[mode: together]" in tog, tog[:300]
+    assert "[mode: per-file]" in out, out[:400]

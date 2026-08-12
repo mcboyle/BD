@@ -5214,6 +5214,68 @@ never `export` in a shell the suite is later launched from.
   row seen in 1 of 6 captures. Re-capture before trusting it.
 
 
+### 15.91 | SESSION CLOSE 2026-08-12 at adf8c3e (v3.66.1068) -- item 48 root-caused, re-derived and CLOSED
+
+Close at `adf8c3e`, the squash of #353, already on `main` when this was written.
+
+ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
+OPEN:   31
+CLOSED: 48
+
+#### ITEM 48 IS CLOSED, AND THE NUMBER WAS NEVER WHAT ANYONE THOUGHT
+
+Every count attached to this item -- 14, 13, 11, 10 -- was a reading of a STATIC
+text heuristic that over-reports BY DESIGN. Re-derived at RUNTIME with
+`bd-modwatch` in per-file mode at v3.66.1068, the answer is **three**, and two of
+those drop exactly `bulk_downloader.push`, which **zero** files bind at import
+time. So the real population was ONE file.
+
+  tests/test_v3_66_1034_guards_survive_a_module_wipe.py  dropped=263 swapped=5
+  tests/test_mod1_c6_effective_mode_readout.py           dropped=1   (harmless)
+  tests/test_v3_43_60_captcha_relay.py                   dropped=1   (harmless)
+
+THE ONE THAT MATTERED WAS THE RATCHET ITSELF, which is why nothing ever pointed
+at it: `_module_wipe_leakers()` read RAW text, so 1034's own regex source
+literal and an assertion message made it score as restoring while it deleted 263
+modules and restored none. Fixed at v3.66.1067 (`tests/python_source.py`, the
+Python counterpart to `shell_source.py`), and the census went 13 -> 14 with the
++1 being the file becoming visible to itself.
+
+THE FIX, v3.66.1069: a module-scoped save/restore in 1034. The wipe STAYS -- the
+file exists to prove the conftest guards survive one -- but the blast radius is
+now the file rather than the xdist worker. Same shape v3.66.1049 used for
+test_v3_66_1021.
+
+MEASURED, before and after:
+
+  1034 then 780                        7 failed / 12 passed  ->  19 passed
+  1034 then the 8-file victim set      --                    ->  154 passed
+  runtime leakers                      3                     ->  2, both harmless
+  census / budget                      14 / 14               ->  13 / 13
+
+#### THREE INSTRUMENTS HAD TO BE REPAIRED BEFORE THE DEFECT COULD BE SEEN
+
+That is the transferable part. The defect was one file and about twenty lines;
+what took the time was that every instrument pointed at it was wrong:
+
+1. **The census could not see its own file** (@1067) -- it read prose as code.
+2. **bd-modwatch answered a different question depending on argv** (@1068) --
+   named files collapsed into ONE co-batched group while `--all` measured per
+   file, and the verdict said "file(s)" either way. Backlog row 22's
+   "bd-modwatch reports 0" was a BATCH answer compared against a PER-FILE
+   question; that evidence is void.
+3. **capture.sh cannot see this class at all** (@1058, unchanged) -- its lanes
+   do not co-batch, so a green capture was never evidence in either direction.
+
+A wrong instrument does not merely fail to find the defect; it produces a
+confident number that everything downstream inherits. Two figures were retracted
+on this item before the third was measured.
+
+#### WHAT REMAINS
+
+31 is operator-bound and untouched. The backlog carries the rest, with the
+priority order written into it rather than into a second document.
+
 ### 15.90 | SESSION CLOSE 2026-08-12 at a5571be (v3.66.1056) -- sixteen cuts, a fleet that grew to four, and one retraction
 
 Close at `a5571be`, the squash of #341, already on `main` when this was written.
