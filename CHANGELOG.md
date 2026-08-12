@@ -4,6 +4,40 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1050
+
+- The killswitch's auto-cycle thread hung full-suite runs, unboundedly, and
+  nothing could catch it. kill_tunnel() scheduled _auto_cycle_worker on a
+  daemon thread that sleeps CYCLE_BACKOFF_S=30 and then performs a REAL
+  vpn.cycle_tunnel() -- stop_tunnel() plus start_tunnel(). Thirty seconds is
+  long enough that the arming test has finished and an unrelated test owns the
+  xdist worker when the teardown fires, so the worker dies and xdist waits for
+  it forever.
+- MEASURED 2026-08-12 at c817321 during a fleet parity run: two of three hosts
+  hung at 99%, logging "[vpn-killswitch] fx_site: auto-cycling tunnel",
+  "cycle FAILED, holding killed", then "[gw1] node down: Not properly
+  terminated". Load 0.00 with pytest still resident and no output for 44
+  minutes.
+- pytest-timeout structurally cannot catch this: the timeout is enforced INSIDE
+  the worker process, and the worker is what died. A run that hangs at 99%
+  reads as a slow suite rather than a defect, which is how it survived.
+- BD_DISABLE_KEEPALIVE is the shipped flag for this exact class -- every band
+  sets it and conftest.py sets it in an autouse fixture -- and it did not gate
+  this thread. _schedule_auto_cycle now consults it, BEFORE the state mutation:
+  incrementing cycle_attempts and setting state="cycling" and then declining to
+  cycle would leave a tunnel advertising a recovery nothing is performing.
+- It had NO test coverage at all. At c817321 no file under tests/ referenced
+  _schedule_auto_cycle, _auto_cycle_worker, auto_cycle or cycle_attempts, so
+  the path that kills workers had no denominator in which a missing guard could
+  appear.
+- New gate tests/test_v3_66_1050_killswitch_autocycle_respects_the_keepalive_flag.py
+  asserts BOTH directions: no thread under the flag, and a thread still
+  scheduled with the flag POPPED. The control is the more important half --
+  deleting auto-cycle outright would pass the gate and silently destroy a real
+  recovery feature. It also replaces the worker with a recorder, because a test
+  that let the real one run would perform the very tunnel stop/start this cut
+  exists to keep out of the suite.
+
 ## v3.66.1049
 
 - Item 48's second mechanism, fixed at the leaker. test_v3_66_1021's
