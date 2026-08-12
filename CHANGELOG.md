@@ -4,6 +4,60 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1062
+
+Vision probes are images a backend will actually load. And the CSRF failures on
+this branch are attributed: they are ledger item 48, not this cut.
+
+THE DEFECT. Three places send a hardcoded PNG to a vision model and all three
+sent a 1x1 pixel. MEASURED on test5, one variable (image size), host/model/
+request shape fixed: 1x1 -> HTTP 400 "Failed to load image or audio file",
+2x2/8x8/32x32 -> 200. The same 1x1 against test4's older ollama 0.32.4 -> 200.
+So BD's vision path is fine and the payload was degenerate; a stricter backend
+stopped accepting it. One of the three is PRODUCT code -- llm_readiness.py
+probes capability="vision" with it -- so BD's own readiness report told an
+operator the vision model was broken while it worked. Live check L18 was the
+visible symptom. Replaced with a 16x16 (86 bytes), verified returning "ok" on
+BOTH ollama versions.
+
+WHAT THE OLD TEST COULD NOT SEE: test_u39's test_embedded_png_is_valid asserts
+PNG magic and len > 0 -- it certifies the payload is WELL-FORMED and never asks
+whether it is USABLE. A 1x1 passes both.
+
+SIX DEFECTS FOUND IN ADVERSARIAL REVIEW, all in this cut, none by me:
+ * integrations_diag reported a hardcoded "test_image_bytes": 68 while sending
+   86 -- a diagnostic lying about its own input -- and its test asserted 68
+   against that same 68, constant against constant, green whatever was sent.
+   Both now derive from the payload.
+ * the new scanner matched DOUBLE-quoted literals only, so a single-quoted
+   probe was invisible and the gate would report the tree clean;
+ * it also broke after the FIRST literal per file, so a second probe appended
+   below a good one was outside its denominator -- and checks.py, 1900+ lines
+   with its probe near the end, is exactly where the next one gets appended;
+ * the plan doc still carried the rejected 1x1 as its code sample, outside
+   every gate, ready to be copied back in;
+ * "18 bytes larger" was true only of checks.py (the other two were 70 and 67);
+ * _MIN_DIM was 8 while the only assertion on it was >= 2, so the margin the
+   docstring argued for was enforced nowhere.
+
+THEN THE GATE FAILED ON ITS OWN FIXTURES. The synthetic 1x1 added to prove the
+scanner can SEE a 1x1 is itself an embedded 1x1 in a tracked .py -- section 0's
+comments-are-in-the-denominator trap, in data form. Fixed with a one-file
+exemption, factored into a named _excluded() predicate because a mutant
+widening it to all of tests/ ESCAPED: no probe lives there today, so nothing
+could notice the denominator shrinking. Battery: 5 caught, 0 escaped.
+
+THE CSRF 403s ON THIS BRANCH ARE NOT THIS CUT, and this is recorded so the next
+reviewer does not re-open it. They are ledger item 48's second mechanism:
+app.py:814 _csrf_key is module-level, so a fresh module EXECUTION mints a new
+one; test_v3_66_780 binds `from bulk_downloader.app import app` at module scope
+(:44) and its before_request validator reads that frozen module's globals,
+while app_csrf.py:16-19 mints LATE via importlib at call time. The leaker is
+tests/test_v3_66_1034_guards_survive_a_module_wipe.py::test_zzz_a_wipe_happens.
+Isolated: same two files, same order, deselecting ONLY the wiper -> 18 passed,
+1 deselected; with it -> 7 failed. Reverse order -> 19 passed. Reproduced at
+the parent commit in a clean worktree, and with this cut's files stashed.
+
 ## v3.66.1061
 
 Backlog statuses reconciled after four cuts. Documentation only.
