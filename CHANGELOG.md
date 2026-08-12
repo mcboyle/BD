@@ -4,6 +4,37 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1058
+
+capture.sh states what its verdict does NOT cover. Backlog row 54.
+
+WHY. capture.sh is the box gate and its last line is the only line anybody
+reads, so a PASS that names nothing it could not look at is the
+gate-reports-OK-while-blind shape. The socket recorder is the model: it prints
+its blind spots on every run rather than burying them in a README.
+
+WHAT IS NOW PRINTED, after the verdict and tee'd into the bundle as
+11_BLIND_SPOTS.txt. (1) CROSS-FILE STATE LEAKS are invisible here: the two
+lanes are -m capture_parallel --dist loadfile and serial -n 0, neither of which
+reproduces a whole-suite co-batched run, so a sys.modules wipe that orphans a
+later module's import-time binding cannot fire. MEASURED at v3.66.1034: test6
+passed capture at 15547/0 carrying all 14 known leakers while a plain
+pytest tests/ on the same commit failed between 5 and 35. (2) TIMEZONE
+defects cannot reproduce on a UTC box; the zone is resolved live rather than
+asserted.
+
+THE MUTANT THAT ESCAPED, AND WHY THE FIX IS THE INTERESTING PART. A first
+battery of 5 caught 4. The escape replaced one echo with `: # <the same words
+as a comment>`: every needle was still in the source, so every text-reading
+assertion stayed green while the line stopped printing. Source text is not
+output. Closed by EXECUTING the block -- extracted on structure, not on a fixed
+width -- and asserting its stdout and its artifact. Re-run: 5 caught, 0 escaped.
+
+Also fixed in review: a needle scoped to the whole file rather than the block
+(`loadfile` passed BEFORE the feature existed, since the lane invocation names
+it 700 lines above), and an assertion that $BLIND_SPOTS was ASSIGNED without
+asserting anything WRITES to it -- a `> /dev/null` mutant escaped that one.
+
 ## v3.66.1057
 
 The session close for v3.66.1041-1056, written sixteen cuts late. Documentation
