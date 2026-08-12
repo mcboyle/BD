@@ -4,6 +4,41 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1054
+
+- Batch B: work this fleet launches is now killable whole and bounded in time.
+  Backlog rows 88 and 90, one model -- something is started and nobody owns its
+  lifetime.
+- 88: bd-jobs reap killed the REGISTERED pid and nothing beneath it. Measured
+  2026-08-12: a parity driver was registered, its pytest child was not, and
+  reaping the driver left the pytest running; that orphan then failed
+  deploy.sh's step-0 preflight on two hosts, so every deploy refused until it
+  was found by hand. The tool whose subject is untracked work produced
+  untracked work.
+- The repair is two-sided because killpg is NOT the obvious one-liner:
+  os.killpg on a pid that is not its own group leader signals the LAUNCHER's
+  group -- the session shell and everything above it. So bd-jobs run now
+  launches with start_new_session=True, and reap VERIFIES leadership before
+  signalling the group. When it cannot, it kills the single pid and SAYS the
+  children survived and are unregistered, because a reap that silently covers
+  less than it claims is how 88 happened.
+- 90: nothing bounded a run whose xdist WORKER died. pytest-timeout is enforced
+  INSIDE the worker, so when the worker dies there is nothing left to fire it
+  -- measured three times as "[gwN] node down" at ~99% then load 0.00 with
+  pytest resident and no output for 44 minutes. bd-run gains --max-seconds, a
+  cap in the PARENT. A bound that shares a fate with the thing it bounds is not
+  a bound.
+- A CAPPED RUN NEVER READS AS A PASS: exit 124 (coreutils timeout's
+  convention, and it cannot collide with pytest's 0-5) and a verdict line that
+  says CAPPED and states it is an unfinished run. Returning 0 would convert an
+  unbounded hang into a false green, which is worse than the hang.
+- THE CONTROL CAUGHT A DEFECT IN ITS OWN TEST, which is the lesson worth
+  keeping. The over-sensitivity check asserted `"CAP" not in stdout.upper()`
+  and failed on a correct implementation, because tmp_path is derived from the
+  test's NAME -- the directory was ..._does_not_cap_a_com0 and the substring
+  matched the LOG PATH. A predicate over a denominator containing something
+  that was not its subject. Both assertions now match the exact emitted token.
+
 ## v3.66.1053
 
 - Batch A of the improvement backlog: nine discipline rows, one doc-only cut,
