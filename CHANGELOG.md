@@ -4,6 +4,21 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1056
+
+- Batch D, fleet chores. Row 51 closed: .85 carried BOTH
+  /etc/sudoers.d/90-mboyle-codex and 90-mboyle-nopasswd with byte-identical
+  rules. The codex one is vestigial from the CODEX_HANDOFF era retired at
+  v3.66.842, and the other three hosts carry only the latter -- so the fleet
+  itself named which to remove. Removed with a backup, visudo -c validated and
+  passwordless sudo re-verified before and after.
+- Row 13 is left OPEN with its reasoning recorded rather than closed cheaply.
+  Adding a second UNRESTRICTED agent key would satisfy the row's wording and
+  deliver none of its value: the point is the scoping and eventually retiring
+  the broad key. A partial version of this row is worse than an open one,
+  because a closed row stops anyone looking at it.
+- All four hosts deployed and verified at 3.66.1055 before this cut.
+
 ## v3.66.1055
 
 - New instrument, toolchain/bin/bd-modwatch: runs [generated loader, candidate]
