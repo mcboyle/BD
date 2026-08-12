@@ -4,6 +4,41 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1070
+
+The standing grants are declared in section 9. Documentation only.
+
+Section 9 said "he runs the full suite and the capture himself" for the whole
+life of this file. That is SUPERSEDED as of 2026-08-12: captures and full-suite
+sweeps are the agent's to run. Merge-when-green and fleet deploy were already
+granted; all of them are now INDEFINITE rather than session-scoped, and
+ultracode / Fable-5 agents are at the agent's discretion under the operator's
+own condition -- token efficient and reliable, do not abuse it.
+
+WRITTEN IN CLAUDE.MD BECAUSE A STANDING GRANT CANNOT BE RE-DERIVED FROM SOURCE.
+That is section 9's existing rule, and this bullet's own predecessor is the
+proof of it: a session reading only the code would have deferred a capture to
+the operator indefinitely, or -- in the other direction -- read a merge in the
+history as unauthorized.
+
+TWO CONSTRAINTS THE CAPTURE GRANT IMMEDIATELY CREATED, both measured the night
+it was given. Never run a capture on a host whose tree you are editing: test5's
+working tree IS the deployed tree, and step [2b] compares a source-derived graph
+hash against a pin written at deploy time, so four uncommitted files turned a
+healthy capture into CAPTURE VERDICT: FAIL (graph exit=1) at v3.66.1063. And
+never edit or STASH mid-run: collection has already happened, so removing files
+leaves a collected-but-inconsistent state and the suite fails instead --
+measured at v3.66.1069, where parking a cut to protect the graph pin broke the
+suite on the same host.
+
+On the agent grant, the failure mode named in the text is not cost but a
+confident wrong answer arriving with the authority of a fan-out. Eight agents
+were justified for ledger item 48, a question already answered wrongly twice;
+eleven were SLOWER than working inline at v3.66.926.
+
+What is unchanged, and is the half that has cost sessions: never claim a state
+on a box you have not measured or been told.
+
 ## v3.66.1069
 
 Item 48's wipe stops at its own file. Backlog 22 closed, and the count that
