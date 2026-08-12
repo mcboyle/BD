@@ -4,6 +4,46 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1049
+
+- Item 48's second mechanism, fixed at the leaker. test_v3_66_1021's
+  restored_logger fixture ended its finally with a bare _wipe_bd_modules(),
+  leaving the module table empty for every later test on the worker. Any test
+  module holding an import-time `from bulk_downloader import X` then kept the
+  pre-wipe object while the code under test re-imported a fresh one: two live
+  copies of one module with independent module-level state.
+- The fixture now saves the bulk_downloader entries before yielding and
+  reinstalls the exact objects afterwards, the same idiom conftest.py's
+  bd_module_wipe already uses. Its docstring already promised to "Leave the
+  ambient logger exactly as found" and kept that promise scrupulously for the
+  stdlib logger; the module table is state this suite churns just as hard, and
+  was the one thing not put back.
+- log._INITIALIZED is restored alongside the handlers, because restoring one
+  without the other leaves a module claiming an init whose handlers are gone --
+  measured, not feared.
+- MEASURED BLAST RADIUS. An AST census over all 1312 collected test files found
+  503 modules holding a module-scope bulk_downloader binding used inside a
+  function body. Sampling 105 of them against this one leaker flipped 14
+  green->red (13.3%, Wilson 95% CI 8.1-21.2%), i.e. roughly 41-107 modules
+  would actually manifest. A control of 393 function-scope-only modules flipped
+  0 of 20 sampled, which is what makes the predicate believable in both
+  directions.
+- SCOPE, stated so nobody reads this as bigger than it is: this fixes ONE
+  leaker. Runtime measurement over the 20 non-conftest package-killers found 11
+  that genuinely orphan module objects. The other ten are the same idiom away
+  from the same repair, and that is a follow-up rather than a claim made here.
+- The obvious fix was designed and REFUTED by measurement. Generalising the
+  @1034 conftest guard to all modules fails against a leaker that deletes and
+  immediately re-imports at teardown: the guard observes no absence, classifies
+  the damage as a deliberate swap, and the same four failures reproduce with it
+  installed. A guard that watches the damage and files it as a decision is a
+  section 0 defect wearing the uniform of a fix.
+- New gate tests/test_v3_66_1049_the_leaker_restores_the_module_table.py runs
+  the leaker and a victim in one fixed-order process. It carries a control that
+  runs the victim ALONE, because without it a red pair is equally explained by
+  "the leaker orphaned the bindings" and "the victim is broken", and only one
+  of those is this cut's subject.
+
 ## v3.66.1048
 
 - Live recording's PREFERRED backend was installed by nothing. streamlink is

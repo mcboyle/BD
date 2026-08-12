@@ -81,6 +81,17 @@ def restored_logger():
     lg = logging.getLogger(_LOGGER_NAME)
     keep_h, keep_f = lg.handlers[:], lg.filters[:]
     keep_level, keep_prop = lg.level, lg.propagate
+    # The module table is state this suite churns exactly as hard as the stdlib
+    # logger above, and the docstring's promise covers it too. Leaving it wiped
+    # orphans every later test module that holds an import-time
+    # `from bulk_downloader import X`: that module keeps the pre-wipe object
+    # while the code under test re-imports a fresh one, so the two run on
+    # independent module-level state. Same idiom as tests/conftest.py's
+    # bd_module_wipe.
+    saved_mods = {k: v for k, v in sys.modules.items()
+                  if k == "bulk_downloader" or k.startswith("bulk_downloader.")}
+    _log_before = saved_mods.get("bulk_downloader.log")
+    keep_init = getattr(_log_before, "_INITIALIZED", None)
     try:
         yield lg
     finally:
@@ -91,7 +102,14 @@ def restored_logger():
         lg.handlers[:] = keep_h
         lg.filters[:] = keep_f
         lg.level, lg.propagate = keep_level, keep_prop
-        _wipe_bd_modules()
+        _wipe_bd_modules()                 # drop every incarnation this test made
+        sys.modules.update(saved_mods)     # reinstall the EXACT objects holders point at
+        # The MODULE half of the same state. `_INITIALIZED` describes the
+        # handlers just put back; restoring one without the other leaves a
+        # module claiming an init whose handlers are gone -- this file's own
+        # defect, manufactured by its own cleanup. Measured, not feared.
+        if _log_before is not None:
+            _log_before._INITIALIZED = keep_init
 
 
 def _build_logger_once():
