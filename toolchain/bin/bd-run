@@ -51,6 +51,17 @@ def strip_ansi(text):
     return _ANSI.sub("", text)
 
 
+def plain_env(base=None):
+    """A child environment that will not colourise. Stripping alone is not
+    enough: this box exports FORCE_COLOR=3, so the log on disk -- the artifact
+    somebody reads later with grep -- is full of escapes either way."""
+    env = dict(base if base is not None else os.environ)
+    env.pop("FORCE_COLOR", None)
+    env.pop("PY_COLORS", None)
+    env["NO_COLOR"] = "1"
+    return env
+
+
 def prune(directory, keep):
     """Bound the retention. Creating a path is a promise to remove it."""
     logs = sorted(pathlib.Path(directory).glob("*.log"),
@@ -148,7 +159,8 @@ def run(args):
     # first second, which is the whole reason the log exists.
     print("bd-run: %s -> %s" % (args.label, log), flush=True)
     with open(log, "wb") as fh:
-        proc = subprocess.Popen(parts, stdout=fh, stderr=subprocess.STDOUT)
+        proc = subprocess.Popen(parts, stdout=fh, stderr=subprocess.STDOUT,
+                                env=plain_env())
         rc = proc.wait()
 
     body = log.read_text(encoding="utf-8", errors="replace")

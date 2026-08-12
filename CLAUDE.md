@@ -911,6 +911,26 @@ denominator** — a gate whose enumeration lives one import away is invisible to
 it, and there is no reason to believe this is the only one. When a cut adds a
 test file, regenerate `PIN_INDEX` regardless of what the grep returned.
 
+**A GREEN BAND AT ONE `-n` DOES NOT RETIRE A CROSS-FILE FAILURE.** Measured over
+v3.66.1042-1045 on one commit and one band: **8 failures at `-n 32` on an
+86-core box, 0 at `-n 28` on the same box, 0 under xdist on a 64-core box, and
+the same 8 again on the next run at 32.** The failing tests pass 14/14 in
+isolation everywhere. The cause is a real defect — a test that wipes
+`bulk_downloader.*` from `sys.modules` orphans any later test module holding an
+import-time `from bulk_downloader import …` binding — and whether it FIRES
+depends on whether `--dist loadfile` puts the leaker and the victim on the same
+worker, which depends on the worker count, the file count and the machine.
+
+So the failure set is a property of the **schedule**, not of the tree, and three
+reflexes are wrong here. A green band does not mean fixed. A red band does not
+mean this cut broke it. And a comparison across two hosts says nothing unless
+their core counts match — the fleet's do not (86/44/64), which is why the
+`.164` vs `.249` difference above could not settle anything. Compare a
+distribution against the same worker count on the same box, and use `bd-ab`,
+which refuses a single sample for this reason. `tests/_run_context.py` now
+records the worker count and load beside every result so the comparison is
+possible at all.
+
 ---
 
 ## 5 | Environment traps
