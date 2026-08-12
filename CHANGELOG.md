@@ -4,6 +4,41 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1052
+
+- The improvement backlog is machine-visible. It was backlog item 85 OF ITSELF:
+  86 items produced by a review that called them the most valuable artifact of
+  its session, living in an untracked file in the operator's home that no gate
+  read. The demonstration arrived 2026-08-12, when a session with full
+  authority to work the backlog could not find it and the operator had to say
+  where it was. The list was not wrong; nothing could see it.
+- project-knowledge/IMPROVEMENT_BACKLOG.md is tracked, ASCII, one row per item,
+  and tests/test_v3_66_1052_the_backlog_is_machine_visible.py reads it. 86 rows
+  parse: 57 CLOSED, 26 OPEN, 3 MOOT.
+- MOOT is deliberately distinct from CLOSED: the subject went away rather than
+  the work being done. Collapsing them would let a disappeared problem read as
+  a solved one. Three rows are MOOT -- reimaging .249 twice over (the clean
+  role moved to test7 instead) and bd-gc --apply (the rebuild collected the
+  litter).
+- The gate checks what a machine CAN check -- the file parses, ids are unique,
+  every status is known, every terminal row cites evidence, no OPEN row carries
+  an evidence marker -- and explicitly NOT whether a status is true, because no
+  test can know that and one that pretended to would assert over a subject it
+  cannot see.
+- The backlog's ids are its OWN namespace, not the ITEM LEDGER's: backlog 21 is
+  the row whose subject is ledger item 48. Three numbering schemes were once
+  reconciled at 15.35/15.36 after exactly this confusion, so the gate asserts
+  nothing across the two.
+- Proven non-vacuous by a four-mutant battery rather than by passing on first
+  write: duplicate id, CLOSED without evidence, unknown status, and OPEN
+  carrying evidence were each introduced and each caught, with the baseline
+  green and the file restored by sha.
+- Four items closed by this session's own work are recorded with their
+  evidence: 21 (@1049), 52 (@1048), 85 (@1052), 87 (@1050). Three new OPEN
+  items were found while working: 88 (bd-jobs reap orphans its children), 89
+  (the corpus survives neither a rebuild nor a deploy), 90 (a dead xdist worker
+  hangs the suite unboundedly, because pytest-timeout runs inside the worker).
+
 ## v3.66.1051
 
 - The clean-host bring-up proof is TAKEN and recorded, on .84/test7
