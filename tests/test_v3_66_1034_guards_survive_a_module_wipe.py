@@ -172,7 +172,13 @@ def test_the_registry_adopts_the_module_it_repatched():
 
 # --- THE RATCHET -------------------------------------------------------------
 
-_LEAK_BUDGET = 14
+# 14 -> 13 at v3.66.1055. v3.66.1049 restored the module table in
+# test_v3_66_1021's fixture, which dropped it out of this detector, and that cut
+# did NOT lower the pin -- exactly what the docstring below tells you to do "in
+# the same cut". The ratchet cannot catch a budget left too HIGH: it is
+# one-directional by design, so a stale pin is silent and simply stops gating
+# the next regression. Measured at d8c9e4c: 13.
+_LEAK_BUDGET = 13
 
 
 def _module_wipe_leakers():

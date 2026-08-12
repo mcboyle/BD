@@ -60,13 +60,13 @@ problem read as a solved one.
 | 19 | CLOSED @1044 | auto-size -n from nproc and record the value |
 | 20 | CLOSED @1053 -- was ALREADY in s1 before this cut; verified verbatim, not re-added | state the denominator in every reported count, mechanically |
 | 21 | CLOSED @1049 | ledger item 48's SECOND MECHANISM: the leaker left sys.modules wiped, orphaning import-time bindings |
-| 22 | OPEN | fix the remaining sys.modules leakers -- 11 measured to genuinely orphan, 1 fixed at @1049, 10 left |
+| 22 | OPEN | fix the remaining sys.modules leakers. The "11 orphaners" figure is UNVERIFIED -- bd-modwatch reports 0 for those files in a two-file harness. Re-derive before acting; 1 fixed at @1049 |
 | 23 | CLOSED @1044 | record the --dist loadfile worker assignment (recorded, NOT pinned) |
 | 24 | CLOSED @1044 | per-worker chain logging |
 | 25 | OPEN | quarantine or annotate known-rotating tests |
 | 26 | OPEN | a vacuous-test detector (hard: "can this assertion fail?") |
 | 27 | OPEN | cross-test over-sensitivity controls when the subject is a fixture |
-| 28 | OPEN | a WRITE-recorder: the filesystem analogue of the socket recorder |
+| 28 | CLOSED @1055 | a WRITE-recorder: the filesystem analogue of the socket recorder |
 | 29 | CLOSED @1038 | ast.parse -> import-and-resolve, recorded in CLAUDE.md s6 |
 | 30 | CLOSED @1036 | record load-dominance |
 | 31 | CLOSED @1036 | record "a failed deploy leaves the service down" |
