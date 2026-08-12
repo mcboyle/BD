@@ -33,10 +33,34 @@ import tempfile
 
 _FAILLINE = re.compile(r"^FAILED .*$", re.M)
 
+# ANSI IS IN THE DENOMINATOR OF EVERY LINE-ANCHORED MATCH, and whether it is
+# there depends on who launched you: this environment exports FORCE_COLOR=3, so
+# pytest colourises even into a pipe, while the same tool run over ssh from a
+# nohup shell gets plain text. MEASURED at v3.66.1046 on the pre-fix code:
+# bd-ab's failure parser returned an EMPTY SET for a coloured FAILED line, and
+# bd-ab's entire output is failure counts -- it would have compared zeros and
+# reported NOT DISTINGUISHED. Neutralised at the source (the child env below)
+# AND stripped defensively, because either one alone leaves the other launcher.
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def strip_ansi(text):
+    return _ANSI.sub("", text)
+
+
+def plain_env(base=None):
+    """A child environment that will not colourise."""
+    env = dict(base if base is not None else os.environ)
+    env.pop("FORCE_COLOR", None)
+    env.pop("PY_COLORS", None)
+    env["NO_COLOR"] = "1"
+    return env
+
 
 def failures(text):
     """The set of failing node ids, message suffix stripped."""
-    return {ln.split(" - ")[0].strip() for ln in _FAILLINE.findall(text)}
+    return {ln.split(" - ")[0].strip()
+            for ln in _FAILLINE.findall(strip_ansi(text))}
 
 
 def compare(a_counts, b_counts):
@@ -71,7 +95,7 @@ def _git_show(rev, path):
 
 
 def sample(pytest_args, log):
-    env = dict(os.environ)
+    env = plain_env()
     env.setdefault("BD_DISABLE_KEEPALIVE", "1")
     r = subprocess.run([sys.executable, "-m", "pytest", *pytest_args],
                        capture_output=True, text=True, env=env)
@@ -159,6 +183,13 @@ def selftest(_args):
     if failures("FAILED tests/a.py::x - boom\nFAILED tests/b.py::y\n") != {
             "FAILED tests/a.py::x", "FAILED tests/b.py::y"}:
         failures_.append("failure-line parsing dropped or mangled a node id")
+    if failures("\x1b[31mFAILED tests/a.py::x\x1b[0m - boom\n") != {
+            "FAILED tests/a.py::x"}:
+        failures_.append("a COLOURED failed line was invisible -- this tool "
+                         "reports nothing but failure counts, so it would have "
+                         "compared zeros")
+    if plain_env({"FORCE_COLOR": "3"}).get("FORCE_COLOR") is not None:
+        failures_.append("plain_env left FORCE_COLOR set in the child")
 
     ok, sentence = compare([1, 2, 3], [10, 11])
     if not ok or "MORE" not in sentence:

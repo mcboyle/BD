@@ -4,6 +4,61 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1046
+
+Three gates for three failures this session found by luck, plus an ANSI fix in
+two tools. Tests, gates and toolchain only; no production source is touched.
+
+Each of the three shipped or nearly shipped in batches D/B/E, none was caught by
+review, and each was caught by an unrelated accident:
+
+  1. A test handed its own file to a subprocess pytest. Every spawned run
+     spawned two more -- 301 processes, killed by hand, no test result at all.
+     Noticed because the run hung.
+  2. pytest_terminal_summary was defined twice in one conftest, so the second
+     silently replaced the socket recorder's. Python keeps the last definition;
+     no error, no warning, green suite. Noticed because a line went missing.
+  3. A test registered a job in the REAL /tmp/bd-jobs -- 410 entries, one per
+     run per xdist worker. Noticed because bd-fleet was run for another reason
+     and its jobs column read 410 beside pytest 0.
+
+ANSI FIX, and it is the one with teeth. This box exports FORCE_COLOR=3, so
+pytest colourises even into a pipe, while the same tool launched over ssh from a
+nohup shell gets plain text -- so a line-anchored parser works or does not work
+depending on WHO RAN IT. MEASURED pre-fix: bd-ab's failure parser returned an
+EMPTY SET for a coloured FAILED line, and bd-ab reports nothing but failure
+counts, so it would have compared zeros and said NOT DISTINGUISHED forever.
+bd-ladder degraded to UNKNOWN everywhere and could never have bracketed
+anything. Both now strip escapes AND hand their children a non-colouring
+environment, because either alone leaves the other launcher broken -- and the
+log ON DISK, the artifact somebody greps a week later, needs the second one.
+
+CLAUDE.md section 4 gains "a green band at one -n does not retire a cross-file
+failure": one commit and one band gave 8 failures at -n 32, 0 at -n 28 on the
+same box, 0 on a 64-core box, and 8 again at 32. The failure set is a property
+of the schedule, so a green band does not mean fixed, a red band does not mean
+this cut broke it, and a cross-host comparison says nothing while the fleet's
+core counts differ.
+
+MUTATION: 9 mutants, 9 caught -- but only after a first battery in which FOUR
+escaped, every one of them a gate whose own logic was untested while its verdict
+over a clean tree stayed green. The decisions are now pure functions with
+controls. Two other things the controls found before CI could: the fork-bomb
+scan was line-based and missed the ordinary multi-line spawn (the filename and
+the word pytest are on different lines), and its first AST rewrite fired on
+test_desandbox_tool_verifiers.py, where the filename sits in a DATA literal --
+over-sensitivity is a soundness bug, not a safe default.
+
+A FOURTH THING THE BAND FOUND, in the gate itself: it asserted "at most one new
+run directory" and went red at -n 28, reporting 8. Twenty-eight sibling workers
+were starting their own pytest runs against the same global directory while it
+measured. Counting a shared resource from inside a parallel suite measures the
+suite. It now ATTRIBUTES -- the inner run names its own directory in its output,
+so that is the one asked about.
+
+RED-first: tests/test_v3_66_1046_gates_for_this_sessions_shapes.py, 13 tests,
+declared in the measurement-tools CI shard.
+
 ## v3.66.1045
 
 A test was writing to the REAL bd-jobs registry. Test-only; no tool or source
