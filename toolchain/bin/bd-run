@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""bd-run -- run a command, keep EVERYTHING on disk, print only the verdict.
+
+WHY THIS EXISTS. Twice in one session a long pytest run was piped straight
+through `grep`, and both times the tracebacks were gone by the time the result
+turned out to be surprising -- twelve minutes each to get them back. "Do not put
+it in my context" and "do not capture it" are different instructions, and
+conflating them destroys the evidence exactly when you need it. Disk is free
+here; only the summary costs anything.
+
+WHAT IT REFUSES TO DO, which is the part worth reading:
+
+  * It never derives its exit code from a match count. `grep -c` prints 0 and
+    exits 1 when nothing matches, and a bring-up script built on that reported
+    failure on a run where every step succeeded. bd-run's exit code is the
+    child's exit code and nothing else.
+  * It never reports a pass it did not see. A run with no recognisable summary
+    line prints SUMMARY UNKNOWN and says the log is the only authority --
+    unknown is a third state, and it does not round down to OK.
+  * It never truncates silently. If more failures were found than printed, the
+    line says so with both numbers.
+"""
+import argparse
+import os
+import pathlib
+import re
+import subprocess
+import sys
+import tempfile
+
+DEFAULT_DIR = os.environ.get("BD_RUN_DIR") or "/tmp/bd-run"
+DEFAULT_KEEP = 50
+DEFAULT_SHOW = 40
+
+# `12 failed, 300 passed, 4 warnings in 61.2s` and every shorter variant.
+_SUMMARY = re.compile(r"^=*\s*\d+ (?:failed|passed|error|skipped|xfailed)\b.*$",
+                      re.M)
+_FAILLINE = re.compile(r"^(?:FAILED|ERROR) .*$", re.M)
+
+
+def prune(directory, keep):
+    """Bound the retention. Creating a path is a promise to remove it."""
+    logs = sorted(pathlib.Path(directory).glob("*.log"),
+                  key=lambda p: p.stat().st_mtime, reverse=True)
+    for stale in logs[keep:]:
+        try:
+            stale.unlink()
+        except OSError:
+            pass
+    return len(logs[keep:])
+
+
+def verdict(text, show=DEFAULT_SHOW):
+    """Render the verdict block for a log body. Pure, so it is testable."""
+    fails = _FAILLINE.findall(text)
+    out = []
+    for line in fails[:show]:
+        out.append(line.split(" - ")[0])
+    if len(fails) > show:
+        # STATE THE DENOMINATOR. A truncated list that does not say it is
+        # truncated reads as the whole set, and the reader acts on it.
+        out.append("... showing %d of %d failure lines -- the rest are in the log"
+                   % (show, len(fails)))
+    summaries = _SUMMARY.findall(text)
+    if summaries:
+        out.append(summaries[-1].strip())
+    else:
+        # NOT "0 failures". The run may have died before it could summarise, and
+        # a missing summary is the loudest signal there is that it did.
+        out.append("SUMMARY UNKNOWN -- no pytest summary line in the output. "
+                   "This is not a pass; read the log.")
+    return out
+
+
+def run(args):
+    parts = list(args.command or [])
+    if parts and parts[0] == "--":
+        parts = parts[1:]          # argparse.REMAINDER keeps the separator
+    if not parts:
+        print("bd-run: REFUSED: no command given. Use: bd-run --label L -- <cmd>",
+              file=sys.stderr)
+        return 2
+
+    d = pathlib.Path(args.dir)
+    d.mkdir(parents=True, exist_ok=True)
+    log = d / ("%s.log" % args.label)
+    # THE PATH FIRST, AND FLUSHED. A verdict-only tool prints nothing for the
+    # length of the run, so an operator watching a five-minute band cannot tell
+    # it from a hang. Naming the log up front makes `tail -f` possible from the
+    # first second, which is the whole reason the log exists.
+    print("bd-run: %s -> %s" % (args.label, log), flush=True)
+    with open(log, "wb") as fh:
+        proc = subprocess.Popen(parts, stdout=fh, stderr=subprocess.STDOUT)
+        rc = proc.wait()
+
+    body = log.read_text(encoding="utf-8", errors="replace")
+    print("=== %s (exit=%d) ===" % (args.label, rc))
+    for line in verdict(body, args.show):
+        print(line)
+    removed = prune(d, args.keep)
+    print("--- full log: %s (%d lines)%s ---"
+          % (log, body.count("\n"),
+             "; pruned %d older" % removed if removed else ""))
+    # THE CHILD'S CODE, NEVER A DERIVED ONE.
+    return rc
+
+
+def selftest(_args):
+    failures = []
+    with tempfile.TemporaryDirectory() as td:
+        ns = argparse.Namespace(dir=td, keep=DEFAULT_KEEP, show=DEFAULT_SHOW)
+
+        # 1. A successful command with nothing to grep must still exit 0. This
+        # is the bring-up script's inverted verdict, mechanised.
+        ns.label, ns.command = "ok", ["true"]
+        if run(ns) != 0:
+            failures.append("a command that exited 0 was reported nonzero")
+
+        # 2. The child's failure code survives.
+        ns.label, ns.command = "bad", ["sh", "-c", "exit 7"]
+        if run(ns) != 7:
+            failures.append("the child's exit code was not passed through")
+
+        # 3. Nothing is filtered at capture time.
+        ns.label, ns.command = "keep", ["sh", "-c", "echo needle; echo FAILED x"]
+        run(ns)
+        if "needle" not in (pathlib.Path(td) / "keep.log").read_text():
+            failures.append("output was discarded instead of written to the log")
+
+        # 4. No summary line is UNKNOWN, not a pass.
+        block = "\n".join(verdict("some output with no pytest summary\n"))
+        if "SUMMARY UNKNOWN" not in block:
+            failures.append("a run with no summary line did not say UNKNOWN")
+
+        # 5. Truncation states both numbers.
+        many = "".join("FAILED tests/t%d.py::x - boom\n" % i for i in range(60))
+        block = "\n".join(verdict(many, show=10))
+        if "showing 10 of 60" not in block:
+            failures.append("a truncated failure list did not state its denominator")
+
+        # 6. Retention is bounded.
+        for i in range(5):
+            (pathlib.Path(td) / ("filler%d.log" % i)).write_text("x")
+        prune(td, 2)
+        if len(list(pathlib.Path(td).glob("*.log"))) > 2:
+            failures.append("prune left more logs than --keep allows")
+
+        # 7. An empty command is a refusal.
+        ns.label, ns.command = "empty", ["--"]
+        if run(ns) != 2:
+            failures.append("an empty command was not refused")
+
+    for f in failures:
+        print("SELFTEST FAIL: %s" % f, file=sys.stderr)
+    if failures:
+        return 1
+    print("SELFTEST PASS: exit passthrough, full capture, unknown summary, "
+          "denominator, retention, refusal")
+    return 0
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        description="run a command, keep the full output on disk, print the verdict")
+    p.add_argument("--label", default="run", help="log basename (default: run)")
+    p.add_argument("--dir", default=DEFAULT_DIR,
+                   help="log directory (default: $BD_RUN_DIR or /tmp/bd-run)")
+    p.add_argument("--keep", type=int, default=DEFAULT_KEEP,
+                   help="how many logs to retain (default: %d)" % DEFAULT_KEEP)
+    p.add_argument("--show", type=int, default=DEFAULT_SHOW,
+                   help="failure lines to print (default: %d)" % DEFAULT_SHOW)
+    p.add_argument("--selftest", action="store_true")
+    p.add_argument("command", nargs=argparse.REMAINDER)
+    args = p.parse_args(argv)
+    if args.selftest:
+        return selftest(args)
+    return run(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

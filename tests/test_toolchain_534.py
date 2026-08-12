@@ -491,7 +491,8 @@ def test_the_tools_this_cut_added_are_wired_and_selftest_clean():
     difference between the 76 tools that are invoked and the 166 that are not.
     """
     root = str(_REPO_ROOT)
-    for tool in ("bd-mutate", "bd-claim", "bd-bandcheck", "bd-freshcheck", "bd-jobs"):
+    for tool in ("bd-mutate", "bd-claim", "bd-bandcheck", "bd-freshcheck",
+                 "bd-jobs", "bd-run", "bd-ladder", "bd-ab", "bd-fleet", "bd-gc"):
         path = os.path.join(root, "toolchain", "bin", tool)
         assert os.path.isfile(path), "%s is missing" % tool
         r = subprocess.run([sys.executable, path, "--selftest"],
