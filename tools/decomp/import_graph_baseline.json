@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3829,
+  "edge_count": 3830,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4381,6 +4381,9 @@
     ],
     "tests/test_v3_66_104_cockpit_clickable.py": [
       "tools/cockpit_console.py"
+    ],
+    "tests/test_v3_66_1050_killswitch_autocycle_respects_the_keepalive_flag.py": [
+      "bulk_downloader/vpn_kill_switch.py"
     ],
     "tests/test_v3_66_105_band_b.py": [
       "bulk_downloader/capture_ingest.py",

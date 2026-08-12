@@ -35,6 +35,7 @@ switch in vpn_kill_switch_system.py is the opt-in heavier alternative.
 """
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import time
@@ -239,7 +240,25 @@ def _fire_callbacks(tunnel_id: str, new_state: str) -> None:
 
 def _schedule_auto_cycle(tunnel_id: str) -> None:
     """Fire a background thread that waits CYCLE_BACKOFF_S then attempts
-    one cycle of the tunnel. Limited by MAX_AUTO_CYCLE_ATTEMPTS."""
+    one cycle of the tunnel. Limited by MAX_AUTO_CYCLE_ATTEMPTS.
+
+    NOT under BD_DISABLE_KEEPALIVE. That flag means "no background thread may
+    outlive the run that started it", and this is exactly such a thread: it
+    sleeps CYCLE_BACKOFF_S and then performs a REAL tunnel stop/start. Under
+    pytest the arming test is long finished by then and an unrelated test owns
+    the worker, so the teardown kills it -- measured 2026-08-12 on two of three
+    fleet hosts as `[gw1] node down: Not properly terminated` at 99%, followed
+    by an unbounded hang. pytest-timeout cannot save it: the timeout is
+    enforced inside the worker that just died.
+
+    Checked BEFORE the state mutation below, deliberately. Incrementing
+    cycle_attempts and setting state="cycling" and THEN declining to cycle
+    would leave the tunnel advertising an in-flight recovery that nothing is
+    performing -- a state that lies about work, which is worse than the absent
+    feature it is standing in for.
+    """
+    if os.environ.get("BD_DISABLE_KEEPALIVE"):
+        return
     with _state_lock:
         s = _states.get(tunnel_id)
         if s is None:
