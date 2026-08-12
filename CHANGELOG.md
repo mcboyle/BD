@@ -4,6 +4,67 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1044
+
+Batch E: a suite result now carries the machine it came from, and every worker
+records the file chain it actually ran. NEW tests/_run_context.py; conftest.py
+and toolchain/bin/bd-run wired to it. No production source is touched.
+
+WHY. Two full-suite runs of the same tree in one session reported 1 failure and
+35, and nothing in either result recorded that the second had four other suites
+sharing the box. Every conclusion drawn from a single run that session had to be
+retracted and one prediction was wrong. Separately, item 48 was bracketed twice
+by replaying ONE xdist worker's real file chain, and both times that chain had
+to be rebuilt by hand out of `-v` output.
+
+The terminal summary now always prints host, cores, worker count and where it
+came from, dist mode, and load at start and end -- unconditionally, because a
+context line that appears only when something looks wrong is a line nobody
+learns to read, and the number it qualifies is the failure count everybody
+reads. It adds a NOTE when the run's shape makes its result incomparable: the
+box was already loaded, -n oversubscribes the cores, or a serial run on a large
+box.
+
+Each worker appends the files it executes to its own chain file, deduped and in
+first-seen order, reopened per write so a worker killed mid-run still leaves a
+readable chain. The master writes NO chain: it runs nothing and re-emits every
+worker's events interleaved, which under a transition rule turned three test
+files into a 32-entry "chain" on the first xdist run. An assignment.json records
+file -> worker with the run context beside it, and the summary prints the
+bd-ladder command that replays one worker exactly.
+
+STATED, NOT SOLVED: this makes a run REPRODUCIBLE, not DETERMINISTIC.
+`--dist loadfile` hands files to whichever worker is free and nothing here pins
+that. What is delivered is the assignment that DID happen, replayable.
+
+bd-run gains --auto-n, sizing -n from the box when the command is pytest and
+nobody chose one, and refusing to override a choice in any of its spellings
+(`-n 4`, `-n4`, `--numprocesses=8`). The divisor is measured, not preferred: on
+a 64-core box over the same 158-file band, -n 8 took 224s, -n 16 190s, -n 32
+182s and -n 64 223s, so both ends are slower than the middle and cores//3 sits
+in the flat fast zone. Wall clock only -- each cell's failure count is a single
+sample of a number that ranges 1..8 on an idle tree, and is not used.
+
+bd-run FIX, found by this cut's own band: pytest wrote its summary with ANSI
+colour in it, so `^\d+ passed` could not see it and a clean 2061-test run was
+reported SUMMARY UNKNOWN. That is the harmless direction. The same anchors carry
+the FAILED lines, so a coloured log full of failures would have been summarised
+as having none. Escapes are stripped before matching now. The tool's own third
+state is what surfaced it -- a wrapper that had guessed "no summary means no
+failures" would have reported a pass.
+
+COST, measured because this runs on every test: the recorder writes once per new
+file and every other call is a set lookup; 2000 calls over 200 files is under a
+second, and the test asserts it.
+
+MUTATION: 14 mutants over _run_context.py, conftest.py and bd-run, 14 caught.
+
+RED-first: tests/test_v3_66_1044_run_context_and_chains.py, 13 tests, declared
+in the measurement-tools CI shard. Two of them spawn pytest, and the first
+version of the xdist one handed the inner run this whole file -- 301 processes
+before it was killed, with no test result at all. Fixed with named node ids and
+a re-entry guard.
+
 ## v3.66.1043
 
 Batch B: five scratchpad scripts become tracked tools, each with the defect the
