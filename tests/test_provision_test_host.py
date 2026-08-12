@@ -3795,6 +3795,18 @@ def _run_verdict_probe(
         _VERDICT_STUB_FRAGMENT if fragment_body is None else fragment_body,
         encoding="utf-8",
     )
+    # SAME DUTY FOR THE OPTIONAL-CAPABILITY FRAGMENT (@1064). provision_test_host
+    # now sources scripts/lib/dev_capabilities.sh and records FAIL when it is
+    # unreadable, so a fake host without it makes a HEALTHY box record FAIL and
+    # the no-FAIL arms fail on the FIXTURE instead of on the subject -- which is
+    # exactly what this suite's own assertion message predicts when a step is
+    # added. The stub defines the two functions as no-ops: the verdict probe is
+    # about GRADING, not about whether postgres can actually be installed.
+    (repo / "scripts" / "lib" / "dev_capabilities.sh").write_text(
+        "bd_mod3_pg_provision(){ return 0; }\n"
+        "bd_dev_inspect_provision(){ return 0; }\n",
+        encoding="utf-8",
+    )
     _write_stub(repo / "install_linux.sh", _VERDICT_FAKE_INSTALL_LINUX)
     if provisioned:
         _write_stub(repo / "venv" / "bin" / "python", _FAKE_PYTHON)

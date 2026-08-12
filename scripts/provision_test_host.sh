@@ -232,6 +232,17 @@ fi
 # reading `. "$SOMEVAR"` names nothing.
 # shellcheck source=scripts/lib/system_deps.sh
 . "$REPO/scripts/lib/system_deps.sh"
+
+# The OPTIONAL capabilities, from the SAME file cloud-setup.sh uses. Before
+# @1064 they lived in cloud-setup.sh alone, so a host built by THIS script
+# silently skipped 21 tests that a cloud-provisioned one ran.
+if [ ! -r "$REPO/scripts/lib/dev_capabilities.sh" ]; then
+    record "dev_capabilities fragment" "FAIL" "missing $REPO/scripts/lib/dev_capabilities.sh"
+else
+    # shellcheck source=scripts/lib/dev_capabilities.sh
+    . "$REPO/scripts/lib/dev_capabilities.sh"
+    record "dev_capabilities fragment" "OK" "sourced; bd_mod3_pg_provision and bd_dev_inspect_provision defined"
+fi
 # Sourcing cleanly proves NOTHING about what was defined: a file that parses can
 # still define no functions at all, and `.` returns the status of the last
 # command it ran. Check the names.
@@ -677,6 +688,18 @@ fi
 
 # ------------------------------------------------------------- [9/9] verdict
 echo
+# ── optional dev capabilities ───────────────────────────────────
+#
+# OPTIONAL, not core: a box that cannot install postgres must WARN --
+# visibly, in the verdict -- rather than fail provisioning. The state that
+# must not recur is the third one: absent, and SILENT, which is how test4
+# came to run 21 tests the rest of the fleet skipped without anything
+# saying so (backlog 96, measured at v3.66.1062).
+run_step 08c_mod3_pg "mod3 postgres (18 mod3 tests)" optional \
+    bd_mod3_pg_provision || true
+run_step 08d_dev_inspect "bd_dev_inspect dev seam (3 redactor tests)" optional \
+    bd_dev_inspect_provision || true
+
 echo "=== [9/9] VERDICT ==="
 # Installers exiting 0 is not proof that anything imports. Prove it, and prove
 # the thing that imported is the tree in front of us.

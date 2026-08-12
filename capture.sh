@@ -154,7 +154,27 @@ CAPTURE_VAULT_DIR="/tmp/bd_capture_vault"
 CAPTURE_VAULT_FILE="$CAPTURE_VAULT_DIR/secrets.json"
 CAPTURE_VAULT_DROPIN="/etc/systemd/system/bulkdownloader.service.d/20-capture-vault.conf"
 
-if [ -t 0 ]; then
+# AN UNATTENDED CAPTURE MUST REACH THE SAME CHECKS AS AN ATTENDED ONE (@1064).
+#
+# This block used to gate solely on `[ -t 0 ]`, so every capture launched by
+# ssh, nohup, systemd or cron skipped L6/L8 -- the same shape as the mod3 DSN
+# above: a capability the box HAS, invisible to the automated gate, with the
+# verdict still reading PASS. An operator comparing an attended run against an
+# unattended one on the same host was comparing two different denominators.
+#
+# The password is taken from CAPTURE_VAULT_PW when there is no TTY. It is
+# deliberately NOT defaulted to a literal in this file: section 7 records that
+# a file naming a credential becomes a place that credential lives, and
+# gitleaks scans the PR range. Unset means skip, exactly as a blank prompt does,
+# so the default behaviour is unchanged.
+#
+# The name carries no BD_ prefix on purpose -- section 4: a BD_-prefixed name
+# enters test_gui_parity's config-surface ledger, and this is a capture-time
+# argument, not a runtime config key.
+if [ -n "${CAPTURE_VAULT_PW:-}" ]; then
+  CAPTURE_VAULT=1
+  echo "  capture vault ENABLED from CAPTURE_VAULT_PW -- the operator vault is not opened"
+elif [ -t 0 ]; then
   printf 'Capture-vault password (blank = skip the L6/L8 login checks): ' >&2
   read -rs CAPTURE_VAULT_PW
   printf '\n' >&2
@@ -165,7 +185,7 @@ if [ -t 0 ]; then
     echo "  capture vault skipped -- L6/L8 will WARN as before"
   fi
 else
-  echo "  no TTY: capture vault skipped -- L6/L8 will WARN as before"
+  echo "  no TTY and no CAPTURE_VAULT_PW: capture vault skipped -- L6/L8 will WARN"
 fi
 
 # `systemctl restart` returns once systemd has STARTED the unit, NOT once the
@@ -459,6 +479,22 @@ echo "=== [1/9] System fingerprint ==="
 echo "  done"
 
 # ── [2/9] Full suite (service must NOT be running) ────────────────
+# ── optional capability env (@1064, backlog 96) ──────────────────
+#
+# The mod3 suites read MOD3_PG_TEST_DSN from the ENVIRONMENT and nothing else.
+# It used to be exported only from ~/.bashrc, below that file's non-interactive
+# early-return, so a capture launched by ssh/nohup/systemd saw it UNSET and 18
+# tests SKIPPED while the verdict still said PASS -- a capability present on the
+# box and invisible to the gate measuring it. Sourced here so an automated
+# capture and a human one measure the SAME denominator.
+if [ -r "$HOME/.config/bd/mod3.env" ]; then
+  # shellcheck source=/dev/null
+  . "$HOME/.config/bd/mod3.env"
+  echo "  optional capability env: sourced $HOME/.config/bd/mod3.env"
+else
+  echo "  optional capability env: none at $HOME/.config/bd/mod3.env -- mod3 suites will SKIP"
+fi
+
 echo "=== [2/9] Full test suite (5-15 min) ==="
 sudo systemctl stop bulkdownloader 2>/dev/null
 STOP_REQUEST_EXIT=$?
