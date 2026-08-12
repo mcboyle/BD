@@ -41,9 +41,9 @@ problem read as a solved one.
 | id | status | item |
 | --- | --- | --- |
 | 1 | CLOSED @1043 | bd-run: promote the scratchpad wrapper to a tracked tool |
-| 2 | OPEN | generalise "never filter at capture time" beyond `head` (partly done) |
+| 2 | CLOSED @1053 | generalise "never filter at capture time" beyond `head` (partly done) |
 | 3 | OPEN | every long job writes a heartbeat file |
-| 4 | OPEN | ban estimated progress in status reports |
+| 4 | CLOSED @1053 | ban estimated progress in status reports |
 | 5 | OPEN | per-run artifact directories keyed by run id |
 | 6 | CLOSED @1040 | bd-reap, shipped as `bd-jobs reap` |
 | 7 | CLOSED @1040 | remote job registry, shipped as `bd-jobs` |
@@ -58,7 +58,7 @@ problem read as a solved one.
 | 17 | CLOSED @1043 | bd-ab, the A/B harness |
 | 18 | CLOSED @1043 | bd-ladder, the parallel prefix ladder |
 | 19 | CLOSED @1044 | auto-size -n from nproc and record the value |
-| 20 | OPEN | state the denominator in every reported count, mechanically |
+| 20 | CLOSED @1053 -- was ALREADY in s1 before this cut; verified verbatim, not re-added | state the denominator in every reported count, mechanically |
 | 21 | CLOSED @1049 | ledger item 48's SECOND MECHANISM: the leaker left sys.modules wiped, orphaning import-time bindings |
 | 22 | OPEN | fix the remaining sys.modules leakers -- 11 measured to genuinely orphan, 1 fixed at @1049, 10 left |
 | 23 | CLOSED @1044 | record the --dist loadfile worker assignment (recorded, NOT pinned) |
@@ -92,15 +92,15 @@ problem read as a solved one.
 | 54 | OPEN | add a pytest-tests/-shaped lane to capture, or state the blind spot there |
 | 55 | CLOSED @1036 | audit beats recollection (s1) |
 | 56 | CLOSED @1036 | post-cut residue audit, folded into 55 |
-| 57 | OPEN | check any instrument you build for its OWN blind spots |
-| 58 | OPEN | when the contract records a mistake class, check the change in front of you BEFORE committing |
-| 59 | OPEN | measure the cost of anything added to every test run |
-| 60 | OPEN | treat "I read the contract" as worth nothing |
+| 57 | CLOSED @1053 | check any instrument you build for its OWN blind spots |
+| 58 | CLOSED @1053 | when the contract records a mistake class, check the change in front of you BEFORE committing |
+| 59 | CLOSED @1053 | measure the cost of anything added to every test run |
+| 60 | CLOSED @1053 -- was ALREADY in s0 before this cut; verified verbatim, not re-added | treat "I read the contract" as worth nothing |
 | 61 | CLOSED @1038 | never retype an anchor containing punctuation (s6) |
 | 62 | CLOSED @1038 | edit scripts mutate in memory, write once (s6) |
 | 63 | CLOSED @1038 | sed -i is not an applied-check (s6) |
-| 64 | OPEN | verify CI status by the status column, not a positional field |
-| 65 | OPEN | prefer doc-only cuts as a shape (cheap band, no source risk) |
+| 64 | CLOSED @1053 | verify CI status by the status column, not a positional field |
+| 65 | CLOSED @1053 | prefer doc-only cuts as a shape (cheap band, no source risk) |
 | 66 | CLOSED @1037 | validate a stub against the real command's output format (s6) |
 | 67 | CLOSED @1037 | beware shell tail-call exec in fixtures (s6) |
 | 68 | CLOSED @1039 | a floor means ADD to it, never drop from it (s4) |

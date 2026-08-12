@@ -4,6 +4,34 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1053
+
+- Batch A of the improvement backlog: nine discipline rows, one doc-only cut,
+  no source change. Rows 2, 4, 57, 58, 59, 64, 65 added to CLAUDE.md; rows 20
+  and 60 were found ALREADY present and are closed as verified rather than
+  re-added.
+- VERIFY-THEN-ACT PAID FOR ITSELF TWICE HERE. A whitespace-normalised scan of
+  CLAUDE.md said three of the nine were already recorded. Two were (s1's "say
+  which denominator a count is over", s0's "treat 'I have read the contract' as
+  worth nothing"), verified verbatim. The third, row 57, was a FALSE POSITIVE:
+  the keyword matched two SPECIFIC named blind spots -- capture.sh's, and the
+  shallow-clone 128-vs-1 confusion -- neither of which is the general rule.
+  Predicate matched instances, denominator excluded the subject.
+- And a raw-line grep for the same phrase found NOTHING while the normalised
+  scan found it, which is s1's own "a grep over prose misses any phrase the
+  line wrap split", live, inside the cut that was checking for it.
+- The seven added rules, each with a measurement rather than a preference:
+  never filter at capture time (a head-filtered log cannot attribute a
+  [gw24] node down); check any instrument for its OWN blind spots and print
+  them in its output; check the change in front of you against a recorded
+  mistake class BEFORE committing; measure the cost of anything added to every
+  test run (paid ~15,600 times per capture); a doc-only cut is a shape; read CI
+  status from the status column, never a positional field (a check name with
+  spaces makes awk $2 a fragment of the name); and no estimated progress in a
+  status report -- two hosts sat at "99%" for 44 minutes having produced
+  nothing, and the percentage was the only reason it read as slow rather than
+  as broken.
+
 ## v3.66.1052
 
 - The improvement backlog is machine-visible. It was backlog item 85 OF ITSELF:
