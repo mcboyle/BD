@@ -4,6 +4,47 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1047
+
+bd-jobs gains --script; bd-mutate becomes visible while it runs. Toolchain,
+tests and CLAUDE.md only; no production source is touched.
+
+--script FILE copies a local shell script to the target and runs it, instead of
+threading a program through argv -> shlex.join -> ssh -> the remote shell ->
+bash -c. MEASURED at v3.66.1044: a four-iteration sweep passed inline died on
+the far side and produced NO OUTPUT AT ALL, while the registry held a correct
+entry for a job that had already failed -- so `list` looked consistent. Both
+`--`-class bugs in this tool's short history were at that same seam. A file
+crosses one layer: it is copied, and its path is the only thing quoted. Copy
+first, launch second; a copy that failed is a refusal, because the far end holds
+either nothing or a STALE script from an earlier run.
+
+bd-mutate is line-buffered, for the reason bd-ladder already was: a 19-mutant
+battery ran fifteen minutes with an empty output file and no way to tell it from
+a hang -- and the natural reflex, piping it through `tail`, buffers the whole
+stream until exit and shows nothing either.
+
+CLAUDE.md section 10 gains "when every refusal shares an exit code, assert the
+REASON". This escaped twice from the same tool one cut apart: bd-jobs refuses
+with 2 for a missing script, a failed copy, an unregisterable host and an empty
+command, so `returncode == 2` passes whichever fires, and a mutant deleting the
+guard under test sails through to the next refusal. FOUR mutants escaped that
+way across the two cuts. Closing it needs both halves: assert the distinctive
+words, and stub the conditions that come after -- in those tests the later
+refusal came from a hostname that did not resolve, in a test that never meant to
+leave the machine.
+
+MUTATION: 5 mutants, 5 caught -- after 3 of the 5 escaped on the first battery,
+all three by the exit-code shape above.
+
+BAND, and it is a worked example of the section 4 note added one cut earlier.
+THREE consecutive runs of the SAME 169-file band, on the same box, at the same
+-n 28, with nothing changed between them: 4 failed, then 2 failed, then 0
+failed. Every failure was the known library-audit set, whose cause is named and
+whose repro is two files and 1.4 seconds; this cut touches bd-jobs, bd-mutate
+and CLAUDE.md and nothing within reach of it. A single band is not a verdict on
+a schedule-dependent failure in either direction.
+
 ## v3.66.1046
 
 Three gates for three failures this session found by luck, plus an ANSI fix in

@@ -280,3 +280,120 @@ def test_run_refuses_an_empty_command(jobs, capsys):
         "host": "local", "purpose": "p", "command": ["--"]})())
     assert rc == 2
     assert "REFUSED" in capsys.readouterr().err
+
+
+def test_run_takes_a_script_file_rather_than_a_quoted_shell_program(jobs,
+                                                                    monkeypatch,
+                                                                    tmp_path):
+    """--script exists because the inline path crosses three quoting layers.
+
+    MEASURED at v3.66.1044: a four-iteration sweep passed as
+    `bash -c '...for N in 8 16 32 64; do ... $(tr ...) ...'` went through argv
+    -> shlex.join -> ssh -> the remote shell -> `bash -c`, died on the far
+    side, and produced NO OUTPUT AT ALL. The registry held a correct entry for
+    a job that had already failed, so `list` looked consistent. Both `--`-class
+    bugs in this tool's history were at this same seam. A file crosses one
+    layer: it is copied, and its path is the only thing quoted.
+    """
+    script = tmp_path / "sweep.sh"
+    script.write_text("for N in 8 16; do echo $N; done\n")
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        rc = 0
+        if cmd[0] == "ssh" and "test -f" in " ".join(cmd):
+            rc = 0
+        return subprocess.CompletedProcess(cmd, rc, "", "")
+
+    monkeypatch.setattr(jobs.subprocess, "run", fake_run)
+    rc = jobs.cmd_run(type("A", (), {
+        "host": "somewhere", "purpose": "sweep", "script": str(script),
+        "command": []})())
+    assert rc == 0, calls
+
+    scp = [c for c in calls if c[0] == "scp"]
+    assert scp, "the script was never copied: %s" % calls
+    assert str(script) in scp[0], scp[0]
+    assert calls.index(scp[0]) < len(calls) - 1, (
+        "the copy was not the first thing done -- a script that did not arrive "
+        "must be a refusal, not a job running the previous copy of itself")
+
+    launched = " ".join(calls[-1])
+    assert "bash /tmp/bd-jobs-script-" in launched, (
+        "the remote command does not run the copied script: %s" % launched)
+    for shell_meta in ("for N in", "$(", "&&"):
+        assert shell_meta not in launched, (
+            "the script's own shell syntax reached the remote command line "
+            "(%r) -- the whole point is that it does not" % shell_meta)
+
+
+def _no_network(jobs, monkeypatch, scp_rc=0):
+    """Nothing here may touch a real host.
+
+    Without this the refusals under test are indistinguishable from the ones
+    that fire later: scp to a host called "somewhere" fails, and THAT returns 2
+    as well. Three mutants escaped exactly that way before this existed.
+    """
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        rc = scp_rc if cmd and cmd[0] == "scp" else 0
+        return subprocess.CompletedProcess(cmd, rc, "", "copy failed")
+
+    monkeypatch.setattr(jobs.subprocess, "run", fake_run)
+    monkeypatch.setattr(jobs.subprocess, "Popen",
+                        lambda *a, **k: pytest.fail("nothing should launch"))
+    return calls
+
+
+def test_run_refuses_a_script_that_is_not_there(jobs, monkeypatch, capsys):
+    """ASSERT THE REASON. Every refusal in this tool exits 2 -- the missing
+    script, the failed copy, the undeployed host -- so a test that checks only
+    the code passes whichever one fires. A mutant deleting this check escaped
+    on exactly that: the path sailed through, scp failed instead, and the exit
+    code was identical."""
+    _no_network(jobs, monkeypatch)
+    rc = jobs.cmd_run(type("A", (), {
+        "host": "somewhere", "purpose": "p", "script": "/nope/missing.sh",
+        "command": []})())
+    err = capsys.readouterr().err
+    assert rc == 2, err
+    assert "no script at /nope/missing.sh" in err, (
+        "it refused, but not for the missing script: %r" % err)
+
+
+def test_run_refuses_a_script_AND_a_command(jobs, tmp_path, monkeypatch, capsys):
+    """Two different jobs. Running one and registering the other is the shape
+    this tool exists to prevent."""
+    _no_network(jobs, monkeypatch)
+    script = tmp_path / "s.sh"
+    script.write_text("echo hi\n")
+    rc = jobs.cmd_run(type("A", (), {
+        "host": "somewhere", "purpose": "p", "script": str(script),
+        "command": ["sleep", "1"]})())
+    err = capsys.readouterr().err
+    assert rc == 2, err
+    assert "two different jobs" in err, (
+        "it refused for some other reason: %r" % err)
+
+
+def test_run_refuses_when_the_script_could_not_be_copied(jobs, tmp_path,
+                                                         monkeypatch, capsys):
+    """A copy that failed leaves either nothing at the far end or a STALE
+    script from a previous run under a different pid. Launching either is
+    worse than refusing."""
+    calls = _no_network(jobs, monkeypatch, scp_rc=1)
+    script = tmp_path / "s.sh"
+    script.write_text("echo hi\n")
+    rc = jobs.cmd_run(type("A", (), {
+        "host": "somewhere", "purpose": "p", "script": str(script),
+        "command": []})())
+    err = capsys.readouterr().err
+    assert rc == 2, err
+    assert "could not copy" in err, (
+        "a failed copy refused for a different reason: %r" % err)
+    assert [c for c in calls if c and c[0] == "scp"], "scp was never attempted"
+    assert not [c for c in calls if c and c[0] == "ssh"], (
+        "it went on to talk to the host after the copy failed: %s" % calls)

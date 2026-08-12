@@ -2351,6 +2351,22 @@ battery: **which check executed the thing a user actually types, end to end?**
 If the answer is none, run it by hand once. That took ten seconds here and found
 what eleven tests and seven checks could not.
 
+**AND WHEN EVERY REFUSAL SHARES AN EXIT CODE, ASSERT THE REASON, NOT THE CODE.**
+This one has now escaped twice, from the same tool, one cut apart. `bd-jobs`
+refuses with exit 2 for a missing script, a failed copy, an unregisterable host
+and an empty command; `bd-ab` refuses with exit 2 for one sample, a missing
+file, an unreadable revision and an identical revision. A test asserting
+`returncode == 2` therefore passes when ANY of them fires, so a mutant deleting
+the guard under test sails through to the next refusal and the code is
+identical. Four mutants escaped exactly that way and every one of them looked
+like a covered behaviour.
+
+Two things close it, and both are needed. Assert the distinctive words of the
+refusal you mean. And **stub the conditions that come after it**, or the check
+you are testing is not the only thing that can produce the answer — the
+network calls in those cases refused on their own, from a hostname that did not
+resolve, in a test that never meant to leave the machine.
+
 **WHEN A FUNCTION HAS N OUTCOMES, ASSERT THAT EACH ONE IS REACHABLE.** `reap`
 has three — kill a job it can prove, forget a stale entry, refuse an entry it
 cannot identify — and the refusal branch was unreachable as written: `alive()`
