@@ -2,9 +2,20 @@
 
 You are working on **BulkDownloader (BD)**: a self-hosted Flask + Playwright +
 React/TypeScript SPA batch video downloader. Single developer/operator (Matt),
-single deployment target: headless host **`test4`** — verified from `uname` and
-the `mboyle@test4` prompt in a capture, deploying to
-`/home/mboyle/BulkDownloader`.
+deploying to `/home/mboyle/BulkDownloader` on **four** headless hosts as of
+2026-08-12 — `test5` (`7b4ea932c297`, the master and the live service), `test4`
+(`102b31c04e7b`), `test6` (`1d60f39bd8d6`) and `test7` (`5b29e22f94aa`). All
+four were rebuilt to one spec that night; re-measure with `bd-fleet` rather than
+quoting any of it, including from here.
+
+**This sentence read "single deployment target: headless host `test4`" for the
+whole life of this file, and was wrong from the second box onward — through
+four.** It is the first thing every session reads, so it set the frame for
+everything after it, and nothing in the tree could contradict it: no `.py` or
+`.sh` resolves or branches on a hostname, so a wrong host count breaks no test
+and fails no gate. This file's own section 1 is the lesson — a claim about
+BEHAVIOUR passes every freshness gate untouched, because those gates ask whether
+a cited PATH still resolves, never whether the sentence around it is still true.
 
 Older prose here, in `project-knowledge/`, and in the SDD reports calls that box
 `stash`. That is a saved PuTTY session name, not a hostname

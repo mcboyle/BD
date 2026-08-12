@@ -228,7 +228,24 @@ roles, and one Claude session that drives all three.
 | --- | --- | --- | --- |
 | `.164` | `test5` | `7b4ea932c297` | **master** -- the driving session, the `main` tree, AND the live service |
 | `.85` | `test4` | `102b31c04e7b` | **candidate** -- pre-merge trees, capture lanes |
-| `.249` | `test6` | `1d60f39bd8d6` | **clean** -- the bare-Ubuntu bring-up proof, never inhabited |
+| `.249` | `test6` | `1d60f39bd8d6` | inhabited -- **no longer the clean host** |
+| `.84` | `test7` | `5b29e22f94aa` | **clean** -- carries the bring-up proof, taken 2026-08-12 |
+
+**FOUR hosts since 2026-08-12, and the clean role MOVED.** All four were rebuilt
+to one spec that night and re-measured at 48 cores each; the earlier 86/44/64
+spread is gone, and with it the reason a cross-host comparison could never
+settle anything. `.249` came back from that rebuild INHABITED -- same
+machine-id, so the install persisted -- which voided the proof it held and could
+not be retaken there. `.84` was the only bare machine left, so the role moved to
+it.
+
+`.84` came up named plain `test` and was renamed `test7` the same night: a bare
+`test` is a PREFIX of every other label in this fleet, and this file already
+records what it cost when two boxes answered to `test4`. The rename is safe
+precisely because the identity that matters is the machine-id, which survives it
+-- that is the whole reason the digest is quoted and the hostname is not.
+`deploy_fleet.sh` matches its label with `=`, not a prefix test, so the old name
+was not a live hazard; it was a legibility one.
 
 **The identities are MEASURED, 2026-08-11 at v3.66.1032, by ssh + `sha256sum
 /etc/machine-id` from the master.** The first draft of this table carried no
@@ -348,12 +365,66 @@ three identities in the table above, `.249` bare, and the master's own service
 running against `~/BulkDownloader`. `.85` carries a duplicate `NOPASSWD: ALL`
 sudoers entry -- harmless, but something wrote that rule twice.
 
-STILL A PLAN -- the candidate-before-merge workflow has never been exercised,
-and the bring-up proof on `.249` has not been taken. The original text below was
-written by a session that could not reach any host; the network measurement it
-rests on is real. Treat the first run of
-it the way this runbook treats everything else -- as the thing that finds the
-gaps -- and record what it finds here, in this file.
+STILL A PLAN -- the candidate-before-merge workflow has never been exercised.
+The original text below was written by a session that could not reach any host;
+the network measurement it rests on is real.
+
+### THE BRING-UP PROOF IS TAKEN, 2026-08-12
+
+**Host `.84`/`test7`, machine-id `5b29e22f94aa`, at `bb37142` (v3.66.1047).**
+
+```
+scripts/provision_test_host.sh   VERDICT: READY   311s, 21 rows, ALL OK,
+                                 0 WARN, exit 0
+./capture.sh --workers=48        CAPTURE VERDICT: PASS, exit 0
+                                 unit 15656 pass / 0 fail / 0 error / 26 skip
+                                 live    29 pass / 0 fail / 7 warn
+```
+
+**Zero hand-fixes, and that is MEASURED rather than claimed:** `git status
+--porcelain` returned 0 lines throughout. The entire sequence was `git clone`
+then `./scripts/provision_test_host.sh`. **Step 1's `apt-get install -y git
+curl` was never run** -- both were already on the image -- so on this base image
+the runbook's own first command is optional, and the proof did not use it.
+
+**Run it TWICE. The second run is the record.** The first capture returned the
+same PASS with identical counts, but the 2.5GB corpus was rsync'd onto the host
+WHILE it ran -- `captures/` went from 0 files to 924 underneath a live run.
+Three things were established before re-running, and they are what make the
+first result redundant rather than wrong: `capture.sh` references the corpus
+directory nowhere; the live checks reference it nowhere; and the only two unit
+tests that resolve a real `PROJECT_ROOT / "captures"`
+(`test_analyzer_endpoints.py`, `test_pin_host_filename_fallback.py`) STAGE their
+own synthetic artifact and address it by exact filename, so corpus size never
+enters an assertion. The re-run on a stable tree returned byte-identical counts,
+which settles it by measurement rather than by that argument. A proof that needs
+an argument about timing is weaker than one that does not.
+
+**All 7 live WARNs are absence-of-operator-state, not capability gaps:**
+L5/L6/L8/L9 (no sites, auth-health or cookie files configured), L18/L19 (AI
+assist disabled by config), L30 (no VPN tunnels).
+
+**L17 did NOT fail, and this file predicted that it would.** Section [3b] says
+L17 hard-fails the capture when `ai_enabled` is true and ollama is absent. But
+`app_config.json` is UNTRACKED, so a fresh clone has none, and both readers
+(`app.py`, `app_global_config.py`) default `ai_enabled` to False. **Step [3b] is
+a MIGRATION step, not a bring-up step:** a bring-up that migrates no operator
+state needs no AI backend at all, and the ~11GB of model pulls it warns about
+are not on this path.
+
+WHAT THE RUN FOUND, recorded here as this section asks:
+
+- **`streamlink` was installed by nothing.** `live_recorder.py` probes it as the
+  PREFERRED backend and falls back to ffmpeg; no package group, manifest or
+  installer had ever named it, so the whole fleet silently ran the fallback.
+  Fixed at v3.66.1048, with a gate that derives the backend names from
+  `_detect_backends` by AST so a third backend cannot fall outside it.
+- **The capture corpus does not survive a rebuild** and is not restored by
+  `deploy.sh`. `.249` and `.84` both had zero files in `captures/` while `.164`
+  and `.85` had 924. Copy it with `rsync -a` -- mtimes are load-bearing.
+- **`~/.config/bd/hosts` DID survive the 2026-08-12 rebuild**, contrary to the
+  expectation recorded elsewhere that it would not. Verify rather than assume it
+  either way.
 
 ## Saying which box a reading came from
 
