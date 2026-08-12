@@ -31,9 +31,31 @@
 : "${MOD3_DSN:=postgresql://mod3_ci:mod3_ci_password@127.0.0.1:5432/mod3_ci}"
 export MOD3_DSN
 
+bd_mod3_env_persist(){
+  # PERSIST THE DSN WHERE A NON-INTERACTIVE RUN CAN SEE IT (@1064).
+  #
+  # It used to live only in ~/.bashrc, BELOW that file's standard
+  # `case $- in *i*) ;; *) return;;` guard -- so `ssh host ./capture.sh`,
+  # nohup, systemd and cron all saw it UNSET and the 18 mod3 tests SKIPPED,
+  # silently, while the capture reported PASS. Measured on test4 2026-08-12:
+  # an interactive capture ran 15722 pass / 5 skip and a scripted one on the
+  # same box ran 15712 / 23. The capability was present and the gate could not
+  # see it. /etc/environment does not help either -- measured, it does not
+  # reach a non-interactive ssh command on this fleet.
+  mkdir -p "$HOME/.config/bd"
+  printf 'export MOD3_PG_TEST_DSN=%s\n' "$MOD3_DSN" > "$HOME/.config/bd/mod3.env"
+}
+
 bd_mod3_pg_provision(){
   # A server already answering the DSN is the DONE state, whoever started it.
   if psql "$MOD3_DSN" -Atc "SELECT 1" >/dev/null 2>&1; then
+    # PERSIST ON THIS PATH TOO. This early return is the DONE state, and the
+    # first version of it returned BEFORE writing the env file -- so on exactly
+    # the hosts where postgres already worked, the DSN was never persisted and
+    # a scripted capture still skipped 18 tests. Measured on test4 @1064:
+    # mod3_exit=0 with env_file=ABSENT. An exit code is not evidence that the
+    # side effect happened.
+    bd_mod3_env_persist
     echo "mod3 postgres: already serving the DSN"; return 0
   fi
   command -v pg_ctlcluster >/dev/null 2>&1 \
@@ -66,18 +88,7 @@ SQL
     || $SUDO su -s /bin/bash postgres -c \
       "psql -v ON_ERROR_STOP=1 -qc 'CREATE DATABASE mod3_ci OWNER mod3_ci'" \
     || { echo "database ensure failed"; return 1; }
-  # PERSIST THE DSN WHERE A NON-INTERACTIVE RUN CAN SEE IT (@1064).
-  #
-  # It used to live only in ~/.bashrc, BELOW that file's standard
-  # `case $- in *i*) ;; *) return;;` guard -- so `ssh host ./capture.sh`,
-  # nohup, systemd and cron all saw it UNSET and the 18 mod3 tests SKIPPED,
-  # silently, while the capture reported PASS. Measured on test4 2026-08-12:
-  # an interactive capture ran 15722 pass / 5 skip and a scripted one on the
-  # same box ran 15712 / 23. The capability was present and the gate could not
-  # see it. /etc/environment does not help either -- measured, it does not
-  # reach a non-interactive ssh command on this fleet.
-  mkdir -p "$HOME/.config/bd"
-  printf 'export MOD3_PG_TEST_DSN=%s\n' "$MOD3_DSN" > "$HOME/.config/bd/mod3.env"
+  bd_mod3_env_persist
   # Verify by DOING, the section 9 discipline: the DSN itself must answer.
   psql "$MOD3_DSN" -Atc "SELECT 1" >/dev/null 2>&1
 }

@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1065
+
+The mod3 DSN is persisted on the path that matters. A defect @1064 shipped.
+
+bd_mod3_pg_provision's early return -- "a server already answering the DSN is
+the DONE state" -- returned BEFORE writing ~/.config/bd/mod3.env. So on exactly
+the hosts where postgres ALREADY worked, the DSN was never persisted and a
+scripted capture kept skipping the 18 mod3 tests. Measured on test4 within
+minutes of @1064 landing: mod3_exit=0 with env_file=ABSENT.
+
+AN EXIT CODE IS NOT EVIDENCE THAT THE SIDE EFFECT HAPPENED, which is the same
+shape as the harness rules in section 6: assert the thing you wanted, not the
+status of the call that was supposed to write it. The verification that caught
+it was checking for the FILE, not reading the 0.
+
+The write is now one function, bd_mod3_env_persist, called from both the DONE
+path and the just-provisioned path -- one writer, so the two cannot disagree,
+and a second copy cannot become the one that drifts. Proven live on test4: file
+removed, provisioner re-run, early return taken (grep count 1) and the file
+present afterwards.
+
 ## v3.66.1064
 
 Both provisioning paths install the same optional capabilities, and an
