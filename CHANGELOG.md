@@ -4,6 +4,50 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1064
+
+Both provisioning paths install the same optional capabilities, and an
+unattended capture reaches the same checks as an attended one. Backlog row 96.
+
+THE GAP WAS NOT "NOBODY WROTE IT". cloud-setup.sh already had mod3_pg_provision
+and bd_dev_inspect_provision; provision_test_host.sh had neither. So which
+capabilities a host ends up with depended on WHICH SCRIPT built it, and a
+capture on the poorer host went green by SKIPPING what was missing. Copying the
+functions into the second script would have reproduced the drift CLAUDE.md
+section 5 records for package lists, so they move into
+scripts/lib/dev_capabilities.sh and BOTH scripts source it -- the
+system_deps.sh precedent. Wired OPTIONAL, not core: a box that cannot install
+postgres must WARN visibly rather than fail provisioning.
+
+TWO CAPABILITIES WERE INVISIBLE TO A SCRIPTED CAPTURE, SAME SHAPE, BOTH FIXED.
+MOD3_PG_TEST_DSN was exported only from ~/.bashrc, BELOW that file's
+`case $- in *i*) ;; *) return;;` guard, so ssh/nohup/systemd saw it UNSET and
+the 18 mod3 tests SKIPPED while the verdict read PASS. MEASURED on test4, same
+box and commit, only the launch method differing: attended 15722 pass / 5 skip,
+scripted 15712 / 23. /etc/environment does not help -- measured, it does not
+reach a non-interactive ssh command here. The provisioner now writes
+~/.config/bd/mod3.env and capture.sh sources it, announcing in BOTH directions
+so an absent capability is visible rather than silent.
+
+The capture vault was the same defect: gated solely on `[ -t 0 ]`, so every
+unattended capture skipped L6/L8. It now takes CAPTURE_VAULT_PW from the
+environment first. NOT defaulted to a literal: section 7 records that a file
+naming a credential becomes a place it lives, and gitleaks scans the PR range.
+Unset still means skip, so default behaviour is unchanged. No BD_ prefix, per
+section 4 -- it is a capture-time argument, not a runtime config key.
+
+THREE DEFECTS IN THIS CUT, ALL CAUGHT BY GATES RATHER THAN REVIEW. The verdict
+fixture in test_provision_test_host.py did not stage the new fragment, so a
+HEALTHY fake host recorded FAIL -- the suite's own assertion message predicts
+exactly that and says to extend the fixture. A credential-literal check matched
+its OWN prose ("no CAPTURE_VAULT_PW: capture vault skipped") and failed a
+correct file. And a fixed-width source window, code[i-400:i+700], was caught by
+test_source_windows_do_not_shift and replaced with a structural cut.
+
+MUTATION: 4 caught, 0 escaped -- after one escape where asserting the library
+PATH appeared in the file passed a mutant that replaced the real `.` source
+line with `true`. Mentioning a file is not loading it.
+
 ## v3.66.1063
 
 The item-48 CSRF investigation is recorded. Documentation only.
