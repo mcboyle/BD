@@ -234,3 +234,39 @@ def test_no_credential_literal_is_committed():
         f"Take it from the environment; do not write one down -- the value "
         f"being a dummy does not change the fact that the repo now carries it."
     )
+
+
+# ── the DONE path must persist too ──────────────────────────────────────
+#
+# THIS TEST EXISTS BECAUSE A DEFECT SHIPPED. bd_mod3_pg_provision's early
+# return -- "a server already answering the DSN is the DONE state" -- returned
+# BEFORE writing the env file, so on exactly the hosts where postgres already
+# worked the DSN was never persisted and a scripted capture still skipped 18
+# tests. Measured on test4 @1064: mod3_exit=0 with env_file=ABSENT. An exit
+# code is not evidence that the side effect happened.
+
+def test_the_already_serving_path_still_persists_the_dsn():
+    from shell_source import shell_code_only as _co
+    code = _co(_LIB)
+    lines = code.splitlines()
+    start = next(i for i, l in enumerate(lines) if "bd_mod3_pg_provision()" in l)
+    early = next(i for i in range(start, len(lines))
+                 if "already serving the DSN" in lines[i])
+    # Walk back to the top of that if-branch and forward to its return.
+    branch = "\n".join(lines[start:early + 1])
+    assert "bd_mod3_env_persist" in branch, (
+        "the already-serving early return does not persist the DSN, so a host "
+        "whose postgres already works never gets ~/.config/bd/mod3.env and a "
+        "scripted capture keeps skipping the mod3 suites while exiting 0"
+    )
+
+
+def test_persisting_is_one_function_not_two_copies():
+    """One writer, so the two paths cannot disagree about the file."""
+    from shell_source import shell_code_only as _co
+    code = _co(_LIB)
+    assert code.count("bd_mod3_env_persist(){") == 1, "persist helper defined twice"
+    assert code.count("mod3.env") == 1, (
+        "the env-file path is written in more than one place -- a second copy "
+        "is the one that drifts"
+    )
