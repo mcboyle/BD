@@ -149,7 +149,14 @@ fi
 # Blank, or no TTY, means skip: L6/L8 then WARN exactly as they do today.
 # A prompt that blocked an unattended run would turn a capture into a hang.
 CAPTURE_VAULT=0
-CAPTURE_VAULT_PW=""
+# DO NOT CLOBBER AN INHERITED VALUE. This line was a bare
+# CAPTURE_VAULT_PW="" and it ran BEFORE the branch that reads the
+# variable, so `CAPTURE_VAULT_PW=x ./capture.sh` was wiped to empty and
+# the unattended path could never fire. Measured on test5 @1065: the run
+# printed "no TTY and no CAPTURE_VAULT_PW" with the variable set in its
+# own environment. Initialising a variable and honouring an inherited one
+# are different operations, and `:-` is the difference.
+CAPTURE_VAULT_PW="${CAPTURE_VAULT_PW:-}"
 CAPTURE_VAULT_DIR="/tmp/bd_capture_vault"
 CAPTURE_VAULT_FILE="$CAPTURE_VAULT_DIR/secrets.json"
 CAPTURE_VAULT_DROPIN="/etc/systemd/system/bulkdownloader.service.d/20-capture-vault.conf"
