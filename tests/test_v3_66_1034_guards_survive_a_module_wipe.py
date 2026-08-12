@@ -56,6 +56,46 @@ def _wipe_bd_modules():
         del sys.modules[m]
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _the_wipe_stops_at_this_file():
+    """Save the bulk_downloader module table for this FILE, restore on teardown.
+
+    THE WIPE BELOW IS LEGITIMATE AND STAYS. This file exists to prove the
+    conftest guards survive a sys.modules wipe, and it cannot prove that
+    without wiping. What was not legitimate was leaving the table wiped when
+    the file FINISHED: under `--dist loadfile` whatever pytest schedules next
+    on that worker inherits the damage.
+
+    MEASURED CONSEQUENCE (ledger item 48, second mechanism). app.py's
+    `_csrf_key` is module-level, so a fresh module EXECUTION mints a new one. A
+    later file that bound `from bulk_downloader.app import app` at COLLECTION
+    time then validates with the OLD key while /api/csrf mints with the NEW
+    one, and every mutating request 403s:
+
+        1034 then 780           -> 7 failed, 12 passed
+        deselect only the wiper -> 18 passed, 1 deselected
+        reverse the order       -> 19 passed
+
+    Whether it fires depends on the SCHEDULE, which is why the full-suite
+    failure count looked like noise for so long.
+
+    THE BLAST RADIUS IS NOW THE FILE. Same shape v3.66.1049 used for
+    test_v3_66_1021. Module scope, not function scope: the in-file assertions
+    (test_zzz_b_*) deliberately run against the wiped table and must keep
+    doing so.
+    """
+    saved = {m: mod for m, mod in sys.modules.items()
+             if m == "bulk_downloader" or m.startswith("bulk_downloader.")}
+    try:
+        yield
+    finally:
+        # Drop whatever the file left behind, then put the originals back --
+        # a plain update() would leave freshly-imported siblings alongside the
+        # saved ones, which is a different table again, not the one we found.
+        _wipe_bd_modules()
+        sys.modules.update(saved)
+
+
 def _import(name):
     __import__(name)
     return sys.modules[name]
@@ -189,7 +229,19 @@ def test_the_registry_adopts_the_module_it_repatched():
 # item 48's subject, not this cut's. Do not "fix" it by making 1034 restore
 # without reading that item first -- the wipe is what the guards are tested
 # against. The honest budget is 14 until item 48 decides what replaces it.
-_LEAK_BUDGET = 14
+# 14 -> 13 at v3.66.1069, and THIS one is a real fix rather than a change of
+# eyesight. @1067 raised it to 14 when the census stopped reading prose and
+# could finally see THIS file; @1069 gave the file a module-scoped restore, so
+# its wipe stops at its own file, it leaves the census honestly, and the budget
+# comes back down. Item 48's one real leaker is closed.
+#
+# The runtime re-derivation that made this actionable (@1068, bd-modwatch in
+# per-file mode): of the 14 files this STATIC census listed, only THREE
+# actually orphaned the module table, and two of those dropped exactly
+# `bulk_downloader.push`, which nothing binds at import time. The census
+# over-reports by design -- that is correct for a ratchet -- but its count was
+# never a count of leaks.
+_LEAK_BUDGET = 13
 
 
 def _module_wipe_leakers():

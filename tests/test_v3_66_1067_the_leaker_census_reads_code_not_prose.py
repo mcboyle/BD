@@ -66,26 +66,51 @@ def test_the_stripper_removes_a_string_literal_but_keeps_the_call():
     assert "PATTERN" in code, "the assignment target must survive"
 
 
-def test_the_ratchet_file_only_mentions_the_restore_idiom(ratchet):
-    """The precondition, asserted before the verdict: 1034 really does talk
-    about restoring without doing it. If that ever stops being true this test
-    is measuring something else."""
-    assert mentions_only(_RATCHET, "sys.modules.update("), (
-        "1034 now CALLS sys.modules.update() in code -- it may have started "
-        "restoring, in which case this test's premise is gone and the census "
-        "expectation below needs re-deriving rather than adjusting"
+def test_the_ratchet_file_now_restores_in_code(ratchet):
+    """The premise this file was written against has CHANGED, deliberately.
+
+    At v3.66.1067 1034 only MENTIONED the restore idiom -- in its regex literal
+    and an assertion message -- while never calling it, and the census could not
+    see it. v3.66.1069 gave it a module-scoped restore so its wipe stops at its
+    own file, so it now CALLS the idiom and correctly leaves the census.
+
+    Asserting the NEW truth rather than deleting the test: if 1034 ever stops
+    restoring, its absence from the census becomes a false clean again, and
+    this says so.
+    """
+    from python_source import python_code_only
+    code = python_code_only(_RATCHET)
+    assert "sys.modules.update(" in code, (
+        "1034 no longer restores in CODE. Its wipe then escapes its own file "
+        "again (ledger item 48), and its absence from the census is a false "
+        "clean rather than a fixed one."
     )
 
 
-def test_the_census_sees_the_ratchets_own_file(ratchet):
-    """THE DEFECT, stated as the rule that would have caught it."""
-    leakers = ratchet._module_wipe_leakers()
-    assert _RATCHET_REL in leakers, (
-        f"{_RATCHET_REL} deletes bulk_downloader.* from sys.modules and never "
-        f"restores, yet its own census does not list it. The predicate is "
-        f"reading prose as code: its regex literal and an assertion message "
-        f"both contain the restore idiom. Census: {sorted(leakers)}"
+def test_a_file_that_only_mentions_restoring_is_still_counted(tmp_path):
+    """THE REGRESSION GUARD, SYNTHETIC so fixing the subject cannot void it.
+
+    This started life as "the census must see 1034" -- true only while 1034 was
+    broken, i.e. a guard that dies the moment its own example is fixed. The
+    property belongs to the PREDICATE, not to any one file: a file that talks
+    about restoring without doing it must still be counted as a leaker.
+    """
+    from python_source import python_code_only
+    probe = tmp_path / "test_mentions_only.py"
+    probe.write_text(
+        'import sys\n'
+        'RESTORE_DOC = "sys.modules.update(saved_modules)"   # a MENTION only\n'
+        'def test_wipe():\n'
+        '    for m in [m for m in sys.modules if m.startswith("bulk_downloader")]:\n'
+        '        del sys.modules[m]\n',
+        encoding="utf-8")
+    code = python_code_only(probe)
+    assert "del sys.modules[" in code, "the wipe must survive stripping"
+    assert "saved_modules" not in code, (
+        "a MENTION of the restore idiom survived stripping, so the predicate "
+        "would exempt this file -- the exact defect this cut removed"
     )
+    assert "sys.modules.update(" not in code, code
 
 
 def test_the_budget_admits_the_newly_visible_file(ratchet):

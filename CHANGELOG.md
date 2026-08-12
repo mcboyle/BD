@@ -4,6 +4,43 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1069
+
+Item 48's wipe stops at its own file. Backlog 22 closed, and the count that
+blocked it for weeks was never a count of leaks.
+
+THE RE-DERIVATION FIRST, which is what the campaign was for. With the census
+honest (@1067) and bd-modwatch measuring per FILE and naming its mode (@1068),
+the question could finally be asked properly. Of the 14 files the STATIC census
+lists, only THREE orphan the module table at runtime -- and two of those drop
+exactly `bulk_downloader.push`, which NOTHING binds at import time (measured:
+zero importers), so they orphan nothing. ITEM 48 WAS ONE FILE. Every earlier
+figure -- 10, 11, 13 -- was a reading of a heuristic that over-reports by
+design, which is correct for a ratchet and was never a leak count. Two of those
+figures had already been retracted; this is why they could not be reproduced.
+
+THE FIX. test_v3_66_1034's wipe is legitimate -- the file exists to prove the
+conftest guards survive one, and cannot do that without wiping. What was not
+legitimate was leaving the table wiped when the FILE finished, because under
+--dist loadfile whatever is scheduled next on that worker inherits it. A
+module-scoped fixture now saves the bulk_downloader table and restores it on
+teardown, so the in-file assertions still run against the wiped table and the
+blast radius is the file. Same shape v3.66.1049 used for test_v3_66_1021.
+
+MEASURED, all three:
+  the defining pairing 1034 -> 780   7 failed / 12 passed  ->  19 PASSED
+  1034 + all 8 victims of row 93                           -> 154 PASSED
+  runtime census                     3 offenders           ->   2
+
+BUDGET 14 -> 13, and unlike @1067's rise this is a real fix rather than a change
+of eyesight: 1034 now restores in CODE, so it leaves the census honestly.
+
+A TEST WHOSE PREMISE WAS THE DEFECT HAD TO BE REWRITTEN, NOT DELETED. @1067
+asserted "the census must see 1034", which was true only while 1034 was broken
+-- a guard that dies the moment its own example is fixed. It is now SYNTHETIC:
+a generated file that MENTIONS the restore idiom without calling it must still
+be counted. The property belongs to the predicate, not to any one file.
+
 ## v3.66.1068
 
 bd-modwatch measures per FILE, and says which question it asked. Backlog 94.
