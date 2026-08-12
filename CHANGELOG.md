@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1066
+
+An inherited CAPTURE_VAULT_PW is honoured. The @1064 unattended path did not
+work, and every test of it passed.
+
+THE DEFECT. A bare `CAPTURE_VAULT_PW=""` initialiser sat ABOVE the branch that
+reads the variable, so `CAPTURE_VAULT_PW=x ./capture.sh` was wiped to empty
+before the branch ran. Measured on test5: the capture printed "no TTY and no
+CAPTURE_VAULT_PW" while the variable was set in its own environment.
+
+WHY THE TESTS MISSED IT, which is the transferable part. Every assertion @1064
+read capture.sh's TEXT: the branch existed, it was ordered before the TTY arm,
+no credential literal was committed. All three true, and the feature did not
+work. SOURCE TEXT IS NOT BEHAVIOUR -- the same lesson a mutant taught this repo
+at v3.66.1058, re-learned two cuts later by the same author on a different file.
+
+Initialising a variable and honouring an inherited one are different
+operations, and `:-` is the whole difference. Now proven by EXECUTING the vault
+block in both directions: set + no TTY -> ENABLED; unset + no TTY -> skipped,
+so the default is unchanged. A mutant restoring the bare initialiser is caught.
+
 ## v3.66.1065
 
 The mod3 DSN is persisted on the path that matters. A defect @1064 shipped.

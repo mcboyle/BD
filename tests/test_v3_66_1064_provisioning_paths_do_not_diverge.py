@@ -270,3 +270,50 @@ def test_persisting_is_one_function_not_two_copies():
         "the env-file path is written in more than one place -- a second copy "
         "is the one that drifts"
     )
+
+
+def _vault_block() -> str:
+    """The vault construct, cut on STRUCTURE: assignment to its closing `fi`."""
+    lines = _CAPTURE.read_text(encoding="utf-8").splitlines()
+    start = next(i for i, l in enumerate(lines) if l.startswith("CAPTURE_VAULT=0"))
+    end = next(i for i in range(start, len(lines)) if lines[i].rstrip() == "fi")
+    return "\n".join(lines[start:end + 1]) + "\n"
+
+
+def test_an_inherited_vault_password_is_honoured_when_executed():
+    """RUN IT. THIS TEST EXISTS BECAUSE A DEFECT SHIPPED PAST SOURCE READING.
+
+    @1065 added the unattended branch and every assertion here read capture.sh's
+    TEXT: the branch existed, it was ordered before the TTY arm, no literal was
+    committed. All true, and the feature did not work -- a bare
+    `CAPTURE_VAULT_PW=""` ran ABOVE it and wiped the inherited value. Measured on
+    test5: the run printed "no TTY and no CAPTURE_VAULT_PW" with the variable set
+    in its own environment.
+
+    Initialising a variable and honouring an inherited one are different
+    operations, and only execution can tell them apart.
+    """
+    import os
+    import subprocess
+    block = _vault_block()
+    # Precondition: the harness built the shape (section 6).
+    assert "CAPTURE_VAULT_PW" in block and block.count("fi") >= 1, block[:200]
+    syn = subprocess.run(["bash", "-n"], input=block, text=True, capture_output=True)
+    assert syn.returncode == 0, syn.stderr
+
+    env = {k: v for k, v in os.environ.items() if k != "CAPTURE_VAULT_PW"}
+    on = subprocess.run(["bash", "-s"], input=block, text=True, capture_output=True,
+                        timeout=60,
+                        env={**env, "CAPTURE_VAULT_PW": "unit-test-value"})
+    assert "ENABLED" in on.stdout, (
+        f"an inherited CAPTURE_VAULT_PW did not enable the vault -- something "
+        f"above the branch clobbers it. Output: {on.stdout.strip()[:200]}"
+    )
+
+    off = subprocess.run(["bash", "-s"], input=block, text=True, capture_output=True,
+                         timeout=60, env=env)
+    assert "ENABLED" not in off.stdout, (
+        f"the vault enabled itself with no password set -- the default must be "
+        f"unchanged. Output: {off.stdout.strip()[:200]}"
+    )
+    assert "skip" in off.stdout.lower(), off.stdout.strip()[:200]
