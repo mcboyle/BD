@@ -4,6 +4,29 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1048
+
+- Live recording's PREFERRED backend was installed by nothing. streamlink is
+  what live_recorder.py reaches for first, and ffmpeg is only its fallback, but
+  no bd_system_pkgs group, no requirements manifest and no installer script had
+  ever named it. Measured 2026-08-12 at bb37142: absent on test5
+  (7b4ea932c297), test4 (102b31c04e7b) and a freshly provisioned .84
+  (5b29e22f94aa). The whole fleet had been running the fallback.
+- It stayed hidden because the feature is fail-OPEN. is_available() is true on
+  ffmpeg alone and preferred_backend() falls through silently, so the app
+  reported itself configured while never using the backend its own code calls
+  right for the primary use case. Nothing warned, and nothing could: no check
+  asked whether a probed backend was installable.
+- Added streamlink to the media group in scripts/lib/system_deps.sh, the single
+  source of truth the three provisioning paths share.
+- New gate tests/test_v3_66_1048_live_backends_are_provisioned.py asserts every
+  backend the app PROBES is installed by some provisioning path. The backend
+  names are extracted from _detect_backends by AST rather than written as
+  literals, so a third backend enters the gate's denominator automatically; a
+  hardcoded pair would certify the two someone thought of and go blind to the
+  next one. Two denominator assertions run BEFORE the verdict, so a renamed
+  probe function fails the gate instead of passing it over an empty set.
+
 ## v3.66.1047
 
 bd-jobs gains --script; bd-mutate becomes visible while it runs. Toolchain,

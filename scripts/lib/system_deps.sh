@@ -259,7 +259,20 @@ bd_system_pkgs() {
     # docs/repo/ENVIRONMENT_PROVISIONING.md asserted it was "already present in
     # the base image", which is false here, and nobody re-derived it. Absent
     # ffprobe makes the integrity check fail open.
-    local media=(ffmpeg)
+    # streamlink is live_recorder.py's PREFERRED backend ("cam-site-specific
+    # plugins that handle the HLS variant selection automatically"); ffmpeg is
+    # only its fallback. Nothing installed it before v3.66.1048 -- not this
+    # file, not a requirements manifest, not any installer script -- so every
+    # host in the fleet silently ran the fallback. Measured 2026-08-12 at
+    # bb37142: absent on test5 (7b4ea932c297), test4 (102b31c04e7b) and a
+    # freshly provisioned .84 (5b29e22f94aa). It stayed hidden because the
+    # feature is fail-OPEN: is_available() is true on ffmpeg alone, so the app
+    # reported itself configured while never using the backend the code names
+    # as right for the primary use case.
+    # tests/test_v3_66_1048_live_backends_are_provisioned.py derives the backend
+    # names from _detect_backends by AST, so a third backend joins that gate's
+    # denominator automatically rather than needing this comment updated.
+    local media=(ffmpeg streamlink)
 
     # "${arr[*]}" joins on the FIRST character of IFS, so pin IFS locally: the
     # contract is a space-separated list regardless of what the caller left set.
