@@ -4,6 +4,28 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1045
+
+A test was writing to the REAL bd-jobs registry. Test-only; no tool or source
+behaviour changes.
+
+Found by running bd-fleet against the fleet immediately after batch E merged:
+the master reported 410 registered jobs with nothing running. Every entry
+carried `purpose="p"` -- the literal from
+test_v3_66_1043's bd-jobs case, which calls cmd_run to inspect the command it
+assembles and so registers what it "launches", using the module's real
+JOBS_DIR. One entry per run per xdist worker, forever.
+
+Nothing was ever at risk: every entry was dead, and `bd-jobs reap` forgot all
+410 without killing anything, which is the third outcome it was built for. The
+damage was to the registry's purpose -- a list of what is actually running is
+worth nothing once 410 of its 410 rows are test residue, and bd-fleet's "jobs"
+column read 410 beside "pytest 0".
+
+The test now points JOBS_DIR at tmp_path, asserts something WAS registered there
+(so the redirect cannot silently stop being exercised) and asserts the real
+directory's entry count is unchanged across the test.
+
 ## v3.66.1044
 
 Batch E: a suite result now carries the machine it came from, and every worker

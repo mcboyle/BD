@@ -457,7 +457,7 @@ def test_bd_gc_refuses_an_age_window_that_could_catch_a_live_run(tmp_path):
 
 # ── bd-jobs: the second seam bug, from the same join ─────────────────────────
 
-def test_bd_jobs_quotes_the_command_it_hands_back_to_a_shell(monkeypatch):
+def test_bd_jobs_quotes_the_command_it_hands_back_to_a_shell(monkeypatch, tmp_path):
     """One cut after `--` reached the shell, the SAME seam bit again.
 
     `bd-jobs run --host X -- bash -c "a && b"` re-joined argv with bare spaces,
@@ -473,6 +473,16 @@ def test_bd_jobs_quotes_the_command_it_hands_back_to_a_shell(monkeypatch):
             "bd_jobs_q", str(_BIN / "bd-jobs")))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+
+    # POINT THE REGISTRY AT tmp_path FIRST. cmd_run registers what it launches,
+    # and the module's JOBS_DIR is the REAL /tmp/bd-jobs. Measured at
+    # v3.66.1044 with bd-fleet: 410 entries on the master, every one of them
+    # this test's `purpose="p"`, written once per run per xdist worker. A test
+    # that litters the registry makes the registry useless for the thing it
+    # exists for -- telling you what is actually running.
+    monkeypatch.setattr(mod, "JOBS_DIR", tmp_path / "bd-jobs")
+    real_before = len(list(pathlib.Path("/tmp/bd-jobs").glob("*.json"))) \
+        if pathlib.Path("/tmp/bd-jobs").is_dir() else 0
 
     seen = {}
 
@@ -502,3 +512,12 @@ def test_bd_jobs_quotes_the_command_it_hands_back_to_a_shell(monkeypatch):
     assert r.stdout.strip() == "hi", (
         "the reassembled command does not run as the caller wrote it: %r -> %r"
         % (inner, r.stdout + r.stderr))
+
+    assert list((tmp_path / "bd-jobs").glob("*.json")), (
+        "nothing was registered anywhere, so the redirect above is untested "
+        "and this test would keep passing if it went back to the real dir")
+    real_after = len(list(pathlib.Path("/tmp/bd-jobs").glob("*.json"))) \
+        if pathlib.Path("/tmp/bd-jobs").is_dir() else 0
+    assert real_after == real_before, (
+        "this test wrote %d entr(ies) into the REAL job registry at "
+        "/tmp/bd-jobs" % (real_after - real_before))
