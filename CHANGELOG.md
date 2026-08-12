@@ -4,6 +4,31 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1051
+
+- The clean-host bring-up proof is TAKEN and recorded, on .84/test7
+  (5b29e22f94aa) at bb37142: provision_test_host.sh VERDICT READY (311s, 21
+  rows all OK, 0 WARN) then capture.sh PASS (unit 15656/0/0/26, live 29/0/7),
+  with ZERO hand-fixes -- measured, git status --porcelain 0 lines throughout.
+  Run twice; the second run on a stable tree is the record, because the first
+  had the corpus rsync'd in mid-run.
+- FRESH_HOST_BRINGUP.md's topology table went three hosts -> four and the clean
+  role MOVED. .249 came back from the 2026-08-12 rebuild inhabited (same
+  machine-id, so the install persisted), which voided the proof it held; .84
+  was the only bare machine left. .84 was also renamed test -> test7, because a
+  bare "test" is a prefix of every other label in the fleet.
+- Recorded that step [3b] is a MIGRATION step, not a bring-up step. The runbook
+  predicted L17 would hard-fail without ollama; it did not, because
+  app_config.json is untracked and both readers default ai_enabled to False. A
+  bring-up migrating no state needs no AI backend and none of its ~11GB pulls.
+- CLAUDE.md's opening sentence said "single deployment target: headless host
+  test4" for the whole life of the file. It was wrong from the second box
+  onward, through four, and it is the first thing every session reads. Nothing
+  could have caught it: no .py or .sh branches on a hostname, so a wrong host
+  count breaks no test -- section 1's own lesson, that a claim about behaviour
+  passes every freshness gate because those gates ask whether a cited PATH
+  resolves, never whether the sentence is still true.
+
 ## v3.66.1050
 
 - The killswitch's auto-cycle thread hung full-suite runs, unboundedly, and
