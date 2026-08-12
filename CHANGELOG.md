@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1071
+
+Backlog 95 re-measured. Documentation only.
+
+The row said "one leaked directory per band run" for ONE file. Re-measured on
+test5 after a capture round: **2906 entries under /tmp totalling 357MB**, from
+at least THREE tracked tests that mkdtemp and never clean up --
+test_phases_195_199 (531), test_repos_F2_F9 (468) and test_v3_45_8_macro_replay
+(288). One directory per band run per file, on every host, growing forever.
+
+CLAUDE.md section 0 already records this shape at 744 directories and states
+the rule: creating a path is a promise to remove it. The row now says the
+DENOMINATOR is every mkdtemp under tests/, not the three files that happen to
+have been counted -- a fix scoped to the named three would leave the class open
+and look closed.
+
 ## v3.66.1070
 
 The standing grants are declared in section 9. Documentation only.
