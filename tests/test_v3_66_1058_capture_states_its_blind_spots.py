@@ -87,17 +87,28 @@ def test_capture_emits_a_blind_spot_block(code):
 
 
 def _block(code: str) -> str:
-    """The blind-spot region only.
+    """The blind-spot region only, cut on STRUCTURE.
 
     SCOPED DELIBERATELY. The first version of this test asserted each needle
     against the WHOLE file, and `loadfile` passed before the feature existed --
     `--dist loadfile` already appears in the lane invocation 700 lines above.
     A needle that cannot fail is not a test, so the denominator is narrowed to
     the block under test.
+
+    AND THE SCOPING IS NOT A FIXED WIDTH, because the first version of THAT was
+    `code[i:i + 2500]` -- which `test_source_windows_do_not_shift` caught on the
+    band, correctly. A fixed-width slice silently stops covering its subject the
+    moment anything is added above the end of the window, which is the exact
+    defect class this file is about. Cut from the marker to the construct's own
+    closing line.
     """
-    i = code.find("[blind spots]")
-    assert i != -1, "no blind-spot block to scope to"
-    return code[i:i + 2500]
+    lines = code.splitlines()
+    start = next((i for i, l in enumerate(lines) if "[blind spots]" in l), None)
+    assert start is not None, "no blind-spot block to scope to"
+    end = next((i for i in range(start, len(lines))
+                if lines[i].startswith('} | tee "$BLIND_SPOTS"')), None)
+    assert end is not None, "the blind-spot block has no closing line"
+    return "\n".join(lines[start:end + 1])
 
 
 @pytest.mark.parametrize("needle", _MUST_NAME)
