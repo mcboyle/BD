@@ -24,15 +24,19 @@ WHAT THIS CANNOT SEE -- stated because a recorder that reports zero must not be
 readable as "nothing called out" (section 0: unknown is a third state). All
 four are measured or structural, not guesses:
 
-  * CHILD PROCESSES. The hook lives in this interpreter. 164 of 1316 tracked
-    test files spawn a subprocess (`subprocess.`/`Popen`/`check_output`/
-    `os.system`, measured at v3.66.1031); a child's connects are invisible.
-    The stage-2 lever for this is a `sitecustomize.py` on the child's
-    PYTHONPATH, deliberately NOT built here -- it changes the environment of
-    every subprocess in the suite, which is its own cut.
-  * C-LEVEL SOCKETS. libpq opens its own; the 8 test files importing psycopg
-    are outside the denominator. Same for anything a browser, ffmpeg, yt-dlp
-    or streamlink opens.
+  * CHILD PROCESSES. The hook lives in this interpreter, so a child's connects
+    are invisible. HOW MANY tests spawn one is DERIVED at read time by
+    `_count_tree` (predicate: `subprocess.`/`Popen`/`check_output`/
+    `check_call`/`os.system`; denominator: tracked `tests/test*.py`) and
+    printed with its denominator beside it -- deliberately not written here,
+    because the literal that used to sit in this sentence went stale silently
+    and was printed on every run for 28 releases. The stage-2 lever is a
+    `sitecustomize.py` on the child's PYTHONPATH, deliberately NOT built here:
+    it changes the environment of every subprocess in the suite, its own cut.
+  * C-LEVEL SOCKETS. libpq opens its own, so the test files importing psycopg
+    are outside the denominator -- again counted at read time rather than
+    recorded here. Same for anything a browser, ffmpeg, yt-dlp or streamlink
+    opens.
   * RAW `_socket.socket`. This wraps the Python-level `socket.socket` class.
     Code instantiating the C base directly bypasses it.
   * DNS. Resolution happens in getaddrinfo below the socket layer, so a name
@@ -52,15 +56,116 @@ import tempfile
 import threading
 import traceback
 
+# ── the blind spots, with their counts DERIVED (@1059, backlog 34) ──────
+#
 # Kept as data rather than prose so the terminal report can print them: a
 # summary that says "0 attempts" without naming what it could not look at is
 # the gate-reports-OK-while-blind shape this whole module exists to fight.
-BLIND_SPOTS = (
-    "child processes (164/1316 test files spawn one)",
-    "C-level sockets: libpq/psycopg (8 files), browsers, ffmpeg, yt-dlp",
-    "raw _socket.socket instantiation",
-    "DNS resolution (addresses are recorded post-resolution, as IPs)",
-)
+#
+# THE COUNTS USED TO BE LITERALS, measured once and printed forever. Every one
+# of them had drifted by @1058 and nothing could notice -- a number frozen in a
+# string is invisible to every gate here, and this string prints on EVERY
+# pytest run, which made it the most-read stale figure in the suite. The module
+# whose subject is "a report that cannot see its denominator must say so" was
+# reporting a denominator it could no longer see.
+#
+# THREE PROPERTIES, and each was a defect in the literal version:
+#   1. DERIVED at read time, so it cannot go stale.
+#   2. The DENOMINATOR is named in the same sentence as the count. The old
+#      bare ratio was ambiguous between `tests/test*.py` and `tests/*.py`,
+#      which differ by 19 files and give spawner counts 10 apart -- so it could
+#      not be re-derived by the next reader even in principle. (The retired
+#      figures are named nowhere here on purpose: the first draft of THIS
+#      comment spelled them in order to explain their removal, which put them
+#      straight back into the source and failed the gate written in this same
+#      cut. Section 0 -- cite the mechanism, never the literal.)
+#   3. UNKNOWN when the tree cannot be read, never a remembered fallback. A
+#      stale number that looks measured is worse than no number.
+#
+# COST, measured at @1059: ~0.26s for one `git ls-files` plus ~1300 file reads.
+# Paid ONCE per process and only at first read -- the summary is the only
+# caller and it runs at the end -- so an import pays nothing and a run that
+# never prints a summary pays nothing.
+
+_SPAWN_MARKERS = ("subprocess.", "Popen", "check_output", "check_call",
+                  "os.system")
+
+_blind_spots_cache = None
+
+
+def _count_tree():
+    """(tracked test files, those that spawn a child, those importing psycopg).
+
+    Raises rather than guessing if the tree cannot be enumerated: the caller
+    turns that into UNKNOWN.
+    """
+    import subprocess as _sp
+    out = _sp.run(["git", "ls-files", "--", "tests/test*.py"],
+                  capture_output=True, text=True, cwd=str(_REPO), timeout=60)
+    if out.returncode != 0:
+        raise OSError("git ls-files failed: %s" % out.stderr.strip()[:120])
+    files = out.stdout.split()
+    if not files:
+        raise OSError("git ls-files returned no test files")
+    spawn = pg = 0
+    for rel in files:
+        try:
+            text = (_REPO / rel).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if any(k in text for k in _SPAWN_MARKERS):
+            spawn += 1
+        if "psycopg" in text or "libpq" in text:
+            pg += 1
+    return len(files), spawn, pg
+
+
+def _reset_blind_spot_cache():
+    """Test hook. The cache is per-process and correct to hold for a run; a
+    test that varies the deriver needs to drop it."""
+    global _blind_spots_cache
+    _blind_spots_cache = None
+
+
+def blind_spots():
+    """The blind-spot lines, counts derived once per process."""
+    global _blind_spots_cache
+    if _blind_spots_cache is not None:
+        return _blind_spots_cache
+    try:
+        total, spawn, pg = _count_tree()
+    except Exception:
+        # UNKNOWN is a third state and it says so. No ratio is printed, so
+        # nothing here can be misread as a measurement.
+        child = ("child processes (count UNKNOWN -- the tree could not be "
+                 "enumerated; a child's connects are invisible either way)")
+        clevel = ("C-level sockets: libpq/psycopg (count UNKNOWN), browsers, "
+                  "ffmpeg, yt-dlp")
+    else:
+        child = ("child processes (%d of %d tracked tests/test*.py spawn one)"
+                 % (spawn, total))
+        clevel = ("C-level sockets: libpq/psycopg (%d of %d tracked "
+                  "tests/test*.py), browsers, ffmpeg, yt-dlp" % (pg, total))
+    _blind_spots_cache = (
+        child,
+        clevel,
+        "raw _socket.socket instantiation",
+        "DNS resolution (addresses are recorded post-resolution, as IPs)",
+    )
+    return _blind_spots_cache
+
+
+def __getattr__(name):
+    """`BLIND_SPOTS` stays a module attribute so every existing caller is
+    unchanged, but it is now computed on first read rather than at import.
+
+    PEP 562. Doing this at import instead would put a ~0.26s tree walk in every
+    pytest process INCLUDING all 16 xdist workers, to produce a string most of
+    them never print.
+    """
+    if name == "BLIND_SPOTS":
+        return blind_spots()
+    raise AttributeError("module %r has no attribute %r" % (__name__, name))
 
 _REPO = pathlib.Path(__file__).resolve().parent.parent
 

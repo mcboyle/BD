@@ -1041,8 +1041,10 @@ import _socket_record as _socket_recorder
 def _socket_record_run_dir(config):
     """This run's sink, keyed by the MASTER's pid.
 
-    Per-run rather than one shared directory, and the reason is specific: 164
-    test files spawn subprocesses and some of those spawn pytest. A shared
+    Per-run rather than one shared directory, and the reason is specific: a
+    large minority of test files spawn subprocesses (counted at read time by
+    `_socket_record._count_tree`, not recorded here -- the literal that used to
+    sit in this sentence was stale) and some of those spawn pytest. A shared
     directory that each run cleared at startup would let a nested pytest child
     wipe its parent's records mid-run, and the parent's summary would come back
     short with nothing to indicate it. Separate directories need no clearing at

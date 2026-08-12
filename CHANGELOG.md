@@ -4,6 +4,46 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1059
+
+The socket recorder derives its blind-spot counts instead of remembering them.
+Backlog row 34.
+
+THE DEFECT. BLIND_SPOTS carried literals measured once at v3.66.1031 and
+printed on every pytest run thereafter. By v3.66.1058 all three had drifted.
+Nothing could notice: a number frozen inside a string is invisible to every
+gate in this repo, and this string prints on every run -- which made it the
+most-read stale figure in the suite. The module whose whole subject is that a
+report unable to see its denominator must SAY so was reporting a denominator it
+could no longer see.
+
+THE FIX HAS THREE PROPERTIES, each of which was a defect in the literal version.
+Counts are DERIVED at read time. The DENOMINATOR is named in the same sentence
+as the count -- the old bare ratio was ambiguous between tests/test*.py and
+tests/*.py, which differ by 19 files and give spawner counts 10 apart, so it
+could not be re-derived even in principle. And an unreadable tree yields
+UNKNOWN rather than a remembered fallback, because a stale number that looks
+measured is worse than no number.
+
+COST, measured: ~0.26s, one git ls-files plus ~1300 file reads, paid ONCE per
+process and only on first read. Exposed through PEP 562 module __getattr__ so
+every existing caller is unchanged and an import pays nothing -- computing at
+import would have put that walk in all 16 xdist workers to build a string most
+never print.
+
+TWO MUTANTS ESCAPED THE FIRST BATTERY, both the same defect IN THE TESTS: they
+asserted over " ".join(BLIND_SPOTS), so a mutant could gut one line while the
+other still satisfied the search. One hardcoded a number into the UNKNOWN
+branch while a sibling line still said UNKNOWN; one stripped a denominator that
+the sibling still carried. Both closed by asserting PER LINE. A denominator
+error in the tests for a denominator error. Re-run: 5 caught, 0 escaped.
+
+Also: the first draft of the comment explaining the removal SPELLED the retired
+figures in order to explain them, putting them straight back into the source
+and failing the gate written in the same cut -- section 0, cite the mechanism
+never the literal. The same stale literal was copied in conftest's own
+docstring, so the check covers both files.
+
 ## v3.66.1058
 
 capture.sh states what its verdict does NOT cover. Backlog row 54.
