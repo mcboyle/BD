@@ -129,7 +129,11 @@ EXPECTED_GROUPS: dict[str, tuple[str, ...]] = {
     # docs/repo/ENVIRONMENT_PROVISIONING.md asserted it was already in the base
     # image -- false here, and never re-derived. Its own group because it is
     # runtime capability, not build tooling or display.
-    "media": ("ffmpeg",),
+    # streamlink joined at v3.66.1048, and it is the same failure as ffmpeg's
+    # one layer up: live_recorder.py PROBES it as the preferred backend while
+    # nothing installed it, so the whole fleet silently ran the ffmpeg fallback.
+    # Measured absent on test5, test4 and a freshly provisioned .84 at bb37142.
+    "media": ("ffmpeg", "streamlink"),
 }
 
 GROUP_ORDER = ("core", "node", "gtk", "lint", "media")
@@ -165,7 +169,9 @@ DISCRIMINATING_PACKAGES = (
 # argument positions instead. The two predicates together contain every package
 # name in ALL_PACKAGES -- that is the denominator check, asserted in
 # `test_anti_drift_predicates_cover_every_package_name`.
-AMBIGUOUS_PACKAGES = ("git", "python3.12", "npm", "shellcheck", "ffmpeg")
+AMBIGUOUS_PACKAGES = (
+    "git", "python3.12", "npm", "shellcheck", "ffmpeg", "streamlink",
+)
 
 # Files that must never carry their own copy of the package lists.
 CONSUMERS = (CLOUD_SETUP, INSTALL_LINUX, PROVISIONER)
