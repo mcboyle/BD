@@ -27,6 +27,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 DEFAULT_DIR = os.environ.get("BD_RUN_DIR") or "/tmp/bd-run"
 # 124 is coreutils `timeout`'s convention for "the command was killed
@@ -68,15 +69,40 @@ def plain_env(base=None):
     return env
 
 
+def run_id():
+    """A token unique to this invocation.
+
+    Wall-clock alone is not enough -- two runs can start inside one second --
+    so the pid joins it. The pid alone is not enough either, since the kernel
+    recycles them, which is the same trap bd-jobs records about its registry.
+    """
+    return "%s-%d" % (time.strftime("%Y%m%dT%H%M%S"), os.getpid())
+
+
 def prune(directory, keep):
-    """Bound the retention. Creating a path is a promise to remove it."""
-    logs = sorted(pathlib.Path(directory).glob("*.log"),
+    """Bound the retention. Creating a path is a promise to remove it.
+
+    REAL FILES ONLY. The `<label>.log` alias is a pointer, not an artifact, and
+    counting it as one would let a directory holding N runs plus N aliases keep
+    only N/2 actual logs while reporting that it kept N.
+    """
+    logs = sorted((p for p in pathlib.Path(directory).glob("*.log")
+                   if p.is_file() and not p.is_symlink()),
                   key=lambda p: p.stat().st_mtime, reverse=True)
     for stale in logs[keep:]:
         try:
             stale.unlink()
         except OSError:
             pass
+    # A pointer that outlives its target is worse than no pointer: it reads to
+    # the next reader as a MISSING run rather than a pruned one. Collect any
+    # alias whose target the prune just removed.
+    for alias in pathlib.Path(directory).glob("*.log"):
+        if alias.is_symlink() and not alias.exists():
+            try:
+                alias.unlink()
+            except OSError:
+                pass
     return len(logs[keep:])
 
 
@@ -158,7 +184,25 @@ def run(args):
 
     d = pathlib.Path(args.dir)
     d.mkdir(parents=True, exist_ok=True)
-    log = d / ("%s.log" % args.label)
+    # KEYED BY RUN, NOT BY LABEL (@1060, backlog 5). `<label>.log` meant that
+    # two runs of the same label -- the normal case, since a label says WHAT is
+    # running and not WHEN -- silently destroyed the first one's output. The
+    # tool whose docstring opens "keep EVERYTHING on disk" kept only the most
+    # recent, and the A/B comparison it exists to support was the one thing it
+    # could not do. The loss was silent: the second run printed the same path.
+    log = d / ("%s-%s.log" % (args.label, run_id()))
+    # The bare `<label>.log` survives as a SYMLINK to the newest, because
+    # `tail -f <label>.log` and existing callers name it, and a fix that breaks
+    # them trades one defect for another. Created BEFORE the child starts, so
+    # the operator can tail from the first second -- the property the announced
+    # path exists for.
+    alias = d / ("%s.log" % args.label)
+    try:
+        if alias.is_symlink() or alias.exists():
+            alias.unlink()
+        alias.symlink_to(log.name)      # relative: survives a moved directory
+    except OSError:
+        pass                            # an alias is a convenience, not the artifact
     # THE PATH FIRST, AND FLUSHED. A verdict-only tool prints nothing for the
     # length of the run, so an operator watching a five-minute band cannot tell
     # it from a hang. Naming the log up front makes `tail -f` possible from the

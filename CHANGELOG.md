@@ -4,6 +4,40 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1060
+
+bd-run keys its log by RUN, not by label. Backlog row 5 (the bd-run half).
+
+THE DEFECT. The log was named <label>.log, so two runs of the same label --
+the normal case, since a label says WHAT is running and not WHEN -- silently
+destroyed the first run's output. The tool whose docstring opens "keep
+EVERYTHING on disk" kept only the most recent, and the A/B comparison it exists
+to support was precisely the thing it could not do. The loss was silent: the
+second run printed the same path as the first.
+
+THE FIX. <label>-<runid>.log for the artifact, where runid is timestamp+pid --
+wall clock alone collides inside one second, and a pid alone is recycled, the
+same trap bd-jobs records about its registry. The bare <label>.log survives as
+a SYMLINK to the newest, created BEFORE the child starts, because tail -f and
+existing callers name it and a fix that breaks them trades one defect for
+another. prune() now counts REAL FILES ONLY and collects any alias whose target
+it just removed.
+
+TWO MUTANTS ESCAPED THE FIRST BATTERY. One let prune count the symlink against
+the retention budget, keeping one real log and one pointer where --keep said 2;
+it survived because the test asserted "at most 2", and an upper bound cannot
+see UNDER-retention. Fixed to exactly 2. The second deleted the dangling-alias
+cleanup and changed nothing observable, because the test could not build the
+shape: the alias always points at the newest log and the newest is exactly what
+--keep retains, so a dangling alias only arises ACROSS labels. Added a test
+that constructs it with two labels and asserts the precondition -- that the old
+label's log really was pruned -- before asserting the verdict. Re-run: 5
+caught, 0 escaped.
+
+NOT CLOSED: item 5's capture.sh half. /tmp/bd_capture is still a fixed path
+referenced by five test files, so consecutive captures still overwrite each
+other. That is a gate change and its own cut, and row 5 stays OPEN.
+
 ## v3.66.1059
 
 The socket recorder derives its blind-spot counts instead of remembering them.
