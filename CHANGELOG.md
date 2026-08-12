@@ -4,6 +4,35 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1057
+
+The session close for v3.66.1041-1056, written sixteen cuts late. Documentation
+only: SESSION_CARRY gains section 15.90 and nothing else in the tree changes.
+
+WHY IT WAS LATE AND WHY NOTHING CAUGHT IT. bd-freshcheck's register check asks
+whether the newest close names an ANCESTOR of HEAD, and 15.89's b2ea078 still
+is one, so the gate answered its own question correctly for sixteen cuts while
+the close it certified went further and further out of date. It never asks
+whether the newest close is RECENT. A green bd-freshcheck is therefore not
+evidence that the close is current, and this entry exists partly to say so.
+
+WHAT 15.90 RECORDS. The fleet grew from two boxes to four and CLAUDE.md's own
+first sentence was wrong about it through all four; the clean-host bring-up
+proof was taken on .84 and reproduced twice to byte-identical counts; the
+improvement backlog became tracked and gated; bd-jobs shipped a separator bug
+its own first live use found; launched work became bounded via coreutils
+timeout rather than an in-tool signal; streamlink turned out to be installed by
+nothing despite being live recording's preferred backend.
+
+THE RETRACTION. The claim that the v3.66.1034 text ratchet and the runtime
+orphaners were disjoint sets -- 13 against 10, zero overlap, ratchet blind -- is
+RETRACTED. bd-modwatch could not reproduce the ten-orphaner list and reports 0
+for those files in a two-file harness. Neither number is settled. Backlog row 22
+and ledger item 48 both rest on it, so re-deriving is the first step of that
+work rather than fixing.
+
+ITEM LEDGER unchanged: OPEN 31, 48. Nothing in the numbered inventory closed.
+
 ## v3.66.1056
 
 - Batch D, fleet chores. Row 51 closed: .85 carried BOTH

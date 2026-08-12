@@ -5214,6 +5214,129 @@ never `export` in a shell the suite is later launched from.
   row seen in 1 of 6 captures. Re-capture before trusting it.
 
 
+### 15.90 | SESSION CLOSE 2026-08-12 at a5571be (v3.66.1056) -- sixteen cuts, a fleet that grew to four, and one retraction
+
+Close at `a5571be`, the squash of #341, already on `main` when this was written.
+
+ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
+OPEN:   31, 48
+
+Nothing in the numbered inventory closed this session. 48 was PARTIALLY fixed at
+v3.66.1049 -- one leaker's second mechanism, at the leaker rather than at the
+victim -- and the class is open. 31 is operator-bound and was untouched.
+
+#### THIS SECTION IS SIXTEEN CUTS LATE, AND NOTHING WENT RED
+
+15.89 closed at v3.66.1040. v3.66.1041-1056 then shipped with no machine-visible
+close, and every gate stayed green throughout: `bd-freshcheck`'s register check
+asks whether the newest close names an ANCESTOR of HEAD, and 15.89's `b2ea078`
+still is one. So the check was answering its own question correctly the whole
+time; it simply never asks whether the newest close is RECENT.
+
+That is section 1's rule about this register turned on the register itself -- a
+deferral that lives only in prose has not been deferred -- and the reason it
+surfaced at all is that the operator asked for the open list, not that anything
+detected it. A future session should not read a green `bd-freshcheck` as
+evidence that the close is current.
+
+#### WHAT THE SIXTEEN CUTS DID
+
+- **The fleet went from two boxes to four**, and the contract's own first
+  sentence was wrong about it. `CLAUDE.md` opened with "single deployment
+  target: headless host `test4`" for the whole life of the file, which was
+  false from the second box onward -- through four. Corrected at v3.66.1051.
+  Nothing in the tree could contradict it: no `.py` or `.sh` resolves or
+  branches on a hostname, so a wrong host count breaks no test and fails no
+  gate.
+- **The clean-host bring-up proof was taken on .84** and is recorded in
+  `docs/repo/FRESH_HOST_BRINGUP.md`. Provisioner VERDICT READY (311s, 21 rows
+  OK, 0 WARN), then capture PASS (unit 15656/0/0/26, live 29/0/7), with
+  `git status --porcelain` at 0 lines throughout and ZERO hand-fixes, re-run on
+  a stable tree to byte-identical counts. The first run of it was confounded by
+  an rsync into the corpus WHILE the capture ran, which is why the second run
+  exists -- change one variable at a time applies to the tree under measurement,
+  not only to flags.
+- **The improvement backlog became tracked and machine-visible** at
+  `project-knowledge/IMPROVEMENT_BACKLOG.md`, gated by
+  `tests/test_v3_66_1052_the_backlog_is_machine_visible.py` (v3.66.1052). It had
+  lived in an untracked file in the operator's home, which is why it kept being
+  lost. Its ids are its OWN namespace and are NOT the ITEM LEDGER's.
+- **`bd-jobs` shipped with a separator bug its own first live use found**
+  (v3.66.1041). `argparse.REMAINDER` keeps the `--`, so `run --host X -- sleep
+  90` sent `bash -c "-- sleep 90"`. Eleven tests and a green self-test passed
+  either side of the join; nothing asked what string reached the shell.
+- **Launched work became bounded and killable** (v3.66.1054). `bd-run` gained
+  `--max-seconds` with the cap DELEGATED to coreutils `timeout` rather than
+  implemented in-tool, so `bd-run` holds no process-signalling call of its own;
+  `bd-jobs` gained `start_new_session=True` and now verifies a pid is its own
+  group leader before signalling the group, saying so when it is not.
+- **`streamlink` was installed by nothing** (v3.66.1048) -- it is
+  `live_recorder.py`'s PREFERRED backend and no manifest carried it. Fixed in
+  `scripts/lib/system_deps.sh`, the single source of truth.
+- **The kill switch's auto-cycle thread hung full-suite runs** (v3.66.1050); it
+  now returns before mutating state when `BD_DISABLE_KEEPALIVE` is set.
+
+#### THE RETRACTION, AND IT IS THE MOST IMPORTANT LINE HERE
+
+A claim made and shipped in prose during this session -- that the v3.66.1034
+text ratchet and the runtime orphaners were DISJOINT sets (13 against 10, zero
+overlap), and that the ratchet was therefore blind -- is **RETRACTED**, at
+v3.66.1055. `toolchain/bin/bd-modwatch` was built to re-derive it and could not
+reproduce the ten-orphaner list at all: it reports 0 for those same files in a
+two-file harness.
+
+**Neither number is settled.** The disagreement between a full-suite probe and
+bd-modwatch's two-file harness is UNRESOLVED and is recorded in the tool's own
+docstring. Do not quote "10 orphaners", or "11", as fact -- backlog row 22 and
+ledger item 48 both rest on it, and re-deriving is the first step of that work,
+not the fixing.
+
+#### WHAT WAS MEASURED ABOUT THE SUITE ITSELF
+
+- **The full-suite failure count is NOISE, not a verdict.** Five samples per
+  host at one commit and one `-n 32`: test4 gave 18/10/11/7/6 and test7 gave
+  13/20/4/15/5. The distributions OVERLAP, so the count is not a property of the
+  machine. After v3.66.1049 and v3.66.1050 the same arms gave 1/3/9/7/0 and
+  5/12/0/2/6. Never conclude from one run.
+- **A dead xdist worker hangs the suite unboundedly and `pytest-timeout`
+  structurally cannot catch it** -- the timeout is enforced INSIDE the worker
+  that died. Seen three times as `[gwN] node down` at ~99%, then load 0.00 for
+  44 minutes with nothing written. This is why `bd-run --max-seconds` delegates
+  to `timeout`, which signals the process GROUP.
+- **A percentage is not progress.** Two hosts sat at "99%" for 44 minutes having
+  produced nothing, and the percentage was the only reason it read as slow
+  rather than as broken. Section 10 gained the rule.
+
+#### OPERATIONAL, AND NOT DERIVABLE FROM THE TREE
+
+- **test6's disk was merged**: a 98G root plus a 1.9T XFS `/home` became a
+  single 2.0T ext4 root. Verified afterwards -- repo present, 924 corpus files,
+  fstab entry commented, service active, health 200, `db_ok: true`. **A reboot
+  after that change is UNTESTED.**
+- **The capture corpus survives neither a rebuild nor `deploy.sh`.** Two hosts
+  silently had ZERO files in `captures/` while the analytics routes reported an
+  empty store with no warning. It was propagated by hand; nothing stops it
+  recurring. That is backlog row 89.
+- The three unmount attempts during the disk merge all ABORTED safely, and two
+  of the three blockers were self-inflicted: the operator's re-login during the
+  window, and the polling loop of the agent doing the work holding a cwd inside
+  the filesystem it was trying to unmount.
+
+#### WHAT IS STILL OPEN
+
+The tracked backlog carries 13 OPEN rows -- 3, 5, 13, 22, 25, 26, 27, 33, 34,
+35, 46, 54, 89 -- re-derived at `a5571be` against
+`project-knowledge/IMPROVEMENT_BACKLOG.md` rather than quoted. The ledger
+carries 31 and 48. Two shapes are worth naming because they recur:
+
+1. **22 and 48 are the same subject from two ends**, and both currently rest on
+   the retracted figure above. Re-derive before fixing.
+2. **46 -- an undeclared repo-wide gate -- has now failed FOUR times** (944,
+   947, 1031, 1034), twice by sessions that had just read the warning about the
+   first two. A gate CI does not run is a gate that does not exist, and
+   `_DECLARED` is hand-pinned, so it cannot notice a gate nobody declared.
+
+
 ### 15.89 | SESSION CLOSE 2026-08-11 at b2ea078 (v3.66.1040) -- batch D, and item 33 retired rather than raised
 
 Close at `b2ea078`, the squash of #324, already on `main` when this was written.
