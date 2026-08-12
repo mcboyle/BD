@@ -4,6 +4,30 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1061
+
+Backlog statuses reconciled after four cuts. Documentation only.
+
+33 CLOSED at @1058 -- the candidate workflow was finally exercised once, on
+test4, in a DETACHED WORKTREE rather than the deployed checkout: symbol
+asserted present per section 2b before measuring anything, absolute venv
+interpreter because a worktree has no venv, deployed tree untouched, 157 passed
+exit 0. The worktree is the shape that works and the row now says so.
+
+34 CLOSED at @1059 -- the socket recorder derives its blind-spot counts.
+
+54 CLOSED at @1058 -- capture.sh states its blind spots. Took the SECOND option
+the row offered; an actual pytest-shaped lane remains unbuilt and would be a
+gate change.
+
+5 STAYS OPEN, half done. bd-run no longer overwrites a run's evidence (@1060),
+but capture.sh still writes a fixed /tmp/bd_capture referenced by five test
+files, so consecutive captures still overwrite each other. Recording the half
+rather than closing the row is the point: a row marked done is a row nobody
+re-reads.
+
+OPEN rows: 13 -> 10.
+
 ## v3.66.1060
 
 bd-run keys its log by RUN, not by label. Backlog row 5 (the bd-run half).
