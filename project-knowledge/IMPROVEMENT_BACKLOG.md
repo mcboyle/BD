@@ -18,6 +18,32 @@ whole failure mode -- not that the list was wrong, but that nothing could see it
 
 `tests/test_v3_66_1052_the_backlog_is_machine_visible.py` now reads this file.
 
+## Priority order, set 2026-08-12 at dc5943f (v3.66.1066)
+
+Re-derive before working any of these -- section 1: roughly half of a stale
+register's OPEN items turn out to be closed or mis-scoped, and this list is a
+snapshot of a judgement, not a measurement.
+
+1. **22 + 48 + 91 + 94 as ONE campaign.** They are one subject and splitting
+   them wastes the context. START WITH 91: until the ratchet counts honestly,
+   every number in this area is suspect -- it currently exempts itself by
+   matching its own prose, so the one leaker causing live failures is absent
+   from its own census. 94 explains why the instrument disagreed with the
+   full-suite probe. Only then 22/48, and the first step there is a
+   RE-DERIVATION, not a fix: the "11 orphaners" figure has been retracted once
+   already. This is the only item on the board that makes OTHER measurements
+   wrong.
+2. **46** -- a gate CI does not run is a gate that does not exist. Failed four
+   times (944, 947, 1031, 1034), twice by sessions that had just read the
+   warning about the first two. Closes a REPEATING failure.
+3. **89** -- the capture corpus. Silent, and recurs on every rebuild.
+4. **95 + 98** -- both cheap, both residue-class.
+5. **97** -- makes 96 true for a FRESH host rather than for these four.
+6. **3, 35, 5-remainder, 25, 27** -- real, not urgent.
+7. **13, 26.** 26 is the trap: seductive, because it is section 0 mechanized,
+   and the likeliest to ship a confidently wrong number everything downstream
+   inherits.
+
 ## THIS NUMBERING IS NOT THE ITEM LEDGER'S
 
 These IDs are the BACKLOG's own and they are a **different namespace** from the
@@ -131,4 +157,6 @@ problem read as a solved one.
 | 93 | OPEN | THE VICTIM POPULATION for the CSRF split, recorded so the next occurrence is recognised rather than re-investigated: 8 tracked test files hold a module-scope `bulk_downloader` import AND send an X-CSRF-Token -- test_auth_throttle, test_secret_display_never, test_t44_request_replay, test_t6_login_security, test_v3_66_38_pwmgr_hardening, test_v3_66_43_pwmgr_remainder, test_v3_66_709_automation_gui_contract, test_v3_66_780_config_key_write_parity. Two independent AST censuses agree. Measured @1062 |
 | 94 | OPEN | bd-modwatch's blindness is BATCH-DEPENDENT, which row 22's previous note got wrong. Run on the leaker ALONE it DOES detect it (`dropped=263 swapped=5; 1 file(s) leave the module table changed`); the `0 file(s) changed` verdict reproduces only in a 3-file BATCH invocation. Measured @1062. Either fix the batch path or make the tool state which mode produced the verdict, so a batch artifact cannot be read as a per-file answer |
 | 95 | OPEN | `tests/test_phases_195_199.py:21` calls `tempfile.mkdtemp(prefix="bd-phases-test-")` and NOTHING removes it -- one leaked directory per band run touching that file; 20 measured under /tmp on test5 @1061 and cleared by hand. CLAUDE.md section 0: creating a path is a promise to remove it. That file is already on record for leaking BD_INSTALL_DIR, so it is a repeat offender |
-| 96 | OPEN | PROVISIONING IS NOT UNIFORM AND NOTHING INSTALLS THE DIFFERENCE. test4 alone has PostgreSQL + `MOD3_PG_TEST_DSN` (18 tests: mod3 cutover/rehearsal/pg_isolation/shadow_read/dual_write) and `bd_dev_inspect` (3 tests: redactor seam), so it runs 21 tests the other three SKIP -- 15722 pass / 5 skip against 15701 / 26 in the 2026-08-12 captures. Measured @1062: ZERO mentions of postgres, MOD3_PG_TEST_DSN or bd_dev_inspect in scripts/provision_test_host.sh, scripts/lib/system_deps.sh or install_linux.sh, and no installer for either anywhere in the tree. Consequence: a clean-host bring-up proof goes green partly by SKIPPING what is missing, and ledger item 31's EXIT-3 can only ever be exercised on one box |
+| 96 | CLOSED @1065 | PROVISIONING IS NOT UNIFORM AND NOTHING INSTALLS THE DIFFERENCE. test4 alone has PostgreSQL + `MOD3_PG_TEST_DSN` (18 tests: mod3 cutover/rehearsal/pg_isolation/shadow_read/dual_write) and `bd_dev_inspect` (3 tests: redactor seam), so it runs 21 tests the other three SKIP -- 15722 pass / 5 skip against 15701 / 26 in the 2026-08-12 captures. Measured @1062: ZERO mentions of postgres, MOD3_PG_TEST_DSN or bd_dev_inspect in scripts/provision_test_host.sh, scripts/lib/system_deps.sh or install_linux.sh, and no installer for either anywhere in the tree. Consequence: a clean-host bring-up proof goes green partly by SKIPPING what is missing, and ledger item 31's EXIT-3 can only ever be exercised on one box | CLOSED for THIS fleet at @1064 (shared scripts/lib/dev_capabilities.sh sourced by both provisioners) and @1065 (the DSN is persisted on the already-serving path too); postgres, bd_dev_inspect and ~/.config/bd/mod3.env now present on all four hosts, DSN answering. See row 97 for the part that is NOT closed |
+| 97 | OPEN | `bd_mod3_pg_provision` CONFIGURES postgres but does not INSTALL it -- it refuses with "postgresql-common absent (no pg_ctlcluster)" on a host where postgres is not already present. True in the cloud image, FALSE on bare Ubuntu, so on a fresh host the step WARNs forever and row 96 is closed for this fleet only. Measured @1065: test5/test6/test7 each needed `apt-get install postgresql` by hand first. Either the library installs it, or the WARN text must say "install postgresql first" instead of naming an internal binary |
+| 98 | OPEN | EDITING test5 DURING ITS OWN CAPTURE DRIFTS THE GRAPH PIN. test5's working tree IS the deployed tree, and capture step [2b] compares a source-derived graph hash against a pin written at deploy time -- so four uncommitted files turned a healthy capture into CAPTURE VERDICT: FAIL (graph exit=1) @1063, with unit 15709/0/0/26 and live 34/2/0 underneath it. Not a defect in the gate; the gate was right. Candidate fix: capture.sh refuses, or warns loudly, when `git status --porcelain` is non-empty -- it already knows it is running against a repo |
