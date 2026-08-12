@@ -1915,10 +1915,17 @@ def l16_ffmpeg_process_group_kill(ctx):
 # A vision call is a real, model-dependent operation but touches
 # nothing destructive — disruptive=False.
 
-# a 1x1 transparent PNG — a minimal-but-valid image payload, so the
-# test exercises the vision roundtrip without needing a real capture
-_TINY_PNG_B64 = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0l"
-                 "EQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=")
+# A 16x16 synthetic PNG (86 bytes). NOT a 1x1: ollama 0.32.9 rejects a
+# single pixel with HTTP 400 "Failed to load image or audio file" while
+# 0.32.4 accepted it, so a 1x1 probe reports the vision model broken
+# when it works. Measured on one host with only the size varying: 1x1
+# fails, 2x2 passes, and this payload returns "ok" on BOTH versions.
+# Kept tiny (86 bytes, replacing a 68-byte 1x1) and given actual
+# structure, since a flat colour is a plausible thing for a stricter
+# backend to reject as content-free. Gated by
+# tests/test_v3_66_1062_vision_probes_are_loadable_images.py.
+_TINY_PNG_B64 = ("iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAHUlEQVR42m"
+                  "OQwwEe4gAMoxpoogGXBC6DRjXQRAMA2Vd+kIR10J8AAAAASUVORK5CYII=")
 
 
 @live_test("L18", "vision-call-roundtrip", disruptive=False)

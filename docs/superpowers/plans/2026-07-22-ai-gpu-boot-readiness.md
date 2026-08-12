@@ -425,8 +425,10 @@ Expected: collection fails because `bulk_downloader.ollama_boot_probe` does not 
 In `bulk_downloader/llm_readiness.py`, replace the private image declaration with a public name while retaining the old alias:
 
 ```python
-TINY_PNG = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQ"
-            "DwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+TINY_PNG = (...)   # SUPERSEDED at v3.66.1062: the 1x1 that used to be
+#   written out here is REJECTED by ollama 0.32.9 with HTTP 400
+#   "Failed to load image or audio file". The live value is a 16x16 in
+#   bulk_downloader/llm_readiness.py -- copy from there, not from here.
 _TINY_PNG = TINY_PNG
 ```
 

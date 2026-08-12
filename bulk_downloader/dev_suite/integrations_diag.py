@@ -420,13 +420,19 @@ def ai_health_history():
 # normal _record_call hook (kind="vision_test") so it shows up in
 # D-53 and D-57.
 
-# Minimal 1x1 transparent PNG (68 bytes, well-formed). Small enough
-# that the network/encoding overhead doesn't dominate the timing,
-# valid enough that any vision model will accept it.
-_TEST_PNG_B64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNg"
-    "AAAABQABDQotQAAAAABJRU5ErkJggg=="
-)
+import base64 as _b64
+
+# A 16x16 synthetic PNG (86 bytes). NOT a 1x1: ollama 0.32.9 rejects a
+# single pixel with HTTP 400 "Failed to load image or audio file" while
+# 0.32.4 accepted it, so a 1x1 probe reports the vision model broken
+# when it works. Measured on one host with only the size varying: 1x1
+# fails, 2x2 passes, and this payload returns "ok" on BOTH versions.
+# Kept tiny (86 bytes, replacing a 67-byte 1x1) and given actual
+# structure, since a flat colour is a plausible thing for a stricter
+# backend to reject as content-free. Gated by
+# tests/test_v3_66_1062_vision_probes_are_loadable_images.py.
+_TEST_PNG_B64 = ("iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAHUlEQVR42m"
+                  "OQwwEe4gAMoxpoogGXBC6DRjXQRAMA2Vd+kIR10J8AAAAASUVORK5CYII=")
 
 
 _TEST_VISION_PROMPT = (
@@ -447,8 +453,13 @@ def vision_test_harness(prompt=None, timeout=30.0):
         timeout = max(1.0, min(float(timeout), 120.0))
     except Exception:
         timeout = 30.0
+    # DERIVED, not written down. This field was a hardcoded 68 while the
+    # payload beside it changed size, so the diagnostic reported a number
+    # about an image it was no longer sending -- and its test asserted the
+    # same literal, comparing a constant to a constant.
     out = {"tool": "vision_test_harness", "ok": True,
-           "called": False, "test_image_bytes": 68}
+           "called": False,
+           "test_image_bytes": len(_b64.b64decode(_TEST_PNG_B64))}
     try:
         from bulk_downloader import aiassist as _ai
     except Exception as e:

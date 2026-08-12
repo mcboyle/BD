@@ -50,8 +50,12 @@ def test_vision_test_unreachable_provider_is_clean_failure(
         assert r["outcome"] in ("model_failed", "exception")
         assert r["call_ok"] is False if r["outcome"] == "model_failed" \
             else "error" in r
-        # the synthetic image was always 68 bytes regardless
-        assert r["test_image_bytes"] == 68
+        # DERIVE the expectation. This asserted a literal 68 against a
+        # hardcoded 68 -- constant against constant, green whatever the
+        # harness actually sent, and false the moment the payload changed.
+        import base64 as _b64
+        from bulk_downloader.dev_suite import integrations_diag as _idiag
+        assert r["test_image_bytes"] == len(_b64.b64decode(_idiag._TEST_PNG_B64))
     finally:
         aiassist.configure(enabled=False)
 
