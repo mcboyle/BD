@@ -1275,6 +1275,45 @@ venv/bin/python tools/capture_verdict.py \
 FINAL_EXIT=$?
 cat "$OUT/10_VERDICT.txt"
 
+# ── Blind spots ─────────────────────────────────
+#
+# WHY THIS EXISTS (backlog 54, @1058). A verdict that does not say what it
+# could not look at reports OK truthfully and uselessly -- CLAUDE.md section 0.
+# The socket recorder is the model: it prints its own blind spots on every run
+# rather than burying them in a README, because a caveat the reader can skip is
+# a caveat nobody reads. This block is emitted AFTER the verdict, deliberately:
+# the last line printed is the only line anybody reads.
+#
+# It is `tee`d rather than echoed so it also lands in the tarball the operator
+# uploads -- a warning that scrolls out of a terminal is not evidence.
+BLIND_SPOTS="$OUT/11_BLIND_SPOTS.txt"
+{
+  echo "=== [blind spots] what this verdict does NOT cover ==="
+  echo
+  echo "  * CROSS-FILE STATE LEAKS -- INVISIBLE HERE."
+  echo "    This capture runs two lanes: a parallel lane"
+  echo "    (-m capture_parallel -n N --dist loadfile) and a serial lane"
+  echo "    (-n 0). Neither reproduces the co-batching of a whole-suite"
+  echo "    'pytest tests/' run, so a test that wipes bulk_downloader.* from"
+  echo "    sys.modules and orphans a later module's import-time binding"
+  echo "    cannot fire in either lane."
+  echo "    MEASURED at v3.66.1034: test6 passed capture at 15547 pass /"
+  echo "    0 fail while the tree carried all 14 known leakers, and a plain"
+  echo "    'pytest tests/' on the same commit failed between 5 and 35."
+  echo "    A green capture is not evidence about that class in EITHER"
+  echo "    direction. The instrument for it is a full 'pytest tests/' under"
+  echo "    matched load, not this script."
+  echo
+  echo "  * TIMEZONE-DEPENDENT DEFECTS -- CANNOT REPRODUCE HERE."
+  echo "    This host runs $(timedatectl show -p Timezone --value 2>/dev/null || echo UNKNOWN)."
+  echo "    A defect that only appears where the local date differs from the"
+  echo "    UTC date is dormant on a UTC box. Tests for that class must force"
+  echo "    TZ and exercise both signs, or they prove nothing here."
+  echo
+  echo "  A PASS above is evidence about what these two lanes CAN see."
+  echo "  It is not evidence about the classes named here."
+} | tee "$BLIND_SPOTS"
+
 # ── Bundle ───────────────────────────────────────────────────────
 echo "================================================================"
 echo "  Bundling..."
