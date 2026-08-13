@@ -338,7 +338,30 @@ def _interpreter_stats() -> dict:
     objs = gc.get_objects()
     by_type: dict = {}
     for o in objs:
-        n = type(o).__name__
+        # THE DENOMINATOR HERE IS EVERY OBJECT IN THE INTERPRETER, so the
+        # predicate may not assume anything about a member. `type(o).__name__`
+        # did, and it is not universal: h11 builds its protocol sentinels as
+        # `class _SWITCH_CONNECT(Sentinel, metaclass=Sentinel)`, whose metaclass
+        # refuses __name__. MEASURED on test4 and test6, 2026-08-13 at f154aef,
+        # where seven tests in tests/test_perf_lab.py failed together with
+        # `AttributeError: type object '_SWITCH_CONNECT' has no attribute
+        # '__name__'` -- from a real run, not a fixture. It rotates rather than
+        # failing always, because the object is only in the graph once
+        # something has exercised h11, which depends on which files --dist
+        # loadfile put on the same worker.
+        #
+        # try/except and not getattr(..., default): CPython pays nothing for an
+        # untaken except, while getattr with a default pays on every object.
+        # MEASURED on test5, median of 7 runs over a 7857-object graph:
+        # try/except 4.5ms, getattr 4.9ms -- the getattr form is +9.7%. Small
+        # in absolute terms, and this walk is on the snapshot path, so the
+        # cheaper form is free to prefer. (The object count is this probe's,
+        # not a claim about a live worker; section 1 -- state the denominator
+        # in the same sentence as the number.)
+        try:
+            n = type(o).__name__
+        except AttributeError:
+            n = "<type without __name__>"
         by_type[n] = by_type.get(n, 0) + 1
     top = sorted(by_type.items(), key=lambda kv: kv[1], reverse=True)[:12]
     return {

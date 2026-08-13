@@ -4,6 +4,57 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1088
+
+The interpreter census survives the interpreter: a type without __name__ no
+longer crashes perf_lab.snapshot().
+
+FOUND BY THE OVERNIGHT SWEEP, IN PRODUCTION, NOT BY REVIEW. On test4 and test6,
+2026-08-13 at f154aef, during repeated full-suite runs: SEVEN tests in
+tests/test_perf_lab.py failed together on both hosts with
+
+    AttributeError: type object '_SWITCH_CONNECT' has no attribute '__name__'
+    bulk_downloader/perf_lab.py:341: in _interpreter_stats
+
+_interpreter_stats walks gc.get_objects() -- a denominator that is EVERY object
+in the interpreter -- and then asserted a property not every member has. Section
+0 in one line: the denominator was right and the predicate was wrong.
+
+THE OBJECT IS REAL AND IT IS OURS BY DEPENDENCY. h11, which httpcore uses for
+HTTP/1.1, builds its protocol sentinels as
+`class _SWITCH_CONNECT(Sentinel, metaclass=Sentinel)` (h11/_state.py:184), and
+that metaclass refuses __name__. So any process that has exercised h11 can hold
+one, and this walk enumerates it.
+
+IT ROTATES, AND IT IS NOT A FLAKY TEST. The object is only in the graph once
+something has exercised h11, which depends on which files --dist loadfile put on
+the same worker. It read as a rotating failure for exactly that reason -- the
+class backlog 25 is about -- and it is a genuine product defect underneath.
+
+NOT CAUSED BY v3.66.1085, and that was checked rather than assumed, because that
+cut added `import httpcore` to tests/conftest.py and httpcore reaches h11. Both
+sweep hosts were on f154aef, which predates it. Measured directly as well:
+importing httpcore and h11, and driving an h11 CONNECT exchange, produces ZERO
+objects whose type lacks __name__, and snapshot() succeeds. The import alone
+does not create the condition.
+
+THE FIX is try/except around one attribute read, not getattr with a default.
+CPython pays nothing for an untaken except; getattr pays on every object.
+MEASURED on test5, median of 7 runs over a 7857-object graph: try/except 4.5ms
+against getattr 4.9ms, so the getattr form is +9.7%. (That object count is the
+probe's own, stated with the number per section 1, and is not a claim about a
+live worker.)
+
+BOTH DIRECTIONS ARE GATED. A fix that gave up and labelled every type
+unnameable would pass the crash test and destroy the census, which is the whole
+value of top_types -- so the over-sensitive direction has its own test and its
+own mutant. bd-mutate: 2 caught, 0 escaped.
+
+EVIDENCE. 2 RED first on pristine source, reproducing the production
+AttributeError verbatim via a metaclass that refuses __name__, with the
+precondition asserted before the outcome so that "did not crash" and "there was
+nothing to crash on" cannot be the same green. 19 passed after.
+
 ## v3.66.1087
 
 bd-jobs reports whether a job is DOING anything, not only whether it exists
