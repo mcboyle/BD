@@ -5214,6 +5214,168 @@ never `export` in a shell the suite is later launched from.
   row seen in 1 of 6 captures. Re-capture before trusting it.
 
 
+### 15.95 | SESSION CLOSE 2026-08-13 at 283588d (v3.66.1111) -- four cuts, the backlog's last blocked row closes, and a defect thought fixed turns out to be alive on ONE HOST
+
+Close at `283588d`, already on `main` when this was written. Named per the @939
+trap: a section naming its own branch tip goes red on `main` after the squash
+destroys it, where no band reaches.
+
+ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
+OPEN:   31
+
+#### WHAT SHIPPED: v3.66.1108 - v3.66.1111
+
+    1108  no assertion may be FALSE for every input (backlog 26, slice 2)
+    1109  backlog 27: both mechanizations measured and REFUSED, with evidence
+    1110  backlog 13 CLOSES -- the agent key is scoped, the broad key retired
+    1111  a wedged capture stage is bounded and named (backlog 102)
+
+Backlog 4 OPEN -> 3 (26, 27, 102), plus a NEW row 104. All three remaining are
+open deliberately: 26's row sits above the slice it shipped, 27 carries the
+refusal, 102 narrowed from "no mechanism" to one question.
+
+BOX GATE RECORDED WITH IT: all four hosts PASS at 283588d.
+
+    test5  unit 15894 pass / 0 fail / 0 error / 6 skip   live 36 pass / 0 warn
+    test4  unit 15894 pass / 0 fail / 0 error / 6 skip   live 36 pass / 0 warn
+    test6  unit 15893 pass / 0 fail / 0 error / 7 skip   live 32 pass / 4 warn
+    test7  unit 15894 pass / 0 fail / 0 error / 6 skip   live 30 pass / 6 warn
+
+Live WARNs are informational and do not fail the verdict -- they mean a
+capability was not exercisable (no tunnels configured, AI assist off), not that
+one is broken. All four exited 0. The unit count moved 15869 -> 15894 with this
+session's new test files; test6's 15893/7-skip is one test skipped where the
+others ran it, which is the ordinary skip variance this fleet shows and not a
+failure.
+
+#### THE FINDING WITH THE LONGEST REACH: THE WEDGE IS ALIVE, AND IT IS ONE HOST
+
+Backlog 102's wedge was last seen at f154aef and the hope was that @1095's
+eviction guard or @1100's httpx pre-import had killed it. **It reproduces at
+HEAD.** Caught three times: `[gwNN] node down: Not properly terminated` at 99%,
+then 726 seconds of silence at a 1-minute load average of 0.27.
+
+py-spy under sudo, taken BEFORE anything was killed, settles the mechanism.
+**It is a LIVELOCK, not a deadlock.** xdist's `loop_once` is `while 1:` around
+`queue.get(timeout=2.0)` and leaves that loop ONLY when `self._active_nodes`
+empties; the `--locals` dump caught it mid-spin with `remaining: 1.9999989`.
+48 receiver threads sat idle in execnet `read` and ONE zombie child hung unreaped
+off the master. Left alone it would still be running.
+
+**AND EVERY WEDGE IS ON test6.** Full-suite arm only, which is the only arm that
+has ever wedged: test6 2 of 6, test4 0 of 10, test7 0 of 10 -- one-sided Fisher
+p = 0.046. A host audit found the software stack byte-identical (kernel
+6.8.0-137, Ubuntu 24.04.4, Python 3.12.3, pytest 9.1.1, xdist 3.8.0, execnet
+2.1.2, same commit) and exactly ONE structural difference: **test6's root is
+EXT4 where test4 and test7 are XFS**, and /tmp is on / everywhere. CPU differs
+three ways and so isolates nothing. The historical 2-of-6 was ALSO on test6.
+
+A within-host control is running as this is written: `full-tmpfs` is the same
+command with TMPDIR on a 64G tmpfs, alternating against plain `full` on test6,
+so the filesystem is the only difference between two arms on one machine. Read
+`~/bd-wedge-2026-08-14/rows.jsonl` for the verdict -- and do NOT pool it with
+`rows-phase1-final.jsonl`, which is a different commit and a different arm mix.
+
+#### WHAT THE ARMS RULED OUT, WHICH IS WORTH AS MUCH AS WHAT THEY FOUND
+
+The capture lane is 0 of 25, and the 800 deselected tests run ALONE are 0 of 24.
+So "a leaky test among the 800" does not reproduce, and capture.sh's
+configuration remains the measured-good one. **NO CHANGE TO --workers is
+warranted and none was made.**
+
+#### THREE INSTRUMENTS I BUILT WERE WRONG BEFORE THEY WERE RIGHT
+
+  * **A PROBE INVENTED SEVEN HAZARDS OUT OF ITS OWN DENOMINATOR.** Hunting
+    fd inheritance, it collected EVERY pipe on a worker's fds -- including pipes
+    the worker made for its own children -- so a multiprocessing
+    `resource_tracker` holding its own parent pipe scored as a third-party
+    holder. An execnet channel is a pipe held by BOTH a worker and its master.
+    Counted correctly: 96 channels per host, **zero** third-party holders across
+    **976 samples** on three hosts. The hypothesis is dead and it was my probe
+    that made it look alive.
+
+    The same watcher retired a second hypothesis. Peak ZOMBIE counts are
+    comparable on all three -- 29 on test4, 33 on test6, 28 on test7 -- so
+    zombie churn is normal at `-n 48` and is NOT what distinguishes the host
+    that wedges. The unreaped zombie sitting under a wedged master is therefore
+    a CONSEQUENCE of the worker dying, not a cause of it.
+  * **THE FIRST ROW-26 GATE WAS BLIND.** Folding only WHOLE assert tests it
+    could decide **1 of 32127** assertions -- 0.003% -- because @1098's live
+    instance was a CLAUSE inside a larger expression. It would have reported
+    clean over a subject it structurally could not see. Measuring the
+    denominator is what caught it; the green result did not.
+  * **MY SIGINT-BEFORE-SIGKILL "IMPROVEMENT" WAS INERT.** Added so a wedged
+    master would flush its block-buffered stdout, it changed nothing --
+    `SigIgn: 0x1001007` on the master, SIGINT ignored, because a process
+    backgrounded with `&` from a NON-INTERACTIVE shell inherits SIGINT and
+    SIGQUIT as SIG_IGN. CLAUDE.md section 6 records that exact trap for
+    bd-mutate. Fix is `trap - INT QUIT` in the child before exec; NOT yet
+    applied, because applying it costs the in-flight tmpfs samples.
+
+#### BACKLOG 13 CLOSES, AND BOTH DIRECTIONS WERE PROVEN
+
+Final state on test4/test6/test7: exactly TWO keys -- `mboyle-laptop`
+unrestricted, and the agent key carrying `from="10.0.70.164",restrict,pty`.
+`pty` is added BACK deliberately: `restrict` alone disables it and interactive
+sessions are how the fleet is driven.
+
+Proven rather than asserted from the file: the agent key authenticates on a NEW
+connection with the control master bypassed; pointing `from=` at 192.0.2.1 makes
+sshd REFUSE that same key and restoring it makes it work again, so the clause is
+ENFORCED; a remote forward fails at setup and a local forward carries no traffic
+while commands and pty still succeed; and the retired `mboyle@test4` key is
+refused on all three.
+
+**A METHOD TRAP COST A WRONG READING FIRST.** A command-line `-i` ADDS to the
+config's `IdentityFile` rather than replacing it, so the first negative test
+reported "the broad key still works" when what answered was the agent key the
+config offers. Test a refusal with `-F /dev/null`.
+
+Ordering was load-bearing: test5's ssh config was pointed at the agent key with
+`IdentitiesOnly yes` BEFORE any key was removed, so the sweeps polling those
+hosts never lost a connection -- 29 samples in flight across the cutover, zero
+interrupted. `mboyle-laptop` was ADDED to test7 first, being absent there.
+
+#### BACKLOG 27 SHIPS NOTHING, AND THAT IS THE RESULT
+
+Both mechanizations were built and measured. **The declaration route is section 0
+in its literal form: its denominator excludes this row's own two worked
+examples.** @1087 put its control in a file declaring `BD_GATE_SCOPE = "module"`;
+@1088 added NO test file at all, its control going into `tests/test_perf_lab.py`,
+line 394 of the frozen baseline, which may only SHRINK. 0 of 2, permanently.
+
+The derived-predicate route is worse than imprecise: its false-positive rate is
+not a number. Three independent implementations of one English sentence returned
+outside-bands of 28-64, 42-110, and a claimed 53, no two agreeing -- and it is
+wrong in BOTH directions, refusing 2 of the 8 cuts that DID write a control.
+
+**An independent verification pass corrected the numbers this session first
+produced**, including that the nine repo-wide files counted included this
+session's own unmerged 1108 -- the most favourable possible sample for both
+predicates. Read row 27 before re-proposing either route.
+
+#### WHAT A TASK LIST CANNOT SEE, FOUND BY AUDITING THE HOSTS
+
+`/tmp/bd-testrun-*`: **418 dirs / 5.1G on test4, 413 / 11G on test6, 342 / 3.0G
+on test7**. tests/_tmproot.py reclaims its root in `pytest_sessionfinish`, and a
+session hook cannot survive SIGKILL -- so every killed run leaks up to 49 roots,
+one per worker. My own wedge hunt made most of them. Now backlog row 104, with
+the note that the obvious fix (atexit, or a signal handler) cannot catch SIGKILL
+either and would convert a reliable leak into a rare one.
+
+#### LIVE STATE ON THE FLEET THAT NO TRACKED FILE RECORDS
+
+  * `~/.bd-tools-venv` + `~/.local/bin/py-spy` on test4/6/7 (21M each), installed
+    for the wedge forensics. ptrace_scope is 1, so py-spy needs sudo.
+  * A **64G tmpfs mounted at /mnt/bdtmpfs on test6**, for the filesystem arm. It
+    consumes RAM only as used and does NOT survive a reboot.
+  * `~/cwatch.sh` and `~/bd-channelwatch.log` on all three. The loops were
+    STOPPED at the end of this session after 976 samples; the logs are kept as
+    the evidence for the two retired hypotheses above. Nothing restarts them.
+  * `~/.ssh/authorized_keys.pre-row13` on all three, and the fingerprints of
+    every removed key in `~/bd-session-2026-08-13/row13_key_inventory_before.txt`.
+  * `bd-wedge-hunt` lives in `~/bd-wedge-2026-08-14/` and is TRACKED NOWHERE.
+
 ### 15.94 | SESSION CLOSE 2026-08-13 at 2af66a0 (v3.66.1106) -- fifteen cuts, and the two worst defects were mine and in the class I had just closed
 
 Close at `2af66a0`, the squash of #391, already on `main` when this was written.

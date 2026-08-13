@@ -4,6 +4,23 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1112 - SESSION_CARRY 15.95, the close for v3.66.1108 - v3.66.1111
+
+- doc-only: SESSION_CARRY 15.95, the close for four cuts. Named at 283588d,
+  already on main when written, per the @939 trap where a section naming its own
+  branch tip goes red after the squash destroys it.
+- BOX GATE RECORDED WITH IT: all four hosts PASS at 283588d -- test5 and test4
+  unit 15894/0/0/6, test7 15894/0/0/6, test6 15893/0/0/7, live 36/36/30/32 pass
+  with 0 fail everywhere. All four exited 0. Live WARNs are informational and do
+  not fail the verdict.
+- NEW BACKLOG ROW 104: the per-run temp root is reclaimed by a pytest SESSION
+  HOOK, so a killed run leaks one root per worker -- up to 49 at -n 48. Measured
+  after this session's wedge hunt: 418 dirs / 5.1G on test4, 413 / 11G on test6,
+  342 / 3.0G on test7. The obvious fix cannot catch SIGKILL either, so it is
+  recorded rather than patched.
+- The backlog's LAST BLOCKED ROW closed this session. 13 was the only row
+  waiting on an operator decision; 26, 27 and 102 remain open by design.
+
 ## v3.66.1111 - a wedged capture stage is bounded and named (backlog 102, the operational half)
 
 - THE WEDGE REPRODUCES AT HEAD, which retires the hope that @1095's eviction
