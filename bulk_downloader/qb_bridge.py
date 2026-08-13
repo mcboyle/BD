@@ -418,10 +418,26 @@ class QBittorrentClient:
             if r.status_code != 200:
                 raise QBError("network", f"list HTTP {r.status_code}")
             return {t.get("hash", "") for t in r.json() if t.get("hash")}
+        except QBError:
+            # Raised by the non-200 branch above. Re-raise so the blanket
+            # clause below cannot re-label a kind we already chose.
+            raise
         except httpx.RequestError as e:
             raise QBError("network", f"list failed: {e}")
         except (ValueError, KeyError) as e:
             raise QBError("unknown", f"list response: {e}")
+        except Exception as e:
+            # submit() documents QBError as its only failure mode, and both
+            # of its call sites here catch QBError alone -- so anything this
+            # helper lets through leaves submit() unwrapped. Measured on
+            # test6 at v3.66.1083: a refused connection arrived as
+            # httpcore.ConnectError rather than httpx.ConnectError and the
+            # RequestError clause above matched nothing. A closed client
+            # reaches the same hole with an AttributeError and no transport
+            # at all. Name the type in the message: an over-broad handler
+            # that swallowed it would hide a programming error here.
+            raise QBError("unknown",
+                f"list failed: {type(e).__name__}: {e}")
 
     # ── Polling ───────────────────────────────────────────────────────
 
