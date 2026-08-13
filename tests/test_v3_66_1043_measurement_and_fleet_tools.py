@@ -521,3 +521,94 @@ def test_bd_jobs_quotes_the_command_it_hands_back_to_a_shell(monkeypatch, tmp_pa
     assert real_after == real_before, (
         "this test wrote %d entr(ies) into the REAL job registry at "
         "/tmp/bd-jobs" % (real_after - real_before))
+
+
+# ── @1075: the version column described the tree, not the service ────────────
+
+def test_the_probe_reads_the_running_version_not_only_the_tree(tmp_path):
+    """MEASURED at v3.66.1072 on test5, and it reported a state that was false.
+
+    `bd-fleet` derived its `version` column from `bulk_downloader/__init__.py`
+    -- the working TREE. On test5 the agent's working directory IS the deployed
+    tree, so immediately after a merge the column read 3.66.1072 while
+    `tools/deployed_version.txt` (rewritten by ExecStartPre on every start, so
+    it reflects the PROCESS) still said 3.66.1071 and the service had not been
+    restarted. The fleet table showed four hosts agreeing; that was true of
+    four trees and three processes.
+
+    CLAUDE.md section 7 already records which file is which. The tool read the
+    one that cannot answer the question its column header asks.
+
+    THE FIRST VERSION OF THIS TEST WAS A GREP AND A MUTANT WALKED THROUGH IT.
+    It asserted `"deployed_version.txt" in mod.PROBE` -- and the COMMENT
+    explaining the fix, which sits inside the same probe string, contains that
+    filename. Deleting the echo left the assertion satisfied by the prose
+    describing it. CLAUDE.md section 0: a comment is inside the denominator of
+    every gate that reads source text. So the probe is EXECUTED here, against a
+    fake tree, and judged on what it EMITS.
+    """
+    import subprocess as sp
+    mod = _load("bd-fleet")
+    home = tmp_path / "home"
+    tree = home / "BulkDownloader"
+    (tree / "tools").mkdir(parents=True)
+    (tree / "bulk_downloader").mkdir()
+    (tree / "tools" / "deployed_version.txt").write_text(
+        "9.9.9-running\nstarted: whenever\n", encoding="utf-8")
+    (tree / "bulk_downloader" / "__init__.py").write_text(
+        '__version__ = "9.9.9-tree"\n', encoding="utf-8")
+
+    out = sp.run(["bash", "-c", mod.PROBE], capture_output=True, text=True,
+                 env={**os.environ, "HOME": str(home)}, timeout=60).stdout
+    d = mod.parse_probe(out)
+
+    assert d.get("serving") == "9.9.9-running", (
+        "the probe did not report the RUNNING version; it emitted %r" % out)
+    assert d.get("version") == "9.9.9-tree", (
+        "the tree reading regressed while adding the service reading: %r" % out)
+    assert d["serving"] != d["version"], (
+        "the fixture must make the two distinguishable or this proves nothing")
+
+
+def test_a_host_serving_a_different_version_than_its_tree_is_flagged():
+    """The divergence this tool exists to surface, and the one it could not see.
+
+    Fleet-wide agreement was already checked. A single host whose SERVICE and
+    TREE disagree was not -- which is the deploy-not-restarted state, and the
+    one an operator most needs to be told about before running a capture.
+    """
+    mod = _load("bd-fleet")
+    rows = [("test5", "10.0.70.164",
+             {"head": "aaa", "version": "3.66.1072", "serving": "3.66.1071",
+              "dirty": "0", "service": "active", "jobs": "0", "pytest": "0"}, None)]
+    notes = " ".join(mod.divergences(rows))
+    assert "test5" in notes and "3.66.1071" in notes and "3.66.1072" in notes, (
+        "a host whose tree and service disagree was not reported: %r" % notes)
+    assert "restart" in notes.lower() or "deploy" in notes.lower(), (
+        "the note must say what to DO about it: %r" % notes)
+
+
+def test_matching_tree_and_service_is_not_flagged():
+    """The over-sensitivity control.
+
+    A fix that flagged every host would fire on a healthy fleet and be switched
+    off -- section 0 counts that as a soundness bug of equal weight.
+    """
+    mod = _load("bd-fleet")
+    rows = [("test4", "10.0.70.85",
+             {"head": "aaa", "version": "3.66.1074", "serving": "3.66.1074",
+              "dirty": "0", "service": "active", "jobs": "0", "pytest": "0"}, None)]
+    assert not [n for n in mod.divergences(rows) if "serving" in n.lower()], (
+        "a healthy host was flagged")
+
+
+def test_an_unknown_running_version_is_not_reported_as_a_mismatch():
+    """UNKNOWN IS A THIRD STATE. A host whose deployed_version.txt is missing
+    (never started under systemd, or a fresh checkout) must not be reported as
+    serving the wrong version -- that is a gate firing on its own blindness."""
+    mod = _load("bd-fleet")
+    rows = [("test7", "10.0.70.84",
+             {"head": "aaa", "version": "3.66.1074", "serving": "",
+              "dirty": "0", "service": "active", "jobs": "0", "pytest": "0"}, None)]
+    assert not [n for n in mod.divergences(rows) if "serving" in n.lower()], (
+        "an absent reading was reported as a disagreement")

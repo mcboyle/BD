@@ -4,6 +4,44 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1075
+
+bd-fleet separates the tree from the service, and names the host that disagrees
+with itself.
+
+THE COLUMN HEADED `version` DESCRIBED THE WORKING TREE. It was derived from
+`bulk_downloader/__init__.py`, so it answered "what is checked out", not "what
+is running" -- and every reader takes a fleet table's version column for the
+latter. Measured at v3.66.1072 on test5, where the agent's working directory IS
+the deployed tree: the table showed four hosts agreeing at 3.66.1072 while
+test5's service was still serving 3.66.1071, unrestarted, having started half
+an hour before the merge landed. True of four trees and three processes.
+CLAUDE.md section 7 already records that `tools/deployed_version.txt` is
+rewritten by ExecStartPre on every start and therefore reflects the PROCESS;
+the tool read the file that cannot answer its own column header.
+
+The probe now reads both. The table carries `tree ver` and `serving`, and a
+host whose two readings disagree is named in the disagreement block with what
+to do about it -- the deploy-not-restarted state, which fleet-WIDE comparison
+structurally cannot see because it compares hosts against each other and never
+a host against itself. An absent reading is UNKNOWN rather than a mismatch: a
+host that never started under systemd has no such file, and reporting that as
+"serving the wrong version" would be the gate firing on its own blindness.
+
+A MUTANT WALKED THROUGH THE FIRST VERSION OF THE TEST, and the reason is worth
+more than the fix. The test asserted `"deployed_version.txt" in PROBE` -- and
+the COMMENT explaining the change, which sits inside that same probe string,
+contains the filename. Deleting the echo left the assertion satisfied by the
+prose describing it. That is CLAUDE.md section 0's comments-are-in-the-
+denominator trap, sprung by the comment written to explain a fix for a
+measurement defect, and caught by bd-mutate rather than by review. The test now
+EXECUTES the probe against a fake tree with distinguishable tree and running
+versions, and judges what it emits.
+
+4 mutants, 4 caught, 0 escaped, including both over-sensitive directions.
+Verified live: the table now reports test5 tree 3.66.1074 / serving 3.66.1072
+and prints "test5 has DEPLOYED but not RESTARTED".
+
 ## v3.66.1074
 
 bd-jobs reaches the host you named, and says which thing went wrong.
