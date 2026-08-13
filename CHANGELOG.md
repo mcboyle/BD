@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1096
+
+- app: _check_csrf now resolves _csrf_token_for LATE, through importlib at call
+  time, exactly as app_csrf.py and app_pair.py already do (backlog 92). It read
+  the name through app.py's own module globals, so a stale module object kept
+  using the CSRF key minted when that object was executed.
+- THE APP WAS REFUSING A TOKEN IT HAD JUST MINTED ITSELF. _csrf_key is
+  module-level, so a fresh module EXECUTION mints a new one. The mint side is
+  late-bound and always reached the live module; the check side was early-bound
+  and reached whichever module object was executing. After a bulk_downloader.*
+  sys.modules wipe those are two different keys, and the request came back 403
+  with a message that reads as a security defect rather than as two module
+  objects being alive at once.
+- Reproduced end to end before the fix: GET /api/csrf through a client held on
+  the stale module returns a token minted with the LIVE key, and the following
+  POST is refused "CSRF token missing or invalid".
+- BINDING TIME ONLY. Unchanged: which routes are guarded, the bootstrap
+  exemptions, the Bearer bypass, the cross-origin Origin refusal, and key
+  rotation on restart. The same key is used; it is looked up when needed rather
+  than captured at module execution.
+- Cost measured: 0.77 us per state-changing /api/ request, against an
+  HMAC-SHA256 of the same order and a round trip in milliseconds.
+- Two over-correction mutants are carried, because "make the check agree with
+  the mint" has an easy wrong answer that removes CSRF entirely: one stops
+  comparing, one accepts a missing token. Both caught.
+
 ## v3.66.1095
 
 - tests: a patch.dict(sys.modules, ...) that EVICTS a module it did not insert
