@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1107
+
+- doc-only: SESSION_CARRY 15.94, the close for the fifteen cuts v3.66.1092
+  through v3.66.1106. Named at 2af66a0, already on main when written, per the
+  @939 trap where a section naming its own branch tip goes red after the squash
+  destroys it.
+- BOX GATE RECORDED WITH IT: all four hosts PASS at 2af66a0, unit 15869 pass /
+  0 fail / 0 error / 6 skip on every host, and 00_tree_drift.txt present and
+  EMPTY on all four -- so @1092's postflight check ran and answered rather than
+  being absent.
+- The carry's headline is that a CENSUS CANNOT ANSWER A SCHEDULE-DEPENDENT
+  QUESTION. Row 101's audit measured all 28 patch.dict sites serially and found
+  ZERO; four cuts later the runtime guard built instead of a static gate caught
+  a FIFTY-module eviction at a worker count no capture lane uses.
+- It also carries the operational fact a future session needs: that guard fires
+  at some worker counts and not others, so a red capture naming
+  SysModulesEviction is the guard working, not a regression, and the remedy is
+  a conftest-scope import.
+- And the session's own defects, worst first -- deleting a capture bundle on an
+  unverified premise after printing "they match" as a literal banner between two
+  cat calls; reintroducing backlog 25's schedule-dependence class in the cut
+  that closed backlog 101; a vacuous assertion that survived a mutation battery,
+  a 517-file band and twelve CI checks; staged-versus-tracked three times; a
+  self-matching grep; a tarball predicate that invented four wedges; and a
+  probability overclaimed by five orders of magnitude.
+
 ## v3.66.1106
 
 - bd-cut-preflight gains scratch-in-tests and orphans, closing backlog 35
