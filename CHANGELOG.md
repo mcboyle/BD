@@ -4,6 +4,59 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1086
+
+Three findings that lived only in prose become backlog rows a test can read.
+
+WHY THIS IS A CUT AND NOT A NOTE. CLAUDE.md section 1: a deferral that lives only
+in prose has not been deferred, it has been DROPPED. All three of these were
+carried in a session handoff outside the repo, which no gate reads and which the
+next session may or may not open. The ITEM LEDGER and this backlog work for
+exactly one reason -- a test reads them.
+
+ROW 100, THE @1079 GUARD CHECKS PREFLIGHT ONLY. capture.sh refuses a tree that
+is dirty when the run STARTS; a tree that goes dirty DURING the run passes it,
+which is precisely what invalidated test5 at the 1082 capture round. The guard
+shipped hours before that happened and could not have caught it. The shape is
+worth more than the instance: a gate whose denominator is one INSTANT cannot
+answer a question about an INTERVAL. Section 0's rule in the time dimension.
+
+ROW 101, patch.dict(sys.modules) EVICTS WHAT WAS FIRST IMPORTED INSIDE IT. The
+class behind v3.66.1085. 28 call sites across 6 tracked test files, measured at
+f154aef. The INSTANCE is closed; the class is not, and the row says so and names
+three candidate fixes with the reason each is not obviously right -- including
+that the most gate-like of them costs one check per test, ~15600 times per
+capture, which section 2 rule 6 requires be measured before it is added.
+
+ROW 95's REMAINDER IS MEASURED CLOSED. It closed PARTIAL at @1080 naming what it
+had not done: the accumulated /tmp backlog on the four hosts, ~13000-18000
+entries each, operator-bound because it is irreversible deletion. After the
+operator's clear-and-reboot, measured 2026-08-13 at f154aef: test4 64, test6 68,
+test7 65, test5 83, against the gate's 5000 threshold, with
+test_the_fleet_leaks_no_tmpdirs ARMED and passing on all four. Run on EACH host,
+because its predicate is /tmp on whatever machine executes it -- so one host's
+pass is a fact about that host, and the gate's NAME overstates its denominator.
+That is recorded as a line, not chased as a cut.
+
+ROW 13 IS AMENDED AND STAYS OPEN. The identity half is staged on operator
+instruction -- a distinct ed25519 key appended (never rewritten) to
+test4/test6/test7, each authorized_keys backed up first, and proven in BOTH
+directions: the new key authenticates alone under IdentitiesOnly=yes, and the
+pre-existing key still authenticates. test5 was deliberately not touched, since
+it does not accept the existing agent key either and adding one would create new
+REACH rather than a new IDENTITY. The row's own warning stands: an unrestricted
+second key closes nothing. It stays OPEN because the restriction is the value.
+
+The row also records an incidental finding nothing in the tree explains: the
+fleet's authorized_keys are NOT uniform -- test4 carried 5 keys, test7 3, test6
+2, with two `administrator@*` keys present on two hosts and absent on the third.
+
+FORMAT NOTE, caught by the gate rather than by review: the first draft put
+"identity staged @1086" in row 13's STATUS cell, and
+test_open_rows_carry_no_evidence_marker refused it -- an OPEN row may carry no
+evidence marker, because a close nobody can check is a claim rather than a
+record. The detail belongs in the text column, which is where it now is.
+
 ## v3.66.1085
 
 A patch.dict(sys.modules) can no longer split the httpcore module identity.
