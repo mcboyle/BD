@@ -4,6 +4,30 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1102
+
+- toolchain: bd-ci-verdict and bd-ci-wait become tracked tools. They were built
+  during the 2026-08-13 session and lived only in an ephemeral agent scratch
+  directory, so every PR of that session was merged on evidence produced by
+  tools that were about to be deleted.
+- bd-ci-verdict reads a PR's checks and refuses unless all twelve NAMED checks
+  are present and passing -- a count alone cannot detect a substituted or
+  missing check. It prints seven blind spots on every run, including that a
+  vacuous green reads as a pass and that it does NOT verify which commit the
+  rows describe.
+- bd-ci-wait exists because of that last blind spot. MEASURED on PR 377: the
+  previous run sat `completed failure` on the PR while the new run was still
+  in_progress, so an unpinned poll reported a fix as failing. It resolves the
+  PR head sha, waits for the run belonging to THAT sha, and refuses if the head
+  moves underneath it.
+- NOT tracked, deliberately: bd-cut-preflight and bd-sweep-run from the same
+  scratch directory. They were not exercised during this session, and a tool in
+  toolchain/bin carries authority it has not earned -- section 8's "a docstring
+  is a claim, not a measurement".
+- Both tracked tools re-validated from their new location before this cut:
+  bd-ci-verdict selftest 233/233, bd-ci-wait refusal paths exit 2 on an
+  unresolvable PR and 0 on a completed one.
+
 ## v3.66.1101
 
 - doc-only: backlog 103's premise does not reproduce, and the row is corrected
