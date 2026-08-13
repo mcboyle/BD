@@ -4,6 +4,39 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1104
+
+- toolchain: bd-cut-preflight and bd-sweep-run become tracked tools, completing
+  the rescue of the 2026-08-13 session's instruments from an ephemeral scratch
+  directory.
+- bd-cut-preflight runs the PRE-COMMIT gate battery -- guardcheck, versync,
+  changelog, regen, regen-order, imports, freshcheck, band-derive, bandcheck --
+  and reports pass / fail / UNKNOWN per check. It reimplements none of them;
+  every verdict is a real subprocess run captured whole to a log.
+- ITS SHAPE IS WHY IT IS WORTH KEEPING. UNKNOWN is a third state that drives the
+  verdict NONZERO, and each check's denominator is parsed out of the tool's own
+  output -- so a tool exiting 0 having examined NOTHING reads UNKNOWN rather
+  than pass. That is the bd-guardcheck pre-v3.66.818 shape ("0 ok, 0 drifted,
+  7 missing" at exit 0) refused by construction.
+- It also fingerprints the tree before and after the battery and reports drift,
+  which is v3.66.1092's postflight idea applied to the pre-commit moment.
+- A CLEAN TREE ALWAYS RETURNS BLOCKED and that is not a fault: no changed set
+  means no band to derive or validate, so three checks are honestly UNKNOWN.
+  Recorded in the tool's own header so the first BLOCKED is not read as
+  breakage.
+- bd-sweep-run takes ONE full-suite sample on a named host in CLAUDE.md section
+  5's sanctioned form, waits on a written exit marker, and records a JSON row
+  with the commit, host, worker count AND where that number came from, load
+  before and after, and the failure names. Its blind spots are unusually candid:
+  the fetched log is checked for LENGTH not truth, so a same-length corruption
+  is invisible, and the exit code is pytest's own claim.
+- Both re-validated FROM THEIR NEW LOCATION before this cut, not from the
+  scratch copy: selftest exit 0 each. All imports are stdlib, so the dependency
+  gates are unmoved.
+- Backlog 35 shrinks as a result: bd-cut-preflight already supplies the composer
+  and the UNKNOWN state that row was missing, and covers 2 of its 5 named
+  predicates.
+
 ## v3.66.1103
 
 - doc-only: backlog 102's central question is answered, and CLAUDE.md's

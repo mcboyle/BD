@@ -1,0 +1,1325 @@
+#!/usr/bin/env python3
+"""bd-cut-preflight -- run the PRE-COMMIT gate battery for a cut and print one
+line per check with an explicit UNKNOWN state wherever a check could not run.
+
+A CLEAN TREE ALWAYS RETURNS BLOCKED, AND THAT IS NOT A FAULT. With no changed
+files there is no changed set, so no band can be derived and no band can be
+validated -- three checks report UNKNOWN and UNKNOWN drives the verdict nonzero
+by design. Run this with your work STAGED OR UNSTAGED IN THE TREE; a BLOCKED on
+an empty diff means "there is nothing here to certify", not "something is
+wrong". Measured on a clean tree at v3.66.1103: 14 checks, 11 PASS, 0 FAIL,
+3 UNKNOWN, exit 2.
+
+IT CALLS THE EXISTING TOOLS. It reimplements none of them. Every verdict below
+comes from a real subprocess run of a toolchain/bin tool, captured whole to a log
+file that survives the run:
+
+    bd-guardcheck        guard-file SHA pins
+    bd-versync           __init__ / CHANGELOG / test-pin version coherence
+    bd-changelog         CHANGELOG top entry: ASCII-only, anchored, matches tree
+    bd-regen             derived-doc drift (read-only --check mode)
+    bd-regen-order       the ordered regen chain (--dry-run: enumerates, runs nothing)
+    bd-imports           undeclared new import edges vs the frozen baseline
+    bd-freshcheck        doc/register staleness (--repo-only)
+    bd-band-derive       the derived band FLOOR for the changed set (--emit)
+    bd-bandcheck         validates that band before anybody runs it
+
+THREE STATES, ALWAYS. pass / fail / UNKNOWN. A check that exits 0 having
+examined NOTHING reports UNKNOWN and drives the overall verdict nonzero -- that
+is the bd-guardcheck pre-@818 shape ("0 ok, 0 drifted, 7 missing" at exit 0) and
+this harness refuses it by parsing each tool's own denominator out of its own
+output and requiring it to be non-empty. Unparseable output is UNKNOWN too: a
+summary line whose wording changed is a thing this harness cannot read, not a pass.
+
+Exit 0 = every check PASS. 1 = at least one FAIL. 2 = no FAIL but at least one
+UNKNOWN. Nonzero either way; UNKNOWN is not green.
+
+================================================================================
+WHAT THIS SCRIPT CANNOT SEE  (printed on every run, not just here)
+================================================================================
+  1. It runs NO tests. No pytest, no band, no capture. A green preflight says
+     nothing about whether the band passes.
+  2. It cannot see cross-file state leaks or schedule-dependent failures. Those
+     need a full pytest under matched load; no static gate reproduces them.
+  3. The derived band is a FLOOR, never a ceiling. bd-band-derive's four signals
+     miss a consumer they have no signal for; axis-6 gates and new-test-file
+     denominator changes are ADDED on top by a human.
+  4. It changes nothing and fixes nothing. bd-regen runs in --check mode and
+     bd-regen-order in --dry-run; neither regenerates. A DRIFT verdict here is a
+     report, not a repair.
+  5. It cannot see CI, GitHub branch protection, required checks, or the merge
+     queue. Nothing server-side is measurable from a working tree.
+  6. It cannot see whether the SENTENCES in the docs are still true --
+     bd-freshcheck covers the mechanically derivable half of staleness and says
+     so itself.
+  7. It cannot certify a guard file that guards.json does not pin, or an import
+     edge outside the frozen baseline's own denominator.
+  8. It cannot see another agent or release process writing to this tree. It
+     hashes HEAD + `git status --porcelain -uall` + the whole `git diff HEAD`
+     patch + the bytes of every untracked file, before and after, and reports
+     the mismatch -- which DETECTS drift, it does not prevent it. A status-only
+     hash was MEASURED to miss a second edit to an already-dirty file (' M path'
+     is byte-identical either way) and to miss files added inside an already
+     untracked directory; both now move the fingerprint. Untracked files are
+     hashed to 32 MiB; a change past that offset is still invisible.
+  9. Its denominators are parsed from human-readable tool output at f154aef. A
+     tool that rewords its summary becomes UNKNOWN here, by design.
+ 10. It is not the full cut. Commit, PR, CI wait, merge, prune and deploy are
+     outside it -- and outside every tool it calls.
+================================================================================
+
+Usage:
+  bd-cut-preflight                     # battery over the current changed set
+  bd-cut-preflight --files A B ...     # derive the band from an explicit file set
+  bd-cut-preflight --changed-from REF  # changed set = git diff --name-only REF
+  bd-cut-preflight --repo DIR          # default /home/mboyle/BulkDownloader
+  bd-cut-preflight --timeout N         # per-check wall cap (default 300s)
+  bd-cut-preflight --selftest          # prove PASS, FAIL and UNKNOWN are all reachable
+"""
+
+import argparse
+import contextlib
+import hashlib
+import io
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+
+REPO_DEFAULT = "/home/mboyle/BulkDownloader"
+
+# Per-check wall cap. MEASURED at f154aef on test5 (48 cores, load ~1.7):
+# bd-guardcheck 0.2s, bd-changelog 0.2s, bd-regen-order --dry-run 0.13s,
+# bd-freshcheck 0.6s, bd-band-derive 1.3s, bd-versync 6.8s, bd-regen 18.0s,
+# bd-imports 30.4s. Slowest measured member = 30.4s; the default is ~10x that.
+# A cap is not evidence of a hang -- exit 124/143 here is UNKNOWN, never FAIL.
+TIMEOUT_DEFAULT = 300
+SLOWEST_MEASURED = "bd-imports 30.4s at f154aef on test5"
+
+PASS, FAIL, UNKNOWN = "PASS", "FAIL", "UNKNOWN"
+
+BLIND_SPOTS = [
+    "runs NO tests -- a green preflight is not a green band",
+    "cannot see cross-file state leaks or schedule-dependent failures (needs full pytest under matched load)",
+    "the derived band is a FLOOR, not a ceiling -- axis-6 gates and new test files are added by a human",
+    "fixes nothing: bd-regen is --check and bd-regen-order is --dry-run; DRIFT here is a report, not a repair",
+    "cannot see CI, branch protection, required checks or the merge queue",
+    "cannot see whether doc SENTENCES are still true (bd-freshcheck covers the derivable half only)",
+    "cannot certify a guard file guards.json does not pin, or an edge outside the import baseline",
+    "cannot stop a concurrent writer -- it hashes HEAD + porcelain(-uall) + the whole `git diff HEAD` + untracked bytes, before and after, and reports drift only",
+    "hashes at most 32 MiB of any one untracked file -- a change past that offset does not move the tree fingerprint",
+    "denominators are parsed from tool output measured at f154aef; wording it cannot match reads UNKNOWN, but a reworded line that still matches an anchor is still counted -- every parser here is a FLOOR",
+    "is not the whole cut -- commit, PR, CI wait, merge, prune and deploy are outside it",
+]
+
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def strip_ansi(s):
+    return ANSI.sub("", s or "")
+
+
+# --------------------------------------------------------------------------
+# denominator parsers -- each returns (total, examined, unverifiable, unit)
+# or None meaning "this harness could not read a denominator out of that output".
+# None and 0 both mean UNKNOWN. They are written against MEASURED output at
+# f154aef; the measured line each was written from is quoted above it.
+# --------------------------------------------------------------------------
+
+def p_guardcheck(t):
+    # measured: "7 ok, 0 drifted, 0 missing, 0 unpinned."
+    m = re.search(r"(\d+)\s+ok,\s*(\d+)\s+drifted,\s*(\d+)\s+missing,\s*(\d+)\s+unpinned", t)
+    if not m:
+        return None
+    ok, dr, mi, un = (int(x) for x in m.groups())
+    return ok + dr + mi + un, ok + dr, mi + un, "guard file(s)"
+
+
+def _anchors(t, anchors, unit):
+    seen = sum(1 for a in anchors if a in t)
+    return len(anchors), seen, len(anchors) - seen, unit
+
+
+def p_versync(t):
+    # measured: "__init__.py __version__ : 3.66.1084" / "CHANGELOG top entry     : ..."
+    #           "version pins: exactly one, tests/test_settings_center_slice4.py == ..."
+    return _anchors(t, ["__init__.py __version__", "CHANGELOG top entry", "version pins:"],
+                    "version fact(s)")
+
+
+def p_changelog(t):
+    # measured: "top entry: ## v3.66.1084" / "  ASCII-only: ok" / "  matches tree __version__ ..."
+    return _anchors(t, ["top entry:", "ASCII-only:", "matches tree __version__"],
+                    "changelog fact(s)")
+
+
+def p_regen(t):
+    # measured (ANSI stripped): "  OK   FUNCTION_INDEX" ... ; source labels OK / DRIFT / ??
+    # [^\S\n] is "whitespace that is NOT a newline". Plain \s MATCHES \n, so
+    # r"^\s+OK\s+\S" joined a bare "  OK" line to the first word of the NEXT
+    # line and counted it as a generator -- MEASURED: "  OK\nRESULT: nothing was
+    # checked" scored (1, 1, 0) and classified PASS. A tool that examined
+    # nothing must not be able to manufacture a denominator out of a line break.
+    ok = len(re.findall(r"^[^\S\n]+OK[^\S\n]+\S", t, re.M))
+    dr = len(re.findall(r"^[^\S\n]+DRIFT[^\S\n]+\S", t, re.M))
+    qq = len(re.findall(r"^[^\S\n]+\?\?[^\S\n]+\S", t, re.M))
+    if ok + dr + qq == 0:
+        return None
+    return ok + dr + qq, ok + dr, qq, "generator(s)"
+
+
+def p_regen_order(t):
+    # measured (--dry-run): "  1. gui_parity ..." through "  7. STATIC_KB ...", "  V. route counts"
+    n = len(re.findall(r"^[^\S\n]+(?:\d+|V)\.[^\S\n]+\S", t, re.M))
+    if n == 0:
+        return None
+    return n, n, 0, "chain step(s) enumerated"
+
+
+def p_freshcheck(t):
+    # measured (--repo-only): "  OK       doc file:line anchors" etc.
+    good = len(re.findall(r"^[^\S\n]{2}(?:OK)[^\S\n]{2,}\S", t, re.M))
+    bad = len(re.findall(r"^[^\S\n]{2}(?:STALE|FAIL)[^\S\n]{2,}\S", t, re.M))
+    unk = len(re.findall(r"^[^\S\n]{2}(?:UNKNOWN|SKIP)[^\S\n]{2,}\S", t, re.M))
+    if good + bad + unk == 0:
+        return None
+    return good + bad + unk, good + bad, unk, "staleness check(s)"
+
+
+def p_bandderive(t):
+    # measured (--emit): a single line "bd-band tests/a.py tests/b.py ..."
+    m = re.search(r"^bd-band\s+(.*)$", t, re.M)
+    if not m:
+        return None
+    n = len([x for x in m.group(1).split() if x.endswith(".py")])
+    return n, n, 0, "suite(s) derived"
+
+
+def p_bandcheck(t):
+    # measured: "  ok      tests/x.py"; source also emits UNSAFE / NOT A FILE / MISSING
+    ok = len(re.findall(r"^[^\S\n]{2}ok[^\S\n]{2,}\S", t, re.M))
+    bad = len(re.findall(r"^\s{2}(?:UNSAFE|NOT A FILE|MISSING)\b", t, re.M))
+    if ok + bad == 0:
+        return None
+    return ok + bad, ok + bad, 0, "band target(s)"
+
+
+def make_p_imports(repo):
+    """bd-imports prints NO denominator on success ("OK no new import edges").
+    So the denominator is measured independently from the corpus it compares
+    against -- an ABSENT baseline is not an EMPTY one, and neither is a pass."""
+    def parse(t):
+        if "import_graph_gate.py not found" in t:
+            return None
+        base = os.path.join(repo, "tools", "decomp", "import_graph_baseline.json")
+        if not os.path.isfile(base):
+            return None
+        try:
+            import json
+            d = json.load(open(base, encoding="utf-8"))
+            edges = d.get("edges") or {}
+            n = sum(len(v) for v in edges.values()) if isinstance(edges, dict) else len(edges)
+        except Exception:
+            return None
+        if "new import edge(s) detected" in t:
+            return n, n, 0, "baseline edge(s)"
+        if "no new import edges" in t:
+            return n, n, 0, "baseline edge(s)"
+        return None
+    return parse
+
+
+# --------------------------------------------------------------------------
+# runner + classifier
+# --------------------------------------------------------------------------
+
+def run_tool(argv, cwd, timeout, logpath):
+    """Run argv and stream BOTH streams straight into the log file as the child
+    writes them -- `cmd >log 2>&1`, unpiped, unfiltered, untruncated.
+
+    The log is therefore real on disk WHILE the child is still running: it
+    survives this process dying, and a REAPED child keeps everything it managed
+    to print. The previous in-memory form lost 100% of a timed-out child's
+    output, because subprocess.TimeoutExpired carries BYTES even under
+    text=True, so its `isinstance(e.stdout, str)` guard was never true --
+    MEASURED: a child that printed three lines and then slept past the cap left
+    a log containing none of them. That is the one case where the partial log is
+    the only evidence there is, so it is the one case that must not be lost."""
+    env = dict(os.environ)
+    env.pop("BD_INSTALL_DIR", None)       # exported into a child it defeats isolation
+    env["PYTHONDONTWRITEBYTECODE"] = "1"  # never leave .pyc in a tree we do not own
+    res = {"argv": argv, "rc": None, "out": "", "elapsed": 0.0,
+           "timed_out": False, "launch_error": None, "log": logpath}
+    header = "$ %s\n(cwd %s)\n" % (" ".join(argv), cwd)
+    try:
+        os.makedirs(os.path.dirname(logpath), exist_ok=True)
+        with open(logpath, "w", encoding="utf-8", errors="replace") as fh:
+            fh.write(header)
+    except OSError as e:
+        res["launch_error"] = "cannot create log %s: %s" % (logpath, e)
+        return res
+    hdr_bytes = len(header.encode("utf-8"))
+    t0 = time.time()
+    try:
+        # append mode: the child's inherited fd always writes at end of file, so
+        # this handle's position can never race the child's output.
+        with open(logpath, "a", encoding="utf-8", errors="replace") as fh:
+            p = subprocess.run(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                               stdout=fh, stderr=subprocess.STDOUT,
+                               timeout=timeout, check=False)
+        res["rc"] = p.returncode
+    except subprocess.TimeoutExpired:
+        res["timed_out"] = True
+    except FileNotFoundError as e:
+        res["launch_error"] = "cannot launch: %s" % e
+    except PermissionError as e:
+        res["launch_error"] = "cannot execute: %s" % e
+    except OSError as e:
+        res["launch_error"] = "cannot launch: %s" % e
+    res["elapsed"] = time.time() - t0
+    # Read the whole body back FROM DISK: filter at read time, never at capture
+    # time. The header is skipped by byte offset so the command line printed
+    # above can never contaminate a parser reading the tool's own output.
+    try:
+        with open(logpath, "rb") as fh:
+            fh.seek(hdr_bytes)
+            res["out"] = fh.read().decode("utf-8", "replace")
+    except OSError:
+        res["out"] = ""
+    try:
+        with open(logpath, "a", encoding="utf-8", errors="replace") as fh:
+            fh.write("\n[rc=%s timed_out=%s launch_error=%s elapsed=%.1fs]\n"
+                     % (res["rc"], res["timed_out"], res["launch_error"], res["elapsed"]))
+    except OSError:
+        pass
+    return res
+
+
+def classify(res, codes, parser, refusals=()):
+    """(state, reason). Order matters: a result we could not obtain can never be
+    graded by an exit code we did not get."""
+    if res["launch_error"]:
+        return UNKNOWN, res["launch_error"]
+    if res["timed_out"]:
+        return UNKNOWN, "timed out -- a reaped command is not a result"
+    rc = res["rc"]
+    if rc is None:
+        return UNKNOWN, "no exit code observed"
+    if rc < 0:
+        return UNKNOWN, "killed by signal %d -- no verdict" % (-rc)
+    if rc in (124, 125, 126, 127, 137, 143):
+        return UNKNOWN, "exit %d (reaped/unlaunchable) -- no verdict" % rc
+    text = strip_ansi(res["out"])
+    for words, why in refusals:
+        if words in text:
+            return UNKNOWN, "%s (refusal text: %r)" % (why, words)
+    d = parser(text) if parser else None
+    if d is None:
+        return UNKNOWN, "examined 0 -- could not read a denominator out of this output"
+    total, examined, unverifiable, unit = d
+    if total == 0 or examined == 0:
+        return UNKNOWN, "exit %d but examined 0 of %d %s -- nothing was inspected" % (rc, total, unit)
+    if unverifiable > 0:
+        return UNKNOWN, "verified %d of %d %s, %d unverifiable" % (examined, total, unit, unverifiable)
+    if rc not in codes:
+        return UNKNOWN, "undocumented exit %d over %d %s" % (rc, total, unit)
+    state = codes[rc]
+    return state, "%d of %d %s" % (examined, total, unit)
+
+
+# --------------------------------------------------------------------------
+# tree state
+# --------------------------------------------------------------------------
+
+def git(repo, *args, timeout=60):
+    try:
+        p = subprocess.run(["git", "-C", repo, *args], capture_output=True,
+                           text=True, timeout=timeout)
+        return p.returncode, (p.stdout or "")
+    except Exception:
+        return None, ""
+
+
+UNTRACKED_HASH_CAP = 32 * 1024 * 1024
+
+
+def tree_fingerprint(repo):
+    """HEAD plus a CONTENT hash of everything the working tree adds to it.
+
+    A hash of `git status --porcelain` alone is blind twice over, and both were
+    MEASURED against this very script before this change:
+
+      * a second edit to an ALREADY-dirty file does not move it -- ' M path' is
+        byte-identical whatever the file now holds. A fixture whose tool
+        appended to an already-dirty file mid-battery produced "tree-stable
+        PASS ... unchanged across the battery" and an overall READY / exit 0,
+        while that file's sha256 went 7a14d3db -> 98269469.
+      * default porcelain collapses an untracked directory into one '?? dir/'
+        line, so one file and three files inside it print identically.
+
+    So the fingerprint is sha256 over: the -uall status lines (the path SET),
+    the entire `git diff HEAD` patch (tracked CONTENT), and the bytes of every
+    untracked file (untracked CONTENT). Any git failure returns None -- a
+    fingerprint this function could not compute is never reported as a match."""
+    rc1, head = git(repo, "rev-parse", "HEAD")
+    rc2, porc = git(repo, "status", "--porcelain", "--untracked-files=all")
+    rc3, patch = git(repo, "diff", "HEAD")
+    rc4, unt = git(repo, "ls-files", "--others", "--exclude-standard", "-z")
+    if rc1 != 0 or rc2 != 0 or rc3 != 0 or rc4 != 0:
+        return None, None, None
+    h = hashlib.sha256()
+    h.update(porc.encode("utf-8", "replace"))
+    h.update(b"\0DIFF\0")
+    h.update(patch.encode("utf-8", "replace"))
+    h.update(b"\0UNTRACKED\0")
+    for rel in sorted(p for p in unt.split("\0") if p):
+        h.update(rel.encode("utf-8", "replace"))
+        h.update(b"\0")
+        full = os.path.join(repo, rel)
+        try:
+            with open(full, "rb") as fh:
+                h.update(hashlib.sha256(fh.read(UNTRACKED_HASH_CAP)).digest())
+            h.update(str(os.path.getsize(full)).encode())
+        except OSError as e:
+            # unreadable is its OWN state and never silently equal to "empty";
+            # if it becomes readable later, the fingerprint moves.
+            h.update(("UNREADABLE:%s" % e.__class__.__name__).encode())
+        h.update(b"\0")
+    dirty = len([l for l in porc.splitlines() if l.strip()])
+    return head.strip(), h.hexdigest()[:12], dirty
+
+
+def changed_files(repo, from_ref):
+    out = []
+    rc, s = git(repo, "diff", "--name-only", from_ref or "HEAD")
+    if rc == 0:
+        out += [l.strip() for l in s.splitlines() if l.strip()]
+    if not from_ref:
+        rc, s = git(repo, "ls-files", "--others", "--exclude-standard")
+        if rc == 0:
+            out += [l.strip() for l in s.splitlines() if l.strip()]
+    seen, keep = set(), []
+    for f in out:
+        if f in seen:
+            continue
+        seen.add(f)
+        # isfile, NOT exists: a directory satisfies exists() and would be handed
+        # on as a band entry, which is the documented way a cut broadens into a
+        # timeout. Deleted paths are correctly dropped by the same predicate.
+        if os.path.isfile(os.path.join(repo, f)):
+            keep.append(f)
+    return keep
+
+
+# --------------------------------------------------------------------------
+# reporting
+# --------------------------------------------------------------------------
+
+def print_blind_spots():
+    print("")
+    print("BLIND SPOTS -- what this preflight CANNOT see (printed every run):")
+    for i, b in enumerate(BLIND_SPOTS, 1):
+        print("  %2d. %s" % (i, b))
+
+
+def verdict(states):
+    if FAIL in states:
+        return 1
+    if UNKNOWN in states:
+        return 2
+    if not states:
+        return 2
+    return 0
+
+
+def line(state, name, detail):
+    return "%-7s  %-22s  %s" % (state, name, detail)
+
+
+# --------------------------------------------------------------------------
+# the battery
+# --------------------------------------------------------------------------
+
+def battery(repo, timeout, files_override, changed_from, logdir):
+    bindir = os.path.join(repo, "toolchain", "bin")
+    py = os.path.join(repo, "venv", "bin", "python")
+    rows = []       # (state, name, detail)
+    logs = []
+
+    print("bd-cut-preflight -- pre-commit gate battery")
+    head, tree_hash, dirty = tree_fingerprint(repo)
+    print("  repo        : %s" % repo)
+    print("  commit      : %s" % (head or "UNKNOWN (git could not answer)"))
+    print("  working tree: %s (%s dirty path(s))" % (tree_hash or "UNKNOWN", dirty if dirty is not None else "?"))
+    print("  interpreter : %s" % py)
+    print("  per-check cap: %ds (derived; slowest measured member %s)" % (timeout, SLOWEST_MEASURED))
+    print("  logs        : %s" % logdir)
+    print("")
+
+    # -- the harness must not write into the tree it is certifying -----------
+    # Its own log files are untracked paths inside the repo, so they move the
+    # tree fingerprint and manufacture a "tree MOVED" verdict against itself.
+    # MEASURED: pointing --logdir at a path inside the repo turned every
+    # end-to-end fixture red on tree-stable, for a change the harness made.
+    if os.path.realpath(logdir).startswith(os.path.realpath(repo) + os.sep):
+        rows.append((UNKNOWN, "logdir",
+                     "logdir is INSIDE the repo (%s) -- writing evidence into the tree "
+                     "under test drifts that tree's own fingerprint and fakes a "
+                     "'tree MOVED' verdict; pass --logdir a path outside %s"
+                     % (logdir, repo)))
+        print("CHECK RESULTS (state / check / denominator)")
+        for st, name, detail in rows:
+            print(line(st, name, detail))
+        print("")
+        print("VERDICT: BLOCKED (unknown) -- 0 PASS, 0 FAIL, 1 UNKNOWN of 1 checks (exit 2)")
+        print("         UNKNOWN is not a pass. 1 check(s) could not certify what they "
+              "claim to cover.")
+        print_blind_spots()
+        return 2
+
+    # -- interpreter (every bd tool below is launched under it) --------------
+    if not os.path.isfile(py) or not os.access(py, os.X_OK):
+        rows.append((UNKNOWN, "interpreter", "no executable %s -- bare python3 is 3.11 without deps" % py))
+        py_ok = False
+    else:
+        r = run_tool([py, "-c", "import pytest,sys;print('pytest',pytest.__version__,'py',sys.version.split()[0])"],
+                     repo, 60, os.path.join(logdir, "interpreter.log"))
+        logs.append(r["log"])
+        if r["launch_error"] or r["rc"] is None:
+            rows.append((UNKNOWN, "interpreter", r["launch_error"] or "no exit code"))
+            py_ok = False
+        elif r["rc"] == 0 and "pytest" in r["out"]:
+            rows.append((PASS, "interpreter", "1 of 1 interpreter: %s" % strip_ansi(r["out"]).strip()))
+            py_ok = True
+        else:
+            rows.append((FAIL, "interpreter", "venv python cannot import pytest (rc=%s)" % r["rc"]))
+            py_ok = False
+
+    # -- env hygiene ---------------------------------------------------------
+    if "BD_INSTALL_DIR" in os.environ:
+        rows.append((FAIL, "env-hygiene",
+                     "BD_INSTALL_DIR is EXPORTED (%r) -- it defeats test isolation in every child"
+                     % os.environ["BD_INSTALL_DIR"]))
+    else:
+        rows.append((PASS, "env-hygiene", "1 of 1 variable: BD_INSTALL_DIR unset"))
+
+    # -- tree state ----------------------------------------------------------
+    if head is None:
+        rows.append((UNKNOWN, "tree-state", "git could not report HEAD/status -- not a repo, or git failed"))
+    else:
+        rows.append((PASS, "tree-state", "1 of 1 tree: %s, %d dirty path(s)" % (head[:12], dirty)))
+
+    # -- changed set ---------------------------------------------------------
+    if files_override:
+        changed = [f for f in files_override if os.path.isfile(os.path.join(repo, f))]
+        src = "--files"
+        missing = [f for f in files_override if f not in changed]
+    else:
+        changed = changed_files(repo, changed_from)
+        src = "--changed-from %s" % changed_from if changed_from else "git diff HEAD + untracked"
+        missing = []
+    if missing:
+        rows.append((UNKNOWN, "changed-set",
+                     "%d of %d --files path(s) are not regular files (a directory, or a "
+                     "test-function id passed as a path, broadens a band or aborts it): %s"
+                     % (len(missing), len(files_override), ", ".join(missing[:4]))))
+    elif not changed:
+        rows.append((UNKNOWN, "changed-set",
+                     "0 changed files from %s -- a band floor cannot be derived from an empty diff" % src))
+    else:
+        rows.append((PASS, "changed-set", "%d file(s) from %s" % (len(changed), src)))
+
+    # -- the tool checks -----------------------------------------------------
+    def add(name, argv, codes, parser, refusals=(), cap=None):
+        if not py_ok:
+            rows.append((UNKNOWN, name, "not run -- interpreter unusable, so no verdict could be obtained"))
+            return None
+        tool = argv[0]
+        if not os.path.isfile(tool):
+            rows.append((UNKNOWN, name, "tool absent: %s" % tool))
+            return None
+        r = run_tool([py, *argv], repo, cap or timeout, os.path.join(logdir, name + ".log"))
+        logs.append(r["log"])
+        st, why = classify(r, codes, parser, refusals)
+        rows.append((st, name, "%s  [%.1fs]" % (why, r["elapsed"])))
+        return r
+
+    T = lambda n: os.path.join(bindir, n)
+
+    add("bd-guardcheck", [T("bd-guardcheck")], {0: PASS, 1: FAIL, 2: UNKNOWN}, p_guardcheck)
+    add("bd-versync", [T("bd-versync")], {0: PASS, 1: FAIL, 2: UNKNOWN}, p_versync)
+    add("bd-changelog", [T("bd-changelog")], {0: PASS, 1: FAIL, 2: UNKNOWN}, p_changelog)
+    add("bd-regen", [T("bd-regen")], {0: PASS, 1: FAIL, 2: UNKNOWN}, p_regen)
+    add("bd-regen-order", [T("bd-regen-order"), "--dry-run"], {0: PASS, 1: FAIL, 2: UNKNOWN}, p_regen_order)
+    add("bd-imports", [T("bd-imports")], {0: PASS, 1: FAIL, 2: UNKNOWN}, make_p_imports(repo),
+        refusals=[("import_graph_gate.py not found",
+                   "the wrapped gate is absent -- exit 1 here is unrunnable, not a finding")])
+    add("bd-freshcheck", [T("bd-freshcheck"), "--repo-only"], {0: PASS, 1: FAIL, 2: UNKNOWN}, p_freshcheck)
+
+    # -- band floor + band validation ---------------------------------------
+    band = []
+    if not changed:
+        rows.append((UNKNOWN, "bd-band-derive", "not run -- no changed files, so there is no band to derive"))
+        rows.append((UNKNOWN, "bd-bandcheck", "not run -- no derived band to validate"))
+    else:
+        r = add("bd-band-derive", [T("bd-band-derive"), "--files", *changed, "--emit"],
+                {0: PASS, 1: FAIL, 2: UNKNOWN}, p_bandderive)
+        if r and r["rc"] == 0:
+            m = re.search(r"^bd-band\s+(.*)$", strip_ansi(r["out"]), re.M)
+            if m:
+                band = [x for x in m.group(1).split() if x.endswith(".py")]
+        if not band:
+            rows.append((UNKNOWN, "bd-bandcheck", "not run -- bd-band-derive emitted no suites to validate"))
+        else:
+            add("bd-bandcheck", [T("bd-bandcheck"), *band], {0: PASS, 1: FAIL, 2: UNKNOWN}, p_bandcheck,
+                refusals=[("NO TARGETS", "bandcheck was handed an empty list")])
+
+    # -- did the tree move under us? ----------------------------------------
+    head2, hash2, dirty2 = tree_fingerprint(repo)
+    if head is None or head2 is None:
+        rows.append((UNKNOWN, "tree-stable", "could not fingerprint the tree at both ends"))
+    elif head2 != head or hash2 != tree_hash:
+        rows.append((FAIL, "tree-stable",
+                     "the tree MOVED during the battery (%s/%s -> %s/%s) -- every verdict above is about a tree that no longer exists"
+                     % (head[:12], tree_hash, head2[:12], hash2)))
+    else:
+        rows.append((PASS, "tree-stable", "1 of 1 fingerprint: %s/%s unchanged across the battery" % (head[:12], tree_hash)))
+
+    # -- report --------------------------------------------------------------
+    print("CHECK RESULTS (state / check / denominator)")
+    for st, name, detail in rows:
+        print(line(st, name, detail))
+
+    states = [r[0] for r in rows]
+    n_pass = states.count(PASS)
+    n_fail = states.count(FAIL)
+    n_unk = states.count(UNKNOWN)
+    rc = verdict(states)
+    print("")
+    print("VERDICT: %s -- %d PASS, %d FAIL, %d UNKNOWN of %d checks (exit %d)"
+          % ({0: "READY", 1: "BLOCKED (failure)", 2: "BLOCKED (unknown)"}[rc],
+             n_pass, n_fail, n_unk, len(rows), rc))
+    if n_unk:
+        print("         UNKNOWN is not a pass. %d check(s) could not certify what they claim to cover." % n_unk)
+    if logs:
+        print("")
+        on_disk = [l for l in logs if os.path.isfile(l)]
+        print("EVIDENCE: %d of %d log(s) present under %s -- streamed whole, nothing "
+              "filtered at capture time; a REAPED check keeps its partial output"
+              % (len(on_disk), len(logs), logdir))
+        if len(on_disk) != len(logs):
+            print("          %d expected log(s) are NOT on disk -- that is a gap in the "
+                  "evidence, not an absence of output" % (len(logs) - len(on_disk)))
+    print_blind_spots()
+    return rc
+
+
+# --------------------------------------------------------------------------
+# selftest -- the UNKNOWN path must be REACHABLE, and PASS/FAIL must still be
+# distinguishable, or "everything is UNKNOWN" would pass this test trivially.
+# --------------------------------------------------------------------------
+
+FAKE = r"""#!/usr/bin/env python3
+import os, signal, sys, time
+mode = sys.argv[1]
+if mode == "marker_then_sleep":
+    open(sys.argv[2], "w").write("started\n")
+    time.sleep(30)
+elif mode == "zero_denominator":
+    print("guard                                    status")
+    print("")
+    print("0 ok, 0 drifted, 7 missing, 0 unpinned.")
+    sys.exit(0)
+elif mode == "good_denominator":
+    print("7 ok, 0 drifted, 0 missing, 0 unpinned.")
+    sys.exit(0)
+elif mode == "ansi_denominator":
+    print("\x1b[32m7\x1b[0m ok, 0 drifted, 0 missing, 0 unpinned.")
+    sys.exit(0)
+elif mode == "drifted":
+    print("5 ok, 2 drifted, 0 missing, 0 unpinned.")
+    sys.exit(1)
+elif mode == "partial":
+    print("5 ok, 0 drifted, 2 missing, 0 unpinned.")
+    sys.exit(0)
+elif mode == "cannot_evaluate":
+    print("baseline absent")
+    sys.exit(2)
+elif mode == "cannot_evaluate_with_denominator":
+    # exit 2 WITH a readable denominator: the only route left into UNKNOWN is
+    # the exit-code map itself, so this case proves the map, not the parser.
+    print("7 ok, 0 drifted, 0 missing, 0 unpinned.")
+    sys.exit(2)
+elif mode == "silent_zero":
+    sys.exit(0)
+elif mode == "refusal_at_exit_1":
+    print("import_graph_gate.py not found")
+    sys.exit(1)
+elif mode == "signal":
+    os.kill(os.getpid(), signal.SIGKILL)
+sys.exit(0)
+"""
+
+
+# --------------------------------------------------------------------------
+# END-TO-END FIXTURES. Everything above the E-cases exercises a PRIMITIVE;
+# battery() is the function a user actually runs and nothing reached it. A
+# mutant that replaced `rc = verdict(states)` with `rc = 0 if n_fail == 0 else 1`
+# -- i.e. UNKNOWN stops blocking, the single property this whole script exists
+# for -- was MEASURED to leave the old selftest fully green while printing
+# "VERDICT: READY -- 5 PASS, 0 FAIL, 9 UNKNOWN of 14 checks (exit 0)".
+#
+# So these build a real git repo with real executable tools and point the real
+# battery() at it. Each case asserts its PRECONDITION (the fixture can actually
+# represent the failure) before it asserts any verdict, and matches the
+# distinctive WORDS of a refusal rather than its exit code, because UNKNOWN is
+# reachable here for eleven different reasons that all look alike from outside.
+# --------------------------------------------------------------------------
+
+_E2E_GOOD = {
+    "bd-guardcheck": 'print("7 ok, 0 drifted, 0 missing, 0 unpinned.")\n',
+    "bd-versync": ('print("__init__.py __version__ : 3.66.1084")\n'
+                   'print("CHANGELOG top entry     : v3.66.1084")\n'
+                   'print("version pins: exactly one")\n'),
+    "bd-changelog": ('print("top entry: ## v3.66.1084")\n'
+                     'print("  ASCII-only: ok")\n'
+                     'print("  matches tree __version__ yes")\n'),
+    "bd-regen": 'print("  OK   FUNCTION_INDEX")\nprint("  OK   PIN_INDEX")\n',
+    "bd-regen-order": 'print("  1. gui_parity")\nprint("  2. STATIC_KB")\n',
+    "bd-imports": 'print("OK no new import edges")\n',
+    "bd-freshcheck": 'print("  OK       doc file:line anchors")\nprint("  OK       register")\n',
+    "bd-band-derive": 'print("bd-band tests/test_a.py")\n',
+    "bd-bandcheck": 'print("  ok      tests/test_a.py")\n',
+}
+
+
+def _find_pytest_python():
+    """PROVE an interpreter can import pytest; never assume one. Bare python3 on
+    this box is 3.12.3 WITHOUT pytest (measured), so sys.executable is a
+    candidate to be tested, not an answer."""
+    seen = []
+    for cand in (sys.executable, os.path.join(REPO_DEFAULT, "venv", "bin", "python")):
+        if not cand or cand in seen or not os.path.isfile(cand):
+            continue
+        seen.append(cand)
+        try:
+            p = subprocess.run([cand, "-c", "import pytest"], capture_output=True, timeout=120)
+        except Exception:
+            continue
+        if p.returncode == 0:
+            return cand
+    return None
+
+
+def _build_fixture_repo(root, tools, interp):
+    """Build a real git repo with real executable tools. Returns None on ANY
+    failure -- a fixture that did not build cannot certify anything."""
+    for d in (("toolchain", "bin"), ("tools", "decomp"), ("tests",), ("venv", "bin")):
+        os.makedirs(os.path.join(root, *d), exist_ok=True)
+    shim = os.path.join(root, "venv", "bin", "python")
+    with open(shim, "w") as fh:
+        fh.write('#!/bin/sh\nexec "%s" "$@"\n' % interp)
+    os.chmod(shim, 0o755)
+    with open(os.path.join(root, "tools", "decomp", "import_graph_baseline.json"), "w") as fh:
+        fh.write('{"edges": {"a": ["b", "c"], "d": ["e"]}}')
+    with open(os.path.join(root, "tests", "test_a.py"), "w") as fh:
+        fh.write("def test_a():\n    assert 1\n")
+    for name, body in tools.items():
+        p = os.path.join(root, "toolchain", "bin", name)
+        with open(p, "w") as fh:
+            fh.write("#!/usr/bin/env python3\n" + body)
+        os.chmod(p, 0o755)
+    for s in (["init", "-q", "."],
+              ["config", "user.email", "selftest@invalid"],
+              ["config", "user.name", "selftest"],
+              ["config", "commit.gpgsign", "false"],
+              # never let this box's hooks run against a throwaway fixture
+              ["config", "core.hooksPath", os.path.join(root, ".nohooks")],
+              ["add", "-A"],
+              ["commit", "-qm", "base"]):
+        rc, _ = git(root, *s)
+        if rc != 0:
+            return None
+    # make ONE tracked file dirty: the state every real cut is in
+    with open(os.path.join(root, "tests", "test_a.py"), "a") as fh:
+        fh.write("# dirty before the battery starts\n")
+    return root
+
+
+def _run_battery(repo, logdir, timeout=60, files=None, changed_from=None):
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = battery(repo, timeout, files, changed_from, logdir)
+    return rc, buf.getvalue()
+
+
+def _row(out, name):
+    """The state and detail of one named row, read out of the report a user
+    actually sees -- by the state TOKEN, never by a positional field."""
+    for l in out.splitlines():
+        parts = l.split(None, 2)
+        if len(parts) >= 2 and parts[0] in (PASS, FAIL, UNKNOWN) and parts[1] == name:
+            return parts[0], (parts[2] if len(parts) > 2 else "")
+    return None, ""
+
+
+def _fixture(interp, tools, name):
+    """The repo and the log directory are SIBLINGS under one temp root. A
+    fixture that logged INSIDE its own repo would drift that repo's fingerprint
+    and fake a "tree MOVED" verdict -- measured, on this harness, on ten cases
+    at once."""
+    root = tempfile.mkdtemp(prefix="bd-cut-preflight-e2e-%s-" % name)
+    repo = os.path.join(root, "repo")
+    os.makedirs(repo, exist_ok=True)
+    if _build_fixture_repo(repo, tools, interp) is None:
+        shutil.rmtree(root, ignore_errors=True)
+        return None, None
+    return repo, os.path.join(root, "logs")
+
+
+def _cleanup(repo):
+    """Remove the whole fixture ROOT, not just the repo inside it -- every path
+    this harness creates has a stated remover. Only ever removes a directory
+    this harness itself named."""
+    if not repo:
+        return
+    parent = os.path.dirname(repo)
+    if (os.path.basename(repo) == "repo"
+            and os.path.basename(parent).startswith("bd-cut-preflight-e2e-")):
+        shutil.rmtree(parent, ignore_errors=True)
+    else:
+        shutil.rmtree(repo, ignore_errors=True)
+
+
+def _e2e_all_good(interp):
+    """POSITIVE CONTROL through the identical pipeline. If this does not go
+    green, every RED below it is vacuous."""
+    root, logdir = _fixture(interp, _E2E_GOOD, "good")
+    if root is None:
+        yield "fixture built", False, "git could not build the fixture repo"
+        return
+    try:
+        rc, out = _run_battery(root, logdir)
+        gl = os.path.join(logdir, "bd-guardcheck.log")
+        yield ("precondition: bd-guardcheck really EXECUTED (its own bytes are in its log)",
+               os.path.isfile(gl) and "0 unpinned" in open(gl).read(),
+               "log_exists=%s" % os.path.isfile(gl))
+        yield "exit 0", rc == 0, "rc=%s" % rc
+        yield "says READY", "VERDICT: READY" in out, ""
+        yield "14 PASS, 0 FAIL, 0 UNKNOWN of 14", \
+              "14 PASS, 0 FAIL, 0 UNKNOWN of 14 checks" in out, ""
+        st, _ = _row(out, "tree-stable")
+        yield "tree-stable PASS on a tree nobody touched", st == PASS, str(st)
+    finally:
+        _cleanup(root)
+
+
+def _e2e_silent_zero(interp):
+    """ZERO IS NOT A VERDICT, driven through the real user path: every tool
+    exits 0 having printed nothing whatsoever."""
+    root, logdir = _fixture(interp, {k: "pass\n" for k in _E2E_GOOD}, "silent")
+    if root is None:
+        yield "fixture built", False, "git could not build the fixture repo"
+        return
+    try:
+        rc, out = _run_battery(root, logdir)
+        gl = os.path.join(logdir, "bd-guardcheck.log")
+        body = open(gl).read() if os.path.isfile(gl) else ""
+        yield ("precondition: the silent tool really ran (rc=0 recorded) and really "
+               "printed nothing",
+               "rc=0" in body and "0 unpinned" not in body, repr(body[-60:]))
+        yield "exit 2, not 0", rc == 2, "rc=%s" % rc
+        yield "never says READY", "VERDICT: READY" not in out, ""
+        yield "says BLOCKED (unknown)", "VERDICT: BLOCKED (unknown)" in out, ""
+        st, why = _row(out, "bd-guardcheck")
+        yield ("bd-guardcheck row is UNKNOWN naming the REASON, not FAIL and not PASS",
+               st == UNKNOWN and "could not read a denominator" in why, "%s %s" % (st, why))
+        n = sum(1 for l in out.splitlines() if l.startswith(UNKNOWN))
+        yield "9 of the 14 rows are UNKNOWN", n == 9, "n=%d" % n
+    finally:
+        _cleanup(root)
+
+
+def _e2e_concurrent_writer(interp):
+    """A tool edits an ALREADY-DIRTY tracked file mid-battery. Under the old
+    porcelain-only fingerprint this printed "unchanged across the battery" and
+    exited READY / 0. The preconditions PROVE the fixture can represent the
+    failure at all: the bytes move while plain porcelain does not."""
+    tools = dict(_E2E_GOOD)
+    tools["bd-regen"] = ('open("tests/test_a.py", "a").write("# WRITER\\n")\n'
+                         'print("  OK   FUNCTION_INDEX")\nprint("  OK   PIN_INDEX")\n')
+    root, logdir = _fixture(interp, tools, "writer")
+    if root is None:
+        yield "fixture built", False, "git could not build the fixture repo"
+        return
+    try:
+        target = os.path.join(root, "tests", "test_a.py")
+        sha_before = hashlib.sha256(open(target, "rb").read()).hexdigest()
+        _, porc_before = git(root, "status", "--porcelain")
+        rc, out = _run_battery(root, logdir)
+        sha_after = hashlib.sha256(open(target, "rb").read()).hexdigest()
+        _, porc_after = git(root, "status", "--porcelain")
+        yield ("precondition: the writer really CHANGED the file's bytes",
+               sha_before != sha_after, "%s -> %s" % (sha_before[:12], sha_after[:12]))
+        yield ("precondition: plain `git status --porcelain` is IDENTICAL either side "
+               "-- the old instrument was blind by construction, not by accident",
+               porc_before == porc_after, repr(porc_after.strip()))
+        st, why = _row(out, "tree-stable")
+        yield ("tree-stable is FAIL and says the tree MOVED",
+               st == FAIL and "MOVED" in why, "%s %s" % (st, why))
+        yield "exit 1", rc == 1, "rc=%s" % rc
+        yield "never says READY over a tree that moved", "VERDICT: READY" not in out, ""
+    finally:
+        _cleanup(root)
+
+
+def _e2e_real_failure(interp):
+    """PASS and FAIL must stay distinguishable END TO END, or the battery could
+    be handing out UNKNOWN and FAIL for free."""
+    tools = dict(_E2E_GOOD)
+    tools["bd-guardcheck"] = ('import sys\n'
+                              'print("5 ok, 2 drifted, 0 missing, 0 unpinned.")\n'
+                              'sys.exit(1)\n')
+    root, logdir = _fixture(interp, tools, "fail")
+    if root is None:
+        yield "fixture built", False, "git could not build the fixture repo"
+        return
+    try:
+        rc, out = _run_battery(root, logdir)
+        st, why = _row(out, "bd-guardcheck")
+        yield ("a real drift is FAIL over a STATED denominator, not UNKNOWN",
+               st == FAIL and "7 of 7" in why, "%s %s" % (st, why))
+        yield "exit 1", rc == 1, "rc=%s" % rc
+        yield ("the other rows still PASS -- the failure is localised, not global",
+               _row(out, "bd-versync")[0] == PASS, str(_row(out, "bd-versync")[0]))
+    finally:
+        _cleanup(root)
+
+
+def _e2e_reaped_keeps_partial(interp):
+    """A REAPED COMMAND IS NOT A RESULT -- and its partial log is the only
+    record of how far it got, so it has to survive on disk."""
+    tools = dict(_E2E_GOOD)
+    tools["bd-imports"] = ('import sys, time\n'
+                           'print("PARTIAL-EVIDENCE-BEFORE-THE-CAP")\n'
+                           'sys.stdout.flush()\n'
+                           'time.sleep(45)\n')
+    root, logdir = _fixture(interp, tools, "reaped")
+    if root is None:
+        yield "fixture built", False, "git could not build the fixture repo"
+        return
+    try:
+        rc, out = _run_battery(root, logdir, timeout=3)
+        st, why = _row(out, "bd-imports")
+        lp = os.path.join(logdir, "bd-imports.log")
+        body = open(lp).read() if os.path.isfile(lp) else ""
+        yield ("precondition: the reaped tool's log EXISTS on disk", os.path.isfile(lp), lp)
+        yield ("reaped tool is UNKNOWN naming the reason, never FAIL",
+               st == UNKNOWN and "timed out" in why, "%s %s" % (st, why))
+        yield ("the reaped child's PARTIAL output survived in the log "
+               "(the in-memory capture discarded 100 percent of it)",
+               "PARTIAL-EVIDENCE-BEFORE-THE-CAP" in body, repr(body[-100:]))
+        yield ("the log records timed_out=True BESIDE the partial output, not instead of it",
+               "timed_out=True" in body, "")
+        yield "exit 2 (unknown, no failure)", rc == 2, "rc=%s" % rc
+    finally:
+        _cleanup(root)
+
+
+def _e2e_no_interpreter(interp):
+    """Without venv/bin/python nothing downstream has a verdict, and that must
+    read UNKNOWN out loud rather than be skipped quietly."""
+    root, logdir = _fixture(interp, _E2E_GOOD, "nopy")
+    if root is None:
+        yield "fixture built", False, "git could not build the fixture repo"
+        return
+    try:
+        os.remove(os.path.join(root, "venv", "bin", "python"))
+        yield ("precondition: venv/bin/python really is gone",
+               not os.path.exists(os.path.join(root, "venv", "bin", "python")), "")
+        rc, out = _run_battery(root, logdir)
+        st, why = _row(out, "interpreter")
+        yield ("interpreter row is UNKNOWN and NAMES bare python3 as the trap",
+               st == UNKNOWN and "bare python3 is 3.11 without deps" in why, "%s %s" % (st, why))
+        st2, why2 = _row(out, "bd-regen")
+        yield ("every tool row is UNKNOWN saying it was NOT RUN, not skipped silently",
+               st2 == UNKNOWN and "interpreter unusable" in why2, "%s %s" % (st2, why2))
+        yield "exit 2", rc == 2, "rc=%s" % rc
+        yield "never says READY", "VERDICT: READY" not in out, ""
+    finally:
+        _cleanup(root)
+
+
+def _e2e_tool_absent(interp):
+    """An ABSENT tool is not a passing one."""
+    root, logdir = _fixture(interp, _E2E_GOOD, "absent")
+    if root is None:
+        yield "fixture built", False, "git could not build the fixture repo"
+        return
+    try:
+        os.remove(os.path.join(root, "toolchain", "bin", "bd-versync"))
+        rc, out = _run_battery(root, logdir)
+        st, why = _row(out, "bd-versync")
+        yield ("absent tool is UNKNOWN and names the missing path",
+               st == UNKNOWN and "tool absent" in why, "%s %s" % (st, why))
+        yield "exit 2", rc == 2, "rc=%s" % rc
+    finally:
+        _cleanup(root)
+
+
+def _e2e_directory_as_band_entry(interp):
+    """A DIRECTORY satisfies os.path.exists. Passed on as a band entry it is the
+    documented way a cut broadens into a timeout, so it is refused here."""
+    root, logdir = _fixture(interp, _E2E_GOOD, "dir")
+    if root is None:
+        yield "fixture built", False, "git could not build the fixture repo"
+        return
+    try:
+        yield ("precondition: 'tests' really is an existing DIRECTORY",
+               os.path.isdir(os.path.join(root, "tests")), "")
+        rc, out = _run_battery(root, logdir, files=["tests"])
+        st, why = _row(out, "changed-set")
+        yield ("a directory in --files reads UNKNOWN, not '1 file(s)'",
+               st == UNKNOWN and "not regular files" in why, "%s %s" % (st, why))
+        yield "exit 2 and never READY", rc == 2 and "VERDICT: READY" not in out, "rc=%s" % rc
+    finally:
+        _cleanup(root)
+
+
+def _e2e_env_hygiene(interp):
+    """A HARNESS TESTING A FLAG MUST SET AND POP IT, not merely refrain from
+    setting it. This SETS BD_INSTALL_DIR in this process, proves the battery
+    FAILS on it, and proves in the same run that the flag did NOT reach the
+    child -- run_tool's pop is asserted against a child's real environment."""
+    tools = dict(_E2E_GOOD)
+    tools["bd-guardcheck"] = ('import os\n'
+                              'print("SAW_BD_INSTALL_DIR=" + os.environ.get("BD_INSTALL_DIR", "UNSET"))\n'
+                              'print("7 ok, 0 drifted, 0 missing, 0 unpinned.")\n')
+    root, logdir = _fixture(interp, tools, "env")
+    if root is None:
+        yield "fixture built", False, "git could not build the fixture repo"
+        return
+    prev = os.environ.get("BD_INSTALL_DIR")
+    try:
+        os.environ["BD_INSTALL_DIR"] = os.path.join(root, "fake-install")
+        yield ("precondition: BD_INSTALL_DIR really IS set in this process",
+               os.environ.get("BD_INSTALL_DIR") is not None, os.environ["BD_INSTALL_DIR"])
+        rc, out = _run_battery(root, logdir)
+        st, why = _row(out, "env-hygiene")
+        yield ("env-hygiene is FAIL and says EXPORTED",
+               st == FAIL and "EXPORTED" in why, "%s %s" % (st, why))
+        yield "exit 1", rc == 1, "rc=%s" % rc
+        gl = os.path.join(logdir, "bd-guardcheck.log")
+        body = open(gl).read() if os.path.isfile(gl) else ""
+        yield ("precondition: the child really reported what it saw",
+               "SAW_BD_INSTALL_DIR=" in body, repr(body[:80]))
+        yield ("run_tool POPPED it: the child saw UNSET even though the parent had it set",
+               "SAW_BD_INSTALL_DIR=UNSET" in body, repr(body[:80]))
+    finally:
+        if prev is None:
+            os.environ.pop("BD_INSTALL_DIR", None)
+        else:
+            os.environ["BD_INSTALL_DIR"] = prev
+        _cleanup(root)
+
+
+def _e2e_fingerprint_unit(interp):
+    """Direct unit proof of the fingerprint's two MEASURED blind spots."""
+    root, _ = _fixture(interp, _E2E_GOOD, "fp")
+    if root is None:
+        yield "fixture built", False, "git could not build the fixture repo"
+        return
+    try:
+        _, f0, _ = tree_fingerprint(root)
+        yield "precondition: the fingerprint computes at all", f0 is not None, str(f0)
+        with open(os.path.join(root, "tests", "test_a.py"), "a") as fh:
+            fh.write("# second edit to an already-dirty file\n")
+        _, porc_a = git(root, "status", "--porcelain")
+        _, f1, _ = tree_fingerprint(root)
+        yield ("a second edit to an ALREADY-dirty file MOVES the fingerprint",
+               f1 is not None and f1 != f0, "%s -> %s" % (f0, f1))
+        os.makedirs(os.path.join(root, "newdir"), exist_ok=True)
+        with open(os.path.join(root, "newdir", "a.txt"), "w") as fh:
+            fh.write("one\n")
+        _, f2, _ = tree_fingerprint(root)
+        with open(os.path.join(root, "newdir", "b.txt"), "w") as fh:
+            fh.write("two\n")
+        _, porc_b = git(root, "status", "--porcelain")
+        _, f3, _ = tree_fingerprint(root)
+        yield ("precondition: default porcelain COLLAPSES the untracked dir to one "
+               "line, so it cannot represent the second file at all",
+               porc_a != porc_b and porc_b.count("newdir") == 1, repr(porc_b.strip()))
+        yield ("a second file added inside an untracked directory MOVES the fingerprint",
+               f3 is not None and f3 != f2, "%s -> %s" % (f2, f3))
+        with open(os.path.join(root, "newdir", "b.txt"), "w") as fh:
+            fh.write("TWO-CHANGED\n")
+        _, f4, _ = tree_fingerprint(root)
+        yield ("editing an untracked file's CONTENT moves the fingerprint",
+               f4 is not None and f4 != f3, "%s -> %s" % (f3, f4))
+    finally:
+        _cleanup(root)
+
+
+def _e2e_logdir_inside_repo(interp):
+    """The harness must refuse to write its own evidence into the tree it is
+    certifying -- and the refusal is asserted by its distinctive WORDS, because
+    exit 2 is shared with every other UNKNOWN this script can produce."""
+    root, _ = _fixture(interp, _E2E_GOOD, "logdir")
+    if root is None:
+        yield "fixture built", False, "git could not build the fixture repo"
+        return
+    try:
+        inside = os.path.join(root, "_logs")
+        yield ("precondition: the logdir really is inside the repo",
+               os.path.realpath(inside).startswith(os.path.realpath(root) + os.sep), inside)
+        rc, out = _run_battery(root, inside)
+        st, why = _row(out, "logdir")
+        yield ("refused by its distinctive WORDS, not by a code ten other refusals share",
+               st == UNKNOWN and "INSIDE the repo" in why, "%s %s" % (st, why))
+        yield "exit 2", rc == 2, "rc=%s" % rc
+        yield ("and it really did NOT write there -- the refusal prevented the write, "
+               "it did not merely describe it",
+               not os.path.exists(inside), "exists=%s" % os.path.exists(inside))
+    finally:
+        _cleanup(root)
+
+
+_E2E_CASES = [
+    ("E1  all-good POSITIVE CONTROL:", _e2e_all_good),
+    ("E2  every tool exits 0 printing NOTHING:", _e2e_silent_zero),
+    ("E3  concurrent writer on an already-dirty file:", _e2e_concurrent_writer),
+    ("E4  a real drift:", _e2e_real_failure),
+    ("E5  reaped at the cap:", _e2e_reaped_keeps_partial),
+    ("E6  no venv/bin/python:", _e2e_no_interpreter),
+    ("E7  a tool is absent:", _e2e_tool_absent),
+    ("E8  a directory passed as --files:", _e2e_directory_as_band_entry),
+    ("E9  BD_INSTALL_DIR exported:", _e2e_env_hygiene),
+    ("E10 fingerprint unit:", _e2e_fingerprint_unit),
+    ("E11 --logdir inside the repo:", _e2e_logdir_inside_repo),
+]
+
+
+def selftest():
+    ok = [True]
+    produced = set()
+
+    def check(label, cond, got=""):
+        print("%-5s %s%s" % ("PASS" if cond else "FAIL", label, ("  [got: %s]" % got) if got else ""))
+        if not cond:
+            ok[0] = False
+
+    tmp = tempfile.mkdtemp(prefix="bd-cut-preflight-selftest-")
+    logdir = os.path.join(tmp, "logs")
+    fake = os.path.join(tmp, "fake_tool.py")
+    with open(fake, "w") as fh:
+        fh.write(FAKE)
+    os.chmod(fake, 0o755)
+    codes = {0: PASS, 1: FAIL, 2: UNKNOWN}
+
+    def drive(mode, cap=30, extra=(), parser=p_guardcheck, refusals=()):
+        r = run_tool([sys.executable, fake, mode, *extra], tmp, cap,
+                     os.path.join(logdir, mode + ".log"))
+        return r, classify(r, codes, parser, refusals)
+
+    print("bd-cut-preflight --selftest")
+    print("  fixtures: %s" % tmp)
+    print("")
+    print("-- PRECONDITIONS (assert the shape exists before asserting any verdict) --")
+    check("fixture tool exists and is executable",
+          os.path.isfile(fake) and os.access(fake, os.X_OK))
+    r0, _ = drive("good_denominator")
+    check("fixture actually RAN (rc observed, not a launch failure)",
+          r0["launch_error"] is None and r0["rc"] == 0, "rc=%s err=%s" % (r0["rc"], r0["launch_error"]))
+    check("whole output is retained on disk, untruncated",
+          os.path.isfile(r0["log"]) and "0 missing" in open(r0["log"]).read())
+
+    print("")
+    print("-- POSITIVE CONTROLS (PASS and FAIL must remain distinguishable) --")
+    _, (s, why) = drive("good_denominator")
+    produced.add(s)
+    check("exit 0 over a NON-EMPTY denominator -> PASS", s == PASS, "%s: %s" % (s, why))
+    check("PASS states its denominator", "7 of 7" in why, why)
+
+    _, (s, why) = drive("drifted")
+    produced.add(s)
+    check("exit 1 over a non-empty denominator -> FAIL", s == FAIL, "%s: %s" % (s, why))
+
+    _, (s, why) = drive("ansi_denominator")
+    check("denominator survives ANSI colour (real tools emit it) -> PASS",
+          s == PASS and "7 of 7" in why, "%s: %s" % (s, why))
+
+    print("")
+    print("-- THE UNKNOWN PATH IS REACHABLE (11 distinct routes into it) --")
+
+    _, (s, why) = drive("zero_denominator")
+    produced.add(s)
+    check("U1 exit 0 having examined NOTHING -> UNKNOWN (the pre-@818 guardcheck shape)",
+          s == UNKNOWN and "examined 0 of 7" in why, "%s: %s" % (s, why))
+
+    absent = os.path.join(tmp, "no_such_tool")
+    check("U2 precondition: the path really does not exist", not os.path.exists(absent))
+    r = run_tool([absent], tmp, 30, os.path.join(logdir, "absent.log"))
+    s, why = classify(r, codes, p_guardcheck)
+    check("U2 tool cannot be launched -> UNKNOWN (not FAIL)",
+          s == UNKNOWN and "cannot launch" in why, "%s: %s" % (s, why))
+
+    _, (s, why) = drive("cannot_evaluate")
+    check("U3a documented exit 2 CANNOT-EVALUATE -> UNKNOWN", s == UNKNOWN, "%s: %s" % (s, why))
+    _, (s, why) = drive("cannot_evaluate_with_denominator")
+    check("U3b exit 2 WITH a readable denominator -> UNKNOWN via the exit-code MAP, "
+          "not via the parser (7 of 7 examined and still not a pass)",
+          s == UNKNOWN and "7 of 7" in why, "%s: %s" % (s, why))
+
+    marker = os.path.join(tmp, "started.marker")
+    r, (s, why) = drive("marker_then_sleep", cap=2, extra=(marker,))
+    check("U4 precondition: the capped child ACTUALLY STARTED (marker written)",
+          os.path.isfile(marker), "marker=%s" % os.path.isfile(marker))
+    check("U4 wall cap reached -> UNKNOWN (a reaped command is not a result)",
+          s == UNKNOWN and "timed out" in why, "%s: %s" % (s, why))
+
+    _, (s, why) = drive("silent_zero")
+    check("U5 exit 0 with EMPTY output -> UNKNOWN (unreadable denominator)",
+          s == UNKNOWN and "could not read a denominator" in why, "%s: %s" % (s, why))
+
+    _, (s, why) = drive("partial")
+    check("U6 exit 0 but 2 of 7 unverifiable -> UNKNOWN (partial coverage is not coverage)",
+          s == UNKNOWN and "unverifiable" in why, "%s: %s" % (s, why))
+
+    _, (s, why) = drive("signal")
+    check("U7 child killed by signal -> UNKNOWN",
+          s == UNKNOWN and ("signal" in why or "no exit code" in why), "%s: %s" % (s, why))
+
+    _, (s, why) = drive("refusal_at_exit_1", refusals=[("import_graph_gate.py not found",
+                                                        "the wrapped gate is absent")],
+                        parser=make_p_imports(tmp))
+    check("U8 refusal WORDS beat the exit code: exit 1 + 'not found' -> UNKNOWN, not FAIL",
+          s == UNKNOWN and "refusal text" in why, "%s: %s" % (s, why))
+
+    r = {"launch_error": None, "timed_out": False, "rc": 7, "out": "7 ok, 0 drifted, 0 missing, 0 unpinned."}
+    s, why = classify(r, codes, p_guardcheck)
+    check("U9 undocumented exit code -> UNKNOWN (never graded by a map it is not in)",
+          s == UNKNOWN and "undocumented exit 7" in why, "%s: %s" % (s, why))
+
+    s, why = classify({"launch_error": None, "timed_out": False, "rc": 0,
+                       "out": "SUMMARY CHANGED: everything is fine"}, codes, p_guardcheck)
+    check("U10 tool reworded its summary -> UNKNOWN (this harness cannot read it)",
+          s == UNKNOWN, "%s: %s" % (s, why))
+
+    print("")
+    print("-- A PARSER MUST NOT MANUFACTURE A DENOMINATOR OUT OF A LINE BREAK --")
+    print("   A whitespace class matches a newline in Python, so the old patterns")
+    print("   joined a bare '  OK' line to the first word of the NEXT line and scored")
+    print("   it 1 of 1 -> PASS: an examination of nothing, read as a measurement of")
+    print("   one. Each case pairs the cross-line shape with the REAL measured shape,")
+    print("   so a parser that merely stopped matching fails the positive control.")
+    for pname, parser, crossline, realshape, realn in (
+            ("p_regen", p_regen,
+             "  OK\nRESULT: nothing was checked\n",
+             "  OK   FUNCTION_INDEX\n  OK   PIN_INDEX\n", 2),
+            ("p_regen_order", p_regen_order,
+             "  1.\n  nothing\n",
+             "  1. gui_parity\n  2. STATIC_KB\n", 2),
+            ("p_freshcheck", p_freshcheck,
+             "  OK\n\n  RESULT: no sections found\n",
+             "  OK       doc file:line anchors\n  OK       register\n", 2),
+            ("p_bandcheck", p_bandcheck,
+             "  ok\n  RESULT: nothing validated\n",
+             "  ok      tests/a.py\n  ok      tests/b.py\n", 2)):
+        got = parser(crossline)
+        check("%s: a bare token joined across a newline yields NO denominator" % pname,
+              got is None, repr(got))
+        st, why = classify({"launch_error": None, "timed_out": False, "rc": 0,
+                            "out": crossline}, codes, parser)
+        check("%s: and the whole check reads UNKNOWN through classify(), never PASS" % pname,
+              st == UNKNOWN, "%s: %s" % (st, why))
+        real = parser(realshape)
+        check("%s: POSITIVE CONTROL -- the real measured shape still counts %d"
+              % (pname, realn), real is not None and real[0] == realn, repr(real))
+
+    print("")
+    print("-- VERDICT ARITHMETIC (UNKNOWN must make the overall verdict NONZERO) --")
+    check("all PASS -> exit 0", verdict([PASS, PASS]) == 0, str(verdict([PASS, PASS])))
+    check("one UNKNOWN, no FAIL -> exit 2 (nonzero)", verdict([PASS, UNKNOWN]) == 2, str(verdict([PASS, UNKNOWN])))
+    check("any FAIL -> exit 1", verdict([PASS, UNKNOWN, FAIL]) == 1, str(verdict([PASS, UNKNOWN, FAIL])))
+    check("no checks at all -> exit 2, never 0", verdict([]) == 2, str(verdict([])))
+
+    print("")
+    print("-- END TO END: battery() ITSELF, THE PATH A USER ACTUALLY TAKES --")
+    print("   Every check above exercises a PRIMITIVE. A mutant that made UNKNOWN")
+    print("   stop blocking INSIDE battery() was measured to leave all of them green.")
+    interp = _find_pytest_python()
+    check("E0  precondition: an interpreter that can import pytest was FOUND (the "
+          "battery refuses every tool without one, so no fixture can run without it)",
+          interp is not None, str(interp))
+    if interp is None:
+        print("      -> the end-to-end cases could NOT be built. That is UNKNOWN, and "
+              "UNKNOWN fails this selftest.")
+        ok[0] = False
+    else:
+        popped = os.environ.pop("BD_INSTALL_DIR", None)
+        try:
+            for label, fn in _E2E_CASES:
+                for sub, cond, got in fn(interp):
+                    check("%s %s" % (label, sub), cond, got)
+        finally:
+            if popped is not None:
+                os.environ["BD_INSTALL_DIR"] = popped
+
+    print("")
+    print("-- BLIND SPOTS ARE PRINTED, NOT DOCUMENTED --")
+    import io, contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        print_blind_spots()
+    txt = buf.getvalue()
+    check("blind-spot block is emitted by the reporter itself", "BLIND SPOTS" in txt)
+    check("all %d blind spots present in the printed block" % len(BLIND_SPOTS),
+          all(b in txt for b in BLIND_SPOTS),
+          "%d/%d" % (sum(1 for b in BLIND_SPOTS if b in txt), len(BLIND_SPOTS)))
+    check("the docstring names what it cannot see", "CANNOT SEE" in (__doc__ or ""))
+
+    print("")
+    print("-- ALL THREE STATES WERE ACTUALLY PRODUCED (a branch nothing reaches is dead code) --")
+    check("PASS produced by a real run", PASS in produced)
+    check("FAIL produced by a real run", FAIL in produced)
+    check("UNKNOWN produced by a real run", UNKNOWN in produced)
+
+    shutil.rmtree(tmp, ignore_errors=True)
+    check("fixtures removed (every path created has a remover)", not os.path.exists(tmp))
+
+    print("")
+    print("SELFTEST %s" % ("PASS" if ok[0] else "FAIL"))
+    print_blind_spots()
+    return 0 if ok[0] else 1
+
+
+def main():
+    ap = argparse.ArgumentParser(add_help=True,
+                                 description="pre-commit gate battery; three states per check")
+    ap.add_argument("--repo", default=REPO_DEFAULT)
+    ap.add_argument("--timeout", type=int, default=TIMEOUT_DEFAULT)
+    ap.add_argument("--files", nargs="+", default=None,
+                    help="derive the band from these files instead of the git diff")
+    ap.add_argument("--changed-from", default=None, help="changed set = git diff --name-only REF")
+    ap.add_argument("--logdir", default=None)
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    repo = os.path.realpath(a.repo)
+    if not os.path.isdir(repo):
+        print(line(UNKNOWN, "repo", "no such directory: %s" % repo))
+        print("")
+        print("VERDICT: BLOCKED (unknown) -- 0 PASS, 0 FAIL, 1 UNKNOWN of 1 checks (exit 2)")
+        print_blind_spots()
+        return 2
+    logdir = a.logdir or os.path.join(tempfile.gettempdir(), "bd-cut-preflight",
+                                      time.strftime("%Y%m%d-%H%M%S"))
+    return battery(repo, a.timeout, a.files, a.changed_from, logdir)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
