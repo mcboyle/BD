@@ -4,6 +4,54 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1082
+
+Twenty-four tree-enumerating gates now run on every PR (backlog 99).
+
+They were gates that ran on no PR: tombstones keeping retired subsystems dead,
+anti-duplication ratchets, and denominator gates -- several named by CLAUDE.md
+section 4's own axis-6 table. A gate CI does not run is a gate that does not
+exist, and these had been in that state for as long as they have existed.
+
+RE-DERIVED FIRST, and the number moved: the row said 26, the population at HEAD
+is 24, because @1072 and @1080 declared two of them in the interim. Section 1's
+verify-then-act, paying for itself on a row this session wrote.
+
+CLASSIFIED, NOT BULK-ADDED. CI's lane is the file-INDEPENDENT half -- gates
+whose subject is the tree itself. Each of the 24 was read against that: every
+one asserts an invariant over the tree rather than exercising a feature, so all
+24 qualify. That was checked, not assumed; the row explicitly warned against a
+mechanical sweep.
+
+SPLIT FROM MEASURED TIME, NOT COUNT, per the @939 precedent. All 24 were timed
+individually -- 196s total, every one passing:
+
+    test_desandbox_tool_verifiers            65.5s   <- a third of the total
+    the other 23, combined                  130.6s
+
+So `desandbox` gets a shard to itself: no split puts every lane under the
+one-minute budget while that file stays whole, and trimming a shard's list is
+forbidden -- every entry is a gate that was RED somewhere nothing else could
+see. The remaining 23 are balanced across four shards at ~33s each, leaving
+headroom for CI being slower than this box (measured ratio ~1.1-1.2x).
+
+AND ONE OF THE TWENTY-FOUR IMMEDIATELY CAUGHT THIS CUT. Adding
+`tests/test_deploy_manifest_stays_retired.py` to _DECLARED put the literal
+`deploy_manifest` back into a tracked source file, and that file's own tombstone
+scan flagged it -- "explaining a removal by naming the removed thing recreates
+it", reached from the one direction that is legitimate: naming a tombstone in
+order to SCHEDULE it is the opposite of resurrecting the tool. Exempted for that
+single file, with the reason, rather than for declaration lists in general, so a
+real invocation there is still caught.
+
+The derived band did not include that suite; CI did, on the run that added it.
+A gate proving its own worth inside the cut that wired it in.
+
+NOT DONE, deliberately: the 24 keep their gate_scope_baseline.txt entries
+rather than gaining BD_GATE_SCOPE markers. _DECLARED is what CI reads, the
+marker requirement exists for files written after the policy, and marking 24
+files is a mechanical cut of its own.
+
 ## v3.66.1081
 
 Session close 15.92, and the two backlog rows this session's cuts closed.

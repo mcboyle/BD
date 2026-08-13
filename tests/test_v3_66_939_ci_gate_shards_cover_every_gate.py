@@ -120,6 +120,40 @@ _DECLARED = {
     # @1080. The policy caught its own author one cut later: this file declares
     # itself repo-wide and the union assertion refused it until it was wired in.
     "tests/test_v3_66_1080_the_suite_reclaims_its_tmpdirs.py",
+    # @1082, backlog 99. Twenty-four suites that enumerate the tree and
+    # ran on no PR -- tombstones, anti-duplication ratchets and
+    # denominator gates, several named by CLAUDE.md section 4's own
+    # axis-6 table. Split across five shards drawn from MEASURED time
+    # (196s total locally), not count, per the @939 precedent.
+    # tree-gates-1
+    "tests/test_v3_66_1018_registrable_domain_drain.py",
+    "tests/test_census_file_size_drift.py",
+    "tests/test_zip_era_tools_stay_retired.py",
+    # tree-gates-2
+    "tests/test_v3_66_1013_registrable_domain.py",
+    "tests/test_history_records_whether_bytes_were_fetched.py",
+    "tests/test_v3_66_972_library_missing_stays_retired.py",
+    # tree-gates-3
+    "tests/test_v3_66_820_share_tools_saw_no_session_keys.py",
+    "tests/test_history_file_size_is_the_size_on_disk.py",
+    "tests/test_playwright_engines_single_source.py",
+    # tree-gates-4
+    "tests/test_v3_66_938_atomic_write_sidecars_are_ignored.py",
+    "tests/test_v3_66_935_scan_wait_reports_non_convergence.py",
+    "tests/test_history_columns_go_through_migrations.py",
+    "tests/test_v3_66_1059_recorder_derives_its_blind_spot_counts.py",
+    "tests/test_v3_66_968_anchor_gate_sees_frontend_citations.py",
+    "tests/test_codex_handoff_stays_retired.py",
+    "tests/test_sandbox_home_stays_retired.py",
+    "tests/test_deploy_manifest_stays_retired.py",
+    "tests/test_gitignore_rules_actually_match.py",
+    "tests/test_task_tracker_stays_retired.py",
+    "tests/test_v3_66_918_tracked_source_denominator.py",
+    "tests/test_v3_66_944_static_kb_manifest_describes_the_tree.py",
+    "tests/test_generated_artifact_workflow.py",
+    "tests/test_git_deploy_gaps_are_documented.py",
+    # toolchain-verifiers
+    "tests/test_desandbox_tool_verifiers.py",
 }
 
 # ── the declaration policy, @1072 ────────────────────────────────────────────
