@@ -147,6 +147,9 @@ _DECLARED = {
     # Walks every tracked tests/test*.py for assertions that are true for
     # every input, so a new test file changes its denominator (@1098).
     "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py",
+    # The mirror slice: assertions FALSE for every input, plus statically
+    # unreachable ones. Same denominator, same reason it is repo-wide (@1108).
+    "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
     "tests/test_v3_66_938_atomic_write_sidecars_are_ignored.py",
     "tests/test_v3_66_935_scan_wait_reports_non_convergence.py",
     "tests/test_history_columns_go_through_migrations.py",

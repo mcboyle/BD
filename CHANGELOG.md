@@ -4,6 +4,53 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1108 - no assertion may be false for every input (backlog 26, slice 2)
+
+- BACKLOG 26, SLICE 2 -- the mirror of @1098's always-TRUE gate. An assertion
+  false for every input is a test that can never be green, so wherever one is
+  live and the suite passes, something is SUPPRESSING it. At @1098 that was
+  literal: the always-false clause `"sec" not in [s.lower() for s in ("SEC",)]`
+  was hiding inside an `assert ... or True`.
+- IT CARRIES A CONSTANT FOLDER, and deliberately does NOT eval. Compiling
+  corpus source would cover more expressions and would also execute arbitrary
+  code from every tracked test file inside the process that grades the suite.
+  The folder handles a closed node set over literals and comprehension
+  variables; everything else is UNFOLDABLE, which is silence rather than a pass.
+- WHAT IT FOUND: NOTHING, and it ships saying so. Measured at v3.66.1107 over
+  1331 files -- 32127 assert nodes, 37309 boolean-context expressions -- there
+  are ZERO live always-false assertions and ZERO statically unreachable ones.
+  This closes no defect; it is a floor against a class that has occurred once.
+- THE FIRST VERSION WAS A BLIND GATE AND THE MEASUREMENT IS WHY IT CHANGED. It
+  folded only WHOLE assert tests and could decide 1 of 32127 -- 0.003% --
+  because @1098's instance was a CLAUSE inside a larger expression. Widening to
+  boolean-context sub-expressions is what makes it able to see the shape the
+  row is about at all.
+- AND ITS ONLY LIVE FINDING WAS A FALSE POSITIVE, which is now an
+  over-sensitivity control. It fired on the gate_warnings coalescing expression
+  in test_2c_guard_zero_match_interlock.py: `x or []` is null-coalescing, and
+  that the default is itself falsy is the point of the idiom. The cause was
+  narrow and worth recording -- `[]` parses as an empty ast.List, NOT an
+  ast.Constant, so a Constant-only exemption missed the exact expression it was
+  written for.
+- BOTH EXEMPTIONS ARE MEASURED, NOT GUESSED: the bare deliberate-failure idiom
+  has 32 live sites (two documenting in a comment why they use it over
+  pytest.fail), and firing on those would report 32 defects where there are
+  none -- section 0's over-sensitivity-is-a-soundness-bug rule.
+- RED-FIRST PROVEN BY INJECTION, since the census is empty: an always-false
+  assertion added to tests/test_lint_kb.py turns the gate red naming that
+  file and line, and the tree restored to 0 modified paths afterwards.
+- MUTATION BATTERY 7/7 after two escapes were closed, and both escapes were
+  defects in the TESTS rather than in the gate. The nested-boolean test used a
+  TOP-LEVEL `and`, which the walker yields as its root, so it never exercised
+  the recursion a mutant removed; and the size-bound test used a multiplier
+  whose integer literal trips the INT bound first, so the RESULT-length bound
+  was never reached. Each now has a test that separates the two.
+- Wired into the tree-gates-4 shard and _DECLARED in the same cut, per section
+  7: a gate CI does not run is a gate that does not exist.
+- COST: the gate walks every tracked test file once and takes 12.6s serially
+  (13 tests), of which the corpus scan is run twice -- once for the verdict and
+  once for the denominator report.
+
 ## v3.66.1107
 
 - doc-only: SESSION_CARRY 15.94, the close for the fifteen cuts v3.66.1092
