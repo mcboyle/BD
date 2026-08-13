@@ -4,6 +4,38 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1091
+
+Backlog row 3 closes PARTIAL, four cuts after the cut that implemented it.
+
+THE ROW WAS STILL OPEN AT v3.66.1090 WHILE ITS IMPLEMENTATION SHIPPED AT
+v3.66.1087. That is the exact statistic this file exists to prevent, and the
+backlog's own header records the precedent: row 91 "sat OPEN through the two
+cuts that fixed it" and was still directing readers to start with it. Caught
+here by re-deriving the OPEN set from the file rather than from memory of what
+had been done -- section 1's verify-then-act, applied to the session's own work
+at the end of it.
+
+WHAT IS CLOSED. Jobs bd-jobs LAUNCHES now have a heartbeat, derived from the
+job's own log rather than asking the job to write one: `bd-jobs run` gives the
+process a log (it used to send stdout and stderr to DEVNULL, so a REGISTERED job
+produced no output anywhere), records the path, and progress() returns
+PROGRESSING / STALLED / UNKNOWN from that log's mtime with the seconds since the
+last write.
+
+WHAT IS NOT CLOSED, AND THE ROW SAYS SO RATHER THAN IMPLYING OTHERWISE. "EVERY
+long job" is wider than "every job bd-jobs launched". A suite started by hand,
+by capture.sh, or by any script that does not register gets nothing, and nothing
+forces registration. The remainder is a policy question -- should an
+unregistered long job be refused, or merely invisible? -- and it is not
+designed. The row must be read as "registered jobs are observable", not as "long
+jobs are observable".
+
+PARTIAL RATHER THAN CLOSED IS THE HONEST STATUS, and this file already carries
+two precedents for it (rows 89 and 95), both of which named their remainder in
+the same breath. A close nobody can check is a claim; a close that overstates
+its scope is worse, because the next session reads it as coverage.
+
 ## v3.66.1090
 
 Session close 15.93, naming a commit already on main.
