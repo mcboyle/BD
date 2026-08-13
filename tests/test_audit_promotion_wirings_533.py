@@ -188,8 +188,11 @@ def test_graph_content_hash_stable_across_resave():
     h2 = gb.content_hash(db)
 
     assert h1 == h2, "content_hash drifted on a content-preserving re-save"
-    # sanity: the raw file hash is the fragile thing the pin must NOT be
-    assert raw1 != raw2 or True  # VACUUM may no-op on tiny db; don't hard-require
+    # The raw file hash is the fragile thing the pin must NOT be. There is
+    # deliberately NO assertion on it: VACUUM may legitimately no-op on a tiny
+    # database, so `raw1 != raw2` is not reliably true and an `or True` on it
+    # claimed coverage that did not exist. The real guarantee is `h1 == h2`
+    # above -- content_hash is stable across a content-preserving re-save.
     assert isinstance(h1, str) and len(h1) >= 16
 
 

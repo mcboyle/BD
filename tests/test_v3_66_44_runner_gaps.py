@@ -64,12 +64,18 @@ def test_named_fixture_depending_on_tmp_path(temp_marker):
     assert temp_marker.read_text(encoding="utf-8") == "ok"
 
 
-def test_named_fixture_with_generator_teardown(capsys):
-    """A generator fixture's teardown must run. We can't easily observe
-    teardown across tests, so just confirm a yielding named fixture
-    delivers its value (teardown drain is covered by not crashing)."""
-    # inline check: the gen fixture below yields, runner advances past it
-    assert True
+# REMOVED: test_named_fixture_with_generator_teardown.
+#
+# Its body was `assert True` and its docstring admitted why -- teardown is hard
+# to observe across tests. So it asserted nothing while reading as coverage of
+# generator-fixture teardown, which is worse than no test.
+#
+# The value it claimed to check is genuinely covered by
+# test_generator_named_fixture_yields_value below, which takes gen_fixture and
+# asserts the yielded value. Teardown itself is deliberately left uncovered
+# rather than faked: observing it needs state shared between two tests, and a
+# test that only passes when another ran first is the order-dependence class
+# backlog 25 exists for.
 
 
 @pytest.fixture

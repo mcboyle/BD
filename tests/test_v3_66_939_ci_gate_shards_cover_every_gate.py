@@ -144,6 +144,9 @@ _DECLARED = {
     "tests/test_history_file_size_is_the_size_on_disk.py",
     "tests/test_playwright_engines_single_source.py",
     # tree-gates-4
+    # Walks every tracked tests/test*.py for assertions that are true for
+    # every input, so a new test file changes its denominator (@1098).
+    "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py",
     "tests/test_v3_66_938_atomic_write_sidecars_are_ignored.py",
     "tests/test_v3_66_935_scan_wait_reports_non_convergence.py",
     "tests/test_history_columns_go_through_migrations.py",

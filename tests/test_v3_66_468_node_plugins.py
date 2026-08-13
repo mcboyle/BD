@@ -77,7 +77,14 @@ process.stdin.on('end', () => { process.stdout.write(JSON.stringify({ok: true}))
 def test_node_module_importable():
     # The bridge lives in its own module so the import edge is declarable.
     from bulk_downloader import plugin_node  # noqa: F401
-    assert hasattr(P, "plugin_node") or True
+    # NO ASSERTION ON THE PACKAGE ATTRIBUTE. MEASURED at v3.66.1097: it holds
+    # in a bare interpreter and is FALSE under this suite, because
+    # tests/conftest.py's _canonicalize_package_children reconciles
+    # module-valued package attributes against sys.modules. So an assertion on
+    # it would test the conftest, not the import edge, and that is what the
+    # `or True` was quietly absorbing.
+    # The import above IS the check: it raises ImportError if the bridge module
+    # is missing, which is the whole point of the test's name.
 
 
 def test_node_processor_discovered_and_runs():
