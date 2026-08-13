@@ -4,6 +4,34 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1101
+
+- doc-only: backlog 103's premise does not reproduce, and the row is corrected
+  rather than implemented.
+- IT CLAIMED worker chains are written at SESSION END, so a wedged run records
+  nothing. tests/_run_context.py's note_file has always appended PER TEST, and
+  reopens the file per write for exactly the stated reason -- its own docstring
+  says "a worker killed mid-run must still leave a readable chain, and that is
+  the run an investigation cares most about".
+- MEASURED at 3.66.1099 under `-n 8 --dist loadfile`: EIGHT chains for EIGHT
+  workers, complete and incremental. The proposed fix -- "write each worker's
+  chain entry as it is ASSIGNED rather than at session end" -- describes work
+  that is already done.
+- SO THE 6-OF-48 OBSERVATION IS UNEXPLAINED, and the row now says that instead
+  of asserting a cause. What was recorded on 2026-08-13 was a count of *.chain
+  files in one directory during a wedge; the mechanism above says a wedged run
+  should still have written one per worker that ran anything. The most likely
+  reading is that the directory inspected was not the wedged run's -- the path
+  is keyed by the MASTER's pid -- but that was not established at the time and
+  cannot be established now.
+- The row stays OPEN on the unexplained observation, with its FIX withdrawn.
+  Closing it would assert the diagnostic is fine; implementing it would ship a
+  change with no defect under it.
+- This is CLAUDE.md section 1 on a row I wrote myself the same day: verify
+  before acting, because roughly half a register's open items are already closed
+  or mis-scoped -- and a plausible mechanism written down at 2am reads as a
+  measurement by morning.
+
 ## v3.66.1100
 
 - tests/conftest.py pre-imports httpx, encodings.idna, importlib.readers and
