@@ -4,6 +4,33 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1100
+
+- tests/conftest.py pre-imports httpx, encodings.idna, importlib.readers and
+  stringprep, so a patch.dict(sys.modules) cannot evict them.
+- THE v3.66.1095 GUARD FOUND A REAL ONE, WHICH IS THE POINT. Under
+  `-n 8 --dist loadfile`, test_v3_43_64_mp4_metadata's
+  test_returns_none_when_httpx_missing evicted FIFTY modules on exit -- the
+  whole httpx._* tree plus click.*, idna.*, http.client, urllib.request,
+  email.parser and mimetypes. On a worker where httpx had not yet been
+  imported, `patch.dict(sys.modules, {"httpx": None})` leaves every module the
+  block then pulls in absent from the snapshot the restore rewinds to.
+- THIS IS WHY THAT GUARD IS A RUNTIME CHECK AND NOT A CENSUS. The audit at
+  @1095 measured all 28 sites SERIALLY and found ZERO. A static gate would have
+  reported that zero as a pass. The hazard appears only at a worker count no
+  capture lane uses.
+- Pre-imports rather than an allowlist entry: an allowlist weakens the check for
+  every future site, while an import fixes the actual condition. The guard's
+  ALLOWED set stays EMPTY, which is a claim worth being able to make. httpx
+  alone took the count from 50 to 3; the remaining three are pulled in lazily by
+  the codec and import machinery rather than by any import statement anyone
+  wrote.
+- Cost measured: 119 ms per WORKER PROCESS, once -- about 1.9s across a -n 16
+  suite, and nothing per test.
+- Verified at -n 4, -n 8 and -n 16 on the affected files, and by a full suite at
+  -n 8 (the width that exposed it): 15845 passed, 24 skipped, ZERO eviction
+  fires.
+
 ## v3.66.1099
 
 - capture: output lands in /tmp/bd_capture-<runid>/ instead of a fixed
