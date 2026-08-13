@@ -28,14 +28,24 @@ def _build_probe(path: Path) -> None:
     sentinel = "# ── [2b/9]"
     assert source.count(sentinel) == 1
     probe = source.split(sentinel, 1)[0]
+    # Anchors updated at v3.66.1099: capture.sh's output directory is keyed by
+    # run id (backlog 5), so the old fixed literals no longer exist.
     replacements = {
-        'OUT="/tmp/bd_capture"': 'OUT="${CAPTURE_TEST_OUT:?}"',
-        'ARCHIVE="/tmp/bd_capture.tar.gz"': (
+        'OUT="/tmp/bd_capture-${CAPTURE_RUN_ID}"': 'OUT="${CAPTURE_TEST_OUT:?}"',
+        'ARCHIVE="/tmp/bd_capture-${CAPTURE_RUN_ID}.tar.gz"': (
             'ARCHIVE="${CAPTURE_TEST_ARCHIVE:?}"'
         ),
     }
     for old, new in replacements.items():
-        assert probe.count(old) == 1
+        # SAY WHAT WAS BEING LOOKED FOR. This was a bare `assert
+        # probe.count(old) == 1`, which reported `assert 0 == 1` when the
+        # anchors moved -- true, and useless. A substitution guard that does not
+        # name its subject sends the reader to the wrong file.
+        assert probe.count(old) == 1, (
+            f"capture.sh no longer contains {old!r} exactly once "
+            f"(found {probe.count(old)}); this harness rewrites that line to "
+            "redirect output into the sandbox, so a moved anchor silently "
+            "stops sandboxing and the probe writes to the real path")
         probe = probe.replace(old, new)
     probe += r'''
 printf 'PARALLEL_EXIT=%s\nSERIAL_EXIT=%s\nRESULTS_EXIT=%s\nSUITE_EXIT=%s\n' \

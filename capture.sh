@@ -99,8 +99,30 @@ EOF
 fi
 
 BD_HOME="${BD_HOME:-$HOME/BulkDownloader}"
-OUT="/tmp/bd_capture"
-ARCHIVE="/tmp/bd_capture.tar.gz"
+
+# ── where this run writes (backlog 5) ────────────────────────────
+# This was a FIXED /tmp/bd_capture, so consecutive captures overwrote each
+# other in place and the evidence from a failing round survived only if
+# somebody copied it out before the next one started. That happened twice by
+# hand on 2026-08-13, and the round that FAILED was the one that would have
+# been most expensive to lose.
+#
+# PRUNE ON THE WAY IN, NOT ON THE WAY OUT. A run that crashes leaves the most
+# valuable directory on the box; pruning at the end would delete it as part of
+# the failure. Pruning here means the newest few always survive -- including a
+# crashed one -- until that many more runs have happened.
+#
+# The predicate lives in a library so a test can RUN it rather than grep it:
+# "keep the newest five" has an off-by-one, an mtime-versus-name ordering
+# question and a does-it-delete-the-current-run question, none of which are
+# visible in source text.
+# shellcheck source=scripts/lib/capture_run_dir.sh
+. "$(dirname "$0")/scripts/lib/capture_run_dir.sh"
+CAPTURE_KEEP="${CAPTURE_KEEP:-5}"
+bd_capture_prune "$CAPTURE_KEEP" || true
+CAPTURE_RUN_ID="$(bd_capture_run_id "$(dirname "$0")")"
+OUT="/tmp/bd_capture-${CAPTURE_RUN_ID}"
+ARCHIVE="/tmp/bd_capture-${CAPTURE_RUN_ID}.tar.gz"
 
 # ── Arg parsing ──────────────────────────────────────────────────
 # Before this edit capture.sh ignored ALL args, so `./capture.sh

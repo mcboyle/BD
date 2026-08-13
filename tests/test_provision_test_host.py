@@ -3123,8 +3123,10 @@ def _build_capture_probe(path: Path) -> None:
     )
     probe = source.split(CAPTURE_SENTINEL, 1)[0]
     replacements = {
-        'OUT="/tmp/bd_capture"': 'OUT="${CAPTURE_TEST_OUT:?}"',
-        'ARCHIVE="/tmp/bd_capture.tar.gz"': 'ARCHIVE="${CAPTURE_TEST_ARCHIVE:?}"',
+        # Anchors updated at v3.66.1099 -- the capture directory is keyed by
+        # run id (backlog 5), so the fixed literals are gone.
+        'OUT="/tmp/bd_capture-${CAPTURE_RUN_ID}"': 'OUT="${CAPTURE_TEST_OUT:?}"',
+        'ARCHIVE="/tmp/bd_capture-${CAPTURE_RUN_ID}.tar.gz"': 'ARCHIVE="${CAPTURE_TEST_ARCHIVE:?}"',
     }
     for old, new in replacements.items():
         assert probe.count(old) == 1, f"capture.sh no longer contains {old!r}"

@@ -328,7 +328,19 @@ def test_the_capture_vault_never_lands_in_the_shared_bundle():
             continue
         break
 
-    assert "$OUT" not in resolved and "/bd_capture/" not in resolved, (
+    # BOTH FORMS, AND THE HYPHEN IS LOAD-BEARING. Since v3.66.1099 the capture
+    # directory is /tmp/bd_capture-<runid>/, so `/bd_capture/` alone would be
+    # VACUOUS -- that substring now appears in no path, and the clause would
+    # pass for a reason unrelated to the vault (CLAUDE.md section 0, a gate
+    # reporting OK over a subject whose shape moved underneath it).
+    #
+    # But a bare `/bd_capture` prefix over-corrects: the vault itself lives at
+    # /tmp/bd_capture_vault/, which starts with it, so that form fails on the
+    # CORRECT arrangement. Measured -- it did, on first run. `/bd_capture-`
+    # matches the run-keyed output directory and not the vault.
+    assert ("$OUT" not in resolved
+            and "/bd_capture/" not in resolved
+            and "/bd_capture-" not in resolved), (
         f"the capture vault resolves to {resolved!r}, inside the directory "
         f"capture.sh:739 tars into the bundle the operator ships. Resolved "
         f"from {target!r} via {sorted(seen)}."

@@ -17,9 +17,11 @@ THE SHAPE OF THE FIX. `<label>-<runid>.log` for the real artifact, with
 existing caller still work. Retention stays bounded by --keep; a bound that
 grows without limit is the leak CLAUDE.md section 0 records at 744 directories.
 
-NOT CLOSED BY THIS: item 5's capture.sh half. `/tmp/bd_capture` is still a fixed
-path referenced by five test files, so consecutive captures still overwrite each
-other. That is a gate change and its own cut.
+CLOSED AT v3.66.1099: item 5's capture.sh half. `/tmp/bd_capture` was a fixed
+path referenced by five test files, so consecutive captures overwrote each
+other; it is now `/tmp/bd_capture-<runid>/`, pruned to the newest few at run
+START so a crashed run's evidence survives. See
+tests/test_v3_66_1099_capture_dirs_are_keyed_by_run.py.
 """
 
 import os

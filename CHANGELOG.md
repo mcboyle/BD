@@ -4,6 +4,34 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1099
+
+- capture: output lands in /tmp/bd_capture-<runid>/ instead of a fixed
+  /tmp/bd_capture, so consecutive captures stop overwriting each other
+  (backlog 5, the capture.sh half that v3.66.1060 recorded as still open).
+- MEASURED COST OF THE OLD BEHAVIOUR: two rounds on 2026-08-13 survived only
+  because they were copied out by hand before the next round started, and the
+  round that FAILED would have been the most expensive to lose.
+- PRUNES ON THE WAY IN, NOT ON THE WAY OUT, keeping the newest 5. A run that
+  crashes leaves the most valuable directory on the box; pruning at the end
+  deletes it as part of the failure, which is the one moment nobody wants
+  tidiness.
+- The run id carries a UTC timestamp and the short commit so `ls /tmp` says
+  which tree a bundle describes, and appends the PID if that pair collides
+  rather than assuming it cannot.
+- The retention lives in scripts/lib/capture_run_dir.sh so a test can RUN it:
+  "keep the newest five" hides an off-by-one, an mtime-versus-name ordering
+  question and a does-it-delete-the-current-run question, none of which are
+  visible in a grep. A retention of ZERO is refused rather than obeyed.
+- TWO DEPENDENT GUARDS WOULD HAVE GONE QUIET AND ARE REPAIRED. Two harnesses
+  rewrite capture.sh's OUT= line to sandbox the output, and their anchors are
+  updated; one of them reported `assert 0 == 1` when it broke and now names
+  what it was looking for. And test_capture_vault_is_isolated excluded the
+  substring "/bd_capture/", which appears in NO path under the new scheme --
+  it would have passed vacuously. The hyphen is load-bearing there: a bare
+  "/bd_capture" prefix over-corrects onto /tmp/bd_capture_vault, which is the
+  correct arrangement, and it did on first run.
+
 ## v3.66.1098
 
 - tests: a gate now refuses any assertion that is true for every input, and six
