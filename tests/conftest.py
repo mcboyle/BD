@@ -26,6 +26,23 @@ from pathlib import Path
 import pytest
 from capture_lanes import classify_capture_path
 
+# IMPORTED FOR ITS PRESENCE IN sys.modules, NOT FOR ITS API -- do not remove as
+# "unused". `unittest.mock.patch.dict` restores sys.modules to the snapshot it
+# took on entry, so a module FIRST IMPORTED inside such a block is DELETED on
+# exit. httpx builds its httpcore->httpx exception map lazily, into a
+# module-global that lives in httpx; httpcore holds the classes. If httpcore is
+# first imported inside a patch.dict block, the map SURVIVES and the classes do
+# NOT, the next import makes a second httpcore module object, and from then on
+# every isinstance() in that map fails -- so httpx re-raises raw
+# httpcore.ConnectError through the branch it marks `# pragma: no cover`.
+#
+# Measured on test6 at v3.66.1083: that is exactly how a qb_bridge test saw
+# "submit raised ConnectError instead of QBError" in the capture parallel lane.
+# Importing httpcore HERE puts it in every later snapshot, so no restore can
+# evict it. tests/test_v3_66_1085_module_identity_survives_a_sys_modules_patch.py
+# gates it and reproduces the mechanism in a controlled subprocess.
+import httpcore  # noqa: F401
+
 # Make sure the package is importable regardless of where pytest is invoked
 PKG_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PKG_ROOT))

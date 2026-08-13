@@ -4,6 +4,73 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1085
+
+A patch.dict(sys.modules) can no longer split the httpcore module identity.
+
+THE DEFECT, root-caused from test6's v3.66.1083 capture. One unit failure in the
+parallel lane, worker gw27: "submit raised ConnectError instead of QBError". The
+traceback named httpcore.ConnectError, not httpx.ConnectError -- httpx re-raised
+the raw transport error out of its own map_httpcore_exceptions context, through
+the branch httpx itself marks `# pragma: no cover`. v3.66.1084 fixed the qb_bridge
+contract that let it reach a caller; this fixes why the wrong exception class
+existed at all.
+
+THE MECHANISM, MEASURED, not reasoned about. unittest.mock.patch.dict restores
+sys.modules to the snapshot it took on entry, so a module FIRST IMPORTED inside
+the block is DELETED on exit. The recorded chain
+(/tmp/bd-runctx/2521/gw27.chain on test6) was test_v3_43_64_mp4_metadata ->
+test_v3_66_25_phase4_ssrf_rebinding -> test_v3_43_26_qb_bridge. httpx was already
+imported, so it was in the snapshot and SURVIVED; httpcore was first imported
+inside the block, by httpx's own lazy _load_httpcore_exceptions(), so it was
+EVICTED. The next import produced a second httpcore module object with different
+exception classes, and every isinstance() in httpx's cached HTTPCORE_EXC_MAP
+failed from then on, for the rest of that worker process.
+
+THE ASYMMETRY IS THE WHOLE MECHANISM, and a first attempt at the gate did not
+reproduce because of it. Evicting httpx AND httpcore together is self-healing:
+the map lives in httpx, so re-importing httpx resets it to empty and it rebuilds
+from the live httpcore. Only the case where the MAP survives and the CLASSES do
+not produces a split. That correction is why the gate below asserts the trap
+reproduces BEFORE it asserts the fix closes it.
+
+THE FIX is one import in tests/conftest.py, commented as load-bearing so it is
+not removed as unused: httpcore is present before any test runs, so it is in
+every later snapshot and no restore can evict it.
+
+EVIDENCE. RED first on pristine source: 2 failed / 3 passed, the two failures
+being exactly the conftest-dependent assertions. 5 passed after. The test6 chain
+that produced the original failure: 115 passed. bd-mutate 1 caught / 0 escaped
+on removal of the import. The mechanism gate runs both arms in a controlled
+subprocess and measures httpcore.ConnectError without the pre-import and
+httpx.ConnectError with it.
+
+A DEPENDENCY DECLARATION CAME WITH IT, and only the full suite caught that. The
+33-file band bd-band-derive produced for a conftest.py change is a FLOOR and a
+conftest change has the blast radius of the whole suite, so the suite was run
+whole: test_v3_66_653_dep_freshness went red because conftest now imports
+httpcore directly and no requirements manifest declared it. httpcore is
+therefore declared in requirements-test.txt -- NOT requirements-dev.txt, which
+the gate's own message suggests for a test-only dependency but which nothing on
+the deploy path or in the container reads. pyflakes is the worked precedent for
+that distinction: declaring it in requirements-dev.txt was not sufficient and
+the next capture proved it. The package is already present transitively via
+httpx, so nothing installed changes; what changes is that it survives a rebuild.
+A conftest import that fails takes the entire suite down at collection, so there
+is no partial-credit failure mode to fall back on.
+
+WIRED INTO CI, per the @1072 policy: BD_GATE_SCOPE = "repo-wide", _DECLARED
+membership, and the isolation shard. Shard TIMED at 12.75s with the new file
+present, against the one-minute budget. The policy gate refused the cut until
+the file was tracked, which is section 2a's rule about gates that enumerate
+git ls-files working as designed.
+
+WHAT THIS DOES NOT DO. It is not a general guard against
+patch.dict(sys.modules, ...), which is 28 call sites across 6 test files and
+can poison any lazily-imported module backing an identity-keyed cache. This
+closes the instance that reached production and names the class; the class is
+recorded as a backlog row rather than claimed closed.
+
 ## v3.66.1084
 
 submit() honours its QBError contract when the listing probe fails in a way

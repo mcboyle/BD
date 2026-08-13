@@ -102,6 +102,12 @@ _DECLARED = {
     "tests/test_v3_66_1034_guards_survive_a_module_wipe.py",
     "tests/test_v3_66_1031_socket_recorder_stages.py",
     "tests/test_no_test_writes_the_repo_plugins_dir.py",
+    # @1085. The isolation shard. Its subject is the test SESSION's module
+    # table, not the tree -- the same reason 1034 and 1031 sit here. A
+    # patch.dict(sys.modules) that evicts a lazily-imported module poisons an
+    # identity-keyed cache for the rest of a worker process, which is how a
+    # v3.66.1083 capture on test6 saw httpx re-raise a raw httpcore error.
+    "tests/test_v3_66_1085_module_identity_survives_a_sys_modules_patch.py",
     # @1072, and the first entry is this file. MEASURED at v3.66.1071: the
     # `gates` job runs ZERO pytest, and this suite is in no shard -- so the
     # only thing that would notice a dropped shard entry has never run on a
