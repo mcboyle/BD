@@ -102,6 +102,7 @@ def assess_capture(
     live_exit: int,
     stage_exits: Iterable[tuple[str, int]] = (),
     expected_live_tests: int | None = None,
+    tree_drift_file: str | Path | None = None,
 ) -> CaptureVerdict:
     """Assess process statuses and artifacts; ambiguity is always a failure."""
     reasons: list[str] = []
@@ -159,6 +160,38 @@ def assess_capture(
             f"live {live_counts[0]} pass/{live_counts[1]} warn/"
             f"{live_counts[2]} fail"
         )
+    # INVALID OUTRANKS FAIL, AND THE ORDER IS LOAD-BEARING (backlog 100).
+    #
+    # A run whose tree moved cannot ATTRIBUTE its own results: every count below
+    # describes a tree that no longer exists, so "these tests failed" is a claim
+    # about something other than the subject. Grading it FAIL spends the word
+    # this tool uses for "the software is broken" on "the measurement is void" --
+    # which is precisely how the 1082 round was read, a green suite reported as
+    # a code defect because the graph pin had drifted against nine files edited
+    # mid-run.
+    #
+    # The counts stay in the line. Nothing is hidden; the reader is told the
+    # numbers cannot be trusted, rather than being shown nothing.
+    #
+    # ABSENT IS NOT CLEAN. A missing file means "not recorded" -- the state every
+    # bundle archived before this cut is in, and replaying one must not turn it
+    # INVALID. Only a file that EXISTS and is NON-EMPTY invalidates.
+    if tree_drift_file is not None:
+        drift_path = Path(tree_drift_file)
+        if drift_path.exists():
+            drift = drift_path.read_text(encoding="utf-8", errors="replace").strip()
+            if drift:
+                changed = "; ".join(drift.split("\n"))
+                suffix = f" ({'; '.join(counts)})" if counts else ""
+                extra = f"; also: {'; '.join(reasons)}" if reasons else ""
+                return CaptureVerdict(
+                    False, 3,
+                    "CAPTURE VERDICT: INVALID - the working tree changed "
+                    f"during the run: {changed}. This run measured a tree that "
+                    "no longer exists; it is NOT a pass and NOT a defect "
+                    f"report{extra}{suffix}"
+                )
+
     if reasons:
         suffix = f" ({'; '.join(counts)})" if counts else ""
         return CaptureVerdict(
@@ -188,6 +221,12 @@ def main(argv=None) -> int:
         "--stage-exit", action="append", default=[], type=_stage_exit,
         help="additional required stage in NAME=CODE form (repeatable)",
     )
+    parser.add_argument(
+        "--tree-drift-file", default=None,
+        help="file listing paths that changed DURING the run; a non-empty one "
+             "grades the capture INVALID (exit 3). Absent means not recorded, "
+             "which is not the same as clean.",
+    )
     args = parser.parse_args(argv)
     result = assess_capture(
         args.tests_json,
@@ -196,6 +235,7 @@ def main(argv=None) -> int:
         live_exit=args.live_exit,
         stage_exits=args.stage_exit,
         expected_live_tests=args.expected_live_tests,
+        tree_drift_file=args.tree_drift_file,
     )
     print(result.summary)
     return result.exit_code

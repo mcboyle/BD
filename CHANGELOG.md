@@ -4,6 +4,33 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1092
+
+- capture: a working tree that changes DURING a run is now graded INVALID, a
+  third verdict state distinct from PASS and FAIL (backlog 100). The @1079
+  guard checks preflight only, so a tree edited mid-run passed it untouched --
+  which is what invalidated test5 at the 1082 capture round, where nine files
+  changed under a green suite and the graph pin drifted against a tree that no
+  longer matched the one collection had read.
+- scripts/lib/tree_state.sh gains bd_tree_state_snapshot and
+  bd_tree_state_drift. The snapshot carries HEAD as well as the porcelain
+  listing, because a mid-run COMMIT leaves the tree clean on both sides while
+  moving the source out from under the measurement. It carries no timestamp:
+  the value is compared against itself twenty minutes later, and anything
+  varying with the clock would report drift on every capture.
+- UNKNOWN stays a third state at both ends. A tree that cannot be read returns
+  nonzero rather than an empty snapshot, because two empty snapshots compare
+  equal and would certify "no drift" over a subject nothing could see.
+- CAPTURE_ALLOW_DIRTY deliberately does NOT suppress the mid-run check. The
+  override consents to a known state at t=0, not to a tree that moves while the
+  run is in flight.
+- tools/capture_verdict.py grows --tree-drift-file and exit code 3. INVALID
+  outranks FAIL: a run whose tree moved cannot attribute its own results, and
+  spending the word FAIL on a void measurement is how the 1082 round was read
+  as a code defect. The counts stay in the verdict line.
+- An absent drift file means "not recorded", not "clean", so replaying any
+  bundle archived before this cut still grades as it did.
+
 ## v3.66.1091
 
 Backlog row 3 closes PARTIAL, four cuts after the cut that implemented it.
