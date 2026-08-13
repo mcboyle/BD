@@ -4,6 +4,26 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1081
+
+Session close 15.92, and the two backlog rows this session's cuts closed.
+
+Rows 95 (PARTIAL) and 98 carry their evidence. 95's own figures were a 5.3x
+undercount, because they came from bd-fleet's two-glob litter column, which
+this session fixed at @1078 -- recorded in the row rather than silently
+corrected, because the number had already been inherited once.
+
+The close names 203833e, the squash of #365, which was already on main when it
+was written. Naming a branch tip instead is the @939 trap: the squash destroys
+it and the register goes red on main, where no band reaches.
+
+STATE AT CLOSE, stated because a reader will otherwise assume it: the fleet is
+at 3.66.1075 and 1076-1080 are merged and UNDEPLOYED, by operator instruction.
+1076 fixes the two failures in test6's capture, so test6 stays red until it is
+deployed and re-run.
+
+Doc-only.
+
 ## v3.66.1080
 
 The suite reclaims what it allocates under /tmp (backlog 95).

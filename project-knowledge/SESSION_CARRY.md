@@ -5214,6 +5214,94 @@ never `export` in a shell the suite is later launched from.
   row seen in 1 of 6 captures. Re-capture before trusting it.
 
 
+### 15.92 | SESSION CLOSE 2026-08-13 at 203833e (v3.66.1080) -- nine cuts, and every one found its own defect
+
+Close at `203833e`, the squash of #365, already on `main` when this was written.
+Named per the @939 trap: a section naming its own branch tip goes red on `main`
+after the squash destroys it, where no band reaches.
+
+ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
+OPEN:   31
+
+#### WHAT SHIPPED: v3.66.1072 - v3.66.1080
+
+    1072  an undeclared repo-wide gate is now a red test (backlog 46)
+    1073  CLAUDE.md says what is true, and drops the cloud container
+    1074  bd-jobs reaches the host you named, and says which thing went wrong
+    1075  bd-fleet separates the tree from the service
+    1076  a fixture value that collided with a real hostname turned test6 red
+    1077  three claims in CLAUDE.md that were false, one of them inverted
+    1078  bd-fleet's litter column counted two globs, not the directory
+    1079  capture.sh refuses a tree it cannot measure against (backlog 98)
+    1080  the suite reclaims what it allocates under /tmp (backlog 95)
+
+Backlog: 46, 91, 95 (partial), 98 closed; 99 opened. 13 rows OPEN.
+
+#### THE THREAD RUNNING THROUGH ALL NINE: THE INSTRUMENT WAS THE DEFECT
+
+Not one of these was a product bug. Every one was a measuring device reporting
+something other than what it measured, and in six cases the device had been
+believed for months:
+
+  * the gate against a suite falling out of every CI shard had itself fallen
+    out of every shard, in the cut that created it, and had never run (@1072);
+  * CLAUDE.md's front matter said nothing branches on a hostname while
+    `bd-jobs` branches on one -- produced by a `*.py`/`*.sh` glob that cannot
+    see the extensionless script that does it, which is the denominator failure
+    documented 250 lines below the claim (@1073);
+  * `bd-jobs` reported "deploy it there first" for a host it never reached
+    (@1074);
+  * `bd-fleet`'s version column read the TREE while the header implied the
+    service (@1075), and its litter column counted two globs while the largest
+    leak family matched neither -- a 5.3x undercount that had been the source
+    of backlog 95's figures (@1078);
+  * a capture graded a green suite FAIL because four uncommitted files drifted
+    the graph pin, twice, and nothing said so at the start (@1079).
+
+#### AND THE FIXES KEPT REPRODUCING THE SHAPE THEY WERE FIXING
+
+Recorded because CLAUDE.md section 0 says this is the highest-yield rule on the
+page, and it earned that again:
+
+  * a monitor written to watch captures asked "is pytest running?" -- true for
+    one of thirteen capture steps -- and reported a healthy host as dead;
+  * a leak census asked "does this file clean up?" by searching whole files,
+    then enumerated /tmp with a command that listed two families twice,
+    inflating the total 19% and reordering the ranking it existed to produce;
+  * a test asserting the probe reads `deployed_version.txt` was satisfied by
+    the COMMENT saying so, and a mutant walked through it;
+  * a gate for the tmpdir leak ran pytest inside pytest with its probe outside
+    `tests/`, so conftest never loaded, both arms behaved identically, AND the
+    assertions globbed the already-redirected directory;
+  * `bd-fleet`'s own selftest asserted a literal note string and failed a
+    correct change;
+  * two new tests named `test6` as a fixture host and went red on the one box
+    with that hostname -- green on test5, green in CI.
+
+Every one was caught by a machine (mutation battery, capture, full suite,
+selftest), none by review.
+
+#### THE ONE THAT WORKED
+
+@1072's `BD_GATE_SCOPE` policy refused the tree at @1080 because the new gate
+declared itself repo-wide and had not been added to `_DECLARED` or a shard --
+one cut after shipping, catching its own author at the exact step the policy
+exists for. That is what a gate is supposed to feel like.
+
+#### STATE AT CLOSE
+
+Fleet is at **3.66.1075** and was deliberately NOT deployed past it: the
+operator asked for ship-and-merge only while away. **1076-1080 are merged and
+undeployed.** 1076 fixes the two test6 capture failures, so test6's capture is
+expected red until it is deployed and re-run.
+
+Captures at 1075: test5/test4/test7 PASS (15779/0/5), test6 FAIL on those two
+tests only.
+
+/tmp on the four hosts still carries 13000-18000 entries each. The suite no
+longer adds to it; the backlog is `bd-gc`'s and needs an operator decision,
+which is why the box-only gate self-skips and fails loudly when armed.
+
 ### 15.91 | SESSION CLOSE 2026-08-12 at adf8c3e (v3.66.1068) -- item 48 root-caused, re-derived and CLOSED
 
 Close at `adf8c3e`, the squash of #353, already on `main` when this was written.
