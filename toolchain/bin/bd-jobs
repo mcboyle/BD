@@ -299,6 +299,11 @@ def cmd_run(args):
     # job ran with NO RECORD, which is precisely the orphan this tool exists to
     # prevent. The tool manufactured its own subject. Launch second, verify
     # first: an unregisterable host is a refusal, not a launch.
+    #
+    # RESOLVE THE LABEL ONCE, HERE, and use `target` for every network call
+    # below. `args.host` stays the name the operator typed, so the refusals
+    # quote what they asked for rather than an address they never mentioned.
+    target = _resolve_host(args.host)
     if script:
         # COPY FIRST, LAUNCH SECOND, same rule as the deploy probe below: a
         # script that did not arrive is a refusal, not a job that runs the
@@ -306,7 +311,7 @@ def cmd_run(args):
         remote_script = "/tmp/bd-jobs-script-%s-%d.sh" % (
             pathlib.Path(script).stem[:24], os.getpid())
         scp = subprocess.run(["scp", "-q", "-o", "BatchMode=yes", str(script),
-                              "%s:%s" % (args.host, remote_script)],
+                              "%s:%s" % (target, remote_script)],
                              capture_output=True, text=True)
         if scp.returncode != 0:
             print("REFUSED: could not copy %s to %s: %s"
@@ -316,9 +321,23 @@ def cmd_run(args):
 
     self_path = str(_remote_self(args.host))
     probe = subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", args.host,
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", target,
          "test -f %s" % shlex.quote(self_path)],
         capture_output=True, text=True)
+    # ASSERT THE REASON, NOT THE CODE. ssh exits 255 for ITS OWN failures --
+    # name resolution, refused connection, auth -- and passes the remote
+    # command's status through otherwise. This branch used to turn every
+    # non-zero into "has no bd-jobs", so an unreachable host produced a
+    # confident, specific, wrong diagnosis that sent the operator to re-run a
+    # deploy that had already succeeded. A tool whose whole subject is work it
+    # cannot see must not report a condition it never observed.
+    if probe.returncode == 255:
+        print("REFUSED: could not reach %s%s: %s"
+              % (args.host,
+                 "" if target == args.host else " (%s)" % target,
+                 probe.stderr.strip() or "ssh failed with no message"),
+              file=sys.stderr)
+        return 2
     if probe.returncode != 0:
         print("REFUSED: %s has no %s -- deploy it there first. Launching without "
               "it would leave the job unregistered, which is the failure this "
@@ -336,7 +355,7 @@ def cmd_run(args):
     ) % (shlex.quote(cmd), shlex.quote(self_path),
          shlex.quote(args.purpose), shlex.quote(here), shlex.quote(cmd))
     r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
-                        args.host, remote], capture_output=True, text=True)
+                        target, remote], capture_output=True, text=True)
     sys.stdout.write(r.stdout)
     sys.stderr.write(r.stderr)
     return r.returncode
@@ -345,6 +364,42 @@ def cmd_run(args):
 def _remote_self(host):
     """Where this tool lives on the target. Same path on every fleet host."""
     return pathlib.Path(__file__).resolve()
+
+
+def _hosts_file():
+    return pathlib.Path(os.environ.get("HOSTS_FILE")
+                        or pathlib.Path.home() / ".config" / "bd" / "hosts")
+
+
+def _resolve_host(host):
+    """A fleet LABEL -> its address. Anything else passes through unchanged.
+
+    MEASURED at v3.66.1072: `run --host test6` was refused as "test6 has no
+    bd-jobs -- deploy it there first" while the file sat there executable on a
+    correctly deployed tree. `test6` is the label `scripts/deploy_fleet.sh`
+    reads out of this same file; it has no DNS entry, so ssh never reached the
+    box. The fleet is addressed by label everywhere else an operator types, and
+    this tool was the one place it was not.
+
+    PASS-THROUGH IS THE LOAD-BEARING HALF. An IP, a real DNS name, or a host
+    that predates the fleet file must keep working -- turning resolution into a
+    whitelist would make every unlisted host unreachable, which is a worse
+    defect than the one this closes. A missing or unreadable file degrades to
+    pass-through for the same reason.
+    """
+    path = _hosts_file()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return host
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == host:
+            return parts[1]
+    return host
 
 
 def cmd_register(args):

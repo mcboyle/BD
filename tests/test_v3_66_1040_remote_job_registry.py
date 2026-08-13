@@ -397,3 +397,141 @@ def test_run_refuses_when_the_script_could_not_be_copied(jobs, tmp_path,
     assert [c for c in calls if c and c[0] == "scp"], "scp was never attempted"
     assert not [c for c in calls if c and c[0] == "ssh"], (
         "it went on to talk to the host after the copy failed: %s" % calls)
+
+
+# ── @1074: the preflight told the truth about the wrong thing ────────────────
+
+def test_a_fleet_label_resolves_to_its_address(jobs, tmp_path, monkeypatch):
+    """`--host test6` must reach test6.
+
+    MEASURED at v3.66.1072: `bd-jobs run --host test6` was refused with "test6
+    has no .../bd-jobs -- deploy it there first" while the file sat there,
+    executable, on a tree at the right commit. `test6` is a FLEET LABEL, the
+    same one `scripts/deploy_fleet.sh` reads out of ~/.config/bd/hosts; it has
+    no DNS entry, so ssh never reached the box at all.
+    """
+    hosts = tmp_path / "hosts"
+    hosts.write_text("# comment\n\ntest5 10.0.70.164\ntest6 10.0.70.249\n",
+                     encoding="utf-8")
+    monkeypatch.setenv("HOSTS_FILE", str(hosts))
+
+    assert jobs._resolve_host("test6") == "10.0.70.249"
+    assert jobs._resolve_host("test5") == "10.0.70.164"
+
+
+def test_an_unknown_host_is_passed_through_untouched(jobs, tmp_path, monkeypatch):
+    """Resolution must not become a whitelist.
+
+    An IP, a real DNS name, or a host that predates the fleet file has to keep
+    working -- otherwise the fix for an unreachable label makes every
+    unlisted host unreachable, which is a worse defect than the one it closes.
+    """
+    hosts = tmp_path / "hosts"
+    hosts.write_text("test6 10.0.70.249\n", encoding="utf-8")
+    monkeypatch.setenv("HOSTS_FILE", str(hosts))
+
+    for passthrough in ("10.0.70.85", "buildbox.example.com", "nosuchlabel"):
+        assert jobs._resolve_host(passthrough) == passthrough
+
+    monkeypatch.setenv("HOSTS_FILE", str(tmp_path / "does-not-exist"))
+    assert jobs._resolve_host("test6") == "test6", (
+        "a missing host file must degrade to pass-through, not raise -- the "
+        "tool has to work on a box that never had one")
+
+
+def test_an_unreachable_host_is_not_reported_as_a_missing_tool(jobs, monkeypatch,
+                                                               capsys):
+    """ASSERT THE REASON, NOT THE CODE (CLAUDE.md section 10).
+
+    ssh exits 255 for its own failures -- name resolution, refused connection,
+    auth -- and passes the remote command's status through otherwise. The
+    preflight turned EVERY non-zero into "has no bd-jobs -- deploy it there
+    first", so an unreachable host produced a confident, specific, wrong
+    diagnosis that sends the operator to re-run a deploy that already
+    succeeded. That is the tool's own subject: it cannot distinguish a
+    condition it never observed.
+    """
+    def fake_run(cmd, **kw):
+        if cmd and cmd[0] == "ssh":
+            return subprocess.CompletedProcess(
+                cmd, 255, "", "ssh: Could not resolve hostname test6: "
+                              "Temporary failure in name resolution")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(jobs.subprocess, "run", fake_run)
+    monkeypatch.setattr(jobs.subprocess, "Popen",
+                        lambda *a, **k: pytest.fail("nothing may launch"))
+    rc = jobs.cmd_run(type("A", (), {
+        "host": "test6", "purpose": "p", "command": ["sleep", "1"]})())
+
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "deploy it there first" not in err, (
+        "an UNREACHABLE host was reported as a host missing the tool:\n%s" % err)
+    assert "could not reach" in err.lower(), (
+        "the refusal must name what actually happened:\n%s" % err)
+    assert "resolve hostname" in err, (
+        "ssh's own stderr is the evidence and must be shown:\n%s" % err)
+
+
+def test_a_reachable_host_missing_the_tool_still_says_deploy_it(jobs, monkeypatch,
+                                                                capsys):
+    """The over-sensitivity control for the test above.
+
+    A fix that simply renamed every refusal would pass the previous test and
+    destroy the message that matters. ssh reached the box and `test -f`
+    answered 1: the tool really is absent, and that really is the right words.
+    """
+    def fake_run(cmd, **kw):
+        rc = 1 if "test -f" in " ".join(cmd) else 0
+        return subprocess.CompletedProcess(cmd, rc, "", "")
+
+    monkeypatch.setattr(jobs.subprocess, "run", fake_run)
+    monkeypatch.setattr(jobs.subprocess, "Popen",
+                        lambda *a, **k: pytest.fail("nothing may launch"))
+    rc = jobs.cmd_run(type("A", (), {
+        "host": "somewhere", "purpose": "p", "command": ["sleep", "1"]})())
+
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "deploy it there first" in err, (
+        "the genuinely-absent case lost its diagnosis:\n%s" % err)
+
+
+def test_the_resolved_address_is_what_ssh_and_scp_actually_receive(jobs, tmp_path,
+                                                                   monkeypatch):
+    """TEST THE SEAM, NOT ONLY THE COMPONENTS (CLAUDE.md section 10).
+
+    `_resolve_host` can be perfect and the launch still go to the label if the
+    two are never joined -- which is precisely how this tool shipped at
+    v3.66.1040 with eleven passing tests and failed on its first real
+    invocation. Every test above either drives the resolver directly or
+    inspects a refusal; none asks what string reached ssh.
+    """
+    hosts = tmp_path / "hosts"
+    hosts.write_text("test6 10.0.70.249\n", encoding="utf-8")
+    monkeypatch.setenv("HOSTS_FILE", str(hosts))
+    script = tmp_path / "job.sh"
+    script.write_text("echo hi\n", encoding="utf-8")
+
+    seen = []
+
+    def fake_run(cmd, **kw):
+        seen.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0, "12345\n", "")
+
+    monkeypatch.setattr(jobs.subprocess, "run", fake_run)
+    rc = jobs.cmd_run(type("A", (), {
+        "host": "test6", "purpose": "p", "script": str(script), "command": []})())
+    assert rc == 0
+
+    scp = [c for c in seen if c and c[0] == "scp"]
+    ssh = [c for c in seen if c and c[0] == "ssh"]
+    assert scp and ssh, "expected both a copy and an ssh: %s" % seen
+    assert any("10.0.70.249:" in part for part in scp[0]), (
+        "scp went to the unresolved label: %s" % scp[0])
+    for call in ssh:
+        assert "10.0.70.249" in call, (
+            "ssh was handed the label rather than the address: %s" % call)
+        assert "test6" not in call, (
+            "the unresolved label reached ssh: %s" % call)

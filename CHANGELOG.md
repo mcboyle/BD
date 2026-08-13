@@ -4,6 +4,48 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1074
+
+bd-jobs reaches the host you named, and says which thing went wrong.
+
+TWO DEFECTS IN ONE PREFLIGHT, both found by typing the command once. `bd-jobs
+run --host test6` was refused with "test6 has no
+/home/mboyle/BulkDownloader/toolchain/bin/bd-jobs -- deploy it there first"
+while that file sat there, executable, on a tree at the right commit.
+
+1. THE LABEL WAS NEVER RESOLVED. `test6` is the fleet label
+   `scripts/deploy_fleet.sh` reads out of ~/.config/bd/hosts, and it has no DNS
+   entry, so ssh never reached the box. Every other place an operator types a
+   host takes the label; this was the one that did not. `_resolve_host` now
+   maps label -> address through the same file, and PASSES ANYTHING ELSE
+   THROUGH UNCHANGED -- an IP, a real DNS name, or a host predating the fleet
+   file must keep working, because turning resolution into a whitelist would
+   make every unlisted host unreachable, a worse defect than the one it closes.
+   A missing file degrades to pass-through for the same reason.
+
+2. THE REFUSAL ASSERTED A CONDITION IT NEVER OBSERVED. ssh exits 255 for its
+   own failures -- name resolution, refused connection, auth -- and passes the
+   remote command's status through otherwise. The preflight turned EVERY
+   non-zero into "has no bd-jobs", so an unreachable host produced a confident,
+   specific, wrong diagnosis that sends the operator to re-run a deploy that
+   already succeeded. 255 is now its own refusal, quoting ssh's stderr as the
+   evidence. CLAUDE.md section 10's rule -- when every refusal shares an exit
+   code, assert the REASON -- in the tool that rule was written about.
+
+The two are one shape: a tool whose whole subject is work nobody can see
+reported a state it had no way to measure.
+
+THE SEAM IS TESTED, NOT ONLY THE PARTS. `_resolve_host` could be perfect and
+the launch still go to the label if the two are never joined -- which is
+exactly how this tool shipped at v3.66.1040 with eleven passing tests and died
+on its first real invocation. One test now asserts what string actually reaches
+ssh and scp.
+
+7 mutants, 7 caught, 0 escaped -- including both directions of the 255
+discrimination, both resolver failure modes, and the label reaching ssh.
+Verified live afterwards: --host test6 launches (test6-168284), and --host
+nosuchbox prints "could not reach nosuchbox: ssh: Could not resolve hostname".
+
 ## v3.66.1073
 
 CLAUDE.md says what is true, and drops the environment it no longer runs in.
