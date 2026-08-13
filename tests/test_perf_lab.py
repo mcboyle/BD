@@ -222,3 +222,64 @@ def test_load_endpoint_rejects_bad_profile(fresh_app):
 def test_load_endpoint_rejects_bad_action(fresh_app):
     r = fresh_app.post("/api/dev/load", json={"action": "frobnicate"})
     assert r.status_code == 400
+
+
+# ── v3.66.1088: the interpreter census must survive the interpreter ──────────
+
+class _NameHidingMeta(type):
+    """Reproduces h11's sentinel shape: a type object that raises AttributeError
+    for __name__. h11 builds its protocol sentinels as
+    `class _SWITCH_CONNECT(Sentinel, metaclass=Sentinel)`, and instances of
+    those reached gc.get_objects() on a fleet host during a real run."""
+    def __getattribute__(cls, name):
+        if name == "__name__":
+            raise AttributeError(
+                "type object '_SWITCH_CONNECT' has no attribute '__name__'")
+        return super().__getattribute__(name)
+
+
+class _NamelessType(metaclass=_NameHidingMeta):
+    pass
+
+
+def test_snapshot_survives_an_object_whose_type_has_no_name():
+    """MEASURED IN PRODUCTION, not invented. On test4 and test6, 2026-08-13, at
+    f154aef, during full-suite sweeps: SEVEN tests in this file failed together
+    with
+
+        AttributeError: type object '_SWITCH_CONNECT' has no attribute '__name__'
+        bulk_downloader/perf_lab.py:341: in _interpreter_stats
+
+    _interpreter_stats walks gc.get_objects() -- whose denominator is EVERY
+    object in the interpreter -- and asserted a property that not every member
+    has. Section 0: the denominator was right and the predicate was wrong.
+
+    It rotates rather than failing every run because the offending object is
+    only in the graph when something has exercised h11, which depends on which
+    files xdist put on the same worker. That is why it reads as a flaky test and
+    is not one.
+    """
+    keepalive = _NamelessType()
+    try:
+        # PRECONDITION FIRST, per section 6: prove the fixture built the shape
+        # before asserting the outcome, or "did not crash" and "there was
+        # nothing to crash on" are the same green.
+        with pytest.raises(AttributeError):
+            _ = type(keepalive).__name__
+
+        snap = pl.snapshot()
+        assert "interpreter" in snap, snap.keys()
+        assert isinstance(snap["interpreter"].get("top_types"), list)
+    finally:
+        del keepalive
+
+
+def test_the_census_still_counts_the_types_it_can_name():
+    """The over-sensitive direction, in the same cut. A fix that gave up and
+    labelled everything unnameable would pass the test above and destroy the
+    tool -- top_types is the whole point of the census."""
+    stats = pl._interpreter_stats()
+    named = {row["type"] for row in stats["top_types"]}
+    assert "dict" in named or "function" in named or "tuple" in named, (
+        "the census named none of the commonest builtin types: %r" % (named,))
+    assert stats["gc_objects"] > 100, stats["gc_objects"]
