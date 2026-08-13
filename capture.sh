@@ -129,6 +129,28 @@ if ! command -v setsid >/dev/null 2>&1; then
   exit 2
 fi
 
+# ── working tree must be safe to measure against ─────────────────
+# Step [2b] rebuilds the source graph and compares it to a pin written at
+# deploy time, so an edited tree fails that gate and capture_verdict.py grades
+# the WHOLE run FAIL -- twice, over a green suite. Ask now, when it costs a
+# second, rather than forty minutes in. The predicate lives in a library
+# because backlog 35 asks the same question before a commit.
+# shellcheck source=scripts/lib/tree_state.sh
+. "$(dirname "$0")/scripts/lib/tree_state.sh"
+_tree_rc=0
+bd_tree_state_check "$(dirname "$0")" || _tree_rc=$?
+if [ "$_tree_rc" -eq 1 ]; then
+  echo "FATAL: refusing to capture against an unclean tree." >&2
+  exit 2
+elif [ "$_tree_rc" -ne 0 ]; then
+  # UNKNOWN is NOT the hazard, and refusing on it was wrong. The measured
+  # failure is uncommitted edits drifting the graph pin -- which cannot happen
+  # where there is no repository to be uncommitted against. Refusing here also
+  # broke thirteen existing tests that build a synthetic capture directory,
+  # which is the honest signal that a non-repo run is a legitimate shape.
+  echo "WARNING: tree state UNKNOWN -- continuing. Only a DIRTY tree is refused." >&2
+fi
+
 # ── capture vault (optional, prompted once) ──────────────────────
 #
 # This step stops the service and step [4] starts a FRESH process, and the

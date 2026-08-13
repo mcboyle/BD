@@ -4,6 +4,54 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1079
+
+capture.sh refuses a tree it cannot measure against (backlog 98).
+
+THE INCIDENT, TWICE. The master box's working tree IS the deployed tree, and
+capture step [2b] rebuilds a source graph and compares its hash against a pin
+written at deploy time. Four uncommitted files therefore turned a healthy
+capture into `CAPTURE VERDICT: FAIL (graph exit=1)` at v3.66.1063 -- with unit
+15709/0/0/26 and live 34/2/0 sitting underneath that red verdict -- and it
+happened again at v3.66.1069. The gate was RIGHT both times. What was missing
+was saying so at the START, where it costs a second, instead of forty minutes
+later in a verdict line that reads like a code defect.
+
+The refusal names the dirty paths, explains why a dirty tree matters HERE
+(without that sentence it reads as pedantry), and warns against the repair that
+does not work: stashing mid-run is worse, because collection has already
+happened and removing files leaves a collected-but-inconsistent state.
+
+A LIBRARY, NOT A LINE. scripts/lib/tree_state.sh, because backlog 35 asks the
+same question before a commit and an inline copy here would guarantee a second
+one there -- scripts/lib/system_deps.sh already carries what three copies of one
+fact cost this project.
+
+UNKNOWN IS A THIRD STATE. Outside a git repository, or with git absent, the
+question cannot be answered; the check refuses and says which, rather than
+reporting clean over a subject it cannot see.
+
+THE OVERRIDE IS NOT BD_-PREFIXED, deliberately: any BD_ name -- including a
+shell local -- enters test_gui_parity's env ledger and reads as a
+promoted-but-unledgered config key. CAPTURE_ALLOW_DIRTY follows
+CAPTURE_VAULT_PW. It also REPORTS before honouring the override, so an
+overridden run still records what it overrode; a silent override is
+indistinguishable from a clean tree in the log someone reads afterwards.
+
+AND THE FIRST VERSION REFUSED THE WRONG STATE. Making UNKNOWN fatal broke 13
+existing tests across three files -- harnesses that build a synthetic capture
+directory, which is not a git repo. That was the honest signal: a non-repo run
+is a legitimate shape, and it cannot produce the hazard, because there is
+nothing to be uncommitted against. capture.sh now refuses state 1 only and
+warns on state 2. The library still reports three states; the POLICY is the
+caller's, which is why they are separate.
+
+RED-first: 6 of 7 tests failed on pristine source, the survivor being the
+clean-tree over-sensitivity control. 5 mutants, 5 caught -- including the
+inverse (an override that is always on) and capture.sh ceasing to call it.
+Verified live: refuses this tree in under a second, exit 2. Band 144 files:
+1733 passed, 0 failed.
+
 ## v3.66.1078
 
 bd-fleet's litter column counted two globs, not the directory.
