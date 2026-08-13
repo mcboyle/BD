@@ -43,6 +43,33 @@ from capture_lanes import classify_capture_path
 # gates it and reproduces the mechanism in a controlled subprocess.
 import httpcore  # noqa: F401
 
+# AND httpx ITSELF, for the same reason and a bigger blast radius. MEASURED at
+# v3.66.1099 under `-n 8 --dist loadfile`: on a worker where httpx had not yet
+# been imported, `patch.dict(sys.modules, {"httpx": None})` evicted FIFTY
+# modules on exit -- the whole httpx._* tree plus click.*, idna.*, http.client,
+# urllib.request, email.parser and mimetypes -- because they were first imported
+# inside the block and were therefore absent from the snapshot the restore
+# rewound to.
+#
+# Importing httpx here puts it and its submodule tree in every later snapshot.
+# The @1095 guard is what found this; a serial audit of the same 28 sites had
+# reported ZERO, which is exactly why that guard is a runtime check and not a
+# census.
+import httpx  # noqa: F401
+
+# The last three, pulled in LAZILY by machinery rather than by any import
+# statement anyone wrote: encodings.idna and stringprep by IDNA hostname
+# encoding, importlib.readers by importlib.resources. Measured as the remainder
+# after httpx above took the count from 50 to 3.
+#
+# Pre-imported rather than added to the guard's ALLOWED set on purpose: an
+# allowlist weakens the check for every future site, while an import fixes the
+# actual condition and keeps ALLOWED empty -- which is a claim worth being able
+# to make.
+import encodings.idna  # noqa: F401
+import importlib.readers  # noqa: F401
+import stringprep  # noqa: F401
+
 # Make sure the package is importable regardless of where pytest is invoked
 PKG_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PKG_ROOT))
