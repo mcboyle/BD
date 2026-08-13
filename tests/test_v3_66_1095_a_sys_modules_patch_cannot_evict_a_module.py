@@ -23,6 +23,8 @@ broken as one that never does:
 
 from __future__ import annotations
 
+import contextlib
+import importlib
 import sys
 from unittest.mock import patch
 
@@ -32,6 +34,41 @@ import _sys_modules_guard
 
 # Its subject is one guard's behaviour, not an invariant over the tree.
 BD_GATE_SCOPE = "module"
+
+
+@contextlib.contextmanager
+def _a_module_nothing_has_imported(tmp_path, tag):
+    """A REAL, importable module whose name cannot already be in sys.modules.
+
+    THE FIRST VERSION OF THIS FILE USED STDLIB NAMES -- wave, colorsys, sunau --
+    and that made three tests SCHEDULE-DEPENDENT: they only exercised the
+    eviction path when nothing earlier in the worker had imported the module.
+    Measured at v3.66.1096: test4 went red on `test_the_guard_records_what_it_saw`
+    while test5, test6 and test7 passed the identical commit, because
+    `--dist loadfile` had put something importing colorsys on that worker first.
+
+    That is exactly the defect class this session closed in backlog 25, shipped
+    by the cut that closes backlog 101. The repair is to stop borrowing a name
+    the rest of the suite also owns: the module is written to this test's own
+    tmp_path under a unique tag, so "not yet imported" is true BY CONSTRUCTION
+    rather than by luck, and the precondition assertion below can actually fail.
+
+    A real file imported through the real machinery, deliberately -- a synthetic
+    ModuleType would test the guard against a shape the import system never
+    produces.
+    """
+    name = f"_bd_1097_probe_{tag}"
+    (tmp_path / f"{name}.py").write_text("VALUE = 1\n", encoding="utf-8")
+    sys.path.insert(0, str(tmp_path))
+    try:
+        assert name not in sys.modules, (
+            f"{name} was already imported, which is impossible unless this "
+            "helper's uniqueness guarantee broke")
+        yield name
+    finally:
+        if str(tmp_path) in sys.path:
+            sys.path.remove(str(tmp_path))
+        sys.modules.pop(name, None)
 
 
 def test_the_guard_is_armed_during_this_suite():
@@ -47,23 +84,20 @@ def test_the_guard_is_armed_during_this_suite():
         "28 patch.dict(sys.modules) sites in this repo")
 
 
-def test_it_fires_when_a_module_is_first_imported_inside_the_block():
+def test_it_fires_when_a_module_is_first_imported_inside_the_block(tmp_path):
     """The hazard, reproduced exactly.
 
     `wave` is chosen because nothing in this suite imports it, so it is
     genuinely absent from the entry snapshot -- the precondition is asserted
     rather than hoped for, per CLAUDE.md section 6.
     """
-    assert "wave" not in sys.modules, (
-        "precondition not built: something already imported `wave`, so this "
-        "would test the swap path instead of the eviction path")
+    with _a_module_nothing_has_imported(tmp_path, "fires") as name:
+        with pytest.raises(_sys_modules_guard.SysModulesEviction) as excinfo:
+            with patch.dict(sys.modules, {"httpx": object()}):
+                importlib.import_module(name)   # first import happens in here
 
-    with pytest.raises(_sys_modules_guard.SysModulesEviction) as excinfo:
-        with patch.dict(sys.modules, {"httpx": object()}):
-            import wave  # noqa: F401  -- the first import happens in here
-
-    assert "wave" in str(excinfo.value), (
-        f"the guard fired without naming what it evicted: {excinfo.value}")
+        assert name in str(excinfo.value), (
+            f"the guard fired without naming what it evicted: {excinfo.value}")
 
 
 def test_it_stays_silent_on_an_ordinary_fake_swap():
@@ -143,39 +177,38 @@ def test_a_nonmodule_stuffed_into_sys_modules_is_not_reported():
     assert "_bd_1095_not_a_module" not in sys.modules, "the sentinel survived"
 
 
-def test_the_guard_records_what_it_saw():
+def test_the_guard_records_what_it_saw(tmp_path):
     """The eviction must be actionable after the fact, not only at the moment
     it raises -- a run that ends with a raised guard should still be able to
     say which test and which module."""
     before = len(_sys_modules_guard.observed)
-    assert "aifc" not in sys.modules or True  # tolerate a preloaded stdlib name
 
-    with pytest.raises(_sys_modules_guard.SysModulesEviction):
-        with patch.dict(sys.modules, {"httpx": object()}):
-            import colorsys  # noqa: F401
+    with _a_module_nothing_has_imported(tmp_path, "records") as name:
+        with pytest.raises(_sys_modules_guard.SysModulesEviction):
+            with patch.dict(sys.modules, {"httpx": object()}):
+                importlib.import_module(name)
 
     assert len(_sys_modules_guard.observed) > before, (
         "the guard raised but recorded nothing, so a summary cannot report it")
     nodeid, mods = _sys_modules_guard.observed[-1]
-    assert "colorsys" in mods
+    assert name in mods
     assert "test_the_guard_records_what_it_saw" in nodeid, (
         f"the record is not attributed to the test that caused it: {nodeid}")
 
 
-def test_it_does_not_replace_an_in_flight_failure():
+def test_it_does_not_replace_an_in_flight_failure(tmp_path):
     """If the test already failed, THAT is the more informative failure.
 
     A guard that overwrites a real assertion error with its own turns a
     diagnosable failure into a confusing one two layers away -- which is
     precisely what the un-guarded eviction did at 1085.
     """
-    assert "sunau" not in sys.modules
-
-    with pytest.raises(ValueError, match="the real failure"):
-        with patch.dict(sys.modules, {"httpx": object()}):
-            import sunau  # noqa: F401
-            raise ValueError("the real failure")
+    with _a_module_nothing_has_imported(tmp_path, "inflight") as name:
+        with pytest.raises(ValueError, match="the real failure"):
+            with patch.dict(sys.modules, {"httpx": object()}):
+                importlib.import_module(name)
+                raise ValueError("the real failure")
 
     # It still recorded, so nothing is lost -- it simply did not raise.
-    assert any("sunau" in mods for _, mods in _sys_modules_guard.observed), (
+    assert any(name in mods for _, mods in _sys_modules_guard.observed), (
         "the eviction was neither raised nor recorded, so it is invisible")
