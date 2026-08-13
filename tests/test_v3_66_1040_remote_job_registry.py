@@ -458,6 +458,13 @@ def test_an_unreachable_host_is_not_reported_as_a_missing_tool(jobs, monkeypatch
                               "Temporary failure in name resolution")
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
+    # PIN THE HOSTNAME. `cmd_run` decides local-vs-remote with
+    # `args.host in (None, "", socket.gethostname(), "local")`, so a test that
+    # names a real fleet host takes the LOCAL path on that one box and never
+    # reaches ssh. MEASURED: this file was green on test5 and in CI and FAILED
+    # test6's capture, because test6's hostname is literally "test6". A fixture
+    # value that collides with ambient state is not a fixture.
+    monkeypatch.setattr(jobs.socket, "gethostname", lambda: "somewhere-else")
     monkeypatch.setattr(jobs.subprocess, "run", fake_run)
     monkeypatch.setattr(jobs.subprocess, "Popen",
                         lambda *a, **k: pytest.fail("nothing may launch"))
@@ -520,6 +527,13 @@ def test_the_resolved_address_is_what_ssh_and_scp_actually_receive(jobs, tmp_pat
         seen.append(list(cmd))
         return subprocess.CompletedProcess(cmd, 0, "12345\n", "")
 
+    # PIN THE HOSTNAME. `cmd_run` decides local-vs-remote with
+    # `args.host in (None, "", socket.gethostname(), "local")`, so a test that
+    # names a real fleet host takes the LOCAL path on that one box and never
+    # reaches ssh. MEASURED: this file was green on test5 and in CI and FAILED
+    # test6's capture, because test6's hostname is literally "test6". A fixture
+    # value that collides with ambient state is not a fixture.
+    monkeypatch.setattr(jobs.socket, "gethostname", lambda: "somewhere-else")
     monkeypatch.setattr(jobs.subprocess, "run", fake_run)
     rc = jobs.cmd_run(type("A", (), {
         "host": "test6", "purpose": "p", "script": str(script), "command": []})())

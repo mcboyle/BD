@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1076
+
+A fixture value that collided with a real hostname turned test6's capture red.
+
+MEASURED: v3.66.1075's capture round was PASS on test5/test4/test7 (15779 pass /
+0 fail) and FAIL on test6 with exactly two unit failures, both from @1074's new
+bd-jobs tests. The tool is correct; the tests were host-dependent.
+
+`cmd_run` decides local-vs-remote with
+`args.host in (None, "", socket.gethostname(), "local")`. Both tests named
+`test6` as their target host, so on the one box whose hostname IS "test6" the
+call took the LOCAL path, never reached ssh or scp, and failed the assertions
+that are entirely about what reaches ssh. Green on test5, green in CI, red on
+exactly one host -- which is the shape section 7 means by "the box is still the
+gate": a container or a peer box can be optimistic about the environment while
+being right about the code.
+
+Worse, it is the same `gethostname` branch whose existence @1073 corrected into
+CLAUDE.md's front matter an hour earlier, after finding the claim that nothing
+branches on a hostname was false. The correction landed; the lesson did not.
+
+Fixed by pinning `socket.gethostname` to a sentinel in both tests, so the
+branch is deterministic on any box. Proven in BOTH directions with a plugin
+that makes this host claim to be test6: HEAD reproduces the two capture
+failures exactly, the fix passes 22/22 under the same simulation.
+
 ## v3.66.1075
 
 bd-fleet separates the tree from the service, and names the host that disagrees
