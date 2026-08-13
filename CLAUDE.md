@@ -371,6 +371,16 @@ been wrong. Every figure obtained by *running the tool* was right.
   arithmetic: 97 leaking tests cannot produce a 2-row delta. **When an
   instrument's count disagrees with a direct measurement by an order of
   magnitude, the instrument is wrong — check it before acting on it.**
+
+  **HIT AGAIN at v3.66.1077, hunting leaked tmpdirs.** A census asked "does this
+  file clean up after `mkdtemp`?" by searching the WHOLE FILE for `rmtree`,
+  `yield`, `TemporaryDirectory` and friends — so a file that cleans up in one
+  test and leaks in another scored clean, and one that merely mentions the word
+  scored clean too. **The ground truth was `/tmp` itself**, not the source:
+  enumerate what actually accumulated and work backwards. And enumerate it
+  ONCE — a first attempt ran `ls -d /tmp/bd-* /tmp/pytest-of-* /tmp/*`, which
+  lists the first two families twice, inflating the total by 19% and reordering
+  the ranking it existed to produce.
 - **Say which denominator a count is over, in the same sentence as the count.**
   A requirements note stated its instrument as "every tracked .py file (2108
   files)" and two lines later said "All three importers" — a number true only
@@ -417,7 +427,11 @@ been wrong. Every figure obtained by *running the tool* was right.
   for — which is what a machine-visible promise buys. Set that against the
   77-item improvement backlog produced by the same review: the most valuable
   artifact of that session, sitting in an untracked text file no gate reads, so
-  nothing but a human re-reading the list can tell a done item from an open one.
+  nothing but a human re-reading the list could tell a done item from an open
+  one. **Fixed at v3.66.1052**: it is now `project-knowledge/IMPROVEMENT_BACKLOG.md`,
+  tracked, and `tests/test_v3_66_1052_the_backlog_is_machine_visible.py` reads
+  it. The gate checks the FORMAT, not whether a row is honest -- v3.66.1072
+  found row 91 sitting OPEN through the two cuts that had already fixed it.
   "Next session will pick this up" is worth exactly as much as the machinery
   that will ask about it, which is usually nothing. Put a deferral where a test
   can see it, or drop it deliberately and say you did — the third option,

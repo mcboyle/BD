@@ -4,6 +4,38 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1077
+
+Three claims in CLAUDE.md that were false, one of them inverted.
+
+THE READ-THE-CALLEE BULLET WAS WRONG ABOUT TWO OF ITS THREE EXAMPLES, which is
+the bullet telling you not to guess what a callee holds. `library_id` was
+described as a lazy `_ensure_tables()` add; it is declared in a CREATE TABLE in
+migrations.py. `retry_after` was described as living "on queue, not history" --
+it is on BOTH, REAL on queue and TEXT added to history by an explicit
+@migration. So the warning against guessing a column's home sent a reader to
+one table and told them the other was empty, and anyone who checked found the
+opposite. `retention_excluded` was correct and stays.
+
+THE BACKLOG IS NOT AN UNTRACKED TEXT FILE ANY MORE. Section 1's worked example
+still described it in the present tense as "sitting in an untracked text file no
+gate reads"; it has been project-knowledge/IMPROVEMENT_BACKLOG.md, tracked and
+read by a test, since v3.66.1052. Corrected, with the limit stated: the gate
+checks the FORMAT, not whether a row is honest -- v3.66.1072 found row 91 OPEN
+through the two cuts that had already fixed it.
+
+AND A NEW WORKED EXAMPLE for the wrong-part-of-the-syntax rule, earned this
+session. A census asked "does this file clean up after mkdtemp?" by searching
+the whole file for rmtree/yield/TemporaryDirectory, so a file that cleans up in
+one test and leaks in another scored clean, as did one that merely mentions the
+word. The ground truth was /tmp itself. The same census then ran
+`ls -d /tmp/bd-* /tmp/pytest-of-* /tmp/*`, which lists the first two families
+twice -- inflating the total 19% and reordering the ranking it existed to
+produce. Both errors were mine, in the same hour, while writing about this
+exact class.
+
+Doc-only. No runtime change.
+
 ## v3.66.1076
 
 A fixture value that collided with a real hostname turned test6's capture red.
