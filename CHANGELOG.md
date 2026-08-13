@@ -4,6 +4,64 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1073
+
+CLAUDE.md says what is true, and drops the environment it no longer runs in.
+152239 -> 134934 bytes (17305 removed, 11%).
+
+THE CLOUD CONTAINER IS RETIRED (operator decision, 2026-08-13). Sessions run on
+the boxes now, so the material that existed only for the Claude Code panel is
+gone: the panel bootstrap and its environment box, the filesystem-snapshot and
+cache-rebuild model with its four-observable discriminator protocol, the
+container rollback account, and the duplicated `.claude-env-report.md` bullet
+(section 7 carries the canonical one). What was KEPT out of those regions,
+because it applies to any scratch clone: the shallow-clone rule, compressed to
+the part that bites -- only `--is-ancestor` exit 0 is trustworthy, 1 and 128
+mean different things, and never repair a 128 with a by-sha fetch because it
+succeeds into a wrong answer.
+
+TWENTY-FOUR FALSE CLAIMS, found by a 23-agent audit that surveyed all 2529
+lines and then had a second adversary try to refute every proposed cut. It
+overturned 65 of 82 -- the file is long because the content is load-bearing --
+so this cut is a CORRECTION pass, not a compaction pass. The reduction above
+comes almost entirely from the retirement decision.
+
+THE WORST ONE WAS IN THE FRONT MATTER. It said "nothing in any .py or .sh
+resolves, connects to, or branches on a hostname", citing a v3.66.1024
+re-derivation. Re-measured over every tracked file: five hit the pattern and
+`toolchain/bin/bd-jobs` BRANCHES on it, selecting local-versus-remote launch.
+It is extensionless, so the `*.py`/`*.sh` predicate that produced the claim
+could not see it -- the exact denominator failure section 1 documents 250 lines
+below, in the first thing every session reads, for 48 releases, invisible to
+both freshness gates because they ask whether a cited PATH resolves and never
+whether the sentence is true. It cost this session a wrong diagnosis: `bd-jobs
+run --host test6` was refused as "test6 has no bd-jobs" while the file sat
+there executable, because that branch sent the launch remote to a fleet LABEL
+with no DNS entry.
+
+Others, each re-measured rather than taken from the audit: the axis-6 count was
+wrong in TWO places with the correct table between them (prose said nine, the
+table listed ten; a second section carried a count for a table it does not
+carry); `capture.sh:55` and `:67` anchors were both displaced ~46 lines by an
+inserted block; "the six generated artifacts" is seven; "outside the 15" lost
+its referent at v3.66.1072 and is now `_DECLARED`; the CI budget "decision is
+open" when the split shipped at v3.66.939; `GATE_AUTHORITY.md` needs its
+`project-knowledge/` prefix or the anchor gate never looks at it; the tracked
+python censuses (2145/231/2376, and a 17 that section 1 already retracted to 3)
+are deleted rather than updated, because this bullet has now carried a stale
+census three times; item 48 is closed, not live; the fleet core spread
+(86/44/64) died in the 2026-08-12 rebuild and contradicted this file's own
+front matter; and a ".164 vs .249 comparison above" had no antecedent anywhere.
+
+The axis-6 table gains the row this session created: `test_v3_66_939` now
+enumerates `git ls-files -- tests/test*.py` for the BD_GATE_SCOPE policy.
+
+METHOD NOTE, because it is the section 6 rule earning its place: every edit was
+staged in memory and written once at the end. Four separate runs aborted on an
+assertion -- a phrase split by a line wrap, a must-keep string that legitimately
+survives elsewhere, a case mismatch, and an em dash retyped as two hyphens --
+and each time the file was left untouched rather than half-edited.
+
 ## v3.66.1072
 
 An undeclared repo-wide gate is now a red test (backlog 46).
