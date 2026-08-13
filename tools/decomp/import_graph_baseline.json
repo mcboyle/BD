@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3831,
+  "edge_count": 3832,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4405,6 +4405,9 @@
       "tools/cockpit_console.py",
       "tools/cockpit_core.py",
       "tools/cockpit_shell.py"
+    ],
+    "tests/test_v3_66_1092_capture_reports_invalid_when_the_tree_moves.py": [
+      "tools/capture_verdict.py"
     ],
     "tests/test_v3_66_109_band_f.py": [
       "tools/cockpit_console.py",

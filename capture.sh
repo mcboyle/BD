@@ -151,6 +151,27 @@ elif [ "$_tree_rc" -ne 0 ]; then
   echo "WARNING: tree state UNKNOWN -- continuing. Only a DIRTY tree is refused." >&2
 fi
 
+# ── record the tree we are about to measure (backlog 100) ────────
+# The check above is PREFLIGHT ONLY, so it cannot see the failure it was written
+# for: a tree that goes dirty DURING the run passes it untouched. That is what
+# invalidated test5 at the 1082 round -- nine files edited mid-run, the graph pin
+# drifted against a tree collection had already read, and a green suite was
+# graded FAIL. Snapshot now; compare at the end.
+#
+# DELIBERATELY OUTSIDE THE CAPTURE_ALLOW_DIRTY BRANCH ABOVE. That override means
+# "this tree is dirty and I meant it" -- consent to a KNOWN state at t=0. A tree
+# that shifts underneath a run in progress is a different event, and an override
+# covering both would re-open this hole for anyone who sets the flag by habit.
+_TREE_SNAPSHOT=""
+_TREE_SNAPSHOT_RC=0
+_TREE_SNAPSHOT="$(bd_tree_state_snapshot "$(dirname "$0")")" || _TREE_SNAPSHOT_RC=$?
+if [ "$_TREE_SNAPSHOT_RC" -ne 0 ]; then
+  # UNKNOWN, and it must NOT be silently treated as "no drift" -- two unreadable
+  # snapshots compare equal, which is the section 0 failure this check exists to
+  # prevent. Record that the question went unasked; the comparison is skipped.
+  echo "WARNING: tree snapshot UNKNOWN -- mid-run drift will NOT be detected." >&2
+fi
+
 # ── capture vault (optional, prompted once) ──────────────────────
 #
 # This step stops the service and step [4] starts a FRESH process, and the
@@ -1318,8 +1339,34 @@ echo "  done"
 
 # Compute the certification result before bundling, but never stop here: a
 # failed run is most useful when all diagnostics still make it into the archive.
+# ── did the tree move while we measured it? (backlog 100) ────────
+# Written BEFORE the verdict so the grader can read it, and into $OUT so it
+# travels in the archive with the run it describes.
+#
+# The file is created only when drift is real: an ABSENT file means "not
+# recorded", which is the state every bundle archived before this cut is in, and
+# the grader must not read those as invalid. An EMPTY file means "asked, and the
+# answer was no".
+TREE_DRIFT_FILE="$OUT/00_tree_drift.txt"
+if [ "$_TREE_SNAPSHOT_RC" -eq 0 ]; then
+  _DRIFT_OUT=""
+  _DRIFT_RC=0
+  _DRIFT_OUT="$(bd_tree_state_drift "$_TREE_SNAPSHOT" "$(dirname "$0")")" \
+    || _DRIFT_RC=$?
+  if [ "$_DRIFT_RC" -eq 1 ]; then
+    printf '%s\n' "$_DRIFT_OUT" > "$TREE_DRIFT_FILE"
+    echo "WARNING: the working tree CHANGED during this run:" >&2
+    sed 's/^/    /' "$TREE_DRIFT_FILE" >&2
+  elif [ "$_DRIFT_RC" -eq 0 ]; then
+    : > "$TREE_DRIFT_FILE"
+  else
+    echo "WARNING: end-of-run tree snapshot UNKNOWN -- drift not judged." >&2
+  fi
+fi
+
 echo "=== [verdict] Certification result ==="
 venv/bin/python tools/capture_verdict.py \
+  --tree-drift-file "$TREE_DRIFT_FILE" \
   --tests-json "$OUT/02_test_results.json" \
   --live-log "$OUT/06_live_tests.log" \
   --suite-exit "$SUITE_EXIT" \
