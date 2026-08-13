@@ -4,6 +4,29 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1094
+
+- provisioning: bd_mod3_pg_provision now INSTALLS postgresql when it is absent
+  instead of refusing (backlog 97). It printed "postgresql-common absent" and
+  returned 1, which is correct in the cloud image where the package is baked in
+  and wrong on bare Ubuntu -- so every freshly built host WARNed forever and
+  row 96's "both provisioning paths give a host the same capabilities" held for
+  this fleet only. test5, test6 and test7 each needed apt-get install postgresql
+  by hand.
+- The install is verified by asking for pg_ctlcluster afterwards rather than by
+  trusting apt's exit code. This file already records that lesson at 1064 --
+  mod3_exit=0 with env_file=ABSENT -- and an apt that reports success without
+  delivering the binary now refuses here rather than failing less legibly two
+  gates later.
+- Row 97 closes PARTIAL. Every arm of the new gate runs against a stub, so it
+  proves the DECISION -- when we install, with what arguments, what happens when
+  it fails -- and proves nothing about a real apt-get on a real bare host. That
+  stays unverified until the next host is built from scratch.
+- Two mutants escaped the first battery and both were the same recorded trap:
+  every refusal in this function returns 1, so dropping a guard makes the run
+  fall through and refuse at the NEXT gate with an identical exit code. The
+  tests now assert the distinctive words of the refusal they mean.
+
 ## v3.66.1093
 
 - tests: test_t14_vpn_probe_egress's _vpn_state fixture now resets the vpn

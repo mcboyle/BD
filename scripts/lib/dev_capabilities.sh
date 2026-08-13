@@ -58,8 +58,32 @@ bd_mod3_pg_provision(){
     bd_mod3_env_persist
     echo "mod3 postgres: already serving the DSN"; return 0
   fi
-  command -v pg_ctlcluster >/dev/null 2>&1 \
-    || { echo "postgresql-common absent (no pg_ctlcluster)"; return 1; }
+  # INSTALL IT. REFUSING TO PROVISION IS THE DEFECT (backlog 97).
+  #
+  # This used to print "postgresql-common absent" and return 1. That is correct
+  # in the cloud image, where the package is baked in, and WRONG on bare Ubuntu
+  # -- so on every freshly built host the step WARNed forever and row 96's
+  # "both provisioning paths give a host the same capabilities" held for this
+  # fleet only. Measured @1065: test5, test6 and test7 each needed
+  # `apt-get install postgresql` by hand first, which is a provisioner asking
+  # the operator to do the provisioning.
+  #
+  # This file's own header states the standard: the failure worth fixing is not
+  # the missing software, it is that a capture on the poorer host goes GREEN by
+  # SKIPPING what is absent.
+  if ! command -v pg_ctlcluster >/dev/null 2>&1; then
+    echo "mod3 postgres: pg_ctlcluster absent -- installing postgresql"
+    $SUDO apt-get update -qq >/dev/null 2>&1 || true   # a stale index is not fatal
+    DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y -qq postgresql \
+        >/dev/null 2>&1 \
+      || { echo "postgresql install failed (apt-get install postgresql)"; return 1; }
+    # ASK FOR THE BINARY; DO NOT TRUST THE EXIT CODE. This file already records
+    # that lesson at @1064 -- mod3_exit=0 with env_file=ABSENT -- so an apt that
+    # reports success without delivering pg_ctlcluster must refuse here rather
+    # than fall through into the cluster logic and fail less legibly.
+    command -v pg_ctlcluster >/dev/null 2>&1 \
+      || { echo "postgresql install reported success but pg_ctlcluster is still absent"; return 1; }
+  fi
   _cl="$(pg_lsclusters -h 2>/dev/null | head -n1)"
   [ -n "$_cl" ] || { echo "no postgres cluster initialized in this image"; return 1; }
   _ver="$(echo "$_cl" | awk '{print $1}')"
