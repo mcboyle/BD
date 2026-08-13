@@ -2007,18 +2007,28 @@ system match them, which is the first item below.
 
   - `postgres-integration` -- four mod3 files.
   - `gates` -- gitleaks, the generated-artifacts sync check, `compileall`,
-    advisory `pyflakes`, the CHANGELOG ASCII check, and exactly ONE pytest
-    file: `test_v3_66_939_ci_gate_shards_cover_every_gate`. These must run
-    once, which is why they are not sharded.
-  - `gate-suites` -- a 3-way matrix carrying the 15 repo-wide gate suites:
-    **toolchain** (`test_toolchain_534`); **parity-graph** (`test_gui_parity`,
-    `test_import_graph_no_new_edges`, `test_v3_66_653_dep_freshness`,
-    `test_route_index_in_sync`); **artifacts-pins**
-    (`test_generated_artifacts_are_not_tracked`,
-    `test_source_windows_do_not_shift`, `test_pk_mirrors_stay_retired`,
-    `test_pin_index_in_sync`, `test_all_sources_parse`, `test_versync_gate`,
-    `test_settings_center_slice4`, `test_v3_66_799_audit_tool_selftests`,
-    `test_release_hygiene_gates`, `test_scan_version_pins_fixture`).
+    advisory `pyflakes`, the CHANGELOG ASCII check, the version-pin and
+    guard-SHA checks, and `bd-freshcheck`. **It runs NO pytest at all.** These
+    must run once, which is why they are not sharded.
+  - `gate-suites` -- a 5-way matrix (**toolchain**, **parity-graph**,
+    **measurement-tools**, **isolation**, **artifacts-pins**) carrying the
+    repo-wide gate suites. Read the matrix, not this sentence: the membership
+    is `_DECLARED` in `tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py`,
+    and a test asserts the two agree exactly.
+
+  **THIS BULLET SAID `gates` RAN "exactly ONE pytest file:
+  test_v3_66_939_ci_gate_shards_cover_every_gate", AND IT RAN NONE.** Measured
+  at v3.66.1071: that job's pytest step was deleted at `f736748` -- the same
+  commit that created 939 and sharded the lane -- and 939 was named in that
+  diff only inside a comment. It was in no shard either, so **from v3.66.939 to
+  v3.66.1071 the only check that would notice a suite falling out of every
+  shard was itself a suite that had fallen out of every shard**, and nothing
+  ran it on any PR. Wired into the `measurement-tools` shard at v3.66.1072.
+
+  Note which instrument found it: not reading this paragraph, which had been
+  read many times, but parsing `ci.yml` and asking which steps contain the
+  string `pytest`. Section 1's rule, on the sentence that states section 1's
+  rule about CI.
 
   **THE PRIOR TEXT NAMED A FILE THAT DOES NOT EXIST.** It said
   `test_pk_mirrors_do_not_drift`; the file is `test_pk_mirrors_stay_retired.py`,
@@ -2033,16 +2043,33 @@ system match them, which is the first item below.
   Sharding adds exactly one failure mode -- a suite that falls out of every
   shard still leaves a green tick -- and
   `test_v3_66_939_ci_gate_shards_cover_every_gate` is the only thing that would
-  notice, which is why it is the one pytest file `gates` still runs itself.
+  notice.
 
-  **A GATE CI DOES NOT RUN IS A GATE THAT DOES NOT EXIST, and that test's own
-  `_DECLARED` set is HAND-PINNED, so it cannot notice a gate nobody declared.**
-  944 and 947 were never added. Then 1031 and 1034 were written by a session
-  that had just read the note about 944 and 947, and were also never added --
-  a repo-wide leaker ratchet that would have fired for nobody. Wire a new
-  repo-wide gate into a `gate-suites` shard AND into `_DECLARED` **in the cut
-  that creates it**; a follow-up cut is a cut that does not happen. Corrected
-  at v3.66.1035, which added the `isolation` shard.
+  **A GATE CI DOES NOT RUN IS A GATE THAT DOES NOT EXIST. `_DECLARED` was
+  HAND-PINNED and could not notice a gate nobody declared; since v3.66.1072 a
+  new test file must classify ITSELF.** 944 and 947 were never added. Then 1031
+  and 1034 were written by a session that had just read the note about 944 and
+  947, and were also never added. Then 1062, 1064, 1067 and 1068 -- eight in
+  all, the last four found live in the tree at v3.66.1071.
+
+  The mechanism now: every tracked `tests/test*.py` file either declares a
+  module-level `BD_GATE_SCOPE` (`"repo-wide"` or `"module"`) or sits in the
+  frozen legacy baseline `tests/gate_scope_baseline.txt`, which may only
+  shrink. Declaring `"repo-wide"` requires membership of `_DECLARED`, which the
+  union assertion then forces into a shard. **So the rule is still "wire it in
+  in the cut that creates it" -- what changed is that forgetting is now RED
+  rather than silent.**
+
+  Do not try to replace the marker with a derived predicate; it was measured
+  and it does not work. Against the eight files that actually went undeclared,
+  an AST census over real call nodes catches **3 of 8** on a `git ls-files`
+  argument, and **4 of 8** if you also match code naming repo infrastructure --
+  which widens the candidate pool from 34 files to 136, buying one hit for a
+  124-entry exemption list. 947, 1031, 1067 and 1068 carry no structural signal
+  distinguishing them from an ordinary feature test, because a gate is
+  repo-wide by virtue of what it ASSERTS ABOUT, which its syntax does not
+  record. **The blind spot that remains: nothing checks that a `"module"`
+  answer is honest.**
 
   **The prior text was written at v3.66.847 and was correct then**; @849 added
   the lane and nothing updated this bullet, so for 85 releases the contract told

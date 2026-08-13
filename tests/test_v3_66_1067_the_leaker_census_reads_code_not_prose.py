@@ -31,6 +31,10 @@ import pytest
 from python_source import mentions_only, python_code_only
 
 _REPO = Path(__file__).resolve().parent.parent
+
+# It guards the classifier behind 1034's repo-wide leaker census, so it holds
+# whatever the diff touched.
+BD_GATE_SCOPE = "repo-wide"
 _RATCHET_REL = "tests/test_v3_66_1034_guards_survive_a_module_wipe.py"
 _RATCHET = _REPO / _RATCHET_REL
 
