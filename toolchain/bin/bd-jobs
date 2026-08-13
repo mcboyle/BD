@@ -38,10 +38,12 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import shlex
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 
 JOBS_DIR = pathlib.Path("/tmp/bd-jobs")
@@ -84,7 +86,70 @@ def alive(entry):
 
 # ── the registry ─────────────────────────────────────────────────────────────
 
-def register(pid, purpose, cmd, origin=None):
+STALLED_AFTER_S = 300
+
+
+def progress(entry, stalled_after=STALLED_AFTER_S):
+    """Is this job DOING anything? A DIFFERENT QUESTION FROM alive() (backlog 3).
+
+    alive() compares /proc start times, so it answers "is the process still
+    there". That is the right predicate for the orphan problem this tool was
+    built for and the wrong one for a long run.
+
+    MEASURED on test6 2026-08-13 at f154aef, full suite at -n 48: a pytest
+    master sat at `[ 99%%]` for 462 seconds after `[gw37] node down: Not
+    properly terminated`, holding one defunct child it never reaped, with a
+    1-minute load average of 0.06. alive() said LIVE for every second of it,
+    truthfully and uselessly. Two of three samples at that worker count ended
+    the same way.
+
+    Returns (state, seconds_since_last_write).
+
+      PROGRESSING  the log was written within `stalled_after`
+      STALLED      it was not -- a REPORT, never a verdict (see below)
+      UNKNOWN      no log recorded, or the recorded path no longer resolves
+
+    UNKNOWN IS NOT A SOFT PROGRESSING. An entry written before this feature, or
+    a job whose log was removed, cannot be judged; saying so is section 0's
+    whole subject, and collapsing it into PROGRESSING would make a deleted log
+    read as a healthy job.
+
+    THE MTIME, NOT A PERCENTAGE. Section 10 bans estimated progress and asks for
+    the countable instead -- "the last stage the log actually recorded, and the
+    wall-clock since the last line was written". A percentage is a prediction. A
+    file's mtime is a fact, and it needs no cooperation from the job.
+
+    STALLED MUST NOT GATE ANYTHING. A job that legitimately computes in silence
+    reads as STALLED, so `list` reports it and still exits 0. An over-sensitive
+    gate gets switched off, which section 0 calls a soundness bug rather than a
+    safe default. `stalled_after` is a parameter for the same reason.
+    """
+    log = entry.get("log")
+    if not log:
+        return ("UNKNOWN", None)
+    try:
+        age = time.time() - os.path.getmtime(log)
+    except OSError:
+        return ("UNKNOWN", None)
+    age = max(age, 0.0)                      # clock skew is not progress
+    return (("STALLED" if age > stalled_after else "PROGRESSING"), age)
+
+
+def open_job_log(purpose):
+    """Create the log a launched job writes to; return (path, fd).
+
+    CREATING A PATH IS A PROMISE TO REMOVE IT (section 0): forget() deletes the
+    log with its entry, which is why `list` prints the path -- copy it out
+    before reaping anything you want to keep.
+    """
+    JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    safe = re.sub(r"[^A-Za-z0-9._-]", "-", purpose or "job")[:32]
+    fd, path = tempfile.mkstemp(prefix="%s-" % safe, suffix=".log",
+                                dir=str(JOBS_DIR))
+    return path, fd
+
+
+def register(pid, purpose, cmd, origin=None, log=None):
     JOBS_DIR.mkdir(parents=True, exist_ok=True)
     entry = {
         "id": "%s-%d" % (socket.gethostname(), pid),
@@ -95,6 +160,9 @@ def register(pid, purpose, cmd, origin=None):
         "host": socket.gethostname(),
         "origin": origin or socket.gethostname(),
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        # None for a job launched without one, and progress() reports UNKNOWN
+        # for it rather than guessing.
+        "log": log,
     }
     (JOBS_DIR / ("%s.json" % entry["id"])).write_text(
         json.dumps(entry, indent=2), encoding="utf-8")
@@ -118,6 +186,16 @@ def forget(entry):
         (JOBS_DIR / ("%s.json" % entry["id"])).unlink()
     except OSError:
         pass
+    # THE LOG GOES WITH THE ENTRY. Section 0: creating a path is a promise to
+    # remove it, and an artifact whose retention nobody bounded is a leak by
+    # construction -- 744 orphaned directories under /tmp is what that costs
+    # here. `list` prints the path precisely so it can be copied out first.
+    log = entry.get("log")
+    if log:
+        try:
+            os.unlink(log)
+        except OSError:
+            pass
 
 
 # ── verbs ────────────────────────────────────────────────────────────────────
@@ -127,8 +205,17 @@ def cmd_list(args):
     live = [e for e in rows if alive(e)]
     dead = [e for e in rows if not alive(e)]
     for e in live:
-        print("LIVE  %-28s pid=%-7s %s  (%s, from %s)"
-              % (e["id"], e["pid"], e["purpose"], e["started_at"], e["origin"]))
+        # LIVE IS NOT WORKING. The state beside it answers the question an
+        # operator is actually asking, and it reports the countable -- seconds
+        # since the last write -- never an estimated percentage (section 10).
+        state, age = progress(e)
+        note = ("%s, no log recorded" % state if age is None
+                else "%s, last write %ds ago" % (state, int(age)))
+        print("LIVE  %-28s pid=%-7s %s  [%s]  (%s, from %s)"
+              % (e["id"], e["pid"], e["purpose"], note, e["started_at"],
+                 e["origin"]))
+        if e.get("log"):
+            print("      log: %s" % e["log"])
     for e in dead:
         print("DEAD  %-28s pid=%-7s %s  -- finished, entry is stale"
               % (e["id"], e["pid"], e["purpose"]))
@@ -286,10 +373,22 @@ def cmd_run(args):
         # deploy on two hosts (backlog 88). Establishing the group is the
         # LAUNCHER's job: reap cannot retrofit one onto a process it did not
         # start, and must not guess.
-        proc = subprocess.Popen(["bash", "-c", cmd],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                start_new_session=True)
-        entry = register(proc.pid, args.purpose, cmd, origin=here)
+        # DEVNULL UNTIL v3.66.1087, WHICH MEANT A REGISTERED JOB PRODUCED NO
+        # OUTPUT ANYWHERE. That is "never filter at capture time" in its
+        # strongest form -- the evidence was discarded before it existed, so a
+        # job could not be read afterwards and progress() had nothing to
+        # measure. The log is opened BEFORE the launch, so a job that cannot be
+        # given one never starts (the same order the remote path uses for
+        # registration: prove the record can be written, then act).
+        log_path, log_fd = open_job_log(args.purpose)
+        try:
+            proc = subprocess.Popen(["bash", "-c", cmd],
+                                    stdout=log_fd, stderr=subprocess.STDOUT,
+                                    start_new_session=True)
+        finally:
+            os.close(log_fd)
+        entry = register(proc.pid, args.purpose, cmd, origin=here,
+                         log=log_path)
         print(entry["id"])
         return 0
 
