@@ -4,6 +4,69 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1109 - row 27: both mechanizations measured and refused, with the evidence
+
+- DOC-ONLY. Backlog row 27 asks for a mechanized check that a cut carrying a
+  fix also carries an over-sensitivity control. Both candidate mechanizations
+  were built and MEASURED at v3.66.1108, both fail, and the row stays OPEN
+  carrying the evidence. A refusal that is not explained gets re-proposed, so
+  it is recorded here as well as in the row.
+- THE DECLARATION ROUTE IS SECTION 0 IN ITS LITERAL FORM: ITS DENOMINATOR
+  EXCLUDES THIS ROW'S OWN TWO WORKED EXAMPLES. A required marker keyed on
+  BD_GATE_SCOPE = "repo-wide" would never see either. v3.66.1087 put its
+  control in a file declaring "module". v3.66.1088 -- the canonical example,
+  carrying both the control AND the matching over-correction mutant -- added NO
+  test file at all: its 61 test lines went into tests/test_perf_lab.py, line
+  394 of the frozen tests/gate_scope_baseline.txt, which may only SHRINK, so
+  that file can never carry a marker. 0 of 2, permanently, against the evidence
+  the row is built from. Verified by git show --name-status, not by reading.
+- AND IT WOULD HAVE CAUGHT NOTHING ON THE POPULATION IT CAN SEE. All nine
+  repo-wide files were hand-labelled twice independently: EIGHT carry a genuine
+  control; the ninth (1085) has none, arguably correctly, its fix being one
+  pre-import with no benign-input failure mode a test could express. On the two
+  measured occasions when a control actually FAILED here -- @1054's tmp_path
+  substring collision and @1024's guard whose control covered only a clean
+  environment -- the control existed, was nameable, and was green. A gate
+  asserting "a function of this name is defined in this file" is 0 of 2 there
+  too.
+- THE BD_GATE_SCOPE PRECEDENT IS NOT THIS SHAPE. That marker is an INPUT to a
+  chain: "repo-wide" forces _DECLARED membership, which forces a ci.yml shard,
+  with four assertions over the wiring -- so a true declaration costs two more
+  edits and a false one buys nothing. A control marker would terminate on
+  itself, consumed by nothing, and degrade to a spellchecker for a habit bought
+  at the price of the appearance of coverage.
+- THE DERIVED-PREDICATE ROUTE IS CLOSED HARDER THAN "IMPRECISE": ITS
+  FALSE-POSITIVE RATE IS NOT A NUMBER. Lexical hits 5 of 9 inside and 122 of
+  1323 outside (9.2%), reproducible to the file. Structural hits 4 of 9 inside
+  under every reading, but three independent implementations of ONE English
+  sentence returned outside-bands of 28-64, 42-110, and a claimed 53, no two
+  agreeing. A gate whose false-positive rate moves 2.3x on undocumented
+  tokenizer choices is not a gate.
+- AND IT IS WRONG IN BOTH DIRECTIONS AT ONCE: true recall 6 of 8, refusing
+  1068's batch-mode control and 1080's failing-run artifact control, neither of
+  which carries the vocabulary or the syntax. 939's control states section 0's
+  cries-wolf rule IN FULL in different words and the lexical predicate misses
+  it, so the vocabulary is half-adopted prose -- the literal phrase appears in
+  24 of 1332 tracked test files.
+- WHY IT RESISTS MECHANIZATION, in the sentence section 7 already uses for the
+  same class: a gate is repo-wide by virtue of what it ASSERTS ABOUT, which its
+  syntax does not record -- and a control is a control by virtue of what it
+  asserts is still true about benign input, which syntax does not record
+  either.
+- THE ONE UNREFUTED ROUTE IS EXECUTABLE RATHER THAN DECLARATIVE and is named as
+  the next step: a bd-mutate `direction` field, so a mutant can APPLY the
+  over-correction the fix could have made and require the named control to flip
+  RED. v3.66.1088 did exactly this by hand. It is NOT built and its cost is NOT
+  measured, and two findings gate it. ZERO mutation specs have ever been
+  tracked -- git log --all --diff-filter=A over the whole history finds none --
+  so every battery's evidence exists only as CHANGELOG prose, unverifiable and
+  un-re-runnable. And of the last 80 releases, 33 touch product or tool source
+  while only 16 report a battery, so a preflight keyed on "this cut changes
+  behaviour" would print UNKNOWN on 17 of 33 code cuts.
+- WHAT THIS COSTS, stated because a refusal is not free: nothing detects a cut
+  that omits the control, exactly as before. The row is accepting that knowingly
+  rather than buying a green tick over the wrong denominator.
+
 ## v3.66.1108 - no assertion may be false for every input (backlog 26, slice 2)
 
 - BACKLOG 26, SLICE 2 -- the mirror of @1098's always-TRUE gate. An assertion
