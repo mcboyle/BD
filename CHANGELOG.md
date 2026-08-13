@@ -4,6 +4,29 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1093
+
+- tests: test_t14_vpn_probe_egress's _vpn_state fixture now resets the vpn
+  module registry on ENTRY, not only in its finally (backlog 25). The reset
+  existed, but only ran on the way out -- cleaning up for the next test while
+  leaving the current one asserting over whatever an earlier file had left
+  behind.
+- THE "ROTATING TEST" WAS NEVER FLAKY. The fixture swaps
+  vpn_config._state["tunnels"], and nothing under test reads that: the probe
+  calls vpn.list_tunnels(), which returns the module-level vpn._tunnels
+  registry. Two different stores, so entering the context with an empty list
+  set something no assertion consulted. It failed only when --dist loadfile
+  put a tunnel-leaving file on the same worker first, which is why it presented
+  as rotation at 3 of 11 samples.
+- test_egress_monitor_no_tunnels carried the identical defect through the same
+  fixture and is fixed by the same line.
+- Reproduced deterministically before the fix: registering one tunnel and then
+  running the probe under this fixture returned registered_tunnels=1 where the
+  tests assert 0.
+- The cut carries an over-correction mutant -- a probe hardcoded to report zero
+  registered tunnels passes the new test and destroys the tool -- caught by
+  test_probe_reports_per_tunnel.
+
 ## v3.66.1092
 
 - capture: a working tree that changes DURING a run is now graded INVALID, a
