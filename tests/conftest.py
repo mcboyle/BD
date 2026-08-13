@@ -142,6 +142,7 @@ def _canonicalize_package_children(package_name, modules=None):
 # than only described by one. See that module for the measurement and the
 # reasoning; this file just wires it in.
 import _tmproot
+import _sys_modules_guard
 
 
 def pytest_sessionfinish(session, exitstatus):
@@ -195,6 +196,14 @@ def pytest_configure(config):
     # there and the master would summarize a sink it never armed.
     _socket_recorder.arm(_socket_record_run_dir(config))
 
+    # SYS.MODULES EVICTION GUARD (backlog 101). A patch.dict(sys.modules, ...)
+    # restores to its ENTRY SNAPSHOT, so a module imported inside the block is
+    # deleted on exit -- which poisons any identity-keyed cache whose owner
+    # survived. @1085 is the worked example. Armed here rather than as a fixture
+    # because the cost must not be per-test: the wrapper below only executes
+    # when a patch.dict actually unwinds, of which the whole suite has 28.
+    _sys_modules_guard.arm()
+
     # RUN CONTEXT -- what this suite ran ON, recorded with the result. Two full
     # suites of the same tree reported 1 failure and 35 in one session, and
     # nothing in either result said the second had four other suites sharing
@@ -206,6 +215,7 @@ def pytest_configure(config):
 
 def pytest_unconfigure(config):
     _socket_recorder.disarm()
+    _sys_modules_guard.disarm()
     # Master only -- workers share the run directory and must not race on it.
     if not hasattr(config, "workerinput"):
         _socket_recorder.prune()
@@ -1104,10 +1114,18 @@ def _socket_recorder_attributes_the_test(request):
     call out, and a record with no test attached cannot be actioned.
     """
     _socket_recorder.set_nodeid(request.node.nodeid)
+    # The sys.modules eviction guard (backlog 101) attributes its record the
+    # same way, and rides on THIS fixture rather than adding a second autouse
+    # one: an autouse fixture is paid once per test, ~15,800 times per capture,
+    # and CLAUDE.md section 2 rule 6 is explicit that a cost nobody measured is
+    # one you pay forever without noticing. Two attribute assignments here are
+    # free; a whole extra fixture would not have been.
+    _sys_modules_guard.set_nodeid(request.node.nodeid)
     try:
         yield
     finally:
         _socket_recorder.set_nodeid(None)
+        _sys_modules_guard.set_nodeid(None)
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
