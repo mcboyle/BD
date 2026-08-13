@@ -4,6 +4,71 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1087
+
+bd-jobs reports whether a job is DOING anything, not only whether it exists
+(backlog 3).
+
+THE GAP, MEASURED RATHER THAN IMAGINED. alive() compares /proc start times, so
+it answers "is the process still there". That is the right predicate for the
+orphan problem bd-jobs was built for and the wrong one for a long run. On test6,
+2026-08-13 at f154aef, during a full-suite sweep at -n 48: a pytest master sat
+at [ 99%] for 462 seconds after "[gw37] node down: Not properly terminated",
+holding one defunct child it never reaped, with a 1-minute load average of 0.06.
+alive() said LIVE for every second of that, truthfully and uselessly. TWO OF
+THREE samples at that worker count ended the same way; at -n 16, seven of seven
+completed. CLAUDE.md section 10's paragraph about a job reporting 99% forever,
+reproduced on demand.
+
+THE COUNTABLE, NOT A PERCENTAGE. Section 10 bans estimated progress and asks for
+"the last stage the log actually recorded, and the wall-clock since the last
+line was written". progress() returns the seconds since the log's mtime. A
+percentage is a prediction; an mtime is a fact, and it needs no cooperation from
+the job being measured.
+
+THREE STATES, AND THE THIRD IS THE POINT. PROGRESSING, STALLED, and UNKNOWN for
+an entry with no log or whose log no longer resolves. UNKNOWN is not a soft
+PROGRESSING -- collapsing it would make a deleted log read as a healthy job,
+which is section 0's whole subject. Each state has a test that fails if the
+branch is never taken, because a branch nothing can reach is dead code that
+reads as a safety feature.
+
+STALLED IS A REPORT, NEVER A VERDICT. A job that legitimately computes in
+silence reads as STALLED, so `list` prints it and still exits 0, and the
+threshold is a parameter rather than a constant. An over-sensitive gate gets
+switched off, which section 0 calls a soundness bug rather than a safe default.
+Both directions are asserted in one test: the same log is STALLED at 300s and
+PROGRESSING at 900s.
+
+AND THE JOB NOW HAS A LOG AT ALL. cmd_run launched with stdout and stderr set to
+DEVNULL, so a REGISTERED job produced no output anywhere -- "never filter at
+capture time" in its strongest form, the evidence discarded before it existed.
+The log is opened BEFORE the launch, so a job that cannot be given one never
+starts: the same ordering the remote path already uses for registration.
+
+THE FIRST HAND-RUN PROVED THE VALUE IMMEDIATELY, and section 10 is why it was
+run at all. `bd-jobs run --purpose X -- 'echo a; sleep 30; echo b'` registered
+and read DEAD one second later. The log said, in one line,
+`bash: line 1: echo a; sleep 30; echo b: command not found` -- the command had
+been passed as ONE quoted argument and shlex.join re-quoted it. That is the
+exact mangling class section 10 records for this tool, where list printed a
+"perfectly consistent DEAD" for a process that lived a millisecond. The
+invocation was mine and not a defect; what changed is that it took one look
+instead of an investigation. Under DEVNULL there would have been nothing to
+look at.
+
+FORGET REMOVES THE LOG WITH THE ENTRY. Creating a path is a promise to remove
+it, and an artifact nobody bounded is a leak by construction -- 744 orphaned
+directories under /tmp is what that has already cost here. `list` prints the log
+path precisely so it can be copied out before anything is reaped.
+
+EVIDENCE. 7 RED first on pristine source, for the stated reasons (no progress
+attribute, no log recorded, register() rejecting the keyword). 7 passed after.
+29 passed across this file and the existing bd-jobs suite. bd-mutate 4 caught /
+0 escaped, including UNKNOWN collapsing into PROGRESSING in both of its forms
+and cmd_run reverting to DEVNULL. Verified by hand end to end, which is where
+the finding above came from.
+
 ## v3.66.1086
 
 Three findings that lived only in prose become backlog rows a test can read.
