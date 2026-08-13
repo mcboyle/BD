@@ -3134,6 +3134,29 @@ def _build_capture_probe(path: Path) -> None:
     probe += "\nexit 0\n"
     _write_stub(path, probe)
 
+    # STAGE THE REAL scripts/lib BESIDE THE PROBE, and the reason is a defect
+    # this harness carried silently. capture.sh sources its libraries with
+    # `. "$(dirname "$0")/scripts/lib/..."`, and the probe is written to
+    # tmp_path -- so every one of those sources FAILED here. capture.sh runs
+    # under `set -uo pipefail` with no `-e`, so a failed source does not abort:
+    # the functions simply do not exist, and the probe ran on a crippled script
+    # while reporting on the real one. It went unnoticed because nothing the
+    # probe asserts happened to call bd_capture_run_id or bd_tree_state_*.
+    # v3.66.1111 moved run_with_heartbeat into a library, and because the lanes
+    # DO call it the breakage became visible immediately.
+    lib_src = CAPTURE_SH.parent / "scripts" / "lib"
+    lib_dst = path.parent / "scripts" / "lib"
+    lib_dst.mkdir(parents=True, exist_ok=True)
+    staged = 0
+    for lib in sorted(lib_src.glob("*.sh")):
+        shutil.copy2(lib, lib_dst / lib.name)
+        staged += 1
+    assert staged, (
+        f"no shell libraries were staged from {lib_src}; the probe would run "
+        "with every `. scripts/lib/...` failing and would prove nothing about "
+        "the code those libraries hold"
+    )
+
 
 # One fake interpreter, shared by the capture.sh probe and the provisioner
 # probe below, because both scripts run the SAME gui-parity regen and the SAME

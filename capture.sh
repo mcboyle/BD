@@ -367,54 +367,8 @@ cleanup_all() {
 }
 trap cleanup_all EXIT
 
-_stop_process_group() {
-  local child_pid="$1"
-  local tick=0
-  kill -TERM -- "-$child_pid" 2>/dev/null \
-    || kill -TERM "$child_pid" 2>/dev/null \
-    || true
-  while [ "$tick" -lt 10 ] && kill -0 "$child_pid" 2>/dev/null; do
-    sleep 1
-    tick=$((tick + 1))
-  done
-  if kill -0 "$child_pid" 2>/dev/null; then
-    kill -KILL -- "-$child_pid" 2>/dev/null \
-      || kill -KILL "$child_pid" 2>/dev/null \
-      || true
-  fi
-  wait "$child_pid" 2>/dev/null || true
-}
-
-# Keep long commands quiet while reporting elapsed progress once a minute.
-# Polling here avoids a second monitor process and delays completion by at most
-# one second; the child command's complete output still lands in its artifact.
-run_with_heartbeat() {
-  local label="$1"
-  local logfile="$2"
-  shift 2
-  local started pid elapsed tick
-  started=$(date +%s)
-  setsid "$@" > "$logfile" 2>&1 &
-  pid=$!
-  trap '_stop_process_group "$pid"; trap - INT TERM HUP; exit 130' INT
-  trap '_stop_process_group "$pid"; trap - INT TERM HUP; exit 143' TERM
-  trap '_stop_process_group "$pid"; trap - INT TERM HUP; exit 129' HUP
-  while kill -0 "$pid" 2>/dev/null; do
-    tick=0
-    while [ "$tick" -lt 60 ] && kill -0 "$pid" 2>/dev/null; do
-      sleep 1
-      tick=$((tick + 1))
-    done
-    if kill -0 "$pid" 2>/dev/null; then
-      elapsed=$(($(date +%s) - started))
-      echo "  progress: $label still running (${elapsed}s elapsed)"
-    fi
-  done
-  wait "$pid"
-  local command_exit=$?
-  trap - INT TERM HUP
-  return "$command_exit"
-}
+# shellcheck source=scripts/lib/heartbeat.sh
+. "$(dirname "$0")/scripts/lib/heartbeat.sh"
 
 # Which tree did this bundle grade? Nothing else in the archive answers that:
 # the banner goes to stdout and only $OUT is tarred, and 09_http_smoke.log
