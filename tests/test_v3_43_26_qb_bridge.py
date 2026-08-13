@@ -165,6 +165,94 @@ def test_qb_submit_raises_qberror_on_unreachable():
     c.close()
 
 
+class _Status:
+    """Minimal stand-in for an httpx response: submit()'s listing probe
+    reads status_code and nothing else on the non-200 path."""
+    def __init__(self, status_code):
+        self.status_code = status_code
+
+    def json(self):
+        raise AssertionError("json() must not be reached on a non-200")
+
+
+def test_qb_submit_wraps_a_non_httpx_listing_failure_in_qberror():
+    """submit() documents QBError as its only failure mode, and
+    _list_hashes wrapped httpx.RequestError ONLY -- so anything else it
+    raised escaped submit() untouched, because both of submit()'s call
+    sites catch QBError alone and cannot catch what was never wrapped.
+
+    MEASURED on test6 at v3.66.1083, capture parallel lane, worker gw27: a
+    refused connection surfaced as httpcore.ConnectError rather than
+    httpx.ConnectError, so the RequestError clause matched nothing and the
+    raw error left submit(). That module-identity route is closed
+    separately; this test is about the contract, and it raises a plain
+    exception so it does not depend on the accident that exposed it.
+    """
+    from bulk_downloader.qb_bridge import QBittorrentClient, QBError
+
+    class _TransportWentSideways(Exception):
+        pass
+
+    c = QBittorrentClient(host="127.0.0.1", port=1)
+
+    def _raise(*_a, **_k):
+        raise _TransportWentSideways("not an httpx.RequestError")
+
+    # Only the listing probe uses .get. The add POST still runs against a
+    # closed port, and its QBError is what the caller should end up seeing.
+    c._client.get = _raise
+    try:
+        c.submit("magnet:?xt=urn:btih:abc", dest_dir="/tmp")
+    except QBError as e:
+        assert e.kind in ("unreachable", "auth", "network", "unknown")
+    except Exception as e:
+        raise AssertionError(
+            f"submit raised {type(e).__name__} instead of QBError: {e}")
+    else:
+        raise AssertionError("submit should have raised QBError")
+    c.close()
+
+
+def test_qb_submit_on_a_closed_client_raises_qberror():
+    """The same hole reached with no transport involved at all: close()
+    sets _client to None, so the listing probe raises AttributeError,
+    which is neither an httpx.RequestError nor a QBError and therefore
+    escaped submit(). A caller that closes and then retries is the
+    ordinary way a program arrives here, which is why the contract hole
+    is a product defect rather than an artifact of the capture."""
+    from bulk_downloader.qb_bridge import QBittorrentClient, QBError
+    c = QBittorrentClient(host="127.0.0.1", port=1)
+    c.close()
+    try:
+        c.submit("magnet:?xt=urn:btih:abc", dest_dir="/tmp")
+    except QBError as e:
+        assert e.kind in ("unreachable", "auth", "network", "unknown")
+    except Exception as e:
+        raise AssertionError(
+            f"submit raised {type(e).__name__} instead of QBError: {e}")
+    else:
+        raise AssertionError("submit should have raised QBError")
+
+
+def test_qb_list_hashes_keeps_the_kind_it_chose():
+    """The over-sensitive direction of the fix above, asserted in the same
+    cut. _list_hashes raises QBError("network") itself for a non-200, and a
+    wrapper that caught every exception would re-label that to "unknown".
+    submit() swallows this QBError by design, so nothing else in the suite
+    can observe the kind -- it is checked directly or not at all."""
+    from bulk_downloader.qb_bridge import QBittorrentClient, QBError
+    c = QBittorrentClient(host="127.0.0.1", port=1)
+    c._client.get = lambda *_a, **_k: _Status(503)
+    try:
+        c._list_hashes()
+    except QBError as e:
+        assert e.kind == "network", f"kind was re-labelled to {e.kind!r}"
+        assert "503" in str(e), f"the status is not in the message: {e}"
+    else:
+        raise AssertionError("_list_hashes should have raised QBError")
+    c.close()
+
+
 # ── DEFAULTS integration ──────────────────────────────────────────────
 
 def test_qb_defaults_present():

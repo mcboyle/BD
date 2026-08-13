@@ -4,6 +4,45 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1084
+
+submit() honours its QBError contract when the listing probe fails in a way
+httpx did not name.
+
+MEASURED ON test6 AT v3.66.1083, capture parallel lane, worker gw27. One unit
+failure in an otherwise green fleet round:
+test_v3_43_26_qb_bridge::test_qb_submit_raises_qberror_on_unreachable, "submit
+raised ConnectError instead of QBError". The traceback names
+httpcore.ConnectError, not httpx.ConnectError -- httpx re-raised the raw
+transport error because its lazily-built HTTPCORE_EXC_MAP held exception classes
+from a DIFFERENT httpcore module object than the one that raised. That
+module-identity split is a separate subject and is not fixed here.
+
+WHAT IS FIXED IS THE CONTRACT UNDERNEATH IT. QBittorrentClient.submit()
+documents QBError as its only failure mode, and both of its calls to
+_list_hashes() catch QBError alone. _list_hashes() wrapped httpx.RequestError,
+ValueError and KeyError -- so anything else it raised left submit() unwrapped,
+which is CLAUDE.md section 0's denominator failure in an except clause: the
+handler's set structurally excluded real members of its subject.
+
+The route needs no module-identity accident. close() sets _client to None, so a
+caller that closes and retries gets AttributeError out of submit(), not QBError.
+That is the second RED test, and it is the reason this is a product defect
+rather than an artifact of the capture.
+
+_list_hashes() now re-raises a QBError it chose itself -- so the blanket clause
+cannot re-label a "network" kind to "unknown" -- and wraps everything else as
+QBError("unknown"), naming the exception type in the message so a programming
+error stays readable rather than being swallowed.
+
+EVIDENCE. Both escape tests RED on pristine source (_TransportWentSideways and
+AttributeError escaping submit); 27 passed after the fix; the seven-file derived
+band 75 passed; the exact three-file chain that failed on test6
+(test_v3_43_64_mp4_metadata, test_v3_66_25_phase4_ssrf_rebinding,
+test_v3_43_26_qb_bridge) reproduced the failure locally in 4.8s and is 115
+passed after it. bd-mutate: 2 caught, 0 escaped, including the mutant that
+removes the QBError re-raise.
+
 ## v3.66.1083
 
 An ABSENT capture corpus is no longer reported as an EMPTY one (backlog 89).
