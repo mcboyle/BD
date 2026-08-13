@@ -53,7 +53,19 @@ from unittest.mock import patch
 import pytest
 
 _REPO = pathlib.Path(__file__).resolve().parent.parent
-_PY = _REPO / "venv" / "bin" / "python"
+
+# sys.executable, NOT a hardcoded venv/bin/python. CLAUDE.md section 5's rule
+# ("the interpreter is venv/bin/python, never bare python3") is about the BOX
+# and the cloud container, where a bare python3 is 3.11 without the project
+# dependencies. A GitHub runner is a third environment and has no venv/ at all:
+# this file shipped with the hardcoded path, went green on test5, and CI's
+# isolation shard failed with
+# `FileNotFoundError: /home/runner/work/BD/BD/venv/bin/python`.
+# sys.executable is right in all three, and it also guarantees the child has
+# the SAME httpx and httpcore as the process making the assertion -- which is
+# the entire subject here, so a different interpreter would not just fail to
+# run, it would measure the wrong thing.
+_PY = sys.executable
 
 
 def test_httpcore_is_in_the_module_table_before_any_test_patches_it():

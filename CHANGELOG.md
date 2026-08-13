@@ -59,6 +59,20 @@ httpx, so nothing installed changes; what changes is that it survives a rebuild.
 A conftest import that fails takes the entire suite down at collection, so there
 is no partial-credit failure mode to fall back on.
 
+AND CI CAUGHT WHAT BOTH THE BOX AND THE FULL SUITE COULD NOT: THERE ARE THREE
+ENVIRONMENTS, NOT TWO. The gate's subprocess arms first shipped hardcoding
+venv/bin/python, which is what CLAUDE.md section 5 mandates -- but that rule is
+about the BOX and the CLOUD CONTAINER, where a bare python3 is 3.11 without the
+project dependencies. A GitHub runner is a third environment and has no venv/ at
+all. The file was green on test5 and the isolation shard failed with
+`FileNotFoundError: /home/runner/work/BD/BD/venv/bin/python`. It uses
+sys.executable now, which is correct in all three AND is the stronger choice on
+the merits: the child must have the SAME httpx and httpcore as the process
+asserting about them, because that identity is the entire subject. A different
+interpreter would not merely fail to start -- it would measure the wrong thing.
+Note which instrument caught it: not the box, not a 15788-test full suite, but
+the one lane that runs somewhere else.
+
 WIRED INTO CI, per the @1072 policy: BD_GATE_SCOPE = "repo-wide", _DECLARED
 membership, and the isolation shard. Shard TIMED at 12.75s with the new file
 present, against the one-minute budget. The policy gate refused the cut until
