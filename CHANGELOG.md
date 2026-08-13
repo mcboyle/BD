@@ -4,6 +4,30 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1105
+
+- doc-only: backlog 103 closes NOT REAL. The mechanism is verified sound at the
+  exact width the row worried about, and the observation behind it can no longer
+  be checked.
+- VERIFIED: run 534622 on test6 -- 48 cores, 48 workers, dist=loadfile, the
+  Phase C capture at 16:10Z -- wrote 48 chains for 48 workers. tests/
+  _run_context.py's note_file appends PER TEST and reopens the file per write,
+  so a worker killed mid-run still leaves a readable chain, which is what the
+  row asked to be built and what was already there.
+- UNVERIFIABLE: the wedged run that produced the original "6 chains for 48
+  workers" count was pid 108402 (read from the preserved ps snapshot, since the
+  run-context directory is keyed by the MASTER's pid). That directory is gone.
+  /tmp/bd-runctx holds exactly 20 directories, which is prune(keep=20) doing
+  precisely its job.
+- THE TENSION IS THE FINDING WORTH KEEPING: the retention bound that prevents
+  CLAUDE.md section 0's 744-leaked-directory failure is the same mechanism that
+  destroyed the forensic evidence for this row. Bounded retention and forensic
+  need pull in opposite directions, and nothing currently decides between them
+  for a run that FAILED versus one that passed.
+- WHAT WOULD REOPEN IT, stated so the close is not a dead end: any future wedge
+  where the run's own directory holds fewer chains than the run had workers.
+  That is now a one-command check.
+
 ## v3.66.1104
 
 - toolchain: bd-cut-preflight and bd-sweep-run become tracked tools, completing
