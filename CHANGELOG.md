@@ -4,6 +4,36 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1083
+
+An ABSENT capture corpus is no longer reported as an EMPTY one (backlog 89).
+
+THE DEFECT, from production. Two hosts silently had zero files under their
+capture roots after a rebuild that did not restore them, and the surface
+reported "an empty store" -- the same words it uses for a store that exists and
+holds nothing. The mechanism is one line: `scan_captures` skips a root with
+`if not ddir.is_dir(): continue`, so a corpus whose directories are not there
+contributes nothing and is indistinguishable from one that is there and empty.
+`total: 0` for both.
+
+That absent case is the COMMON one, not the exotic one: the corpus is
+gitignored data, `deploy.sh` moves code, and a host rebuild does not carry it.
+
+"Zero captures" is a fact about the corpus; "no corpus" is a fact about the
+machine, and only the second is an incident. `scan_captures_summary` now
+reports `roots`, `roots_missing` and a four-valued `corpus_state` --
+present / empty / absent / partial. `partial` is there because it is the state
+that ACTUALLY OCCURRED, some roots restored and some not, and collapsing it
+into either neighbour loses it: `empty` hides it, `absent` overstates it.
+
+4 mutants, 4 caught, including the over-sensitive direction -- a fresh install
+must read `empty` and stay quiet, or the signal gets switched off.
+
+WHAT THIS DOES NOT DO, and the row says so rather than claiming otherwise:
+nothing RESTORES the corpus. A backup policy is an operator decision, not
+something a walk can invent. What is fixed is the silence -- the next
+occurrence is visible in the first place anyone looks.
+
 ## v3.66.1082
 
 Twenty-four tree-enumerating gates now run on every PR (backlog 99).

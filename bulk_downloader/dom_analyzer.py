@@ -288,9 +288,44 @@ def scan_captures(root=None, limit=None) -> List[Dict[str, Any]]:
     return out
 
 
+def capture_roots_state(root=None) -> List[Dict[str, Any]]:
+    """Which capture roots are actually there.
+
+    BACKLOG 89. `scan_captures` skips a root with `if not ddir.is_dir():
+    continue`, so a corpus whose directories do not exist contributes nothing
+    and is INDISTINGUISHABLE from one that exists and holds nothing -- both are
+    `total: 0`. Two hosts silently reported an empty store after a rebuild that
+    did not restore the corpus, which `deploy.sh` cannot do: it is gitignored
+    data, not code. The absent case is therefore the common one.
+
+    "Zero captures" is a fact about the corpus; "no corpus" is a fact about the
+    machine, and only the second is an incident.
+    """
+    out: List[Dict[str, Any]] = []
+    for d in _CAPTURE_DIRS:
+        base = _base_for_dir(d, root)
+        try:
+            base = base.resolve()
+        except OSError:
+            pass
+        p = base / d
+        # NO ABSOLUTE PATH IN THE ENTRY. This summary is returned by
+        # /api/captures/scan, and test_capture_scan_routes asserts the response
+        # discloses no filesystem paths -- it caught the first version of this
+        # function doing exactly that. `dir` is the root's relative name, which
+        # is what an operator needs to know which one is missing; the absolute
+        # location is derivable on the box and does not belong in a response.
+        out.append({"dir": d, "exists": p.is_dir()})
+    return out
+
+
 def scan_captures_summary(root=None) -> Dict[str, Any]:
     """Build the recursive inventory + a cheap summary {total, by_host, took_ms}.
-    Returns the rows too so a caller can cache both in one pass."""
+    Returns the rows too so a caller can cache both in one pass.
+
+    Also reports `corpus_state` and `roots_missing`, so a caller can tell an
+    ABSENT corpus from an EMPTY one -- see :func:`capture_roots_state`.
+    """
     import time as _time
     t0 = _time.monotonic()
     rows = scan_captures(root=root)
@@ -298,10 +333,24 @@ def scan_captures_summary(root=None) -> Dict[str, Any]:
     for r in rows:
         h = r.get("host") or "(unknown)"
         by_host[h] = by_host.get(h, 0) + 1
+
+    roots = capture_roots_state(root=root)
+    missing = [r["dir"] for r in roots if not r["exists"]]
+    if rows:
+        state = "present"
+    elif not missing:
+        state = "empty"          # the roots are there and hold nothing
+    elif len(missing) == len(roots):
+        state = "absent"         # nothing is there at all
+    else:
+        state = "partial"        # some restored, some not -- the observed case
     return {
         "total": len(rows),
         "by_host": by_host,
         "took_ms": round((_time.monotonic() - t0) * 1000, 1),
+        "roots": roots,
+        "roots_missing": missing,
+        "corpus_state": state,
         "rows": rows,
     }
 
