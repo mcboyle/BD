@@ -55,7 +55,19 @@ echo "jobs=$(ls /tmp/bd-jobs/*.json 2>/dev/null | wc -l)"
 # is awk, only a real run is python) and split the literal so this line cannot
 # match itself.
 echo "pytest=$(ps -eo pid=,comm=,args= 2>/dev/null | awk '$2 ~ /^python/ && $0 ~ /-m[ ]pytest/' | wc -l)"
-echo "tmp_bd=$(ls -d /tmp/bd-* /tmp/pytest-of-* 2>/dev/null | wc -l)"
+# COUNT THE DIRECTORY, NOT TWO GLOBS. This read
+# `ls -d /tmp/bd-* /tmp/pytest-of-*` until v3.66.1078 and reported 2918 on
+# test5 while /tmp held 15392 entries -- a 5.3x undercount that saw 346 of the
+# 2373 directories one capture actually adds. The largest leak family is bare
+# mkdtemp() output named `tmp*`, which matches neither glob, so the column
+# certified a denominator excluding most of its subject -- and it was the
+# number anyone sizing the leak would have read.
+#
+# This counts EVERYTHING under /tmp, including entries BD did not create.
+# Deliberate: the names cannot be attributed to an owner, and a proxy that
+# over-counts slightly beats one that misses 84%. `bd-gc` decides what is safe
+# to remove.
+echo "tmp_bd=$(ls -1 /tmp 2>/dev/null | wc -l)"
 '''
 
 
@@ -158,7 +170,8 @@ def divergences(rows):
             pass
         try:
             if int(d.get("tmp_bd", 0)) >= 100:
-                notes.append("%s carries %s /tmp/bd-* and pytest-of-* paths -- "
+                notes.append("%s carries %s entries under /tmp (all of it, not just "
+                             "BD's -- the names cannot be attributed) -- "
                              "`bd-gc` reports what is safe to remove"
                              % (label, d["tmp_bd"]))
         except ValueError:
@@ -256,7 +269,11 @@ def selftest(_args):
                         "service": "active", "pytest": "3", "jobs": "0",
                         "tmp_bd": "700"}, None)]
     notes = " ".join(divergences(rows))
-    if "700 /tmp/bd-*" not in notes:
+    # Match the COUNT and the remedy, not the phrasing. This asserted the
+    # literal "700 /tmp/bd-*" and broke at v3.66.1078 when the note stopped
+    # naming a glob it no longer counts -- a selftest coupled to wording
+    # fails on a correct change and says nothing about behaviour.
+    if "700" not in notes or "bd-gc" not in notes:
         failures.append("a litter count of 700 was collected and never "
                         "reported -- a field written and never read")
     if "NOTHING registered" not in notes:

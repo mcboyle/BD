@@ -4,6 +4,40 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1078
+
+bd-fleet's litter column counted two globs, not the directory.
+
+MEASURED on test5 at v3.66.1077: the column read 2918 while /tmp held 15392
+entries -- a 5.3x undercount. Across one capture round it saw 346 of the 2373
+directories actually created, so it reported 15% of the growth it exists to
+surface. The globs were `bd-*` and `pytest-of-*`; the largest leak family on
+the fleet is bare `mkdtemp()` output named `tmp*`, which matches neither. A
+column certifying a denominator that excludes most of its subject, and it is
+the number anyone sizing the leak would have read -- including the row that
+records the leak, whose figures were derived from it.
+
+It now counts every entry under /tmp, including entries BD did not create.
+Deliberate: the names cannot be attributed to an owner, and a proxy that
+over-counts slightly beats one that misses 84%. The divergence note says so
+rather than implying the count is BD's alone.
+
+Split out of the leak cut on purpose. It is the instrument the leak fix will be
+measured with, so it lands FIRST -- a before/after taken with a counter changed
+in the same cut proves nothing.
+
+Live after the fix: 18066 / 13216 / 15863 / 13476 across the fleet, against
+3264 / 1982 / 2408 / 2042 before.
+
+TWO HARNESS DEFECTS FOUND WHILE WRITING THIS, both the shape section 6 names.
+The probe opens with `cd ~/BulkDownloader || { echo tree=ABSENT; exit 0; }`, so
+both new tests initially failed before reaching the line under test -- a
+harness defect wearing the subject's clothes. Each now asserts the probe
+REACHED its litter line before judging what it said.
+
+2 mutants, 2 caught: reverting to the globs, and a counter that cannot report
+zero.
+
 ## v3.66.1077
 
 Three claims in CLAUDE.md that were false, one of them inverted.

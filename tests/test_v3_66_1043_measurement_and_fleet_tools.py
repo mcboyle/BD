@@ -612,3 +612,64 @@ def test_an_unknown_running_version_is_not_reported_as_a_mismatch():
               "dirty": "0", "service": "active", "jobs": "0", "pytest": "0"}, None)]
     assert not [n for n in mod.divergences(rows) if "serving" in n.lower()], (
         "an absent reading was reported as a disagreement")
+
+
+# ── @1078: the litter column counted two globs, not the directory ────────────
+
+def test_the_litter_probe_counts_all_of_tmp_not_two_globs(tmp_path):
+    """MEASURED on test5 at v3.66.1077: the column read 2918 while /tmp held
+    15392 entries -- a 5.3x undercount, and it saw 346 of the 2373 directories
+    one capture actually adds (15%).
+
+    The globs are `bd-*` and `pytest-of-*`. The largest leak family on the fleet
+    is bare `mkdtemp()` output named `tmp*`, which matches neither, so the
+    column certified a denominator excluding most of its subject -- and it is
+    the number anyone sizing the leak would have read.
+
+    EXECUTED against a fake /tmp rather than grepped, because the probe is shell
+    text and a comment naming a pattern is not the same as counting it.
+    """
+    import subprocess as sp
+    mod = _load("bd-fleet")
+    fake = tmp_path / "tmp"
+    fake.mkdir()
+    for n in ("bd-alpha", "pytest-of-mboyle", "tmpABCDEFGH", "cen_db_XYZ", "keepme"):
+        (fake / n).mkdir()
+    # ASSERT THE HARNESS BUILT THE SHAPE FIRST. The probe opens with
+    # `cd ~/BulkDownloader || { echo tree=ABSENT; exit 0; }`, so without this
+    # directory it exits before emitting anything and BOTH assertions below
+    # fail for a reason that has nothing to do with the counter.
+    (tmp_path / "BulkDownloader").mkdir()
+
+    out = sp.run(["bash", "-c", mod.PROBE.replace("/tmp", str(fake))],
+                 capture_output=True, text=True,
+                 env={**os.environ, "HOME": str(tmp_path)}, timeout=60).stdout
+    d = mod.parse_probe(out)
+    assert d.get("tree") != "ABSENT" and "tmp_bd" in d, (
+        "the probe never reached its litter line -- harness defect, not a "
+        "counter defect: %r" % out)
+    assert d.get("tmp_bd") == "5", (
+        "the litter reading is %r; it must count every entry, not just the "
+        "bd-* and pytest-of-* globs (the fake dir holds 5, of which only 2 "
+        "match those two patterns). Emitted: %r" % (d.get("tmp_bd"), out))
+
+
+def test_the_litter_reading_is_not_vacuous():
+    """Over-sensitivity control: an empty directory must read 0, not 'unknown'
+    or a crash -- a counter that cannot report zero is the one every verdict
+    defect in section 10 had in common."""
+    import subprocess as sp
+    import tempfile
+    mod = _load("bd-fleet")
+    with tempfile.TemporaryDirectory() as empty:
+        home = pathlib.Path(empty) / "home"
+        (home / "BulkDownloader").mkdir(parents=True)
+        scan = pathlib.Path(empty) / "scan"
+        scan.mkdir()
+        out = sp.run(["bash", "-c", mod.PROBE.replace("/tmp", str(scan))],
+                     capture_output=True, text=True,
+                     env={**os.environ, "HOME": str(home)}, timeout=60).stdout
+    assert "tmp_bd" in mod.parse_probe(out), (
+        "probe did not reach its litter line: %r" % out)
+    assert mod.parse_probe(out).get("tmp_bd") == "0", (
+        "an empty directory did not read 0: %r" % out)
