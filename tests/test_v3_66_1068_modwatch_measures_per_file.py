@@ -29,6 +29,10 @@ import sys
 import pytest
 
 _REPO = pathlib.Path(__file__).resolve().parent.parent
+
+# bd-modwatch is the instrument the suite's module-wipe measurements come from;
+# this file's subject is that instrument, not a product module.
+BD_GATE_SCOPE = "repo-wide"
 _TOOL = _REPO / "toolchain" / "bin" / "bd-modwatch"
 
 _LEAKER = "tests/test_v3_66_1034_guards_survive_a_module_wipe.py"

@@ -29,6 +29,10 @@ import pytest
 from shell_source import shell_code_only
 
 _REPO = Path(__file__).resolve().parent.parent
+
+# Its subject is that three provisioning entry points agree with one shared
+# library -- an invariant over the tree's scripts, not over any module.
+BD_GATE_SCOPE = "repo-wide"
 _LIB = _REPO / "scripts" / "lib" / "dev_capabilities.sh"
 _CLOUD = _REPO / "scripts" / "cloud-setup.sh"
 _HOST = _REPO / "scripts" / "provision_test_host.sh"

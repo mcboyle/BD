@@ -269,17 +269,32 @@ jobs:
               tests/test_import_graph_no_new_edges.py
               tests/test_v3_66_653_dep_freshness.py
               tests/test_route_index_in_sync.py
+          # @1072 adds four suites here, and the last of them is THE GATE THAT
+          # GUARDS THIS MATRIX. Until now it ran nowhere: it was created at
+          # f736748, the same commit that deleted the `gates` job's pytest step,
+          # and appeared in that diff only inside a comment. So from v3.66.939
+          # to v3.66.1071 the only check that would notice a suite falling out
+          # of every shard was itself a suite that had fallen out of every one.
+          #
+          # A comment cannot go INSIDE the `>-` block below: a folded scalar is
+          # text, so a `#` line there becomes part of the suites string and
+          # pytest is handed its words as paths.
           - name: measurement-tools
             suites: >-
               tests/test_v3_66_1046_gates_for_this_sessions_shapes.py
               tests/test_v3_66_1044_run_context_and_chains.py
               tests/test_v3_66_1043_measurement_and_fleet_tools.py
               tests/test_v3_66_1040_remote_job_registry.py
+              tests/test_v3_66_1068_modwatch_measures_per_file.py
+              tests/test_v3_66_1062_vision_probes_are_loadable_images.py
+              tests/test_v3_66_1064_provisioning_paths_do_not_diverge.py
+              tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py
           - name: isolation
             suites: >-
               tests/test_v3_66_1034_guards_survive_a_module_wipe.py
               tests/test_v3_66_1031_socket_recorder_stages.py
               tests/test_no_test_writes_the_repo_plugins_dir.py
+              tests/test_v3_66_1067_the_leaker_census_reads_code_not_prose.py
           - name: artifacts-pins
             suites: >-
               tests/test_generated_artifacts_are_not_tracked.py

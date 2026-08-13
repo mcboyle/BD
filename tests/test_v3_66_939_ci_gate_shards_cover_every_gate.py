@@ -49,6 +49,7 @@ is a rule for humans reading the comment, not a test.
 """
 from __future__ import annotations
 
+import ast
 import subprocess
 from pathlib import Path
 
@@ -62,6 +63,9 @@ yaml = pytest.importorskip(
 
 _REPO = Path(__file__).resolve().parent.parent
 _CI = _REPO / ".github" / "workflows" / "ci.yml"
+
+# Its subject is which gates CI runs, which is a property of the tree.
+BD_GATE_SCOPE = "repo-wide"
 
 # The gates that must run on every PR. Pinned HERE rather than derived from
 # ci.yml, because deriving the expectation from the thing under test is how a
@@ -98,7 +102,64 @@ _DECLARED = {
     "tests/test_v3_66_1034_guards_survive_a_module_wipe.py",
     "tests/test_v3_66_1031_socket_recorder_stages.py",
     "tests/test_no_test_writes_the_repo_plugins_dir.py",
+    # @1072, and the first entry is this file. MEASURED at v3.66.1071: the
+    # `gates` job runs ZERO pytest, and this suite is in no shard -- so the
+    # only thing that would notice a dropped shard entry has never run on a
+    # PR. It was created at f736748, the same commit that deleted the gates
+    # job's pytest step, and appeared in that diff only inside a comment.
+    # The gate against a file falling out of every shard fell out of every
+    # shard, in the cut that wrote it.
+    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
+    # @1072. The four gates shipped 2026-08-12 that this policy exists to
+    # catch: each was added to the tree and to neither list, which is the
+    # eighth occurrence of the failure (944, 947, 1031, 1034 preceded them).
+    "tests/test_v3_66_1062_vision_probes_are_loadable_images.py",
+    "tests/test_v3_66_1064_provisioning_paths_do_not_diverge.py",
+    "tests/test_v3_66_1067_the_leaker_census_reads_code_not_prose.py",
+    "tests/test_v3_66_1068_modwatch_measures_per_file.py",
 }
+
+# ── the declaration policy, @1072 ────────────────────────────────────────────
+#
+# WHY A MARKER AND NOT A PREDICATE. The obvious fix is to DERIVE the repo-wide
+# set from source shape and compare it against _DECLARED. It does not work, and
+# the measurement is the reason rather than an opinion. Against the eight files
+# that have actually gone undeclared (944, 947, 1031, 1034, 1062, 1064, 1067,
+# 1068), measured at v3.66.1071 over AST call nodes:
+#
+#     a real `git ls-files` call argument            catches 3 of 8
+#     that, plus naming repo infrastructure in code  catches 4 of 8
+#         (and the second widens the candidate pool from 34 files to 136,
+#          so it costs a 124-entry exemption list to buy one more hit)
+#
+# 947, 1031, 1067 and 1068 carry NO structural signal separating them from an
+# ordinary feature test. The @1035 note in this very set says as much in prose
+# -- "repo-wide despite not looking it" -- and that is a property of the class,
+# not a gap in the predicates tried. A gate is repo-wide because of what it
+# ASSERTS ABOUT, which no reader of its syntax can recover.
+#
+# So the class is not derivable, and the decision is the author's. What a gate
+# CAN do is refuse to let the decision go unmade: every tracked test file must
+# either carry a BD_GATE_SCOPE or sit in the frozen legacy baseline, and a file
+# that calls itself repo-wide must be in _DECLARED, which the union assertion
+# then forces into a shard.
+#
+# WHAT THIS DOES NOT CATCH, stated here because an instrument that hides its
+# blind spots is worse than none: nothing verifies that a "module" answer is
+# HONEST. A repo-wide gate mislabelled `module` passes every assertion in this
+# file. The policy converts a silent omission into a forced decision; it does
+# not check the decision. Nor does it reach the 1314 baselined files -- 26 of
+# which make a real `git ls-files` call and are in no shard (recorded as
+# backlog row 99).
+_SCOPE_MARKER = "BD_GATE_SCOPE"
+_VALID_SCOPES = {"repo-wide", "module"}
+_BASELINE = _REPO / "tests" / "gate_scope_baseline.txt"
+
+# The baseline may only shrink. Pinned at adoption; classifying a file removes
+# its line. A count alone cannot stop a swap -- delete one line, add another --
+# but that is a deliberate edit visible in the diff, and the failure this gate
+# exists for is forgetting, not evasion.
+_BASELINE_MAX = 1314
 
 
 def _workflow() -> dict:
@@ -130,6 +191,89 @@ def _shard_lists() -> dict[str, list[str]]:
 def _tracked(rel: str) -> bool:
     return subprocess.run(["git", "ls-files", "--error-unmatch", "--", rel],
                           cwd=str(_REPO), capture_output=True).returncode == 0
+
+
+def _tracked_test_files() -> list[str]:
+    out = subprocess.run(["git", "ls-files", "--", "tests/test*.py"],
+                         cwd=str(_REPO), capture_output=True, text=True, check=True)
+    return sorted(out.stdout.split())
+
+
+def _baseline_entries() -> set[str]:
+    if not _BASELINE.is_file():
+        return set()
+    return {ln.strip() for ln in _BASELINE.read_text("utf-8").splitlines()
+            if ln.strip() and not ln.lstrip().startswith("#")}
+
+
+def _declared_scope(path: Path | str):
+    """The module-level BD_GATE_SCOPE value, or None if the file declares none.
+
+    AST, and MODULE SCOPE ONLY, so the marker has to be an assignment that
+    actually executes. A docstring, a comment or an assertion message naming it
+    answers nothing -- which matters here more than usual, because the policy
+    block above names the marker a dozen times and this function is pointed at
+    its own file. CLAUDE.md section 0: a comment is inside the denominator of
+    every gate that reads source text.
+
+    The raw-substring pre-filter is sound in the only direction it is used: a
+    file that never mentions the name cannot assign it, so skipping the parse
+    cannot manufacture a False negative. It is there because this runs over
+    every tracked test file.
+    """
+    text = Path(path).read_text(encoding="utf-8", errors="replace")
+    if _SCOPE_MARKER not in text:
+        return None
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return None
+    for node in tree.body:
+        targets = []
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        else:
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == _SCOPE_MARKER for t in targets):
+            continue
+        value = node.value
+        if isinstance(value, ast.Constant):
+            return value.value
+        return f"<non-literal: {type(value).__name__}>"
+    return None
+
+
+def _scope_map(paths) -> dict[str, object]:
+    """{path: declared scope} for every path that declares one."""
+    out = {}
+    for rel in paths:
+        scope = _declared_scope(_REPO / rel)
+        if scope is not None:
+            out[rel] = scope
+    return out
+
+
+# The three policy comparisons, EXTRACTED so they can be driven with synthetic
+# inputs. At adoption every live call below is nearly vacuous -- five files
+# carry a marker and 1314 sit in the baseline -- so without a positive control
+# a comparison could be severed from its inputs and every assertion would still
+# pass. That is the escape a mutation battery found in `_coverage_delta` one
+# cut after this file was written.
+
+def _unclassified(tracked, baseline, scopes) -> list[str]:
+    """Tracked test files that neither sit in the baseline nor declare a scope."""
+    return sorted(t for t in tracked if t not in baseline and t not in scopes)
+
+
+def _invalid_scopes(scopes) -> list[str]:
+    return sorted(f"{p} = {s!r}" for p, s in scopes.items() if s not in _VALID_SCOPES)
+
+
+def _repo_wide_not_declared(scopes, declared) -> list[str]:
+    return sorted(p for p, s in scopes.items()
+                  if s == "repo-wide" and p not in declared)
 
 
 # ── coverage ─────────────────────────────────────────────────────────────────
@@ -291,3 +435,148 @@ def test_the_shard_job_installs_runtime_dependencies():
             f"SKIP rather than a failure.")
         return
     pytest.fail("no sharded gate job found to check")
+
+
+# ── the declaration policy, @1072 ────────────────────────────────────────────
+
+def test_the_scope_reader_answers_from_code_not_prose(tmp_path):
+    """The reader is EXECUTED against real files, never inspected as text.
+
+    Every case below is a file this test writes and the reader then parses.
+    Source-text assertions about a source-reading function were the shape that
+    escaped three mutation batteries on 2026-08-12: a check that reads the
+    implementation agrees with whatever the implementation says.
+
+    tmp_path rather than tests/, deliberately -- PIN_INDEX's regen globs
+    tests/*.py and races a file created there even briefly.
+    """
+    def probe(body: str):
+        f = tmp_path / "probe.py"
+        f.write_text(body, encoding="utf-8")
+        return _declared_scope(f)
+
+    assert probe('BD_GATE_SCOPE = "repo-wide"\n') == "repo-wide"
+    assert probe('BD_GATE_SCOPE: str = "module"\n') == "module", (
+        "an annotated assignment executes exactly like a plain one; reading "
+        "only ast.Assign would let a real declaration go unseen")
+
+    assert probe('"""BD_GATE_SCOPE = \\"repo-wide\\" is how you declare."""\n') is None, (
+        "a DOCSTRING describing the marker was accepted as a declaration. That "
+        "is the trap the policy block above would spring on this very file, "
+        "which names the marker a dozen times in prose.")
+    assert probe('# BD_GATE_SCOPE = "repo-wide"\n') is None, (
+        "a commented-out declaration was accepted")
+    assert probe('MSG = "set BD_GATE_SCOPE = repo-wide"\n') is None, (
+        "a message string quoting the marker was accepted")
+    assert probe("import os\n") is None
+
+    assert probe('def f():\n    BD_GATE_SCOPE = "repo-wide"\n') is None, (
+        "a marker inside a function body never executes at import and must "
+        "not count; module scope is the whole point")
+
+    assert str(probe("BD_GATE_SCOPE = SOMETHING\n")).startswith("<non-literal"), (
+        "a non-literal value must be reported rather than silently treated as "
+        "absent -- it is a malformed declaration, which is a third state")
+
+
+def test_the_policy_predicates_actually_compare():
+    """Positive controls with synthetic sets whose answers are not in doubt.
+
+    The live assertions below are near-vacuous at adoption, so each of these
+    three comparisons could be severed from its inputs today and every live
+    gate would stay green.
+    """
+    assert _unclassified(["a.py", "b.py", "c.py"], {"a.py"}, {"b.py": "module"}) == ["c.py"], (
+        "the unclassified predicate stopped depending on its inputs; a new "
+        "test file would then never be asked to classify itself")
+    assert _unclassified(["a.py"], {"a.py"}, {}) == []
+    assert _unclassified(["a.py"], set(), {"a.py": "module"}) == []
+
+    assert _invalid_scopes({"a.py": "repo-wide", "b.py": "module"}) == []
+    assert _invalid_scopes({"a.py": "repowide"}) == ["a.py = 'repowide'"], (
+        "a typo'd scope must fail rather than read as one of the valid values")
+
+    assert _repo_wide_not_declared({"a.py": "repo-wide"}, set()) == ["a.py"]
+    assert _repo_wide_not_declared({"a.py": "repo-wide"}, {"a.py"}) == []
+    assert _repo_wide_not_declared({"a.py": "module"}, set()) == [], (
+        "a module-scoped file was demanded of _DECLARED; the gate would fire "
+        "on every clean tree and be switched off")
+
+
+def test_every_tracked_test_file_is_classified_or_baselined():
+    """The forced decision. A new test file must say what it is.
+
+    This is the assertion the whole policy exists for, and it is the one that
+    would have caught all eight historical misses -- not because it recognises
+    a repo-wide gate, which is not derivable, but because it refuses to let the
+    question go unanswered.
+    """
+    tracked = _tracked_test_files()
+    assert tracked, "no tracked test files found; every assertion here is vacuous"
+    baseline = _baseline_entries()
+    scopes = _scope_map(tracked)
+
+    missing = _unclassified(tracked, baseline, scopes)
+    assert not missing, (
+        f"{len(missing)} tracked test file(s) declare no {_SCOPE_MARKER} and are "
+        f"not in {_BASELINE.name}:\n  " + "\n  ".join(missing) + "\n\n"
+        f"Add one of {sorted(_VALID_SCOPES)} at module scope. 'repo-wide' means "
+        f"the gate's subject is the tree rather than a module, so it holds "
+        f"whatever the diff touched and belongs in CI -- add it to _DECLARED "
+        f"and to a gate-suites shard in the same cut. 'module' means an "
+        f"ordinary test. Do not add the file to the baseline: that list is "
+        f"frozen legacy and may only shrink.")
+
+    bad = _invalid_scopes(scopes)
+    assert not bad, (
+        f"{_SCOPE_MARKER} must be one of {sorted(_VALID_SCOPES)}:\n  "
+        + "\n  ".join(bad))
+
+
+def test_every_repo_wide_file_is_in_the_declared_set():
+    """A file that calls itself repo-wide must be declared, which the union
+    assertion above then forces into a shard.
+
+    This is the walk-forward the author gets for free: one marker in the file
+    they are already writing, and the gate names the other two edits.
+    """
+    scopes = _scope_map(_tracked_test_files())
+    repo_wide = {p for p, s in scopes.items() if s == "repo-wide"}
+    assert repo_wide, (
+        "no file declares itself repo-wide, so this assertion is vacuous -- at "
+        "adoption five do, and a drop to zero means the marker was renamed or "
+        "the reader broke")
+
+    undeclared = _repo_wide_not_declared(scopes, _DECLARED)
+    assert not undeclared, (
+        f"file(s) declaring {_SCOPE_MARKER} = 'repo-wide' but absent from "
+        f"_DECLARED, so they run on no PR while the check stays green: "
+        f"{undeclared}")
+
+
+def test_the_baseline_is_frozen_legacy_that_may_only_shrink():
+    """It is an exemption list, and an exemption list that can grow is not one.
+
+    A count ratchet cannot stop a swap -- delete one line, add another -- but
+    that is a deliberate edit sitting in the diff, and the failure this policy
+    addresses is forgetting rather than evasion.
+    """
+    baseline = _baseline_entries()
+    assert baseline, f"{_BASELINE.name} is empty or missing"
+    assert len(baseline) <= _BASELINE_MAX, (
+        f"the baseline grew to {len(baseline)} from a pinned {_BASELINE_MAX}. It "
+        f"is the UNCLASSIFIED legacy population and may only shrink -- a new "
+        f"test file declares {_SCOPE_MARKER} instead of being exempted here.")
+
+    tracked = set(_tracked_test_files())
+    stale = sorted(baseline - tracked)
+    assert not stale, (
+        f"baseline entr(ies) naming file(s) that are no longer tracked: {stale}. "
+        f"A deleted or renamed file must lose its line -- a rename is a new "
+        f"file, and a new file classifies itself.")
+
+    both = sorted(baseline & set(_scope_map(sorted(baseline))))
+    assert not both, (
+        f"file(s) both baselined and declaring a scope: {both}. Classifying a "
+        f"file means deleting its baseline line in the same cut, or the "
+        f"exemption list stops describing what is actually unclassified.")

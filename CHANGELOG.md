@@ -4,6 +4,54 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1072
+
+An undeclared repo-wide gate is now a red test (backlog 46).
+
+MEASURED at v3.66.1071, and the first finding is the worst of them: the `gates`
+job runs ZERO pytest, and tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py
+-- the only check that would notice a suite falling out of every shard -- is in
+no shard and in no job. It was created at f736748, the same commit that deleted
+the gates job's pytest step, and appeared in that diff only inside a comment.
+The gate against a file falling out of every shard fell out of every shard, in
+the cut that wrote it, and has never run on a PR. CLAUDE.md said that job ran
+"exactly ONE pytest file"; corrected here.
+
+Four more gates shipped 2026-08-12 (1062, 1064, 1067, 1068) were in neither
+ci.yml nor _DECLARED -- the eighth occurrence after 944, 947, 1031 and 1034.
+All five are wired into a shard and into _DECLARED by this cut.
+
+WHY A MARKER AND NOT A DERIVED PREDICATE. Deriving the repo-wide set from
+source shape does not work, and the measurement is the argument rather than an
+opinion. Over AST call nodes, against the eight files that have actually gone
+undeclared: a real `git ls-files` call argument catches 3 of 8; adding "names
+repo infrastructure in code" catches 4 of 8 while widening the candidate pool
+from 34 files to 136, so the second signal costs a 124-entry exemption list to
+buy one hit. 947, 1031, 1067 and 1068 carry no structural signal separating
+them from an ordinary feature test. A gate is repo-wide because of what it
+ASSERTS ABOUT, which no reader of its syntax can recover.
+
+So the class is not derivable and the decision is the author's. What the gate
+does is refuse to let the decision go unmade: every tracked tests/test*.py file
+must either declare a module-level BD_GATE_SCOPE ("repo-wide" or "module") or
+sit in tests/gate_scope_baseline.txt, the frozen 1314-entry legacy population
+that may only shrink. A file declaring itself repo-wide must be in _DECLARED,
+which the existing union assertion then forces into a shard. There is
+deliberately no regenerator for the baseline: a tool that rebuilt it from the
+tree would add every new test file automatically, which is exactly the
+forgetting the policy exists to catch.
+
+The scope reader is AST and module-scope-only, so a docstring, comment or
+message naming the marker declares nothing -- this file's own policy block
+names it a dozen times in prose. Positive controls drive every comparison with
+synthetic inputs, because at adoption the live assertions are near-vacuous: 6
+of 6 mutants caught, 0 escaped.
+
+DECLARED BLIND SPOTS, in the gate's own text: nothing verifies that a "module"
+answer is honest, and the policy does not reach the 1314 baselined files -- 26
+of which make a real `git ls-files` call and are in no shard (new backlog row
+99).
+
 ## v3.66.1071
 
 Backlog 95 re-measured. Documentation only.

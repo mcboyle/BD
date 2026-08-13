@@ -43,6 +43,10 @@ import pytest
 
 _REPO = pathlib.Path(__file__).resolve().parent.parent
 
+# Its PNG-literal census enumerates `git ls-files -- '*.py'`, so a probe added
+# anywhere in the tree is its subject.
+BD_GATE_SCOPE = "repo-wide"
+
 # Measured: 1 fails on ollama 0.32.9, 2 passes. 8 is margin, not superstition.
 _MIN_DIM = 8
 
