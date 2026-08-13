@@ -190,4 +190,7 @@ def test_that_suite_still_passes():
     got = _env_after(_LEAKY)
     assert got["exitstatus"] == 0, (
         "the @940 suite no longer passes:\n" + got["stdout"][-2000:])
-    assert "test_every_declared_key_can_be_seeded" in got["stdout"] or True
+    # No assertion on stdout: pytest's -q output does not reliably name
+    # individual passing tests, which is why this carried an `or True` and
+    # therefore asserted nothing at all. The exitstatus check above is the
+    # real guarantee that @940's suite still passes.

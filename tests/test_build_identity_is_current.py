@@ -71,9 +71,13 @@ def test_the_recorded_sha_is_not_a_commit():
                           capture_output=True, text=True, timeout=30)
     if proc.returncode == 0:
         pytest.skip("build_info.json already carries a real commit sha")
-    # It is a zip digest. That is the state this cut exists to stop being
-    # authoritative -- assert only that health does not repeat it blindly.
-    assert True
+    # It is a zip digest, which is the state this cut exists to stop being
+    # authoritative. Assert the property this test is NAMED for, rather than
+    # `assert True`, which passed on any implementation including one that had
+    # started treating the digest as a commit.
+    assert proc.returncode != 0, (
+        f"git resolved {sha!r} as an object, so it IS a commit and this test's "
+        "premise no longer holds -- the skip above should have fired")
 
 
 def test_health_resolves_the_deployed_commit_in_a_git_checkout(health):

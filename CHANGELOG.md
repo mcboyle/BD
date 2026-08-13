@@ -4,6 +4,34 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1098
+
+- tests: a gate now refuses any assertion that is true for every input, and six
+  existing ones are repaired (a decidable slice of backlog 26).
+- THE `or True` WAS NOT LAZINESS -- IT WAS SUPPRESSING FALSE ASSERTIONS, which
+  is the finding. Making them real turned two of them RED: repr() of a draft
+  recognition legitimately contains 'generic_token' and 'token_refresh' as FIELD
+  NAMES, so "token" not in blob was never true; and hasattr(bulk_downloader,
+  "plugin_node") holds in a bare interpreter but is FALSE under this suite,
+  because conftest's _canonicalize_package_children reconciles package
+  attributes against sys.modules. Both are now deleted with the measurement
+  recorded, since neither property is real.
+- One assertion could neither pass nor fail: its second clause was
+  `"sec" not in [s.lower() for s in ("SEC",)]`, which is always False, while the
+  `or True` made the whole expression always True.
+- AST FOUND MORE THAN GREP. A grep for `or True` found four; the AST walk found
+  SIX, including two bare `assert True`. One of those sat in a test whose
+  docstring admitted it could not observe what it claimed to cover; it is
+  removed rather than faked, because observing generator teardown needs state
+  shared between two tests and that is the order-dependence class backlog 25
+  exists for.
+- The gate states what it does NOT close: it cannot see an assertion vacuous
+  through a variable, an unreachable assertion, or one true of every possible
+  implementation. Backlog 26 stays open above this floor.
+- Found by writing one. v3.66.1095 shipped `assert "aifc" not in sys.modules or
+  True` past review, a mutation battery, a 517-file band, twelve CI checks and
+  four captures, because nothing was looking.
+
 ## v3.66.1097
 
 - tests: the v3.66.1095 eviction gate no longer depends on stdlib import order.

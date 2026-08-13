@@ -104,7 +104,15 @@ def test_poster_rejected_not_a_candidate():
 def test_draft_recognition_is_f2_clean():
     r = _rec()
     blob = repr(r)
-    assert "token" not in blob.lower() and "sec" not in [s.lower() for s in ("SEC",)] or True
+    # NO ASSERTION ON THE WHOLE BLOB, and the `or True` was hiding why.
+    # MEASURED at v3.66.1097: repr(r) legitimately contains 'generic_token',
+    # 'param_names': ['token'] and 'token_refresh' -- those are FIELD NAMES
+    # describing what the recogniser found, not a leaked secret. So
+    # `"token" not in blob.lower()` is simply false, and the second clause of
+    # the original (`"sec" not in [s.lower() for s in ("SEC",)]`) was false
+    # too, since "sec" IS in that list. The assertion could neither pass on its
+    # own nor fail with the `or True` attached.
+    # The real property is per-URL and is asserted in the loop below.
     # explicit: no signed token / query survives in any url_shape
     for x in (r.get("renditions") or []) + [{"url_shape": c} for c in (r.get("media_candidates") or [])]:
         us = x.get("url_shape", "")

@@ -314,6 +314,7 @@ jobs:
               tests/test_playwright_engines_single_source.py
           - name: tree-gates-4
             suites: >-
+              tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py
               tests/test_v3_66_938_atomic_write_sidecars_are_ignored.py
               tests/test_v3_66_935_scan_wait_reports_non_convergence.py
               tests/test_history_columns_go_through_migrations.py
