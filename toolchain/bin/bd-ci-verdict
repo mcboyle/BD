@@ -1,0 +1,1188 @@
+#!/usr/bin/env python3
+"""bd-ci-verdict -- answer ONE question: is PR <N> safe to merge, on CI evidence?
+
+Prints a single VERDICT line (always the LAST line of stdout) and exits:
+
+    0  MERGE-SAFE        every check ci.yml produces is PRESENT BY NAME and passed
+    0  MERGE-SAFE-COUNT-ONLY   same, but --expected disabled the name check
+    1  DO-NOT-MERGE      evidence is complete but something failed / is pending
+    2  REFUSE-<REASON>   the evidence itself cannot be trusted -- CANNOT-EVALUATE
+
+Every refusal carries a DISTINCT token, because a shared exit code is not a
+diagnosis: REFUSE-NO-CHECKS (gh said the board is empty), REFUSE-GH-SILENT (gh
+said nothing at all) and REFUSE-GH-FAILED (gh could not be asked) are the same
+exit 2 and three different situations with three different next actions.
+
+WHY IT EXISTS. `gh pr checks` prints TAB-separated rows whose FIRST column is a
+job name that contains spaces ("gate-suites (toolchain)"). `awk '{print $2}'`
+over that returns a NAME FRAGMENT, and a 12-of-12-green run reads as "2 passed".
+Worse: run before any check has registered, gh prints NOTHING, and a guard built
+on "fail == 0" reports green over zero evidence -- that is how PR #366 merged on
+evidence that did not exist. This tool therefore:
+
+  * isolates the status column TAB-exactly (never by whitespace field index), and
+  * VALIDATES the isolated value against the closed gh status vocabulary
+    {pass, fail, pending, skipping}. A name fragment is not in that vocabulary,
+    so a column-shift REFUSES instead of miscounting; and
+  * checks the board BY NAME. It re-derives, from ci.yml in the same run, the
+    display name of every check that workflow posts, and REFUSES unless every
+    one of those names is on the board. A count is never accepted as a proxy
+    for identity, and a count is never reported without its denominator.
+
+Excess checks are allowed (other apps post checks too) -- but they must all pass.
+The rule is: every derived name present AND total >= expected AND fail == 0 AND
+pending == 0 AND skipping == 0 AND pass == total.
+
+WHY BY NAME AND NOT BY COUNT (measured, 2026-08-13, against this repo's ci.yml).
+A board of twelve passing rows carrying the eleven real names of PR #369 plus one
+foreign passing check -- `postgres-integration` absent, count exactly 12 --
+was reported `MERGE-SAFE ... total=12 pass=12` by the count-only build of this
+tool, exit 0. A required check that never registered cannot fail, and a check
+that cannot fail is not evidence. Identity is the check; the count is only an
+arithmetic cross-check on it.
+
+================================ WHAT IT CANNOT SEE ==========================
+It is a one-shot read of one instrument. It is NOT a merge authorisation.
+
+ 1. GITHUB-SIDE CONFIG. Branch protection, required-check lists and merge queues
+    live on github.com and are not readable from a checkout. A check that is
+    REQUIRED but posted by no workflow in this tree is invisible here.
+ 2. THE PR BRANCH'S OWN ci.yml. Both the expected NAMES and the count come from
+    the ci.yml in the LOCAL working tree at the LOCAL commit. If the PR edits
+    ci.yml, the true expectation is the PR's copy, not this one.
+ 3. VACUOUS GREEN. A shard that collected zero tests, a suite that fell out of
+    every matrix entry, a gate that ran the pytest stub instead of pytest -- all
+    render as `pass`. A green tick is not evidence that tests ran.
+ 4. TIME. This is an instantaneous sample. A check can register, flip red, or be
+    re-run one second later. Re-run this immediately before merging; a stale
+    verdict is not a verdict.
+ 5. HEAD IDENTITY. It does not verify which commit the rows describe, whether
+    the branch is up to date with main, or whether a force-push landed mid-query.
+ 6. SKIP INTENT. `skipping` blocks here, but this cannot tell a legitimately
+    skipped optional check from a required job that never started.
+ 7. NAME IS NOT BODY. Identity matching is by check NAME. A row whose name
+    matches while its job body was rewritten, or a duplicate name from a re-run,
+    is indistinguishable here -- and under --expected the name check is OFF
+    entirely and the run compares counts only, which is why that path reports a
+    different verdict token.
+==============================================================================
+
+These seven lines are PRINTED on every single run, including refusals and the
+selftest. They are not documentation you can decline to open.
+
+RAW EVIDENCE. On any non-MERGE-SAFE outcome the COMPLETE captured stdout and
+stderr of gh are echoed with their line counts -- never a first line, never a
+head. The diagnosis is routinely on stderr line 2 ("HTTP 401: Bad credentials"
+under "error connecting to api.github.com"), and a summary that replaces the
+capture instead of sitting beside it throws that away.
+
+USAGE
+    bd-ci-verdict <PR>                 # verdict for PR <PR>
+    bd-ci-verdict <PR> --repo /path    # repo whose ci.yml sets the expectation
+    bd-ci-verdict --selftest           # synthetic fixtures, no network, no gh
+
+REUSE / NON-REIMPLEMENTATION
+    Workflow parsing follows the repo's OWN established convention --
+    yaml.safe_load(ci.yml) then strategy.matrix.include, exactly as
+    tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py:202-214 does -- and
+    deliberately NOT the indentation-anchored `grep -c '^          - name:'`,
+    which is layout-specific and has gone stale before. It calls no bd-* tool
+    because none reads CI status: `grep -rl 'gh pr checks' toolchain/ tools/
+    scripts/` returns 0 matches and exit 1 (positive control through the same
+    pipeline: the same grep over CLAUDE.md prints CLAUDE.md and exits 0), so
+    there is nothing here to delegate to.
+"""
+
+import argparse
+import itertools
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+TOOL = "bd-ci-verdict"
+
+# gh resolves WHICH repo a PR number belongs to from the git remote of its
+# working directory. Run outside a checkout it exits 1, prints nothing to
+# stdout, and says "not a git repository" on stderr -- which is CANNOT-ASK, not
+# NO-CHECKS-YET. Measured live on 2026-08-13: an earlier build of this tool
+# reported REFUSE-NO-CHECKS ("wait for the checks to register") for a PR whose
+# checks were in fact 12/12 green. Only this exact phrasing is a real empty
+# board -- and the phrasing is not a guess: the format string
+# "no checks reported on the '%s' branch" is present in the installed binary
+# (`strings /usr/bin/gh | grep -c "no checks reported"` -> 1, gh 2.45.0).
+NO_CHECKS_RE = re.compile(r"no checks reported", re.I)
+
+# The closed status vocabulary `gh pr checks` emits in its non-tty TSV. Anything
+# outside this set means the column moved or gh changed -- REFUSE, never assume.
+VOCAB = ("pass", "fail", "pending", "skipping")
+
+# ${{ matrix.foo }} inside a job's `name:`. Anything else expression-shaped is
+# not resolvable from a checkout, so naming stops rather than guesses.
+MATRIX_REF = re.compile(r"\$\{\{\s*matrix\.([A-Za-z_][A-Za-z0-9_.-]*)\s*\}\}")
+ANY_EXPR = re.compile(r"\$\{\{")
+
+BLIND_SPOTS = (
+    "cannot see github-side branch protection / required-check lists / merge queue",
+    "expected NAMES and count come from the LOCAL ci.yml, not the PR branch's copy",
+    "a vacuous green (zero tests collected, suite dropped from every shard) reads as pass",
+    "one instantaneous sample -- re-run immediately before merging",
+    "does not verify which commit the rows describe, nor branch-vs-main freshness",
+    "cannot tell a legitimately skipped optional check from a required job that never started",
+    "matches checks by NAME only; --expected turns that off and compares counts alone",
+)
+
+EXIT_SAFE = 0
+EXIT_BLOCK = 1
+EXIT_REFUSE = 2
+
+
+class Uncountable(Exception):
+    """The ci.yml row count cannot be derived. Not a zero -- an UNKNOWN."""
+
+
+class Unnameable(Exception):
+    """The ci.yml check NAMES cannot be derived. Not an empty set -- an UNKNOWN."""
+
+
+class Refusal(Exception):
+    def __init__(self, token, detail):
+        super().__init__(detail)
+        self.token = token          # distinct REFUSE-<REASON> word
+        self.detail = detail
+
+
+# --------------------------------------------------------------------------
+# expectation: which checks does this ci.yml actually post, and how many?
+# --------------------------------------------------------------------------
+
+def matrix_combinations(job_key, matrix):
+    """The matrix rows one job produces, as dicts. Raises rather than guess."""
+    if not isinstance(matrix, dict):
+        raise Uncountable(
+            f"job {job_key!r} has a non-mapping matrix (an expression?): "
+            f"{type(matrix).__name__}")
+    if "exclude" in matrix:
+        raise Uncountable(
+            f"job {job_key!r} matrix uses `exclude:` -- combination removal is "
+            "not counted here; count it by hand and pass --expected")
+    axes = {k: v for k, v in matrix.items() if k not in ("include", "exclude")}
+    include = matrix.get("include")
+    if axes and include is not None:
+        raise Uncountable(
+            f"job {job_key!r} matrix mixes {len(axes)} axis/axes with "
+            "`include:` -- GitHub's merge-or-append rule makes the row count "
+            "ambiguous to a static reader; pass --expected")
+    if axes:
+        for name, vals in axes.items():
+            if not isinstance(vals, list) or not vals:
+                raise Uncountable(
+                    f"job {job_key!r} matrix axis {name!r} is not a non-empty list")
+        keys = list(axes)
+        return [dict(zip(keys, combo))
+                for combo in itertools.product(*(axes[k] for k in keys))]
+    if isinstance(include, list) and include:
+        rows = []
+        for i, entry in enumerate(include):
+            if not isinstance(entry, dict):
+                raise Uncountable(
+                    f"job {job_key!r} matrix include[{i}] is not a mapping")
+            rows.append(entry)
+        return rows
+    raise Uncountable(f"job {job_key!r} has a matrix with no countable entries")
+
+
+def job_check_names(key, job, combos):
+    """The check names GitHub posts for one job. Raises Unnameable, never guesses."""
+    template = job.get("name")
+    if template is not None and not isinstance(template, str):
+        raise Unnameable(
+            f"job {key!r} has a non-string `name:` ({type(template).__name__})")
+    if combos is None:                                  # plain job
+        name = str(key) if template is None else template
+        if ANY_EXPR.search(name):
+            raise Unnameable(
+                f"job {key!r} name {name!r} contains a ${{{{ }}}} expression that "
+                "cannot be resolved from a checkout; pass --expected")
+        return [name]
+    if template is None:
+        raise Unnameable(
+            f"job {key!r} is a matrix job with no explicit `name:` -- GitHub "
+            "composes its check names from the matrix values and this tool will "
+            "not guess that layout; add a `name:` to the job or pass --expected")
+    names = []
+    for i, combo in enumerate(combos):
+        missing_key = []
+
+        def _sub(m):
+            k = m.group(1)
+            if k not in combo:
+                missing_key.append(k)
+                return ""
+            return str(combo[k])
+
+        name = MATRIX_REF.sub(_sub, template)
+        if missing_key:
+            raise Unnameable(
+                f"job {key!r} name template {template!r} refers to "
+                f"matrix.{missing_key[0]}, which include[{i}] does not define")
+        if ANY_EXPR.search(name):
+            raise Unnameable(
+                f"job {key!r} name {name!r} still contains an unresolved "
+                "${{ }} expression after matrix substitution; pass --expected")
+        names.append(name)
+    return names
+
+
+def expected_from_workflow(wf):
+    """(total, [(job, rows)...], [check names...]) for one push of this workflow."""
+    if not isinstance(wf, dict):
+        raise Uncountable("workflow did not parse to a mapping")
+    jobs = wf.get("jobs")
+    if not isinstance(jobs, dict) or not jobs:
+        raise Uncountable("workflow has no non-empty `jobs:` mapping")
+    total = 0
+    detail = []
+    names = []
+    for key, job in jobs.items():
+        if not isinstance(job, dict):
+            raise Uncountable(f"job {key!r} is not a mapping")
+        if "if" in job:
+            raise Uncountable(
+                f"job {key!r} carries an `if:` condition -- it may be skipped, "
+                "so its check count is a range, not a number; pass --expected")
+        strategy = job.get("strategy") or {}
+        if not isinstance(strategy, dict):
+            raise Uncountable(f"job {key!r} has a non-mapping `strategy:`")
+        matrix = strategy.get("matrix")
+        combos = None if matrix is None else matrix_combinations(key, matrix)
+        rows = 1 if combos is None else len(combos)
+        total += rows
+        detail.append((str(key), rows))
+        got = job_check_names(key, job, combos)
+        # Arithmetic cross-check: naming and counting are two derivations of the
+        # same fact, and they must agree before either is reported.
+        if len(got) != rows:
+            raise Unnameable(
+                f"job {key!r} derived {len(got)} name(s) for {rows} counted "
+                "row(s) -- the two derivations disagree, so neither is evidence")
+        names.extend(got)
+    return total, detail, names
+
+
+def load_workflow(path):
+    try:
+        import yaml
+    except ImportError as exc:                                # pragma: no cover
+        raise Refusal(
+            "REFUSE-NO-YAML",
+            f"PyYAML is not importable under {sys.executable} ({exc}); the "
+            "expectation cannot be derived. Re-run under an interpreter that "
+            "has it (e.g. <repo>/venv/bin/python).")
+    try:
+        text = Path(path).read_text("utf-8")
+    except OSError as exc:
+        raise Refusal("REFUSE-CI-UNREADABLE", f"cannot read {path}: {exc}")
+    try:
+        return yaml.safe_load(text)
+    except Exception as exc:                                  # noqa: BLE001
+        raise Refusal("REFUSE-CI-UNPARSEABLE", f"{path} is not parseable YAML: {exc}")
+
+
+def find_ci_yml(repo_arg, ci_yml_arg):
+    if ci_yml_arg:
+        p = Path(ci_yml_arg).expanduser()
+        if not p.is_file():
+            raise Refusal("REFUSE-CI-MISSING", f"--ci-yml {p} is not a file")
+        return p
+    start = Path(repo_arg).expanduser().resolve() if repo_arg else Path.cwd().resolve()
+    for d in [start, *start.parents]:
+        cand = d / ".github" / "workflows" / "ci.yml"
+        if cand.is_file():
+            return cand
+    raise Refusal(
+        "REFUSE-CI-MISSING",
+        f"no .github/workflows/ci.yml at or above {start} -- without it there "
+        "is no expectation, and a count without a denominator is not evidence")
+
+
+# --------------------------------------------------------------------------
+# numerator: what does gh actually report for this PR?
+# --------------------------------------------------------------------------
+
+def gh_workdir(repo_arg, ci_path):
+    """Where to ASK gh. It resolves the repo from the cwd's git remote."""
+    if repo_arg:
+        return Path(repo_arg).expanduser().resolve()
+    p = Path(ci_path).resolve()
+    if p.parent.name == "workflows" and p.parent.parent.name == ".github":
+        return p.parent.parent.parent
+    return Path.cwd().resolve()
+
+
+def _gh_is_findable(gh_bin, cwd):
+    """Is gh_bin plausibly executable? Relative paths resolve against the CHILD's
+    cwd, because subprocess chdirs before exec -- so ask from there."""
+    p = Path(gh_bin)
+    if p.is_absolute() or os.sep in gh_bin:
+        base = Path(cwd) if not p.is_absolute() else Path("/")
+        cand = p if p.is_absolute() else base / p
+        return os.access(str(cand), os.X_OK)
+    return shutil.which(gh_bin) is not None
+
+
+def run_gh(gh_bin, pr, timeout, cwd, gh_repo=None):
+    # A missing cwd and a missing binary both surface as FileNotFoundError from
+    # subprocess, and calling the second one's message over the first sends the
+    # operator to install a tool that is already installed. Measured 2026-08-13:
+    # `--repo /no/such/dir` with an absolute, provably executable --gh reported
+    # "'<path>' is not executable on PATH". So check the directory FIRST, and
+    # disambiguate what is left by asking which of the two is actually absent.
+    cwd = Path(cwd)
+    if not cwd.exists():
+        raise Refusal("REFUSE-GH-CWD",
+                      f"cannot ask gh from {cwd} -- that directory does not "
+                      "exist, so no evidence was read (gh itself was not the "
+                      "problem; it was never invoked)")
+    if not cwd.is_dir():
+        raise Refusal("REFUSE-GH-CWD",
+                      f"cannot ask gh from {cwd} -- not a directory")
+    cmd = [gh_bin, "pr", "checks", str(pr)]
+    if gh_repo:
+        cmd += ["--repo", gh_repo]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=timeout, cwd=str(cwd))
+    except NotADirectoryError:
+        raise Refusal("REFUSE-GH-CWD",
+                      f"cannot ask gh from {cwd} -- not a directory")
+    except FileNotFoundError:
+        if not _gh_is_findable(gh_bin, cwd):
+            raise Refusal(
+                "REFUSE-GH-MISSING",
+                f"{gh_bin!r} is not executable from {cwd} -- no evidence was read")
+        raise Refusal(
+            "REFUSE-GH-EXEC",
+            f"exec of {gh_bin!r} in {cwd} raised FileNotFoundError although the "
+            "file IS present and executable and the directory IS present -- the "
+            "usual cause is a wrapper script whose #! interpreter is missing, "
+            "which exec reports as ENOENT against the WRAPPER's name (measured). "
+            "This is neither cannot-find-gh nor an empty board; no evidence was "
+            "read")
+    except PermissionError as exc:
+        raise Refusal("REFUSE-GH-EXEC",
+                      f"cannot execute {gh_bin!r} from {cwd}: {exc}")
+    except subprocess.TimeoutExpired:
+        raise Refusal("REFUSE-GH-TIMEOUT",
+                      f"`{' '.join(cmd)}` exceeded {timeout}s -- a reaped command "
+                      "is not a result")
+    return proc
+
+
+def parse_rows(stdout):
+    """([(name, status)], malformed, bad_status) -- TAB-isolated, VOCAB-validated.
+
+    The two failure lists are kept APART because they are different faults with
+    different next actions: `malformed` means the row had no tab at all (gh's
+    output shape changed, or something other than gh answered), `bad_status`
+    means the tab-column exists but holds a word outside gh's vocabulary (the
+    column moved). Folding either into "no rows" is how a full board of twelve
+    unparseable lines came to be reported as an empty one.
+    """
+    rows = []
+    malformed = []
+    bad_status = []
+    for lineno, line in enumerate(stdout.splitlines(), 1):
+        if not line.strip():
+            continue
+        fields = line.split("\t")           # tab-exact: names contain spaces
+        if len(fields) < 2:
+            malformed.append(
+                f"line {lineno}: fewer than 2 tab-separated fields: {line!r}")
+            continue
+        name = fields[0]
+        status = fields[1].strip()
+        if status not in VOCAB:
+            bad_status.append(
+                f"line {lineno}: status column is {status!r}, which is not one "
+                f"of {VOCAB} -- the column moved or gh's vocabulary changed")
+        rows.append((name, status))
+    return rows, malformed, bad_status
+
+
+# --------------------------------------------------------------------------
+# the verdict
+# --------------------------------------------------------------------------
+
+def evaluate(args, out, ev):
+    ci = find_ci_yml(args.repo, args.ci_yml)
+    out(f"ci.yml: {ci}")
+
+    if args.expected is not None:
+        expected = args.expected
+        exp_names = None
+        out(f"expected checks: {expected} (operator-supplied via --expected)")
+        out("IDENTITY CHECK: DISABLED -- --expected supplies a number, not the "
+            "names, so this run compares COUNTS ONLY and cannot tell a present "
+            "required check from a foreign one standing in its place")
+    else:
+        wf = load_workflow(ci)
+        try:
+            expected, detail, exp_names = expected_from_workflow(wf)
+        except Uncountable as exc:
+            raise Refusal("REFUSE-CI-UNCOUNTABLE", str(exc))
+        except Unnameable as exc:
+            raise Refusal(
+                "REFUSE-CI-UNNAMEABLE",
+                f"{exc} -- without the names this can only compare counts, and "
+                "a count is not identity; re-run with --expected to accept that "
+                "weaker check explicitly")
+        shape = ", ".join(f"{k}={n}" for k, n in detail)
+        out(f"expected checks: {expected} from {len(detail)} job(s) [{shape}]")
+        out(f"expected names ({len(exp_names)}): " + " | ".join(exp_names))
+
+    if expected <= 0:
+        raise Refusal(
+            "REFUSE-EXPECTED-ZERO",
+            f"ci.yml at {ci} yields a denominator of {expected}; a zero "
+            "denominator makes every pass ratio meaningless")
+
+    workdir = gh_workdir(args.repo, ci)
+    proc = run_gh(args.gh, args.pr, args.timeout, workdir, args.gh_repo)
+    ev["cmd"] = f"{args.gh} pr checks {args.pr} (cwd={workdir})"
+    ev["stdout"] = proc.stdout or ""
+    ev["stderr"] = proc.stderr or ""
+    stderr_all = (proc.stderr or "").strip()
+    stderr_1 = stderr_all.splitlines()[0] if stderr_all else ""
+    out(f"gh: `{args.gh} pr checks {args.pr}` cwd={workdir} "
+        f"exit={proc.returncode}" + (f" stderr[1/{len(stderr_all.splitlines())}]="
+                                     f"{stderr_1!r}" if stderr_1 else ""))
+
+    rows, malformed, bad_status = parse_rows(proc.stdout or "")
+    total = len(rows)
+
+    # Structural faults FIRST. A line gh printed that this cannot parse is
+    # evidence that arrived and was not understood -- the opposite of an empty
+    # board, and it must never be allowed to masquerade as one by zeroing the
+    # row count. Measured on the previous build: twelve space-separated passing
+    # rows produced "REFUSE-NO-CHECKS ... wait for the checks to register".
+    if malformed:
+        raise Refusal(
+            "REFUSE-UNPARSEABLE-ROWS",
+            f"{len(malformed)} of {len(malformed) + total} non-empty output "
+            f"line(s) had no TAB at all, so no status column exists to read. "
+            f"gh's output shape is not what this tool parses -- this is "
+            f"CANNOT-READ, not an empty board: " + " | ".join(malformed[:3]))
+    if bad_status:
+        raise Refusal(
+            "REFUSE-UNKNOWN-STATUS",
+            f"{len(bad_status)} of {total} row(s) did not yield a valid status "
+            "token: " + " | ".join(bad_status[:3]))
+
+    if total == 0:
+        # THE trap, in THREE parts that must never be confused:
+        #   SAW-NOTHING -- gh asked and said so in words: an empty board.
+        #   CANNOT-ASK  -- gh failed and said why.
+        #   SILENT      -- gh returned nothing at all, not even a reason. An
+        #                  instrument that produces no output is not reporting
+        #                  an empty set; it is not reporting.
+        if NO_CHECKS_RE.search(stderr_all):
+            raise Refusal(
+                "REFUSE-NO-CHECKS",
+                f"0 check rows against an expected {expected} -- gh answered in "
+                f"words ({stderr_1!r}) and no check has registered yet. Zero "
+                "failures over zero checks is NOT a pass; wait for the checks "
+                "to register and re-run")
+        if stderr_all:
+            raise Refusal(
+                "REFUSE-GH-FAILED",
+                f"gh exited {proc.returncode} and printed no check rows "
+                f"(0 rows against an expected {expected}), and its stderr is "
+                f"not the no-checks message -- this is CANNOT-ASK, not an "
+                f"empty board; stderr line 1 of "
+                f"{len(stderr_all.splitlines())}: {stderr_1}")
+        raise Refusal(
+            "REFUSE-GH-SILENT",
+            f"gh exited {proc.returncode} and said nothing at all -- no check "
+            f"rows and no stderr, against an expected {expected}. An instrument "
+            "that returns no output is not reporting an empty board, it is not "
+            "reporting; do not read this as 'no checks yet'")
+
+    counts = {tok: sum(1 for _, s in rows if s == tok) for tok in VOCAB}
+    tally = " ".join(f"{k}={v}" for k, v in counts.items())
+    out(f"rows: total={total} {tally} (denominator: expected>={expected})")
+
+    # ---- identity: is every check ci.yml posts actually ON the board? --------
+    missing = []
+    if exp_names is not None:
+        present = set(n for n, _ in rows)
+        missing = [n for n in exp_names if n not in present]
+        if not missing:
+            out(f"identity: all {len(exp_names)} of {len(exp_names)} check names "
+                f"this ci.yml posts are present among the {total} row(s)")
+
+    if total < expected:
+        gap = expected - total
+        named = ("; absent by name: " + ", ".join(missing)) if missing else ""
+        raise Refusal(
+            "REFUSE-SHORT-COUNT",
+            f"only {total} of an expected {expected} checks are present "
+            f"({gap} never registered) -- an incomplete board is not a "
+            f"green board, regardless of how many of the present ones "
+            f"passed{named}")
+
+    if missing:
+        raise Refusal(
+            "REFUSE-MISSING-CHECK",
+            f"{len(missing)} of the {len(exp_names)} checks this ci.yml posts "
+            f"are ABSENT from a board of {total} row(s) -- the count is "
+            f"sufficient, the identities are not. A required check that never "
+            f"registered cannot fail, and a check that cannot fail is not "
+            f"evidence. Absent: " + ", ".join(missing))
+
+    if counts["fail"] or counts["pending"] or counts["skipping"] or counts["pass"] != total:
+        notpass = [f"{n}={s}" for n, s in rows if s != "pass"]
+        out("not-pass rows: " + (", ".join(notpass) if notpass else "<none>"))
+        return EXIT_BLOCK, "DO-NOT-MERGE", (
+            f"pr={args.pr} expected>={expected} total={total} {tally}")
+
+    token = "MERGE-SAFE" if exp_names is not None else "MERGE-SAFE-COUNT-ONLY"
+    ident = (f"names={len(exp_names)}/{len(exp_names)}" if exp_names is not None
+             else "names=UNCHECKED(--expected)")
+    return EXIT_SAFE, token, (
+        f"pr={args.pr} expected>={expected} total={total} {tally} {ident}")
+
+
+def emit_blind_spots(out):
+    for i, line in enumerate(BLIND_SPOTS, 1):
+        out(f"BLIND SPOT {i}/{len(BLIND_SPOTS)}: {line}")
+    sys.stderr.write(
+        f"{TOOL}: {len(BLIND_SPOTS)} blind spots printed on stdout -- "
+        "this verdict is CI evidence only, not a merge authorisation.\n")
+
+
+def dump_evidence(ev):
+    """The WHOLE capture, beside the summary and never in place of it."""
+    if not ev.get("cmd"):
+        print("RAW EVIDENCE: none -- gh was never invoked on this run")
+        return
+    print(f"RAW EVIDENCE for `{ev['cmd']}`:")
+    for stream in ("stdout", "stderr"):
+        text = ev.get(stream, "")
+        lines = text.splitlines()
+        print(f"--- gh {stream}: {len(lines)} line(s), {len(text)} byte(s) "
+              "(complete, unfiltered) ---")
+        for i, line in enumerate(lines, 1):
+            print(f"  {stream}[{i}/{len(lines)}] {line}")
+    print("--- end raw evidence ---")
+
+
+def main_verdict(args):
+    lines = []
+    out = lines.append
+    ev = {}
+    try:
+        code, token, payload = evaluate(args, out, ev)
+    except Refusal as r:
+        code, token, payload = EXIT_REFUSE, r.token, r.detail
+    for line in lines:
+        print(line)
+    if code != EXIT_SAFE:
+        dump_evidence(ev)
+    emit_blind_spots(print)
+    print(f"VERDICT: {token} {payload}")
+    return code
+
+
+# --------------------------------------------------------------------------
+# selftest -- synthetic fixtures, no network, no real gh, no repo writes
+# --------------------------------------------------------------------------
+
+SYNTH_CI = """\
+name: CI
+on:
+  pull_request:
+jobs:
+  postgres-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi
+  gate-suites:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+%s
+    name: gate-suites (${{ matrix.name }})
+    steps:
+      - run: echo hi
+"""
+
+SHARDS = ("toolchain", "parity-graph", "measurement-tools", "isolation",
+          "tree-gates-1", "tree-gates-2", "tree-gates-3", "tree-gates-4",
+          "toolchain-verifiers", "artifacts-pins")
+PLAIN_JOBS = ("postgres-integration", "gates")
+# The full expected board, in the order the fixture emits it. Same shape as the
+# real ci.yml, and the same names measured live on PR #369 (12 rows).
+SYNTH_NAMES = [f"gate-suites ({s})" for s in SHARDS] + list(PLAIN_JOBS)
+SYNTH_EXPECTED = len(SYNTH_NAMES)          # 12
+
+
+def _synth_ci_text():
+    body = "\n".join(f"          - name: {s}\n            suites: tests/t_{s}.py"
+                     for s in SHARDS)
+    return SYNTH_CI % body
+
+
+def _row(name, status, dur="12s"):
+    # Real shape, measured at gh 2.45.0 against PR #369:
+    #   gate-suites (artifacts-pins)<TAB>pass<TAB>49s<TAB>https://...<TAB>
+    return (f"{name}\t{status}\t{dur}\t"
+            f"https://github.com/mcboyle/BD/actions/runs/1/job/2\t")
+
+
+def _fixture(statuses, names=None):
+    """statuses -> TSV. Names default to the real expected board (which CONTAINS
+    SPACES -- the awk hazard), then foreign 'extra check N' rows beyond it."""
+    src = SYNTH_NAMES if names is None else names
+    out = []
+    for i, st in enumerate(statuses):
+        name = src[i] if i < len(src) else f"extra check {i}"
+        out.append(_row(name, st))
+    return "".join(l + "\n" for l in out)
+
+
+FAKE_GH = """\
+#!/usr/bin/env python3
+import os, sys
+ARGV_LOG = {argv_log!r}
+PAYLOAD = {payload!r}
+RC = {rc}
+STDERR = {stderr!r}
+with open(ARGV_LOG, "a") as fh:
+    fh.write(" ".join(sys.argv[1:]) + "\\n")
+    fh.write("cwd=" + os.getcwd() + "\\n")
+sys.stdout.write(PAYLOAD)
+sys.stderr.write(STDERR)
+sys.exit(RC)
+"""
+
+
+def _write_fake_gh(d, name, payload, rc=0, stderr="", argv_log=None):
+    p = d / name
+    p.write_text(FAKE_GH.format(argv_log=str(argv_log), payload=payload,
+                                rc=rc, stderr=stderr))
+    p.chmod(0o755)
+    return p
+
+
+class SelfTest:
+    def __init__(self):
+        self.passed = 0
+        self.failed = 0
+        self.notes = []
+
+    def check(self, case, what, ok, got=""):
+        if ok:
+            self.passed += 1
+        else:
+            self.failed += 1
+            self.notes.append(f"{case}: {what} -- got {got}")
+        print(f"  [{'ok ' if ok else 'FAIL'}] {case}: {what}"
+              + (f"  ({got})" if got and not ok else ""))
+
+
+def selftest():
+    print(f"{TOOL} --selftest: synthetic fixtures only; no network, no real gh, "
+          "no writes outside the temp dir")
+    emit_blind_spots(print)
+    tmp = Path(tempfile.mkdtemp(prefix="bd-ci-verdict-selftest."))
+    print(f"temp dir: {tmp}   (remover: shutil.rmtree at the end of a clean run; "
+          "kept on failure so you can look)")
+    st = SelfTest()
+    me = str(Path(__file__).resolve())
+    nblind = len(BLIND_SPOTS)
+
+    ci = tmp / "ci.yml"
+    ci.write_text(_synth_ci_text())
+    ci_if = tmp / "ci_if.yml"
+    ci_if.write_text(_synth_ci_text().replace(
+        "  gates:\n    runs-on:", "  gates:\n    if: github.event_name == 'push'\n    runs-on:"))
+    # A matrix job whose name is NOT a resolvable template: countable, unnameable.
+    ci_noname = tmp / "ci_noname.yml"
+    ci_noname.write_text(
+        _synth_ci_text().replace("    name: gate-suites (${{ matrix.name }})\n", ""))
+
+    # ---- preconditions on the EXPECTATION machinery itself ------------------
+    try:
+        got_expected, _, got_names = expected_from_workflow(load_workflow(ci))
+    except Exception as exc:                                  # noqa: BLE001
+        got_expected, got_names = f"raised {exc!r}", []
+    st.check("fixture", f"synthetic ci.yml derives {SYNTH_EXPECTED} checks",
+             got_expected == SYNTH_EXPECTED, str(got_expected))
+    st.check("fixture", "synthetic ci.yml derives the exact expected NAME set",
+             sorted(got_names) == sorted(SYNTH_NAMES), str(sorted(got_names)))
+    st.check("fixture", "derived names are unique (a duplicate would make the "
+                        "identity check vacuous for one of them)",
+             len(set(got_names)) == len(got_names), str(len(set(got_names))))
+
+    cases = [
+        # name, statuses, names, gh rc, gh stderr, want_exit, want_token, must_contain
+        ("all-pass", ["pass"] * 12, None, 0, "", EXIT_SAFE, "MERGE-SAFE",
+         "total=12 pass=12 fail=0 pending=0 skipping=0 names=12/12"),
+        ("excess-all-pass", ["pass"] * 15, None, 0, "", EXIT_SAFE, "MERGE-SAFE",
+         "total=15 pass=15"),
+        ("one-pending", ["pass"] * 11 + ["pending"], None, 8, "", EXIT_BLOCK,
+         "DO-NOT-MERGE", "total=12 pass=11 fail=0 pending=1"),
+        ("one-fail", ["pass"] * 11 + ["fail"], None, 1, "", EXIT_BLOCK,
+         "DO-NOT-MERGE", "total=12 pass=11 fail=1 pending=0"),
+        ("empty-zero", [], None, 1, "no checks reported on the 'topic' branch\n",
+         EXIT_REFUSE, "REFUSE-NO-CHECKS", "0 check rows against an expected 12"),
+        ("short-count", ["pass"] * 5, None, 0, "", EXIT_REFUSE,
+         "REFUSE-SHORT-COUNT", "only 5 of an expected 12"),
+        ("one-skipping", ["pass"] * 11 + ["skipping"], None, 0, "", EXIT_BLOCK,
+         "DO-NOT-MERGE", "skipping=1"),
+        ("bogus-token", ["pass"] * 11 + ["ok"], None, 0, "", EXIT_REFUSE,
+         "REFUSE-UNKNOWN-STATUS", "not one of"),
+        ("gh-hard-failure", [], None, 4, "gh: could not authenticate\n",
+         EXIT_REFUSE, "REFUSE-GH-FAILED", "exited 4 and printed no check rows"),
+        # REGRESSION, measured live 2026-08-13: gh outside a checkout exits 1
+        # with an EMPTY stdout. An earlier build called this REFUSE-NO-CHECKS
+        # ("wait for the checks to register") for a PR that was 12/12 green.
+        # Cannot-ask must never wear the saw-nothing message.
+        ("gh-not-a-repo", [], None, 1,
+         "failed to run git: fatal: not a git repository (or any of the "
+         "parent directories): .git\n",
+         EXIT_REFUSE, "REFUSE-GH-FAILED", "not a git repository"),
+        # REGRESSION: gh that returns NOTHING -- no rows, no stderr. The previous
+        # build called this "gh answered and no check has registered yet", which
+        # is a claim about an instrument that produced no output at all.
+        ("gh-silent", [], None, 0, "", EXIT_REFUSE, "REFUSE-GH-SILENT",
+         "said nothing at all"),
+        # REGRESSION: twelve PASSING rows that carry none of ci.yml's names.
+        ("foreign-board", ["pass"] * 12, [f"Vercel Preview {i}" for i in range(12)],
+         0, "", EXIT_REFUSE, "REFUSE-MISSING-CHECK",
+         "12 of the 12 checks this ci.yml posts are ABSENT"),
+        # REGRESSION, the sharpest form: the count is EXACTLY right and every row
+        # passes, but postgres-integration never registered and a foreign check
+        # stands in its place. The count-only build returned exit 0 MERGE-SAFE.
+        ("one-required-absent", ["pass"] * 12,
+         SYNTH_NAMES[:11] + ["CodeQL / Analyze (python)"],
+         0, "", EXIT_REFUSE, "REFUSE-MISSING-CHECK", "Absent: gates"),
+    ]
+
+    for (name, statuses, names, rc, stderr, want_exit, want_token, must) in cases:
+        payload = _fixture(statuses, names)
+        log = tmp / f"{name}.argv"
+        gh = _write_fake_gh(tmp, f"gh-{name}", payload, rc, stderr, log)
+
+        # --- PRECONDITION: the fixture is the shape we meant -----------------
+        pre = subprocess.run([str(gh), "pr", "checks", "999"],
+                             capture_output=True, text=True)
+        pre_rows = [l for l in pre.stdout.splitlines() if l.strip()]
+        st.check(name, f"fake gh emitted {len(statuses)} row(s)",
+                 len(pre_rows) == len(statuses), f"{len(pre_rows)}")
+        st.check(name, "every emitted row has >=2 tab fields",
+                 all(len(l.split("\t")) >= 2 for l in pre_rows),
+                 "a row lacks a tab")
+        st.check(name, "emitted status tokens match the fixture",
+                 [l.split("\t")[1] for l in pre_rows] == list(statuses),
+                 str([l.split("\t")[1] for l in pre_rows]))
+        st.check(name, f"fake gh exits {rc}", pre.returncode == rc,
+                 str(pre.returncode))
+        st.check(name, f"fake gh stderr is exactly the {len(stderr)} byte(s) meant",
+                 pre.stderr == stderr, repr(pre.stderr[:60]))
+        if statuses:
+            emitted = [l.split("\t")[0] for l in pre_rows]
+            # Prove the fixture CAN represent the awk failure this tool exists
+            # to defeat: whitespace-split field 2 must NOT be a status token.
+            naive = [l.split()[1] for l in pre_rows if len(l.split()) > 1]
+            st.check(name, "fixture carries the space-in-name hazard "
+                           "(whitespace field 2 is a name fragment, not a status)",
+                     any(v not in VOCAB for v in naive), str(naive[:2]))
+            # And prove the identity fixtures are actually the shape they claim,
+            # so a REFUSE-MISSING-CHECK cannot come from an accident.
+            if name == "foreign-board":
+                st.check(name, "precondition: NONE of ci.yml's 12 names is on "
+                               "this board", not (set(emitted) & set(SYNTH_NAMES)),
+                         str(sorted(set(emitted) & set(SYNTH_NAMES))))
+            if name == "one-required-absent":
+                overlap = set(emitted) & set(SYNTH_NAMES)
+                st.check(name, "precondition: exactly 11 of 12 ci.yml names "
+                               "present and the count is exactly 12",
+                         len(overlap) == 11 and len(pre_rows) == SYNTH_EXPECTED,
+                         f"overlap={len(overlap)} rows={len(pre_rows)}")
+                st.check(name, "precondition: every row on this board PASSES "
+                               "(so only identity can refuse it)",
+                         set(statuses) == {"pass"}, str(set(statuses)))
+        log.unlink(missing_ok=True)
+
+        # --- the tool, end to end, with the argv a user types -----------------
+        proc = subprocess.run(
+            [sys.executable, me, "999", "--ci-yml", str(ci), "--gh", str(gh)],
+            capture_output=True, text=True)
+        stdout_lines = [l for l in proc.stdout.splitlines() if l.strip()]
+        verdict = stdout_lines[-1] if stdout_lines else "<no stdout>"
+
+        logged = log.read_text().splitlines() if log.is_file() else []
+        st.check(name, "invoked gh as `pr checks 999` exactly once",
+                 logged[:1] == ["pr checks 999"] and len(logged) == 2,
+                 str(logged) or "<no argv log>")
+        st.check(name, f"exit == {want_exit}", proc.returncode == want_exit,
+                 f"exit={proc.returncode}")
+        st.check(name, "verdict is the LAST stdout line and starts with VERDICT:",
+                 verdict.startswith("VERDICT: "), verdict)
+        st.check(name, f"verdict token == {want_token}",
+                 verdict.startswith(f"VERDICT: {want_token} "), verdict)
+        st.check(name, f"detail contains {must!r}",
+                 must in proc.stdout, verdict)
+        st.check(name, f"all {nblind} blind spots printed on this run",
+                 all(f"BLIND SPOT {i}/{nblind}" in proc.stdout
+                     for i in range(1, nblind + 1)),
+                 "missing blind-spot lines")
+        # RAW EVIDENCE accompanies every non-green outcome, whole.
+        if want_exit != EXIT_SAFE:
+            st.check(name, "raw gh evidence echoed on a non-green outcome",
+                     "RAW EVIDENCE" in proc.stdout, "no evidence block")
+            st.check(name, f"every one of the {len(statuses)} raw gh stdout "
+                           "line(s) is reproduced in full",
+                     all(f"stdout[{i}/{len(statuses)}]" in proc.stdout
+                         for i in range(1, len(statuses) + 1)),
+                     "a captured row was dropped from the evidence block")
+
+    # ---- the WHOLE stderr survives, not just line 1 -------------------------
+    # The actionable half of a gh auth failure is on line 2. A summary that
+    # replaces the capture throws it away; this one sits beside it.
+    ml_err = ("error connecting to api.github.com\n"
+              "HTTP 401: Bad credentials -- run `gh auth login`\n")
+    log = tmp / "stderr-tail.argv"
+    gh = _write_fake_gh(tmp, "gh-stderr-tail", "", 1, ml_err, log)
+    pre = subprocess.run([str(gh), "pr", "checks", "999"],
+                         capture_output=True, text=True)
+    st.check("stderr-tail", "precondition: fixture emits 2 stderr lines, the "
+                            "diagnosis on the second",
+             len(pre.stderr.splitlines()) == 2
+             and "Bad credentials" in pre.stderr.splitlines()[1],
+             repr(pre.stderr))
+    log.unlink(missing_ok=True)
+    proc = subprocess.run(
+        [sys.executable, me, "999", "--ci-yml", str(ci), "--gh", str(gh)],
+        capture_output=True, text=True)
+    st.check("stderr-tail", "exit == 2 REFUSE-GH-FAILED",
+             proc.returncode == EXIT_REFUSE
+             and "VERDICT: REFUSE-GH-FAILED" in proc.stdout,
+             f"exit={proc.returncode}")
+    st.check("stderr-tail", "stderr LINE 2 ('Bad credentials') reaches stdout",
+             "Bad credentials" in proc.stdout, "line 2 was discarded")
+    st.check("stderr-tail", "and the summary states which line of how many it quoted",
+             "stderr[1/2]=" in proc.stdout, "no line/denominator on the summary")
+
+    # ---- unparseable rows are CANNOT-READ, never an empty board -------------
+    # Twelve passing checks, space-separated instead of tab-separated. The
+    # previous build parsed 0 rows from them and told the operator to wait for
+    # the checks to register.
+    notabs = "".join(f"gate-suites ({s}) pass 12s https://x/1\n" for s in SHARDS)
+    log = tmp / "notabs.argv"
+    gh = _write_fake_gh(tmp, "gh-notabs", notabs, 0, "", log)
+    pre = subprocess.run([str(gh), "pr", "checks", "999"],
+                         capture_output=True, text=True)
+    pre_rows = [l for l in pre.stdout.splitlines() if l.strip()]
+    st.check("unparseable", f"precondition: fixture emits {len(SHARDS)} non-empty "
+                            "lines and NOT ONE of them contains a tab",
+             len(pre_rows) == len(SHARDS)
+             and all("\t" not in l for l in pre_rows),
+             f"{len(pre_rows)} lines, tabs={sum('/t' in l for l in pre_rows)}")
+    st.check("unparseable", "precondition: the fixture's own words say 'pass' "
+                            "(so a wrong reading would read as green)",
+             all(" pass " in l for l in pre_rows), "fixture is not a pass board")
+    log.unlink(missing_ok=True)
+    proc = subprocess.run(
+        [sys.executable, me, "999", "--ci-yml", str(ci), "--gh", str(gh)],
+        capture_output=True, text=True)
+    lines = [l for l in proc.stdout.splitlines() if l.strip()]
+    verdict = lines[-1] if lines else "<no stdout>"
+    st.check("unparseable", f"exit == {EXIT_REFUSE}",
+             proc.returncode == EXIT_REFUSE, f"exit={proc.returncode}")
+    st.check("unparseable", "verdict token == REFUSE-UNPARSEABLE-ROWS",
+             verdict.startswith("VERDICT: REFUSE-UNPARSEABLE-ROWS "), verdict)
+    st.check("unparseable", "reason says CANNOT-READ, not an empty board",
+             "no TAB at all" in proc.stdout and "CANNOT-READ" in proc.stdout,
+             verdict)
+    st.check("unparseable", "and does NOT tell the operator to wait for "
+                            "registration (the one action that cannot help)",
+             "wait for the checks to register" not in proc.stdout,
+             "it still says wait")
+    st.check("unparseable", "all 10 unreadable lines are echoed verbatim",
+             all(f"stdout[{i}/10]" in proc.stdout for i in range(1, 11)),
+             "raw lines dropped")
+
+    # ---- denominator/name guards, with a PERFECT check board underneath -----
+    # Stub the downstream condition so ONLY the guard under test can refuse:
+    # the checks are 12/12 pass on the right names, so any refusal here comes
+    # from ci.yml alone.
+    perfect = _fixture(["pass"] * 12)
+    for name, ci_arg, want_token, must in (
+        ("ci-conditional-job", str(ci_if), "REFUSE-CI-UNCOUNTABLE",
+         "carries an `if:` condition"),
+        ("ci-unnameable", str(ci_noname), "REFUSE-CI-UNNAMEABLE",
+         "matrix job with no explicit `name:`"),
+        ("ci-missing", str(tmp / "nope.yml"), "REFUSE-CI-MISSING", "is not a file"),
+    ):
+        log = tmp / f"{name}.argv"
+        gh = _write_fake_gh(tmp, f"gh-{name}", perfect, 0, "", log)
+        pre = subprocess.run([str(gh), "pr", "checks", "999"],
+                             capture_output=True, text=True)
+        emitted = [l.split("\t") for l in pre.stdout.splitlines() if l.strip()]
+        st.check(name, "precondition: the check board underneath is 12/12 pass "
+                       "on the exact names this ci.yml posts",
+                 [r[1] for r in emitted] == ["pass"] * 12
+                 and sorted(r[0] for r in emitted) == sorted(SYNTH_NAMES),
+                 "board is not a perfect 12/12")
+        log.unlink(missing_ok=True)
+        proc = subprocess.run(
+            [sys.executable, me, "999", "--ci-yml", ci_arg, "--gh", str(gh)],
+            capture_output=True, text=True)
+        lines = [l for l in proc.stdout.splitlines() if l.strip()]
+        verdict = lines[-1] if lines else "<no stdout>"
+        st.check(name, f"exit == {EXIT_REFUSE}", proc.returncode == EXIT_REFUSE,
+                 f"exit={proc.returncode}")
+        st.check(name, f"verdict token == {want_token}",
+                 verdict.startswith(f"VERDICT: {want_token} "), verdict)
+        st.check(name, f"reason names {must!r}", must in proc.stdout, verdict)
+
+    # ---- --expected is a WEAKER check and says so in the verdict token ------
+    log = tmp / "count-only.argv"
+    gh = _write_fake_gh(tmp, "gh-count-only", _fixture(["pass"] * 12,
+                        [f"Vercel Preview {i}" for i in range(12)]), 0, "", log)
+    pre = subprocess.run([str(gh), "pr", "checks", "999"],
+                         capture_output=True, text=True)
+    st.check("count-only", "precondition: board is 12/12 pass and shares NO name "
+                           "with ci.yml (so only identity could refuse it)",
+             not (set(l.split("\t")[0] for l in pre.stdout.splitlines() if l.strip())
+                  & set(SYNTH_NAMES)), "names overlap")
+    log.unlink(missing_ok=True)
+    proc = subprocess.run(
+        [sys.executable, me, "999", "--ci-yml", str(ci), "--gh", str(gh),
+         "--expected", "12"], capture_output=True, text=True)
+    lines = [l for l in proc.stdout.splitlines() if l.strip()]
+    verdict = lines[-1] if lines else "<no stdout>"
+    st.check("count-only", "exit == 0 (the operator asked for counts only)",
+             proc.returncode == EXIT_SAFE, f"exit={proc.returncode}")
+    st.check("count-only", "verdict token is MERGE-SAFE-COUNT-ONLY, NOT MERGE-SAFE",
+             verdict.startswith("VERDICT: MERGE-SAFE-COUNT-ONLY "), verdict)
+    st.check("count-only", "run announces IDENTITY CHECK: DISABLED",
+             "IDENTITY CHECK: DISABLED" in proc.stdout, verdict)
+    st.check("count-only", "and the verdict line itself carries names=UNCHECKED",
+             "names=UNCHECKED(--expected)" in verdict, verdict)
+
+    # ---- a missing cwd is NOT a missing gh ---------------------------------
+    # Distinct causes must not share a refusal's WORDS, not just its exit code.
+    # Stub everything else: an ABSOLUTE, provably executable gh and a valid
+    # ci.yml, so the directory is the only thing wrong.
+    gh = _write_fake_gh(tmp, "gh-badcwd", perfect, 0, "", tmp / "badcwd.argv")
+    st.check("bad-cwd", "precondition: the gh binary IS present and executable",
+             os.access(str(gh), os.X_OK) and Path(gh).is_absolute(), str(gh))
+    nodir = tmp / "no" / "such" / "dir"
+    st.check("bad-cwd", "precondition: the target directory does NOT exist",
+             not nodir.exists(), str(nodir))
+    proc = subprocess.run(
+        [sys.executable, me, "999", "--ci-yml", str(ci), "--repo", str(nodir),
+         "--gh", str(gh)], capture_output=True, text=True)
+    lines = [l for l in proc.stdout.splitlines() if l.strip()]
+    verdict = lines[-1] if lines else "<no stdout>"
+    st.check("bad-cwd", f"exit == {EXIT_REFUSE}",
+             proc.returncode == EXIT_REFUSE, f"exit={proc.returncode}")
+    st.check("bad-cwd", "verdict token == REFUSE-GH-CWD",
+             verdict.startswith("VERDICT: REFUSE-GH-CWD "), verdict)
+    st.check("bad-cwd", "reason names the DIRECTORY, not the binary",
+             str(nodir) in proc.stdout, verdict)
+    st.check("bad-cwd", "and does NOT accuse gh of being missing",
+             "is not executable" not in proc.stdout,
+             "it still blames the binary")
+
+    # ---- gh is ASKED FROM THE REPO, not from the caller's cwd ---------------
+    # The mechanism behind the gh-not-a-repo fix: gh resolves the PR's repo from
+    # its working directory's git remote, so the question must be asked there.
+    repo_like = tmp / "fakerepo"
+    (repo_like / ".github" / "workflows").mkdir(parents=True)
+    (repo_like / ".github" / "workflows" / "ci.yml").write_text(_synth_ci_text())
+    log = tmp / "cwd.argv"
+    gh = _write_fake_gh(tmp, "gh-cwd", perfect, 0, "", log)
+    elsewhere = tmp / "somewhere-else"
+    elsewhere.mkdir()
+    proc = subprocess.run([sys.executable, me, "999", "--repo", str(repo_like),
+                           "--gh", str(gh)],
+                          capture_output=True, text=True, cwd=str(elsewhere))
+    logged = log.read_text().splitlines() if log.is_file() else []
+    st.check("gh-cwd", "precondition: the tool was launched from OUTSIDE the repo",
+             elsewhere.resolve() != repo_like.resolve(), "same dir")
+    st.check("gh-cwd", "gh was invoked with cwd == the repo root, not the caller's cwd",
+             logged[1:2] == [f"cwd={repo_like.resolve()}"], str(logged))
+    st.check("gh-cwd", "and the verdict is still MERGE-SAFE",
+             proc.returncode == EXIT_SAFE
+             and proc.stdout.strip().splitlines()[-1].startswith("VERDICT: MERGE-SAFE "),
+             f"exit={proc.returncode}")
+
+    # ---- THE COMMAND A USER ACTUALLY TYPES ---------------------------------
+    # Not `python <script>` -- the executable itself, resolved through its own
+    # shebang, with no --ci-yml and no --gh: ci.yml found by upward search and
+    # gh found on PATH. Eleven passing component tests are what a tool has when
+    # it fails on its first real invocation.
+    binstub = repo_like / "bin"
+    binstub.mkdir()
+    log = tmp / "shebang.argv"
+    _write_fake_gh(binstub, "gh", perfect, 0, "", log)
+    env = dict(os.environ)
+    env["PATH"] = f"{binstub}{os.pathsep}" + env.get("PATH", "")
+    st.check("shebang", "precondition: this script is executable and starts "
+                        "with a #! line",
+             os.access(me, os.X_OK)
+             and Path(me).read_text().startswith("#!"), me)
+    st.check("shebang", "precondition: a fake gh is first on PATH and no "
+                        "--ci-yml/--gh will be passed",
+             (binstub / "gh").is_file(), str(binstub))
+    proc = subprocess.run([me, "999"], capture_output=True, text=True,
+                          cwd=str(repo_like), env=env)
+    lines = [l for l in proc.stdout.splitlines() if l.strip()]
+    verdict = lines[-1] if lines else "<no stdout>"
+    st.check("shebang", "runs under its own shebang interpreter (not exit 126/127)",
+             proc.returncode not in (126, 127),
+             f"exit={proc.returncode} stderr={proc.stderr[:120]!r}")
+    st.check("shebang", "found ci.yml by upward search and gh on PATH, "
+                        "verdict MERGE-SAFE",
+             proc.returncode == EXIT_SAFE
+             and verdict.startswith("VERDICT: MERGE-SAFE "),
+             f"exit={proc.returncode} verdict={verdict}")
+    logged = log.read_text().splitlines() if log.is_file() else []
+    st.check("shebang", "the string that reached the shell was `pr checks 999`",
+             logged[:1] == ["pr checks 999"], str(logged))
+
+    # ---- gh absent entirely -------------------------------------------------
+    proc = subprocess.run(
+        [sys.executable, me, "999", "--ci-yml", str(ci),
+         "--gh", str(tmp / "definitely-not-a-binary")],
+        capture_output=True, text=True)
+    lines = [l for l in proc.stdout.splitlines() if l.strip()]
+    verdict = lines[-1] if lines else "<no stdout>"
+    st.check("gh-missing", f"exit == {EXIT_REFUSE}",
+             proc.returncode == EXIT_REFUSE, f"exit={proc.returncode}")
+    st.check("gh-missing", "verdict token == REFUSE-GH-MISSING",
+             verdict.startswith("VERDICT: REFUSE-GH-MISSING "), verdict)
+    st.check("gh-missing", "reason names the binary it could not execute",
+             "definitely-not-a-binary" in proc.stdout, verdict)
+
+    # ---- present, executable, and STILL unexecutable ------------------------
+    # The third cause behind one FileNotFoundError: a wrapper whose #! points at
+    # an interpreter that is gone. exec reports ENOENT against the WRAPPER, so a
+    # handler that assumes "binary missing" tells the operator to install a file
+    # that is sitting right there, chmod 755. Measured on this host: subprocess
+    # raises FileNotFoundError [Errno 2] naming the wrapper.
+    wrapper = tmp / "gh-broken-shebang"
+    wrapper.write_text("#!/definitely/not/an/interpreter\nexit 0\n")
+    wrapper.chmod(0o755)
+    st.check("gh-badexec", "precondition: the wrapper EXISTS and is executable",
+             wrapper.is_file() and os.access(str(wrapper), os.X_OK), str(wrapper))
+    st.check("gh-badexec", "precondition: its #! interpreter does NOT exist",
+             not Path("/definitely/not/an/interpreter").exists(), "it exists?")
+    proc = subprocess.run(
+        [sys.executable, me, "999", "--ci-yml", str(ci), "--gh", str(wrapper)],
+        capture_output=True, text=True)
+    lines = [l for l in proc.stdout.splitlines() if l.strip()]
+    verdict = lines[-1] if lines else "<no stdout>"
+    st.check("gh-badexec", f"exit == {EXIT_REFUSE}",
+             proc.returncode == EXIT_REFUSE, f"exit={proc.returncode}")
+    st.check("gh-badexec", "verdict token == REFUSE-GH-EXEC (not GH-MISSING, "
+                           "not GH-CWD, not NO-CHECKS)",
+             verdict.startswith("VERDICT: REFUSE-GH-EXEC "), verdict)
+    st.check("gh-badexec", "reason blames the #! interpreter, not the file",
+             "#! interpreter is missing" in proc.stdout, verdict)
+
+    # ---- no PR argument at all ---------------------------------------------
+    proc = subprocess.run([sys.executable, me], capture_output=True, text=True)
+    lines = [l for l in proc.stdout.splitlines() if l.strip()]
+    st.check("no-pr", "exit == 2 and VERDICT: REFUSE-NO-PR is the last line",
+             proc.returncode == EXIT_REFUSE
+             and lines[-1].startswith("VERDICT: REFUSE-NO-PR "),
+             f"exit={proc.returncode} last={lines[-1] if lines else '<none>'}")
+
+    # ---- the REAL ci.yml, if this checkout has one --------------------------
+    real = None
+    for d in [Path.cwd(), *Path.cwd().parents, Path("/home/mboyle/BulkDownloader")]:
+        cand = d / ".github" / "workflows" / "ci.yml"
+        if cand.is_file():
+            real = cand
+            break
+    if real is None:
+        print("  [SKIP] real-ci.yml: no .github/workflows/ci.yml reachable "
+              "(SKIP is not a pass)")
+        st.notes.append("real-ci.yml expectation was SKIPPED, not verified")
+    else:
+        try:
+            n, detail, rnames = expected_from_workflow(load_workflow(real))
+            st.check("real-ci.yml", f"count derivable and >0 from {real}",
+                     n > 0, f"{n}")
+            st.check("real-ci.yml", "names derivable, one per counted row, "
+                                    "unique, and none left holding a ${{ }}",
+                     len(rnames) == n and len(set(rnames)) == n
+                     and not any("${{" in x for x in rnames),
+                     f"{len(rnames)} names for {n} rows: {rnames}")
+            print(f"         real expectation now: {n} check(s) from "
+                  f"{len(detail)} job(s) {detail}")
+            print(f"         real names: {sorted(rnames)}")
+        except Exception as exc:                              # noqa: BLE001
+            st.check("real-ci.yml", "expectation derivable", False, repr(exc))
+
+    total = st.passed + st.failed
+    print(f"SELFTEST: {st.passed}/{total} assertions passed, {st.failed} failed")
+    for n in st.notes:
+        print(f"  note: {n}")
+    if st.failed:
+        print(f"SELFTEST: FAIL -- temp dir KEPT at {tmp}")
+        return 1
+    shutil.rmtree(tmp, ignore_errors=True)
+    print(f"SELFTEST: PASS -- temp dir removed ({tmp})")
+    return 0
+
+
+def build_parser():
+    p = argparse.ArgumentParser(
+        prog=TOOL, description="Is PR <N> safe to merge, on CI evidence?",
+        epilog="exit 0 MERGE-SAFE / 1 DO-NOT-MERGE / 2 REFUSE (cannot evaluate)")
+    p.add_argument("pr", nargs="?", help="pull request number")
+    p.add_argument("--repo", help="repo root whose ci.yml sets the expectation "
+                                  "(default: search upward from cwd)")
+    p.add_argument("--ci-yml", help="explicit path to the workflow file")
+    p.add_argument("--expected", type=int,
+                   help="override the derived count AND DISABLE the by-name "
+                        "identity check (state why you had to)")
+    p.add_argument("--gh", default="gh", help="gh binary (tests point this at a fake)")
+    p.add_argument("--gh-repo", metavar="OWNER/NAME",
+                   help="pass --repo to gh explicitly (else it resolves the "
+                        "repo from the git remote of the ci.yml's checkout)")
+    p.add_argument("--timeout", type=float, default=60.0, help="seconds for gh")
+    p.add_argument("--selftest", action="store_true")
+    return p
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    if args.selftest:
+        return selftest()
+    if not args.pr:
+        emit_blind_spots(print)
+        print("VERDICT: REFUSE-NO-PR no pull request number given "
+              "(usage: bd-ci-verdict <PR>)")
+        return EXIT_REFUSE
+    return main_verdict(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

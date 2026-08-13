@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# bd-ci-wait <PR> -- wait for the CI run belonging to the PR's CURRENT head.
+#
+# WHY THIS EXISTS. `bd-ci-verdict` reads the PR's checks, and does NOT pin a
+# commit. Right after a push there is a window where the previous run's results
+# are still the ones on the PR, so a poller reads a completed verdict about the
+# commit you just replaced. Measured 2026-08-13 on PR 377: run 31699187187
+# (99513b4) sat `completed failure` while run 31700328994 (b3b214a) was still
+# in_progress, so an unpinned wait would have reported the fix as failing.
+#
+# WHAT IT CANNOT SEE, stated because a waiter that hides its blind spots is the
+# instrument this project keeps getting burned by:
+#   - it judges the RUN, not the checks. `bd-ci-verdict` is still what asserts
+#     all twelve named checks are present and passing; run this first, that
+#     second.
+#   - a run that never registers is indistinguishable here from one that is
+#     slow. That is why an absent run is reported as WAITING with a count, not
+#     as an absence.
+set -u
+
+PR="${1:?usage: bd-ci-wait <PR>}"
+MAX="${2:-80}"
+
+SHA="$(gh pr view "$PR" --json headRefOid -q .headRefOid 2>/dev/null)"
+if [ -z "$SHA" ]; then
+    echo "REFUSE: cannot resolve the head sha for PR $PR -- nothing to pin to."
+    exit 2
+fi
+echo "pinned: PR $PR head = $SHA"
+
+for i in $(seq 1 "$MAX"); do
+    # `.conclusion // "none"` IS NOT ENOUGH. jq's `//` substitutes only for
+    # null and false, and `gh` reports a still-running conclusion as the EMPTY
+    # STRING -- which is truthy in jq, so the field collapses and the row
+    # arrives with two words instead of three. Under `set -u` that surfaced as
+    # `$3: unbound variable`, i.e. the waiter crashed rather than waiting.
+    # Test for empty explicitly.
+    row="$(gh run list --limit 20 \
+             --json headSha,status,conclusion,databaseId \
+             -q ".[] | select(.headSha==\"$SHA\") | \"\(.databaseId) \(.status) \(if (.conclusion // \"\") == \"\" then \"none\" else .conclusion end)\"" \
+           2>/dev/null | head -1)"
+
+    if [ -z "$row" ]; then
+        echo "  [$i] no run registered for $SHA yet -- WAITING, not absent"
+        sleep 30
+        continue
+    fi
+
+    # shellcheck disable=SC2086
+    set -- $row
+    runid="$1"; status="$2"; conclusion="$3"
+
+    if [ "$status" != "completed" ]; then
+        echo "  [$i] run $runid ($status) for $SHA"
+        sleep 30
+        continue
+    fi
+
+    # The head must not have moved while we waited, or the verdict we are about
+    # to report is about a commit that is no longer the PR's head -- the same
+    # staleness this script exists to prevent, one level up.
+    now="$(gh pr view "$PR" --json headRefOid -q .headRefOid 2>/dev/null)"
+    if [ "$now" != "$SHA" ]; then
+        echo "REFUSE: head moved $SHA -> $now during the wait. No verdict."
+        exit 2
+    fi
+
+    echo "run=$runid sha=$SHA conclusion=$conclusion"
+    [ "$conclusion" = "success" ] && exit 0
+    exit 1
+done
+
+echo "TIMED OUT after $MAX checks; no completed run for $SHA. NOT a verdict."
+exit 2
