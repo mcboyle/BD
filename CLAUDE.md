@@ -1860,8 +1860,13 @@ echo "exit=$?"          # unpiped, per section 5
 
 `--workers=N` is parsed by `capture.sh` (grep the literal `--workers=*`; the
 anchor has moved once already) and forwarded to `pytest -n N
---dist loadfile`; it affects **only** the `capture_parallel` lane (measured 176
-files / 1458 tests at v3.66.824 -- ask `--collect-only -m capture_parallel`, not
+--dist loadfile`; it affects **only** the `capture_parallel` lane -- which is
+**almost the whole suite**, not a small slice: measured at v3.66.1102,
+`--collect-only -m capture_parallel` collects **15075 of 15869** tests, 794
+deselected. This line read "176 files / 1458 tests at v3.66.824" for 278
+releases, which is wrong by an order of magnitude and invited the reasonable but
+false inference that the lane is a small subset whose behaviour cannot be
+compared with a full run. Re-derive it; ask `--collect-only -m capture_parallel`, not
 grep, because `tests/conftest.py`'s `pytest_collection_modifyitems` assigns a
 lane to every item and the in-file markers are only manual overrides). The
 serial lane is hardcoded `-n 0` and no flag can widen it. Re-pin the graph hash

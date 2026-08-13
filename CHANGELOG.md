@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1103
+
+- doc-only: backlog 102's central question is answered, and CLAUDE.md's
+  description of the capture parallel lane was wrong by an order of magnitude.
+- THE LANE'S WEDGE RATE IS MEASURED. 31 preserved host-runs of capture.sh across
+  eight rounds, ZERO with an absent verdict. The worker count was READ from each
+  run's own run-context line rather than assumed -- 31 of 31 at 48 workers --
+  because capture.sh defaults to 4 without the flag, and an assumed denominator
+  would have made the comparison meaningless.
+- STATED HONESTLY: one-sided Fisher exact on 0/31 against the full suite's 2/6
+  gives p ~= 0.023. Lower at the 5% level and no further. The lane's 95% CI is
+  [0.000, 0.112]; the full suite's is [0.043, 0.777], because six samples is a
+  very wide interval. A working estimate of ~1e-6 computed earlier in the same
+  session was WRONG: it treated 2/6 as the true rate rather than as a small
+  sample.
+- THE OBVIOUS MECHANISM IS DEAD. The lane is not a small deselected subset:
+  `--collect-only -m capture_parallel` collects 15075 of 15869 tests. So "fewer
+  files, less scheduling surface" does not explain the difference, and what
+  stays open in row 102 is the MECHANISM rather than the rate.
+- CLAUDE.md said the lane was "176 files / 1458 tests" measured at v3.66.824.
+  That stood for 278 releases and invited the reasonable, false inference that
+  the lane is too small to compare against a full run. Corrected with today's
+  measurement and a re-derive instruction.
+- No change to --workers is warranted: 0/31 is the lane behaving, and lowering
+  it would trade a measured-good configuration for an unmeasured one.
+
 ## v3.66.1102
 
 - toolchain: bd-ci-verdict and bd-ci-wait become tracked tools. They were built
