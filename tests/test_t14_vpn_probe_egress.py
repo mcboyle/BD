@@ -14,6 +14,21 @@ def _vpn_state(tunnels):
     from bulk_downloader import vpn as _vpn
     saved = list(_cfg._state.get("tunnels", []))
     _cfg._state["tunnels"] = list(tunnels)
+    # RESET ON ENTRY, NOT ONLY ON EXIT (backlog 25).
+    #
+    # The line below used to exist only in the `finally`, which cleans up for
+    # the NEXT test and leaves THIS one asserting over whatever an earlier test
+    # file left behind. That is the whole mechanism: the swap above touches
+    # `vpn_config._state["tunnels"]`, while everything under test reads the
+    # module-level `vpn._tunnels` registry through `vpn.list_tunnels()` -- two
+    # different stores, so entering with `[]` set nothing that mattered.
+    #
+    # Tests that register INSIDE the block are unaffected: the reset happens
+    # before the body runs, so their own registration still stands.
+    try:
+        _vpn._reset_for_tests()
+    except Exception:
+        pass
     try:
         yield
     finally:
@@ -22,6 +37,53 @@ def _vpn_state(tunnels):
             _vpn._reset_for_tests()
         except Exception:
             pass
+
+
+def test_the_fixture_establishes_the_clean_registry_it_claims(clean_workdir):
+    """BACKLOG 25. This is the mechanism behind "test_probe_no_tunnels is
+    flaky", and it was never flakiness -- it was a fixture that did not build
+    the shape its tests assert on.
+
+    TWO STORES, NOT ONE. `_vpn_state` swaps `vpn_config._state["tunnels"]`.
+    `vpn_connectivity_probe` does not read that at all: it calls
+    `vpn.list_tunnels()`, which returns the module-level `vpn._tunnels`
+    registry. So entering the context with `[]` sets an empty list that nothing
+    under test consults, while the registry keeps whatever an earlier test file
+    left in it.
+
+    The reset existed -- in the `finally`. That cleans up for the NEXT test and
+    never establishes the precondition for THIS one, which is CLAUDE.md section
+    6's rule exactly: a harness must assert it built the shape before it
+    asserts the verdict. Without it, "no tunnels registered" and "a tunnel was
+    registered by somebody else" are the same green until the scheduler puts a
+    leaker on the same worker -- measured at 3 of 11 samples at -n 16, which is
+    why it read as rotation rather than as a defect.
+
+    REPRODUCED DETERMINISTICALLY 2026-08-13 at a0cdfff: registering one tunnel
+    and then running the probe under this exact fixture returned
+    registered_tunnels=1 where the tests assert 0.
+    """
+    from bulk_downloader import vpn as _vpn
+
+    # Stand in for whatever earlier file left the registry dirty. The point is
+    # that this test does NOT clean up before entering the context -- that is
+    # the fixture's job, and the assertion below is whether it does it.
+    _vpn.register_tunnel(
+        tunnel_id="leaked_by_an_earlier_test", name="L",
+        provider="mullvad", backend="wireguard",
+        config={"endpoint": "x.y.z:51820"})
+    assert "leaked_by_an_earlier_test" in _vpn._tunnels, (
+        "precondition not built: the registry was supposed to be dirty here, "
+        "so a green below would prove nothing")
+
+    with _vpn_state([]):
+        r = ds.vpn_connectivity_probe()
+
+    assert r["registered_tunnels"] == 0, (
+        "the fixture did not clear vpn._tunnels on ENTRY, so a tunnel left by "
+        "an earlier test file is still registered -- exactly the co-batched "
+        f"failure backlog 25 records. saw: {r['registered_tunnels']}")
+    assert r["tunnels"] == []
 
 
 # ── D-42 vpn_connectivity_probe ───────────────────────────────────
