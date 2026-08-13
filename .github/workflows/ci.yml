@@ -295,6 +295,7 @@ jobs:
               tests/test_v3_66_1031_socket_recorder_stages.py
               tests/test_no_test_writes_the_repo_plugins_dir.py
               tests/test_v3_66_1067_the_leaker_census_reads_code_not_prose.py
+              tests/test_v3_66_1080_the_suite_reclaims_its_tmpdirs.py
           - name: artifacts-pins
             suites: >-
               tests/test_generated_artifacts_are_not_tracked.py
