@@ -4,6 +4,37 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1095
+
+- tests: a patch.dict(sys.modules, ...) that EVICTS a module it did not insert
+  now fails the test that did it (backlog 101). mock restores the dict to its
+  entry snapshot, so a module first imported INSIDE the block is deleted on
+  exit; that poisons any identity-keyed cache whose owner survived, which is
+  how v3.66.1085's httpcore split produced a capture failure three layers from
+  anything the test touched.
+- A RUNTIME GUARD, NOT A CENSUS, and the audit is why. All 28 existing sites
+  were measured at e8bb3fd and observed ZERO evictions -- but the hazard is
+  schedule-dependent, because whether a module is "first imported inside the
+  block" depends on what an earlier test already imported and --dist loadfile
+  decides that. A static gate would have reported that zero as a pass. The
+  whole suite at -n 16 also observed zero, and the guard now runs every time
+  rather than once.
+- Both directions are asserted. It fires on a real module imported inside the
+  block, and stays silent on the ordinary fake swap that 27 of the 28 sites
+  use -- a guard red across six files on day one would be switched off within
+  the hour.
+- It does not replace an in-flight failure: if the test already raised, that
+  exception is more informative, so the eviction is recorded rather than
+  raised.
+- Cost measured per CLAUDE.md section 2 rule 6: 4 ms added per whole capture
+  (median of 5). The wrapper runs at the 28 patch.dict sites, not per test, and
+  the nodeid attribution rides on the autouse fixture that already exists
+  rather than adding a second one.
+- A mutation escape closed a real gap: dropping the patcher.values exclusion
+  survived every test, because swapping httpx for a Mock is quiet for two
+  independent reasons. Inserting a REAL module under a NEW key is the only
+  shape where that exclusion is load-bearing.
+
 ## v3.66.1094
 
 - provisioning: bd_mod3_pg_provision now INSTALLS postgresql when it is absent
