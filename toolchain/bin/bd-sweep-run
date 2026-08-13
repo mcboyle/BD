@@ -1,0 +1,2486 @@
+#!/usr/bin/env python3
+"""bd-sweep-run -- take ONE full-suite sample on a NAMED host and record it as a row.
+
+It runs the sanctioned whole-suite form from CLAUDE.md section 5 -- exactly that
+form, no invented flags and none dropped -- on a host from the fleet file, under
+a whole-run cap, and WAITS ON A WRITTEN EXIT MARKER. It then writes one JSON row
+carrying the commit, the host, the worker count and where that number came from,
+the load before and after, the wall clock, the pytest exit code, the summary
+counts, and the failure NAMES. The log is copied back WHOLE and filtered only at
+read time.
+
+IT REUSES, IT DOES NOT REIMPLEMENT:
+  toolchain/bin/bd-run     the whole-run cap (delegated to coreutils `timeout`,
+                           outside the pytest process, because a bound that
+                           shares a fate with the thing it bounds is not a
+                           bound), the log kept whole on disk, the ANSI-proof
+                           summary/FAILED anchors, and the cores//3 worker rule
+                           measured at v3.66.1044.
+  toolchain/bin/bd-fleet   read_hosts() for ~/.config/bd/hosts (a second parser
+                           over one format is a seam) and parse_probe(), plus
+                           its self-match-proof `ps -eo comm=,args=` filter.
+  toolchain/bin/bd-jobs    `register --pid` ON THE TARGET, BEFORE pytest starts,
+                           so the sample is discoverable from bd-fleet and
+                           bd-jobs list. If it cannot register, it does not run.
+  CLAUDE.md section 5      the command itself, re-derived from the file at
+                           selftest time rather than quoted from memory.
+
+============================================================================
+WHAT THIS CANNOT SEE  (printed on every run, refusals included -- the blind
+spots belong in the output nobody can skip, not in a README)
+============================================================================
+ 1. WHETHER THIS SAMPLE MEANS ANYTHING. It is ONE sample. Measured on test5 at
+    v3.66.1035, same tree and same commit: 1-8 failures idle, 18-29 with four
+    concurrent suites. Three single samples (19, 27, 51) were each read as
+    signal in one session and all three were noise. This tool produces a ROW,
+    never a verdict about the tree. Compare distributions under matched load
+    (bd-ab refuses a single sample for this reason), and never compare rows
+    taken at different -n.
+ 2. WHAT ELSE RAN ON THE BOX DURING THE RUN. Load is sampled at exactly two
+    instants, before and after. A neighbour that started and finished between
+    them is invisible, and it is the variable that dominates the failure count.
+ 3. WHETHER THE FAILURE SET IS A PROPERTY OF THE TREE. `--dist loadfile`
+    schedules files to workers dynamically, so timing decides which files share
+    a worker and cross-file leaks fire or do not accordingly. A rerun of this
+    identical command is a different experiment.
+ 4. WHICH FAILURES ARE ENVIRONMENTAL. It records names; it does not classify
+    them. The container-only set (test_e2e_smoke x7, the no_backend
+    body-contract case, exec_bridge x5, a no-tunnel vpn probe, GTK tray_app on
+    bare hosts) is NOT subtracted here. Diff the names yourself.
+ 5. AN EDIT MADE AND REVERTED INSIDE THE RUN WINDOW. The tree is measured at
+    launch and again at the end (both recorded); a file dirty only in between
+    leaves no trace.
+ 6. WHETHER A CAP OR A STALL WAS A HANG. Exit 124 means the run did not finish
+    inside its cap: an unfinished run, not a pass and not a failure of the code.
+    A stalled log means no bytes arrived, which a slow box and a dead xdist
+    worker produce identically.
+ 7. ANYTHING ABOUT THE BOX GATE. A sweep is not a capture. test6 passed capture
+    15547/0 while carrying 14 sys.modules leakers that plain pytest exposed.
+ 8. FAILURES PYTEST DID NOT NAME IN ITS SHORT SUMMARY. Names come from FAILED/
+    ERROR lines. When the summary count and the name count disagree, the row
+    states BOTH numbers and marks itself incomplete; the shorter list is never
+    reported as the whole set.
+ 9. THE TARGET'S TRUTH AFTER THE FETCH. Everything here is what the host
+    reported about itself over one ssh channel: no cross-check of its clock
+    (wall time comes from the TARGET's own epochs), its ps table, or the log
+    after it was copied.
+
+Exit codes -- three states, and UNKNOWN is not a pass:
+    0  SAMPLE-RECORDED   pytest exited 0 or 1, its log arrived at the length the
+                         target reported, and that log carries a summary line
+    1  NO-USABLE-SAMPLE  CAPPED, STALLED, or INVALIDATED (tree moved mid-run)
+    2  REFUSED / UNKNOWN nothing was launched, or the result could not be read:
+                         a short log copy, a pytest exit that is not 0/1 (2-5
+                         and every signal), a log with no summary line, a
+                         context.env that is empty/stale/foreign, or a tree the
+                         target could not read afterwards. Each of those was
+                         SAMPLE-RECORDED with failures=0 before review.
+"""
+import argparse
+import io
+import json
+import os
+import pathlib
+import posixpath
+import re
+import shlex
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import tokenize
+
+SCHEMA = "bd-sweep-run/1"
+DEFAULT_REPO = os.environ.get("BD_REPO") or os.path.join(
+    os.path.expanduser("~"), "BulkDownloader")
+DEFAULT_HOSTS = os.path.join(os.path.expanduser("~"), ".config", "bd", "hosts")
+DEFAULT_LOCAL_DIR = os.environ.get("BD_SWEEP_DIR") or os.path.join(
+    os.path.expanduser("~"), ".bd-sweep-run")
+REMOTE_ROOT = ".bd-sweep-run"          # under the target's $HOME
+
+# Bounds. Every one is printed with the result, because a bound that fired is
+# part of the measurement.
+DEFAULT_CAP = 5400                     # whole-run cap handed to bd-run
+DEFAULT_SLACK = 600                    # the marker must appear by cap + slack
+DEFAULT_STALL = 1200                   # no log growth for this long = STALLED
+DEFAULT_POLL = 30
+DEFAULT_MAX_UNKNOWN = 5                # consecutive unreadable polls -> UNKNOWN
+DEFAULT_KEEP_REMOTE = 20
+
+# Remote refusal codes. The local side keys off the STATUS WORD, not the code:
+# four refusals sharing one exit code is how four mutants escaped a
+# `returncode == 2` assertion at v3.66.1074. The code is corroboration only.
+REMOTE_REFUSALS = {
+    91: "REFUSED-TREE-CHANGED",
+    92: "REFUSED-DIRTY",
+    93: "REFUSED-GIT-UNREADABLE",
+    94: "REFUSED-REGISTER-FAILED",
+    95: "REFUSED-NO-REPO",
+}
+CAPPED_RC = 124                        # coreutils `timeout`, same as bd-run
+
+# The context.env written by finish(). A context whose status is not one of
+# these was written by the RUNNING-era ctx() call, which means finish() never
+# completed -- reading head_after=NONE out of it and calling that "the tree
+# moved" is a FABRICATED cause, the exact class as the failed remote `cd` whose
+# `find` then ran in the wrong directory and manufactured a MISMATCH.
+TERMINAL_STATUS = frozenset(["DONE"]) | frozenset(REMOTE_REFUSALS.values())
+
+# pytest's own exit codes. 0 (all passed) and 1 (tests failed) are the only two
+# that describe a SUITE THAT RAN. 2-5 describe pytest never getting to the end,
+# and >=128 is a signal -- a reaped command is not a result. Measured against
+# this tool at review time: exits 2, 3, 4 and 5 with an empty log were all
+# recorded as SAMPLE-RECORDED with failures=0 and process exit 0.
+PYTEST_SAMPLE_RC = {0: "all tests passed", 1: "tests failed"}
+PYTEST_NOT_A_SAMPLE = {
+    2: "INTERRUPTED (pytest exit 2) -- the run was stopped, not finished",
+    3: "INTERNAL-ERROR (pytest exit 3) -- pytest itself broke",
+    4: "USAGE-ERROR (pytest exit 4) -- the command was wrong, nothing was measured",
+    5: "NO-TESTS-COLLECTED (pytest exit 5) -- an empty run is not a green one",
+}
+
+BLIND_SPOTS = [
+    "ONE SAMPLE IS NOT A RESULT: same tree, same commit measured 1-8 failures "
+    "idle vs 18-29 under four concurrent suites. This row is an input to a "
+    "comparison, never a verdict about the tree.",
+    "LOAD IS TWO INSTANTS, NOT A TRACE: a neighbour that began and ended between "
+    "them is invisible, and load dominates the failure count.",
+    "THE FAILURE SET IS A PROPERTY OF THE SCHEDULE: --dist loadfile assigns files "
+    "dynamically, so a rerun of this identical command is a different experiment.",
+    "FAILURES ARE NOT CLASSIFIED HERE: the container-only environmental set is "
+    "recorded by name like any other failure and is NOT subtracted.",
+    "A MID-RUN EDIT THAT WAS REVERTED LEAVES NO TRACE: the tree is measured at "
+    "launch and at the end only.",
+    "A CAP (exit 124) OR A STALLED LOG IS AN UNFINISHED RUN: not a pass, not a "
+    "code failure, and indistinguishable here from a slow box.",
+    "A SWEEP IS NOT A CAPTURE: capture's serial + deselected-parallel lanes never "
+    "reproduce whole-suite co-batching, and green in one says nothing about the "
+    "other.",
+    "FAILURE NAMES COME FROM THE SHORT SUMMARY: when the summary count and the "
+    "name count disagree, the row states both and marks itself incomplete.",
+    "EVERYTHING HERE IS WHAT THE TARGET REPORTED OVER ONE SSH CHANNEL: no cross-"
+    "check of its clock, its process table, or the log after it was copied.",
+    "THE LOG IS CHECKED FOR LENGTH, NOT FOR TRUTH: the remote byte count from the "
+    "last poll is compared with the fetched file's, so a short copy is caught, but "
+    "nothing checksums the bytes in between and a same-length corruption is "
+    "invisible.",
+    "THE EXIT CODE IS PYTEST'S OWN CLAIM: 0 and 1 are treated as a suite that ran "
+    "and everything else as no-sample, but a runner that died before exec reports "
+    "its shell's code, not pytest's.",
+]
+
+
+class Refuse(Exception):
+    """A refusal with a DISTINCTIVE token. Several refusals share exit 2, so the
+    token is what callers and tests assert on: deleting one guard must not let a
+    later guard answer with an indistinguishable code."""
+
+    def __init__(self, token, message):
+        super().__init__("%s: %s" % (token, message))
+        self.token = token
+        self.message = message
+
+
+# ---------------------------------------------------------------------------
+# reuse: load the extensionless siblings by path (the bd-band pattern)
+# ---------------------------------------------------------------------------
+def load_sibling(repo, name):
+    """Load toolchain/bin/<name> as a module. ABSENCE IS A REFUSAL, never a
+    silent fallback: a private copy of read_hosts() or of the summary anchors
+    would be the two-parsers-over-one-format seam these tools exist to avoid,
+    and a quiet fallback would hide that the toolchain is not there."""
+    import importlib.machinery
+    import importlib.util
+    target = os.path.join(repo, "toolchain", "bin", name)
+    if not os.path.isfile(target):
+        raise Refuse("REFUSE-TOOLCHAIN-MISSING",
+                     "%s not found. bd-sweep-run reuses it rather than "
+                     "reimplementing it; point --repo at a checkout." % target)
+    try:
+        loader = importlib.machinery.SourceFileLoader(
+            "_bdsr_" + name.replace("-", "_"), target)
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        mod = importlib.util.module_from_spec(spec)
+        loader.exec_module(mod)
+    except Exception as exc:                                # noqa: BLE001
+        raise Refuse("REFUSE-TOOLCHAIN-UNLOADABLE",
+                     "%s could not be loaded: %s" % (target, exc))
+    return mod
+
+
+def require_attrs(mod, name, attrs):
+    missing = [a for a in attrs if not hasattr(mod, a)]
+    if missing:
+        raise Refuse("REFUSE-TOOLCHAIN-CHANGED",
+                     "%s no longer provides %s -- bd-sweep-run reads its results "
+                     "through those and will not guess a replacement."
+                     % (name, ", ".join(missing)))
+    return mod
+
+
+# ---------------------------------------------------------------------------
+# the command (pure)
+# ---------------------------------------------------------------------------
+def section5_tokens(workers):
+    """CLAUDE.md section 5's ONE permitted whole-suite form, verbatim, with the
+    single flag that describes the MACHINE rather than the experiment filled in:
+
+        BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest tests/ \\
+            -n 4 --dist loadfile --timeout=240 --timeout-method=thread \\
+            -q -p no:randomly
+
+    Every flag is load-bearing and a different one is a different experiment:
+    --timeout turns a hang into a named test, --timeout-method=thread dumps its
+    stack, --dist loadfile is the distribution that was actually measured, and
+    -q -p no:randomly is the ordering that was measured. `-n 4` is NOT a
+    constant -- it was copied onto an 86-core box at v3.66.1035 purely because
+    the paragraph said 4 -- so it is derived from the TARGET and recorded.
+
+    Returned as tokens so the selftest can compare them against the fenced block
+    in CLAUDE.md itself rather than against my memory of it."""
+    if not isinstance(workers, int) or isinstance(workers, bool) or workers < 1:
+        raise Refuse("REFUSE-BAD-WORKERS",
+                     "worker count must be a positive int, got %r" % (workers,))
+    return ["BD_DISABLE_KEEPALIVE=1", "venv/bin/python", "-m", "pytest", "tests/",
+            "-n", str(workers),
+            "--dist", "loadfile", "--timeout=240", "--timeout-method=thread",
+            "-q", "-p", "no:randomly"]
+
+
+def suite_command(workers):
+    """The tokens above with BD_INSTALL_DIR POPPED, not merely unset-by-hope.
+
+    `env -u` rather than "we did not set it": the invoking shell routinely
+    carries BD_INSTALL_DIR from an earlier probe, one exported run measured 89
+    false failures, and v3.66.1024 measured the same file 4-failed exported vs
+    115-passed popped. This changes no pytest flag; it removes an inherited
+    variable that would defeat the suite's isolation."""
+    return ["env", "-u", "BD_INSTALL_DIR"] + section5_tokens(workers)
+
+
+def contract_tokens_from_claude_md(path):
+    """Re-derive the permitted form from CLAUDE.md. Returns tokens, or None for
+    CANNOT-EVALUATE (absent/unparseable) -- 'the check did not run' and 'the
+    check passed' are different states and the caller must say which."""
+    try:
+        text = pathlib.Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    anchor = text.find("SO THE SWEEP IS PERMITTED")
+    if anchor < 0:
+        return None
+    fence = text.find("```bash", anchor)
+    if fence < 0:
+        return None
+    end = text.find("```", fence + 7)
+    if end < 0:
+        return None
+    body = text[fence + 7:end].replace("\\\n", " ")
+    try:
+        return shlex.split(body)
+    except ValueError:
+        return None
+
+
+def normalise_worker_token(tokens):
+    """`-n 4` and `-n 16` are the same FORM. Compare forms, not machines."""
+    out = list(tokens)
+    for i, tok in enumerate(out):
+        if tok == "-n" and i + 1 < len(out):
+            out[i + 1] = "N"
+    return out
+
+
+# ---------------------------------------------------------------------------
+# workers (pure)
+# ---------------------------------------------------------------------------
+def derive_workers(nproc, explicit=None, frac=3, bdrun=None):
+    """(count, provenance). RECORD THE PROVENANCE: a count taken at one worker
+    level cannot be compared with one taken at another, so the row carries where
+    the number came from and not just the number."""
+    if explicit is not None:
+        if explicit < 1:
+            raise Refuse("REFUSE-BAD-WORKERS",
+                         "--workers must be >= 1, got %d" % explicit)
+        return explicit, "explicit --workers %d" % explicit
+    if not isinstance(nproc, int) or isinstance(nproc, bool) or nproc < 1:
+        raise Refuse("REFUSE-PREFLIGHT-UNKNOWN",
+                     "the target did not report a usable nproc (%r). A worker "
+                     "count guessed from here is the v3.66.1035 defect: -n 4 "
+                     "typed onto an 86-core box." % (nproc,))
+    if frac < 1:
+        raise Refuse("REFUSE-BAD-WORKERS", "--workers-frac must be >= 1")
+    if frac == 3 and bdrun is not None:
+        # ONE IMPLEMENTATION OF THE MEASURED RULE: bd-run.auto_workers is
+        # cores//3 floored at 2, measured at v3.66.1044 (-n 8: 224s, 16: 190s,
+        # 32: 182s, 64: 223s on 64 cores -- both ends slower than the middle).
+        return bdrun.auto_workers(nproc), \
+            "cores//3 via bd-run.auto_workers (nproc=%d)" % nproc
+    return max(2, nproc // frac), "cores//%d floored at 2 (nproc=%d)" % (frac, nproc)
+
+
+# ---------------------------------------------------------------------------
+# hosts + commit (pure)
+# ---------------------------------------------------------------------------
+def resolve_host(read_hosts, hosts_file, wanted, addr_override=None):
+    if addr_override:
+        return wanted, addr_override
+    if not os.path.isfile(hosts_file):
+        raise Refuse("REFUSE-NO-HOSTS-FILE",
+                     "%s does not exist. It is deliberately untracked -- copy "
+                     "docs/repo/hosts.example there." % hosts_file)
+    try:
+        hosts = read_hosts(hosts_file)
+    except Exception as exc:                                # noqa: BLE001
+        raise Refuse("REFUSE-HOSTS-FILE-UNPARSEABLE", "%s: %s" % (hosts_file, exc))
+    if not hosts:
+        raise Refuse("REFUSE-NO-HOSTS-FILE",
+                     "%s lists no hosts. An empty fleet must not read as a "
+                     "healthy one." % hosts_file)
+    for label, addr in hosts:
+        if wanted in (label, addr):
+            return label, addr
+    raise Refuse("REFUSE-HOST-UNKNOWN",
+                 "%r is not in %s (it lists: %s). Pass --addr to sample a host "
+                 "the fleet file does not know about."
+                 % (wanted, hosts_file, ", ".join(l for l, _ in hosts)))
+
+
+def busy_gate(pytest_procs, ps_ok, allow_busy, label):
+    """A BOX ALREADY RUNNING A SUITE IS NOT A PLACE TO TAKE A SAMPLE.
+
+    Measured while this tool was being written: a --dry-run at test4 reported
+    one live `venv/bin/python -m pytest tests/ -n 16 --dist loadfile ...`, i.e.
+    a full-suite sweep already in flight. Sampling there would have measured
+    the neighbour -- the 1-8-idle vs 18-29-loaded spread is exactly this. So it
+    refuses by default and --allow-busy is a deliberate, recorded choice.
+
+    Returns a note to print (or None); raises Refuse when it will not proceed."""
+    if ps_ok != "yes":
+        if allow_busy:
+            return ("NOTE: %s could not run ps, so whether anything else is on "
+                    "the box is UNKNOWN -- proceeding only because --allow-busy "
+                    "was given." % label)
+        raise Refuse("REFUSE-BUSY-UNKNOWN",
+                     "%s could not run ps, so 'nothing else is running' is "
+                     "UNKNOWN, not true. A 0 from `| wc -l` after a failed ps is "
+                     "not a measurement. Use --allow-busy to sample anyway."
+                     % label)
+    # AN UNPARSED COUNT IS NOT ZERO. ps answered, but the line carrying the
+    # number did not arrive or did not parse: `None` here would fall through the
+    # `not pytest_procs` test below and read as an idle box, which is the same
+    # mistake as reading `| wc -l` after a failed ps.
+    if pytest_procs is None:
+        if allow_busy:
+            return ("NOTE: %s ran ps but its pytest count did not parse, so how "
+                    "busy the box is remains UNKNOWN -- proceeding only because "
+                    "--allow-busy was given." % label)
+        raise Refuse("REFUSE-BUSY-UNCOUNTED",
+                     "%s ran ps but bd-sweep-run could not read a pytest process "
+                     "COUNT out of the answer. An unparsed count is UNKNOWN, not "
+                     "zero. Use --allow-busy to sample anyway." % label)
+    if not pytest_procs:
+        return None
+    if allow_busy:
+        return ("NOTE: %s already shows %d `python -m pytest` process(es). Load "
+                "dominates the failure count, so THIS SAMPLE IS CONTAMINATED; "
+                "the row records the number." % (label, pytest_procs))
+    raise Refuse("REFUSE-TARGET-BUSY",
+                 "%s already shows %d `python -m pytest` process(es). Load "
+                 "dominates the failure count (1-8 failures idle vs 18-29 with "
+                 "four concurrent suites, same tree and commit), so a sample "
+                 "taken now measures the neighbour. Wait, pick another host, or "
+                 "pass --allow-busy to record a contaminated sample deliberately."
+                 % (label, pytest_procs))
+
+
+def validate_context(text, ctx, runid, label, rundir):
+    """THE CONTEXT MUST PROVE IT IS THIS RUN'S, AND FINAL. Returns the terminal
+    status word; raises Refuse with a DISTINCTIVE token otherwise.
+
+    Measured against this tool at review time, twice: a context.env that came
+    back EMPTY (the framing tokens are echoed by the probe, so `cat` of a
+    missing file still 'succeeds') and a STALE one left by the RUNNING-era
+    write both produced `head_after=NONE`, which the tree-stability test then
+    reported as "the tree moved under the run (head 9db903f -> NONE)". That is
+    a manufactured cause: nothing moved, the context could not be read. An
+    operator is sent to hunt a mid-run edit that never happened.
+
+    Four distinct tokens, because four refusals sharing one code is how four
+    mutants escaped a `returncode == 2` assertion -- deleting any one of these
+    guards must not let a later one answer indistinguishably."""
+    if "BD-SWEEP-CTX 1" not in text or "BD-SWEEP-CTX-END" not in text:
+        raise Refuse("REFUSE-CONTEXT-UNFRAMED",
+                     "the context answer from %s is missing its framing tokens; a "
+                     "truncated answer is not a measurement (%s)" % (label, rundir))
+    if ctx.get("schema") != SCHEMA:
+        raise Refuse("REFUSE-CONTEXT-EMPTY",
+                     "%s answered the context probe but handed back no context.env "
+                     "(schema=%r, wanted %r). The run directory %s may have been "
+                     "swept. This is a blind spot, NOT evidence about the tree."
+                     % (label, ctx.get("schema"), SCHEMA, rundir))
+    if ctx.get("run_id") != runid:
+        raise Refuse("REFUSE-CONTEXT-FOREIGN",
+                     "the context.env under %s on %s names run_id %r, not this "
+                     "run's %r. That is somebody else's result and it will not be "
+                     "recorded as this one's."
+                     % (rundir, label, ctx.get("run_id"), runid))
+    status = ctx.get("status", "NONE")
+    if status not in TERMINAL_STATUS:
+        raise Refuse("REFUSE-CONTEXT-NOT-FINAL",
+                     "the exit marker under %s on %s says the run ended, but its "
+                     "context.env still reads status=%r -- the final write never "
+                     "landed, so head_after/end_epoch are the RUNNING-era "
+                     "placeholders. UNKNOWN; it says nothing about the tree."
+                     % (rundir, label, status))
+    return status
+
+
+def commit_matches(requested, actual):
+    """Prefix match, minimum 7 characters. A 4-character "sha" is read by git as
+    a ref name and cannot even probe existence, so it is refused rather than
+    half-checked."""
+    if not requested or len(requested) < 7:
+        raise Refuse("REFUSE-SHORT-COMMIT",
+                     "--commit %r is shorter than 7 characters; to git that is a "
+                     "ref name, not a commit id." % (requested,))
+    if not actual or actual in ("NONE", ""):
+        return False
+    return actual.startswith(requested) or requested.startswith(actual)
+
+
+# ---------------------------------------------------------------------------
+# remote shell (generated; every interpolation is shlex.quote'd)
+# ---------------------------------------------------------------------------
+def q(value):
+    return shlex.quote(str(value))
+
+
+def shell_path(path):
+    """A shell word for a target-side path. `shlex.quote("$HOME/x")` produces a
+    single-quoted literal in which $HOME never expands -- the quiet way to make
+    every remote command operate on a directory that does not exist."""
+    path = str(path)
+    if path.startswith("/"):
+        return q(path)
+    for prefix in ("$HOME/", "~/"):
+        if path.startswith(prefix):
+            return '"$HOME"/' + q(path[len(prefix):])
+    return '"$HOME"/' + q(path)
+
+
+PREFLIGHT_TEMPLATE = r'''
+set -u
+echo "BD-SWEEP-PREFLIGHT 1"
+echo "hostname=$(hostname 2>/dev/null || echo NONE)"
+echo "home=$HOME"
+echo "now=$(date +%s)"
+S="$HOME"/{root}
+if cd {repo} 2>/dev/null; then echo "repo=yes"; echo "repo_abs=$(pwd -P)"; else echo "repo=no"; echo "BD-SWEEP-PREFLIGHT-END"; exit 0; fi
+H=$(git rev-parse HEAD 2>/dev/null)
+if [ $? -eq 0 ] && [ -n "$H" ]; then echo "head=$H"; else echo "head=NONE"; fi
+# ZERO IS NOT A VERDICT. `git status --porcelain | wc -l` prints 0 when git
+# FAILED just as readily as when the tree is clean, so the rc is captured first
+# and an unreadable tree reports NONE -- which the caller refuses on.
+P=$(git status --porcelain 2>/dev/null); PRC=$?
+if [ $PRC -eq 0 ]; then
+  echo "porcelain=$(printf '%s\n' "$P" | awk 'NF{{n++}} END{{print n+0}}')"
+else
+  echo "porcelain=NONE"
+fi
+N=$(nproc 2>/dev/null)
+if [ $? -eq 0 ] && [ -n "$N" ]; then echo "nproc=$N"; else echo "nproc=NONE"; fi
+echo "load=$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || echo NONE)"
+if [ -x venv/bin/python ]; then echo "venv=yes"; else echo "venv=no"; fi
+if venv/bin/python -c 'import pytest, xdist, pytest_timeout' >/dev/null 2>&1; then
+  echo "deps=ok"
+else
+  echo "deps=fail"
+fi
+if [ -f toolchain/bin/bd-run ]; then echo "bd_run=yes"; else echo "bd_run=no"; fi
+if [ -f toolchain/bin/bd-jobs ]; then echo "bd_jobs=yes"; else echo "bd_jobs=no"; fi
+# COUNTING PYTEST IS A SELF-MATCH TRAP: bd-fleet's own probe reported 4 on an
+# idle host because the probe shell's argv contained the pattern it searched
+# for. This is bd-fleet's fixed filter verbatim -- require comm to BE the
+# interpreter, and split the literal so the line cannot match itself.
+# ...and `| wc -l` prints 0 when ps ITSELF failed just as readily as when
+# nothing is running, so ps's own rc is captured separately. A 0 that means
+# "could not look" must not read as "nothing there".
+if ps -eo pid=,comm=,args= >/dev/null 2>&1; then echo "ps_ok=yes"; else echo "ps_ok=no"; fi
+echo "pytest_procs=$(ps -eo pid=,comm=,args= 2>/dev/null | awk '$2 ~ /^python/ && $0 ~ /-m[ ]pytest/' | wc -l)"
+NOW=$(date +%s)
+INF=0; STALE=0; INFD=""; STALED=""
+for d in "$S"/*/; do
+  [ -d "$d" ] || continue
+  [ -f "$d/exit" ] && continue
+  [ -f "$d/status" ] || continue
+  ST=$(cat "$d/status" 2>/dev/null || echo NONE)
+  [ "$ST" = RUNNING ] || continue
+  M=$(stat -c %Y "$d" 2>/dev/null || echo 0)
+  # -L: without it this reads the SYMLINK's mtime, fixed when bd-run created it,
+  # so a live sweep older than {stall} looked STALE -- i.e. NOT blocking -- and
+  # the concurrent-sweep guard would have let a second sweep onto a box already
+  # running one, on exactly the long runs the guard exists for.
+  LM=$(stat -L -c %Y "$d/bd-run/sweep.log" 2>/dev/null || echo 0)
+  if [ "$LM" -gt "$M" ] 2>/dev/null; then M="$LM"; fi
+  AGE=$((NOW - M))
+  if [ "$AGE" -lt {stall} ]; then
+    INF=$((INF+1)); INFD="$INFD $d"
+  else
+    STALE=$((STALE+1)); STALED="$STALED $d"
+  fi
+done
+echo "inflight_fresh=$INF"
+echo "inflight_fresh_dirs=$INFD"
+echo "inflight_stale=$STALE"
+echo "inflight_stale_dirs=$STALED"
+echo "BD-SWEEP-PREFLIGHT-END"
+'''
+
+
+RUNNER_TEMPLATE = r'''#!/usr/bin/env bash
+# Generated by bd-sweep-run. ONE full-suite sample, recorded.
+# Every artifact of this run stays under RUNDIR. The exit marker is written LAST
+# and atomically (tmp + mv), so its presence means everything else is already
+# there and a poll can never read half a number.
+set -u
+RUNDIR={rundir}
+REPO={repo}
+WANT={want}
+WORKERS={workers}
+CAP={cap}
+REGISTER={register}
+RUNID={runid}
+PURPOSE={purpose}
+CMD_DISPLAY={cmd_display}
+
+STATUS=NONE
+HEAD_BEFORE=NONE; HEAD_AFTER=NONE
+DIRTY_BEFORE=NONE; DIRTY_AFTER=NONE
+LOAD_BEFORE=NONE; LOAD_AFTER=NONE
+START_EPOCH=NONE; END_EPOCH=NONE
+NPROC=NONE; RC=NONE; REGISTER_ID=NONE
+
+ctx() {{
+  {{
+    echo "schema={schema}"
+    echo "run_id=$RUNID"
+    echo "status=$STATUS"
+    echo "repo=$REPO"
+    echo "requested_commit=$WANT"
+    echo "workers=$WORKERS"
+    echo "cap_seconds=$CAP"
+    echo "nproc=$NPROC"
+    echo "head_before=$HEAD_BEFORE"
+    echo "head_after=$HEAD_AFTER"
+    echo "porcelain_before=$DIRTY_BEFORE"
+    echo "porcelain_after=$DIRTY_AFTER"
+    echo "load_before=$LOAD_BEFORE"
+    echo "load_after=$LOAD_AFTER"
+    echo "start_epoch=$START_EPOCH"
+    echo "end_epoch=$END_EPOCH"
+    echo "register_id=$REGISTER_ID"
+    echo "rc=$RC"
+    echo "log_path=$RUNDIR/bd-run/sweep.log"
+    echo "pytest_cmd=$CMD_DISPLAY"
+  }} > "$RUNDIR/context.env.tmp" && mv "$RUNDIR/context.env.tmp" "$RUNDIR/context.env"
+}}
+
+finish() {{   # $1 = exit code, $2 = status word
+  STATUS="$2"
+  printf '%s\n' "$2" > "$RUNDIR/status"
+  ctx
+  printf '%s\n' "$1" > "$RUNDIR/exit.tmp" && mv "$RUNDIR/exit.tmp" "$RUNDIR/exit"
+  exit "$1"
+}}
+
+cd "$REPO" 2>/dev/null || finish 95 REFUSED-NO-REPO
+NPROC=$(nproc 2>/dev/null || echo NONE)
+
+H=$(git rev-parse HEAD 2>/dev/null)
+if [ $? -ne 0 ] || [ -z "$H" ]; then finish 93 REFUSED-GIT-UNREADABLE; fi
+HEAD_BEFORE="$H"
+P=$(git status --porcelain 2>/dev/null); PRC=$?
+if [ $PRC -ne 0 ]; then finish 93 REFUSED-GIT-UNREADABLE; fi
+DIRTY_BEFORE=$(printf '%s\n' "$P" | awk 'NF{{n++}} END{{print n+0}}')
+
+# RE-CHECKED HERE, not only in the preflight: between the two, somebody could
+# have committed, pulled, or started editing. A sample against a tree that is
+# not the requested one is worse than no sample -- three capture rounds were
+# lost to exactly this (v3.66.1063/1069/1082).
+case "$HEAD_BEFORE" in
+  "$WANT"*) ;;
+  *) finish 91 REFUSED-TREE-CHANGED ;;
+esac
+if [ "$DIRTY_BEFORE" != "0" ]; then finish 92 REFUSED-DIRTY; fi
+
+# REGISTER BEFORE LAUNCH, and refuse if the record cannot be written. bd-jobs'
+# own first live run launched THEN failed to register, creating the exact
+# untracked orphan it exists to prevent (v3.66.1035: 88 minutes).
+if [ "$REGISTER" = yes ]; then
+  if venv/bin/python toolchain/bin/bd-jobs register --pid $$ --purpose "$PURPOSE" --cmd "bd-sweep-run $RUNID" > "$RUNDIR/register.out" 2>&1; then
+    REGISTER_ID=$(awk 'NF{{last=$0}} END{{print last}}' "$RUNDIR/register.out")
+  else
+    finish 94 REFUSED-REGISTER-FAILED
+  fi
+else
+  REGISTER_ID=SKIPPED
+fi
+
+START_EPOCH=$(date +%s)
+LOAD_BEFORE=$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || echo NONE)
+STATUS=RUNNING
+printf '%s\n' RUNNING > "$RUNDIR/status"
+ctx
+
+# THE SAMPLE. bd-run owns the whole-run cap (coreutils `timeout`, outside the
+# pytest process and signalling the process GROUP) and keeps the log WHOLE.
+# NOTHING is piped into head/tail/grep here: the tail is where the verdict lives.
+venv/bin/python toolchain/bin/bd-run --label sweep --dir "$RUNDIR/bd-run" --max-seconds "$CAP" -- {cmdline} > "$RUNDIR/bd-run.out" 2>&1
+RC=$?
+
+END_EPOCH=$(date +%s)
+LOAD_AFTER=$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || echo NONE)
+H2=$(git rev-parse HEAD 2>/dev/null)
+if [ $? -eq 0 ] && [ -n "$H2" ]; then HEAD_AFTER="$H2"; else HEAD_AFTER=NONE; fi
+P2=$(git status --porcelain 2>/dev/null); PRC2=$?
+if [ $PRC2 -eq 0 ]; then
+  DIRTY_AFTER=$(printf '%s\n' "$P2" | awk 'NF{{n++}} END{{print n+0}}')
+else
+  DIRTY_AFTER=NONE
+fi
+finish "$RC" DONE
+'''
+
+
+POLL_TEMPLATE = r'''
+set -u
+D={rundir}
+echo "BD-SWEEP-POLL 1"
+if [ -d "$D" ]; then echo "rundir=yes"; else echo "rundir=no"; fi
+if [ -f "$D/exit" ]; then echo "exit=$(cat "$D/exit" 2>/dev/null)"; else echo "exit=NONE"; fi
+if [ -f "$D/status" ]; then echo "status=$(cat "$D/status" 2>/dev/null)"; else echo "status=NONE"; fi
+L="$D/bd-run/sweep.log"
+# -L IS LOAD-BEARING. bd-run's `<label>.log` is a SYMLINK to
+# <label>-<timestamp>.log, and `stat` does NOT follow symlinks by default: it
+# reports the LINK, whose size is the length of the target's filename (measured:
+# 32 while the log held 5001 bytes) and whose mtime is fixed at creation. Both
+# are therefore CONSTANT for the whole run, so the stall detector below was
+# watching a number that cannot change -- every sweep longer than
+# --stall-seconds was going to be declared STALLED on a perfectly healthy log.
+echo "log_bytes=$(stat -L -c %s "$L" 2>/dev/null || echo NONE)"
+echo "log_mtime=$(stat -L -c %Y "$L" 2>/dev/null || echo NONE)"
+echo "now=$(date +%s)"
+echo "BD-SWEEP-POLL-END"
+'''
+
+
+FETCH_CTX_TEMPLATE = r'''
+set -u
+D={rundir}
+echo "BD-SWEEP-CTX 1"
+cat "$D/context.env" 2>/dev/null
+echo "BD-SWEEP-CTX-END"
+'''
+
+
+PRUNE_TEMPLATE = r'''
+set -u
+S={root}
+KEEP={keep}
+N=0
+if [ ! -d "$S" ]; then echo "pruned=0"; exit 0; fi
+for d in $(ls -1dt "$S"/*/ 2>/dev/null | tail -n +$((KEEP+1))); do
+  # NEVER an in-flight run: only directories that already wrote an exit marker.
+  [ -f "$d/exit" ] || continue
+  rm -rf "$d" && N=$((N+1))
+done
+echo "pruned=$N"
+'''
+
+
+def build_runner(rundir, repo, want, workers, cap, register, runid, purpose):
+    cmdline = shlex.join(suite_command(workers))
+    return RUNNER_TEMPLATE.format(
+        rundir=q(rundir), repo=q(repo), want=q(want), workers=q(workers),
+        cap=q(cap), register=q("yes" if register else "no"), runid=q(runid),
+        purpose=q(purpose), schema=SCHEMA, cmdline=cmdline,
+        cmd_display=q(cmdline))
+
+
+def build_launch(rundir, runner_text):
+    marker = "BD_SWEEP_RUNNER_EOF"
+    if marker in runner_text:
+        raise Refuse("REFUSE-RUNNER-UNQUOTABLE",
+                     "the generated runner contains its own heredoc terminator")
+    return (
+        "set -u\n"
+        # A RUNDIR THAT ALREADY HOLDS A MARKER IS SOMEBODY ELSE'S RESULT. The
+        # first poll fires within a poll interval of the launch, long before
+        # this run's own marker exists, so a leftover `exit` is read as THIS
+        # run's answer. Measured during review: a rundir pre-seeded with exit=94
+        # made bd-sweep-run report REMOTE-REFUSED-REGISTER-FAILED for a run
+        # whose pytest never started -- and the same collision fired for real in
+        # the tool's own selftest, where two cases in one second shared an id.
+        "if [ -e %(d)s/exit ] || [ -e %(d)s/status ]; then\n"
+        "  echo 'BD-SWEEP-RUNDIR-REUSED'; exit 72\n"
+        "fi\n"
+        "mkdir -p %(d)s/bd-run || exit 71\n"
+        "cat > %(d)s/runner.sh <<'%(m)s'\n%(body)s\n%(m)s\n"
+        # DETACHED, ALL THREE FDS REDIRECTED: the ssh channel has to be able to
+        # close, and the run has to outlive it.
+        "if command -v setsid >/dev/null 2>&1; then\n"
+        "  setsid nohup bash %(d)s/runner.sh > %(d)s/runner.out 2>&1 < /dev/null &\n"
+        "else\n"
+        "  nohup bash %(d)s/runner.sh > %(d)s/runner.out 2>&1 < /dev/null &\n"
+        "fi\n"
+        "echo \"BD-SWEEP-LAUNCH-OK pid=$!\"\n"
+        % {"d": q(rundir), "m": marker, "body": runner_text})
+
+
+# ---------------------------------------------------------------------------
+# transports
+# ---------------------------------------------------------------------------
+class SshTransport:
+    """Every remote command is a SCRIPT ON STDIN (`ssh <host> bash -s`), never a
+    quoted argv. bd-jobs lost a live run to `shlex.join -> ssh -> bash -c`
+    keeping a `--`, which turned the command into `bash -c '-- sleep 90'`;
+    stdin has no such layer."""
+
+    def __init__(self, addr, connect_timeout=15):
+        self.addr = addr
+        self.connect_timeout = connect_timeout
+        self.kind = "ssh"
+
+    def run(self, script, timeout=120):
+        cmd = ["ssh", "-o", "BatchMode=yes",
+               "-o", "ConnectTimeout=%d" % self.connect_timeout,
+               self.addr, "bash -s"]
+        try:
+            r = subprocess.run(cmd, input=script, capture_output=True, text=True,
+                               timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return 255, "", "ssh: no answer within %ds" % timeout
+        except OSError as exc:
+            return 255, "", "ssh: %s" % exc
+        return r.returncode, r.stdout, r.stderr
+
+    def fetch(self, remote_path, local_path, timeout=600):
+        cmd = ["scp", "-q", "-o", "BatchMode=yes",
+               "-o", "ConnectTimeout=%d" % self.connect_timeout,
+               "%s:%s" % (self.addr, remote_path), str(local_path)]
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return False, "scp: no answer within %ds" % timeout
+        except OSError as exc:
+            return False, "scp: %s" % exc
+        if r.returncode != 0:
+            return False, (r.stderr.strip() or "scp exit %d" % r.returncode)
+        return True, ""
+
+
+class LocalTransport:
+    """The same shell, on this box. Used when the label matches `hostname` (the
+    fleet-file convention deploy_fleet.sh and bd-fleet already use) and by the
+    selftest -- so the selftest drives the SAME code path a real sample takes,
+    and only the channel differs."""
+
+    def __init__(self, home=None, env_extra=None):
+        self.kind = "local"
+        self.home = home
+        # env_extra exists so the selftest can put a FAKE `ps` on PATH and drive
+        # the busy gate through run() end to end. Without it the gate could only
+        # be tested as a pure function, and a mutant that neutered its CALL SITE
+        # escaped an 86-check selftest.
+        self.env_extra = dict(env_extra or {})
+
+    def _env(self):
+        env = dict(os.environ)
+        if self.home:
+            env["HOME"] = str(self.home)
+        env.update(self.env_extra)
+        return env
+
+    def run(self, script, timeout=120):
+        try:
+            r = subprocess.run(["bash", "-s"], input=script, capture_output=True,
+                               text=True, timeout=timeout, env=self._env())
+        except subprocess.TimeoutExpired:
+            return 255, "", "local shell did not finish within %ds" % timeout
+        return r.returncode, r.stdout, r.stderr
+
+    def fetch(self, remote_path, local_path, timeout=600):
+        try:
+            shutil.copyfile(remote_path, str(local_path))
+        except OSError as exc:
+            return False, str(exc)
+        return True, ""
+
+
+# ---------------------------------------------------------------------------
+# poll classification + the wait
+# ---------------------------------------------------------------------------
+def _int_or_none(value):
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def classify_poll(rc, out, parse_probe):
+    """(kind, data) with kind in DONE | RUNNING | UNKNOWN.
+
+    UNKNOWN IS A THIRD STATE. A poll that did not answer, that answered without
+    both framing tokens (a truncated channel), or that wrote a non-integer into
+    the marker is UNKNOWN. It is never rounded down to "still running" (which
+    waits forever) nor up to "done" (which invents a result)."""
+    if rc != 0:
+        return "UNKNOWN", {"why": "poll channel failed (rc=%d)" % rc}
+    if "BD-SWEEP-POLL 1" not in out or "BD-SWEEP-POLL-END" not in out:
+        return "UNKNOWN", {"why": "poll output is missing its framing tokens -- "
+                                  "a truncated answer is not a measurement"}
+    d = parse_probe(out)
+    if d.get("rundir") != "yes":
+        return "UNKNOWN", {"why": "the run directory is gone from the target"}
+    marker = d.get("exit", "NONE")
+    if marker != "NONE":
+        if not re.fullmatch(r"-?\d+", marker.strip()):
+            return "UNKNOWN", {"why": "exit marker is not an integer: %r" % marker}
+        return "DONE", {"exit": int(marker.strip()),
+                        "status": d.get("status", "NONE"),
+                        "log_bytes": _int_or_none(d.get("log_bytes")), "raw": d}
+    return "RUNNING", {"status": d.get("status", "NONE"),
+                       "log_bytes": _int_or_none(d.get("log_bytes")),
+                       "log_mtime": _int_or_none(d.get("log_mtime")),
+                       "raw": d}
+
+
+class Outcome:
+    def __init__(self, kind, exit_code=None, detail="", elapsed=0, polls=0,
+                 last_bytes=None):
+        self.kind = kind          # DONE | STALLED | UNKNOWN-POLL-LOST |
+        self.exit_code = exit_code  # UNKNOWN-NO-MARKER
+        self.detail = detail
+        self.elapsed = elapsed
+        self.polls = polls
+        self.last_bytes = last_bytes
+
+
+def wait_for_marker(poll, now, sleep, *, interval, deadline_seconds,
+                    stall_seconds, max_unknown, report=None):
+    """WAIT ON THE WRITTEN MARKER, NEVER ON A PROCESS-TABLE MATCH.
+
+    `pgrep -f pytest` matches this wrapper, the shell that invoked it, and the
+    harness above that: a lane was reported "running" for ten minutes that had
+    never started, and a deploy preflight refused every deploy on an idle host
+    for the same reason. The only things consulted here are a file the runner
+    writes and the log's byte count.
+
+    Clock, sleep and poll are injected so every branch is testable in
+    milliseconds."""
+    start = now()
+    last_bytes = None
+    last_change = start
+    consecutive_unknown = 0
+    unknown_reasons = []
+    polls = 0
+    while True:
+        kind, data = poll()
+        polls += 1
+        elapsed = now() - start
+        if kind == "UNKNOWN":
+            consecutive_unknown += 1
+            unknown_reasons.append(data.get("why", "unstated"))
+            if consecutive_unknown >= max_unknown:
+                return Outcome("UNKNOWN-POLL-LOST",
+                               detail="%d consecutive unreadable polls: %s"
+                                      % (consecutive_unknown,
+                                         "; ".join(unknown_reasons[-max_unknown:])),
+                               elapsed=elapsed, polls=polls, last_bytes=last_bytes)
+        else:
+            consecutive_unknown = 0
+            if kind == "DONE":
+                return Outcome("DONE", exit_code=data.get("exit"),
+                               detail=data.get("status", ""), elapsed=elapsed,
+                               polls=polls,
+                               last_bytes=data.get("log_bytes", last_bytes))
+            b = data.get("log_bytes")
+            if b is not None and b != last_bytes:
+                last_bytes = b
+                last_change = now()
+            if now() - last_change > stall_seconds:
+                return Outcome(
+                    "STALLED",
+                    detail="the log has not grown for %ds (bytes=%s). A dead xdist "
+                           "worker and a slow box look identical from here, so "
+                           "this is STALLED, not a hang -- and nothing was killed."
+                           % (int(now() - last_change), last_bytes),
+                    elapsed=elapsed, polls=polls, last_bytes=last_bytes)
+        if elapsed > deadline_seconds:
+            return Outcome("UNKNOWN-NO-MARKER",
+                           detail="no exit marker after %ds (cap+slack). The run "
+                                  "may still be alive on the target -- nothing "
+                                  "was killed." % int(elapsed),
+                           elapsed=elapsed, polls=polls, last_bytes=last_bytes)
+        if report:
+            report(elapsed, kind, data, last_bytes)
+        sleep(interval)
+
+
+# ---------------------------------------------------------------------------
+# reading the log (at READ time -- the capture stays whole)
+# ---------------------------------------------------------------------------
+_COUNT = re.compile(r"(\d+)\s+(passed|failed|errors?|skipped|xfailed|xpassed|"
+                    r"deselected|warnings?)\b")
+
+
+def parse_log(text, bdrun):
+    """Summary counts and failure NAMES, read out of the whole log AFTER it was
+    captured whole. Reuses bd-run's ANSI stripping and its summary/FAILED
+    anchors: this box exports FORCE_COLOR=3, and a plain `^\\d+ passed` anchor
+    could not see "\\x1b[32m2061 passed" -- the harmless direction. The same
+    anchors carry the FAILED lines, which is the other one."""
+    plain = bdrun.strip_ansi(text)
+    summaries = bdrun._SUMMARY.findall(plain)
+    summary = summaries[-1].strip() if summaries else None
+    counts = {}
+    if summary:
+        for n, word in _COUNT.findall(summary):
+            key = {"error": "errors", "warning": "warnings"}.get(word, word)
+            counts[key] = int(n)
+    failures = []
+    for line in bdrun._FAILLINE.findall(plain):
+        head = line.split(" - ")[0].strip()
+        kind, _, test = head.partition(" ")
+        failures.append({"kind": kind, "test": test.strip()})
+    named = len(failures)
+    from_summary = counts.get("failed", 0) + counts.get("errors", 0)
+    return {
+        "summary_line": summary,
+        "summary_present": summary is not None,
+        "counts": counts,
+        "failures": failures,
+        "failure_names_found": named,
+        "failures_from_summary": from_summary if summary else None,
+        # STATE BOTH NUMBERS: a shorter list must never read as the whole set.
+        "failure_names_complete": (named == from_summary) if summary else None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# output
+# ---------------------------------------------------------------------------
+def print_blind_spots(stream=None):
+    out = stream or sys.stdout
+    print("", file=out)
+    print("WHAT THIS RUN CANNOT SEE (bd-sweep-run prints this every time, "
+          "including refusals):", file=out)
+    for i, line in enumerate(BLIND_SPOTS, 1):
+        print("  %d. %s" % (i, line), file=out)
+    print("", file=out)
+
+
+def render_row(row):
+    lines = ["=== bd-sweep-run row: %s ===" % row.get("run_id")]
+    order = ["verdict", "exit_meaning", "host_label", "host_addr", "repo",
+             "requested_commit", "head_before", "head_after", "porcelain_before",
+             "porcelain_after", "nproc", "workers", "workers_from", "cap_seconds",
+             "wall_seconds", "load_before", "load_after", "exit_code",
+             "summary_line", "failure_names_found", "failures_from_summary",
+             "failure_names_complete", "pytest_procs_before", "register_id",
+             "log_local", "log_remote", "log_bytes_local"]
+    for key in order:
+        if key in row:
+            lines.append("  %-22s %s" % (key, row[key]))
+    fails = row.get("failures") or []
+    if fails:
+        lines.append("  failure names: %d listed (pytest's own summary counts %s)"
+                     % (len(fails), row.get("failures_from_summary")))
+        for f in fails:
+            lines.append("      %s %s" % (f["kind"], f["test"]))
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# the run
+# ---------------------------------------------------------------------------
+def run(args, transport_factory=None, clock=time.time, sleeper=time.sleep,
+        out=None):
+    out = out or sys.stdout
+    bdrun = require_attrs(load_sibling(args.repo, "bd-run"), "bd-run",
+                          ["strip_ansi", "verdict", "auto_workers",
+                           "_SUMMARY", "_FAILLINE"])
+    bdfleet = require_attrs(load_sibling(args.repo, "bd-fleet"), "bd-fleet",
+                            ["read_hosts", "parse_probe"])
+
+    label, addr = resolve_host(bdfleet.read_hosts, args.hosts, args.host, args.addr)
+    if transport_factory is not None:
+        transport = transport_factory(label, addr)
+    elif label == socket.gethostname() or addr in ("localhost", "127.0.0.1"):
+        transport = LocalTransport()
+    else:
+        transport = SshTransport(addr, connect_timeout=args.connect_timeout)
+
+    # THE ID MUST BE UNIQUE, NOT MERELY LIKELY TO BE. <label>-<UTC second>-<pid>
+    # collides for two runs of one process inside one second: measured 494647
+    # constructions over 1.5s yielding 3 distinct ids. That collision fired for
+    # real in this tool's own selftest -- two end-to-end cases shared a rundir
+    # and the second read the first's exit marker, reporting a remote refusal
+    # for a run that never made one. The random tail removes the collision; the
+    # launch-side reuse guard catches it anyway if it ever recurs.
+    runid = "sweep-%s-%s-%d-%s" % (label,
+                                   time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()),
+                                   os.getpid(), os.urandom(4).hex())
+    print("bd-sweep-run: %s (%s) over %s -- run_id %s"
+          % (label, addr, transport.kind, runid), file=out)
+
+    # ---- preflight -------------------------------------------------------
+    rc, pf_out, pf_err = transport.run(
+        PREFLIGHT_TEMPLATE.format(repo=shell_path(args.remote_repo),
+                                  root=REMOTE_ROOT, stall=int(args.stall_seconds)),
+        timeout=args.connect_timeout + 60)
+    if rc != 0:
+        raise Refuse("REFUSE-UNREACHABLE",
+                     "%s (%s): %s" % (label, addr, pf_err.strip() or "rc=%d" % rc))
+    if "BD-SWEEP-PREFLIGHT 1" not in pf_out or "BD-SWEEP-PREFLIGHT-END" not in pf_out:
+        raise Refuse("REFUSE-PREFLIGHT-UNKNOWN",
+                     "the preflight answer from %s is missing its framing tokens; "
+                     "a truncated answer is not a measurement:\n%s" % (label, pf_out))
+    pf = bdfleet.parse_probe(pf_out)
+    if pf.get("repo") != "yes":
+        raise Refuse("REFUSE-NO-REPO",
+                     "%s has no tree at %s" % (label, args.remote_repo))
+    for key in ("home", "repo_abs", "head", "porcelain", "nproc", "inflight_fresh"):
+        if pf.get(key, "NONE") in ("NONE", None, ""):
+            raise Refuse("REFUSE-PREFLIGHT-UNKNOWN",
+                         "%s could not report %s (it answered NONE or nothing). "
+                         "A tree that cannot be read is UNKNOWN, not clean."
+                         % (label, key))
+    if pf.get("venv") != "yes" or pf.get("deps") != "ok":
+        raise Refuse("REFUSE-NO-PYTEST",
+                     "%s: venv=%s deps=%s -- the sanctioned form runs under "
+                     "venv/bin/python with xdist and pytest-timeout importable. A "
+                     "bare python3 is 3.11 without deps and measures a different "
+                     "thing (a full band on it once reported seven failures that "
+                     "did not exist)." % (label, pf.get("venv"), pf.get("deps")))
+    if pf.get("bd_run") != "yes":
+        raise Refuse("REFUSE-NO-BD-RUN",
+                     "%s has no toolchain/bin/bd-run; the whole-run cap and the "
+                     "whole-log capture are delegated to it." % label)
+    if args.register and pf.get("bd_jobs") != "yes":
+        raise Refuse("REFUSE-NO-BD-JOBS",
+                     "%s has no toolchain/bin/bd-jobs. An unregistered remote run "
+                     "is the v3.66.1035 orphan; pass --no-register to accept that "
+                     "deliberately." % label)
+    if _int_or_none(pf.get("inflight_fresh")):
+        raise Refuse("REFUSE-SWEEP-IN-FLIGHT",
+                     "%s already has a live bd-sweep-run:%s -- two sweeps on one "
+                     "box measure each other's load."
+                     % (label, pf.get("inflight_fresh_dirs", "")))
+    if _int_or_none(pf.get("inflight_stale")):
+        print("bd-sweep-run: NOTE: %s carries %s stale RUNNING run dir(s) with no "
+              "exit marker:%s -- not blocking, but somebody's sample died there."
+              % (label, pf.get("inflight_stale"),
+                 pf.get("inflight_stale_dirs", "")), file=out)
+
+    head = pf["head"]
+    if not commit_matches(args.commit, head):
+        raise Refuse("REFUSE-COMMIT-MISMATCH",
+                     "%s is at %s, you asked for %s. Nothing was launched."
+                     % (label, head, args.commit))
+    if pf["porcelain"] != "0":
+        raise Refuse("REFUSE-DIRTY-TREE",
+                     "%s has %s modified/untracked path(s): the tree is dirty, so "
+                     "a sample taken on it is not a sample of the commit you named "
+                     "(three capture rounds died this way at v3.66.1063/1069/1082)."
+                     % (label, pf["porcelain"]))
+
+    nproc = _int_or_none(pf.get("nproc"))
+    workers, workers_from = derive_workers(nproc, args.workers, args.workers_frac,
+                                           bdrun)
+    pytest_procs = _int_or_none(pf.get("pytest_procs"))
+    busy_note = busy_gate(pytest_procs, pf.get("ps_ok"), args.allow_busy, label)
+    if busy_note:
+        print("bd-sweep-run: %s" % busy_note, file=out)
+
+    home = pf["home"]
+    repo_abs = pf["repo_abs"]
+    rundir = posixpath.join(home, REMOTE_ROOT, runid)
+    purpose = ("bd-sweep-run %s: full-suite sample -n %d at %s"
+               % (runid, workers, args.commit[:12]))
+    runner = build_runner(rundir, repo_abs, args.commit, workers,
+                          int(args.cap_seconds), args.register, runid, purpose)
+    print("bd-sweep-run: command: %s" % shlex.join(suite_command(workers)), file=out)
+    print("bd-sweep-run: workers %d (%s); cap %ds; marker deadline %ds; stall %ds; "
+          "poll %ss" % (workers, workers_from, args.cap_seconds,
+                        args.cap_seconds + args.slack_seconds, args.stall_seconds,
+                        args.poll_seconds), file=out)
+    if args.dry_run:
+        print("bd-sweep-run: DRY RUN -- nothing was launched on %s. The runner "
+              "that would have been shipped:\n%s" % (label, runner), file=out)
+        return 2, {"verdict": "DRY-RUN", "run_id": runid, "workers": workers,
+                   "pytest_cmd": suite_command(workers)}
+
+    # ---- launch ----------------------------------------------------------
+    rc, lo, le = transport.run(build_launch(rundir, runner),
+                               timeout=args.connect_timeout + 60)
+    if "BD-SWEEP-RUNDIR-REUSED" in lo:
+        raise Refuse("REFUSE-RUNDIR-REUSED",
+                     "%s already has a run directory at %s carrying another run's "
+                     "marker. Nothing was launched: a poll would have read that "
+                     "marker as this run's result." % (label, rundir))
+    if rc != 0 or "BD-SWEEP-LAUNCH-OK" not in lo:
+        raise Refuse("REFUSE-LAUNCH-FAILED",
+                     "%s did not confirm the launch (rc=%d): %s"
+                     % (label, rc, (le or lo).strip()))
+    started_wall = clock()
+    print("bd-sweep-run: launched; %s" % lo.strip(), file=out)
+    print("bd-sweep-run: target artifacts under %s (log: %s/bd-run/sweep.log)"
+          % (rundir, rundir), file=out)
+
+    # ---- wait on the WRITTEN MARKER --------------------------------------
+    poll_script = POLL_TEMPLATE.format(rundir=q(rundir))
+
+    def poll():
+        prc, pout, _perr = transport.run(poll_script,
+                                         timeout=args.connect_timeout + 30)
+        return classify_poll(prc, pout, bdfleet.parse_probe)
+
+    def report(elapsed, _kind, data, last_bytes):
+        # COUNTABLES ONLY, NO PERCENTAGE. A job at "99 percent" is
+        # indistinguishable from a dead worker; two hosts sat there for 44
+        # minutes having produced nothing.
+        print("bd-sweep-run: waiting: %ds elapsed, status=%s, log bytes=%s"
+              % (int(elapsed), data.get("status"), last_bytes), file=out)
+
+    outcome = wait_for_marker(
+        poll, clock, sleeper,
+        interval=args.poll_seconds,
+        deadline_seconds=args.cap_seconds + args.slack_seconds,
+        stall_seconds=args.stall_seconds,
+        max_unknown=args.max_unknown,
+        report=None if args.quiet_wait else report)
+
+    # ---- the row ---------------------------------------------------------
+    local_dir = pathlib.Path(args.local_dir) / runid
+    local_dir.mkdir(parents=True, exist_ok=True)
+    row = {
+        "schema": SCHEMA,
+        "run_id": runid,
+        "host_label": label,
+        "host_addr": addr,
+        "transport": transport.kind,
+        "repo": repo_abs,
+        "requested_commit": args.commit,
+        "head_before": head,
+        "porcelain_before": pf["porcelain"],
+        "nproc": nproc,
+        "workers": workers,
+        "workers_from": workers_from,
+        "pytest_cmd": suite_command(workers),
+        "cap_seconds": args.cap_seconds,
+        "stall_seconds": args.stall_seconds,
+        "load_at_preflight": pf.get("load"),
+        "pytest_procs_before": pytest_procs,
+        "ps_ok": pf.get("ps_ok"),
+        "allow_busy": bool(args.allow_busy),
+        "wait_outcome": outcome.kind,
+        "wait_detail": outcome.detail,
+        "polls": outcome.polls,
+        "local_wall_seconds": round(clock() - started_wall, 1),
+        "log_remote": "%s/bd-run/sweep.log" % rundir,
+        "one_sample_warning": BLIND_SPOTS[0],
+        "blind_spots": BLIND_SPOTS,
+    }
+
+    if outcome.kind != "DONE":
+        row["verdict"] = outcome.kind
+        row["exit_code"] = None
+        row["exit_meaning"] = "no exit marker was read; nothing was killed"
+        write_row(row, local_dir, args, out)
+        print("bd-sweep-run: %s -- NO USABLE SAMPLE. %s" % (outcome.kind,
+                                                            outcome.detail), file=out)
+        print("bd-sweep-run: the run was NOT killed; inspect %s on %s (and "
+              "`bd-jobs list` there)" % (rundir, label), file=out)
+        return (2 if outcome.kind.startswith("UNKNOWN") else 1), row
+
+    crc, cout, cerr = transport.run(FETCH_CTX_TEMPLATE.format(rundir=q(rundir)),
+                                    timeout=args.connect_timeout + 60)
+    if crc != 0:
+        raise Refuse("REFUSE-CONTEXT-UNREADABLE",
+                     "the exit marker said %s but the context channel to %s failed "
+                     "(rc=%d): %s"
+                     % (outcome.exit_code, label, crc, (cerr or cout).strip()))
+    ctx = bdfleet.parse_probe(cout)
+    (local_dir / "context.env").write_text(cout, encoding="utf-8")
+    status_word = validate_context(cout, ctx, runid, label, rundir)
+
+    code = outcome.exit_code
+    row.update({
+        "exit_code": code,
+        "remote_status_word": status_word,
+        "head_after": ctx.get("head_after", "NONE"),
+        "porcelain_after": ctx.get("porcelain_after", "NONE"),
+        "load_before": ctx.get("load_before", "NONE"),
+        "load_after": ctx.get("load_after", "NONE"),
+        "start_epoch": _int_or_none(ctx.get("start_epoch")),
+        "end_epoch": _int_or_none(ctx.get("end_epoch")),
+        "register_id": ctx.get("register_id", "NONE"),
+        "remote_nproc": ctx.get("nproc"),
+    })
+    if row["start_epoch"] and row["end_epoch"]:
+        row["wall_seconds"] = row["end_epoch"] - row["start_epoch"]
+
+    # A REMOTE REFUSAL IS A REFUSAL, keyed off the STATUS WORD the runner wrote,
+    # with the numeric code as corroboration only.
+    if status_word in REMOTE_REFUSALS.values() or code in REMOTE_REFUSALS:
+        word = (status_word if status_word in REMOTE_REFUSALS.values()
+                else REMOTE_REFUSALS[code])
+        row["verdict"] = "REMOTE-" + word
+        row["exit_meaning"] = "the target refused before pytest started"
+        write_row(row, local_dir, args, out)
+        print("bd-sweep-run: REFUSED ON TARGET [%s] (exit %s). No sample was taken "
+              "and nothing was measured." % (word, code), file=out)
+        return 2, row
+
+    ok_o, err_o = transport.fetch("%s/bd-run.out" % rundir, local_dir / "bd-run.out")
+    log_local = local_dir / "pytest.log"
+    ok, err = transport.fetch("%s/bd-run/sweep.log" % rundir, log_local)
+    row["log_local"] = str(log_local)
+    row["log_fetched"] = ok
+    if not ok:
+        row["verdict"] = "UNKNOWN-LOG-UNREADABLE"
+        row["log_fetch_error"] = err
+        row["exit_meaning"] = "pytest exit %s, but the log could not be read" % code
+        write_row(row, local_dir, args, out)
+        print("bd-sweep-run: the run finished (exit %s) but its log could not be "
+              "copied back: %s. FAILURE NAMES ARE UNKNOWN, WHICH IS NOT ZERO."
+              % (code, err), file=out)
+        return 2, row
+    body = log_local.read_text(encoding="utf-8", errors="replace")
+    row["log_bytes_local"] = log_local.stat().st_size
+    # THE SIZE THE TARGET LAST REPORTED, KEPT. It was measured on every poll and
+    # then thrown away; without it a short copy is indistinguishable from a
+    # short run, and a truncated log parses to "0 failures" perfectly happily.
+    row["log_bytes_remote"] = outcome.last_bytes
+    row.update(parse_log(body, bdrun))
+
+    head_after = str(row.get("head_after"))
+    porc_after = str(row.get("porcelain_after"))
+    tree_readable_after = head_after not in ("NONE", "None", "") and \
+        porc_after not in ("NONE", "None", "")
+    tree_stable = tree_readable_after and head_after == head and porc_after == "0"
+    row["tree_stable"] = tree_stable
+    short = (row["log_bytes_remote"] is not None
+             and row["log_bytes_local"] < row["log_bytes_remote"])
+
+    if short:
+        # A SHORT COPY IS NOT A SHORT RUN. The tail is where the summary and the
+        # failure names live, so a log that lost it parses to zero failures.
+        row["verdict"] = "UNKNOWN-LOG-TRUNCATED"
+        row["exit_meaning"] = ("the target's last poll reported %s bytes of log but "
+                               "%s arrived: the copy is SHORT, so every count and "
+                               "name read out of it is a floor, not a measurement"
+                               % (row["log_bytes_remote"], row["log_bytes_local"]))
+        rc_out = 2
+    elif code == CAPPED_RC:
+        row["verdict"] = "CAPPED"
+        row["exit_meaning"] = ("killed at the %ds cap: an UNFINISHED run, not a "
+                               "pass and not a failure of the code"
+                               % args.cap_seconds)
+        rc_out = 1
+    elif code in PYTEST_NOT_A_SAMPLE:
+        row["verdict"] = "UNKNOWN-PYTEST-" + PYTEST_NOT_A_SAMPLE[code].split(" ")[0]
+        row["exit_meaning"] = ("%s. The suite did not run to a verdict, so this is "
+                               "NOT a zero-failure sample -- it is no sample."
+                               % PYTEST_NOT_A_SAMPLE[code])
+        rc_out = 2
+    elif code not in PYTEST_SAMPLE_RC:
+        row["verdict"] = "UNKNOWN-PYTEST-EXIT"
+        row["exit_meaning"] = ("exit %s is not one pytest uses for a suite that ran "
+                               "(0 or 1); %s. A reaped command is not a result."
+                               % (code, "it is a signal (%d)" % (code - 128)
+                                  if isinstance(code, int) and code >= 128
+                                  else "its origin is unknown"))
+        rc_out = 2
+    elif not row.get("summary_present"):
+        # ZERO IS NOT A VERDICT. Without a summary line there is no denominator:
+        # counts={} and failures=[] here mean "nothing was read", and a row that
+        # says SAMPLE-RECORDED with failed=0 is exactly how an empty result gets
+        # aggregated as a green one.
+        row["verdict"] = "UNKNOWN-NO-SUMMARY"
+        row["exit_meaning"] = ("pytest exit %s but the log carries no summary line, "
+                               "so nothing states how many tests ran. failures=[] "
+                               "here means UNREAD, not zero." % code)
+        rc_out = 2
+    elif not tree_readable_after:
+        # NOT "the tree moved" -- git could not be read at the end. Naming the
+        # wrong cause sends an operator hunting a mid-run edit that never was.
+        row["verdict"] = "UNKNOWN-TREE-UNREADABLE-AFTER"
+        row["exit_meaning"] = ("the run finished (exit %s) but the target could not "
+                               "report its tree afterwards (head_after=%s, "
+                               "porcelain_after=%s). Whether the tree held is "
+                               "UNKNOWN; it is NOT a statement that it moved."
+                               % (code, head_after, porc_after))
+        rc_out = 2
+    elif not tree_stable:
+        row["verdict"] = "INVALIDATED-TREE-MOVED"
+        row["exit_meaning"] = ("the tree moved under the run (head %s -> %s, "
+                               "porcelain %s -> %s), so this sample belongs to no "
+                               "single commit"
+                               % (head[:12], head_after[:12],
+                                  pf["porcelain"], porc_after))
+        rc_out = 1
+    else:
+        row["verdict"] = "SAMPLE-RECORDED"
+        row["exit_meaning"] = ("pytest exit %s (%s) -- ONE sample, not a verdict "
+                               "about the tree" % (code, PYTEST_SAMPLE_RC[code]))
+        rc_out = 0
+
+    write_row(row, local_dir, args, out)
+    print("", file=out)
+    print(render_row(row), file=out)
+    if ok_o and (local_dir / "bd-run.out").exists():
+        print("", file=out)
+        print("--- bd-run's own verdict block (%s) ---" % (local_dir / "bd-run.out"),
+              file=out)
+        print((local_dir / "bd-run.out").read_text(encoding="utf-8",
+                                                   errors="replace").strip(), file=out)
+    elif not ok_o:
+        print("bd-sweep-run: NOTE: bd-run.out could not be copied (%s)" % err_o,
+              file=out)
+    if row.get("failure_names_complete") is False:
+        print("bd-sweep-run: NOTE: pytest's summary counts %s failure(s)+error(s) "
+              "but %s were named in the short summary. The list above is "
+              "INCOMPLETE; the whole log is at %s."
+              % (row.get("failures_from_summary"), row.get("failure_names_found"),
+                 log_local), file=out)
+    if not row.get("summary_present"):
+        print("bd-sweep-run: NOTE: SUMMARY UNKNOWN -- the log carries no pytest "
+              "summary line. That is not a pass; read the log.", file=out)
+
+    # ---- retention on the target (a created path needs a stated remover) --
+    prc, pout, _perr = transport.run(
+        PRUNE_TEMPLATE.format(root=q(posixpath.join(home, REMOTE_ROOT)),
+                              keep=int(args.keep_remote)),
+        timeout=args.connect_timeout + 60)
+    if prc == 0 and "pruned=" in pout:
+        print("bd-sweep-run: target retention: keeping %d newest run dirs, %s"
+              % (args.keep_remote, pout.strip()), file=out)
+    else:
+        print("bd-sweep-run: NOTE: the retention pass on %s did not confirm; run "
+              "dirs may be accumulating under ~/%s" % (label, REMOTE_ROOT), file=out)
+    return rc_out, row
+
+
+def write_row(row, local_dir, args, out):
+    (local_dir / "row.json").write_text(json.dumps(row, indent=2, sort_keys=True),
+                                        encoding="utf-8")
+    ledger = pathlib.Path(args.local_dir) / "rows.jsonl"
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    with open(ledger, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row, sort_keys=True) + "\n")
+    print("bd-sweep-run: row -> %s (appended to %s; the ledger has no remover -- "
+          "it is the record)" % (local_dir / "row.json", ledger), file=out)
+
+
+# ---------------------------------------------------------------------------
+# selftest
+# ---------------------------------------------------------------------------
+CANNED_LOG = """\
+NEEDLE-WHOLE-LOG-a1b2c3 this line proves nothing was filtered at capture time
+............................................................F..F.........
+=================================== FAILURES ===================================
+short test summary info
+\x1b[31mFAILED tests/test_alpha.py::test_one\x1b[0m - AssertionError: boom
+FAILED tests/test_beta.py::test_two - ValueError: nope
+\x1b[31m2 failed\x1b[0m, 10 passed, 1 skipped in 3.21s
+"""
+
+
+class _Buf:
+    def __init__(self):
+        self._parts = []
+
+    def write(self, s):
+        self._parts.append(s)
+        return len(s)
+
+    def flush(self):
+        pass
+
+    def text(self):
+        return "".join(self._parts)
+
+
+def _code_only(src):
+    """The source with comments and string literals removed, so a check for a
+    banned call cannot be satisfied -- or tripped -- by prose. Four
+    comment-vs-code assertion failures happened in one session; review caught
+    none of them."""
+    out = []
+    for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+        if tok.type in (tokenize.COMMENT, tokenize.STRING):
+            continue
+        out.append(tok.string)
+    return " ".join(out)
+
+
+def _scratch_root(roots):
+    base = os.environ.get("BD_SWEEP_SELFTEST_DIR")
+    if base:
+        pathlib.Path(base).mkdir(parents=True, exist_ok=True)
+        d = tempfile.mkdtemp(prefix="bdsr-", dir=base)
+    else:
+        d = tempfile.mkdtemp(prefix="bdsr-")
+    roots.append(d)
+    return d
+
+
+PS_BUSY_LINE = (" 225587 python          venv/bin/python -m pytest tests/ -n 16 "
+                "--dist loadfile --timeout=240 --timeout-method=thread -q "
+                "-p no:randomly")
+PS_IDLE_LINES = ("    1 systemd         /sbin/init splash\n"
+                 " 4242 bash            bash -s\n"
+                 " 4711 python          venv/bin/python toolchain/bin/bd-fleet probe\n")
+
+
+def _fake_ps(path, mode):
+    """A stand-in for `ps -eo pid=,comm=,args=`.
+
+    IT MUST EMIT THE SHAPE THE REAL ONE EMITS. A fake ps that printed a format
+    ps never produces once certified a detector that was wrong on the real
+    thing, so the selftest runs the preflight's own awk over this output as a
+    POSITIVE CONTROL before it trusts any verdict built on it. The idle body
+    deliberately contains a python process and the word pytest is deliberately
+    absent from it, so 'not flagged' cannot be 'nothing there to flag'."""
+    if mode == "busy":
+        body = "cat <<'PSEOF'\n%s\n%sPSEOF\nexit 0\n" % (PS_BUSY_LINE, PS_IDLE_LINES)
+    elif mode == "idle":
+        body = "cat <<'PSEOF'\n%sPSEOF\nexit 0\n" % PS_IDLE_LINES
+    elif mode == "fail":
+        body = "echo 'ps: cannot open /proc' >&2\nexit 1\n"
+    else:
+        raise AssertionError("unknown fake ps mode %r" % mode)
+    p = pathlib.Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("#!/usr/bin/env bash\n" + body, encoding="utf-8")
+    os.chmod(p, 0o755)
+    return str(p.parent)
+
+
+def _make_fake_host(root, repo_src, *, jobs_ok=True, git=True, touch_mid_run=False,
+                    pytest_rc=1, deps_ok=True, venv_ok=True, log_text=None):
+    """A fake target: a real git repo, a real copy of bd-run, a STUB
+    venv/bin/python that answers as pytest, and a STUB bd-jobs.
+
+    The stubs exist so the selftest can ASSERT THE SHAPE before the outcome --
+    which argv actually reached pytest, which env vars survived, whether
+    registration happened BEFORE the run. A fixture that cannot represent the
+    failure certifies nothing. The bd-jobs stub is deliberately not the real
+    one: bd-jobs writes into /tmp/bd-jobs on the host it runs on, and a selftest
+    must not leave entries in the fleet's live registry."""
+    repo = pathlib.Path(root) / "repo"
+    (repo / "toolchain" / "bin").mkdir(parents=True)
+    (repo / "venv" / "bin").mkdir(parents=True)
+    (repo / "tests").mkdir()
+    (repo / "tests" / "test_placeholder.py").write_text("def test_x():\n    pass\n")
+    shutil.copyfile(os.path.join(repo_src, "toolchain", "bin", "bd-run"),
+                    repo / "toolchain" / "bin" / "bd-run")
+
+    record = pathlib.Path(root) / "stub_argv.txt"
+    order = pathlib.Path(root) / "order.txt"
+    canned = pathlib.Path(root) / "canned.log"
+    canned.write_text(CANNED_LOG if log_text is None else log_text, encoding="utf-8")
+    touch = ("  touch %s\n" % q(str(repo / "junk_mid_run.txt"))) if touch_mid_run else ""
+    stub = (
+        "#!/usr/bin/env bash\n"
+        'if [ "${1-}" = -m ] && [ "${2-}" = pytest ]; then\n'
+        "  { printf 'argv='; for a in \"$@\"; do printf ' %s' \"$a\"; done; "
+        "printf '\\n';\n"
+        "    printf 'BD_DISABLE_KEEPALIVE=%s\\n' \"${BD_DISABLE_KEEPALIVE-UNSET}\";\n"
+        "    printf 'BD_INSTALL_DIR=%s\\n' \"${BD_INSTALL_DIR-UNSET}\";\n"
+        "    printf 'cwd=%s\\n' \"$PWD\"; } > " + q(str(record)) + "\n"
+        "  echo pytest >> " + q(str(order)) + "\n"
+        + touch +
+        "  cat " + q(str(canned)) + "\n"
+        "  exit " + str(pytest_rc) + "\n"
+        "fi\n"
+        # `-c 'import pytest, xdist, pytest_timeout'` IS THE DEPS PREFLIGHT.
+        # deps_ok=False is the only way the fixture can represent "this box's
+        # venv cannot import the suite's plugins"; without it the gate that
+        # keeps a sample off bare python3 could be deleted and the selftest
+        # stayed green (measured: mutant M11 escaped 86 checks).
+        'if [ "${1-}" = -c ]; then exit ' + ("0" if deps_ok else "1") + '; fi\n'
+        'exec python3 "$@"\n')
+    if venv_ok:
+        (repo / "venv" / "bin" / "python").write_text(stub, encoding="utf-8")
+        os.chmod(repo / "venv" / "bin" / "python", 0o755)
+
+    (repo / "toolchain" / "bin" / "bd-jobs").write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "open(%r, 'a').write('bd-jobs\\n')\n" % str(order) +
+        ("print('fakejob-0001')\nsys.exit(0)\n" if jobs_ok
+         else "sys.stderr.write('registry unwritable\\n')\nsys.exit(1)\n"),
+        encoding="utf-8")
+
+    if git:
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+                   GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+        subprocess.run(["git", "init", "-q", str(repo)], check=True, env=env,
+                       capture_output=True)
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, env=env,
+                       capture_output=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "fake"], check=True,
+                       env=env, capture_output=True)
+        head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                              capture_output=True, text=True,
+                              check=True).stdout.strip()
+    else:
+        head = "0" * 40
+    return repo, head, record, order
+
+
+class _HookTransport:
+    """LocalTransport with a seam for corrupting ONE specific answer.
+
+    The point is to build shapes a healthy target cannot produce -- an empty
+    context.env, a stale one, a foreign one, a short log copy -- and prove the
+    tool refuses instead of inventing a cause for them. Each hook records that
+    it FIRED, and every case asserts that before it reads any verdict: a fixture
+    that silently did nothing certifies nothing."""
+
+    def __init__(self, home, env_extra=None, ctx_hook=None, fetch_hook=None,
+                 pre_launch=None):
+        self.inner = LocalTransport(home=home, env_extra=env_extra)
+        self.kind = "local"
+        self.ctx_hook = ctx_hook
+        self.fetch_hook = fetch_hook
+        self.pre_launch = pre_launch
+        self.fired = {"ctx": 0, "fetch": 0, "launch": 0}
+
+    def run(self, script, timeout=120):
+        if self.pre_launch and "BD-SWEEP-LAUNCH-OK" in script:
+            self.fired["launch"] += 1
+            self.pre_launch(script)
+        rc, out, err = self.inner.run(script, timeout=timeout)
+        if self.ctx_hook and "BD-SWEEP-CTX 1" in script:
+            self.fired["ctx"] += 1
+            out = self.ctx_hook(out)
+        return rc, out, err
+
+    def fetch(self, remote, local, timeout=600):
+        ok, err = self.inner.fetch(remote, local, timeout=timeout)
+        if ok and self.fetch_hook and str(remote).endswith("sweep.log"):
+            self.fired["fetch"] += 1
+            self.fetch_hook(local)
+        return ok, err
+
+
+def _rundir_from_launch(script):
+    """The rundir the launch script is about to create, read out of the script
+    itself rather than recomputed -- a second implementation of the path is a
+    second thing that can be wrong."""
+    for line in script.splitlines():
+        if line.startswith("mkdir -p "):
+            return line.split("mkdir -p ", 1)[1].split("/bd-run")[0].strip("'")
+    raise AssertionError("no mkdir line in the launch script")
+
+
+def _args_for(repo_local, repo_remote, local_dir, commit, **over):
+    ns = argparse.Namespace(
+        repo=repo_local, remote_repo=str(repo_remote), host="fakehost", addr="fake",
+        hosts="/nonexistent", commit=commit, workers=None, workers_frac=3,
+        cap_seconds=120, slack_seconds=60, stall_seconds=60, poll_seconds=0.2,
+        max_unknown=5, connect_timeout=5, local_dir=str(local_dir), keep_remote=5,
+        register=True, dry_run=False, quiet_wait=True,
+        # The end-to-end cases cannot control THIS box's process table, and a
+        # release is routinely being cut on it. The busy gate is therefore
+        # exercised as a pure function below instead of being made to depend on
+        # whether somebody else's pytest happens to be running right now.
+        allow_busy=True)
+    for k, v in over.items():
+        setattr(ns, k, v)
+    return ns
+
+
+def selftest(argv=None):                                    # noqa: C901
+    failures = []
+    notes = []
+    checks = 0
+    repo_src = DEFAULT_REPO
+    src = pathlib.Path(os.path.realpath(__file__)).read_text(encoding="utf-8")
+
+    def check(ok, message):
+        nonlocal checks
+        checks += 1
+        if not ok:
+            failures.append(message)
+
+    # --- 0. the tool must not contain the traps it exists to avoid --------
+    code = _code_only(src)
+    for banned in ("pgrep", "pkill"):
+        check(banned not in code,
+              "the tool's own CODE (comments/strings stripped) calls %s" % banned)
+
+    bdrun = require_attrs(load_sibling(repo_src, "bd-run"), "bd-run",
+                          ["strip_ansi", "verdict", "auto_workers", "_SUMMARY",
+                           "_FAILLINE"])
+    bdfleet = require_attrs(load_sibling(repo_src, "bd-fleet"), "bd-fleet",
+                            ["read_hosts", "parse_probe"])
+
+    # --- 1. the command IS section 5's, re-derived from CLAUDE.md ---------
+    built = section5_tokens(16)
+    expected = ["BD_DISABLE_KEEPALIVE=1", "venv/bin/python", "-m", "pytest",
+                "tests/", "-n", "16", "--dist", "loadfile", "--timeout=240",
+                "--timeout-method=thread", "-q", "-p", "no:randomly"]
+    check(built == expected, "the built command is not the sanctioned form: %s" % built)
+    contract = contract_tokens_from_claude_md(os.path.join(repo_src, "CLAUDE.md"))
+    if contract is None:
+        notes.append("contract cross-check UNKNOWN: CLAUDE.md section 5's fenced "
+                     "block could not be read from %s. That is NOT a pass -- the "
+                     "form was compared only against this file's own constant."
+                     % repo_src)
+    else:
+        check(normalise_worker_token(contract) == normalise_worker_token(built),
+              "the built command DIFFERS from CLAUDE.md's fenced block.\n"
+              "        contract: %s\n        built:    %s"
+              % (normalise_worker_token(contract), normalise_worker_token(built)))
+    check(suite_command(4)[:3] == ["env", "-u", "BD_INSTALL_DIR"],
+          "BD_INSTALL_DIR is not popped for the run")
+
+    # the generated shell must not filter at capture time, and must write the
+    # marker atomically
+    runner_probe = build_runner("/tmp/rd", "/tmp/repo", "abcdef1234567", 16, 600,
+                                True, "rid", "purpose")
+    exec_lines = [l for l in runner_probe.splitlines()
+                  if "toolchain/bin/bd-run" in l and not l.lstrip().startswith("#")]
+    check(len(exec_lines) == 1,
+          "the runner does not invoke bd-run exactly once (found %d)" % len(exec_lines))
+    check(exec_lines and "-m pytest" in exec_lines[0],
+          "the line that runs bd-run does not carry the pytest command")
+    # EVERY line mentioning the suite command, executed or recorded, must be
+    # unpiped: a `| head` in capture position destroys the tail where the
+    # verdict lives, and the one place it could hide is the line nobody reads.
+    for line in [l for l in runner_probe.splitlines() if "-m pytest" in l]:
+        check("|" not in line,
+              "a pytest line is piped -- the tail is where the verdict lives: %s"
+              % line.strip()[:80])
+    check("exit.tmp" in runner_probe and "mv " in runner_probe,
+          "the exit marker is not written atomically")
+    check("pgrep" not in runner_probe and "pkill" not in runner_probe,
+          "the generated runner matches on the process table")
+
+    # --- 2. workers -------------------------------------------------------
+    n, prov = derive_workers(48, None, 3, bdrun)
+    check(n == bdrun.auto_workers(48) and "bd-run.auto_workers" in prov,
+          "frac=3 did not delegate to bd-run.auto_workers")
+    for cores in (3, 12, 48, 64, 86):
+        check(derive_workers(cores, None, 3, bdrun)[0] == max(2, cores // 3),
+              "the two worker rules disagree at %d cores" % cores)
+    check(derive_workers(48, 7, 3, bdrun) == (7, "explicit --workers 7"),
+          "an explicit --workers was overridden")
+    for bad in (None, "NONE", 0, -1):
+        try:
+            derive_workers(bad, None, 3, bdrun)
+            check(False, "a missing nproc (%r) did not refuse" % (bad,))
+        except Refuse as exc:
+            check(exc.token == "REFUSE-PREFLIGHT-UNKNOWN",
+                  "wrong refusal for nproc=%r: %s" % (bad, exc.token))
+
+    # --- 3. hosts + commit -----------------------------------------------
+    with tempfile.TemporaryDirectory() as td:
+        hf = pathlib.Path(td) / "hosts"
+        hf.write_text("# a comment\n\ntest5 10.0.70.164\ntest4 10.0.70.85\n")
+        check(resolve_host(bdfleet.read_hosts, str(hf), "test4")
+              == ("test4", "10.0.70.85"), "a listed host did not resolve")
+        check(resolve_host(bdfleet.read_hosts, str(hf), "10.0.70.164")
+              == ("test5", "10.0.70.164"), "a host did not resolve by address")
+        try:
+            resolve_host(bdfleet.read_hosts, str(hf), "test9")
+            check(False, "an unlisted host was not refused")
+        except Refuse as exc:
+            check(exc.token == "REFUSE-HOST-UNKNOWN",
+                  "wrong refusal for an unlisted host: %s" % exc.token)
+        try:
+            resolve_host(bdfleet.read_hosts, str(pathlib.Path(td) / "nope"), "test4")
+            check(False, "a missing hosts file was not refused")
+        except Refuse as exc:
+            check(exc.token == "REFUSE-NO-HOSTS-FILE",
+                  "wrong refusal for a missing hosts file: %s" % exc.token)
+    # a box already running a suite is refused unless that is chosen explicitly
+    check(busy_gate(0, "yes", False, "h") is None,
+          "an idle host was not accepted")
+    try:
+        busy_gate(1, "yes", False, "h")
+        check(False, "a host already running pytest was not refused")
+    except Refuse as exc:
+        check(exc.token == "REFUSE-TARGET-BUSY",
+              "wrong refusal for a busy host: %s" % exc.token)
+    note = busy_gate(1, "yes", True, "h")
+    check(note is not None and "CONTAMINATED" in note,
+          "--allow-busy did not record the contamination: %s" % note)
+    try:
+        busy_gate(0, "no", False, "h")
+        check(False, "a host whose ps failed was treated as idle -- zero is not a "
+                     "verdict")
+    except Refuse as exc:
+        check(exc.token == "REFUSE-BUSY-UNKNOWN",
+              "wrong refusal when ps could not run: %s" % exc.token)
+    check(busy_gate(0, "no", True, "h") is not None,
+          "--allow-busy over an unreadable ps did not say the state is UNKNOWN")
+    # ps ANSWERED but the count did not parse. None must not fall through the
+    # `not pytest_procs` test and read as an idle box.
+    try:
+        busy_gate(None, "yes", False, "h")
+        check(False, "an UNPARSED pytest count was treated as zero -- zero is not "
+                     "a verdict and None is not zero")
+    except Refuse as exc:
+        check(exc.token == "REFUSE-BUSY-UNCOUNTED",
+              "wrong refusal for an unparsed pytest count: %s" % exc.token)
+    check("UNKNOWN" in (busy_gate(None, "yes", True, "h") or ""),
+          "--allow-busy over an unparsed count did not say the state is UNKNOWN")
+
+    # --- 3b. the context must prove it is THIS run's, and FINAL -----------
+    # Four guards, four DISTINCTIVE tokens: an empty context and a stale one
+    # both leave head_after=NONE, and before review both were reported as
+    # "the tree moved under the run" -- a cause the tool invented.
+    ctx_ok = ("BD-SWEEP-CTX 1\nschema=%s\nrun_id=RID\nstatus=DONE\n"
+              "head_after=abc\nporcelain_after=0\nBD-SWEEP-CTX-END\n" % SCHEMA)
+    check(validate_context(ctx_ok, bdfleet.parse_probe(ctx_ok), "RID", "h", "/d")
+          == "DONE", "a good context was not accepted")
+    for text, want, why in [
+            ("schema=%s\nrun_id=RID\nstatus=DONE\n" % SCHEMA,
+             "REFUSE-CONTEXT-UNFRAMED", "an unframed answer"),
+            ("BD-SWEEP-CTX 1\nBD-SWEEP-CTX-END\n",
+             "REFUSE-CONTEXT-EMPTY", "an EMPTY context.env"),
+            (ctx_ok.replace("run_id=RID", "run_id=SOMEBODY-ELSE"),
+             "REFUSE-CONTEXT-FOREIGN", "another run's context"),
+            (ctx_ok.replace("status=DONE", "status=RUNNING"),
+             "REFUSE-CONTEXT-NOT-FINAL", "a stale RUNNING-era context")]:
+        try:
+            validate_context(text, bdfleet.parse_probe(text), "RID", "h", "/d")
+            check(False, "%s was accepted as a result" % why)
+        except Refuse as exc:
+            check(exc.token == want,
+                  "%s gave %s, wanted %s -- refusals that share a token are how "
+                  "four mutants escaped" % (why, exc.token, want))
+            check("INVALIDATED" not in exc.message and "-> NONE" not in exc.message,
+                  "%s was reported as a moved tree: a manufactured cause" % why)
+    # a remote refusal word is terminal too, or every refused run reads as stale
+    for word in REMOTE_REFUSALS.values():
+        t = ctx_ok.replace("status=DONE", "status=%s" % word)
+        check(validate_context(t, bdfleet.parse_probe(t), "RID", "h", "/d") == word,
+              "the terminal status %s was rejected as non-final" % word)
+
+    # --- 3c. the run id must be UNIQUE, not merely likely to be -----------
+    ids = set()
+    t_end = time.time() + 0.4
+    while time.time() < t_end:
+        ids.add("sweep-%s-%s-%d-%s"
+                % ("h", time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()), os.getpid(),
+                   os.urandom(4).hex()))
+    check(len(ids) > 100,
+          "run ids built inside one second collide (%d distinct over ~0.4s). A "
+          "reused rundir means the first poll reads the PREVIOUS run's exit "
+          "marker -- measured for real in this selftest before the fix." % len(ids))
+
+    check(commit_matches("f154aef", "f154aef" + "0" * 33),
+          "a 7-char prefix did not match its own commit")
+    check(not commit_matches("f154aef", "abcdef0" + "0" * 33),
+          "a different commit matched")
+    check(not commit_matches("f154aef", "NONE"),
+          "an unreadable head matched a requested commit")
+    try:
+        commit_matches("f154", "f154aef")
+        check(False, "a 4-char commit was not refused")
+    except Refuse as exc:
+        check(exc.token == "REFUSE-SHORT-COMMIT",
+              "wrong refusal for a short commit: %s" % exc.token)
+
+    # --- 4. poll classification ------------------------------------------
+    good = ("BD-SWEEP-POLL 1\nrundir=yes\nexit=NONE\nstatus=RUNNING\n"
+            "log_bytes=17\nlog_mtime=100\nnow=101\nBD-SWEEP-POLL-END\n")
+    done = good.replace("exit=NONE", "exit=3").replace("status=RUNNING", "status=DONE")
+    for rc, text, want, why in [
+            (1, good, "UNKNOWN", "a failed channel"),
+            (0, "rundir=yes\nexit=3\n", "UNKNOWN", "output with no framing tokens"),
+            (0, good.replace("BD-SWEEP-POLL-END", ""), "UNKNOWN", "a truncated answer"),
+            (0, good.replace("rundir=yes", "rundir=no"), "UNKNOWN", "a missing rundir"),
+            (0, good.replace("exit=NONE", "exit=hello"), "UNKNOWN",
+             "a non-integer marker"),
+            (0, good, "RUNNING", "a live run"),
+            (0, done, "DONE", "a written marker")]:
+        kind, data = classify_poll(rc, text, bdfleet.parse_probe)
+        check(kind == want, "classify_poll said %s for %s, wanted %s"
+              % (kind, why, want))
+        if want == "DONE":
+            check(data.get("exit") == 3, "a DONE poll lost its exit code")
+
+    # --- 4b. THE LIVENESS SIGNAL MUST BE ABLE TO MOVE ---------------------
+    # The stall branch below is driven by an injected poll, so it proved the
+    # BRANCH, not the SIGNAL -- and the real signal could not change. bd-run
+    # writes <label>-<timestamp>.log and leaves <label>.log as a SYMLINK to it;
+    # `stat` does not follow symlinks, so the poll was reading the LINK's size
+    # (32 bytes: the length of the target's filename) and the LINK's mtime
+    # (fixed at creation) for the whole run. Measured: real 5001 -> 5023 ->
+    # 5045 while the poll read 32, 32, 32. Every sweep longer than
+    # --stall-seconds would have been declared STALLED on a growing log.
+    # So: run the REAL poll script over a REAL bd-run layout and require the
+    # number to be the log's and to GROW.
+    with tempfile.TemporaryDirectory() as td:
+        rd = pathlib.Path(td) / "run"
+        (rd / "bd-run").mkdir(parents=True)
+        real = rd / "bd-run" / "sweep-20260101T000000-1.log"
+        real.write_text("x" * 4096, encoding="utf-8")
+        (rd / "bd-run" / "sweep.log").symlink_to(real.name)
+        check((rd / "bd-run" / "sweep.log").is_symlink(),
+              "the liveness fixture did not build bd-run's symlink layout")
+
+        def poll_once():
+            r = subprocess.run(["bash", "-s"],
+                               input=POLL_TEMPLATE.format(rundir=q(str(rd))),
+                               capture_output=True, text=True)
+            return classify_poll(r.returncode, r.stdout, bdfleet.parse_probe)
+
+        k1, d1 = poll_once()
+        check(k1 == "RUNNING" or k1 == "UNKNOWN",
+              "the liveness probe classified a marker-less rundir as %s" % k1)
+        check(d1.get("log_bytes") == 4096,
+              "the poll reads %s bytes for a 4096-byte log -- it is measuring the "
+              "SYMLINK, not the log, and that number cannot change"
+              % d1.get("log_bytes"))
+        with open(real, "a", encoding="utf-8") as fh:
+            fh.write("y" * 1000)
+        k2, d2 = poll_once()
+        check(d2.get("log_bytes") == 5096 and d2["log_bytes"] > d1["log_bytes"],
+              "the log grew by 1000 bytes and the poll reported %s -> %s: a stall "
+              "detector built on this can only ever say STALLED"
+              % (d1.get("log_bytes"), d2.get("log_bytes")))
+        check(d2.get("log_mtime") not in (None, "NONE"),
+              "the poll could not read the log's mtime")
+
+    # --- 5. the wait: every exit branch, in milliseconds ------------------
+    clock = {"t": 0.0}
+    mkclock = lambda: clock["t"]                            # noqa: E731
+
+    def mksleep(n):
+        clock["t"] += n
+
+    clock["t"] = 0.0
+    seq = [("RUNNING", {"log_bytes": 1}), ("RUNNING", {"log_bytes": 2}),
+           ("DONE", {"exit": 0, "log_bytes": 3})]
+    o = wait_for_marker(lambda: seq.pop(0), mkclock, mksleep, interval=1,
+                        deadline_seconds=100, stall_seconds=50, max_unknown=3)
+    check(o.kind == "DONE" and o.exit_code == 0,
+          "a run that wrote its marker was not reported DONE")
+    clock["t"] = 0.0
+    o = wait_for_marker(lambda: ("UNKNOWN", {"why": "channel"}), mkclock, mksleep,
+                        interval=1, deadline_seconds=1000, stall_seconds=500,
+                        max_unknown=3)
+    check(o.kind == "UNKNOWN-POLL-LOST",
+          "repeated unreadable polls did not end as UNKNOWN (%s)" % o.kind)
+    clock["t"] = 0.0
+    o = wait_for_marker(lambda: ("RUNNING", {"log_bytes": 7}), mkclock, mksleep,
+                        interval=1, deadline_seconds=10 ** 6, stall_seconds=5,
+                        max_unknown=3)
+    check(o.kind == "STALLED", "a log that stopped growing was not STALLED")
+    clock["t"] = 0.0
+    counter = {"n": 0}
+
+    def growing():
+        counter["n"] += 1
+        return "RUNNING", {"log_bytes": counter["n"]}
+
+    o = wait_for_marker(growing, mkclock, mksleep, interval=1, deadline_seconds=5,
+                        stall_seconds=10 ** 6, max_unknown=3)
+    check(o.kind == "UNKNOWN-NO-MARKER",
+          "a run that never wrote a marker was not UNKNOWN (%s)" % o.kind)
+    clock["t"] = 0.0
+    mixed = [("UNKNOWN", {"why": "blip"}), ("RUNNING", {"log_bytes": 1}),
+             ("UNKNOWN", {"why": "blip"}), ("DONE", {"exit": 5})]
+    o = wait_for_marker(lambda: mixed.pop(0), mkclock, mksleep, interval=1,
+                        deadline_seconds=100, stall_seconds=100, max_unknown=3)
+    check(o.kind == "DONE" and o.exit_code == 5,
+          "an isolated poll blip aborted a healthy wait")
+
+    # --- 6. reading the log ----------------------------------------------
+    parsed = parse_log(CANNED_LOG, bdrun)
+    check(parsed["counts"].get("failed") == 2 and parsed["counts"].get("passed") == 10,
+          "summary counts were not parsed: %s" % parsed["counts"])
+    names = [f["test"] for f in parsed["failures"]]
+    check(names == ["tests/test_alpha.py::test_one", "tests/test_beta.py::test_two"],
+          "failure names (including the ANSI-coloured one) were lost: %s" % names)
+    check(parsed["failure_names_complete"] is True,
+          "a complete name list was flagged incomplete")
+    short = parse_log("FAILED tests/a.py::x - boom\n14 failed, 3 passed in 1s\n", bdrun)
+    check(short["failure_names_complete"] is False
+          and short["failures_from_summary"] == 14,
+          "a name list shorter than the summary count was not flagged with BOTH "
+          "numbers: %s" % short)
+    none = parse_log("dots and nothing else\n", bdrun)
+    check(not none["summary_present"] and not none["counts"],
+          "a log with no summary line was read as a result")
+
+    # --- 7. end to end, over the real seam --------------------------------
+    roots = []
+    try:
+        os.environ["BD_INSTALL_DIR"] = "/tmp/should-not-leak-into-the-run"
+        root = _scratch_root(roots)
+        home = pathlib.Path(root) / "home"
+        home.mkdir()
+        local_dir = pathlib.Path(root) / "local"
+
+        def factory(_label, _addr):
+            return LocalTransport(home=home)
+
+        # 7a. happy path
+        repo, head, record, order = _make_fake_host(root, repo_src)
+        args = _args_for(repo_src, repo, local_dir, head)
+        buf = _Buf()
+        rc, row = run(args, transport_factory=factory, out=buf)
+        check(rc == 0 and row.get("verdict") == "SAMPLE-RECORDED",
+              "the happy path did not record a sample: rc=%s %s %s"
+              % (rc, row.get("verdict"), row.get("wait_detail")))
+        check(record.exists(), "pytest was never reached (no stub argv recorded)")
+        if record.exists():
+            rec = record.read_text()
+            want_argv = "argv= " + " ".join(section5_tokens(row["workers"])[2:])
+            check(want_argv in rec,
+                  "the argv that reached pytest is not section 5's:\n"
+                  "        got:  %s\n        want: %s"
+                  % (rec.splitlines()[0], want_argv))
+            check("BD_DISABLE_KEEPALIVE=1" in rec,
+                  "BD_DISABLE_KEEPALIVE did not reach pytest")
+            check("BD_INSTALL_DIR=UNSET" in rec,
+                  "BD_INSTALL_DIR LEAKED into the run: env -u did not pop the "
+                  "inherited value (%s)" % rec.replace("\n", " | "))
+        check(order.exists() and order.read_text().split() == ["bd-jobs", "pytest"],
+              "registration did not happen BEFORE the run: %s"
+              % (order.read_text().split() if order.exists() else "no order log"))
+        check(row.get("workers") == bdrun.auto_workers(os.cpu_count() or 2),
+              "the worker count was not derived from the target's nproc")
+        check("cores//3" in str(row.get("workers_from")),
+              "the row does not record where the worker count came from")
+        check([f["test"] for f in row.get("failures", [])]
+              == ["tests/test_alpha.py::test_one", "tests/test_beta.py::test_two"],
+              "the row lost the failure names")
+        for key in ("load_before", "load_after", "head_before", "wall_seconds",
+                    "register_id", "nproc", "host_label", "requested_commit"):
+            check(key in row and row[key] not in (None, "NONE"),
+                  "the row is missing %s" % key)
+        check("NEEDLE-WHOLE-LOG-a1b2c3" in pathlib.Path(row["log_local"]).read_text(),
+              "the log was filtered at capture time -- the needle is gone")
+        ledger = pathlib.Path(args.local_dir) / "rows.jsonl"
+        check(ledger.exists() and len(ledger.read_text().splitlines()) == 1,
+              "the row was not appended to the ledger")
+        check(bool(row.get("blind_spots")), "the row does not carry its blind spots")
+
+        # 7b. a dirty tree is refused, and NOTHING is launched
+        root2 = _scratch_root(roots)
+        repo2, head2, record2, _o2 = _make_fake_host(root2, repo_src)
+        (repo2 / "untracked_probe.txt").write_text("x")
+        try:
+            run(_args_for(repo_src, repo2, local_dir, head2),
+                transport_factory=factory, out=_Buf())
+            check(False, "a dirty tree was not refused")
+        except Refuse as exc:
+            check(exc.token == "REFUSE-DIRTY-TREE",
+                  "wrong refusal for a dirty tree: %s" % exc.token)
+            check("dirty" in exc.message.lower(),
+                  "the dirty refusal does not say why")
+        check(not record2.exists(), "a refused run still launched pytest")
+
+        # 7c. a commit mismatch is refused
+        (repo2 / "untracked_probe.txt").unlink()
+        try:
+            run(_args_for(repo_src, repo2, local_dir, "0" * 40),
+                transport_factory=factory, out=_Buf())
+            check(False, "a commit mismatch was not refused")
+        except Refuse as exc:
+            check(exc.token == "REFUSE-COMMIT-MISMATCH",
+                  "wrong refusal for a commit mismatch: %s" % exc.token)
+        check(not record2.exists(), "a commit mismatch still launched pytest")
+
+        # 7d. an unreadable tree is UNKNOWN, not clean
+        root4 = _scratch_root(roots)
+        repo4, _h4, record4, _o4 = _make_fake_host(root4, repo_src, git=False)
+        try:
+            run(_args_for(repo_src, repo4, local_dir, "a" * 40),
+                transport_factory=factory, out=_Buf())
+            check(False, "a tree git cannot read was not refused")
+        except Refuse as exc:
+            check(exc.token == "REFUSE-PREFLIGHT-UNKNOWN",
+                  "an unreadable tree produced %s, not REFUSE-PREFLIGHT-UNKNOWN "
+                  "(zero is not a verdict)" % exc.token)
+        check(not record4.exists(), "an unreadable tree still launched pytest")
+
+        # 7e. registration impossible -> the TARGET refuses, before pytest
+        root5 = _scratch_root(roots)
+        repo5, head5, record5, _o5 = _make_fake_host(root5, repo_src, jobs_ok=False)
+        rc5, row5 = run(_args_for(repo_src, repo5, local_dir, head5),
+                        transport_factory=factory, out=_Buf())
+        check(rc5 == 2 and row5.get("verdict") == "REMOTE-REFUSED-REGISTER-FAILED",
+              "an unregistrable run was not refused on the target: rc=%s %s"
+              % (rc5, row5.get("verdict")))
+        check(not record5.exists(), "pytest ran despite registration failing")
+
+        # 7f. a tree that moves DURING the run invalidates the sample
+        root6 = _scratch_root(roots)
+        repo6, head6, _r6, _o6 = _make_fake_host(root6, repo_src, touch_mid_run=True)
+        rc6, row6 = run(_args_for(repo_src, repo6, local_dir, head6),
+                        transport_factory=factory, out=_Buf())
+        check(rc6 == 1 and row6.get("verdict") == "INVALIDATED-TREE-MOVED",
+              "a tree that went dirty mid-run still counted as a sample: rc=%s %s"
+              % (rc6, row6.get("verdict")))
+
+        # 7g. a capped run is an unfinished run, never a pass
+        root7 = _scratch_root(roots)
+        repo7, head7, _r7, _o7 = _make_fake_host(root7, repo_src, pytest_rc=124)
+        rc7, row7 = run(_args_for(repo_src, repo7, local_dir, head7),
+                        transport_factory=factory, out=_Buf())
+        check(rc7 == 1 and row7.get("verdict") == "CAPPED",
+              "exit 124 was not reported as an unfinished run: rc=%s %s"
+              % (rc7, row7.get("verdict")))
+
+        # 7h. a second sweep on the same box is refused while one is live
+        root8 = _scratch_root(roots)
+        repo8, head8, _r8, _o8 = _make_fake_host(root8, repo_src)
+        live = pathlib.Path(home) / REMOTE_ROOT / "sweep-fake-live"
+        (live / "bd-run").mkdir(parents=True)
+        (live / "status").write_text("RUNNING\n")
+        try:
+            run(_args_for(repo_src, repo8, local_dir, head8),
+                transport_factory=factory, out=_Buf())
+            check(False, "a second concurrent sweep was not refused")
+        except Refuse as exc:
+            check(exc.token == "REFUSE-SWEEP-IN-FLIGHT",
+                  "wrong refusal for a concurrent sweep: %s" % exc.token)
+        shutil.rmtree(live)
+
+        # 7i-7k. THE BUSY GATE, THROUGH run(), WITH allow_busy=False.
+        # It used to be reachable only as a pure function, because the e2e cases
+        # all passed --allow-busy; a mutant that replaced the CALL SITE with
+        # busy_gate(0, "yes", ...) -- a gate that can never fire -- escaped all
+        # 86 checks. A fake `ps` on PATH removes the dependency on this box.
+        rootps = _scratch_root(roots)
+        binbusy = _fake_ps(pathlib.Path(rootps) / "bin_busy" / "ps", "busy")
+        binidle = _fake_ps(pathlib.Path(rootps) / "bin_idle" / "ps", "idle")
+        binfail = _fake_ps(pathlib.Path(rootps) / "bin_fail" / "ps", "fail")
+
+        # POSITIVE CONTROL FIRST, THROUGH THE IDENTICAL PIPELINE. Run the
+        # preflight's own counting line -- lifted out of the template, not
+        # retyped -- over each fake ps. If it cannot count the busy one, every
+        # verdict built on it below is meaningless.
+        pf_text = PREFLIGHT_TEMPLATE.format(repo="'/nonexistent'", root=REMOTE_ROOT,
+                                            stall=60)
+        count_lines = [l for l in pf_text.splitlines()
+                       if l.startswith('echo "pytest_procs=')]
+        check(len(count_lines) == 1,
+              "the preflight no longer has exactly one pytest_procs line (%d)"
+              % len(count_lines))
+        for path, want, mode in ((binbusy, "pytest_procs=1", "busy"),
+                                 (binidle, "pytest_procs=0", "idle")):
+            r = subprocess.run(["bash", "-c", count_lines[0]], capture_output=True,
+                               text=True, env=dict(os.environ,
+                                                   PATH=path + ":" + os.environ["PATH"]))
+            check(r.returncode == 0 and r.stdout.strip() == want,
+                  "positive control: the preflight's own counter read %r over the "
+                  "%s fake ps, wanted %r (rc=%d)"
+                  % (r.stdout.strip(), mode, want, r.returncode))
+
+        def psfactory(path):
+            return lambda _l, _a: _HookTransport(
+                home, env_extra={"PATH": path + ":" + os.environ["PATH"]})
+
+        root9 = _scratch_root(roots)
+        repo9, head9, record9, _o9 = _make_fake_host(root9, repo_src)
+        try:
+            run(_args_for(repo_src, repo9, local_dir, head9, allow_busy=False),
+                transport_factory=psfactory(binbusy), out=_Buf())
+            check(False, "a target already running pytest was sampled anyway")
+        except Refuse as exc:
+            check(exc.token == "REFUSE-TARGET-BUSY",
+                  "wrong refusal for a busy target end to end: %s" % exc.token)
+            check("1 `python -m pytest` process" in exc.message,
+                  "the busy refusal does not state the COUNT it measured: %s"
+                  % exc.message)
+        check(not record9.exists(), "a busy target still launched pytest")
+
+        # NEGATIVE CONTROL: the same gate, same code path, an idle ps. Without
+        # this, "always refuses" would pass the case above.
+        root10 = _scratch_root(roots)
+        repo10, head10, record10, _o10 = _make_fake_host(root10, repo_src)
+        rc10, row10 = run(_args_for(repo_src, repo10, local_dir, head10,
+                                    allow_busy=False),
+                          transport_factory=psfactory(binidle), out=_Buf())
+        check(rc10 == 0 and row10.get("verdict") == "SAMPLE-RECORDED",
+              "an IDLE target was refused by the busy gate: rc=%s %s"
+              % (rc10, row10.get("verdict")))
+        check(record10.exists() and row10.get("pytest_procs_before") == 0,
+              "the idle case did not actually run (procs=%s)"
+              % row10.get("pytest_procs_before"))
+
+        root11 = _scratch_root(roots)
+        repo11, head11, record11, _o11 = _make_fake_host(root11, repo_src)
+        try:
+            run(_args_for(repo_src, repo11, local_dir, head11, allow_busy=False),
+                transport_factory=psfactory(binfail), out=_Buf())
+            check(False, "a target whose ps FAILED was sampled as if idle")
+        except Refuse as exc:
+            check(exc.token == "REFUSE-BUSY-UNKNOWN",
+                  "wrong refusal when the target's ps failed: %s" % exc.token)
+        check(not record11.exists(), "an unreadable ps still launched pytest")
+
+        # 7l-7m. THE INTERPRETER GATE, which the fixture could not represent
+        # before: the stub answered `-c` with exit 0 unconditionally, so
+        # deleting the venv/deps refusal escaped the whole selftest.
+        root12 = _scratch_root(roots)
+        repo12, head12, record12, _o12 = _make_fake_host(root12, repo_src,
+                                                         deps_ok=False)
+        try:
+            run(_args_for(repo_src, repo12, local_dir, head12),
+                transport_factory=factory, out=_Buf())
+            check(False, "a venv that cannot import pytest/xdist was sampled")
+        except Refuse as exc:
+            check(exc.token == "REFUSE-NO-PYTEST",
+                  "wrong refusal for unimportable deps: %s" % exc.token)
+            check("deps=fail" in exc.message and "venv=yes" in exc.message,
+                  "the deps refusal does not name what it measured: %s" % exc.message)
+        check(not record12.exists(), "a venv without deps still ran pytest")
+
+        root13 = _scratch_root(roots)
+        repo13, head13, record13, _o13 = _make_fake_host(root13, repo_src,
+                                                         venv_ok=False)
+        try:
+            run(_args_for(repo_src, repo13, local_dir, head13),
+                transport_factory=factory, out=_Buf())
+            check(False, "a tree with no venv/bin/python was sampled (bare python3 "
+                         "is 3.11 without deps)")
+        except Refuse as exc:
+            check(exc.token == "REFUSE-NO-PYTEST",
+                  "wrong refusal for a missing venv: %s" % exc.token)
+            check("venv=no" in exc.message,
+                  "the missing-venv refusal does not say venv=no: %s" % exc.message)
+        check(not record13.exists(), "a missing venv still ran pytest")
+
+        # 7n-7p. ZERO IS NOT A VERDICT: a run that produced no summary, and
+        # every pytest exit that is not 0/1, used to come back
+        # SAMPLE-RECORDED / rc 0 / failures=0.
+        for rc_stub, logtext, want_verdict, why in [
+                (0, "", "UNKNOWN-NO-SUMMARY", "an EMPTY log with pytest exit 0"),
+                (0, "dots only, no summary line\n", "UNKNOWN-NO-SUMMARY",
+                 "a log with no summary line"),
+                (5, "no tests ran in 0.12s\n", "UNKNOWN-PYTEST-NO-TESTS-COLLECTED",
+                 "pytest exit 5 (nothing collected)"),
+                (4, "ERROR: file or directory not found: tests/\n",
+                 "UNKNOWN-PYTEST-USAGE-ERROR", "pytest exit 4 (usage error)"),
+                (3, "INTERNALERROR> Traceback\n", "UNKNOWN-PYTEST-INTERNAL-ERROR",
+                 "pytest exit 3 (internal error)"),
+                (2, "!!!! KeyboardInterrupt !!!!\n", "UNKNOWN-PYTEST-INTERRUPTED",
+                 "pytest exit 2 (interrupted)"),
+                (143, "1 passed in 2s\n", "UNKNOWN-PYTEST-EXIT",
+                 "exit 143 (SIGTERM -- a reaped command is not a result)")]:
+            rootn = _scratch_root(roots)
+            repon, headn, _rn, _on = _make_fake_host(rootn, repo_src,
+                                                     pytest_rc=rc_stub,
+                                                     log_text=logtext)
+            rcn, rown = run(_args_for(repo_src, repon, local_dir, headn),
+                            transport_factory=factory, out=_Buf())
+            # SHAPE FIRST: the fixture must actually have produced that log.
+            got = pathlib.Path(rown["log_local"]).read_text()
+            check(got == logtext,
+                  "the fixture for %s did not produce the log it meant (%r)"
+                  % (why, got[:60]))
+            check(rown.get("verdict") == want_verdict and rcn == 2,
+                  "%s came back as %s / rc=%s, wanted %s / rc=2 (failures=%s)"
+                  % (why, rown.get("verdict"), rcn, want_verdict,
+                     rown.get("failure_names_found")))
+
+        # 7q. A SHORT LOG COPY IS NOT A SHORT RUN. Truncate the fetched log --
+        # exactly what a half scp or a `| head` leaves -- and the parse reads
+        # zero failures off it perfectly happily.
+        root14 = _scratch_root(roots)
+        repo14, head14, _r14, _o14 = _make_fake_host(root14, repo_src)
+        cut = {}
+
+        def truncate(localpath):
+            p = pathlib.Path(localpath)
+            whole = p.read_text()
+            cut["before"] = len(whole)
+            p.write_text(whole.split("FAILURES")[0])
+            cut["after"] = len(p.read_text())
+
+        tr = _HookTransport(home, fetch_hook=truncate)
+        rc14, row14 = run(_args_for(repo_src, repo14, local_dir, head14),
+                          transport_factory=lambda _l, _a: tr, out=_Buf())
+        check(tr.fired["fetch"] == 1 and cut.get("after", 0) < cut.get("before", 0),
+              "the truncation fixture never fired (%s / %s)" % (tr.fired, cut))
+        check(rc14 == 2 and row14.get("verdict") == "UNKNOWN-LOG-TRUNCATED",
+              "a SHORT log copy was recorded as a sample: rc=%s %s (remote %s "
+              "bytes, local %s, names=%s)"
+              % (rc14, row14.get("verdict"), row14.get("log_bytes_remote"),
+                 row14.get("log_bytes_local"), row14.get("failure_names_found")))
+        check(row14.get("log_bytes_remote") == cut["before"],
+              "the row does not carry the size the TARGET reported (%s vs %s)"
+              % (row14.get("log_bytes_remote"), cut["before"]))
+
+        # 7r-7t. A CONTEXT THAT CANNOT BE READ IS NOT A MOVED TREE. All three
+        # of these produced verdict INVALIDATED-TREE-MOVED with the message
+        # "the tree moved under the run (head <sha> -> NONE)" before review:
+        # a cause the tool invented out of its own blindness.
+        for mangle, want_tok, why in [
+                (lambda t: "BD-SWEEP-CTX 1\nBD-SWEEP-CTX-END\n",
+                 "REFUSE-CONTEXT-EMPTY", "an empty context.env"),
+                (lambda t: t.replace("status=DONE", "status=RUNNING"),
+                 "REFUSE-CONTEXT-NOT-FINAL", "a stale RUNNING-era context"),
+                (lambda t: re.sub(r"run_id=.*", "run_id=SOMEBODY-ELSE", t),
+                 "REFUSE-CONTEXT-FOREIGN", "another run's context")]:
+            rootc = _scratch_root(roots)
+            repoc, headc, _rc, _oc = _make_fake_host(rootc, repo_src)
+            hooked = _HookTransport(home, ctx_hook=mangle)
+            try:
+                run(_args_for(repo_src, repoc, local_dir, headc),
+                    transport_factory=lambda _l, _a, h=hooked: h, out=_Buf())
+                check(False, "%s was turned into a verdict" % why)
+            except Refuse as exc:
+                check(hooked.fired["ctx"] == 1,
+                      "the context fixture for %s never fired" % why)
+                check(exc.token == want_tok,
+                      "%s gave %s, wanted %s" % (why, exc.token, want_tok))
+                check("INVALIDATED" not in exc.message
+                      and "-> NONE" not in exc.message,
+                      "%s was still reported as a moved tree: %s" % (why, exc.message))
+
+        # 7u. A RUNDIR THAT ALREADY HOLDS A MARKER IS SOMEBODY ELSE'S RESULT.
+        root15 = _scratch_root(roots)
+        repo15, head15, record15, _o15 = _make_fake_host(root15, repo_src)
+        planted = {}
+
+        def plant(script):
+            rd = pathlib.Path(_rundir_from_launch(script))
+            (rd / "bd-run").mkdir(parents=True, exist_ok=True)
+            (rd / "exit").write_text("94\n")
+            (rd / "status").write_text("REFUSED-REGISTER-FAILED\n")
+            planted["dir"] = str(rd)
+
+        pl = _HookTransport(home, pre_launch=plant)
+        try:
+            run(_args_for(repo_src, repo15, local_dir, head15),
+                transport_factory=lambda _l, _a: pl, out=_Buf())
+            check(False, "a rundir already carrying another run's exit marker was "
+                         "read as this run's result")
+        except Refuse as exc:
+            check(pl.fired["launch"] == 1 and "dir" in planted,
+                  "the stale-marker fixture never fired")
+            check(exc.token == "REFUSE-RUNDIR-REUSED",
+                  "wrong refusal for a reused rundir: %s" % exc.token)
+        check(not record15.exists(),
+              "pytest ran into a rundir that already held a foreign marker")
+
+        # 7v. GIT UNREADABLE AFTER THE RUN IS NOT A MOVED TREE. The runner
+        # writes HEAD_AFTER=NONE and still finishes DONE when `git rev-parse`
+        # fails at the end, and that used to be reported as
+        # "the tree moved under the run (head <sha> -> NONE)".
+        root16 = _scratch_root(roots)
+        repo16, head16, _r16, _o16 = _make_fake_host(root16, repo_src)
+        h16 = _HookTransport(
+            home, ctx_hook=lambda t: re.sub(r"head_after=.*", "head_after=NONE", t))
+        rc16, row16 = run(_args_for(repo_src, repo16, local_dir, head16),
+                          transport_factory=lambda _l, _a: h16, out=_Buf())
+        check(h16.fired["ctx"] == 1, "the head_after fixture never fired")
+        check(row16.get("head_after") == "NONE",
+              "the fixture did not actually blank head_after (%s)"
+              % row16.get("head_after"))
+        check(rc16 == 2 and row16.get("verdict") == "UNKNOWN-TREE-UNREADABLE-AFTER",
+              "a tree the target could not read afterwards came back as %s / rc=%s"
+              % (row16.get("verdict"), rc16))
+        # Anchor on the fabricated SENTENCE, not on the word "moved": the
+        # correct message legitimately contains "it is NOT a statement that it
+        # moved", and a bare substring probe fails on the very text that proves
+        # the fix. (A single-token probe is a floor, never an answer.)
+        check("the tree moved under the run" not in str(row16.get("exit_meaning")),
+              "an UNREADABLE tree was reported as a MOVED one: %s"
+              % row16.get("exit_meaning"))
+
+        # 7w. THE IN-FLIGHT SCAN MUST FOLLOW THE SYMLINK TOO. Same defect as the
+        # poll: without -L the preflight reads the LINK's mtime, fixed when
+        # bd-run created it, so a sweep that has been running longer than
+        # --stall-seconds reads STALE -- which does NOT block -- and a second
+        # sweep lands on a box already running one. Exactly the long runs the
+        # guard exists for.
+        root17 = _scratch_root(roots)
+        repo17, _h17, _r17, _o17 = _make_fake_host(root17, repo_src)
+        livedir = pathlib.Path(home) / REMOTE_ROOT / "sweep-symlink-probe"
+        (livedir / "bd-run").mkdir(parents=True)
+        (livedir / "status").write_text("RUNNING\n")
+        tgt = livedir / "bd-run" / "sweep-20260101T000000-1.log"
+        tgt.write_text("x" * 100, encoding="utf-8")
+        (livedir / "bd-run" / "sweep.log").symlink_to(tgt.name)
+        old = time.time() - 100000
+        os.utime(livedir / "bd-run" / "sweep.log", (old, old), follow_symlinks=False)
+        os.utime(livedir, (old, old))
+        os.utime(tgt, None)
+        # SHAPE FIRST: a stale LINK over a FRESH log is the only arrangement in
+        # which the two readings differ, so prove the fixture built it.
+        lag = os.stat(tgt).st_mtime - os.lstat(livedir / "bd-run" / "sweep.log").st_mtime
+        check(lag > 1000,
+              "the fixture did not build a stale link over a fresh log (lag %.0fs)"
+              % lag)
+        prc, pfo, _pfe = LocalTransport(home=home).run(
+            PREFLIGHT_TEMPLATE.format(repo=q(str(repo17)), root=REMOTE_ROOT,
+                                      stall=600))
+        check(prc == 0 and "BD-SWEEP-PREFLIGHT-END" in pfo,
+              "the in-flight probe did not complete (rc=%d)" % prc)
+        pfd = bdfleet.parse_probe(pfo)
+        check(pfd.get("inflight_fresh") == "1" and pfd.get("inflight_stale") == "0",
+              "a sweep whose LOG is being written right now was counted as "
+              "fresh=%s stale=%s -- the scan is reading the SYMLINK's mtime, so "
+              "the concurrent-sweep guard would not have blocked it"
+              % (pfd.get("inflight_fresh"), pfd.get("inflight_stale")))
+        shutil.rmtree(livedir)
+    finally:
+        os.environ.pop("BD_INSTALL_DIR", None)
+        for d in roots:
+            shutil.rmtree(d, ignore_errors=True)
+
+    # --- 8. the blind spots are printed --------------------------------
+    buf = _Buf()
+    print_blind_spots(buf)
+    check("WHAT THIS RUN CANNOT SEE" in buf.text() and len(BLIND_SPOTS) >= 5,
+          "the blind-spot block is missing or thin")
+
+    for f in failures:
+        print("SELFTEST FAIL: %s" % f, file=sys.stderr)
+    for n in notes:
+        print("SELFTEST NOTE: %s" % n)
+    print("")
+    print("WHAT THIS SELFTEST ITSELF CANNOT SEE: it never opened an ssh channel "
+          "and never ran scp, so scp's own failure modes (a copy that dies "
+          "mid-file, a wrong-host key) are represented by a hook and not by scp; "
+          "it never ran real pytest, so every count it checks came from a canned "
+          "log; it never called the real bd-jobs, because bd-jobs writes into "
+          "/tmp/bd-jobs on the host it runs on and a selftest must not leave "
+          "entries in the fleet's live registry; and no case here runs longer than "
+          "a few seconds, so the STALL and marker-deadline branches are reached "
+          "only through an injected clock -- the real 5400s cap and 1200s stall "
+          "bound have never been exercised at their real values. The liveness "
+          "SIGNAL is checked against a real bd-run symlink layout (4b), but the "
+          "wait LOOP around it is still driven by a stub. The busy gate is driven "
+          "end to end over a FAKE ps whose output format is asserted against the "
+          "preflight's own counter first; a real `ps` on a real target is still "
+          "not what was measured.")
+    if failures:
+        print("SELFTEST FAIL: %d of %d check(s) failed" % (len(failures), checks),
+              file=sys.stderr)
+        return 1
+    if notes:
+        # UNKNOWN IS A THIRD STATE AND IT FAILS. A cross-check that could not be
+        # evaluated must not share an exit code with one that passed: before
+        # review this printed its note and then "SELFTEST PASS" and exited 0,
+        # with the check count silently one lower (86 -> 85).
+        print("SELFTEST CANNOT-EVALUATE: %d of %d check(s) passed, but %d "
+              "cross-check(s) could NOT BE RUN (listed above). That is not a pass."
+              % (checks, checks, len(notes)), file=sys.stderr)
+        return 2
+    print("SELFTEST PASS: %d of %d checks -- section-5 form re-derived from "
+          "CLAUDE.md, worker derivation + provenance, host/commit refusals, the "
+          "busy gate as a function AND end to end over a fake ps with a positive "
+          "control, context identity (empty/stale/foreign), run-id uniqueness, 7 "
+          "poll shapes, all four wait outcomes, log parsing with both numbers, and "
+          "24 end-to-end runs over a fake target (argv, env -u, "
+          "register-before-launch, whole-log needle, short-copy detection, every "
+          "non-sample pytest exit, dirty/mismatch/unreadable/concurrent/busy/"
+          "no-venv/no-deps/reused-rundir refusals, mid-run tree move, cap)."
+          % (checks, checks))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        prog="bd-sweep-run",
+        description="take ONE full-suite sample on a named host and record it as "
+                    "a row (CLAUDE.md section 5's permitted form, verbatim)")
+    p.add_argument("--host", help="fleet label or address (~/.config/bd/hosts)")
+    p.add_argument("--addr", default=None,
+                   help="explicit address for a host the fleet file does not list")
+    p.add_argument("--commit", help="the commit the target MUST be on (>= 7 chars)")
+    p.add_argument("--hosts", default=DEFAULT_HOSTS)
+    p.add_argument("--repo", default=DEFAULT_REPO,
+                   help="LOCAL checkout providing bd-run, bd-fleet and CLAUDE.md")
+    p.add_argument("--remote-repo", default="$HOME/BulkDownloader",
+                   dest="remote_repo", help="the tree on the target")
+    p.add_argument("--local-dir", default=DEFAULT_LOCAL_DIR, dest="local_dir",
+                   help="where rows and fetched logs land (default: %s)"
+                        % DEFAULT_LOCAL_DIR)
+    p.add_argument("--workers", type=int, default=None,
+                   help="explicit -n; by default it is DERIVED from the TARGET's "
+                        "nproc and recorded with the row")
+    p.add_argument("--workers-frac", type=int, default=3, dest="workers_frac",
+                   help="-n = nproc//FRAC floored at 2 (default 3, the measured "
+                        "flat-fast zone). --workers-frac 1 gives -n nproc.")
+    p.add_argument("--cap-seconds", type=int, default=DEFAULT_CAP, dest="cap_seconds",
+                   help="whole-run cap handed to bd-run (default %d)" % DEFAULT_CAP)
+    p.add_argument("--slack-seconds", type=int, default=DEFAULT_SLACK,
+                   dest="slack_seconds",
+                   help="the marker must appear by cap+slack (default %d)"
+                        % DEFAULT_SLACK)
+    p.add_argument("--stall-seconds", type=int, default=DEFAULT_STALL,
+                   dest="stall_seconds",
+                   help="no log growth for this long = STALLED (default %d)"
+                        % DEFAULT_STALL)
+    p.add_argument("--poll-seconds", type=float, default=DEFAULT_POLL,
+                   dest="poll_seconds")
+    p.add_argument("--max-unknown", type=int, default=DEFAULT_MAX_UNKNOWN,
+                   dest="max_unknown",
+                   help="consecutive unreadable polls before giving up as UNKNOWN")
+    p.add_argument("--connect-timeout", type=int, default=15, dest="connect_timeout")
+    p.add_argument("--keep-remote", type=int, default=DEFAULT_KEEP_REMOTE,
+                   dest="keep_remote", help="run dirs kept on the target")
+    p.add_argument("--no-register", action="store_false", dest="register",
+                   help="do not register the run with bd-jobs on the target "
+                        "(deliberately accepting an untracked remote run)")
+    p.add_argument("--allow-busy", action="store_true", dest="allow_busy",
+                   help="sample a host that already has pytest running (or whose "
+                        "ps could not be read). Refused by default: load "
+                        "dominates the failure count, so the sample would "
+                        "measure the neighbour. Recorded in the row.")
+    p.add_argument("--quiet-wait", action="store_true", dest="quiet_wait",
+                   help="suppress the per-poll heartbeat line")
+    p.add_argument("--dry-run", action="store_true", dest="dry_run",
+                   help="print the runner that WOULD be shipped; launch nothing")
+    p.add_argument("--selftest", action="store_true")
+    args = p.parse_args(argv)
+
+    rc = 2
+    try:
+        if args.selftest:
+            rc = selftest()
+            return rc
+        if not args.host or not args.commit:
+            print("bd-sweep-run: REFUSED [REFUSE-INCOMPLETE-REQUEST]: --host and "
+                  "--commit are both required. A report that does not name its "
+                  "commit is discarded.", file=sys.stderr)
+            rc = 2
+            return rc
+        rc, _row = run(args)
+        return rc
+    except Refuse as exc:
+        print("bd-sweep-run: REFUSED [%s]: %s" % (exc.token, exc.message),
+              file=sys.stderr)
+        rc = 2
+        return rc
+    finally:
+        # ON EVERY PATH: samples, refusals, and the selftest.
+        print_blind_spots()
+        print("bd-sweep-run: exit=%s  (0 SAMPLE-RECORDED / 1 NO-USABLE-SAMPLE "
+              "[capped, stalled, invalidated] / 2 REFUSED or UNKNOWN)" % rc)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
