@@ -95,3 +95,28 @@ pytest-timeout>=2.0,<3.0
 # real-PG classes SKIP with the reason named wherever no MOD3_PG_TEST_DSN is
 # set, so nothing on the box changes behaviour.
 psycopg[binary]>=3.1,<4
+
+# v3.66.1085: httpcore. DECLARED BECAUSE tests/conftest.py NOW IMPORTS IT
+# DIRECTLY, and a conftest import that fails takes the ENTIRE suite down at
+# collection -- there is no partial-credit failure mode here.
+#
+# It is imported for its PRESENCE IN sys.modules, not for its API.
+# unittest.mock.patch.dict restores sys.modules to its entry snapshot, so a
+# module first imported INSIDE such a block is deleted on exit. httpx builds
+# its httpcore->httpx exception map lazily into a module-global that lives in
+# httpx, while the classes live in httpcore; evict one and not the other and
+# every isinstance() in that map fails for the rest of the process. Measured on
+# test6 at v3.66.1083 as a capture failure reading "submit raised ConnectError
+# instead of QBError", where the class was httpcore.ConnectError.
+#
+# WHY NOT requirements-dev.txt, which the dep-freshness gate's own message
+# suggests for a test-only dependency: nothing on the deploy path or in the
+# container reads it (CLAUDE.md section 5 -- it carries the packaging chain and
+# is installed for CI's postgres job alone). pyflakes two entries up is the
+# worked precedent: declaring it there was NOT sufficient and the next capture
+# proved it, because the fix had reproduced the shape of the defect it fixed.
+#
+# It is already present transitively as an httpx dependency, so this changes
+# nothing that is installed -- it makes a dependency that already exists in
+# fact exist on paper, which is the only thing that survives a rebuild.
+httpcore>=1.0,<2.0
