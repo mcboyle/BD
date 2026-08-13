@@ -4,6 +4,31 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1097
+
+- tests: the v3.66.1095 eviction gate no longer depends on stdlib import order.
+  Three of its tests borrowed names the rest of the suite also owns -- wave,
+  colorsys, sunau -- so they exercised the eviction path only when nothing
+  earlier on the worker had imported them.
+- FOUND BY THE FLEET, NOT BY THE BAND. test4 went RED at 3.66.1096 on
+  test_the_guard_records_what_it_saw while test5, test6 and test7 passed the
+  identical commit, because --dist loadfile had put something importing
+  colorsys on that worker first. The tree-drift file was 0 bytes on all four,
+  so v3.66.1092's postflight check had already ruled out the tree as a cause
+  before triage started.
+- THE DEFECT WAS WORSE THAN THE FAILURE SHOWED. Re-run with all three names
+  pre-imported: 3 of 8 failed. test4 happened to hit one.
+- The repair stops borrowing shared names. Each test now writes a uniquely
+  tagged module into its own tmp_path and imports it through the real import
+  machinery, so "not yet imported" is true BY CONSTRUCTION and the precondition
+  assertion can actually fail.
+- A VACUOUS ASSERTION SHIPPED IN THAT CUT AND IS REMOVED HERE:
+  `assert "aifc" not in sys.modules or True` is true for every input. It is a
+  live instance of backlog 26, written by the session that was closing backlog
+  101, in the file whose subject is tests that cannot fail.
+- This is the backlog 25 defect class -- a schedule-dependent test read as
+  flakiness -- reintroduced by the cut that closed backlog 101, on the same day.
+
 ## v3.66.1096
 
 - app: _check_csrf now resolves _csrf_token_for LATE, through importlib at call
