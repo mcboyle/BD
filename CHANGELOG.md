@@ -35,6 +35,18 @@ forbidden -- every entry is a gate that was RED somewhere nothing else could
 see. The remaining 23 are balanced across four shards at ~33s each, leaving
 headroom for CI being slower than this box (measured ratio ~1.1-1.2x).
 
+AND ONE OF THE TWENTY-FOUR IMMEDIATELY CAUGHT THIS CUT. Adding
+`tests/test_deploy_manifest_stays_retired.py` to _DECLARED put the literal
+`deploy_manifest` back into a tracked source file, and that file's own tombstone
+scan flagged it -- "explaining a removal by naming the removed thing recreates
+it", reached from the one direction that is legitimate: naming a tombstone in
+order to SCHEDULE it is the opposite of resurrecting the tool. Exempted for that
+single file, with the reason, rather than for declaration lists in general, so a
+real invocation there is still caught.
+
+The derived band did not include that suite; CI did, on the run that added it.
+A gate proving its own worth inside the cut that wired it in.
+
 NOT DONE, deliberately: the 24 keep their gate_scope_baseline.txt entries
 rather than gaining BD_GATE_SCOPE markers. _DECLARED is what CI reads, the
 marker requirement exists for files written after the policy, and marking 24

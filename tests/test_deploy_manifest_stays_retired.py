@@ -143,6 +143,16 @@ def test_nothing_still_calls_the_retired_tool():
             continue
         if rel == "tests/test_deploy_manifest_stays_retired.py":
             continue
+        if rel == "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py":
+            # @1082. That file's `_DECLARED` set lists this file's PATH so CI
+            # runs it, and a path is not an invocation. Naming the tombstone in
+            # order to SCHEDULE it is the opposite of resurrecting the tool --
+            # but the literal is the same, which is CLAUDE.md section 0's
+            # "explaining a removal by naming the removed thing recreates it",
+            # reached from the one direction that is legitimate. Narrowed to
+            # this single file rather than exempting declaration lists in
+            # general, so a real invocation there is still caught.
+            continue
         source = path.read_text(encoding="utf-8", errors="replace")
         if "deploy_manifest" not in source and "deploy-manifest" not in source:
             continue
