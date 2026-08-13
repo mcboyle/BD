@@ -4,6 +4,68 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1089
+
+The overnight sweep census, as rows a test can read (backlog 25, 27, 102, 103).
+
+WHAT WAS MEASURED. Seventeen sequential whole-suite samples at f154aef in
+CLAUDE.md section 5's sanctioned form, on two 48-core hosts of one spec: ELEVEN
+on test4 at -n 16 and SIX on test6 at -n 48. n16: 7 clean, 4 with failures, 0
+wedged. n48: 3 clean, 1 with failures, 2 WEDGED WITH NO VERDICT. Markers
+preserved at ~/bd-sweep-2026-08-13/ on test5.
+
+THE HEADLINE IS THAT "ROTATING TEST" NAMED THREE UNRELATED MECHANISMS, AND ONE
+OF THEM WAS A SHIPPABLE PRODUCT DEFECT.
+
+  (a) tests/test_perf_lab.py, seven tests failing together on BOTH hosts. Not
+      flaky at all -- perf_lab walked gc.get_objects() and asserted every
+      object's type has __name__, which h11's sentinel metaclass refuses. Fixed
+      at v3.66.1088; this population disappearing is the confirmation.
+  (b) test_t14_vpn_probe_egress::test_probe_no_tunnels, 3 of 11 at n16.
+      Genuinely schedule-dependent, already recorded in CLAUDE.md section 4 as
+      passing in isolation and failing co-batched. The only real quarantine
+      candidate of the three.
+  (c) test_v3_66_729_body_contract_fixtures, 1 of 11 -- an artefact of measuring
+      TWICE. Its probe rows accumulate across runs and the next probe reads
+      them, which section 5 documents. Independently reproduced on test5, where
+      run 1 was clean and run 2 was not with only a COMMENT changed between.
+
+So quarantining by NAME -- which is what backlog 25 literally asks for -- would
+have hidden a real defect in (a) and mislabelled a harness artefact in (c). The
+census is the prerequisite, not the deliverable, and row 25 now says so.
+
+ROW 102, THE WEDGE. Two of six samples at -n 48 ended with
+`[gwNN] node down: Not properly terminated` at [ 99%], after which the master
+wrote nothing for 462s and 255s with a load average of 0.06. Different workers
+each time, so not one bad worker. Eleven of eleven completed at -n 16. At wedge
+time the master held a Z child it never reaped, plus two further zombies under a
+subprocess some test spawned and never waited on -- two leaks in one snapshot.
+This matters past the sweep because `capture.sh --workers=$(nproc)` IS -n 48 on
+these boxes; the capture lane runs a deselected subset, so its rate is
+unmeasured and the row refuses to assume it is the same. It explicitly says NOT
+to lower --workers until that is measured, because changing a gate's shape on a
+guess is how gates stop meaning anything.
+
+ROW 103, AND IT IS THE SHARPER ONE. The per-worker chain files are written at
+SESSION END, so the wedged run had SIX chains for FORTY-EIGHT workers and the
+dead worker's was not among them -- the one run whose schedule you most need to
+reconstruct is the one that did not record it. Every run's own footer tells you
+to replay a failure with bd-ladder --chain. That is "never filter at capture
+time" in the time dimension: discarded by construction, not by a head. What DID
+survive and was sufficient is the incrementally-written pytest log, whose last
+line named the dead worker.
+
+ROW 27 GAINS TWO WORKED EXAMPLES, both shipped today: v3.66.1088's
+over-correction test and mutant, and v3.66.1087's threshold asserted in both
+directions in one test. What remains open there is the mechanization -- nothing
+detects a cut that omits the control, and both exist only because the author
+wrote them.
+
+A NO-VERDICT RUN IS NOT A GREEN ONE, and the sweep runner was built to say so:
+a log with no pytest summary line contains no occurrence of the word "failed"
+and reads as clean to anything scanning for it. Both wedged samples are recorded
+`summary=ABSENT` with an explicit note that they must not be counted.
+
 ## v3.66.1088
 
 The interpreter census survives the interpreter: a type without __name__ no
