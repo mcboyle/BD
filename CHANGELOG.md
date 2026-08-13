@@ -4,6 +4,42 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1090
+
+Session close 15.93, naming a commit already on main.
+
+SESSION_CARRY's newest close was 15.92 at 203833e (v3.66.1080), which had gone
+FOUR cuts stale -- 1081 through 1084 landed after it. 15.93 closes at 8e8dbc3,
+the squash of #374, which was on `main` before this section was written.
+
+THAT CHOICE IS THE @939 TRAP AND IT IS WORTH RESTATING, because it produces a
+failure that is green pre-merge and red post-merge where no band reaches: a
+close section naming its OWN branch tip passes bd-freshcheck (the tip is a
+genuine ancestor of the PR head), the PR merges green, and then the squash
+writes a NEW commit and destroys the one named. Verified before committing:
+`git merge-base --is-ancestor 8e8dbc3 HEAD` returns 0.
+
+WHAT IT RECORDS. Six cuts, 1084-1089, and a thread that is not the previous
+session's: every defect this session was found by RUNNING something, and review
+found none of them. The capture found 1084 and 1085; the full suite found the
+undeclared dependency 1085 introduced, which the 33-file derived band could not
+see; CI found that 1085's gate hardcoded venv/bin/python, which exists on the
+box and in the container and NOT on a GitHub runner; the overnight sweep found
+1088, a real crash wearing a flaky test's costume; typing one command in by hand
+found bd-jobs mangling a quoted argument, in the first minute after 1087 gave it
+a log to say so with; and the backlog format gate refused 1086 for putting an
+evidence marker in an OPEN row's status cell.
+
+IT ALSO RECORDS FOUR PROCESS FAILURES OF MINE, which is the section's precedent
+and its more useful half: killing my own ssh shell with a self-matching awk
+(trap #1 of the inherited handoff, hit within two hours of reading it); a sweep
+runner whose filenames carry the worker count and commit but no run id, so a
+relaunch overwrote its own markers -- backlog 5's exact subject, reproduced by
+someone who had read the row that night; a first reproduction of 1085 that did
+NOT reproduce, where the reason turned out to BE the finding; and a cost comment
+asserting "~500k objects" that I had not measured, corrected to the measured
+7857 before commit.
+
 ## v3.66.1089
 
 The overnight sweep census, as rows a test can read (backlog 25, 27, 102, 103).

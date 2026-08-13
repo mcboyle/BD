@@ -5214,6 +5214,112 @@ never `export` in a shell the suite is later launched from.
   row seen in 1 of 6 captures. Re-capture before trusting it.
 
 
+### 15.93 | SESSION CLOSE 2026-08-13 at 8e8dbc3 (v3.66.1089) -- six cuts from one capture failure, and every defect was found by RUNNING something
+
+Close at `8e8dbc3`, the squash of #374, already on `main` when this
+was written. Named per the @939 trap: a section naming its own branch tip goes
+red on `main` after the squash destroys it, where no band reaches.
+
+ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
+OPEN:   31
+
+#### WHAT SHIPPED: v3.66.1084 - v3.66.1089
+
+    1084  submit() raises QBError when the listing probe fails in a way httpx did not name
+    1085  a patch.dict(sys.modules) can no longer split the httpcore module identity
+    1086  three findings that lived only in prose become rows a test can read
+    1087  bd-jobs reports whether a job is DOING anything, not only that it exists (backlog 3)
+    1088  a type without __name__ no longer crashes the interpreter census
+    1089  the overnight sweep census, as rows a test can read (backlog 25, 27, 102, 103)
+
+Backlog: 3 closed; 95's remainder closed; 13, 25, 27 amended; 100, 101, 102, 103
+opened. 14 rows OPEN.
+
+#### THE THREAD: EVERY DEFECT WAS FOUND BY RUNNING SOMETHING, AND REVIEW FOUND NONE
+
+Six cuts, two of them real product defects, and not one was found by reading
+code:
+
+  * the CAPTURE found @1084 and @1085 -- one unit failure on test6 whose
+    traceback named `httpcore.ConnectError` where `httpx.ConnectError` belonged;
+  * the FULL SUITE found the undeclared dependency @1085 introduced, which the
+    33-file derived band could not see, because a conftest change has the blast
+    radius of the whole suite and a band is a floor;
+  * CI found that @1085's gate hardcoded `venv/bin/python`, which exists on the
+    box and in the container and NOT on a GitHub runner -- three environments,
+    not two;
+  * the OVERNIGHT SWEEP found @1088, a real crash in `perf_lab` that had been
+    wearing a flaky test's costume;
+  * TYPING THE COMMAND IN ONCE found that `bd-jobs run` mangles a single-quoted
+    command, in the first minute after @1087 gave it a log to say so with;
+  * the BACKLOG FORMAT GATE refused @1086 for putting an evidence marker in an
+    OPEN row's status cell.
+
+That is CLAUDE.md section 1's "audit beats recollection" landing six times in
+one session, and section 10's "run the check and paste the real output" being
+the only thing that ever worked.
+
+#### "A FLAKY TEST" NAMED THREE UNRELATED MECHANISMS, AND ONE WAS A PRODUCT BUG
+
+The sweep's whole value. Seventeen whole-suite samples at f154aef across two
+48-core hosts produced three failure populations that a naive quarantine would
+have treated identically:
+
+  * `test_perf_lab.py`, seven tests at once on BOTH hosts -- NOT flaky.
+    `_interpreter_stats` walks `gc.get_objects()` and asserted every object's
+    type has `__name__`; h11's sentinel metaclass refuses it. Section 0 exactly:
+    the denominator was right and the predicate was wrong. Fixed @1088.
+  * `test_t14_vpn_probe_egress::test_probe_no_tunnels`, 3 of 11 -- genuinely
+    schedule-dependent, and the only real quarantine candidate.
+  * `test_v3_66_729_body_contract_fixtures` -- an artefact of MEASURING TWICE.
+    Its probe rows accumulate across runs and the next probe reads them, so two
+    back-to-back suite runs are two different experiments. Reproduced
+    independently on test5 with only a COMMENT changed between the runs.
+
+Backlog 25 literally asks to "quarantine or annotate known-rotating tests".
+Doing that by NAME would have hidden the first and mislabelled the third.
+
+#### THE WEDGE, WHICH IS THE FINDING WITH THE LONGEST TAIL
+
+Two of six samples at `-n 48` ended with `[gwNN] node down: Not properly
+terminated` at `[ 99%]`, the master then writing nothing for 462s and 255s at a
+1-minute load average of 0.06, holding a zombie child it never reaped. Different
+workers each time. Eleven of eleven completed at `-n 16`.
+
+`capture.sh --workers=$(nproc)` IS `-n 48` on these boxes. The capture parallel
+lane runs a DESELECTED SUBSET, so its rate is unmeasured, and rows 102/103 say
+so rather than assuming. They also say explicitly NOT to lower `--workers` until
+that is measured: changing a gate's shape on a guess is how gates stop meaning
+anything.
+
+And the diagnostic was absent exactly where it was needed: the per-worker chain
+files are written at SESSION END, so the wedged run recorded SIX chains for
+FORTY-EIGHT workers and the dead worker's was not among them -- while the run's
+own footer told the reader to replay it with `bd-ladder --chain`. The
+incrementally-written pytest log was the only thing that survived, and its last
+line named the worker.
+
+#### PROCESS FAILURES OF MINE, RECORDED SO THEY ARE NOT REPEATED
+
+  * I KILLED MY OWN SSH SHELL with `awk '$2=="bash" && /sweep_runner.sh/'` --
+    the invoking shell's command line contains the script text, so the pattern
+    matched itself. Trap #1 in the previous session's handoff, hit within two
+    hours of reading it. The second time I needed to kill something I listed
+    the PIDs first, which is what stopped me destroying a legitimate run.
+  * MY SWEEP RUNNER OVERWROTE ITS OWN MARKERS on relaunch, because the filename
+    carries the worker count and commit but no run id -- backlog 5's exact
+    subject, reproduced in a tool written the same night by someone who had
+    read the row.
+  * MY FIRST REPRODUCTION OF @1085 DID NOT REPRODUCE, and the reason was the
+    finding: evicting httpx AND httpcore together is self-healing. Only a
+    surviving cache over evicted classes splits. Had I written the gate from
+    the theory instead of running both arms, it would have asserted a green
+    over an experiment that could not fail.
+  * I WROTE "~500k objects" IN A COST COMMENT I HAD NOT MEASURED, then measured
+    it (7857 in that probe) and corrected it before committing. Section 1's rule
+    is that a number needs its denominator in the same sentence; a plausible one
+    invented for a comment is the same defect at smaller scale.
+
 ### 15.92 | SESSION CLOSE 2026-08-13 at 203833e (v3.66.1080) -- nine cuts, and every one found its own defect
 
 Close at `203833e`, the squash of #365, already on `main` when this was written.
