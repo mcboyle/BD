@@ -197,6 +197,36 @@ ssh mboyle@<old-box-ip> 'echo OK from $(hostname) as $(whoami)'   # prove it
 The third line is not ceremony: `ssh-copy-id` exiting 0 means it wrote a file,
 not that key auth works.
 
+### The fleet's authorized_keys policy since backlog 13 closed (v3.66.1110)
+
+A fresh host must end up with exactly TWO keys, and `ssh-copy-id` alone will not
+produce them. Applied and verified on test4/test6/test7 on 2026-08-13:
+
+```
+ssh-ed25519 AAAA... mboyle-laptop                              # operator, unrestricted
+from="10.0.70.164",restrict,pty ssh-ed25519 AAAA... bd-agent-...   # agent, scoped
+```
+
+`from=` pins the agent identity to test5, `restrict` turns off port/agent/X11
+forwarding and the rest, and `pty` is added BACK because interactive persistent
+sessions are how the fleet is driven and `restrict` alone breaks them.
+
+**The broad `mboyle@test4` key is retired and must not be reinstated.** It was
+test5's own `id_ed25519` and it authorised unrestricted access to every box; the
+point of the row was removing it, not adding a second identity beside it. test5
+now offers only the agent key, via `IdentityFile` + `IdentitiesOnly yes` in
+`~/.ssh/config` -- which is UNTRACKED and does NOT survive a rebuild, so a
+rebuilt master needs that stanza written by hand or every fleet command falls
+back to an identity the hosts no longer accept.
+
+Each clause was verified in BOTH directions rather than asserted from the file:
+the agent key authenticates from test5 and is REFUSED when `from=` is pointed at
+an unroutable address; the retired key is refused on all three; a remote forward
+fails at setup and a local forward carries no traffic, while commands and pty
+still work. Test the negative with `-F /dev/null` -- a command-line `-i` ADDS to
+the config's `IdentityFile` rather than replacing it, so a "the old key still
+works" result is usually the config's agent key answering.
+
 Claude Code on the new host goes in AFTER `provision_test_host.sh`, which
 installs the node the CLI needs:
 

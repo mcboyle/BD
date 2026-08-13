@@ -4,6 +4,59 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1110 - backlog 13 closes: the agent key is scoped and the broad key is retired
+
+- DOC-ONLY IN THE TREE, but it records a live change to all three non-master
+  hosts. The identity half of backlog 13 shipped at v3.66.1107 and closed
+  nothing on its own; the row said so itself. This is the restriction half.
+- FINAL STATE, identical on test4/test6/test7: exactly TWO keys. `mboyle-laptop`
+  unrestricted for the operator, and the agent key carrying
+  `from="10.0.70.164",restrict,pty`. `pty` is added BACK deliberately --
+  `restrict` alone disables it, and interactive persistent sessions are how the
+  fleet is driven, so a bare `restrict` would have been a restriction that broke
+  the thing it protects.
+- THE BROAD KEY IS RETIRED. `mboyle@test4` was test5's own id_ed25519 and
+  authorised unrestricted access to every box. Removing it is what the row was
+  for; adding a second identity beside it would have closed nothing.
+- PROVEN IN BOTH DIRECTIONS RATHER THAN ASSERTED FROM THE FILE. The agent key
+  authenticates on a NEW connection with the control master bypassed. Pointing
+  `from=` at 192.0.2.1 makes sshd REFUSE that same key, and restoring it makes
+  it work again -- so the clause is ENFORCED, not merely present. A remote
+  forward fails at setup and a local forward carries no traffic, while commands
+  and pty still succeed. The retired key is refused on all three.
+- A METHOD TRAP COST A WRONG READING FIRST. A command-line `-i` ADDS to the
+  config's `IdentityFile` rather than replacing it, so the first negative test
+  reported "the broad key still works" when what actually answered was the agent
+  key the config offers. Test a refusal with `-F /dev/null`, or the result is
+  about a different key than the one you named.
+- ORDERING WAS LOAD-BEARING. test5's ~/.ssh/config was pointed at the agent key
+  with `IdentitiesOnly yes` BEFORE any key was removed, while both still worked,
+  so the wedge-hunt sweeps polling those hosts never lost a connection: 29
+  samples in flight across the cutover, zero interrupted. And `mboyle-laptop`
+  was ADDED to test7 first -- it was absent there, and removing the broad key
+  without it would have left the operator's laptop with no non-administrator
+  route to that box.
+- `administrator@bittorrent` and `administrator@BattleStation` were REMOVED from
+  test4 and test7 on explicit operator instruction, over a recommendation to
+  leave them in place. Fingerprints were recorded first, in
+  ~/bd-session-2026-08-13/row13_key_inventory_before.txt and in each host's
+  authorized_keys.pre-row13 backup, because nothing in the tree records who owns
+  them and an unidentifiable key is not a safe thing to delete unrecorded.
+- EVERY MUTATION WAS REVERSIBLE WHILE IT RAN: a timestamped backup, then an
+  auto-rollback ARMED BEFORE the write that restores it after 900s unless a
+  marker says the change was verified, cancelled only once a new connection
+  proved the box still answers. The executor asserts its invariants -- agent key
+  present exactly once WITH options, laptop key present, broad key gone, at
+  least two keys surviving -- before writing anything, so a failed check changes
+  nothing.
+- WHAT THIS DOES NOT CLOSE, stated because the row's own warning was about
+  partial versions: ~/.ssh/config on test5 is UNTRACKED and does not survive a
+  rebuild, so a rebuilt master falls back to an identity the hosts no longer
+  accept. That is now in docs/repo/FRESH_HOST_BRINGUP.md rather than fleet
+  folklore. And the operator's laptop key was verified PRESENT by fingerprint
+  and never TESTED, because its private half is not on this machine -- presence
+  is not reachability.
+
 ## v3.66.1109 - row 27: both mechanizations measured and refused, with the evidence
 
 - DOC-ONLY. Backlog row 27 asks for a mechanized check that a cut carrying a
