@@ -30,9 +30,18 @@ import time
 
 DIR_NAME = "bd-runctx"
 
+# ANCHORED AT IMPORT, ON PURPOSE. conftest points `tempfile.tempdir` at a
+# per-process root it removes when the session ends cleanly, so that every
+# `mkdtemp` in the suite is reclaimed. Resolving this path at CALL time would
+# put the run context inside that root and delete it with the rest -- and this
+# data exists precisely to outlive the run that produced it. conftest imports
+# this module before it redirects, so the value captured here is the real
+# system temp directory.
+_TMP_AT_IMPORT = pathlib.Path(tempfile.gettempdir())   # see tests/_tmproot.py
+
 
 def sink_dir():
-    return pathlib.Path(tempfile.gettempdir()) / DIR_NAME
+    return _TMP_AT_IMPORT / DIR_NAME
 
 
 def loadavg():

@@ -4,6 +4,69 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1080
+
+The suite reclaims what it allocates under /tmp (backlog 95).
+
+MEASURED on the fleet 2026-08-13: /tmp held 15392 entries on test5 and grew
+2373 in one capture round, on every host, forever. CLAUDE.md section 0 already
+states the rule -- creating a path is a promise to remove it, and nothing gates
+that promise -- and records this exact shape at 744 directories. It reached
+15000.
+
+THE ROOT, NOT THE CALL SITES, and the reason is a measurement. There are 579
+`mkdtemp` call sites in tests/ and 366 of them pass NO PREFIX, so their output
+is named `tmp*` and cannot be attributed to a test by name: 6793 entries, 38%
+of the total, invisible to any census working backwards from the directory.
+Editing call sites would have closed the attributable half and missed that one
+entirely. `mkdtemp` resolves its parent through `tempfile.tempdir`, so conftest
+points that at one per-process root and removes it at the end -- covering every
+call site, prefixed or not, and every one written later.
+
+MEASURED, both directions, full suite:
+
+    mechanism ON    /tmp grew   35    15771 passed, 0 failed
+    mechanism OFF   /tmp grew 1917    (the leak, unchanged)
+
+Two directories per capture become none, and the ~2373 a capture used to add
+becomes ~35.
+
+TWO GATES, because one cannot do both jobs. The portable one drives the
+mechanism directly and means the same thing on a box, in CI and in a container.
+The box-only one counts /tmp and SELF-SKIPS unless armed, because a count of
+/tmp is a fact about the machine rather than about the tree. Armed on test5 it
+currently FAILS, correctly: the pre-existing 18000-entry backlog predates this
+fix and is `bd-gc`'s to reclaim, and the failure message says which of the two
+it is rather than implying a new leaker.
+
+ARTIFACTS SURVIVE A FAILING RUN. Removal is skipped on a non-zero exit -- a
+debugging directory deleted on the one run that needed it is a worse defect
+than the leak this closes.
+
+THREE HARNESS DEFECTS FOUND ALONG THE WAY, all the shapes this file's own rules
+name:
+
+  * `_run_context` resolved its directory through `gettempdir()` at CALL time,
+    so the redirect swept the run context into the reclaimed root and deleted
+    data that exists precisely to outlive the run. Two meta-tests caught it.
+    It is now anchored at import.
+  * the first version of the gate ran pytest inside pytest with the probe file
+    OUTSIDE tests/, so conftest never loaded and both arms behaved identically,
+    while the assertions globbed the already-redirected temp directory. A test
+    that proved nothing in two ways at once. The mechanism moved to
+    tests/_tmproot.py so it can be DRIVEN rather than described.
+  * the driver copied os.environ, so an ambient KEEP_TEST_TMPDIRS would have
+    been inherited by the child and the test written for the enabled path would
+    have exercised the disabled one. Popped, per section 0.
+
+The opt-out is KEEP_TEST_TMPDIRS and the box gate's arming flag is
+FLEET_TMP_CHECK -- both unprefixed, because a BD_ name enters test_gui_parity's
+env ledger and reads as a promoted-but-unledgered config key.
+
+Row 95 closes PARTIAL by its own terms: the suite no longer leaks, but the
+accumulated backlog on the four hosts is untouched and is the operator's to
+reclaim with bd-gc.
+
 ## v3.66.1079
 
 capture.sh refuses a tree it cannot measure against (backlog 98).

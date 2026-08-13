@@ -120,8 +120,20 @@ def _canonicalize_package_children(package_name, modules=None):
 #     parameter; autouse fixtures using it raise UnboundLocalError.
 
 
+# ── leaked tmpdirs ───────────────────────────────────────────────────────────
+# The mechanism lives in tests/_tmproot.py so it can be DRIVEN by a test rather
+# than only described by one. See that module for the measurement and the
+# reasoning; this file just wires it in.
+import _tmproot
+
+
+def pytest_sessionfinish(session, exitstatus):
+    _tmproot.finish(exitstatus)
+
+
 def pytest_configure(config):
     """Register the bd_module_wipe marker so pytest doesn't warn."""
+    _tmproot.install()
     config.addinivalue_line(
         "markers",
         "bd_module_wipe: also drop all bulk_downloader.* modules from "

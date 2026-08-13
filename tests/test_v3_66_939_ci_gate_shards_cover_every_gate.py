@@ -117,6 +117,9 @@ _DECLARED = {
     "tests/test_v3_66_1064_provisioning_paths_do_not_diverge.py",
     "tests/test_v3_66_1067_the_leaker_census_reads_code_not_prose.py",
     "tests/test_v3_66_1068_modwatch_measures_per_file.py",
+    # @1080. The policy caught its own author one cut later: this file declares
+    # itself repo-wide and the union assertion refused it until it was wired in.
+    "tests/test_v3_66_1080_the_suite_reclaims_its_tmpdirs.py",
 }
 
 # ── the declaration policy, @1072 ────────────────────────────────────────────
