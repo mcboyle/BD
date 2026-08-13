@@ -532,6 +532,46 @@ def battery(repo, timeout, files_override, changed_from, logdir):
     else:
         rows.append((PASS, "changed-set", "%d file(s) from %s" % (len(changed), src)))
 
+    # -- scratch / unstaged under tests/ (backlog 35) -------------------------
+    # ONE PREDICATE FOR TWO FAILURES CLAUDE.md section 2a records separately,
+    # because they share a remedy. Most axis-6 gates enumerate `git ls-files`,
+    # so an UNTRACKED file is invisible to them:
+    #   * a stray scratch file contaminates a regen -- three RED files from other
+    #     cuts once inflated `test_files_scanned` by 3;
+    #   * a NEW file you mean to ship is not covered by its own pre-merge band,
+    #     and reads to other gates as absent. MEASURED 2026-08-13: that broke
+    #     three separate cuts in one session, each fixed by `git add` alone.
+    # STAGED FILES ARE EXCLUDED DELIBERATELY -- staging is the remedy, and a
+    # check that fired on it would punish the fix.
+    rc_u, out_u = git(repo, "ls-files", "--others", "--exclude-standard", "tests/")
+    if rc_u is None:
+        rows.append((UNKNOWN, "scratch-in-tests",
+                     "git could not enumerate untracked paths under tests/"))
+    else:
+        stray = [ln for ln in out_u.splitlines() if ln.strip()]
+        if stray:
+            rows.append((FAIL, "scratch-in-tests",
+                         "%d path(s) under tests/ are neither tracked nor staged -- "
+                         "delete them, or `git add` what you meant to ship "
+                         "(axis-6 gates enumerate git ls-files and cannot see them): %s"
+                         % (len(stray), ", ".join(stray[:4]))))
+        else:
+            rows.append((PASS, "scratch-in-tests",
+                         "0 of 0 untracked path(s) under tests/"))
+
+    # -- orphans (backlog 35) ------------------------------------------------
+    # An unregistered test run on the target is the class bd-jobs exists for, and
+    # section 7 records a deploy that failed because one was writing .pyc files
+    # while step 9 tried to clear them. Pre-commit is the cheapest moment to
+    # notice.
+    #
+    # NOT WIRED IN: services health, which row 35 also names. bd-doctor exits 1
+    # with RESULT: CRITICAL on this box for three MISSING OPERATOR WRAPPERS (bd,
+    # bd-install, bd-status) that have no bearing on whether a commit is safe --
+    # so a blocking check would refuse every cut here, and a gate that cries wolf
+    # gets switched off (section 0). Service health is a pre-CAPTURE predicate;
+    # capture.sh stops and starts the service itself.
+
     # -- the tool checks -----------------------------------------------------
     def add(name, argv, codes, parser, refusals=(), cap=None):
         if not py_ok:
@@ -558,6 +598,35 @@ def battery(repo, timeout, files_override, changed_from, logdir):
         refusals=[("import_graph_gate.py not found",
                    "the wrapped gate is absent -- exit 1 here is unrunnable, not a finding")])
     add("bd-freshcheck", [T("bd-freshcheck"), "--repo-only"], {0: PASS, 1: FAIL, 2: UNKNOWN}, p_freshcheck)
+
+    # -- orphans (backlog 35) ------------------------------------------------
+    # A LOCAL check rather than an add() one, because add()'s parser contract is
+    # (total, examined, unverifiable, unit) and maps the EXIT CODE to the state.
+    # `bd-jobs orphans` exits 0 whether or not it finds any -- it reports a
+    # COUNT -- so routing it through add() would grade "3 orphans running" as a
+    # pass. The question here is "did we read the process table", and the count
+    # decides the verdict.
+    if py_ok and os.path.isfile(T("bd-jobs")):
+        r_o = run_tool([py, T("bd-jobs"), "orphans"], repo, timeout,
+                       os.path.join(logdir, "orphans.log"))
+        logs.append(r_o["log"])
+        m_o = re.search(r"(\d+)\s+unregistered\s+pytest\s+process",
+                        strip_ansi(r_o["out"] or ""))
+        if r_o["launch_error"] or r_o["rc"] is None or m_o is None:
+            rows.append((UNKNOWN, "orphans",
+                         "could not read a count out of bd-jobs orphans -- "
+                         "the process table was not inspected, which is not the "
+                         "same as finding none"))
+        elif int(m_o.group(1)) > 0:
+            rows.append((FAIL, "orphans",
+                         "%s unregistered pytest process(es) on this host -- an "
+                         "untracked run writes .pyc files and holds paths a "
+                         "deploy will try to clear (section 7 records a deploy "
+                         "that failed exactly there)" % m_o.group(1)))
+        else:
+            rows.append((PASS, "orphans", "1 of 1 host process table(s): 0 unregistered"))
+    else:
+        rows.append((UNKNOWN, "orphans", "not run -- bd-jobs absent or interpreter unusable"))
 
     # -- band floor + band validation ---------------------------------------
     band = []
@@ -693,6 +762,10 @@ _E2E_GOOD = {
     "bd-freshcheck": 'print("  OK       doc file:line anchors")\nprint("  OK       register")\n',
     "bd-band-derive": 'print("bd-band tests/test_a.py")\n',
     "bd-bandcheck": 'print("  ok      tests/test_a.py")\n',
+    # Added with the orphans check at v3.66.1106. Without a stub here the
+    # all-good POSITIVE CONTROL goes UNKNOWN, and a positive control that cannot
+    # be green makes every RED case below it vacuous.
+    "bd-jobs": 'print("0 unregistered pytest process(es) on fixture-host")\n',
 }
 
 
@@ -809,8 +882,11 @@ def _e2e_all_good(interp):
                "log_exists=%s" % os.path.isfile(gl))
         yield "exit 0", rc == 0, "rc=%s" % rc
         yield "says READY", "VERDICT: READY" in out, ""
-        yield "14 PASS, 0 FAIL, 0 UNKNOWN of 14", \
-              "14 PASS, 0 FAIL, 0 UNKNOWN of 14 checks" in out, ""
+        # 16, not 14: scratch-in-tests and orphans joined at v3.66.1106
+        # (backlog 35). This count is a RATCHET on the battery's shape -- it
+        # went red the moment those checks landed, which is the point of it.
+        yield "16 PASS, 0 FAIL, 0 UNKNOWN of 16", \
+              "16 PASS, 0 FAIL, 0 UNKNOWN of 16 checks" in out, ""
         st, _ = _row(out, "tree-stable")
         yield "tree-stable PASS on a tree nobody touched", st == PASS, str(st)
     finally:
@@ -838,7 +914,11 @@ def _e2e_silent_zero(interp):
         yield ("bd-guardcheck row is UNKNOWN naming the REASON, not FAIL and not PASS",
                st == UNKNOWN and "could not read a denominator" in why, "%s %s" % (st, why))
         n = sum(1 for l in out.splitlines() if l.startswith(UNKNOWN))
-        yield "9 of the 14 rows are UNKNOWN", n == 9, "n=%d" % n
+        # 10 of 16 since v3.66.1106: the silent-tool fixture makes every TOOL
+        # check UNKNOWN, and orphans is a tool check. scratch-in-tests is local
+        # to git and stays PASS, which is the honest answer -- it does not
+        # depend on any tool being able to speak.
+        yield "10 of the 16 rows are UNKNOWN", n == 10, "n=%d" % n
     finally:
         _cleanup(root)
 
