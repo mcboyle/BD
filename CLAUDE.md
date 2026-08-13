@@ -28,12 +28,34 @@ The operator is standing up a fresh Linux VM alongside `test4` (v3.66.1024).
 So "there is no second box" is retired as of that cut — it was always about
 `stash` being a PuTTY session name, never a promise that one host was
 permanent, and the two readings are easy to conflate in exactly the direction
-that wastes a session. What survives unchanged is the reason it never mattered:
-nothing in any `.py` or `.sh` resolves, connects to, or branches on a hostname
-(re-derived at v3.66.1024 — the only hit for `gethostname|platform.node|uname
--n` in tracked sources is `live_tests/harness.py:251`, interpolated into a
-report string and never branched on). The deploy is still `git fetch` +
+that wastes a session. What survives is narrower than what used to be written
+here: **the DEPLOY PATH resolves no hostname.** It is still `git fetch` +
 `git reset --hard` run *on* whichever box you are on.
+
+**THE BROADER CLAIM THAT USED TO SIT HERE WAS FALSE, AND ITS DENOMINATOR IS THE
+LESSON.** It read "nothing in any `.py` or `.sh` resolves, connects to, or
+branches on a hostname", citing a v3.66.1024 re-derivation that found one hit,
+in a report string, never branched on. Re-measured at v3.66.1072 over **every
+tracked file** rather than two globs: five hit the pattern, and one of them
+BRANCHES on it — `toolchain/bin/bd-jobs` sets `here = socket.gethostname()` and
+selects local-versus-remote launch with
+`if args.host in (None, "", here, "local")`. `downloader_ui.py` has carried a
+`gethostname()` call since the initial import, so the sentence was already
+wrong when written.
+
+The glob is why. `bd-jobs` is one of the tracked, extensionless,
+python-shebang `toolchain/bin` scripts that section 1 warns about **in this
+same file** — a `*.py`/`*.sh` predicate cannot see any of them. So the
+first thing every session reads carried a false claim for 48 releases,
+produced by exactly the denominator failure documented 250 lines below it, and
+no gate could notice because both freshness gates ask whether a cited PATH
+resolves, never whether the sentence is true.
+
+It cost a real session: `bd-jobs run --host test6` was refused with "test6 has
+no bd-jobs — deploy it there first" while the file sat there, executable,
+because that hostname branch sent the launch remote and `test6` is a fleet
+LABEL with no DNS entry. **When you assert something about "tracked sources",
+enumerate `git ls-files` — not `*.py` and `*.sh`.**
 
 **So a reading is now about a HOST as well as a commit.** Section 2b already
 says a finding is about a commit and you must say which; with two boxes the
@@ -103,10 +125,16 @@ read this section, in order to fix an instance of it:
   denominator excluding `tests/`. Repaired, it then claimed to cover
   `toolchain/` -- where **231 of 2376** tracked Python
   files are extensionless `bd-*` scripts a `*.py` glob cannot see. Repaired
-  again, it still cannot read the 17 tracked shell scripts that embed Python
-  heredocs.
+  again, it still cannot read the tracked shell scripts that embed Python
+  heredocs (a handful; section 1 carries the measurement and the caveat --
+  this line asserted **17** for releases while section 1 retracted it 200
+  lines below, so a reader met the wrong number first).
 - `scripts/deploy.sh`'s BD_HOME warning was gated on BD_HOME being **exported**
-  while `capture.sh:55` DEFAULTS it, so it stayed silent in the common case.
+  while `capture.sh` DEFAULTS it a few lines further down, so it stayed silent
+  in the common case. (The anchor here read `:55` for releases after an
+  inserted block pushed the default to `:101` -- the class `bd-freshcheck`
+  cannot judge: the path resolves, the line is in range, the sentence is
+  false. Grep the literal `BD_HOME=` rather than trusting a line number.)
 - A residue report's own new field (`twins["blind_pages"]`) was declared and
   **never written**, so the JSON said no page went blind while the verdict
   beside it said `conclusive: false`.
@@ -232,7 +260,7 @@ Re-measured at v3.66.944:
 
 ```
 bd-freshcheck : _DOCS names CLAUDE.md and project-knowledge/SESSION_CARRY.md
-bd-doc-truth  : docs_scanned=78  (65 in project-knowledge + 13 root documents)
+bd-doc-truth  : docs_scanned=<it prints the count and the exclusion itself>
                 excluded=[CHANGELOG.md]   stale_count=0
 ```
 
@@ -278,32 +306,41 @@ been wrong. Every figure obtained by *running the tool* was right.
   of 12 because the predicate was `'playwright' in name`, which also matches
   `playwright_stealth` — a different distribution. **The instrument fixes the
   denominator; the predicate fixes the subject. Say which you used.**
-- **`git ls-files -- '*.py'` is NOT "the Python files in this repo."**
-  Re-measured at v3.66.943: **2145** files end in `.py`, and a further **231**
-  are tracked, python-shebang, extensionless `bd-*` scripts — **all of them
-  under `toolchain/`**, none anywhere else. Total **2376**. A `*.py` glob
-  reaches essentially none of the 231.
+- **`git ls-files -- '*.py'` is NOT "the Python files in this repo."** A large
+  population of tracked, python-shebang, extensionless scripts lives under
+  `toolchain/bin`, and a `*.py` glob reaches none of it. Measure both:
 
-  **THE PREDICTION IN THIS BULLET WAS HALF RIGHT, AND THE HALF THAT MISSED IS
-  THE LESSON.** The v3.66.933 revision said the retirement would leave "231 and
-  the total 2365". The 231 landed exactly. The total did not: it is 2376,
-  because `.py` grew 2141 -> 2145 while the retirement was pending. A figure
-  predicted from a subtraction goes stale the moment any OTHER term moves, and
-  nothing warns you — the sentence still reads as a measurement. **Re-derive
-  rather than quote, including a number this file told you to expect.**
-  Section 8 already says `toolchain/bin` is
-  its own population; this is what that costs you when the enumerator forgets.
+  ```bash
+  git ls-files -- '*.py' | wc -l
+  git ls-files | while read f; do head -1 "$f" | grep -q '^#!.*python' && echo "$f"; done
+  ```
+
+  **THE NUMBERS THAT USED TO SIT HERE ARE GONE ON PURPOSE, AND THE REASON IS
+  THIS BULLET'S OWN HISTORY.** It has carried a census three times — each
+  measured, each stated as fact, each stale within releases (`.py` grew under
+  every one of them), including a total this file PREDICTED from a subtraction
+  and got wrong because another term moved. A figure here cannot stay true and
+  nothing warns you: the sentence still reads as a measurement. Section 8 says
+  `toolchain/bin` is its own population; **type on the shebang, not the
+  extension, and state the denominator you used in the same sentence as the
+  count.**
+
+  This is not a small distinction. At v3.66.1072 a false claim in this file's
+  own front matter — "nothing branches on a hostname" — was produced by exactly
+  this glob, because the one file that DOES branch is extensionless.
   Type on the shebang as well as the extension, or state that the extensionless
   population is excluded.
 
   **The word "executable" was WRONG here for weeks, and the way it was wrong is
   the point.** This bullet used to say "tracked, **executable**, python-shebang"
-  — but only **232** of those carried mode `100755`; the other **224**, almost
-  all of `project-knowledge/`, are tracked `100644`. An auditor who filtered on
-  the exec bit — as the prose instructed — measured **1** file under
-  `project-knowledge/` and concluded the paragraph had rotted by 200x. It had
-  not. The predicate was over-specified, and *the prose was the thing that
-  over-specified it*. Three successive readings of this one bullet were wrong
+  — but a large minority of those files are tracked `100644`, not `100755`. An
+  auditor who filtered on the exec bit — as the prose instructed — measured
+  **1** file under `project-knowledge/` and concluded the paragraph had rotted
+  by 200x. It had not. The predicate was over-specified, and *the prose was the
+  thing that over-specified it*. (The mode split stated here was itself stale
+  when re-measured at v3.66.1072, in both terms and in its characterisation of
+  where the `100644` half lives — which is why it is now described rather than
+  counted.) Three successive readings of this one bullet were wrong
   during a single audit (ignoring `bd-*`; requiring `100755`; then reading the
   survivor count as drift), which is section 1's own lesson landing inside
   section 1's own worked example. **Filter on the shebang, not the mode.**
@@ -494,7 +531,9 @@ process. They are grouped by where they bite.
 - **Regen AFTER the last source edit, not before.** `bd-regen-order` was run,
   then one more line changed in `db.py`, and `FUNCTION_INDEX.md` shipped with
   pre-fix line numbers. CI's check is `bd-regen-order` followed by
-  `git status --porcelain` over the six generated artifacts, so it caught it —
+  `git status --porcelain` over the `generated=(...)` array in `ci.yml` -- read
+  the array, not a count; it grew to seven when `STATIC_KB_MANIFEST.json`
+  joined -- so it caught it —
   after the push. A generated file is only true for the tree that generated it,
   and nothing warns you: the file still exists and still looks plausible.
 - **Untracked files from OTHER cuts contaminate the regen.**
@@ -503,8 +542,9 @@ process. They are grouped by where they bite.
   `test_files_scanned` by 3. Move out-of-scope work OUT of `tests/` before
   regenerating, or the artifact describes a tree you are not shipping.
 
-**Gates that cannot see untracked files.** Five of the seven axis-6 gates
-enumerate `git ls-files`. A NEW test file is therefore invisible to them until
+**Gates that cannot see untracked files.** Most axis-6 gates enumerate
+`git ls-files` (section 4 carries the table; do not count from here -- a count
+in a section that does not carry the list can only rot, and this one did). A NEW test file is therefore invisible to them until
 it is staged, so **their pre-merge pass proves nothing about that file**.
 Measured: v3.66.839's test added a fixed-width source window, its band went
 green, and `test_source_windows_do_not_shift` went 115 -> 116 the moment the
@@ -919,20 +959,21 @@ these returned 76, 69 and 15 files on the same tree; the shapes are too varied
 than an over-broad one you read. Start over-broad and check each hit's SUBJECT:
 
 ```bash
-grep -rln "ls-files\|rglob\|--collect-only" tests/*.py | head -40
+grep -rln "ls-files\|rglob\|--collect-only" tests/*.py     # 82 hits; read them all
 ```
 
 Then keep only the ones whose enumerated path reaches `tests/` or the whole
 repo. **The membership question is not "does it walk the tree" — it is "does
-editing a TEST FILE change this gate's denominator".** Re-measured 2026-08-03
-at v3.66.842: **nine** qualify, plus one that no grep of `tests/` can reach
-(below). The v3.66.833 revision said **seven**, and it was not wrong when
-written — it went stale the same session it was written, because v3.66.841 and
-842 each ADDED a member. An earlier revision listed four and was inherited as
-complete through five cuts; the v3.66.825 revision was then wrong in **both**
-directions — one false "yes", one missed member. Three consecutive revisions of
-this table have now been wrong, which is section 0 applied to the table itself.
-Treat the list below as a starting point too, and re-derive it:
+editing a TEST FILE change this gate's denominator".**
+
+**COUNT THE `yes` ROWS OF THE TABLE BELOW; DO NOT TRUST A NUMBER IN THIS
+SENTENCE.** Four successive revisions stated a count here and every one was
+wrong within releases — usually because a later cut in the SAME session added a
+member, once wrong in both directions at once (a false "yes" and a missed
+member). The prose said **nine** while the table beneath it listed ten, so a
+reader who counted and a reader who quoted disagreed, and the file supplied
+both answers. That is section 0 applied to the table itself. Treat the list as
+a starting point and re-derive:
 
 | file | enumerates | moved by a new test file? |
 | --- | --- | --- |
@@ -946,9 +987,10 @@ Treat the list below as a starting point too, and re-derive it:
 | `test_generated_artifacts_are_not_tracked.py` | `git ls-files -z` (everything) | yes |
 | `test_history_columns_go_through_migrations.py` | `_tracked("*.py")` (`:49`, call `:59`) — bare `*.py` crosses directories | yes |
 | `test_v3_66_1034_guards_survive_a_module_wipe.py` | `git ls-files -- tests/*.py` for the leaker ratchet (added v3.66.1034) | yes |
+| `test_v3_66_939_ci_gate_shards_cover_every_gate.py` | `git ls-files -- tests/test*.py` for the `BD_GATE_SCOPE` policy (added v3.66.1072) | yes — **and it is the one that FAILS you**: a new test file must declare a scope or sit in the frozen baseline |
 | `test_gitignore_rules_actually_match.py` | `git ls-files` → `.gitignore` paths only (`_gitignore_files`, `:60-67`) | **NO — `.gitignore` only** |
 | `test_v3_66_820_share_tools_saw_no_session_keys.py` | `git ls-files` → text extensions (`:451-456`) | **NO — `.py` not in the set** |
-| `test_playwright_engines_single_source.py` | `git ls-files -z '*.sh'` (48 files) | **NO — `.sh` only** |
+| `test_playwright_engines_single_source.py` | `git ls-files -z '*.sh'` | **NO — `.sh` only** |
 
 The NO rows are the distinction worth keeping. Each runs a genuine repo-wide
 enumerator and then filters to a set a new `.py` test file cannot enter, so
@@ -988,8 +1030,9 @@ worker, which depends on the worker count, the file count and the machine.
 So the failure set is a property of the **schedule**, not of the tree, and three
 reflexes are wrong here. A green band does not mean fixed. A red band does not
 mean this cut broke it. And a comparison across two hosts says nothing unless
-their core counts match — the fleet's do not (86/44/64), which is why the
-`.164` vs `.249` difference above could not settle anything. Compare a
+their core counts match. Do not write a core count here -- `bd-fleet` reports
+them, and the fleet was rebuilt to one spec on 2026-08-12, retiring the spread
+this sentence used to name. Compare a
 distribution against the same worker count on the same box, and use `bd-ab`,
 which refuses a single sample for this reason. `tests/_run_context.py` now
 records the worker count and load beside every result so the comparison is
@@ -1058,7 +1101,7 @@ possible at all.
 
   A targeted sweep found no hang either: **79** files carrying hang-prone
   shapes (`while True`; `.join()`/`.wait()`/`.acquire()` with no timeout;
-  `subprocess` with no `timeout=`; unbounded HTTP), 6% of 1270 tracked test
+  `subprocess` with no `timeout=`; unbounded HTTP), 6% of the tracked test
   files, each run under a hard cap. 69 real test files all completed, 9 were
   helper modules collecting nothing, and the single timeout was **the bound,
   not a defect** — `test_fuzz_harness_frontend.py` legitimately takes 75s
@@ -1168,65 +1211,18 @@ possible at all.
   `.venv` here — a command naming it exits 127 and the caller silently falls
   back to 3.11. That happened: a full test band was measured on 3.11 and
   reported seven failures that did not exist.
-- **The Claude Code panel runs a thin bootstrap, not the provisioner.**
-  `scripts/cloud-bootstrap.sh` is the text pasted into the panel; it locates the
-  checkout and `exec`s `scripts/cloud-setup.sh` from it, so every fix to the
-  provisioner reaches the next session with nothing to re-paste. Before this,
-  the panel held a private copy that had forked three commits and 91 lines while
-  13 tests certified the repo copy that never executed. If the env report's step
-  labels do not match `scripts/cloud-setup.sh`, the panel has forked again.
+- **AGENT DEPTH IS NOT FREE, AND MORE AGENTS IS OFTEN SLOWER.** Measured at
+  v3.66.926: eleven agents were SLOWER at a register re-derivation than doing
+  it inline, 3 items against 12, because most of the work was one grep or one
+  tool invocation apiece. Concurrency is capped at `min(16, nproc - 2)` per
+  workflow, so a deeper tier only lengthens the queue behind the same gate, and
+  every additional tier is another writer in a shared tree you did not start
+  (section 2b). Spawn breadth for genuinely independent work; spawn depth
+  almost never.
 
-  The bootstrap is pinned at **under 80 lines** by
-  `test_bootstrap_stays_short`, and it sits at 79. That is not slack to spend:
-  every line added there is a line that leaves the repo's sight. **Put new
-  provisioning logic in `scripts/cloud-setup.sh`, never in the panel text.**
-
-  The panel's **environment box** carries the session settings. These are not
-  in any file, so they are the one thing a fresh session cannot re-derive —
-  set them there:
-
-  ```
-  BD_HOME=/tmp/bd_home
-  BD_REPO=/home/user/BD
-  BD_SKIP_ARCHB=1
-  BD_SKIP_BROWSERS=1
-  BD_DISABLE_KEEPALIVE=1
-  CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2
-  ```
-
-  `BD_REPO` is the first probe rung, so setting it makes checkout location
-  deterministic instead of relying on the glob. `BD_HOME` keeps app state out
-  of the repo. The two `BD_SKIP_*` flags drop kasmvnc and the browser download
-  — browsers are preinstalled at `PLAYWRIGHT_BROWSERS_PATH`, and the
-  provisioner says which of "skipped but present" and "skipped and absent" is
-  true rather than assuming the worst. `BD_DISABLE_KEEPALIVE` stops background
-  threads outliving a test run.
-
-  **THE BOX IS A CURATED SUBSET, NOT THE FULL SET.** Measured at v3.66.927:
-  `scripts/cloud-setup.sh` reads **nine** `BD_*` variables and the box above
-  names four of them. The five it does not name are all optional skips with
-  working defaults — `BD_SKIP_AUDIT`, `BD_SKIP_CLOAK`, `BD_SKIP_EXTRAS`,
-  `BD_SKIP_NET`, `BD_SKIP_SECTOOLS` — so they belong in the provisioner's own
-  documentation, not in a box you paste once. They are named here so a future
-  session knows the knobs exist rather than re-deriving them from the script.
-  Note also that `BD_DISABLE_KEEPALIVE` runs the other way: it is IN the box and
-  the provisioner never reads it, because its consumers are the app and the test
-  suite. Neither direction is a defect; both look like one until you check.
-
-  `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2` caps how deep agents may spawn
-  agents. Two is deliberate: the top-level session orchestrates, its agents do
-  work, and nothing below that spawns further. Depth buys little here and costs
-  a lot -- this container has **4 cores**, so the workflow concurrency cap is
-  `min(16, nproc - 2)` = **2**, and a third tier only lengthens the queue behind
-  that same 2-wide gate. Measured at v3.66.926: eleven agents were SLOWER at a
-  register re-derivation than doing it inline, 3 items against 12, because most
-  of the work was one grep or one tool invocation apiece. Depth also multiplies
-  the residue problem in section 2b -- every additional tier is another writer
-  in a shared tree you did not start.
-
-  Note what these do **not** buy: `BD_HOME` does not protect
-  `~/.config/bulk-downloader`, which resolves from `$HOME`, not `BD_HOME`.
-  That is `tests/conftest.py`'s path-keyed store guard's job.
+- **`BD_HOME` does not protect `~/.config/bulk-downloader`**, which resolves
+  from `$HOME`, not `BD_HOME`. That is `tests/conftest.py`'s path-keyed store
+  guard's job.
 
   **`BD_HOME` does not govern the database either — `BD_INSTALL_DIR` does.**
   `db._resolve_db_path()` resolves at call time in this order: an absolute
@@ -1364,307 +1360,29 @@ possible at all.
   the only reason it was caught is that a register re-derivation ran the tool
   instead of quoting the note. Re-derive before citing, including from here.
 
-- **WHY the container "rolls back": the panel snapshots the filesystem, and the
-  setup script runs once per CACHE BUILD -- not per session.** Stated by the
-  operator 2026-08-05 and corroborated here. Anthropic runs the panel's setup
-  script the first time a session starts in an environment, snapshots the
-  filesystem, and every later session starts from that snapshot with the script
-  SKIPPED. It re-runs only when the setup script changes, when the allowed
-  network hosts change, or when the cache expires at roughly **7 days**.
-  **Editing the environment-variables box does NOT trigger a rebuild**, and
-  resuming a session never does.
+- **IN A SHALLOW CLONE, ONLY `--is-ancestor` EXIT 0 IS TRUSTWORTHY.** A 0 means
+  a connected path was found, which a shallow boundary cannot fabricate. Every
+  nonzero is UNKNOWN until the clone is deepened: **1 means "not in this
+  history", 128 means "I cannot see it"**, and conflating them is a gate firing
+  on its own blindness with a confident, specific, wrong claim. `bd-freshcheck`
+  hit exactly that -- it reported a register section STALE, naming a commit the
+  branch genuinely contained.
 
-  **The rebuild appears to be LAZY -- fired by the first NEW session start, not
-  by the edit** (2026-08-05, the discriminator session, v3.66.882 at `5eb43d6`).
-  Split the evidence, because only half of this is a reading: **MEASURED** is that
-  this session WAS a cache build, from the timestamps below. **DERIVED** is the
-  laziness itself — nothing was observed at or after the operator's 19:43Z edit,
-  so an eager rebuild that began at 19:43 in a container this session never saw
-  would produce identical readings here. Best explanation, not a measurement.
-  The readings:
+  **Never repair a 128 with a by-sha fetch -- not because it fails, but because
+  it SUCCEEDS INTO A WRONG ANSWER.** `git fetch --depth=1 origin <full sha>`
+  delivers the object without the connecting history, so `--is-ancestor` then
+  returns 1: a detectable blindness converted into an undetectable false
+  negative. Deepen instead, and do not hand-pick the depth -- `bd-freshcheck`
+  carries a measured `_DEEPEN` constant for this and re-asks the question
+  itself. (A short sha cannot even be used as an existence probe: git reads it
+  as a REF NAME and answers `couldn't find remote ref`, and every close section
+  names short shas.)
 
-  | reading | value |
-  | --- | --- |
-  | container boot | ~`20:07Z` (uptime 6 min when read at 20:13:08Z) |
-  | `cloud-setup.sh` start (report header) | `2026-08-05T20:07:23Z` |
-  | report `generated_against_commit` | `5eb43d6` -- equal to HEAD |
-  | `venv/bin/python` mtime | `20:07:28` |
-  | `frontend/dist/index.html` mtime | `20:08:38` |
-  | report finalized (file mtime) | `20:12:24` |
-  | reflog OLDEST | `2026-08-05 20:07:19` |
-  | HEAD / behind `origin/main` | `5eb43d6` / **0** |
-  | hook blocks at session start | **none** (as predicted) |
-  | `bd-restart-check` | `OK`, hook ran `20:12:41Z`, `source=startup` |
-
-  **The discriminator could not discriminate, and the reason is section 0.** The
-  protocol's two branches were "reflog-oldest ~= the rebuild time" (snapshot
-  carries `.git`) versus "reflog-oldest ~= this session's own start" (fresh clone
-  per session). Because the rebuild fires AT a session start, those are **the
-  same number** -- 24 minutes apart in the design, zero apart in fact. A
-  cache-BUILD session has a freshly provisioned repo under *either* model, so its
-  denominator structurally excludes the subject. Do not re-run the protocol on a
-  rebuild session expecting an answer.
-
-  **So the model stands on the 2026-07-28 reading, which is the only kind that
-  can settle it:** `.claude-env-report.md` was written `2026-07-28T18:42:15Z` at
-  `cee4be70` (v3.66.818), and a session running **eight days later** read the
-  reflog's OLDEST entry as `2026-07-28 18:42:12` -- the build minute, not its
-  own start. A fresh clone per session would contradict that (its reflog would
-  start that day). Snapshot-carries-`.git` is therefore the model, on **one**
-  cached-session reading. That is the whole mechanism: the "rollback to an old
-  commit" is the snapshot's HEAD, and the "venv losing packages" is a venv built
-  before those packages were declared.
-
-  **The confirming reading needs no freeze, and it is FOUR observables — read
-  the branch one first.** This session baked a snapshot whose reflog begins
-  `2026-08-05 20:07:19`, on a branch it created. Any session that starts WITHOUT
-  a setup-script change is a cached session, so:
-
-  ```bash
-  git branch                                  # a FOREIGN claude/* branch present?
-  git reflog --date=iso | tail -1             # vs. your own session start time
-  git rev-list --count HEAD..origin/main      # behind?
-  # and: which hook block appeared at session start
-  ```
-
-  | observable | snapshot carries `.git` | fresh clone per session |
-  | --- | --- | --- |
-  | `git branch` | lists **`claude/bulkdownloader-discriminator-das7sy`** — a branch this session never created | only `main` + its own |
-  | reflog OLDEST | `2026-08-05 20:07:19` | ~= own session start |
-  | behind `origin/main` | **>= 1** | **0** |
-  | hook block | `*** STALE BASE ***` | none |
-
-  **Read the foreign branch first**: a timestamp invites arithmetic, a branch
-  named after someone else's session cannot be misread. Four agreeing
-  observables beat one, and three of them are free. Record whichever set you
-  get — `project-knowledge/SESSION_CARRY.md` 15.33 carries the full reading
-  guide and the decision it feeds.
-
-  Four consequences, and the third is the one that bites:
-
-  1. **The @879 SessionStart repair is LOAD-BEARING, not belt-and-braces.** On a
-     normal cached session it is the only thing that reconverges anything.
-  2. A stale snapshot is the first suspect for any environment symptom. To
-     distinguish it: record the version at startup, force a rebuild by touching
-     the **panel's** setup script (a comment change suffices), and compare.
-  3. **Anything you install by hand lives only until the session ends.** It is
-     not in the snapshot, so the next session starts without it. Installing a
-     package to fix a symptom fixes this session and nothing after it -- put it
-     in `scripts/cloud-setup.sh` and force a cache rebuild instead.
-  4. **It RECURS on every cache cycle, and the dangerous state is the one the
-     hook correctly refuses to repair.** A rebuild resets content to today and
-     then re-bakes it, so ~7 days on, sessions go stale again. The repairable
-     case (main, clean, behind) is handled. The one that destroys work is not
-     repairable: an agent branches from a snapshot-era commit, commits, and
-     opens a PR — GitHub diffs it against current main, so **every commit merged
-     since the snapshot appears as a REMOVAL and the PR silently reverts a
-     week's work**. @881 makes the hook emit a distinct `*** STALE BASE ***`
-     block naming the commit count and that consequence whenever HEAD is behind
-     and the checkout is not on `main`.
-
-     **On a cloud cached session, expect this block ONCE PER SESSION — and what
-     must stay routine is the rebase RESPONSE, not the ignoring.** Measured at
-     v3.66.883: the platform's session lifecycle is clone -> `main` ->
-     `claude/<session>`, so a session is **never on `main`** by the time the
-     hook runs, while the repair predicate requires
-     `[ "$branch" = "main" ]` (`.claude/hooks/session-start.sh:169`). The
-     REPAIRED path is therefore structurally unreachable **at a
-     platform-created session start**, and STALE BASE is the only outcome
-     available whenever HEAD is behind. **On a RESUME the branch is wherever the
-     session parked it**, so REPAIRED *is* reachable on a later resume of a
-     session that checked out `main` by hand — the unreachability is a property
-     of how sessions START, not of the hook. Re-base
-     before doing anything. Do not let its frequency train you to skip it: the
-     consequence it names — a PR that silently reverts every commit merged since
-     the snapshot — does not get smaller because the warning got familiar.
-     (Whether it truly fires every cached session depends on the snapshot model,
-     which SESSION_CARRY 15.33 leaves as a four-observable reading; the carve-out
-     that would fix it is named there and deliberately not built.)
-     A `*** REPAIR FAILED ***` block means the opposite half: the auto-repair on
-     `main` did **not** happen, so you are on the snapshot base with the
-     environment **not** reconverged. Resolve the collision git names in the
-     block — usually an untracked file at a path `origin/main` now tracks — then
-     repair by hand with `git merge --ff-only origin/main && bash
-     scripts/cloud-setup.sh`.
-
-  **THE CONFIRMING READING IS STILL UNOBTAINED, and the reason is worth more
-  than the reading would have been. STEP 0 IS NOT OPTIONAL.** v3.66.884 was
-  started to take it and could not: it was itself a cache BUILD, so its
-  denominator excludes the subject for exactly the reason 15.33 gives. The
-  readings, all direct: container boot ~`21:49:11Z` (uptime 274s at
-  `21:53:45Z`); `cloud-setup.sh` header `2026-08-05T21:49:21Z` -- **ten seconds
-  after boot**; report `generated_against_commit=f863c49` = HEAD; reflog three
-  entries, oldest `21:49:18` and messageless; `git branch` = `main` + its own;
-  `behind origin/main` = 0 after a fetch that exited 0; no hook block.
-
-  **Every one of those four observables read FRESH-CLONE, and every one was
-  void.** A build session manufactures the fresh-clone column under either
-  model -- so the table is not merely uninformative there, it is actively
-  MISLEADING, and an agent that runs the four readings without doing step 0
-  first will conclude "fresh clone per session" with four agreeing signals and
-  be wrong. Decide build-vs-cached FIRST, from `generated_at` against boot
-  time; only then is the table meaningful.
-
-  **A SECOND FACT THE ~7-DAY MODEL DOES NOT EXPLAIN: two cache builds occurred
-  1h42m apart on 2026-08-05** -- `20:07:23Z` (recorded at v3.66.883) and
-  `21:49:21Z` (here). Expiry cannot produce that. Neither can a repo commit:
-  the panel hashes the pasted bootstrap TEXT, and `scripts/cloud-bootstrap.sh`
-  carries a deliberate `[cache-rebuild: <date> <version>]` marker on line 2
-  (added by PR #185) whose entire purpose is to force a rebuild when re-pasted.
-  A re-paste between the two sessions would explain it exactly, and **from
-  inside the container that is not observable** -- the panel's text cannot be
-  read from here. Recorded as an open question, not as a trigger theory. What
-  it costs you in practice: **do not plan a session around being cached.**
-  `CLAUDE_CODE_CONTAINER_ID` is in the environment and is the cheapest way for
-  a later session to tell whether it shares a container with an earlier one.
-
-- **The container's clone is SHALLOW, and a nonzero `--is-ancestor` here does
-  not mean what it says.** Measured 2026-08-05 in this container: `.git/shallow`
-  exists, `git rev-list --count HEAD` returns **50**, and the graft is
-  `75e9024` (2026-08-03). A commit older than the graft is not in this
-  repository at all -- `cee4be70`, a genuine ancestor of `main` and the commit
-  cited in the cache bullet above, is `fatal: Not a valid object name`, and
-  `git merge-base --is-ancestor` on it exits **128**, not 1.
-
-  The two exit codes mean opposite things: **1 is "it is not in this history",
-  128 is "I cannot see it."** Conflating them is section 0's inverse defect -- a
-  gate firing on its own blindness, and doing so with a confident, specific,
-  wrong claim. `bd-freshcheck`'s register-close-tip check tested every nonzero
-  alike -- the `rc2 != 0` branch of its close-tip `merge-base --is-ancestor`
-  check. (Named by mechanism, not by `file:line`: the file is extensionless, so
-  the anchor gate's own regex cannot see such an anchor and could never catch it
-  going stale -- and the line DID move once already while this cut was written.)
-
-  **REPAIRED at v3.66.884; the rules below are what survive the repair.** The
-  reading that follows is the PRE-fix state, kept because it is the evidence.
-
-  **DEMONSTRATED, not inferred from reading the code.** In a throwaway
-  `git clone --depth 1` of this repo, `bd-freshcheck --repo-only` returned:
-
-  ```
-  exit=1
-    STALE  register close tip
-           15.30 says 'close at 5e87c68', which is NOT an ancestor of HEAD
-           (5eb43d67c3e6) -- it names a commit this branch does not contain
-  ```
-
-  The register section is innocent and the sentence is false. Our own container
-  passed only because 15.30's `5e87c68` sits 6 commits back, inside a 50-deep
-  window; at ~12 cuts a session that window is a few days deep. The code comment
-  directly above that line reasons carefully about over-sensitivity and does not
-  consider that the instrument itself could be blind.
-
-  **THE OBVIOUS REPAIR MAKES IT WORSE, AND THAT IS THE FINDING.** The reflex is
-  "fetch the missing object, then re-ask". Measured on one `--depth 1` clone, in
-  sequence: `git fetch --depth=1 origin <full sha>` **succeeds** (exit 0 -- GitHub
-  does serve SHA-in-want for a reachable commit through this proxy), the object
-  arrives, and `merge-base --is-ancestor` then returns **1**. Not 0, and no
-  longer 128. The commit genuinely IS an ancestor -- ground truth is exit 0 in a
-  deepened clone -- so fetching by sha delivers the object *without the
-  connecting history* and converts a **detectable** blindness into an
-  **undetectable false negative**. `git fetch --deepen=200 origin main` on the
-  same clone then yields the correct 0.
-
-  So: **never repair a 128 with a by-sha fetch -- not because it fails, but
-  because it succeeds into a wrong answer.** Use `--deepen`, which needs no sha
-  in hand and depends on no server capability.
-
-  **AND A BY-SHA FETCH CANNOT EVEN BE USED AS AN EXISTENCE PROBE ON THIS
-  REGISTER'S DATA.** Measured 2026-08-05 while building the fix, on a `--depth
-  1` clone: `git fetch --depth=1 origin 5e87c68` exits **128, `couldn't find
-  remote ref`** -- for the same commit whose FULL 40-char form fetches
-  successfully seconds earlier. Git reads a short sha as a REF NAME, not a sha.
-  The close sections all name short shas, so a design that concludes "the fetch
-  failed, therefore the commit does not exist, therefore STALE" reproduces the
-  false accusation it was written to remove. This killed the last step of the
-  spec that had already been revised twice (SESSION_CARRY 15.33): the shipped
-  fix carries the whole repair on `--deepen` and admits UNKNOWN rather than
-  probing. **A sound-looking probe applied to the wrong sha FORMAT is still a
-  gate that cannot see its subject.**
-
-  **The general rule, and it is the one to carry away: in a shallow clone only
-  `--is-ancestor` exit 0 is trustworthy.** A 0 means a connected path was found,
-  which the shallow boundary cannot fake. Any nonzero -- 1 and 128 alike -- is
-  UNKNOWN until the clone is no longer shallow, because a bounded deepen can
-  leave an object present and its ancestry still uncomputable. Keying the verdict
-  on whether the OBJECT is present is the trap: the false-1 state is exactly the
-  one where it is. A fix built the obvious way would
-  have reproduced the exact defect class it was written to remove, which is this
-  file's section 0 landing inside the repair for an instance of section 0. (The
-  first version of this measurement was itself wrong -- it tested a *fabricated*
-  sha, where `not our ref` is guaranteed regardless of server policy, and
-  concluded by-sha was refused. Corrected on re-measurement against the real
-  commit. Recorded because a wrong measurement stated confidently is the thing
-  section 1 exists to catch.)
-
-  **WHAT THE v3.66.884 FIX DOES, and the one property to know before editing
-  it.** A nonzero now resolves three ways instead of one: on a complete history
-  it is authoritative and stays STALE; on a shallow one the clone is DEEPENED
-  and the question re-asked, where exit 0 is the answer a boundary cannot
-  fabricate; still shallow, or a deepen that failed, is UNKNOWN. Re-measured in
-  a fresh `--depth 1` clone with the fixed tool: **exit 0**, and the verdict is
-  the same sentence a full clone prints. The property that matters is that
-  **nothing runs on the happy path** -- the first `is-ancestor` short-circuits,
-  so the box and CI's `gates` job do no network and do not touch `.git`.
-  Measured on this container across a full `--repo-only` run: depth stayed 50
-  and `.git/shallow` survived. On the repair path it does deepen (the scratch
-  clone went 1 -> 360 and un-shallowed), which is a real side effect: a gate
-  that was read-only in every environment is now read-only in every environment
-  it passes cleanly in.
-
-  **CI is protected, and its comment was misstated in BOTH eras -- corrected at
-  v3.66.884 on operator sign-off.** `.github/workflows/ci.yml` sets
-  `fetch-depth: 0` on the `gates` job, so none of this is armed there. Its
-  comment explained why by saying that under a depth-1 checkout the check
-  "returns UNKNOWN (exit 2), failing for an environmental reason rather than a
-  real one." That was wrong BEFORE the fix -- measured, it returned STALE
-  (exit 1), which is fail-WRONG rather than fail-safe -- and it would have been
-  wrong AFTER it too, since a depth-1 clone with a reachable remote now deepens
-  and returns OK. Neither behaviour it described has ever existed, and it is
-  the stated reason the depth is load-bearing, so a future editor removing
-  gitleaks' need for full history would have reasoned straight from it.
-
-  The comment now records what the depth actually buys: not a correct answer --
-  the tool gets that either way -- but the avoidance of a step that reaches the
-  NETWORK and DEEPENS the checkout in order to answer. **Unmeasured, and the
-  comment says so:** whether that fetch can reach the remote from inside GitHub
-  Actions. The OK is from this container, not from CI, and nothing here should
-  be read as evidence about the Actions runner's egress.
-
-  **MEASURED on the box 2026-08-08 (was "unverified"): `test4`'s clone is NOT
-  shallow.** `test -e .git/shallow` is false there, so a nonzero
-  `--is-ancestor` on the box is authoritative and needs none of the deepen
-  machinery above. The shallow reading remains true of the **cloud container**
-  and of scratch clones, which is where the whole repair path applies — do not
-  collapse the two. Worth knowing why it mattered: item 21 was settled on an
-  `exit=1` from the box, and that exit is only trustworthy because this line is
-  now a measurement rather than an unknown.
-
-- **The container rolls back to an old base image, and @879 changed what that
-  costs you.** Five things revert together: the checkout, venv package
-  *versions*, `frontend/dist`, `__pycache__`, and `.claude-env-report.md`. Until
-  @879 the hook decided whether to provision by asking whether requirement
-  *names* resolved — a denominator containing one of the five — so it repaired
-  the tree and left the environment on the reverted image. The signature is the
-  trigger now: a repaired rollback hands over to `scripts/cloud-setup.sh` on
-  startup/resume, and on compact/clear says `ENVIRONMENT NOT RECONVERGED` rather
-  than stalling a running session.
-
-  Two consequences to know before you debug it. The repair fires **only on
-  `main`** — a clean topic branch or detached HEAD parked at an ancestor is
-  byte-lossless to reset and is still refused, because §2b tells you to
-  `git checkout --detach FETCH_HEAD` before measuring and resetting that
-  destroys the position you chose. And a **failed fetch is now reported**: an
-  image reversion rewinds `refs/remotes/origin/main` together with HEAD, so
-  without a successful fetch both sides of the comparison are equally stale and
-  a real rollback is indistinguishable from a healthy tree.
-
-- **`.claude-env-report.md` is STALE after every cut, by design — do not chase
-  it.** `bd-env-report-check` treats the VERSION as decisive and `__version__`
-  bumps on every merge, so exit 1 is the steady state rather than a signal.
-  Wiring it to trigger reprovisioning would be a gate firing on identity, not
-  content (§0's inverse defect). Section 7's advice to check its header still
-  holds; what changed is that a STALE verdict alone tells you nothing.
+  Nothing runs on the happy path -- the first `is-ancestor` short-circuits, so
+  a clean tree does no network and does not touch `.git`. CI carries
+  `fetch-depth: 0` on the gate jobs, which is why none of this arms there. The
+  boxes are not shallow (`test5`: no `.git/shallow`), so a nonzero on a box is
+  authoritative; the machinery is for scratch clones.
 
 - **`requirements-dev.txt` does not resolve in a cloud container, deliberately.**
   It carries the packaging chain (`pyinstaller`, `nuitka`, `zstandard`), which is
@@ -1897,11 +1615,13 @@ tarballs), bisecting a regression, and reviewing a cut before it ships.
 **Changed — the deploy path is now git.** The box updates with
 `git fetch origin main` + `git reset --hard origin/main` + a service restart.
 There is no zip overlay and no zip fallback. Deletions therefore propagate
-natively, and the orphan class that `tools/deploy_manifest.py` and
-`bd-deploy-manifest` exist to detect can no longer occur. Two consequences are
+natively, and the orphan class that the retired `deploy_manifest` tooling
+existed to detect can no longer occur. **Both paths are GONE** --
+`tests/test_deploy_manifest_stays_retired.py` enforces their absence, so do not
+go looking for them and do not re-add one. Two consequences are
 **not** improvements: `git reset --hard` has no equivalent of `unzip -x`, so it
 discards operator live-edits that the overlay was configured to preserve (see
-`GATE_AUTHORITY.md` section C); and it moves files without making the running
+`project-knowledge/GATE_AUTHORITY.md` section C); and it moves files without making the running
 system match them, which is the first item below.
 
 **Unchanged — do not assume git fixed these:**
@@ -1992,8 +1712,9 @@ system match them, which is the first item below.
   35. The lane split is why: `capture.sh` runs a serial lane and a
   deselected parallel lane, which do not reproduce the co-batching that a
   whole-suite run produces. So a green capture is not evidence about that
-  defect class **in either direction**, and item 48 was invisible to the box
-  gate for as long as it has existed. When the question is cross-test
+  defect class **in either direction**. Item 48 was invisible to the box gate
+  for its whole life and was closed at v3.66.1069 by fixing the one real
+  leaker; cite it as the SHAPE, not as a live defect. When the question is cross-test
   interference, the instrument is a full `pytest tests/` under matched load,
   not a capture.
 - **GitHub CI green is not YOUR CUT'S test evidence -- but it is no longer "no
@@ -2085,7 +1806,7 @@ system match them, which is the first item below.
   module's own suites, so a cut can still be green there while its battery is
   red -- measured at v3.66.847, both checks passed on a commit carrying **14
   deliberately failing tests**, and that remains possible for any failure
-  outside the 15. The derived band is that evidence, and the box is still the
+  outside `_DECLARED`. The derived band is that evidence, and the box is still the
   gate. What CI does catch is real: a stale generated artifact, an unbumped
   pin, a new import edge, a shifted source window -- exactly what a cut
   forgets, which is why `bd-regen-order` must run after the LAST source edit.
@@ -2102,12 +1823,14 @@ system match them, which is the first item below.
   section 0's denominator rule applied to a shell one-liner: the field you
   indexed was not the field you meant.
 
-  **Its own budget is breached and the decision is open.** The step's comment
-  says "Measured 2026-08-03: 81 tests, 52s. Keep it under a minute; if it grows
-  past that, split rather than silently dropping files." It is now 161 tests
-  and 140s -- double the tests, and well past the minute. Recorded in
-  SESSION_CARRY as an open decision (split the job vs. raise the budget)
-  because changing a CI job is a build change and needs the operator.
+  **The one-minute budget and its remedy.** The step's comment set the rule on
+  2026-08-03: "81 tests, 52s. Keep it under a minute; if it grows past that,
+  SPLIT rather than silently dropping files." It grew, and **the split
+  shipped** at v3.66.939 -- `ci.yml` records that the operator chose it. So the
+  standing instruction when a shard runs long is: split it, or ask. **Never
+  trim a shard's list to make it fast** -- every entry is a gate that was RED
+  somewhere nothing else could see, and a truncated list reads as coverage it
+  does not have.
 
 **The post-deploy checklist, and the step that keeps getting left off it.**
 A v3.66.824 handoff listed four box actions -- deploy + clear `__pycache__`,
@@ -2121,7 +1844,8 @@ cd ~/BulkDownloader && ./capture.sh --workers=$(nproc) > /tmp/capture.log 2>&1
 echo "exit=$?"          # unpiped, per section 5
 ```
 
-`--workers=N` is parsed at `capture.sh:67` and forwarded to `pytest -n N
+`--workers=N` is parsed by `capture.sh` (grep the literal `--workers=*`; the
+anchor has moved once already) and forwarded to `pytest -n N
 --dist loadfile`; it affects **only** the `capture_parallel` lane (measured 176
 files / 1458 tests at v3.66.824 -- ask `--collect-only -m capture_parallel`, not
 grep, because `tests/conftest.py`'s `pytest_collection_modifyitems` assigns a
@@ -2137,7 +1861,7 @@ each producing a convincing failure signal about the wrong subject:
 | fact | value | source |
 | --- | --- | --- |
 | service unit | `bulkdownloader` | `install_service.sh:88` |
-| port | **5555** (`BD_PORT`, host `0.0.0.0`) | `downloader_ui.py:224-228` |
+| port | **5555** (`BD_PORT`, host `0.0.0.0`) | `downloader_ui.py` (grep `BD_PORT`) |
 | liveness | `GET /` and `GET /api/health` -> 200 | -- |
 | running version | `tools/deployed_version.txt` | rewritten by `ExecStartPre` on every start, so it reflects the **process**, not the tree |
 | timezone | **`Etc/UTC` (UTC, +0000)**, NTP active | measured on the box 2026-08-01 via `timedatectl` |
@@ -2319,7 +2043,8 @@ asks you to answer:
 | is this band list about to trip a footgun? | `bd-bandcheck` |
 | has any doc or register claim gone stale? | `bd-freshcheck` |
 
-Do not treat that as the list — it is the four this document already depends
+Do not treat that as the list — it is a starting point, not a denominator.
+It is only the ones this document already depends
 on. `ls toolchain/bin/ | grep <topic>` before writing a script, every time.
 
 **AND READ THE DOCSTRING OF THE TOOL NEAREST YOUR PROBLEM.** Hard-won findings
@@ -2376,8 +2101,7 @@ then ask which one the check in front of you means.
   the commit on `main`, and the box is still updated and gated by Matt.
 
   It is written here rather than only in the register because a standing grant
-  cannot be re-derived from source -- the same reason the panel's environment box
-  is transcribed in section 5. Before this, section 9 said the opposite, and a
+  cannot be re-derived from source. Before this, section 9 said the opposite, and a
   session that read it would either ask for permission it already holds or read a
   merge in the history as unauthorized.
 - **DEPLOY AUTHORITY IS GRANTED, 2026-08-11: you may deploy to test4/test5/test6
@@ -2490,10 +2214,11 @@ failure was invisible in the worst way: `list` reported DEAD, truthfully, for a
 process that had lived a millisecond, and the whole picture looked consistent.
 
 **AND A GREEN BATTERY IS NOT COVERAGE EVIDENCE — CHECK WHICH PATH IT TOOK.**
-Same tool, measurable today: its self-test runs seven checks and reports zero
-failures, and it calls `register`, `alive`, `load_all`, `forget` and
-`proc_starttime` — it does not call `cmd_run`, `cmd_reap` or `cmd_list` even
-once. It is a green verdict over the registry primitives, printed by a tool
+Same tool, measured at v3.66.1040: its self-test reported zero failures while
+exercising the registry primitives — `register`, `alive`, `load_all`, `forget`,
+`proc_starttime` — and not the command path a user actually types. (Do not
+quote a check count here; it has moved already. Read the `selftest` body and
+ask which entry points it calls.) It is a green verdict over the registry primitives, printed by a tool
 whose primary path is *assemble a command, launch it, register it*. Of the
 eleven tests, the one that did call `cmd_run` returned at the preflight refusal
 before any command was assembled. So ask of any tool before you believe its
