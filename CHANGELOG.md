@@ -4,6 +4,35 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1106
+
+- bd-cut-preflight gains scratch-in-tests and orphans, closing backlog 35
+  PARTIAL: 4 of its 5 named predicates are covered and the fifth is refused with
+  a measurement.
+- SCRATCH-IN-TESTS IS ONE PREDICATE FOR TWO FAILURES CLAUDE.md section 2a
+  records separately, because they share a remedy. Axis-6 gates enumerate
+  `git ls-files`, so an untracked file is invisible to them: a stray scratch file
+  contaminates a regen, and a NEW file you meant to ship is not covered by its
+  own pre-merge band. MEASURED 2026-08-13: the second half broke THREE separate
+  cuts in one session, each fixed by `git add` and nothing else. STAGED files are
+  excluded deliberately -- staging is the remedy, and a check that fired on it
+  would punish the fix.
+- ORPHANS IS A LOCAL CHECK, NOT AN add() ONE, and the reason is a real trap:
+  add() maps the EXIT CODE to the state, and `bd-jobs orphans` exits 0 whether
+  or not it finds any -- it reports a COUNT. Routing it through add() would have
+  graded "3 orphans running" as a pass.
+- SERVICES HEALTHY IS DELIBERATELY NOT WIRED IN, which is the more useful half.
+  bd-doctor exits 1 with RESULT: CRITICAL on test5 for three MISSING OPERATOR
+  WRAPPERS (bd, bd-install, bd-status) that have no bearing on whether a commit
+  is safe. A blocking check would refuse EVERY CUT on this box, and a gate that
+  cries wolf gets switched off. Service health is a pre-CAPTURE predicate;
+  capture.sh stops and starts the service itself. The absence is asserted by a
+  test, not left as a comment.
+- The tool's own selftest caught the change: its all-good positive control went
+  red because the battery's shape grew, and its 14-of-14 counts are a RATCHET.
+  Updated to 16 with a bd-jobs stub, because a positive control that cannot be
+  green makes every RED case below it vacuous.
+
 ## v3.66.1105
 
 - doc-only: backlog 103 closes NOT REAL. The mechanism is verified sound at the
