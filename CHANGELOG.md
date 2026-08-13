@@ -4,6 +4,69 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1111 - a wedged capture stage is bounded and named (backlog 102, the operational half)
+
+- THE WEDGE REPRODUCES AT HEAD, which retires the hope that @1095's eviction
+  guard or @1100's httpx pre-import had already fixed it. Caught 2026-08-13 at
+  v3.66.1107, run test6-full-005-190725: a full suite at -n 48 printed
+  `[gw28] node down: Not properly terminated` at 99% and then wrote NOTHING for
+  726 seconds at a 1-minute load average of 0.27.
+- IT IS A LIVELOCK, NOT A DEADLOCK, and the distinction is the diagnosis.
+  py-spy under sudo, taken BEFORE anything was killed, put the MainThread in
+  xdist's dsession.loop_once at `queue.get`, 48 receiver threads idle in
+  execnet `read`, and ONE unreaped zombie child still parented to the master.
+  `loop_once` is `while 1:` around `queue.get(timeout=2.0)` and leaves that loop
+  only when `self._active_nodes` empties -- so the master wakes every two
+  seconds forever at zero load. Left alone it would still be running.
+- WHAT SHIPPED HERE IS THE OPERATIONAL HALF, NOT A FIX FOR THE LIVELOCK.
+  capture.sh's run_with_heartbeat polled `while kill -0 "$pid"` with NO time
+  bound, so a wedged lane hangs a capture forever and writes no verdict -- which
+  is backlog 102's own warning (A NO-VERDICT RUN IS NOT A GREEN ONE) live inside
+  the gate.
+- THE BOUND LIVES IN THE PARENT, DELIBERATELY. `--timeout=240
+  --timeout-method=thread` runs INSIDE the worker and cannot fire when the
+  worker is the thing that died -- which is exactly why the wedge survives it.
+  A limit that shares a fate with the thing it bounds is not a limit.
+- run_with_heartbeat and _stop_process_group moved to scripts/lib/heartbeat.sh
+  so a test can RUN them rather than grep them (the move @1092 and @1099 already
+  made for tree_state and capture_run_dir). Three existing tests could only
+  assert the STRING `run_with_heartbeat` appears in capture.sh, and a source
+  check cannot tell a bound that FIRES from one that is written down.
+- CAPTURE_STAGE_CAP defaults to 5400s against a 219-315s measured lane -- ~17x,
+  so it bounds a hang without ever firing on a slow-but-live run. It stops the
+  process GROUP, returns 124, and says so in the stage's OWN log, because the
+  archive is what survives and a reader must not have to infer from a missing
+  summary that the run was stopped. capture_verdict.py now names 124 as
+  UNFINISHED rather than printing a bare number.
+- A HARNESS DEFECT THAT PREDATES THIS CUT, found because this change surfaced
+  it. test_provision_test_host's capture probe writes a truncated copy of
+  capture.sh to tmp_path and runs it, so `. "$(dirname "$0")/scripts/lib/..."`
+  resolved to a directory with no libraries and EVERY such source failed
+  silently -- capture.sh runs `set -uo pipefail` with no `-e`, so a failed
+  source does not abort, the functions simply do not exist. The probe had been
+  grading a crippled script while reporting on the real one; nothing noticed
+  because nothing it asserts happened to call the missing functions. The probe
+  now stages the real scripts/lib beside itself and refuses if it staged none.
+- MUTATION 8/8 AFTER THREE ESCAPES, and two of them were defects in the
+  IMPLEMENTATION rather than the tests. The cap was checked in BOTH an inner
+  and an outer loop, which made deleting `-gt 0` and deleting the elapsed
+  comparison each UNREACHABLE -- whichever copy a mutant touched, the other
+  still decided the outcome. Two copies of a predicate are two things that can
+  disagree, and here they hid each other's failure; it is now one loop and one
+  test. The third escape was a VACUOUS test: it matched `comm` against an
+  argv[0] set with `exec -a`, so the pattern could never match and a mutant
+  deleting the kill sailed through. It now records the child's pid and asserts
+  the precondition before the verdict.
+- RATES AT HEAD, 57 samples over three arms rotated across three hosts so host
+  is not confounded with arm: full 1 of 19, capture lane 0 of 19, the 800
+  deselected tests alone 0 of 19. The lane is 0 of 50 counting the 31 preserved
+  host-runs. NO CHANGE TO --workers, per the row.
+- STILL OPEN, and now the whole of row 102: WHY the worker dies. No traceback,
+  no INTERNALERROR, zero OOM kills and nothing in dmesg on any host since
+  2026-08-12. `Not properly terminated` is xdist's text for a channel that
+  closed with no error attached, so the evidence that would name the cause dies
+  with the worker.
+
 ## v3.66.1110 - backlog 13 closes: the agent key is scoped and the broad key is retired
 
 - DOC-ONLY IN THE TREE, but it records a live change to all three non-master

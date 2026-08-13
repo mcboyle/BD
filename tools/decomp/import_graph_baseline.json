@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 3832,
+  "edge_count": 3833,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4416,6 +4416,9 @@
     "tests/test_v3_66_110_template_intel.py": [
       "tools/cockpit_console.py",
       "tools/cockpit_templates.py"
+    ],
+    "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py": [
+      "tools/capture_verdict.py"
     ],
     "tests/test_v3_66_111_login_template_intel.py": [
       "tools/cockpit_console.py",

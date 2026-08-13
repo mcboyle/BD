@@ -6,6 +6,7 @@ paths and service commands are redirected into ``tmp_path``.
 
 from __future__ import annotations
 
+import shutil
 import json
 import os
 import subprocess
@@ -54,6 +55,27 @@ printf 'PARALLEL_EXIT=%s\nSERIAL_EXIT=%s\nRESULTS_EXIT=%s\nSUITE_EXIT=%s\n' \
 exit "$SUITE_EXIT"
 '''
     _write_executable(path, probe)
+
+    # STAGE THE REAL scripts/lib BESIDE THE PROBE. capture.sh sources its
+    # libraries with `. "$(dirname "$0")/scripts/lib/..."` and the probe is
+    # written to tmp_path, so every one of those sources FAILED here -- visibly,
+    # in this harness's own captured stderr, for as long as the libraries have
+    # existed. It never failed a test because capture.sh runs `set -uo pipefail`
+    # with no `-e`: a failed source does not abort, the functions simply do not
+    # exist, and nothing this harness asserted happened to call them. Measured
+    # at v3.66.1111, when run_with_heartbeat moved into a library and the lanes
+    # DO call it: exit 127 instead of the expected lane exit.
+    lib_src = CAPTURE_SH.parent / "scripts" / "lib"
+    lib_dst = path.parent / "scripts" / "lib"
+    lib_dst.mkdir(parents=True, exist_ok=True)
+    staged = 0
+    for lib in sorted(lib_src.glob("*.sh")):
+        shutil.copy2(lib, lib_dst / lib.name)
+        staged += 1
+    assert staged, (
+        f"no shell libraries were staged from {lib_src}; the probe would run "
+        "with every `. scripts/lib/...` failing and would prove nothing about "
+        "the code those libraries hold")
 
 
 def _run_probe(

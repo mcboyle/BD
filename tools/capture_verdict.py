@@ -94,6 +94,23 @@ def _read_live(path: Path) -> tuple[int, int, int, int]:
     return passed, warned, failed, total
 
 
+def _cap_note(exit_code: int) -> str:
+    """Name exit 124 rather than reporting a bare number.
+
+    scripts/lib/heartbeat.sh stops a stage that outruns CAPTURE_STAGE_CAP and
+    returns 124, coreutils `timeout`'s convention. The verdict already FAILED on
+    any non-zero exit, so this changes no grade -- it changes what the operator
+    reads. `exit=124` alongside a dozen other numbers looks like a test failure;
+    it is not one. An unfinished run is not a pass and not a failure of the
+    code, and backlog 102 exists because the two were confusable.
+    """
+    if exit_code == 124:
+        return (" -- STAGE CAP: the stage was stopped before it finished "
+                "(CAPTURE_STAGE_CAP). This is an UNFINISHED run, not a test "
+                "failure; the suite never reported a verdict")
+    return ""
+
+
 def assess_capture(
     tests_json: str | Path,
     live_log: str | Path,
@@ -125,12 +142,12 @@ def assess_capture(
             f"expected {expected_live_tests}"
         )
     if suite_exit:
-        reasons.append(f"suite process exit={suite_exit}")
+        reasons.append(f"suite process exit={suite_exit}{_cap_note(suite_exit)}")
     if live_exit:
-        reasons.append(f"live process exit={live_exit}")
+        reasons.append(f"live process exit={live_exit}{_cap_note(live_exit)}")
     for name, exit_code in stage_exits:
         if exit_code:
-            reasons.append(f"{name} exit={exit_code}")
+            reasons.append(f"{name} exit={exit_code}{_cap_note(exit_code)}")
     if unit_counts is not None and unit_counts[1]:
         reasons.append(f"unit failures={unit_counts[1]}")
     if unit_counts is not None and unit_counts[2]:

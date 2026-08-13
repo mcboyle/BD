@@ -244,8 +244,24 @@ class TestCaptureShFinalVerdict:
         assert '--stage-exit "dev-tools=$DEV_EXIT"' in body
 
     def test_heartbeat_commands_clean_up_process_groups_on_signal(self):
+        """The heartbeat moved to scripts/lib/heartbeat.sh at v3.66.1111.
+
+        This assertion followed it rather than being deleted: capture.sh must
+        still SOURCE the library, and the library must still carry the
+        process-group cleanup. Asserting only that capture.sh mentions the path
+        would pass over an empty file. Note this remains a SOURCE check -- what
+        actually runs the wrapper is
+        tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py.
+        """
         body = _read_capture_sh()
-        assert 'setsid "$@"' in body
-        assert "trap" in body
+        assert "scripts/lib/heartbeat.sh" in body, (
+            "capture.sh no longer sources the heartbeat library")
+
+        lib = os.path.join(REPO_ROOT, "scripts", "lib", "heartbeat.sh")
+        assert os.path.isfile(lib), f"{lib} is missing"
+        with open(lib, "r", encoding="utf-8") as f:
+            libtext = f.read()
+        assert 'setsid "$@"' in libtext
+        assert "trap" in libtext
         for signal in ("INT", "TERM", "HUP"):
-            assert signal in body
+            assert signal in libtext
