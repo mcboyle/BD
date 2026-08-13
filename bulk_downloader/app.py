@@ -917,7 +917,25 @@ def _check_csrf():
     if path in CSRF_EXEMPT_PATHS: return None
     # Validate
     sent = request.headers.get("X-CSRF-Token", "")
-    expected = _csrf_token_for(sess)
+    # RESOLVE THE MINTER LATE, exactly as app_csrf.py and app_pair.py already do
+    # (backlog 92). `_csrf_key` is module-level, so a fresh module EXECUTION
+    # mints a new one -- and the two halves of the double-submit pattern used to
+    # disagree about which module they belonged to. The blueprints reach
+    # `_csrf_token_for` through importlib at call time and therefore always mint
+    # against the LIVE module; this line reached it through app.py's own globals
+    # and therefore checked against whichever module object happened to be
+    # executing, which after a `bulk_downloader.*` sys.modules wipe is the STALE
+    # one. The app then refused a token it had just minted itself, with a
+    # message that reads as a security defect rather than as two module objects
+    # being alive at once. Measured across the 8 tracked files in backlog 93.
+    #
+    # This is a binding-TIME change only. Which routes are guarded, the
+    # bootstrap exemptions, the Bearer bypass, the cross-origin Origin refusal
+    # and key rotation on restart are all unchanged: the same key is used, it is
+    # simply looked up when needed rather than captured at module execution.
+    import importlib
+    expected = getattr(
+        importlib.import_module("bulk_downloader.app"), "_csrf_token_for")(sess)
     if not sent or not secrets.compare_digest(sent, expected):
         # v3.43.55: demoted from WARNING → INFO. The JS fetch wrapper
         # auto-retries on 403 with a fresh /api/csrf token, so a
