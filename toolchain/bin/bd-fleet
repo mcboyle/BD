@@ -35,6 +35,13 @@ PROBE = r'''
 cd ~/BulkDownloader 2>/dev/null || { echo "tree=ABSENT"; exit 0; }
 echo "head=$(git log --oneline -1 2>/dev/null | cut -c1-7)"
 echo "version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' bulk_downloader/__init__.py 2>/dev/null)"
+# THE TREE AND THE SERVICE ARE DIFFERENT QUESTIONS, and `version` above answers
+# only the first. tools/deployed_version.txt is rewritten by ExecStartPre on
+# every start, so it reflects the PROCESS. Measured at v3.66.1072 on test5,
+# where the agent's working directory IS the deployed tree: the table read
+# 3.66.1072 across four hosts while test5's service was still serving
+# 3.66.1071, unrestarted. True of four trees and three processes.
+echo "serving=$(head -1 tools/deployed_version.txt 2>/dev/null)"
 echo "branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
 echo "dirty=$(git status --porcelain 2>/dev/null | wc -l)"
 echo "service=$(systemctl is-active bulkdownloader 2>/dev/null || echo unknown)"
@@ -95,9 +102,9 @@ def query(label, addr, me, timeout):
 
 def render(rows):
     """Format the table. Pure, so the formatting is testable without ssh."""
-    lines = ["%-10s %-15s %-8s %-11s %-6s %-8s %-14s %-5s %-7s %-6s"
-             % ("host", "address", "head", "version", "tree", "service",
-                "load(1/5/15)", "jobs", "pytest", "litter")]
+    lines = ["%-10s %-15s %-8s %-11s %-11s %-6s %-8s %-14s %-5s %-7s %-6s"
+             % ("host", "address", "head", "tree ver", "serving", "tree",
+                "service", "load(1/5/15)", "jobs", "pytest", "litter")]
     for label, addr, d, err in rows:
         if d is None:
             lines.append("%-10s %-15s UNREACHABLE  %s" % (label, addr, err))
@@ -107,8 +114,9 @@ def render(rows):
             continue
         dirty = d.get("dirty", "?")
         tree = "clean" if dirty == "0" else ("%s dirty" % dirty)
-        lines.append("%-10s %-15s %-8s %-11s %-6s %-8s %-14s %-5s %-7s %-6s"
+        lines.append("%-10s %-15s %-8s %-11s %-11s %-6s %-8s %-14s %-5s %-7s %-6s"
                      % (label, addr, d.get("head", "?"), d.get("version", "?"),
+                        d.get("serving") or "UNKNOWN",
                         tree, d.get("service", "?"), d.get("load", "?"),
                         d.get("jobs", "?"), d.get("pytest", "?"),
                         d.get("tmp_bd", "?")))
@@ -126,6 +134,17 @@ def divergences(rows):
                          % (what, ", ".join("%s=%s" % (l, d.get(key, "?"))
                                             for l, d in live)))
     for label, d in live:
+        # A HOST DISAGREEING WITH ITSELF, which fleet-wide comparison cannot
+        # see. An empty reading is UNKNOWN, not a mismatch: a host that never
+        # started under systemd has no deployed_version.txt, and reporting that
+        # as "serving the wrong version" would be the gate firing on its own
+        # blindness.
+        serving = (d.get("serving") or "").strip()
+        if serving and serving != d.get("version"):
+            notes.append("%s has DEPLOYED but not RESTARTED: tree is %s, the "
+                         "service is still serving %s -- deploy that host "
+                         "before trusting a capture from it"
+                         % (label, d.get("version", "?"), serving))
         if d.get("dirty", "0") != "0":
             notes.append("%s has an UNCOMMITTED tree (%s file(s))"
                          % (label, d["dirty"]))
