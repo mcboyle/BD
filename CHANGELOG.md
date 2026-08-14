@@ -4,6 +4,51 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1131 - the shard count rotted inside the sentence that says not to trust it
+
+Doc-only. Two corrections, both recovered by RUNNING something rather than by
+reading.
+
+CLAUDE.md section 7 described the `gate-suites` job as "a 5-way matrix" and
+named five shards. `ci.yml` declares TEN: toolchain, parity-graph,
+measurement-tools, isolation, tree-gates-1 through tree-gates-4,
+toolchain-verifiers, artifacts-pins.
+
+WHAT MAKES THIS ONE WORTH RECORDING RATHER THAN JUST FIXING: the same sentence
+already carried the correct instruction -- "Read the matrix, not this sentence"
+-- and the count rotted anyway, and was quoted anyway. A reader of that bullet
+took a wrong number and a right method from one paragraph, and the wrong number
+is the half that gets used. Being told not to trust a figure does not stop the
+figure being trusted; only removing it, or deriving it at read time, does.
+
+It was caught because `bd-ci-verdict` parses the expected check set out of
+`ci.yml` and PRINTS it on every run, so the disagreement surfaced beside a merge
+decision instead of in a document nobody re-measures. That is the general remedy
+for this class and it is now written next to the correction: put a derived count
+in a TOOL'S OUTPUT, where it is re-derived every time it is read.
+
+ROW 144 REGAINS THE STACK IT LOST. The full call chain was captured during the
+2026-08-14 session and reached no tracked file -- the backlog kept only the
+innermost frame. Recovered from that session's transcript: `_login` ->
+`do_login` (submit.py:895) -> `_submit_login` (submit.py:396) ->
+`page.locator(sel).first.press("Enter")` (submit.py:278) -> playwright sync ->
+asyncio run_forever -> epoll. Recorded as FRAME POSITIONS AT df73ef7 and
+explicitly not as anchors: they are where execution stood in a preserved stack,
+they rot with the next edit to that file, and the durable form is the symbol
+chain. What they establish is what the prose alone did not -- `do_login` was
+observed calling THROUGH into the walk, rather than merely failing to return
+early.
+
+A RETRACTION THAT BELONGS WITH IT. An earlier reading this session said the
+"read the test" step of the hunt's own next-steps list had never been done, and
+that was WRONG. The transcript shows it done at 14:56-14:58 on 2026-08-14 --
+the test body, the harness helpers, and a targeted grep for
+serve_forever/shutdown/daemon/ThreadingHTTPServer/TCPServer. The claim was
+inferred from the step's absence in the handoff, which is exactly the error row
+147 exists to warn about, committed about the investigation that found row 147.
+The cheap path is EXHAUSTED, not unattempted: three probe rounds, then the whole
+file under contention, all negative. Only the full 48-way suite reaches it.
+
 ## v3.66.1130 - capture.sh could not see its own wedge, and it is the gate
 
 Backlog 147, applied to the one place it was never applied. v3.66.1126 fixed two
