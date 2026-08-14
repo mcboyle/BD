@@ -4,6 +4,39 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1126 - the sanctioned whole-suite form could not see its own failures
+
+Two independent blindfolds on CLAUDE.md section 5's sanctioned form, both
+section 0 defects in the gate itself, both found while hunting row 144.
+
+**`-q` suppressed xdist's entire crash-recovery narration.** `-q` sets
+`verbose == -1`, and `DSession.report_line` (dsession.py:78) is guarded on
+`verbose >= 0`, so "replacing crashed worker gwN" and "maximum crashed workers
+reached" were dropped -- while `pytest_testnodedown` writes "node down"
+unguarded. The reader was shown the symptom and denied the response. Measured
+on a minimal reproducer, same code path, only the flag differing: `-q` -> 0
+replace lines, no flag -> 8, `-v` -> 8. Dropping `-q` is sufficient; `-v` is not
+required and costs ~16k lines a run.
+
+**Buffered stdout stranded the tail of every wedged run.** A run that never
+exits never flushes. Across 657 captures: **15/15 WEDGED logs end mid-line at a
+4KB boundary, 642/642 COMPLETED logs end with a newline.** The stranded ~4KB is
+exactly where the recovery narration lands. Fixed with `PYTHONUNBUFFERED=1` --
+spelled as an env var rather than `-u` on purpose, because `-u` is an
+interpreter flag that never reaches `sys.argv`, and bd-sweep-run's selftest went
+24-red proving it when this was first written as `-u`.
+
+Applied to the contract (CLAUDE.md section 5) and to both tools that implement
+it (`bd-sweep-run`, `bd-fullsuite`), so doc and tool cannot disagree --
+bd-sweep-run's selftest re-derives the form FROM CLAUDE.md and would go red if
+they did. Also fixed a positional `[2:]` slice in that selftest which assumed
+exactly one leading env token and broke the moment a second was added.
+
+Also lands `upstream/xdist-drain-livelock/`: a minimal, deterministic
+reproducer (hangs 5/5, control passes 5/5) for the xdist livelock behind row
+144, with a self-diagnosing plugin. NOT FILED upstream; held locally by
+operator decision.
+
 ## v3.66.1125 - `-v` names the hung test, which `-q` was throwing away
 
 - OPERATOR'S CATCH, and it is worth more than the arm shipped an hour earlier.

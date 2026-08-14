@@ -229,12 +229,12 @@ def section5_tokens(workers):
 
         BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest tests/ \\
             -n 4 --dist loadfile --timeout=240 --timeout-method=thread \\
-            -q -p no:randomly
+            -p no:randomly
 
     Every flag is load-bearing and a different one is a different experiment:
     --timeout turns a hang into a named test, --timeout-method=thread dumps its
     stack, --dist loadfile is the distribution that was actually measured, and
-    -q -p no:randomly is the ordering that was measured. `-n 4` is NOT a
+    -p no:randomly is the ordering that was measured. `-n 4` is NOT a
     constant -- it was copied onto an 86-core box at v3.66.1035 purely because
     the paragraph said 4 -- so it is derived from the TARGET and recorded.
 
@@ -243,10 +243,22 @@ def section5_tokens(workers):
     if not isinstance(workers, int) or isinstance(workers, bool) or workers < 1:
         raise Refuse("REFUSE-BAD-WORKERS",
                      "worker count must be a positive int, got %r" % (workers,))
-    return ["BD_DISABLE_KEEPALIVE=1", "venv/bin/python", "-m", "pytest", "tests/",
+    # PYTHONUNBUFFERED=1 and NO `-q`, per CLAUDE.md section 5 as amended at
+    # v3.66.1126. PYTHONUNBUFFERED rather than `-u` deliberately: `-u` is an
+    # INTERPRETER flag and never appears in sys.argv, so any check that
+    # compares the built token list against the argv pytest actually received
+    # can never match it. This tool's own selftest caught exactly that.
+    # -q sets verbose == -1, and xdist guards its crash-recovery narration
+    # ("replacing crashed worker gwN") behind `verbose >= 0` at dsession.py:78,
+    # while emitting "node down" unguarded -- the symptom without the response.
+    # -u because a wedged run never exits and therefore never flushes: measured
+    # 15/15 wedged logs truncated mid-line at a 4KB boundary vs 642/642 completed
+    # logs intact. Neither flag changes what is executed.
+    return ["BD_DISABLE_KEEPALIVE=1", "PYTHONUNBUFFERED=1",
+            "venv/bin/python", "-m", "pytest", "tests/",
             "-n", str(workers),
             "--dist", "loadfile", "--timeout=240", "--timeout-method=thread",
-            "-q", "-p", "no:randomly"]
+            "-p", "no:randomly"]
 
 
 def suite_command(workers):
@@ -1441,7 +1453,7 @@ def _scratch_root(roots):
 
 
 PS_BUSY_LINE = (" 225587 python          venv/bin/python -m pytest tests/ -n 16 "
-                "--dist loadfile --timeout=240 --timeout-method=thread -q "
+                "--dist loadfile --timeout=240 --timeout-method=thread "
                 "-p no:randomly")
 PS_IDLE_LINES = ("    1 systemd         /sbin/init splash\n"
                  " 4242 bash            bash -s\n"
@@ -1635,9 +1647,10 @@ def selftest(argv=None):                                    # noqa: C901
 
     # --- 1. the command IS section 5's, re-derived from CLAUDE.md ---------
     built = section5_tokens(16)
-    expected = ["BD_DISABLE_KEEPALIVE=1", "venv/bin/python", "-m", "pytest",
+    expected = ["BD_DISABLE_KEEPALIVE=1", "PYTHONUNBUFFERED=1",
+                "venv/bin/python", "-m", "pytest",
                 "tests/", "-n", "16", "--dist", "loadfile", "--timeout=240",
-                "--timeout-method=thread", "-q", "-p", "no:randomly"]
+                "--timeout-method=thread", "-p", "no:randomly"]
     check(built == expected, "the built command is not the sanctioned form: %s" % built)
     contract = contract_tokens_from_claude_md(os.path.join(repo_src, "CLAUDE.md"))
     if contract is None:
@@ -1949,7 +1962,16 @@ def selftest(argv=None):                                    # noqa: C901
         check(record.exists(), "pytest was never reached (no stub argv recorded)")
         if record.exists():
             rec = record.read_text()
-            want_argv = "argv= " + " ".join(section5_tokens(row["workers"])[2:])
+            # Derive the argv slice by FINDING the interpreter, not by counting
+            # past it. The old form was `[2:]`, which silently assumed exactly
+            # one leading NAME=VALUE env token; adding PYTHONUNBUFFERED=1 at
+            # v3.66.1126 made that slice include `venv/bin/python` itself and
+            # the check went red for a reason that had nothing to do with what
+            # it tests. A positional index into a list whose head can grow is
+            # the same class of defect this file exists to catch.
+            _toks = section5_tokens(row["workers"])
+            _interp = next(i for i, t in enumerate(_toks) if t.endswith("python"))
+            want_argv = "argv= " + " ".join(_toks[_interp + 1:])
             check(want_argv in rec,
                   "the argv that reached pytest is not section 5's:\n"
                   "        got:  %s\n        want: %s"

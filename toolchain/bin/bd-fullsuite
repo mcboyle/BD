@@ -24,8 +24,8 @@ FALLBACK for a machine that cannot run pytest at all.
 USE INSTEAD, when pytest is importable -- which section 5 now documents as the
 one sanctioned whole-suite form:
 
-    BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest tests/ \\
-        -n 4 --dist loadfile --timeout=240 --timeout-method=thread -q -p no:randomly
+    BD_DISABLE_KEEPALIVE=1 PYTHONUNBUFFERED=1 venv/bin/python -m pytest tests/ \\
+        -n 4 --dist loadfile --timeout=240 --timeout-method=thread -p no:randomly
 
 What follows is this tool's own design, which is sound for what it is.
 

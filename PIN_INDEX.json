@@ -1,19 +1,19 @@
 {
   "schema_version": 1,
   "generated_from": "AST scan of tests/*.py",
-  "note": "DO NOT EDIT BY HAND — tests/test_pin_index_in_sync.py fails the build. Regenerate: python tools/build_pin_index.py. `line` is informational.",
+  "note": "DO NOT EDIT BY HAND \u2014 tests/test_pin_index_in_sync.py fails the build. Regenerate: python tools/build_pin_index.py. `line` is informational.",
   "coverage": {
     "covers": [
       "version",
       "count_dict"
     ],
     "handled_elsewhere": {
-      "guard_sha": "STATE.json — the 7 byte-identical guard SHAs, re-derived from the built zip and auto-repinned by bd-handoff; gated by verify_release / bd-state. Not a hand-typed tree pin.",
-      "route_count": "tools/check_route_counts.py (G12) — source-decorator count == gui_parity inventory count == the integer pins in tests/test_wave2_backlog.py."
+      "guard_sha": "STATE.json \u2014 the 7 byte-identical guard SHAs, re-derived from the built zip and auto-repinned by bd-handoff; gated by verify_release / bd-state. Not a hand-typed tree pin.",
+      "route_count": "tools/check_route_counts.py (G12) \u2014 source-decorator count == gui_parity inventory count == the integer pins in tests/test_wave2_backlog.py."
     },
     "known_gaps": [
-      "bare integer-equality asserts (assert X == N) are intentionally NOT indexed — too ambiguous to separate from arbitrary test asserts; the route-count subset that matters is gated by G12.",
-      "count_dict captures every {str: int} equality literal; a few may be non-count dicts. Over-capture is intentional — surfacing a non-pin is cheap, missing a real pin is the failure we are preventing."
+      "bare integer-equality asserts (assert X == N) are intentionally NOT indexed \u2014 too ambiguous to separate from arbitrary test asserts; the route-count subset that matters is gated by G12.",
+      "count_dict captures every {str: int} equality literal; a few may be non-count dicts. Over-capture is intentional \u2014 surfacing a non-pin is cheap, missing a real pin is the failure we are preventing."
     ]
   },
   "counts": {
@@ -94,7 +94,7 @@
         "ambiguous": 1,
         "absent": 4
       },
-      "gates_what": "test_the_sweep_reason_histogram_sums_to_the_figure_it_explains — `reasons:` is printed directly under \"0 of N\". It must add up to N."
+      "gates_what": "test_the_sweep_reason_histogram_sums_to_the_figure_it_explains \u2014 `reasons:` is printed directly under \"0 of N\". It must add up to N."
     },
     {
       "form": "count_dict",
@@ -114,7 +114,7 @@
       "value": {
         "x": 1
       },
-      "gates_what": "test_contract_maybe_json_handles_all_arg_shapes — _maybe_json must never raise regardless of the args object."
+      "gates_what": "test_contract_maybe_json_handles_all_arg_shapes \u2014 _maybe_json must never raise regardless of the args object."
     },
     {
       "form": "count_dict",
@@ -204,7 +204,7 @@
       "value": {
         "jwt": 2
       },
-      "gates_what": "test_gate_fails_closed_on_residual — If the scan reports a residual, the gate must withhold tree+html and"
+      "gates_what": "test_gate_fails_closed_on_residual \u2014 If the scan reports a residual, the gate must withhold tree+html and"
     },
     {
       "form": "count_dict",
@@ -215,13 +215,13 @@
         "importers": 0,
         "pins": 0
       },
-      "gates_what": "test_golden_can_i_retire_safe_for_absent_target — A target with no routes / importers / pins reads SAFE — the SAFE-path logic."
+      "gates_what": "test_golden_can_i_retire_safe_for_absent_target \u2014 A target with no routes / importers / pins reads SAFE \u2014 the SAFE-path logic."
     },
     {
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1125",
+      "value": "3.66.1126",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -234,7 +234,7 @@
         "sites_running": 1,
         "sites_total": 2
       },
-      "gates_what": "test_worker_counts_follow_real_runner_shape_and_running_jobs — A production-shaped runner must not collapse to 0/unknown simply"
+      "gates_what": "test_worker_counts_follow_real_runner_shape_and_running_jobs \u2014 A production-shaped runner must not collapse to 0/unknown simply"
     },
     {
       "form": "count_dict",
@@ -272,7 +272,7 @@
         "auth.reptyle.com": 5,
         "app.reptyle.com": 62
       },
-      "gates_what": "test_a_family_carries_the_evidence_a_reviewer_needs — Capture counts per host, because that is how the operator recognises the"
+      "gates_what": "test_a_family_carries_the_evidence_a_reviewer_needs \u2014 Capture counts per host, because that is how the operator recognises the"
     },
     {
       "form": "count_dict",
@@ -327,7 +327,7 @@
       "value": {
         "x": 1
       },
-      "gates_what": "test_returned_dict_is_shallow_copy — Mutating the returned dict should NOT mutate the config —"
+      "gates_what": "test_returned_dict_is_shallow_copy \u2014 Mutating the returned dict should NOT mutate the config \u2014"
     },
     {
       "form": "count_dict",
@@ -349,7 +349,7 @@
         "report_center.": 9,
         "actions_center.": 0
       },
-      "gates_what": "test_generated_blueprint_counts_unchanged — G12 invariant: the 3 write-blueprint counts must be unchanged by the"
+      "gates_what": "test_generated_blueprint_counts_unchanged \u2014 G12 invariant: the 3 write-blueprint counts must be unchanged by the"
     },
     {
       "form": "count_dict",
@@ -415,7 +415,7 @@
       "value": {
         "kept": 1
       },
-      "gates_what": "test_keep_preserves_absence_rather_than_inventing_null — `_keep` must not manufacture a key the reader did not emit."
+      "gates_what": "test_keep_preserves_absence_rather_than_inventing_null \u2014 `_keep` must not manufacture a key the reader did not emit."
     },
     {
       "form": "count_dict",
@@ -426,7 +426,7 @@
         "archive": 1,
         "unknown": 1
       },
-      "gates_what": "test_HOSTS_by_method_accounts_for_EVERY_file_examined — The non-empty-denominator assertion, written before the verdict. Every"
+      "gates_what": "test_HOSTS_by_method_accounts_for_EVERY_file_examined \u2014 The non-empty-denominator assertion, written before the verdict. Every"
     },
     {
       "form": "count_dict",
@@ -435,7 +435,7 @@
       "value": {
         "frob": 2
       },
-      "gates_what": "test_a_FUTURE_raw_key_is_VISIBLE_rather_than_vanishing — THE TEST NO KEY MAP CAN PASS, and the reason the fix votes over"
+      "gates_what": "test_a_FUTURE_raw_key_is_VISIBLE_rather_than_vanishing \u2014 THE TEST NO KEY MAP CAN PASS, and the reason the fix votes over"
     },
     {
       "form": "count_dict",
@@ -444,7 +444,7 @@
       "value": {
         "row_selectors": 2
       },
-      "gates_what": "test_a_leaf_the_pipeline_KEPT_is_not_counted_as_one_it_DROPPED — Adversarial review caught this, and it is the retracted-77 shape"
+      "gates_what": "test_a_leaf_the_pipeline_KEPT_is_not_counted_as_one_it_DROPPED \u2014 Adversarial review caught this, and it is the retracted-77 shape"
     },
     {
       "form": "count_dict",

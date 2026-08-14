@@ -1143,9 +1143,9 @@ possible at all.
   **SO THE SWEEP IS PERMITTED, IN EXACTLY ONE FORM. Never bare `pytest tests/`.**
 
   ```bash
-  BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest tests/ \
+  BD_DISABLE_KEEPALIVE=1 PYTHONUNBUFFERED=1 venv/bin/python -m pytest tests/ \
       -n 4 --dist loadfile --timeout=240 --timeout-method=thread \
-      -q -p no:randomly
+      -p no:randomly
   ```
 
   Every flag is load-bearing and a different one is a different experiment:
@@ -1154,6 +1154,57 @@ possible at all.
   distribution that was actually measured, and `-n 4` matched THAT CONTAINER's
   four cores. Run it under a whole-run cap as well, and wait on a written exit
   marker rather than on `pgrep` (§5's rule about a wrapper matching itself).
+
+  **`-q` WAS REMOVED FROM THIS FORM AT v3.66.1126, AND `-u` ADDED. BOTH ARE
+  OBSERVABILITY FIXES FOR A GATE THAT COULD NOT SEE ITS SUBJECT** -- section 0,
+  in the sanctioned command itself. Neither changes what is executed.
+
+  `-q` sets `verbose == -1`, and xdist guards its entire crash-recovery
+  narration behind `verbose >= 0`:
+
+  ```python
+  # xdist.dsession.DSession.report_line, as of pytest-xdist 3.8.0
+  def report_line(self, line):
+      if self.terminal and self.config.option.verbose >= 0:
+          self.terminal.write_line(line)
+  ```
+
+  (Symbol and pinned version, NOT `file:line`: these live in `venv/`, are not
+  tracked here, and a line-number anchor into a
+  dependency would rot silently on the next xdist bump with no gate able to see
+  it -- and note that WRITING one here as an example is itself enough to create
+  the broken claim, section 0's naming trap, which is why this sentence
+  describes the shape instead of spelling it. bd-freshcheck
+  resolves anchors against TRACKED files and correctly refused one.)
+
+  So under `-q` these NEVER appear: `replacing crashed worker gwN`,
+  `maximum crashed workers reached: N`. Meanwhile xdist's own
+  `pytest_testnodedown` hook implementation writes UNGUARDED, so `[gwN] node down: Not properly
+  terminated` DOES appear. The reader is shown the symptom and denied the
+  response. Measured on a minimal reproducer, same code path, only the flag
+  differing: `-q` -> 0 replace lines; no flag (verbose 0) -> 8; `-v` -> 8.
+  **Dropping `-q` is sufficient; `-v` is not required** and costs ~16k lines a
+  run. `-v` buys only the per-test names on top -- worth it for a wedge hunt,
+  not for routine sweeps.
+
+  `PYTHONUNBUFFERED=1` exists because a run that never exits never flushes.
+  It is spelled as an ENV VAR rather than as `-u` on purpose: `-u` is an
+  interpreter flag and never reaches `sys.argv`, so any gate comparing a built
+  command against the argv pytest actually received can never see it.
+  bd-sweep-run's selftest caught that as 24 red checks the first time this was
+  written as `-u`. Measured across 657
+  captures: **15 of 15 WEDGED logs end MID-LINE at a 4KB stdio boundary, and
+  642 of 642 COMPLETED logs end with a newline.** A completed run flushes at
+  process exit; a wedged one strands everything written since the last flush --
+  which is exactly the recovery narration, since it is emitted immediately after
+  the crash. Every wedge captured before this change is missing its final ~4KB,
+  and absence of a diagnostic in those logs is an ARTEFACT, not a finding.
+
+  **THE GENERAL RULE, because two independent blindfolds here produced the
+  identical symptom and fixing either alone would have left the other:** when a
+  gate reads a tool's output for a diagnostic, verify BOTH that the tool emits it
+  at the configured verbosity AND that the output survives to disk. Absence of a
+  message is evidence of nothing until both are established.
 
   **`-n 4` IS NOT A CONSTANT -- DERIVE IT.** It is the one flag here that
   describes the machine rather than the experiment, and it was copied onto an
