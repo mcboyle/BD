@@ -455,6 +455,27 @@ WHAT THE RUN FOUND, recorded here as this section asks:
 - **`~/.config/bd/hosts` DID survive the 2026-08-12 rebuild**, contrary to the
   expectation recorded elsewhere that it would not. Verify rather than assume it
   either way.
+- **ITS CONTENTS ARE NOW RECORDED HERE, because surviving one rebuild is not a
+  guarantee and nothing tracked could recreate the file.** `deploy_fleet.sh`
+  REFUSES without it, so losing it stops fleet deploys dead, and as of
+  2026-08-14 two of the six entries (`.80`, `.95`) existed ONLY in that untracked
+  file -- they were added during the wedge hunt and no tracked artifact named
+  them outside a CHANGELOG sentence. The file is `<label> <ip>`, one per line:
+
+  ```
+  test5 10.0.70.164
+  test4 10.0.70.85
+  test6 10.0.70.249
+  test7 10.0.70.84
+  test3 10.0.70.80
+  test2 10.0.70.95
+  ```
+
+  Recreate it verbatim if it is missing. **This list is a RECORD, not an
+  authority** -- addresses can change and a label is not an identity (see the
+  section below on quoting the machine-id digest). Re-derive before trusting it,
+  and note that `test5` is the controller: it runs no test arm and cannot ssh to
+  itself.
 
 ## Saying which box a reading came from
 

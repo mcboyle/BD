@@ -4,6 +4,23 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1128 - the session close, and a host list that existed nowhere tracked
+
+Doc-only, and the persistence half of the wedge hunt's close.
+
+SESSION_CARRY 15.96 records the 2026-08-14 session: the hunt (702 samples, 16
+wedges, ~19h, five hosts, PAUSED not finished), the mechanism that closed row
+145, the question row 144 still owns, and the seven hypotheses that died by
+measurement. It also records four conclusions that were STATED AND WRONG before
+being retracted, because the pattern behind them is the reusable part: every one
+was a check that could not see its subject and returned something benign.
+
+`~/.config/bd/hosts` now has its contents recorded in FRESH_HOST_BRINGUP.md.
+The file is untracked, `deploy_fleet.sh` REFUSES without it, and as of this cut
+two of its six entries (.80 and .95) existed ONLY there -- added during the hunt,
+named nowhere tracked outside a CHANGELOG sentence. Surviving one rebuild is not
+a guarantee, and nothing could have recreated the file.
+
 ## v3.66.1127 - the register catches up with what the hunt found
 
 Doc-only. The ~19h wedge hunt ended and the backlog did not reflect it.
