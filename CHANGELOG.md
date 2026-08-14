@@ -4,6 +4,35 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1119 - repair: @1118 shipped red, and the band that missed it
+
+- @1118 MERGED WITH A FAILING CHECK. `gate-suites (tree-gates-4)` was red on
+  `test_sandbox_home_stays_retired::test_no_new_sandbox_home_carriers`, and
+  bd-ci-verdict returned DO-NOT-MERGE -- the merge ran anyway because it was
+  chained after the verdict in one invocation rather than gated on it. Section 9
+  requires band AND CI green; this had band green and CI red. Recorded rather
+  than quietly fixed, because the failure was procedural and the next session
+  should see it.
+- THE DEFECT ITSELF IS THE SAME TRAP THREE TIMES IN ONE SESSION. @1118's row-115
+  text SPELLED the retired sandbox home path in order to explain that the file
+  pins it -- and `test_sandbox_home_stays_retired.py` bans that literal across
+  every tracked file. CLAUDE.md section 0: explaining a removal by naming the
+  removed thing recreates it, and a comment is inside the denominator of every
+  gate reading source text. @1117 hit it in a ci.yml comment and caught it
+  locally; this one got past because of the next bullet.
+- WHY THE LOCAL BAND MISSED IT, which is the reusable part. The gate enumerates
+  `git ls-files -z` and lives in the tree-gates-4 shard; `bd-band-derive` works
+  from module coupling and cannot reach a gate whose subject is the tree. A
+  DOC-ONLY edit therefore has a band that no module derivation can produce --
+  section 2a's axis-6 rule, which this cut's band did not apply because a
+  doc-only change felt like it had none. Both tracker gates were banded and both
+  were green; the one that matters for a prose edit was not in the list.
+- The row now describes the pins without spelling the literal, the same remedy
+  @1117 used, and says so in the row so the next editor does not re-add it.
+- BANDED THIS TIME with the tree-enumerating gates named explicitly rather than
+  derived: test_sandbox_home_stays_retired, both tracker gates, the tombstones
+  and the source-window ratchet.
+
 ## v3.66.1118 - doc-only: row 115 is a four-gate cut, not a deletion
 
 - MEASURED rather than attempted. Backlog row 115 asked to retire
