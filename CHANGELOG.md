@@ -4,6 +4,55 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1123 - row 102: ext4 REFUTED, test6 is the anomaly, the worker EXITS(1)
+
+- 466 samples overnight at df73ef7 across five hosts. Two hypotheses died, one
+  was confirmed, and the mechanism is now named.
+- THE EXT4 HYPOTHESIS IS REFUTED. test2 -- a SECOND, independently built ext4
+  box at full fleet spec -- ran 0 wedges in 90 samples while TWO XFS hosts each
+  wedged once (test4 1/94, test7 1/92), and both XFS wedges are the same
+  phenomenon (99%, node down, line 224/229). test2 0/90 against XFS 2/290 gives
+  one-sided Fisher p = 1.00. The pooled ext4-vs-XFS p = 0.017 is an ARTIFACT of
+  test6 dragging its own filesystem's average up. DO NOT REFORMAT test6 -- the
+  filesystem was never the variable, and the earlier p = 0.046 rested entirely
+  on the ext4 side being one machine. This is exactly what the second ext4 host
+  was built to establish, and it establishes the opposite of what was expected.
+- TEST6 IS THE ANOMALY, NOT ITS FILESYSTEM: 7/30 against 2/380 for every other
+  host (p = 1.7e-07) and against its own ext4 twin's 0/90 (p = 3.4e-05).
+  Forty-fold. The software stack was already audited byte-identical, so the
+  difference is BELOW what that audit could see -- firmware, NUMA layout, VMware
+  host placement, disk backing, CPU stepping.
+- THE SIZE THRESHOLD IS REAL. On test6, same host and same night, full 7/30
+  against 0/54 for the reduced arms, p = 4.5e-04. Fifty-four consecutive
+  reduced-size runs with zero wedges on the box that wedges 23% of the time at
+  full size. test6's arms narrow to full / full-75 / full-50 to bracket it;
+  full-25 retires, having answered 0/27.
+- *** THE WORKER DOES NOT DIE. IT EXITS(1). *** Confirmed on two independent
+  wedges: bpftrace recorded raw_exit_code=256 -- (1<<8)|0, EXIT STATUS 1, NO
+  SIGNAL -- once per thread, with ZERO fatal signals beforehand, no core, no
+  OOM, and no PYTHONFAULTHANDLER traceback. The only SIGKILL either worker
+  received came from `sender=bash` FOURTEEN MINUTES LATER: the hunt's own
+  cleanup on a process already a zombie. Do not misread that as the cause.
+- THAT EXPLAINS EVERY PREVIOUSLY-MYSTERIOUS SYMPTOM: no traceback because
+  faulthandler only fires on fatal signals; no core because there was no signal;
+  "Not properly terminated" because that is xdist's text for a channel closed
+  with NO ERROR ATTACHED, which is exactly what a clean exit produces; and the
+  livelock because the master never sees a crash to report, so `_active_nodes`
+  never empties and loop_once spins on a 2s queue.get forever.
+- ALL FIVE WEDGES stopped at line 224 at [ 99%] on five DIFFERENT workers
+  (gw42/gw28/gw40/gw32/gw23) across two commits, master always at
+  `loop_once (xdist/dsession.py:154)` holding exactly one unreaped zombie.
+- SO THE QUESTION IS NOW: WHAT CALLS exit(1) INSIDE A PYTEST WORKER DURING THE
+  DRAIN PHASE? Exit status 1 is pytest's own "tests failed" code -- a lead, not
+  an answer. An exit tracer is installed fleet-wide and dumps the caller's
+  stack. IT IS INSTALLED VIA A .pth, NOT sitecustomize.py: Ubuntu ships its own
+  /usr/lib/python3.12/sitecustomize.py which SHADOWS a venv one, so the first
+  attempt installed cleanly and never loaded -- caught only by forcing an exit
+  and finding no log. It covers os._exit and sys.exit but NOT a bare
+  `raise SystemExit(1)`, which CPython handles without consulting
+  sys.excepthook. If the next wedge produces no trace, that absence is the
+  finding.
+
 ## v3.66.1122 - is there a SIZE THRESHOLD? (backlog 102)
 
 - test6 stops running the tmpfs control and starts a threshold search: `full`
