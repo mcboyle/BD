@@ -4,6 +4,45 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1137 - the session close for eight cuts, and six claims of mine that were wrong
+
+Doc-only. SESSION_CARRY 15.97, recording the 2026-08-14 evening session at
+a910a71: eight cuts (1129-1136), backlog rows 144, 146 and 147 all CLOSED, and
+the fleet deployed and captured 6/6 at one commit.
+
+THE RESULT. Row 144(a) and 15.96 both concluded that only a full 48-way suite
+could push test_a_site_with_no_declared_wall_is_untouched past 240s. That was
+false. It reproduces STANDALONE in ~10 minutes using the variable row 144 named
+as speculation and nobody had run: concurrent chromium startup. 4/26 at n=48
+across two hosts, bimodal at 28.5s versus 568-571s with nothing between, and the
+losing cost deterministic to within 2.77 seconds. The mechanism is a
+navigation-commit race that submit.py's own comment predicted. The reproducer is
+tracked at toolchain/bin/bd-chromium-race.
+
+WHY THE MISTAKES ARE IN THE RECORD. Six stated claims of mine were wrong and
+retracted, and five were small-n or wrong-predicate: declaring the chromium
+hypothesis refuted from 12 samples on ONE host while the other reproduced it;
+reading that as a host difference; calling the losing cost fixed on the strength
+of a sample I had KILLED; inventing two submit paths with different costs;
+asserting _submit_login writes no diagnostics from a grep for `login: ` when its
+prefix is `login submit: `; and stating the hunt's read-the-test step was never
+done when it was, inferred from silence, which is row 147's exact error
+committed about the investigation that found row 147. The pattern is more useful
+to the next session than any one conclusion.
+
+TWO REGRESSIONS I CAUSED AND FIXED, both recorded: an rsync'd work-in-progress
+checks.py left a local modification that deploy.sh correctly REFUSED to discard
+(at step 3, before the service stop, so nothing was harmed); and copying
+sites_config.json to four hosts carried a host-local download_dir that only
+existed on two, failing the selftest on four until `mkdir ~/d`.
+
+WHAT THE CLOSE LEAVES MEASURED RATHER THAN GUESSED: row 104's leakers quantified
+(~4,658 /tmp/tmp* dirs per host, HALF of them empty, from 620 bare mkdtemp call
+sites; a 5.8GB abandoned bdmut_ workspace; bd-gc seeing ~18% of the litter); row
+117 already done at @1114 and still marked OPEN; L6 needing a real login per
+host; L13 undiagnosed on five of six hosts; and the copied cookie jar aging out
+fleet-wide on a known date around 2026-08-28.
+
 ## v3.66.1136 - bd-run's retention bound and the check asserting it had two definitions
 
 Caught by the box, on a gate that had nothing to do with the tree. A six-host

@@ -5214,6 +5214,142 @@ never `export` in a shell the suite is later launched from.
   row seen in 1 of 6 captures. Re-capture before trusting it.
 
 
+### 15.97 | SESSION CLOSE 2026-08-14 at a910a71 (v3.66.1136) -- eight cuts, backlog rows 144/146/147 all CLOSED, and row 144(a) reproduces standalone in ten minutes
+
+Close at `a910a71`, already on `main` when this was written (the @939 trap: a
+section naming its own branch tip goes red on `main` after the squash).
+
+    against version      3.66.1136
+    against origin/main  a910a71
+    fleet                all SIX at a910a71/3.66.1136, tree AND serving
+    captures             6/6 taken at a910a71; unit 15942 pass/0 fail/0 error
+                         on every host
+    hunt                 STILL PAUSED. Not resumed this session.
+
+ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
+OPEN:   31
+
+Unchanged from 15.96: this session worked the BACKLOG, a different namespace
+from the ITEM LEDGER, and closed no ledger item.
+
+WHAT TO DO FIRST IN A NEW SESSION. Read backlog rows 104 and 141, then this.
+Rows 144-147 are ALL CLOSED and need no further work; do not re-open them.
+
+THE RESULT THAT MATTERS. Row 144(a) asked why
+`test_a_site_with_no_declared_wall_is_untouched` crosses 240s in the full suite.
+Row 144 AND 15.96 both concluded only a full 48-way suite could reach it, after
+three probe rounds and a whole-file arm came back negative. THAT WAS FALSE. It
+reproduces STANDALONE, one test, ~10 minutes, using the variable row 144 named
+as speculation and nobody had run: CONCURRENT CHROMIUM STARTUP.
+
+    26 samples at 48 browser-launching processes, test6 AND test3
+    reproduced     4/26 = 15%
+    fast branch    median 28.5s (range 27.5-30.4, n=22)
+    slow branch    568.27  568.34  568.44  571.04
+    ratio          20x, NOTHING in between
+
+BIMODAL, and the losing cost is deterministic: four reproductions on two hosts
+spanning 2.77 SECONDS across two different submit paths, so the path does not
+set the cost. `filled=2 early=1` on EVERY reproduction -- the test does two
+logins and exactly one loses the race, never both and never neither. The
+mechanism is a NAVIGATION-COMMIT race: `do_login` checks whether `page.url`
+reached success_url, the navigation has not committed under browser-startup
+pressure, and because this test declares no wall it skips the interstitial
+branch and falls into `_submit_login`'s flail. `submit.py`'s own comment at that
+site predicted it. That is why CPU spinners never reproduced it and why merely
+HAVING browsers resident does not either -- 22 of the 26 samples ran with
+114-190 browsers up and still took the early return.
+
+THE REPRODUCER IS TRACKED at `toolchain/bin/bd-chromium-race`, gated by
+`tests/test_v3_66_1133_the_chromium_race_reproducer.py`. It prints five blind
+spots per run and its `--selftest` resolves all three of its markers against
+`submit.py` -- because a probe grepping for a string the source does not contain
+reports 0 forever, which is what cost the 2026-08-14 session two probe rounds.
+
+EIGHT CUTS, 1129-1136:
+
+    1129  host count 4 -> 6; row 144 reframed; two more "five hosts" corrected
+    1130  capture.sh could not see its own wedge (-q dropped, PYTHONUNBUFFERED)
+    1131  CI shard count 5 -> 10; row 144's call chain recovered from transcript
+    1132  backlog 146 CLOSED -- the hunt reaps what it abandons
+    1133  backlog 144(a) CLOSED -- the standalone reproducer
+    1134  backlog 147 CLOSED -- the audit, answer largely negative
+    1135  AI-free hosts are a supported deployment, not two warnings
+    1136  bd-run's retention bound and its assertion had two definitions
+
+ROW 146 WAS CLOSED BY CONTRADICTING IT. Its diagnosis blamed the wedge path for
+not unwinding on SIGINT; that path was the ONE already correct (it escalates to
+a group kill -9). The orphans came from four OTHER branches, chiefly an
+interrupt that set STOP and returned while the host threads were daemon=True --
+so the run was never killed AND its row never written, which is why rows.jsonl
+held ZERO abandoned rows.
+
+ROW 147's AUDIT CAME BACK LARGELY NEGATIVE, and that is recorded in full so
+nobody runs it again. Of 18 preserved `node down` logs, 16 are doubly blind, ONE
+is singly blind (`test6-full-000-151223.log` ran under -v and STILL ends
+mid-line -- the concrete proof both @1126 fixes were necessary), and one is
+fully visible. No surviving claim rests on the absence of `replacing crashed
+worker`; the only one that did was retracted during the investigation.
+
+MISTAKES MADE THIS SESSION, recorded because the pattern is the lesson. SIX
+stated claims were wrong and retracted, and FIVE of the six were small-n or
+wrong-predicate:
+
+  * "the chromium hypothesis is refuted" -- from 12 samples on ONE host while
+    the other host was reproducing it. Concluding from one host, again.
+  * "test6 differs from test3" -- sample size. Both hosts reproduce.
+  * "the losing cost is a fixed 570s" -- retracted on the strength of a sample
+    I had KILLED, then restored by n=4. An observation destroyed before it
+    completed is not a data point, and it shaped three separate claims.
+  * "there are two submit paths with different costs" -- the 568.34s sample took
+    the supposedly-slow path.
+  * "`_submit_login` writes no diagnostics at all" -- from grepping its body for
+    `login: ` with a space after the colon. Its prefix is `login submit: ` and
+    there are SIX. The identical wrong-prefix failure this file already records,
+    re-made while documenting it.
+  * "the hunt's own read-the-test step was never done" -- inferred from its
+    absence in the handoff. It WAS done, 14:56-14:58 on 2026-08-14. That is row
+    147's exact error, committed about the investigation that found row 147.
+
+TWO REGRESSIONS I CAUSED AND FIXED. `rsync`ing a work-in-progress `checks.py` to
+test3 for a live proof left a local modification, and `deploy.sh` correctly
+REFUSED to discard it -- at step 3, before the service stop, so nothing was
+harmed. And copying `sites_config.json` from test5 to four hosts carried
+`download_dir = /home/mboyle/d`, a host-local path present only on test5/test4;
+the selftest then failed on four hosts. `mkdir ~/d` fixed it. I verified the
+config was gitignored and that its cookie_file resolved, and did NOT verify that
+its OTHER paths resolved on the destination.
+
+FLEET STATE. All six deployed and verified at a910a71. 831 stale bd-jobs
+registry entries reaped (all six now 0). /tmp swept 53,255 -> 40,800 entries. 19
+capture bundles saved to `~/captures-1134/` on every host and gzip-verified.
+ZERO zombie processes -- there never were any; what looked like zombies was
+`bd-jobs list` reporting DEAD registry files.
+
+WHAT IS STILL OPEN AND MEASURED, not guessed:
+
+  * ROW 104's leakers are now quantified. Per host: ~4,658 `/tmp/tmp*` dirs of
+    which HALF (2,343) are completely EMPTY, from 620 bare `mkdtemp` call sites
+    across 236 test files -- the create-eagerly-consume-conditionally shape
+    section 0 records from @1035. Plus a 5.8GB abandoned `bdmut_` workspace on
+    test4. `bd-gc` cannot see any of it: its prefixes are `/tmp/bd-` and
+    `/tmp/pytest-of-` only, which is ~18% of the litter, and BD's own
+    `bd_capture-`/`bdpb_`/`bdrt_` families use an underscore that the `bd-`
+    prefix misses.
+  * ROW 117 IS ALREADY DONE and still marked OPEN -- `bd-wedge-hunt` was tracked
+    at @1114. Section 1's rule, live.
+  * L6 warns on the four copied hosts: it wants a HEALTHY SESSION record, which
+    lives in the database and needs a real login per host. Left warning honestly
+    rather than faked.
+  * L13 `library-extractor-fast-path` warns on five of six hosts including
+    test5; only test4 passes. UNDIAGNOSED and unrelated to anything changed here.
+  * THE COOKIE JAR AGES OUT ON A KNOWN DATE. It was 16 days old on 2026-08-14
+    against L9's 30-day bound, and all five copies share one mtime, so L9 goes
+    WARN fleet-wide at once around 2026-08-28. Scheduled, not a surprise.
+  * NOTHING CREATES `~/d`. Not `provision_test_host.sh`, not `install_linux.sh`.
+    Any fresh host given a real site config fails the selftest the same way, and
+    the failure names a path rather than the cause.
+
 ### 15.96 | SESSION CLOSE 2026-08-14 at 5b2c3a3 (v3.66.1127) -- a 19h wedge hunt ends, row 102's successor SPLITS, and the instrument was blind twice
 
 Close at `5b2c3a3`, already on `main` when this was written (the @939 trap: a
