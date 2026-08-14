@@ -4,6 +4,59 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1134 - row 147's audit is done and its answer is that nothing was left to doubt
+
+Doc-only. Backlog 147 CLOSED, which completes rows 144-147: all four of the
+wedge hunt's open questions are now shut.
+
+WHAT ROW 147 ASKED FOR: an audit of which prior rows and SESSION_CARRY sections
+cite an absent xdist diagnostic, so a later reader inherits the doubt rather
+than the claim. THE ANSWER IS LARGELY NEGATIVE and is recorded in full
+precisely so nobody runs it again -- a negative result nobody wrote down is a
+negative result somebody repeats.
+
+PART 1, THE LOGS. All 18 preserved logs containing `node down`:
+
+    16   doubly blind   -q AND ending MID-LINE: neither written nor flushed
+     1   singly blind   test6-full-000-151223.log -- ran under -v, so the line
+                        WOULD have been written, and the log still ends
+                        mid-line. The concrete proof that dropping -q alone is
+                        insufficient and that @1126's two fixes were each
+                        necessary.
+     1   fully visible  test2-full-005-160601.log -- -v, ends clean, replace
+                        line present.
+
+ALSO MEASURED: of the 16 rows marked `wedged`, ZERO lack `node down`. The
+SYMPTOM was never suppressed, only the RESPONSE -- exactly what the guard on
+`report_line` predicts, since `pytest_testnodedown` writes unguarded. And the
+18-vs-16 gap is not a discrepancy: two of those logs are phase-1 runs with no
+row in phase 2's rows.jsonl, so the register's "16 wedges" was right.
+
+PART 2, THE CLAIM SITES. Four backlog rows and six SESSION_CARRY locations cite
+an xdist diagnostic. Rows 3 and 145 and every carry citation name `node down`,
+which always appeared, so none rests on a suppressed message.
+
+ROW 102 IS THE ONLY ONE THAT REASONS FROM ABSENCES -- "no traceback, no
+INTERNALERROR, no FAILED line, ZERO OOM, no core dump, no fatal signal" -- and
+it survives for a reason worth keeping: those absences come from bd-deepwatch,
+coredumpctl and PYTHONFAULTHANDLER, instruments OUTSIDE the pytest log and
+unaffected by -q or by stdio buffering. Its one log-sourced absence ("no FAILED
+line") IS potentially artefactual on a truncated log, but the row's conclusion
+was independently confirmed by the exit tracer catching pytest_timeout.py:542
+calling os._exit(1), and superseded at @1124.
+
+SO NO SURVIVING CLAIM RESTS ON THE ABSENCE OF `replacing crashed worker`. The
+one that did -- "worker_errordown never ran" -- was stated, retracted, restated
+and retracted again DURING the investigation, and is already recorded as
+retracted. The doubt this row existed to propagate has nothing left to attach
+to, and that is the finding rather than a disappointment.
+
+A NOTE ON METHOD, because it cost a hung command: the first attempt to scan
+those rows used `grep -oE` with nested `.{0,160}` quantifiers against a single
+4KB register line and backtracked until it was killed. The rows in this file
+are one enormous line each; scan them with a parser, not a regex with variable
+context windows.
+
 ## v3.66.1133 - row 144(a) reproduces standalone in minutes, and the 19h hunt was never required
 
 Backlog 144(a), ANSWERED and reproduced on demand. Row 144 and SESSION_CARRY
