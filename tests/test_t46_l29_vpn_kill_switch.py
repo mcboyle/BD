@@ -43,7 +43,12 @@ class _ServiceStateContext(_StubContext):
         assert path == "/api/vpn/kill_switch/state"
         return True, 200, {
             "ok": True,
-            "states": [{"tunnel_id": "service-tun", "killed": True}],
+            # `state`, not `killed`. These fixtures carried a `killed` key that
+            # KillState.to_dict() has never emitted, so they exercised a
+            # contract nothing produces and passed while the check under test
+            # could not fail at all -- backlog row 111, corrected v3.66.1115.
+            "states": [{"tunnel_id": "service-tun", "state": "killed",
+                        "killed_at": 1.0, "reason": "leak"}],
             "auto_recover": False,
         }, 1.0
 
@@ -112,7 +117,8 @@ def test_l29_pass_when_no_kill_states():
 def test_l29_pass_with_inactive_states():
     """States may exist (history) without any being currently active."""
     with _patch_kill_switch(
-            list_states=[{"tunnel_id": "t1", "killed": False}],
+            list_states=[{"tunnel_id": "t1", "state": "cleared",
+                          "killed_at": 1.0, "reason": "leak"}],
             auto_recover=True):
         level, detail = _get_test("L29").fn(_StubContext())
     assert level == h.PASS
@@ -130,7 +136,8 @@ def test_l29_pass_reports_auto_recover_setting():
 
 def test_l29_fail_when_active_kill_state():
     with _patch_kill_switch(
-            list_states=[{"tunnel_id": "tun1", "killed": True}],
+            list_states=[{"tunnel_id": "tun1", "state": "killed",
+                          "killed_at": 1.0, "reason": "leak"}],
             auto_recover=True):
         level, detail = _get_test("L29").fn(_StubContext())
     assert level == h.FAIL
