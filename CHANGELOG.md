@@ -4,6 +4,62 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1135 - a deliberately AI-free host is a supported deployment, not two warnings
+
+Found by reading a full six-host capture round at v3.66.1134 rather than by
+looking for it. Three hosts have no GPU -- test7's card was physically removed,
+test3 and test2 were provisioned without one -- so ollama is inactive and
+/api/ai/status reports enabled:false. For that ONE state the live suite gave
+three different answers:
+
+    L17  ollama-reachable        PASS   "Ollama not required for this deployment"
+    L18  vision-call-roundtrip   WARN   "AI assist disabled by config"
+    L19  ai-text-call-roundtrip  WARN   "AI assist disabled by config"
+
+L17 was right. The asymmetry put TWO PERMANENT WARNS on every GPU-less host,
+which is precisely how a real AI regression there becomes unreadable: an
+operator who sees the same seven warns every run stops reading them, and the two
+that would matter are indistinguishable from the five that never will.
+
+WHY NOT INSTALL OLLAMA INSTEAD, which would have been the literal reading of
+"make them like test4". The hardware is gone (`lspci | grep -ci nvidia` is 0 on
+all three), so it would be CPU inference. And test7 is the ONLY host exercising
+the AI-disabled configuration BD explicitly supports -- install_ai_ollama.sh's
+own header says it is "Separate from install_linux.sh on purpose: the core app
+runs fine without AI; this is opt-in". Installing it for uniformity would retire
+the only coverage of a supported path: section 0's blind-gate shape, at fleet
+scale.
+
+THE DISTINCTION THE FIX PRESERVES, and why it is two branches rather than one:
+
+    enabled=False            -> the operator turned AI off       -> PASS
+    enabled=True, ok=False   -> AI is on and the backend is down  -> WARN
+
+Collapsing those would silence a genuine outage -- the same defect pointing the
+other way -- so the over-sensitive direction is asserted in the same file as the
+fix, and it was already GREEN before the fix, which is what proves the change is
+narrow.
+
+THE DOCSTRINGS WERE STALE THE MOMENT THE CODE CHANGED, and an AST sweep for
+"WARN ... disabled by config" caught them: L18 still said "WARN when AI is off"
+and L19 still listed "WARN: AI disabled by config". A check whose docstring
+contradicts its own return value is how the next reader learns the wrong
+contract, so both now state the PASS case first.
+
+MEASURED: RED first at 1 failed / 4 passed -- the failing one being the fix and
+the over-sensitivity control already green. GREEN at 5 passed. Then proven LIVE
+on test3, a real GPU-less host, where L17/L18/L19 now return 3 pass | 0 warn |
+0 fail against 1 pass | 2 warn before.
+
+FLEET SIDE, done out of band and recorded here because it explains the other
+warns in the same round: sites_config.json and its cookie jar were copied from
+test5 to test6/test7/test3/test2, which were carrying a 2-byte empty config.
+L8 and L9 go WARN -> PASS on those hosts (verified on test3). L6 does NOT --
+it wants a healthy session record, which lives in the database and needs a real
+login per host, so it is left warning honestly rather than faked. The jar is
+16 days old against L9's 30-day bound, so all five copies age out together in
+about two weeks; that is a scheduled cliff, not a fix.
+
 ## v3.66.1134 - row 147's audit is done and its answer is that nothing was left to doubt
 
 Doc-only. Backlog 147 CLOSED, which completes rows 144-147: all four of the
