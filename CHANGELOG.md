@@ -4,6 +4,70 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1113 - the tracker consolidation: 38 rows filed, 4 corrected
+
+- doc-only. The backlog becomes the single file for open TASKS. Filed at the
+  operator's direction from a seven-agent audit across 184 design/spec docs, 100
+  backlog rows, 28 historical ledger sections, 11 plan files and ci.yml.
+- ROWS 105-142 ADDED, 143 ADDED, and every claim RE-VERIFIED at f0c5667 before
+  filing rather than taken from the audit. That mattered: one finding DID NOT
+  REPRODUCE and is filed as MOOT with its evidence (row 116) instead of as a
+  defect. `apply_path_exists()` returns False for six of six kinds, which is
+  exactly what `docs/eligibility_governance.md:26` says -- the auditing agent
+  had imported the apply modules it was inspecting, registering their reversers
+  as a side effect, and then measured a registry its own probe had filled.
+  Section 0 inverted: the subject moved under the instrument.
+- THE CAUSE, and the cheapest fix on the list (row 105): NEITHER TRACKER GATE
+  RUNS IN CI. `test_register_promises_resolve` and
+  `test_v3_66_1052_the_backlog_is_machine_visible` appear 0 times in ci.yml, 0
+  times in `_DECLARED`, and BOTH sit in the frozen gate_scope_baseline. Section
+  7's own rule -- a gate CI does not run is a gate that does not exist --
+  violated on the two gates that guard the registers.
+- AND THE FRESHNESS GATES CANNOT SEE WHERE TASKS HIDE (row 106): bd-freshcheck's
+  `_DOCS` is 2 files; bd-doc-truth globs `project-knowledge/*.md`
+  NON-RECURSIVELY. Measured: 111 tracked `docs/**.md` and 5 tracked
+  `pending-specs/*.md` sit outside both -- the pending-specs by ONE directory
+  level, which is why a directory whose every file says DELETE THIS FILE when
+  its item ships sat four-fifths shipped for 260 releases.
+- TWO LIVE CHECKS THAT CANNOT FAIL, both verified against their producers.
+  L13's eligibility predicate ORs in `m.get("library")`, the library NAME
+  string, so it is constant-true and the one fact the check exists to establish
+  is the one it cannot observe (row 110). L29 filters kill states on
+  `s.get("killed")` while `KillState.to_dict()` is `asdict()` over a dataclass
+  whose field is `state` -- so it returns PASS on a genuinely killed tunnel, and
+  its own test FABRICATES the missing key (row 111).
+- FOUR EXISTING ROWS CORRECTED. 28 REOPENED as a false closure -- it was marked
+  CLOSED @1055 for a cut that shipped bd-modwatch, a sys.modules TABLE watcher,
+  when the row asks for a FILESYSTEM WRITE recorder that exists nowhere in 254
+  tools. 90 qualified PARTIAL: its cap is `bd-run --max-seconds` and
+  `grep -c bd-run capture.sh` is 0, which is why @1111 needed a second
+  independent cap. 102 and 104 absorb this session's residue, which lived only
+  in a SESSION_CARRY close section that the next close supersedes wholesale --
+  prose that would have been dropped rather than deferred.
+- 104's OWN POPULATION WAS UNDERSTATED, found by reading the source rather than
+  the row: `_tmproot.finish()` returns without removing whenever
+  `exitstatus != 0`, deliberately, per @1080. So the leak is not "killed runs",
+  it is EVERY run that did not exit zero -- which changes the fix, because some
+  of those roots are the artifacts of a failure someone still wants. Row 132.
+- THE ITEM LEDGER IS DELIBERATELY NOT MERGED, and this is measured rather than
+  aesthetic: if the ledger block leaves SESSION_CARRY's newest close, `_ledger()`
+  returns None and ELEVEN of the FIFTEEN live assertions in
+  test_register_promises_resolve fail or GO VACUOUS -- direction A degrades to
+  vacuous because it `continue`s on a None ledger. Renumbering the inventory
+  would also break direction A across 28 historical close sections whose
+  docstring says rewriting them destroys the record. The ledger's eight sub-rows
+  get backlog ids (119-126) and its two unmade operator decisions get rows
+  (127-128); retiring item 31 itself is filed as row 142 with the sequence it
+  requires.
+- FOUR IDS HAVE NEVER EXISTED. 15, 40, 41 and 42 are absent from the birth
+  commit 7a8a5a2 and their content is unrecoverable; the pre-tracking source
+  called itself "77 items" while listing 73. Recorded in the file so a
+  non-contiguous table stops reading as damage.
+- ROW 116 IS FILED MOOT RATHER THAN DELETED because the failure mode is
+  reusable, and rows 134-140 are filed OPEN at the operator's direction with the
+  evidence for mooting attached, so the decision costs one read rather than a
+  re-audit.
+
 ## v3.66.1112 - SESSION_CARRY 15.95, the close for v3.66.1108 - v3.66.1111
 
 - doc-only: SESSION_CARRY 15.95, the close for four cuts. Named at 283588d,
