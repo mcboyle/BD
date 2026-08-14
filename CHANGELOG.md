@@ -4,6 +4,38 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1116 - the two gates that guard the registers now run in CI (backlog 105)
+
+- MEASURED at f0c5667 and again before this cut: `test_register_promises_resolve`
+  and `test_v3_66_1052_the_backlog_is_machine_visible` appeared ZERO times in
+  `.github/workflows/ci.yml`, ZERO times in `_DECLARED`, and BOTH sat in the
+  frozen `tests/gate_scope_baseline.txt`. Section 7's rule is that a gate CI does
+  not run is a gate that does not exist -- and the register is the one subject
+  where that failure is invisible, because a stale register still READS fine.
+- THE COST IS ALREADY ON THE RECORD. The 2026-08-13 audit that found this also
+  found what it let through: row 28 marked CLOSED for a cut that shipped a
+  DIFFERENT tool, row 90 closed without the PARTIAL its own text needed, and
+  four ids (15, 40, 41, 42) that have never existed in any commit. Half of that
+  is section 1's own statistic -- roughly half a stale register's entries turn
+  out to be closed or mis-scoped -- landing on the registers built to prevent it.
+- THE POLICY'S OWN GATE PROVIDED THE RED, which is the part worth keeping.
+  Adding `BD_GATE_SCOPE = "repo-wide"` to the two files made
+  test_v3_66_939_ci_gate_shards_cover_every_gate fail TWICE, naming both files,
+  from two independent directions: declared-but-absent-from-`_DECLARED`, and
+  both-baselined-and-declaring-a-scope. That is @1072's mechanism working as
+  designed -- forgetting is RED rather than silent -- and it is the same shape
+  @1080 recorded when the policy caught its own author one cut later.
+- Both now run in the `toolchain` shard beside `test_toolchain_534.py`, which is
+  bd-freshcheck's own suite and the same family of subject: checks whose
+  denominator is a document rather than a module.
+- RE-MEASURED AFTER, rather than assumed: ci.yml names them 2 times (was 0), the
+  frozen baseline names them 0 times (was 2), and the baseline went 1329 -> 1327
+  entries. It may only shrink, and it shrank.
+- NOT COVERED, and it is the same gap row 106 records: these two gates read the
+  two REGISTERS. A CI job that runs them still cannot see the 111 tracked
+  `docs/**.md` and 5 `project-knowledge/pending-specs/*.md` that sit outside both
+  freshness gates -- the pending-specs by exactly one directory level.
+
 ## v3.66.1115 - two live checks that could not fail now can (backlog 110, 111)
 
 - Both were found by the 2026-08-13 tracker audit, both were VERIFIED against

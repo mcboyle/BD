@@ -263,6 +263,8 @@ jobs:
           - name: toolchain
             suites: >-
               tests/test_toolchain_534.py
+              tests/test_register_promises_resolve.py
+              tests/test_v3_66_1052_the_backlog_is_machine_visible.py
           - name: parity-graph
             suites: >-
               tests/test_gui_parity.py
