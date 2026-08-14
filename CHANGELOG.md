@@ -4,6 +4,48 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1129 - the host count went stale a second time, and row 144 named the wrong refutation
+
+Doc-only. Corrections to claims a session reads BEFORE it can measure anything,
+none of them visible to any gate.
+
+CLAUDE.md's front matter said FOUR headless hosts from 2026-08-12 to
+2026-08-14 while the fleet ran on SIX. test3 (10.0.70.80, xfs) and test2
+(10.0.70.95, ext4) were provisioned from bare metal on 2026-08-14 and have been
+carrying hunt arms since; test2 exists specifically to separate "ext4 causes the
+wedge" from "test6 is a weird box that is ext4", and it did (ext4 refuted). All
+six machine-ids re-measured 2026-08-14 and written into the roster; the four
+pre-existing ones were unchanged.
+
+THE CUT THAT SHOULD HAVE CAUGHT IT WAS TITLED FOR IT. v3.66.1128 was "a host
+list that existed nowhere tracked" -- it added docs/repo/hosts.example, wrote a
+five-host figure into SESSION_CARRY 15.96, and never touched the paragraph that
+said four. Nothing gates the claim: bd-freshcheck resolves cited PATHS, and a
+host count cites none. It was corrected because the operator said "It is 6" out
+loud, which is the only instrument that has ever caught this sentence.
+
+BACKLOG ROW 144 SAID "THE OBVIOUS EXPLANATION IS REFUTED" AND OVERSTATED ITS OWN
+MEASUREMENT, in the direction that sends the next session at a multi-hour fleet
+experiment. What 22/22 standalone runs refuted is CPU CONTENTION as the trigger.
+The BRANCH is confirmed by the same row's preserved stack, which sits in
+page.locator(sel).first.press("Enter") -- inside _submit_login, not the early
+return that those 22 runs all took. So under the full suite the test DOES enter
+that branch, and the open question is WHAT puts it there rather than WHETHER it
+goes there. The row now says so, and points at the symbol rather than a line
+number.
+
+TWO MORE INSTANCES OF THE SAME WRONG COUNT, fixed in the same cut rather than
+left two files away: SESSION_CARRY 15.96 and backlog row 147 both said the
+evidence archive was "replicated to all five hosts". It is on SIX -- re-measured
+byte-identical (48009738) on every host including test5, and the tarball was
+gzip- and tar-verified readable end to end rather than merely listed, which is
+the restore test CLAUDE.md section 7 demands of a bundle and which had not been
+applied to this archive. 15.96's OTHER "five hosts" is CORRECT and was clarified
+rather than changed: the hunt ran five TARGET hosts, with test5 running the hunt
+and never serving as an arm. That ambiguity is how the count drifted.
+
+No source change. The version bump and pin move with it because every cut does.
+
 ## v3.66.1128 - the session close, and a host list that existed nowhere tracked
 
 Doc-only, and the persistence half of the wedge hunt's close.
