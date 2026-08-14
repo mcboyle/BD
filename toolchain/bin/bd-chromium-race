@@ -1,0 +1,428 @@
+#!/usr/bin/env python3
+"""bd-chromium-race -- reproduce backlog row 144(a) standalone, in minutes.
+
+WHAT IT IS FOR, AND WHY IT EXISTS AT ALL. Row 144 asks why
+test_a_site_with_no_declared_wall_is_untouched crosses 240s in the full 48-way
+suite when it takes 28-36s alone. Every cheap probe had failed: 22/22 standalone
+runs took do_login's early return including under +36 CPU spinners at load ~25,
+and a whole-file arm was 6/6 the same. SESSION_CARRY 15.96 and row 144 both
+concluded that only the full suite could reach it, and the ~19h overnight hunt
+was the only instrument anyone had.
+
+THAT CONCLUSION IS FALSE, AND THIS TOOL IS THE COUNTEREXAMPLE. Reproduced
+2026-08-14 at d734dd5 on test3: with 48 background processes each launching and
+closing a real chromium in a tight loop (186 browsers resident), the target test
+took 568.4 SECONDS against a 27.0s baseline -- a 21x blowup, standalone, on one
+test, in 9.5 minutes.
+
+THE MECHANISM, READ OFF THE REPRODUCTION'S OWN LOG. do_login fills the form and
+then checks whether page.url has reached success_url. Under browser-startup
+pressure the navigation has not COMMITTED when that check runs, so the early
+return does not fire; and because this test is the NO-DECLARED-WALL case it
+skips the interstitial branch entirely and falls straight into _submit_login's
+selector flail. submit.py's own comment at that site says so in advance --
+"_submit_login below then flails its whole selector list against a page that can
+never satisfy it. Measured on pristine source: a stall, not a clean failure."
+
+    login: filled password via [input[type=password]]
+    login: page already at success URL after fill (...)   <- 1st login, early return
+    login: filled password via [input[type=password]]
+                                                          <- 2nd login, NO early return
+    login submit: Enter on password -> skip               <- inside _submit_login
+    AssertionError: Submit failed: no submit method produced navigation
+    1 failed in 569.09s
+
+IT IS A NAVIGATION-COMMIT RACE, NOT CONTENTION FOR A RESOURCE. That is why CPU
+spinners never reproduced it and why merely HAVING many browsers resident does
+not either: what does it is many processes LAUNCHING browsers at once. Any
+future arm should vary that, not load.
+
+WHY IT MATTERS DOWNSTREAM. 568s is past the 240s ceiling the sanctioned
+whole-suite form sets, so in a real suite pytest-timeout fires, its timer thread
+calls os._exit(1), and row 145's drain livelock follows. This tool therefore
+reproduces the FIRST link of the full wedge chain on demand, instead of waiting
+~80 minutes for a wedge to happen.
+
+WHAT THIS VARIES. N background processes each launching and closing a real
+chromium in a tight loop, so the contention is on browser STARTUP rather than on
+CPU. Everything else is held: same host, same commit, same test, same idle
+baseline between samples.
+
+INSTRUMENTATION LESSONS THIS SCRIPT IS BUILT AROUND -- all three cost the
+2026-08-14 session a probe round each, and all three were columns that could not
+see their subject:
+
+  1. pytest CAPTURES stdout/stderr for PASSING tests, so the `login:`
+     diagnostics never reach the log. --capture=no is mandatory, and it is the
+     reason rounds 1 and 2 reported `early=0` for runs that took the early
+     return every time.
+  2. The marker is `login: page already at success URL after fill`. A probe
+     grepped for "auto-submitted on fill", which does not exist, and reported 0
+     twice.
+  3. The marker is written to STDERR, not stdout. Merge them or it is invisible.
+
+AND THE PRECONDITION RULE. Before any verdict, this asserts the arm actually
+built the shape: that N launchers are alive AND that chromium processes are
+really on the box. Without that, "no slowdown at N=48" and "the launchers never
+started" are the same green -- CLAUDE.md section 6.
+
+NEVER FILTER AT CAPTURE TIME: each run's full log is written whole and parsed
+afterwards.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import pathlib
+import re
+import subprocess
+import sys
+import time
+
+REPO = pathlib.Path.home() / "BulkDownloader"
+PY = REPO / "venv" / "bin" / "python"
+TARGET_FILE = "tests/test_v3_66_1020_residues.py"
+TARGET_TEST = "test_a_site_with_no_declared_wall_is_untouched"
+
+# THREE MARKERS, AND THE THIRD WAS ALMOST MISSED THE SAME WAY THE LAST TWO
+# PROBES WERE. A first draft of this tool asserted that `_submit_login` "writes
+# no diagnostics at all", having grepped its body for `login: ` -- with a space
+# after the colon. The walk's prefix is `login submit: `, so the grep could not
+# match it, and the conclusion drawn was that no positive walk marker existed.
+# It does: six of them. That is the identical wrong-prefix failure that cost the
+# 2026-08-14 session two probe rounds, re-made while documenting it, which is
+# why every marker here is now resolved against source by --selftest instead of
+# being asserted from a reading.
+#
+# FILLED is the denominator (always reached; proves the run got that far).
+# EARLY is the early-return numerator. WALK is a POSITIVE observation of the
+# selector flail -- strictly better than inferring the walk from the absence of
+# EARLY, which would be row 147's error (silence read as a finding).
+#
+# WHY THE FALL-THROUGH IS THE WHOLE MECHANISM, from submit.py's own comment at
+# the site: "A form that auto-submits on fill can land on the WALL rather than
+# on success_url -- and a wall carries no login form, so the check above does
+# not fire and _submit_login below then flails its whole selector list against
+# a page that can never satisfy it. Measured on pristine source: a stall, not a
+# clean failure." This test is the NO-DECLARED-WALL case, so it skips the
+# interstitial branch entirely and goes straight to the flail. What decides it
+# is whether page.url has COMMITTED the navigation when the check runs -- a
+# timing race, which is why CPU spinners never reproduced it.
+FILLED_MARKER = "login: filled password via"
+EARLY_MARKER = "login: page already at success URL after fill"
+WALK_MARKER = "login submit: attempting"
+
+# Whole-sample wall bound. Generous on purpose: the losing branch is the
+# phenomenon, and a bound that fires on a real reproduction would delete the
+# result it exists to capture -- section 0 counts a gate that fires on correct
+# work as a soundness bug.
+#
+# THREE COMPLETED LOSING BRANCHES, MEASURED: 568.34s, 568.44s, 571.04s -- across
+# TWO HOSTS and TWO DIFFERENT SUBMIT PATHS (the `Enter on password` branch and
+# the `click 59 selectors -> JS requestSubmit -> JS form.submit` branch), which
+# means the path does NOT determine the cost. A fourth sample was observed past
+# 1000s and then KILLED by the operator's session before it completed, so it has
+# no duration and is not evidence of a second mode -- an unexplained
+# observation, recorded as one.
+#
+# The bound exists because that fourth sample would otherwise have crashed the
+# whole arm: subprocess.run's TimeoutExpired propagated, so ONE long sample took
+# every remaining sample with it. The worst possible failure for this tool, since
+# the long samples are the phenomenon -- the run would die exactly when it
+# succeeded. A capped sample is now a THIRD state, never folded into fast or slow.
+SAMPLE_CAP = 1800
+
+# PRINTED ON EVERY RUN, NOT BURIED IN A README. An instrument's wrong answer is
+# inherited by everything downstream of it and arrives wearing the authority of
+# a measurement, so this tool says what it cannot see in the output the reader
+# cannot skip. Two of these were found the hard way, on this tool's own first
+# live arm, by the preconditions below.
+BLIND_SPOTS = (
+    "this reproduces the FIRST link of the wedge chain (a test past 240s), not "
+    "the wedge itself -- no --timeout is passed, so pytest-timeout never fires "
+    "and the drain livelock of row 145 is NOT exercised here",
+    "the launcher loop measures browser STARTUP pressure only; it says nothing "
+    "about memory, fds, or the other things a real 48-worker suite accumulates",
+    "a NEGATIVE run is weak evidence: the rate at n=48 is roughly 1 in 8, so "
+    "'no reproduction in N samples' is a BOUND, not an absence -- 0/3 on one "
+    "host was read as a host difference and as a dead hypothesis, and both "
+    "readings were wrong; BOTH hosts reproduce",
+    "chromium is counted by ps comm substring; playwright reports "
+    "'chrome-headless' on this fleet and an exact-match list counted ZERO while "
+    "62 browsers ran, so a future rename can still under-report it",
+    "target_call_s comes from pytest --durations; a run that dies before the "
+    "call phase reports None rather than a duration",
+)
+
+LAUNCHER = r'''
+import sys, time
+from playwright.sync_api import sync_playwright
+# Launch and close a real chromium in a tight loop. The point is STARTUP
+# pressure, so the browser is closed immediately rather than held open.
+with sync_playwright() as p:
+    while True:
+        try:
+            b = p.chromium.launch(headless=True)
+            b.close()
+        except Exception:
+            time.sleep(0.2)
+'''
+
+
+def chromium_count() -> int:
+    """Count real chromium/headless_shell processes.
+
+    Matches on comm (what the process IS), never on a command line that merely
+    mentions the pattern -- CLAUDE.md section 5's pgrep self-match trap.
+    """
+    # MEASURED, NOT GUESSED. The first version matched comm EXACTLY against
+    # ("chrome", "chromium", "headless_shell", "chrome_crashpad") and counted
+    # ZERO while 62 browsers were running: playwright's headless chromium
+    # reports comm `chrome-headless` on this fleet, which is in none of those.
+    # The precondition assertion caught it on the first live arm -- a blind
+    # column reporting a benign 0, exactly what it exists to prevent. Substring,
+    # so a future rename does not silently zero it again. (CLAUDE.md section 5
+    # already warns that headless=True runs the headless SHELL, not the
+    # chromium build; this is the same distinction wearing a process name.)
+    r = subprocess.run(["ps", "-eo", "comm="], capture_output=True, text=True)
+    return sum(1 for line in r.stdout.splitlines()
+               if "chrome" in line.lower() or "headless" in line.lower())
+
+
+def loadavg() -> list[float]:
+    return [float(x) for x in open("/proc/loadavg").read().split()[:3]]
+
+
+def run_sample(n_launchers: int, whole_file: bool, outdir: pathlib.Path,
+               tag: str) -> dict:
+    launch_script = outdir / "launcher.py"
+    launch_script.write_text(LAUNCHER)
+
+    procs = []
+    env = dict(os.environ)
+    env.pop("BD_INSTALL_DIR", None)          # section 5: never into a pytest run
+    env["BD_DISABLE_KEEPALIVE"] = "1"
+    env["PYTHONUNBUFFERED"] = "1"
+
+    row: dict = {"tag": tag, "n_launchers": n_launchers,
+                 "whole_file": whole_file,
+                 "load_before": loadavg(),
+                 "chromium_before": chromium_count()}
+    try:
+        for _ in range(n_launchers):
+            procs.append(subprocess.Popen(
+                [str(PY), str(launch_script)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=str(REPO)))
+
+        # PRECONDITION 1: the launchers are alive.
+        time.sleep(12)                        # let browsers actually come up
+        alive = sum(1 for p in procs if p.poll() is None)
+        row["launchers_alive"] = alive
+
+        # PRECONDITION 2: real chromium processes exist on the box.
+        peak = 0
+        for _ in range(6):
+            peak = max(peak, chromium_count())
+            time.sleep(0.5)
+        row["chromium_peak_before_test"] = peak
+        row["precondition_ok"] = (alive == n_launchers and
+                                  (n_launchers == 0 or peak > row["chromium_before"]))
+
+        sel = TARGET_FILE if whole_file else f"{TARGET_FILE}::{TARGET_TEST}"
+        log = outdir / f"{tag}.log"
+        # A SAMPLE THAT OVERRUNS IS A RESULT, NOT A CRASH. subprocess.run's
+        # TimeoutExpired propagates, and nothing above catches it -- so a single
+        # long sample would kill the whole arm and take every REMAINING sample
+        # with it. That is the worst possible failure for this tool, because the
+        # long samples ARE the phenomenon: the reproduction is the slow branch,
+        # so the run would die precisely when it succeeded. Measured 2026-08-14:
+        # a reproduction on test3 ran past 900s against this 1800s bound while
+        # two others finished at 568s and 571s, so the losing branch is not a
+        # fixed cost and CAN approach it.
+        #
+        # Recorded as its own state rather than folded into a number: `capped`
+        # is a third answer beside fast and slow, and a capped sample must never
+        # be read as either.
+        t0 = time.time()
+        capped = False
+        try:
+            with open(log, "wb") as fh:
+                rc = subprocess.run(
+                    [str(PY), "-m", "pytest", sel,
+                     "--capture=no", "-p", "no:randomly", "--durations=20", "-v"],
+                    cwd=str(REPO), env=env, stdout=fh, stderr=subprocess.STDOUT,
+                    timeout=SAMPLE_CAP).returncode
+        except subprocess.TimeoutExpired:
+            capped = True
+            rc = None
+            print(f"    SAMPLE CAPPED at {SAMPLE_CAP}s -- recorded, not fatal",
+                  flush=True)
+        wall = time.time() - t0
+        row["capped"] = capped
+
+        # Sample chromium during the run would be better, but the run is
+        # blocking; record the post-run peak of the launchers instead.
+        row.update({"rc": rc, "wall_s": round(wall, 1),
+                    "load_after": loadavg(),
+                    "chromium_after": chromium_count(),
+                    "log": str(log)})
+
+        text = log.read_text(errors="replace")
+        row["filled_hits"] = text.count(FILLED_MARKER)
+        row["early_return_hits"] = text.count(EARLY_MARKER)
+        row["walk_hits"] = text.count(WALK_MARKER)
+        # walk_taken is only meaningful when the run reached the fill at all.
+        # None means "cannot say", which is a third state and not a quiet False.
+        inferred = (None if row["filled_hits"] == 0
+                    else row["filled_hits"] > row["early_return_hits"])
+        row["walk_taken"] = inferred
+        # TWO INDEPENDENT ROUTES TO THE SAME FACT, AND A FLAG WHEN THEY
+        # DISAGREE. `walk_hits` observes the flail directly; `inferred` deduces
+        # it from filled > early. They should always agree, and if they ever do
+        # not, one of the markers has drifted against submit.py and every count
+        # in this row is suspect. Recording the disagreement is the difference
+        # between noticing that and inheriting a wrong number.
+        row["walk_observed"] = row["walk_hits"] > 0
+        row["marker_disagreement"] = (inferred is not None
+                                      and inferred != row["walk_observed"])
+        m = re.findall(r"^([\d.]+)s call\s+(\S+)", text, re.M)
+        durs = sorted(((float(a), b) for a, b in m), reverse=True)
+        row["slowest_call_s"] = durs[0][0] if durs else None
+        row["slowest_call"] = durs[0][1] if durs else None
+        tgt = [d for d, name in durs if TARGET_TEST in name]
+        row["target_call_s"] = tgt[0] if tgt else None
+        row["timed_out"] = "Timeout" in text and "pytest-timeout" in text
+        row["passed"] = bool(re.search(r"\d+ passed", text))
+    finally:
+        for p in procs:
+            try:
+                p.kill()
+            except Exception:
+                pass
+        for p in procs:
+            try:
+                p.wait(timeout=10)
+            except Exception:
+                pass
+        # Let the browsers die before the next sample, or N bleeds across arms.
+        for _ in range(30):
+            if chromium_count() <= row.get("chromium_before", 0):
+                break
+            time.sleep(1)
+    return row
+
+
+def selftest() -> int:
+    """Check the instrument before trusting the measurement.
+
+    THE FIRST CHECK IS THE ONE THAT MATTERS. Two probe rounds were lost in the
+    2026-08-14 session to marker strings that did not exist -- a grep for
+    "auto-submitted on fill" against source that says "already at success URL
+    after fill" reported 0 twice, and was read as a finding. A probe whose
+    markers are not verified against the source is a column that cannot see its
+    subject. This asserts them, so the failure is loud and immediate instead of
+    a plausible zero three hours later.
+    """
+    fails = []
+
+    submit = REPO / "bulk_downloader" / "login_impl" / "submit.py"
+    if not submit.is_file():
+        fails.append(f"submit.py not found at {submit}")
+    else:
+        text = submit.read_text(encoding="utf-8", errors="replace")
+        for name, marker in (("FILLED_MARKER", FILLED_MARKER),
+                             ("EARLY_MARKER", EARLY_MARKER),
+                             ("WALK_MARKER", WALK_MARKER)):
+            if marker not in text:
+                fails.append(
+                    f"{name} {marker!r} does not appear in submit.py -- this "
+                    "probe would report 0 for it forever and the 0 would be "
+                    "read as a result")
+
+    target = REPO / TARGET_FILE
+    if not target.is_file():
+        fails.append(f"target file missing: {target}")
+    elif f"def {TARGET_TEST}" not in target.read_text(encoding="utf-8",
+                                                      errors="replace"):
+        fails.append(f"target test {TARGET_TEST} not found in {TARGET_FILE}")
+
+    if not PY.is_file():
+        fails.append(f"interpreter missing: {PY} (never fall back to python3 -- "
+                     "it is a different version without the project deps)")
+
+    # The counter must return a plausible integer. It cannot be asserted
+    # non-zero here without launching a browser, and that is stated rather than
+    # faked: see BLIND_SPOTS.
+    try:
+        n = chromium_count()
+        if not isinstance(n, int) or n < 0:
+            fails.append(f"chromium_count() returned {n!r}")
+    except Exception as exc:                              # noqa: BLE001
+        fails.append(f"chromium_count() raised {exc!r}")
+
+    for i, spot in enumerate(BLIND_SPOTS, 1):
+        print(f"BLIND SPOT {i}/{len(BLIND_SPOTS)}: {spot}")
+    if fails:
+        for f in fails:
+            print(f"SELFTEST FAIL: {f}")
+        print(f"selftest: {len(fails)} failure(s)")
+        return 1
+    print(f"selftest: OK -- {len(BLIND_SPOTS)} blind spot(s) declared above, "
+          "markers verified against submit.py, target test present")
+    return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--levels", default="0,12,24,48",
+                    help="concurrent chromium launchers per arm")
+    ap.add_argument("--samples", type=int, default=3)
+    ap.add_argument("--whole-file", action="store_true",
+                    help="run the whole residues file, which is what --dist "
+                         "loadfile actually hands one worker")
+    ap.add_argument("--outdir", default=str(pathlib.Path.home() / "bd-chromium-race"))
+    ap.add_argument("--selftest", action="store_true",
+                    help="verify the instrument (markers, target, interpreter) "
+                         "and exit without running a sample")
+    args = ap.parse_args()
+
+    if args.selftest:
+        return selftest()
+
+    out = pathlib.Path(args.outdir)
+    out.mkdir(parents=True, exist_ok=True)
+    rows_path = out / "rows.jsonl"
+
+    levels = [int(x) for x in args.levels.split(",") if x.strip()]
+    host = os.uname().nodename
+    head = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    for i, spot in enumerate(BLIND_SPOTS, 1):
+        print(f"BLIND SPOT {i}/{len(BLIND_SPOTS)}: {spot}", flush=True)
+    print(f"host={host} head={head} levels={levels} samples={args.samples} "
+          f"whole_file={args.whole_file}", flush=True)
+
+    for n in levels:
+        for i in range(args.samples):
+            tag = f"n{n:03d}-s{i}"
+            print(f"[{time.strftime('%H:%M:%S')}] running {tag} ...", flush=True)
+            row = run_sample(n, args.whole_file, out, tag)
+            row.update({"host": host, "head": head,
+                        "when": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+            with open(rows_path, "a") as fh:
+                fh.write(json.dumps(row) + "\n")
+            print(f"    wall={row.get('wall_s')}s target={row.get('target_call_s')}s "
+                  f"filled={row.get('filled_hits')} early={row.get('early_return_hits')} "
+                  f"walk={row.get('walk_taken')}/obs={row.get('walk_observed')} "
+                  f"pre_ok={row.get('precondition_ok')} "
+                  f"chromium_peak={row.get('chromium_peak_before_test')} "
+                  f"passed={row.get('passed')} capped={row.get('capped')}"
+                  + ("  *** MARKER DISAGREEMENT ***"
+                     if row.get("marker_disagreement") else ""), flush=True)
+    print(f"done -- rows at {rows_path}", flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

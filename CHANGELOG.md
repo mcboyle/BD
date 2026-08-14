@@ -4,6 +4,85 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1133 - row 144(a) reproduces standalone in minutes, and the 19h hunt was never required
+
+Backlog 144(a), ANSWERED and reproduced on demand. Row 144 and SESSION_CARRY
+15.96 both concluded that only the full 48-way suite could push
+test_a_site_with_no_declared_wall_is_untouched past 240s, after three probe
+rounds and a whole-file arm all came back negative. That conclusion is FALSE.
+
+THE VARIABLE WAS CONCURRENT BROWSER STARTUP, NOT LOAD. Row 144 named it as
+speculation and it had never been run. With 48 background processes each
+launching and closing a real chromium in a tight loop, the target test crosses
+240s standalone -- one test, one host, no suite.
+
+MEASURED at d734dd5 across test6 and test3, 26 samples at n=48:
+
+    reproduced        4 / 26  = 15%
+    fast branch       median 28.5s, range 27.5-30.4s  (n=22)
+    slow branch       568.27  568.34  568.44  571.04
+    ratio             20x, and NOTHING in between
+    every repro       filled=2  early=1  test FAILED
+    preconditions     ok on all 26; 0 capped; 0 marker disagreements
+
+IT IS BIMODAL AND THE LOSING COST IS DETERMINISTIC. Four reproductions on two
+hosts spanning 2.77 SECONDS, across two different submit paths (`Enter on
+password` and `click 59 selectors -> JS requestSubmit -> JS form.submit`), so
+the path does not set the cost. The walk is a fixed sequence of selector
+attempts with fixed timeouts, so losing always costs the same. The 240s ceiling
+is not a threshold the test creeps over; it is a line the test is either 8x
+below or 2.4x above.
+
+THE MECHANISM, off the reproduction's own log. do_login fills the form and then
+checks whether page.url has reached success_url. Under browser-startup pressure
+the navigation has not COMMITTED when that check runs, so the early return does
+not fire; and because this test is the NO-DECLARED-WALL case it skips the
+interstitial branch and falls straight into _submit_login's flail. submit.py's
+own comment at that site predicted it -- "flails its whole selector list against
+a page that can never satisfy it... a stall, not a clean failure". `filled=2
+early=1` on EVERY reproduction: the test performs two logins and exactly one
+loses the race, never both and never neither.
+
+WHY IT IS A RACE AND NOT CONTENTION. CPU spinners never reproduced it (22/22),
+and merely having many browsers RESIDENT does not either -- 22 of these 26
+samples ran with 114-190 browsers up and took the early return. What does it is
+many processes LAUNCHING at once. Any future arm should vary that, not load.
+
+DOWNSTREAM, THIS IS THE FIRST LINK OF THE WEDGE CHAIN. 569s is past the 240s
+ceiling the sanctioned form sets, so in a real suite pytest-timeout fires, its
+timer thread calls os._exit(1), and row 145's drain livelock follows. The chain
+is now reproducible on demand instead of by waiting ~80 minutes for a wedge.
+
+SHIPPED AS A TRACKED TOOL, because the overnight handoff's own rule is that
+anything in ~ is one disk failure from gone -- a rule it states about itself
+while sitting untracked in ~. `toolchain/bin/bd-chromium-race` carries the
+mechanism, prints FIVE blind spots on every run, and has a --selftest that
+resolves all three of its markers against submit.py.
+
+THREE INSTRUMENT DEFECTS FOUND WHILE BUILDING IT, each the same shape as the
+ones it was written to avoid:
+
+  * the browser counter matched comm exactly against chrome/chromium/
+    headless_shell and read ZERO while 62 browsers ran -- playwright reports
+    `chrome-headless` here. Caught by the preconditions on the first live arm.
+  * `_submit_login` was declared to "write no diagnostics at all", from a grep
+    for `login: ` with a space after the colon. Its prefix is `login submit: `
+    and there are SIX. The walk is now a POSITIVE observation rather than an
+    inference from the early-return line's absence, which would be row 147's
+    error, and the row records both routes plus a marker_disagreement flag.
+  * subprocess.run's TimeoutExpired propagated uncaught, so ONE long sample
+    would have crashed the arm and taken every remaining sample with it -- the
+    worst possible failure here, since the long samples ARE the phenomenon. A
+    capped sample is now a third state, never folded into fast or slow.
+
+AND FOUR CLAIMS OF MINE DIED BY MEASUREMENT ALONG THE WAY, all from small n on
+durations: "chromium is refuted" (from 12 samples on ONE host, while the other
+reproduced), "test6 differs from test3" (sample size; both reproduce), "the
+losing cost is a fixed 570s" (retracted on a sample I had KILLED, then restored
+by n=4), and "there are two paths with different costs" (the 568.34s sample took
+the supposedly-slow path). An observation destroyed before it completed is not a
+data point, and it shaped three of those four.
+
 ## v3.66.1132 - the hunt reaps what it abandons, and row 146 blamed the one path that worked
 
 Backlog 146, CLOSED. Five orphaned pytest masters were found across the fleet at
