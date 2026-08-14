@@ -142,10 +142,33 @@ HOSTS = [("test4", "10.0.70.85"), ("test6", "10.0.70.249"), ("test7", "10.0.70.8
 # Section 5's form, verbatim. `-n` is filled from the TARGET's nproc, never a
 # constant -- a 4 was once copied onto an 86-core box purely because the
 # paragraph said 4.
+# `-v` REPLACES `-q` AS OF 2026-08-14, AND IT IS THE CHEAPEST INSTRUMENT IN THIS
+# FILE. Under `-q` a wedged run's log is dots and `[gwNN] node down` -- the test
+# that was executing is NEVER NAMED, which is why five wedges were diagnosed down
+# to the exact os._exit call and still could not say WHICH test hung.
+#
+# Under `-v`, pytest prints the test name WHEN IT STARTS, so the name is already
+# in the log before the worker dies. Measured on a 20s test against a 5s timeout:
+#
+#     -q  ->  [gw0] node down: Not properly terminated          (nothing named)
+#     -v  ->  test_slow.py::test_sleeps_past_the_timeout        (NAMED, on start)
+#             [gw0] node down: Not properly terminated
+#
+# It works on the EXISTING thread method, needs no recovery from the master, and
+# names the culprit on every host -- including the ~1% background wedges on
+# test2/test4/test7 that are far too rare to chase with a dedicated arm.
+#
+# THE DEVIATION IS DELIBERATE AND SMALL: `-q` versus `-v` changes what is
+# PRINTED, not what is collected or scheduled. Every row records its own `cmd`,
+# so this is measurable from the data rather than only from this comment. The
+# cost is log volume -- roughly 200 lines per sample becomes roughly 16,000, so
+# about 1MB per run against ~70 runs/hour fleet-wide. Section 1's rule that you
+# never filter at capture time is the argument FOR paying it: the tail of a run
+# is exactly where the answer lives.
 SECTION5 = ["env", "-u", "BD_INSTALL_DIR", "BD_DISABLE_KEEPALIVE=1",
             "venv/bin/python", "-m", "pytest", "tests/",
             "-n", "{workers}", "--dist", "loadfile",
-            "--timeout=240", "--timeout-method=thread", "-q", "-p", "no:randomly"]
+            "--timeout=240", "--timeout-method=thread", "-v", "-p", "no:randomly"]
 
 # PHASE 2 ARMS. Phase 1 ran three arms x three hosts for 74 samples and
 # established two things that reshape the experiment:
@@ -547,6 +570,18 @@ done                                    > "$OUT/22_pyspy_children.txt" 2>&1
 
 ls -la /tmp/bd-runctx/                  > "$OUT/30_runctx_all.txt" 2>&1
 ls -la "/tmp/bd-runctx/$PID/"           > "$OUT/31_runctx_master.txt" 2>&1
+# THE CONTENTS, not only the listing. Until 2026-08-14 this block recorded that
+# the chain files EXIST and never what was in them -- so a wedge investigation
+# could see "7 chains" and not which files any worker had been handed. A record
+# that something exists is not a record of what it says.
+for _c in "/tmp/bd-runctx/$PID/"*.chain; do
+  [ -e "$_c" ] || continue
+  echo "--- $_c ---"
+  cat "$_c"
+  echo
+done                                    > "$OUT/33_runctx_chains.txt" 2>&1
+cat "/tmp/bd-runctx/$PID/assignment.json" 2>/dev/null \
+                                        > "$OUT/34_assignment.json" 2>&1
 ls "/tmp/bd-runctx/$PID/" 2>/dev/null | grep -c '\.chain$' \
                                         > "$OUT/32_chain_count.txt" 2>&1
 sudo dmesg -T 2>/dev/null | tail -200   > "$OUT/40_dmesg.txt" 2>&1
