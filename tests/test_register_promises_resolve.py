@@ -34,6 +34,15 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+# Its subject is the REGISTER, not a module. It reads every historical session
+# close and the whole item inventory, so a cut touching no source at all can
+# make it red -- and it has, one cut after being written. Wired into CI at
+# @1116, backlog row 105: until then this gate and
+# test_v3_66_1052_the_backlog_is_machine_visible appeared ZERO times in ci.yml,
+# zero times in _DECLARED, and both sat in the frozen baseline. The two checks
+# that guard the registers were the two nothing ran.
+BD_GATE_SCOPE = "repo-wide"
+
 _REPO = Path(__file__).resolve().parent.parent
 _REGISTER = _REPO / "project-knowledge" / "SESSION_CARRY.md"
 

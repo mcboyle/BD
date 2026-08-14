@@ -31,6 +31,16 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+# Its subject is a REGISTER, not a module -- the backlog is the whole project's
+# open-work surface, and a cut that touches no source at all can invalidate it.
+# Wired into CI at @1116, backlog row 105: until then this gate and
+# test_register_promises_resolve appeared ZERO times in ci.yml, zero times in
+# _DECLARED, and both sat in the frozen baseline. The two checks guarding the
+# registers were the two checks nothing ran, which is section 7's own rule --
+# a gate CI does not run is a gate that does not exist -- landing on the
+# registers that exist to stop work being lost.
+BD_GATE_SCOPE = "repo-wide"
+
 REPO = Path(__file__).resolve().parents[1]
 BACKLOG = REPO / "project-knowledge" / "IMPROVEMENT_BACKLOG.md"
 

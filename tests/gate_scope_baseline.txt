@@ -470,7 +470,6 @@ tests/test_recognizer_no_tell_markup_261.py
 tests/test_recognizer_scorecard.py
 tests/test_redact_sot_config_unify.py
 tests/test_redact_sot_export_unify.py
-tests/test_register_promises_resolve.py
 tests/test_release_hygiene_gates.py
 tests/test_replay_validator.py
 tests/test_repos_F2_F9.py
@@ -760,7 +759,6 @@ tests/test_v3_66_1048_live_backends_are_provisioned.py
 tests/test_v3_66_1049_the_leaker_restores_the_module_table.py
 tests/test_v3_66_104_cockpit_clickable.py
 tests/test_v3_66_1050_killswitch_autocycle_respects_the_keepalive_flag.py
-tests/test_v3_66_1052_the_backlog_is_machine_visible.py
 tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py
 tests/test_v3_66_1058_capture_states_its_blind_spots.py
 tests/test_v3_66_1059_recorder_derives_its_blind_spot_counts.py

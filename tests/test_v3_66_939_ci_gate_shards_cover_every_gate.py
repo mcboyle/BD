@@ -126,6 +126,16 @@ _DECLARED = {
     # @1080. The policy caught its own author one cut later: this file declares
     # itself repo-wide and the union assertion refused it until it was wired in.
     "tests/test_v3_66_1080_the_suite_reclaims_its_tmpdirs.py",
+    # @1116, backlog row 105. THE TWO GATES THAT GUARD THE REGISTERS, which
+    # until now ran on no PR at all: both appeared ZERO times in ci.yml, zero
+    # times in this set, and both sat in the frozen baseline below. Section 7
+    # says a gate CI does not run is a gate that does not exist -- and the
+    # register is the one subject where that is invisible, because a stale
+    # register still READS fine. A 2026-08-13 audit found the cost: one row
+    # CLOSED for a cut that did not touch it, one closed without the PARTIAL
+    # its own text needed, and four ids that never existed.
+    "tests/test_register_promises_resolve.py",
+    "tests/test_v3_66_1052_the_backlog_is_machine_visible.py",
     # @1082, backlog 99. Twenty-four suites that enumerate the tree and
     # ran on no PR -- tombstones, anti-duplication ratchets and
     # denominator gates, several named by CLAUDE.md section 4's own
