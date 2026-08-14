@@ -316,7 +316,7 @@ def cockpit_template_manager_page():
 <title>Template Manager (read-only)</title></head>
 <body style="background:#0d0d0d;color:#ddd;font-family:system-ui,Segoe UI,Arial;margin:0;padding:24px">
 <div style="max-width:1100px;margin:0 auto">
-<div style="font-size:12px;margin:0 0 6px"><a href="/cockpit/home" style="color:#6cf;text-decoration:none">&larr; Cockpit Home</a></div>
+<div style="font-size:12px;margin:0 0 6px"><a href="/" style="color:#6cf;text-decoration:none">&larr; Home</a></div>
 <h1 style="font-size:20px;margin:0 0 4px">Template Manager <span style="color:#666;font-size:13px">read-only</span></h1>
 <div style="background:#23311b;border:1px solid #4a7a1b;padding:8px 12px;border-radius:6px;margin:8px 0;font-size:13px">
 ⚠ Read-only view — no promote / enable / swap here. <b>Needs operator click-through validation.</b>

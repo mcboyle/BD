@@ -145,6 +145,14 @@ _DECLARED = {
     "tests/test_v3_66_1018_registrable_domain_drain.py",
     "tests/test_census_file_size_drift.py",
     "tests/test_zip_era_tools_stay_retired.py",
+    # @1117, backlog row 113. A tombstone over the tracked tree: no served page
+    # may link to the cockpit landing route retired at v3.66.344. Same family as
+    # the two retirement gates above it. The path is deliberately NOT spelled
+    # here -- that gate bans the literal, and a comment is inside the
+    # denominator of every check that reads source text, so naming the removed
+    # thing in order to explain it recreates it. It did, on this line, in the
+    # cut that added the gate.
+    "tests/test_v3_66_1117_cockpit_home_stays_retired.py",
     # tree-gates-2
     "tests/test_v3_66_1013_registrable_domain.py",
     "tests/test_history_records_whether_bytes_were_fetched.py",
