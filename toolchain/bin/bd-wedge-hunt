@@ -27,6 +27,33 @@ the design changed to match:
     XFS. /tmp is on / everywhere, so the suite's whole tmpdir churn runs on ext4
     there and XFS elsewhere. CPU differs three ways and so isolates nothing.
 
+*** THE EXT4 HYPOTHESIS IS REFUTED. ANSWERED 2026-08-14, 466 SAMPLES. ***
+Everything below this banner about ext4 being "the only structural difference"
+is HISTORY, kept because it is what the design was built on, not because it is
+true. The result:
+
+    test2  ext4   0 / 90     <-- second, independently built ext4 box
+    test3  xfs    0 / 104
+    test4  xfs    1 / 94     <-- XFS WEDGED
+    test7  xfs    1 / 92     <-- XFS WEDGED
+    test6  ext4   7 / 30
+
+A second ext4 host ran 90 samples without wedging while TWO XFS hosts each
+wedged once, and both XFS wedges are the same phenomenon (99%, node down, line
+224/229). test2 0/90 vs XFS 2/290 gives p = 1.00: ext4 is NOT elevated. The
+pooled ext4-vs-XFS p = 0.017 is an artifact of test6 dragging its own
+filesystem's average up. DO NOT REFORMAT test6 -- the filesystem was never the
+variable.
+
+WHAT REPLACED IT: test6 is the anomaly, not ext4. 7/30 against 2/380 for every
+other host, p = 1.7e-07 -- forty-fold, and its own filesystem twin is at zero.
+The difference is below what the software audit could see: firmware, NUMA
+layout, VMware host placement, disk backing, CPU stepping.
+
+AND THE SIZE THRESHOLD IS REAL: on test6, the same host the same night, full
+7/30 against 0/54 for the reduced arms, p = 4.5e-04. Halving the suite
+eliminates it entirely.
+
 TEST2 IS THE DISCRIMINATOR, ADDED 2026-08-14, and it changes what this hunt can
 conclude. The ext4 side of the comparison was ONE MACHINE, which leaves "ext4
 causes it" and "test6 is a weird box that happens to be the ext4 one"
@@ -276,8 +303,13 @@ def _tracked_test_files():
 
 
 def _size_arm(pct, keep_every, offset):
+    """offset=None INVERTS the selector: drop every k-th file instead of
+    keeping it, which is how a 75% arm is built from the same primitive."""
     files = _tracked_test_files()
-    keep = [f for i, f in enumerate(files) if i % keep_every == offset]
+    if offset is None:
+        keep = [f for i, f in enumerate(files) if i % keep_every != 0]
+    else:
+        keep = [f for i, f in enumerate(files) if i % keep_every == offset]
     drop = [f for f in files if f not in set(keep)]
     extra = ["--ignore=%s" % f for f in drop]
     note = ("SIZE ARM: %d of %d tracked test files (%d%%), selected as every "
@@ -290,8 +322,11 @@ def _size_arm(pct, keep_every, offset):
     return ("full-%s" % pct, extra, False, dict(_FAULTHANDLER), note)
 
 
+ARM_FULL_75 = _size_arm("75", 4, None)   # every 4th file DROPPED -> 75% kept
 ARM_FULL_50 = _size_arm("50", 2, 0)
-ARM_FULL_25 = _size_arm("25", 4, 0)
+# full-25 is RETIRED at @1123: answered 0/27 while full ran 7/30 on the same
+# host the same night. The threshold is somewhere above 50%, so sampling
+# below 50% spends the only reproducer on a region already known to be flat.
 
 ARMS_BY_HOST = {
     "test4": [ARM_FULL],
@@ -311,7 +346,7 @@ ARMS_BY_HOST = {
     # filesystem constant. Its 2 samples are preserved in rows.jsonl and are not
     # deleted; the arm simply stops accruing more. Re-add it if the ext4
     # question resolves and the filesystem needs isolating within a host again.
-    "test6": [ARM_FULL, ARM_FULL_50, ARM_FULL_25],
+    "test6": [ARM_FULL, ARM_FULL_75, ARM_FULL_50],
 }
 
 REMOTE_ROOT = "/tmp/bd-wedge"
