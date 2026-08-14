@@ -5214,6 +5214,97 @@ never `export` in a shell the suite is later launched from.
   row seen in 1 of 6 captures. Re-capture before trusting it.
 
 
+### 15.96 | SESSION CLOSE 2026-08-14 at 5b2c3a3 (v3.66.1127) -- a 19h wedge hunt ends, row 102's successor SPLITS, and the instrument was blind twice
+
+Close at `5b2c3a3`, already on `main` when this was written (the @939 trap: a
+section naming its own branch tip goes red on `main` after the squash).
+
+    against version      3.66.1127
+    against origin/main  5b2c3a3
+    hunt                 702 samples / 16 wedges over ~19h, five hosts, STOPPED
+    fleet                idle -- 0 pytest processes, 0 orphans, nothing scheduled
+
+WHAT TO DO FIRST IN A NEW SESSION. Read backlog rows 144-147, then this section.
+The hunt is PAUSED at operator request, not finished; it will not restart on its
+own. Resume with:
+
+    cd ~/BulkDownloader && nohup venv/bin/python toolchain/bin/bd-wedge-hunt \
+      --outdir ~/bd-wedge-2026-08-14 >> ~/bd-wedge-2026-08-14/hunt.out 2>&1 &
+
+It APPENDS to the existing rows.jsonl; 702 rows are already there.
+
+THE RESULT. Row 102's successor, row 144, owned two questions. One is answered
+and became row 145 (CLOSED @1126); the other is still open and row 144 now owns
+only it. The answered half:
+
+    LoadScopeScheduling.tests_finished counts a work unit with FEWER THAN TWO
+    pending tests as finished, so once every node is on its LAST test the session
+    declares itself done and triggershutdown() latches every worker -- while
+    those tests are still running. The latch never clears. A worker then dies on
+    that last test (pytest-timeout's thread method calls os._exit), its work is
+    re-queued, a clone is spawned -- and _reschedule refuses every latched node,
+    so the work can never be dispatched. has_pending stays True, tests_finished
+    stays False, the clone keeps _active_nodes non-empty, and both of
+    loop_once's exits are disarmed. The master spins on queue.get(timeout=2)
+    forever, AWAKE, beside idle workers.
+
+Read live with gdb from a master wedged 11.6 hours; reproduced at
+`upstream/xdist-drain-livelock/` (hangs 5/5, control passes 5/5 in ~4s);
+confirmed in production by the first post-@1126 wedge. NOT FILED upstream --
+operator decided to hold it locally; the bundle is filing-ready.
+
+THE OPEN HALF, and do not let the closed half make it look answered: WHY does
+`test_a_site_with_no_declared_wall_is_untouched` cross 240s in the full suite
+when it takes 28-36s standalone? The obvious answer is REFUTED -- 22/22
+standalone runs took do_login's early return, including under 36 CPU spinners at
+load ~25, and a whole-file arm was 6/6 the same. CPU contention does not
+reproduce it. The untested candidate is that the real pressure is ~47 concurrent
+CHROMIUM launches rather than CPU; that is SPECULATION and row 144 labels it so.
+
+THE INSTRUMENT WAS BLIND TWICE, which is the finding with the longest reach.
+`-q` set verbose == -1 and xdist guards its crash-recovery narration on
+verbose >= 0, so "replacing crashed worker gwN" was never written -- while
+"node down" writes unguarded and always was. Separately, a run that never exits
+never flushes: 15 of 15 WEDGED logs ended MID-LINE at a 4KB boundary against
+642 of 642 COMPLETED logs ending clean. Both fixed at @1126, in CLAUDE.md
+section 5 and in both tools that implement the form. NEITHER FIX IS
+RETROACTIVE: the 15 earlier wedge logs are still missing their tails, and row
+147 exists to stop a later reader inheriting their silence as a finding.
+
+MISTAKES MADE THIS SESSION, recorded because the pattern is the lesson.
+
+  * SEVEN hypotheses died by measurement, three of them formed and killed the
+    same day. Every one explained the symptoms BEFORE being measured. The
+    mechanism above is the first that was measured before it was believed.
+  * FOUR stated conclusions were wrong and retracted: "worker_errordown never
+    ran" (twice, in both directions), a DUAL-HUNT CONTAMINATION record written
+    into the evidence directory describing an event that never happened, and
+    the 578-second figure cited as live evidence when it measured PRISTINE
+    source before @1020's fix.
+  * The proximate cause each time was a check that could not see its subject:
+    `" -u "` as a substring matches `env -u BD_INSTALL_DIR`; `pgrep -f
+    bd-wedge-hunt` matches its own wrapper (this fired THREE times); grepping
+    for "auto-submitted on fill" when the emitted string is "already at success
+    URL after fill"; reading `50_log_tail.txt`, which is `tail -200`, as if it
+    were the whole log; and guessing scheduler attribute names instead of
+    reading the class.
+  * PIN_INDEX.json was HAND-EDITED, which turned PR #412 red. It is generated
+    and says so on its first line. bd-cut-preflight could not catch it and says
+    why in its own blind-spot list: its regen is --dry-run, "a report, not a
+    repair". CI runs the chain for real. Regenerate, never hand-edit.
+
+WHERE THE EVIDENCE LIVES. `bd-wedge-FINAL-20260814-163016Z.tar.gz` (46M),
+restore-TESTED not merely listed -- 702 rows, 16 wedges, 18 forensic dirs, 784
+logs -- replicated to all five hosts alongside `~/bd-OVERNIGHT-HANDOFF.md`,
+whose 25 sections carry the full narrative including every dead hypothesis and
+every instrument defect above.
+
+CAPTURE FRESHNESS, unresolved and worth knowing before trusting one: the last
+`./capture.sh` round was 2026-08-14T03:21Z on test2 at `daf2e91` (v3.66.1120).
+Main has moved SEVEN cuts since. Nothing has been captured at 1121-1127. And
+capture.sh's own flags were NOT audited for the `-q` problem above -- do that
+before reading a fresh capture's silence as meaningful.
+
 ### 15.95 | SESSION CLOSE 2026-08-13 at 283588d (v3.66.1111) -- four cuts, the backlog's last blocked row closes, and a defect thought fixed turns out to be alive on ONE HOST
 
 Close at `283588d`, already on `main` when this was written. Named per the @939
