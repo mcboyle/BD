@@ -4,6 +4,69 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1132 - the hunt reaps what it abandons, and row 146 blamed the one path that worked
+
+Backlog 146, CLOSED. Five orphaned pytest masters were found across the fleet at
+the end of the ~19h hunt on 2026-08-14, the oldest 41614s (11.6 HOURS), each a
+master plus up to 48 idle workers. Load is this bug's dominant covariate, so an
+orphan corrupts the measurement the hunt exists to take, in the direction that
+raises the apparent wedge rate.
+
+ROW 146's DIAGNOSIS WAS WRONG, AND CORRECTING IT IS HALF THE CUT. It said the
+hunt "sends SIGINT, but a master livelocked per row 145 is not in a state that
+SIGINT unwinds, so the run simply stays". The WEDGE-CONFIRMED branch sends
+SIGINT, waits sigint_grace, re-runs forensics and THEN kill -9's the process
+GROUP and the pid. It was the one path that was already right, and a fix aimed
+there would have changed nothing.
+
+THE ORPHANS CAME FROM THE FOUR BRANCHES THAT END A RUN WITHOUT KILLING IT,
+found by reading every terminal exit of the monitor loop:
+
+  * INTERRUPT -- main caught KeyboardInterrupt, set STOP and RETURNED. The host
+    threads are daemon=True, so the interpreter killed them at exit: the remote
+    run was never killed AND its row was never written. That is the whole of the
+    five observed orphans, and it explains why rows.jsonl holds ZERO abandoned
+    rows -- they were never mis-recorded, they were never recorded.
+  * --hours -- said "letting in-flight samples finish" and did the opposite. The
+    loop is `while not STOP.is_set()`, so a sample drops out on the next tick and
+    fell through to setdefault("state", "COMPLETED"): an abandoned run recorded
+    as a completed NON-WEDGE, a false negative in the denominator the hunt turns
+    on. MEASURED: it never fired during the 2026-08-14 run (686 of 686 COMPLETED
+    rows carry a real pytest_exit), so no preserved row is contaminated and the
+    702 need no correction on this account. The defect was latent, not
+    historical.
+  * CAPPED -- killed the master pid ONLY, while the wedge branch four lines
+    above killed the GROUP. Same job, two spellings, up to 48 workers left.
+  * UNKNOWN -- recorded "the run was NOT killed and may still be there" and did
+    not try.
+
+THE FIX. One reap_cmd(pid) builder that resolves the process group and kills it;
+one reap() that runs it and RECORDS the outcome on the row (REAP-OK /
+REAP-SURVIVED / REAP-UNREACHABLE / REAP-NOPID) rather than assuming success;
+both wired into all four paths. A new ABANDONED state, guarded on the absence of
+pytest_exit so it cannot mark a finished run. A bounded join in the interrupt
+handler so each thread reaps and writes before exit, and a WARNING naming any
+thread that did not.
+
+A DEFECT THE STRUCTURAL TESTS COULD NOT SEE, FOUND BY DRIVING THE REAL THING.
+The first reap_cmd used `kill -0` as its liveness probe and reported
+REAP-SURVIVED after correctly killing a five-process tree -- because `kill -0`
+succeeds on a ZOMBIE, and a master its parent has not wait()ed on is exactly
+that. A gate firing on correct work is a soundness bug, not a safe default. It
+now reads the process STATE and treats Z as gone, with an over-sensitivity twin
+asserting it can still report a genuine survivor.
+
+RED first: 5 failed / 2 passed, the two passing being the preconditions.
+bd-mutate 5 caught / 0 escaped / 0 invalid -- and the FIRST run escaped one:
+`"join" in ast.unparse(handler)` was satisfied by the handler's own
+`", ".join(alive)`, a predicate over the wrong part of the syntax. Replaced with
+an AST walk for a For loop that joins its own loop variable. The test file's
+assertions read STRING LITERALS out of the AST rather than raw source, because
+its own prose names every marker it asserts on -- an earlier draft passed only
+because a comment wrap happened to split one phrase across a newline.
+
+This is the first test file bd-wedge-hunt has ever had.
+
 ## v3.66.1131 - the shard count rotted inside the sentence that says not to trust it
 
 Doc-only. Two corrections, both recovered by RUNNING something rather than by

@@ -479,6 +479,76 @@ def ssh(addr: str, script: str, timeout: int = 120) -> subprocess.CompletedProce
 
 
 # ---------------------------------------------------------------------------
+# reaping an abandoned run  (backlog 146)
+# ---------------------------------------------------------------------------
+# WHATEVER DECIDES A RUN IS OVER IS THE ONLY PARTY THAT KNOWS IT DIED, so it
+# reaps -- it does not hope a signal handler runs somewhere else. Five orphaned
+# masters were found across the fleet at the end of the 2026-08-14 hunt, the
+# oldest 11.6 HOURS, each a master plus up to 48 idle workers. Load is this
+# bug's dominant covariate, so an orphan corrupts the measurement the hunt
+# exists to take, in the direction that raises the apparent rate.
+#
+# ROW 146 BLAMED THE WRONG PATH. It reads as though the WEDGE branch leaks
+# because "SIGINT does not unwind a livelocked master" -- but that branch always
+# escalated to `kill -9` on the process GROUP after its grace window, and it was
+# the one path that was already right. The orphans came from the branches that
+# END a run without killing it: an interrupt (daemon threads die at exit), the
+# --hours drain, a probe blackout, and the whole-run cap, which killed the
+# master pid and left its workers.
+#
+# THE GROUP IS THE UNIT, NOT THE PID. The runner is launched with `setsid`, so
+# the master and its `-n 48` workers share one process group. `kill -9 <pid>`
+# removes the master and orphans 48 children onto init; only the negative-pid
+# form reaches them. That asymmetry is exactly what the CAPPED branch had.
+def reap_cmd(pid: str) -> str:
+    """The one shell that kills an abandoned run, group first, then the master.
+
+    Kept as a pure builder so a test can assert the group-kill without a host.
+    It REPORTS what survived rather than assuming success: a reap that silently
+    failed and a reap that worked must not look the same to the caller, which
+    is section 0's whole subject.
+    """
+    p = shlex.quote(str(pid))
+    # A ZOMBIE IS DEAD, AND `kill -0` SAYS IT IS ALIVE. Measured while building
+    # this: reaping a real setsid'd tree of five killed all five and still
+    # reported REAP-SURVIVED, because the master sat unreaped in its parent's
+    # process table and `kill -0` succeeds on any entry that exists. That is a
+    # gate firing on correct work -- section 0 counts over-sensitivity as a
+    # soundness bug, not a safe default, because a check that cries wolf gets
+    # ignored exactly when it is right. Read the STATE and treat Z as gone.
+    return (
+        'P=%s; '
+        'G="$(ps -o pgid= -p "$P" 2>/dev/null | tr -d " ")"; '
+        'if [ -n "$G" ]; then kill -9 -"$G" 2>/dev/null; fi; '
+        'kill -9 "$P" 2>/dev/null; '
+        'sleep 1; '
+        'S="$(ps -o stat= -p "$P" 2>/dev/null | tr -d " ")"; '
+        'if [ -z "$S" ] || [ "${S#Z}" != "$S" ]; then echo REAP-OK; '
+        'else echo REAP-SURVIVED; fi'
+    ) % p
+
+
+def reap(addr: str, pid: str, why: str) -> str:
+    """Kill an abandoned run and say what happened. Never raises.
+
+    Returns one of REAP-OK / REAP-SURVIVED / REAP-UNREACHABLE. The caller
+    records it on the row, so a leak that could not be cleaned is visible in the
+    evidence rather than only in a stale process table on some host.
+    """
+    if not pid or str(pid) == "0":
+        return "REAP-NOPID"
+    r = ssh(addr, reap_cmd(pid), timeout=60)
+    if r.returncode != 0:
+        return "REAP-UNREACHABLE"
+    out = (r.stdout or "").strip()
+    verdict = "REAP-SURVIVED" if "REAP-SURVIVED" in out else (
+        "REAP-OK" if "REAP-OK" in out else "REAP-UNKNOWN")
+    if verdict != "REAP-OK":
+        say("REAP %s pid=%s (%s): %s" % (addr, pid, why, verdict))
+    return verdict
+
+
+# ---------------------------------------------------------------------------
 # launching one sample
 # ---------------------------------------------------------------------------
 RUNNER = r"""
@@ -719,6 +789,11 @@ def run_one(label: str, addr: str, arm, idx: int, cfg) -> dict:
     last_size, last_change, stall_seen, wedge_conf = -1, time.time(), None, 0
     started = time.time()
     forensic_tags = []
+    # Bound BEFORE the loop: if STOP is already set when this sample launches,
+    # the body never runs and the abandonment handler below still needs a pid
+    # to reap. An unbound name there would raise inside the one path whose job
+    # is cleaning up.
+    p: dict = {}
 
     while not STOP.is_set():
         time.sleep(cfg.poll)
@@ -726,8 +801,14 @@ def run_one(label: str, addr: str, arm, idx: int, cfg) -> dict:
         if not p.get("ok"):
             row.setdefault("probe_errors", []).append(p.get("err", "?")[:200])
             if len(row["probe_errors"]) > cfg.max_probe_errors:
-                row.update({"state": "UNKNOWN", "why": "the target stopped answering "
-                            "probes; the run was NOT killed and may still be there",
+                # TRY, AND RECORD THE OUTCOME. A host that stopped answering
+                # probes will usually refuse the reap too -- but "we could not
+                # reach it" and "we never tried" are different facts, and only
+                # the first one tells a later reader where to go looking.
+                row.update({"state": "UNKNOWN",
+                            "why": "the target stopped answering probes",
+                            "reap": reap(addr, p.get("pid", "0"),
+                                         "probe blackout"),
                             "when_end": now()})
                 return row
             continue
@@ -778,9 +859,7 @@ def run_one(label: str, addr: str, arm, idx: int, cfg) -> dict:
                 fout2 = "%s/forensics-after-sigint" % rundir
                 forensics(addr, pid, rundir, fout2)
                 forensic_tags.append("after-sigint")
-                ssh(addr, "kill -9 -$(ps -o pgid= -p %s 2>/dev/null | tr -d ' ') "
-                          "2>/dev/null; kill -9 %s 2>/dev/null; echo killed"
-                          % (pid, pid), timeout=60)
+                row["reap"] = reap(addr, pid, "wedge confirmed")
                 break
 
         if time.time() - started > cfg.cap:
@@ -789,10 +868,26 @@ def run_one(label: str, addr: str, arm, idx: int, cfg) -> dict:
             fout = "%s/forensics-capped" % rundir
             forensics(addr, p.get("pid", "0"), rundir, fout)
             forensic_tags.append("capped")
-            ssh(addr, "kill -9 %s 2>/dev/null; echo killed" % p.get("pid", "0"),
-                timeout=60)
+            # Was a pid-only kill while the wedge branch four lines above killed
+            # the GROUP -- same job, two spellings, and this one left up to 48
+            # workers behind. Backlog 146.
+            row["reap"] = reap(addr, p.get("pid", "0"), "whole-run cap")
             break
 
+    # THE LOOP HAS FOUR EXITS AND ONLY ONE OF THEM IS A FINISHED RUN. A `break`
+    # after a real pytest exit is a completion; the wedge and cap branches have
+    # already set a state; falling out of `while not STOP.is_set()` is an
+    # ABANDONMENT -- and it used to land on `setdefault("state", "COMPLETED")`,
+    # so a sample nobody waited for was recorded as a completed NON-WEDGE. That
+    # is a false negative in the denominator the whole hunt turns on. It never
+    # fired during the 2026-08-14 run (measured: 686 of 686 COMPLETED rows carry
+    # a real pytest_exit, because the interrupt killed the daemon threads before
+    # any of them could write), which makes it latent rather than historical.
+    if "state" not in row and "pytest_exit" not in row:
+        row.update({"state": "ABANDONED",
+                    "why": "the hunt stopped while this sample was in flight",
+                    "master_pid": p.get("pid"),
+                    "reap": reap(addr, p.get("pid", "0"), "hunt stopped")})
     row["when_end"] = now()
     row["forensics"] = forensic_tags
     row.setdefault("state", "COMPLETED")
@@ -903,14 +998,33 @@ def main(argv=None) -> int:
         while any(t.is_alive() for t in threads):
             time.sleep(10)
             if deadline and time.time() > deadline:
-                say("--hours reached; letting in-flight samples finish")
+                # SAY WHAT IT DOES. This read "letting in-flight samples
+                # finish", which the monitor loop's own `while not STOP.is_set()`
+                # makes impossible: every in-flight sample drops out on the next
+                # tick. The message described an intention and the code did the
+                # opposite, which is how backlog 146 acquired a wrong diagnosis.
+                say("--hours reached; in-flight samples will be ABANDONED and "
+                    "reaped on the next tick")
                 STOP.set()
                 break
         for t in threads:
             t.join(timeout=cfg.cap + 600)
     except KeyboardInterrupt:
-        say("interrupted -- setting STOP; in-flight samples are NOT killed")
+        # JOIN, DO NOT JUST RETURN. These threads are daemon=True, so returning
+        # here lets the interpreter kill them at exit -- taking with them both
+        # the reap of the remote run AND the unwritten row describing it. That
+        # is the whole of backlog 146's five orphaned masters, and it is also
+        # why rows.jsonl held ZERO abandoned rows after a 19h interrupted hunt:
+        # they were never mis-recorded, they were never recorded.
+        say("interrupted -- setting STOP and waiting for each in-flight sample "
+            "to reap its remote run and record what happened")
         STOP.set()
+        for t in threads:
+            t.join(timeout=cfg.poll + 120)
+        alive = [t.name for t in threads if t.is_alive()]
+        if alive:
+            say("WARNING: %d host thread(s) did not finish reaping: %s -- check "
+                "for orphaned masters by hand" % (len(alive), ", ".join(alive)))
     say("bd-wedge-hunt done")
     return 0
 
