@@ -623,6 +623,21 @@ elif [ "$capture_home_real" != "$DIR" ]; then
   the suite will read."
 fi
 
+# ── [10b] the download directories the config names ─────────────────
+# A configured download_dir that does not exist fails the box selftest with a
+# FileNotFoundError naming a path, and NOTHING created it -- not the
+# provisioner, not install_linux.sh, not the app, which reads the key in four
+# places and creates it in none. Measured 2026-08-14: copying one host's site
+# config to four others took a capture round to 2/6 on exactly that, with unit
+# 15942 pass / 0 fail and live 0 fail on every host.
+#
+# BEFORE the service starts, deliberately: a service that comes up unable to
+# write its downloads is the state this exists to prevent. Never fatal -- see
+# the fragment's header for why a deploy must not abort over a directory.
+STEP=10
+. "$(dirname "$0")/lib/download_dirs.sh"
+bd_ensure_download_dirs "$VENV_PY" "$DIR/sites_config.json"
+
 # ── [11] start the service ──────────────────────────────────────────
 # No verification here on purpose: `systemctl start` exiting 0 says the unit was
 # launched, not that the app is serving the tree we just deployed. Step [12] is

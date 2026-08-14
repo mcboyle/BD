@@ -4,6 +4,60 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1138 - a configured download_dir that does not exist fails the box, and nothing made it
+
+Measured 2026-08-14, and I caused it. sites_config.json was copied from test5 to
+four hosts to give them a real site. It carries a download_dir that existed on
+test5 and test4 and nowhere else, and the next capture round went 2/6:
+
+    CAPTURE VERDICT: FAIL - selftest exit=1
+      FAIL  disk_space: /home/mboyle/d: can't check
+            (FileNotFoundError: No such file or directory)
+
+Unit was 15942 pass / 0 fail on ALL SIX and live had 0 fail everywhere. The only
+thing wrong was a directory.
+
+NOTHING CREATED IT. download_dir is READ in at least four places (admission.py,
+app_capacity.py, alerts_engine.py, app_health.py) and created in none; neither
+provision_test_host.sh nor install_linux.sh touches it. So any host given a real
+site config fails identically, and the failure names a PATH rather than the
+cause -- an operator sees FileNotFoundError and has to work backwards to "the
+config I installed points at a directory that only exists on the machine I
+copied it from".
+
+WHY DEPLOY AND NOT THE PROVISIONER. Provisioning runs ONCE, on a bare host,
+before any operator config exists -- a fresh box has an empty 2-byte
+sites_config.json, so there is nothing to create and the provisioner cannot
+help. The failure arises when a config is installed LATER, which is exactly what
+happened. Deploy runs every time and its job is "make this host ready to serve";
+a service that cannot write its downloads is not ready. The call lands at step
+10b, BEFORE the service starts.
+
+WHY IT READS THE CONFIG RATHER THAN NAMING A PATH. The directory in question is
+one operator's and this repo is public. Reading whatever the host's own config
+names is correct for any deployment and leaks nothing.
+
+EVERY REFUSAL IS A NO-OP, DELIBERATELY. A missing config is the NORMAL state of
+a freshly provisioned box; a malformed one is a problem to see elsewhere, not a
+reason to abort an otherwise fine deploy; an unwritable path is reported and
+left to the selftest. This function creates directories or does nothing, and
+never fails a deploy. A blank download_dir is skipped rather than passed to
+mkdir -- several config keys default to "" (watch_folder, storage_tier_dir and
+ytdlp_archive_path all did on the real config), and a bare relative value would
+otherwise be created against whatever directory the deploy was standing in.
+
+IT IS A scripts/lib/ FRAGMENT for the reason heartbeat.sh, tree_state.sh and
+capture_run_dir.sh are: inline in deploy.sh the only thing a test could do is
+grep for a string, and a source check cannot tell a mkdir that RUNS from one
+that is written down. These tests EXECUTE it.
+
+RED first: 8 failed. GREEN: 37 passed across the new file plus
+test_deploy_script. AND THE WIRING TEST WAS WRONG ON ITS FIRST RUN, in a way
+worth recording -- it compared against the first textual `systemctl start
+bulkdownloader`, which is inside die()'s recovery path near the top of the file,
+not the deploy's start step. It failed a CORRECT wiring. Now anchored on the
+STEP=11 marker, and verified to still go red when the call is moved after it.
+
 ## v3.66.1137 - the session close for eight cuts, and six claims of mine that were wrong
 
 Doc-only. SESSION_CARRY 15.97, recording the 2026-08-14 evening session at
