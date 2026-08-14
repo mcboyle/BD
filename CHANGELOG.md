@@ -4,6 +4,55 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1139 - two register rows were already done, and one nearly got a false correction
+
+Doc-only. Register hygiene by RE-DERIVATION, not by reading: every row below was
+re-measured with its own stated command before being touched. Backlog open rows
+38 -> 36.
+
+CLOSED, BOTH ALREADY DONE:
+
+  * ROW 108 said "the ledger gate checks only ONE direction of
+    ledger-versus-inventory agreement". It checks BOTH and says so in its own
+    docstring -- "CHECKED BOTH WAYS, because either direction alone is a gate
+    that cannot see its subject" -- with direction B recorded as first running
+    at @955. The row was stale for roughly 180 releases.
+  * ROW 117 said `bd-wedge-hunt` IS TRACKED NOWHERE. It was tracked at @1114
+    (`c6e0de5`), and was EDITED as a tracked file at @1132 by the cut that
+    closed row 146. Two separate sessions worked on the file this row said did
+    not exist in git.
+
+CORRECTED:
+
+  * ROW 107 claimed 18 project-knowledge files still route "what is open" to the
+    retired TASK_TRACKER, against 2 routing to IMPROVEMENT_BACKLOG. Re-run with
+    the row's OWN commands: 19 and 3. BOTH terms drifted and the gap widened by
+    one while the row sat still -- the row describing itself, since its subject
+    is precisely a count in prose that nothing re-derives.
+
+AND ONE CORRECTION THAT WAS WITHDRAWN BEFORE IT SHIPPED, which is the more
+useful half. Row 112 was about to be filed as MIS-SCOPED: I measured
+`git log -- project-knowledge/ARCHITECTURE_INVENTORY.md` = 0 commits and
+concluded the row cited the wrong path, since the file is at the repo root. The
+row's OWN command is a GLOB -- `git log --all -- '*ARCHITECTURE_INVENTORY.md'`
+-- which still returns 1, exactly as written. My narrower path was the error.
+Its "NOTHING REGENERATES IT" is also accurate: a regenerator exists
+(`tools/architecture_inventory.py`) and nothing runs it automatically, which is
+what the row means and what its own 103-line-diff measurement demonstrates. Row
+112 is unchanged.
+
+That near-miss is the fourth time this session a predicate of mine was anchored
+on the wrong thing, and the only reason it did not ship is that the row carried
+the command it used. A register entry that records HOW it measured can be
+re-derived by someone who disagrees with it; one that records only the number
+cannot.
+
+CONFIRMED STILL REAL, re-derived and left open: 106 (`bd-freshcheck`'s `_DOCS`
+is still the 2-tuple `("CLAUDE.md", "project-knowledge/SESSION_CARRY.md")`), 140
+(no audit completion ledger is tracked anywhere), 143 (7 rows now carry the
+PARTIAL marker), and 141 (three of its thirteen cited locations spot-checked and
+all three resolve).
+
 ## v3.66.1138 - a configured download_dir that does not exist fails the box, and nothing made it
 
 Measured 2026-08-14, and I caused it. sites_config.json was copied from test5 to
