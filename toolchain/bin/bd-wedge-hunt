@@ -165,8 +165,30 @@ HOSTS = [("test4", "10.0.70.85"), ("test6", "10.0.70.249"), ("test7", "10.0.70.8
 # about 1MB per run against ~70 runs/hour fleet-wide. Section 1's rule that you
 # never filter at capture time is the argument FOR paying it: the tail of a run
 # is exactly where the answer lives.
+# `-u` ADDED 2026-08-14T15:4xZ, AND IT IS NOT COSMETIC. Measured across this
+# run's own corpus: 15 of 15 WEDGED logs end MID-LINE at a stdio buffer
+# boundary, versus 642 of 642 COMPLETED logs ending with a clean newline. A
+# completed run flushes at process exit; a wedged run never exits, so whatever
+# was written after the last 4KB flush is stranded in the buffer forever. That
+# stranded tail is exactly the interesting part -- it is where xdist's
+# `report_line` narration ("replacing crashed worker gwN") lands, immediately
+# after the crashitem FAILED report that IS in the log.
+#
+# So every wedge captured before this line was added is missing its final ~4KB,
+# and the absence of a recovery message in those logs is an ARTEFACT, not a
+# finding. CLAUDE.md section 0: a gate that cannot see its subject reports a
+# benign result. Two separate blindfolds produced the identical symptom here --
+# this one and `-q` guarding report_line on `verbose >= 0` -- and fixing either
+# alone would have left the other in place.
+#
+# COST, stated rather than assumed: unbuffered stdout is one write syscall per
+# line instead of per 4KB. With -v that is ~16k extra syscalls spread over a
+# ~300s run (~50/sec), which is negligible against a wedge whose signal is
+# measured in minutes. NOTE the row metadata claim "this IS CLAUDE.md section
+# 5's sanctioned whole-suite form, unmodified" is now FALSE for -u and -v; see
+# the arm_note handling below.
 SECTION5 = ["env", "-u", "BD_INSTALL_DIR", "BD_DISABLE_KEEPALIVE=1",
-            "venv/bin/python", "-m", "pytest", "tests/",
+            "venv/bin/python", "-u", "-m", "pytest", "tests/",
             "-n", "{workers}", "--dist", "loadfile",
             "--timeout=240", "--timeout-method=thread", "-v", "-p", "no:randomly"]
 
@@ -403,7 +425,26 @@ ARMS_BY_HOST = {
     # filesystem constant. Its 2 samples are preserved in rows.jsonl and are not
     # deleted; the arm simply stops accruing more. Re-add it if the ext4
     # question resolves and the filesystem needs isolating within a host again.
-    "test6": [ARM_FULL, ARM_FULL_SIGNAL, ARM_FULL_75, ARM_FULL_50],
+    # ARM_FULL_50 RETIRED 2026-08-14T15:2xZ, and the trade is stated: it had
+    # accrued 0/35, and full-25 before it 0/28 -- 0/63 combined against full's
+    # 10/39. The threshold question it was asked ("does a reduced suite wedge?")
+    # is answered NO with a p = 4.5e-04 contrast, and further nulls there buy
+    # nothing. Its 35 samples stay in rows.jsonl; the arm simply stops accruing.
+    #
+    # The time goes to ARM_FULL, listed TWICE so it takes half the rotation
+    # rather than a quarter. That arm is the only one that reproduces, and since
+    # @1125 put -v on every arm it is now the only one that can show xdist's
+    # `report_line` diagnostics -- "replacing crashed worker gwN" -- which -q
+    # suppressed in all 16 preserved wedges (dsession.py:78 guards on
+    # verbose >= 0). That single line decides whether worker_errordown's clone
+    # path runs, which is the open half of row 144.
+    #
+    # ARM_FULL_SIGNAL stays at its current share: it is the only arm that NAMES
+    # the offending test, because --timeout-method=signal unwinds instead of
+    # hard-exiting. full and full-signal answer DIFFERENT questions and neither
+    # substitutes for the other. ARM_FULL_75 stays to keep the 50<->100 boundary
+    # accruing, since it is the one size arm whose answer is still open (0/7).
+    "test6": [ARM_FULL, ARM_FULL_SIGNAL, ARM_FULL, ARM_FULL_75],
 }
 
 REMOTE_ROOT = "/tmp/bd-wedge"
@@ -648,7 +689,19 @@ def run_one(label: str, addr: str, arm, idx: int, cfg) -> dict:
            "workers_source": "the TARGET's own nproc, read at launch",
            "cmd": cmd, "arm_note": note, "arm_env": dict(arm_env),
            "commit": head_sha, "dirty_paths": head_dirty,
-           "section5": ("this IS CLAUDE.md section 5's sanctioned whole-suite form"
+           # The `is_section5` arms are the sanctioned form PLUS two OBSERVABILITY
+           # flags and nothing else: `-v` (section 5 specifies -q, which guards
+           # xdist's report_line away at dsession.py:78) and `-u` (buffered stdout
+           # strands the final ~4KB of every wedge, measured 15/15). Neither
+           # changes what is executed, the distribution, the worker count or the
+           # timeout -- but the older claim said "unmodified", and that word was
+           # false the moment -v landed at @1125. Rows written before this fix
+           # carry the false string; they are not rewritten, and this note is how
+           # a later reader learns which claim to distrust.
+           "section5": ("CLAUDE.md section 5's sanctioned whole-suite form, plus "
+                        "-v and -u for observability only (see SECTION5's comment); "
+                        "the executed selection, distribution, -n and --timeout are "
+                        "unchanged, so these counts ARE whole-suite results"
                         if is_section5 else
                         "NOT the sanctioned whole-suite form -- a marker was added, "
                         "so this row's counts must never be read as a whole-suite "
