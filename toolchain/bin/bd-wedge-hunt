@@ -322,6 +322,40 @@ def _size_arm(pct, keep_every, offset):
     return ("full-%s" % pct, extra, False, dict(_FAULTHANDLER), note)
 
 
+# THE ARM THAT TURNS THE WEDGE INTO A TEST NAME (added 2026-08-14, @1124).
+#
+# THE MECHANISM IS NOW KNOWN AND IT IS NOT AN XDIST BUG. The exit tracer caught
+# the dying worker's own stack: pytest_timeout.py:542 calls os._exit(1) from its
+# timer thread. `--timeout-method=thread` cannot unwind another thread, so it
+# hard-exits the whole worker -- which is why there is no traceback, no core, no
+# signal, and why the master sees only a channel closed with NO ERROR ATTACHED.
+#
+# SO A TEST IS EXCEEDING 240s, and the instrument chosen to NAME a hanging test
+# is the thing preventing it from being named. `--timeout-method=signal` unwinds
+# instead of hard-exiting: the worker SURVIVES and pytest reports the offender.
+#
+# VERIFIED BEFORE SHIPPING, with a 20s test against a 5s timeout:
+#     thread          -> "worker 'gw7' crashed while running ...", 9 failed/50s
+#     thread + signal -> "Failed: Timeout (>5.0s) from pytest-timeout",
+#                        1 failed 2 passed in 6.01s -- worker alive, test NAMED
+# The appended flag wins, measured rather than assumed from argparse semantics.
+#
+# NOT SECTION 5's SANCTIONED FORM -- it changes a pytest FLAG, not an env var,
+# so unlike full-tmpfs it may alter behaviour as well as environment. is_section5
+# is False and these counts must NEVER be pooled with the full arm's.
+#
+# AND NOTE WHAT THE PROBE ALSO SHOWED: under `thread`, xdist NAMED the test and
+# RECOVERED by spawning a replacement worker. The real wedge does neither. So
+# the wedge is TWO failures -- pytest-timeout kills the worker, AND xdist's
+# recovery path works mid-run but not during the drain, when there is no work
+# left to reassign. This arm addresses only the first.
+ARM_FULL_SIGNAL = ("full-signal", ["--timeout-method=signal"], False,
+                   dict(_FAULTHANDLER),
+                   "The sanctioned form with --timeout-method=signal appended, "
+                   "so pytest-timeout unwinds instead of calling os._exit(1) and "
+                   "the offending test is REPORTED BY NAME instead of taking the "
+                   "worker with it. Counts are not comparable with a full run.")
+
 ARM_FULL_75 = _size_arm("75", 4, None)   # every 4th file DROPPED -> 75% kept
 ARM_FULL_50 = _size_arm("50", 2, 0)
 # full-25 is RETIRED at @1123: answered 0/27 while full ran 7/30 on the same
@@ -346,7 +380,7 @@ ARMS_BY_HOST = {
     # filesystem constant. Its 2 samples are preserved in rows.jsonl and are not
     # deleted; the arm simply stops accruing more. Re-add it if the ext4
     # question resolves and the filesystem needs isolating within a host again.
-    "test6": [ARM_FULL, ARM_FULL_75, ARM_FULL_50],
+    "test6": [ARM_FULL, ARM_FULL_SIGNAL, ARM_FULL_75, ARM_FULL_50],
 }
 
 REMOTE_ROOT = "/tmp/bd-wedge"
