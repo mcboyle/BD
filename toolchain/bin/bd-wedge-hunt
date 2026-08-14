@@ -221,12 +221,97 @@ ARM_FULL_TMPFS = ("full-tmpfs", [], True, dict(_FAULTHANDLER, TMPDIR="/mnt/bdtmp
 # are 8170 -- RECORDED, not controlled: CPU already differs three ways across
 # the existing hosts and isolates nothing, and pretending otherwise would be
 # claiming a variable was held that never was.
+# ---------------------------------------------------------------------------
+# SIZE ARMS -- is there a THRESHOLD? (added 2026-08-14)
+#
+# THE QUESTION. The wedge always lands in the same place: all three recorded
+# wedges stopped at exactly line 224 of the log, at [ 99%], on three DIFFERENT
+# workers, across two commits. 99% under --dist loadfile is the DRAIN phase --
+# workers being shut down as the file queue empties -- so the failure sits in
+# the shutdown handshake rather than in test execution.
+#
+# THE OBVIOUS OPTIMISATION IS ALREADY DISPROVEN, and it is this experiment's
+# starting point rather than a thing to re-try:
+#
+#     capture lane      15,075 tests (95%)   0 / 50 wedges
+#     the 794 deselected   794 tests ( 5%)   0 / 24 wedges
+#     full suite        15,869 tests         2 /  6 wedges
+#
+# NEITHER SUBSET WEDGES. ONLY THE UNION DOES. So the tail cannot be run alone,
+# and neither can everything-but-the-tail. That argues against "a poisoned test
+# near the end" and for a THRESHOLD -- after ~250s and 15,869 tests each of 48
+# workers carries accumulated state (imported modules, tmp roots, open fds,
+# memory) and the drain tears all of it down at once. A short run reaches its
+# drain with workers that have nothing much to tear down.
+#
+# SO: hold -n at the target's nproc and vary the SIZE. If a threshold exists it
+# buys a much faster reproducer AND names the resource that runs out.
+#
+# THE SUBSET IS DETERMINISTIC AND SPREAD ACROSS THE ALPHABET (every k-th file of
+# the sorted tracked list), NOT a prefix. A prefix would confound size with
+# WHICH tests run -- tests/test_a*.py is not a random half of this suite.
+#
+# WHAT THIS CANNOT SEPARATE, stated because the row will not: fewer files means
+# both less accumulation AND a shorter run. Size and duration move together
+# here, and disentangling them needs a different arm (same file count, slower
+# files). This pass only asks whether a threshold exists at all.
+#
+# THESE ARMS ARE NOT SECTION 5's SANCTIONED FORM and are marked is_section5
+# False, so their pass/fail counts must never be read as a whole-suite result.
+# Only the wedged/not-wedged field is comparable, and only against other size
+# arms on the same host.
+_TESTS_ROOT = pathlib.Path.home() / "BulkDownloader"
+
+
+def _tracked_test_files():
+    r = subprocess.run(["git", "ls-files", "--", "tests/test*.py"],
+                       cwd=str(_TESTS_ROOT), capture_output=True, text=True)
+    files = sorted(f for f in r.stdout.split("\n") if f.strip())
+    if len(files) < 500:
+        raise SystemExit(
+            "BD-HUNT-UNRUNNABLE: git ls-files returned %d test file(s) from %s. "
+            "A size arm built from an empty or truncated list would run a "
+            "different experiment than its own name claims." % (len(files), _TESTS_ROOT))
+    return files
+
+
+def _size_arm(pct, keep_every, offset):
+    files = _tracked_test_files()
+    keep = [f for i, f in enumerate(files) if i % keep_every == offset]
+    drop = [f for f in files if f not in set(keep)]
+    extra = ["--ignore=%s" % f for f in drop]
+    note = ("SIZE ARM: %d of %d tracked test files (%d%%), selected as every "
+            "%d-th file of the sorted list so the subset is spread across the "
+            "alphabet rather than a prefix. NOT section 5's whole-suite form -- "
+            "counts are not comparable with a full run; only wedged/not-wedged "
+            "is. Size and duration co-vary here and this arm cannot separate "
+            "them." % (len(keep), len(files), 100 * len(keep) // len(files),
+                       keep_every))
+    return ("full-%s" % pct, extra, False, dict(_FAULTHANDLER), note)
+
+
+ARM_FULL_50 = _size_arm("50", 2, 0)
+ARM_FULL_25 = _size_arm("25", 4, 0)
+
 ARMS_BY_HOST = {
     "test4": [ARM_FULL],
     "test7": [ARM_FULL],
     "test3": [ARM_FULL],
     "test2": [ARM_FULL],
-    "test6": [ARM_FULL, ARM_FULL_TMPFS],
+    # test6 IS THE PROVEN REPRODUCER (2 of 6), which makes it the only host
+    # where a size search can produce a meaningful NULL -- a small arm that does
+    # not wedge on a box that has never wedged says nothing at all. So test6
+    # runs the threshold search and test2 carries the cross-machine ext4
+    # question on its own.
+    #
+    # full-tmpfs IS RETIRED HERE, deliberately and with the trade stated: test2
+    # supersedes it. tmpfs changed the filesystem AND removed the disk AND
+    # changed memory pressure -- three variables at once on one box -- whereas
+    # test2 against test6 changes exactly one thing, the machine, holding the
+    # filesystem constant. Its 2 samples are preserved in rows.jsonl and are not
+    # deleted; the arm simply stops accruing more. Re-add it if the ext4
+    # question resolves and the filesystem needs isolating within a host again.
+    "test6": [ARM_FULL, ARM_FULL_50, ARM_FULL_25],
 }
 
 REMOTE_ROOT = "/tmp/bd-wedge"
