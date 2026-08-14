@@ -1808,11 +1808,23 @@ system match them, which is the first item below.
     advisory `pyflakes`, the CHANGELOG ASCII check, the version-pin and
     guard-SHA checks, and `bd-freshcheck`. **It runs NO pytest at all.** These
     must run once, which is why they are not sharded.
-  - `gate-suites` -- a 5-way matrix (**toolchain**, **parity-graph**,
-    **measurement-tools**, **isolation**, **artifacts-pins**) carrying the
+  - `gate-suites` -- a **10-way** matrix (**toolchain**, **parity-graph**,
+    **measurement-tools**, **isolation**, **tree-gates-1** through
+    **tree-gates-4**, **toolchain-verifiers**, **artifacts-pins**) carrying the
     repo-wide gate suites. Read the matrix, not this sentence: the membership
     is `_DECLARED` in `tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py`,
     and a test asserts the two agree exactly.
+
+    **THIS SAID "a 5-way matrix" AND NAMED FIVE UNTIL v3.66.1131, IN THE SAME
+    SENTENCE THAT TELLS YOU NOT TO TRUST IT.** The instruction was already
+    correct and already there, and the count still rotted and was still quoted
+    -- an agent reading the bullet learned a wrong number and a right method
+    from one paragraph, and the wrong number is the part that gets used. It was
+    caught only because `bd-ci-verdict` prints the expected set it parses out of
+    `ci.yml` on every run, so the disagreement appeared beside a merge decision
+    rather than in a document nobody re-measures. That is the general remedy for
+    this whole class: put the derived count in a TOOL'S OUTPUT, where it is
+    re-derived every time it is read, not in prose that can only decay.
 
   **THIS BULLET SAID `gates` RAN "exactly ONE pytest file:
   test_v3_66_939_ci_gate_shards_cover_every_gate", AND IT RAN NONE.** Measured
