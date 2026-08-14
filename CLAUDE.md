@@ -2,15 +2,27 @@
 
 You are working on **BulkDownloader (BD)**: a self-hosted Flask + Playwright +
 React/TypeScript SPA batch video downloader. Single developer/operator (Matt),
-deploying to `/home/mboyle/BulkDownloader` on **four** headless hosts as of
-2026-08-12 — `test5` (`7b4ea932c297`, the master and the live service), `test4`
-(`102b31c04e7b`), `test6` (`1d60f39bd8d6`) and `test7` (`5b29e22f94aa`). All
-four were rebuilt to one spec that night; re-measure with `bd-fleet` rather than
-quoting any of it, including from here.
+deploying to `/home/mboyle/BulkDownloader` on **six** headless hosts as of
+2026-08-14 — `test5` (`7b4ea932c297`, the master and the live service), `test4`
+(`102b31c04e7b`), `test6` (`1d60f39bd8d6`), `test7` (`5b29e22f94aa`), `test3`
+(`cec56f663148`) and `test2` (`978caa5c0337`). The first four were rebuilt to
+one spec on 2026-08-12; `test3` and `test2` were provisioned from bare metal on
+2026-08-14, `test2` deliberately as a SECOND independently-built ext4 host, so
+that "ext4 causes the wedge" could be told apart from "test6 is a weird box that
+happens to be ext4" (it could: ext4 is refuted). All six machine-ids above were
+re-measured 2026-08-14; re-measure with `bd-fleet` rather than quoting any of
+it, including from here.
 
 **This sentence read "single deployment target: headless host `test4`" for the
 whole life of this file, and was wrong from the second box onward — through
-four.** It is the first thing every session reads, so it set the frame for
+four. It then said "four" from 2026-08-12 to 2026-08-14 while the fleet grew to
+six.** So it has gone stale TWICE, undercounting both times, and the cut that
+should have caught the second was TITLED `a host list that existed nowhere
+tracked` (v3.66.1128) — that cut tracked `docs/repo/hosts.example`, wrote a
+five-host figure into SESSION_CARRY 15.96, and never touched this paragraph.
+It was corrected 2026-08-14 only because the operator said "It is 6" out loud;
+no gate reported it, and none can.
+It is the first thing every session reads, so it set the frame for
 everything after it, and nothing in the tree could contradict it: no `.py` or
 `.sh` resolves or branches on a hostname, so a wrong host count breaks no test
 and fails no gate. This file's own section 1 is the lesson — a claim about

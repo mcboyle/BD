@@ -5221,7 +5221,8 @@ section naming its own branch tip goes red on `main` after the squash).
 
     against version      3.66.1127
     against origin/main  5b2c3a3
-    hunt                 702 samples / 16 wedges over ~19h, five hosts, STOPPED
+    hunt                 702 samples / 16 wedges over ~19h, five TARGET hosts
+                         (test5 RAN the hunt and was never an arm), STOPPED
     fleet                idle -- 0 pytest processes, 0 orphans, nothing scheduled
 
 ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
@@ -5303,7 +5304,9 @@ MISTAKES MADE THIS SESSION, recorded because the pattern is the lesson.
 
 WHERE THE EVIDENCE LIVES. `bd-wedge-FINAL-20260814-163016Z.tar.gz` (46M),
 restore-TESTED not merely listed -- 702 rows, 16 wedges, 18 forensic dirs, 784
-logs -- replicated to all five hosts alongside `~/bd-OVERNIGHT-HANDOFF.md`,
+logs -- replicated to all SIX hosts alongside `~/bd-OVERNIGHT-HANDOFF.md`
+(this line read "five" until v3.66.1129; re-measured byte-identical on every
+one of the six, test5 included),
 whose 25 sections carry the full narrative including every dead hypothesis and
 every instrument defect above.
 
