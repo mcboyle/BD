@@ -4,6 +4,33 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1118 - doc-only: row 115 is a four-gate cut, not a deletion
+
+- MEASURED rather than attempted. Backlog row 115 asked to retire
+  `scripts/build_release.sh` and read as small -- one tracked file, no callers.
+  It is not, and the row said "small" because nobody had measured it.
+- FOUR DEPENDENCIES, at aaea98e. (1) `tests/test_generated_artifact_workflow.py`
+  READS the file and asserts five facts about its contents, including the ORDER
+  of two lines. (2) `tests/tracked_source.py` and
+  `test_v3_66_918_tracked_source_denominator.py` enumerate `git ls-files -z --
+  '*.py' '*.sh'`, so removing a tracked `.sh` moves their denominator. (3) THE
+  FILE POSITIVELY PINS `/home/claude` -- 3 occurrences -- and SESSION_CARRY
+  records in four places that a blanket residue sweep turns red BECAUSE of them,
+  with `pending-specs/s5-home-claude-residue.md` explicitly requiring those
+  occurrences to REMAIN. (4) `pending-specs/KICKOFF.md:222` had already sized it:
+  a 4th axis-6 `*_stays_retired` gate, the `.sh` enumerator moves, and CLAUDE.md
+  section 4's table needs correcting.
+- SO A SWEEP AND THIS RETIREMENT ARE IN DIRECT CONFLICT and whichever lands
+  second breaks the first. The order that works is recorded in the row: retire
+  the file FIRST, then run the /home/claude sweep, because the sweep's only
+  remaining blocker is the pins in a file that is going away. The other order
+  means editing pins in a file about to be deleted.
+- NOT ATTEMPTED TONIGHT, DELIBERATELY. A deletion that moves three denominators
+  and contradicts a filed spec is not the 40-minute cut it was scheduled as, and
+  the honest output of an hour spent on it is the scoping rather than a rushed
+  removal. The row now carries the measurement so the next session starts from
+  it instead of re-deriving it.
+
 ## v3.66.1117 - a breadcrumb pointing at a 404, and the doc that kept it there
 
 - BACKLOG ROW 113, CLOSED PARTIAL. Three served operator pages carried
