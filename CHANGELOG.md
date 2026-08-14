@@ -4,6 +4,56 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1115 - two live checks that could not fail now can (backlog 110, 111)
+
+- Both were found by the 2026-08-13 tracker audit, both were VERIFIED against
+  their producing code before a line was written, and both are section 0's
+  shape exactly: a check asserting over a denominator that structurally cannot
+  contain its subject, reporting clean -- truthfully, and uselessly. Here the
+  denominator is a dict and the key the check read is not a key the producer
+  writes.
+- L29 (vpn-kill-switch-inspectable) RETURNED PASS ON A GENUINELY KILLED TUNNEL.
+  It filtered active kills with `s.get("killed")`. `KillState` is a dataclass
+  whose fields are tunnel_id / killed_at / reason / state
+  ("killed"/"cycling"/"cleared") and four more, and `to_dict()` is `asdict()` --
+  so the emitted key is `state` and there has never been a `killed` key at all.
+  `killed_at` is a float timestamp and is NOT what `.get("killed")` was
+  reaching, so nothing rescued it. `active` was always empty and the FAIL branch
+  was dead code.
+- L13 (library-extractor-fastpath) COULD NOT OBSERVE THE ONE FACT IT EXISTS TO
+  ESTABLISH. Its predicate was `m.get("installed") or m.get("library") or
+  m.get("library_installed")`. `extractor_matrix()` emits site_id / library /
+  host_pattern / adapter / library_installed and has never emitted `installed`;
+  `library` is the library NAME, non-empty on every well-formed row. The middle
+  operand was therefore constant-true, `eligible` always equalled `matrix`, the
+  WARN branch was unreachable, and the PASS text reported a constant N of N.
+- WHAT MADE L29 SURVIVE A TEST SUITE IS THE PART WORTH KEEPING: its own tests
+  built fixtures as `{"tunnel_id": ..., "killed": True}`. The test MANUFACTURED
+  the key the product does not emit, so it exercised a contract nothing produces
+  and passed. The new gate therefore builds every input by CALLING the real
+  `KillState.to_dict()` rather than writing a dict literal, and asserts the
+  producer's shape as a precondition so it reports UNRUNNABLE if KillState ever
+  grows a real `killed` key.
+- THE FALLOUT WAS THE CONFIRMATION. Fixing L29 turned the three fabricated
+  fixtures RED -- because a dict with no `state` field is exactly what the new
+  malformed-record branch is built to catch, so the fix caught the test suite's
+  own fabrication. All three were corrected to the emitted shape; a repo-wide
+  grep for a fabricated `"killed":` now returns zero.
+- A THIRD STATE WAS ADDED TO EACH so the class cannot recur silently. A
+  kill-state record carrying no `state` field returns WARN naming the record
+  rather than PASS; an extractor row with no `library_installed` key is not
+  counted eligible, because absent is not installed and treating it as installed
+  is how the original defect read. Without those, the next rename puts both
+  checks straight back to blind.
+- `cycling` counts as ACTIVE deliberately: the tunnel was killed and an
+  auto-cycle is in flight, so it is not carrying traffic, and vpn_kill_switch
+  reverts it to `killed` when the cycle fails to clear the leak.
+- PROVEN RED FIRST IN BOTH DIRECTIONS, with the over-sensitivity controls in the
+  same file so a fix that simply always warns would fail: 6 failed / 4 passed on
+  pristine source, and the 4 that passed were the premise assertion and the
+  controls, which must hold. MUTATION: 4 of 4 caught, including a mutant that
+  reverts each check to its original defect.
+
 ## v3.66.1114 - persist bd-wedge-hunt, and test3 joins as a third XFS control
 
 - Completes the instrument rescue the 2026-08-13 session started at @1102 and

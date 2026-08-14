@@ -1258,11 +1258,24 @@ def l13_library_extractor_fast_path(ctx):
                       f"(dev mode off?) — cannot verify the fast path")
     matrix = (body.get("matrix") or body.get("sites")
               or body.get("extractors") or [])
-    eligible = [m for m in matrix
-                if (m.get("installed") or m.get("library")
-                    or m.get("library_installed"))]
+    # THE KEY IS `library_installed`, AND THE OTHER TWO OPERANDS MADE THIS
+    # PREDICATE CONSTANT-TRUE (backlog row 110, fixed v3.66.1115). It read
+    # `m.get("installed") or m.get("library") or m.get("library_installed")`.
+    # capture_diag.extractor_matrix() emits site_id / library / host_pattern /
+    # adapter / library_installed and has never emitted `installed`; `library`
+    # is the library NAME, a non-empty string on every well-formed row. So the
+    # middle operand was truthy regardless of whether anything was installed,
+    # `eligible` always equalled `matrix`, the "no site maps to an installed
+    # library" WARN below was unreachable, and the PASS text reported a constant
+    # N of N. The single fact this check exists to establish -- that a library
+    # is actually present -- was the one it could not observe.
+    #
+    # A row carrying no `library_installed` key at all is NOT counted eligible:
+    # absent is not installed, and treating it as installed is how the original
+    # defect read.
+    eligible = [m for m in matrix if m.get("library_installed")]
     ctx.log(f"extractor matrix: {len(matrix)} site rows, "
-            f"{len(eligible)} with a library/extractor")
+            f"{len(eligible)} with an INSTALLED extractor library")
     if not matrix:
         return WARN, "extractor matrix empty — no sites to check"
     if not eligible:
@@ -2909,8 +2922,34 @@ def l29_vpn_kill_switch_config_check(ctx):
     # because of a leak / config / runtime problem. That's a real
     # operator-visible problem, even though the kill switch itself
     # is doing its job.
-    active = [s for s in states
-              if isinstance(s, dict) and s.get("killed")]
+    #
+    # THE KEY IS `state`, NOT `killed`, AND READING THE WRONG ONE MADE THIS
+    # CHECK UNABLE TO FAIL (backlog row 111, fixed v3.66.1115). KillState is a
+    # dataclass whose fields are tunnel_id / killed_at / reason / state and four
+    # more, and to_dict() is asdict(), so there has never been a `killed` key to
+    # read. `s.get("killed")` was therefore None for every real record, `active`
+    # was always empty, the FAIL branch below was dead code, and this returned
+    # PASS over a genuinely killed tunnel. Note `killed_at` is a float timestamp
+    # and is NOT what `.get("killed")` was reaching -- nothing rescued it.
+    #
+    # `cycling` counts as ACTIVE deliberately: it means the tunnel was killed
+    # and an auto-cycle is in flight, so it is not carrying traffic, and
+    # vpn_kill_switch reverts it to `killed` when the cycle fails to clear the
+    # leak. Only `cleared` is healthy.
+    _ACTIVE_STATES = ("killed", "cycling")
+    malformed = [s for s in states
+                 if not isinstance(s, dict) or not s.get("state")]
+    if malformed:
+        # Unknown is a third state and it must not read as healthy. Without
+        # this branch the next rename of `state` puts the check straight back
+        # to silently passing, which is the defect this cut exists to close.
+        ids = [s.get("tunnel_id", "?") if isinstance(s, dict) else repr(s)[:40]
+               for s in malformed[:3]]
+        return WARN, (f"{len(malformed)} of {len(states)} kill-state record(s) "
+                      f"carry no `state` field ({', '.join(ids)}) — this check "
+                      f"cannot tell a killed tunnel from a cleared one, so it "
+                      f"is reporting that it cannot judge rather than PASS")
+    active = [s for s in states if s.get("state") in _ACTIVE_STATES]
     ctx.log(f"kill_states: {len(states)} total, {len(active)} active; "
             f"auto_recover={auto}")
     if active:
