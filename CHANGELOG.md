@@ -4,6 +4,35 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1127 - the register catches up with what the hunt found
+
+Doc-only. The ~19h wedge hunt ended and the backlog did not reflect it.
+
+Row 144 owned TWO questions and only one was answered, so the row is SPLIT
+rather than closed. It now owns only (a): why the named test crosses 240s in
+the full suite when it takes 28-36s standalone. That question is still OPEN and
+its obvious answer is REFUTED -- 22/22 standalone runs took do_login's early
+return, including under 36 CPU spinners at load ~25, and a whole-file arm was
+6/6 the same with the slowest test at 27-32s against a 240s ceiling. The
+578-second figure in that file's docstring is HISTORICAL, measuring pristine
+source before @1020's fix; an earlier reading of row 144 cited it as live
+evidence and was wrong.
+
+Row 145 is new and CLOSED: the xdist drain livelock, with the mechanism read
+live out of a master wedged 11.6 hours, reproduced minimally (hangs 5/5,
+control passes 5/5), and confirmed in production by the first post-@1126 wedge
+carrying "replacing crashed worker gw4" in the tail that buffering used to eat.
+
+Row 146 is new and OPEN: a wedged master survives SIGINT and stays resident --
+five orphans at hunt end, oldest 11.6 hours, test4 carrying five concurrent
+suites. Load is this bug's dominant covariate, so unreaped masters corrupt the
+measurement in the direction that inflates the apparent rate. Cross-referenced
+from row 104, which owns the same reclaim gap for temp roots.
+
+Row 147 is new and OPEN: every capture before @1126 was blind twice, so no past
+conclusion resting on "the log did not say X" is sound, and an audit of which
+rows cite an absent diagnostic has not been attempted.
+
 ## v3.66.1126 - the sanctioned whole-suite form could not see its own failures
 
 Two independent blindfolds on CLAUDE.md section 5's sanctioned form, both
