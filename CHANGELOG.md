@@ -4,6 +4,56 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1136 - bd-run's retention bound and the check asserting it had two definitions
+
+Caught by the box, on a gate that had nothing to do with the tree. A six-host
+capture round at v3.66.1134 failed on TWO hosts -- test6 and test2, verified
+identical rather than assumed -- with:
+
+    FAILED tests/test_toolchain_534.py::test_the_tools_this_cut_added_are_wired_and_selftest_clean
+    SELFTEST FAIL: prune left more logs than --keep allows
+
+Roughly 40% of hosts, on a clean tree, with bd-run untouched by every cut in
+that session (it last changed at @1060).
+
+THE DEFECT WAS IN THE ASSERTION, NOT IN prune. prune deliberately excludes
+symlinks, and its docstring says why: the `<label>.log` alias "is a pointer, not
+an artifact, and counting it as one would let a directory holding N runs plus N
+aliases keep only N/2 actual logs while reporting that it kept N". So prune
+bounds REAL FILES. The selftest counted `glob("*.log")`, which includes those
+aliases -- asserting a property prune explicitly does not have.
+
+WHY IT ONLY SOMETIMES FIRED, reproduced deterministically:
+
+    mtime tie=False   real kept=2 (correct)   glob=2   -> passes
+    mtime tie=True    real kept=2 (correct)   glob=4   -> fails
+
+The selftest writes three run logs (each aliased) then five fillers. Normally
+the fillers are newest, prune keeps two of THOSE, no alias survives, and the
+naive count is accidentally right. When all eight land in one filesystem tick --
+a fast box under `-n 48` capture load -- prune's newest-two can be run logs
+whose aliases legitimately survive, and the count sees four.
+
+So a gate failed CORRECT work, at 40%, under exactly the conditions the box
+runs. Section 0 calls that a soundness bug rather than a safe default: a gate
+that cries wolf gets switched off, and then it protects nothing.
+
+THE FIX IS ONE PREDICATE, NOT ONE PATCHED LINE. Two places decided what "a log"
+means and they disagreed. `_real_logs()` is now the single definition, consumed
+by prune to choose what to delete and by the selftest to count what survived, so
+they cannot drift apart again. Patching only the assertion would have left the
+same two-definitions shape that produced this -- the fix reproducing the shape
+of the defect, which section 0 warns is the highest-yield rule on the page.
+
+MEASURED, at 9505d5c on test5 (48 cores):
+  RED first        3 failed / 3 passed -- and note WHICH passed:
+                   `prune bounds real files even when every mtime ties` was
+                   GREEN before the fix, pinning that prune was always correct
+  GREEN            54 passed across the new file plus test_toolchain_534
+  forced tie x20   0/20 failed (the box's own failure, now deterministic)
+  selftest x5      exit 0 every time
+  band             see the cut; pyflakes clean
+
 ## v3.66.1135 - a deliberately AI-free host is a supported deployment, not two warnings
 
 Found by reading a full six-host capture round at v3.66.1134 rather than by

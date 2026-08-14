@@ -79,6 +79,23 @@ def run_id():
     return "%s-%d" % (time.strftime("%Y%m%dT%H%M%S"), os.getpid())
 
 
+def _real_logs(directory):
+    """THE ONE DEFINITION OF "a log". Real files only; aliases are pointers.
+
+    prune and the selftest that asserts prune's bound each decided this
+    separately, and they disagreed: prune excluded symlinks, the assertion
+    counted them. Measured at v3.66.1134 on a six-host capture round, that
+    disagreement failed CORRECT work on 2 of 6 hosts (~40%) whenever eight
+    writes landed in one filesystem tick, because prune's newest-two could then
+    be run logs whose `<label>.log` aliases legitimately survived. A gate that
+    fires on correct work gets switched off, so over-sensitivity is a soundness
+    bug (CLAUDE.md section 0), and two definitions of one predicate is how it
+    got there. One function, both callers.
+    """
+    return [q for q in pathlib.Path(directory).glob("*.log")
+            if q.is_file() and not q.is_symlink()]
+
+
 def prune(directory, keep):
     """Bound the retention. Creating a path is a promise to remove it.
 
@@ -86,8 +103,7 @@ def prune(directory, keep):
     counting it as one would let a directory holding N runs plus N aliases keep
     only N/2 actual logs while reporting that it kept N.
     """
-    logs = sorted((p for p in pathlib.Path(directory).glob("*.log")
-                   if p.is_file() and not p.is_symlink()),
+    logs = sorted(_real_logs(directory),
                   key=lambda p: p.stat().st_mtime, reverse=True)
     for stale in logs[keep:]:
         try:
@@ -309,7 +325,7 @@ def selftest(_args):
         for i in range(5):
             (pathlib.Path(td) / ("filler%d.log" % i)).write_text("x")
         prune(td, 2)
-        if len(list(pathlib.Path(td).glob("*.log"))) > 2:
+        if len(_real_logs(td)) > 2:
             failures.append("prune left more logs than --keep allows")
 
         # 7. An empty command is a refusal.
