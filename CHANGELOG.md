@@ -4,6 +4,44 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1122 - is there a SIZE THRESHOLD? (backlog 102)
+
+- test6 stops running the tmpfs control and starts a threshold search: `full`
+  (100%), `full-50` and `full-25`, alternating. VERIFIED before shipping --
+  full-50 collects 7795 tests against the full suite's 15913, so the arm does
+  what its name says rather than what its author intended.
+- THE OBVIOUS OPTIMISATION IS ALREADY DISPROVEN, and that null is the starting
+  point rather than something to re-try. The capture lane is 15,075 tests (95%)
+  at 0 of 50 wedges; the 794 deselected tests alone are 0 of 24; the full suite
+  is 2 of 6. NEITHER SUBSET WEDGES AND ONLY THE UNION DOES -- so the tail cannot
+  be run alone, and neither can everything-but-the-tail.
+- THAT ARGUES FOR A THRESHOLD rather than a poisoned test near the end. After
+  ~250s and 15,869 tests each of 48 workers carries accumulated state -- imported
+  modules, tmp roots, open fds, memory -- and the drain phase tears all of it
+  down at once. A short run reaches its drain with workers that have nothing
+  much to tear down. If a threshold exists it buys a much faster reproducer AND
+  names the resource that runs out.
+- THE SUBSET IS EVERY k-TH FILE OF THE SORTED TRACKED LIST, not a prefix. A
+  prefix would confound size with WHICH tests run: tests/test_a*.py is not a
+  random half of this suite.
+- WHAT IT CANNOT SEPARATE, said here because the row will not: fewer files means
+  both less accumulation AND a shorter run. Size and duration co-vary, and
+  splitting them needs a different arm (same file count, slower files). This
+  pass only asks whether a threshold exists at all.
+- THE SIZE ARMS ARE MARKED is_section5 FALSE, so their pass/fail counts must
+  never be read as a whole-suite result. Only wedged/not-wedged is comparable,
+  and only against other size arms on the same host.
+- test6 WAS CHOSEN BECAUSE IT IS THE PROVEN REPRODUCER (2 of 6). A size search
+  on a host that has never wedged cannot produce a meaningful null.
+- full-tmpfs IS RETIRED, with the trade stated: test2 supersedes it. tmpfs
+  changed the filesystem AND removed the disk AND changed memory pressure, three
+  variables at once on one box; test2 against test6 changes exactly one thing,
+  the machine. Its 2 samples stay in rows.jsonl -- the arm stops accruing, it is
+  not deleted.
+- The tool refuses to build a size arm if `git ls-files` returns fewer than 500
+  test files: an arm built from a truncated list would run a different
+  experiment than its own name claims, silently.
+
 ## v3.66.1121 - the dead worker can now be autopsied (backlog 102)
 
 - bd-wedge-hunt's own docstring lists as blind spot 3: "WHY A WORKER DIED ... the
