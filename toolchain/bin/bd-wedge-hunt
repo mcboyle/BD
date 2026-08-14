@@ -1,0 +1,612 @@
+#!/usr/bin/env python3
+"""bd-wedge-hunt -- hunt backlog row 102's xdist wedge, and DISSECT it when it fires.
+
+THE QUESTION THIS EXISTS TO ANSWER. A full suite at `-n 48` was measured at
+f154aef to wedge 2 of 6 times: `[gwNN] node down: Not properly terminated` as
+the last log line at 99%, then nothing for 462s and 255s with a 1-minute load
+average of 0.06. The capture lane at the same -n 48 has 0 wedges in 31 preserved
+host-runs. The obvious explanation is dead: the lane is NOT a small subset --
+`-m capture_parallel` collects 15075 of 15875 tests. So something OTHER than
+lane size distinguishes a run that wedges from one that does not, and the 800
+DESELECTED tests are the first place to look.
+
+THE DESIGN, PHASE 2. Phase 1 ran three arms (`full`, the 15075-test capture
+`lane`, and the 800 `deselected` tests alone) rotated across three hosts so that
+host and arm could never be the same variable. 74 samples settled two things and
+the design changed to match:
+
+  * ONLY THE FULL SUITE EVER WEDGES. lane 0/25, deselected 0/24. Both are
+    retired; continuing to sample them would spend two thirds of the fleet on an
+    event they do not exhibit. Note what the deselected arm ruled out: "a leaky
+    test among the 800" does not reproduce on its own.
+  * EVERY WEDGE IS ON TEST6 -- 2 of 6 full-suite samples there against 0 of 20
+    across test4 and test7, one-sided Fisher p = 0.046. A host audit found the
+    software stack byte-identical (kernel 6.8.0-137, Ubuntu 24.04.4, Python
+    3.12.3, pytest 9.1.1, xdist 3.8.0, execnet 2.1.2, same commit) and exactly
+    ONE structural difference: test6's root is EXT4 where test4 and test7 are
+    XFS. /tmp is on / everywhere, so the suite's whole tmpdir churn runs on ext4
+    there and XFS elsewhere. CPU differs three ways and so isolates nothing.
+
+TEST3 JOINED AS A THIRD XFS CONTROL ON 2026-08-14, provisioned from bare metal
+that day and MEASURED rather than assumed equivalent (48 cores, 344G, XFS, /tmp
+on /, first capture 15894/0/0/6 -- identical to test4/test5/test7). It cannot
+reproduce the wedge and is not meant to: it strengthens the denominator on the
+non-wedging side, turning "test4 and test7 happen not to wedge" into "no XFS box
+does". The current p = 0.046 is one bad sample from crossing back over 0.05,
+and n is the only thing that fixes that.
+
+So phase 2 is full-suite only, plus a WITHIN-HOST control on test6:
+`full-tmpfs` is the same command with TMPDIR pointed at a 64G tmpfs. Same box,
+same commit, same command; the filesystem is the only difference between the two
+arms on one machine, which is a stronger design than any cross-host comparison
+because it cannot be confounded by the host at all.
+
+PHASE 1's ROWS ARE IN rows-phase1-final.jsonl AND MUST NOT BE POOLED WITH PHASE
+2's. They were taken at a DIFFERENT COMMIT (17ed291; phase 2 runs 283588d, which
+added a test file and so changed how --dist loadfile packs work) and under a
+different arm mix. They are in a separate file precisely so that pooling has to
+be a deliberate act rather than an accident of `cat`. Phase 2 rows carry a
+`commit` field; phase 1's do not, which is itself the reason the field exists.
+
+EVERY ARM HERE IS CLAUDE.md SECTION 5's SANCTIONED WHOLE-SUITE FORM. Phase 1's
+marker-scoped arms were a declared deviation and are gone; `full-tmpfs` changes
+an environment variable, not a pytest flag, so the collected set is identical.
+Each row still carries its own `section5` field rather than relying on this
+paragraph.
+
+STALL IS NOT WEDGE, AND THE DIFFERENCE IS MEASURED RATHER THAN ASSUMED. A run
+whose log stops growing might be wedged or might be slow. So a stall triggers
+forensics and then WAITS: a second look one confirm-window later decides. Only a
+run that is still silent at the second look is recorded `wedged`. Killing at the
+first sign would destroy the distinction and, worse, would destroy the evidence
+-- CLAUDE.md's own rule that the run an investigation cares most about is the
+one that failed.
+
+FORENSICS RUN BEFORE ANYTHING IS KILLED. `py-spy dump` under sudo (ptrace_scope
+is 1 on this fleet, verified) gives the master's PYTHON FRAMES -- the one thing
+/proc cannot -- so "blocked reading an execnet pipe" becomes a claim with a
+stack under it. Alongside it: the process forest, zombies with their parentage,
+the master's /proc status/wchan/syscall/fd table and per-thread kernel stacks,
+the run-context chain count against the worker count (backlog 103's reopen
+trigger, now that the expected value is known), dmesg, and the log tail.
+
+WHAT THIS CANNOT SEE
+--------------------
+ 1. WHETHER A SAMPLE MEANS ANYTHING ON ITS OWN. The full-suite failure count on
+    this fleet is noise: 5 samples at one commit and one -n gave 18/10/11/7/6 on
+    one host. This tool produces ROWS. Wedge/no-wedge is the only field here
+    worth reading singly, and only in aggregate.
+ 2. A WEDGE THAT RESOLVES BETWEEN POLLS. Detection is log-mtime based at a poll
+    interval; a stall shorter than the interval leaves no trace.
+ 3. WHY A WORKER DIED. It records the master's state at wedge time. The worker is
+    already gone -- that is what "node down" means -- so its own stack is
+    unrecoverable by construction.
+ 4. THE BOX GATE. A sweep is not a capture.
+ 5. ANYTHING ABOUT test5. Deliberately: it runs the live service against the
+    deployed tree.
+"""
+from __future__ import annotations
+
+import argparse
+import datetime
+import json
+import os
+import pathlib
+import shlex
+import subprocess
+import sys
+import threading
+import time
+
+HOSTS = [("test4", "10.0.70.85"), ("test6", "10.0.70.249"), ("test7", "10.0.70.84"),
+         ("test3", "10.0.70.80")]
+
+# Section 5's form, verbatim. `-n` is filled from the TARGET's nproc, never a
+# constant -- a 4 was once copied onto an 86-core box purely because the
+# paragraph said 4.
+SECTION5 = ["env", "-u", "BD_INSTALL_DIR", "BD_DISABLE_KEEPALIVE=1",
+            "venv/bin/python", "-m", "pytest", "tests/",
+            "-n", "{workers}", "--dist", "loadfile",
+            "--timeout=240", "--timeout-method=thread", "-q", "-p", "no:randomly"]
+
+# PHASE 2 ARMS. Phase 1 ran three arms x three hosts for 74 samples and
+# established two things that reshape the experiment:
+#
+#   * the lane (0/25) and the 800 deselected tests alone (0/24) have NEVER
+#     wedged. Continuing to sample them spends two thirds of the machine on an
+#     event they do not exhibit, so both are retired and the full suite -- the
+#     only arm that has ever wedged -- gets all of it.
+#   * every wedge is on TEST6: 2 of 6 full-suite samples there against 0 of 20
+#     on test4 and test7, one-sided Fisher p = 0.046. A host audit found the
+#     software stack byte-identical (kernel, OS, python, pytest, xdist,
+#     execnet, commit) and exactly one structural difference: test6's root is
+#     EXT4 where test4 and test7 are XFS, and /tmp is on / everywhere. So the
+#     whole suite's tmpdir churn runs on ext4 there and XFS elsewhere.
+#
+# The `full-tmpfs` arm is the discriminator, and it is a WITHIN-HOST control:
+# same box, same commit, same command, TMPDIR pointed at RAM instead of ext4.
+# Alternating it against plain `full` on test6 means the filesystem is the only
+# thing that differs between two arms on one machine -- no cross-host
+# confounding at all. If wedges follow ext4 and stop on tmpfs, the filesystem is
+# implicated; if they continue on tmpfs, ext4 is exonerated and the test6
+# difference is something else.
+ARM_FULL = ("full", [], True, {},
+            "CLAUDE.md section 5's sanctioned whole-suite form, unmodified")
+ARM_FULL_TMPFS = ("full-tmpfs", [], True, {"TMPDIR": "/mnt/bdtmpfs"},
+                  "The same sanctioned form with TMPDIR on a 64G tmpfs, so the "
+                  "suite's tmp root lands in RAM rather than on test6's ext4 "
+                  "root. tests/_tmproot.py takes tempfile.gettempdir(), which "
+                  "follows TMPDIR, so this redirects the WHOLE suite tmp tree.")
+
+# test3 (10.0.70.80) JOINED THE POOL 2026-08-14 AS A THIRD XFS CONTROL, and it
+# is worth being precise about what it can and cannot buy. It CANNOT reproduce
+# the wedge: it is XFS, and the whole hypothesis is that ext4 is what
+# distinguishes test6. What it adds is DENOMINATOR on the side that does not
+# wedge -- 0/20 across two hosts becomes 0/N across three INDEPENDENTLY BUILT
+# machines, which is the difference between "test4 and test7 happen not to" and
+# "no XFS box does". A one-sided Fisher p improves with either arm's n, and the
+# current 0.046 is one bad sample away from crossing back over 0.05.
+#
+# It was provisioned from bare metal on 2026-08-14 and measured before being
+# added rather than assumed equivalent: 48 cores, 344G, Xeon 8170 (2x24, 1
+# thread/core), XFS root, /tmp on /, Ubuntu 24.04.4, Python 3.12.3, VMware --
+# fleet-spec on every axis except a kernel patch level (6.8.0-136 against
+# test5's -137). Its first capture was 15894 pass / 0 fail / 0 error / 6 skip,
+# identical to test4/test5/test7, so it is a like-for-like box and not a
+# lookalike. Note it briefly came up 16-core/62G before the operator reallocated
+# it; a 16-core arm would have been a DIFFERENT experiment (section 5: a green
+# band at one -n does not retire a failure at another) and pooling it would have
+# been the confound this whole design exists to avoid.
+ARMS_BY_HOST = {
+    "test4": [ARM_FULL],
+    "test7": [ARM_FULL],
+    "test3": [ARM_FULL],
+    "test6": [ARM_FULL, ARM_FULL_TMPFS],
+}
+
+REMOTE_ROOT = "/tmp/bd-wedge"
+STOP = threading.Event()
+PRINT_LOCK = threading.Lock()
+ROW_LOCK = threading.Lock()
+
+
+def now() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def say(msg: str) -> None:
+    with PRINT_LOCK:
+        sys.stdout.write("[%s] %s\n" % (now(), msg))
+        sys.stdout.flush()
+
+
+def ssh(addr: str, script: str, timeout: int = 120) -> subprocess.CompletedProcess:
+    """One ssh round trip. Never raises on a non-zero exit -- a host that is
+    briefly unreachable must not end a 12-hour hunt."""
+    try:
+        return subprocess.run(
+            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", addr, script],
+            capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(args=[], returncode=124, stdout="",
+                                           stderr="ssh timed out after %ds" % timeout)
+    except Exception as exc:                      # noqa: BLE001 -- see docstring
+        return subprocess.CompletedProcess(args=[], returncode=125, stdout="",
+                                           stderr="ssh raised %r" % (exc,))
+
+
+# ---------------------------------------------------------------------------
+# launching one sample
+# ---------------------------------------------------------------------------
+RUNNER = r"""
+set -u
+RUNDIR="{rundir}"
+mkdir -p "$RUNDIR"
+cd "$HOME/BulkDownloader" || {{ echo 90 > "$RUNDIR/exitcode"; exit 90; }}
+
+git rev-parse HEAD > "$RUNDIR/head_before" 2>&1
+git status --porcelain | wc -l > "$RUNDIR/dirty_before" 2>&1
+cat /proc/loadavg > "$RUNDIR/load_before" 2>&1
+date +%s > "$RUNDIR/epoch_start"
+
+# `set -m` IS LOAD-BEARING AND IS NOT COSMETIC. With job control OFF -- the
+# default for a non-interactive shell -- bash sets SIGINT and SIGQUIT to SIG_IGN
+# for any command it backgrounds with `&`. Measured on the first wedge this tool
+# caught: the master's /proc status read `SigIgn: 0x1001007`, so the SIGINT sent
+# before the SIGKILL was a NO-OP and the "flush the buffer first" step did
+# nothing at all. `trap - INT` cannot fix it either: a shell may not reset a
+# signal that was ignored on entry. Enabling job control here is the only thing
+# that makes the backgrounded pytest killable by SIGINT. CLAUDE.md section 6
+# records the identical trap for bd-mutate.
+set -m
+{cmd} > "$RUNDIR/pytest.log" 2>&1 &
+PYTEST_PID=$!
+set +m
+echo "$PYTEST_PID" > "$RUNDIR/pytest.pid"
+
+python3 "$HOME/BulkDownloader/toolchain/bin/bd-jobs" register \
+    --pid "$PYTEST_PID" --purpose {purpose} --origin {origin} --cmd {cmdq} \
+    > "$RUNDIR/jobid" 2>"$RUNDIR/jobid.err" || echo "REGISTER-FAILED" > "$RUNDIR/jobid"
+
+wait "$PYTEST_PID"
+rc=$?
+date +%s > "$RUNDIR/epoch_end"
+cat /proc/loadavg > "$RUNDIR/load_after" 2>&1
+git rev-parse HEAD > "$RUNDIR/head_after" 2>&1
+echo "$rc" > "$RUNDIR/exitcode"
+"""
+
+
+def launch(addr: str, rundir: str, cmd: str, purpose: str, origin: str) -> dict:
+    body = RUNNER.format(rundir=shlex.quote(rundir), cmd=cmd,
+                         purpose=shlex.quote(purpose), origin=shlex.quote(origin),
+                         cmdq=shlex.quote(cmd))
+    script = (
+        "mkdir -p %s && cat > %s/runner.sh <<'BDWEDGEEOF'\n%s\nBDWEDGEEOF\n"
+        "setsid nohup bash %s/runner.sh >/dev/null 2>&1 < /dev/null &\n"
+        "echo LAUNCHED=$!\n" % (shlex.quote(rundir), shlex.quote(rundir), body,
+                                shlex.quote(rundir))
+    )
+    r = ssh(addr, script, timeout=90)
+    return {"rc": r.returncode, "out": r.stdout.strip(), "err": r.stderr.strip()}
+
+
+PROBE = r"""
+RUNDIR="{rundir}"
+P="$(cat "$RUNDIR/pytest.pid" 2>/dev/null || echo 0)"
+EC="$(cat "$RUNDIR/exitcode" 2>/dev/null || echo NONE)"
+SZ="$(stat -c %s "$RUNDIR/pytest.log" 2>/dev/null || echo -1)"
+MT="$(stat -c %Y "$RUNDIR/pytest.log" 2>/dev/null || echo -1)"
+if [ "$P" != "0" ] && kill -0 "$P" 2>/dev/null; then A=alive; else A=dead; fi
+echo "pid=$P exit=$EC size=$SZ mtime=$MT alive=$A epoch=$(date +%s)"
+"""
+
+
+def probe(addr: str, rundir: str) -> dict:
+    r = ssh(addr, PROBE.format(rundir=shlex.quote(rundir)), timeout=60)
+    if r.returncode != 0:
+        return {"ok": False, "err": r.stderr.strip() or "rc=%d" % r.returncode}
+    out = {"ok": True}
+    for tok in r.stdout.strip().split():
+        if "=" in tok:
+            k, v = tok.split("=", 1)
+            out[k] = v
+    return out
+
+
+# ---------------------------------------------------------------------------
+# forensics -- everything below runs BEFORE anything is killed
+# ---------------------------------------------------------------------------
+FORENSICS = r"""
+PID="{pid}"; OUT="{out}"; RUNDIR="{rundir}"
+mkdir -p "$OUT"
+date -u +%Y-%m-%dT%H:%M:%SZ            > "$OUT/00_when.txt" 2>&1
+uptime                                  > "$OUT/01_uptime.txt" 2>&1
+cat /proc/loadavg                       > "$OUT/02_loadavg.txt" 2>&1
+free -g                                 > "$OUT/03_free.txt" 2>&1
+ps -eo pid,ppid,pgid,stat,etimes,rss,nlwp,comm,args --forest \
+                                        > "$OUT/04_ps_forest.txt" 2>&1
+ps -eo pid,ppid,stat,comm,args | awk '$3 ~ /Z/' \
+                                        > "$OUT/05_zombies.txt" 2>&1
+ps -eo pid,ppid,stat,comm | awk -v p="$PID" '$2==p' \
+                                        > "$OUT/06_direct_children.txt" 2>&1
+ps -eo pid,ppid,stat,comm | awk -v p="$PID" '$2==p && $3 ~ /Z/' | wc -l \
+                                        > "$OUT/07_zombie_children_count.txt" 2>&1
+
+cat /proc/$PID/status                   > "$OUT/10_master_status.txt" 2>&1
+cat /proc/$PID/wchan                    > "$OUT/11_master_wchan.txt" 2>&1; echo >> "$OUT/11_master_wchan.txt"
+# sudo: /proc/<pid>/syscall needs CAP_SYS_ADMIN even for your OWN process.
+# Measured in this tool's selftest, which recorded "Operation not permitted"
+# where the syscall number was supposed to be -- a file present and unreadable
+# looks exactly like a file present and empty to anything reading the bundle.
+sudo cat /proc/$PID/syscall             > "$OUT/12_master_syscall.txt" 2>&1
+ls -l /proc/$PID/fd                     > "$OUT/13_master_fd.txt" 2>&1
+ls /proc/$PID/fd 2>/dev/null | wc -l    > "$OUT/14_master_fd_count.txt" 2>&1
+sudo cat /proc/$PID/stack               > "$OUT/15_master_kstack.txt" 2>&1
+for t in /proc/$PID/task/*; do
+  echo "== $t"; cat $t/comm 2>/dev/null; sudo cat $t/stack 2>/dev/null;
+  echo "wchan: $(cat $t/wchan 2>/dev/null)"; echo;
+done                                    > "$OUT/16_master_threads.txt" 2>&1
+
+sudo ~/.local/bin/py-spy dump --pid "$PID" --nonblocking \
+                                        > "$OUT/20_pyspy_master.txt" 2>&1
+sudo ~/.local/bin/py-spy dump --pid "$PID" \
+                                        > "$OUT/21_pyspy_master_blocking.txt" 2>&1
+# --locals is the one that answers WHY rather than WHERE. xdist's loop_once
+# spins while `self._active_nodes` is non-empty, so the length of that set and
+# the scheduler's state are the whole question, and a plain dump shows neither.
+sudo ~/.local/bin/py-spy dump --pid "$PID" --locals \
+                                        > "$OUT/23_pyspy_master_locals.txt" 2>&1
+
+for c in $(ps -eo pid,ppid,stat | awk -v p="$PID" '$2==p && $3 !~ /Z/ {{print $1}}'); do
+  echo "=== child $c ==="
+  ps -o pid,ppid,stat,etimes,comm,args -p $c 2>&1
+  echo "wchan: $(cat /proc/$c/wchan 2>/dev/null)"
+  sudo ~/.local/bin/py-spy dump --pid $c --nonblocking 2>&1 | head -30
+  echo
+done                                    > "$OUT/22_pyspy_children.txt" 2>&1
+
+ls -la /tmp/bd-runctx/                  > "$OUT/30_runctx_all.txt" 2>&1
+ls -la "/tmp/bd-runctx/$PID/"           > "$OUT/31_runctx_master.txt" 2>&1
+ls "/tmp/bd-runctx/$PID/" 2>/dev/null | grep -c '\.chain$' \
+                                        > "$OUT/32_chain_count.txt" 2>&1
+sudo dmesg -T 2>/dev/null | tail -200   > "$OUT/40_dmesg.txt" 2>&1
+tail -200 "$RUNDIR/pytest.log"          > "$OUT/50_log_tail.txt" 2>&1
+grep -a -n "node down\|Not properly terminated\|INTERNALERROR\|worker.*crashed" \
+     "$RUNDIR/pytest.log" | tail -40    > "$OUT/51_log_nodedown.txt" 2>&1
+stat -c '%s %Y' "$RUNDIR/pytest.log"    > "$OUT/52_log_stat.txt" 2>&1
+echo done
+"""
+
+
+def forensics(addr: str, pid: str, rundir: str, out: str) -> dict:
+    r = ssh(addr, FORENSICS.format(pid=pid, out=shlex.quote(out),
+                                   rundir=shlex.quote(rundir)), timeout=600)
+    return {"rc": r.returncode, "err": r.stderr.strip()[:600]}
+
+
+def fetch(addr: str, remote: str, local: pathlib.Path) -> bool:
+    local.parent.mkdir(parents=True, exist_ok=True)
+    r = subprocess.run(["rsync", "-a", "%s:%s/" % (addr, remote), str(local) + "/"],
+                       capture_output=True, text=True, timeout=600)
+    return r.returncode == 0
+
+
+# ---------------------------------------------------------------------------
+# one sample, end to end
+# ---------------------------------------------------------------------------
+def run_one(label: str, addr: str, arm, idx: int, cfg) -> dict:
+    name, extra, is_section5, arm_env, note = arm
+    runid = "%s-%s-%03d-%s" % (label, name, idx,
+                               datetime.datetime.now().strftime("%H%M%S"))
+    rundir = "%s/%s" % (REMOTE_ROOT, runid)
+
+    nproc = ssh(addr, "nproc", timeout=45)
+    workers = nproc.stdout.strip() if nproc.returncode == 0 else ""
+    # A FINDING IS ABOUT A COMMIT -- SAY WHICH ONE. Phase 1 did not record it in
+    # the row; the runner wrote head_before into the run directory, but run
+    # directories are pruned, so the commit for an old sample was recoverable
+    # only from the fact that nobody had deployed. That is an argument, not a
+    # record.
+    head = ssh(addr, "cd ~/BulkDownloader && git rev-parse --short HEAD && "
+                     "git status --porcelain | wc -l", timeout=45)
+    head_sha, head_dirty = "UNKNOWN", "UNKNOWN"
+    if head.returncode == 0:
+        parts = head.stdout.split()
+        if len(parts) >= 2:
+            head_sha, head_dirty = parts[0], parts[1]
+    if not workers.isdigit():
+        return {"runid": runid, "host": label, "arm": name, "state": "REFUSED",
+                "why": "could not read nproc from the target: %r" % nproc.stderr[:200],
+                "when": now()}
+
+    tokens = [t.replace("{workers}", workers) for t in SECTION5] + extra
+    # The arm env goes in FRONT of `env -u BD_INSTALL_DIR ...`, so it is
+    # exported into pytest and inherited by every xdist worker. Setting it
+    # in the ssh shell instead would not survive `setsid nohup bash`.
+    prefix = ["env"] + ["%s=%s" % (k, v) for k, v in sorted(arm_env.items())] \
+        if arm_env else []
+    tokens = prefix + tokens
+    cmd = " ".join(shlex.quote(t) if " " in t else t for t in tokens)
+
+    row = {"runid": runid, "host": label, "addr": addr, "arm": name, "idx": idx,
+           "when_start": now(), "workers": int(workers),
+           "workers_source": "the TARGET's own nproc, read at launch",
+           "cmd": cmd, "arm_note": note, "arm_env": dict(arm_env),
+           "commit": head_sha, "dirty_paths": head_dirty,
+           "section5": ("this IS CLAUDE.md section 5's sanctioned whole-suite form"
+                        if is_section5 else
+                        "NOT the sanctioned whole-suite form -- a marker was added, "
+                        "so this row's counts must never be read as a whole-suite "
+                        "result"),
+           "rundir": rundir}
+
+    lr = launch(addr, rundir, cmd, "row102-wedge-hunt-%s" % name, "test5:bd-wedge-hunt")
+    if lr["rc"] != 0 or "LAUNCHED=" not in lr["out"]:
+        row.update({"state": "REFUSED", "why": "launch failed: %s / %s"
+                    % (lr["out"][:200], lr["err"][:300]), "when_end": now()})
+        return row
+
+    say("%s %s: launched (%s)" % (label, name, runid))
+
+    last_size, last_change, stall_seen, wedge_conf = -1, time.time(), None, 0
+    started = time.time()
+    forensic_tags = []
+
+    while not STOP.is_set():
+        time.sleep(cfg.poll)
+        p = probe(addr, rundir)
+        if not p.get("ok"):
+            row.setdefault("probe_errors", []).append(p.get("err", "?")[:200])
+            if len(row["probe_errors"]) > cfg.max_probe_errors:
+                row.update({"state": "UNKNOWN", "why": "the target stopped answering "
+                            "probes; the run was NOT killed and may still be there",
+                            "when_end": now()})
+                return row
+            continue
+
+        if p.get("exit", "NONE") != "NONE":
+            row["pytest_exit"] = p["exit"]
+            break
+
+        size = int(p.get("size", -1))
+        if size != last_size:
+            last_size, last_change = size, time.time()
+            stall_seen = None
+        quiet = time.time() - last_change
+
+        if quiet >= cfg.stall and p.get("alive") == "alive":
+            if stall_seen is None:
+                stall_seen = time.time()
+                tag = "stall1"
+                say("%s %s: NO LOG GROWTH for %ds -- forensics (%s)"
+                    % (label, name, int(quiet), tag))
+                fout = "%s/forensics-%s" % (rundir, tag)
+                forensics(addr, p.get("pid", "0"), rundir, fout)
+                forensic_tags.append(tag)
+                row["stall_first_seen_after_s"] = int(quiet)
+            elif time.time() - stall_seen >= cfg.confirm:
+                wedge_conf += 1
+                tag = "wedge-confirm%d" % wedge_conf
+                say("%s %s: STILL silent %ds later -- WEDGE CONFIRMED (%s)"
+                    % (label, name, int(time.time() - stall_seen), tag))
+                fout = "%s/forensics-%s" % (rundir, tag)
+                forensics(addr, p.get("pid", "0"), rundir, fout)
+                forensic_tags.append(tag)
+                row.update({"state": "WEDGED", "wedged": True,
+                            "quiet_seconds_at_kill": int(quiet),
+                            "master_pid": p.get("pid")})
+                # SIGINT FIRST, AND THE REASON IS EVIDENCE, NOT POLITENESS.
+                # The master's stdout is a FILE, so it is block-buffered; a
+                # SIGKILL discards whatever has not been flushed. The first
+                # wedge this tool caught lost the line after "F" that way, and
+                # its absence from the log was nearly read as a fact about
+                # xdist. SIGINT makes pytest unwind, print its summary and
+                # flush; only then is SIGKILL used, and the log is re-fetched
+                # afterwards so the flushed tail is captured.
+                pid = p.get("pid", "0")
+                ssh(addr, "kill -INT %s 2>/dev/null; echo INT-sent" % pid,
+                    timeout=60)
+                time.sleep(cfg.sigint_grace)
+                fout2 = "%s/forensics-after-sigint" % rundir
+                forensics(addr, pid, rundir, fout2)
+                forensic_tags.append("after-sigint")
+                ssh(addr, "kill -9 -$(ps -o pgid= -p %s 2>/dev/null | tr -d ' ') "
+                          "2>/dev/null; kill -9 %s 2>/dev/null; echo killed"
+                          % (pid, pid), timeout=60)
+                break
+
+        if time.time() - started > cfg.cap:
+            row.update({"state": "CAPPED", "why": "exceeded the %ds whole-run cap"
+                        % cfg.cap, "master_pid": p.get("pid")})
+            fout = "%s/forensics-capped" % rundir
+            forensics(addr, p.get("pid", "0"), rundir, fout)
+            forensic_tags.append("capped")
+            ssh(addr, "kill -9 %s 2>/dev/null; echo killed" % p.get("pid", "0"),
+                timeout=60)
+            break
+
+    row["when_end"] = now()
+    row["forensics"] = forensic_tags
+    row.setdefault("state", "COMPLETED")
+    row.setdefault("wedged", row["state"] == "WEDGED")
+
+    tail = ssh(addr, "R=%s; tail -25 $R/pytest.log; echo '---SUMMARY---'; "
+                     "grep -a -E '^[0-9]+ (passed|failed)|passed|failed|error' "
+                     "$R/pytest.log | tail -3; echo '---NODEDOWN---'; "
+                     "grep -a -c 'node down' $R/pytest.log; echo '---WALL---'; "
+                     "echo $(( $(cat $R/epoch_end 2>/dev/null || date +%%s) - "
+                     "$(cat $R/epoch_start 2>/dev/null || echo 0) ))"
+               % shlex.quote(rundir), timeout=90)
+    if tail.returncode == 0:
+        parts = tail.stdout.split("---SUMMARY---")
+        row["log_tail"] = parts[0].strip()[-1800:]
+        if len(parts) > 1:
+            rest = parts[1].split("---NODEDOWN---")
+            row["summary_lines"] = rest[0].strip()[-600:]
+            if len(rest) > 1:
+                nd = rest[1].split("---WALL---")
+                row["node_down_count"] = nd[0].strip()
+                if len(nd) > 1:
+                    row["wall_seconds"] = nd[1].strip()
+
+    if forensic_tags:
+        local = pathlib.Path(cfg.outdir) / "forensics" / runid
+        for tag in forensic_tags:
+            fetch(addr, "%s/forensics-%s" % (rundir, tag), local / tag)
+        fetch(addr, rundir, local / "rundir")
+        row["forensics_local"] = str(local)
+
+    logdst = pathlib.Path(cfg.outdir) / "logs" / ("%s.log" % runid)
+    # Create the parent HERE, not only in main(): rsync onto a missing directory
+    # fails silently from the row's point of view and records log_local=None,
+    # which reads as "no log" rather than "the log was not fetched". Caught by
+    # this tool's own selftest, which ran with a different --outdir.
+    logdst.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["rsync", "-a", "%s:%s/pytest.log" % (addr, rundir), str(logdst)],
+                   capture_output=True, text=True, timeout=600)
+    row["log_local"] = str(logdst) if logdst.exists() else None
+
+    ssh(addr, "ls -1dt %s/*/ 2>/dev/null | tail -n +%d | xargs -r rm -rf"
+              % (REMOTE_ROOT, cfg.keep_remote + 1), timeout=90)
+    return row
+
+
+def host_loop(label: str, addr: str, offset: int, cfg) -> None:
+    idx = 0
+    arms = ARMS_BY_HOST[label]
+    while not STOP.is_set():
+        arm = arms[idx % len(arms)]
+        try:
+            row = run_one(label, addr, arm, idx, cfg)
+        except Exception as exc:                  # noqa: BLE001
+            row = {"host": label, "arm": arm[0], "idx": idx, "state": "DRIVER-ERROR",
+                   "why": repr(exc), "when": now()}
+        with ROW_LOCK:
+            with open(pathlib.Path(cfg.outdir) / "rows.jsonl", "a",
+                      encoding="utf-8") as fh:
+                fh.write(json.dumps(row) + "\n")
+        say("%s %s #%d -> %s%s" % (label, arm[0], idx, row.get("state"),
+                                   "  *** WEDGE ***" if row.get("wedged") else ""))
+        idx += 1
+        if cfg.max_per_host and idx >= cfg.max_per_host:
+            say("%s: reached --max-per-host %d" % (label, cfg.max_per_host))
+            return
+
+
+def main(argv=None) -> int:
+    p = argparse.ArgumentParser(prog="bd-wedge-hunt", description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--outdir", default=str(pathlib.Path.home() / "bd-wedge-2026-08-14"))
+    p.add_argument("--poll", type=int, default=30, help="seconds between probes")
+    p.add_argument("--stall", type=int, default=300,
+                   help="no log growth for this long triggers forensics. 300 is "
+                        "above --timeout=240, so no single slow test explains it.")
+    p.add_argument("--confirm", type=int, default=420,
+                   help="a stall still silent this much later is a WEDGE")
+    p.add_argument("--cap", type=int, default=7200, help="whole-run cap, seconds")
+    p.add_argument("--sigint-grace", type=int, default=90, dest="sigint_grace",
+                   help="seconds between SIGINT and SIGKILL, so the master can "
+                        "flush its block-buffered stdout before it is destroyed")
+    p.add_argument("--max-per-host", type=int, default=0, dest="max_per_host")
+    p.add_argument("--max-probe-errors", type=int, default=20, dest="max_probe_errors")
+    p.add_argument("--keep-remote", type=int, default=6, dest="keep_remote")
+    p.add_argument("--hours", type=float, default=0,
+                   help="stop launching new samples after this many hours")
+    cfg = p.parse_args(argv)
+
+    out = pathlib.Path(cfg.outdir)
+    (out / "forensics").mkdir(parents=True, exist_ok=True)
+    (out / "logs").mkdir(parents=True, exist_ok=True)
+    say("bd-wedge-hunt starting. %s"
+        % "  ".join("%s:%s" % (h, [a[0] for a in ARMS_BY_HOST[h]])
+                    for h, _ in HOSTS))
+    say("rows -> %s" % (out / "rows.jsonl"))
+
+    threads = []
+    for i, (label, addr) in enumerate(HOSTS):
+        t = threading.Thread(target=host_loop, args=(label, addr, i, cfg),
+                             name=label, daemon=True)
+        t.start()
+        threads.append(t)
+        time.sleep(5)
+
+    deadline = time.time() + cfg.hours * 3600 if cfg.hours else None
+    try:
+        while any(t.is_alive() for t in threads):
+            time.sleep(10)
+            if deadline and time.time() > deadline:
+                say("--hours reached; letting in-flight samples finish")
+                STOP.set()
+                break
+        for t in threads:
+            t.join(timeout=cfg.cap + 600)
+    except KeyboardInterrupt:
+        say("interrupted -- setting STOP; in-flight samples are NOT killed")
+        STOP.set()
+    say("bd-wedge-hunt done")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

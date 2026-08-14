@@ -4,6 +4,44 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1114 - persist bd-wedge-hunt, and test3 joins as a third XFS control
+
+- Completes the instrument rescue the 2026-08-13 session started at @1102 and
+  @1104. `bd-wedge-hunt` is the tool built to answer backlog row 102 and it
+  lived ONLY in `~/bd-wedge-2026-08-14/` on one machine, tracked nowhere, while
+  producing 94 recorded samples and three reproductions. It is about to run
+  unattended overnight across four hosts; an instrument that produces a night's
+  evidence and cannot itself be reproduced is the shape section 1 records for
+  findings kept in prose, applied to tools. Backlog row 117.
+- WHAT MAKES IT WORTH KEEPING is not the sampling loop, it is that STALL IS NOT
+  WEDGE and the tool refuses to conflate them. A run whose log stops growing
+  might be wedged or merely slow, so a stall triggers forensics and then WAITS;
+  only a run still silent one confirm-window later is recorded `wedged`. Killing
+  at the first sign would destroy both the distinction and the evidence.
+  Forensics run BEFORE anything is killed -- py-spy under sudo for the master's
+  Python frames, which /proc cannot give, plus the process forest, zombies with
+  parentage, per-thread kernel stacks, fd tables and dmesg.
+- TEST3 (10.0.70.80) JOINS THE POOL as a third XFS control, provisioned from
+  bare metal today: 48 cores, 344G, Xeon 8170, XFS root, /tmp on /, Ubuntu
+  24.04.4, Python 3.12.3. `provision_test_host.sh` returned VERDICT: READY in
+  360s with 0 warnings, and its first capture was 15894 pass / 0 fail / 0 error
+  / 6 skip -- IDENTICAL to test4/test5/test7, so it is a like-for-like box
+  rather than a lookalike, measured rather than assumed.
+- WHAT THE THIRD CONTROL BUYS, stated honestly: it CANNOT reproduce the wedge,
+  because it is XFS and the hypothesis is that ext4 is what distinguishes test6.
+  It adds denominator on the side that does not wedge, turning "test4 and test7
+  happen not to" into "no XFS box does". The one-sided Fisher p is 0.046 and is
+  one bad sample from crossing back over 0.05; n on either arm is the only thing
+  that fixes that.
+- AND THE NEAR-MISS IS RECORDED IN THE TOOL, not just here: test3 first came up
+  16-core/62G and was reallocated to 48/344G before joining. A 16-core arm would
+  have been a DIFFERENT EXPERIMENT -- section 5's rule that a green band at one
+  `-n` does not retire a failure at another -- and pooling its samples with the
+  48-core hosts would have been exactly the confound the rotation design exists
+  to prevent.
+- No test file, following the @1102/@1104 precedent for a tool rescue: the tool
+  is the deliverable and its own selftest positive control is what grades it.
+
 ## v3.66.1113 - the tracker consolidation: 38 rows filed, 4 corrected
 
 - doc-only. The backlog becomes the single file for open TASKS. Filed at the
