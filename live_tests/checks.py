@@ -1949,9 +1949,11 @@ def l18_vision_call_roundtrip(ctx):
     Confirms AI is enabled with a vision model, then POSTs a small
     image through /api/sites/<sid>/ai/detect_login (the vision-backed
     login-form detector) and checks a structured response returns.
-    WARN when AI is off, no vision model is configured, or no site
-    exists — those are environment gaps, not defects. FAIL only when
-    the vision call itself errors despite AI being configured.
+    PASS when AI is OFF BY CONFIG — that is an intentional deployment
+    state, answered the same way L17 answers it. WARN when AI is on but
+    the backend is unreachable, no vision model is configured, or no
+    site exists — those are environment gaps, not defects. FAIL only
+    when the vision call itself errors despite AI being configured.
     """
     # AI must be enabled with a vision model
     ok, status, ai, _ = ctx.get("/api/ai/status", timeout=15)
@@ -1959,8 +1961,14 @@ def l18_vision_call_roundtrip(ctx):
         return WARN, (f"/api/ai/status unreachable (status={status}) "
                       f"— vision roundtrip not testable")
     if not ai.get("enabled"):
-        return WARN, ("AI assist disabled by config — no vision model "
-                      "to roundtrip against")
+        # AI OFF BY CONFIG IS AN INTENTIONAL STATE, NOT A FAULT -- the same
+        # answer L17 has always given it ("Ollama not required for this
+        # deployment"). This read WARN until v3.66.1135, which put two
+        # permanent warns on every GPU-less host and made a real AI regression
+        # there indistinguishable from the expected noise. The NEXT branch,
+        # enabled-but-unreachable, stays WARN: that one is an outage.
+        return PASS, ("AI assist disabled by config — vision roundtrip not "
+                      "applicable to this deployment")
     if not ai.get("ok"):
         return WARN, (f"AI backend not reachable "
                       f"({str(ai.get('error'))[:80]}) — fix the AI "
@@ -3312,7 +3320,9 @@ def l19_ai_text_call_roundtrip(ctx):
 
     PASS:  POST returns a structured object with an `ok` or `role`
            field, within timeout.
-    WARN:  AI disabled by config, backend unreachable, or no text
+    PASS:  AI disabled by config — an intentional deployment state,
+           answered the same way L17 answers it.
+    WARN:  AI enabled but the backend is unreachable, or no text
            model configured.
     FAIL:  AI is configured and reachable but the text call itself
            errors or times out — the path is broken.
@@ -3322,8 +3332,9 @@ def l19_ai_text_call_roundtrip(ctx):
         return WARN, (f"/api/ai/status unreachable (status={status}) "
                       f"— text roundtrip not testable")
     if not ai.get("enabled"):
-        return WARN, ("AI assist disabled by config — no text model "
-                      "to roundtrip against")
+        # Intentional state, matching L17 and L18. See the note in L18.
+        return PASS, ("AI assist disabled by config — text roundtrip not "
+                      "applicable to this deployment")
     if not ai.get("ok"):
         return WARN, (f"AI backend not reachable "
                       f"({str(ai.get('error'))[:80]}) — fix the AI "

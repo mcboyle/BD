@@ -77,11 +77,32 @@ def test_l18_unreachable_status_is_warn():
     assert "not testable" in detail or "unreachable" in detail
 
 
-def test_l18_ai_disabled_is_warn():
+def test_l18_ai_disabled_is_pass():
+    """CHANGED AT v3.66.1135, DELIBERATELY. This asserted WARN.
+
+    The tree contained both answers for one input: test_u37's
+    `test_l17_ai_disabled_is_pass` pinned PASS while this pinned WARN,
+    for the identical `{"enabled": False}` stub. That is drift, not a
+    decision -- and note which of the two carried a reason. The sibling
+    below (`ai_backend_down_is_warn`) explains itself in a comment; this
+    one only pinned a level, and the file's docstring describes its own
+    purpose as "graceful degradation", not as WARN specifically.
+
+    Measured on a six-host capture round at v3.66.1134: three hosts have
+    no GPU, so this branch fired on every run and put two permanent
+    warns on each -- which is how a real AI regression there stops being
+    readable. AI off by config is an intentional deployment state, and
+    BD supports it explicitly (install_ai_ollama.sh is opt-in).
+
+    The NEXT test is untouched on purpose: enabled-but-unreachable is an
+    outage and must stay WARN.
+    """
     level, detail = _get_test("L18").fn(
         _StubContext({"enabled": False}))
-    assert level == h.WARN
-    assert "disabled" in detail
+    assert level == h.PASS
+    assert "disabled" in detail, (
+        "a PASS that does not say it skipped the work reads as evidence "
+        "the work succeeded")
 
 
 def test_l18_ai_backend_down_is_warn():
