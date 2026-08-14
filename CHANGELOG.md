@@ -4,6 +4,42 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1125 - `-v` names the hung test, which `-q` was throwing away
+
+- OPERATOR'S CATCH, and it is worth more than the arm shipped an hour earlier.
+  Under `-q` a wedged run's log is dots and `[gwNN] node down` -- the executing
+  test is NEVER NAMED. Five wedges were diagnosed down to the exact `os._exit`
+  call site and still could not say WHICH test hung, because the name was never
+  written.
+- UNDER `-v` PYTEST PRINTS THE NAME WHEN THE TEST STARTS, so it is already in
+  the log before the worker dies. MEASURED on a 20s test against a 5s timeout:
+  `-q` gives `[gw0] node down: Not properly terminated` and nothing else, while
+  `-v` gives `test_slow.py::test_sleeps_past_the_timeout` on the line above it.
+- IT WORKS ON THE EXISTING THREAD METHOD, needs nothing from the livelocked
+  master, and names the culprit ON EVERY HOST -- including the ~1% background
+  wedges on test2/test4/test7 that are far too rare to justify a dedicated arm.
+  That makes it strictly better than the full-signal arm added at @1124, which
+  only ever covered test6.
+- AND pytest-timeout ALREADY DUMPS THE ANSWER, which is the part worth keeping:
+  before `os._exit(1)` it writes a `+++ Timeout +++` section with every thread's
+  stack, then flushes stdout and stderr. The information was being GENERATED and
+  LOST IN TRANSIT -- under xdist the worker's terminal is a channel to a master
+  that livelocks before relaying it. `-v` sidesteps the relay entirely.
+- THE DEVIATION IS DELIBERATE AND SMALL: `-q` versus `-v` changes what is
+  PRINTED, not what is collected or scheduled. Every row records its own `cmd`,
+  so it is measurable from the data. Cost is log volume -- ~200 lines per sample
+  becomes ~16,000, about 1MB per run at ~70 runs/hour fleet-wide. Section 1's
+  never-filter-at-capture-time rule is the argument FOR paying it.
+- FORENSICS NOW CAPTURE THE CHAIN CONTENTS, not merely a directory listing.
+  Until now the block recorded that `/tmp/bd-runctx/<pid>/*.chain` files EXIST
+  and never what was in them, so an investigation could see "7 chains" and not
+  which files any worker had been handed. A record that something exists is not
+  a record of what it says. `assignment.json` is captured alongside.
+- ROW 102's test2 FIGURE IS CORRECTED: it read "0 wedges in 90 samples", true at
+  12:00Z. test2 has since wedged twice, 2/107 -- which STRENGTHENS the ext4
+  refutation rather than weakening it, because 1.9% sits with the XFS hosts'
+  0.8-0.9% and nowhere near test6's 28%.
+
 ## v3.66.1124 - row 102 CLOSES: it was pytest-timeout all along
 
 - THE EXIT TRACER CAUGHT THE DYING WORKER'S OWN STACK -- a direct observation of
