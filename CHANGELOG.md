@@ -4,6 +4,35 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1120 - a SECOND ext4 host joins the hunt, and it is the discriminator
+
+- test2 (10.0.70.95) joins bd-wedge-hunt as a full arm. It is the machine backlog
+  row 102 has needed since it was opened, and it is worth more than every control
+  added before it.
+- THE PROBLEM IT SOLVES: the ext4 side of the comparison was ONE MACHINE. That
+  leaves two hypotheses indistinguishable no matter how much data is collected on
+  the other side -- "ext4 causes the wedge" and "test6 is a weird box that
+  happens to be the ext4 one". Adding XFS controls cannot separate them; it only
+  strengthens the half that already agrees. A SECOND, INDEPENDENTLY BUILT ext4
+  host can, and the split is clean either way: if test2 wedges, ext4 is
+  implicated ACROSS MACHINES and the row has its mechanism. If it does not over
+  comparable n, ext4 is exonerated as SUFFICIENT and test6 differs for some other
+  reason -- which redirects the hunt instead of ending it.
+- IT IS ALSO A CLEANER EXPERIMENT THAN THE TMPFS ARM, which stays because it is
+  already running and costs nothing extra: tmpfs changes the filesystem AND
+  removes the disk AND changes memory pressure, three variables at once on one
+  box. test2 against test6 changes exactly one thing -- the machine -- while
+  holding the filesystem constant.
+- MEASURED BEFORE JOINING rather than assumed equivalent: ext4 root (2T), /tmp on
+  /, 48 cores, 344G, Ubuntu 24.04.4, kernel 6.8.0-137 (identical to test5),
+  Python 3.12.3, VMware. Its CPU is a Xeon 8164 where test6 and test3 are 8170 --
+  RECORDED, not controlled. CPU already differs three ways across the existing
+  hosts and isolates nothing; claiming it was held would be claiming a variable
+  that never was.
+- The pool is now five hosts and six arms: test4 / test7 / test3 as XFS controls,
+  test6 running full plus the within-host tmpfs control, and test2 as the second
+  ext4 machine. Renamed from `testext` so hostname and fleet label agree.
+
 ## v3.66.1119 - repair: @1118 shipped red, and the band that missed it
 
 - @1118 MERGED WITH A FAILING CHECK. `gate-suites (tree-gates-4)` was red on

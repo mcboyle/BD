@@ -27,6 +27,17 @@ the design changed to match:
     XFS. /tmp is on / everywhere, so the suite's whole tmpdir churn runs on ext4
     there and XFS elsewhere. CPU differs three ways and so isolates nothing.
 
+TEST2 IS THE DISCRIMINATOR, ADDED 2026-08-14, and it changes what this hunt can
+conclude. The ext4 side of the comparison was ONE MACHINE, which leaves "ext4
+causes it" and "test6 is a weird box that happens to be the ext4 one"
+indistinguishable no matter how many XFS controls are added. A second,
+INDEPENDENTLY BUILT ext4 host at full fleet spec separates them: if it wedges,
+ext4 is implicated across machines; if it does not over comparable n, ext4 is
+exonerated as sufficient and test6 differs for some other reason. Either answer
+is worth more than another null on XFS. Measured before joining -- ext4 root,
+/tmp on /, 48 cores, 344G, kernel 6.8.0-137 identical to test5. Its CPU is a
+Xeon 8164 against the others' 8170: recorded, not controlled.
+
 TEST3 JOINED AS A THIRD XFS CONTROL ON 2026-08-14, provisioned from bare metal
 that day and MEASURED rather than assumed equivalent (48 cores, 344G, XFS, /tmp
 on /, first capture 15894/0/0/6 -- identical to test4/test5/test7). It cannot
@@ -99,7 +110,7 @@ import threading
 import time
 
 HOSTS = [("test4", "10.0.70.85"), ("test6", "10.0.70.249"), ("test7", "10.0.70.84"),
-         ("test3", "10.0.70.80")]
+         ("test3", "10.0.70.80"), ("test2", "10.0.70.95")]
 
 # Section 5's form, verbatim. `-n` is filled from the TARGET's nproc, never a
 # constant -- a 4 was once copied onto an 86-core box purely because the
@@ -157,10 +168,37 @@ ARM_FULL_TMPFS = ("full-tmpfs", [], True, {"TMPDIR": "/mnt/bdtmpfs"},
 # it; a 16-core arm would have been a DIFFERENT experiment (section 5: a green
 # band at one -n does not retire a failure at another) and pooling it would have
 # been the confound this whole design exists to avoid.
+# test2 (10.0.70.95) IS THE DISCRIMINATOR THIS EXPERIMENT HAS NEVER HAD, and it
+# is worth more than every control added before it. Until now the ext4 side of
+# the comparison was ONE MACHINE. That makes two hypotheses indistinguishable no
+# matter how many XFS controls are added:
+#
+#     "ext4 causes the wedge"        vs.   "test6 is a weird box, and it
+#                                           happens to be the ext4 one"
+#
+# Nothing on the XFS side can separate those -- more controls only strengthen
+# the half that already agrees. A SECOND, INDEPENDENTLY BUILT EXT4 HOST can, and
+# it splits cleanly: if test2 wedges, ext4 is implicated ACROSS MACHINES and the
+# row has its mechanism; if it does not over comparable n, ext4 is exonerated as
+# SUFFICIENT and test6 differs for some other reason, which redirects the hunt
+# rather than ending it. Either outcome is worth more than another null on XFS.
+#
+# It is also cleaner than the tmpfs arm, which stays because it is already
+# running: tmpfs changes the filesystem AND removes the disk AND changes memory
+# pressure, three variables at once on one box. test2 changes exactly one thing
+# against test6 -- the machine -- while holding the filesystem constant.
+#
+# MEASURED before being added rather than assumed equivalent: ext4 root (2T),
+# /tmp on /, 48 cores, 344G, Ubuntu 24.04.4, kernel 6.8.0-137 (identical to
+# test5), Python 3.12.3, VMware. The CPU is a Xeon 8164 where test6 and test3
+# are 8170 -- RECORDED, not controlled: CPU already differs three ways across
+# the existing hosts and isolates nothing, and pretending otherwise would be
+# claiming a variable was held that never was.
 ARMS_BY_HOST = {
     "test4": [ARM_FULL],
     "test7": [ARM_FULL],
     "test3": [ARM_FULL],
+    "test2": [ARM_FULL],
     "test6": [ARM_FULL, ARM_FULL_TMPFS],
 }
 
