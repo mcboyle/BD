@@ -141,9 +141,36 @@ SECTION5 = ["env", "-u", "BD_INSTALL_DIR", "BD_DISABLE_KEEPALIVE=1",
 # confounding at all. If wedges follow ext4 and stop on tmpfs, the filesystem is
 # implicated; if they continue on tmpfs, ext4 is exonerated and the test6
 # difference is something else.
-ARM_FULL = ("full", [], True, {},
-            "CLAUDE.md section 5's sanctioned whole-suite form, unmodified")
-ARM_FULL_TMPFS = ("full-tmpfs", [], True, {"TMPDIR": "/mnt/bdtmpfs"},
+# PYTHONFAULTHANDLER IS SET ON EVERY ARM, and it is the cheapest instrument in
+# this file. CPython installs handlers for SIGSEGV / SIGFPE / SIGABRT / SIGBUS /
+# SIGILL and dumps EVERY THREAD's Python traceback to stderr before dying. A
+# worker killed by a fatal signal therefore writes its own stack into the run
+# log on its way out -- no core to post-process, no debugger, nothing to attach
+# after the fact.
+#
+# That attacks this tool's own blind spot #3 ("WHY A WORKER DIED ... its own
+# stack is unrecoverable by construction"). It was unrecoverable because nothing
+# was set up to recover it: `ulimit -c` was 0 on every host, so not even a core
+# survived. As of 2026-08-14 the fleet captures cores (verified by forcing a
+# segfault and reading it back with coredumpctl), a bpftrace tracer records fatal
+# signals AND non-zero exits, and this flag makes the dying process narrate
+# itself. Three independent routes to the same answer, because a worker that
+# exits CLEANLY leaves no core and no signal and is otherwise indistinguishable.
+#
+# IT IS A DELIBERATE, UNIFORM DEVIATION from section 5's verbatim form. It is an
+# environment variable, not a pytest flag, so the collected set is byte-identical
+# -- the same argument that lets full-tmpfs set TMPDIR. It is applied to EVERY
+# arm rather than to the ext4 ones, because an instrument present on one side of
+# a comparison and absent on the other makes the comparison unreadable. Each row
+# still records its own arm_env, so this is measurable from the data rather than
+# only from this comment.
+_FAULTHANDLER = {"PYTHONFAULTHANDLER": "1"}
+
+ARM_FULL = ("full", [], True, dict(_FAULTHANDLER),
+            "CLAUDE.md section 5's sanctioned whole-suite form, plus "
+            "PYTHONFAULTHANDLER=1 so a worker killed by a fatal signal dumps "
+            "every thread's Python traceback before it dies")
+ARM_FULL_TMPFS = ("full-tmpfs", [], True, dict(_FAULTHANDLER, TMPDIR="/mnt/bdtmpfs"),
                   "The same sanctioned form with TMPDIR on a 64G tmpfs, so the "
                   "suite's tmp root lands in RAM rather than on test6's ext4 "
                   "root. tests/_tmproot.py takes tempfile.gettempdir(), which "

@@ -4,6 +4,47 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1121 - the dead worker can now be autopsied (backlog 102)
+
+- bd-wedge-hunt's own docstring lists as blind spot 3: "WHY A WORKER DIED ... the
+  worker is already gone -- that is what 'node down' means -- so its own stack is
+  unrecoverable BY CONSTRUCTION." That was true only because nothing was set up
+  to recover it. `ulimit -c` was **0 on every host**, so not even a core survived.
+  Three independent instruments now exist, and each catches a case the others
+  cannot.
+- PYTHONFAULTHANDLER=1 ON EVERY ARM, which is the cheapest of the three and ships
+  in this cut. CPython installs handlers for SIGSEGV / SIGFPE / SIGABRT / SIGBUS
+  / SIGILL and dumps EVERY THREAD's Python traceback to stderr before dying, so a
+  worker killed by a fatal signal writes its own stack into the run log on the
+  way out -- no core to post-process, nothing to attach after the fact.
+- A DELIBERATE, UNIFORM DEVIATION from section 5's verbatim form, recorded rather
+  than slipped in. It is an environment variable and not a pytest flag, so the
+  COLLECTED SET IS BYTE-IDENTICAL -- the same argument that already lets the
+  full-tmpfs arm set TMPDIR. It is applied to EVERY arm rather than only the ext4
+  ones, because an instrument present on one side of a comparison and absent on
+  the other makes the comparison unreadable. Each row records its own arm_env, so
+  this is measurable from the data rather than only from this note.
+- THE OTHER TWO ARE HOST STATE, not tracked code, and are recorded here because
+  nothing else records them. (1) CORE DUMPS are captured fleet-wide and VERIFIED
+  by forcing a segfault and reading it back with coredumpctl -- the first attempt
+  silently dropped every core because a hand-written core_pattern passed 7
+  arguments where systemd 255 expects 8, and the shell still printed "(core
+  dumped)"; fixed by copying the package's own pattern verbatim. (2) A bpftrace
+  tracer records fatal signals WITH THEIR SENDER and non-zero exits with the raw
+  do_exit code, so "the kernel killed it", "userspace killed it" and "it exited
+  on its own" stop being one observation. Both were positive-controlled.
+- WHY THREE AND NOT ONE: a worker that exits CLEANLY leaves no core and no
+  signal, and from the master's side that is indistinguishable from a crash --
+  xdist prints "Not properly terminated" either way.
+- AND THE WEDGE IS NOT RANDOM, measured while preparing this: all three recorded
+  wedges stopped at EXACTLY line 224 of the run log, at [ 99%], on three
+  different workers (gw42, gw28, gw40) across two commits. A clean run reaches
+  [100%] on line 225. 99% under --dist loadfile is the DRAIN phase, when workers
+  are being shut down as the file queue empties -- so the failure is concentrated
+  in the worker-SHUTDOWN handshake rather than in test execution, which is also
+  where per-worker tmp roots are removed. That is a filesystem operation, at
+  scale, at exactly the moment the wedge happens.
+
 ## v3.66.1120 - a SECOND ext4 host joins the hunt, and it is the discriminator
 
 - test2 (10.0.70.95) joins bd-wedge-hunt as a full arm. It is the machine backlog
