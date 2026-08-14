@@ -5224,6 +5224,14 @@ section naming its own branch tip goes red on `main` after the squash).
     hunt                 702 samples / 16 wedges over ~19h, five hosts, STOPPED
     fleet                idle -- 0 pytest processes, 0 orphans, nothing scheduled
 
+ITEM LEDGER -- machine-checked by tests/test_register_promises_resolve.py
+OPEN:   31
+
+Unchanged from 15.95: this session worked the BACKLOG (rows 144-147), which
+is a different namespace from the ITEM LEDGER, and closed no ledger item.
+The ledger is restated rather than omitted because a close section that
+declares nothing is indistinguishable from one that forgot.
+
 WHAT TO DO FIRST IN A NEW SESSION. Read backlog rows 144-147, then this section.
 The hunt is PAUSED at operator request, not finished; it will not restart on its
 own. Resume with:
