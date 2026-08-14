@@ -636,16 +636,41 @@ raise SystemExit(0 if d.get("route_source") == "live url_map" else 1)' "$PARITY_
 fi
 echo "  exit=$PARITY_EXIT"
 
+# THE TWO OBSERVABILITY FLAGS ARE LOAD-BEARING AND NEITHER IS A STYLE CHOICE.
+# Backlog 147, applied to the GATE at @1130 after @1126 fixed the same pair in
+# the sanctioned whole-suite form and in both tools that implement it. This
+# script was named as unaudited in SESSION_CARRY 15.96 and kept both blindfolds.
+#
+# NO QUIET FLAG: it would set verbose == -1, and pytest-xdist guards its entire
+# crash-recovery narration on verbose >= 0 (DSession.report_line). The worker-
+# down line writes UNGUARDED, so a quiet lane shows the wedge symptom and hides
+# the response. Dropping the flag is SUFFICIENT; -v is not required and costs
+# ~16k lines a run.
+#
+# PYTHONUNBUFFERED: a run that never exits never flushes, so a wedged lane
+# strands its last ~4KB -- measured as 15 of 15 wedged logs ending mid-line
+# against 642 of 642 completed logs ending clean, and that tail is exactly where
+# the recovery narration lands. It is spelled as an ENV VAR and not as an
+# interpreter flag on purpose: an interpreter flag never reaches sys.argv, so
+# no gate comparing a built command against pytest's argv could ever see it.
+#
+# NEITHER CHANGES WHAT IS EXECUTED. Same markers, same distribution, same
+# collection; the capture VERDICT is read from the junit XML by
+# tools/pytest_capture_results.py and never from these logs.
 run_with_heartbeat "parallel-safe pytest lane" "$OUT/02_pytest_parallel.log" \
-   env BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest \
-   -q tests --tb=short \
+   env BD_DISABLE_KEEPALIVE=1 PYTHONUNBUFFERED=1 venv/bin/python -m pytest \
+   tests --tb=short \
    -m capture_parallel \
    -n "$WORKERS" --dist loadfile \
    --junitxml="$OUT/02_pytest_parallel.xml"
 PARALLEL_EXIT=$?
+# The serial lane carries the same pair. It runs at -n 0, so the xdist half
+# cannot bite it -- but the buffering half can (a hang here strands its tail
+# identically), and a lane that differs from its sibling for no stated reason is
+# the next reader's puzzle. Kept symmetric deliberately.
 run_with_heartbeat "serial pytest lane" "$OUT/02_pytest_serial.log" \
-   env BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest \
-   -q tests --tb=short \
+   env BD_DISABLE_KEEPALIVE=1 PYTHONUNBUFFERED=1 venv/bin/python -m pytest \
+   tests --tb=short \
    -m capture_serial \
    -n 0 \
    --junitxml="$OUT/02_pytest_serial.xml"

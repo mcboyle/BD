@@ -4,6 +4,47 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1130 - capture.sh could not see its own wedge, and it is the gate
+
+Backlog 147, applied to the one place it was never applied. v3.66.1126 fixed two
+independent observability blindfolds in the sanctioned whole-suite form and in
+both tools that implement it. capture.sh -- which IS the gate, the thing that
+certifies a tree on the box -- was named as unaudited in SESSION_CARRY 15.96 and
+kept both. Measured at v3.66.1129: both lanes passed -q and neither set
+PYTHONUNBUFFERED.
+
+BLINDFOLD ONE, THE FLAG. -q sets verbose == -1, and pytest-xdist guards its
+entire crash-recovery narration on verbose >= 0 (DSession.report_line), while
+pytest_testnodedown writes UNGUARDED. So a quiet lane prints
+`[gwN] node down: Not properly terminated` and never prints
+`replacing crashed worker gwN`: the symptom shown, the response suppressed.
+Dropping the flag is SUFFICIENT; -v is not required and costs ~16k lines a run.
+
+BLINDFOLD TWO, THE BUFFER. A run that never exits never flushes. Measured across
+657 captures: 15 of 15 WEDGED logs end MID-LINE at a 4KB stdio boundary, 642 of
+642 COMPLETED logs end with a newline -- and the stranded tail is exactly where
+the recovery narration lands. Spelled as an env var rather than -u on purpose:
+an interpreter flag never reaches sys.argv, so no gate could verify it.
+
+NEITHER CHANGES WHAT IS EXECUTED. Same markers, same distribution, same
+collection. The capture VERDICT is read from the junit XML by
+tools/pytest_capture_results.py and never from these logs -- checked across the
+tree, nothing parses them for a result; they are archived and tailed for humans.
+
+THE NEW GATE STATES ITS OWN BLIND SPOT AND THEN CLOSES IT. Asserting a lane's
+argv carries no -q only answers the question if argv is the only source of
+quiet. It is not, in general: addopts in pytest.ini/setup.cfg/tox.ini/
+pyproject.toml, or a conftest injecting args, would narrow the check to a subset
+of its own subject while it kept reporting green. Measured: NONE of those four
+files exists in this repo and no conftest references addopts, so argv is the
+whole denominator -- and a test now fails at the moment that stops being true.
+
+RED-first, and the RED had the right shape: 2 failed (the two defect
+assertions), 3 passed (parse, precondition, over-sensitivity), so the harness
+was proven to have built the shape before anything was judged. bd-mutate: 4
+caught, 0 escaped, 0 invalid, baseline proven GREEN first; the battery restored
+the tree byte-clean, verified after.
+
 ## v3.66.1129 - the host count went stale a second time, and row 144 named the wrong refutation
 
 Doc-only. Corrections to claims a session reads BEFORE it can measure anything,
