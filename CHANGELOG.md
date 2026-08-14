@@ -4,6 +4,49 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1124 - row 102 CLOSES: it was pytest-timeout all along
+
+- THE EXIT TRACER CAUGHT THE DYING WORKER'S OWN STACK -- a direct observation of
+  the process as it left, not a correlation: `os._exit(1)` at
+  `pytest_timeout.py:542`, from its timer thread, in worker gw17.
+  `--timeout-method=thread` cannot unwind another thread, so on a timeout it
+  hard-exits the whole worker BY DESIGN.
+- ONE CALL PRODUCES EVERY SYMPTOM this row spent its life describing: exit
+  status 1 with no signal, no core, no traceback, all threads gone, and a
+  channel the master sees close with NO ERROR ATTACHED -- which is precisely
+  what xdist's "Not properly terminated" means -- after which `_active_nodes`
+  never empties and `loop_once` spins on a 2s queue.get forever.
+- VERIFIED BY CONSTRUCTION, not only by observation. A 20s test against a 5s
+  timeout: `thread` gives "worker 'gw7' crashed while running ..." and 9
+  failures in 50s; appending `signal` gives "Failed: Timeout (>5.0s) from
+  pytest-timeout", 1 failed 2 passed in 6.01s. The mechanism reproduces
+  synthetically in under a minute, and the appended flag winning was MEASURED
+  rather than assumed from argparse semantics.
+- MY OWN LEADING CANDIDATE WAS WRONG, and it is recorded because the shape
+  recurs: execnet's `gateway_base.py:1253` `os._exit(1)` fitted every symptom --
+  exit 1, no signal, shutdown phase, no traceback -- and was not the path. The
+  self-SIGINT it predicts never appeared in 480 samples. Matching symptoms is
+  not measuring; the ext4 hypothesis taught this row the same lesson four hours
+  earlier and fitted even better.
+- EVERY EARLIER RESULT NOW AGREES: test6's 7/30 against 2/380 is a SPEED
+  difference, not a weird box -- it crosses 240s more often; the size threshold
+  (0/54 halved against 7/30 full) is less contention; the two XFS wedges are the
+  same mechanism, rarer; and 99% is the drain phase, where the last and longest
+  files run with the least parallelism left to hide them.
+- THE IRONY IS THE KEEPER: `--timeout-method=thread` was chosen to NAME a
+  hanging test, and it is the reason the hanging test cannot be named.
+- ROW 144 OPENS as the successor, and it owns TWO questions rather than one:
+  (a) which test crosses 240s, and whether it is hung or merely slow under
+  contention; (b) WHY XDIST DOES NOT RECOVER -- the synthetic probe showed xdist
+  naming the test and spawning a replacement worker MID-RUN, and the real wedge
+  does neither, so the recovery path works when there is work left to reassign
+  and fails during the drain. Two defects, one symptom.
+- THE INSTRUMENT FOR (a) SHIPS HERE: a `full-signal` arm on test6 appending
+  `--timeout-method=signal`. It is `is_section5` FALSE -- it changes a pytest
+  FLAG rather than an env var, so unlike full-tmpfs it may alter behaviour and
+  not merely environment -- and its counts must never be pooled with the full
+  arm's.
+
 ## v3.66.1123 - row 102: ext4 REFUTED, test6 is the anomaly, the worker EXITS(1)
 
 - 466 samples overnight at df73ef7 across five hosts. Two hypotheses died, one
