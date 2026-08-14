@@ -4,6 +4,43 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1117 - a breadcrumb pointing at a 404, and the doc that kept it there
+
+- BACKLOG ROW 113, CLOSED PARTIAL. Three served operator pages carried
+  `<a href="/cockpit/home">&larr; Cockpit Home</a>` -- app_settings_center.py:350,
+  app_report_center.py:75, app_template_manager_ui.py:319 -- for a route retired
+  at v3.66.344, 772 releases ago. An operator following one got a 404. All three
+  now point at `/`, the SPA that replaced the hub.
+- THE GATE FOUND MORE THAN THE ROW DID, which is the whole argument for writing
+  one rather than editing three lines. `docs/NAV_CONSOLIDATION.md` still
+  described `/cockpit/home` as "the **hub** for everything cockpit-side" and
+  stated that "every center shell page carries a left-arrow Cockpit Home
+  breadcrumb" -- present tense, long after the page was gone.
+- THAT DOCUMENT IS WHY THE DEAD LINK SURVIVED. Anyone checking whether the
+  breadcrumb was correct found a document saying it was intended behaviour. The
+  stale bullets are struck through rather than deleted, with a banner naming the
+  retirement, because the v3.66.3xx nav arrangement is worth keeping as history.
+- TWO BLIND SPOTS LET IT LIVE, and both are already filed. `docs/**.md` sits
+  outside both freshness gates (row 106 -- bd-freshcheck's `_DOCS` is 2 files,
+  bd-doc-truth globs project-knowledge non-recursively). And `nav_reachability.py`
+  was built for exactly this class but crawls INBOUND reachability: it asks
+  whether every registered route can be reached, so a route nobody links TO is
+  caught while a link pointing OUT at a route that no longer exists is the
+  mirror image and outside its denominator. The gate built for dead links could
+  not see a dead link, because it measures the other direction.
+- The new gate is a TOMBSTONE over the tracked tree, the same shape as
+  test_task_tracker_stays_retired, with a non-empty-denominator assertion ahead
+  of the verdict and an exemption list that is itself checked -- every exempt
+  path must exist, because a stale exemption is an unguarded file that reads as
+  guarded. Four test files are exempt because they ASSERT the retirement (a 404,
+  absence from the url_map, no nav href); banning the string there would delete
+  the checks that make the ban true.
+- THE REMAINDER, NOT DONE AND NAMED: no general outbound-link checker. The
+  obvious predicate -- every `href="/..."` in served HTML resolves to a
+  registered route -- fires on correct code, because the SPA serves client-side
+  paths that are not Flask routes, and section 0 is explicit that
+  over-sensitivity is a soundness bug rather than a safe default.
+
 ## v3.66.1116 - the two gates that guard the registers now run in CI (backlog 105)
 
 - MEASURED at f0c5667 and again before this cut: `test_register_promises_resolve`

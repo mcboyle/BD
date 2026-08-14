@@ -304,6 +304,7 @@ jobs:
               tests/test_v3_66_1018_registrable_domain_drain.py
               tests/test_census_file_size_drift.py
               tests/test_zip_era_tools_stay_retired.py
+              tests/test_v3_66_1117_cockpit_home_stays_retired.py
           - name: tree-gates-2
             suites: >-
               tests/test_v3_66_1013_registrable_domain.py

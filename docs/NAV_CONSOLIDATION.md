@@ -30,14 +30,31 @@ After the root flip, React navigation owns SPA reachability. The current
 external-console contract is explicit in `frontend/src/lib/navGroups.ts`:
 `/framework`, `/fleet`, and `/cockpit` must remain `external: true` anchors.
 
-- `/` (legacy shell) gained a normal-flow **Consoles footer**: → `/m2/`,
-  `/cockpit/home`, `/cockpit`, `/framework/`, `/fleet/`.
-- `/cockpit/home` is the **hub** for everything cockpit-side. Its NAV now
+> **RETIRED AT v3.66.344, AND THIS SECTION DESCRIBED IT AS LIVE FOR 772 MORE
+> RELEASES.** The three bullets below are kept as the historical record of the
+> v3.66.3xx arrangement; they are **not** current. The server-rendered
+> `/cockpit/home` landing page is gone — `app_cockpit_home.py` serves only
+> `/api/cockpit/nav`, which remains the nav source of truth, and the SPA at `/`
+> plus the consolidated cockpit console replace the hub. The surviving cockpit
+> pages are `/cockpit/reports` and `/cockpit/settings`.
+>
+> This paragraph is why the dead breadcrumb survived: three served pages carried
+> `← Cockpit Home` pointing at a 404, and the document a reader would check
+> described that as intended behaviour. Corrected at v3.66.1117, backlog row 113.
+> Note which gate could not see it — `docs/**.md` is outside both freshness
+> gates (row 106), and `nav_reachability.py` crawls INBOUND reachability, so a
+> link pointing OUT at a dead route is outside the denominator of the check
+> built for dead links.
+
+- ~~`/` (legacy shell) gained a normal-flow **Consoles footer**: → `/m2/`,
+  `/cockpit/home`, `/cockpit`, `/framework/`, `/fleet/`.~~ *(historical)*
+- ~~`/cockpit/home` is the **hub** for everything cockpit-side. Its NAV now
   includes Actions, Settings (+secrets), Consoles (framework / fleet / both
   main UIs) on top of the original Templates / Monitoring / Reports / Dev
-  groups.
-- Every center shell page carries a **← Cockpit Home** breadcrumb
-  (actions `_PAGE_HEAD` covers all 10 actions pages).
+  groups.~~ *(historical — the page is retired)*
+- ~~Every center shell page carries a **← Cockpit Home** breadcrumb
+  (actions `_PAGE_HEAD` covers all 10 actions pages).~~ *(historical — those
+  breadcrumbs now point at `/`)*
 - The cockpit **console sidebar** gained a real-href "Centers" navsec.
   ⚠ `tools/cockpit_console.py` is deploy-excluded (live stash edits exist);
   the change ships in-tree **and** as a standalone merge diff.
