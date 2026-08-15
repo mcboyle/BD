@@ -4,6 +4,90 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1141 - the contract may be reduced, but nothing leaves it silently
+
+CLAUDE.md is ~48k tokens: 4.8% of every window, in every session and every
+subagent, and it grows monotonically because every cut appends a lesson and
+nothing is ever removed. Measured at v3.66.1140: 2,349 lines, 447 rule-bearing,
+1,502 narrative, 300 paragraphs. Three sections carry half of it.
+
+Reducing it is worth doing and dangerous to do. In a diff a deleted RULE looks
+exactly like a deleted RETELLING, and nothing in this repo reads the contract
+for meaning -- bd-freshcheck resolves cited PATHS and says so itself on every
+run; bd-doc-truth resolves file-path claims. A claim about BEHAVIOUR passes both
+untouched.
+
+COMMIT 1 ships the gate that makes the rest safe, before any text moves.
+
+bd-contract-rules freezes every paragraph of CLAUDE.md into
+project-knowledge/CONTRACT_RULES.baseline and asserts each is still present
+somewhere in the corpus (CLAUDE.md plus the casebook). A MOVE therefore passes;
+a deletion or rewrite fails until it is declared, with the survivor named, in a
+file a test reads. Section 1: a deferral that lives only in prose has not been
+deferred, it has been dropped.
+
+IT FREEZES PARAGRAPHS AND NOT RULES, DELIBERATELY. Three rule-detecting
+predicates were built and measured first, and all three failed the same way:
+
+  * normative markers, line-scoped -> 229 units, mostly narrative FRAGMENTS,
+    because hard-wrapped prose puts "never" in the middle of a story. A baseline
+    full of narrative fires on exactly the extraction it exists to permit;
+  * the same predicate spelled MUST|NEVER|...|must|never|... -> blind to
+    "Never", the capitalised sentence opening this contract uses constantly.
+    Caught by the tool's own selftest, two checks failing for one root cause;
+  * bold spans -> a non-greedy regex paired one span's CLOSING `**` with the
+    next span's OPENING `**`, giving 321 "spans" beginning with `(` and `,`.
+
+A rule is a rule by virtue of what it ASSERTS, which its syntax does not record.
+v3.66.1072 reached the identical finding replacing BD_GATE_SCOPE with a derived
+predicate and caught 3 of 8. Paragraphs are objective and are exactly the unit
+an extraction moves, so conservation is checkable without judgement.
+
+Whitespace is normalised before any comparison, because an extraction re-wraps
+prose by construction and section 1 records a line-wrapped phrase defeating a
+grep three times in one session.
+
+RED-first: 10 tests failed with no tool and no baseline, 10 pass with them, and
+both directions are pinned -- deleting the longest real paragraph FAILS the
+gate, re-wrapping the entire contract to a different width does NOT.
+
+COMMIT 2 adds section 11 (context economy), corrects section 8's tool count,
+and is the gate's first real exercise: rewriting the tool-count paragraph made
+it FAIL, naming exactly that paragraph and nothing else, and it went green only
+once the removal was DECLARED with the survivor named. Section 11's eight new
+paragraphs are additions and are correctly unconstrained (corpus 308 = 300
+frozen + 8 new).
+
+Section 11 is rules, not narrative: sweeps go to a subagent, a second
+hand-rolled heredoc is a missing bd-* tool, capture whole to disk and read a
+slice, anchor an edit on the shortest line `rg -c` proves unique. It states
+explicitly that capture-whole/read-slice does NOT contradict section 1's NEVER
+FILTER AT CAPTURE TIME -- that rule governs the artifact, this one the display
+-- and carries a counterweight so it is not read as licence to skim.
+
+THE PLANNED EXTRACTION IS NOT IN THIS CUT, AND THE MEASUREMENT IS WHY. The plan
+was to move worked-example narrative to a CONTRACT_CASEBOOK.md as a PROVABLE
+byte-preserving move, then dedupe. That mitigation assumed paragraphs separate
+into rule-paragraphs and narrative-paragraphs. Measured, they do not:
+
+    paragraphs >= 674 chars (non-fence)      60
+      containing a bold directive            60   (100%)
+      containing a normative word            43   (72%)
+    pure narrative, no bold, >= 400 chars     3   (1.1% of the file)
+
+Rules and their retellings are interleaved BELOW paragraph granularity, so
+there is no mechanical seam: a generated split proposed "The reason is section
+0's, applied to introspection:" as a directive to keep, and captured an entire
+table as another. Every extraction would therefore be a hand REWRITE of ~60
+rules, not a move -- which is a different risk from the one that was approved,
+so it is reported rather than performed. The gate shipped here is what makes
+that work checkable whenever it is done.
+
+Deferred with it: the baseline currently freezes a snapshot, so paragraphs
+ADDED after the freeze are unconstrained until a deliberate re-extract, and
+`--extract` rewrites the file rather than merging new rows with existing
+declarations.
+
 ## v3.66.1140 - the session that could not measure its own context window
 
 A session reached 678.9k/1.0M of context with no instrument able to say what
