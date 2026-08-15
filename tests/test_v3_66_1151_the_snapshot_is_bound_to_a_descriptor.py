@@ -514,6 +514,8 @@ def test_finish_reports_its_own_failure_where_no_call_site_can_drop_it(tmp_path,
 
     saved_root, saved_tempdir = t._ROOT, tempfile.tempdir
     saved_ident = getattr(t, '_ROOT_IDENT', None)
+    saved_rootfd = getattr(t, '_ROOT_FD', None)
+    saved_rootfdpath = getattr(t, '_ROOT_FD_PATH', None)
     saved_failure = getattr(t, "_LAST_FAILURE", None)
     real = shutil.rmtree
     # PATCHED AT THE LIVE SEAM SINCE v3.66.1154. This injected into
@@ -538,8 +540,22 @@ def test_finish_reports_its_own_failure_where_no_call_site_can_drop_it(tmp_path,
     finally:
         t._rmtree_fd = real_walk
         t._ROOT, tempfile.tempdir = saved_root, saved_tempdir
+        # AND THE DESCRIPTOR (v3.66.1154). finish()'s finally closes and
+        # nulls the SESSION fd, so a test that restores _ROOT and the
+        # identity but not this leaves every LATER test in the process
+        # running against the pre-1154 pathname remover -- measured at 73
+        # of 92 tests in a combined run.
         if hasattr(t, '_ROOT_IDENT'):
             t._ROOT_IDENT = saved_ident
+        if hasattr(t, '_ROOT_FD'):
+            _cur = t._ROOT_FD
+            if _cur is not None and _cur != saved_rootfd:
+                try:
+                    os.close(_cur)
+                except OSError:
+                    pass
+            t._ROOT_FD = saved_rootfd
+            t._ROOT_FD_PATH = saved_rootfdpath
         if hasattr(t, "_LAST_FAILURE"):
             t._LAST_FAILURE = saved_failure
     err = capsys.readouterr().err
@@ -565,6 +581,8 @@ def test_finish_is_silent_on_the_happy_path(tmp_path, capsys):
     root.mkdir()
     saved_root, saved_tempdir = t._ROOT, tempfile.tempdir
     saved_ident = getattr(t, '_ROOT_IDENT', None)
+    saved_rootfd = getattr(t, '_ROOT_FD', None)
+    saved_rootfdpath = getattr(t, '_ROOT_FD_PATH', None)
     saved_failure = getattr(t, "_LAST_FAILURE", None)
     try:
         t._ROOT = str(root)
@@ -573,8 +591,22 @@ def test_finish_is_silent_on_the_happy_path(tmp_path, capsys):
         assert t.finish(0) is True
     finally:
         t._ROOT, tempfile.tempdir = saved_root, saved_tempdir
+        # AND THE DESCRIPTOR (v3.66.1154). finish()'s finally closes and
+        # nulls the SESSION fd, so a test that restores _ROOT and the
+        # identity but not this leaves every LATER test in the process
+        # running against the pre-1154 pathname remover -- measured at 73
+        # of 92 tests in a combined run.
         if hasattr(t, '_ROOT_IDENT'):
             t._ROOT_IDENT = saved_ident
+        if hasattr(t, '_ROOT_FD'):
+            _cur = t._ROOT_FD
+            if _cur is not None and _cur != saved_rootfd:
+                try:
+                    os.close(_cur)
+                except OSError:
+                    pass
+            t._ROOT_FD = saved_rootfd
+            t._ROOT_FD_PATH = saved_rootfdpath
         if hasattr(t, "_LAST_FAILURE"):
             t._LAST_FAILURE = saved_failure
     assert capsys.readouterr().err == ""

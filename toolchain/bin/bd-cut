@@ -1034,7 +1034,7 @@ class _Refused(Exception):
         return "%s %s" % (self.code, self.detail)
 
 
-def _rename_noclobber(old, new, dir_fd):
+def _rename_noclobber(old, new, dir_fd, allow_fallback=True):
     """Rename inside `dir_fd`, REFUSING to replace an existing `new`.
 
     `os.rename` replaces silently, and one caller of this is the path where a
@@ -1061,6 +1061,17 @@ def _rename_noclobber(old, new, dir_fd):
         _eno = ctypes.get_errno()
         if _eno not in (errno.ENOSYS, errno.EINVAL, errno.EOPNOTSUPP):
             raise OSError(_eno, os.strerror(_eno), old)
+    if not allow_fallback:
+        # THE UNDO MAY NOT FALL BACK. `os.rename` replaces silently, and the
+        # only caller that passes allow_fallback=False is the one restoring a
+        # FOREIGN object to a name a third party may have re-created -- where
+        # replacing is exactly the destruction being refused. The syscall table
+        # here has two architectures in it and any filesystem may answer
+        # EINVAL, so this is reachable, and leaving the object under its
+        # private name with a report is strictly better than destroying
+        # something to tidy up.
+        raise OSError(errno.EOPNOTSUPP,
+                      "cannot rename without replacing on this platform", old)
     os.rename(old, new, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
     return False
 
@@ -1073,8 +1084,26 @@ def _private_name(base):
     invisible to the `bdcut_*`, `bdfg_sbx_*` and `bd-testrun-*` sweeps this
     project's whole leak accounting is built on -- turning a recognisable leak
     into an unrecognisable one, in the cut whose subject is leaks.
+
+    TRUNCATED IN BYTES, NOT CHARACTERS (v3.66.1154, found by adversarial
+    review). NAME_MAX is 255 BYTES; a character slice let 117 two-byte UTF-8
+    characters (234 bytes) plus the 22-byte suffix reach 256, so the rename
+    got ENAMETOOLONG and the remover REFUSED a removal it had to perform --
+    a green pytest run turned red and leaked its whole per-run root, on a
+    filename any program is free to create. Over-sensitivity is a soundness
+    bug (CLAUDE.md section 0), and this one was a regression against the
+    version it replaced.
+
+    A byte slice can split a multi-byte sequence; `os.fsdecode` keeps the
+    stray bytes as surrogates and `os.fsencode` puts them back unchanged, so
+    the name round-trips to the same bytes the kernel sees. Two long names can
+    therefore truncate to the same prefix -- which is why the 64 random bits
+    are appended AFTER the truncation, and why every rename that uses this
+    name refuses to clobber rather than replacing.
     """
-    return "%s.bdrm-%s" % (base[:180], os.urandom(8).hex())
+    suffix = ".bdrm-%s" % os.urandom(8).hex()
+    raw = os.fsencode(base)[:255 - len(suffix)]
+    return os.fsdecode(raw) + suffix
 
 
 def _put_back(priv, name, fd):
@@ -1089,11 +1118,15 @@ def _put_back(priv, name, fd):
     a name they have never seen has not been told anything.
     """
     try:
-        _rename_noclobber(priv, name, fd)
+        _rename_noclobber(priv, name, fd, allow_fallback=False)
         return " (it was put back untouched)"
-    except OSError as _e:
-        return (" -- and it could NOT be put back (%s); it is now named %r in "
-                "that directory and nothing else will collect it" % (_e, priv))
+    except Exception as _e:
+        # Exception, not OSError: this runs while an error is already being
+        # handled -- including at an exhausted stack -- and a raise here would
+        # replace the reason the caller is trying to report with its own.
+        return (" -- and it could NOT be put back (%s: %s); it is now named "
+                "%r in that directory and nothing else will collect it"
+                % (type(_e).__name__, _e, priv))
 
 
 def _walk_failed(e):
@@ -1113,7 +1146,20 @@ def _walk_failed(e):
             % (R_TOO_DEEP, type(e).__name__, e))
 
 
-def _rmtree_fd(fd, dev):
+def _max_walk_depth():
+    """How deep this walk may go before it refuses.
+
+    NOT a taste question: at the interpreter's own recursion limit the
+    UNWINDING calls fail too, so the handler that puts a foreign object back
+    under its real name cannot run and the tree is left holding a private
+    `.bdrm-*` name -- measured by review at depth 497 in all three removers,
+    with `_put_back`'s own comment promising it could not happen. Refusing
+    early leaves the stack the recovery needs.
+    """
+    return max(50, (sys.getrecursionlimit() - 100) // 3)
+
+
+def _rmtree_fd(fd, dev, depth=0):
     """Delete everything UNDER an open directory descriptor.
 
     READ ONCE, THEN ACT. Renaming entries while a readdir cursor is open is
@@ -1133,6 +1179,11 @@ def _rmtree_fd(fd, dev):
     it had just read, so a directory renamed onto a child pathname mid-walk was
     entered and recursively emptied -- measured, victim inode nlink 0.
     """
+    if depth > _max_walk_depth():
+        raise _Refused(R_TOO_DEEP,
+                       "the tree is deeper than this walk may safely recurse "
+                       "(%d levels); refusing while there is still stack to "
+                       "undo with" % depth)
     for entry in list(os.scandir(fd)):
         want = (dev, entry.inode())
         priv = _private_name(entry.name)
@@ -1159,11 +1210,11 @@ def _rmtree_fd(fd, dev):
             was, relaxed = stat.S_IMODE(cst.st_mode), False
             try:
                 try:
-                    _rmtree_fd(child, cst.st_dev)
+                    _rmtree_fd(child, cst.st_dev, depth + 1)
                 except PermissionError:
                     os.fchmod(child, 0o700)
                     relaxed = True
-                    _rmtree_fd(child, cst.st_dev)
+                    _rmtree_fd(child, cst.st_dev, depth + 1)
                 # INSIDE THE DESCRIPTOR'S LIFETIME. Until v3.66.1154 this rmdir
                 # sat after `finally: os.close(child)`, so when it failed there
                 # was no descriptor left to reseal through and the child stayed
@@ -1238,10 +1289,13 @@ def _remove_owned_dir(d, ident, held_fd=None):
             # so a directory reported as leaked was ALSO left more open than it
             # was found on the other two. The nlink guard is what keeps this
             # from chmod'ing an inode that is already gone.
+            # Unconditional: fchmod on an unlinked-but-open directory
+            # descriptor succeeds, so a "only if it still exists" guard here
+            # has no observable effect and no test can see it -- section 10's
+            # dead branch in the language of safety.
             if relaxed:
                 try:
-                    if os.fstat(fd).st_nlink != 0:
-                        os.fchmod(fd, was)
+                    os.fchmod(fd, was)
                 except OSError:
                     pass
             return False, reason
@@ -1390,8 +1444,13 @@ def _discard_tempdir(d):
                 "will collect it" % (R_RENAMED, _where(fd)))
             return False
     elif not os.path.lexists(d):
-        # No descriptor was held, so there is no evidence either way and
-        # "nothing is here" stays the ordinary already-clean case.
+        if _ident is not None:
+            # A RECORDED IDENTITY WITH NO DESCRIPTOR IS UNKNOWN (v3.66.1154). Knowing enough to have owned it and not enough to prove it went are different states, and 'nothing is at the path' cannot tell removal from a rename-away without the descriptor. Reported clean before this -- measured on a hand-registered root, payload intact under its new name. Where NEITHER an identity nor a descriptor was recorded the answer stays success: that is a caller asking about a path this tool never created, and refusing it would fail every already-clean path.
+            _LAST_DISCARD_ERROR[d] = (
+                "%s an identity was recorded for this path but no descriptor, "
+                "so a removal and a rename-away cannot be told apart"
+                % R_RENAMED)
+            return False
         _forget_tempdir(d)
         return True
     # A MISSING IDENTITY IS UNKNOWN, AND UNKNOWN REFUSES (v3.66.1152). This

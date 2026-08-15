@@ -657,6 +657,8 @@ def test_finish_ITSELF_reclaims_a_sealed_root(tmp_path):
     saved_root = _tmproot._ROOT
     saved_tempdir = tempfile.tempdir
     saved_ident = getattr(_tmproot, '_ROOT_IDENT', None)
+    saved_rootfd = getattr(_tmproot, '_ROOT_FD', None)
+    saved_rootfdpath = getattr(_tmproot, '_ROOT_FD_PATH', None)
     try:
         _tmproot._ROOT = str(root)
         # v3.66.1153: reclamation is bound to the identity install()
@@ -672,8 +674,22 @@ def test_finish_ITSELF_reclaims_a_sealed_root(tmp_path):
     finally:
         _tmproot._ROOT = saved_root
         tempfile.tempdir = saved_tempdir
+        # AND THE DESCRIPTOR (v3.66.1154). finish()'s finally closes and
+        # nulls the SESSION fd, so a test that restores _ROOT and the
+        # identity but not this leaves every LATER test in the process
+        # running against the pre-1154 pathname remover -- measured at 73
+        # of 92 tests in a combined run.
         if hasattr(_tmproot, '_ROOT_IDENT'):
             _tmproot._ROOT_IDENT = saved_ident
+        if hasattr(_tmproot, '_ROOT_FD'):
+            _cur = _tmproot._ROOT_FD
+            if _cur is not None and _cur != saved_rootfd:
+                try:
+                    os.close(_cur)
+                except OSError:
+                    pass
+            _tmproot._ROOT_FD = saved_rootfd
+            _tmproot._ROOT_FD_PATH = saved_rootfdpath
         _unseal(root, sealed)
 
 
@@ -693,6 +709,8 @@ def test_finish_still_keeps_artifacts_when_the_run_failed(tmp_path):
     saved_root = _tmproot._ROOT
     saved_tempdir = tempfile.tempdir
     saved_ident = getattr(_tmproot, '_ROOT_IDENT', None)
+    saved_rootfd = getattr(_tmproot, '_ROOT_FD', None)
+    saved_rootfdpath = getattr(_tmproot, '_ROOT_FD_PATH', None)
     try:
         _tmproot._ROOT = str(root)
         _st = os.lstat(str(root))
@@ -702,8 +720,22 @@ def test_finish_still_keeps_artifacts_when_the_run_failed(tmp_path):
     finally:
         _tmproot._ROOT = saved_root
         tempfile.tempdir = saved_tempdir
+        # AND THE DESCRIPTOR (v3.66.1154). finish()'s finally closes and
+        # nulls the SESSION fd, so a test that restores _ROOT and the
+        # identity but not this leaves every LATER test in the process
+        # running against the pre-1154 pathname remover -- measured at 73
+        # of 92 tests in a combined run.
         if hasattr(_tmproot, '_ROOT_IDENT'):
             _tmproot._ROOT_IDENT = saved_ident
+        if hasattr(_tmproot, '_ROOT_FD'):
+            _cur = _tmproot._ROOT_FD
+            if _cur is not None and _cur != saved_rootfd:
+                try:
+                    os.close(_cur)
+                except OSError:
+                    pass
+            _tmproot._ROOT_FD = saved_rootfd
+            _tmproot._ROOT_FD_PATH = saved_rootfdpath
         _unseal(root, sealed)
 
 

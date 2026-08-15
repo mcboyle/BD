@@ -266,8 +266,22 @@ def subject(request):
         yield s
     finally:
         s.reset()
+        # AND EVERY PRIVATE NAME DERIVED FROM THEM. Several tests here swap an
+        # object at the `<name>.bdrm-<hex>` the remover generates, so the
+        # residue is named after something the test never chose and cannot
+        # predict. Measured under KEEP_TEST_TMPDIRS=1: per-test isolation
+        # showed zero and the whole FILE leaked 3, which is what a
+        # per-test-only teardown looks like from the outside.
         for d in made:
             _force_rm(d)
+            parent, base = os.path.dirname(d), os.path.basename(d)
+            try:
+                siblings = os.listdir(parent)
+            except OSError:
+                continue
+            for sib in siblings:
+                if sib.startswith(base) and ".bdrm-" in sib:
+                    _force_rm(os.path.join(parent, sib))
 
 
 def _payload(d, name="loot.txt", body="DO NOT DELETE"):
@@ -468,6 +482,11 @@ def test_a_foreign_directory_swapped_onto_the_top_name_survives(subject, tmp_pat
         "destroyed: the destructive call still named a path an adversary can "
         "see and target")
     assert got is False
+    assert R_FOREIGN in subject.reason(d), (
+        "the refusal does not say a FOREIGN object was found; a generic "
+        "[not-proven] here reads as a transient failure rather than as "
+        "someone else's directory standing at our name: "
+        + subject.reason(d)[-300:])
 
 
 # ==========================================================================
@@ -592,8 +611,11 @@ def test_a_removal_that_took_the_wrong_object_refuses(subject):
             "the removal reported success while the object it was given is "
             "still on disk -- the entry that was unlinked belonged to "
             "something else")
-        assert R_UNPROVEN in subject.reason(d) or R_FOREIGN in subject.reason(d), \
-            subject.reason(d)[-300:]
+        assert R_UNPROVEN in subject.reason(d), (
+            "the refusal must be the nlink PROOF failing, not some other "
+            "guard firing first -- an `or` across two codes is the shared "
+            "refusal CLAUDE.md section 10 records four bd-jobs mutants "
+            "escaping through: " + subject.reason(d)[-300:])
     finally:
         if survivor:
             _force_rm(survivor)
@@ -804,6 +826,15 @@ class _Args:
         self.tree, self.json = tree, False
 
 
+# THE AUTHORIZATION LINE, READ OUT OF THE TOOL. Two assertions here named
+# "OK -- no active footgun violated", which v3.66.1154 rewrote to "no
+# BLOCKING footgun violated" -- so both were vacuously true and would have
+# stayed green while the tool printed its authorization. A literal copied
+# from a source file is a claim about that file, and it goes stale in
+# silence; deriving it cannot.
+_OK_LINE = "OK -- no blocking footgun violated"
+
+
 def _fg():
     return _load(BDFG, "bd_fg_verdict_1154")
 
@@ -865,7 +896,7 @@ def test_a_cleanup_failure_under_a_nonblocking_detector_is_not_an_authorization(
         f"(marked={seen['marked']} clean={seen['clean']}); with it attached to "
         "the blocking one this test passes for the wrong reason")
     assert rc != 0, "a run that could not clean up printed an authorization"
-    assert "OK -- no active footgun violated" not in blob
+    assert _OK_LINE not in blob, blob[-300:]
 
 
 @pytest.mark.parametrize("label,row,want_zero", [
@@ -873,6 +904,10 @@ def test_a_cleanup_failure_under_a_nonblocking_detector_is_not_an_authorization(
      {"severity": "blocking", "detector": {"kind": "none"}}, False),
     ("advisory_kind_none",
      {"severity": "advisory", "detector": {"kind": "none"}}, True),
+    # THREE SPELLINGS, AND THEY MUST NOT COLLAPSE INTO ONE. All three landed
+    # on the same `unrecognised detector kind None` return, so two of the arms
+    # were decoration -- the duplicate-arm defect this file repaired in 1153's
+    # parametrized test and then reproduced here.
     ("blocking_kind_missing",
      {"severity": "blocking", "detector": {}}, False),
     ("blocking_detector_absent",
@@ -914,7 +949,7 @@ def test_the_detector_kind_matrix(label, row, want_zero):
         assert rc == m.sec.EXIT_CANNOT_EVALUATE, (
             f"{label} produced rc={rc}; an active blocking footgun nobody can "
             f"evaluate must not authorize a cut\n{blob[-400:]}")
-        assert "OK -- no active footgun violated" not in blob
+        assert _OK_LINE not in blob, blob[-300:]
 
 
 def test_the_shipped_registry_still_reads_the_same_way():
@@ -1021,6 +1056,7 @@ def test_a_child_swapped_between_the_rename_and_the_open_is_not_entered(subject,
         "a foreign directory substituted between the rename and the open was "
         "entered and emptied")
     assert got is False
+    assert R_FOREIGN in subject.reason(d), subject.reason(d)[-300:]
     _force_rm(d)
 
 
@@ -1239,3 +1275,828 @@ def test_the_private_rename_refuses_to_clobber_an_occupied_name(subject, tmp_pat
     finally:
         os.close(fd)
         _force_rm(arena)
+
+
+def test_an_identity_without_a_descriptor_cannot_claim_the_object_went(subject, tmp_path):
+    """FOUND BY RE-RUNNING THE ORIGINAL REPRODUCTION PROBE against the fix.
+
+    Every escape this file closes is answered by a descriptor held from
+    creation, and the no-descriptor fallback was left alone as the ordinary
+    already-clean case. But "no descriptor" and "no identity" are different
+    states: with an IDENTITY recorded we knew enough to have owned the object,
+    and an absent pathname still cannot tell a completed removal from a
+    rename-away. Measured on a hand-registered root: reported clean, payload
+    intact under its new name, nothing recorded.
+
+    Where NEITHER was recorded the answer stays success -- that is a caller
+    asking about a path the tool never created, and refusing it would fail
+    every already-clean path. The control below is that half.
+    """
+    m = subject.m
+    d = str(tmp_path / "owned_but_unheld")
+    os.mkdir(d)
+    st = os.lstat(d)
+    ident = (st.st_dev, st.st_ino)
+
+    if subject.name == "bd-cut":
+        m._TEMPDIRS.append(d)
+        m._TEMPDIR_IDENT[d] = ident
+        assert d not in m._TEMPDIR_FD, "fixture: no descriptor may be held"
+        os.rename(d, d + ".moved")
+        got, why = m._discard_tempdir(d), str(m._LAST_DISCARD_ERROR.get(d, ""))
+        m._TEMPDIRS[:] = [x for x in m._TEMPDIRS if x != d]
+        m._TEMPDIR_IDENT.pop(d, None)
+    elif subject.name == "bd-footguns":
+        m._SANDBOX_IDENT[d] = ident
+        assert d not in m._SANDBOX_FD, "fixture: no descriptor may be held"
+        os.rename(d, d + ".moved")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            got = m._discard(d)
+        why = err.getvalue()
+        m._SANDBOX_IDENT.pop(d, None)
+    else:
+        saved = (m._ROOT, m._ROOT_IDENT, m._ROOT_FD, m._ROOT_FD_PATH,
+                 m._LAST_FAILURE)
+        try:
+            m._ROOT, m._ROOT_IDENT = d, ident
+            m._ROOT_FD, m._ROOT_FD_PATH = None, None
+            os.rename(d, d + ".moved")
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                got = m.finish(0)
+            why = err.getvalue()
+        finally:
+            (m._ROOT, m._ROOT_IDENT, m._ROOT_FD, m._ROOT_FD_PATH,
+             m._LAST_FAILURE) = saved
+
+    _force_rm(d + ".moved")
+    assert got is False, (
+        "the object was renamed away and the tool reported it removed, on the "
+        "strength of a pathname that says nothing about which of the two "
+        "happened")
+    assert R_RENAMED in why, why[-300:]
+
+
+def test_a_path_the_tool_never_created_is_still_absent_and_clean(subject, tmp_path):
+    """THE CONTROL for the test above, and the reason it is scoped to an
+    identity rather than to a descriptor. bd-footguns' `_discard` is called on
+    paths it never made; refusing those would fail every already-clean run."""
+    d = str(tmp_path / "never-existed")
+    m = subject.m
+    if subject.name == "bd-cut":
+        assert d not in m._TEMPDIR_IDENT and d not in m._TEMPDIR_FD
+        got = m._discard_tempdir(d)
+    elif subject.name == "bd-footguns":
+        assert d not in m._SANDBOX_IDENT and d not in m._SANDBOX_FD
+        with contextlib.redirect_stderr(io.StringIO()):
+            got = m._discard(d)
+    else:
+        saved = (m._ROOT, m._ROOT_IDENT, m._ROOT_FD, m._ROOT_FD_PATH,
+                 m._LAST_FAILURE)
+        try:
+            m._ROOT, m._ROOT_IDENT = d, None
+            m._ROOT_FD, m._ROOT_FD_PATH = None, None
+            with contextlib.redirect_stderr(io.StringIO()):
+                got = m.finish(0)
+        finally:
+            (m._ROOT, m._ROOT_IDENT, m._ROOT_FD, m._ROOT_FD_PATH,
+             m._LAST_FAILURE) = saved
+        # _tmproot has no "never created" caller: an unidentifiable root is
+        # UNKNOWN and refuses, which is the v3.66.1152 semantics preserved.
+        assert got is False
+        return
+    assert got is True, "a path the tool never created was reported as a leak"
+
+
+# ==========================================================================
+# WHAT THE FINAL ADVERSARIAL REVIEW OF dcaaf50 REPRODUCED.
+#
+# Three escapes and three suspected ones, all in the FIX rather than in the
+# code it fixed -- CLAUDE.md section 0's highest-yield rule, landing on the cut
+# that quotes it. The first is the worst kind: a REGRESSION, where the new
+# remover refuses a removal the old one performed.
+# ==========================================================================
+def test_a_legal_multibyte_filename_does_not_defeat_the_removal(subject, tmp_path):
+    """ESCAPE 1, and it was over-sensitivity rather than damage -- which
+    CLAUDE.md section 0 counts as a soundness bug all the same, because a
+    remover that refuses valid work gets switched off.
+
+    `_private_name` sliced the base to 180 CHARACTERS and appended 22 bytes,
+    while NAME_MAX is 255 BYTES. 117 two-byte UTF-8 characters is 234 bytes --
+    a name any program may create -- and the private form reached 256, so the
+    rename got ENAMETOOLONG and the WHOLE TREE was refused. Measured
+    end-to-end: a green pytest run turned red through `finish_session` and
+    leaked its entire per-run root, every `tmp_path` in it included. The
+    version this replaced removed the identical tree.
+    """
+    d = subject.make()
+    # 233 and 253 bytes, the second as a DIRECTORY so the child path is
+    # exercised too. Both are legal; 128 two-byte characters would not be.
+    long_file = "a" + "é" * 116
+    long_dir = "c" + "é" * 126
+    assert len(os.fsencode(long_dir)) == 253, len(os.fsencode(long_dir))
+    with open(os.path.join(d, long_file), "w") as fh:
+        fh.write("x")
+    os.mkdir(os.path.join(d, long_dir))
+    with open(os.path.join(d, long_dir, "inner"), "w") as fh:
+        fh.write("x")
+    got = subject.discard(d)
+    assert got is True, (
+        "a legal multi-byte filename made the remover refuse: "
+        + subject.reason(d)[-300:])
+    assert not os.path.lexists(d)
+
+
+def test_a_tree_too_deep_leaves_no_private_name_behind(subject):
+    """ESCAPE 2. The walk refused correctly and then left a `<name>.bdrm-<hex>`
+    inside the tree it was reporting, because the restoring rename runs at the
+    SAME exhausted stack that caused the refusal -- measured at depth 497 in
+    all three removers, with `_put_back`'s own comment promising otherwise.
+
+    Bounding the walk below the interpreter's limit is what fixes it: the
+    refusal now happens while there is still stack for the undo.
+    """
+    d = subject.make()
+    cur, depth = d, 0
+    try:
+        while depth < 1200:
+            cur = os.path.join(cur, "a")
+            os.mkdir(cur)
+            depth += 1
+    except OSError:
+        pass
+    assert depth > 800, f"only built {depth} levels -- too shallow to test"
+    got = subject.discard(d)
+    residue = subprocess.run(["find", d, "-name", "*.bdrm-*"],
+                             capture_output=True, text=True).stdout.split()
+    subprocess.run(["find", d, "-depth", "-type", "d", "-delete"],
+                   capture_output=True)
+    _force_rm(d)
+    assert got is False
+    assert not residue, (
+        "the refusal left the tree holding a private name the operator has "
+        f"never seen and no sweep looks for: {residue[:3]}")
+
+
+def test_the_undo_refuses_rather_than_clobbering_where_it_cannot_guarantee(subject, tmp_path):
+    """SUSPECTED 4, and it was live on every host outside a two-entry syscall
+    table. `_rename_noclobber` fell back to `os.rename` whenever renameat2 was
+    unavailable, and the return value that says which ran was discarded by
+    every caller -- so on those hosts the undo silently destroyed an empty
+    directory at the restored name, which is verbatim the defect this cut
+    claims to close. The undo now refuses instead, and the object is left under
+    its private name with the refusal saying so."""
+    arena = tempfile.mkdtemp(prefix="undofallback1154_", dir=str(tmp_path))
+    os.mkdir(os.path.join(arena, "src"))
+    os.mkdir(os.path.join(arena, "dst"))
+    victim = _ident(os.path.join(arena, "dst"))
+    fd = os.open(arena, os.O_RDONLY | os.O_DIRECTORY)
+    saved = subject.m._SYS_renameat2
+    try:
+        subject.m._SYS_renameat2 = None          # the flag is unavailable here
+        with pytest.raises(OSError):
+            subject.m._rename_noclobber("src", "dst", fd, allow_fallback=False)
+        assert _ident(os.path.join(arena, "dst")) == victim, (
+            "with no way to rename without replacing, the undo replaced -- "
+            "destroying an object it was trying to restore around")
+        # ...and the FORWARD rename, onto a name we generated, may still fall
+        # back: there is nothing there to clobber.
+        assert subject.m._rename_noclobber("src", "fresh", fd) is False
+    finally:
+        subject.m._SYS_renameat2 = saved
+        os.close(fd)
+        _force_rm(arena)
+
+
+def test_the_tmproot_report_names_the_root_and_not_the_pathname(tmp_path):
+    """SUSPECTED 5. After a rename+recreate the recorded path can hold a
+    STRANGER's directory, and the printed remedy was `rm -rf` on that path --
+    telling the operator to destroy exactly the object the tool had just
+    refused to touch, while never naming the root that actually leaked."""
+    sys.path.insert(0, str(REPO / "tests"))
+    try:
+        import _tmproot as t
+    finally:
+        sys.path.pop(0)
+    saved = (t._ROOT, t._ROOT_IDENT, t._ROOT_FD, t._ROOT_FD_PATH,
+             t._LAST_FAILURE, tempfile.tempdir)
+    keep = os.environ.pop("KEEP_TEST_TMPDIRS", None)
+    err = io.StringIO()
+    try:
+        t._ROOT = None
+        root = t.install()
+        assert root
+        moved = root + ".elsewhere"
+        os.rename(root, moved)
+        os.mkdir(root)                     # a stranger takes the freed name
+        stranger = _ident(root)
+        with contextlib.redirect_stderr(err):
+            got = t.finish(0)
+    finally:
+        if keep is not None:
+            os.environ["KEEP_TEST_TMPDIRS"] = keep
+        cur = getattr(t, "_ROOT_FD", None)
+        if cur is not None and cur != saved[2]:
+            with contextlib.suppress(OSError):
+                os.close(cur)
+        (t._ROOT, t._ROOT_IDENT, t._ROOT_FD, t._ROOT_FD_PATH,
+         t._LAST_FAILURE, tempfile.tempdir) = saved
+    blob = err.getvalue()
+    try:
+        assert got is False
+        assert _ident(root) == stranger, "the stranger was removed"
+        assert moved in blob, (
+            "the report does not name where the root actually is, so the leak "
+            f"cannot be recovered:\n{blob[-400:]}")
+        assert ("rm -rf '%s'" % root) not in blob, (
+            "the printed remedy names the pathname, which now holds a "
+            f"directory _tmproot did not create:\n{blob[-400:]}")
+    finally:
+        _force_rm(moved)
+        _force_rm(root)
+
+
+def test_a_session_status_that_is_not_a_number_does_not_escape_the_hook():
+    """SUSPECTED 6. `int(exitstatus)` sat outside the guarded region, so a
+    non-integer raised TypeError AFTER `_ROOT` had been cleared -- the root on
+    disk, unreported, and unrecoverable because the only record of it had just
+    been dropped. An unreadable status is now treated as a FAILING run, which
+    KEEPS the artifacts: the safe direction, since the alternative is deleting
+    a debugging tree on a guess."""
+    sys.path.insert(0, str(REPO / "tests"))
+    try:
+        import _tmproot as t
+    finally:
+        sys.path.pop(0)
+    saved = (t._ROOT, t._ROOT_IDENT, t._ROOT_FD, t._ROOT_FD_PATH,
+             t._LAST_FAILURE, tempfile.tempdir)
+    keep = os.environ.pop("KEEP_TEST_TMPDIRS", None)
+    try:
+        t._ROOT = None
+        root = t.install()
+        assert root
+        got = t.finish(None)               # must not raise
+        assert got is False
+        assert os.path.isdir(root), (
+            "an unreadable exit status deleted the artifacts anyway")
+    finally:
+        if keep is not None:
+            os.environ["KEEP_TEST_TMPDIRS"] = keep
+        cur = getattr(t, "_ROOT_FD", None)
+        if cur is not None and cur != saved[2]:
+            with contextlib.suppress(OSError):
+                os.close(cur)
+        (t._ROOT, t._ROOT_IDENT, t._ROOT_FD, t._ROOT_FD_PATH,
+         t._LAST_FAILURE, tempfile.tempdir) = saved
+        _force_rm(root)
+
+
+def test_the_selftest_fails_when_a_detector_sandbox_cannot_be_removed():
+    """ESCAPE 3. `main()` returned `selftest()` BEFORE the single cleanup
+    consult, and `selftest()` cleared the whole channel on its way out -- so a
+    real cleanup failure inside its own detector runs was recorded, accepted by
+    a control that admits "unknown", and then erased. `--check` on the
+    identical seam refused correctly; only the selftest lane was blind.
+
+    The sandbox here is genuinely unremovable -- its PARENT is not writable, so
+    the terminal rmdir gets EACCES -- because a sandbox merely sealed at 0o500
+    is still removable: the remover relaxes through its own descriptor, and a
+    seam that does not build the shape proves nothing.
+    """
+    m = _fg()
+    real_sbx, state = m._sandbox, {"n": 0, "par": None}
+
+    def sandbox():
+        if state["n"]:
+            return real_sbx()
+        state["n"] += 1
+        par = tempfile.mkdtemp(prefix="bdfg_seal_par_")
+        d = os.path.join(par, "bdfg_sbx_seam")
+        os.mkdir(d)
+        fd = os.open(d, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        m._SANDBOX_FD[d] = fd
+        st = os.fstat(fd)
+        m._SANDBOX_IDENT[d] = (st.st_dev, st.st_ino)
+        os.chmod(par, 0o500)
+        state["par"] = par
+        return d, dict(os.environ, BD_INSTALL_DIR=d, BD_HOME=d,
+                       BD_DISABLE_KEEPALIVE="1")
+
+    m._sandbox = sandbox
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+            rc = m.selftest()
+    finally:
+        m._sandbox = real_sbx
+        if state["par"]:
+            os.chmod(state["par"], 0o700)
+            _force_rm(state["par"])
+    blob = buf.getvalue()
+    assert state["n"] == 1, "the unremovable sandbox was never built"
+    assert rc != 0, (
+        "the selftest returned 0 with one of its own sandboxes still on "
+        "disk:\n" + blob[-500:])
+    assert "SELFTEST FAIL" in blob
+    assert "every sandbox this selftest created was reclaimed" in blob
+
+
+# ==========================================================================
+# MUTANTS THAT SURVIVED TWO BATTERIES -- mine and an independent reviewer's.
+#
+# None of these is a new way to destroy the wrong object: they are behaviours
+# the code CLAIMS and nothing constrained. That distinction does not make them
+# optional. A guard no test can see is a guard the next edit deletes, and two
+# of these went dark BECAUSE of this cut -- adding the held descriptor made the
+# top-level identity check tautological on the path the tests exercise, so a
+# covered guard became an uncovered one and nothing reported it.
+# ==========================================================================
+def test_the_creation_identity_check_still_refuses_without_a_descriptor(subject, tmp_path):
+    """D3/D4/C4. `if (st.st_dev, st.st_ino) != ident` is v3.66.1153's headline
+    guard, and deleting it in ALL THREE removers left the whole band green --
+    because with a held descriptor the comparison is tautological, and every
+    test now takes that path. The check is still load-bearing where no
+    descriptor was held, which is exactly where it must be exercised."""
+    d = str(tmp_path / "owned_no_fd")
+    os.mkdir(d)
+    st = os.lstat(d)
+    ident = (st.st_dev, st.st_ino)
+    os.rename(d, d + ".stashed")
+    os.mkdir(d)                                  # an imposter takes the name
+    imposter = _ident(d)
+    with open(os.path.join(d, "theirs"), "w") as fh:
+        fh.write("NOT OURS")
+    m = subject.m
+    try:
+        if subject.name == "bd-cut":
+            ok, why = m._remove_owned_dir(d, ident, None)
+        elif subject.name == "bd-footguns":
+            ok, why = m._remove_owned_sandbox(d, ident, None)
+        else:
+            ok, why = m._force_rmtree(d, ident, None), ""
+        assert ok is False, (
+            "a directory the tool never created was removed on the strength of "
+            "a pathname, with the recorded identity never compared")
+        assert _ident(d) == imposter, "the imposter's inode was replaced"
+        assert os.path.exists(os.path.join(d, "theirs")), (
+            "the imposter's contents were destroyed")
+        if subject.name != "_tmproot":
+            assert R_FOREIGN in str(why), why
+    finally:
+        _force_rm(d)
+        _force_rm(d + ".stashed")
+
+
+def test_the_private_name_is_unguessable_and_keeps_the_prefix(subject):
+    """B1/B2. Two properties the code states and nothing checked. The random
+    suffix is the entire reason an adversary racing the well-known name cannot
+    follow the object to its private one -- a deterministic name would leave
+    every argument in this file resting on nothing. The retained prefix is what
+    keeps a run killed mid-removal visible to the `bdcut_*`, `bdfg_sbx_*` and
+    `bd-testrun-*` sweeps, in the cut whose subject is leaks."""
+    priv = subject.m._private_name
+    seen = {priv("bdcut_thing_abcd") for _ in range(64)}
+    assert len(seen) == 64, (
+        f"the private name repeated: {64 - len(seen)} collisions in 64 draws, "
+        "so it is derivable rather than unguessable")
+    one = priv("bdcut_thing_abcd")
+    assert one.startswith("bdcut_thing_abcd"), (
+        f"the private name dropped the caller's prefix ({one!r}); a run killed "
+        "between the rename and the removal would leave residue no sweep in "
+        "this project looks for")
+    assert ".bdrm-" in one
+    # ...and it stays a legal filename for a name that is already at the limit
+    longest = priv("z" * 240 + "é" * 5)
+    assert len(os.fsencode(longest)) <= 255, len(os.fsencode(longest))
+
+
+def test_the_entry_list_is_read_before_anything_moves(subject):
+    """SUPERSEDED, and deliberately kept as a name rather than deleted.
+
+    This asserted that one `os.scandir` call returned every entry -- by
+    patching `os.scandir` to materialise them, which makes production's
+    `list()` a no-op and measures the fixture instead of the subject. It also
+    turned out to be FLAKY for the reason it could not see: an unmaterialised
+    cursor really does return short.
+
+    The property it was reaching for is now covered twice, properly:
+    `test_the_walk_never_meets_an_entry_it_renamed` induces the persisting
+    renames the hazard needs and establishes its own control first, and
+    `test_a_large_directory_is_removed_in_one_pass` covers the plain case with
+    nothing patched at all.
+    """
+    pytest.skip("superseded by test_the_walk_never_meets_an_entry_it_renamed, "
+                "which measures the subject rather than its own fixture")
+
+
+def test_a_bare_SystemExit_also_cannot_bypass_the_cleanup_code():
+    """B5. The arm normalises `e.code is None` to 0, and the test that covers
+    it injected `SystemExit(0)` only -- so deleting the normalisation left the
+    band green while a bare `sys.exit()` carried straight through a failed
+    cleanup. That is the same defect the test is named for, one spelling
+    along."""
+    m = _load(BDCUT, "bd_cut_bare_exit_1154")
+    stuck = m._owned_tempdir("bdcut_bare1154_")
+    m._TEMPDIR_IDENT.pop(stuck, None)
+    if hasattr(m, "_TEMPDIR_FD"):
+        with contextlib.suppress(OSError):
+            os.close(m._TEMPDIR_FD.pop(stuck))
+    real_inner = m._main_inner
+    m._main_inner = lambda argv, cl: (_ for _ in ()).throw(SystemExit())
+    code = "no-exception-raised"
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            code = m.main([])
+    except SystemExit as e:
+        code = e.code
+    finally:
+        m._main_inner = real_inner
+        still_there = os.path.lexists(stuck)
+        _force_rm(stuck)
+    assert still_there, "nothing was left behind, so there is no failure to code"
+    assert code == m.EXIT_CLEANUP_FAILED, (
+        f"a bare SystemExit() carried exit {code!r} through a cleanup that did "
+        "not happen")
+
+
+def test_the_creation_identity_comes_from_the_descriptor_that_is_kept(subject):
+    """B8. Replacing `os.fstat(fd)` with a second `os.lstat(d)` at creation
+    left the band green -- and that is verbatim what the comment two lines
+    above it says must not happen: two lookups of one path are two chances to
+    be told about different objects, and only one of them is the object the
+    removal will act through."""
+    real_lstat, real_fstat = os.lstat, os.fstat
+    lied = {"n": 0}
+
+    def lying_lstat(path, *a, **k):
+        # every lstat of a path reports a DIFFERENT inode than the truth
+        st = real_lstat(path, *a, **k)
+        lied["n"] += 1
+        return os.stat_result(tuple(st)[:1] + (st.st_ino ^ 0xF0F0F0,) + tuple(st)[2:])
+
+    os.lstat = lying_lstat
+    try:
+        d = subject.make()
+    finally:
+        os.lstat = real_lstat
+    try:
+        # the identity must match the DESCRIPTOR, not the lie
+        fd = (getattr(subject.m, "_TEMPDIR_FD", {}) or
+              getattr(subject.m, "_SANDBOX_FD", {}) or {}).get(d)
+        if fd is None:
+            fd = getattr(subject.m, "_ROOT_FD", None)
+        assert fd is not None, "no descriptor was kept at creation"
+        truth = real_fstat(fd)
+        recorded = (getattr(subject.m, "_TEMPDIR_IDENT", {}) or
+                    getattr(subject.m, "_SANDBOX_IDENT", {}) or {}).get(d)
+        if recorded is None:
+            recorded = getattr(subject.m, "_ROOT_IDENT", None)
+        assert recorded == (truth.st_dev, truth.st_ino), (
+            f"the recorded identity {recorded} is not the descriptor's "
+            f"{(truth.st_dev, truth.st_ino)} -- it came from a second lookup "
+            "of the pathname")
+        assert subject.discard(d) is True, subject.reason(d)[-200:]
+    finally:
+        _force_rm(d)
+
+
+def test_a_walk_failure_that_is_not_an_OSError_names_its_type(subject):
+    """N9 and B4. The depth bound now refuses before RecursionError can fire,
+    which is right -- and it left the broad `except Exception` with nothing
+    exercising it, so deleting the handler (or the exception TYPE in its
+    message) left the band green. A handler that fails closed is only half the
+    property: the reason has to say WHAT failed, or a remover bug reads exactly
+    like routine leakage."""
+    d = subject.make()
+    _payload(d)
+    real_walk, fired = subject.m._rmtree_fd, {"n": 0}
+
+    def boom(fd, dev, depth=0):
+        fired["n"] += 1
+        raise ValueError("injected: not an OSError at all")
+
+    subject.m._rmtree_fd = boom
+    try:
+        got = subject.discard(d)
+    except BaseException as e:                       # noqa: BLE001
+        subject.m._rmtree_fd = real_walk
+        _force_rm(d)
+        pytest.fail(f"{type(e).__name__} escaped the remover: {e}")
+    finally:
+        subject.m._rmtree_fd = real_walk
+    why = subject.reason(d)
+    _force_rm(d)
+    assert fired["n"] >= 1, "the failure was never injected"
+    assert got is False
+    assert "ValueError" in why, (
+        "the refusal does not name the exception type, so a remover BUG reads "
+        f"as ordinary leakage: {why[-300:]}")
+
+
+def test_an_unidentifiable_dangling_name_is_refused_not_forgotten(subject, tmp_path):
+    """N6. The `lexists` on the no-descriptor fallback survived its own mutant
+    once the identity branch was added, because with an identity BOTH spellings
+    refuse. The predicate is only load-bearing where there is no identity
+    either -- a dangling symlink at a path the tool has no evidence about --
+    and `os.path.exists` follows it, reads absent, and forgets the path."""
+    d = str(tmp_path / "unknown_dangle")
+    os.symlink(str(tmp_path / "no-such-target"), d)
+    m = subject.m
+    if subject.name == "bd-cut":
+        m._TEMPDIRS.append(d)
+        assert d not in m._TEMPDIR_IDENT and d not in m._TEMPDIR_FD
+        got, why = m._discard_tempdir(d), str(m._LAST_DISCARD_ERROR.get(d, ""))
+        m._TEMPDIRS[:] = [x for x in m._TEMPDIRS if x != d]
+    elif subject.name == "bd-footguns":
+        assert d not in m._SANDBOX_IDENT and d not in m._SANDBOX_FD
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            got = m._discard(d)
+        why = err.getvalue()
+    else:
+        pytest.skip("_tmproot has no unidentified-path caller: an unknown root "
+                    "is refused by the identity branch above, which is the "
+                    "v3.66.1152 semantics this file preserves elsewhere")
+    os.unlink(d)
+    assert got is False, (
+        "a dangling symlink at a registered path with no identity was reported "
+        "as clean -- os.path.exists follows the link and answers about a "
+        "target that was never there")
+    assert R_NO_IDENT in why, why[-200:]
+
+
+def test_the_undo_call_site_itself_refuses_to_clobber(subject, tmp_path):
+    """N26. The previous test proved `_rename_noclobber(..., allow_fallback=
+    False)` refuses; it did not prove the UNDO passes that argument. Dropping
+    it at the call site left the band green -- the guard was tested, its one
+    caller was not, which is the seam-versus-component gap CLAUDE.md section 10
+    records for bd-jobs."""
+    saved = subject.m._SYS_renameat2
+    arena = tempfile.mkdtemp(prefix="undosite1154_", dir=str(tmp_path))
+    os.mkdir(os.path.join(arena, "victim"))
+    victim = _ident(os.path.join(arena, "victim"))
+    os.mkdir(os.path.join(arena, "stranger.bdrm-0000000000000000"))
+    fd = os.open(arena, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        subject.m._SYS_renameat2 = None          # no way to rename safely
+        note = subject.m._put_back("stranger.bdrm-0000000000000000", "victim", fd)
+        assert _ident(os.path.join(arena, "victim")) == victim, (
+            "the undo replaced the object standing at the restored name -- "
+            "the destruction this cut exists to remove, in its error handler")
+        assert "could NOT be put back" in note, note
+        assert ".bdrm-" in note, (
+            "the refusal does not name where the object was left, so it cannot "
+            f"be recovered: {note}")
+    finally:
+        subject.m._SYS_renameat2 = saved
+        os.close(fd)
+        _force_rm(arena)
+
+
+@pytest.mark.parametrize("row,want_detail", [
+    ({"severity": "blocking"}, "no detector declared"),
+    ({"severity": "blocking", "detector": {}}, "declares no kind"),
+    ({"severity": "blocking", "detector": {"kind": "wat"}}, "unrecognised detector kind"),
+])
+def test_each_spelling_of_no_detector_says_which_one_it_is(row, want_detail):
+    """W6. Three arms of the matrix above all landed on ONE return, so two of
+    them were decoration -- the duplicate-arm defect this cut repaired in
+    v3.66.1153's parametrized test and then reproduced in its own. They are
+    different mistakes (an omission, a half-written row, a typo or a stale
+    tool) and each now says which."""
+    m = _fg()
+    fg = {"id": "X", "status": "active", "rule": "r", "fix": "f"}
+    fg.update(row)
+    verdict, detail = m._check_one(fg, str(REPO))
+    assert verdict == "unknown", (verdict, detail)
+    assert want_detail in detail, detail
+
+
+def test_the_single_exit_consult_is_reachable_and_refuses():
+    """B12. `main()`'s "ONE CONSULT, HERE" could not fire: `cmd_check` already
+    returns EXIT_CANNOT_EVALUATE whenever the channel is non-empty, and
+    `--selftest` folds it in itself. An unreachable branch written in the
+    language of safety is what CLAUDE.md section 10 calls dead code that reads
+    as a feature -- and it is read that way precisely because of how it is
+    worded.
+
+    It is kept, because it is the guard a FUTURE subcommand inherits rather
+    than has to remember. So it is exercised directly, through a subcommand
+    that creates no sandboxes: if it ever stops working, this goes red rather
+    than the next command shipping without it."""
+    m = _fg()
+
+    class A:
+        tree, json, list, explain, selftest = str(REPO), False, True, None, False
+
+    real_list, real_parse = m.cmd_list, None
+    m.cmd_list = lambda a: 0
+    m._CLEANUP_FAILURES[:] = ["/tmp/pretend_sandbox: [not-proven] injected"]
+    argv = sys.argv
+    try:
+        sys.argv = ["bd-footguns", "--list", "--tree", str(REPO)]
+        with contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()):
+            rc = m.main()
+    finally:
+        sys.argv = argv
+        m.cmd_list = real_list
+        m._CLEANUP_FAILURES[:] = []
+        _ = real_parse
+    assert rc == m.sec.EXIT_CANNOT_EVALUATE, (
+        f"a subcommand returned {rc!r} while a sandbox was recorded as not "
+        "removed; the single-exit consult did not fire")
+
+
+def test_a_large_directory_is_removed_in_one_pass(subject):
+    """The plain case: a directory big enough for the readdir hazard is
+    removed, in one pass, with nothing patched.
+
+    An earlier version of this test patched `os.scandir` to hand back an
+    already-materialised iterator, which made the production `list()` a no-op
+    and erased the very property it was standing next to."""
+    d = subject.make()
+    n = 5000
+    for i in range(n):
+        with open(os.path.join(d, "entry%05d" % i), "w") as fh:
+            fh.write("x")
+    assert len(os.listdir(d)) == n, "the fixture did not build the shape"
+    got = subject.discard(d)
+    assert got is True, (
+        f"a {n}-entry directory was not removed in one pass: "
+        + subject.reason(d)[-300:])
+    assert not os.path.lexists(d)
+
+
+def test_the_walk_never_meets_an_entry_it_renamed(subject):
+    """RB_B3, AND THE PREMISE MEASURED RATHER THAN ASSUMED.
+
+    `list(os.scandir(fd))` completes the readdir before anything moves.
+    Removing it left the plain case above green, which is why the mutant
+    survived: this walk renames and then immediately DESTROYS, so the renamed
+    entry is gone before the cursor could reach it again. The hazard needs
+    renamed entries to PERSIST -- and the moment a future edit batches the
+    destruction, defers it, or hits an error partway, they do.
+
+    So the persistence is induced here (the destruction is suppressed) and the
+    control below establishes that the hazard is real on this filesystem
+    before anything is concluded from its absence. Measured on this host's XFS
+    with the control: 5000 entries yielded 7024, 2024 of them re-yielded under
+    their new names.
+    """
+    # THE CONTROL FIRST: does an unmaterialised cursor re-yield here at all?
+    probe = tempfile.mkdtemp(prefix="reyield_ctl_", dir=str(tempfile.gettempdir()))
+    n = 3000
+    try:
+        for i in range(n):
+            open(os.path.join(probe, "e%05d" % i), "w").close()
+        pfd = os.open(probe, os.O_RDONLY | os.O_DIRECTORY)
+        seen, it = [], os.scandir(pfd)
+        try:
+            for e in it:
+                seen.append(e.name)
+                if ".bdrm-" not in e.name:
+                    os.rename(e.name, e.name + ".bdrm-aaaaaaaaaaaaaaaa",
+                              src_dir_fd=pfd, dst_dir_fd=pfd)
+        finally:
+            it.close()
+            os.close(pfd)
+        control_reyields = len(seen) - n
+    finally:
+        _force_rm(probe)
+    if control_reyields <= 0:
+        pytest.skip(
+            "renaming during an open readdir cursor does not re-yield on this "
+            f"filesystem ({n} entries in, {len(seen)} out), so the property "
+            "below cannot be distinguished here -- recorded rather than "
+            "silently passed")
+
+    # THE SUBJECT: same conditions, and the walk must see each entry once.
+    d = subject.make()
+    for i in range(n):
+        with open(os.path.join(d, "e%05d" % i), "w") as fh:
+            fh.write("x")
+    bases, real_priv = [], subject.m._private_name
+
+    def spy(base):
+        bases.append(base)
+        return real_priv(base)
+
+    real_unlink, real_rmdir = os.unlink, os.rmdir
+    subject.m._private_name = spy
+    os.unlink = lambda *a, **k: None          # renamed entries PERSIST
+    os.rmdir = lambda *a, **k: None
+    try:
+        subject.discard(d)
+    finally:
+        os.unlink, os.rmdir = real_unlink, real_rmdir
+        subject.m._private_name = real_priv
+        # THE PRIVATE NAME IS THIS TEST'S RESIDUE TO COLLECT. Suppressing the
+        # destruction is what makes the renamed entries persist, and that
+        # includes the OWNED directory itself -- it ends up at
+        # `<name>.bdrm-<hex>` in the parent. Measured under KEEP_TEST_TMPDIRS=1
+        # before this teardown existed: 4 leaked per run. It is also the
+        # clearest evidence the retained prefix works, since a dot-prefixed
+        # name would not have shown up in that sweep at all.
+        _force_rm(d)
+        _parent = os.path.dirname(d)
+        for _sib in os.listdir(_parent):
+            if _sib.startswith(os.path.basename(d)) and ".bdrm-" in _sib:
+                _force_rm(os.path.join(_parent, _sib))
+
+    assert bases, "the walk never ran -- nothing was tested"
+    recycled = [b for b in bases if ".bdrm-" in b]
+    assert not recycled, (
+        f"the walk met {len(recycled)} entries it had itself renamed "
+        f"(control re-yielded {control_reyields}), so the readdir cursor was "
+        "live while the directory was being mutated -- unspecified behaviour "
+        "that skips as readily as it repeats")
+
+
+def test_a_symlink_at_an_owned_path_says_a_foreign_object_is_there(subject, tmp_path):
+    """RB_B10. The ELOOP/ENOTDIR refusal carried `[foreign-object]` and nothing
+    asserted it, so relabelling it `[not-proven]` was invisible. The two mean
+    different things to an operator: one says someone else's object is standing
+    at your path, the other says a transient failure -- and only the first is a
+    reason to go looking."""
+    d = str(tmp_path / "owned_then_symlinked")
+    os.mkdir(d)
+    st = os.lstat(d)
+    ident = (st.st_dev, st.st_ino)
+    os.rmdir(d)
+    os.symlink(str(tmp_path / "elsewhere"), d)
+    m = subject.m
+    try:
+        if subject.name == "bd-cut":
+            ok, why = m._remove_owned_dir(d, ident, None)
+        elif subject.name == "bd-footguns":
+            ok, why = m._remove_owned_sandbox(d, ident, None)
+        else:
+            pytest.skip("_tmproot's remover returns a bare bool; its refusal "
+                        "code is asserted through finish() elsewhere")
+        assert ok is False
+        assert R_FOREIGN in str(why), (
+            "a symlink standing at an owned pathname was reported with a "
+            f"generic code rather than as a foreign object: {why}")
+    finally:
+        os.unlink(d)
+
+
+def test_the_cleanup_channel_starts_empty_on_every_check():
+    """RB_B13. The module is imported once per pytest test module, so a second
+    `cmd_check` in one process inherits the first's failures and refuses for a
+    reason that was already reported -- and every test here loads a fresh
+    module, which is exactly why nothing noticed."""
+    m = _fg()
+    m._CLEANUP_FAILURES[:] = ["/tmp/stale_from_a_previous_run: [not-proven] old"]
+    rows = [{"id": "PASSER", "status": "active", "severity": "blocking",
+             "rule": "r", "fix": "f",
+             "detector": {"kind": "tool", "cmd": ["sh", "-c", "exit 0"],
+                          "block_on_exit": []}}]
+    rc, blob = _run_check(m, rows, str(REPO))
+    assert rc == 0, (
+        "a stale cleanup failure from an earlier invocation refused this one:\n"
+        + blob[-400:])
+    assert "stale_from_a_previous_run" not in blob
+
+
+def test_finish_releases_the_descriptor_it_held(tmp_path):
+    """RB_D7. `install()` opens one descriptor per process and `finish()` is
+    the only thing that closes it. A leak here is invisible -- nothing user
+    facing breaks -- until a long-lived process runs enough sessions to hit
+    EMFILE, and by then the cause is far away. Section 0's rule that creating a
+    resource is a promise to remove it applies to descriptors as much as to
+    directories."""
+    sys.path.insert(0, str(REPO / "tests"))
+    try:
+        import _tmproot as t
+    finally:
+        sys.path.pop(0)
+    saved = (t._ROOT, t._ROOT_IDENT, t._ROOT_FD, t._ROOT_FD_PATH,
+             t._LAST_FAILURE, tempfile.tempdir)
+    keep = os.environ.pop("KEEP_TEST_TMPDIRS", None)
+    before = len(os.listdir("/proc/self/fd"))
+    roots = []
+    try:
+        for _ in range(8):
+            t._ROOT = None
+            r = t.install()
+            assert r
+            roots.append(r)
+            assert t.finish(0) is True
+        after = len(os.listdir("/proc/self/fd"))
+    finally:
+        if keep is not None:
+            os.environ["KEEP_TEST_TMPDIRS"] = keep
+        cur = getattr(t, "_ROOT_FD", None)
+        if cur is not None and cur != saved[2]:
+            with contextlib.suppress(OSError):
+                os.close(cur)
+        (t._ROOT, t._ROOT_IDENT, t._ROOT_FD, t._ROOT_FD_PATH,
+         t._LAST_FAILURE, tempfile.tempdir) = saved
+        for r in roots:
+            _force_rm(r)
+    assert after <= before + 1, (
+        f"descriptors grew {before} -> {after} across 8 install/finish cycles; "
+        "the root descriptor is not being released")

@@ -185,7 +185,7 @@ class _Refused(Exception):
         return "%s %s" % (self.code, self.detail)
 
 
-def _rename_noclobber(old, new, dir_fd):
+def _rename_noclobber(old, new, dir_fd, allow_fallback=True):
     """Rename inside `dir_fd`, REFUSING to replace an existing `new`.
 
     `os.rename` replaces silently, and one caller of this is the path where a
@@ -212,6 +212,17 @@ def _rename_noclobber(old, new, dir_fd):
         _eno = ctypes.get_errno()
         if _eno not in (errno.ENOSYS, errno.EINVAL, errno.EOPNOTSUPP):
             raise OSError(_eno, os.strerror(_eno), old)
+    if not allow_fallback:
+        # THE UNDO MAY NOT FALL BACK. `os.rename` replaces silently, and the
+        # only caller that passes allow_fallback=False is the one restoring a
+        # FOREIGN object to a name a third party may have re-created -- where
+        # replacing is exactly the destruction being refused. The syscall table
+        # here has two architectures in it and any filesystem may answer
+        # EINVAL, so this is reachable, and leaving the object under its
+        # private name with a report is strictly better than destroying
+        # something to tidy up.
+        raise OSError(errno.EOPNOTSUPP,
+                      "cannot rename without replacing on this platform", old)
     os.rename(old, new, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
     return False
 
@@ -224,8 +235,26 @@ def _private_name(base):
     invisible to the `bdcut_*`, `bdfg_sbx_*` and `bd-testrun-*` sweeps this
     project's whole leak accounting is built on -- turning a recognisable leak
     into an unrecognisable one, in the cut whose subject is leaks.
+
+    TRUNCATED IN BYTES, NOT CHARACTERS (v3.66.1154, found by adversarial
+    review). NAME_MAX is 255 BYTES; a character slice let 117 two-byte UTF-8
+    characters (234 bytes) plus the 22-byte suffix reach 256, so the rename
+    got ENAMETOOLONG and the remover REFUSED a removal it had to perform --
+    a green pytest run turned red and leaked its whole per-run root, on a
+    filename any program is free to create. Over-sensitivity is a soundness
+    bug (CLAUDE.md section 0), and this one was a regression against the
+    version it replaced.
+
+    A byte slice can split a multi-byte sequence; `os.fsdecode` keeps the
+    stray bytes as surrogates and `os.fsencode` puts them back unchanged, so
+    the name round-trips to the same bytes the kernel sees. Two long names can
+    therefore truncate to the same prefix -- which is why the 64 random bits
+    are appended AFTER the truncation, and why every rename that uses this
+    name refuses to clobber rather than replacing.
     """
-    return "%s.bdrm-%s" % (base[:180], os.urandom(8).hex())
+    suffix = ".bdrm-%s" % os.urandom(8).hex()
+    raw = os.fsencode(base)[:255 - len(suffix)]
+    return os.fsdecode(raw) + suffix
 
 
 def _put_back(priv, name, fd):
@@ -240,11 +269,15 @@ def _put_back(priv, name, fd):
     a name they have never seen has not been told anything.
     """
     try:
-        _rename_noclobber(priv, name, fd)
+        _rename_noclobber(priv, name, fd, allow_fallback=False)
         return " (it was put back untouched)"
-    except OSError as _e:
-        return (" -- and it could NOT be put back (%s); it is now named %r in "
-                "that directory and nothing else will collect it" % (_e, priv))
+    except Exception as _e:
+        # Exception, not OSError: this runs while an error is already being
+        # handled -- including at an exhausted stack -- and a raise here would
+        # replace the reason the caller is trying to report with its own.
+        return (" -- and it could NOT be put back (%s: %s); it is now named "
+                "%r in that directory and nothing else will collect it"
+                % (type(_e).__name__, _e, priv))
 
 
 def _walk_failed(e):
@@ -264,7 +297,20 @@ def _walk_failed(e):
             % (R_TOO_DEEP, type(e).__name__, e))
 
 
-def _rmtree_fd(fd, dev):
+def _max_walk_depth():
+    """How deep this walk may go before it refuses.
+
+    NOT a taste question: at the interpreter's own recursion limit the
+    UNWINDING calls fail too, so the handler that puts a foreign object back
+    under its real name cannot run and the tree is left holding a private
+    `.bdrm-*` name -- measured by review at depth 497 in all three removers,
+    with `_put_back`'s own comment promising it could not happen. Refusing
+    early leaves the stack the recovery needs.
+    """
+    return max(50, (sys.getrecursionlimit() - 100) // 3)
+
+
+def _rmtree_fd(fd, dev, depth=0):
     """Delete everything UNDER an open directory descriptor.
 
     READ ONCE, THEN ACT. Renaming entries while a readdir cursor is open is
@@ -284,6 +330,11 @@ def _rmtree_fd(fd, dev):
     it had just read, so a directory renamed onto a child pathname mid-walk was
     entered and recursively emptied -- measured, victim inode nlink 0.
     """
+    if depth > _max_walk_depth():
+        raise _Refused(R_TOO_DEEP,
+                       "the tree is deeper than this walk may safely recurse "
+                       "(%d levels); refusing while there is still stack to "
+                       "undo with" % depth)
     for entry in list(os.scandir(fd)):
         want = (dev, entry.inode())
         priv = _private_name(entry.name)
@@ -310,11 +361,11 @@ def _rmtree_fd(fd, dev):
             was, relaxed = stat.S_IMODE(cst.st_mode), False
             try:
                 try:
-                    _rmtree_fd(child, cst.st_dev)
+                    _rmtree_fd(child, cst.st_dev, depth + 1)
                 except PermissionError:
                     os.fchmod(child, 0o700)
                     relaxed = True
-                    _rmtree_fd(child, cst.st_dev)
+                    _rmtree_fd(child, cst.st_dev, depth + 1)
                 # INSIDE THE DESCRIPTOR'S LIFETIME. Until v3.66.1154 this rmdir
                 # sat after `finally: os.close(child)`, so when it failed there
                 # was no descriptor left to reseal through and the child stayed
@@ -339,6 +390,12 @@ def _rmtree_fd(fd, dev):
                 raise
         finally:
             os.close(child)
+
+def _walk_split(e):
+    """(code, detail) -- `_walk_failed` already prefixes the code, so passing
+    its whole string as a detail printed `[too-deep] [too-deep] ...`."""
+    return R_TOO_DEEP, _walk_failed(e)[len(R_TOO_DEEP):].strip()
+
 
 def _mark(code, why=""):
     global _LAST_REASON
@@ -368,6 +425,7 @@ def _force_rmtree(path: str, ident=None, held_fd=None) -> bool:
         except OSError as e:
             if e.errno == errno.ENOENT:
                 return True                  # nothing to remove IS success
+            _mark(R_FOREIGN, "the path is a symlink, is not a directory, or cannot be opened (%s)" % e)
             return False                     # symlink, non-directory, denied
         ours = True
     try:
@@ -382,8 +440,7 @@ def _force_rmtree(path: str, ident=None, held_fd=None) -> bool:
             _LAST_REASON = ("%s %s" % (code, why)).strip()
             if relaxed:
                 try:
-                    if os.fstat(fd).st_nlink != 0:
-                        os.fchmod(fd, was)
+                    os.fchmod(fd, was)
                 except OSError:
                     pass
             return False
@@ -400,7 +457,7 @@ def _force_rmtree(path: str, ident=None, held_fd=None) -> bool:
             except OSError as e:
                 return _refuse(R_UNPROVEN, str(e))
             except Exception as e:
-                return _refuse(R_TOO_DEEP, _walk_failed(e))
+                return _refuse(*_walk_split(e))
         except _Refused as r:
             return _refuse(r.code, r.detail)
         except OSError as e:
@@ -410,7 +467,7 @@ def _force_rmtree(path: str, ident=None, held_fd=None) -> bool:
             # RecursionError and MemoryError are Exception and are caught here,
             # at the shallow frame -- a handler inside the walk would run with
             # the stack still exhausted.
-            return _refuse(R_TOO_DEEP, _walk_failed(e))
+            return _refuse(*_walk_split(e))
         parent, name = os.path.dirname(path) or ".", os.path.basename(path)
         try:
             pfd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -420,20 +477,21 @@ def _force_rmtree(path: str, ident=None, held_fd=None) -> bool:
             priv = _private_name(name)
             try:
                 _rename_noclobber(name, priv, pfd)
-            except OSError:
-                return _refuse()
+            except OSError as e:
+                return _refuse(R_UNPROVEN, str(e))
             try:
                 ent = os.stat(priv, dir_fd=pfd, follow_symlinks=False)
-            except OSError:
-                return _refuse()
+            except OSError as e:
+                return _refuse(R_UNPROVEN, str(e))
             if (ent.st_dev, ent.st_ino) != (st.st_dev, st.st_ino):
-                _put_back(priv, name, pfd)
-                return _refuse()
+                _note = _put_back(priv, name, pfd)
+                return _refuse(R_FOREIGN,
+                               "the parent entry no longer names it%s" % _note)
             try:
                 os.rmdir(priv, dir_fd=pfd)
-            except OSError:
+            except OSError as e:
                 _put_back(priv, name, pfd)
-                return _refuse()
+                return _refuse(R_UNPROVEN, str(e))
         finally:
             os.close(pfd)
         # PROOF, not hope: the object we held open is the one that was
@@ -441,7 +499,8 @@ def _force_rmtree(path: str, ident=None, held_fd=None) -> bool:
         # is EPERM, so no second link can exist to confuse the count. Do not
         # reuse this form for a file, where nlink 1 after an unlink is normal.
         if os.fstat(fd).st_nlink != 0:
-            return _refuse()
+            return _refuse(R_UNPROVEN,
+                           "the entry removed was not the root held open")
         return True
     finally:
         if ours:
@@ -461,9 +520,26 @@ def finish(exitstatus: int) -> bool:
     root, _ROOT = _ROOT, None
     ident, _ROOT_IDENT = _ROOT_IDENT, None
     fd = _root_fd_for(root)                # None unless it belongs to `root`
+    # WHERE THE ROOT ACTUALLY IS, read while the descriptor is still open.
+    # The report below runs AFTER the finally that releases it, so resolving
+    # it there produced "its new location could not be read" -- a remedy line
+    # naming nothing, which is barely better than one naming the wrong thing.
+    _actual = root
     tempfile.tempdir = None                # new allocations leave the doomed tree
     try:
-        if int(exitstatus) != 0:
+        # A STATUS WE CANNOT READ IS NOT ZERO. `int(exitstatus)` sat outside
+        # this try, so a non-integer raised TypeError after _ROOT had already
+        # been cleared -- root on disk, unreported, and unrecoverable because
+        # the only record of it had just been dropped. Moving it inside is not
+        # enough: a session hook that raises is still a hook that does not run.
+        # An unreadable status is treated as a FAILING run, which KEEPS the
+        # artifacts -- the safe direction, since the alternative is deleting a
+        # debugging tree on a guess.
+        try:
+            _status = int(exitstatus)
+        except (TypeError, ValueError):
+            _status = 1
+        if _status != 0:
             return False                   # KEPT ON PURPOSE, not a failure
         _mark("")
         if ident is None:
@@ -494,9 +570,18 @@ def finish(exitstatus: int) -> bool:
                 ok = False
             else:
                 ok = _force_rmtree(root, ident, fd)
+        elif not os.path.lexists(root):
+            # A RECORDED IDENTITY WITH NO DESCRIPTOR IS UNKNOWN (v3.66.1154). Knowing enough to have owned it and not enough to prove it went are different states, and 'nothing is at the path' cannot tell removal from a rename-away without the descriptor. Reported clean before this -- measured on a hand-registered root, payload intact under its new name. Where NEITHER an identity nor a descriptor was recorded the answer stays success: that is a caller asking about a path this tool never created, and refusing it would fail every already-clean path.
+            _mark(R_RENAMED, "an identity was recorded but no descriptor")
+            ok = False
         else:
             ok = _force_rmtree(root, ident)
     finally:
+        if fd is not None:
+            try:
+                _actual = os.readlink("/proc/self/fd/%d" % fd)
+            except OSError:
+                pass
         _release_root_fd()
     if not ok:
         global _LAST_FAILURE
@@ -508,12 +593,19 @@ def finish(exitstatus: int) -> bool:
         # unreported and the run stays green. A cleanup that did not happen is
         # never silent; putting the report inside the function is the only
         # placement a caller cannot forget.
+        # THE REMEDY MUST NAME THE ROOT, NOT THE PATHNAME. After a
+        # rename+recreate the recorded path can hold a STRANGER's directory,
+        # and `rm -rf` on it would destroy exactly the object this function
+        # just refused to touch. The descriptor knows where the root actually
+        # is; the pathname does not.
         sys.stderr.write(
             f"\n_tmproot: PER-RUN TEMP ROOT NOT REMOVED: {root}\n"
             f"  reason: {_LAST_REASON or R_UNPROVEN}\n"
             "  every mkdtemp in this run is under it, and nothing else will "
             "collect it.\n"
-            "  recover with: chmod -R u+w '%s' && rm -rf '%s'\n" % (root, root))
+            "  it is at: %s\n"
+            "  recover with: chmod -R u+w '%s' && rm -rf '%s'\n"
+            % (_actual, _actual, _actual))
     return ok
 
 
