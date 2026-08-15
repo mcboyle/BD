@@ -34,6 +34,12 @@ SYSTEM_TMP = pathlib.Path(tempfile.gettempdir())
 
 _ROOT: str | None = None
 
+# Set when a removal was ATTEMPTED and did not complete. Deliberately distinct
+# from finish() returning False after a FAILING run, which means "kept on
+# purpose so the artifacts survive" -- conflating the two would add a false
+# cleanup complaint to every red run (v3.66.1152).
+_LAST_FAILURE: str | None = None
+
 
 def install() -> str | None:
     """Point `tempfile.tempdir` at a fresh per-process root. Returns its path.
@@ -102,8 +108,18 @@ def _force_rmtree(path: str) -> bool:
             st = os.lstat(target)
         except OSError:
             return
-        if stat.S_ISLNK(st.st_mode):
-            return                      # never chmod through a link
+        # ONLY A DIRECTORY (v3.66.1152). The previous predicate was "not a
+        # symlink", which let a HARD LINK through -- and a hard link is not a
+        # symlink, shares the target's inode, and has no target to resolve, so
+        # realpath returns the IN-TREE path and the containment check says yes.
+        # Reproduced at dcf34528: an in-tree hard link to an outside file took
+        # that file from 0644 to 0700, same inode, file surviving.
+        #
+        # Only a directory's mode can block the removal of its entries, so
+        # directories are the entire population worth relaxing. This also
+        # subsumes the symlink case: a symlink is not a directory.
+        if not stat.S_ISDIR(st.st_mode):
+            return
         if not _inside(target):
             return                      # never touch anything we were not given
         try:
@@ -143,6 +159,8 @@ def finish(exitstatus: int) -> bool:
         return False
     ok = _force_rmtree(root)
     if not ok:
+        global _LAST_FAILURE
+        _LAST_FAILURE = root
         # REPORTED HERE, WHERE NO CALL SITE CAN DROP IT (v3.66.1151). Both
         # session-finish hooks -- this module's and tests/conftest.py's --
         # discard the return value, and `_ROOT` has already been cleared by the
@@ -158,10 +176,35 @@ def finish(exitstatus: int) -> bool:
     return ok
 
 
+def failed_root():
+    """The root a reclamation attempt could not remove, or None."""
+    return _LAST_FAILURE
+
+
+def finish_session(session, exitstatus):
+    """The whole session-finish behaviour, in ONE place both hooks call.
+
+    v3.66.1152. `finish()` reported honestly and returned False, and BOTH call
+    sites -- this module's hook and tests/conftest.py's -- discarded that value.
+    pytest computes its exit status from test outcomes alone, so a leaked
+    per-run root left the run GREEN: every mkdtemp in the session lives under
+    that root, and nothing else will ever collect it. A report nothing acts on
+    is not a gate.
+
+    NOT for a root kept deliberately: finish() returns False on a FAILING run
+    because artifacts must survive the one run that needed them, and turning
+    that into a second complaint would make every red run also look like a
+    cleanup defect.
+    """
+    finish(exitstatus)
+    if failed_root() is not None and getattr(session, "exitstatus", 0) in (0, None):
+        session.exitstatus = 1
+
+
 # Hook forms, so this file also works as a standalone `-p _tmproot` plugin.
 def pytest_configure(config):
     install()
 
 
 def pytest_sessionfinish(session, exitstatus):
-    finish(exitstatus)
+    finish_session(session, exitstatus)

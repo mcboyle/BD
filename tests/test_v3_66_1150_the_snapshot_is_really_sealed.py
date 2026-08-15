@@ -275,9 +275,16 @@ def test_a_genuinely_absent_directory_is_still_a_success(tmp_path):
     every OSError subclass would report a leak on every clean teardown."""
     mc = _load_bdcut()
     mf = _load_footguns()
-    gone = str(tmp_path / "never-existed")
-    assert mc._discard_tempdir(gone) is True
-    assert mf._discard(gone) is True
+    # For bd-cut the subject must be a directory it CREATED which has since
+    # vanished. An arbitrary path it never made is REFUSED as of v3.66.1152 --
+    # deliberately, because "no recorded identity" is unknown, not permission.
+    d = mc._owned_tempdir("bdcut_vanished_")
+    shutil.rmtree(d)
+    assert mc._discard_tempdir(d) is True
+    assert d not in mc._TEMPDIRS
+    # bd-footguns keeps no identity register, so for it an absent path is
+    # simply nothing to do.
+    assert mf._discard(str(tmp_path / "never-existed")) is True
 
 
 def test_a_normal_removal_still_succeeds_and_unregisters(tmp_path):
@@ -879,10 +886,14 @@ def test_a_renamed_and_recreated_snapshot_cannot_reach_a_consumer(tmp_path, monk
     assert seen_paths.get("read_during_swap") == src.read_bytes(), (
         "a consumer read the IMPOSTER while the directory entry was swapped -- "
         "the descriptor binding is not in place")
-    assert rc == 0, (
-        f"a swap that no consumer could observe was still treated as fatal "
-        f"(rc={rc}); refusing here would be over-sensitivity, not safety: "
-        f"{err[-300:]}")
+    # rc is the CLEANUP code, not a refusal of the cut (v3.66.1152). No
+    # consumer was affected -- that is the assertion above -- but the real
+    # snapshot directory was renamed away, so cleanup genuinely could not
+    # account for it, and since v3.66.1152 that costs an exit code. A step-0
+    # refusal (3) here would be wrong: the cut itself was fine.
+    assert rc == m.EXIT_CLEANUP_FAILED, (
+        f"expected the cleanup code for an unaccountable snapshot directory, "
+        f"got rc={rc}: {err[-300:]}")
 
 
 _LEAKERS_1145 = (

@@ -171,7 +171,12 @@ def test_conftest_still_installs_and_removes_the_root():
     assert "_tmproot.install()" in src, (
         "conftest no longer installs the per-run temp root, so every test "
         "above is about a mechanism nothing switches on")
-    assert "_tmproot.finish(" in src and "pytest_sessionfinish" in src, (
+    # finish_session since v3.66.1152: the hook must also set the session's
+    # exit status, so conftest calls the shared helper rather than finish()
+    # directly. Accept either spelling -- the property is that the hook
+    # delegates to _tmproot, not which of its two entry points it names.
+    assert ("_tmproot.finish(" in src or "_tmproot.finish_session(" in src) \
+        and "pytest_sessionfinish" in src, (
         "conftest no longer removes the root -- the leak returns silently")
 
     mech = (_REPO / "tests" / "_tmproot.py").read_text(encoding="utf-8")

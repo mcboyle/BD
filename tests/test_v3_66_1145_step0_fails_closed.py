@@ -693,11 +693,21 @@ def test_attestation_fails_closed_when_the_extract_differs(tmp_path, monkeypatch
         pathlib.Path(path, "a.py").write_text("x = 999   # tampered\n")
 
     monkeypatch.setattr(_zf.ZipFile, "extractall", tamper)
+    # BEFORE/AFTER, not an absolute glob (v3.66.1152). This globbed
+    # tempfile.gettempdir() outright, which is equivalent to a delta only
+    # because the per-run temp root is fresh and empty. Under
+    # KEEP_TEST_TMPDIRS=1 -- the mode leak measurement actually uses, since the
+    # root is erased on a green run -- gettempdir() is the real /tmp, and the
+    # assertion then fails on residue left by anything else that ever ran.
+    # Measured: 19 stale directories from earlier runs in the same session. A
+    # denominator that includes other people's work is section 0's failure with
+    # the sign flipped: it reports a defect that is not there.
+    before = set(pathlib.Path(tempfile.gettempdir()).glob("bdcut_subject_*"))
     with pytest.raises(RuntimeError) as ei:
         m.extract_and_attest(str(z))
     assert "differ from the archive" in str(ei.value)
-    leaked = [p for p in pathlib.Path(tempfile.gettempdir()).glob("bdcut_subject_*")]
-    assert not leaked, f"a failed attestation leaked its directory: {leaked}"
+    leaked = set(pathlib.Path(tempfile.gettempdir()).glob("bdcut_subject_*")) - before
+    assert not leaked, f"a failed attestation leaked its directory: {sorted(leaked)}"
 
 
 def test_resume_zip_gate_and_band_share_one_subject(tmp_path, monkeypatch):

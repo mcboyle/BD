@@ -927,6 +927,12 @@ def _owned_tempdir(prefix):
 # implementation dropped it and main() printed a bare "not removed", which is
 # CLAUDE.md section 0's "say so" honoured in form only -- and that exact
 # distinction is what parked test4's service in the v3.66.1035 deploy failure.
+# bd-cut answers 1 for every die() and 3 for every step-0 refusal, so a cleanup
+# failure needs a code of its own -- a test asserting merely "nonzero" passes
+# when any other guard fires (CLAUDE.md section 10: four mutants escaped that
+# way in bd-jobs and bd-ab).
+EXIT_CLEANUP_FAILED = 4
+
 _LAST_DISCARD_ERROR = {}
 
 # Descriptors held open so a consumer is bound to an inode rather than to a
@@ -941,6 +947,53 @@ _OPEN_FDS = []
 # v3.66.1150 deleted THAT while the real sealed snapshot leaked under its new
 # name with nothing reporting it.
 _TEMPDIR_IDENT = {}
+
+
+def _relax_owned_dir(d, ident):
+    """chmod `d` to 0700 through a NO-FOLLOW descriptor, and only if it is
+    still the exact directory we created. Returns the previous mode, or None.
+
+    v3.66.1152. The point is that the identity proof and the mode change happen
+    on THE SAME OPEN DESCRIPTOR, so nothing can be swapped in between them.
+    os.stat + os.chmod could not give that: both resolve the path afresh, both
+    follow symlinks, and both ran after a separate identity check.
+
+    O_NOFOLLOW refuses a symlink at the final component (ELOOP) and O_DIRECTORY
+    refuses anything that is not a directory (ENOTDIR), so the two ways this
+    path could stop being a directory we own are both errors rather than
+    silent redirection.
+    """
+    try:
+        fd = os.open(d, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError:
+        return None
+    try:
+        st = os.fstat(fd)
+        if (st.st_dev, st.st_ino) != ident:
+            return None
+        was = stat.S_IMODE(st.st_mode)
+        os.fchmod(fd, 0o700)
+        return was
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
+def _reseal_owned_dir(d, ident, mode):
+    """Put a mode back, under the same no-follow, same-identity rules."""
+    try:
+        fd = os.open(d, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError:
+        return
+    try:
+        st = os.fstat(fd)
+        if (st.st_dev, st.st_ino) == ident:
+            os.fchmod(fd, mode)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
 
 
 def _same_object(path, ident):
@@ -994,15 +1047,31 @@ def _discard_tempdir(d):
     # its own regression hid the leak by removing the renamed original by hand.
     # Identity is inode + device taken at creation, because the PATH is exactly
     # the thing that stopped being trustworthy.
+    # A MISSING IDENTITY IS UNKNOWN, AND UNKNOWN REFUSES (v3.66.1152). This
+    # read `if _ident is not None and ...`, so a creation-time lstat failure --
+    # the one case where we genuinely cannot prove ownership -- PERMITTED the
+    # deletion, while the comment beside it said it would refuse. Measured at
+    # dcf34528: returns True and removes a directory it cannot identify.
+    # NOTHING HERE AT ALL IS SUCCESS, and it is asked FIRST. A directory we
+    # created and which has since gone is the ordinary already-clean case; the
+    # identity questions below are about a path that still has something at it.
+    # Asking identity first turned "already gone" into "cannot identify" and
+    # refused it (v3.66.1152).
+    if not os.path.lexists(d):
+        if d in _TEMPDIRS:
+            _TEMPDIRS.remove(d)
+        return True
     _ident = _TEMPDIR_IDENT.get(d)
-    if _ident is not None and not _same_object(d, _ident):
+    if _ident is None:
+        _LAST_DISCARD_ERROR[d] = (
+            "no creation identity was recorded -- refusing to remove a "
+            "directory this tool cannot prove it created")
+        return False
+    if not _same_object(d, _ident):
         _LAST_DISCARD_ERROR[d] = (
             "path no longer holds the directory bd-cut created there "
             "(renamed or replaced) -- refusing to remove a directory we did "
             "not make, and the original is unaccounted for")
-        return False
-    if os.path.islink(d):
-        _LAST_DISCARD_ERROR[d] = "is a symlink, not a directory we created"
         return False
     try:
         shutil.rmtree(d)
@@ -1012,17 +1081,17 @@ def _discard_tempdir(d):
         # UNSEAL ONLY AS A RETRY, AND PUT THE SEAL BACK IF IT STILL WILL NOT
         # GO (v3.66.1150). The first implementation chmod'd 0700
         # unconditionally, before even attempting the removal -- so a directory
-        # this function went on to REPORT AS LEAKED was left unsealed, with the
-        # snapshot readable inside it and no write protection on it. The leak
-        # it reported was also an unprotected leak. Touch the mode only when
-        # something actually blocked us, and restore it if we fail.
-        try:
-            was = stat.S_IMODE(os.stat(d).st_mode)
-        except OSError:
-            return False
-        try:
-            os.chmod(d, 0o700)
-        except OSError:
+        # this function went on to REPORT AS LEAKED was left unsealed.
+        #
+        # AND THE RETRY IS NO-FOLLOW AND RE-IDENTIFIED (v3.66.1152). It used
+        # os.stat + os.chmod, both of which FOLLOW, and both of which ran after
+        # the identity check above -- so anything that replaced `d` with a
+        # symlink inside that window had its target chmod'd instead. The window
+        # is real: rmtree failing is exactly when another party is touching the
+        # path. _relax_owned_dir re-proves identity through the descriptor it
+        # then chmods, so there is nothing between the check and the act.
+        _was = _relax_owned_dir(d, _ident)
+        if _was is None:
             _LAST_DISCARD_ERROR[d] = first
             return False
         try:
@@ -1030,13 +1099,16 @@ def _discard_tempdir(d):
         except FileNotFoundError:
             pass
         except OSError as second:
-            try:
-                os.chmod(d, was)          # leave it no less protected
-            except OSError:
-                pass
+            _reseal_owned_dir(d, _ident, _was)   # leave it no less protected
             _LAST_DISCARD_ERROR[d] = second
             return False
-    if os.path.exists(d):
+    # lexists, NOT exists (v3.66.1152): the question is whether a NAME is still
+    # here, and os.path.exists follows -- so a DANGLING symlink at this path
+    # answered "gone" about a target that was never there.
+    if os.path.lexists(d):
+        _LAST_DISCARD_ERROR[d] = (
+            "a name still exists at this path after removal (possibly a "
+            "dangling symlink)")
         return False
     if d in _TEMPDIRS:
         _TEMPDIRS.remove(d)
@@ -1708,51 +1780,76 @@ def _main_inner(argv, _cleanup):
     return 0
 
 
+def _reap(cleanup):
+    """Close every descriptor and remove every directory this run created.
+
+    Returns the list of failures, already reported on stderr. Split out of
+    main()'s finally at v3.66.1152 so the caller can ACT on the result -- the
+    finally could only print, and printing was all it did.
+    """
+    # CLOSE THE DESCRIPTORS FIRST (v3.66.1151). They are held so consumers bind
+    # to an inode rather than a name; held past the run they are a leak with a
+    # different word for it, and on the sealed snapshot they also keep the
+    # inode alive after its directory entry has gone.
+    for fd in list(_OPEN_FDS):
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        _OPEN_FDS.remove(fd)
+    # ONE REMOVAL PATH (v3.66.1150). This used to inline its own rmtree, which
+    # meant it did NOT unseal -- so once snapshot_archive began sealing its
+    # directory, every --resume-zip run ended by reporting its own snapshot as
+    # an unremovable leak. Note the band's BD_HOME carries the DEFAULT /tmp/tmp*
+    # prefix, so a `ls /tmp/bdcut_*` sweep cannot see it and "zero leaks" from
+    # that glob would be a gate blind to its own subject.
+    failed = []
+    for d in list(dict.fromkeys(cleanup + _TEMPDIRS)):
+        if not _discard_tempdir(d):
+            why = _LAST_DISCARD_ERROR.get(d)
+            failed.append(f"{d}: {why if why else 'still present'}")
+    if failed:
+        print("bd-cut: TEMPORARY DIRECTORIES NOT REMOVED:", file=sys.stderr)
+        for f in failed:
+            print(f"  {f}", file=sys.stderr)
+    return failed
+
+
 def main(argv=None):
-    """Wrapper whose only job is that the attested subject cannot leak.
+    """Wrapper whose only job is that the attested subject cannot leak -- and,
+    since v3.66.1152, that failing to remove it COSTS SOMETHING.
 
     CLAUDE.md section 0: creating a path is a promise to remove it, and nothing
-    gates that promise. The old --resume-zip left BOTH of its extracts behind --
-    band() returned its directory and the caller discarded it, and nothing
-    anywhere removed bdcut_verify_*. Cleanup lives here, outside every return,
-    die() and exception path inside the cut.
+    gates that promise. Three cuts made the breach of that promise loud; none
+    made it cost anything. main() returned whatever _main_inner returned while
+    its finally merely printed, so a run that leaked two directories exited 0 --
+    measured at dcf34528. An exit code is the only part of a tool's output a
+    caller cannot ignore by accident, and section 10 records that the last line
+    a tool prints is exercised by nobody.
+
+    A REAL FAILURE IS NEVER MASKED. If the cut itself failed -- die()'s exit 1,
+    a step-0 refusal's exit 3, or any exception -- that verdict is what the
+    caller gets. EXIT_CLEANUP_FAILED replaces only a SUCCESS, because "the cut
+    was not authorized" is more important than "and also a directory is still
+    there".
     """
     _cleanup = []
     try:
-        return _main_inner(argv, _cleanup)
-    finally:
-        # Every directory this tool created, not just the resume-zip subject:
-        # the band's extract and the BD_HOME it hands the band both live in
-        # _TEMPDIRS. Note the BD_HOME dirs carry the DEFAULT /tmp/tmp* prefix,
-        # so a `ls /tmp/bdcut_*` sweep cannot see them -- claiming "zero leaks"
-        # from that glob would be a gate that cannot see its subject.
-        # ONE REMOVAL PATH (v3.66.1150). This used to inline its own rmtree,
-        # which meant it did NOT unseal -- so once snapshot_archive started
-        # sealing its directory, every --resume-zip run ended by reporting its
-        # own snapshot as an unremovable leak. Two copies of "how to remove a
-        # directory we own" is one copy too many; _discard_tempdir is the
-        # single answer, and it also unregisters on success so the list this
-        # loop walks does not grow stale.
-        # CLOSE THE DESCRIPTORS FIRST (v3.66.1151). They are held so consumers
-        # bind to an inode rather than a name; held past the run they are a
-        # leak with a different word for it, and on the sealed snapshot they
-        # also keep the inode alive after its directory entry has gone.
-        for _fd in list(_OPEN_FDS):
-            try:
-                os.close(_fd)
-            except OSError:
-                pass
-            _OPEN_FDS.remove(_fd)
-        _failed = []
-        for _d in list(dict.fromkeys(_cleanup + _TEMPDIRS)):
-            if not _discard_tempdir(_d):
-                _why = _LAST_DISCARD_ERROR.get(_d)
-                _failed.append(f"{_d}: {_why if _why else 'still present'}")
-        if _failed:
-            # Honest reporting: a cleanup that did not happen is never silent.
-            print("bd-cut: TEMPORARY DIRECTORIES NOT REMOVED:", file=sys.stderr)
-            for _f in _failed:
-                print(f"  {_f}", file=sys.stderr)
+        rc = _main_inner(argv, _cleanup)
+    except BaseException:
+        # Still reap, still report -- but let the original propagate. die()
+        # raises SystemExit(1) through here, and replacing that with a cleanup
+        # code would hide the reason the cut stopped.
+        _reap(_cleanup)
+        raise
+    _failed = _reap(_cleanup)
+    if _failed and rc in (0, None):
+        print(f"bd-cut: exiting {EXIT_CLEANUP_FAILED} -- the cut finished but "
+              f"cleanup did not: {len(_failed)} temporary "
+              f"director{'y' if len(_failed) == 1 else 'ies'} could not be "
+              f"removed (listed above).", file=sys.stderr)
+        return EXIT_CLEANUP_FAILED
+    return rc
 
 
 if __name__ == "__main__":

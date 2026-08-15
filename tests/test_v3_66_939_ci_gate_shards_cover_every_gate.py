@@ -130,6 +130,13 @@ _DECLARED = {
     # and a pass_fds, the symlink escape is a chmod that follows a link, and
     # the failure mode of every one is silent rather than red.
     "tests/test_v3_66_1151_the_snapshot_is_bound_to_a_descriptor.py",
+    # @1152. Sixth "module" entry, and the one that makes the other five cost
+    # something: a cleanup failure now sets an exit code in bd-cut and a
+    # session exit status in _tmproot. Pinned into a shard because the failure
+    # it guards is a SILENT GREEN -- three cuts made cleanup report honestly
+    # and none made the report matter, so the regression to watch for is a
+    # future edit quietly restoring "print and return 0".
+    "tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py",
     "tests/test_v3_66_799_audit_tool_selftests.py",
     "tests/test_v3_66_653_dep_freshness.py",
     # @1035. The isolation shard. These three are repo-wide despite not

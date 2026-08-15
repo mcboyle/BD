@@ -270,6 +270,7 @@ jobs:
               tests/test_v3_66_1149_a_cut_never_deletes_the_operators_database.py
               tests/test_v3_66_1150_the_snapshot_is_really_sealed.py
               tests/test_v3_66_1151_the_snapshot_is_bound_to_a_descriptor.py
+              tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py
           - name: parity-graph
             suites: >-
               tests/test_gui_parity.py

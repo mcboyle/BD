@@ -4,6 +4,85 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1152 - a failed cleanup fails the run
+
+Three cuts made cleanup report honestly. None made the report cost anything.
+Measured at dcf34528 on test5. RED-first: 11 failed / 7 passed.
+
+1. bd-cut REPORTED AND RETURNED SUCCESS. main() handed back whatever
+   _main_inner returned while its finally merely printed, so a run that leaked
+   two directories exited 0 -- measured, with both the subject and the archive
+   snapshot named on stderr. An exit code is the only part of a tool's output
+   a caller cannot ignore by accident, and CLAUDE.md section 10 records that
+   the last line a tool prints is exercised by nobody. EXIT_CLEANUP_FAILED (4)
+   is its own code, distinct from die()'s 1 and a step-0 refusal's 3, and it
+   replaces ONLY a success: "this cut was not authorized" outranks "and also a
+   directory is still there".
+
+2. _tmproot.finish() DID THE SAME, one level up. It wrote to stderr and
+   returned False, and BOTH session-finish hooks -- this repo's conftest and
+   _tmproot's own -- discarded that value, while pytest computes its exit
+   status from test outcomes alone. So a leaked per-run root, which holds every
+   mkdtemp in the session and which nothing else will ever collect, left the
+   run GREEN. finish_session() now owns both the report and the exit status in
+   one place both hooks call, and it distinguishes a root KEPT deliberately
+   after a failing run from one that could not be removed -- conflating those
+   would add a false cleanup complaint to every red run.
+
+3. THE RECLAIMER STILL CHMOD'D AN EXTERNAL INODE, THROUGH A HARD LINK. The
+   v3.66.1151 guard skipped symlinks and relaxed everything else; a hard link
+   is not a symlink, shares the target's inode, and has no target to resolve,
+   so realpath returns the IN-TREE path and containment says yes. Reproduced:
+   an in-tree hard link to an outside file took it from 0644 to 0700, same
+   inode, file surviving. Only a DIRECTORY's mode can block the removal of its
+   entries, so relaxation is now restricted to directories -- which subsumes
+   the symlink case rather than enumerating exceptions.
+
+4. THREE OWNERSHIP HOLES IN _discard_tempdir:
+   * a creation-time lstat failure left no recorded identity, and the missing
+     entry PERMITTED deletion while the comment beside it said it would refuse;
+   * the retry re-stated and chmod'd through FOLLOWING calls after the identity
+     check, so a swap to a symlink in that window reached its target. It now
+     opens with O_NOFOLLOW|O_DIRECTORY and proves identity through the same
+     descriptor it then fchmods, leaving nothing between the check and the act;
+   * the final os.path.exists() FOLLOWS, so a dangling symlink at the path read
+     as absent and the helper reported success. lexists is the question
+     actually being asked: is there still a NAME here?
+
+   A directory we created and which has since vanished is asked about FIRST and
+   is still a success -- the identity questions are about a path that still has
+   something at it.
+
+AND FOUR PROOFS RE-STATED AS MEASUREMENTS:
+
+   * the imposter case now drives main(): production must refuse the imposter,
+     leave the real directory under its new name, name it, and exit nonzero.
+     The old test called the helper directly and deleted the renamed original
+     by hand, so it never showed what production does with the leak;
+   * the subprocess binding now runs verify -> run -> subprocess.run(pass_fds=)
+     against a real child that reports the bytes it read, with a control
+     proving the child CANNOT read the path when the descriptor is withheld.
+     The old test mocked verify();
+   * the fstat proof now requires that every fstat landing on the source inode
+     used the single descriptor that supplied the bytes. A non-empty
+     intersection is also satisfied by a second open of the same file;
+   * the partial-copy proof now observes the destination's size at the moment
+     of failure. Asserting only that it is gone afterwards is also true when
+     nothing was ever written.
+
+PR-BODY CORRECTION, and the gap behind it is closed here: the claim that
+`bd-footguns --selftest` was CI-wired through test_v3_66_799 was FALSE. That
+file's TOOLS list is exactly tools/bd-triage.py and tools/bd-audit-gate.py, and
+nothing in the suite ran bd-footguns' selftest. It now runs here, asserting the
+verdict line as well as the exit code, and that it leaks nothing.
+
+Verified: 31 of 31 mutants caught, 0 escaped, across eight bd-mutate batteries
+covering v3.66.1149 through this cut. The escape found here is worth recording:
+deleting the missing-identity branch still REFUSES, because _same_object(d,
+None) is False for any real directory -- only the REPORTED REASON changes, from
+"no identity recorded" to a specific and false "renamed or replaced". The test
+now asserts the words, not the outcome.
+
 ## v3.66.1151 - bound to a descriptor, not to a name
 
 Four escapes v3.66.1150 left open and two claims it asserted without proving.

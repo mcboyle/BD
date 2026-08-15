@@ -173,7 +173,12 @@ import _sys_modules_guard
 
 
 def pytest_sessionfinish(session, exitstatus):
-    _tmproot.finish(exitstatus)
+    # finish_session, not finish (v3.66.1152): this call site DISCARDED the
+    # return value, so a per-run temp root that could not be reclaimed left the
+    # run green. Every mkdtemp in the session lives under that root and nothing
+    # else collects it. The shared helper owns both the report and the exit
+    # status so the two hooks cannot drift.
+    _tmproot.finish_session(session, exitstatus)
 
 
 def pytest_configure(config):

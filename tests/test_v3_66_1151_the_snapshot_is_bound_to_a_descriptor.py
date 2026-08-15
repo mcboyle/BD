@@ -513,6 +513,7 @@ def test_finish_reports_its_own_failure_where_no_call_site_can_drop_it(tmp_path,
     (root / "f").write_text("x")
 
     saved_root, saved_tempdir = t._ROOT, tempfile.tempdir
+    saved_failure = getattr(t, "_LAST_FAILURE", None)
     real = shutil.rmtree
     try:
         t._ROOT = str(root)
@@ -522,6 +523,8 @@ def test_finish_reports_its_own_failure_where_no_call_site_can_drop_it(tmp_path,
     finally:
         shutil.rmtree = real
         t._ROOT, tempfile.tempdir = saved_root, saved_tempdir
+        if hasattr(t, "_LAST_FAILURE"):
+            t._LAST_FAILURE = saved_failure
     err = capsys.readouterr().err
     real(str(root), ignore_errors=True)
 
@@ -541,11 +544,14 @@ def test_finish_is_silent_on_the_happy_path(tmp_path, capsys):
     root = tmp_path / "root"
     root.mkdir()
     saved_root, saved_tempdir = t._ROOT, tempfile.tempdir
+    saved_failure = getattr(t, "_LAST_FAILURE", None)
     try:
         t._ROOT = str(root)
         assert t.finish(0) is True
     finally:
         t._ROOT, tempfile.tempdir = saved_root, saved_tempdir
+        if hasattr(t, "_LAST_FAILURE"):
+            t._LAST_FAILURE = saved_failure
     assert capsys.readouterr().err == ""
 
 
