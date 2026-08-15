@@ -43,6 +43,7 @@ import hashlib
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -905,6 +906,16 @@ def _owned_tempdir(prefix):
     return d
 
 
+# Why a map and not a return value: _discard_tempdir answers a yes/no question
+# and every caller branches on that, but the ERRNO is what tells an operator
+# whether they are looking at "Directory not empty" (a stray process still
+# writing) or "Permission denied" (a mode problem). v3.66.1150's first
+# implementation dropped it and main() printed a bare "not removed", which is
+# CLAUDE.md section 0's "say so" honoured in form only -- and that exact
+# distinction is what parked test4's service in the v3.66.1035 deploy failure.
+_LAST_DISCARD_ERROR = {}
+
+
 def _discard_tempdir(d):
     """Remove a directory we own and say HONESTLY whether it went.
 
@@ -919,13 +930,53 @@ def _discard_tempdir(d):
     unregistration destroys the only record that the directory ever existed.
     CLAUDE.md section 0's rule that a check which cannot verify must SAY SO,
     applied to teardown rather than to a gate.
+
+    v3.66.1150 fixes two things this function got wrong on its first outing.
+
+    UNSEAL FIRST. snapshot_archive seals its directory so nothing can unlink or
+    replace the snapshot at its pathname; removing it is the one legitimate
+    exception and it is ours to make. Without this, every --resume-zip run
+    ended by reporting its own snapshot as an unremovable leak.
+
+    A RAISED OSError IS NOT A SUCCESSFUL CLEANUP. This used to swallow it and
+    then consult os.path.exists(), so a removal that FAILED but happened to
+    leave nothing behind returned True and unregistered the directory. rmtree
+    is not atomic -- it can delete most of a tree and raise on one entry -- so
+    reading "gone" from a call that reported failure is a conclusion drawn from
+    a measurement that did not happen. Unknown is a third state and it fails.
     """
     try:
         shutil.rmtree(d)
     except FileNotFoundError:
-        pass
-    except OSError:
-        pass
+        pass                    # nothing to remove IS success
+    except OSError as first:
+        # UNSEAL ONLY AS A RETRY, AND PUT THE SEAL BACK IF IT STILL WILL NOT
+        # GO (v3.66.1150). The first implementation chmod'd 0700
+        # unconditionally, before even attempting the removal -- so a directory
+        # this function went on to REPORT AS LEAKED was left unsealed, with the
+        # snapshot readable inside it and no write protection on it. The leak
+        # it reported was also an unprotected leak. Touch the mode only when
+        # something actually blocked us, and restore it if we fail.
+        try:
+            was = stat.S_IMODE(os.stat(d).st_mode)
+        except OSError:
+            return False
+        try:
+            os.chmod(d, 0o700)
+        except OSError:
+            _LAST_DISCARD_ERROR[d] = first
+            return False
+        try:
+            shutil.rmtree(d)
+        except FileNotFoundError:
+            pass
+        except OSError as second:
+            try:
+                os.chmod(d, was)          # leave it no less protected
+            except OSError:
+                pass
+            _LAST_DISCARD_ERROR[d] = second
+            return False
     if os.path.exists(d):
         return False
     if d in _TEMPDIRS:
@@ -978,6 +1029,39 @@ def snapshot_archive(zippath):
         # Read-only: the snapshot is the one object the gate, the band and
         # verify agree on, so nothing -- including this tool -- may edit it.
         os.chmod(dst, 0o444)
+        # AND SEAL THE DIRECTORY (v3.66.1150). 0444 on the file was not the
+        # guarantee this code claimed. On POSIX the right to unlink or rename a
+        # NAME comes from the write bit on the directory that holds it, not
+        # from the mode of the file it points at -- so with the parent left
+        # 0700 anything running as this user could os.unlink the snapshot and
+        # os.replace a different archive at the same pathname. That is exactly
+        # the swap the snapshot exists to make impossible: 0444 prevents a
+        # rewrite THROUGH the path and says nothing about replacing the path.
+        #
+        # 0500 removes create/unlink/rename while keeping the directory
+        # readable and traversable, which the band, verify_release and the MAX
+        # summary all need. _discard_tempdir unseals (as a retry) before
+        # removing.
+        #
+        # WHAT THE SEAL DOES NOT DO, stated because the first version of this
+        # comment claimed otherwise. It does not bind the PATHNAME: this
+        # directory's own parent is still writable by the same uid, so the
+        # whole directory can be renamed away and a fresh one created at the
+        # same path holding an imposter. No mode bit can close that. The
+        # mechanism that does is `_snapshot_moved`, which re-hashes the
+        # snapshot against the identity recorded here before verify and again
+        # after the summary, and catches rename+recreate, unlink+replace and an
+        # in-place rewrite alike. The seal is defence in depth, not the proof.
+        #
+        # AND IT LEAVES RESIDUE AN ORDINARY SWEEP CANNOT CLEAR. If this process
+        # dies between here and main()'s finally -- SIGKILL, OOM, a hard reap --
+        # the directory survives at 0500 and `rm -rf /tmp/bdcut_*` fails on it.
+        # Recover with `chmod -R u+w <dir> && rm -rf <dir>`. This is a real
+        # cost and it is accepted deliberately: the in-suite half is handled by
+        # tests/_tmproot._force_rmtree, and a signal handler was NOT added,
+        # because CLAUDE.md section 6 records that a trap converts a reliable
+        # failure into a rare silent one and SIGKILL would defeat it anyway.
+        os.chmod(d, 0o500)
     except BaseException:
         if not _discard_tempdir(d):
             _report_undeleted(d)
@@ -1398,6 +1482,40 @@ def _main_inner(argv, _cleanup):
         # file, so a verdict about an artifact that has since changed describes
         # something they no longer hold. Asked twice, because the window did not
         # end at the band: verify and the summary take real time.
+        def _snapshot_moved(stage):
+            """Re-hash the OWNED snapshot against the identity recorded when it
+            was taken.
+
+            THE SEAL DOES NOT BIND THE PATHNAME, and v3.66.1150's first
+            implementation claimed it did. chmod(d, 0o500) removes write INSIDE
+            the directory, but that directory's own parent is still writable by
+            the same uid -- so the whole sealed directory can be renamed away
+            and a fresh one created at the same path holding an imposter, and
+            band/verify/max_summary all re-open the snapshot BY PATH. The
+            external-archive check cannot see it, because the external archive
+            never moved.
+
+            A mode bit cannot close that; content can. This detects rename +
+            recreate, unlink + replace, and an in-place rewrite alike, which is
+            the whole class. Compared on sha256 alone: `_archive_id` carries the
+            EXTERNAL file's mtime_ns, which the copy legitimately does not share.
+            """
+            try:
+                now = archive_identity(_snapshot)
+            except OSError as _e:
+                print(f"\nNO-CUT: the owned snapshot could not be re-read "
+                      f"({stage}: {_e}) -- this run can no longer vouch for "
+                      "what it judged.", file=sys.stderr)
+                return True
+            if now["sha256"] == _archive_id["sha256"]:
+                return False
+            print(f"\nNO-CUT: the owned snapshot at {_snapshot} was replaced "
+                  f"during this run ({stage}: sha "
+                  f"{_archive_id['sha256'][:12]} -> {now['sha256'][:12]}). The "
+                  "directory is sealed, but its parent is not, so the pathname "
+                  "can still be renamed away and recreated.", file=sys.stderr)
+            return True
+
         def _source_moved(stage):
             _now = archive_identity(a.resume_zip)
             if _now == _archive_id:
@@ -1409,11 +1527,12 @@ def _main_inner(argv, _cleanup):
                   "you would ship.", file=sys.stderr)
             return True
 
-        if _source_moved("after the band"):
+        if _snapshot_moved("after the band") or _source_moved("after the band"):
             return 3
         verify(a.work, _snapshot)
         max_summary(_snapshot, a.baseline)
-        if _source_moved("during verify/summary"):
+        if _snapshot_moved("during verify/summary") \
+                or _source_moved("during verify/summary"):
             return 3
         print(f"\n{G}bd-cut --resume complete{RST} -> {a.resume_zip}")
         print(f"{DIM}re-verified an existing zip; deploy is a separate human gate.{RST}")
@@ -1526,17 +1645,18 @@ def main(argv=None):
         # _TEMPDIRS. Note the BD_HOME dirs carry the DEFAULT /tmp/tmp* prefix,
         # so a `ls /tmp/bdcut_*` sweep cannot see them -- claiming "zero leaks"
         # from that glob would be a gate that cannot see its subject.
+        # ONE REMOVAL PATH (v3.66.1150). This used to inline its own rmtree,
+        # which meant it did NOT unseal -- so once snapshot_archive started
+        # sealing its directory, every --resume-zip run ended by reporting its
+        # own snapshot as an unremovable leak. Two copies of "how to remove a
+        # directory we own" is one copy too many; _discard_tempdir is the
+        # single answer, and it also unregisters on success so the list this
+        # loop walks does not grow stale.
         _failed = []
         for _d in list(dict.fromkeys(_cleanup + _TEMPDIRS)):
-            try:
-                shutil.rmtree(_d)
-            except FileNotFoundError:
-                pass
-            except OSError as _e:
-                _failed.append(f"{_d}: {_e}")
-            else:
-                if os.path.exists(_d):
-                    _failed.append(f"{_d}: still present after rmtree")
+            if not _discard_tempdir(_d):
+                _why = _LAST_DISCARD_ERROR.get(_d)
+                _failed.append(f"{_d}: {_why if _why else 'still present'}")
         if _failed:
             # Honest reporting: a cleanup that did not happen is never silent.
             print("bd-cut: TEMPORARY DIRECTORIES NOT REMOVED:", file=sys.stderr)

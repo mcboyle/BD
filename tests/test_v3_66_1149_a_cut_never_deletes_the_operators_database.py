@@ -113,6 +113,27 @@ def _tmp_snapshot():
             | set(t.glob("tmp*")))
 
 
+def _purge(m):
+    """Remove every directory the module still owns, sealed or not.
+
+    v3.66.1150. These teardowns used `shutil.rmtree(d, ignore_errors=True)`,
+    and once snapshot_archive began sealing its directory to 0500 that call
+    started FAILING SILENTLY -- which is the precise defect the flag exists to
+    create and the one this whole cut is about. Measured with
+    KEEP_TEST_TMPDIRS=1: two unremovable bdcut_archive_* per run of this file.
+    The chmod is what makes the removal possible; dropping ignore_errors is
+    what would have made the failure visible.
+    """
+    for d in list(getattr(m, "_TEMPDIRS", [])):
+        try:
+            os.chmod(d, 0o700)
+        except OSError:
+            pass
+        shutil.rmtree(d, ignore_errors=True)
+        if d in m._TEMPDIRS:
+            m._TEMPDIRS.remove(d)
+
+
 # =========================================================================
 # 1 | THE DEFAULT CUT MUST NOT DELETE A DATABASE
 # =========================================================================
@@ -575,8 +596,7 @@ def test_the_archive_is_snapshotted_into_an_owned_copy(tmp_path):
                    for d in m._TEMPDIRS), (
             "the snapshot is not inside a directory registered for cleanup")
     finally:
-        for d in list(m._TEMPDIRS):
-            shutil.rmtree(d, ignore_errors=True)
+        _purge(m)
 
 
 def test_the_snapshot_is_not_writable(tmp_path):
@@ -588,8 +608,7 @@ def test_the_snapshot_is_not_writable(tmp_path):
     try:
         assert not (os.stat(snap).st_mode & 0o222), oct(os.stat(snap).st_mode)
     finally:
-        for d in list(m._TEMPDIRS):
-            shutil.rmtree(d, ignore_errors=True)
+        _purge(m)
 
 
 def _drive_resume(m, monkeypatch, tmp_path, src, on_band=None, on_verify=None):
@@ -660,15 +679,25 @@ def test_a_swap_during_the_band_cannot_change_what_verify_consumes(tmp_path, mon
     assert rc == 3, f"a mid-run swap of the operator's archive was not refused (rc={rc})"
 
 
-def test_a_swap_during_verify_cannot_change_what_the_summary_reports(tmp_path, monkeypatch):
+def test_a_swap_during_verify_cannot_change_what_the_summary_reports(tmp_path, monkeypatch, capsys):
     """SWAP-DURING-VERIFY. The window between verify() and max_summary() was the
-    last unbound one: both re-opened the mutable external path."""
+    last unbound one: both re-opened the mutable external path.
+
+    THE REFUSAL IS ASSERTED HERE TOO (v3.66.1150). The first version of this
+    test checked only that the summary read the snapshot's bytes -- which the
+    snapshot guarantees STRUCTURALLY, so the assertion could not fail once the
+    snapshot existed. Deleting the post-summary _source_moved check left it
+    green. The bytes and the verdict are two different claims and both need
+    saying; and the reason is asserted, not just the code, because bd-cut
+    answers 3 for every step-0 refusal.
+    """
     m = _load_bdcut()
     src = _zip_with(tmp_path / "r.zip", "A")
     original = src.read_bytes()
 
     rc, seen = _drive_resume(m, monkeypatch, tmp_path, src,
                              on_verify=lambda: _zip_with(src, "B-DURING-VERIFY"))
+    err = capsys.readouterr().err
     assert "verify" in seen, "verify never ran, so this proves nothing"
     assert seen["verify_bytes"] == original, (
         "verify's own subject was replaced underneath it")
@@ -676,6 +705,13 @@ def test_a_swap_during_verify_cannot_change_what_the_summary_reports(tmp_path, m
     assert seen["summary_bytes"] == original, (
         "the MAX summary described the REPLACEMENT archive while the band and "
         "verify had judged the original")
+    assert rc == 3, (
+        f"the operator's archive changed during verify and the run returned "
+        f"{rc}. The verdict describes the snapshot; the file they ship is now "
+        "something else.")
+    assert "during verify/summary" in err, (
+        "the refusal does not name the window the archive moved in:\n"
+        + err[-500:])
 
 
 def test_an_aba_swap_with_identical_size_and_mtime_cannot_fool_the_run(tmp_path, monkeypatch):

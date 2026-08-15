@@ -236,6 +236,30 @@ def _load_bdcut():
     return mod
 
 
+def _reclaim(m):
+    """Remove every directory the module still owns, and unregister it.
+
+    v3.66.1150. Two tests in this file leaked, and the suite's own harness hid
+    it: `tests/_tmproot` points tempfile.tempdir at a per-run root and removes
+    that root when the run exits 0, so on a GREEN run the residue is deleted
+    before anything can observe it. Measured with KEEP_TEST_TMPDIRS=1, which
+    disables the redirection, this file alone left 3 directories behind.
+
+    A test that drives band() or extract_and_attest() DIRECTLY does not get
+    main()'s finally, which is the only thing that removes what _owned_tempdir
+    hands out -- so it owns that residue itself. The chmod is for the sealed
+    snapshot directory (0500); rmtree cannot enter it otherwise.
+    """
+    for d in list(getattr(m, "_TEMPDIRS", [])):
+        try:
+            os.chmod(d, 0o700)
+        except OSError:
+            pass
+        shutil.rmtree(d, ignore_errors=True)
+        if d in m._TEMPDIRS:
+            m._TEMPDIRS.remove(d)
+
+
 def test_an_exception_in_the_gate_blocks(monkeypatch, tmp_path):
     """The ONE case a stub cannot produce: the PARENT raising.
 
@@ -839,7 +863,10 @@ def test_the_real_band_extracts_exactly_once(tmp_path, monkeypatch):
         assert (pathlib.Path(subject) / "pkg" / "mod0.py").is_file()
         m.band(str(z), ["pkg/mod0.py"], str(tmp_path), extracted=subject)
     finally:
-        shutil.rmtree(subject, ignore_errors=True)
+        # band() allocates its own BD_HOME through _owned_tempdir, and nothing
+        # here runs main(), so this test owns BOTH directories -- removing only
+        # `subject` left the BD_HOME behind on every run (v3.66.1150).
+        _reclaim(m)
     assert calls["n"] == 1, (
         f"band re-extracted the archive: {calls['n']} extractall calls, want 1")
 
@@ -989,8 +1016,16 @@ def test_cleanup_failures_are_reported_not_swallowed(tmp_path, monkeypatch, caps
     monkeypatch.setattr(m, "max_summary", lambda *a, **k: None)
     monkeypatch.setattr(m.shutil, "rmtree",
                         lambda *a, **k: (_ for _ in ()).throw(OSError(13, "Permission denied")))
-    m.main(["--work", str(work), "--out", str(tmp_path / "o"), "--resume-zip", str(z)])
-    err = capsys.readouterr().err
+    try:
+        m.main(["--work", str(work), "--out", str(tmp_path / "o"), "--resume-zip", str(z)])
+        err = capsys.readouterr().err
+    finally:
+        # THIS TEST DELIBERATELY BREAKS CLEANUP, so it owns the residue that
+        # produces. Undo the patch FIRST -- _reclaim calls the real rmtree, and
+        # with the fake still installed it would leak exactly what it is here
+        # to collect (v3.66.1150).
+        monkeypatch.undo()
+        _reclaim(m)
     assert "TEMPORARY DIRECTORIES NOT REMOVED" in err, err[-600:]
 
 

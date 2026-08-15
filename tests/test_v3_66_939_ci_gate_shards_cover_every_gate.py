@@ -115,6 +115,14 @@ _DECLARED = {
     # subprocess -- so no band would necessarily run this, and the failure mode
     # is silent data loss on the box rather than a red test.
     "tests/test_v3_66_1149_a_cut_never_deletes_the_operators_database.py",
+    # @1150. Fourth "module" entry. Its subject is the integrity of the ONE
+    # archive object a --resume-zip cut judges, and the honesty of the two
+    # discard helpers. Pinned into a shard for the same reason as 1149: none of
+    # it is diff-derivable -- the seal is one chmod, the cleanup defect is an
+    # `except OSError: pass`, and the leak it closes is invisible to the default
+    # test harness, which erases residue on a green run. The failure mode is a
+    # silent swap or a silent leak, never a red test.
+    "tests/test_v3_66_1150_the_snapshot_is_really_sealed.py",
     "tests/test_v3_66_799_audit_tool_selftests.py",
     "tests/test_v3_66_653_dep_freshness.py",
     # @1035. The isolation shard. These three are repo-wide despite not

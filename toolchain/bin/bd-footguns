@@ -195,11 +195,31 @@ def _discard(d):
     `shutil.rmtree(d, ignore_errors=True)` made a failed removal
     indistinguishable from a successful one, which is the teardown form of
     CLAUDE.md section 0: a check that cannot verify must say so.
+
+    v3.66.1150: and so did catching OSError and then asking os.path.exists().
+    rmtree is not atomic -- it can delete most of a tree and still raise -- so
+    a call that REPORTED FAILURE was being overruled by a second, weaker
+    observation. FileNotFoundError stays a success (there was nothing to
+    remove); every other OSError is a refusal to claim the path is gone.
     """
     try:
         shutil.rmtree(d)
-    except (FileNotFoundError, OSError):
+    except FileNotFoundError:
+        # FALL THROUGH to the exists() check -- do NOT return True here.
+        # v3.66.1150 briefly did, and it was a regression: rmtree raises
+        # FileNotFoundError with the TOP DIRECTORY STILL PRESENT whenever an
+        # entry is unlinked concurrently (reproduced 40/40), which is live at
+        # both call sites -- they run with cwd and BD_HOME inside the sandbox,
+        # after a delegate that may have left grandchildren, and after a
+        # TimeoutExpired. Returning True there reported success for a
+        # directory still on disk with contents, and printed nothing, so the
+        # "hardened" helper was quieter about a real leak than the code it
+        # replaced. bd-cut's _discard_tempdir falls through; these must agree.
         pass
+    except OSError as e:
+        sys.stderr.write(
+            f"bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: {d} ({e})\n")
+        return False
     if os.path.exists(d):
         sys.stderr.write(f"bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: {d}\n")
         return False
@@ -402,7 +422,13 @@ def selftest():
     print(("PASS" if need <= ids else "FAIL") + f"  core footguns present ({len(need & ids)}/{len(need)})")
     ok = ok and need <= ids
     # POSITIVE control: a synthetic tree with an undeclared BD_ read violates env-tranche
-    d = tempfile.mkdtemp(); os.makedirs(os.path.join(d, "bulk_downloader"))
+    # OWNED AND REMOVED (v3.66.1150). This was a bare mkdtemp with no cleanup
+    # anywhere in the function -- one leaked directory per --selftest, on the
+    # DEFAULT tmp* prefix so no bdfg_* sweep could see it, in the tool this cut
+    # is hardening for exactly that class. `bd-footguns --selftest` is wired
+    # into test_v3_66_799_audit_tool_selftests.py, so it ran on every CI pass.
+    d = tempfile.mkdtemp(prefix="bdfg_selftest_")
+    os.makedirs(os.path.join(d, "bulk_downloader"))
     open(os.path.join(d, "bulk_downloader", "x.py"), "w").write('import os\nY=os.environ.get("BD_TOTALLY_FAKE_OPEN_VAR","")\n')
     fg = next(f for f in reg if f["id"] == "FG-ENV-TRANCHE-BD-LITERAL")
     v, _ = _check_one(fg, d)
@@ -413,6 +439,7 @@ def selftest():
     v2, _ = _check_one({"id": "T", "status": "retired", "detector": {"kind": "none"}}, d)
     print(("PASS" if v2 == "skip" else "FAIL") + "  inactive footgun skipped")
     ok = ok and v2 == "skip"
+    _discard(d)                 # the synthetic tree above is ours to remove
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
     return 0 if ok else 1
 

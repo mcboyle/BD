@@ -4,6 +4,147 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1150 - the seal that was only on the file
+
+Four defects v3.66.1149's own fixes left behind, plus four claims it made and
+never tested. Measured at 4f48fc95 on test5. RED-first: 6 failed / 12 passed
+against that tree.
+
+1. THE SNAPSHOT WAS NOT SEALED. snapshot_archive chmod'd the FILE to 0444 and
+   called it immutable. On POSIX the right to unlink or rename a NAME comes
+   from the write bit on the parent DIRECTORY, not from the mode of the file
+   it points at, and the parent was left 0700 -- so anything running as this
+   user could os.unlink the snapshot and os.replace a different archive at the
+   same pathname, which is the exact swap the snapshot exists to prevent. 0444
+   stops a rewrite THROUGH the path and says nothing about replacing the path.
+   The directory is now 0500 (readable and traversable, no create/unlink/
+   rename) and _discard_tempdir unseals before removing.
+
+2. BOTH DISCARD HELPERS TREATED A RAISED OSError AS POSSIBLE SUCCESS. They
+   caught it, fell through, and consulted os.path.exists(), so a removal that
+   FAILED but happened to leave nothing behind returned True and unregistered
+   the directory. shutil.rmtree is not atomic -- it can delete most of a tree
+   and raise on one entry -- so that is a conclusion drawn from a measurement
+   which reported failure. FileNotFoundError remains success; every other
+   OSError is now an immediate refusal to claim the path is gone.
+
+3. THE SWAP-DURING-VERIFY TEST ASSERTED THE WRONG HALF. It proved the summary
+   read the snapshot's bytes -- which the snapshot guarantees structurally, so
+   the assertion could not fail once the snapshot existed -- and never asserted
+   the run REFUSED. Deleting the post-summary check left it green. Both the
+   exit code and the distinctive words of the refusal are now asserted, for
+   both windows, so the two refusals are distinguishable from each other and
+   not merely from success.
+
+4. TWO TESTS IN 1145 LEAKED, AND THE HARNESS HID IT. tests/_tmproot points
+   tempfile.tempdir at a per-run root and removes that root when the run exits
+   0, so on a GREEN run the residue is deleted before anything can observe it.
+   Measured with KEEP_TEST_TMPDIRS=1, which disables the redirection: 1145
+   alone left 3 directories, 1149 alone 0, the combined suite the same 3. The
+   review named one leaker; the second was found by measuring -- it calls
+   band() directly, so main()'s finally, the only thing that removes the band's
+   BD_HOME, never runs. Both now reclaim what they allocate.
+
+   This is also why v3.66.1149's "zero leaks" line was worth nothing: it came
+   from `ls -d /tmp/bdcut_*` in a shell, and inside a pytest process that
+   family lives under /tmp/bd-testrun-<rand>. The instrument's denominator
+   structurally excluded its subject and it reported clean -- section 0, in the
+   verification rather than in the code.
+
+Also pinned, having been claimed in v3.66.1149 docstrings and tested by
+nothing: the short-read refusal, that the identity comes from os.fstat on the
+same descriptor the bytes were read through rather than os.stat on the path,
+that extraction consumes the snapshot rather than the external archive, and
+that a snapshot failing mid-copy removes its own directory.
+
+main()'s cleanup finally now routes through _discard_tempdir instead of an
+inline rmtree: two copies of "how to remove a directory we own" is one too
+many, and the inline copy did not unseal, so every --resume-zip run would have
+ended by reporting its own snapshot as an unremovable leak.
+
+The seal also exposed a latent defect in v3.66.1149's OWN test teardown, which
+used rmtree(ignore_errors=True) and began failing silently against a 0500
+directory -- two unremovable directories per run of that file. That flag is
+the defect this cut is about, found once more inside the fix for it.
+
+5. THE SEAL DEFEATED THE SUITE'S OWN TEMP RECLAMATION, and that was found by
+   measuring rather than by reasoning: 23 sealed directories had accumulated
+   under /tmp during this cut's development. `shutil.rmtree(root,
+   ignore_errors=True)` CANNOT remove a tree containing a read-only directory
+   -- unlinking a name needs the write bit on its parent, so it fails inside
+   that directory and the flag swallows the error -- and that call is exactly
+   what tests/_tmproot.finish() runs at session end. One 0500 snapshot
+   anywhere under the per-run root therefore left the ENTIRE root on disk,
+   silently: the 15392-entries-in-/tmp problem _tmproot exists to fix,
+   reintroduced from three files away by a hardening change. _tmproot now
+   reclaims through a handler that chmods and retries, and reports honestly
+   whether the path is gone. The non-zero-exit contract is unchanged --
+   artifacts still survive a failing run.
+
+FOUR MORE, FOUND BY ADVERSARIAL REVIEW OF THIS CUT'S OWN FIRST IMPLEMENTATION.
+Every one was in the FIX rather than in the subject, which is the shape
+CLAUDE.md section 0 warns is the highest-yield rule on the page:
+
+6. THE RECLAIMER CHMOD'D OUTSIDE ITS TREE, and this was the worst thing this
+   cut produced. _force_rmtree's retry handler chmod'd os.path.dirname(p)
+   unconditionally, and finish() calls it with /tmp/bd-testrun-<rand> -- so
+   when the failing entry was the ROOT ITSELF the handler reached for /tmp.
+   On a developer box that fails with EPERM and the bare `except OSError`
+   hides it; under CI or any container where the suite runs as root, the chmod
+   SUCCEEDS and takes /tmp from 1777 to 0700, silently, breaking every other
+   user on the machine. Confirmed by measurement: _force_rmtree('/proc/self')
+   attempted chmod('/proc', 0o700). It now refuses to touch any path not
+   strictly under the tree it was handed.
+
+7. A REGRESSION IN bd-footguns' _discard: this cut turned
+   `except FileNotFoundError: pass` into `... return True`, skipping the
+   os.path.exists() verification. shutil.rmtree raises FileNotFoundError with
+   the TOP DIRECTORY STILL PRESENT whenever an entry is unlinked concurrently
+   (reproduced 40/40), which is live at both call sites. So the "hardened"
+   helper returned success, and printed nothing, for a directory still on disk
+   with contents -- quieter about a real leak than the code it replaced, and
+   inconsistent with its own twin in bd-cut, which falls through correctly.
+
+8. A DIRECTORY REPORTED AS LEAKED WAS LEFT UNSEALED. _discard_tempdir chmod'd
+   0700 unconditionally, before even attempting removal, so a directory it
+   went on to report as NOT REMOVED had lost its protection too. Unsealing is
+   now a retry taken only when something actually blocked the removal, and the
+   original mode is restored if the retry also fails. main()'s report also
+   carries the errno again -- it had been reduced to a bare "not removed",
+   which loses exactly the Directory-not-empty vs Permission-denied
+   distinction that parked test4's service at v3.66.1035.
+
+9. THE SEAL DOES NOT BIND THE PATHNAME, and the comment claimed it did.
+   chmod(d, 0500) removes write INSIDE d, but d's own parent is still writable
+   by the same uid, so the sealed directory can be renamed away and recreated
+   with an imposter at the same path; band, verify and max_summary all re-open
+   by path, and the external-archive check cannot see it because the external
+   archive never moved. No mode bit closes that. `_snapshot_moved` now
+   re-hashes the OWNED snapshot against the identity recorded at snapshot
+   time, before verify and again after the summary, catching rename+recreate,
+   unlink+replace and in-place rewrite alike. The seal is defence in depth;
+   the hash is the proof.
+
+Also closed: bd-footguns' selftest() leaked one bare-prefix directory per
+invocation, with no cleanup anywhere in the function -- in the tool this cut is
+hardening for that exact class, on a prefix no bdfg_* sweep could see, and
+wired into CI through test_v3_66_799_audit_tool_selftests.
+
+KNOWN AND ACCEPTED, stated rather than hidden: if bd-cut dies between the seal
+and main()'s finally (SIGKILL, OOM, a hard reap), the snapshot directory
+survives at 0500 and `rm -rf /tmp/bdcut_*` fails on it. Recover with
+`chmod -R u+w <dir> && rm -rf <dir>`. The in-suite half is handled by
+_force_rmtree; no signal handler was added, because CLAUDE.md section 6 records
+that a trap converts a reliable failure into a rare silent one and SIGKILL
+defeats it anyway.
+
+Verified: 16 of 16 mutants caught, 0 escaped, across four bd-mutate batteries
+covering every fix above. One escaped on the first attempt and is worth
+recording: the reclaim test asserted that the new helper EXISTED and worked,
+which does not assert that finish() CALLS it -- a mutant restoring the old
+rmtree inside finish(), with the helper left correct and unused, kept the band
+green. bd-mutate caught it; review had not.
+
 ## v3.66.1149 - the cut that would have deleted the operators database
 
 Five findings, one sentence: a gate must not mutate its subject. All measured
