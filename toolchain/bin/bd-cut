@@ -849,6 +849,58 @@ def plan(work, version):
     return 0
 
 
+STEP0_TIMEOUT = 900
+STEP0_CHECKERS = ("bd-footguns", "bd-ratchet")
+# Named remedies, because a refusal without one gets overridden rather than fixed.
+STEP0_REMEDY = {
+    "bd-ratchet": "run `bd-ratchet --baseline` on this host "
+                  "(~/.bd_metrics_baseline.json is untracked and absent by default)",
+    "bd-footguns": "run `bd-footguns --check --tree <work>` and clear the violation",
+}
+
+
+def step0_gate(subject, checker_dir=None, timeout=STEP0_TIMEOUT):
+    """Run the step-0 checkers against `subject`. Return a list of refusals.
+
+    EMPTY LIST MEANS PROCEED, and only a measured exit 0 from every checker
+    produces one. Missing binary, exception, timeout, and every non-zero code
+    are refusals that name themselves -- all of them share the caller's exit 3,
+    so a test asserting the CODE alone would pass when any of them fires
+    (CLAUDE.md section 10: four mutants escaped exactly that way).
+    """
+    here = checker_dir or os.path.dirname(os.path.realpath(__file__))
+    out = []
+    for name in STEP0_CHECKERS:
+        exe = os.path.join(here, name)
+        hint = STEP0_REMEDY.get(name, "")
+        if not os.path.isfile(exe):
+            out.append(f"NO-CUT: step-0 checker {name} is MISSING from {here} "
+                       f"-- cannot verify, so this cut is not authorized.")
+            continue
+        try:
+            rc = subprocess.run([sys.executable, exe, "--check", "--tree", subject],
+                                timeout=timeout).returncode
+        except subprocess.TimeoutExpired:
+            out.append(f"NO-CUT: step-0 {name} TIMED OUT after {timeout}s "
+                       f"-- the gate did not complete, so it proved nothing.")
+            continue
+        except Exception as e:
+            out.append(f"NO-CUT: step-0 {name} RAISED {type(e).__name__}: {e} "
+                       f"-- the gate could not run.")
+            continue
+        if rc == 0:
+            continue
+        if rc == 2:
+            out.append(f"NO-CUT: step-0 {name} could not evaluate (exit 2) "
+                       f"-- UNKNOWN is not OK. {hint}")
+        elif rc in (1, 3):
+            out.append(f"NO-CUT: step-0 {name} reported a VIOLATION (exit {rc}). {hint}")
+        else:
+            out.append(f"NO-CUT: step-0 {name} exited {rc}, which is not a "
+                       f"recognised verdict -- refusing rather than guessing.")
+    return out
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--version")
@@ -899,7 +951,8 @@ def main(argv=None):
                     help="surface sub-tool stderr even when a step SUCCEEDS "
                          "(footgun #16: it used to be swallowed entirely)")
     ap.add_argument("--no-gate", action="store_true",
-                    help="skip the step-0 bd-precut --gate pre-flight (footguns/ratchet/stale-doc)")
+                    help="skip the step-0 release gate (bd-footguns + bd-ratchet). LOUD: prints a "
+              "banner to stderr and writes STEP0_SKIPPED.txt into --out")
     a = ap.parse_args(argv)
     # @807: REFUSE over a tree that is not there -- the same hole bd-band-derive
     # had. Both entered the lint's corpus-guard population when the R1 sec import
@@ -956,32 +1009,68 @@ def main(argv=None):
 
     os.makedirs(a.out, exist_ok=True)
 
-    # --- STEP 0 (Plan D): bd-precut --gate pre-flight. Blocks a cut on a live
-    #     footgun / metric-ratchet regression / stale derived doc BEFORE the
-    #     ~3-min build chain. FAIL-OPEN on any gate ERROR (a broken harness must
-    #     never block a legitimate cut); FAIL-CLOSED only on an actual violation
-    #     (exit 3). Opt out with --no-gate. Skipped on resume/no-build paths.
-    if not a.no_gate and not getattr(a, "resume_zip", None) and not getattr(a, "resume", False) and not getattr(a, "no_build", False):
-        # Only the two FAST, currently-unenforced blocking checks -- footgun
-        # registry + metric ratchet. (In-sync staleness is already caught by
-        # build_release, and bd-cut's own step-0 precut prediction covers the
-        # rest, so we don't double-run the slow in-sync suite here.)
-        _here = os.path.dirname(os.path.realpath(__file__))
-        _blocked = []
-        for _name, _args in (("bd-footguns", ["--check", "--tree", a.work]),
-                             ("bd-ratchet", ["--check", "--tree", a.work])):
-            _exe = os.path.join(_here, _name)
-            if not os.path.isfile(_exe):
-                continue
-            try:
-                _rc = subprocess.run([sys.executable, _exe, *_args], timeout=900).returncode
-            except Exception as _e:
-                print(f"  [step-0 {_name}: skipped -- {_e}]"); _rc = 0
-            if _rc == 3:
-                _blocked.append(_name)
-        if _blocked:
-            print(f"\nABORT: step-0 gate blocked this cut ({', '.join(_blocked)} above).")
-            print("       Fix it, or re-run with --no-gate to override deliberately.")
+    # --- STEP 0: the release gate. FAILS CLOSED as of v3.66.1145.
+    #
+    # It used to fail OPEN, and the measurement is the argument. Three
+    # independent harnesses, one clean-room, drove a stub checker through every
+    # outcome at 8cea48c:
+    #
+    #   outcome   0   1   2   3   4  127  crash  missing  exception  timeout
+    #   result   go  go  go  STOP go   go     go       go         go       go
+    #
+    # Only exit 3 blocked. `bdtools_sec.EXIT_CANNOT_EVALUATE = 2` is minted by
+    # bd-footguns and bd-ratchet precisely to REFUSE to certify blindness --
+    # bd-footguns' own comment reads "UNKNOWN IS A THIRD STATE AND IT FAILS
+    # (CLAUDE.md s0) ... Refuse instead of certifying" -- and step 0 converted
+    # that refusal into authorization. That was live, not theoretical:
+    # bd-ratchet --check exits 2 on every fleet host because its baseline is an
+    # untracked $HOME-relative file that does not exist.
+    #
+    # Now: ONLY exit 0 authorizes a cut. Every other outcome names itself and
+    # blocks. --no-gate still overrides, loudly, because an override you cannot
+    # prove happened is indistinguishable from a gate that ran.
+    _gate_subject = a.work
+    if getattr(a, "resume_zip", None) and os.path.exists(a.resume_zip):
+        # Bind the gate to what was actually EXTRACTED, never the work tree.
+        # Certifying one tree while banding another is CLAUDE.md section 0's
+        # core failure. (band() still makes its own extract from the same
+        # archive; unifying them is deferred -- band()'s signature is
+        # source-scraped by tests/test_pytest_runner_boundary.py, and the whole
+        # --resume-zip path may be dead: there is no zip anywhere in the tree
+        # and bd-release-attestation declares the release zip retired.)
+        import zipfile as _zipfile
+        _gate_subject = tempfile.mkdtemp(prefix="bdcut_step0_")
+        try:
+            with _zipfile.ZipFile(a.resume_zip) as _zf:
+                _zf.extractall(_gate_subject)
+        except Exception as _e:
+            print(f"\nNO-CUT: step-0 could not extract {a.resume_zip} "
+                  f"({type(_e).__name__}: {_e}) -- the gate has no subject.",
+                  file=sys.stderr)
+            return 3
+
+    if a.no_gate:
+        # LOUD. stderr, unmissable, and repeated in the summary.
+        _banner = ("!!! STEP-0 GATE SKIPPED BY OPERATOR (--no-gate) -- this cut "
+                   "was NOT verified by bd-footguns/bd-ratchet !!!")
+        print("\n" + "!" * len(_banner), file=sys.stderr)
+        print(_banner, file=sys.stderr)
+        print("!" * len(_banner) + "\n", file=sys.stderr)
+        try:
+            os.makedirs(a.out, exist_ok=True)
+            with open(os.path.join(a.out, "STEP0_SKIPPED.txt"), "w") as _fh:
+                _fh.write("--no-gate: step-0 was skipped by explicit operator "
+                          "override.\nsubject: %s\n" % _gate_subject)
+        except Exception:
+            pass          # the banner is the contract; the artifact is a bonus
+    else:
+        _refusals = step0_gate(_gate_subject)
+        if _refusals:
+            print()
+            for _r in _refusals:
+                print(_r, file=sys.stderr)
+            print("\n       Fix it, or re-run with --no-gate to override "
+                  "deliberately (it will say so, loudly).", file=sys.stderr)
             return 3
 
 

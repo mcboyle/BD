@@ -1,0 +1,395 @@
+"""bd-cut's step-0 release gate must fail CLOSED: only exit 0 authorizes a cut.
+
+WHY, MEASURED 2026-08-15 at 8cea48c by three independent harnesses, one of them
+from a clean-room checkout that never read the others:
+
+    checker outcome   0   1   2   3   4  127  crash  missing  exception  timeout
+    bd-cut result    go  go  go  STOP go   go     go       go         go       go
+
+Only exit 3 blocked. Everything else -- including "I could not evaluate" --
+authorized the cut. `toolchain/bin/bd-cut:959-985`:
+
+    :974-975   if not os.path.isfile(_exe): continue        # silent skip
+    :978-979   except Exception as _e: ...; _rc = 0         # TimeoutExpired too
+    :980       if _rc == 3:                                 # the ONLY block
+    :964       skipped entirely on --resume / --resume-zip / --no-build
+
+THE SHARPEST INSTANCE, and the reason this is a contract violation rather than a
+missing feature. `bdtools_sec.EXIT_CANNOT_EVALUATE = 2`. `bd-footguns` returns it
+when zero detectors reached a verdict, under its own comment: "UNKNOWN IS A THIRD
+STATE AND IT FAILS (CLAUDE.md s0) ... Refuse instead of certifying."
+`bd-ratchet` returns it at three sites. Step 0 converted that deliberate refusal
+into authorization -- the checker one level down refuses to certify blindness and
+the consumer certifies it anyway.
+
+AND IT WAS LIVE, NOT THEORETICAL: `bd-ratchet --check` exits 2 on every fleet
+host right now, because its baseline is `~/.bd_metrics_baseline.json` -- untracked,
+$HOME-relative, absent. Half of step 0 has been a measured no-op.
+
+NO TEST PINNED ANY OF THIS. Confirmed three independent ways over tracked files:
+nothing asserted the ABORT message, `_rc == 3`, `--no-gate`, or bd-cut's return
+under `--no-build`/`--resume`. The defect was invisible to every gate for its
+whole life, which is why this file exists rather than an edit to an existing one.
+
+WHY STUB EXECUTABLES AND NOT MONKEYPATCHING. The checker is located by SIBLING
+PATH of the resolved bd-cut (`os.path.join(dirname(realpath(__file__)), name)`),
+never PATH and never an env var -- so a PATH stub proves nothing while looking
+green, and monkeypatching `subprocess.run` would replace the very call under
+test, letting a mutant that drops the `timeout=` kwarg or the `isfile` guard
+escape. Copying bd-cut into a tmp bin/ beside stub checkers exercises the real
+seam end to end. The ONE exception is the generic-exception case: no stub can
+make the PARENT raise, so that case patches `subprocess.run` and says so.
+
+EVERY CASE ASSERTS ITS OWN WORDS. All six blocking causes share exit 3, so a
+test asserting the code alone passes when any of them fires -- CLAUDE.md section
+10 records four mutants escaping exactly that way in bd-jobs and bd-ab.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import pathlib
+import shutil
+import subprocess
+import sys
+import tempfile
+
+import pytest
+
+# Its subject is one tool's gate, not the tree.
+BD_GATE_SCOPE = "module"
+
+REPO = pathlib.Path(__file__).resolve().parent.parent
+BDCUT = REPO / "toolchain" / "bin" / "bd-cut"
+SEC = REPO / "toolchain" / "bin" / "bdtools_sec.py"
+
+# bd-cut proceeds past step 0 and dies later for an unrelated, deterministic
+# reason. That death is the PROCEEDED signal; exit 3 + our text is BLOCKED.
+_PROCEED_RC = 1
+
+STUB = """#!/usr/bin/env python3
+import json, os, sys, time
+mark = os.environ["BD_STEP0_MARKER"]
+with open(mark, "a") as fh:
+    fh.write(json.dumps({{"tool": os.path.basename(__file__), "argv": sys.argv[1:]}}) + "\\n")
+{body}
+"""
+
+
+def _bin_with(tmp: pathlib.Path, stubs: dict, timeout_override=None) -> pathlib.Path:
+    """A tmp bin/ holding a copy of bd-cut, its sec module, and chosen stubs.
+
+    `stubs` maps checker name -> python body. A name ABSENT from the mapping is
+    the "missing checker" case: the file is simply never written, so no tracked
+    file is deleted.
+    """
+    b = tmp / "bin"
+    b.mkdir(parents=True, exist_ok=True)
+    src = BDCUT.read_text(encoding="utf-8")
+    if timeout_override is not None:
+        # Applied-check per CLAUDE.md section 6: unique anchor, then length
+        # arithmetic. An injected clock is NOT usable here -- subprocess's
+        # timeout is enforced in C/select, not through a patchable `time`, so a
+        # fake clock raises nothing and the test would certify a branch it never
+        # entered.
+        # The bound now lives in the module constant, not at the call site.
+        anchor = "STEP0_TIMEOUT = 900"
+        assert src.count(anchor) == 1, f"timeout anchor count {src.count(anchor)}"
+        new = f"STEP0_TIMEOUT = {timeout_override}"
+        after = src.replace(anchor, new, 1)
+        assert after != src and len(after) == len(src) - len(anchor) + len(new)
+        src = after
+    (b / "bd-cut").write_text(src, encoding="utf-8")
+    (b / "bd-cut").chmod(0o755)
+    shutil.copy(SEC, b / "bdtools_sec.py")
+    for name, body in stubs.items():
+        p = b / name
+        p.write_text(STUB.format(body=body), encoding="utf-8")
+        p.chmod(0o755)
+    return b
+
+
+def _work(tmp: pathlib.Path) -> pathlib.Path:
+    """Minimal work tree: sec.require_corpus wants a .py; --resume reads
+    bulk_downloader/__init__.py."""
+    w = tmp / "work"
+    (w / "bulk_downloader").mkdir(parents=True, exist_ok=True)
+    (w / "bulk_downloader" / "__init__.py").write_text('__version__ = "3.66.0"\n')
+    (w / "anything.py").write_text("x = 1\n")
+    return w
+
+
+def _run(tmp: pathlib.Path, b: pathlib.Path, w: pathlib.Path, extra=()):
+    marker = tmp / "marker.jsonl"
+    env = {
+        "PATH": "/usr/bin:/bin",          # keep precut's shutil.which off the real tools
+        "HOME": str(tmp),
+        "BD_STEP0_MARKER": str(marker),
+        "BD_DISABLE_KEEPALIVE": "1",
+    }
+    r = subprocess.run(
+        [sys.executable, str(b / "bd-cut"), "--work", str(w),
+         "--out", str(tmp / "out"), "--skip-fe", *extra],
+        capture_output=True, text=True, timeout=300, env=env, cwd=str(tmp))
+    calls = []
+    if marker.exists():
+        calls = [json.loads(l) for l in marker.read_text().splitlines() if l.strip()]
+    return r, calls
+
+
+def _ran(calls, tool):
+    return any(c["tool"] == tool for c in calls)
+
+
+EXIT = {
+    0: "sys.exit(0)",
+    1: "sys.exit(1)",
+    2: "sys.exit(2)",
+    3: "sys.exit(3)",
+}
+HANG = "time.sleep(30)"
+
+
+# ------------------------------------------------------------- preconditions
+
+def test_the_harness_drives_the_real_seam():
+    """PRECONDITION. Without this every assertion below is vacuous.
+
+    Proves the stub we wrote is what step 0 actually invoked, with step 0's own
+    argv -- CLAUDE.md section 6: assert the shape before the verdict.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        b = _bin_with(tmp, {"bd-footguns": EXIT[0], "bd-ratchet": EXIT[0]})
+        r, calls = _run(tmp, b, _work(tmp))
+        assert _ran(calls, "bd-footguns"), (
+            f"step 0 never invoked our stub; the harness proves nothing.\n{r.stdout[-800:]}")
+        fg = [c for c in calls if c["tool"] == "bd-footguns"][0]
+        assert fg["argv"][:2] == ["--check", "--tree"], fg["argv"]
+
+
+# ------------------------------------------------------------- the RED matrix
+
+@pytest.mark.parametrize("code,needle", [
+    (1, "reported a VIOLATION"),
+    (2, "could not evaluate"),
+    (3, "reported a VIOLATION"),
+])
+def test_a_nonzero_checker_blocks_the_cut(code, needle):
+    """Only 0 authorizes. 1, 2 and 3 must each block, each naming its reason."""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        b = _bin_with(tmp, {"bd-footguns": EXIT[code], "bd-ratchet": EXIT[0]})
+        r, calls = _run(tmp, b, _work(tmp))
+        assert _ran(calls, "bd-footguns"), "fixture precondition: the stub ran"
+        out = r.stdout + r.stderr
+        assert r.returncode == 3, (
+            f"exit {code} did not block (rc={r.returncode})\n{out[-1200:]}")
+        assert "NO-CUT: step-0" in out, out[-800:]
+        assert needle in out, f"the refusal does not name its cause: {out[-800:]}"
+        assert "bd-footguns" in out
+
+
+def test_a_missing_checker_blocks_and_says_so():
+    """A gate whose INPUT is unavailable must FAIL, not SKIP -- a skip reads as
+    green. FOOTGUNS.json's FG-GATE-DEGRADES-TO-SKIP says exactly this, is
+    severity=blocking and status=active, and its detector.kind is "none", so
+    bd-footguns itself can never fire it."""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        b = _bin_with(tmp, {"bd-ratchet": EXIT[0]})     # bd-footguns never written
+        assert not (b / "bd-footguns").exists(), "fixture precondition"
+        r, calls = _run(tmp, b, _work(tmp))
+        assert not _ran(calls, "bd-footguns")
+        out = r.stdout + r.stderr
+        assert r.returncode == 3, f"a missing checker did not block\n{out[-1200:]}"
+        assert "is MISSING" in out and "bd-footguns" in out, out[-800:]
+
+
+def test_a_timeout_blocks_and_is_not_reported_as_a_pass():
+    """TimeoutExpired is an Exception, so it landed in the handler that set
+    _rc = 0. A bound that fires must never be indistinguishable from a clean
+    result."""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        b = _bin_with(tmp, {"bd-footguns": HANG, "bd-ratchet": EXIT[0]},
+                      timeout_override=2)
+        r, calls = _run(tmp, b, _work(tmp))
+        assert _ran(calls, "bd-footguns"), "fixture precondition: the child started"
+        out = r.stdout + r.stderr
+        assert r.returncode == 3, f"a timeout did not block\n{out[-1200:]}"
+        assert "TIMED OUT" in out and "bd-footguns" in out, out[-800:]
+
+
+def _load_bdcut():
+    """Load the real bd-cut as a module. Its __main__ guard runs nothing."""
+    import importlib.machinery, importlib.util
+    loader = importlib.machinery.SourceFileLoader("bd_cut_uut", str(BDCUT))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(BDCUT.parent))
+    try:
+        loader.exec_module(mod)
+    finally:
+        sys.path.pop(0)
+    return mod
+
+
+def test_an_exception_in_the_gate_blocks(monkeypatch, tmp_path):
+    """The ONE case a stub cannot produce: the PARENT raising.
+
+    No stub can make bd-cut's own subprocess call raise, and adding an env
+    backdoor to production code so a test can reach a branch would be a defect,
+    not a test. So this drives the REAL step0_gate() with subprocess.run
+    patched -- declared here rather than pretended, per CLAUDE.md section 6.
+    """
+    m = _load_bdcut()
+    calls = {"n": 0}
+
+    def boom(*a, **k):
+        calls["n"] += 1
+        raise OSError(12, "Cannot allocate memory")
+
+    monkeypatch.setattr(m.subprocess, "run", boom)
+    # Precondition: the checkers must EXIST, or we would be testing the missing
+    # branch instead of the exception branch.
+    here = str(BDCUT.parent)
+    for name in m.STEP0_CHECKERS:
+        assert os.path.isfile(os.path.join(here, name)), f"{name} absent"
+
+    refusals = m.step0_gate(str(tmp_path), checker_dir=here)
+    assert calls["n"] >= 1, "subprocess.run was never reached; vacuous"
+    assert refusals, "an exception produced no refusal"
+    assert any("RAISED" in r and "OSError" in r for r in refusals), refusals
+
+
+def test_a_timeout_is_distinguishable_from_every_other_refusal(monkeypatch, tmp_path):
+    """TimeoutExpired must not share wording with a violation or an exception."""
+    m = _load_bdcut()
+
+    def slow(*a, **k):
+        raise subprocess.TimeoutExpired(cmd="x", timeout=k.get("timeout", 900))
+
+    monkeypatch.setattr(m.subprocess, "run", slow)
+    refusals = m.step0_gate(str(tmp_path), checker_dir=str(BDCUT.parent))
+    assert refusals and all("TIMED OUT" in r for r in refusals), refusals
+    assert not any("RAISED" in r for r in refusals), refusals
+
+
+def test_only_exit_zero_authorizes(monkeypatch, tmp_path):
+    """The whole contract, at the helper, across every code in one place."""
+    m = _load_bdcut()
+
+    class R:
+        def __init__(self, rc): self.returncode = rc
+
+    for rc in (0, 1, 2, 3, 4, 127, -9):
+        monkeypatch.setattr(m.subprocess, "run", lambda *a, rc=rc, **k: R(rc))
+        refusals = m.step0_gate(str(tmp_path), checker_dir=str(BDCUT.parent))
+        if rc == 0:
+            assert refusals == [], f"exit 0 was refused: {refusals}"
+        else:
+            assert refusals, f"exit {rc} authorized the cut"
+            assert all(r.startswith("NO-CUT: step-0") for r in refusals), refusals
+
+
+def test_an_unrecognised_code_refuses_rather_than_guessing(monkeypatch, tmp_path):
+    m = _load_bdcut()
+
+    class R:
+        returncode = 42
+
+    monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: R())
+    refusals = m.step0_gate(str(tmp_path), checker_dir=str(BDCUT.parent))
+    assert any("not a recognised verdict" in r for r in refusals), refusals
+
+
+def test_the_ratchet_refusal_names_its_remedy(monkeypatch, tmp_path):
+    """bd-ratchet exits 2 on every fleet host today (no baseline). Blocking
+    without naming the fix is how a gate gets switched off."""
+    m = _load_bdcut()
+
+    class R:
+        returncode = 2
+
+    monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: R())
+    refusals = m.step0_gate(str(tmp_path), checker_dir=str(BDCUT.parent))
+    ratchet = [r for r in refusals if "bd-ratchet" in r]
+    assert ratchet, refusals
+    assert "bd-ratchet --baseline" in ratchet[0], ratchet[0]
+
+
+# ------------------------------------------------- every entry path is gated
+
+@pytest.mark.parametrize("flag", ["--resume", "--no-build"])
+def test_the_gate_runs_on_resume_and_no_build(flag):
+    """Both continue to a real build, so neither is a defensible exemption.
+
+    Measured before the fix: the checker was never invoked on these paths --
+    stub_ran was False in every cell, so even an exit-3 checker proceeded.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        b = _bin_with(tmp, {"bd-footguns": EXIT[3], "bd-ratchet": EXIT[0]})
+        r, calls = _run(tmp, b, _work(tmp), extra=(flag,))
+        out = r.stdout + r.stderr
+        assert _ran(calls, "bd-footguns"), (
+            f"{flag} skipped the gate entirely; the checker never ran\n{out[-800:]}")
+        assert r.returncode == 3, f"{flag} did not block on a violation\n{out[-1200:]}"
+
+
+# ------------------------------------------------------ over-sensitivity
+
+def test_a_clean_checker_still_proceeds():
+    """THE CONTROL THAT MATTERS. A gate that blocks everything passes every
+    assertion above and is useless -- CLAUDE.md section 0 counts an
+    over-sensitive gate as a soundness bug equal to a false clean."""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        b = _bin_with(tmp, {"bd-footguns": EXIT[0], "bd-ratchet": EXIT[0]})
+        r, calls = _run(tmp, b, _work(tmp))
+        out = r.stdout + r.stderr
+        assert _ran(calls, "bd-footguns") and _ran(calls, "bd-ratchet")
+        assert r.returncode != 3, f"a clean gate blocked the cut\n{out[-1200:]}"
+        assert "NO-CUT: step-0" not in out
+
+
+def test_no_gate_still_overrides_and_is_LOUD():
+    """The override must survive, and must be impossible to miss afterwards.
+
+    An override you cannot later prove happened is indistinguishable from a gate
+    that ran. Before this cut --no-gate printed NOTHING: measured over
+    comment-stripped source, the token appeared in exactly three code sites and
+    none was an announcement.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        b = _bin_with(tmp, {"bd-footguns": EXIT[3], "bd-ratchet": EXIT[0]})
+        r, calls = _run(tmp, b, _work(tmp), extra=("--no-gate",))
+        out = r.stdout + r.stderr
+        assert not _ran(calls, "bd-footguns"), "--no-gate still ran the gate"
+        assert r.returncode != 3, "--no-gate failed to override a violation"
+        assert "STEP-0 GATE SKIPPED BY OPERATOR" in r.stderr, (
+            f"--no-gate is not loud on stderr:\n{r.stderr[-800:]}")
+
+
+def test_the_help_text_no_longer_names_a_tool_the_gate_does_not_run():
+    """--help said "skip the step-0 bd-precut --gate pre-flight
+    (footguns/ratchet/stale-doc)". The gate invokes bd-footguns and bd-ratchet
+    directly, and there is no stale-doc check. A false help string is how an
+    operator learns the wrong model of the gate they are overriding."""
+    src = BDCUT.read_text(encoding="utf-8")
+    import ast
+    tree = ast.parse(src)
+    helps = [n.value for n in ast.walk(tree)
+             if isinstance(n, ast.keyword) and n.arg == "help"
+             and isinstance(n.value, ast.Constant)]
+    texts = [h.value for h in helps if isinstance(h.value, str)]
+    nogate = [t for t in texts if "no-gate" in t or "step-0" in t]
+    assert nogate, "no --no-gate help text found at all"
+    joined = " ".join(nogate)
+    assert "bd-precut" not in joined, (
+        f"--help still names bd-precut, which step 0 does not invoke: {joined!r}")
+    assert "stale-doc" not in joined, (
+        f"--help still claims a stale-doc check that does not exist: {joined!r}")

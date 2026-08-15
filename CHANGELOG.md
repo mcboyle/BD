@@ -4,6 +4,71 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1145 - the gate that turned a refusal into authorization
+
+CUT 1. bd-cut's step-0 release gate failed OPEN. Three independent harnesses --
+one a clean-room checkout that never read the others -- drove a stub checker
+through every outcome at 8cea48c:
+
+    outcome   0   1   2   3   4  127  crash  missing  exception  timeout
+    result   go  go  go  STOP go   go     go       go         go       go
+
+Only exit 3 blocked. `toolchain/bin/bd-cut:959-985`: a missing checker hit a
+bare `continue` with no message; any Exception including TimeoutExpired was
+coerced to `_rc = 0`; only `_rc == 3` blocked; and the whole gate was skipped on
+--resume, --resume-zip and --no-build.
+
+THE SHARPEST INSTANCE. `bdtools_sec.EXIT_CANNOT_EVALUATE = 2` is minted by
+bd-footguns when zero detectors reached a verdict, under its own comment
+"UNKNOWN IS A THIRD STATE AND IT FAILS (CLAUDE.md s0) ... Refuse instead of
+certifying", and by bd-ratchet at three sites. Step 0 converted that deliberate
+refusal into authorization: the checker one level down refuses to certify
+blindness and the consumer certifies it anyway.
+
+AND IT WAS LIVE. `bd-ratchet --check` exits 2 on every fleet host because its
+baseline is ~/.bd_metrics_baseline.json -- untracked, $HOME-relative, absent.
+Half of step 0 has been a measured no-op, silently.
+
+NOTHING PINNED IT. Confirmed three independent ways over tracked files: no test
+asserted the ABORT message, `_rc == 3`, --no-gate, or bd-cut's return under
+--no-build/--resume. The defect was invisible to every gate for its whole life,
+which is why this cut adds a file rather than editing one.
+
+NOW: only a measured exit 0 authorizes a cut. Missing checker, exception,
+timeout, and every non-zero code block, each naming ITSELF -- all six causes
+share exit 3, so a test asserting the code alone would pass when any of them
+fires (section 10: four mutants escaped exactly that way).
+
+REFUSALS NAME THEIR REMEDY. Blocking without one is how a gate gets switched
+off. bd-ratchet's exit 2 names `bd-ratchet --baseline`, which is the actual fix
+for the live fleet condition above.
+
+--no-gate SURVIVES AND IS LOUD: a banner to stderr and a STEP0_SKIPPED.txt in
+--out. An override you cannot later prove happened is indistinguishable from a
+gate that ran.
+
+--resume AND --no-build ARE NO LONGER EXEMPT. Both continue to a real build, so
+neither was a defensible exemption. --resume-zip is gated against the EXTRACT,
+not the work tree: certifying one tree while banding another is section 0's core
+failure.
+
+FALSE OPERATOR TEXT CORRECTED. --help said "skip the step-0 bd-precut --gate
+pre-flight (footguns/ratchet/stale-doc)". Step 0 invokes bd-footguns and
+bd-ratchet directly and there is no stale-doc check. A false help string is how
+an operator learns the wrong model of the gate they are overriding.
+
+RED-first, both directions on the same tree: 14 failed against pristine bd-cut,
+16 pass with the fix. The two that pass on pristine are the harness precondition
+(proving the stub is what step 0 actually invokes) and the over-sensitivity
+control (a clean checker must still proceed) -- a gate that blocks everything
+passes every other assertion and is useless.
+
+DEFERRED, DELIBERATELY: --resume-zip may be a DEAD path. There is no zip
+anywhere in the tree, no out/, STATE.json is untracked, and both
+bd-release-attestation and bd-evidence-pack declare the release zip retired per
+section 7. band() still makes its own extract from the same archive; unifying
+the two is a separate concern. Deleting the path is a later cut, not this one.
+
 ## v3.66.1144 - six ways bd-fleet-run still reported success over nothing
 
 Second review pass on PR #428. Every item was a way to report `ok` for
