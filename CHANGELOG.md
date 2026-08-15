@@ -4,6 +4,67 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1149 - the cut that would have deleted the operators database
+
+Five findings, one sentence: a gate must not mutate its subject. All measured
+on test5 at 8c94159, where the deployed tree and the working tree are the same
+directory.
+
+1. `bd-cut --rm-runtime-db` defaulted to **True**. RUNTIME_DB_GLOBS names
+   downloader_history.db plus its -wal/-shm/-journal companions;
+   `check_runtime_db()` does an unconditional `os.remove` on every hit. The
+   service's DB_PATH is relative and the unit's WorkingDirectory is the
+   checkout, so that glob resolves to the LIVE database -- an ordinary cut
+   would have deleted production state by default, with no backup, no prompt,
+   and a clean `git status` because the file is gitignored. The function's own
+   docstring read "Non-destructive by default" while the parser said the
+   opposite. Both lines arrived together at this repository's initial import
+   (v3.66.805) so git cannot date the divergence; the comment beside the option
+   attributes the flip to v3.66.702, which predates version control here.
+   Deleting is now an explicit opt-in that names every
+   file it destroys on stderr before destroying it; the default dies with the
+   exact rm. Regression drives main() through real argparse and compares
+   sha256 of all five globs -- a unit test on check_runtime_db(auto_rm=False)
+   passes on the defective tree and proves nothing.
+
+2. bd-footguns did not sandbox the delegates it launches. `_run_tool` inherited
+   the caller's cwd and environment; `_run_insync` ran run_tests.py with
+   cwd=<the subject tree> and BD_INSTALL_DIR unset, so db._resolve_db_path fell
+   through to a relative path resolved against cwd and could write
+   downloader_history.db INTO the tree being judged. This is step 0's own
+   printed remedy, run by hand from the checkout at the moment something is
+   already wrong. Both seams now run against an owned BD_INSTALL_DIR + BD_HOME,
+   with the subject resolved absolute. Measured after: 8 detectors reach a
+   verdict, exit 0, verdicts byte-identical to before, sentinel databases in
+   both the caller cwd and the subject tree unchanged, zero sandbox leaks.
+
+3. `step0_gate` chdirs into its sandbox and passed the subject through
+   unchanged, so `bd-cut --work .` certified the sandbox instead of the tree --
+   a gate reporting clean over a denominator that excludes its subject. The
+   subject is now resolved and validated before any checker launches, and a
+   subject that is not a directory is a refusal rather than a silent
+   substitution. `--work` is also normalised at the parse boundary.
+
+4. `--resume-zip` re-opened the mutable external archive five times and
+   identity-checked only the first, which binds nothing about the later opens.
+   The run now takes one OWNED, READ-ONLY snapshot from a single opened source
+   (identity from os.fstat on that same descriptor, short reads refused), and
+   extraction, the stale-zip hash, the band, verify and the MAX summary all
+   consume it. Swap-during-band, swap-during-verify and an ABA swap that
+   preserves size and mtime are covered. The external archive is still checked
+   for movement, because the operator ships that file.
+
+5. Three cleanup paths used rmtree(ignore_errors=True) and then forgot the
+   path; extract_and_attest unregistered the directory from _TEMPDIRS before
+   knowing the removal had worked, so a failed cleanup became an unreportable
+   leak. Both tools now have one discard helper that returns whether the path
+   is actually gone, leaves failures registered so the owner can report them,
+   and preserves the original exception.
+
+Also: the v3.66.1148 swap test could no longer overwrite the archive the band
+was handed, because that object is now read-only. It was updated to swap the
+external file, which is what it always meant.
+
 ## v3.66.1148 - subject integrity, every leak, and the DB that was never residue
 
 Fourth and final review pass on PR #429.

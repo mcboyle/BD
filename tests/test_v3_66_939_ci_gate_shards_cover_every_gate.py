@@ -85,8 +85,12 @@ _DECLARED = {
     "tests/test_gui_parity.py",
     "tests/test_pk_mirrors_stay_retired.py",
     "tests/test_toolchain_534.py",
-    # @1143. The ONLY entry here that is BD_GATE_SCOPE = "module", and that is
-    # deliberate. Its subject is one tool, so calling it "repo-wide" would be
+    # @1143. The FIRST of the BD_GATE_SCOPE = "module" entries here, and each is
+    # deliberate. (This comment read "the ONLY entry" while the entry directly
+    # below it was a second one -- stale within five releases of being written,
+    # in the file whose whole subject is a hand-pinned set going stale. Count
+    # the entries carrying this reason rather than trusting a word here.)
+    # Its subject is one tool, so calling it "repo-wide" would be
     # the mislabelling this file's own docstring says nothing catches. It is
     # pinned into a shard anyway because the property it guards is a SAFETY
     # BOUNDARY that must run on every PR regardless of what the diff touched:
@@ -102,6 +106,15 @@ _DECLARED = {
     # v3.66.1145 the gate failed open and no test anywhere pinned it; the 12/12
     # GitHub result on that PR did not execute this contract at all.
     "tests/test_v3_66_1145_step0_fails_closed.py",
+    # @1149. Third "module" entry, same reasoning one step further out. Its
+    # subject is what the two release-gating tools DO TO THE TREE: bd-cut's
+    # --rm-runtime-db defaulted to deleting downloader_history.db and its WAL,
+    # which on test5 is the live service database, and bd-footguns wrote into
+    # the tree it was judging. Neither is diff-derivable -- the destructive
+    # default is one argparse keyword and the write happens in a delegate
+    # subprocess -- so no band would necessarily run this, and the failure mode
+    # is silent data loss on the box rather than a red test.
+    "tests/test_v3_66_1149_a_cut_never_deletes_the_operators_database.py",
     "tests/test_v3_66_799_audit_tool_selftests.py",
     "tests/test_v3_66_653_dep_freshness.py",
     # @1035. The isolation shard. These three are repo-wide despite not

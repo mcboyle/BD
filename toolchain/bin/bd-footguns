@@ -160,21 +160,76 @@ def _load_registry(tree):
     return list(reg.values())
 
 
+def _sandbox():
+    """An owned directory that is cwd, BD_INSTALL_DIR and BD_HOME for ONE
+    delegate. Returns (path, env).
+
+    MEASURED at v3.66.1147 and v3.66.1149: `bd-footguns --check` wrote a 7.5MB
+    downloader_history.db into the CALLER'S cwd, and _run_insync ran
+    run_tests.py with cwd=<the subject tree> and BD_INSTALL_DIR unset, so the
+    same file landed INSIDE the tree being judged. db._resolve_db_path prefers
+    BD_INSTALL_DIR and otherwise resolves a relative DB_PATH against the current
+    working directory, so BOTH variables must be set -- setting one still lets a
+    delegate write somewhere we do not own.
+
+    This is not a hypothetical path. `bd-footguns --check --tree <work>` is the
+    remedy bd-cut's step 0 PRINTS when it blocks a cut, so the operator runs it
+    by hand, from the checkout, at exactly the moment something is already
+    wrong. bd-cut sandboxes the checker it launches; that did nothing about the
+    delegates the checker launches, which is where the writes came from.
+
+    (CLAUDE.md section 5 warns against exporting BD_INSTALL_DIR into a pytest
+    run, because every test then shares one database. That warning is about
+    capture.sh over the whole suite; here the alternative is not isolation, it
+    is writing into the subject tree, and an owned per-delegate directory is
+    strictly better than both.)
+    """
+    d = tempfile.mkdtemp(prefix="bdfg_sbx_")
+    return d, dict(os.environ, BD_INSTALL_DIR=d, BD_HOME=d,
+                   BD_DISABLE_KEEPALIVE="1")
+
+
+def _discard(d):
+    """True only if the directory is gone, and NEVER silent when it is not.
+
+    `shutil.rmtree(d, ignore_errors=True)` made a failed removal
+    indistinguishable from a successful one, which is the teardown form of
+    CLAUDE.md section 0: a check that cannot verify must say so.
+    """
+    try:
+        shutil.rmtree(d)
+    except (FileNotFoundError, OSError):
+        pass
+    if os.path.exists(d):
+        sys.stderr.write(f"bd-footguns: TEMPORARY DIRECTORY NOT REMOVED: {d}\n")
+        return False
+    return True
+
+
 def _run_tool(cmd, tree):
+    # ABSOLUTE SUBJECT. The delegate now runs with cwd inside a sandbox, so a
+    # relative {tree} would resolve against that sandbox -- the same defect
+    # bd-cut's step0_gate carried for its own --tree argument.
+    tree = os.path.realpath(tree)
     cmd = [c.replace("{tree}", tree) for c in cmd]
     exe = cmd[0]
     if not os.path.isabs(exe):
         local = os.path.join(os.path.dirname(os.path.realpath(__file__)), exe)
         if os.path.isfile(local):
             cmd = [sys.executable, local] + cmd[1:]
+    sbx, env = _sandbox()
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=150)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=150,
+                           cwd=sbx, env=env)
         return r.returncode, (r.stdout + r.stderr)
     except Exception as e:
         return None, str(e)
+    finally:
+        _discard(sbx)
 
 
 def _run_insync(test, tree):
+    tree = os.path.realpath(tree)
     rt = os.path.join(tree, "run_tests.py")
     tf = os.path.join(tree, test)
     if not (os.path.isfile(rt) and os.path.isfile(tf)):
@@ -188,9 +243,16 @@ def _run_insync(test, tree):
     # in-sync detector, never removed -- six detectors, six leaked directories
     # per --check, on the DEFAULT /tmp/tmp* prefix so no bd-* sweep could see
     # them. CLAUDE.md section 0: creating a path is a promise to remove it.
-    _bdhome = tempfile.mkdtemp(prefix="bdfg_bdhome_")
-    env = dict(os.environ, BD_HOME=_bdhome, BD_DISABLE_KEEPALIVE="1",
-               PYTHONPATH=tree)
+    #
+    # AND BD_INSTALL_DIR, since v3.66.1149. cwd MUST stay the tree -- that is
+    # what puts it on sys.path and it is why run_tests.py is invoked by bare
+    # name -- so cwd cannot be the sandbox here the way it is in _run_tool.
+    # With BD_HOME set and BD_INSTALL_DIR unset, db._resolve_db_path fell all
+    # the way through to a relative path resolved against cwd, and wrote
+    # downloader_history.db INTO THE SUBJECT TREE. A detector must not modify
+    # the thing it is judging.
+    _sbx, env = _sandbox()
+    env["PYTHONPATH"] = tree
     try:
         r = subprocess.run([sys.executable, "run_tests.py", test], cwd=tree, env=env,
                            capture_output=True, text=True, timeout=180)
@@ -201,7 +263,7 @@ def _run_insync(test, tree):
     except Exception as e:
         return None, str(e)
     finally:
-        shutil.rmtree(_bdhome, ignore_errors=True)
+        _discard(_sbx)
 
 
 def _check_one(fg, tree):
@@ -364,6 +426,11 @@ def main():
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
+    # ABSOLUTE ONCE, HERE, so every consumer below -- the registry loader, the
+    # grep detector, and both delegate runners -- means the same directory. The
+    # delegates now run with cwd inside a sandbox, so a relative --tree that was
+    # resolved lazily would resolve against the sandbox instead (v3.66.1149).
+    a.tree = os.path.realpath(os.path.expanduser(a.tree))
     if a.selftest:
         return selftest()
     if a.explain:

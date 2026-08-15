@@ -875,9 +875,25 @@ def test_a_swapped_archive_is_caught_before_verify(tmp_path, monkeypatch):
 
     monkeypatch.setattr(m, "step0_gate", lambda subject, **k: [])
 
+    handed = {}
+
     def swap(zp, su, wk, extracted=None):
         import zipfile
-        with zipfile.ZipFile(zp, "w") as zf:      # replace the archive mid-run
+        handed["zp"] = zp
+        # Asserted HERE, not after main() returns: the snapshot is removed by
+        # main()'s finally, so the only moment it can be inspected is while the
+        # band holds it.
+        handed["writable"] = bool(os.stat(zp).st_mode & 0o222)
+        # SWAP THE OPERATOR'S ARCHIVE -- the external path, `z`.
+        #
+        # This used to write to `zp`, the path the band was handed, because
+        # before v3.66.1149 they were the same file. They are not any more: the
+        # band now receives an OWNED, READ-ONLY snapshot, and this line raised
+        # PermissionError when the two came apart. That failure was the fix
+        # working -- the test could no longer reach the object it was trying to
+        # corrupt. The intent (band judged A, verify must not report on B) is
+        # unchanged and is what the assertions below still measure.
+        with zipfile.ZipFile(z, "w") as zf:
             zf.writestr("different.py", "x = 2\n")
 
     monkeypatch.setattr(m, "band", swap)
@@ -889,6 +905,11 @@ def test_a_swapped_archive_is_caught_before_verify(tmp_path, monkeypatch):
                  "--resume-zip", str(z)])
     assert rc == 3, f"a swapped archive was not caught (rc={rc})"
     assert not called["verify"], "verify ran against the replacement archive"
+    # The band was never handed the mutable external path in the first place.
+    assert os.path.realpath(handed["zp"]) != os.path.realpath(str(z))
+    assert handed["writable"] is False, (
+        "the band's archive is writable -- the snapshot is not immutable")
+    assert not os.path.exists(handed["zp"]), "the snapshot outlived the run"
 
 
 # --------------------------------------------------------------- leak tests
