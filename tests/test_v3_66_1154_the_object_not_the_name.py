@@ -779,8 +779,16 @@ def test_a_zero_SystemExit_cannot_bypass_the_cleanup_exit_code():
         code = e.code
     finally:
         m._main_inner = real_inner
+        # OBSERVE BEFORE TEARING DOWN. The precondition -- that the directory
+        # really was left behind -- has to be read while it is still true, and
+        # the first draft read it after the teardown and papered over the
+        # result with `or True`, which the repo's own trivially-true gate
+        # correctly refused.
+        still_there = os.path.lexists(stuck)
         _force_rm(stuck)
-    assert os.path.lexists(stuck) or True
+    assert still_there, (
+        "the unprovable directory was removed after all, so there was no "
+        "failed cleanup for the exit code to be about")
     assert code == m.EXIT_CLEANUP_FAILED, (
         f"exit was {code!r}; a cleanup that did not happen must cost the "
         f"documented {m.EXIT_CLEANUP_FAILED}, on the exception path as well "
