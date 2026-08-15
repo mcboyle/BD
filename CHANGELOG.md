@@ -4,6 +4,58 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1140 - the session that could not measure its own context window
+
+A session reached 678.9k/1.0M of context with no instrument able to say what
+had spent it. Answering it took a 40-line heredoc typed into the conversation,
+and the answer indicted the method: the agent's OWN commands were the
+second-largest consumer, because 45 of them were heredocs writing whole
+programs into the transcript.
+
+Measured over 3,158 transcript rows, chars/token calibrated at 2.95 from the
+memory-file bytes the window reported:
+
+    tool_result                 143,374 tok  476 calls   39%
+    tool_use:Bash (own commands) 102,910 tok  367 calls   28%
+      of which heredoc/file-writes  45 calls   27,594 tok
+    assistant_text               41,691 tok  298 blocks  11%
+    tool_use:Edit                40,828 tok   70 calls   11%
+    top 10 tool_results = 31% of ALL result bytes
+
+CLAUDE.md section 8 already says look in toolchain/bin before hand-rolling
+anything. This cut ships the two tools that rule demands exist.
+
+bd-context-census reports where a session's window went, by bucket, and prints
+its own blind spots on every run. Chars are MEASURED; tokens are ESTIMATED
+through one ratio calibrated on one prose corpus, and every table says so --
+log-heavy content tokenizes nearer 2.2, so its token figures are a floor. One
+blind spot was found only by RUNNING it against a real transcript: 328 thinking
+blocks are recorded with ZERO chars, so reasoning tokens are paid and invisible
+to it. The synthetic selftest could not have shown that.
+
+bd-fleet-run executes one command across the fleet, writes every host's
+COMPLETE output to its own artifact, and returns one summary line per host.
+CLAUDE.md section 1's NEVER FILTER AT CAPTURE TIME governs the artifact, not
+the display: --grep filters what is shown and never what is stored. It imports
+read_hosts from bd-fleet rather than parsing the fleet file a second time --
+v3.66.1136 was spent on exactly that two-definitions shape in bd-run. It proves
+it can write its run directory and manifest BEFORE it launches anything, so an
+unrecordable run is a refusal rather than the orphan bd-jobs once created on
+its own first invocation.
+
+RED-first, and the RED earned its keep. Twelve of thirteen tests failed with no
+implementation present; the thirteenth PASSED, because CPython itself exits 2
+when it cannot open a script file, so an assertion that a refusal exits 2
+matched the interpreter's failure. That is CLAUDE.md section 10's own rule --
+when every refusal shares an exit code, assert the reason -- broken inside the
+test file written to encode it. Fixed by asserting the refusal text; the
+battery is now 13 red with no tools, 13 green with them.
+
+Two further test defects, both caught the same way and both wrong-predicate:
+a fixture omitted the .claude level of the transcript path, and an assertion
+anchored on the substring "line" matched the table header and the blind-spot
+prose rather than the command output it meant.
+
 ## v3.66.1139 - two register rows were already done, and one nearly got a false correction
 
 Doc-only. Register hygiene by RE-DERIVATION, not by reading: every row below was

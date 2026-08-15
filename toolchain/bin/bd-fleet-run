@@ -1,0 +1,395 @@
+#!/usr/bin/env python3
+"""bd-fleet-run -- run one command across the fleet, keep every byte, return N lines.
+
+WHY THIS EXISTS, MEASURED 2026-08-14. `bd-fleet` answers "what state is the
+fleet in". Nothing ran a COMMAND across it, so a session that swept six hosts
+did it by hand, repeatedly, and paid for every host's full output in its own
+context window. A census of that session:
+
+    tool_result    143,374 tok  (39% of the window)
+    top 10 results  44,286 tok  (31% of all result bytes)
+
+Most of that was six hosts' worth of raw output that nobody needed in full --
+only the verdict per host. This tool keeps the bytes and returns the verdicts.
+
+THE RULE IT IMPLEMENTS, AND THE ONE IT DOES NOT BREAK. CLAUDE.md section 1 says
+NEVER FILTER AT CAPTURE TIME: a `| head` in the collecting command discards
+evidence that cannot be recovered without re-running the job. That rule governs
+the ARTIFACT. It says nothing about what the caller reads. So every host's
+COMPLETE stdout+stderr lands in its own log, unfiltered and unbounded, and the
+summary is derived from that log at READ time. `--grep` filters the display,
+never the capture. The distinction is the whole design.
+
+ONE DEFINITION OF THE FLEET. `read_hosts` is imported from `bd-fleet` rather
+than reimplemented. Two parsers over one format is a seam, and v3.66.1136 was
+spent fixing exactly that shape in `bd-run` -- prune and its selftest each
+decided separately what "a log" meant, disagreed, and failed correct work on 2
+of 6 hosts.
+
+IT PROVES IT CAN RECORD BEFORE IT LAUNCHES. CLAUDE.md section 0: `bd-jobs`
+existed to prevent untracked work and, on its first live invocation, started a
+remote command and THEN failed to register it. So the run directory and its
+manifest are written and verified before any host is touched, and an
+unwritable artifact root is a refusal rather than a launch.
+"""
+
+from __future__ import annotations
+
+import argparse
+import concurrent.futures
+import datetime
+import importlib.machinery
+import importlib.util
+import json
+import os
+import pathlib
+import shlex
+import shutil
+import socket
+import subprocess
+import sys
+import time
+
+HERE = pathlib.Path(__file__).resolve().parent
+DEFAULT_HOSTS = pathlib.Path.home() / ".config" / "bd" / "hosts"
+DEFAULT_ROOT = pathlib.Path.home() / "fleet-runs"
+DEFAULT_KEEP = 20
+
+BLIND_SPOTS = (
+    "the summary line is derived from the log's TAIL. A failure earlier in a "
+    "run that ends cleanly is in the artifact but not in the summary -- read "
+    "the log, that is what it is for.",
+    "the exit code is the remote shell's. A pipeline on the far side masks it "
+    "exactly as it does locally (CLAUDE.md section 5), so build commands that "
+    "capture unpiped.",
+    "an ssh that cannot connect and a host that is powered off produce the same "
+    "row here. This reports reachability, never why.",
+    "nothing here checks WHICH TREE the command ran against. A host two cuts "
+    "behind returns exit 0 for a command measuring the wrong source; pair this "
+    "with `bd-fleet` when the answer depends on the tree.",
+)
+
+
+def _load_bd_fleet():
+    """Import read_hosts from bd-fleet. One definition of the fleet file.
+
+    bd-fleet is extensionless, so a plain import cannot reach it -- the same
+    population CLAUDE.md section 1 warns a `*.py` glob cannot see.
+    """
+    path = HERE / "bd-fleet"
+    if not path.is_file():
+        return None
+    loader = importlib.machinery.SourceFileLoader("bd_fleet_for_run", str(path))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def run_one(label: str, addr: str, me: str, command: str,
+            logdir: pathlib.Path, timeout: int) -> dict:
+    """Execute on one host. The COMPLETE output goes to the log, always."""
+    log = logdir / f"{label}.log"
+    started = time.time()
+    if label == me:
+        argv = ["bash", "-c", command]
+        where = "local"
+    else:
+        argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", addr,
+                "bash -c %s" % shlex.quote(command)]
+        where = "ssh"
+    try:
+        with log.open("wb") as fh:
+            p = subprocess.run(argv, stdout=fh, stderr=subprocess.STDOUT,
+                               timeout=timeout)
+        rc, err = p.returncode, None
+    except subprocess.TimeoutExpired:
+        # A bound that fired is not a failure of the command, and saying so is
+        # the difference between a triage and a wild goose chase.
+        rc, err = None, f"TIMEOUT after {timeout}s"
+    except Exception as exc:                                  # ssh missing, etc
+        rc, err = None, f"{type(exc).__name__}: {exc}"
+    return {"label": label, "addr": addr, "via": where, "exit": rc,
+            "error": err, "wall": round(time.time() - started, 1),
+            "log": str(log), "bytes": log.stat().st_size if log.exists() else 0}
+
+
+def summarise(row: dict, pattern: str | None) -> str:
+    """Derive the display line from the stored log. READ-time filtering."""
+    tail = ""
+    p = pathlib.Path(row["log"])
+    if p.is_file() and row["bytes"]:
+        text = p.read_text(errors="replace")
+        lines = [l.rstrip() for l in text.splitlines() if l.strip()]
+        if pattern:
+            hits = [l for l in lines if pattern in l]
+            tail = hits[-1] if hits else "(no match for %r)" % pattern
+        elif lines:
+            tail = lines[-1]
+    status = "TIMEOUT" if row["error"] and "TIMEOUT" in row["error"] else (
+        "ERR" if row["exit"] is None else
+        ("ok " if row["exit"] == 0 else "FAIL"))
+    code = "--" if row["exit"] is None else str(row["exit"])
+    return (f"  {row['label']:10} {status:7} exit={code:<4} {row['wall']:7.1f}s"
+            f" {row['bytes']:>9,}b  {(row['error'] or tail)[:88]}")
+
+
+def prune(root: pathlib.Path, keep: int) -> int:
+    """Bound retention. CLAUDE.md section 0: creating a path is a promise to
+    remove it, and nothing gates that promise."""
+    if keep <= 0 or not root.is_dir():
+        return 0
+    runs = sorted((d for d in root.iterdir() if d.is_dir()),
+                  key=lambda d: d.name, reverse=True)
+    dropped = 0
+    for d in runs[keep:]:
+        shutil.rmtree(d, ignore_errors=True)
+        dropped += 1
+    return dropped
+
+
+def _refuse(msg: str) -> int:
+    # Every refusal names its own reason. CLAUDE.md section 10: when every
+    # refusal shares an exit code, a test asserting the CODE passes when any of
+    # them fires -- four mutants escaped exactly that way in bd-jobs and bd-ab.
+    print(f"bd-fleet-run: REFUSED: {msg}", file=sys.stderr)
+    return 2
+
+
+def selftest(_args) -> int:
+    """Exercise the path a user actually types, not only the primitives.
+
+    CLAUDE.md section 10: bd-jobs shipped with eleven passing tests and a green
+    selftest, and failed on its first real invocation because nothing asserted
+    what string reached the shell. So this runs real commands, on a real
+    fleet file, through the real dispatch, and asserts on the artifacts.
+    """
+    import tempfile
+    fails = []
+
+    def check(ok, msg):
+        print(("  ok   " if ok else "  FAIL ") + msg)
+        if not ok:
+            fails.append(msg)
+
+    mod = _load_bd_fleet()
+    check(mod is not None and hasattr(mod, "read_hosts"),
+          "read_hosts is imported from bd-fleet, not reimplemented here")
+
+    me = socket.gethostname()
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        root = tmp / "runs"
+        logdir = root / "20260814T000000"
+        logdir.mkdir(parents=True)
+
+        # THE SEAM: does the command text survive to the shell intact? This is
+        # the exact check bd-jobs lacked, where argparse.REMAINDER kept the `--`
+        # and bash answered "invalid option".
+        r = run_one(me, "127.0.0.1", me, "echo 'hello  world'; exit 0",
+                    logdir, 30)
+        body = (logdir / f"{me}.log").read_text()
+        check(r["exit"] == 0, f"a local command runs and reports exit 0 (got {r['exit']})")
+        check("hello  world" in body,
+              f"the command text reaches the shell UNMANGLED (log={body!r})")
+
+        # A nonzero exit must be reported as nonzero, not swallowed.
+        r2 = run_one(me, "127.0.0.1", me, "echo boom >&2; exit 7", logdir, 30)
+        check(r2["exit"] == 7, f"a nonzero exit is preserved (got {r2['exit']})")
+        check("boom" in (logdir / f"{me}.log").read_text(),
+              "stderr is captured into the same artifact as stdout")
+
+        # WHOLE CAPTURE: 500 lines stored, one line displayed.
+        r3 = run_one(me, "127.0.0.1", me,
+                     "for i in $(seq 1 500); do echo line$i; done", logdir, 30)
+        stored = (logdir / f"{me}.log").read_text().splitlines()
+        check(len(stored) == 500,
+              f"every line is STORED, unfiltered (got {len(stored)}, want 500)")
+        one = summarise(r3, None)
+        check(one.count("\n") == 0 and "line500" in one,
+              "the caller is shown ONE line, derived from the stored log")
+
+        # Read-time filtering picks a different line from the SAME artifact.
+        picked = summarise(r3, "line250")
+        check("line250" in picked and len(stored) == 500,
+              "--grep filters the DISPLAY without touching the capture")
+
+        # A bound that fires is named as a timeout, not as a failure.
+        r4 = run_one(me, "127.0.0.1", me, "sleep 5", logdir, 1)
+        check(r4["exit"] is None and "TIMEOUT" in (r4["error"] or ""),
+              f"a bound that fires is reported as TIMEOUT (got {r4})")
+
+        # Retention actually removes directories, and keeps the newest.
+        for name in ("20260101T000000", "20260102T000000", "20260103T000000"):
+            (root / name).mkdir(parents=True, exist_ok=True)
+        before = len([d for d in root.iterdir() if d.is_dir()])
+        dropped = prune(root, 2)
+        after = sorted(d.name for d in root.iterdir() if d.is_dir())
+        check(before == 4 and dropped == 2 and after == ["20260103T000000",
+                                                         "20260814T000000"],
+              f"prune keeps the newest N and removes the rest (kept {after})")
+
+        # REFUSALS MUST BE DISTINGUISHABLE BY TEXT, NOT ONLY BY EXIT CODE, and
+        # this has to DRIVE main() to mean anything. CLAUDE.md section 10: when
+        # every refusal shares exit 2, a test asserting the code passes when any
+        # of them fires, and four mutants escaped exactly that way in bd-jobs
+        # and bd-ab. (The first draft of this check built a set of string
+        # literals the author had just typed -- it could not fail, which is the
+        # fixture defect section 6 warns about, in the tool written to record
+        # that lesson.)
+        import contextlib
+        import io
+
+        empty_hosts = tmp / "empty_hosts"
+        empty_hosts.write_text("# nothing but a comment\n")
+        good_hosts = tmp / "good_hosts"
+        good_hosts.write_text("alpha 192.0.2.10\n")
+
+        cases = {
+            "no command": ["--hosts", str(good_hosts)],
+            "missing fleet file": ["--hosts", str(tmp / "nope"), "--", "true"],
+            "empty fleet": ["--hosts", str(empty_hosts), "--", "true"],
+            "unmatched --only": ["--hosts", str(good_hosts), "--only", "zzz",
+                                 "--", "true"],
+            "unwritable root": ["--hosts", str(good_hosts), "--root",
+                                "/proc/cannot/write/here", "--", "true"],
+        }
+        seen = {}
+        for name, argv in cases.items():
+            err = io.StringIO()
+            old = sys.argv
+            sys.argv = ["bd-fleet-run"] + argv
+            try:
+                with contextlib.redirect_stderr(err):
+                    rc = main()
+            finally:
+                sys.argv = old
+            seen[name] = (rc, err.getvalue().strip())
+            check(rc == 2, f"{name} refuses with exit 2 (got {rc})")
+
+        texts = [v[1] for v in seen.values()]
+        check(len(set(texts)) == len(texts),
+              "every refusal has DISTINCT wording, so a test can assert the "
+              f"reason rather than the shared code (got {len(set(texts))} "
+              f"distinct of {len(texts)})")
+        check(all(t.startswith("bd-fleet-run: REFUSED:") for t in texts),
+              "every refusal is recognisable as one")
+
+        # And a refusal must be a NO-OP: nothing launched, nothing recorded.
+        check(not (tmp / "should_not_exist").exists(),
+              "a refusal creates no artifacts")
+
+    # The verdict is a WORD, not just an exit code (test_toolchain_534).
+    if fails:
+        print(f"\nSELFTEST FAIL: {len(fails)} check(s) failed")
+        for f in fails:
+            print(f"  - {f}")
+        return 1
+    print("\nSELFTEST PASS")
+    return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        description="Run one command on every fleet host; keep all output, "
+                    "return one line per host.")
+    ap.add_argument("--hosts", default=str(DEFAULT_HOSTS))
+    ap.add_argument("--root", default=str(DEFAULT_ROOT),
+                    help="where per-run artifacts are kept")
+    ap.add_argument("--timeout", type=int, default=1800)
+    ap.add_argument("--keep", type=int, default=DEFAULT_KEEP,
+                    help="how many past runs to retain (0 = keep everything)")
+    ap.add_argument("--grep", help="show the last matching line per host "
+                                   "(display only; capture is always whole)")
+    ap.add_argument("--only", help="comma-separated labels to include")
+    ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("command", nargs=argparse.REMAINDER)
+    args = ap.parse_args()
+
+    if args.selftest:
+        return selftest(args)
+
+    # argparse.REMAINDER KEEPS THE `--`. bd-jobs shipped without stripping it
+    # and sent bash `-c "-- sleep 90"` on its first real use.
+    cmd_parts = list(args.command)
+    while cmd_parts and cmd_parts[0] == "--":
+        cmd_parts.pop(0)
+    command = " ".join(cmd_parts).strip()
+    if not command:
+        return _refuse("no command given. Usage: bd-fleet-run -- <command>")
+
+    if not os.path.isfile(args.hosts):
+        return _refuse(f"no fleet file at {args.hosts} -- it is untracked; "
+                       "copy docs/repo/hosts.example there.")
+    mod = _load_bd_fleet()
+    if mod is None or not hasattr(mod, "read_hosts"):
+        return _refuse(f"cannot load read_hosts from {HERE / 'bd-fleet'}. "
+                       "Reimplementing the parser here would be a second "
+                       "definition of the fleet file; refusing instead.")
+    try:
+        hosts = mod.read_hosts(args.hosts)
+    except Exception as exc:
+        return _refuse(f"{args.hosts}: {exc}")
+    if not hosts:
+        return _refuse(f"{args.hosts} lists no hosts. An empty fleet must not "
+                       "report as a successful run of nothing.")
+    if args.only:
+        want = {s.strip() for s in args.only.split(",") if s.strip()}
+        hosts = [(l, a) for l, a in hosts if l in want]
+        if not hosts:
+            return _refuse(f"--only {args.only} matched no host in {args.hosts}")
+
+    # PROVE THE RECORD CAN BE WRITTEN BEFORE ANYTHING RUNS. An action with a
+    # side effect you cannot undo and a record you might fail to write must
+    # establish the record first (CLAUDE.md section 0, learned from bd-jobs
+    # creating the very orphan it exists to prevent).
+    stamp = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
+    root = pathlib.Path(args.root)
+    logdir = root / stamp
+    try:
+        logdir.mkdir(parents=True, exist_ok=True)
+        (logdir / "manifest.json").write_text(json.dumps(
+            {"command": command, "hosts": [h[0] for h in hosts],
+             "started": stamp, "timeout": args.timeout}, indent=2))
+    except Exception as exc:
+        return _refuse(f"artifact root {logdir} is not writable ({exc}). "
+                       "A run whose output cannot be recorded is not launched.")
+
+    me = socket.gethostname()
+    print(f"bd-fleet-run: {len(hosts)} host(s), artifacts under {logdir}")
+    print(f"  command: {command}")
+    print()
+
+    rows = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(hosts)) as pool:
+        futs = {pool.submit(run_one, l, a, me, command, logdir, args.timeout):
+                l for l, a in hosts}
+        for f in concurrent.futures.as_completed(futs):
+            rows.append(f.result())
+    order = [l for l, _ in hosts]
+    rows.sort(key=lambda r: order.index(r["label"]))
+
+    print(f"  {'host':10} {'status':7} {'exit':<9} {'wall':>7} {'stored':>10}"
+          f"  {'--grep' if args.grep else 'last line'}")
+    for r in rows:
+        print(summarise(r, args.grep))
+    (logdir / "summary.json").write_text(json.dumps(rows, indent=2))
+
+    bad = [r for r in rows if r["exit"] != 0]
+    print(f"\n  {len(rows) - len(bad)}/{len(rows)} host(s) exit 0."
+          f"  Full output: {logdir}/<host>.log")
+    dropped = prune(root, args.keep)
+    if dropped:
+        print(f"  retention: removed {dropped} older run(s), keeping {args.keep}")
+
+    print("\n=== WHAT THIS RUN CANNOT TELL YOU ===")
+    for i, s in enumerate(BLIND_SPOTS, 1):
+        print(f"  {i}. {s}")
+    # A non-zero exit here means a HOST failed, which the caller must be able to
+    # gate on -- never a summary line that says "all deployed" regardless
+    # (CLAUDE.md section 10: deploy_fleet.sh --dry-run printed exactly that).
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
