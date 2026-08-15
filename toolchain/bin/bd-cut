@@ -979,34 +979,6 @@ def main(argv=None):
     # So: detach the WHOLE cut. Under bd-job it has unlimited wall time and the FE chain
     # runs INLINE, unchanged. --skip-fe goes back to meaning what it says (a backend-only
     # cut) instead of "the gate does not fit".
-    if getattr(a, "detach", False):
-        # v3.66.855 port: the fallback was /home/claude/bin/bd-job, which cannot
-        # exist here -- so --detach could only ever die. bd-job ships in this
-        # tool's OWN bin dir; resolve it there, exactly as regen_order resolves
-        # bd-regen-order from the work tree instead of from PATH.
-        _job = shutil.which("bd-job") or os.path.join(
-            os.path.dirname(os.path.realpath(__file__)), "bd-job")
-        if not os.path.isfile(_job):
-            die("--detach needs bd-job (not found) -- run without it, or install bd-job")
-        argv_ = list(argv if argv is not None else sys.argv[1:])
-        argv_ = [x for x in argv_ if x != "--detach"]
-        name = "cut"
-        subprocess.run([sys.executable, _job, "kill", name],
-                       capture_output=True, text=True, timeout=900)
-        r = subprocess.run([sys.executable, _job, "start", "--name", name, "--",
-                            sys.executable, os.path.abspath(__file__)] + argv_,
-                           capture_output=True, text=True, timeout=900)
-        sys.stdout.write(r.stdout)
-        if r.returncode != 0:
-            sys.stdout.write(r.stderr)
-            return 2
-        print(f"\n{G}cut running detached -- the FULL FE chain (tsc+vitest+vite) will run,"
-              f" not be skipped.{RST}")
-        print(f"  {DIM}bd-job tail cut     # progress")
-        print(f"  bd-job status cut   # running | done | failed")
-        print(f"  bd-job wait cut     # block to completion{RST}")
-        return 0
-
     os.makedirs(a.out, exist_ok=True)
 
     # --- STEP 0: the release gate. FAILS CLOSED as of v3.66.1145.
@@ -1073,6 +1045,55 @@ def main(argv=None):
                   "deliberately (it will say so, loudly).", file=sys.stderr)
             return 3
 
+
+    # --- DETACH HAPPENS *AFTER* STEP 0 as of v3.66.1145.
+    #
+    # It used to run BEFORE the gate and `return 0` unconditionally once bd-job
+    # accepted the job. That 0 meant only "child launched", but nothing in the
+    # exit code said so: a cut whose gate would have BLOCKED still launched, and
+    # an operator or a script reading the parent's 0 could not tell it apart
+    # from an authorized cut. Gating first means a blocked cut never launches at
+    # all, so there is no unauthorized child to misread. The child re-runs the
+    # same gate (it re-execs bd-cut without --detach), which is belt and braces,
+    # not redundancy: the parent's copy is the one that prevents the launch.
+    #
+    # The gate here is the CHEAP pair (bd-footguns + bd-ratchet), not the FE
+    # chain --detach exists to escape, so this costs seconds inside the parent's
+    # exec window rather than minutes.
+    if getattr(a, "detach", False):
+        # v3.66.855 port: the fallback was /home/claude/bin/bd-job, which cannot
+        # exist here -- so --detach could only ever die. bd-job ships in this
+        # tool's OWN bin dir; resolve it there, exactly as regen_order resolves
+        # bd-regen-order from the work tree instead of from PATH.
+        _job = shutil.which("bd-job") or os.path.join(
+            os.path.dirname(os.path.realpath(__file__)), "bd-job")
+        if not os.path.isfile(_job):
+            die("--detach needs bd-job (not found) -- run without it, or install bd-job")
+        argv_ = list(argv if argv is not None else sys.argv[1:])
+        argv_ = [x for x in argv_ if x != "--detach"]
+        name = "cut"
+        subprocess.run([sys.executable, _job, "kill", name],
+                       capture_output=True, text=True, timeout=900)
+        r = subprocess.run([sys.executable, _job, "start", "--name", name, "--",
+                            sys.executable, os.path.abspath(__file__)] + argv_,
+                           capture_output=True, text=True, timeout=900)
+        sys.stdout.write(r.stdout)
+        if r.returncode != 0:
+            sys.stdout.write(r.stderr)
+            return 2
+        print(f"\n{G}cut LAUNCHED detached -- the FULL FE chain (tsc+vitest+vite) will run,"
+              f" not be skipped.{RST}")
+        # This process's exit code means "the child was launched", NEVER "the cut
+        # succeeded". Say so in words as well as in the code, because a caller
+        # that reads only the exit status has no other way to learn it.
+        print(f"{Y}  NOT A CUT VERDICT: step 0 passed and the job started; the "
+              f"cut itself is still running.{RST}")
+        print(f"{Y}  Ask `bd-job status cut` for running|done|failed before "
+              f"treating this cut as complete.{RST}")
+        print(f"  {DIM}bd-job tail cut     # progress")
+        print(f"  bd-job status cut   # running | done | failed")
+        print(f"  bd-job wait cut     # block to completion{RST}")
+        return 0
 
     # --- fast retry path: band+verify+summary on an already-built zip, skipping
     #     the whole tsc->vitest->vite->build_release chain. For when the band

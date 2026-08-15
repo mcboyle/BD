@@ -4,6 +4,57 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1146 - two more ways step 0 could be told a lie
+
+Review follow-up on PR #429, same branch. Both findings were paths by which a
+BLOCKED or UNKNOWN verdict could still be presented as an authorized cut.
+
+--detach LAUNCHED BEFORE IT GATED. The parent ran the detach block ahead of
+step 0 and returned 0 as soon as bd-job accepted the job. That 0 meant only
+"child launched", but nothing in the exit code said so -- a cut whose gate would
+have BLOCKED still launched, and an operator or a script reading the parent's
+status could not tell it from an authorized cut. No tracked consumer treats it
+as authorization, but "no tracked consumer" is not evidence about automation, so
+this is fixed rather than argued: the gate now runs BEFORE the detach, so a
+blocked cut never launches and there is no unauthorized child to misread. The
+child re-runs the same gate when it re-execs without --detach; the parent's copy
+is the one that prevents the launch. The gate is the cheap pair
+(bd-footguns + bd-ratchet), not the FE chain --detach exists to escape, so this
+costs seconds inside the parent's exec window rather than minutes.
+
+The parent's success line also no longer reads as a verdict: it says LAUNCHED,
+prints "NOT A CUT VERDICT", and names `bd-job status cut` as the place the real
+answer lives.
+
+bd-footguns TURNED A DECLARED BLOCK INTO A SKIP. `_check_one`'s
+cannot-evaluate shortcut ran BEFORE `block_on_exit` was consulted, which made a
+declared 2 unreachable. FG-GUARD-SHA-BYTE-IDENTICAL declares
+`block_on_exit: [1, 2]` precisely so a bd-guardcheck BD-GATE-UNRUNNABLE blocks
+-- CLAUDE.md section 2 says an unverified guard pin must not proceed -- and it
+became "skip" instead. If any other detector then decided, the run printed OK
+and exited 0, so bd-cut's step 0 received 0 while a configured blocking detector
+had returned UNKNOWN. The registry's declaration is the contract; it is now
+consulted before any generic shortcut.
+
+NOT over-sensitive, and a control proves it: a detector that does NOT declare 2
+still treats cannot-evaluate as "skip". Turning every unavailable delegate into
+a violation would block on every partially-instrumented tree.
+
+RED-first at the PR head (727a7993, which already carries the step-0 fix):
+4 failed, 20 passed. With these fixes: 24 passed. The regression test drives the
+REAL registry entry and the REAL _check_one, asserting first that the detector
+genuinely declares 2 -- otherwise the test would be vacuous.
+
+OPERATOR DECISIONS RECORDED. bd-cut stays FAIL-CLOSED when
+~/.bd_metrics_baseline.json is absent; the gate is not weakened and --no-gate is
+not a routine tool. The baseline is existing per-host OPERATIONAL state and will
+be initialized after this PR merges and 1145 deploys -- test2 first, inspected
+and verified with bd-ratchet --check returning 0, then generated independently
+on the other five hosts, with hashes and artifacts recorded. --resume-zip is
+RETAINED and hardened: the absence of artifacts in the repository is not
+evidence about external use. Its possible retirement is carried as an explicit
+later operator decision and a separate cut.
+
 ## v3.66.1145 - the gate that turned a refusal into authorization
 
 CUT 1. bd-cut's step-0 release gate failed OPEN. Three independent harnesses --

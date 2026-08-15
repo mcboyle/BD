@@ -393,3 +393,155 @@ def test_the_help_text_no_longer_names_a_tool_the_gate_does_not_run():
         f"--help still names bd-precut, which step 0 does not invoke: {joined!r}")
     assert "stale-doc" not in joined, (
         f"--help still claims a stale-doc check that does not exist: {joined!r}")
+
+
+# ===================== --detach must not launch an unauthorized cut =========
+
+JOB_STUB = '''#!/usr/bin/env python3
+import json, os, sys
+mark = os.environ["BD_STEP0_MARKER"]
+with open(mark, "a") as fh:
+    fh.write(json.dumps({"tool": "bd-job", "argv": sys.argv[1:3]}) + "\\n")
+sys.exit(0)
+'''
+
+
+def _bin_with_job(tmp, stubs, **kw):
+    b = _bin_with(tmp, stubs, **kw)
+    p = b / "bd-job"
+    p.write_text(JOB_STUB, encoding="utf-8")
+    p.chmod(0o755)
+    return b
+
+
+def test_a_blocked_gate_never_launches_a_detached_cut():
+    """THE FINDING. --detach used to run BEFORE step 0 and return 0 as soon as
+    bd-job accepted the job.
+
+    That 0 meant only "child launched", but nothing in the exit code said so, so
+    a cut whose gate would have BLOCKED still launched and a caller reading the
+    parent's status could not tell it from an authorized cut. Gating first means
+    there is no unauthorized child to misrepresent.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        b = _bin_with_job(tmp, {"bd-footguns": EXIT[3], "bd-ratchet": EXIT[0]})
+        r, calls = _run(tmp, b, _work(tmp), extra=("--detach",))
+        out = r.stdout + r.stderr
+        assert _ran(calls, "bd-footguns"), (
+            f"the gate did not run before detaching\n{out[-800:]}")
+        assert r.returncode == 3, f"a blocked cut still detached\n{out[-1200:]}"
+        assert not _ran(calls, "bd-job"), (
+            "bd-job was invoked despite a blocking gate -- an unauthorized cut "
+            "was launched")
+
+
+def test_an_unknown_gate_never_launches_a_detached_cut():
+    """exit 2 is UNKNOWN, and UNKNOWN must not authorize a detached cut either."""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        b = _bin_with_job(tmp, {"bd-footguns": EXIT[2], "bd-ratchet": EXIT[0]})
+        r, calls = _run(tmp, b, _work(tmp), extra=("--detach",))
+        assert r.returncode == 3
+        assert not _ran(calls, "bd-job"), "an UNKNOWN gate launched a detached cut"
+
+
+def test_a_clean_gate_does_launch_a_detached_cut(capfd):
+    """OVER-SENSITIVITY CONTROL: gating first must not break --detach."""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        b = _bin_with_job(tmp, {"bd-footguns": EXIT[0], "bd-ratchet": EXIT[0]})
+        r, calls = _run(tmp, b, _work(tmp), extra=("--detach",))
+        out = r.stdout + r.stderr
+        assert _ran(calls, "bd-job"), f"a clean gate failed to detach\n{out[-1200:]}"
+        assert r.returncode == 0
+
+
+def test_the_detached_parent_never_claims_the_cut_succeeded():
+    """Exit 0 here means "launched". The output must say so in words, because a
+    caller that reads only the status has no other way to learn it."""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        b = _bin_with_job(tmp, {"bd-footguns": EXIT[0], "bd-ratchet": EXIT[0]})
+        r, _ = _run(tmp, b, _work(tmp), extra=("--detach",))
+        out = r.stdout + r.stderr
+        assert "NOT A CUT VERDICT" in out, (
+            f"the detached parent does not disclaim a verdict:\n{out[-900:]}")
+        assert "bd-job status cut" in out
+        # It must not read as a completed cut.
+        for phrase in ("cut complete", "CUT-ready", "cut succeeded"):
+            assert phrase not in out, f"the parent claims {phrase!r}: {out[-600:]}"
+
+
+# ============ bd-footguns: a declared block_on_exit must beat the shortcut ====
+
+def _load_footguns():
+    import importlib.machinery, importlib.util
+    tool = REPO / "toolchain" / "bin" / "bd-footguns"
+    loader = importlib.machinery.SourceFileLoader("bd_footguns_uut", str(tool))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(tool.parent))
+    try:
+        loader.exec_module(mod)
+    finally:
+        sys.path.pop(0)
+    return mod
+
+
+def test_a_real_detector_declaring_block_on_exit_2_blocks_on_unknown(monkeypatch):
+    """THE ORDERING DEFECT, on the REAL registry entry.
+
+    FG-GUARD-SHA-BYTE-IDENTICAL declares block_on_exit [1, 2] precisely so that a
+    bd-guardcheck BD-GATE-UNRUNNABLE blocks -- CLAUDE.md section 2 says an
+    unverified guard pin must not proceed. The cannot-evaluate shortcut ran
+    first, so the declared 2 was unreachable and became "skip". If any other
+    detector then decided, bd-footguns printed OK and exited 0, and bd-cut's
+    step 0 received 0 while a configured blocking detector had returned UNKNOWN.
+    """
+    m = _load_footguns()
+    fg = next((f for f in m.SEED if f["id"] == "FG-GUARD-SHA-BYTE-IDENTICAL"), None)
+    # PRECONDITIONS -- assert the shape before the verdict.
+    assert fg is not None, "FG-GUARD-SHA-BYTE-IDENTICAL is not in the registry"
+    assert fg["detector"]["kind"] == "tool", fg["detector"]
+    assert 2 in fg["detector"]["block_on_exit"], (
+        "this test is vacuous unless the detector really declares 2: "
+        f"{fg['detector']}")
+    assert m.sec.EXIT_CANNOT_EVALUATE == 2
+
+    monkeypatch.setattr(m, "_run_tool", lambda cmd, tree: (2, ""))
+    verdict, why = m._check_one(fg, str(REPO))
+    assert verdict == "violation", (
+        f"a delegate returning CANNOT-EVALUATE was recorded as {verdict!r} "
+        f"({why!r}) even though the detector declares block_on_exit=[1, 2]")
+    assert "2" in why
+
+
+def test_a_detector_not_declaring_2_still_treats_unknown_as_skip(monkeypatch):
+    """OVER-SENSITIVITY CONTROL. The fix must not turn every cannot-evaluate
+    into a violation -- only the ones a detector explicitly declares."""
+    m = _load_footguns()
+    det = {"id": "SYNTHETIC", "severity": "blocking", "status": "active",
+           "rule": "r", "fix": "f",
+           "detector": {"kind": "tool", "cmd": ["x"], "block_on_exit": [1]}}
+    monkeypatch.setattr(m, "_run_tool", lambda cmd, tree: (2, ""))
+    verdict, why = m._check_one(det, str(REPO))
+    assert verdict == "skip", (
+        f"an undeclared cannot-evaluate became {verdict!r}; the fix is "
+        "over-sensitive and would block on every unavailable delegate")
+
+
+def test_a_clean_delegate_still_passes(monkeypatch):
+    m = _load_footguns()
+    fg = next(f for f in m.SEED if f["id"] == "FG-GUARD-SHA-BYTE-IDENTICAL")
+    monkeypatch.setattr(m, "_run_tool", lambda cmd, tree: (0, ""))
+    verdict, _ = m._check_one(fg, str(REPO))
+    assert verdict == "pass", verdict
+
+
+def test_a_declared_violation_code_still_blocks(monkeypatch):
+    m = _load_footguns()
+    fg = next(f for f in m.SEED if f["id"] == "FG-GUARD-SHA-BYTE-IDENTICAL")
+    monkeypatch.setattr(m, "_run_tool", lambda cmd, tree: (1, ""))
+    verdict, _ = m._check_one(fg, str(REPO))
+    assert verdict == "violation", verdict

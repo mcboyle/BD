@@ -214,9 +214,25 @@ def _check_one(fg, tree):
         # and the old else-branch swept it into "pass" -- so a detector pointed at a
         # corpus it could not read was recorded as a footgun that did not fire. Same
         # shape as the verdict this file exists to prevent, one level down.
+        # ORDER MATTERS, AND IT WAS WRONG UNTIL v3.66.1145. The cannot-evaluate
+        # shortcut used to run FIRST, which made a DECLARED block_on_exit of 2
+        # unreachable: FG-GUARD-SHA-BYTE-IDENTICAL declares [1, 2] precisely so a
+        # bd-guardcheck BD-GATE-UNRUNNABLE blocks (CLAUDE.md s2 says an
+        # unverified guard pin must not proceed), and instead it became "skip".
+        # If any other detector then decided, the run printed OK and exited 0 --
+        # so bd-cut's step 0 received 0 while a configured blocking detector had
+        # returned UNKNOWN. The registry's declaration is the contract; consult
+        # it before applying any generic shortcut.
+        block_on = det.get("block_on_exit", [])
+        if rc in block_on:
+            why = f"exit {rc}"
+            if rc == sec.EXIT_CANNOT_EVALUATE:
+                why += " -- delegate could not evaluate, and this detector "\
+                       "declares that blocking"
+            return "violation", why
         if rc == sec.EXIT_CANNOT_EVALUATE:
             return "skip", f"delegate could not evaluate (exit {rc})"
-        return ("violation" if rc in det.get("block_on_exit", []) else "pass"), f"exit {rc}"
+        return "pass", f"exit {rc}"
     if kind == "insync":
         ok, _ = _run_insync(det["test"], tree)
         if ok is None:
