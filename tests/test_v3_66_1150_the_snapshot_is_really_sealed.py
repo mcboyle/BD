@@ -108,6 +108,19 @@ def _zip_with(path, marker):
     return path
 
 
+def _real(p):
+    """The snapshot's REAL path.
+
+    snapshot_archive returns a descriptor-backed /proc/self/fd/N path as of
+    v3.66.1151, so consumers bind to an inode rather than to a directory entry.
+    Every assertion in THIS file is about the directory entry -- unlink,
+    os.replace, the parent's mode -- so it has to resolve first. Without it the
+    parent of the snapshot resolves to "/proc/self/fd" and these tests would
+    quietly be measuring procfs instead of the snapshot directory.
+    """
+    return os.path.realpath(p)
+
+
 def _purge(m):
     """Remove every directory the module still owns, seal or no seal."""
     for d in list(getattr(m, "_TEMPDIRS", [])):
@@ -135,12 +148,12 @@ def test_the_snapshot_pathname_cannot_be_unlinked(tmp_path):
     """
     m = _load_bdcut()
     src = _zip_with(tmp_path / "r.zip", "A")
-    snap, _ = m.snapshot_archive(str(src))
+    snap, _, _fd = m.snapshot_archive(str(src))
     try:
-        assert os.path.isfile(snap)
+        assert os.path.isfile(_real(snap))
         with pytest.raises(PermissionError):
-            os.unlink(snap)
-        assert os.path.isfile(snap), "the snapshot was unlinked"
+            os.unlink(_real(snap))
+        assert os.path.isfile(_real(snap)), "the snapshot was unlinked"
     finally:
         _purge(m)
 
@@ -152,11 +165,11 @@ def test_the_snapshot_pathname_cannot_be_replaced(tmp_path):
     obstacle at all."""
     m = _load_bdcut()
     src = _zip_with(tmp_path / "r.zip", "A")
-    snap, ident = m.snapshot_archive(str(src))
+    snap, ident, _fd = m.snapshot_archive(str(src))
     imposter = _zip_with(tmp_path / "b.zip", "B-THE-REPLACEMENT")
     try:
         with pytest.raises(PermissionError):
-            os.replace(str(imposter), snap)
+            os.replace(str(imposter), _real(snap))
         assert hashlib.sha256(pathlib.Path(snap).read_bytes()).hexdigest() \
             == ident["sha256"], "the snapshot's bytes changed"
     finally:
@@ -168,10 +181,10 @@ def test_no_new_file_can_be_created_beside_the_snapshot(tmp_path):
     """The whole directory is sealed, not just the one name in it."""
     m = _load_bdcut()
     src = _zip_with(tmp_path / "r.zip", "A")
-    snap, _ = m.snapshot_archive(str(src))
+    snap, _, _fd = m.snapshot_archive(str(src))
     try:
         with pytest.raises(PermissionError):
-            open(os.path.join(os.path.dirname(snap), "intruder"), "w").close()
+            open(os.path.join(os.path.dirname(_real(snap)), "intruder"), "w").close()
     finally:
         _purge(m)
 
@@ -182,14 +195,14 @@ def test_the_sealed_snapshot_is_still_readable_and_openable_as_a_zip(tmp_path):
     CLAUDE.md section 0 counts that as a soundness bug, not a safe default."""
     m = _load_bdcut()
     src = _zip_with(tmp_path / "r.zip", "A")
-    snap, ident = m.snapshot_archive(str(src))
+    snap, ident, _fd = m.snapshot_archive(str(src))
     try:
         assert pathlib.Path(snap).read_bytes() == src.read_bytes()
         with zipfile.ZipFile(snap) as zf:
             assert zf.namelist(), "the sealed snapshot has no readable members"
             assert zf.read("run_tests.py")
         # and the directory must still be traversable/listable
-        assert os.listdir(os.path.dirname(snap))
+        assert os.listdir(os.path.dirname(_real(snap)))
     finally:
         _purge(m)
 
@@ -199,8 +212,8 @@ def test_a_sealed_snapshot_is_still_removable_by_its_owner(tmp_path):
     directory nothing can remove is a leak with better paperwork."""
     m = _load_bdcut()
     src = _zip_with(tmp_path / "r.zip", "A")
-    snap, _ = m.snapshot_archive(str(src))
-    d = os.path.dirname(snap)
+    snap, _, _fd = m.snapshot_archive(str(src))
+    d = os.path.dirname(_real(snap))
     assert m._discard_tempdir(d) is True, (
         "the sealed snapshot directory could not be removed by its owner")
     assert not os.path.exists(d)
@@ -294,7 +307,7 @@ def _drive_resume(m, monkeypatch, tmp_path, src, on_band=None, on_verify=None):
             on_band()
         seen["band_bytes"] = pathlib.Path(zippath).read_bytes()
 
-    def _verify(w, z):
+    def _verify(w, z, pass_fds=()):
         seen["verify"] = z
         if on_verify:
             on_verify()
@@ -389,7 +402,7 @@ def test_the_identity_comes_from_the_open_descriptor_not_the_path(tmp_path, monk
 
     monkeypatch.setattr(os, "stat", guarded)
     try:
-        snap, ident = m.snapshot_archive(str(src))
+        snap, ident, _fd = m.snapshot_archive(str(src))
     finally:
         monkeypatch.undo()
     try:
@@ -471,6 +484,11 @@ def test_extraction_consumes_the_snapshot_not_the_external_path(tmp_path, monkey
 
     def spy(zippath):
         seen["path"] = zippath
+        # RESOLVED HERE, WHILE THE DESCRIPTOR IS STILL OPEN. main() closes it
+        # on the way out, and once it is closed /proc/self/fd/N no longer
+        # resolves -- realpath then returns the path unchanged and the
+        # assertion below silently measures the wrong string.
+        seen["real"] = os.path.realpath(zippath)
         return real_extract(zippath)
 
     monkeypatch.setattr(m, "extract_and_attest", spy)
@@ -480,7 +498,7 @@ def test_extraction_consumes_the_snapshot_not_the_external_path(tmp_path, monkey
     assert os.path.realpath(seen["path"]) != os.path.realpath(str(src)), (
         "extraction read the MUTABLE external archive; the gate would then "
         "certify a tree built from a file the band never saw")
-    assert "bdcut_archive_" in seen["path"], seen["path"]
+    assert "bdcut_archive_" in seen["real"], seen["real"]
     assert os.path.realpath(seen["path"]) == os.path.realpath(driven["band"]), (
         "extraction and the band consumed different archives")
 
@@ -780,8 +798,8 @@ def test_a_directory_reported_as_leaked_is_left_SEALED(tmp_path, monkeypatch):
     removal still will not happen."""
     m = _load_bdcut()
     src = _zip_with(tmp_path / "r.zip", "A")
-    snap, _ = m.snapshot_archive(str(src))
-    d = os.path.dirname(snap)
+    snap, _, _fd = m.snapshot_archive(str(src))
+    d = os.path.dirname(_real(snap))
     before_mode = stat.S_IMODE(os.stat(d).st_mode)
     assert before_mode == 0o500, oct(before_mode)
 
@@ -800,19 +818,18 @@ def test_a_directory_reported_as_leaked_is_left_SEALED(tmp_path, monkeypatch):
         "still be there")
 
 
-def test_a_renamed_and_recreated_snapshot_is_detected(tmp_path, monkeypatch, capsys):
-    """THE SEAL DOES NOT BIND THE PATHNAME, and the comment claimed it did.
+def test_a_renamed_and_recreated_snapshot_cannot_reach_a_consumer(tmp_path, monkeypatch, capsys):
+    """THE SEAL DOES NOT BIND THE PATHNAME, and v3.66.1150's comment claimed it
+    did. chmod(d, 0500) removes write INSIDE d, but d's own parent is still
+    writable by the same uid, so the sealed directory can be renamed away and a
+    fresh one created at the same path holding an imposter.
 
-    chmod(d, 0500) removes write INSIDE d, but d's own parent is still writable
-    by the same uid, so the whole sealed directory can be renamed away and a
-    fresh one created at the same path holding an imposter archive. band(),
-    verify() and max_summary() all re-open the snapshot BY PATH, and the
-    external-archive check cannot see it because the external archive never
-    moved.
-
-    A mode bit cannot close this. Content can: the snapshot is re-hashed
-    against the identity recorded at snapshot time, which detects rename +
-    recreate, unlink + replace, and an in-place rewrite alike.
+    v3.66.1150 answered that with a post-stage hash. v3.66.1151 replaced the
+    answer: the consumers are handed a DESCRIPTOR-backed path, so a swap of the
+    directory entry cannot reach them at all -- which is why this test no
+    longer asserts a refusal. It asserts the stronger property. A refusal would
+    have meant the swap was VISIBLE to a consumer and had to be caught after
+    the fact; being unreachable is better than being detected.
     """
     m = _load_bdcut()
     src = _zip_with(tmp_path / "r.zip", "A")
@@ -820,10 +837,14 @@ def test_a_renamed_and_recreated_snapshot_is_detected(tmp_path, monkeypatch, cap
 
     def swap_the_snapshot():
         snap = seen_paths["band"]
-        d = os.path.dirname(snap)
+        d = os.path.dirname(_real(snap))
+        base = os.path.basename(_real(snap))
         os.rename(d, d + ".stashed")          # the parent is writable
         os.mkdir(d)
-        shutil.copyfile(str(imposter), snap)
+        # The imposter goes at the DIRECTORY ENTRY, not through the descriptor
+        # (which is O_RDONLY -- writing through it is what a swap cannot do).
+        shutil.copyfile(str(imposter), os.path.join(d, base))
+        seen_paths["read_during_swap"] = pathlib.Path(snap).read_bytes()
 
     seen_paths = {}
 
@@ -833,7 +854,9 @@ def test_a_renamed_and_recreated_snapshot_is_detected(tmp_path, monkeypatch, cap
 
     monkeypatch.setattr(m, "step0_gate", lambda s, **k: [])
     monkeypatch.setattr(m, "band", _band)
-    monkeypatch.setattr(m, "verify", lambda w, z: seen_paths.setdefault("verify", z))
+    monkeypatch.setattr(
+        m, "verify",
+        lambda w, z, pass_fds=(): seen_paths.setdefault("verify", z))
     monkeypatch.setattr(m, "max_summary", lambda z, b: seen_paths.setdefault("summary", z))
     work = tmp_path / "work"
     (work / "bulk_downloader").mkdir(parents=True)
@@ -853,12 +876,13 @@ def test_a_renamed_and_recreated_snapshot_is_detected(tmp_path, monkeypatch, cap
             shutil.rmtree(leftover, ignore_errors=True)
     err = capsys.readouterr().err
 
-    assert "verify" not in seen_paths, (
-        "verify ran against a snapshot that had been swapped underneath it")
-    assert rc == 3, (
-        f"the owned snapshot was replaced at its pathname and the run returned "
-        f"{rc}")
-    assert "snapshot" in err.lower(), err[-600:]
+    assert seen_paths.get("read_during_swap") == src.read_bytes(), (
+        "a consumer read the IMPOSTER while the directory entry was swapped -- "
+        "the descriptor binding is not in place")
+    assert rc == 0, (
+        f"a swap that no consumer could observe was still treated as fatal "
+        f"(rc={rc}); refusing here would be over-sensitivity, not safety: "
+        f"{err[-300:]}")
 
 
 _LEAKERS_1145 = (

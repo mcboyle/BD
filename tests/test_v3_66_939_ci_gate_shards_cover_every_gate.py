@@ -123,6 +123,13 @@ _DECLARED = {
     # test harness, which erases residue on a green run. The failure mode is a
     # silent swap or a silent leak, never a red test.
     "tests/test_v3_66_1150_the_snapshot_is_really_sealed.py",
+    # @1151. Fifth "module" entry, same subject one layer deeper: what a
+    # --resume-zip cut's consumers are BOUND to. A pathname can be renamed out
+    # from under them between two hashes; a descriptor cannot. Pinned into a
+    # shard because none of it is diff-derivable -- the binding is one os.open
+    # and a pass_fds, the symlink escape is a chmod that follows a link, and
+    # the failure mode of every one is silent rather than red.
+    "tests/test_v3_66_1151_the_snapshot_is_bound_to_a_descriptor.py",
     "tests/test_v3_66_799_audit_tool_selftests.py",
     "tests/test_v3_66_653_dep_freshness.py",
     # @1035. The isolation shard. These three are repo-wide despite not

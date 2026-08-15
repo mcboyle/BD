@@ -141,7 +141,12 @@ def python_for(work):
     return sys.executable
 
 
-def run(cmd, cwd=None, env=None, timeout=None):
+def run(cmd, cwd=None, env=None, timeout=None, pass_fds=()):
+    # pass_fds (v3.66.1151): keep a descriptor open, at the same number, in the
+    # child. That is what lets a SUBPROCESS consumer be bound to the snapshot's
+    # inode too -- it reads its own /proc/self/fd/N, which resolves to the same
+    # file however the directory entry is renamed or replaced meanwhile.
+    # subprocess clears CLOEXEC for these, so no extra handling is needed here.
     # timeout bounds the hang-prone steps (vitest / vite / build_release / band /
     # verify). On expiry we return a synthetic rc=124 result carrying the partial
     # output + a clear TIMEOUT line, so the caller's `if r.returncode != 0: die`
@@ -173,7 +178,7 @@ def run(cmd, cwd=None, env=None, timeout=None):
             env["PYTHONPATH"] = _pp
     try:
         return subprocess.run(cmd, cwd=cwd, env=env, capture_output=True,
-                              text=True, timeout=timeout)
+                              text=True, timeout=timeout, pass_fds=pass_fds)
     except subprocess.TimeoutExpired as e:
         out, err = e.stdout or "", e.stderr or ""
         if isinstance(out, bytes): out = out.decode("utf-8", "replace")
@@ -770,10 +775,14 @@ def band(zippath, suites, work, extracted=None):
     return d
 
 
-def verify(work, zippath):
+def verify(work, zippath, pass_fds=()):
     step(9, "verify_release --zip (gate on true $?)")
+    # pass_fds carries the snapshot's descriptor into the child, so a
+    # /proc/self/fd/N zippath resolves there to the same inode this process
+    # holds -- the subprocess consumer is bound like the in-process ones
+    # rather than trusting a name for the length of a 300s verify.
     r = run([python_for(work), "tools/verify_release.py", "--zip", zippath],
-            cwd=work, timeout=300)
+            cwd=work, timeout=300, pass_fds=pass_fds)
     print(r.stdout[-900:])
     if r.returncode != 0:
         die(f"verify_release exit {r.returncode} -- NO-CUT")
@@ -903,6 +912,11 @@ def _owned_tempdir(prefix):
     """
     d = tempfile.mkdtemp(prefix=prefix)
     _TEMPDIRS.append(d)
+    try:
+        _st = os.lstat(d)
+        _TEMPDIR_IDENT[d] = (_st.st_dev, _st.st_ino)
+    except OSError:
+        pass                      # unidentifiable: cleanup will refuse it
     return d
 
 
@@ -914,6 +928,30 @@ def _owned_tempdir(prefix):
 # CLAUDE.md section 0's "say so" honoured in form only -- and that exact
 # distinction is what parked test4's service in the v3.66.1035 deploy failure.
 _LAST_DISCARD_ERROR = {}
+
+# Descriptors held open so a consumer is bound to an inode rather than to a
+# directory entry (v3.66.1151). main()'s finally closes them; an fd held for
+# the life of the process is a leak with a different name.
+_OPEN_FDS = []
+
+# (st_dev, st_ino) of every directory _owned_tempdir created, so cleanup can
+# tell OUR directory from a stranger's that now sits at the same path. The
+# PATH is precisely the thing that stopped being trustworthy: after a
+# rename+recreate the recorded name holds someone else's directory, and
+# v3.66.1150 deleted THAT while the real sealed snapshot leaked under its new
+# name with nothing reporting it.
+_TEMPDIR_IDENT = {}
+
+
+def _same_object(path, ident):
+    """True only if `path` is still the exact directory we created there."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    if not stat.S_ISDIR(st.st_mode):
+        return False                       # a symlink or a file is not ours
+    return (st.st_dev, st.st_ino) == ident
 
 
 def _discard_tempdir(d):
@@ -945,6 +983,27 @@ def _discard_tempdir(d):
     reading "gone" from a call that reported failure is a conclusion drawn from
     a measurement that did not happen. Unknown is a third state and it fails.
     """
+    # NEVER ACT ON A SYMLINK, AND NEVER ON A STRANGER'S DIRECTORY (v3.66.1151).
+    #
+    # os.chmod FOLLOWS symlinks, so handing this function a link meant chmod'ing
+    # its target -- anywhere on the filesystem, outside anything we own.
+    #
+    # And a recorded path is not proof of ownership: after a rename+recreate it
+    # holds a directory this tool never made. v3.66.1150 deleted that imposter
+    # and let the real sealed snapshot leak under its new name, silently, and
+    # its own regression hid the leak by removing the renamed original by hand.
+    # Identity is inode + device taken at creation, because the PATH is exactly
+    # the thing that stopped being trustworthy.
+    _ident = _TEMPDIR_IDENT.get(d)
+    if _ident is not None and not _same_object(d, _ident):
+        _LAST_DISCARD_ERROR[d] = (
+            "path no longer holds the directory bd-cut created there "
+            "(renamed or replaced) -- refusing to remove a directory we did "
+            "not make, and the original is unaccounted for")
+        return False
+    if os.path.islink(d):
+        _LAST_DISCARD_ERROR[d] = "is a symlink, not a directory we created"
+        return False
     try:
         shutil.rmtree(d)
     except FileNotFoundError:
@@ -1062,12 +1121,33 @@ def snapshot_archive(zippath):
         # because CLAUDE.md section 6 records that a trap converts a reliable
         # failure into a rare silent one and SIGKILL would defeat it anyway.
         os.chmod(d, 0o500)
+        # BIND THE CONSUMERS TO AN INODE, NOT TO A NAME (v3.66.1151).
+        #
+        # v3.66.1150 answered the rename+recreate swap with a hash taken after
+        # the band and again after the summary. That cannot see a swap which is
+        # UNDONE: a consumer renames the real directory away, works against an
+        # imposter at the same pathname, and puts the original back before
+        # returning -- both post-stage hashes then sample the original and
+        # report clean, and the verdict is about bytes nobody judged. A hash
+        # samples a pathname at an instant; only an open descriptor names an
+        # inode for as long as it is held.
+        #
+        # So the path handed downstream is /proc/self/fd/N. Every in-process
+        # open of it resolves to THIS inode no matter what happens to the
+        # directory entry, and the subprocess consumer gets the same guarantee
+        # because run() passes the descriptor through (pass_fds) and the child
+        # reads its own /proc/self/fd/N. Verified: it survives unlinking the
+        # original name, and zipfile opens it in both processes.
+        fd = os.open(dst, os.O_RDONLY)
+        _OPEN_FDS.append(fd)
     except BaseException:
         if not _discard_tempdir(d):
             _report_undeleted(d)
         raise
-    return dst, {"sha256": h.hexdigest(), "size": st.st_size,
-                 "mtime_ns": st.st_mtime_ns}
+    return (f"/proc/self/fd/{fd}",
+            {"sha256": h.hexdigest(), "size": st.st_size,
+             "mtime_ns": st.st_mtime_ns},
+            fd)
 
 
 def archive_identity(zippath):
@@ -1365,12 +1445,13 @@ def _main_inner(argv, _cleanup):
     _gate_subject = a.work
     _subject = None
     _snapshot = None
+    _snapfd = None
     if getattr(a, "resume_zip", None) and os.path.exists(a.resume_zip):
         try:
             # SNAPSHOT FIRST. From here on the operator's mutable file is
             # touched exactly once more -- to ask, at the end, whether it moved.
             # Every consumer reads the owned copy instead (v3.66.1149).
-            _snapshot, _archive_id = snapshot_archive(a.resume_zip)
+            _snapshot, _archive_id, _snapfd = snapshot_archive(a.resume_zip)
             _subject = extract_and_attest(_snapshot)
             _cleanup.append(_subject)
         except Exception as _e:
@@ -1529,7 +1610,7 @@ def _main_inner(argv, _cleanup):
 
         if _snapshot_moved("after the band") or _source_moved("after the band"):
             return 3
-        verify(a.work, _snapshot)
+        verify(a.work, _snapshot, pass_fds=(_snapfd,) if _snapfd is not None else ())
         max_summary(_snapshot, a.baseline)
         if _snapshot_moved("during verify/summary") \
                 or _source_moved("during verify/summary"):
@@ -1652,6 +1733,16 @@ def main(argv=None):
         # directory we own" is one copy too many; _discard_tempdir is the
         # single answer, and it also unregisters on success so the list this
         # loop walks does not grow stale.
+        # CLOSE THE DESCRIPTORS FIRST (v3.66.1151). They are held so consumers
+        # bind to an inode rather than a name; held past the run they are a
+        # leak with a different word for it, and on the sealed snapshot they
+        # also keep the inode alive after its directory entry has gone.
+        for _fd in list(_OPEN_FDS):
+            try:
+                os.close(_fd)
+            except OSError:
+                pass
+            _OPEN_FDS.remove(_fd)
         _failed = []
         for _d in list(dict.fromkeys(_cleanup + _TEMPDIRS)):
             if not _discard_tempdir(_d):

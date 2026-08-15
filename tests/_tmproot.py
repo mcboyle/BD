@@ -25,6 +25,8 @@ from __future__ import annotations
 import os
 import pathlib
 import shutil
+import stat
+import sys
 import tempfile
 
 # The real system temp directory, captured before anything redirects it.
@@ -80,21 +82,38 @@ def _force_rmtree(path: str) -> bool:
     suite runs as root, the chmod SUCCEEDS and takes /tmp from 1777 to 0700,
     silently, breaking every other user on the machine. A cleanup helper must
     never touch a path it was not handed.
+
+    A LEXICAL CONTAINMENT CHECK IS NOT AN ANSWER ABOUT WHAT A PATH RESOLVES TO.
+    The v3.66.1150 guard compared strings, and os.chmod FOLLOWS symlinks -- so
+    a link anywhere inside the tree was "inside" by string comparison while the
+    chmod landed on its target. Measured at 55ae94f8: a directory outside the
+    tree went 0755 -> 0700 and survived. Symlinks are never chmod'd (rmtree
+    unlinks them; their mode is irrelevant), and containment is decided on the
+    REAL path.
     """
-    root = os.path.abspath(path)
+    root = os.path.realpath(path)
 
     def _inside(p):
-        p = os.path.abspath(p)
-        return p == root or p.startswith(root + os.sep)
+        rp = os.path.realpath(p)
+        return rp == root or rp.startswith(root + os.sep)
+
+    def _relax(target):
+        try:
+            st = os.lstat(target)
+        except OSError:
+            return
+        if stat.S_ISLNK(st.st_mode):
+            return                      # never chmod through a link
+        if not _inside(target):
+            return                      # never touch anything we were not given
+        try:
+            os.chmod(target, 0o700)
+        except OSError:
+            pass
 
     def _retry(func, p, _exc):
-        for target in (os.path.dirname(p), p):
-            if not _inside(target):
-                continue
-            try:
-                os.chmod(target, 0o700)
-            except OSError:
-                pass
+        _relax(os.path.dirname(p))
+        _relax(p)
         try:
             func(p)
         except OSError:
@@ -122,7 +141,21 @@ def finish(exitstatus: int) -> bool:
     tempfile.tempdir = None                # new allocations leave the doomed tree
     if int(exitstatus) != 0:
         return False
-    return _force_rmtree(root)
+    ok = _force_rmtree(root)
+    if not ok:
+        # REPORTED HERE, WHERE NO CALL SITE CAN DROP IT (v3.66.1151). Both
+        # session-finish hooks -- this module's and tests/conftest.py's --
+        # discard the return value, and `_ROOT` has already been cleared by the
+        # time the removal is attempted, so a failure is unrecoverable AND
+        # unreported and the run stays green. A cleanup that did not happen is
+        # never silent; putting the report inside the function is the only
+        # placement a caller cannot forget.
+        sys.stderr.write(
+            f"\n_tmproot: PER-RUN TEMP ROOT NOT REMOVED: {root}\n"
+            "  every mkdtemp in this run is under it, and nothing else will "
+            "collect it.\n"
+            "  recover with: chmod -R u+w '%s' && rm -rf '%s'\n" % (root, root))
+    return ok
 
 
 # Hook forms, so this file also works as a standalone `-p _tmproot` plugin.

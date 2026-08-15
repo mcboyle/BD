@@ -586,7 +586,7 @@ def _zip_with(path, marker):
 def test_the_archive_is_snapshotted_into_an_owned_copy(tmp_path):
     m = _load_bdcut()
     src = _zip_with(tmp_path / "r.zip", "A")
-    snap, ident = m.snapshot_archive(str(src))
+    snap, ident, _fd = m.snapshot_archive(str(src))
     try:
         assert os.path.realpath(snap) != os.path.realpath(str(src))
         assert pathlib.Path(snap).read_bytes() == src.read_bytes()
@@ -604,7 +604,7 @@ def test_the_snapshot_is_not_writable(tmp_path):
     may edit the object the band and verify agree on."""
     m = _load_bdcut()
     src = _zip_with(tmp_path / "r.zip", "A")
-    snap, _ = m.snapshot_archive(str(src))
+    snap, _, _fd = m.snapshot_archive(str(src))
     try:
         assert not (os.stat(snap).st_mode & 0o222), oct(os.stat(snap).st_mode)
     finally:
@@ -632,7 +632,7 @@ def _drive_resume(m, monkeypatch, tmp_path, src, on_band=None, on_verify=None):
             on_band()
         seen["band_bytes"] = pathlib.Path(zippath).read_bytes()
 
-    def _verify(w, z):
+    def _verify(w, z, pass_fds=()):
         seen["verify"] = z
         if on_verify:
             on_verify()

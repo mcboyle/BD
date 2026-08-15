@@ -4,6 +4,78 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1151 - bound to a descriptor, not to a name
+
+Four escapes v3.66.1150 left open and two claims it asserted without proving.
+Measured at 55ae94f8 on test5. RED-first: 8 failed / 5 passed against that tree.
+
+1. THE SNAPSHOT ABA STILL ESCAPED. v3.66.1150 answered the rename+recreate swap
+   with a hash taken after the band and again after the summary. An
+   after-the-fact hash cannot see a swap that is UNDONE: a consumer renames the
+   real directory away, works against an imposter at the same pathname, and
+   restores the original before returning -- both post-stage hashes then sample
+   the original and report clean, and the verdict is about bytes nobody judged.
+   A hash samples a pathname at an instant; only an open descriptor names an
+   inode for as long as it is held. snapshot_archive now keeps the snapshot
+   open and hands every consumer /proc/self/fd/N, including the SUBPROCESS one
+   -- run() gained pass_fds, so verify_release resolves the same inode in the
+   child. Verified: the path survives unlinking the original name, and the
+   consumer reads the original bytes through an ABA window that is undone
+   before any hash could sample it.
+
+2. `_force_rmtree` CHMOD'D OUTSIDE ITS TREE THROUGH A SYMLINK. v3.66.1150's
+   guard is LEXICAL -- it compares strings -- while os.chmod FOLLOWS symlinks,
+   so a link anywhere inside the tree was "inside" by string comparison and the
+   chmod landed on its target. Reproduced: a directory outside the tree went
+   0755 -> 0700 and survived. Containment is now decided on the REAL path, and
+   symlinks are never chmod'd at all.
+
+3. `_discard_tempdir` HAD THE SAME FOLLOWING BEHAVIOUR AND COULD NOT TELL ITS
+   OWN DIRECTORY FROM A STRANGER'S. After a rename+recreate the recorded path
+   holds a directory this tool never made: v3.66.1150 deleted THAT, while the
+   real sealed snapshot leaked under its new name with nothing reporting it --
+   and its own regression hid the leak by removing the renamed original by
+   hand. Identity is now (st_dev, st_ino) recorded at creation, because the
+   PATH is precisely the thing that stopped being trustworthy.
+
+4. NOTHING LOOKED AT `finish()`'s RETURN VALUE. Both session-finish call sites
+   -- tests/_tmproot's own hook and tests/conftest.py -- discard it, and
+   `_ROOT` is cleared before the removal is attempted, so a failed reclamation
+   was unrecoverable AND unreported and the run stayed green. The report now
+   lives INSIDE finish(), which is the only placement a caller cannot forget,
+   and names the path plus the chmod-and-rm recovery.
+
+AND THE TWO PROOFS THAT WERE NOT PROOFS:
+
+5. The fstat test rejected os.stat on the archive PATH, which an implementation
+   opening the file TWICE would also satisfy. It now records which descriptor
+   supplied the bytes and which descriptor fstat was asked about and requires
+   them to be the same one.
+
+6. The failed-snapshot test made the DESTINATION open raise, so the copy died
+   before a single byte was written and the partial-file case was never
+   reached. It now fails after the first chunk, with the destination already on
+   disk, and asserts the partial file is gone.
+
+CONSEQUENCE WORTH STATING: the seal from v3.66.1150 is retained but is no
+longer load-bearing. A swap of the directory entry can no longer reach a
+consumer at all, so the regression that used to assert a REFUSAL now asserts
+that the swap is unobservable -- being unreachable is better than being
+detected, and refusing there would have been over-sensitivity rather than
+safety.
+
+DELIBERATELY NOT IN THIS CUT, carried as IMPROVEMENT_BACKLOG row 148:
+bd-cut's build() still uses rmtree(dist, ignore_errors=True). Same defect
+class, different subsystem -- widening Cut 1 to the frontend build path would
+make its blast radius the whole release chain.
+
+Verified: 24 of 24 mutants caught, 0 escaped, across six bd-mutate batteries
+covering v3.66.1149 through this cut. Two escaped on first attempt and both are
+recorded: asserting a reclaim helper EXISTS does not assert finish() CALLS it,
+and the symlink guard was invisible to the outside-escape test because the
+realpath containment check already covered that case -- an in-tree symlink is
+where the two guards disagree, and it needed its own test.
+
 ## v3.66.1150 - the seal that was only on the file
 
 Four defects v3.66.1149's own fixes left behind, plus four claims it made and
