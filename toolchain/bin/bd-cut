@@ -633,6 +633,8 @@ def _tree_vs_zip_source_hash(work, zippath):
 
 def band(zippath, suites, work, extracted=None):
     step(7, "extract built zip to a pristine dir")
+    # Decided FIRST: the stale-zip handler below branches on it.
+    _preextracted = extracted is not None
     # STALE-ZIP GATE (702->703 lesson): the band runs from the ZIP, which is correct
     # -- but --resume/--resume-zip can hand it a zip built BEFORE the current edits, so
     # the band tests OLD code and reports GREEN while the tree has the fix. That is a
@@ -651,13 +653,20 @@ def band(zippath, suites, work, extracted=None):
     except SystemExit:
         raise
     except Exception as e:
+        # FAIL CLOSED when the subject came from an archive (v3.66.1148). A
+        # "skipped" stale-zip check converts UNKNOWN into continuation, which is
+        # the same defect as step 0's old exit-2-is-a-pass. On a plain build the
+        # work tree IS the subject and the check is advisory, so it stays a note.
+        if _preextracted:
+            raise RuntimeError(
+                f"stale-zip check could not evaluate ({type(e).__name__}: {e}) "
+                "-- refusing rather than banding an unverified archive")
         print(f"  {Y}(stale-zip check skipped: {e}){RST}")
     # SINGLE EXTRACTION (v3.66.1147). When the caller has already extracted and
     # ATTESTED the archive, band runs against that exact directory -- the same
     # object step 0 certified. Extracting a second copy here would recreate the
     # certify-one-tree-test-another split this cut exists to remove.
-    _preextracted = extracted is not None
-    d = extracted if _preextracted else tempfile.mkdtemp(prefix="bdcut_verify_")
+    d = extracted if _preextracted else _owned_tempdir("bdcut_verify_")
     with zipfile.ZipFile(zippath) as zf:
         if not _preextracted:
             zf.extractall(d)
@@ -716,7 +725,7 @@ def band(zippath, suites, work, extracted=None):
     # chromium revisions is already a live confounder. Absent in the environment ==
     # playwright's own default, which is the correct fallback.
     env = dict(os.environ)
-    env.update(BD_HOME=tempfile.mkdtemp(), BD_DISABLE_KEEPALIVE="1")
+    env.update(BD_HOME=_owned_tempdir("bdcut_bdhome_"), BD_DISABLE_KEEPALIVE="1")
     # The band runs the EXTRACTED ZIP's tests, but under the WORK TREE's interpreter:
     # the zip carries no venv, and bare python3 has no deps -- the band would collapse
     # into import errors that read as source failures.
@@ -855,6 +864,39 @@ def plan(work, version):
     return 0
 
 
+_TEMPDIRS = []
+
+
+def _owned_tempdir(prefix):
+    """Every temporary directory this tool creates goes through here.
+
+    CLAUDE.md section 0: creating a path is a promise to remove it, and nothing
+    gates that promise. Before v3.66.1148 bd-cut leaked THREE families -- the
+    band's bdcut_verify_*, the BD_HOME it hands the band (default /tmp/tmp*
+    prefix, so a bdcut_* sweep could not even see it), and the step-0 subject.
+    Registration here is what makes main()'s finally able to remove them all.
+    """
+    d = tempfile.mkdtemp(prefix=prefix)
+    _TEMPDIRS.append(d)
+    return d
+
+
+def archive_identity(zippath):
+    """sha256 + size + mtime of the ARCHIVE ITSELF.
+
+    Recorded at extraction and re-checked before verify/summary so an archive
+    swapped underneath the run cannot make the band test A while verify reports
+    on B. The extract is attested against the archive; this attests the archive
+    against itself over time.
+    """
+    st = os.stat(zippath)
+    h = hashlib.sha256()
+    with open(zippath, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return {"sha256": h.hexdigest(), "size": st.st_size, "mtime_ns": st.st_mtime_ns}
+
+
 def extract_and_attest(zippath):
     """Extract the archive ONCE and prove the bytes on disk are the archive's.
 
@@ -868,7 +910,7 @@ def extract_and_attest(zippath):
     landed on disk: the only hash compared the work tree against ZIP MEMBERS,
     before extraction, over two directories, and failed open.
     """
-    d = tempfile.mkdtemp(prefix="bdcut_subject_")
+    d = _owned_tempdir("bdcut_subject_")
     try:
         with zipfile.ZipFile(zippath) as archive:
             archive.extractall(d)
@@ -885,8 +927,13 @@ def extract_and_attest(zippath):
                     raise RuntimeError(
                         f"extracted bytes differ from the archive for "
                         f"{info.filename} (archive {want[:12]}, disk {got[:12]})")
-    except Exception:
+    except BaseException:
+        # BaseException, not Exception: KeyboardInterrupt and SystemExit are not
+        # Exception subclasses, and this runs before the caller has registered
+        # the directory anywhere, so an interrupt here would leak it silently.
         shutil.rmtree(d, ignore_errors=True)
+        if d in _TEMPDIRS:
+            _TEMPDIRS.remove(d)
         raise
     return d
 
@@ -928,7 +975,12 @@ def step0_gate(subject, checker_dir=None, timeout=STEP0_TIMEOUT):
         # modify the thing it judges, nor the tree the operator is standing in.
         sandbox = tempfile.mkdtemp(prefix="bdcut_gate_")
         env = dict(os.environ)
+        # BOTH, because they govern different paths: BD_INSTALL_DIR decides
+        # where db._resolve_db_path lands, BD_HOME decides where a checker's
+        # own state goes. Setting one and not the other still lets the checker
+        # write somewhere we do not own.
         env["BD_INSTALL_DIR"] = sandbox
+        env["BD_HOME"] = sandbox
         try:
             rc = subprocess.run([sys.executable, exe, "--check", "--tree", subject],
                                 timeout=timeout, cwd=sandbox, env=env).returncode
@@ -1055,6 +1107,19 @@ def _main_inner(argv, _cleanup):
     # Now: ONLY exit 0 authorizes a cut. Every other outcome names itself and
     # blocks. --no-gate still overrides, loudly, because an override you cannot
     # prove happened is indistinguishable from a gate that ran.
+    # --resume-zip WITH --detach IS INCOHERENT AND IS REFUSED (v3.66.1148),
+    # before anything is extracted and before bd-job is touched. The parent would
+    # extract, attest and gate subject A, then hand the child an argv that makes
+    # it extract, attest, gate and band its OWN subject B. Two subjects again --
+    # the exact split this cut removed -- and the parent's certification would
+    # describe a directory the child never sees.
+    if getattr(a, "resume_zip", None) and getattr(a, "detach", False):
+        print("\nNO-CUT: --resume-zip cannot be combined with --detach. The "
+              "parent would certify one extract and the detached child would "
+              "band a different one. Run the resume in the foreground.",
+              file=sys.stderr)
+        return 3
+
     # ONE SUBJECT, EXTRACTED ONCE, ATTESTED, SHARED BY THE GATE AND THE BAND.
     # v3.66.1147. Previously the gate extracted to bdcut_step0_* and band()
     # extracted again to bdcut_verify_*, so the directory that was CERTIFIED and
@@ -1066,6 +1131,7 @@ def _main_inner(argv, _cleanup):
     _subject = None
     if getattr(a, "resume_zip", None) and os.path.exists(a.resume_zip):
         try:
+            _archive_id = archive_identity(a.resume_zip)
             _subject = extract_and_attest(a.resume_zip)
             _cleanup.append(_subject)
         except Exception as _e:
@@ -1167,6 +1233,16 @@ def _main_inner(argv, _cleanup):
         assert _subject is not None, (
             "resume-zip reached the band without an attested subject")
         band(a.resume_zip, suites, a.work, extracted=_subject)
+        # THE ARCHIVE MUST NOT HAVE MOVED UNDER US. verify() and max_summary()
+        # read the ZIP again; if it were replaced between the band and them, the
+        # band would have tested A while verify reported on B.
+        _now = archive_identity(a.resume_zip)
+        if _now != _archive_id:
+            print(f"\nNO-CUT: {a.resume_zip} changed during this run "
+                  f"(sha {_archive_id['sha256'][:12]} -> {_now['sha256'][:12]}). "
+                  "The band tested the original; verify would report on the "
+                  "replacement.", file=sys.stderr)
+            return 3
         verify(a.work, a.resume_zip)
         max_summary(a.resume_zip, a.baseline)
         print(f"\n{G}bd-cut --resume complete{RST} -> {a.resume_zip}")
@@ -1275,8 +1351,27 @@ def main(argv=None):
     try:
         return _main_inner(argv, _cleanup)
     finally:
-        for _d in _cleanup:
-            shutil.rmtree(_d, ignore_errors=True)
+        # Every directory this tool created, not just the resume-zip subject:
+        # the band's extract and the BD_HOME it hands the band both live in
+        # _TEMPDIRS. Note the BD_HOME dirs carry the DEFAULT /tmp/tmp* prefix,
+        # so a `ls /tmp/bdcut_*` sweep cannot see them -- claiming "zero leaks"
+        # from that glob would be a gate that cannot see its subject.
+        _failed = []
+        for _d in list(dict.fromkeys(_cleanup + _TEMPDIRS)):
+            try:
+                shutil.rmtree(_d)
+            except FileNotFoundError:
+                pass
+            except OSError as _e:
+                _failed.append(f"{_d}: {_e}")
+            else:
+                if os.path.exists(_d):
+                    _failed.append(f"{_d}: still present after rmtree")
+        if _failed:
+            # Honest reporting: a cleanup that did not happen is never silent.
+            print("bd-cut: TEMPORARY DIRECTORIES NOT REMOVED:", file=sys.stderr)
+            for _f in _failed:
+                print(f"  {_f}", file=sys.stderr)
 
 
 if __name__ == "__main__":

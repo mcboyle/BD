@@ -266,6 +266,7 @@ jobs:
               tests/test_register_promises_resolve.py
               tests/test_v3_66_1052_the_backlog_is_machine_visible.py
               tests/test_v3_66_1142_fleet_run_is_hermetic.py
+              tests/test_v3_66_1145_step0_fails_closed.py
           - name: parity-graph
             suites: >-
               tests/test_gui_parity.py

@@ -95,6 +95,13 @@ _DECLARED = {
     # procfs. The failure mode is someone reintroducing a network-capable
     # fixture, which no diff-derived band would necessarily catch.
     "tests/test_v3_66_1142_fleet_run_is_hermetic.py",
+    # @1148. Also BD_GATE_SCOPE = "module" and also deliberately so: its subject
+    # is bd-cut's release gate, not the tree. It is pinned into a shard because
+    # the contract it holds -- only a measured exit 0 authorizes a cut -- is the
+    # thing that decides whether ANY other gate's verdict is honoured. Until
+    # v3.66.1145 the gate failed open and no test anywhere pinned it; the 12/12
+    # GitHub result on that PR did not execute this contract at all.
+    "tests/test_v3_66_1145_step0_fails_closed.py",
     "tests/test_v3_66_799_audit_tool_selftests.py",
     "tests/test_v3_66_653_dep_freshness.py",
     # @1035. The isolation shard. These three are repo-wide despite not

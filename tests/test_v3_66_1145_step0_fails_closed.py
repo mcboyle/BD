@@ -748,3 +748,312 @@ def test_band_does_not_re_extract_over_a_supplied_subject():
     assert "_preextracted" in body, "band() does not honour a supplied subject"
     assert "if not _preextracted" in body.replace("\n", " ") or \
            "not _preextracted" in body, "extractall is unconditional"
+
+
+# ============ v3.66.1148: subject integrity, leaks, isolation proof =========
+
+def _multi_zip(path):
+    """A MULTI-MEMBER archive. A single-member fixture cannot show whether the
+    whole denominator is attested or only the first entry."""
+    import zipfile
+    with zipfile.ZipFile(path, "w") as zf:
+        for i in range(6):
+            zf.writestr(f"pkg/mod{i}.py", f"VALUE = {i}\n" * 20)
+        zf.writestr("run_tests.py", "print('ok')\n")
+    return path
+
+
+def test_resume_zip_with_detach_is_refused_before_any_extraction(tmp_path, capsys):
+    """Two subjects again: the parent would extract/gate A, the child B.
+
+    ASSERTS THE REASON, not just rc 3. At 61e3c4cf this returned 3 anyway --
+    because the REAL checkers refused the synthetic extract -- so a
+    returncode-only assertion passed for entirely the wrong reason and would
+    have certified a fix that did not exist. All step-0 refusals share exit 3;
+    the words are the only thing that discriminates (CLAUDE.md section 10).
+    """
+    m = _load_bdcut()
+    z = _multi_zip(tmp_path / "r.zip")
+    work = tmp_path / "work"
+    (work / "bulk_downloader").mkdir(parents=True)
+    (work / "bulk_downloader" / "__init__.py").write_text('__version__ = "3.66.0"\n')
+    before = set(pathlib.Path(tempfile.gettempdir()).glob("bdcut_subject_*"))
+    rc = m.main(["--work", str(work), "--out", str(tmp_path / "o"),
+                 "--resume-zip", str(z), "--detach"])
+    err = capsys.readouterr().err
+    assert rc == 3, f"--resume-zip --detach was accepted (rc={rc})"
+    assert "--resume-zip cannot be combined with --detach" in err, (
+        f"refused, but not for the detach conflict -- so this proves nothing "
+        f"about the fix:\n{err[-700:]}")
+    after = set(pathlib.Path(tempfile.gettempdir()).glob("bdcut_subject_*"))
+    assert after == before, f"it extracted before refusing: {after - before}"
+
+
+def test_a_stale_zip_check_that_cannot_evaluate_fails_closed(tmp_path, monkeypatch):
+    """'stale-zip check skipped' converted UNKNOWN into continuation."""
+    m = _load_bdcut()
+    z = _multi_zip(tmp_path / "r.zip")
+    d = m.extract_and_attest(str(z))
+    try:
+        monkeypatch.setattr(m, "_tree_vs_zip_source_hash",
+                            lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
+        with pytest.raises(RuntimeError) as ei:
+            m.band(str(z), ["pkg/mod0.py"], str(tmp_path), extracted=d)
+        assert "could not evaluate" in str(ei.value)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_the_real_band_extracts_exactly_once(tmp_path, monkeypatch):
+    """Drives the REAL band(), not a lambda, and COUNTS extractall calls."""
+    import zipfile as _zf
+    m = _load_bdcut()
+    z = _multi_zip(tmp_path / "r.zip")
+    calls = {"n": 0}
+    real = _zf.ZipFile.extractall
+
+    def counted(self, path=None, *a, **k):
+        calls["n"] += 1
+        return real(self, path, *a, **k)
+
+    monkeypatch.setattr(_zf.ZipFile, "extractall", counted)
+    subject = m.extract_and_attest(str(z))          # extraction #1
+    assert calls["n"] == 1, calls
+
+    monkeypatch.setattr(m, "_tree_vs_zip_source_hash",
+                        lambda *a, **k: ("same", "same", []))
+    monkeypatch.setattr(m, "python_for", lambda w: sys.executable)
+
+    class _R:
+        # band() takes the LAST line containing "Total:" as its summary and
+        # requires "Failed: 0" in it. A fake without "Total:" makes band die for
+        # a reason unrelated to the question under test.
+        returncode = 0
+        stdout = "Total: 1  Passed: 1  Failed: 0\n"
+        stderr = ""
+
+    monkeypatch.setattr(m, "run", lambda *a, **k: _R())
+    try:
+        # A suite that is really IN the archive -- band refuses an empty suite
+        # set, and a fixture that produces nothing to band would prove nothing.
+        assert (pathlib.Path(subject) / "pkg" / "mod0.py").is_file()
+        m.band(str(z), ["pkg/mod0.py"], str(tmp_path), extracted=subject)
+    finally:
+        shutil.rmtree(subject, ignore_errors=True)
+    assert calls["n"] == 1, (
+        f"band re-extracted the archive: {calls['n']} extractall calls, want 1")
+
+
+def test_attestation_covers_a_LATER_member(tmp_path, monkeypatch):
+    """Tamper member 5 of 7 -- a first-entry-only check would pass this."""
+    import zipfile as _zf
+    m = _load_bdcut()
+    z = _multi_zip(tmp_path / "r.zip")
+    real = _zf.ZipFile.extractall
+
+    def tamper(self, path=None, *a, **k):
+        real(self, path, *a, **k)
+        victim = pathlib.Path(path, "pkg", "mod4.py")
+        assert victim.exists(), "fixture precondition: the later member exists"
+        victim.write_text("VALUE = 999  # tampered\n")
+
+    monkeypatch.setattr(_zf.ZipFile, "extractall", tamper)
+    with pytest.raises(RuntimeError) as ei:
+        m.extract_and_attest(str(z))
+    assert "mod4.py" in str(ei.value), (
+        f"attestation missed a later member: {ei.value}")
+
+
+def test_a_swapped_archive_is_caught_before_verify(tmp_path, monkeypatch):
+    """The band tests A; verify must not then report on B."""
+    m = _load_bdcut()
+    z = tmp_path / "r.zip"
+    _multi_zip(z)
+    work = tmp_path / "work"
+    (work / "bulk_downloader").mkdir(parents=True)
+    (work / "bulk_downloader" / "__init__.py").write_text('__version__ = "3.66.0"\n')
+
+    monkeypatch.setattr(m, "step0_gate", lambda subject, **k: [])
+
+    def swap(zp, su, wk, extracted=None):
+        import zipfile
+        with zipfile.ZipFile(zp, "w") as zf:      # replace the archive mid-run
+            zf.writestr("different.py", "x = 2\n")
+
+    monkeypatch.setattr(m, "band", swap)
+    called = {"verify": False}
+    monkeypatch.setattr(m, "verify", lambda *a, **k: called.__setitem__("verify", True))
+    monkeypatch.setattr(m, "max_summary", lambda *a, **k: None)
+
+    rc = m.main(["--work", str(work), "--out", str(tmp_path / "o"),
+                 "--resume-zip", str(z)])
+    assert rc == 3, f"a swapped archive was not caught (rc={rc})"
+    assert not called["verify"], "verify ran against the replacement archive"
+
+
+# --------------------------------------------------------------- leak tests
+
+def _tmp_snapshot():
+    t = pathlib.Path(tempfile.gettempdir())
+    return set(t.glob("bdcut_*")) | set(t.glob("bdfg_*"))
+
+
+@pytest.mark.parametrize("mode", ["success", "refusal", "exception"])
+def test_no_temporary_directory_survives_a_run(tmp_path, monkeypatch, mode):
+    """Success, refusal and exception all end with nothing left behind.
+
+    The snapshot covers bdcut_* AND bdfg_* -- the BD_HOME directories used the
+    DEFAULT /tmp/tmp* prefix before this cut, so a bdcut_* glob could not see
+    them and "zero leaks" from that glob would have been a gate blind to its
+    own subject.
+    """
+    m = _load_bdcut()
+    z = _multi_zip(tmp_path / "r.zip")
+    work = tmp_path / "work"
+    (work / "bulk_downloader").mkdir(parents=True)
+    (work / "bulk_downloader" / "__init__.py").write_text('__version__ = "3.66.0"\n')
+    monkeypatch.setattr(m, "verify", lambda *a, **k: None)
+    monkeypatch.setattr(m, "max_summary", lambda *a, **k: None)
+    if mode == "success":
+        monkeypatch.setattr(m, "step0_gate", lambda s, **k: [])
+        monkeypatch.setattr(m, "band", lambda *a, **k: None)
+    elif mode == "refusal":
+        monkeypatch.setattr(m, "step0_gate", lambda s, **k: ["NO-CUT: step-0 synthetic"])
+    else:
+        monkeypatch.setattr(m, "step0_gate", lambda s, **k: [])
+        def boom(*a, **k):
+            raise RuntimeError("band exploded")
+        monkeypatch.setattr(m, "band", boom)
+
+    before = _tmp_snapshot()
+    try:
+        m.main(["--work", str(work), "--out", str(tmp_path / "o"),
+                "--resume-zip", str(z)])
+    except RuntimeError:
+        assert mode == "exception"
+    leaked = _tmp_snapshot() - before
+    assert not leaked, f"{mode}: leaked {sorted(str(p) for p in leaked)}"
+
+
+def test_an_interrupted_extraction_leaks_nothing(tmp_path, monkeypatch):
+    """KeyboardInterrupt is not an Exception subclass, and the directory is not
+    yet registered with main() when extraction runs."""
+    import zipfile as _zf
+    m = _load_bdcut()
+    z = _multi_zip(tmp_path / "r.zip")
+    real = _zf.ZipFile.extractall
+
+    def interrupt(self, path=None, *a, **k):
+        real(self, path, *a, **k)
+        raise KeyboardInterrupt("operator ^C")
+
+    monkeypatch.setattr(_zf.ZipFile, "extractall", interrupt)
+    before = _tmp_snapshot()
+    with pytest.raises(KeyboardInterrupt):
+        m.extract_and_attest(str(z))
+    leaked = _tmp_snapshot() - before
+    assert not leaked, f"an interrupt leaked: {sorted(str(p) for p in leaked)}"
+
+
+def test_cleanup_failures_are_reported_not_swallowed(tmp_path, monkeypatch, capsys):
+    """A cleanup that did not happen must never be silent."""
+    m = _load_bdcut()
+    z = _multi_zip(tmp_path / "r.zip")
+    work = tmp_path / "work"
+    (work / "bulk_downloader").mkdir(parents=True)
+    (work / "bulk_downloader" / "__init__.py").write_text('__version__ = "3.66.0"\n')
+    monkeypatch.setattr(m, "step0_gate", lambda s, **k: [])
+    monkeypatch.setattr(m, "band", lambda *a, **k: None)
+    monkeypatch.setattr(m, "verify", lambda *a, **k: None)
+    monkeypatch.setattr(m, "max_summary", lambda *a, **k: None)
+    monkeypatch.setattr(m.shutil, "rmtree",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError(13, "Permission denied")))
+    m.main(["--work", str(work), "--out", str(tmp_path / "o"), "--resume-zip", str(z)])
+    err = capsys.readouterr().err
+    assert "TEMPORARY DIRECTORIES NOT REMOVED" in err, err[-600:]
+
+
+# ------------------------------------------------- isolation, proven by bytes
+
+def test_the_gate_cannot_overwrite_an_existing_ignored_database(tmp_path):
+    """FILENAME COMPARISON CANNOT SEE THIS -- and this was the measured defect.
+
+    The real bd-footguns overwrote an EXISTING gitignored downloader_history.db
+    in the caller's cwd. A directory-listing check finds the same filename
+    before and after and reports clean. Only the BYTES answer it.
+    """
+    m = _load_bdcut()
+    bin_dir = tmp_path / "bin"; bin_dir.mkdir()
+    for name in m.STEP0_CHECKERS:
+        (bin_dir / name).write_text(
+            "#!/usr/bin/env python3\n"
+            "import os, sys\n"
+            "open(os.path.join(os.getcwd(), 'downloader_history.db'),'wb')"
+            ".write(b'CLOBBERED')\n"
+            "sys.exit(0)\n")
+        (bin_dir / name).chmod(0o755)
+
+    caller = tmp_path / "caller"; caller.mkdir()
+    sentinel = caller / "downloader_history.db"
+    payload = b"SENTINEL-PRODUCTION-DATA" * 64
+    sentinel.write_bytes(payload)
+    import hashlib
+    before = hashlib.sha256(sentinel.read_bytes()).hexdigest()
+    before_size = sentinel.stat().st_size
+
+    old = os.getcwd(); os.chdir(caller)
+    try:
+        assert m.step0_gate(str(tmp_path), checker_dir=str(bin_dir)) == []
+    finally:
+        os.chdir(old)
+
+    after = hashlib.sha256(sentinel.read_bytes()).hexdigest()
+    assert after == before, (
+        "the gate OVERWROTE an existing database in the caller's cwd; "
+        f"sha {before[:12]} -> {after[:12]}")
+    assert sentinel.stat().st_size == before_size
+
+
+def test_the_checker_runs_inside_the_owned_sandbox(tmp_path):
+    """cwd, BD_INSTALL_DIR and BD_HOME must all be inside the sandbox."""
+    m = _load_bdcut()
+    bin_dir = tmp_path / "bin"; bin_dir.mkdir()
+    rec = tmp_path / "rec.txt"
+    for name in m.STEP0_CHECKERS:
+        (bin_dir / name).write_text(
+            "#!/usr/bin/env python3\n"
+            "import json, os, sys\n"
+            f"open({str(rec)!r},'a').write(json.dumps({{'cwd': os.getcwd(),"
+            "'install': os.environ.get('BD_INSTALL_DIR'),"
+            "'home': os.environ.get('BD_HOME')})+chr(10))\n"
+            "sys.exit(0)\n")
+        (bin_dir / name).chmod(0o755)
+    assert m.step0_gate(str(tmp_path), checker_dir=str(bin_dir)) == []
+    rows = [json.loads(l) for l in rec.read_text().splitlines() if l.strip()]
+    assert len(rows) == len(m.STEP0_CHECKERS), rows
+    for r in rows:
+        assert "bdcut_gate_" in r["cwd"], r
+        assert r["install"] == r["cwd"], f"BD_INSTALL_DIR outside the sandbox: {r}"
+        assert r["home"] == r["cwd"], f"BD_HOME outside the sandbox: {r}"
+        assert not os.path.exists(r["cwd"]), f"sandbox leaked: {r['cwd']}"
+
+
+@pytest.mark.parametrize("body,expect", [
+    ("import time; time.sleep(30)", "TIMED OUT"),
+    ("import sys; sys.exit(2)", "could not evaluate"),
+])
+def test_the_sandbox_is_removed_after_timeout_and_refusal(tmp_path, body, expect):
+    m = _load_bdcut()
+    bin_dir = tmp_path / "bin"; bin_dir.mkdir()
+    rec = tmp_path / "cwds.txt"
+    for name in m.STEP0_CHECKERS:
+        (bin_dir / name).write_text(
+            "#!/usr/bin/env python3\n"
+            "import os\n"
+            f"open({str(rec)!r},'a').write(os.getcwd()+chr(10))\n"
+            f"{body}\n")
+        (bin_dir / name).chmod(0o755)
+    refusals = m.step0_gate(str(tmp_path), checker_dir=str(bin_dir), timeout=2)
+    assert refusals and any(expect in r for r in refusals), refusals
+    for d in {l.strip() for l in rec.read_text().splitlines() if l.strip()}:
+        assert not os.path.exists(d), f"sandbox leaked after {expect}: {d}"

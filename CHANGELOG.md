@@ -4,6 +4,60 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1148 - subject integrity, every leak, and the DB that was never residue
+
+Fourth and final review pass on PR #429.
+
+RESUME-ZIP SUBJECT GAPS CLOSED. --resume-zip with --detach is REFUSED before
+anything is extracted and before bd-job is touched: the parent would certify one
+extract and the detached child would band its own. The stale-zip check now FAILS
+CLOSED when the subject came from an archive -- "stale-zip check skipped" was
+still converting UNKNOWN into continuation. The archive's sha256/size/mtime are
+recorded at extraction and re-checked before verify/summary, so an archive
+replaced mid-run cannot make the band test A while verify reports on B.
+
+EVERY TEMPORARY DIRECTORY IS NOW OWNED. Three leaks, all real: band()'s
+bdcut_verify_* on normal and resume paths; the BD_HOME band hands its child; and
+one BD_HOME per in-sync detector inside bd-footguns, six per --check. The last
+two used the DEFAULT /tmp/tmp* prefix, so a `ls /tmp/bdcut_*` sweep could not see
+them -- claiming "zero leaks" from that glob would have been a gate blind to its
+own subject, which is why the leak test snapshots bdcut_* AND bdfg_*.
+extract_and_attest now cleans up on BaseException and re-raises, because
+KeyboardInterrupt and SystemExit are not Exception subclasses and the directory
+is not yet registered when extraction runs. Cleanup failures are printed, never
+swallowed.
+
+ISOLATION PROVEN BY BYTES, NOT FILENAMES. The checker sandbox now sets BOTH
+BD_INSTALL_DIR and BD_HOME, and tests assert the subprocess's cwd and both
+variables are inside the owned sandbox, and that it is removed after success,
+timeout and refusal. The decisive test pre-creates a sentinel
+downloader_history.db and compares its sha256 before and after: a
+directory-listing check sees the same filename either way and reports clean,
+which is exactly the measured defect -- the real checker OVERWROTE an existing
+ignored database.
+
+THE EXISTING downloader_history.db IS NOT RESIDUE. Read-only diagnosis:
+DB_PATH = "downloader_history.db" (relative), the service's systemd
+WorkingDirectory AND live /proc cwd are /home/mboyle/BulkDownloader, and
+BD_INSTALL_DIR is unset in its environment -- so db._resolve_db_path resolves it
+against the repo root. This IS the production database: 7,467,008 bytes, 60
+tables, 244 history rows, 1 queue row, PRAGMA integrity_check ok, WAL mode, and
+no process holding it open at rest. It was NOT moved or deleted. It is backed up
+to ~/bd-db-recovery/<UTC timestamp>/ with a matching sha256. The v3.66.1147
+diagnostic run DID modify it (mtime 11:08) before the isolation fix landed --
+recorded here rather than quietly corrected.
+
+CI WIRED. tests/test_v3_66_1145_step0_fails_closed.py was in no shard, so the
+12/12 GitHub result on this PR never executed the release-gate contract it
+adds. It now sits in the toolchain shard and in _DECLARED, updated in the same
+commit.
+
+RED at 61e3c4cf: 6 failed, 39 passed. GREEN: 45 passed. One of those six passed
+at 61e3c4cf for the WRONG reason until it was strengthened -- it returned exit 3
+because the real checkers refused a synthetic extract, not because the
+detach/resume-zip conflict was rejected. All step-0 refusals share exit 3; only
+the words discriminate.
+
 ## v3.66.1147 - one subject, extracted once, and a gate that stops writing to the tree
 
 Third review pass on PR #429.

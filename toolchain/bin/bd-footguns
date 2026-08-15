@@ -25,7 +25,7 @@ introduced it / which cut it bit), the FIX, and STATUS.
 External FOOTGUNS.json (tree root or alongside this tool) is merged over the
 embedded seed, so the registry grows with the project without editing the tool.
 """
-import argparse, json, os, re, subprocess, sys, tempfile
+import argparse, json, os, re, shutil, subprocess, sys, tempfile
 
 # v3.66.855 desandbox. AFTER the import line on purpose (sys must already be bound).
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -184,7 +184,12 @@ def _run_insync(test, tree):
     # OVERWROTE any inherited PYTHONPATH with nothing; the in-sync tests only kept
     # passing because cwd=tree puts the tree on sys.path anyway. Naming the tree
     # makes that accident into the contract (CLAUDE.md s5: venv carries the deps).
-    env = dict(os.environ, BD_HOME=tempfile.mkdtemp(), BD_DISABLE_KEEPALIVE="1",
+    # OWNED AND REMOVED (v3.66.1148). This used to be a bare mkdtemp() per
+    # in-sync detector, never removed -- six detectors, six leaked directories
+    # per --check, on the DEFAULT /tmp/tmp* prefix so no bd-* sweep could see
+    # them. CLAUDE.md section 0: creating a path is a promise to remove it.
+    _bdhome = tempfile.mkdtemp(prefix="bdfg_bdhome_")
+    env = dict(os.environ, BD_HOME=_bdhome, BD_DISABLE_KEEPALIVE="1",
                PYTHONPATH=tree)
     try:
         r = subprocess.run([sys.executable, "run_tests.py", test], cwd=tree, env=env,
@@ -195,6 +200,8 @@ def _run_insync(test, tree):
         return (failed == 0), out
     except Exception as e:
         return None, str(e)
+    finally:
+        shutil.rmtree(_bdhome, ignore_errors=True)
 
 
 def _check_one(fg, tree):
