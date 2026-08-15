@@ -85,6 +85,16 @@ _DECLARED = {
     "tests/test_gui_parity.py",
     "tests/test_pk_mirrors_stay_retired.py",
     "tests/test_toolchain_534.py",
+    # @1143. The ONLY entry here that is BD_GATE_SCOPE = "module", and that is
+    # deliberate. Its subject is one tool, so calling it "repo-wide" would be
+    # the mislabelling this file's own docstring says nothing catches. It is
+    # pinned into a shard anyway because the property it guards is a SAFETY
+    # BOUNDARY that must run on every PR regardless of what the diff touched:
+    # bd-fleet-run's v3.66.1140 selftest could reach `ssh 192.0.2.10` and ran
+    # on GitHub runners via test_toolchain_534, kept off the network only by
+    # procfs. The failure mode is someone reintroducing a network-capable
+    # fixture, which no diff-derived band would necessarily catch.
+    "tests/test_v3_66_1142_fleet_run_is_hermetic.py",
     "tests/test_v3_66_799_audit_tool_selftests.py",
     "tests/test_v3_66_653_dep_freshness.py",
     # @1035. The isolation shard. These three are repo-wide despite not

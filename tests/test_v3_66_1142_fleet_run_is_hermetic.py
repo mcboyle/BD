@@ -1,56 +1,57 @@
-"""bd-fleet-run may never reach a network, and that must be a property of the code.
+"""bd-fleet-run may never reach a network, and must never lose a host's result.
 
-WHY, MEASURED 2026-08-15 at v3.66.1141. The v3.66.1140 implementation shipped
-with a test suite that was green and a fixture that could have opened an ssh
-connection from GitHub CI:
+WHY, MEASURED 2026-08-15. The v3.66.1140 implementation shipped with a green
+suite and a fixture that could have opened an ssh connection from GitHub CI:
 
     bd-fleet-run:350   logdir.mkdir(...)          <- the ONLY guard
-            :351-353   manifest write             <- no further guard existed
             :364-368   submit(run_one, "alpha", "192.0.2.10", ...)
     run_one :94        "alpha" != socket.gethostname()
             :98-103    ssh -o BatchMode=yes -o ConnectTimeout=10 192.0.2.10 ...
 
-The refusal that kept it off the network was `mkdir /proc/cannot/write/here`
-failing -- procfs semantics, not a code guard. `tests/test_toolchain_534.py`
-runs `bd-fleet-run --selftest` and sits in ci.yml's `toolchain` shard, so that
-fixture executed on GitHub-hosted runners on every PR. No egress ever occurred,
-because procfs held on the box and on the runners. The property was simply
-never enforced by anything in the repository.
+What kept it off the network was `mkdir /proc/cannot/write/here` failing --
+procfs semantics, not a code guard -- and test_toolchain_534.py runs that
+selftest inside ci.yml's `toolchain` shard. The test written to catch a bypass
+could not have: it asserted a LOCAL marker path stayed absent while the `touch`
+it guarded would have run on the REMOTE host.
 
-Worse, the test written to catch a bypass could not have: it asserted a LOCAL
-marker path stayed absent, while the `touch` it guarded would have executed on
-the REMOTE host. CLAUDE.md section 6 -- a test cannot catch what its harness
-cannot distinguish.
+v3.66.1143 closes six further ways to lose a result or destroy something, each
+pinned below: `--only` failing open on a typo and being applied after address
+de-duplication; an exception anywhere in execution discarding the whole run's
+record including hosts that had already executed; prune deleting the CURRENT
+run, and reporting "removed" for a deletion that ignore_errors had swallowed;
+`" ".join()` destroying command quoting; ssh 255 collapsing auth and
+unreachable into one bucket; and the local-HEAD probe calling subprocess
+directly, so execute-mode tests could not honestly claim zero real process
+calls.
 
-WHAT CHANGED, AND WHY THESE TESTS ARE DIFFERENT IN KIND. Every process launch
-now goes through an INJECTED runner. `main(argv, runner=...)` is the only entry
-point, and nothing else in the module calls subprocess except `_local_head()`,
-which runs `git rev-parse` locally. So "these tests cannot reach the network" is
-a property of the wiring, not of an address being unroutable or a directory
-being unwritable.
-
-The `_egress_guard` fixture below is autouse and makes that an ASSERTION rather
-than an argument: it replaces `subprocess.run` inside the module under test and
-FAILS the test if anything tries to launch ssh, scp, sftp, rsync or bash. `git`
-is permitted and named explicitly, because the tool records the local commit.
+WHY THESE TESTS ARE DIFFERENT IN KIND. Every process launch goes through an
+INJECTED seam -- `main(argv, runner=..., probe=...)`. The `guarded` fixture
+below replaces `subprocess.run` inside the module under test and FAILS on any
+launch at all, so "these tests cannot reach the network" is a property of the
+wiring rather than of an address being unroutable.
 """
 
 from __future__ import annotations
 
+import ast
 import importlib.machinery
 import importlib.util
 import json
 import os
 import pathlib
-import re
-import stat
 import subprocess
-import sys
 import tempfile
+import threading
+import time
 
 import pytest
 
-# Its subject is one tool's safety envelope, not the tree.
+# Its subject is one tool's safety envelope. It is nevertheless pinned into a
+# CI shard (see _DECLARED in test_v3_66_939): the property it guards is a
+# safety boundary that must run on every PR regardless of what the diff
+# touched, because the failure mode is someone reintroducing a network-capable
+# fixture. Declaring it "repo-wide" to buy shard membership would be the
+# dishonest answer that gate's own docstring says nothing catches.
 BD_GATE_SCOPE = "module"
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -76,26 +77,21 @@ def mod():
 def guarded(monkeypatch):
     """Returns (mod, launches). Makes "no network" an ASSERTION, not a hope.
 
-    Replaces subprocess.run inside the module under test and raises on any
-    remote-capable launcher. CLAUDE.md section 0: derive reachability rather
-    than assert it -- and never rely on an address being unroutable or a
-    directory being unwritable, which is exactly how the v3.66.1140 fixture
-    stayed off the network by accident.
+    Since v3.66.1143 both seams are injectable, so a correctly-wired execute
+    run starts NOTHING -- not even git. Any launch is recorded, and a
+    remote-capable one raises immediately.
     """
     m = _load()
     launches = []
 
-    real = subprocess.run
-
     def fake_run(argv, *a, **k):
-        launches.append(list(argv) if not isinstance(argv, str) else [argv])
-        head = os.path.basename(str(argv[0])) if argv else ""
+        seq = list(argv) if not isinstance(argv, str) else [argv]
+        launches.append(seq)
+        head = os.path.basename(str(seq[0])) if seq else ""
         if head in FORBIDDEN_LAUNCHERS:
             raise AssertionError(
-                f"bd-fleet-run attempted to launch {head!r} during a test: {argv}")
-        if head != "git":
-            raise AssertionError(f"unexpected launcher {head!r}: {argv}")
-        return real(argv, *a, **k)
+                f"bd-fleet-run attempted to launch {head!r} during a test: {seq}")
+        raise AssertionError(f"unexpected real subprocess during a test: {seq}")
 
     monkeypatch.setattr(m.subprocess, "run", fake_run)
     return m, launches
@@ -108,28 +104,28 @@ def _fleet(tmp: pathlib.Path, body: str) -> pathlib.Path:
 
 
 def _base(tmp: pathlib.Path) -> pathlib.Path:
-    # validate_root requires a dedicated directory, not a top-level one.
     return tmp / "artifacts" / "runs"
+
+
+def _seeded_run(base: pathlib.Path, name: str, mod, sentinel=True):
+    d = base / name
+    d.mkdir(parents=True, exist_ok=True)
+    if sentinel:
+        (d / mod.SENTINEL).write_text("{}")
+    return d
 
 
 # ------------------------------------------------------------- preconditions
 
 def test_the_tool_exists_and_parses(mod):
-    """PRECONDITION -- without it every assertion below is vacuous."""
     assert TOOL.is_file()
-    assert hasattr(mod, "main") and hasattr(mod, "SubprocessRunner")
+    for name in ("main", "SubprocessRunner", "SubprocessProbe", "prune",
+                 "build_command", "classify", "resolve_targets"):
+        assert hasattr(mod, name), f"bd-fleet-run has no {name}"
 
 
-def test_the_module_starts_no_process_at_import_time(guarded):
-    """Importing must not launch anything. The fixture proves it."""
-    _m, launches = guarded
-    assert launches == []
-
-
-def test_only_one_place_in_the_module_can_start_a_process(mod):
-    """STRUCTURAL: subprocess use is confined, so the injected runner is the
-    single execution seam rather than one of several."""
-    import ast
+def test_only_the_two_named_seams_can_start_a_process(mod):
+    """STRUCTURAL: execution is confined, so injection controls everything."""
     tree = ast.parse(TOOL.read_text(encoding="utf-8"))
     holders = set()
     for node in ast.walk(tree):
@@ -139,113 +135,555 @@ def test_only_one_place_in_the_module_can_start_a_process(mod):
                 if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)) \
                         and node in ast.walk(parent):
                     holders.add(parent.name)
-    assert holders <= {"run", "_local_head"}, (
-        f"subprocess is reachable from {sorted(holders)}; execution must be "
-        "confined to SubprocessRunner.run and the local-commit probe so the "
-        "injected runner is the only seam a test has to control")
+    assert holders <= {"run", "local_head"}, (
+        f"subprocess is reachable from {sorted(holders)}; it must be confined "
+        "to SubprocessRunner.run and SubprocessProbe.local_head so the "
+        "injected seams are the only execution a test has to control")
 
 
 # ------------------------------------------------------------- no egress
 
 def test_dry_run_is_the_default_and_launches_nothing(guarded):
-    """The single most important behavior: planning contacts no host."""
     m, launches = guarded
     with tempfile.TemporaryDirectory() as td:
         tmp = pathlib.Path(td)
         hosts = _fleet(tmp, "alpha 10.0.0.1\nbeta 10.0.0.2\n")
         fake = m._FakeRunner()
         rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
-                     "--", "echo", "hi"], runner=fake)
+                     "--", "echo", "hi"], runner=fake, probe=m._FakeProbe())
         assert rc == 0
-        assert fake.calls == [], "a plan run called the runner"
-        assert launches == [], f"a plan run started a process: {launches}"
+        assert fake.calls == [] and launches == []
         assert not _base(tmp).exists(), "a plan run created artifacts"
 
 
-def test_execute_calls_only_the_injected_runner(guarded):
+def test_execute_makes_no_real_process_call_at_all(guarded):
+    """With both seams injected, a correct execute run starts NOTHING."""
     m, launches = guarded
     with tempfile.TemporaryDirectory() as td:
         tmp = pathlib.Path(td)
         hosts = _fleet(tmp, "alpha 10.0.0.1\nbeta 10.0.0.2\n")
         fake = m._FakeRunner()
         rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
-                     "--execute", "--", "echo", "hi"], runner=fake)
+                     "--execute", "--", "echo", "hi"],
+                    runner=fake, probe=m._FakeProbe())
         assert rc == 0
         assert len(fake.calls) == 2
-        # git rev-parse for the local head is the ONLY permitted real launch.
-        assert all(os.path.basename(c[0]) == "git" for c in launches), launches
+        assert launches == [], f"a real subprocess was started: {launches}"
 
 
 def test_ssh_host_key_verification_is_never_disabled(mod):
     argv = mod.build_argv("alpha", "10.0.0.1", False, "echo hi")
     joined = " ".join(argv)
-    assert "StrictHostKeyChecking" not in joined, (
-        "host-key verification was weakened; a fleet runner that skips it will "
-        "execute the operator's commands against whatever answers on that "
-        "address")
+    assert "StrictHostKeyChecking" not in joined
     assert "BatchMode=yes" in joined and "-n" in argv
 
 
-# ------------------------------------------------------------- label validation
+# ------------------------------------------------------------- --only
+
+def test_a_partial_only_match_refuses_before_anything_runs(guarded):
+    """FAIL CLOSED. A typo must not silently narrow the fleet."""
+    m, launches = guarded
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "test5 10.0.0.1\ntest6 10.0.0.2\n")
+        fake = m._FakeRunner()
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--only", "test5,TYPO", "--execute", "--", "true"],
+                    runner=fake, probe=m._FakeProbe())
+        assert rc == 2, "a partial --only match was accepted"
+        assert fake.calls == [] and launches == []
+        assert not _base(tmp).exists(), "artifacts were created before refusing"
+
+
+def test_only_names_the_missing_labels_and_the_known_ones(guarded, capsys):
+    m, _ = guarded
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "test5 10.0.0.1\ntest6 10.0.0.2\n")
+        m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                "--only", "TYPO,test5", "--execute", "--", "true"],
+               runner=m._FakeRunner(), probe=m._FakeProbe())
+        err = capsys.readouterr().err
+        assert "TYPO" in err and "test5" in err and "test6" in err
+
+
+def test_only_is_applied_before_address_deduplication(guarded):
+    """A SELECTED alias stays targetable.
+
+    Before v3.66.1143 selection ran after dedup, so asking for the label that
+    had been collapsed matched nothing and the run reported success over an
+    empty fleet.
+    """
+    m, _ = guarded
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        # beta is the alias that dedup would collapse if it ran first.
+        hosts = _fleet(tmp, "alpha 10.0.0.1\nbeta 10.0.0.1\n")
+        fake = m._FakeRunner()
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--only", "beta", "--execute", "--", "true"],
+                    runner=fake, probe=m._FakeProbe())
+        assert rc == 0, "selecting a collapsed alias failed"
+        assert len(fake.calls) == 1
+        run = next(d for d in _base(tmp).iterdir() if d.is_dir())
+        assert (run / "beta.log").is_file(), "the selected alias was not the target"
+
+
+def test_a_valid_only_selection_still_works(guarded):
+    """THE OVER-SENSITIVE DIRECTION."""
+    m, _ = guarded
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "test5 10.0.0.1\ntest6 10.0.0.2\n")
+        fake = m._FakeRunner()
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--only", "test6", "--execute", "--", "true"],
+                    runner=fake, probe=m._FakeProbe())
+        assert rc == 0 and len(fake.calls) == 1
+        assert "10.0.0.2" in fake.calls[0]["argv"]
+
+
+# ------------------------------------------------------------- result loss
+
+def test_a_runner_exception_becomes_an_error_row_not_a_lost_run(guarded):
+    """A generic exception from the runner must not discard the record."""
+    m, _ = guarded
+
+    class Exploding:
+        name = "exploding"
+
+        def run(self, argv, log_path, timeout):
+            raise RuntimeError("runner defect")
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "alpha 10.0.0.1\n")
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--execute", "--", "true"],
+                    runner=Exploding(), probe=m._FakeProbe())
+        assert rc == 1, "an exploding runner reported success"
+        run = next(d for d in _base(tmp).iterdir() if d.is_dir())
+        summary = json.loads((run / "summary.json").read_text())
+        assert len(summary) == 1
+        assert summary[0]["status"] == "ERROR"
+        assert "RuntimeError" in summary[0]["error"]
+
+
+def test_one_host_exploding_preserves_the_other_hosts_record(guarded):
+    """The partial-fleet record is the thing that must never be lost."""
+    m, _ = guarded
+
+    class Half:
+        name = "half"
+
+        def run(self, argv, log_path, timeout):
+            if "10.0.0.2" in argv:
+                raise OSError("boom")
+            pathlib.Path(log_path).write_text("fine\n")
+            return 0, None
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "alpha 10.0.0.1\nbeta 10.0.0.2\n")
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--execute", "--", "true"],
+                    runner=Half(), probe=m._FakeProbe())
+        assert rc == 1
+        run = next(d for d in _base(tmp).iterdir() if d.is_dir())
+        summary = {r["label"]: r for r in
+                   json.loads((run / "summary.json").read_text())}
+        assert summary["alpha"]["status"] == "ok", "a good host's result was lost"
+        assert summary["beta"]["status"] == "ERROR"
+
+
+def test_an_unreadable_log_still_produces_a_row(guarded):
+    m, _ = guarded
+
+    class NoLog:
+        name = "nolog"
+
+        def run(self, argv, log_path, timeout):
+            return 0, None            # writes nothing at all
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "alpha 10.0.0.1\n")
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--execute", "--", "true"],
+                    runner=NoLog(), probe=m._FakeProbe())
+        run = next(d for d in _base(tmp).iterdir() if d.is_dir())
+        summary = json.loads((run / "summary.json").read_text())
+        assert len(summary) == 1 and summary[0]["bytes"] == 0
+        assert rc == 0
+
+
+def test_summary_json_is_written_even_when_every_host_errors(guarded):
+    m, _ = guarded
+
+    class AllBad:
+        name = "allbad"
+
+        def run(self, argv, log_path, timeout):
+            raise RuntimeError("nope")
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "alpha 10.0.0.1\nbeta 10.0.0.2\n")
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--execute", "--", "true"],
+                    runner=AllBad(), probe=m._FakeProbe())
+        assert rc == 1
+        run = next(d for d in _base(tmp).iterdir() if d.is_dir())
+        summary = json.loads((run / "summary.json").read_text())
+        assert len(summary) == 2 and all(r["status"] == "ERROR" for r in summary)
+
+
+# ------------------------------------------------------------- concurrency
+
+def test_concurrency_is_capped_by_jobs(guarded):
+    """--jobs is a cap, and it must actually bound simultaneous execution."""
+    m, _ = guarded
+    lock = threading.Lock()
+    state = {"now": 0, "peak": 0}
+
+    class Slow:
+        name = "slow"
+
+        def run(self, argv, log_path, timeout):
+            with lock:
+                state["now"] += 1
+                state["peak"] = max(state["peak"], state["now"])
+            time.sleep(0.05)
+            with lock:
+                state["now"] -= 1
+            pathlib.Path(log_path).write_text("x\n")
+            return 0, None
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        body = "".join(f"h{i} 10.0.0.{i}\n" for i in range(1, 9))
+        hosts = _fleet(tmp, body)
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--jobs", "2", "--execute", "--", "true"],
+                    runner=Slow(), probe=m._FakeProbe())
+        assert rc == 0
+        assert state["peak"] <= 2, f"peak concurrency was {state['peak']}, cap was 2"
+        assert state["peak"] >= 2, "the fixture never ran two at once; vacuous"
+
+
+# ------------------------------------------------------------- retention
+
+def test_prune_never_removes_the_current_run(mod):
+    """--keep 1, a future-dated sibling, and a same-second sibling.
+
+    Ordering is by NAME and the name carries a wall-clock stamp, so a
+    future-dated directory or a clock rollback can sort the live run into the
+    discard tail. Exclusion must be explicit.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        base = pathlib.Path(td) / "artifacts" / "runs"
+        base.mkdir(parents=True)
+        cur = "20260815T000000Z-11111111"
+        _seeded_run(base, cur, mod)
+        _seeded_run(base, "29991231T235959Z-ffffffff", mod)   # future-dated
+        _seeded_run(base, "20260815T000000Z-22222222", mod)   # same second
+        _seeded_run(base, "20200101T000000Z-00000000", mod)   # clock rollback
+
+        dropped, failures = mod.prune(base, 1, protect=cur)
+        assert (base / cur).is_dir(), "prune removed the CURRENT run"
+        assert cur not in dropped
+        assert not failures
+
+
+def test_prune_reports_failures_and_never_claims_a_removal_it_did_not_make(mod):
+    """No ignore_errors-then-report-removed."""
+    with tempfile.TemporaryDirectory() as td:
+        base = pathlib.Path(td) / "artifacts" / "runs"
+        base.mkdir(parents=True)
+        _seeded_run(base, "20260101T000000Z-aaaaaaaa", mod)
+        doomed = _seeded_run(base, "20250101T000000Z-bbbbbbbb", mod)
+
+        real_rmtree = mod.shutil.rmtree
+
+        def failing(path, *a, **k):
+            if pathlib.Path(path).name == doomed.name:
+                raise OSError(13, "Permission denied")
+            return real_rmtree(path, *a, **k)
+
+        mod.shutil.rmtree = failing
+        try:
+            dropped, failures = mod.prune(base, 1)
+        finally:
+            mod.shutil.rmtree = real_rmtree
+
+        assert doomed.is_dir(), "fixture precondition: the doomed dir survives"
+        assert doomed.name not in dropped, (
+            "prune reported removing a directory that is still on disk")
+        assert any(doomed.name in f for f in failures), failures
+
+
+def test_prune_removes_owned_runs_and_never_touches_anything_else(mod):
+    with tempfile.TemporaryDirectory() as td:
+        base = pathlib.Path(td) / "artifacts" / "runs"
+        base.mkdir(parents=True)
+        owned = [_seeded_run(base, f"2026010{i+1}T000000Z-abcdef0{i}", mod)
+                 for i in range(4)]
+        unowned = _seeded_run(base, "20260101T000000Z-deadbeef", mod,
+                              sentinel=False)
+        foreign = base / "my-important-data"
+        foreign.mkdir()
+        (foreign / "keepme.txt").write_text("payload")
+        stray = base / "notes.txt"
+        stray.write_text("payload")
+
+        dropped, failures = mod.prune(base, 2)
+
+        assert not failures
+        assert len(dropped) == 2, dropped
+        assert not owned[0].exists() and not owned[1].exists()
+        assert owned[2].is_dir() and owned[3].is_dir()
+        assert unowned.is_dir(), "prune removed a directory with no sentinel"
+        assert foreign.is_dir() and (foreign / "keepme.txt").read_text() == "payload"
+        assert stray.is_file()
+
+
+def test_prune_ignores_a_symlinked_directory(mod):
+    """The symlink must be present while pruning ACTUALLY runs.
+
+    A previous version called prune(base, 0), which returns immediately -- the
+    assertion passed over a no-op and proved nothing (CLAUDE.md section 6).
+    Here keep=1 with two owned runs guarantees a deletion pass happens.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        root = pathlib.Path(td)
+        base = root / "artifacts" / "runs"
+        base.mkdir(parents=True)
+        outside = root / "precious"
+        outside.mkdir()
+        (outside / "data").write_text("payload")
+
+        _seeded_run(base, "20260102T000000Z-aaaaaaaa", mod)
+        _seeded_run(base, "20260101T000000Z-bbbbbbbb", mod)
+        link = base / "20250101T000000Z-cccccccc"
+        os.symlink(outside, link)
+
+        dropped, failures = mod.prune(base, 1)
+
+        assert dropped, "fixture precondition: pruning must actually have run"
+        assert not failures
+        assert outside.is_dir() and (outside / "data").read_text() == "payload"
+        assert link.is_symlink(), "prune followed or removed a symlink"
+
+
+def test_a_run_does_not_prune_itself_end_to_end(guarded):
+    """The whole path, with --keep 1 and an existing older run present."""
+    m, _ = guarded
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        base = _base(tmp)
+        base.mkdir(parents=True)
+        _seeded_run(base, "20200101T000000Z-00000000", m)
+        hosts = _fleet(tmp, "alpha 10.0.0.1\n")
+        rc = m.main(["--hosts", str(hosts), "--root", str(base), "--keep", "1",
+                     "--execute", "--", "true"],
+                    runner=m._FakeRunner(), probe=m._FakeProbe())
+        assert rc == 0
+        live = [d for d in base.iterdir() if d.is_dir()
+                and (d / m.SENTINEL).is_file()]
+        assert len(live) == 1, [d.name for d in live]
+        assert (live[0] / "summary.json").is_file(), (
+            "the run pruned its own artifacts")
+
+
+# ------------------------------------------------------------- command semantics
+
+@pytest.mark.parametrize("parts,expected", [
+    (["hostname"], "hostname"),
+    (['python3 -c "print(1)"'], 'python3 -c "print(1)"'),
+    (["echo", "a b"], "echo 'a b'"),
+    (["python3", "-c", "print('a b')"], "python3 -c 'print('\"'\"'a b'\"'\"')'"),
+    (["sh", "-c", "echo $HOME && ls | wc -l"],
+     "sh -c 'echo $HOME && ls | wc -l'"),
+    (["grep", "-r", "foo bar", "."], "grep -r 'foo bar' ."),
+])
+def test_command_quoting_is_preserved(mod, parts, expected):
+    """`" ".join()` destroyed meaning; a single arg is verbatim, many are joined."""
+    assert mod.build_command(parts) == expected
+
+
+def test_the_printed_effective_command_matches_what_is_sent(guarded, capsys):
+    m, _ = guarded
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "alpha 10.0.0.1\n")
+        fake = m._FakeRunner()
+        m.main(["--hosts", str(hosts), "--root", str(_base(tmp)), "--execute",
+                "--no-record-commit", "--", "python3", "-c", "print('a b')"],
+               runner=fake, probe=m._FakeProbe())
+        out = capsys.readouterr().out
+        effective = "python3 -c 'print('\"'\"'a b'\"'\"')'"
+        assert f"effective command: {effective}" in out
+
+        # RECOVER the command rather than substring-matching it. argv[-1] is
+        # `bash -c <shlex.quote(command)>`, so the command's own quoting is
+        # re-escaped by the outer quote and the literal string is NOT present.
+        # A substring assertion here fails against correct behaviour -- which is
+        # exactly what it did on first run.
+        import shlex as _shlex
+        sent = fake.calls[0]["argv"][-1]
+        recovered = _shlex.split(sent)
+        assert recovered[:2] == ["bash", "-c"], recovered
+        assert recovered[2] == effective, (
+            f"the command that reached the host is not the printed one:\n"
+            f"  printed:   {effective!r}\n  recovered: {recovered[2]!r}")
+
+        # And the semantic property the quoting exists for: one shell word.
+        assert _shlex.split(recovered[2]) == ["python3", "-c", "print('a b')"]
+
+
+# ------------------------------------------------------------- ssh states
+
+@pytest.mark.parametrize("text,expected", [
+    ("Permission denied (publickey).", "AUTH_FAILURE"),
+    ("user@h: Permission denied (publickey,password).", "AUTH_FAILURE"),
+    ("Received disconnect: Too many authentication failures", "AUTH_FAILURE"),
+    ("ssh: connect to host h port 22: Connection refused", "UNREACHABLE"),
+    ("ssh: connect to host h port 22: No route to host", "UNREACHABLE"),
+    ("ssh: Could not resolve hostname h", "UNREACHABLE"),
+    ("Host key verification failed.", "UNREACHABLE"),
+    ("some unmatched diagnostic", "SSH_UNKNOWN"),
+    ("", "SSH_UNKNOWN"),
+])
+def test_ssh_255_is_split_and_never_success(mod, text, expected):
+    assert mod.classify(255, None, text) == expected
+    assert mod.classify(255, None, text) != "ok"
+
+
+def test_the_other_states_are_distinct(mod):
+    assert mod.classify(0, None, "") == "ok"
+    assert mod.classify(3, None, "") == "FAIL"
+    assert mod.classify(None, "TIMEOUT after 5s", "") == "TIMEOUT"
+    assert mod.classify(None, "OSError: boom", "") == "ERROR"
+    assert mod.classify(None, None, "") == "UNKNOWN"
+    # A LOCAL command exiting 255 is not an ssh diagnostic.
+    assert mod.classify(255, None, "", is_local=True) == "FAIL"
+
+
+def test_a_timeout_never_becomes_success(guarded):
+    m, _ = guarded
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "alpha 10.0.0.1\n")
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--execute", "--", "true"],
+                    runner=m._FakeRunner(rc=None, err="TIMEOUT after 5s"),
+                    probe=m._FakeProbe())
+        assert rc == 1
+
+
+def test_partial_fleet_failure_is_explicit(guarded, capsys):
+    m, _ = guarded
+
+    class Mixed:
+        name = "mixed"
+
+        def run(self, argv, log_path, timeout):
+            pathlib.Path(log_path).write_text("out\n")
+            return (0, None) if "10.0.0.1" in argv else (7, None)
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "alpha 10.0.0.1\nbeta 10.0.0.2\n")
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--execute", "--", "true"],
+                    runner=Mixed(), probe=m._FakeProbe())
+        out = capsys.readouterr().out
+        assert rc == 1 and "NOT OK" in out and "beta" in out
+        assert "1/2 host(s) ok" in out
+
+
+# ------------------------------------------------------------- capture fidelity
+
+def test_a_large_log_is_retained_complete(guarded):
+    """Whole capture, whatever the size. The caller still sees one line."""
+    m, _ = guarded
+    n = 20000
+
+    class Chatty:
+        name = "chatty"
+
+        def run(self, argv, log_path, timeout):
+            pathlib.Path(log_path).write_text(
+                "".join(f"line{i}\n" for i in range(1, n + 1)))
+            return 0, None
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "alpha 10.0.0.1\n")
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--execute", "--", "true"],
+                    runner=Chatty(), probe=m._FakeProbe())
+        assert rc == 0
+        run = next(d for d in _base(tmp).iterdir() if d.is_dir())
+        stored = (run / "alpha.log").read_text().splitlines()
+        assert len(stored) == n, f"stored {len(stored)} lines, expected {n}"
+        assert stored[0] == "line1" and stored[-1] == f"line{n}"
+        summary = json.loads((run / "summary.json").read_text())
+        assert summary[0]["bytes"] == (run / "alpha.log").stat().st_size
+
+
+# ------------------------------------------------------------- label/address
 
 @pytest.mark.parametrize("label", [
     "/absolute", "../traversal", "a/b", "a\\b", "..", ".",
     "ctrl\x01char", "", "-leading-dash" * 8,
 ])
 def test_unsafe_labels_refuse_with_zero_launches(guarded, label):
-    """A label becomes a path component. Every rejection must launch nothing."""
     m, launches = guarded
     with tempfile.TemporaryDirectory() as td:
         tmp = pathlib.Path(td)
         hosts = _fleet(tmp, f"{label} 10.0.0.1\n" if label else "  10.0.0.1\n")
         fake = m._FakeRunner()
         rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
-                     "--execute", "--", "true"], runner=fake)
+                     "--execute", "--", "true"],
+                    runner=fake, probe=m._FakeProbe())
         assert rc == 2, f"label {label!r} was accepted"
         assert fake.calls == [] and launches == []
 
 
-def test_duplicate_labels_refuse(guarded):
-    """Two hosts sharing a label would overwrite each other's log."""
-    m, launches = guarded
-    with tempfile.TemporaryDirectory() as td:
-        tmp = pathlib.Path(td)
-        hosts = _fleet(tmp, "alpha 10.0.0.1\nalpha 10.0.0.2\n")
-        fake = m._FakeRunner()
-        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
-                     "--execute", "--", "true"], runner=fake)
-        assert rc == 2 and fake.calls == [] and launches == []
-
-
-def test_duplicate_addresses_are_collapsed_not_run_twice(guarded):
-    """Deduplicated, and the collapse is REPORTED rather than silent."""
-    m, _ = guarded
-    with tempfile.TemporaryDirectory() as td:
-        tmp = pathlib.Path(td)
-        hosts = _fleet(tmp, "alpha 10.0.0.1\nbeta 10.0.0.1\n")
-        fake = m._FakeRunner()
-        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
-                     "--execute", "--", "true"], runner=fake)
-        assert rc == 0
-        assert len(fake.calls) == 1, "the same address was contacted twice"
-
-
 def test_whitespace_bearing_values_are_rejected_by_the_validator(mod):
-    """Tested at the VALIDATOR, because the file format cannot carry them.
-
-    `with space 10.0.0.1` splits into label='with', addr='space' -- the
-    inventory is whitespace-delimited, so a whitespace-bearing label is
-    unrepresentable there and a file-driven fixture would be asserting against
-    a shape it cannot build (CLAUDE.md section 6: assert the precondition
-    before the verdict). The grammar must still reject them, because
-    resolve_targets is reachable from any future caller.
-    """
+    """Tested at the VALIDATOR: the inventory is whitespace-delimited, so a
+    file-driven fixture cannot build this shape (CLAUDE.md section 6)."""
     for label in ("with space", "tab\there", "new\nline"):
         with pytest.raises(mod.Refusal):
             mod.resolve_targets([(label, "10.0.0.1")], {})
     for addr in ("a b", "host\tname"):
         with pytest.raises(mod.Refusal):
             mod.resolve_targets([("alpha", addr)], {})
+
+
+def test_duplicate_labels_refuse(guarded):
+    m, launches = guarded
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "alpha 10.0.0.1\nalpha 10.0.0.2\n")
+        fake = m._FakeRunner()
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--execute", "--", "true"],
+                    runner=fake, probe=m._FakeProbe())
+        assert rc == 2 and fake.calls == [] and launches == []
+
+
+def test_duplicate_addresses_are_collapsed_not_run_twice(guarded):
+    m, _ = guarded
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        hosts = _fleet(tmp, "alpha 10.0.0.1\nbeta 10.0.0.1\n")
+        fake = m._FakeRunner()
+        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
+                     "--execute", "--", "true"],
+                    runner=fake, probe=m._FakeProbe())
+        assert rc == 0 and len(fake.calls) == 1
 
 
 @pytest.mark.parametrize("addr", ["10.0.0.1; rm -rf /", "-oProxyCommand=x",
@@ -257,135 +695,73 @@ def test_unsafe_addresses_refuse(guarded, addr):
         hosts = _fleet(tmp, f"alpha {addr}\n")
         fake = m._FakeRunner()
         rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
-                     "--execute", "--", "true"], runner=fake)
-        assert rc == 2, f"address {addr!r} was accepted"
-        assert fake.calls == [] and launches == []
+                     "--execute", "--", "true"],
+                    runner=fake, probe=m._FakeProbe())
+        assert rc == 2 and fake.calls == [] and launches == []
 
 
 # ------------------------------------------------------------- artifact roots
 
 def test_forbidden_artifact_roots_refuse(guarded):
-    """/, $HOME, a git work tree, traversal, and top-level directories."""
     m, launches = guarded
     with tempfile.TemporaryDirectory() as td:
         tmp = pathlib.Path(td)
         hosts = _fleet(tmp, "alpha 10.0.0.1\n")
-        candidates = [
-            "/", str(pathlib.Path.home()), "/tmp",
-            str(tmp / ".." / "escape"), str(REPO), str(REPO / "artifacts"),
-        ]
-        for root in candidates:
+        for root in ["/", str(pathlib.Path.home()), "/tmp",
+                     str(tmp / ".." / "escape"), str(REPO),
+                     str(REPO / "artifacts")]:
             fake = m._FakeRunner()
             rc = m.main(["--hosts", str(hosts), "--root", root, "--execute",
-                         "--", "true"], runner=fake)
+                         "--", "true"], runner=fake, probe=m._FakeProbe())
             assert rc == 2, f"artifact root {root!r} was accepted"
             assert fake.calls == [] and launches == []
 
 
-def test_a_symlink_escape_is_refused(guarded):
-    """realpath is what is judged, so a symlink cannot smuggle the base out."""
-    m, _ = guarded
+def test_a_symlink_escape_is_refused(mod):
     with tempfile.TemporaryDirectory() as td:
-        tmp = pathlib.Path(td)
-        link = tmp / "sneaky"
+        link = pathlib.Path(td) / "sneaky"
         os.symlink("/", link)
-        with pytest.raises(m.Refusal):
-            m.validate_root(str(link))
+        with pytest.raises(mod.Refusal):
+            mod.validate_root(str(link))
 
 
-def test_a_dedicated_root_is_accepted(guarded):
-    """THE OVER-SENSITIVE DIRECTION. A gate that refuses everything is useless."""
-    m, _ = guarded
+def test_a_dedicated_root_is_accepted(mod):
     with tempfile.TemporaryDirectory() as td:
         tmp = pathlib.Path(td)
-        got = m.validate_root(str(_base(tmp)))
-        assert got == pathlib.Path(os.path.realpath(_base(tmp)))
-
-
-# ------------------------------------------------------------- pruning
-
-def test_prune_removes_owned_runs_and_never_touches_anything_else(mod):
-    """The v3.66.1140 prune would rmtree ANY subdirectory of --root."""
-    with tempfile.TemporaryDirectory() as td:
-        base = pathlib.Path(td) / "artifacts" / "runs"
-        base.mkdir(parents=True)
-        owned = []
-        for i in range(4):
-            d = base / f"2026010{i+1}T000000Z-abcdef0{i}"
-            d.mkdir()
-            (d / mod.SENTINEL).write_text("{}")
-            owned.append(d)
-        # Three things prune must refuse to touch:
-        unowned = base / "20260101T000000Z-deadbeef"   # right name, NO sentinel
-        unowned.mkdir()
-        foreign = base / "my-important-data"            # wrong name
-        foreign.mkdir()
-        (foreign / "keepme.txt").write_text("payload")
-        stray = base / "notes.txt"
-        stray.write_text("payload")
-
-        dropped = mod.prune(base, 2)
-
-        assert len(dropped) == 2, f"expected 2 owned runs dropped, got {dropped}"
-        assert owned[0].exists() is False and owned[1].exists() is False
-        assert owned[2].is_dir() and owned[3].is_dir(), "newest were not kept"
-        assert unowned.is_dir(), "prune removed a directory with no sentinel"
-        assert foreign.is_dir() and (foreign / "keepme.txt").read_text() == "payload"
-        assert stray.is_file()
-
-
-def test_prune_ignores_a_symlinked_directory(mod):
-    with tempfile.TemporaryDirectory() as td:
-        root = pathlib.Path(td)
-        base = root / "artifacts" / "runs"
-        base.mkdir(parents=True)
-        outside = root / "precious"
-        outside.mkdir()
-        (outside / "data").write_text("payload")
-        link = base / "20260101T000000Z-aaaaaaaa"
-        os.symlink(outside, link)
-        mod.prune(base, 0)
-        assert outside.is_dir() and (outside / "data").read_text() == "payload"
+        assert mod.validate_root(str(_base(tmp))) == \
+            pathlib.Path(os.path.realpath(_base(tmp)))
 
 
 # ------------------------------------------------------------- run ids
 
 def test_run_ids_do_not_collide_within_the_same_second(mod):
     import datetime
-    now = datetime.datetime(2026, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
+    now = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
     ids = {mod.new_run_id(now) for _ in range(200)}
-    assert len(ids) == 200, "run ids collided inside one second"
-    for i in ids:
-        assert mod.RUN_RE.match(i), f"{i} does not match the run-id grammar"
+    assert len(ids) == 200
+    assert all(mod.RUN_RE.match(i) for i in ids)
     assert all(i.startswith("20260101T000000Z-") for i in ids)
 
 
 # ------------------------------------------------------------- locality
 
 def test_locality_comes_from_the_inventory_not_the_hostname(guarded):
-    """A fleet label is not a hostname.
-
-    CLAUDE.md's front matter records bd-jobs refusing a real host because a
-    LABEL had no DNS entry. Inferring locality from `label == gethostname()` is
-    wrong in both directions and silently decides whether a command runs here
-    or on another machine.
-    """
+    """A fleet label is not a hostname."""
     m, _ = guarded
     import socket
     me = socket.gethostname()
     with tempfile.TemporaryDirectory() as td:
         tmp = pathlib.Path(td)
-        # This machine's own hostname, with NO local marker -> must go remote.
         hosts = _fleet(tmp, f"{me} 10.0.0.9\nbeta 10.0.0.2 local\n")
         fake = m._FakeRunner()
         rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
-                     "--execute", "--", "true"], runner=fake)
+                     "--execute", "--", "true"],
+                    runner=fake, probe=m._FakeProbe())
         assert rc == 0
-        by_head = {c["argv"][0] for c in fake.calls}
-        assert by_head == {"ssh", "bash"}, by_head
+        assert {c["argv"][0] for c in fake.calls} == {"ssh", "bash"}
         ssh_call = [c for c in fake.calls if c["argv"][0] == "ssh"][0]
         assert "10.0.0.9" in ssh_call["argv"], (
-            "a host matching this machine's hostname was run LOCALLY without an "
+            "a host matching this machine's hostname ran LOCALLY with no "
             "inventory entry saying so")
 
 
@@ -396,59 +772,14 @@ def test_an_inventory_local_entry_runs_locally(guarded):
         hosts = _fleet(tmp, "solo 10.0.0.1 local\n")
         fake = m._FakeRunner()
         rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
-                     "--execute", "--", "true"], runner=fake)
+                     "--execute", "--", "true"],
+                    runner=fake, probe=m._FakeProbe())
         assert rc == 0 and fake.calls[0]["argv"][0] == "bash"
 
 
-# ------------------------------------------------------------- outcomes
-
-def test_a_timeout_is_reported_and_never_becomes_success(guarded):
-    m, _ = guarded
-    with tempfile.TemporaryDirectory() as td:
-        tmp = pathlib.Path(td)
-        hosts = _fleet(tmp, "alpha 10.0.0.1\n")
-        fake = m._FakeRunner(rc=None, err="TIMEOUT after 5s")
-        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
-                     "--execute", "--", "true"], runner=fake)
-        assert rc == 1, "a timed-out host produced overall success"
-
-
-def test_partial_fleet_failure_is_explicit(guarded, capsys):
-    """One bad host must make the whole run non-zero and be NAMED."""
-    m, _ = guarded
-
-    class Mixed:
-        name = "mixed"
-
-        def __init__(self):
-            self.calls = []
-
-        def run(self, argv, log_path, timeout):
-            self.calls.append(argv)
-            pathlib.Path(log_path).write_text("out\n")
-            return (0, None) if "10.0.0.1" in argv else (7, None)
-
-    with tempfile.TemporaryDirectory() as td:
-        tmp = pathlib.Path(td)
-        hosts = _fleet(tmp, "alpha 10.0.0.1\nbeta 10.0.0.2\n")
-        rc = m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
-                     "--execute", "--", "true"], runner=Mixed())
-        out = capsys.readouterr().out
-        assert rc == 1
-        assert "NOT OK" in out and "beta" in out
-        assert "1/2 host(s) ok" in out
-
-
-def test_ssh_255_is_reported_as_unreachable_or_auth(mod):
-    assert mod.classify(255, None) == "UNREACHABLE_OR_AUTH"
-    assert mod.classify(0, None) == "ok"
-    assert mod.classify(None, "TIMEOUT after 5s") == "TIMEOUT"
-    assert mod.classify(3, None) == "FAIL"
-
+# ------------------------------------------------------------- refusals/artifacts
 
 def test_every_refusal_names_a_distinct_reason(guarded):
-    """When every refusal shares exit 2, a test asserting the CODE passes when
-    any of them fires -- four mutants escaped exactly that way in bd-jobs."""
     m, _ = guarded
     with tempfile.TemporaryDirectory() as td:
         tmp = pathlib.Path(td)
@@ -460,23 +791,23 @@ def test_every_refusal_names_a_distinct_reason(guarded):
             "missing file": ["--hosts", str(tmp / "nope"), "--", "true"],
             "empty fleet": ["--hosts", str(empty), "--", "true"],
             "bad only": ["--hosts", str(good), "--only", "zzz", "--", "true"],
+            "empty only": ["--hosts", str(good), "--only", ",", "--", "true"],
             "bad root": ["--hosts", str(good), "--root", "/", "--", "true"],
             "bad jobs": ["--hosts", str(good), "--jobs", "0", "--", "true"],
         }
         seen = {}
         for name, argv in cases.items():
+            import contextlib
+            import io
             fake = m._FakeRunner()
-            import io, contextlib
             err = io.StringIO()
             with contextlib.redirect_stderr(err):
-                rc = m.main(argv, runner=fake)
+                rc = m.main(argv, runner=fake, probe=m._FakeProbe())
             assert rc == 2, f"{name} did not refuse (rc={rc})"
             assert fake.calls == []
             seen[name] = err.getvalue().strip()
-        assert len(set(seen.values())) == len(seen), (
-            f"two refusals are worded identically: {seen}")
-        for name, text in seen.items():
-            assert text.startswith("bd-fleet-run: REFUSED:"), (name, text)
+        assert len(set(seen.values())) == len(seen), f"identical wording: {seen}"
+        assert all(t.startswith("bd-fleet-run: REFUSED:") for t in seen.values())
 
 
 def test_the_plan_prints_the_exact_command_and_targets(guarded, capsys):
@@ -485,41 +816,38 @@ def test_the_plan_prints_the_exact_command_and_targets(guarded, capsys):
         tmp = pathlib.Path(td)
         hosts = _fleet(tmp, "alpha 10.0.0.1\nbeta 10.0.0.2 local\n")
         m.main(["--hosts", str(hosts), "--root", str(_base(tmp)),
-                "--", "echo", "hello"], runner=m._FakeRunner())
+                "--", "echo", "hello"],
+               runner=m._FakeRunner(), probe=m._FakeProbe())
         out = capsys.readouterr().out
-        assert "PLAN (dry-run)" in out
-        assert "echo hello" in out
+        assert "PLAN (dry-run)" in out and "echo hello" in out
         assert "alpha" in out and "10.0.0.1" in out
         assert "beta" in out and "LOCAL" in out
         assert "No host was contacted" in out
 
 
 def test_artifacts_record_the_run(guarded):
-    """Per-host log, sentinel, manifest and summary all present."""
     m, _ = guarded
     with tempfile.TemporaryDirectory() as td:
         tmp = pathlib.Path(td)
         hosts = _fleet(tmp, "alpha 10.0.0.1\n")
         base = _base(tmp)
         rc = m.main(["--hosts", str(hosts), "--root", str(base), "--execute",
-                     "--", "echo", "hi"], runner=m._FakeRunner())
+                     "--", "echo", "hi"],
+                    runner=m._FakeRunner(), probe=m._FakeProbe())
         assert rc == 0
-        runs = [d for d in base.iterdir() if d.is_dir()]
-        assert len(runs) == 1
-        run = runs[0]
-        assert (run / m.SENTINEL).is_file(), "no ownership sentinel"
-        assert (run / "alpha.log").is_file()
+        run = next(d for d in base.iterdir() if d.is_dir())
+        assert (run / m.SENTINEL).is_file() and (run / "alpha.log").is_file()
         manifest = json.loads((run / "manifest.json").read_text())
         assert manifest["command"] == "echo hi"
         assert manifest["targets"][0]["label"] == "alpha"
-        assert "local_head" in manifest, "the run does not record which commit"
+        assert manifest["local_head"] == "fakehead", "the probe was not injected"
+        assert manifest["workers_used"] == 1, (
+            "the manifest records the configured cap rather than the workers used")
         summary = json.loads((run / "summary.json").read_text())
         assert summary[0]["status"] == "ok" and summary[0]["argv"][0] == "ssh"
 
 
 def test_the_selftest_is_hermetic_and_clean(guarded):
-    """The selftest is what CI runs; it must start nothing either."""
     m, launches = guarded
-    rc = m.selftest()
-    assert rc == 0, "bd-fleet-run --selftest failed"
-    assert all(os.path.basename(c[0]) == "git" for c in launches), launches
+    assert m.selftest() == 0
+    assert launches == [], f"the selftest started a real process: {launches}"

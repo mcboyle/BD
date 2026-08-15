@@ -4,55 +4,55 @@
 WHAT IT IS FOR. The operator drives several test VMs over ssh and needs a
 command applied consistently across them with per-host output retained. That is
 a live capability, not a convenience: model subagents are not an equivalent,
-because they do not hold the ssh control path and cannot leave an artifact the
-operator can re-read afterwards.
+because they do not hold the ssh control path and leave no artifact the operator
+can re-read afterwards.
 
 WHY IT WAS REWRITTEN AT v3.66.1142. The v3.66.1140 implementation was unsafe in
-ways that a green test suite actively concealed:
+ways a green test suite actively concealed. Its --selftest built a fleet file
+naming `alpha 192.0.2.10` and drove main() through an "unwritable artifact root"
+refusal that held ONLY because `mkdir /proc/cannot/write/here` fails on procfs;
+had it succeeded, control reached
+    ssh -o BatchMode=yes -o ConnectTimeout=10 192.0.2.10 ...
+and tests/test_toolchain_534.py runs that selftest inside ci.yml's `toolchain`
+shard. No egress ever occurred, but the property was enforced by the FILESYSTEM
+and never by the code. Its prune() would rmtree ANY subdirectory of --root, and
+locality was inferred from `label == socket.gethostname()`.
 
-  * `--selftest` built a fleet file naming `alpha 192.0.2.10` and drove main()
-    through the "unwritable artifact root" refusal. That refusal held ONLY
-    because `mkdir /proc/cannot/write/here` fails on procfs. Had it succeeded,
-    control fell through the manifest write into run_one(), whose `label == me`
-    test is False for "alpha", and reached
-        ssh -o BatchMode=yes -o ConnectTimeout=10 192.0.2.10 ...
-    `tests/test_toolchain_534.py` runs that selftest and sits in ci.yml's
-    `toolchain` shard, so the fixture executed on GitHub-hosted runners on every
-    PR. No egress ever occurred -- procfs held on the box and on the runners --
-    but the property was enforced by the FILESYSTEM, never by the code. That is
-    CLAUDE.md section 0's whole subject: a guard that reports safe for a reason
-    unrelated to the thing it claims to guard.
-  * The test that was supposed to catch a bypass could not. It asserted a LOCAL
-    marker path stayed absent, while the command it guarded would have run on
-    the REMOTE.
-  * `prune()` would `shutil.rmtree` ANY subdirectory of `--root`, with no
-    ownership check. `--root ~` deleted home directories. That is the identical
-    two-definitions defect v3.66.1136 fixed in `bd-run`, reintroduced four cuts
-    later.
-  * Locality was inferred from `label == socket.gethostname()`. A fleet label is
-    not a hostname -- CLAUDE.md's front matter records `bd-jobs` refusing a real
-    host because a LABEL had no DNS entry -- so the inference is wrong in both
-    directions and silently decides whether a command runs here or there.
-  * Labels went into paths unvalidated; duplicate labels and same-second run ids
-    collided; there was no concurrency cap; no commit was recorded.
+WHAT v3.66.1143 ADDED, from review of that cut. Each of these was a way to lose
+a result, lose a command's meaning, or destroy something:
 
-THE STRUCTURAL FIX, and it is the only one that makes the tests trustworthy:
-ALL process execution goes through an INJECTED runner. `main()` takes
-`runner=`; nothing else in the module calls `subprocess`. A test supplies a fake
-that records argv and can never open a socket, so "this test cannot reach the
-network" is a property of the wiring rather than of a fixture's luck. The real
-`SubprocessRunner` is constructed ONLY on the `--execute` path.
+  * `--only` failed OPEN. A typo silently narrowed the fleet, and it was applied
+    AFTER address de-duplication, so selecting a collapsed alias targeted
+    nothing. Now every requested label must exist, the refusal precedes any
+    artifact or process, and selection happens BEFORE dedup.
+  * A raised exception anywhere in execution -- the runner, opening or statting
+    a log, or `future.result()` -- lost the whole run's record, including hosts
+    that had already executed. Every failure now yields an explicit ERROR row
+    and summary.json is written on every exit path.
+  * prune() could delete the CURRENT run (`--keep 1` with a future-dated
+    sibling, a same-second sibling, or a clock rollback all reorder the sort),
+    and it used ignore_errors=True and then reported "removed" -- a deletion
+    that silently did not happen, reported as one that did.
+  * `" ".join(argv_tokens)` destroyed quoting: `-c 'print("a b")'` reached the
+    host as three words. A single argument is now passed verbatim and multiple
+    tokens are joined with shlex.join().
+  * ssh exit 255 was one bucket. AUTH_FAILURE and UNREACHABLE are distinguished
+    when the diagnostics support it, and SSH_UNKNOWN when they do not.
+  * the local-HEAD probe called subprocess directly, so execute-mode tests could
+    not claim zero real process calls. It is now an injected seam.
 
-SAFETY POSTURE:
-  * plan/dry-run is the DEFAULT; `--execute` is required to touch a host;
-  * the resolved target list and the exact command print before anything runs;
-  * locality is read from the inventory, never inferred;
-  * artifact roots reject `/`, `$HOME`, any git work tree, traversal and
-    symlink escapes; run directories carry an ownership sentinel and prune
-    refuses anything without one;
-  * ssh host-key verification is never weakened; there is no
-    StrictHostKeyChecking=no and there must never be one;
-  * an unknown or failed host outcome never becomes success.
+THE STRUCTURAL RULE: all process execution goes through INJECTED seams. main()
+takes `runner=` and `probe=`; nothing else in this module calls subprocess. The
+real implementations are constructed ONLY on the --execute path, so "a test
+cannot reach the network" is a property of the wiring rather than of a fixture's
+luck.
+
+SAFETY POSTURE: plan/dry-run is the DEFAULT and --execute is required; the
+resolved targets and exact argv print before anything runs; locality is read
+from the inventory, never inferred; artifact roots reject `/`, `$HOME`, any git
+work tree, traversal and symlink escapes; run directories carry an ownership
+sentinel and prune refuses anything without one; ssh host-key verification is
+never weakened; an unknown or failed host outcome never becomes success.
 """
 
 from __future__ import annotations
@@ -75,40 +75,52 @@ import time
 
 HERE = pathlib.Path(__file__).resolve().parent
 DEFAULT_HOSTS = pathlib.Path.home() / ".config" / "bd" / "hosts"
-# A FIXED SAFE BASE. Not the repo, not $HOME itself, not /tmp.
 DEFAULT_ROOT = pathlib.Path.home() / ".local" / "share" / "bd-fleet-run" / "runs"
 DEFAULT_KEEP = 20
 DEFAULT_JOBS = 8
 
-# A label becomes a path component, so it gets a restrictive filename grammar.
 LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
-# UTC stamp + entropy: two runs in the same second cannot collide.
 RUN_RE = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{8}$")
 SENTINEL = ".bd-fleet-run-owned"
-# Addresses are handed to ssh as argv, never to a shell -- but a value carrying
-# whitespace, a shell metacharacter or an option-leading dash is an inventory
-# defect worth refusing rather than normalising.
 ADDR_BAD = re.compile(r"[\s;&|<>`$(){}\[\]'\"\\]|^-")
+
+# ssh(1) writes these to stderr before exiting 255. They are matched only to
+# SPLIT 255 into more useful states -- never to turn any of them into success.
+AUTH_PATTERNS = ("permission denied", "publickey", "password authentication",
+                 "authentication failed", "too many authentication failures",
+                 "no supported authentication methods")
+UNREACH_PATTERNS = ("connection refused", "no route to host",
+                    "connection timed out", "network is unreachable",
+                    "could not resolve hostname", "name or service not known",
+                    "connection closed by remote host", "host key verification failed")
 
 BLIND_SPOTS = (
     "the summary line is derived from the log's TAIL. A failure earlier in a "
     "run that ends cleanly is in the artifact but not in the summary.",
     "the exit code is the remote shell's; a pipeline on the far side masks it "
     "exactly as it does locally.",
-    "ssh exit 255 cannot distinguish unreachable from authentication failure. "
-    "It is reported as UNREACHABLE_OR_AUTH and never as a success.",
+    "AUTH_FAILURE vs UNREACHABLE is inferred from ssh's stderr text. When it "
+    "matches nothing the state is SSH_UNKNOWN -- never success.",
     "the recorded remote commit is what the host reported at run time; it does "
     "not prove the command READ that tree.",
 )
 
 
+class Refusal(Exception):
+    """A refusal names its own reason.
+
+    Every refusal exits 2, so a test asserting the CODE passes when any of them
+    fires -- four mutants escaped exactly that way in bd-jobs and bd-ab
+    (CLAUDE.md section 10). The message is the contract.
+    """
+
+
 class SubprocessRunner:
-    """The only place in this module that starts a process."""
+    """One of exactly two places in this module that start a process."""
 
     name = "subprocess"
 
     def run(self, argv, log_path, timeout):
-        """Return (returncode, error_or_None). Complete output -> log_path."""
         with open(log_path, "wb") as fh:
             try:
                 p = subprocess.run(argv, stdout=fh, stderr=subprocess.STDOUT,
@@ -120,21 +132,27 @@ class SubprocessRunner:
         return p.returncode, None
 
 
-class Refusal(Exception):
-    """A refusal names its own reason.
+class SubprocessProbe:
+    """The local-HEAD seam. Injected so execute-mode tests start NO process.
 
-    Every refusal here exits 2, so a test asserting the CODE passes when any of
-    them fires -- four mutants escaped exactly that way in bd-jobs and bd-ab
-    (CLAUDE.md section 10). The message is the contract; tests assert on it.
+    Before v3.66.1143 this was a bare subprocess call inside _run(), which meant
+    a test could not honestly claim "zero real process calls outside the
+    injected fake runner".
     """
+
+    name = "subprocess"
+
+    def local_head(self):
+        try:
+            r = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
+                               capture_output=True, text=True, timeout=10)
+            return r.stdout.strip() or "unknown"
+        except Exception:
+            return "unknown"
 
 
 def _load_bd_fleet():
-    """Import read_hosts from bd-fleet. ONE definition of the fleet file.
-
-    bd-fleet is extensionless, so a plain import cannot reach it -- the
-    population CLAUDE.md section 1 warns a `*.py` glob misses.
-    """
+    """Import read_hosts from bd-fleet. ONE definition of the fleet file."""
     path = HERE / "bd-fleet"
     if not path.is_file():
         return None
@@ -150,10 +168,9 @@ def _load_bd_fleet():
 def read_locality(path: pathlib.Path) -> dict:
     """Optional THIRD column of the fleet file: `local` marks local execution.
 
-    Locality is INVENTORY DATA, never an inference. `bd-fleet`'s read_hosts
-    takes parts[0]/parts[1] and `scripts/deploy_fleet.sh` reads
-    `label addr _rest`, so both already ignore a third field -- this extends the
-    format without forking the parser that decides MEMBERSHIP.
+    Locality is INVENTORY DATA, never an inference. read_hosts takes
+    parts[0]/parts[1] and deploy_fleet.sh reads `label addr _rest`, so both
+    already ignore a third field.
     """
     out = {}
     for raw in path.read_text(encoding="utf-8").splitlines():
@@ -163,15 +180,19 @@ def read_locality(path: pathlib.Path) -> dict:
         parts = line.split()
         if len(parts) >= 3:
             out[parts[0]] = parts[2].lower() == "local"
-        elif len(parts) >= 1:
+        elif parts:
             out.setdefault(parts[0], False)
     return out
 
 
-def resolve_targets(hosts, locality):
-    """Validate labels and addresses; dedupe addresses; report what was dropped.
+def resolve_targets(hosts, locality, only=None):
+    """Validate, select, then dedupe -- in that order, and fail closed.
 
-    Returns (targets, collapsed) where targets is [(label, addr, is_local)].
+    SELECTION PRECEDES DE-DUPLICATION. Before v3.66.1143 `--only` was applied
+    after collapsing duplicate addresses, so asking for a label that had been
+    collapsed as an alias selected nothing and the run reported success over an
+    empty fleet. Deduping the SELECTED set instead keeps a chosen alias
+    targetable.
     """
     if not hosts:
         raise Refusal("the fleet file lists no hosts. An empty fleet must not "
@@ -191,6 +212,19 @@ def resolve_targets(hosts, locality):
                 "sharing a label would overwrite each other's log.")
         seen_labels.add(label)
 
+    if only is not None:
+        # FAIL CLOSED: every requested label must exist. A partial match is a
+        # typo, and silently running the subset is how a fleet-wide change is
+        # believed applied to a host it never touched.
+        missing = [l for l in only if l not in seen_labels]
+        if missing:
+            raise Refusal(
+                "--only names label(s) not in the fleet file: "
+                f"{', '.join(sorted(missing))}. Known labels: "
+                f"{', '.join(sorted(seen_labels))}. Refusing before any host is "
+                "contacted rather than silently running the subset that matched.")
+        hosts = [(l, a) for l, a in hosts if l in only]
+
     targets, collapsed, seen_addr = [], [], {}
     for label, addr in hosts:
         if not addr or ADDR_BAD.search(addr):
@@ -207,11 +241,7 @@ def resolve_targets(hosts, locality):
 # --------------------------------------------------------------- artifacts
 
 def validate_root(raw_root: str) -> pathlib.Path:
-    """Refuse broad or escaping artifact roots.
-
-    Checked on the REALPATH, so a symlink cannot smuggle the base somewhere
-    forbidden, and on the raw string, so traversal is refused before resolution.
-    """
+    """Refuse broad or escaping artifact roots, judged on the REALPATH."""
     if ".." in pathlib.PurePath(raw_root).parts:
         raise Refusal(f"artifact root {raw_root!r} contains '..'.")
     root = pathlib.Path(raw_root).expanduser()
@@ -224,7 +254,6 @@ def validate_root(raw_root: str) -> pathlib.Path:
         raise Refusal("artifact root is the home directory itself; prune would "
                       "be able to remove unrelated directories under it.")
     if len(real.parts) < 4:
-        # parts[0] is '/', so this requires at least three components.
         raise Refusal(
             f"artifact root {str(real)!r} is too broad; give a dedicated "
             "directory, not a top-level one.")
@@ -246,45 +275,81 @@ def new_run_id(now=None) -> str:
     return now.strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(4)
 
 
-def prune(base: pathlib.Path, keep: int) -> list:
-    """Remove old runs. ONLY tool-owned directories, ever.
+def prune(base: pathlib.Path, keep: int, protect=None):
+    """Remove old runs. Returns (dropped, failures).
 
-    Three conditions, all required: the entry resolves BENEATH the artifact
-    base, its name matches the run-id grammar, and it carries the ownership
-    sentinel. The v3.66.1140 version had none of these and would rmtree any
-    subdirectory of --root.
+    FOUR conditions before anything is deleted: the entry resolves BENEATH the
+    base, its name matches the run-id grammar, it carries the ownership
+    sentinel, and it is not the run currently in flight.
+
+    `protect` is not an optimisation. Ordering is by NAME, and the name carries
+    a wall-clock stamp, so a future-dated sibling, a same-second sibling or a
+    clock rollback can each sort the live run into the discard tail. The current
+    run is excluded explicitly rather than trusted to sort safely.
+
+    Failures are RETURNED, never swallowed. The previous version passed
+    ignore_errors=True and then reported the directory as removed -- a deletion
+    that did not happen, reported as one that did.
     """
     if keep <= 0 or not base.is_dir():
-        return []
+        return [], []
     base_real = pathlib.Path(os.path.realpath(base))
     owned = []
     for entry in base.iterdir():
-        if not entry.is_dir() or entry.is_symlink():
+        if entry.is_symlink() or not entry.is_dir():
             continue
         if not RUN_RE.match(entry.name):
             continue
+        if protect is not None and entry.name == protect:
+            continue
         if not (entry / SENTINEL).is_file():
             continue
-        real = pathlib.Path(os.path.realpath(entry))
-        if real.parent != base_real:
-            continue                      # symlink escape
+        if pathlib.Path(os.path.realpath(entry)).parent != base_real:
+            continue
         owned.append(entry)
     owned.sort(key=lambda p: p.name, reverse=True)
-    dropped = []
-    for entry in owned[keep:]:
-        shutil.rmtree(entry, ignore_errors=True)
+
+    # `keep` counts SURVIVING runs including the protected current one.
+    budget = keep - (1 if protect is not None else 0)
+    if budget < 0:
+        budget = 0
+    dropped, failures = [], []
+    for entry in owned[budget:]:
+        try:
+            shutil.rmtree(entry)
+        except OSError as exc:
+            failures.append(f"{entry.name}: {exc}")
+            continue
+        if entry.exists():
+            failures.append(f"{entry.name}: still present after rmtree")
+            continue
         dropped.append(entry.name)
-    return dropped
+    return dropped, failures
 
 
 # --------------------------------------------------------------- execution
 
+def build_command(parts) -> str:
+    """One argument is passed VERBATIM; several are joined with shell quoting.
+
+    `" ".join(...)` destroyed meaning: `-c 'print("a b")'` reached the host as
+    three bare words. A single argument is already a command string and must not
+    be re-quoted; multiple tokens are an argv and shlex.join is the only correct
+    way to render one as a shell word sequence.
+    """
+    if not parts:
+        return ""
+    if len(parts) == 1:
+        return parts[0]
+    return shlex.join(parts)
+
+
 def build_argv(label, addr, is_local, command, connect_timeout=10):
     """The exact argv. No shell on this side; ssh host-key checking intact.
 
-    NEVER add StrictHostKeyChecking=no here. Disabling host-key verification
-    turns a fleet runner into a machine that will execute the operator's
-    commands against whatever answers on that address.
+    NEVER add StrictHostKeyChecking=no. Disabling host-key verification turns a
+    fleet runner into a machine that executes the operator's commands against
+    whatever answers on that address.
     """
     if is_local:
         return ["bash", "-c", command]
@@ -293,25 +358,36 @@ def build_argv(label, addr, is_local, command, connect_timeout=10):
             "bash -c %s" % shlex.quote(command)]
 
 
-def classify(rc, err):
+def classify(rc, err, log_text="", is_local=False):
+    """Every non-zero outcome gets a NAME, and none of them is success."""
     if err and "TIMEOUT" in err:
         return "TIMEOUT"
     if err:
         return "ERROR"
+    if rc is None:
+        return "UNKNOWN"
     if rc == 0:
         return "ok"
-    if rc == 255:
-        return "UNREACHABLE_OR_AUTH"
+    if rc == 255 and not is_local:
+        low = (log_text or "").lower()
+        if any(p in low for p in AUTH_PATTERNS):
+            return "AUTH_FAILURE"
+        if any(p in low for p in UNREACH_PATTERNS):
+            return "UNREACHABLE"
+        return "SSH_UNKNOWN"
     return "FAIL"
 
 
 def run_one(runner, label, addr, is_local, command, logdir, timeout,
             record_commit):
+    """Never raises. A host that blows up returns an ERROR row like any other.
+
+    An exception escaping here used to take the entire run's record with it,
+    including hosts that had already finished.
+    """
     log = logdir / f"{label}.log"
     started = time.time()
     if record_commit:
-        # Which tree did this run against? A host two cuts behind returns exit 0
-        # for a command measuring the wrong source. Rides the SAME connection.
         wrapped = ("printf 'bd-fleet-run: commit=%s dirty=%s\\n' "
                    "\"$(git -C \"$PWD\" rev-parse --short HEAD 2>/dev/null || echo unknown)\" "
                    "\"$(git -C \"$PWD\" status --porcelain 2>/dev/null | wc -l)\"; "
@@ -319,34 +395,51 @@ def run_one(runner, label, addr, is_local, command, logdir, timeout,
     else:
         wrapped = command
     argv = build_argv(label, addr, is_local, wrapped)
-    rc, err = runner.run(argv, log, timeout)
+
+    rc, err = None, None
+    try:
+        rc, err = runner.run(argv, log, timeout)
+    except Exception as exc:                       # runner defect, OSError, ...
+        err = f"{type(exc).__name__}: {exc}"
+
+    text, size = "", 0
+    try:
+        if log.exists():
+            size = log.stat().st_size
+            text = log.read_text(errors="replace")
+    except Exception as exc:                       # unreadable / vanished log
+        err = err or f"log unreadable: {type(exc).__name__}: {exc}"
+
     return {"label": label, "addr": addr, "via": "local" if is_local else "ssh",
-            "exit": rc, "error": err, "status": classify(rc, err),
+            "exit": rc, "error": err,
+            "status": classify(rc, err, text, is_local),
             "wall": round(time.time() - started, 1),
-            "log": str(log), "argv": argv,
-            "bytes": log.stat().st_size if log.exists() else 0}
+            "log": str(log), "argv": argv, "bytes": size}
 
 
 def summarise(row, pattern=None):
     tail = ""
     p = pathlib.Path(row["log"])
-    if p.is_file() and row["bytes"]:
-        lines = [l.rstrip() for l in p.read_text(errors="replace").splitlines()
-                 if l.strip()]
-        if pattern:
-            hits = [l for l in lines if pattern in l]
-            tail = hits[-1] if hits else f"(no match for {pattern!r})"
-        elif lines:
-            tail = lines[-1]
+    try:
+        if p.is_file() and row["bytes"]:
+            lines = [l.rstrip() for l in
+                     p.read_text(errors="replace").splitlines() if l.strip()]
+            if pattern:
+                hits = [l for l in lines if pattern in l]
+                tail = hits[-1] if hits else f"(no match for {pattern!r})"
+            elif lines:
+                tail = lines[-1]
+    except Exception as exc:
+        tail = f"(log unreadable: {exc})"
     code = "--" if row["exit"] is None else str(row["exit"])
-    return (f"  {row['label']:12} {row['status']:20} exit={code:<5}"
+    return (f"  {row['label']:12} {row['status']:16} exit={code:<5}"
             f" {row['wall']:7.1f}s {row['bytes']:>9,}b  "
             f"{(row['error'] or tail)[:70]}")
 
 
 # --------------------------------------------------------------- main
 
-def main(argv=None, runner=None) -> int:
+def main(argv=None, runner=None, probe=None) -> int:
     ap = argparse.ArgumentParser(
         description="Run one command across the fleet. Plans by default; "
                     "--execute is required to contact a host.")
@@ -356,7 +449,7 @@ def main(argv=None, runner=None) -> int:
     ap.add_argument("--jobs", type=int, default=DEFAULT_JOBS)
     ap.add_argument("--keep", type=int, default=DEFAULT_KEEP)
     ap.add_argument("--grep", help="display filter only; capture is always whole")
-    ap.add_argument("--only", help="comma-separated labels")
+    ap.add_argument("--only", help="comma-separated labels; all must exist")
     ap.add_argument("--execute", action="store_true",
                     help="actually contact the hosts (default is plan only)")
     ap.add_argument("--no-record-commit", action="store_true")
@@ -366,21 +459,18 @@ def main(argv=None, runner=None) -> int:
 
     if args.selftest:
         return selftest()
-
     try:
-        return _run(args, runner)
+        return _run(args, runner, probe)
     except Refusal as exc:
         print(f"bd-fleet-run: REFUSED: {exc}", file=sys.stderr)
         return 2
 
 
-def _run(args, runner) -> int:
-    # argparse.REMAINDER KEEPS the `--`. bd-jobs shipped without stripping it
-    # and sent bash `-c "-- sleep 90"` on its first real use.
+def _run(args, runner, probe) -> int:
     parts = list(args.command)
     while parts and parts[0] == "--":
         parts.pop(0)
-    command = " ".join(parts).strip()
+    command = build_command(parts).strip()
     if not command:
         raise Refusal("no command given. Usage: bd-fleet-run -- <command>")
 
@@ -398,28 +488,30 @@ def _run(args, runner) -> int:
     except Exception as exc:
         raise Refusal(f"{hosts_path}: {exc}")
 
+    only = None
+    if args.only is not None:
+        only = {s.strip() for s in args.only.split(",") if s.strip()}
+        if not only:
+            raise Refusal("--only was given but names no label.")
+
     locality = read_locality(hosts_path)
-    targets, collapsed = resolve_targets(hosts, locality)
-
-    if args.only:
-        want = {s.strip() for s in args.only.split(",") if s.strip()}
-        targets = [t for t in targets if t[0] in want]
-        if not targets:
-            raise Refusal(f"--only {args.only} matched no host in {hosts_path}")
-
+    targets, collapsed = resolve_targets(hosts, locality, only)
+    if not targets:
+        raise Refusal("no targets remain after selection.")
     if args.jobs < 1:
         raise Refusal("--jobs must be at least 1")
     base = validate_root(args.root)
+    workers = min(args.jobs, len(targets))
 
-    # THE PLAN PRINTS BEFORE ANYTHING RUNS, on both paths.
     print(f"bd-fleet-run: {'EXECUTE' if args.execute else 'PLAN (dry-run)'}"
-          f"  {len(targets)} target(s), jobs={min(args.jobs, len(targets))}")
-    print(f"  command: {command}")
+          f"  {len(targets)} target(s), jobs={workers}")
+    print(f"  effective command: {command}")
     print(f"  artifacts base: {base}")
     for label, addr, is_local in targets:
         where = "LOCAL" if is_local else f"ssh {addr}"
         print(f"    {label:12} {where}")
-        print(f"      argv: {' '.join(shlex.quote(a) for a in build_argv(label, addr, is_local, command))}")
+        print("      argv: " + " ".join(
+            shlex.quote(a) for a in build_argv(label, addr, is_local, command)))
     for label, addr, kept in collapsed:
         print(f"  NOTE: {label} collapsed -- address {addr} already covered by {kept}")
 
@@ -428,11 +520,10 @@ def _run(args, runner) -> int:
         print("  Re-run with --execute to apply.")
         return 0
 
-    # PROVE THE RECORD CAN BE WRITTEN BEFORE ANYTHING RUNS. bd-jobs existed to
-    # prevent untracked work and, on its first live invocation, launched and
-    # THEN failed to register.
     run_id = new_run_id()
     logdir = base / run_id
+    if probe is None:
+        probe = SubprocessProbe()
     try:
         logdir.mkdir(parents=True, exist_ok=False)
         (logdir / SENTINEL).write_text(json.dumps({"tool": "bd-fleet-run"}))
@@ -440,8 +531,8 @@ def _run(args, runner) -> int:
             "run_id": run_id, "command": command,
             "targets": [{"label": l, "addr": a, "local": lo}
                         for l, a, lo in targets],
-            "timeout": args.timeout, "jobs": args.jobs,
-            "local_head": _local_head(),
+            "timeout": args.timeout, "jobs_configured": args.jobs,
+            "workers_used": workers, "local_head": probe.local_head(),
         }, indent=2))
     except Refusal:
         raise
@@ -454,44 +545,63 @@ def _run(args, runner) -> int:
     print(f"\n  run: {logdir}  (runner={getattr(runner, 'name', type(runner).__name__)})")
 
     rows = []
-    with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(args.jobs, len(targets))) as pool:
-        futs = {pool.submit(run_one, runner, l, a, lo, command, logdir,
-                            args.timeout, not args.no_record_commit): l
-                for l, a, lo in targets}
-        for f in concurrent.futures.as_completed(futs):
-            rows.append(f.result())
-    order = [t[0] for t in targets]
-    rows.sort(key=lambda r: order.index(r["label"]))
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            futs = {pool.submit(run_one, runner, l, a, lo, command, logdir,
+                                args.timeout, not args.no_record_commit): (l, a, lo)
+                    for l, a, lo in targets}
+            for f in concurrent.futures.as_completed(futs):
+                label, addr, is_local = futs[f]
+                try:
+                    rows.append(f.result())
+                except BaseException as exc:
+                    # The record survives even a defect in run_one itself.
+                    rows.append({
+                        "label": label, "addr": addr,
+                        "via": "local" if is_local else "ssh",
+                        "exit": None, "error": f"{type(exc).__name__}: {exc}",
+                        "status": "ERROR", "wall": 0.0,
+                        "log": str(logdir / f"{label}.log"), "argv": [],
+                        "bytes": 0})
+    finally:
+        # ALWAYS attempt the record. A host may already have executed, and
+        # losing that fact is worse than any error above.
+        order = [t[0] for t in targets]
+        rows.sort(key=lambda r: order.index(r["label"])
+                  if r["label"] in order else len(order))
+        try:
+            (logdir / "summary.json").write_text(json.dumps(rows, indent=2))
+        except Exception as exc:
+            print(f"  WARNING: summary.json could not be written: {exc}",
+                  file=sys.stderr)
 
-    print(f"\n  {'host':12} {'status':20} {'exit':<6} {'wall':>7} {'stored':>10}")
+    missing = [l for l, _a, _lo in targets
+               if l not in {r["label"] for r in rows}]
+    for label in missing:
+        rows.append({"label": label, "addr": "", "via": "", "exit": None,
+                     "error": "no result recorded", "status": "UNKNOWN",
+                     "wall": 0.0, "log": "", "argv": [], "bytes": 0})
+
+    print(f"\n  {'host':12} {'status':16} {'exit':<6} {'wall':>7} {'stored':>10}")
     for r in rows:
         print(summarise(r, args.grep))
-    (logdir / "summary.json").write_text(json.dumps(rows, indent=2))
 
     bad = [r for r in rows if r["status"] != "ok"]
     print(f"\n  {len(rows) - len(bad)}/{len(rows)} host(s) ok."
           f"  Full output: {logdir}/<host>.log")
     if bad:
-        # Partial fleet failure is explicit and never becomes success.
         print("  NOT OK: " + ", ".join(f"{r['label']}={r['status']}" for r in bad))
-    dropped = prune(base, args.keep)
+
+    dropped, failures = prune(base, args.keep, protect=run_id)
     if dropped:
         print(f"  retention: removed {len(dropped)} owned run(s), keeping {args.keep}")
+    if failures:
+        print("  RETENTION FAILED for: " + "; ".join(failures), file=sys.stderr)
 
     print("\n=== WHAT THIS RUN CANNOT TELL YOU ===")
     for i, s in enumerate(BLIND_SPOTS, 1):
         print(f"  {i}. {s}")
-    return 1 if bad else 0
-
-
-def _local_head():
-    try:
-        r = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
-                           capture_output=True, text=True, timeout=10)
-        return r.stdout.strip() or "unknown"
-    except Exception:
-        return "unknown"
+    return 1 if (bad or failures) else 0
 
 
 # --------------------------------------------------------------- selftest
@@ -511,13 +621,15 @@ class _FakeRunner:
         return self._rc, self._err
 
 
-def selftest() -> int:
-    """Hermetic. Constructs no SubprocessRunner and starts no process.
+class _FakeProbe:
+    name = "fake"
 
-    The v3.66.1140 selftest called main() with a real fleet file and relied on a
-    procfs mkdir failing to keep it off the network. This one injects a fake
-    runner on every execute path, so no code path here can reach ssh.
-    """
+    def local_head(self):
+        return "fakehead"
+
+
+def selftest() -> int:
+    """Hermetic: constructs no SubprocessRunner and no SubprocessProbe."""
     import tempfile
     fails = []
 
@@ -528,17 +640,16 @@ def selftest() -> int:
 
     with tempfile.TemporaryDirectory() as td:
         tmp = pathlib.Path(td)
-        base = tmp / "a" / "runs"          # deep enough to pass validate_root
+        base = tmp / "a" / "runs"
         hosts = tmp / "hosts"
         hosts.write_text("alpha 10.0.0.1\nbeta 10.0.0.2 local\n")
+        common = ["--hosts", str(hosts), "--root", str(base)]
 
         fake = _FakeRunner()
-        rc = main(["--hosts", str(hosts), "--root", str(base), "--execute",
-                   "--", "echo", "hi"], runner=fake)
+        rc = main(common + ["--execute", "--", "echo", "hi"],
+                  runner=fake, probe=_FakeProbe())
         check(rc == 0, f"an execute run through the fake returns 0 (got {rc})")
         check(len(fake.calls) == 2, f"one call per host (got {len(fake.calls)})")
-        check(all(c["argv"][0] in ("ssh", "bash") for c in fake.calls),
-              "every launch is ssh or bash and nothing else")
         ssh_calls = [c for c in fake.calls if c["argv"][0] == "ssh"]
         check(len(ssh_calls) == 1, "the non-local host used ssh")
         check(not any("StrictHostKeyChecking" in a for a in ssh_calls[0]["argv"]),
@@ -547,30 +658,61 @@ def selftest() -> int:
               "the inventory-declared local host ran locally")
 
         dry = _FakeRunner()
-        rc = main(["--hosts", str(hosts), "--root", str(base),
-                   "--", "echo", "hi"], runner=dry)
+        rc = main(common + ["--", "echo", "hi"], runner=dry, probe=_FakeProbe())
         check(rc == 0 and dry.calls == [],
-              f"dry-run is the DEFAULT and starts nothing (calls={len(dry.calls)})")
+              f"dry-run is the DEFAULT and starts nothing ({len(dry.calls)})")
+
+        v = _FakeRunner()
+        rc = main(common + ["--only", "alpha,TYPO", "--execute", "--", "true"],
+                  runner=v, probe=_FakeProbe())
+        check(rc == 2 and v.calls == [],
+              "a partial --only match refuses with zero launches")
+
+        check(build_command(['python3 -c "print(1)"']) == 'python3 -c "print(1)"',
+              "a single command argument is preserved verbatim")
+        check(build_command(["python3", "-c", "print('a b')"])
+              == "python3 -c 'print('\"'\"'a b'\"'\"')'",
+              "multiple tokens are shell-quoted, not space-joined")
 
         bad = tmp / "badhosts"
         bad.write_text("../evil 10.0.0.9\n")
-        v = _FakeRunner()
         rc = main(["--hosts", str(bad), "--root", str(base), "--execute",
-                   "--", "true"], runner=v)
+                   "--", "true"], runner=v, probe=_FakeProbe())
         check(rc == 2 and v.calls == [],
               "a traversal label refuses with zero launches")
 
         rc = main(["--hosts", str(hosts), "--root", "/", "--execute",
-                   "--", "true"], runner=v)
+                   "--", "true"], runner=v, probe=_FakeProbe())
         check(rc == 2 and v.calls == [], "artifact root '/' refuses, no launch")
 
-        owned = base / "20260101T000000Z-aaaaaaaa"
-        owned.mkdir(parents=True, exist_ok=True)
-        (owned / SENTINEL).write_text("{}")
+        check(classify(255, None, "Permission denied (publickey).") == "AUTH_FAILURE",
+              "ssh auth failure is named")
+        check(classify(255, None, "ssh: connect to host x: No route to host")
+              == "UNREACHABLE", "ssh unreachable is named")
+        check(classify(255, None, "something else entirely") == "SSH_UNKNOWN",
+              "an unrecognised 255 is SSH_UNKNOWN and not success")
+
+        # prune: an unowned directory survives, and the CURRENT run survives
+        # even when keep is 1 and a future-dated sibling exists.
+        cur = "20260101T000000Z-cccccccc"
+        for name in (cur, "29991231T235959Z-ffffffff", "20250101T000000Z-aaaaaaaa"):
+            d = base / name
+            d.mkdir(parents=True, exist_ok=True)
+            (d / SENTINEL).write_text("{}")
         foreign = base / "please-do-not-delete-me"
         foreign.mkdir(parents=True, exist_ok=True)
-        prune(base, 0)
-        check(foreign.is_dir(), "prune(keep=0) leaves an unowned directory alone")
+        dropped, failures = prune(base, 1, protect=cur)
+        check((base / cur).is_dir(),
+              "the CURRENT run survives prune with --keep 1 and a future sibling")
+        check(foreign.is_dir(), "prune leaves an unowned directory alone")
+        check(not failures, f"prune reported failures: {failures}")
+        # Assert IDENTITIES, not a count. Earlier --execute checks in this same
+        # selftest leave their own run directories under `base`, so a count is a
+        # property of the fixture's history rather than of prune.
+        check("29991231T235959Z-ffffffff" in dropped
+              and "20250101T000000Z-aaaaaaaa" in dropped,
+              f"prune removed the stale runs it should ({dropped})")
+        check(cur not in dropped, "prune did not report removing the current run")
 
     if fails:
         print(f"\nSELFTEST FAIL: {len(fails)} check(s) failed")

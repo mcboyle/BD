@@ -4,6 +4,79 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1143 - six ways bd-fleet-run could still lose a result or destroy one
+
+Review follow-up to v3.66.1142, on the same PR. Each item below was a way to
+lose a host's record, lose a command's meaning, or delete something that was
+not ours to delete.
+
+CORRECTION TO THE v3.66.1142 ENTRY BELOW. It ends "NOT TESTED AGAINST THE LIVE
+VMs. No ssh was issued to any host in this cut." That was true when written and
+is now false. After that commit, the operator authorized exactly one read-only
+canary and it was executed:
+
+    target     test6 / 10.0.70.249
+    command    hostname            (--no-record-commit, so nothing else ran)
+    result     exit 0, status ok, 1.1s, stdout "test6"
+    artifact   ~/.local/share/bd-fleet-run/runs/20260815T025025Z-7b95874b/
+    argv       ssh -n -o BatchMode=yes -o ConnectTimeout=10 10.0.70.249 \
+                   'bash -c hostname'
+
+The manifest recorded local_head 6d31e82 and `"local": false`, confirming
+locality came from the inventory rather than a hostname match. NO STATE-CHANGING
+LIVE COMMAND WAS RUN, on that host or any other. No fleet was widened to.
+
+FAIL CLOSED ON --only. Every requested label must now exist: `--only test5,TYPO`
+refuses, naming the missing labels and the known ones, before any artifact or
+process. Selection also now precedes address de-duplication -- previously a
+label that dedup had collapsed as an alias selected nothing and the run
+reported success over an empty fleet.
+
+NO HOST RESULT IS LOST. Exceptions from the runner, from opening or statting a
+log, and from future.result() each produce an explicit ERROR row instead of
+discarding the entire run's record -- including hosts that had already
+executed. summary.json is written from a `finally`, so it survives any of them,
+and a host with no row at all is recorded UNKNOWN rather than omitted. All are
+non-success.
+
+RETENTION. The current run can no longer be pruned: it is excluded by name
+rather than trusted to sort safely, because ordering is by a wall-clock-derived
+name and a future-dated sibling, a same-second sibling or a clock rollback each
+reorder it into the discard tail. `ignore_errors=True` is gone -- a failed
+rmtree is now reported explicitly, excluded from the "removed" list, and makes
+the run exit non-zero. The symlink test previously called prune(base, 0), which
+returns immediately, so it asserted over a no-op; it now guarantees a real
+deletion pass happens first.
+
+COMMAND SEMANTICS. `" ".join()` destroyed quoting -- `-c 'print("a b")'`
+reached the host as three bare words. A single argument is now passed verbatim
+and multiple tokens are joined with shlex.join(). Tested across spaces, quotes,
+python -c, shell metacharacters, and that the PRINTED effective command is the
+one recovered from the argv that reached the host.
+
+SSH STATES. 255 splits into AUTH_FAILURE and UNREACHABLE when ssh's diagnostics
+support it, and SSH_UNKNOWN when they do not. A local command exiting 255 is
+FAIL, not an ssh diagnostic. None is success.
+
+THE LOCAL-HEAD PROBE IS AN INJECTED SEAM. It called subprocess directly, so
+execute-mode tests could not honestly claim zero real process calls. With both
+seams injected, a correct execute run now starts NOTHING, and the test fixture
+asserts exactly that rather than allowing git.
+
+CI, WIRED HONESTLY. tests/test_v3_66_1142_fleet_run_is_hermetic.py is now in
+the `toolchain` shard and in _DECLARED. It is the only _DECLARED entry that is
+BD_GATE_SCOPE = "module", stated as such with its reason: its subject is one
+tool, so claiming "repo-wide" to buy shard membership would be the mislabelling
+test_v3_66_939's own docstring says nothing catches. It is pinned anyway
+because the property is a safety boundary that must run on every PR regardless
+of the diff.
+
+65 hermetic cases, up from 37. New coverage: concurrency capping (peak
+observed, with an assertion that the fixture actually ran two at once so the
+check cannot be vacuous), complete retention of a 20,000-line log, partial
+--only matches, generic runner exceptions, current-run prune protection, prune
+deletion failure, and quoted-command preservation.
+
 ## v3.66.1142 - the fleet runner was kept off the network by procfs, not by code
 
 CUT 0 of the governance reduction programme. bd-fleet-run is a live operator
