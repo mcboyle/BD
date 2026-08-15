@@ -947,14 +947,23 @@ def test_the_1145_tests_that_deliberately_break_cleanup_remove_their_own_residue
         import _tmproot
     finally:
         sys.path.pop(0)
-    system_tmp = _tmproot.SYSTEM_TMP
+    # THE CHILD GETS ITS OWN TMPDIR (v3.66.1153). This swept the SHARED system
+    # temp directory, so anything else running on the box during the window was
+    # attributed to the two subject tests -- observed live: a concurrent
+    # reviewer's `bdcut_probeC2_*` failed this assertion. A private TMPDIR makes
+    # the denominator exactly "what the child created", which is what the test
+    # claims to measure, and removes the concurrency flake with it.
+    import tempfile as _tf
+    child_tmp = pathlib.Path(_tf.mkdtemp(prefix="bd1150_childtmp_",
+                                         dir=str(_tmproot.SYSTEM_TMP)))
 
     def sweep():
-        return set(system_tmp.glob("bdcut_*")) | set(system_tmp.glob("bdfg_*"))
+        return set(child_tmp.glob("bdcut_*")) | set(child_tmp.glob("bdfg_*"))
 
     env = dict(os.environ)
     env["KEEP_TEST_TMPDIRS"] = "1"       # no redirection: residue is observable
     env["BD_DISABLE_KEEPALIVE"] = "1"
+    env["TMPDIR"] = str(child_tmp)
     env.pop("BD_INSTALL_DIR", None)
 
     before = sweep()
@@ -964,6 +973,10 @@ def test_the_1145_tests_that_deliberately_break_cleanup_remove_their_own_residue
         cwd=str(REPO), capture_output=True, text=True, timeout=600, env=env)
     leaked = sweep() - before
     for d in leaked:                      # never leave OUR measurement behind
+        try:
+            os.chmod(d, 0o700)
+        except OSError:
+            pass
         shutil.rmtree(d, ignore_errors=True)
 
     # PRECONDITION: if the two tests did not actually run, "no residue" is a
@@ -971,6 +984,7 @@ def test_the_1145_tests_that_deliberately_break_cleanup_remove_their_own_residue
     assert "2 passed" in (r.stdout + r.stderr), (
         "the two subject tests did not both run and pass, so the residue count "
         "below means nothing:\n" + (r.stdout + r.stderr)[-1500:])
+    shutil.rmtree(child_tmp, ignore_errors=True)
     assert not leaked, (
         f"{len(leaked)} directory(ies) survived the two 1145 tests: "
         f"{sorted(p.name for p in leaked)}. A test that deliberately breaks "
