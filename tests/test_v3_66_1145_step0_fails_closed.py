@@ -401,7 +401,7 @@ JOB_STUB = '''#!/usr/bin/env python3
 import json, os, sys
 mark = os.environ["BD_STEP0_MARKER"]
 with open(mark, "a") as fh:
-    fh.write(json.dumps({"tool": "bd-job", "argv": sys.argv[1:3]}) + "\\n")
+    fh.write(json.dumps({"tool": "bd-job", "argv": sys.argv[1:]}) + "\\n")
 sys.exit(0)
 '''
 
@@ -446,15 +446,39 @@ def test_an_unknown_gate_never_launches_a_detached_cut():
         assert not _ran(calls, "bd-job"), "an UNKNOWN gate launched a detached cut"
 
 
-def test_a_clean_gate_does_launch_a_detached_cut(capfd):
-    """OVER-SENSITIVITY CONTROL: gating first must not break --detach."""
+def test_a_clean_gate_launches_the_detached_cut_with_the_right_argv(capfd):
+    """OVER-SENSITIVITY CONTROL, and it must be specific.
+
+    "any bd-job call" is NOT sufficient: production calls `bd-job kill cut`
+    FIRST, so a run that killed the previous job and then refused to start a new
+    one would satisfy a naive check. This asserts a recorded invocation that
+    actually STARTS, with the exact leading argv, and proves the child command
+    does not carry --detach (it would re-detach forever).
+    """
     with tempfile.TemporaryDirectory() as td:
         tmp = pathlib.Path(td)
         b = _bin_with_job(tmp, {"bd-footguns": EXIT[0], "bd-ratchet": EXIT[0]})
         r, calls = _run(tmp, b, _work(tmp), extra=("--detach",))
         out = r.stdout + r.stderr
-        assert _ran(calls, "bd-job"), f"a clean gate failed to detach\n{out[-1200:]}"
-        assert r.returncode == 0
+        assert r.returncode == 0, out[-1200:]
+
+        jobs = [c["argv"] for c in calls if c["tool"] == "bd-job"]
+        assert jobs, f"bd-job was never invoked\n{out[-1200:]}"
+        # The kill call is expected and is NOT a start.
+        kills = [j for j in jobs if j[:1] == ["kill"]]
+        starts = [j for j in jobs if j[:4] == ["start", "--name", "cut", "--"]]
+        assert kills, f"production kills the previous job first; none seen: {jobs}"
+        assert len(starts) == 1, (
+            f"expected exactly one `start --name cut --` invocation, got: {jobs}")
+
+        child = starts[0][4:]
+        assert child, f"the start call carried no child command: {starts[0]}"
+        assert "--detach" not in child, (
+            f"the child command still carries --detach and would re-detach "
+            f"forever: {child}")
+        assert any(x.endswith("bd-cut") for x in child), (
+            f"the child does not re-exec bd-cut: {child}")
+        assert "--work" in child, f"the child lost --work: {child}"
 
 
 def test_the_detached_parent_never_claims_the_cut_succeeded():
@@ -545,3 +569,182 @@ def test_a_declared_violation_code_still_blocks(monkeypatch):
     monkeypatch.setattr(m, "_run_tool", lambda cmd, tree: (1, ""))
     verdict, _ = m._check_one(fg, str(REPO))
     assert verdict == "violation", verdict
+
+
+# ============ the gate must not mutate the tree it is standing in ===========
+
+def test_the_gate_leaves_no_artifact_in_the_callers_cwd(tmp_path):
+    """MEASURED DEFECT, v3.66.1147.
+
+    bd-footguns --check with BD_INSTALL_DIR unset and cwd inside the repo wrote
+    a 7,467,008-byte downloader_history.db into the WORKING TREE:
+    db._resolve_db_path falls back to a relative path resolved against CWD, and
+    step 0 inherits whatever cwd the operator ran bd-cut from. The same run with
+    a neutral cwd produced zero artifacts and an identical verdict.
+
+    A gate must not modify the thing it judges, nor the tree the operator is
+    standing in. This drives the REAL step0_gate with a checker that writes into
+    its own cwd, and asserts the caller's directory is untouched.
+    """
+    m = _load_bdcut()
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name in m.STEP0_CHECKERS:
+        (bin_dir / name).write_text(
+            "#!/usr/bin/env python3\n"
+            "import os, sys\n"
+            "open(os.path.join(os.getcwd(), 'downloader_history.db'),'w').write('x')\n"
+            "sys.exit(0)\n")
+        (bin_dir / name).chmod(0o755)
+
+    caller = tmp_path / "caller"
+    caller.mkdir()
+    before = sorted(os.listdir(caller))
+    old = os.getcwd()
+    os.chdir(caller)
+    try:
+        refusals = m.step0_gate(str(tmp_path), checker_dir=str(bin_dir))
+    finally:
+        os.chdir(old)
+
+    assert refusals == [], f"the clean stubs were refused: {refusals}"
+    after = sorted(os.listdir(caller))
+    assert after == before, (
+        f"the gate wrote into the caller's cwd: {set(after) - set(before)}")
+    assert not (caller / "downloader_history.db").exists()
+
+
+def test_the_gate_sandbox_is_removed(tmp_path):
+    """The isolation directory is itself a path, and a path is a promise."""
+    m = _load_bdcut()
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    seen = tmp_path / "seen.txt"
+    for name in m.STEP0_CHECKERS:
+        (bin_dir / name).write_text(
+            "#!/usr/bin/env python3\n"
+            "import os, sys\n"
+            f"open({str(seen)!r},'a').write(os.getcwd()+chr(10))\n"
+            "sys.exit(0)\n")
+        (bin_dir / name).chmod(0o755)
+    assert m.step0_gate(str(tmp_path), checker_dir=str(bin_dir)) == []
+    sandboxes = [l.strip() for l in seen.read_text().splitlines() if l.strip()]
+    assert sandboxes, "the checkers never reported a cwd"
+    for d in sandboxes:
+        assert "bdcut_gate_" in d, f"the checker did not run in a sandbox: {d}"
+        assert not os.path.exists(d), f"gate sandbox leaked: {d}"
+
+
+# ================= --resume-zip: ONE attested subject ======================
+
+def _make_zip(path, files):
+    import zipfile
+    with zipfile.ZipFile(path, "w") as zf:
+        for name, body in files.items():
+            zf.writestr(name, body)
+    return path
+
+
+def test_extract_and_attest_returns_a_verified_directory(tmp_path):
+    m = _load_bdcut()
+    z = _make_zip(tmp_path / "r.zip", {"a.py": "x = 1\n", "pkg/b.txt": "hello"})
+    d = m.extract_and_attest(str(z))
+    try:
+        assert os.path.isfile(os.path.join(d, "a.py"))
+        assert (pathlib.Path(d) / "pkg" / "b.txt").read_text() == "hello"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_attestation_fails_closed_when_the_extract_differs(tmp_path, monkeypatch):
+    """THE NEGATIVE. If what lands on disk is not what the archive holds, the
+    subject is not vouchable and the cut must not proceed."""
+    m = _load_bdcut()
+    z = _make_zip(tmp_path / "r.zip", {"a.py": "x = 1\n"})
+    import zipfile as _zf
+    real = _zf.ZipFile.extractall
+
+    def tamper(self, path=None, *a, **k):
+        real(self, path, *a, **k)
+        pathlib.Path(path, "a.py").write_text("x = 999   # tampered\n")
+
+    monkeypatch.setattr(_zf.ZipFile, "extractall", tamper)
+    with pytest.raises(RuntimeError) as ei:
+        m.extract_and_attest(str(z))
+    assert "differ from the archive" in str(ei.value)
+    leaked = [p for p in pathlib.Path(tempfile.gettempdir()).glob("bdcut_subject_*")]
+    assert not leaked, f"a failed attestation leaked its directory: {leaked}"
+
+
+def test_resume_zip_gate_and_band_share_one_subject(tmp_path, monkeypatch):
+    """THE REQUIREMENT. The checker subject path must EQUAL the band subject
+    path, and differ from the worktree -- one extraction, one object."""
+    m = _load_bdcut()
+    z = _make_zip(tmp_path / "r.zip", {"a.py": "x = 1\n"})
+    work = tmp_path / "work"
+    (work / "bulk_downloader").mkdir(parents=True)
+    (work / "bulk_downloader" / "__init__.py").write_text('__version__ = "3.66.0"\n')
+
+    seen = {}
+    monkeypatch.setattr(m, "step0_gate",
+                        lambda subject, **k: seen.setdefault("gate", subject) and [])
+    monkeypatch.setattr(m, "band",
+                        lambda zp, su, wk, extracted=None: seen.setdefault("band", extracted))
+    monkeypatch.setattr(m, "verify", lambda *a, **k: None)
+    monkeypatch.setattr(m, "max_summary", lambda *a, **k: None)
+
+    rc = m.main(["--work", str(work), "--out", str(tmp_path / "out"),
+                 "--resume-zip", str(z)])
+    assert rc == 0, rc
+    assert seen.get("gate"), "the gate was never given a subject"
+    assert seen.get("band"), "band was never given the extracted subject"
+    assert seen["gate"] == seen["band"], (
+        f"the certified subject is not the tested subject:\n"
+        f"  gate: {seen['gate']}\n  band: {seen['band']}")
+    assert seen["gate"] != str(work), "the gate was bound to the WORKTREE"
+    assert "bdcut_subject_" in seen["gate"]
+
+
+def test_the_resume_zip_subject_is_removed_on_every_exit_path(tmp_path, monkeypatch):
+    """Cleanup is in main()'s finally, so it survives return, die and raise."""
+    m = _load_bdcut()
+    z = _make_zip(tmp_path / "r.zip", {"a.py": "x = 1\n"})
+    work = tmp_path / "work"
+    (work / "bulk_downloader").mkdir(parents=True)
+    (work / "bulk_downloader" / "__init__.py").write_text('__version__ = "3.66.0"\n')
+    seen = {}
+    monkeypatch.setattr(m, "step0_gate",
+                        lambda subject, **k: seen.setdefault("d", subject) and [])
+    monkeypatch.setattr(m, "verify", lambda *a, **k: None)
+    monkeypatch.setattr(m, "max_summary", lambda *a, **k: None)
+
+    # normal return
+    monkeypatch.setattr(m, "band", lambda *a, **k: None)
+    m.main(["--work", str(work), "--out", str(tmp_path / "o1"),
+            "--resume-zip", str(z)])
+    assert not os.path.exists(seen["d"]), f"subject leaked on return: {seen['d']}"
+
+    # exception mid-band
+    seen.clear()
+    def boom(*a, **k):
+        raise RuntimeError("band exploded")
+    monkeypatch.setattr(m, "band", boom)
+    with pytest.raises(RuntimeError):
+        m.main(["--work", str(work), "--out", str(tmp_path / "o2"),
+                "--resume-zip", str(z)])
+    assert not os.path.exists(seen["d"]), f"subject leaked on exception: {seen['d']}"
+
+
+def test_band_does_not_re_extract_over_a_supplied_subject():
+    """Structural: the second extraction is gone, not merely unused."""
+    src = BDCUT.read_text(encoding="utf-8")
+    import ast
+    tree = ast.parse(src)
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "band")
+    body = ast.unparse(fn)
+    assert "extracted" in fn.args.args[-1].arg or any(
+        a.arg == "extracted" for a in fn.args.args), "band() takes no extracted="
+    assert "_preextracted" in body, "band() does not honour a supplied subject"
+    assert "if not _preextracted" in body.replace("\n", " ") or \
+           "not _preextracted" in body, "extractall is unconditional"

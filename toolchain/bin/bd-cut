@@ -631,7 +631,7 @@ def _tree_vs_zip_source_hash(work, zippath):
             sorted(set(wt_names) ^ set(zp.keys())))
 
 
-def band(zippath, suites, work):
+def band(zippath, suites, work, extracted=None):
     step(7, "extract built zip to a pristine dir")
     # STALE-ZIP GATE (702->703 lesson): the band runs from the ZIP, which is correct
     # -- but --resume/--resume-zip can hand it a zip built BEFORE the current edits, so
@@ -652,9 +652,15 @@ def band(zippath, suites, work):
         raise
     except Exception as e:
         print(f"  {Y}(stale-zip check skipped: {e}){RST}")
-    d = tempfile.mkdtemp(prefix="bdcut_verify_")
+    # SINGLE EXTRACTION (v3.66.1147). When the caller has already extracted and
+    # ATTESTED the archive, band runs against that exact directory -- the same
+    # object step 0 certified. Extracting a second copy here would recreate the
+    # certify-one-tree-test-another split this cut exists to remove.
+    _preextracted = extracted is not None
+    d = extracted if _preextracted else tempfile.mkdtemp(prefix="bdcut_verify_")
     with zipfile.ZipFile(zippath) as zf:
-        zf.extractall(d)
+        if not _preextracted:
+            zf.extractall(d)
     print(f"  extracted -> {d}")
     # PRE-FLIGHT: a --suites entry that doesn't exist in the extracted zip is a
     # stale/typo'd suite name. Left unchecked, run_tests.py falls back to a broad
@@ -849,6 +855,42 @@ def plan(work, version):
     return 0
 
 
+def extract_and_attest(zippath):
+    """Extract the archive ONCE and prove the bytes on disk are the archive's.
+
+    Returns the directory. Raises RuntimeError on any mismatch, so the caller
+    fails CLOSED -- an extract we cannot vouch for is not a subject.
+
+    WHY. Until v3.66.1147 --resume-zip extracted TWICE: into bdcut_step0_* for
+    the gate and again into bdcut_verify_* inside band(). The thing CERTIFIED
+    and the thing TESTED were different objects, which is CLAUDE.md section 0's
+    core failure even when both come from one archive. And nothing checked what
+    landed on disk: the only hash compared the work tree against ZIP MEMBERS,
+    before extraction, over two directories, and failed open.
+    """
+    d = tempfile.mkdtemp(prefix="bdcut_subject_")
+    try:
+        with zipfile.ZipFile(zippath) as archive:
+            archive.extractall(d)
+            for info in archive.infolist():
+                if info.is_dir():
+                    continue
+                target = os.path.join(d, info.filename)
+                if not os.path.isfile(target):
+                    raise RuntimeError(f"member not extracted: {info.filename}")
+                want = hashlib.sha256(archive.read(info)).hexdigest()
+                with open(target, "rb") as fh:
+                    got = hashlib.sha256(fh.read()).hexdigest()
+                if got != want:
+                    raise RuntimeError(
+                        f"extracted bytes differ from the archive for "
+                        f"{info.filename} (archive {want[:12]}, disk {got[:12]})")
+    except Exception:
+        shutil.rmtree(d, ignore_errors=True)
+        raise
+    return d
+
+
 STEP0_TIMEOUT = 900
 STEP0_CHECKERS = ("bd-footguns", "bd-ratchet")
 # Named remedies, because a refusal without one gets overridden rather than fixed.
@@ -877,9 +919,19 @@ def step0_gate(subject, checker_dir=None, timeout=STEP0_TIMEOUT):
             out.append(f"NO-CUT: step-0 checker {name} is MISSING from {here} "
                        f"-- cannot verify, so this cut is not authorized.")
             continue
+        # ISOLATE THE CHECKER'S RUNTIME (v3.66.1147). MEASURED: bd-footguns
+        # --check with BD_INSTALL_DIR unset and cwd inside the repo wrote a
+        # 7.5MB downloader_history.db into the WORKING TREE -- db._resolve_db_path
+        # falls back to a relative path resolved against CWD, and step 0 inherits
+        # whatever cwd the operator ran bd-cut from. The same run with a neutral
+        # cwd produced zero artifacts and an identical verdict. A gate must not
+        # modify the thing it judges, nor the tree the operator is standing in.
+        sandbox = tempfile.mkdtemp(prefix="bdcut_gate_")
+        env = dict(os.environ)
+        env["BD_INSTALL_DIR"] = sandbox
         try:
             rc = subprocess.run([sys.executable, exe, "--check", "--tree", subject],
-                                timeout=timeout).returncode
+                                timeout=timeout, cwd=sandbox, env=env).returncode
         except subprocess.TimeoutExpired:
             out.append(f"NO-CUT: step-0 {name} TIMED OUT after {timeout}s "
                        f"-- the gate did not complete, so it proved nothing.")
@@ -888,6 +940,8 @@ def step0_gate(subject, checker_dir=None, timeout=STEP0_TIMEOUT):
             out.append(f"NO-CUT: step-0 {name} RAISED {type(e).__name__}: {e} "
                        f"-- the gate could not run.")
             continue
+        finally:
+            shutil.rmtree(sandbox, ignore_errors=True)
         if rc == 0:
             continue
         if rc == 2:
@@ -901,7 +955,7 @@ def step0_gate(subject, checker_dir=None, timeout=STEP0_TIMEOUT):
     return out
 
 
-def main(argv=None):
+def _main_inner(argv, _cleanup):
     ap = argparse.ArgumentParser()
     ap.add_argument("--version")
     ap.add_argument("--baseline")
@@ -1001,25 +1055,25 @@ def main(argv=None):
     # Now: ONLY exit 0 authorizes a cut. Every other outcome names itself and
     # blocks. --no-gate still overrides, loudly, because an override you cannot
     # prove happened is indistinguishable from a gate that ran.
+    # ONE SUBJECT, EXTRACTED ONCE, ATTESTED, SHARED BY THE GATE AND THE BAND.
+    # v3.66.1147. Previously the gate extracted to bdcut_step0_* and band()
+    # extracted again to bdcut_verify_*, so the directory that was CERTIFIED and
+    # the directory that was TESTED were different objects -- section 0's core
+    # failure even when both came from one archive. `_subject` below is the only
+    # extract, its bytes are verified against the archive member-by-member, and
+    # it is removed on every exit path by the finally at the end of main().
     _gate_subject = a.work
+    _subject = None
     if getattr(a, "resume_zip", None) and os.path.exists(a.resume_zip):
-        # Bind the gate to what was actually EXTRACTED, never the work tree.
-        # Certifying one tree while banding another is CLAUDE.md section 0's
-        # core failure. (band() still makes its own extract from the same
-        # archive; unifying them is deferred -- band()'s signature is
-        # source-scraped by tests/test_pytest_runner_boundary.py, and the whole
-        # --resume-zip path may be dead: there is no zip anywhere in the tree
-        # and bd-release-attestation declares the release zip retired.)
-        import zipfile as _zipfile
-        _gate_subject = tempfile.mkdtemp(prefix="bdcut_step0_")
         try:
-            with _zipfile.ZipFile(a.resume_zip) as _zf:
-                _zf.extractall(_gate_subject)
+            _subject = extract_and_attest(a.resume_zip)
+            _cleanup.append(_subject)
         except Exception as _e:
-            print(f"\nNO-CUT: step-0 could not extract {a.resume_zip} "
-                  f"({type(_e).__name__}: {_e}) -- the gate has no subject.",
-                  file=sys.stderr)
+            print(f"\nNO-CUT: step-0 could not extract or attest "
+                  f"{a.resume_zip} ({type(_e).__name__}: {_e}) -- the gate has "
+                  f"no subject it can vouch for.", file=sys.stderr)
             return 3
+        _gate_subject = _subject
 
     if a.no_gate:
         # LOUD. stderr, unmissable, and repeated in the summary.
@@ -1109,7 +1163,10 @@ def main(argv=None):
         for s in VERSION_COUPLED_SUITES:
             if s not in suites:
                 suites.append(s)
-        band(a.resume_zip, suites, a.work)
+        # THE SAME DIRECTORY step 0 certified. Not a second extract.
+        assert _subject is not None, (
+            "resume-zip reached the band without an attested subject")
+        band(a.resume_zip, suites, a.work, extracted=_subject)
         verify(a.work, a.resume_zip)
         max_summary(a.resume_zip, a.baseline)
         print(f"\n{G}bd-cut --resume complete{RST} -> {a.resume_zip}")
@@ -1203,6 +1260,23 @@ def main(argv=None):
     print(f"\n{G}bd-cut complete{RST} -> {z}")
     print(f"{DIM}present_files it; regenerate the next-session pack; deploy is a separate human gate.{RST}")
     return 0
+
+
+def main(argv=None):
+    """Wrapper whose only job is that the attested subject cannot leak.
+
+    CLAUDE.md section 0: creating a path is a promise to remove it, and nothing
+    gates that promise. The old --resume-zip left BOTH of its extracts behind --
+    band() returned its directory and the caller discarded it, and nothing
+    anywhere removed bdcut_verify_*. Cleanup lives here, outside every return,
+    die() and exception path inside the cut.
+    """
+    _cleanup = []
+    try:
+        return _main_inner(argv, _cleanup)
+    finally:
+        for _d in _cleanup:
+            shutil.rmtree(_d, ignore_errors=True)
 
 
 if __name__ == "__main__":

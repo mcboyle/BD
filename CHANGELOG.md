@@ -4,6 +4,52 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1147 - one subject, extracted once, and a gate that stops writing to the tree
+
+Third review pass on PR #429.
+
+--resume-zip NOW EXTRACTS EXACTLY ONCE. Until now the gate extracted to
+bdcut_step0_* and band() extracted AGAIN to bdcut_verify_*, so the directory
+that was CERTIFIED and the directory that was TESTED were different objects --
+CLAUDE.md section 0's core failure even when both came from one archive. The
+previous cut deferred unification, citing a signature-pinning test; the test is
+migrated instead. band() now takes `extracted=` and honours it, extract_and_attest()
+is the single extraction, and step 0 and the band are handed the same path.
+
+THE BYTES ON DISK ARE NOW VERIFIED. Nothing previously checked what landed:
+the only hash compared the work tree against ZIP MEMBERS, before extraction,
+over two directories (bulk_downloader/ and tests/ only), and failed open on any
+exception. extract_and_attest() re-reads every extracted member and compares its
+sha256 to the archive's. A missing member or a byte difference raises, the cut
+returns 3, and the partial directory is removed -- an extract we cannot vouch
+for is not a subject.
+
+THE SUBJECT IS REMOVED ON EVERY EXIT PATH. main() is now a thin wrapper whose
+only job is a finally that deletes it, so return, die() and exception are all
+covered. The old code leaked both extracts: band() returned its directory and
+the caller discarded it, and nothing anywhere removed bdcut_verify_*.
+
+THE GATE STOPPED WRITING INTO THE OPERATOR'S TREE. MEASURED: bd-footguns
+--check with BD_INSTALL_DIR unset and cwd inside the repo wrote a 7,467,008-byte
+downloader_history.db into the WORKING TREE. db._resolve_db_path falls back to a
+relative path resolved against CWD, and step 0 inherits whatever cwd the
+operator ran bd-cut from. The identical run with a neutral cwd produced ZERO
+artifacts and the same verdict (exit 0, 8 detectors). Each checker now runs in a
+disposable directory with BD_INSTALL_DIR pointed at it, removed afterwards. A
+gate must not modify the thing it judges, nor the tree the operator is standing
+in. This was found by running the real checker in a disposable checkout, exactly
+as the review asked -- the defect appeared on the CALLER, not the subject, which
+is the harder half to see.
+
+THE DETACH CONTROL IS NO LONGER SATISFIABLE BY A KILL. "any bd-job call" was
+insufficient because production calls `bd-job kill cut` first. The test now
+asserts a recorded invocation beginning `start --name cut --`, records the
+COMPLETE argv, and proves the child command omits --detach (it would otherwise
+re-detach forever) and still carries --work. Mutation-proven: a bd-cut that
+kills but never starts FAILS the tightened test and PASSED the old one.
+
+RED at 5975a4ef: 7 failed, 24 passed. GREEN: 31 passed.
+
 ## v3.66.1146 - two more ways step 0 could be told a lie
 
 Review follow-up on PR #429, same branch. Both findings were paths by which a
